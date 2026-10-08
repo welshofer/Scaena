@@ -9,6 +9,7 @@ import type {
   AssistantEvent,
   Attached,
   At,
+  Cells,
   DataEdited,
   DataMark,
   DataSource,
@@ -83,6 +84,7 @@ type Reply = Extract<
       | "dataUndone"
       | "dropped"
       | "attached"
+      | "cells"
       | "models"
       | "reloaded"
       | "boxes"
@@ -658,8 +660,8 @@ export class Stage {
 
   /** The patch that inserts what `inserts` offers `n`th, entering in `state` about `at` (canvas
    * units), snapped to the theme's grid as a drop snaps, on the deck `source` compiles to. */
-  inserting(source: string, state: string, n: number, at: [number, number], format?: string, named?: string): Promise<Added> {
-    return this.request<"adding">({ type: "inserting", id: ++this.asked, source, state, n, at, format, named }).then(({ added }) => added);
+  inserting(source: string, state: string, n: number, at: [number, number], format?: string, named?: string, with_?: Record<string, unknown>): Promise<Added> {
+    return this.request<"adding">({ type: "inserting", id: ++this.asked, source, state, n, at, format, named, with: with_ }).then(({ added }) => added);
   }
 
   /** The patch that draws what `inserts` offers `n`th, entering in `state`, in the box a drag
@@ -761,8 +763,14 @@ export class Stage {
   /** A data file dropped on the canvas, into the bundle at `path`, as the source `data` of the
    * deck `source` compiles to: one it declares already (no `attached`), or one declared as
    * `data_attach` declares it, by the patch, which `make` applies; empty where it is refused. */
-  attaching(source: string, name: string, bytes: ArrayBuffer): Promise<{ path: string; data: string; attached: Attached | null; patch: unknown[] }> {
-    return this.request<"attached">({ type: "attaching", id: ++this.asked, source, name, bytes }).then(({ path, data, attached, patch }) => ({ path, data, attached, patch }));
+  attaching(source: string, name: string, bytes: ArrayBuffer, schema?: Record<string, string>): Promise<{ path: string; data: string; attached: Attached | null; patch: unknown[] }> {
+    return this.request<"attached">({ type: "attaching", id: ++this.asked, source, name, bytes, schema }).then(({ path, data, attached, patch }) => ({ path, data, attached, patch }));
+  }
+
+  /** `text` pasted on the canvas as a sheet's cells, read in the language of the deck `source`
+   * compiles to (PLAN 2.96): the data source they would be, or null where `text` is not cells. */
+  cells(source: string, text: string): Promise<Cells | null> {
+    return this.request<"cells">({ type: "cells", id: ++this.asked, source, text }).then(({ cells }) => cells);
   }
 
   /** Ask the assistant `asking.text` about the deck `source` says, which must compile and
@@ -854,6 +862,7 @@ export class Stage {
       case "exported":
       case "dropped":
       case "attached":
+      case "cells":
       case "models":
       case "reloaded":
       case "boxes":

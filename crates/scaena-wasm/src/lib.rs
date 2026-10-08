@@ -1021,7 +1021,24 @@ impl Session {
         at: [f32; 2],
         named: Option<&str>,
     ) -> Result<scaena_ops::inspect::Added, Error> {
-        let (insert, room) = self.room(state, n, named)?;
+        self.inserting_with(state, n, at, named, None)
+    }
+
+    /// [`Session::inserting`], with `with`, properties of the node's own, set on what is
+    /// offered: a pasted sheet's table its columns, each printed as it was copied (PLAN 2.96).
+    #[cfg(feature = "editor")]
+    pub fn inserting_with(
+        &mut self,
+        state: &str,
+        n: usize,
+        at: [f32; 2],
+        named: Option<&str>,
+        with: Option<&serde_json::Map<String, serde_json::Value>>,
+    ) -> Result<scaena_ops::inspect::Added, Error> {
+        let (mut insert, room) = self.room(state, n, named)?;
+        if let (Some(with), Some(node)) = (with, insert.node.as_object_mut()) {
+            node.extend(with.clone());
+        }
         // What lint E101 would judge it against: a decoration lies anywhere.
         let snaps = scaena_core::resolve_states(&self.deck).map_err(|e| Error::Deck(e.to_string()))?;
         let decorations: Vec<String> = (snaps.iter().find(|s| s.state_id == state).into_iter())
@@ -1030,6 +1047,14 @@ impl Session {
             .map(|(id, _)| id.clone())
             .collect();
         let crowded = self.at_rest(state)?.crowded(|id| decorations.iter().any(|d| d == id));
+        let added = scaena_ops::inspect::inserting(&self.deck, &room, &insert, state, at, &crowded)
+            .map_err(|e| Error::Deck(e.to_string()))?;
+        // A table is as wide as its columns: where the cell offered is too narrow for them in a
+        // format the deck lists, it takes the grid's width (PLAN 2.96).
+        if insert.node["type"] != "table" || self.lays_out_with(&added.patch, state)? {
+            return Ok(added);
+        }
+        let (_, room) = self.room_at(state, n, named, Some(1.0))?;
         scaena_ops::inspect::inserting(&self.deck, &room, &insert, state, at, &crowded)
             .map_err(|e| Error::Deck(e.to_string()))
     }
@@ -1061,6 +1086,18 @@ impl Session {
         n: usize,
         named: Option<&str>,
     ) -> Result<(scaena_core::inserts::Insert, scaena_engine::geometry::Targets), Error> {
+        self.room_at(state, n, named, None)
+    }
+
+    /// [`Session::room`], its cell `wide`, a share of the canvas's width, where given.
+    #[cfg(feature = "editor")]
+    fn room_at(
+        &mut self,
+        state: &str,
+        n: usize,
+        named: Option<&str>,
+        wide: Option<f32>,
+    ) -> Result<(scaena_core::inserts::Insert, scaena_engine::geometry::Targets), Error> {
         use scaena_core::inserts::{Start, fresh, slug};
         let offered = self.inserts().into_iter().nth(n);
         let insert = offered.ok_or_else(|| Error::Ops(format!("nothing is offered at {n}")))?;
@@ -1068,7 +1105,7 @@ impl Session {
         let stem = named.map(|name| std::path::Path::new(name).file_stem().and_then(|s| s.to_str()).unwrap_or(name));
         let id = fresh(&self.deck, &stem.map_or_else(|| insert.id.clone(), |stem| slug(stem, kind)));
         let share = match insert.start {
-            Start::Box { w, h } => [w, h],
+            Start::Box { w, h } => [wide.unwrap_or(w), h],
             Start::Slot(_) => [1.0, 1.0],
         };
         self.duration(state)?;
@@ -2111,7 +2148,8 @@ impl Player {
 
     /// The patch that inserts what `inserts` offers `n`th in `state`, about `x`, `y` (canvas
     /// units), or in the room nearest it where that is taken (PLAN 2.79), as JSON: `{ id, cell,
-    /// patch }` (PLAN 2.34). `named`, a dropped file's name, names it.
+    /// patch }` (PLAN 2.34). `named`, a dropped file's name, names it, and `with` (a JSON object)
+    /// sets properties of its own on it: a pasted sheet's table its columns (PLAN 2.96).
     pub fn inserting(
         &mut self,
         state: &str,
@@ -2119,8 +2157,12 @@ impl Player {
         x: f32,
         y: f32,
         named: Option<String>,
+        with: Option<String>,
     ) -> Result<String, JsError> {
-        serde_json::to_string(&self.0.inserting(state, n, [x, y], named.as_deref()).map_err(js)?).map_err(js)
+        let with: Option<serde_json::Map<String, serde_json::Value>> =
+            with.as_deref().map(serde_json::from_str).transpose().map_err(js)?;
+        let added = self.0.inserting_with(state, n, [x, y], named.as_deref(), with.as_ref()).map_err(js)?;
+        serde_json::to_string(&added).map_err(js)
     }
 
     /// The patch that draws what `inserts` offers `n`th in `state`, in the box a drag from `x0`,
@@ -2413,8 +2455,18 @@ impl Player {
     /// `{ path, data, attached, patch }`. A source the deck declares for it already has no
     /// `attached` and no patch; a new one has what `data_attach` says of it and the patch that
     /// declares it, which `make` applies, empty where it is refused.
-    pub fn attaching(&self, path: &str) -> Result<String, JsError> {
-        serde_json::to_string(&self.0.attaching(path).map_err(js)?).map_err(js)
+    /// `schema` (JSON: `{ column: type }`), where given, types its columns, as a pasted sheet's
+    /// cells say they read (PLAN 2.96).
+    pub fn attaching(&self, path: &str, schema: Option<String>) -> Result<String, JsError> {
+        let schema = schema.as_deref().map(serde_json::from_str).transpose().map_err(js)?;
+        serde_json::to_string(&self.0.attaching(path, schema).map_err(js)?).map_err(js)
+    }
+
+    /// `text` pasted on the canvas as a sheet's cells, read in the deck's language (PLAN 2.96),
+    /// as JSON: `{ name, columns, schema, formats, rows, csv }`, the source they would be and the
+    /// format that prints each column as it was copied; `null` where `text` is not cells.
+    pub fn cells(&self, text: &str) -> String {
+        serde_json::to_string(&self.0.cells(text)).unwrap_or_else(|_| "null".into())
     }
 
     /// `req` (JSON: `{ source, edits }`, as `data_edit` takes them) made by `author` (`user`
@@ -3933,7 +3985,7 @@ mod tests {
         let path = s.placing("visits.csv", csv.as_bytes());
         assert_eq!(path, "data/visits.csv");
         s.add_file(&path, csv.as_bytes().to_vec());
-        let a = s.attaching(&path).unwrap();
+        let a = s.attaching(&path, None).unwrap();
         let attached = a.attached.as_ref().expect("a source new to the deck");
         assert!(attached.attached, "{attached:?}");
         assert_eq!((a.data.as_str(), attached.rows), ("visits", 3));
@@ -3949,14 +4001,14 @@ mod tests {
 
         // The same file again is where it was, and a chart of it reads the source that reads it.
         assert_eq!(s.placing("visits.csv", csv.as_bytes()), path);
-        let again = s.attaching(&path).unwrap();
+        let again = s.attaching(&path, None).unwrap();
         assert_eq!((again.data.as_str(), again.attached.is_none(), again.patch.len()), ("visits", true, 0));
         // Other rows under the same name go beside it: `visits` reads the rows it read.
         let more = "month,visits\nJuly,3400\n";
         let other = s.placing("visits.csv", more.as_bytes());
         assert_eq!(other, "data/visits-2.csv");
         s.add_file(&other, more.as_bytes().to_vec());
-        let b = s.attaching(&other).unwrap();
+        let b = s.attaching(&other, None).unwrap();
         assert_eq!((b.data.as_str(), b.attached.as_ref().map(|a| a.rows)), ("visits-2", Some(1)));
         assert_eq!(s.files["data/visits.csv"], csv.as_bytes());
 
@@ -3970,7 +4022,7 @@ mod tests {
         let dusk = std::fs::read_to_string(examples.join("themes/dusk.theme.json")).unwrap();
         let mut made = Session::create("dusk.theme.json", &dusk, &fonts, "Trail report").unwrap();
         made.add_file(&path, csv.as_bytes().to_vec());
-        let a = made.attaching(&path).unwrap();
+        let a = made.attaching(&path, None).unwrap();
         assert_eq!(a.patch[0]["path"], "/data", "{:?}", a.patch);
         assert_eq!(a.patch[0]["value"]["visits"]["source"], "data/visits.csv");
         made.tool("deck_patch", serde_json::json!({ "ops": a.patch }), by()).unwrap();
@@ -3978,10 +4030,53 @@ mod tests {
 
         // A file that does not read as rows is refused, with why; one the bundle lacks, too.
         made.add_file("data/broken.json", b"{ not json".to_vec());
-        let broken = made.attaching("data/broken.json").unwrap_err().to_string();
+        let broken = made.attaching("data/broken.json", None).unwrap_err().to_string();
         assert!(!broken.is_empty(), "says why");
-        let missing = made.attaching("data/nowhere.csv").unwrap_err().to_string();
+        let missing = made.attaching("data/nowhere.csv", None).unwrap_err().to_string();
         assert!(missing.contains("data/nowhere.csv"), "{missing}");
+    }
+
+    /// Cells pasted from a sheet (PLAN 2.96) become a data source, typed as the cells read (a
+    /// code with its zeros stays text), and a table of it whose columns print each figure as it
+    /// was copied. Too wide for the cell offered in the deck's 9:16 format, the table takes the
+    /// grid's width.
+    #[test]
+    fn cells_pasted_from_a_sheet_become_a_source_and_a_table() {
+        let by = || assistant::Caller { author: "user", at: None };
+        let mut s = revenue();
+        assert!(s.cells("Margins held.").is_none(), "words are no sheet");
+        let sheet = "Trail\tVisitors\tRevenue\tShare\tCode\r\nRidge\t1,200\t$1,234.50\t12.5%\t007\r\nCreek\t950\t$987.00\t8%\t012\r\n";
+        let cells = s.cells(sheet).expect("a sheet's cells");
+        let path = s.placing(&format!("{}.csv", cells.name), cells.csv.as_bytes());
+        assert_eq!(path, "data/trail-visitors-revenue.csv");
+        s.add_file(&path, cells.csv.as_bytes().to_vec());
+        let a = s.attaching(&path, Some(cells.schema.clone())).unwrap();
+        let schema = serde_json::json!({
+            "Trail": "string", "Visitors": "number", "Revenue": "number", "Share": "number", "Code": "string"
+        });
+        assert_eq!(a.patch[0]["value"]["schema"], schema);
+        s.tool("deck_patch", serde_json::json!({ "ops": a.patch }), by()).unwrap();
+        let table =
+            |i: &scaena_core::inserts::Insert| i.node["type"] == "table" && i.node["data"] == format!("@{}", a.data);
+        let n = s.inserts().iter().position(table).expect("a table of it");
+        let columns: Vec<serde_json::Value> = (cells.columns.iter().zip(&cells.formats))
+            .map(|(field, format)| match format {
+                Some(format) => serde_json::json!({ "field": field, "format": format }),
+                None => serde_json::json!({ "field": field }),
+            })
+            .collect();
+        let with = serde_json::json!({ "columns": columns });
+        let added = s.inserting_with("close", n, [960.0, 760.0], None, with.as_object()).unwrap();
+        assert_eq!(added.patch[0]["node"]["columns"][1], serde_json::json!({ "field": "Visitors", "format": ",d" }));
+        assert_eq!(added.patch[0]["node"]["columns"][2], serde_json::json!({ "field": "Revenue", "format": "$,.2f" }));
+        assert_eq!(added.patch[0]["node"]["columns"][3], serde_json::json!({ "field": "Share", "format": ".1~%" }));
+        // Half the canvas holds its five columns in 16:9, but not in 9:16: it takes the grid's width.
+        assert_eq!(added.patch[1]["at"]["col"], serde_json::json!([1, 12]), "{:?}", added.patch);
+        s.tool("deck_patch", serde_json::json!({ "ops": added.patch }), by()).unwrap();
+        let read = s.reading("close").unwrap();
+        for figure in ["1,200", "950", "$1,234.50", "$987.00", "12.5%", "8%", "007"] {
+            assert!(read.contains(figure), "{figure} as copied: {read}");
+        }
     }
 
     /// A paste into a deck whose theme lacks what the copy names takes it out of the copy, and

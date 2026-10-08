@@ -268,6 +268,23 @@ impl Session {
         Ok(Linting { findings: edit.findings.iter().map(at).collect(), laid: linted.laid, whole: only.is_none() })
     }
 
+    /// Whether the deck with `patch` made lays `state` out in its own format and in each it
+    /// lists: a table too wide for its cell in one does not (PLAN 2.96). Nothing is made.
+    pub(crate) fn lays_out_with(&mut self, patch: &[Value], state: &str) -> Result<bool, Error> {
+        let doc = self.deck.to_value().map_err(|e| Error::Deck(e.to_string()))?;
+        let made = scaena_core::patch::compile(&doc, patch, &Handed(&self.files))
+            .ok()
+            .and_then(|compiled| Deck::from_json(&compiled.doc.to_string()).ok());
+        let Some(made) = made else { return Ok(false) };
+        self.build()?;
+        let Session { theme_json, files, data, engine, store, .. } = self;
+        let engine = engine.as_mut().expect("built above");
+        let linted = lint_with(&made, &Handed(files), Some(theme_json.as_str()), |theme| {
+            layout_rules(engine, &made, theme, data, store, Some(state))
+        });
+        Ok(linted.is_ok())
+    }
+
     /// Begin judging the layouts `state` may take (PLAN 2.92), as `scaena inspect --layouts`
     /// judges them: how many there are. Each is judged by a [`Session::layouts_step`], so that
     /// a page's worker answers what else it is asked between them.

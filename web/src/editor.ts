@@ -1902,6 +1902,9 @@ async function edit(source: Source) {
       wholes: () => wholes,
       shown: () => shown,
       inspector: () => inspector.textContent,
+      /** How a state reads (PLAN 2.8), the state shown by default, as HTML: a table's cells as
+       * they print. */
+      reading: (state?: string) => stage.reading(state ?? last?.states[shown]?.[0] ?? stage.opened.states[shown], format()),
       at: () => stage.at,
       /** The assistant: ask it something, and read the conversation. */
       assistant,

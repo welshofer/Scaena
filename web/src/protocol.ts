@@ -500,6 +500,20 @@ export const PICTURE = /\.(png|jpe?g)$/i;
 /** The files a data source reads (SPEC §3.10): a CSV, or JSON, an array of objects. */
 export const DATA = /\.(csv|json)$/i;
 
+/** Cells pasted from a sheet, as a data source (PLAN 2.96, `scaena_core::data::cells`). */
+export interface Cells {
+  /** A name for the source and its file, from the first columns' names. */
+  name: string;
+  columns: string[];
+  /** Each column's type, as the source declares it. */
+  schema: Record<string, string>;
+  /** Each column's format, which prints its numbers as they were copied; none for text. */
+  formats: (string | null)[];
+  rows: number;
+  /** The source's file, its numbers written plainly. */
+  csv: string;
+}
+
 /** A data file attached as a source, as `data_attach` says it (`scaena_ops::create::Attached`). */
 export interface Attached {
   /** Whether the deck takes it: not where it would make the deck invalid (in `added`). */
@@ -727,7 +741,7 @@ export type ToWorker =
    * compiles to (PLAN 2.34): what `inserts` offers `n`th, entering in `state` about `at` (canvas
    * units); a copy of `node` beside it in `state`; or `node` taken out of `state` and the states
    * after it, with what it holds, or, `everywhere`, out of the deck. */
-  | { type: "inserting"; id: number; source: string; state: string; n: number; at: [number, number]; format?: string; named?: string }
+  | { type: "inserting"; id: number; source: string; state: string; n: number; at: [number, number]; format?: string; named?: string; with?: Record<string, unknown> }
   /** What `inserts` offers `n`th, drawn in the box a drag from `from` to `to` covers (canvas
    * units), snapped to the theme's grid as a resize snaps, or, `free`, where it was drawn (PLAN
    * 2.48). */
@@ -779,7 +793,9 @@ export type ToWorker =
    * number after it where other bytes have that name (`Player.placing`), as the source a chart
    * of it reads in the deck `source` compiles to: the one that reads it, or one declared as
    * `data_attach` declares it, with the patch that declares it. */
-  | { type: "attaching"; id: number; source: string; name: string; bytes: ArrayBuffer }
+  | { type: "attaching"; id: number; source: string; name: string; bytes: ArrayBuffer; schema?: Record<string, string> }
+  /** `text` pasted on the canvas, read as a sheet's cells in the deck's language (PLAN 2.96). */
+  | { type: "cells"; id: number; source: string; text: string }
   /** The deck's data sources, and source `name` as a sheet (PLAN 2.55, `data_edit` with no
    * edits): the first source without it. The deck `source` compiles to names them; it need not
    * validate, since a cell its column does not read is what the sheet shows, to fix. */
@@ -1270,6 +1286,8 @@ export type FromWorker =
   /** The data file at `path`, read by source `data`: one the deck declares already (no
    * `attached`), or one the patch declares, or refused (`attached`, an empty patch). */
   | { type: "attached"; id: number; path: string; data: string; attached: Attached | null; patch: unknown[] }
+  /** What text pasted on the canvas is as a sheet's cells; none where it is not cells. */
+  | { type: "cells"; id: number; cells: Cells | null }
   /** The deck's data sources, and source `name` as a sheet, or why it does not read as one. */
   | { type: "sheet"; id: number; sources: DataSource[]; name?: string; sheet?: Sheet; file?: string; why?: string }
   | { type: "bundleFiles"; id: number; files: BundleFile[] }

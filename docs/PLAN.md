@@ -1206,6 +1206,14 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - The lock beside each layer's eye, ⇧⌘L, and the Lock or Unlock command lock and unlock. Each is one patch of the node's own `locked`, one step to undo. A right click where a locked node is offers to unlock it.
     - A patch, the CLI, the MCP server, and the assistant change a locked node as any other: a lock keeps the canvas's gestures off it. `scaena inspect --layers` says which are locked.
     - Tests: validation's E104 with a lock in a state and in the overrides, and a locked node itself clean; the CLI's `inspect_says_a_states_layers` with a node locked; and `web/lock.mjs` on the trails example's storm photo.
+- [x] 2.96 Paste what another app copied: a picture as an image, a sheet's cells as a data source and the table they were, its figures as copied (the parent session, 2026-10-08, at Jay's "ever forward").
+    - Done. ⌘V on the canvas took only a clip or words; a screenshot did nothing, and a sheet's cells came in as one line of text.
+    - **A picture** joins the bundle and is inserted where the canvas was last pressed, as one dropped there is: a screenshot, a picture copied in a browser, or a file copied where files are kept, whose words only name it. One of a kind an image does not show, a GIF, a WebP, an AVIF, or a TIFF in Safari, joins as a PNG of it, dropped or pasted.
+    - **A sheet's cells** (`scaena_core::data::cells`) are rows of cells split by tabs, as Numbers, Excel, and Google Sheets copy them. They become a data source, declared as `data_attach` declares a file and named for the first columns, and the table they were.
+    - **Figures as copied.** A column of numbers one format writes in the deck's language (`$1,234.50`, `12.5%`, `(40)`, `1.234,50 €` in German) is written plainly in the CSV and declared `number`, and the table's column takes the format, so it prints each as copied and a chart can plot it. Any other column is text, even where its cells read as numbers, as `007` does.
+    - **Text outranks a picture.** Excel copies a picture of the cells beside their text, and Keynote one of its words; the text pastes.
+    - **Room for its columns.** A table, pasted or inserted, takes the grid's width where the half of the canvas Insert offers is too narrow for its columns in a format the deck lists. Before, the revenue example refused a five-column table: it fit 16:9, but not 9:16.
+    - Tests: `scaena_core::data::cells`' six (a sheet's figures and their formats, what stays text, a German sheet, names from the first row, text that is no sheet, empty cells); the WASM session's `cells_pasted_from_a_sheet_become_a_source_and_a_table`; and `web/paste.mjs` on the revenue example.
 
 ### Exit criteria (gate 2)
 *(Evidence so far, and the runs that close it: `docs/gate-2.md`.)*
