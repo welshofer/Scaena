@@ -800,17 +800,10 @@ struct CanvasSelection: View {
             said = "\(selected) selected · Tab keys the next beside it, and Space puts it in the selection or takes it out"
             return true
         }
-        if !selection.contains(on), let selected = node, parent(of: on) != parent(of: selected) {
-            node = nil
-            also = []
-        }
-        if node == nil {
-            node = on
-        } else {
-            toggle(on)
-        }
+        let now = toggled(on, in: selection) { parent(of: $0) }
+        node = now.first
+        also = Array(now.dropFirst())
         keyOn = on
-        let now = selection
         let them = now.isEmpty ? "nothing" : now.joined(separator: ", ")
         said = "\(on) \(now.contains(on) ? "put in" : "taken out of") the selection: \(them) selected · Tab the next · Escape stops"
         return true

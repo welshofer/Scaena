@@ -58,6 +58,23 @@ private func box(_ boxes: [NodeBox], _ node: String) -> CGRect? {
     #expect(try session.targets(state: "containers", node: "stat-a").flow == ["stat-b", "stat-a", "stat-c"])
 }
 
+/// A selection built by keys (PLAN 3.17, as the browser's, PLAN 2.89): Space puts the node the keys
+/// are on in what is selected, after the rest, or takes it out, the next then the first; one
+/// another container holds starts it anew.
+@Test func spaceBuildsASelectionAsTheBrowsersDoes() throws {
+    let boxes = try ScaenaSession(directory: torture).boxes(state: "containers")
+    let holder = { (node: String) in boxes.first { $0.node == node }?.parent }
+    var selected = toggled("stat-a", in: [], holder: holder)
+    #expect(selected == ["stat-a"])
+    selected = toggled("stat-b", in: selected, holder: holder)
+    selected = toggled("stat-c", in: selected, holder: holder)
+    #expect(selected == ["stat-a", "stat-b", "stat-c"])
+    selected = toggled("stat-a", in: selected, holder: holder)
+    #expect(selected == ["stat-b", "stat-c"], "taken out, the next is the first")
+    #expect(toggled("case", in: selected, holder: holder) == ["case"], "another container's starts it anew")
+    #expect(toggled("stat-b", in: ["stat-b"], holder: holder).isEmpty)
+}
+
 /// The handles by keys (PLAN 3.17, as the browser's, PLAN 2.75): in Tab's order, each arrow the
 /// patch its drag makes, a hundredth or with Shift a tenth, a corner a radius step, and a crop side
 /// across itself alone.

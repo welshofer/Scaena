@@ -1463,7 +1463,7 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - **The ABI.** `reads {state}` joins the session's calls.
     - Tests:
       - the `ffi` suite's `a_state_reads_node_by_node_as_a_screen_reader_hears_it` on B1 and the torture deck;
-      - ScaenaKit's `KeysTests`: B1's cover read as two headings; the reading order of a state with containers; a node stepped a column, its end a column, and nowhere past the edge, then made; a child stepped past the next in its stack; each handle moved by keys as its drag would; and a key read by the canvas before the input system.
+      - ScaenaKit's `KeysTests`: B1's cover read as two headings; the reading order of a state with containers; a node stepped a column, its end a column, and nowhere past the edge, then made; a child stepped past the next in its stack; a selection built by Space, a node put in after the rest, one taken out, and one in another container starting it anew (`toggled`); each handle moved by keys as its drag would; and a key read by the canvas before the input system.
     - **What waits.** A run on a Mac.
 
 ### Exit criteria (gate 3)

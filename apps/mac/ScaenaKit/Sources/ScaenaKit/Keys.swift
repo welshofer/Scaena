@@ -45,6 +45,16 @@ public func readingOrder(_ boxes: [NodeBox], in parent: String?) -> [String] {
     }
 }
 
+/// What is selected after Space on `node` while a selection is built by keys (PLAN 2.89), as the
+/// browser's canvas toggles it: taken out where it is selected, the next then the first; else put
+/// in after the rest, beside them; one `holder` says another container holds starts it anew.
+/// `selection` and what comes back are the nodes selected, the first first.
+public func toggled(_ node: String, in selection: [String], holder: (String) -> String?) -> [String] {
+    if selection.contains(node) { return selection.filter { $0 != node } }
+    guard let first = selection.first, holder(node) == holder(first) else { return [node] }
+    return selection + [node]
+}
+
 extension Targets {
     /// Where an arrow key takes a node, `dx` and `dy` each -1, 0, or 1 (PLAN 2.75), snapped `how`,
     /// as the browser's keys step it: a move to the next track's start past the box's, a resize
