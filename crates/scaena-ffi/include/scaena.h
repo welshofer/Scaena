@@ -151,7 +151,9 @@ char *scaena_drop(struct ScaenaSession *session,
 // children of one container moved together as a drag moves the first, with the guides they
 // meet; `arranging {state, nodes, how, fork?}`, them aligned, spread, or ordered (`how`: one of
 // `align`, `spread`, `order`, `before`, `after`, `into`); and `grouping {state, nodes}`, the
-// patch that puts them in a new group, `{id, patch}`.
+// patch that puts them in a new group, `{id, patch}`. States (PLAN 3.14): `addingState {state,
+// what}`, the patch that adds a state after it, a `step` of its slide or a `slide` of its own,
+// `{id, patch}`.
 //
 // # Safety
 // `session` is a live handle; `method` a NUL-terminated string; `args` one, or null.

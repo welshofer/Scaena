@@ -52,11 +52,14 @@ fn open(dir: &str) -> *mut ScaenaSession {
     session
 }
 
+/// `method`'s answer as it comes: `{"ok"}` or `{"error"}`.
+fn answered(s: *mut ScaenaSession, method: &str, args: &Value) -> Value {
+    serde_json::from_str(&took(unsafe { scaena_call(s, c(method).as_ptr(), c(&args.to_string()).as_ptr()) })).unwrap()
+}
+
 /// `method` answered: its `ok`, or a panic with its error.
 fn call(s: *mut ScaenaSession, method: &str, args: Value) -> Value {
-    let answer: Value =
-        serde_json::from_str(&took(unsafe { scaena_call(s, c(method).as_ptr(), c(&args.to_string()).as_ptr()) }))
-            .unwrap();
+    let answer = answered(s, method, &args);
     assert!(answer.get("error").is_none(), "{method}: {answer}");
     answer["ok"].clone()
 }
@@ -822,6 +825,99 @@ fn several_nodes_move_arrange_and_group_together() {
         serde_json::from_str(&took(unsafe { scaena_call(s, c("arranging").as_ptr(), c(&args).as_ptr()) })).unwrap();
     assert!(answer["error"]["message"].is_string(), "{answer}");
     unsafe { scaena_session_free(s) };
+}
+
+/// The states in the order the timeline plays them, each with its slide: `state/slide`.
+fn playing(s: *mut ScaenaSession) -> Vec<String> {
+    let slots = call(s, "timeline", Value::Null);
+    let slot = |x: &Value| format!("{}/{}", x["state"].as_str().unwrap(), x["slide"].as_str().unwrap());
+    slots.as_array().unwrap().iter().map(slot).collect()
+}
+
+/// States and slides (PLAN 3.14), as the browser's strip, light table, rehearsal, and cue make
+/// them (PLAN 2.35, 2.97, 2.63, 2.44): a step and a slide added after the state shown, a state
+/// renamed, moved, and removed; a slide moved, copied, and taken out; a hold kept; and a motion
+/// timed, the transition's end moved, and a preset added. Each is a patch.
+#[test]
+fn states_and_slides_are_added_moved_and_timed_as_the_browsers_are() {
+    let s = open(B1);
+    let patch = |s, ops: &Value| {
+        let made = tool(s, "deck_patch", json!({ "ops": ops }));
+        assert_eq!(made["edited"], true, "{ops}: {made}");
+    };
+    let step = call(s, "addingState", json!({ "state": "cover", "what": "step" }));
+    assert_eq!(step["id"], "cover-2", "{step}");
+    assert_eq!(step["patch"][0]["op"], "add_state", "{step}");
+    patch(s, &step["patch"]);
+    let slide = call(s, "addingState", json!({ "state": "goal", "what": "slide" }));
+    assert_eq!(slide["id"], "slide", "{slide}");
+    patch(s, &slide["patch"]);
+    assert_eq!(
+        playing(s)[..6],
+        ["cover/cover", "cover-2/cover", "goal/goal", "goal-why/goal", "goal-bar/goal", "slide/slide"]
+    );
+    for (args, why) in [
+        (json!({ "state": "cover", "what": "chapter" }), "step"),
+        (json!({ "state": "nowhere", "what": "step" }), "nowhere"),
+    ] {
+        let said = answered(s, "addingState", &args);
+        assert!(said["error"]["message"].as_str().is_some_and(|m| m.contains(why)), "{args}: {said}");
+    }
+
+    // The strip: renamed, moved before the cover, and removed.
+    patch(s, &json!([{ "op": "rename_state", "id": "cover-2", "to": "opening" }]));
+    patch(s, &json!([{ "op": "move_state", "id": "opening", "before": "cover" }]));
+    assert_eq!(playing(s)[..2], ["opening/cover", "cover/cover"]);
+    patch(s, &json!([{ "op": "remove_state", "id": "opening" }]));
+    assert_eq!(playing(s)[0], "cover/cover");
+
+    // The light table: the new slide moved before `goal`, `goal` copied just after itself, and
+    // the new slide taken out.
+    patch(s, &json!([{ "op": "move_slide", "slide": "slide", "before": "goal" }]));
+    assert_eq!(playing(s)[1], "slide/slide");
+    patch(s, &json!([{ "op": "duplicate_slide", "slide": "goal" }]));
+    assert_eq!(playing(s)[5..8], ["goal-2/goal-2", "goal-why-2/goal-2", "goal-bar-2/goal-2"]);
+    patch(s, &json!([{ "op": "remove_slide", "slide": "slide" }]));
+    assert_eq!(playing(s)[1], "goal/goal");
+
+    // A rehearsal kept: the cover holds a second and a half.
+    patch(s, &json!([{ "op": "set_state", "id": "cover", "prop": "hold", "value": 1500 }]));
+    assert_eq!(call(s, "timeline", Value::Null)[0]["hold"], 1500.0);
+    unsafe { scaena_session_free(s) };
+
+    // The cue: the badge's flash waits 100 ms and lasts 600, the transition lasts 500, and the
+    // title pulses for emphasis, a preset the theme offers.
+    let t = open(TORTURE);
+    let motion = json!({ "op": "time_motion", "node": "mf-badge", "motion": "emphasis", "state": "morph" });
+    let timed = |part: &str, ms: u32| {
+        let mut op = motion.clone();
+        op[part] = json!(ms);
+        json!([op])
+    };
+    patch(t, &timed("delay", 100));
+    patch(t, &timed("duration", 600));
+    patch(t, &json!([{ "op": "set_state", "id": "morph", "prop": "transition/duration", "value": 500 }]));
+    let choices = call(t, "choices", json!({ "state": "morph", "node": "mf-title" }));
+    let presets =
+        choices["fields"].as_array().unwrap().iter().find(|f| f["prop"] == "enter").unwrap()["takes"]["names"].clone();
+    assert!(presets.as_array().unwrap().contains(&json!("pulse")), "{presets}");
+    patch(
+        t,
+        &json!([{ "op": "apply_preset", "node": "mf-title", "preset": "pulse", "motion": "emphasis", "state": "morph" }]),
+    );
+    let cue = call(t, "inspect", json!({ "state": "morph" }))["timeline"].clone();
+    assert_eq!(cue["transition"]["duration"], 500.0, "{cue}");
+    let badge = cue["motions"].as_array().unwrap().iter().find(|m| m["node"] == "mf-badge").unwrap().clone();
+    assert_eq!(
+        (&badge["delay"], &badge["duration"], &badge["start"]),
+        (&json!(100.0), &json!(600.0), &json!(600.0)),
+        "{badge}"
+    );
+    assert!(
+        cue["motions"].as_array().unwrap().iter().any(|m| m["node"] == "mf-title" && m["motion"] == "emphasis"),
+        "{cue}"
+    );
+    unsafe { scaena_session_free(t) };
 }
 
 /// Bytes the library returned, taken and freed: none where it returned none.
