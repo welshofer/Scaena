@@ -118,7 +118,10 @@ bool scaena_add_file(struct ScaenaSession *session,
 // where a node may go; `snap {state, node, how, x, y, w, h, fork?, reach?}`, where a box left
 // there lands and the patch that puts it there; `setMoving {nodes, dx, dy}`, the nodes drawn
 // moved in frames at rest, laying nothing out; `preview {ops?}`, frames at rest drawn as a
-// patch would make them; and `reach {ops}`, the states a patch changes.
+// patch would make them; and `reach {ops}`, the states a patch changes. Text typed in place
+// (PLAN 3.9): `typed {ops, at?}`, `replace_text`, `style_text`, and `list` ops by the user,
+// validated but not linted, and whether the deck changed; and `bolding` and `italicizing
+// {state, node, from, to}`, the look ⌘B and ⌘I give characters.
 //
 // # Safety
 // `session` is a live handle; `method` a NUL-terminated string; `args` one, or null.

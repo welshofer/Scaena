@@ -116,6 +116,14 @@ final class ScaenaDocument: ReferenceFileDocument {
         keep(before, undo: undo)
     }
 
+    /// Take text typed in place on the canvas (PLAN 3.9): `before`, the source the change replaced.
+    /// A change that joins the burst of typing before it adds no step: the burst's first change
+    /// keeps the source from before it, so one undo takes the whole burst back.
+    func typedInPlace(_ before: String, joins: Bool, undo: UndoManager?) {
+        guard !joins else { return }
+        keep(before, undo: undo)
+    }
+
     /// Take an edit the assistant made on the deck (PLAN 3.6): `before`, the source it replaced,
     /// and the files it wrote beside the deck, the theme `theme_edit` edited. One step to undo,
     /// as the user's own edit is: the source made the deck again, and the files written back.

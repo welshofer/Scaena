@@ -9,14 +9,17 @@ import SwiftUI
 /// snapped to the theme's grid, into a slot, or among a stack's children, with the guides it
 /// meets; the drop is that one `place` patch, written where the placement lives, or kept to the
 /// state shown with Option. Shift takes a node off the theme's grid, as a `rect`, or puts one back
-/// on it; a node off the grid is flagged, as lint flags it (W301). Every box is the engine's, at
-/// rest; nothing here lays out.
+/// on it; a node off the grid is flagged, as lint flags it (W301). A double click types in a text
+/// where it stands (PLAN 3.9): a press in it puts the caret there, and one outside it stops
+/// typing. Every box and caret is the engine's, at rest; nothing here lays out.
 struct CanvasSelection: View {
     let editor: DeckEditor
     let state: String
     /// The canvas, in canvas units.
     let size: CGSize
     @Binding var node: String?
+    /// Text typed in place, which takes the keys while it types.
+    let typing: Typing
     /// Make the patch a drag ended in: one step to undo.
     let make: ([JSONValue]) -> Void
     @State private var boxes: [NodeBox] = []
@@ -30,12 +33,16 @@ struct CanvasSelection: View {
     private static let pause = Duration.milliseconds(300)
     /// How near, in points, an edge moved off the grid goes onto another's (PLAN 2.57).
     private static let reach = 6.0
+    /// How far outside the text typed in, in points, a press still puts the caret in it.
+    private static let slop = 4.0
 
-    /// A press on the canvas: a click until it moves, then a drag, or one refused.
+    /// A press on the canvas: a click until it moves, then a drag, or one refused; or a press in
+    /// the text typed in, which selects as it drags.
     private enum Press {
         case pressing
         case dragging(Drag)
         case refused(String)
+        case typing
     }
 
     /// A drag under way: the node, how it is held, and where it would land now.
@@ -78,6 +85,9 @@ struct CanvasSelection: View {
         GeometryReader { geometry in
             let scale = geometry.size.width / max(size.width, 1)
             ZStack(alignment: .topLeading) {
+                // Under the rest: it takes the keys while a text is typed in, and no press.
+                TypingHost(typing: typing, canvas: size)
+                    .allowsHitTesting(false)
                 Color.clear
                     .contentShape(Rectangle())
                     .gesture(pressing(scale))
@@ -93,7 +103,7 @@ struct CanvasSelection: View {
                     outline(selected.corners.map { CGPoint(x: $0.x + by.dx, y: $0.y + by.dy) }, scale: scale)
                         .stroke(offGrid ? Color.orange : Color.accentColor, lineWidth: 1.5)
                         .allowsHitTesting(false)
-                    if drag == nil, selected.transform == nil, selected.locked == nil, let r = box(selected) {
+                    if drag == nil, !typing.typing, selected.transform == nil, selected.locked == nil, let r = box(selected) {
                         ForEach(Edge.allCases, id: \.self) { edge in
                             let p = edge.point(r)
                             Rectangle()
@@ -120,7 +130,9 @@ struct CanvasSelection: View {
                         .allowsHitTesting(false)
                     }
                 }
-                if let said = told {
+                typed(scale)
+                    .allowsHitTesting(false)
+                if let said = told ?? typing.told {
                     Text(said)
                         .font(.caption)
                         .padding(.horizontal, 8)
@@ -134,6 +146,30 @@ struct CanvasSelection: View {
         .task(id: "\(state)\u{1f}\(editor.revision)") {
             boxes = (try? editor.session.boxes(state: state)) ?? []
             placements = (try? editor.session.placements(state: state)) ?? [:]
+            // The text typed in, read again where something else changed it.
+            typing.sync(shown: state)
+        }
+        .onChange(of: node) { _, now in
+            // Another node selected, in the layers or by a finding, stops typing.
+            if typing.typing, typing.node != now { typing.leave() }
+        }
+    }
+
+    /// The caret, or the selection, in the text typed in, where it is drawn, and what an input
+    /// method composes there, underlined.
+    @ViewBuilder private func typed(_ scale: CGFloat) -> some View {
+        if typing.typing {
+            let covered = typing.covered
+            ForEach(covered.indices, id: \.self) { i in
+                outline(covered[i], scale: scale).fill(Color.accentColor.opacity(0.3))
+            }
+            let composing = typing.composing
+            ForEach(composing.indices, id: \.self) { i in
+                line(composing[i][3], composing[i][2], scale: scale).stroke(Color.accentColor, lineWidth: 1.5)
+            }
+            if typing.from == typing.to, let caret = typing.caret, caret.count == 2 {
+                line(caret[0], caret[1], scale: scale).stroke(Color.accentColor, lineWidth: 2)
+            }
         }
     }
 
@@ -171,7 +207,19 @@ struct CanvasSelection: View {
                 let moved = hypot(value.translation.width, value.translation.height)
                 switch press {
                 case nil:
+                    // Typing: a press in the text puts the caret there, one outside it stops typing.
+                    let at = CGPoint(x: value.startLocation.x / scale, y: value.startLocation.y / scale)
+                    if typing.typing {
+                        if typing.holds(at, slop: Self.slop / max(scale, 0.01)) {
+                            press = .typing
+                            let clicks = NSApp.currentEvent?.clickCount ?? 1
+                            return typing.press(at: at, clicks: clicks, extend: NSEvent.modifierFlags.contains(.shift))
+                        }
+                        typing.leave()
+                    }
                     press = .pressing
+                case .typing:
+                    typing.drag(to: CGPoint(x: value.location.x / scale, y: value.location.y / scale))
                 case .pressing where moved >= 3:
                     begin(at: CGPoint(x: value.startLocation.x / scale, y: value.startLocation.y / scale), scale: scale)
                     if case .dragging = press { aim(value, scale: scale) }
@@ -189,16 +237,23 @@ struct CanvasSelection: View {
                     drop()
                 case .pressing, nil:
                     pick(CGPoint(x: value.location.x / scale, y: value.location.y / scale))
+                case .typing:
+                    // The keys stay with the text, whatever took them as the press ended.
+                    typing.focus?()
                 default:
                     break
                 }
             }
     }
 
-    /// Select what draws at `point`, canvas units: nothing where nothing does.
+    /// Select what draws at `point`, canvas units: nothing where nothing does. The second click of
+    /// a double click on a text types in it there, kept to the state with Option (PLAN 3.9).
     private func pick(_ point: CGPoint) {
         let hits = (try? editor.session.hits(state: state, at: point)) ?? []
         node = hits.first { $0.locked == nil }?.node
+        if let node, (NSApp.currentEvent?.clickCount ?? 1) >= 2 {
+            typing.enter(node, in: state, at: point, fork: NSEvent.modifierFlags.contains(.option))
+        }
     }
 
     /// A drag begun at `point`, canvas units: of a handle of the box selected, a resize; else a
@@ -303,6 +358,14 @@ struct CanvasSelection: View {
             h -= dy
         }
         return CGRect(x: x, y: y, width: max(1, w), height: max(1, h))
+    }
+
+    /// The line from `a` to `b`, canvas units, as a path on the view.
+    private func line(_ a: CGPoint, _ b: CGPoint, scale: CGFloat) -> Path {
+        Path { path in
+            path.move(to: CGPoint(x: a.x * scale, y: a.y * scale))
+            path.addLine(to: CGPoint(x: b.x * scale, y: b.y * scale))
+        }
     }
 
     /// `corners`, canvas units, as a path on the view.

@@ -603,6 +603,51 @@ fn a_drag_on_the_canvas_ends_in_the_patch_the_browsers_does() {
     unsafe { scaena_session_free(s) };
 }
 
+/// Text typed in place on the canvas (PLAN 3.9), as the browser's typing makes it (PLAN 2.32):
+/// each change a `replace_text` by the user, validated but not linted; ⌘B's and ⌘I's looks given
+/// as a `style_text`; what reads so already, or what the deck refuses, changes nothing.
+#[test]
+fn text_typed_in_place_is_the_patch_the_browsers_typing_makes() {
+    let s = open(B1);
+    let carets = call(s, "carets", json!({ "state": "cover", "node": "title" }));
+    assert_eq!(carets["text"], "Scaena", "{carets}");
+
+    // Words typed after it: one `replace_text`, its offsets in characters.
+    let op =
+        json!({ "op": "replace_text", "node": "title", "state": "cover", "from": 6, "to": 6, "text": " on the Mac" });
+    assert_eq!(call(s, "typed", json!({ "ops": [op], "at": "2026-10-08T12:00:00Z" })), true);
+    let typed = call(s, "carets", json!({ "state": "cover", "node": "title" }));
+    assert_eq!(typed["text"], "Scaena on the Mac", "{typed}");
+    let source = call(s, "source", Value::Null);
+    assert!(source.as_str().unwrap().contains("Scaena on the Mac"), "the source says it: {source}");
+
+    // The same characters typed over themselves: it reads so already.
+    let same = json!({ "op": "replace_text", "node": "title", "state": "cover", "from": 0, "to": 6, "text": "Scaena" });
+    assert_eq!(call(s, "typed", json!({ "ops": [same] })), false);
+
+    // ⌘B and ⌘I: the look each gives "on", given as one `style_text`.
+    let bolding = call(s, "bolding", json!({ "state": "cover", "node": "title", "from": 7, "to": 9 }));
+    assert!(bolding.get("style/weight").is_some(), "{bolding}");
+    let bold = json!({ "op": "style_text", "node": "title", "state": "cover", "from": 7, "to": 9, "look": bolding });
+    assert_eq!(call(s, "typed", json!({ "ops": [bold] })), true);
+    let italicizing = call(s, "italicizing", json!({ "state": "cover", "node": "title", "from": 7, "to": 9 }));
+    assert!(italicizing.get("style/italic").is_some(), "{italicizing}");
+    let styled = call(s, "carets", json!({ "state": "cover", "node": "title" }));
+    assert_eq!(styled["text"], "Scaena on the Mac", "a look leaves the characters as they are");
+
+    // What the deck cannot take is said, and the deck stays as it was.
+    let nowhere = json!({ "ops": [{ "op": "replace_text", "node": "nobody", "state": "cover", "from": 0, "to": 0, "text": "x" }] });
+    let refused: Value =
+        serde_json::from_str(&took(unsafe { scaena_call(s, c("typed").as_ptr(), c(&nowhere.to_string()).as_ptr()) }))
+            .unwrap();
+    assert!(refused["error"]["message"].is_string(), "{refused}");
+    let missing: Value =
+        serde_json::from_str(&took(unsafe { scaena_call(s, c("typed").as_ptr(), c("{}").as_ptr()) })).unwrap();
+    assert!(missing["error"]["message"].as_str().unwrap().contains("ops"), "{missing}");
+    assert_eq!(call(s, "carets", json!({ "state": "cover", "node": "title" }))["text"], "Scaena on the Mac");
+    unsafe { scaena_session_free(s) };
+}
+
 /// Bytes the library returned, taken and freed: none where it returned none.
 fn bytes_of(made: ScaenaBytes) -> Option<Vec<u8>> {
     if made.data.is_null() {
