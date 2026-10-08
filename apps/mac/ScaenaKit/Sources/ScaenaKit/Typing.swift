@@ -7,7 +7,7 @@ import Observation
 /// is, and what is typed there makes `replace_text` patches, by the user, written where the text
 /// lives, or kept to the state with Option (`fork`). Nothing here lays out: the caret, the
 /// selection, and where a caret goes up or down a line come from the engine's carets. Keys and an
-/// input method's composition come in through `TypingView`, which the canvas holds.
+/// input method's composition come in through `CanvasKeys`, which the canvas holds.
 ///
 /// - Each change is one `replace_text`, made at once; a burst of typing, its keys less than a
 ///   second apart with nothing else edited between, is one step to undo (`edited`).
@@ -41,7 +41,7 @@ public final class Typing {
     /// The window's undo, given the source each change replaced and whether it joins the burst of
     /// typing before it.
     @ObservationIgnored public var edited: ((String, Bool) -> Void)?
-    /// Asked to take the keyboard: a text entered, or pressed in.
+    /// Asked to take the keyboard for the canvas (`CanvasKeys`): a text entered, or pressed in.
     @ObservationIgnored public var focus: (@MainActor () -> Void)?
     /// Told when a composition ends by something other than the input method (a press, a move,
     /// typing left), so that it stops composing too.

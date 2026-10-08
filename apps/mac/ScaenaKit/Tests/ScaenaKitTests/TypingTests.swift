@@ -109,7 +109,7 @@ private func carets(_ json: String) throws -> Carets {
     typing.burst = .seconds(60)
     var steps: [(before: String, joins: Bool)] = []
     typing.edited = { steps.append(($0, $1)) }
-    let view = TypingView(typing: typing)
+    let view = CanvasKeys(typing: typing)
     view.frame = NSRect(x: 0, y: 0, width: 960, height: 540)
     view.canvas = CGSize(width: 1920, height: 1080)
     let nowhere = NSRange(location: NSNotFound, length: 0)
@@ -188,7 +188,7 @@ private func carets(_ json: String) throws -> Carets {
     typing.edited = { _, joins in
         if !joins { steps += 1 }
     }
-    let view = TypingView(typing: typing)
+    let view = CanvasKeys(typing: typing)
     #expect(typing.enter("subtitle", in: "cover", at: nil))
     #expect(!typing.inList && !typing.endsList)
 

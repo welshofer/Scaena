@@ -11,7 +11,9 @@ import SwiftUI
 /// state shown with Option. Shift takes a node off the theme's grid, as a `rect`, or puts one back
 /// on it; a node off the grid is flagged, as lint flags it (W301). A double click types in a text
 /// where it stands (PLAN 3.9): a press in it puts the caret there, and one outside it stops
-/// typing. Every box and caret is the engine's, at rest; nothing here lays out.
+/// typing. A press takes the keyboard for the canvas: Delete takes the node selected out of the
+/// state shown and those after, Shift+Delete out of the deck, and Escape selects what holds it
+/// (PLAN 3.11). Every box and caret is the engine's, at rest; nothing here lays out.
 struct CanvasSelection: View {
     let editor: DeckEditor
     let state: String
@@ -20,6 +22,12 @@ struct CanvasSelection: View {
     @Binding var node: String?
     /// Text typed in place, which takes the keys while it types.
     let typing: Typing
+    /// Where the pointer last pressed, canvas units: where Insert puts what it inserts.
+    @Binding var pointed: CGPoint?
+    /// What the window says of an edit the canvas's keys or its menu made, till the next press.
+    @Binding var said: String?
+    /// Take the node selected out of the state shown and those after, or, `true`, out of the deck.
+    let delete: (Bool) -> Void
     /// Make the patch a drag ended in: one step to undo.
     let make: ([JSONValue]) -> Void
     @State private var boxes: [NodeBox] = []
@@ -85,8 +93,9 @@ struct CanvasSelection: View {
         GeometryReader { geometry in
             let scale = geometry.size.width / max(size.width, 1)
             ZStack(alignment: .topLeading) {
-                // Under the rest: it takes the keys while a text is typed in, and no press.
-                TypingHost(typing: typing, canvas: size)
+                // Under the rest: the canvas's keys, the text's while one is typed in. It takes no
+                // press.
+                CanvasKeysHost(typing: typing, canvas: size, command: command)
                     .allowsHitTesting(false)
                 Color.clear
                     .contentShape(Rectangle())
@@ -132,8 +141,8 @@ struct CanvasSelection: View {
                 }
                 typed(scale)
                     .allowsHitTesting(false)
-                if let said = told ?? typing.told {
-                    Text(said)
+                if let words = told ?? typing.told ?? said {
+                    Text(words)
                         .font(.caption)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
@@ -174,6 +183,22 @@ struct CanvasSelection: View {
         }
     }
 
+    /// What the canvas does with a command its keys make while no text is typed in (PLAN 3.11):
+    /// Delete and Shift+Delete take the node selected away; Escape selects what holds it.
+    private func command(_ selector: Selector) -> Bool {
+        typealias Keys = NSStandardKeyBindingResponding
+        switch selector {
+        case #selector(Keys.deleteBackward(_:)), #selector(Keys.deleteForward(_:)):
+            delete(NSApp.currentEvent?.modifierFlags.contains(.shift) == true)
+            return true
+        case #selector(Keys.cancelOperation(_:)):
+            node = boxes.first { $0.node == node }?.parent
+            return true
+        default:
+            return false
+        }
+    }
+
     /// What the drag does, as the browser's status line says it.
     private var told: String? {
         switch press {
@@ -208,8 +233,12 @@ struct CanvasSelection: View {
                 let moved = hypot(value.translation.width, value.translation.height)
                 switch press {
                 case nil:
-                    // Typing: a press in the text puts the caret there, one outside it stops typing.
+                    // The canvas takes the keyboard, and Insert lands here next.
                     let at = CGPoint(x: value.startLocation.x / scale, y: value.startLocation.y / scale)
+                    typing.focus?()
+                    pointed = at
+                    said = nil
+                    // Typing: a press in the text puts the caret there, one outside it stops typing.
                     if typing.typing {
                         if typing.holds(at, slop: Self.slop / max(scale, 0.01)) {
                             press = .typing

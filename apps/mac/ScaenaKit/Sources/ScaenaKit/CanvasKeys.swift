@@ -1,19 +1,24 @@
 import AppKit
 import SwiftUI
 
-/// Where keys go while a text is typed in on the canvas (PLAN 3.9): a view over the canvas that
-/// takes the keyboard, and an input method's composition, as the text input system gives them
-/// (`NSTextInputClient`), and hands each to `Typing`. It lays nothing out and draws nothing: it
-/// answers the input system from the engine's carets, and the canvas draws the caret and the
-/// selection. It takes no press: the canvas reads each, as the browser's does, and a press in the
-/// text typed in puts the caret there, one outside it stops typing. Focus gone to the source stops
-/// it too; a field, the inspector's or the one ⌘K asks in, leaves it as it is, as the browser's
-/// inspector does.
+/// The canvas's keys (PLAN 3.9, 3.11): a view under the canvas that takes the keyboard when the
+/// canvas is pressed, as the browser's canvas takes the focus. While a text is typed in, it takes
+/// the keys and an input method's composition as the text input system gives them
+/// (`NSTextInputClient`), and hands each to `Typing`; otherwise the commands the keys make are
+/// the canvas's own (`command`): Delete, Shift+Delete, Escape. It lays nothing out and draws
+/// nothing: it answers the input system from the engine's carets, and the canvas draws the caret
+/// and the selection. It takes no press: the canvas reads each, and a press in the text typed in
+/// puts the caret there, one outside it stops typing. Focus gone to the source stops typing too; a
+/// field, the inspector's or the one ⌘K asks in, leaves it as it is, as the browser's inspector
+/// does.
 @MainActor
-public final class TypingView: NSView {
+public final class CanvasKeys: NSView {
     public let typing: Typing
     /// The canvas, in canvas units: what the view's width is in points.
     public var canvas = CGSize(width: 1920, height: 1080)
+    /// What the canvas does with a command the keys make while no text is typed in: whether it did
+    /// anything with it.
+    public var command: (@MainActor (Selector) -> Bool)?
 
     public init(typing: Typing) {
         self.typing = typing
@@ -25,28 +30,17 @@ public final class TypingView: NSView {
     public required init?(coder: NSCoder) { return nil }
 
     public override var isFlipped: Bool { true }
-    public override var acceptsFirstResponder: Bool { typing.typing }
+    public override var acceptsFirstResponder: Bool { true }
 
     /// Presses go through to the canvas under it.
     public override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    public override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        take()
-    }
-
-    /// Take the keyboard while a text is typed in, and give it back when none is, once the event
-    /// that asked has gone by.
+    /// Take the keyboard for the canvas, once the event that asked has gone by: a press on it, or
+    /// a text entered.
     public func claim() {
-        Task { @MainActor [weak self] in self?.take() }
-    }
-
-    private func take() {
-        guard let window else { return }
-        if typing.typing {
-            if window.firstResponder !== self { window.makeFirstResponder(self) }
-        } else if window.firstResponder === self {
-            window.makeFirstResponder(nil)
+        Task { @MainActor [weak self] in
+            guard let self, let window = self.window, window.firstResponder !== self else { return }
+            window.makeFirstResponder(self)
         }
     }
 
@@ -61,8 +55,8 @@ public final class TypingView: NSView {
     }
 
     public override func keyDown(with event: NSEvent) {
-        guard typing.typing else { return super.keyDown(with: event) }
-        // The input system makes the key text, a composition, or a command (`doCommand`).
+        // The input system makes the key text, a composition, or a command (`doCommand`): the
+        // text's while one is typed in, else the canvas's.
         interpretKeyEvents([event])
     }
 
@@ -111,8 +105,13 @@ public final class TypingView: NSView {
         typing.insert(text)
     }
 
-    /// The commands the input system makes of keys: deletes, moves, a new line, and Escape.
+    /// The commands the input system makes of keys: while a text is typed in, deletes, moves, a
+    /// new line, and Escape; else the canvas's (`command`).
     public override func doCommand(by selector: Selector) {
+        guard typing.typing else {
+            _ = command?(selector)
+            return
+        }
         typealias Keys = NSStandardKeyBindingResponding
         switch selector {
         case #selector(Keys.deleteBackward(_:)), #selector(Keys.deleteBackwardByDecomposingPreviousCharacter(_:)):
@@ -205,8 +204,10 @@ public final class TypingView: NSView {
     fileprivate var scale: CGFloat { bounds.width / max(canvas.width, 1) }
 }
 
-extension TypingView: @preconcurrency NSTextInputClient {
+extension CanvasKeys: @preconcurrency NSTextInputClient {
     public func insertText(_ string: Any, replacementRange: NSRange) {
+        // Characters typed with no text typed in do nothing yet.
+        guard typing.typing else { return }
         let text = Self.plain(string)
         if replacementRange.location == NSNotFound {
             typing.insert(text)
@@ -219,6 +220,7 @@ extension TypingView: @preconcurrency NSTextInputClient {
     }
 
     public func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        guard typing.typing else { return }
         if replacementRange.location != NSNotFound {
             // The input method composes again what is written there.
             typing.unmark()
@@ -279,30 +281,28 @@ extension TypingView: @preconcurrency NSTextInputClient {
     }
 }
 
-/// `TypingView` in SwiftUI, over the canvas: it takes the keyboard while `typing` types in a
-/// text, and gives it back when it stops.
-public struct TypingHost: NSViewRepresentable {
+/// `CanvasKeys` in SwiftUI, under the canvas: the keys of the canvas pressed last, `typing`'s
+/// while it types in a text, else what `command` does with them.
+public struct CanvasKeysHost: NSViewRepresentable {
     public let typing: Typing
-    /// Whether a text is typed in: what takes the keyboard, or gives it back.
-    public let active: Bool
     /// The canvas, in canvas units.
     public let canvas: CGSize
+    public let command: @MainActor (Selector) -> Bool
 
-    public init(typing: Typing, canvas: CGSize) {
+    public init(typing: Typing, canvas: CGSize, command: @escaping @MainActor (Selector) -> Bool) {
         self.typing = typing
-        self.active = typing.typing
         self.canvas = canvas
+        self.command = command
     }
 
-    public func makeNSView(context: Context) -> TypingView {
-        let view = TypingView(typing: typing)
-        view.canvas = canvas
+    public func makeNSView(context: Context) -> CanvasKeys {
+        let view = CanvasKeys(typing: typing)
+        updateNSView(view, context: context)
         return view
     }
 
-    public func updateNSView(_ view: TypingView, context: Context) {
+    public func updateNSView(_ view: CanvasKeys, context: Context) {
         view.canvas = canvas
-        // Typing begun takes the keyboard itself (`Typing.focus`); stopped, it gives it back.
-        if !active { view.claim() }
+        view.command = command
     }
 }
