@@ -105,9 +105,9 @@ bool scaena_add_file(struct ScaenaSession *session,
 // `{"ok": value}` or `{"error": {"message"}}`, a string to free. The calls ([`call`]):
 // `states`, `formats`, `setFormat {format?}`, `canvasSize`, `duration {state}`, `timeline`,
 // `files`, `imageFiles`, `digest {state}`, `reading {state}`, `source`, `compiledFrom
-// {source}`, `compile {source}`, `lint {state?}`, `fix {patch}`, `inspect {state}`, `layers
-// {state}`, `choices {state, node}`, `stateChoices {state}`, `inserts`, `themes`,
-// `themeText`, `keepHistory`, `keepsHistory`.
+// {source}`, `compile {source}`, `lint {state?}`, `fix {patch}`, `inspect {state}`, `boxes
+// {state}`, `hit {state, x, y}`, `layers {state}`, `choices {state, node}`, `stateChoices
+// {state}`, `inserts`, `themes`, `themeText`, `keepHistory`, `keepsHistory`.
 //
 // # Safety
 // `session` is a live handle; `method` a NUL-terminated string; `args` one, or null.

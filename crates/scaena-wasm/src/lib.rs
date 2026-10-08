@@ -339,36 +339,7 @@ impl Player {
     /// §3.3), `[a, b, c, d, e, f]`, where something moves it; `locked`, where the node is locked
     /// (PLAN 2.95), the node whose lock holds it: itself, or what holds it.
     pub fn boxes(&mut self, state: &str) -> Result<String, JsError> {
-        let boxes = self.0.boxes(state).map_err(js)?;
-        // Locked, or held by what is, however deep (PLAN 2.95).
-        let parents: std::collections::HashMap<&str, &str> =
-            boxes.iter().filter_map(|b| Some((b.node.as_str(), b.parent.as_deref()?))).collect();
-        let held = |node: &str| {
-            let mut at = Some(node);
-            let mut seen = 0;
-            while let Some(n) = at.filter(|_| seen <= parents.len()) {
-                if self.0.locked(n) {
-                    return Some(n.to_string());
-                }
-                (at, seen) = (parents.get(n).copied(), seen + 1);
-            }
-            None
-        };
-        let locked: Vec<Option<String>> = boxes.iter().map(|b| held(&b.node)).collect();
-        let boxes: Vec<serde_json::Value> = (boxes.into_iter().zip(locked))
-            .map(|(b, locked)| {
-                let mut out =
-                    serde_json::json!({ "node": b.node, "rect": b.rect, "parent": b.parent, "draws": b.draws });
-                if let Some(map) = b.transform {
-                    out["transform"] = serde_json::json!(map);
-                }
-                if let Some(by) = locked {
-                    out["locked"] = serde_json::json!(by);
-                }
-                out
-            })
-            .collect();
-        serde_json::to_string(&boxes).map_err(js)
+        serde_json::to_string(&self.0.boxes_json(state).map_err(js)?).map_err(js)
     }
 
     /// The nodes that draw at `x`, `y` (canvas units) in `state` at rest, in the format shown,
@@ -377,20 +348,7 @@ impl Player {
     /// box's is; `locked` where the node is locked (PLAN 2.95), which a pointer passes over: the
     /// node whose lock holds it, itself or the innermost container locked.
     pub fn hit(&mut self, state: &str, x: f32, y: f32) -> Result<String, JsError> {
-        let hits: Vec<serde_json::Value> = (self.0.hit(state, [x, y]).map_err(js)?.into_iter())
-            .map(|h| {
-                let locked = std::iter::once(&h.node).chain(&h.containers).find(|n| self.0.locked(n)).cloned();
-                let mut out = serde_json::json!({ "node": h.node, "rect": h.rect, "containers": h.containers });
-                if let Some(map) = h.transform {
-                    out["transform"] = serde_json::json!(map);
-                }
-                if let Some(by) = locked {
-                    out["locked"] = serde_json::json!(by);
-                }
-                out
-            })
-            .collect();
-        serde_json::to_string(&hits).map_err(js)
+        serde_json::to_string(&self.0.hits_json(state, [x, y]).map_err(js)?).map_err(js)
     }
 
     /// The chart mark or table row drawn at `x`, `y` (canvas units) in `state` at rest, in the

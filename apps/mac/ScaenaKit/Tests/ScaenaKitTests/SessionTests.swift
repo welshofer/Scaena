@@ -32,9 +32,12 @@ let b1 = repository.appending(path: "tests/bench/b1.scaena")
 
 @Test func anEditIsThePatchTheBrowserMakes() throws {
     let session = try ScaenaSession(directory: b1)
-    let compiled = try session.compile(try session.source())
-    #expect(compiled["valid"]?.bool == true)
-    #expect(try session.lint()["findings"]?.array != nil)
+    let source = try session.source()
+    let compiled = try session.compile(source)
+    #expect(compiled.valid && compiled.error == nil)
+    #expect(compiled.states.first?.state == "cover")
+    let linted = try session.lint()
+    #expect(linted.whole && linted.laid)
     let state = try session.states()[0]
     let inspected: JSONValue = try session.call("inspect", ["state": .string(state)])
     let node = try #require(inspected["looks"]?.object?.keys.sorted().first)

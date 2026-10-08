@@ -293,9 +293,9 @@ pub unsafe extern "C" fn scaena_add_file(
 /// `{"ok": value}` or `{"error": {"message"}}`, a string to free. The calls ([`call`]):
 /// `states`, `formats`, `setFormat {format?}`, `canvasSize`, `duration {state}`, `timeline`,
 /// `files`, `imageFiles`, `digest {state}`, `reading {state}`, `source`, `compiledFrom
-/// {source}`, `compile {source}`, `lint {state?}`, `fix {patch}`, `inspect {state}`, `layers
-/// {state}`, `choices {state, node}`, `stateChoices {state}`, `inserts`, `themes`,
-/// `themeText`, `keepHistory`, `keepsHistory`.
+/// {source}`, `compile {source}`, `lint {state?}`, `fix {patch}`, `inspect {state}`, `boxes
+/// {state}`, `hit {state, x, y}`, `layers {state}`, `choices {state, node}`, `stateChoices
+/// {state}`, `inserts`, `themes`, `themeText`, `keepHistory`, `keepsHistory`.
 ///
 /// # Safety
 /// `session` is a live handle; `method` a NUL-terminated string; `args` one, or null.
@@ -735,6 +735,9 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         args.get(key).and_then(Value::as_str).ok_or_else(|| said(format!("{method}: `{key}` is a string it needs")))
     };
     let optional = |key: &str| args.get(key).and_then(Value::as_str);
+    let number = |key: &str| {
+        args.get(key).and_then(Value::as_f64).ok_or_else(|| said(format!("{method}: `{key}` is a number it needs")))
+    };
     let value = |v: Result<Value, serde_json::Error>| v.map_err(said);
     Ok(match method {
         "states" => json!(s.states()),
@@ -763,6 +766,8 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             json!(s.fix(&patch).map_err(said)?)
         }
         "inspect" => value(serde_json::to_value(s.inspect(arg("state")?).map_err(said)?))?,
+        "boxes" => json!(s.boxes_json(arg("state")?).map_err(said)?),
+        "hit" => json!(s.hits_json(arg("state")?, [number("x")? as f32, number("y")? as f32]).map_err(said)?),
         "layers" => value(serde_json::to_value(s.layers(arg("state")?).map_err(said)?))?,
         "choices" => value(serde_json::to_value(s.choices(arg("state")?, arg("node")?).map_err(said)?))?,
         "stateChoices" => value(serde_json::to_value(s.state_choices(arg("state")?).map_err(said)?))?,

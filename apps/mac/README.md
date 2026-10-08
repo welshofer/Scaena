@@ -17,3 +17,5 @@ CI's macOS runner does the same on every pull request ready for review that touc
 ## The app
 
 `just mac` builds `Scaena.app` (`apps/mac/build-app.sh`) and opens it: New starts a deck from Dusk, and Open takes a `.scaena` bundle or zip, such as `tests/bench/b1.scaena`. Without Rust on the Mac, run the `mac-app` workflow (Actions → mac-app → Run workflow) and download its `Scaena.app` artifact; macOS asks once whether to open an app signed ad hoc (right-click → Open).
+
+The window (PLAN 3.4): the states down the side, each drawn small; the state chosen on the canvas, a click selecting what draws there; its cue under it, to play and scrub; the findings lint makes, each with its fix; the deck's `.scn` beside the canvas (the Source toggle); and the inspector, which edits the node selected, or the state with none. Every edit is one step to undo, and what a save writes is the deck the source compiles to.

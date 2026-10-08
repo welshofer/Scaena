@@ -2,10 +2,27 @@ import AppKit
 import QuartzCore
 import SwiftUI
 
+/// Where a canvas is in its state's cue: a time into it, ms (infinity: at rest), and whether the
+/// cue plays on from there (PLAN 3.4). A place in the deck is a state and a time into its cue,
+/// never a place on the global timeline.
+public struct Playhead: Equatable, Sendable {
+    public var ms: Double
+    public var playing: Bool
+
+    public init(ms: Double = 0, playing: Bool = true) {
+        self.ms = ms
+        self.playing = playing
+    }
+
+    /// At rest, the cue over.
+    public static let rest = Playhead(ms: .infinity, playing: false)
+}
+
 /// A state of a deck, painted by the engine on Metal and presented at the display's refresh,
-/// up to 120 Hz on ProMotion (PLAN 3.2, SPEC §9.3). Setting `state` plays its cue from the
-/// start; once the cue is over the state is at rest, painted once more, and the view idles until
-/// something changes. SwiftUI shows it through `ScaenaCanvas`.
+/// up to 120 Hz on ProMotion (PLAN 3.2, SPEC §9.3). It shows its playhead (PLAN 3.4): a time
+/// into the state's cue, held, or the cue played on from it by the view's own display link,
+/// then at rest. Once nothing moves, it idles until the state, the playhead, the deck, or the
+/// size changes. SwiftUI shows it through `ScaenaCanvas`.
 @MainActor
 public final class ScaenaView: NSView {
     /// The session whose frames it shows.
@@ -13,26 +30,40 @@ public final class ScaenaView: NSView {
         didSet { restart() }
     }
 
-    /// The state it shows.
+    /// The state it shows. A new one plays from the playhead, as the window sets it.
     public var state: String? {
-        didSet { restart() }
+        didSet { if state != oldValue { restart() } }
     }
 
-    /// Changed by each edit of the deck: the state is painted again, at rest.
+    /// Changed by each edit of the deck: the state is painted again where the playhead is.
     public var revision = 0 {
-        didSet { if revision != oldValue { resting = false } }
+        didSet {
+            guard revision != oldValue else { return }
+            cue = (session.flatMap { s in state.flatMap { try? s.duration(of: $0) } }) ?? cue
+            dirty = true
+        }
     }
+
+    /// Where it is in the cue: what `show` set, and while the cue plays, the time it painted last.
+    public private(set) var playhead = Playhead()
+
+    /// Told where the playhead is while the cue plays, some 30 times a second, and when it comes
+    /// to rest.
+    public var onPlayhead: (@MainActor (Playhead) -> Void)?
 
     /// Why the last frame could not be painted, if it could not.
     public private(set) var failure: ScaenaError?
 
     private var surface: ScaenaSurface?
     private var link: CADisplayLink?
-    /// When the cue began, on the display link's clock.
+    /// When the cue would have begun, on the display link's clock, for the time it plays from.
     private var began: CFTimeInterval?
+    /// When the playhead was last told, on the display link's clock.
+    private var told: CFTimeInterval = 0
     /// How long the cue runs, ms: past it, the state is at rest.
     private var cue: Double = 0
-    private var resting = false
+    /// Whether the frame shown is not the playhead's.
+    private var dirty = true
 
     public override init(frame: NSRect) {
         super.init(frame: frame)
@@ -74,6 +105,16 @@ public final class ScaenaView: NSView {
         resized()
     }
 
+    /// Show `next`: a time into the cue, held, or the cue played on from it. A playhead the view
+    /// told itself changes nothing.
+    public func show(_ next: Playhead) {
+        guard next != playhead else { return }
+        // A cue that plays keeps its own clock; one that starts, or holds, begins again.
+        if !(next.playing && playhead.playing) { began = nil }
+        playhead = next
+        dirty = true
+    }
+
     private func resized() {
         guard let layer = layer as? CAMetalLayer else { return }
         let scale = window?.backingScaleFactor ?? layer.contentsScale
@@ -81,59 +122,83 @@ public final class ScaenaView: NSView {
         layer.contentsScale = scale
         layer.drawableSize = size
         surface?.resize(width: Int(size.width), height: Int(size.height))
-        resting = false
+        dirty = true
     }
 
     private func restart() {
         began = nil
-        resting = false
+        dirty = true
         if let session, let state {
             cue = (try? session.duration(of: state)) ?? 0
         }
     }
 
     @objc private func step(_ link: CADisplayLink) {
-        guard !resting, let session, let state, let layer = layer as? CAMetalLayer, bounds.width > 0 else { return }
+        guard dirty || playhead.playing, let session, let state, let layer = layer as? CAMetalLayer, bounds.width > 0
+        else { return }
         do {
             if surface == nil {
                 let size = layer.drawableSize
                 surface = try ScaenaSurface(layer: layer, width: Int(size.width), height: Int(size.height))
             }
-            let start = began ?? link.timestamp
-            began = start
-            let ms = (link.timestamp - start) * 1000
-            let done = ms >= cue
-            let shown = try surface?.paint(session, state: state, at: done ? .infinity : ms) ?? false
-            resting = done && shown
+            var at = playhead.ms
+            var over = false
+            if playhead.playing {
+                let from = playhead.ms.isFinite && playhead.ms < cue ? max(playhead.ms, 0) : 0
+                let start = began ?? link.timestamp - from / 1000
+                began = start
+                let ms = (link.timestamp - start) * 1000
+                over = ms >= cue
+                at = over ? .infinity : ms
+            }
+            // A layer with no drawable to give skips the frame: the next tick paints it.
+            guard try surface?.paint(session, state: state, at: at) == true else { return }
             failure = nil
-        } catch let error as ScaenaError {
-            failure = error
-            resting = true
+            dirty = false
+            guard playhead.playing else { return }
+            if over {
+                playhead = .rest
+                began = nil
+                tell(link.timestamp)
+            } else {
+                playhead.ms = at
+                if link.timestamp - told >= 1.0 / 30 { tell(link.timestamp) }
+            }
         } catch {
-            failure = ScaenaError(message: "\(error)")
-            resting = true
+            failure = error as? ScaenaError ?? ScaenaError(message: "\(error)")
+            dirty = false
+            if playhead.playing {
+                playhead = .rest
+                began = nil
+                tell(link.timestamp)
+            }
         }
+    }
+
+    private func tell(_ now: CFTimeInterval) {
+        told = now
+        onPlayhead?(playhead)
     }
 }
 
-/// `ScaenaView` in SwiftUI: `state` of `session`, its cue played each time it changes, and
-/// painted again at rest when `revision` does, after an edit.
+/// `ScaenaView` in SwiftUI: `state` of `session` where `playhead` is, painted again when
+/// `revision` changes, after an edit. While the cue plays, the view moves the playhead.
 public struct ScaenaCanvas: NSViewRepresentable {
     public let session: ScaenaSession
     public let state: String
     public let revision: Int
+    @Binding public var playhead: Playhead
 
-    public init(session: ScaenaSession, state: String, revision: Int = 0) {
+    public init(session: ScaenaSession, state: String, revision: Int = 0, playhead: Binding<Playhead>) {
         self.session = session
         self.state = state
         self.revision = revision
+        self._playhead = playhead
     }
 
     public func makeNSView(context: Context) -> ScaenaView {
         let view = ScaenaView(frame: .zero)
-        view.session = session
-        view.state = state
-        view.revision = revision
+        updateNSView(view, context: context)
         return view
     }
 
@@ -141,5 +206,8 @@ public struct ScaenaCanvas: NSViewRepresentable {
         if view.session !== session { view.session = session }
         if view.state != state { view.state = state }
         view.revision = revision
+        let playhead = $playhead
+        view.onPlayhead = { playhead.wrappedValue = $0 }
+        view.show(self.playhead)
     }
 }

@@ -10,19 +10,20 @@ extension UTType {
     static let scaenaDeck = UTType(exportedAs: "com.scaena.deck", conformingTo: .package)
 }
 
-/// A deck open in the app: the session the browser edits (ADR-0021), saved as `scaena save` lays
-/// a bundle out, with each edit since the last save recorded in its history (PLAN 3.3, SPEC
-/// §8). macOS keeps its versions, as it does any document's that saves in place.
+/// A deck open in the app: the session the browser edits (ADR-0021), edited as the browser's
+/// editor edits it (`DeckEditor`, PLAN 3.4), and saved as `scaena save` lays a bundle out, with
+/// each edit since the last save recorded in its history (PLAN 3.3, SPEC §8). macOS keeps its
+/// versions, as it does any document's that saves in place.
 final class ScaenaDocument: ReferenceFileDocument {
     static var readableContentTypes: [UTType] { [.scaenaDeck, .zip] }
     static var writableContentTypes: [UTType] { [.scaenaDeck] }
 
-    let session: ScaenaSession
-    /// Bumped by each edit, so the window draws the deck again.
-    @Published var revision = 0
+    let editor: DeckEditor
+    var session: ScaenaSession { editor.session }
 
     /// A new deck, as New starts one in the browser: Dusk, one state with nothing on it.
     init() {
+        let session: ScaenaSession
         do {
             session = try ScaenaSession.create(theme: "dusk", title: "Untitled")
         } catch {
@@ -30,12 +31,14 @@ final class ScaenaDocument: ReferenceFileDocument {
             fatalError("the theme that ships made no deck: \(error)")
         }
         _ = try? session.call("keepHistory") as JSONValue
+        editor = DeckEditor(session: session)
     }
 
     init(configuration: ReadConfiguration) throws {
-        session = try Self.open(configuration.file)
+        let session = try Self.open(configuration.file)
         // Each save records the edits since in the bundle's history, which the first begins.
         _ = try? session.call("keepHistory") as JSONValue
+        editor = DeckEditor(session: session)
     }
 
     /// The bundle `file` holds: a folder's files by their paths in it, or a zip.
@@ -60,7 +63,8 @@ final class ScaenaDocument: ReferenceFileDocument {
     }
 
     /// The bundle saved now: its files by their paths, fonts subset and the history recorded. The
-    /// session goes on from the save, which names files by their content.
+    /// session goes on from the save, which names files by their content. What is saved is the
+    /// deck shown: a source typed that does not compile is not the deck yet.
     func snapshot(contentType: UTType) throws -> [String: Data] {
         let saved = try session.save(subset: true)
         var files: [String: Data] = [:]
@@ -94,20 +98,29 @@ final class ScaenaDocument: ReferenceFileDocument {
     }
 
     /// Make `ops`, a patch, as the user, as the browser's gestures do (ADR-0013): one step to
-    /// undo, which puts the deck's source back.
-    func make(_ ops: JSONValue, undo: UndoManager?) throws {
-        let before = try session.source()
-        let called = try session.tool("deck_patch", ["ops": ops])
-        guard called.edited else { return }
-        revision += 1
-        undo?.registerUndo(withTarget: self) { $0.restore(before, undo: undo) }
+    /// undo, which makes the deck its source again.
+    func make(_ ops: [JSONValue], undo: UndoManager?) throws {
+        let before = try editor.make(ops)
+        keep(before, undo: undo)
     }
 
-    /// The deck `source` compiles to, made the deck again: an undo, or its redo.
-    private func restore(_ source: String, undo: UndoManager?) {
-        guard let now = try? session.source() else { return }
-        _ = try? session.compile(source)
-        revision += 1
-        undo?.registerUndo(withTarget: self) { $0.restore(now, undo: undo) }
+    /// Compile `typed`, the source pane's text: where it becomes the deck, one step to undo.
+    func type(_ typed: String, undo: UndoManager?) {
+        guard let before = editor.type(typed) else { return }
+        keep(before, undo: undo)
+    }
+
+    /// Apply `finding`'s fix: one step to undo.
+    func fix(_ finding: Finding, undo: UndoManager?) throws {
+        let before = try editor.fix(finding)
+        keep(before, undo: undo)
+    }
+
+    /// Register making the deck `source` again as the step to undo; undone, its redo.
+    private func keep(_ source: String, undo: UndoManager?) {
+        undo?.registerUndo(withTarget: self) { [weak undo] document in
+            guard let now = document.editor.restore(source) else { return }
+            document.keep(now, undo: undo)
+        }
     }
 }
