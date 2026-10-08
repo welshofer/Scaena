@@ -1501,11 +1501,18 @@ impl Player {
         self.0.duration(state).map_err(js)
     }
 
-    /// The deck's states end to end, as JSON: `[{ "state", "start", "span", "hold" }]`,
-    /// ms (SPEC §2.4). What a player auto-advances by, and a video samples.
+    /// The deck's states end to end, as JSON: `[{ "state", "slide", "start", "span", "hold" }]`,
+    /// ms (SPEC §2.4), `slide` the slide each builds on. What a player auto-advances by, and a
+    /// video samples.
     pub fn timeline(&mut self) -> Result<String, JsError> {
-        let slots: Vec<serde_json::Value> = (self.0.timeline().map_err(js)?.slots.iter())
-            .map(|s| serde_json::json!({ "state": s.state, "start": s.start, "span": s.span, "hold": s.hold }))
+        let timeline = self.0.timeline().map_err(js)?;
+        let deck = &self.0.deck;
+        let slide = |id: &str| deck.states.iter().find(|s| s.id == id).map_or(id, |s| deck.slide_of(s)).to_string();
+        let slots: Vec<serde_json::Value> = (timeline.slots.iter())
+            .map(|s| {
+                let slide = slide(&s.state);
+                serde_json::json!({ "state": s.state, "slide": slide, "start": s.start, "span": s.span, "hold": s.hold })
+            })
             .collect();
         serde_json::to_string(&slots).map_err(js)
     }

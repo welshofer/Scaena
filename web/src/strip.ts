@@ -113,22 +113,31 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
     canvas.getContext("2d")?.putImageData(thumb.image, 0, 0);
   }
 
-  /** Ask the engine for the thumbnails whose drawing changed, and draw them. */
-  async function paint() {
+  /** Ask the engine for the thumbnails whose drawing changed, and draw them: whether they were
+   * drawn, which a newer paint begun meanwhile does in its place. */
+  async function paint(): Promise<boolean> {
     const asked = ++painting;
     const known = Object.fromEntries([...thumbs].map(([id, t]) => [id, t.digest]));
     let got: Thumb[];
     try {
       got = await stage.thumbnails(high(), known, editor.format());
     } catch {
-      return;
+      return true;
     }
-    if (asked !== painting) return;
+    if (asked !== painting) return false;
     for (const t of got) {
       if (!t.pixels || !t.width || !t.height) continue;
       thumbs.set(t.state, { digest: t.digest, image: new ImageData(new Uint8ClampedArray(t.pixels), t.width, t.height) });
       draw(t.state);
     }
+    return true;
+  }
+
+  /** Paint until a paint lands that no newer one began after: the thumbnails are then the deck's
+   * as it stands, which an assistant's question draws its edits against (PLAN 2.93). A paint a
+   * newer one stops draws nothing, so waiting on it alone could leave a state undrawn. */
+  async function painted() {
+    while (!(await paint()));
   }
 
   /** What lint found now: each state's findings in the format shown, counted on its item. */
@@ -301,6 +310,7 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
     states,
     select,
     paint,
+    painted,
     reformat,
     found,
     add,

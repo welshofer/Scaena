@@ -57,6 +57,8 @@ export type Painter = "auto" | "gpu" | "cpu";
  * its transition and motions run, and how long it then holds before the next state. */
 export interface Slot {
   state: string;
+  /** The slide it builds on: its first state's id (PLAN 2.97). */
+  slide?: string;
   start: number;
   span: number;
   hold: number;
@@ -761,7 +763,7 @@ export type ToWorker =
   /** Each state at rest in `format`, painted by the CPU painter `height` pixels high, for the
    * state strip (PLAN 2.35): only those whose drawing is not the one `known` holds (each state's
    * digest, as the strip last had it) come with pixels. */
-  | { type: "thumbnails"; id: number; height: number; known: Record<string, string>; format?: string }
+  | { type: "thumbnails"; id: number; height: number; known: Record<string, string>; format?: string; states?: string[] }
   /** The patch that adds a state after `state`, on the deck the editor's `source` compiles to: a
    * `step` of its slide, or a `slide` of its own (PLAN 2.35). */
   | { type: "addingState"; id: number; source: string; state: string; what: "step" | "slide" }

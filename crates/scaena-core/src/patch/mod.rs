@@ -448,6 +448,35 @@ pub enum SemanticOp {
         #[schemars(with = "Id")]
         id: String,
     },
+    /// A slide, each of its states in order, moved `after` or `before` another slide, each
+    /// named by its first state (PLAN 2.97). Every state shows what it showed: one that would
+    /// track from another state than it did has its delta written again to resolve as it did.
+    MoveSlide {
+        #[schemars(with = "Id")]
+        slide: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "Option<Id>")]
+        after: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "Option<Id>")]
+        before: Option<String>,
+    },
+    /// A copy of a slide just after it (PLAN 2.97): each of its states under an id new to the
+    /// deck, its first `-2`, `-3`, … after the slide's. The copy's first state is absolute and
+    /// sets each property of each node it shows, so an edit to either slide leaves the other;
+    /// it shows the same nodes, so the slide morphs into it. Every other state shows what it
+    /// showed.
+    DuplicateSlide {
+        #[schemars(with = "Id")]
+        slide: String,
+    },
+    /// A slide's states taken out, and their places in the spine's beats and the links to them
+    /// (PLAN 2.97). Every other state shows what it showed: the state after the slide, and one
+    /// that tracked from a state of it, are written again to resolve as they did.
+    RemoveSlide {
+        #[schemars(with = "Id")]
+        slide: String,
+    },
     /// A state's id, everywhere it is used: the states that build on it or track from it,
     /// and the spine's beats.
     RenameState {
@@ -509,6 +538,9 @@ impl SemanticOp {
             SemanticOp::AddState { .. } => "add_state",
             SemanticOp::MoveState { .. } => "move_state",
             SemanticOp::RemoveState { .. } => "remove_state",
+            SemanticOp::MoveSlide { .. } => "move_slide",
+            SemanticOp::DuplicateSlide { .. } => "duplicate_slide",
+            SemanticOp::RemoveSlide { .. } => "remove_slide",
             SemanticOp::RenameState { .. } => "rename_state",
             SemanticOp::SetState { .. } => "set_state",
             SemanticOp::Retheme { .. } => "retheme",

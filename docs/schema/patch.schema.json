@@ -364,6 +364,32 @@
           "properties": { "id": { "$ref": "#/$defs/Id" }, "op": { "type": "string", "const": "remove_state" } }
         },
         {
+          "description": "A slide, each of its states in order, moved `after` or `before` another slide, each named by its first state (PLAN 2.97). Every state shows what it showed: one that would track from another state than it did has its delta written again to resolve as it did.",
+          "type": "object",
+          "required": ["op", "slide"],
+          "additionalProperties": false,
+          "properties": {
+            "slide": { "$ref": "#/$defs/Id" },
+            "after": { "$ref": "#/$defs/Id" },
+            "before": { "$ref": "#/$defs/Id" },
+            "op": { "type": "string", "const": "move_slide" }
+          }
+        },
+        {
+          "description": "A copy of a slide just after it (PLAN 2.97): each of its states under an id new to the deck, its first `-2`, `-3`, … after the slide's. The copy's first state is absolute and sets each property of each node it shows, so an edit to either slide leaves the other; it shows the same nodes, so the slide morphs into it. Every other state shows what it showed.",
+          "type": "object",
+          "required": ["op", "slide"],
+          "additionalProperties": false,
+          "properties": { "slide": { "$ref": "#/$defs/Id" }, "op": { "type": "string", "const": "duplicate_slide" } }
+        },
+        {
+          "description": "A slide's states taken out, and their places in the spine's beats and the links to them (PLAN 2.97). Every other state shows what it showed: the state after the slide, and one that tracked from a state of it, are written again to resolve as they did.",
+          "type": "object",
+          "required": ["op", "slide"],
+          "additionalProperties": false,
+          "properties": { "slide": { "$ref": "#/$defs/Id" }, "op": { "type": "string", "const": "remove_slide" } }
+        },
+        {
           "description": "A state's id, everywhere it is used: the states that build on it or track from it, and the spine's beats.",
           "type": "object",
           "required": ["op", "id", "to"],

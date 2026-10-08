@@ -5,12 +5,14 @@
 
 use super::{Annotating, JsonOp, Listing, Renamed, SemanticOp, Spot, Timed, esc};
 use crate::data;
-use crate::document::{Deck, Props};
+use crate::document::{Deck, Props, State, StateMode};
 use crate::ids::is_valid_id;
 use crate::lint::literal;
 use crate::model::theme::Theme;
 use crate::model::values::{Annotation, Duration, ListItem};
-use crate::tracking::{Lives, Snapshot, layout_lives, lives, merge_props, other_spelling, resolve_states, tracks_from};
+use crate::tracking::{
+    Lives, Snapshot, keep_looks, layout_lives, lives, merge_props, other_spelling, resolve_states, tracks_from,
+};
 use crate::validate::BundleFiles;
 use serde_json::{Map, Value};
 use std::ops::Range;
@@ -202,6 +204,9 @@ pub(super) fn compile(doc: &Value, op: &SemanticOp, files: &dyn BundleFiles) -> 
             }
         }
         SemanticOp::RemoveState { id } => remove_state(&d, id)?,
+        SemanticOp::MoveSlide { slide, after, before } => move_slide(&d, slide, after.as_deref(), before.as_deref())?,
+        SemanticOp::DuplicateSlide { slide } => duplicate_slide(&d, slide)?,
+        SemanticOp::RemoveSlide { slide } => remove_slide(&d, slide)?,
         SemanticOp::RenameState { id, to } => {
             renamed.push(Renamed::State { from: id.clone(), to: to.clone() });
             rename_state(&d, id, to)?
@@ -1789,6 +1794,180 @@ fn place(d: &Doc, after: Option<&str>, before: Option<&str>, moving: Option<usiz
         (None, Some(before)) => Ok(Some(find(before)?)),
         (None, None) => Ok(None),
     }
+}
+
+/// The deck being patched, typed, as tracking reads it.
+fn typed(d: &Doc) -> Result<Deck, String> {
+    Deck::from_json(&d.0.to_string()).map_err(|e| e.to_string())
+}
+
+/// The places of slide `id`'s states (PLAN 2.97): the state `id` and each that builds on it,
+/// which stand together, first to last.
+fn slide_states(deck: &Deck, id: &str) -> Result<Range<usize>, String> {
+    let first = deck.state_index(id).ok_or_else(|| format!("no slide `{id}`"))?;
+    if let Some(of) = deck.states[first].slide.as_deref().filter(|of| *of != id) {
+        return Err(format!("`{id}` is a step of slide `{of}`: a slide is named by its first state"));
+    }
+    let on: Vec<usize> = (0..deck.states.len()).filter(|&i| deck.slide_of(&deck.states[i]) == id).collect();
+    let last = on.last().copied().unwrap_or(first);
+    if on.first() != Some(&first) || last + 1 - first != on.len() {
+        return Err(format!("slide `{id}`'s states do not stand together: move them together first"));
+    }
+    Ok(first..last + 1)
+}
+
+/// `given`, the deck's states in a new order and new ones among them, as [`keep_looks`] keeps
+/// each as it looks (PLAN 2.97), written as the deck holds them: each of the deck's states as
+/// its JSON was, but what keeping its look wrote again, and a new one as it is.
+fn looks_kept(d: &Doc, deck: &Deck, given: Vec<State>, like: &[(String, String)]) -> Result<Value, String> {
+    let kept = keep_looks(deck, given.clone(), like)?;
+    let mut out = Vec::with_capacity(kept.len());
+    for (was, now) in given.iter().zip(&kept) {
+        let Some(json) = d.states().iter().find(|s| id_of(s) == now.id) else {
+            out.push(serde_json::to_value(now).map_err(|e| e.to_string())?);
+            continue;
+        };
+        let mut json = json.clone();
+        let same =
+            was.props == now.props && was.remove == now.remove && was.layout == now.layout && was.from == now.from;
+        if let (false, Some(o)) = (same, json.as_object_mut()) {
+            o.insert("props".into(), serde_json::to_value(&now.props).map_err(|e| e.to_string())?);
+            match now.remove.is_empty() {
+                true => o.remove("remove"),
+                false => o.insert("remove".into(), serde_json::to_value(&now.remove).map_err(|e| e.to_string())?),
+            };
+            match &now.layout {
+                Some(layout) => o.insert("layout".into(), Value::String(layout.clone())),
+                None => o.remove("layout"),
+            };
+            if now.from.is_none() {
+                o.remove("from");
+            }
+        }
+        out.push(json);
+    }
+    Ok(Value::Array(out))
+}
+
+fn move_slide(d: &Doc, slide: &str, after: Option<&str>, before: Option<&str>) -> Result<Vec<JsonOp>, String> {
+    let target = match (after, before) {
+        (Some(_), Some(_)) => return Err("say `after` or `before`, not both".into()),
+        (None, None) => return Err("say where: `after` or `before` a slide".into()),
+        (Some(target), None) | (None, Some(target)) => target,
+    };
+    if target == slide {
+        return Err(format!("`{slide}` cannot move next to itself"));
+    }
+    let deck = typed(d)?;
+    let moving = slide_states(&deck, slide)?;
+    let there = slide_states(&deck, target)?;
+    let block: Vec<State> = deck.states[moving.clone()].to_vec();
+    let mut states: Vec<State> =
+        (deck.states.iter().enumerate()).filter(|(i, _)| !moving.contains(i)).map(|(_, s)| s.clone()).collect();
+    let at = states.iter().position(|s| s.id == target).ok_or_else(|| format!("no slide `{target}`"))?;
+    let at = if after.is_some() { at + there.len() } else { at };
+    states.splice(at..at, block);
+    if states.iter().map(|s| &s.id).eq(deck.states.iter().map(|s| &s.id)) {
+        return Ok(Vec::new());
+    }
+    Ok(vec![JsonOp::Replace { path: "/states".into(), value: looks_kept(d, &deck, states, &[])? }])
+}
+
+fn duplicate_slide(d: &Doc, slide: &str) -> Result<Vec<JsonOp>, String> {
+    let deck = typed(d)?;
+    let range = slide_states(&deck, slide)?;
+    let snaps = resolve_states(&deck).map_err(|e| e.to_string())?;
+    // `-2`, `-3`, … after each id, new to the deck and to each other.
+    let mut ids: Vec<String> = Vec::with_capacity(range.len());
+    for state in &deck.states[range.clone()] {
+        let base: String = state.id.chars().take(60).collect();
+        let free = (2..)
+            .map(|n| format!("{base}-{n}"))
+            .find(|id| deck.state_index(id).is_none() && !ids.contains(id))
+            .expect("some number is free");
+        ids.push(free);
+    }
+    let copy = |id: &str| range.clone().position(|i| deck.states[i].id == id).map(|n| ids[n].clone());
+    let mut copies = Vec::with_capacity(range.len());
+    for (n, i) in range.clone().enumerate() {
+        let mut state = deck.states[i].clone();
+        state.id = ids[n].clone();
+        if n == 0 {
+            // Each node it shows as the slide's first state shows it, the node's lock aside,
+            // which is the node's own (E104).
+            state.mode = StateMode::Absolute;
+            (state.from, state.slide, state.remove) = (None, None, Vec::new());
+            state.props = (snaps[i].nodes.iter())
+                .map(|(id, props)| {
+                    let mut props = props.clone();
+                    props.shift_remove("locked");
+                    (id.clone(), props)
+                })
+                .collect();
+            state.layout = snaps[i].layout.clone();
+        } else {
+            state.slide = Some(ids[0].clone());
+            state.from = state.from.map(|from| copy(&from).unwrap_or(from));
+        }
+        copies.push(state);
+    }
+    let mut states = deck.states.clone();
+    states.splice(range.end..range.end, copies);
+    let like: Vec<(String, String)> =
+        ids.iter().cloned().zip(deck.states[range.clone()].iter().map(|s| s.id.clone())).collect();
+    let mut ops = vec![JsonOp::Replace { path: "/states".into(), value: looks_kept(d, &deck, states, &like)? }];
+    // Each copy joins the beats its state is in, just after it.
+    for (s, b, beat) in d.beats() {
+        let Some(Value::Array(listed)) = beat.get("states") else { continue };
+        let mut joined = Vec::with_capacity(listed.len());
+        for id in listed {
+            joined.push(id.clone());
+            if let Some(copied) = id.as_str().and_then(copy) {
+                joined.push(Value::String(copied));
+            }
+        }
+        if joined.len() != listed.len() {
+            ops.push(JsonOp::Replace {
+                path: format!("/spine/sections/{s}/beats/{b}/states"),
+                value: Value::Array(joined),
+            });
+        }
+    }
+    Ok(ops)
+}
+
+fn remove_slide(d: &Doc, slide: &str) -> Result<Vec<JsonOp>, String> {
+    let deck = typed(d)?;
+    let range = slide_states(&deck, slide)?;
+    if range.len() == deck.states.len() {
+        return Err("a deck keeps at least one state".into());
+    }
+    let gone: Vec<&str> = deck.states[range.clone()].iter().map(|s| s.id.as_str()).collect();
+    let states: Vec<State> = deck.states.iter().filter(|s| !gone.contains(&s.id.as_str())).cloned().collect();
+    let written = looks_kept(d, &deck, states, &[])?;
+    let mut ops = Vec::new();
+    for (s, b, beat) in d.beats() {
+        if let Some(Value::Array(listed)) = beat.get("states")
+            && listed.iter().any(|x| x.as_str().is_some_and(|x| gone.contains(&x)))
+        {
+            let kept = listed.iter().filter(|x| !x.as_str().is_some_and(|x| gone.contains(&x))).cloned().collect();
+            ops.push(JsonOp::Replace {
+                path: format!("/spine/sections/{s}/beats/{b}/states"),
+                value: Value::Array(kept),
+            });
+        }
+    }
+    // A link to one of them goes, and its words stay (PLAN 2.70): found in the deck as the new
+    // states leave it.
+    let mut next = d.0.clone();
+    next["states"] = written.clone();
+    ops.push(JsonOp::Replace { path: "/states".into(), value: written });
+    for id in &gone {
+        for path in links_to(&Doc(&next), id) {
+            ops.push(JsonOp::Remove { path });
+        }
+    }
+    Ok(ops)
 }
 
 fn remove_state(d: &Doc, id: &str) -> Result<Vec<JsonOp>, String> {

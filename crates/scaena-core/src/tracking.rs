@@ -233,6 +233,125 @@ pub fn merge_props(base: &mut Props, delta: &Props) {
     }
 }
 
+/// What a state in delta mode declares to resolve as `to` when it tracks from `from` (PLAN
+/// 2.97): a delta for each node it shows, and the nodes it takes away. A node `from` does not
+/// show enters with its own properties, so its delta is what `to` changes of them; `anim` and
+/// `emphasis` never track, so they are the state's own. [`merge_props`] of each delta over
+/// `from` gives `to`.
+pub fn delta_to(deck: &Deck, from: &Snapshot, to: &Snapshot) -> (IndexMap<String, Props>, Vec<String>) {
+    let base = strip_non_tracking(&from.nodes);
+    let mut props = IndexMap::new();
+    for (id, now) in &to.nodes {
+        match base.get(id) {
+            Some(was) => {
+                let delta = diff(was, now);
+                if !delta.is_empty() {
+                    props.insert(id.clone(), delta);
+                }
+            }
+            // It enters: its delta, even an empty one, shows it.
+            None => {
+                let own = deck.nodes.get(id).map(|n| n.props.clone()).unwrap_or_default();
+                props.insert(id.clone(), diff(&own, now));
+            }
+        }
+    }
+    let remove = base.keys().filter(|id| !to.nodes.contains_key(*id)).cloned().collect();
+    (props, remove)
+}
+
+/// What `to` sets over `from`, as [`merge_props`] reads a delta: each key that differs, an
+/// object's keys one level down, and `null` for each key `to` lacks.
+fn diff(from: &Props, to: &Props) -> Props {
+    let mut out = Props::new();
+    for (key, now) in to {
+        match (from.get(key), now) {
+            (Some(was), _) if was == now => {}
+            (Some(Value::Object(was)), Value::Object(now)) => {
+                let mut set = serde_json::Map::new();
+                for (k, v) in now {
+                    if was.get(k) != Some(v) {
+                        set.insert(k.clone(), v.clone());
+                    }
+                }
+                for k in was.keys().filter(|k| !now.contains_key(*k)) {
+                    set.insert(k.clone(), Value::Null);
+                }
+                out.insert(key.clone(), Value::Object(set));
+            }
+            _ => {
+                out.insert(key.clone(), now.clone());
+            }
+        }
+    }
+    for key in from.keys().filter(|k| !to.contains_key(*k)) {
+        out.insert(key.clone(), Value::Null);
+    }
+    out
+}
+
+/// `states`, some of `deck`'s in a new order with states new to it among them, each showing
+/// what it showed (PLAN 2.97). A state of `deck` in delta mode that would track from another
+/// state than it did, or whose `from` is gone or no longer before it, has its delta written
+/// again, without `from`, to resolve as it did from the state before it; where it takes its
+/// layout from that state, it sets its own. A state new to `deck` stays as it is, and `like`
+/// names the state of `deck` each resolves as. The states are resolved after to prove it: one
+/// that would show otherwise is an error that says which.
+pub fn keep_looks(deck: &Deck, mut states: Vec<State>, like: &[(String, String)]) -> Result<Vec<State>, String> {
+    let before = resolve_states(deck).map_err(|e| e.to_string())?;
+    let looked = |id: &str| -> Option<&Snapshot> {
+        let id = like.iter().find(|(new, _)| new == id).map_or(id, |(_, old)| old.as_str());
+        before.iter().find(|s| s.state_id == id)
+    };
+    let tracked = |id: &str| -> Option<&str> {
+        let i = deck.state_index(id)?;
+        tracks_from(deck, i).map(|j| deck.states[j].id.as_str())
+    };
+    for k in 0..states.len() {
+        let state = &states[k];
+        if state.mode == StateMode::Absolute || deck.state_index(&state.id).is_none() {
+            continue;
+        }
+        let earlier = |id: &String| states[..k].iter().any(|s| &s.id == id);
+        let from = match &state.from {
+            Some(from) if earlier(from) => Some(from.clone()),
+            _ => k.checked_sub(1).map(|j| states[j].id.clone()),
+        };
+        let kept = state.from.as_ref().is_none_or(earlier);
+        if kept && from.as_deref() == tracked(&state.id) {
+            continue;
+        }
+        let to = looked(&state.id).ok_or_else(|| format!("no state `{}`", state.id))?.clone();
+        let (props, remove, layout) = match from.as_deref().and_then(looked) {
+            Some(base) => {
+                let (props, remove) = delta_to(deck, base, &to);
+                let layout = if base.layout == to.layout { None } else { to.layout.clone() };
+                (props, remove, layout)
+            }
+            // The first state tracks from nothing: each node it shows enters.
+            None => {
+                let empty = Snapshot { nodes: IndexMap::new(), ..to.clone() };
+                let (props, remove) = delta_to(deck, &empty, &to);
+                (props, remove, to.layout.clone())
+            }
+        };
+        let state = &mut states[k];
+        state.from = None;
+        state.props = props;
+        state.remove = remove;
+        state.layout = state.layout.take().or(layout);
+    }
+    let made = Deck { states: states.clone(), ..deck.clone() };
+    let after = resolve_states(&made).map_err(|e| e.to_string())?;
+    for snap in &after {
+        let was = looked(&snap.state_id);
+        if was.is_some_and(|was| was.nodes != snap.nodes || was.layout != snap.layout) {
+            return Err(format!("`{}` would not show what it showed", snap.state_id));
+        }
+    }
+    Ok(states)
+}
+
 /// The other way a text's words are written: `runs` for `text`, `text` for `runs`.
 pub fn other_spelling(prop: &str) -> Option<&'static str> {
     match prop {
@@ -453,6 +572,74 @@ mod tests {
         );
         let snaps = resolve_states(&d).unwrap();
         assert_eq!(snaps[1].nodes.keys().collect::<Vec<_>>(), ["back", "front"]);
+    }
+
+    /// `delta` over the snapshot `from`, as resolving applies a state's.
+    fn applied(
+        deck: &Deck,
+        from: &Snapshot,
+        props: &IndexMap<String, Props>,
+        remove: &[String],
+    ) -> IndexMap<String, Props> {
+        let mut nodes = strip_non_tracking(&from.nodes);
+        for id in remove {
+            nodes.shift_remove(id);
+        }
+        for (id, delta) in props {
+            merge_props(nodes.entry(id.clone()).or_insert_with(|| deck.nodes[id].props.clone()), delta);
+        }
+        nodes
+    }
+
+    /// A delta written from two snapshots resolves as the second (PLAN 2.97): each state of
+    /// the example from the one before it, and from the one after it, the way back too.
+    #[test]
+    fn a_delta_between_two_snapshots_resolves_as_the_second() {
+        let deck = example();
+        let snaps = resolve_states(&deck).unwrap();
+        for (a, b) in [(0, 1), (1, 2), (2, 3), (3, 0), (2, 0), (1, 3)] {
+            let (props, remove) = delta_to(&deck, &snaps[a], &snaps[b]);
+            assert_eq!(applied(&deck, &snaps[a], &props, &remove), snaps[b].nodes, "{a} to {b}");
+        }
+        // `mix` sets only what changes from `revenue`: the title's words and the chart's data.
+        let (props, remove) = delta_to(&deck, &snaps[1], &snaps[2]);
+        assert!(remove.is_empty());
+        assert_eq!(props.keys().collect::<Vec<_>>(), ["title", "rev"]);
+    }
+
+    /// States moved keep their looks (PLAN 2.97): `close` before `revenue` tracks from `intro`,
+    /// and `revenue` from `close`, each written again; `mix` still builds on `revenue`. A copy
+    /// of `close` resolves as `close` does.
+    #[test]
+    fn states_moved_keep_their_looks() {
+        let deck = example();
+        let by = |ids: &[&str]| ids.iter().map(|id| deck.states[deck.state_index(id).unwrap()].clone()).collect();
+        let moved = keep_looks(&deck, by(&["intro", "close", "revenue", "mix"]), &[]).unwrap();
+        let ids: Vec<&str> = moved.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, ["intro", "close", "revenue", "mix"]);
+        let index = |id: &str| deck.state_index(id).unwrap();
+        assert_eq!(moved[0].props, deck.states[index("intro")].props, "intro is first as it was");
+        assert_ne!(moved[1].props, deck.states[index("close")].props, "close is written again");
+        assert_eq!(moved[3].props, deck.states[index("mix")].props, "mix builds on revenue as it did");
+        // Nothing of `close` leaves that `intro` showed but the subtitle.
+        assert_eq!(moved[1].remove, ["subtitle"]);
+
+        // A copy of `close`, after it, as absolute, shows what it shows.
+        let mut copy = deck.states[index("close")].clone();
+        copy.id = "close-2".into();
+        let mut states: Vec<State> = by(&["intro", "revenue", "mix", "close"]);
+        states.push(copy);
+        assert!(keep_looks(&deck, states, &[("close-2".into(), "close".into())]).is_ok());
+
+        // `revenue` gone, `mix` tracks from `intro`, written again to show what it showed.
+        let gone = keep_looks(&deck, by(&["intro", "mix", "close"]), &[]).unwrap();
+        assert_eq!(gone[1].layout.as_deref(), Some("figure"), "the layout it took from revenue, its own");
+
+        // A state with no layout cannot keep that after one with a layout: it says which.
+        let mut bare = deck.clone();
+        bare.states[0].layout = None;
+        let moved = vec![bare.states[1].clone(), bare.states[0].clone()];
+        assert_eq!(keep_looks(&bare, moved, &[]).unwrap_err(), "`intro` would not show what it showed");
     }
 
     #[test]

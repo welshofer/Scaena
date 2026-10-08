@@ -278,6 +278,9 @@ jobs:
       - run: node web/theme.mjs
       # The state strip: thumbnails, and states added, moved, renamed, and removed (PLAN 2.35).
       - run: node web/strip.mjs
+      # The light table: every slide in a grid, moved by a drag and Alt with an arrow, copied, and taken
+      # out, one patch each, every state reading as it read (PLAN 2.97).
+      - run: node web/slides.mjs
       - run: node web/storage.mjs
       # The assistant runs PLAN 1.19's agent loop against a scripted server for each provider (PLAN 2.6).
       - run: node web/assistant.mjs

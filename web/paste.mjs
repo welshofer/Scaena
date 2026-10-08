@@ -54,6 +54,20 @@ try {
     await page.keyboard.press("Control+z");
     return back(to);
   };
+  /** ⌘Z, then once the source holds `has` and not `lacks`: one step back, however fast the
+   *  steps before it were written. */
+  const undoTo = async (has, lacks) => {
+    await page.locator("#overlay").focus();
+    await page.keyboard.press("Control+z");
+    const holds = ([has, lacks]) => {
+      const s = window.scaena.source();
+      return s.includes(has) && !s.includes(lacks) && !window.scaena.canvas.busy();
+    };
+    await page.waitForFunction(holds, [has, lacks], { timeout: 30000, polling: 50 }).catch(() => {});
+    await page.waitForTimeout(300);
+    const s = await source();
+    return s.includes(has) && !s.includes(lacks);
+  };
   /** Press the canvas at `[x, y]`, canvas units. */
   const press = async ([x, y]) => {
     const [cx, cy] = await page.evaluate(
@@ -116,13 +130,14 @@ try {
   await page.waitForFunction(() => /table/.test(window.scaena.canvas.selected() ?? ""), null, { timeout: 30000 }).catch(() => {});
   const table = await selected();
   check(/table/.test(table ?? ""), `the table they were is inserted, selected: ${table}`);
-  check(await says("2 rows pasted attached as @trail-visitors-revenue") || (await says("inserted as")), `the status says so: ${await status()}`);
+  check(await says("inserted as trail-visitors-revenue-table"), `the status says so: ${await status()}`);
   const scn = await source();
   for (const format of ['",d"', '"$,.2f"', '".1~%"']) check(scn.includes(format), `its columns print as copied: ${format}`);
   check(kept(scn) === kept(original), "the picture beside the cells stays out");
   const read = await page.evaluate(() => window.scaena.reading());
   for (const figure of ["1,200", "$1,234.50", "12.5%", "8%"]) check(read.includes(figure), `the table reads ${figure}, as copied`);
-  check(await undo(declared), "⌘Z takes the table away");
+  // Two steps, the source then the table: the first undo takes the table, and the source stays.
+  check(await undoTo("trail-visitors-revenue", "trail-visitors-revenue-table"), "⌘Z takes the table away");
   check(await undo(original), "and again the source: the deck is as it was");
 
   // A screenshot: a PNG and no words, where the canvas was last pressed.

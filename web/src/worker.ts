@@ -303,7 +303,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return post({ type: "pasted", id: data.id, pasted: JSON.parse(player.pasting(data.clip, data.state, ...data.at)) as Pasted });
       case "thumbnails": {
         layOut(data.format);
-        const thumbs = await thumbnails(data.height, data.known);
+        const thumbs = await thumbnails(data.height, data.known, data.states);
         return post({ type: "thumbnails", id: data.id, thumbs }, thumbs.flatMap((t) => (t.pixels ? [t.pixels] : [])));
       }
       case "addingState":
@@ -1013,20 +1013,23 @@ function opening(): Slot[] {
 const size = () => Array.from(player.canvasSize(), Math.round) as [number, number];
 
 /** Lay frames out in `next` from now on; `again` after the deck has changed. */
-/** The strip's thumbnails are asked for again: the last one asked stops. */
-let thumbing = 0;
+/** Thumbnails are asked for again: the last one asked stops the one before it, the strip's of
+ * every state and the light table's of some apart (PLAN 2.97). */
+const thumbing = { all: 0, some: 0 };
 
 /** Each state of the timeline at rest, `height` pixels high, for the state strip (PLAN 2.35):
  * pixels for each whose drawing (its display list's digest) is not the one `known` holds. A
  * state at a time, the worker answering what else is asked between them; a newer request stops
  * it with what it has. A state the deck no longer has, changed meanwhile, is left out. */
-async function thumbnails(height: number, known: Record<string, string>): Promise<Thumb[]> {
-  const mine = ++thumbing;
+async function thumbnails(height: number, known: Record<string, string>, only?: string[]): Promise<Thumb[]> {
+  const kind = only ? "some" : "all";
+  const mine = ++thumbing[kind];
   const [w, h] = player.canvasSize();
   const width = Math.max(1, Math.round((height * w) / h));
   const thumbs: Thumb[] = [];
   for (const { state } of slots) {
-    if (mine !== thumbing) break;
+    if (mine !== thumbing[kind]) break;
+    if (only && !only.includes(state)) continue;
     try {
       const digest = player.digest(state);
       if (known[state] === digest) {

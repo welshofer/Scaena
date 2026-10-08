@@ -20,6 +20,7 @@ export const GROUPS = [
   "Draw and insert",
   "See",
   "States",
+  "Slides",
   "Layers",
   "The cue",
   "Find and replace",

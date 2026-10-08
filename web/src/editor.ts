@@ -88,6 +88,7 @@ import { scn, scnHighlight } from "./scn";
 import { client, listen, served, status as onDisk } from "./served";
 import { worker } from "./spawn";
 import { Stage } from "./stage";
+import { slides as lightTable, slidesKeys } from "./slides";
 import { strip, stripKeys } from "./strip";
 import { type Selected, typingKeys } from "./typing";
 import { themePanel } from "./theme-panel";
@@ -850,6 +851,24 @@ async function edit(source: Source) {
     apply: made,
     say,
   });
+  /** The light table (PLAN 2.97): every slide in a grid, in place of the preview, to move, copy,
+   * and take out across the deck. */
+  const table = lightTable(stage, $("#slides"), $<HTMLButtonElement>("#slides-open"), {
+    shown: showing,
+    format,
+    source: () => view.state.doc.toString(),
+    show: (index) => {
+      const start = last?.states[index]?.[1];
+      if (start !== undefined) view.dispatch({ selection: { anchor: start }, scrollIntoView: true });
+      void show(index);
+    },
+    apply: made,
+    opened: (open) => {
+      $("#work").classList.toggle("tabled", open);
+      if (!open) $("#overlay").focus();
+    },
+    say,
+  });
   // ⌘Z, ⇧⌘Z, and ⌘Y where nothing on the page takes them itself (PLAN 2.77): the strip, the layers,
   // the inspector's choices, a button. A field keeps its own typing's undo; the source, the canvas,
   // the text typed in, the Data tab, and the Files tab answer them first.
@@ -991,6 +1010,7 @@ async function edit(source: Source) {
       if (edited.at && !moved) shown = edited.at.index;
       statesPicker.selectedIndex = shown;
       states.states(edited.slots, shown);
+      table.states(edited.slots);
       void inspect();
       void layering.refresh();
       void data.refresh();
@@ -1029,6 +1049,7 @@ async function edit(source: Source) {
     // Every state is laid out: the strip's thumbnails that changed are painted again, and the
     // layouts the inspector suggests are judged again (PLAN 2.92).
     void states.paint();
+    void table.paint();
     look.linted();
     view.dispatch(setDiagnostics(view.state, linted.findings.map((f) => diagnostic(f, view.state.doc.length))));
   }
@@ -1040,6 +1061,7 @@ async function edit(source: Source) {
     // Those about each state stand on the canvas and count in the strip (PLAN 2.49).
     board.found(findings);
     states.found(findings);
+    table.found(findings);
     formatting.found(findings);
     if (edited.error) {
       status.textContent = "does not compile";
@@ -1365,7 +1387,7 @@ async function edit(source: Source) {
       view.dispatch({ effects: locked.reconfigure(on ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []) });
     },
     drawings: async () => {
-      await states.paint();
+      await states.painted();
       return { ...states.drawings(), states: last?.states.map(([id]) => id) ?? [] };
     },
     show: (state) => {
@@ -1596,6 +1618,8 @@ async function edit(source: Source) {
       { label: "Rename the state", where: ["state"], applies: () => now() !== undefined, run: () => states.rename(now()!) },
       { label: "Delete the state", where: ["state"], applies: () => now() !== undefined && count() > 1, run: () => states.remove(now()!) },
       { label: "Export it as a PNG…", where: ["state"], applies: () => now() !== undefined, run: () => openExport("png") },
+      { label: "Show the light table", applies: () => now() !== undefined && !table.open(), run: () => table.toggle(true) },
+      { label: "Close the light table", applies: () => table.open(), run: () => table.toggle(false) },
       { label: "Show the next state", applies: () => last?.valid === true && shown < count() - 1, run: () => goTo(shown + 1) },
       { label: "Show the state before", applies: () => last?.valid === true && shown > 0, run: () => goTo(shown - 1) },
     ];
@@ -1674,6 +1698,7 @@ async function edit(source: Source) {
     ...canvasKeys(),
     ...typingKeys(),
     ...stripKeys(),
+    ...slidesKeys(),
     ...layerKeys(),
     ...cueKeys(),
     ...findKeys(),
@@ -1855,6 +1880,7 @@ async function edit(source: Source) {
   formatPicker.onchange = () => {
     void show(shown);
     states.reformat();
+    table.reformat();
     formatting.shown();
     // Which findings hold in the format shown is lint's to say again (PLAN 2.49): CodeMirror lints
     // again only once the source changes.
@@ -1929,6 +1955,8 @@ async function edit(source: Source) {
       look,
       /** The state strip: its states, thumbnails, and the patches it makes. */
       strip: states,
+      /** The light table (PLAN 2.97): its slides, those selected, and the patches it makes. */
+      slides: table,
       /** The cue of the state shown: its bars, and the patches its drags make. */
       cue: cueing,
       /** Find and replace: what it finds, and the match shown. */
