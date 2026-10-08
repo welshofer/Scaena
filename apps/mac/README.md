@@ -26,4 +26,6 @@ The assistant (⌥⌘A, PLAN 3.6) is the browser's, with your own key: put an An
 
 On the canvas (PLAN 3.7), drag a node to move it and a handle to resize it: it snaps to the theme's grid or into a slot, as in the browser, and Option keeps the change to the state shown. Shift takes a node off the grid, where it is outlined in orange, as lint flags it (W301), or puts one back on it. Each drag is one step to undo.
 
+Double-click a text to type in it where you clicked (PLAN 3.9), with Option to keep what you type to the state shown. The keys are a text editor's: Shift extends the selection, Option moves by words, ⌘ to a line's ends; a second click selects a word, a third its paragraph; an input method composes in place; ⌘B and ⌘I make the characters selected bold or italic. A burst of typing is one step to undo. Escape, Tab, or a click outside the text stops typing.
+
 Export (PLAN 3.8), in the toolbar, shares the deck as a PDF, the same bytes `scaena export --format pdf` writes, or the state shown as a PNG, through the Share sheet; shows the PDF in Quick Look; or saves either where you say.

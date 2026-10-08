@@ -7,8 +7,9 @@ import UniformTypeIdentifiers
 /// painted by the engine on Metal, a node selected on it by a click, and its cue under it, to
 /// play and scrub; what lint found, each with its fix; the deck's `.scn` beside the canvas; and
 /// the inspector, which edits the node selected, or the state with none; and the assistant, which
-/// edits it with the user (PLAN 3.6). Every edit is a patch or a source, as in the browser, and
-/// one step to undo.
+/// edits it with the user (PLAN 3.6). A double click types in a text on the canvas (PLAN 3.9).
+/// Every edit is a patch or a source, as in the browser, and one step to undo; a burst of typing
+/// is one.
 struct DeckView: View {
     @ObservedObject var document: ScaenaDocument
     @Environment(\.undoManager) private var undo
@@ -22,6 +23,8 @@ struct DeckView: View {
     @State private var failure: String?
     /// The assistant: the conversation this window keeps.
     @State private var assistant: Assistant?
+    /// Text typed in place on the canvas.
+    @State private var typing: Typing?
     /// What the on-device model is asked, shown in a sheet.
     @State private var asked: Asked?
     /// An export shown in Quick Look (PLAN 3.8).
@@ -157,12 +160,18 @@ struct DeckView: View {
                 node = arriving
                 arriving = nil
                 playhead = Playhead()
+                typing?.sync(shown: now)
             }
             .onChange(of: undo, initial: true) { _, now in
                 // The assistant's edits are each one step of this window's undo.
                 if assistant == nil { assistant = Assistant(editor: editor) }
                 assistant?.edited = { [weak document = self.document, weak now] before, files in
                     document?.took(before, files: files, undo: now)
+                }
+                // Text typed on the canvas: a burst of typing is one step of it (PLAN 3.9).
+                if typing == nil { typing = Typing(editor: editor) }
+                typing?.edited = { [weak document = self.document, weak now] before, joins in
+                    document?.typedInPlace(before, joins: joins, undo: now)
                 }
             }
             .task(id: editor.revision) {
@@ -214,8 +223,10 @@ struct DeckView: View {
                 session: editor.session, state: shown, revision: editor.revision &+ editor.drawn, playhead: $playhead
             )
             .overlay {
-                CanvasSelection(editor: editor, state: shown, size: size, node: $node) { ops in
-                    perform { try document.make(ops, undo: undo) }
+                if let typing {
+                    CanvasSelection(editor: editor, state: shown, size: size, node: $node, typing: typing) { ops in
+                        perform { try document.make(ops, undo: undo) }
+                    }
                 }
             }
             .aspectRatio(size.width / max(size.height, 1), contentMode: .fit)

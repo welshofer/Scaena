@@ -67,7 +67,8 @@ It prints the time, and where it went.
 - **What draws a deck is the engine's.** Every frame, glyph, and box comes from the engine:
   - the canvas, the stage, and the presenter's view: vello on Metal;
   - the states drawn small and the next state: the CPU painter's pixels;
-  - each outline, handle, and landing a drag shows: the engine's boxes (`boxes`, `hit`, `targets`, `snap`).
+  - each outline, handle, and landing a drag shows: the engine's boxes (`boxes`, `hit`, `targets`, `snap`);
+  - a caret and a selection in a text typed in on the canvas (PLAN 3.9): the engine's carets (`carets`). The view that takes the keys answers the text input system (`NSTextInputClient`) from them, and lays out and draws nothing.
 
   SwiftUI draws chrome: lists, the inspector, the findings, the assistant's conversation.
 - **Held by a test.** `crates/scaena-ffi/tests/chrome.rs` reads every Swift file of the app, and fails on any API that lays text out, measures it, or draws it outside the engine. It names Core Text, TextKit's layout managers and containers, `NSTextField`, string measuring, and string drawing.
@@ -88,6 +89,6 @@ About fifteen minutes on an M-series Mac with macOS 15 or later, Rust, and Xcode
 1. `just mac`, then open `tests/fixtures/torture.scaena`, and the same deck in the web player (`just web-dev`). Look at a few states side by side: one with text, `hanging`; one with a chart, `chart`; one with a shader, `mesh`.
 2. Open `tests/bench/b1.scaena`. Play it (⌥⌘P), with a second display if there is one.
 3. Run criterion 2's command three times. Log the median.
-4. Drag the cover's title off its slot with Shift, then undo. Ask the assistant something with a key from Settings. Export the PDF, and share it.
+4. Drag the cover's title off its slot with Shift, then undo. Double-click the title and type a few words, with an input method that composes too (Japanese, say), then undo once: the words go together. Ask the assistant something with a key from Settings. Export the PDF, and share it.
 
 What the run finds is logged here and in PLAN's gate log.

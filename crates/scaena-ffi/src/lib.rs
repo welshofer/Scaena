@@ -309,7 +309,10 @@ pub unsafe extern "C" fn scaena_add_file(
 /// where a node may go; `snap {state, node, how, x, y, w, h, fork?, reach?}`, where a box left
 /// there lands and the patch that puts it there; `setMoving {nodes, dx, dy}`, the nodes drawn
 /// moved in frames at rest, laying nothing out; `preview {ops?}`, frames at rest drawn as a
-/// patch would make them; and `reach {ops}`, the states a patch changes.
+/// patch would make them; and `reach {ops}`, the states a patch changes. Text typed in place
+/// (PLAN 3.9): `typed {ops, at?}`, `replace_text`, `style_text`, and `list` ops by the user,
+/// validated but not linted, and whether the deck changed; and `bolding` and `italicizing
+/// {state, node, from, to}`, the look ⌘B and ⌘I give characters.
 ///
 /// # Safety
 /// `session` is a live handle; `method` a NUL-terminated string; `args` one, or null.
@@ -979,6 +982,25 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         "hit" => json!(s.hits_json(arg("state")?, [number("x")? as f32, number("y")? as f32]).map_err(said)?),
         "layers" => value(serde_json::to_value(s.layers(arg("state")?).map_err(said)?))?,
         "carets" => s.carets_json(arg("state")?, arg("node")?).map_err(said)?,
+        // Text typed in place (PLAN 2.32, 3.9): `replace_text`, `style_text`, and `list` ops by
+        // the user at `at` (RFC 3339), validated as a patch is but not linted; whether the deck
+        // changed.
+        "typed" => {
+            let ops = patch_of(args.get("ops"), method)?.ok_or_else(|| said("typed: `ops` is a list it needs"))?;
+            let at = optional("at").and_then(scaena_session::store::seconds);
+            json!(s.typed(&Value::Array(ops), at).map_err(said)?)
+        }
+        // What ⌘B and ⌘I give the characters `from` to `to` (Unicode scalar values): `style_text`'s
+        // `look` (PLAN 2.38, 2.40).
+        "bolding" | "italicizing" => {
+            let (state, node) = (arg("state")?, arg("node")?);
+            let (from, to) = (number("from")? as usize, number("to")? as usize);
+            match method {
+                "bolding" => s.bolding(state, node, from, to),
+                _ => s.italicizing(state, node, from, to),
+            }
+            .map_err(said)?
+        }
         "targets" => {
             let found = s.targets(arg("state")?, arg("node")?).map_err(said)?.clone();
             value(serde_json::to_value(scaena_ops::inspect::Targets::from(found)))?

@@ -67,6 +67,21 @@ public final class DeckEditor {
         return before
     }
 
+    /// Make `ops`, text typed in place on the canvas (PLAN 3.9), as the user at `date`:
+    /// `replace_text`, `style_text`, or `list` ops, validated as a patch is but not linted, as the
+    /// browser's typing is: the findings shown stay until edits stop and `lintEvery` runs. The
+    /// source the deck had, for an undo. What reads so already, or what the deck refuses, throws
+    /// why.
+    @discardableResult
+    public func typed(_ ops: [JSONValue], at date: Date = Date()) throws -> String {
+        guard valid, error == nil else { throw ScaenaError(message: "the source does not compile: fix it first") }
+        guard try session.typed(ops, at: date) else { throw ScaenaError(message: "it reads so already") }
+        guard let before = take(try session.source(), lint: false) else {
+            throw ScaenaError(message: error?.message ?? "the deck typed does not validate")
+        }
+        return before
+    }
+
     /// Compile `typed`, the source pane's text: the source the deck had, for an undo, where it
     /// became the deck; none where it does not compile or validate, or says what the pane did.
     public func type(_ typed: String) -> String? {
@@ -145,8 +160,9 @@ public final class DeckEditor {
         return image
     }
 
-    /// Compile `next` as the source: the source the deck had, where `next` became the deck.
-    private func take(_ next: String) -> String? {
+    /// Compile `next` as the source: the source the deck had, where `next` became the deck. With
+    /// `lint`, the state shown is linted at once; without, the findings shown wait for `lintEvery`.
+    private func take(_ next: String, lint: Bool = true) -> String? {
         source = next
         guard let compiling = try? session.compile(next) else {
             error = nil
@@ -166,6 +182,10 @@ public final class DeckEditor {
         slots = (try? session.timeline()) ?? slots
         if let shown, !slots.contains(where: { $0.state == shown }) { self.shown = slots.first?.state }
         revision += 1
+        guard lint else {
+            whole = false
+            return before
+        }
         findings = compiling.findings
         lintShown()
         return before
