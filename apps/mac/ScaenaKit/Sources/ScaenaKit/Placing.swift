@@ -34,8 +34,14 @@ public struct Targets: Decodable, Sendable {
     public let slots: [String: CGRect]
     /// How a box dropped here snaps.
     public let snaps: [SnapMode]
+    /// The tracks a placement by cells takes, each from its start to its end: columns left to
+    /// right, rows top to bottom (PLAN 3.17: where an arrow key steps it).
+    public let columns: [ClosedRange<Double>]
+    public let rows: [ClosedRange<Double>]
+    /// A stack's children in their order, this node among them.
+    public let flow: [String]
 
-    private enum Keys: String, CodingKey { case by, parent, cell, slots, snaps }
+    private enum Keys: String, CodingKey { case by, parent, cell, slots, snaps, columns, rows, flow }
 
     public init(from decoder: any Decoder) throws {
         let fields = try decoder.container(keyedBy: Keys.self)
@@ -45,6 +51,12 @@ public struct Targets: Decodable, Sendable {
         let named = try fields.decodeIfPresent([String: [Double]].self, forKey: .slots) ?? [:]
         slots = try named.mapValues(rect)
         snaps = try fields.decodeIfPresent([SnapMode].self, forKey: .snaps) ?? []
+        let track = { (pair: [Double]) -> ClosedRange<Double>? in
+            pair.count == 2 && pair[0] <= pair[1] ? pair[0]...pair[1] : nil
+        }
+        columns = try (fields.decodeIfPresent([[Double]].self, forKey: .columns) ?? []).compactMap(track)
+        rows = try (fields.decodeIfPresent([[Double]].self, forKey: .rows) ?? []).compactMap(track)
+        flow = try fields.decodeIfPresent([String].self, forKey: .flow) ?? []
     }
 
     /// How a drag of the node, placed `at`, snaps, as the browser's canvas decides it: `resize` by

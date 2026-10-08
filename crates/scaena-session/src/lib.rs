@@ -1377,6 +1377,16 @@ impl Session {
         Ok(scaena_core::reading::html(&self.deck, snap, &list))
     }
 
+    /// How `state` reads at rest, in the format shown, a part for each node read, in turn (SPEC
+    /// §3.12): what a screen reader speaks for each node on the Mac's canvas (PLAN 3.17).
+    pub fn reads(&mut self, state: &str) -> Result<Vec<scaena_core::reading::Part>, Error> {
+        let list = self.frame(state, f64::INFINITY)?;
+        let snapshots = scaena_core::resolve_states(&self.deck).map_err(|e| Error::Deck(e.to_string()))?;
+        let snap = (snapshots.iter().find(|s| s.state_id == state))
+            .ok_or_else(|| EngineError::UnknownState(state.to_string()))?;
+        Ok(scaena_core::reading::parts(&self.deck, snap, &list))
+    }
+
     /// The fonts and images the engine was built from, as painters read them.
     pub fn assets(&self) -> &Assets {
         &self.store

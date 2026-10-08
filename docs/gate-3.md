@@ -1,6 +1,6 @@
 # Gate 3
 
-Phase 3's exit criteria (PLAN, "Exit criteria (gate 3)"), each with its evidence so far. Every task of Phase 3 has landed (3.1–3.8). What the gate still needs is a real Mac: CI's macOS runner is a virtual machine with a paravirtual GPU, which compiles and tests the Swift but cannot read the gate's bars.
+Phase 3's exit criteria (PLAN, "Exit criteria (gate 3)"), each with its evidence so far. Every task of Phase 3 has landed: the app (3.1–3.8), then the editor as the browser's (3.9–3.17). What the gate still needs is a real Mac: CI's macOS runner is a virtual machine with a paravirtual GPU, which compiles and tests the Swift but cannot read the gate's bars.
 
 **Where it stands:**
 - **Criterion 1** (same pixels as the web player) is met on CI's Mac, through the goldens both clients are held to. A real M-series Mac's GPU reads it again in the run below.
@@ -85,10 +85,19 @@ The test allows `NSTextView` in `SourcePane.swift` alone, so either decision is 
 
 ## The run on a real Mac
 
-About fifteen minutes on an M-series Mac with macOS 15 or later, Rust, and Xcode's Swift; or with the `mac-app` workflow's `Scaena.app` and a release checkout for criterion 2.
+About half an hour on an M-series Mac with macOS 15 or later, Rust, and Xcode's Swift; or with the `mac-app` workflow's `Scaena.app` and a release checkout for criterion 2.
 1. `just mac`, then open `tests/fixtures/torture.scaena`, and the same deck in the web player (`just web-dev`). Look at a few states side by side: one with text, `hanging`; one with a chart, `chart`; one with a shader, `mesh`.
 2. Open `tests/bench/b1.scaena`. Play it (⌥⌘P), with a second display if there is one.
 3. Run criterion 2's command three times. Log the median.
 4. Drag the cover's title off its slot with Shift, then undo. Double-click the title and type a few words, with an input method that composes too (Japanese, say), then undo once: the words go together. Ask the assistant something with a key from Settings. Export the PDF, and share it.
+5. The editor, as the browser's (PLAN 3.10–3.17), on a copy of the torture deck (`cp -R tests/fixtures/torture.scaena /tmp`). Each edit undoes with one ⌘Z:
+   - In `links`, select a few words, give them a color in the inspector, and link them to another state with ⌘K. In `lists`, make a point a numbered step with ⌘⇧7, and indent it with Tab.
+   - From the Node menu, insert a text, copy it with ⌘D, lock it with ⇧⌘L, and try to drag it.
+   - Copy the chart in `chart` with ⌘C, and paste it in `shapes`. Copy a picture in Preview and paste it on the canvas, then a few cells from Numbers.
+   - In `containers`, Shift-click `stat-a` and `stat-b`, align them in the inspector, and group them with ⌘G.
+   - Add a slide in the state list. Open Slides (⌥⌘L) and drag one elsewhere. Rehearse (⌥⌘R) a few states, and keep the times.
+   - In the inspector's panels, change a color of the theme and a cell of `bars`. Save, edit, save again, and restore the first version.
+   - Turn a node by the handle above it, and crop an image in `images`. Show the grid (⌘'), zoom with a pinch, open Formats and click 9:16, and replace a word with Find in Deck (⇧⌘F).
+   - Tab through the canvas, Return into a container, move a node with the arrows, and turn it with `]`. With VoiceOver on (⌘F5), move through the canvas.
 
-What the run finds is logged here and in PLAN's gate log.
+What the run finds is logged here and in PLAN's gate log, and each of PLAN 3.2–3.17 it shows working is ticked there.

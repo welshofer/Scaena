@@ -22,6 +22,10 @@ public final class CanvasKeys: NSView {
     /// What the canvas does with the Edit menu's Find while no field takes it (PLAN 3.16): the
     /// deck's find bar opened, or its next or previous match shown.
     public var finding: (@MainActor (NSTextFinder.Action) -> Void)?
+    /// What the canvas does with a key while no text is typed in, before the input system makes a
+    /// command of it (PLAN 3.17): Tab, Return, Escape, the arrows, Space, the brackets, and +, as
+    /// the browser's canvas reads them. Whether it took the key.
+    public var pressed: (@MainActor (NSEvent) -> Bool)?
     /// What the canvas does with a command the keys make while no text is typed in: whether it did
     /// anything with it.
     public var command: (@MainActor (Selector) -> Bool)?
@@ -69,6 +73,8 @@ public final class CanvasKeys: NSView {
     }
 
     public override func keyDown(with event: NSEvent) {
+        // While no text is typed in, the canvas reads the key first (PLAN 3.17).
+        if !typing.typing, pressed?(event) == true { return }
         // The input system makes the key text, a composition, or a command (`doCommand`): the
         // text's while one is typed in, else the canvas's.
         interpretKeyEvents([event])
@@ -83,6 +89,12 @@ public final class CanvasKeys: NSView {
             event.charactersIgnoringModifiers?.lowercased() == "f"
         {
             finding(.showFindInterface)
+            return true
+        }
+        // ⌘A with the canvas focused and no text typed in: all beside the node selected (PLAN 3.17).
+        if !typing.typing, let pressed, window?.firstResponder === self, flags == .command,
+            event.charactersIgnoringModifiers?.lowercased() == "a", pressed(event)
+        {
             return true
         }
         guard typing.typing, window?.firstResponder === self else { return super.performKeyEquivalent(with: event) }
@@ -341,11 +353,12 @@ public struct CanvasKeysHost: NSViewRepresentable {
     public let command: @MainActor (Selector) -> Bool
     public let clipping: @MainActor (CanvasKeys.Clipping) -> Void
     public let finding: (@MainActor (NSTextFinder.Action) -> Void)?
+    public let pressed: (@MainActor (NSEvent) -> Bool)?
 
     public init(
         typing: Typing, canvas: CGSize, shown: CGRect? = nil, command: @escaping @MainActor (Selector) -> Bool,
         clipping: @escaping @MainActor (CanvasKeys.Clipping) -> Void,
-        finding: (@MainActor (NSTextFinder.Action) -> Void)? = nil
+        finding: (@MainActor (NSTextFinder.Action) -> Void)? = nil, pressed: (@MainActor (NSEvent) -> Bool)? = nil
     ) {
         self.typing = typing
         self.canvas = canvas
@@ -353,6 +366,7 @@ public struct CanvasKeysHost: NSViewRepresentable {
         self.command = command
         self.clipping = clipping
         self.finding = finding
+        self.pressed = pressed
     }
 
     public func makeNSView(context: Context) -> CanvasKeys {
@@ -367,5 +381,6 @@ public struct CanvasKeysHost: NSViewRepresentable {
         view.command = command
         view.clipping = clipping
         view.finding = finding
+        view.pressed = pressed
     }
 }

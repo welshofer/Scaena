@@ -81,6 +81,34 @@ pub fn reading(t: NodeType, props: &Props) -> Reading {
     Reading { kind, alt, lang: text("lang").map(str::to_string), items }
 }
 
+/// What a reader hears of a node a state shows (SPEC §3.12), as [`html`] reads it, in plain words:
+/// what a screen reader speaks for each node the Mac's canvas lays before it (PLAN 3.17).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct Part {
+    pub node: String,
+    /// `heading`, `paragraph`, `figure`, or `table`.
+    pub role: &'static str,
+    /// A heading's level, 1 the highest.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub level: Option<u8>,
+    /// Its words, or its alt text instead; a figure's alt text, or none; a table's alt text, or
+    /// its cells row by row.
+    pub text: String,
+    /// BCP 47, where it is not the deck's language.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lang: Option<String>,
+}
+
+/// How the state `snap` resolves, drawn as `list` at rest, reads (SPEC §3.12), a part for each node
+/// read, in turn, as [`html`] reads it: what it is, and its words or what it shows.
+pub fn parts(deck: &Deck, snap: &Snapshot, list: &DisplayList) -> Vec<Part> {
+    let readings = readings(deck, snap);
+    let lang = deck.meta.as_ref().and_then(|m| m.lang.as_deref());
+    let mut out = Vec::new();
+    Reader { deck, snap, readings: &readings, lang }.parts(&list.ops, &mut out);
+    out
+}
+
 /// How the state `snap` resolves, drawn as `list` at rest, reads (SPEC §3.12), as HTML:
 /// each node it shows that is read, in paint order, an element of its own that names it
 /// (`data-node`). A heading (`h1`, `h2`) or paragraph says the node's text, or its alt text
@@ -125,6 +153,39 @@ impl Reader<'_> {
                     let _ =
                         write!(out, r#"<div role="img" data-node="{}"{named}{}></div>"#, attr(id), self.lang(reading));
                 }
+            }
+        }
+    }
+
+    /// The parts `ops` read, in turn, as [`Reader::read`] writes them.
+    fn parts(&self, ops: &[Op], out: &mut Vec<Part>) {
+        for op in ops {
+            let Op::Layer { node, ops: inner, .. } = op else { continue };
+            let Some(id) = node.as_deref() else {
+                self.parts(inner, out);
+                continue;
+            };
+            let reading = self.readings.get(id);
+            let alt = reading.and_then(|r| r.alt.clone());
+            let lang = reading.and_then(|r| r.lang.clone()).filter(|l| Some(l.as_str()) != self.lang);
+            let part = |role, level, text: String| Part { node: id.to_string(), role, level, text, lang: lang.clone() };
+            let words = || alt.clone().unwrap_or_else(|| self.snap.nodes.get(id).map(words).unwrap_or_default());
+            match reading.map_or(Kind::Group, |r| r.kind) {
+                Kind::Artifact => {}
+                Kind::Heading(level) if !words().trim().is_empty() => out.push(part("heading", Some(level), words())),
+                Kind::Paragraph if !words().trim().is_empty() => out.push(part("paragraph", None, words())),
+                Kind::Heading(_) | Kind::Paragraph => {}
+                Kind::Table => {
+                    let rows =
+                        cells(inner).into_iter().fold(BTreeMap::<u32, Vec<String>>::new(), |mut rows, ((r, _), t)| {
+                            rows.entry(r).or_default().push(t);
+                            rows
+                        });
+                    let said = rows.into_values().map(|row| row.join(", ")).collect::<Vec<_>>().join("; ");
+                    out.push(part("table", None, alt.clone().unwrap_or(said)));
+                }
+                Kind::Group if alt.is_none() => self.parts(inner, out),
+                Kind::Figure | Kind::Group => out.push(part("figure", None, alt.clone().unwrap_or_default())),
             }
         }
     }
@@ -191,12 +252,7 @@ impl Reader<'_> {
     /// A table by rows of cells, each with the text it draws: the first row's headers of
     /// their columns. A row with no text in a column (a null) has an empty cell there.
     fn table(&self, id: &str, reading: Option<&Reading>, ops: &[Op], out: &mut String) {
-        let mut cells: BTreeMap<(u32, u32), String> = BTreeMap::new();
-        for op in ops {
-            if let Op::Layer { cell: Some([row, column]), ops, .. } = op {
-                cells.insert((*row, *column), drawn(ops));
-            }
-        }
+        let cells = cells(ops);
         let named = reading
             .and_then(|r| r.alt.as_deref())
             .map(|alt| format!(r#" aria-label="{}""#, attr(alt)))
@@ -227,6 +283,17 @@ impl Reader<'_> {
             _ => String::new(),
         }
     }
+}
+
+/// A table's cells, by row and column, each with the text it draws.
+fn cells(ops: &[Op]) -> BTreeMap<(u32, u32), String> {
+    let mut cells = BTreeMap::new();
+    for op in ops {
+        if let Op::Layer { cell: Some([row, column]), ops, .. } = op {
+            cells.insert((*row, *column), drawn(ops));
+        }
+    }
+    cells
 }
 
 /// `words`' paragraphs as HTML (ADR-0018): each item an `li` of a `ul` or an `ol`, nested by

@@ -329,7 +329,8 @@ pub unsafe extern "C" fn scaena_drop(
 /// Answer `method` with `args` (a JSON object, or null for none), as a page's `Player` does:
 /// `{"ok": value}` or `{"error": {"message"}}`, a string to free. The calls ([`call`]):
 /// `states`, `formats`, `setFormat {format?}`, `canvasSize`, `duration {state}`, `timeline`,
-/// `files`, `imageFiles`, `digest {state}`, `reading {state}`, `source`, `compiledFrom
+/// `files`, `imageFiles`, `digest {state}`, `reading {state}`, `reads {state}` (each node read,
+/// in turn: its role and its words, PLAN 3.17), `source`, `compiledFrom
 /// {source}`, `compile {source}`, `lint {state?}`, `fix {patch}`, `inspect {state}`, `boxes
 /// {state}`, `hit {state, x, y}`, `layers {state}`, `carets {state, node}`, `choices {state,
 /// node}`, `stateChoices {state}`, `inserts`, `themes`, `themeText`, `keepHistory`,
@@ -1103,6 +1104,7 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         "imageFiles" => json!(s.image_files()),
         "digest" => json!(s.frame(arg("state")?, f64::INFINITY).map_err(said)?.digest().map_err(said)?),
         "reading" => json!(s.reading(arg("state")?).map_err(said)?),
+        "reads" => value(serde_json::to_value(s.reads(arg("state")?).map_err(said)?))?,
         "source" => json!(s.source()),
         "compiledFrom" => json!(s.compiled_from(arg("source")?)),
         "compile" => value(serde_json::to_value(s.compile(arg("source")?)))?,

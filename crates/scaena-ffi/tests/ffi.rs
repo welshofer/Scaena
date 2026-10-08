@@ -1157,3 +1157,32 @@ fn an_export_is_the_bytes_scaena_export_writes() {
     }
     unsafe { scaena_session_free(s) };
 }
+
+/// How a state reads, node by node (PLAN 3.17): each node a reader hears, in turn, its role and its
+/// words or what it shows, as the reading HTML reads it; decoration and shapes with no alt text
+/// read nothing.
+#[test]
+fn a_state_reads_node_by_node_as_a_screen_reader_hears_it() {
+    let b = open(B1);
+    assert_eq!(
+        call(b, "reads", json!({ "state": "cover" })),
+        json!([
+            { "node": "title", "role": "heading", "level": 1, "text": "Scaena" },
+            { "node": "subtitle", "role": "heading", "level": 2, "text": "Why this exists, what we believe, and what we refuse to build." },
+        ])
+    );
+    let refused = answered(b, "reads", &json!({ "state": "nowhere" }));
+    assert!(refused.get("error").is_some(), "{refused}");
+    unsafe { scaena_session_free(b) };
+
+    let t = open(TORTURE);
+    let shapes = call(t, "reads", json!({ "state": "shapes" }));
+    assert_eq!(shapes.as_array().map(Vec::len), Some(1), "the shapes are decoration: {shapes}");
+    let images = call(t, "reads", json!({ "state": "images" }));
+    let focal = images.as_array().and_then(|i| i.iter().find(|p| p["node"] == "image-focal")).cloned();
+    assert_eq!(focal.as_ref().map(|p| &p["role"]), Some(&json!("figure")), "{images}");
+    assert!(focal.is_some_and(|p| p["text"].as_str().is_some_and(|t| t.starts_with("The test card, cover"))));
+    let table = call(t, "reads", json!({ "state": "chart-kinds-2" }));
+    assert!(table.as_array().is_some_and(|p| p.iter().any(|p| p["node"] == "k-table" && p["role"] == "table")));
+    unsafe { scaena_session_free(t) };
+}
