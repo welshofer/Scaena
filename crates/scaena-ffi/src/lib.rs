@@ -560,10 +560,34 @@ pub struct ScaenaSurface {
     painter: scaena_paint::gpu::LayerPainter,
 }
 
-/// Paint on `layer`, a `CAMetalLayer`, `width` × `height` device pixels, with the adapter that
-/// presents to it; frames are presented at the display's refresh. The layer keeps the deck's
-/// aspect, and outlives the surface. Null where none can be made, as on any machine but a Mac,
-/// `*error` then saying why.
+/// Make the GPU every surface paints with, if it is not made yet: what the app calls as it starts,
+/// off its main thread, so that the first deck it opens shows its first frame without waiting for
+/// it (gate 3). A surface made meanwhile waits for it. False where none can be made, as on any
+/// machine but a Mac, `*error` then saying why.
+///
+/// # Safety
+/// `error` is null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_gpu_warm(error: *mut *mut c_char) -> bool {
+    let warmed = guarded(|| {
+        #[cfg(target_vendor = "apple")]
+        return scaena_paint::gpu::warm().map_err(said);
+        #[cfg(not(target_vendor = "apple"))]
+        Err(said("a layer is painted on the Mac, by Metal: there is none here"))
+    });
+    match warmed {
+        Ok(()) => true,
+        Err(failure) => {
+            unsafe { report(error, failure) };
+            false
+        }
+    }
+}
+
+/// Paint on `layer`, a `CAMetalLayer`, `width` × `height` device pixels, on the GPU every surface
+/// shares, made first if [`scaena_gpu_warm`] has not made it; frames are presented at the
+/// display's refresh. The layer keeps the deck's aspect, and outlives the surface. Null where
+/// none can be made, as on any machine but a Mac, `*error` then saying why.
 ///
 /// # Safety
 /// `layer` is a live `CAMetalLayer` that outlives the surface; `error` is null or writable.

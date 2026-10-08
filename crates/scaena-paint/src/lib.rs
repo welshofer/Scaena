@@ -1577,7 +1577,7 @@ pub mod gpu {
     #[cfg(not(target_arch = "wasm32"))]
     pub use native::GpuPainter;
     #[cfg(all(not(target_arch = "wasm32"), target_vendor = "apple"))]
-    pub use native::LayerPainter;
+    pub use native::{LayerPainter, warm};
 
     #[cfg(not(target_arch = "wasm32"))]
     mod native {
@@ -1779,10 +1779,25 @@ pub mod gpu {
                 }
             }
 
-            /// Paint `dl` into the target, made or kept at its size: what both [`GpuPainter`]
-            /// and [`LayerPainter`] draw a frame into, a storage texture.
+            /// Paint `dl` into the painter's own target, made or kept at its size.
             fn draw(
                 &mut self,
+                dl: &DisplayList,
+                fonts: &Assets,
+                scale: f32,
+                images: &[Option<ShaderImage>],
+            ) -> Result<wgpu::Extent3d, PaintError> {
+                let mut target = self.target.take();
+                let drawn = self.draw_into(&mut target, dl, fonts, scale, images);
+                self.target = target;
+                drawn
+            }
+
+            /// Paint `dl` into `target`, made or kept at its size: what both [`GpuPainter`]
+            /// and each [`LayerPainter`] draw a frame into, a storage texture.
+            fn draw_into(
+                &mut self,
+                target: &mut Option<Target>,
                 dl: &DisplayList,
                 fonts: &Assets,
                 scale: f32,
@@ -1791,7 +1806,7 @@ pub mod gpu {
                 let scene = scene(dl, fonts, scale, images)?;
                 let (width, height) = raster_size(dl, scale).map(|(w, h)| (u32::from(w), u32::from(h)))?;
                 let size = wgpu::Extent3d { width, height, depth_or_array_layers: 1 };
-                if self.target.as_ref().is_none_or(|t| t.size != size) {
+                if target.as_ref().is_none_or(|t| t.size != size) {
                     let texture = self.device.create_texture(&wgpu::TextureDescriptor {
                         label: Some("scaena target"),
                         size,
@@ -1806,9 +1821,9 @@ pub mod gpu {
                         view_formats: &[],
                     });
                     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-                    self.target = Some(Target { size, texture, view });
+                    *target = Some(Target { size, texture, view });
                 }
-                let target = self.target.as_ref().expect("made above");
+                let target = target.as_ref().expect("made above");
                 let params = vello::RenderParams {
                     base_color: peniko::Color::TRANSPARENT,
                     width,
@@ -1834,8 +1849,14 @@ pub mod gpu {
 
             /// Queue the target's copy, `size`, into a readback buffer: a frame on its way back.
             fn read_target(&mut self, size: wgpu::Extent3d) -> Result<Flight, PaintError> {
-                let (width, height) = (size.width, size.height);
                 let target = self.target.as_ref().ok_or_else(|| PaintError::Gpu("no frame painted yet".into()))?;
+                let texture = target.texture.clone();
+                self.copy_back(&texture, size)
+            }
+
+            /// Queue `texture`'s copy, `size`, into a readback buffer.
+            fn copy_back(&mut self, texture: &wgpu::Texture, size: wgpu::Extent3d) -> Result<Flight, PaintError> {
+                let (width, height) = (size.width, size.height);
                 // A texture-to-buffer copy pads each row to 256 bytes. The queue runs in
                 // order, so the next frame paints the target only once this copy is done.
                 let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
@@ -1847,7 +1868,7 @@ pub mod gpu {
                 };
                 let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
                 encoder.copy_texture_to_buffer(
-                    target.texture.as_image_copy(),
+                    texture.as_image_copy(),
                     wgpu::TexelCopyBufferInfo {
                         buffer: &buffer,
                         layout: wgpu::TexelCopyBufferLayout {
@@ -1910,45 +1931,122 @@ pub mod gpu {
             wgpu::DeviceDescriptor { label: Some("scaena"), required_limits, ..Default::default() }
         }
 
+        /// The GPU every layer in this process paints with (PLAN 3.2): one adapter, one device,
+        /// and one set of vello's pipelines and the shaders', which every [`LayerPainter`]
+        /// shares. Making them is most of what a first frame costs: on CI's virtual Mac, 0.56 s
+        /// of the 0.62 from opening B1 to its first frame, and each device after it another
+        /// 65–90 ms. So a client makes them once, as it starts and off its main thread
+        /// ([`warm`]), and a layer after that only configures a surface on them (gate 3).
+        #[cfg(target_vendor = "apple")]
+        struct Shared {
+            instance: wgpu::Instance,
+            adapter: wgpu::Adapter,
+            info: wgpu::AdapterInfo,
+            device: wgpu::Device,
+            queue: wgpu::Queue,
+            /// vello's renderer and the shaders' pipelines: a frame is painted at a time.
+            painter: std::sync::Mutex<GpuPainter>,
+            /// The blit onto a layer, made for each format a layer has offered.
+            blitters: std::sync::Mutex<Vec<(wgpu::TextureFormat, std::sync::Arc<wgpu::util::TextureBlitter>)>>,
+        }
+
+        #[cfg(target_vendor = "apple")]
+        impl Shared {
+            fn new() -> Result<Self, PaintError> {
+                let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+                    backends: wgpu::Backends::METAL,
+                    ..wgpu::InstanceDescriptor::new_without_display_handle()
+                });
+                // Any Metal device presents to any CAMetalLayer, so no layer is needed to choose.
+                let options = wgpu::RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::HighPerformance,
+                    compatible_surface: None,
+                    force_fallback_adapter: false,
+                };
+                let adapter = ready(instance.request_adapter(&options))?
+                    .map_err(|e| PaintError::Gpu(format!("no adapter: {e}")))?;
+                let (device, queue) = ready(adapter.request_device(&descriptor(&adapter)))?.map_err(gpu)?;
+                let info = adapter.get_info();
+                let painter = GpuPainter::with_device(device.clone(), queue.clone(), info.clone())?;
+                // The blit for the format a CAMetalLayer offers first, made now, not on a first frame.
+                let format = wgpu::TextureFormat::Bgra8Unorm;
+                let blit = std::sync::Arc::new(wgpu::util::TextureBlitter::new(&device, format));
+                Ok(Self {
+                    instance,
+                    adapter,
+                    info,
+                    device,
+                    queue,
+                    painter: std::sync::Mutex::new(painter),
+                    blitters: std::sync::Mutex::new(vec![(format, blit)]),
+                })
+            }
+
+            /// The painter, a frame at a time. One that panicked mid-frame is still the device's.
+            fn painter(&self) -> std::sync::MutexGuard<'_, GpuPainter> {
+                self.painter.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+            }
+
+            /// The blit onto a layer of `format`, made the first time a layer offers it.
+            fn blitter(&self, format: wgpu::TextureFormat) -> std::sync::Arc<wgpu::util::TextureBlitter> {
+                let mut made = self.blitters.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                if let Some((_, blit)) = made.iter().find(|(f, _)| *f == format) {
+                    return blit.clone();
+                }
+                let blit = std::sync::Arc::new(wgpu::util::TextureBlitter::new(&self.device, format));
+                made.push((format, blit.clone()));
+                blit
+            }
+        }
+
+        /// This process's GPU, made the first time it is asked for; a second asker waits for it.
+        #[cfg(target_vendor = "apple")]
+        fn shared() -> Result<&'static Shared, PaintError> {
+            static GPU: std::sync::OnceLock<Result<Shared, String>> = std::sync::OnceLock::new();
+            match GPU.get_or_init(|| Shared::new().map_err(|e| e.to_string())) {
+                Ok(gpu) => Ok(gpu),
+                Err(why) => Err(PaintError::Gpu(why.clone())),
+            }
+        }
+
+        /// Make the GPU every [`LayerPainter`] paints with, if it is not made yet: what a client
+        /// calls as it starts, off its main thread, so that the first deck it opens shows its
+        /// first frame without waiting for it. A layer made meanwhile waits for it.
+        #[cfg(target_vendor = "apple")]
+        pub fn warm() -> Result<(), PaintError> {
+            shared().map(|_| ())
+        }
+
         /// `vello` on a `CAMetalLayer` (PLAN 3.2, SPEC §9.3): what the Mac's view paints. A frame
-        /// renders into a storage texture as [`GpuPainter`]'s do, then a blit copies it onto the
-        /// layer's next drawable, presented at the display's next refresh (FIFO, so a display
-        /// link at 120 Hz on ProMotion paints at 120). The layer keeps the canvas's aspect: the
-        /// blit fills it.
+        /// renders into a storage texture of the layer's own as [`GpuPainter`]'s do, on the GPU
+        /// every layer shares ([`warm`]); then a blit copies it onto the layer's next drawable,
+        /// presented at the display's next refresh (FIFO, so a display link at 120 Hz on
+        /// ProMotion paints at 120). The layer keeps the canvas's aspect: the blit fills it.
         #[cfg(target_vendor = "apple")]
         pub struct LayerPainter {
-            painter: GpuPainter,
+            gpu: &'static Shared,
             surface: wgpu::Surface<'static>,
             config: wgpu::SurfaceConfiguration,
-            blitter: wgpu::util::TextureBlitter,
+            blitter: std::sync::Arc<wgpu::util::TextureBlitter>,
+            /// What this layer's frames are drawn into, kept while they keep its size.
+            target: Option<Target>,
             /// The size of the last frame drawn, which [`LayerPainter::last`] reads back.
             drawn: Option<wgpu::Extent3d>,
         }
 
         #[cfg(target_vendor = "apple")]
         impl LayerPainter {
-            /// Paint on `layer`, `width` × `height` device pixels, with the adapter that presents
-            /// to it.
+            /// Paint on `layer`, `width` × `height` device pixels, with the GPU every layer shares,
+            /// made first if it is not yet.
             ///
             /// # Safety
             /// `layer` is a live `CAMetalLayer` that outlives the painter.
             pub unsafe fn new(layer: *mut std::ffi::c_void, width: u32, height: u32) -> Result<Self, PaintError> {
-                let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-                    backends: wgpu::Backends::METAL,
-                    ..wgpu::InstanceDescriptor::new_without_display_handle()
-                });
+                let shared = shared()?;
                 let target = wgpu::SurfaceTargetUnsafe::CoreAnimationLayer(layer);
                 // SAFETY: the caller gives a live CAMetalLayer that outlives the surface.
-                let surface = unsafe { instance.create_surface_unsafe(target) }.map_err(gpu)?;
-                let options = wgpu::RequestAdapterOptions {
-                    power_preference: wgpu::PowerPreference::HighPerformance,
-                    compatible_surface: Some(&surface),
-                    force_fallback_adapter: false,
-                };
-                let adapter = ready(instance.request_adapter(&options))?
-                    .map_err(|e| PaintError::Gpu(format!("no adapter for the layer: {e}")))?;
-                let (device, queue) = ready(adapter.request_device(&descriptor(&adapter)))?.map_err(gpu)?;
-                let caps = surface.get_capabilities(&adapter);
+                let surface = unsafe { shared.instance.create_surface_unsafe(target) }.map_err(gpu)?;
+                let caps = surface.get_capabilities(&shared.adapter);
                 // vello writes sRGB-encoded bytes; a format that is not `*Srgb` keeps them.
                 let format = (caps.formats.iter().copied())
                     .find(|f| matches!(f, wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Rgba8Unorm))
@@ -1967,10 +2065,9 @@ pub mod gpu {
                     alpha_mode,
                     view_formats: vec![],
                 };
-                surface.configure(&device, &config);
-                let blitter = wgpu::util::TextureBlitter::new(&device, format);
-                let painter = GpuPainter::with_device(device, queue, adapter.get_info())?;
-                Ok(Self { painter, surface, config, blitter, drawn: None })
+                surface.configure(&shared.device, &config);
+                let blitter = shared.blitter(format);
+                Ok(Self { gpu: shared, surface, config, blitter, target: None, drawn: None })
             }
 
             /// Paint at `width` × `height` device pixels from now on: the view's size changed.
@@ -1978,13 +2075,13 @@ pub mod gpu {
                 let (width, height) = (width.max(1), height.max(1));
                 if (width, height) != (self.config.width, self.config.height) {
                     (self.config.width, self.config.height) = (width, height);
-                    self.surface.configure(&self.painter.device, &self.config);
+                    self.surface.configure(&self.gpu.device, &self.config);
                 }
             }
 
             /// Which adapter paints: name, backend, and device type.
             pub fn adapter(&self) -> &wgpu::AdapterInfo {
-                self.painter.adapter()
+                &self.gpu.info
             }
 
             /// Paint `dl` at the layer's width and present it at the next refresh. False where
@@ -1993,10 +2090,12 @@ pub mod gpu {
             pub fn paint(&mut self, dl: &DisplayList, fonts: &Assets) -> Result<bool, PaintError> {
                 let scale = self.config.width as f32 / dl.viewport[0];
                 let jobs = shader_jobs(dl, scale)?;
-                self.painter.holds(dl, scale, &jobs)?;
-                let p = &mut self.painter;
+                let gpu = self.gpu;
+                let mut painter = gpu.painter();
+                let p = &mut *painter;
+                p.holds(dl, scale, &jobs)?;
                 let images = p.shaders.prepare(&p.device, &p.queue, &mut p.renderer, &jobs);
-                let drawn = p.draw(dl, fonts, scale, &images);
+                let drawn = p.draw_into(&mut self.target, dl, fonts, scale, &images);
                 Shaders::release(&mut p.renderer, images);
                 self.drawn = Some(drawn?);
                 let frame = match self.surface.get_current_texture() {
@@ -2004,18 +2103,17 @@ pub mod gpu {
                         frame
                     }
                     wgpu::CurrentSurfaceTexture::Outdated => {
-                        self.surface.configure(&self.painter.device, &self.config);
+                        self.surface.configure(&gpu.device, &self.config);
                         return Ok(false);
                     }
                     wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => return Ok(false),
                     other => return Err(PaintError::Gpu(format!("the layer has no drawable: {other:?}"))),
                 };
                 let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
-                let target = &self.painter.target.as_ref().expect("drawn above").view;
-                let mut encoder =
-                    self.painter.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-                self.blitter.copy(&self.painter.device, &mut encoder, target, &view);
-                self.painter.queue.submit([encoder.finish()]);
+                let target = &self.target.as_ref().expect("drawn above").view;
+                let mut encoder = gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+                self.blitter.copy(&gpu.device, &mut encoder, target, &view);
+                gpu.queue.submit([encoder.finish()]);
                 frame.present();
                 Ok(true)
             }
@@ -2024,8 +2122,10 @@ pub mod gpu {
             /// the CPU painter's pixels (SPEC §13.5, gate 3's first criterion).
             pub fn last(&mut self) -> Result<Raster, PaintError> {
                 let size = self.drawn.ok_or_else(|| PaintError::Gpu("no frame painted yet".into()))?;
-                let flight = self.painter.read_target(size)?;
-                self.painter.finish(flight)
+                let texture = &self.target.as_ref().expect("drawn with the size").texture;
+                let mut painter = self.gpu.painter();
+                let flight = painter.copy_back(texture, size)?;
+                painter.finish(flight)
             }
         }
 
