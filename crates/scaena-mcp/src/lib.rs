@@ -797,7 +797,11 @@ impl Scaena {
         Checked as a re-theme is: an edit that would leave the deck invalid, as one that takes out a name it uses \
         does, is refused (`refused`, and its errors in `added`), and nothing is written. Otherwise the theme file \
         is written in canonical form (an inline theme, in the deck), and the delta in what lint finds is \
-        reported. A theme that ships is edited in the bundle's copy.")]
+        reported. A theme that ships is edited in the bundle's copy. Or, in place of `ops`, a `photo`: an image \
+        the bundle holds, whose colors the theme's take (PLAN 2.94). Its best hue goes to the accent, and the best \
+        far enough from that to the next chromatic color; the hue it leans to tints the neutrals. Each color keeps \
+        the theme's lightness and chroma, and each color text is set in moves until it reads on the surfaces. \
+        `photo` in the result says what the photo's colors are and what each of the theme's became.")]
     async fn theme_edit(
         &self,
         Parameters(a): Parameters<ThemeEdit>,

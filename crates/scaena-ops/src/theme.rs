@@ -185,13 +185,22 @@ fn list_fonts(deck: &mut Deck, theme: &Value, held: impl Fn(&str) -> bool) -> Ve
     listed
 }
 
-/// What a theme edit asks (ADR-0016): what `scaena theme --edit` reads and `theme_edit` takes.
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+/// What a theme edit asks (ADR-0016): what `scaena theme --edit` and `--from-photo` read and
+/// `theme_edit` takes.
+#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 pub struct ThemeEdit {
     /// RFC 6902 operations on the theme the deck names, applied in order, all or none: each
     /// path a JSON Pointer into the theme's JSON (`/tokens/color/accent`,
     /// `/type/roles/body/size`, `/grid/gutter`), for a theme file and an inline theme alike.
+    #[serde(default)]
     pub ops: Vec<Value>,
+    /// In place of `ops`: an image the bundle holds (`assets/ridge.png`), whose colors the
+    /// theme's take (PLAN 2.94). Its best hue becomes the accent's, and the best far enough from
+    /// it the next chromatic color's. The hue the whole photo leans to tints the neutrals. Each
+    /// color keeps the theme's tone, its lightness and chroma, and each color text is set in is
+    /// moved until it reads on the surfaces. The result's `photo` says what it read and set.
+    #[serde(default)]
+    pub photo: Option<String>,
 }
 
 /// What a theme edit did, or would do.
@@ -215,6 +224,40 @@ pub struct ThemeEdited {
     /// Whether the edit was refused: it would have added a validation error (in `added`). The
     /// theme stays as it was.
     pub refused: bool,
+    /// With `photo`: what its colors are, and each of the theme's colors and data palettes, what
+    /// it was and what it takes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub photo: Option<Photo>,
+}
+
+/// What a theme edit from a photo read and set (PLAN 2.94, `scaena_core::palette`).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct Photo {
+    /// The image, as the bundle names it.
+    pub image: String,
+    /// What its colors are: its hues, best first, and the hue it leans to.
+    pub read: scaena_core::palette::Read,
+    /// Each of the theme's colors and data palettes: what it was, what it takes, and, for a
+    /// color text is set in, the least contrast it has on the surfaces and the least it needs.
+    pub set: Vec<scaena_core::palette::Set>,
+}
+
+/// The colors the image `image` gives the theme the deck names (PLAN 2.94).
+fn photo(b: &Bundle, image: &str) -> Result<Photo, OpsError> {
+    let bytes = b.read(image).with_context(|| format!("reading the photo, {image}"))?;
+    let picture = scaena_paint::Picture::decode(&bytes)
+        .map_err(|e| OpsError::new(format!("{image} is not a photo to read, a PNG or a JPEG: {e}")))?;
+    let read = scaena_core::palette::read(picture.rgba.data(), picture.width, picture.height);
+    let theme = match &b.deck.theme {
+        Some(Value::String(rel)) => {
+            let bytes = b.read(rel).with_context(|| format!("reading the theme, {rel}"))?;
+            serde_json::from_slice(&bytes).with_context(|| format!("{rel} is not JSON"))?
+        }
+        Some(inline @ Value::Object(_)) => inline.clone(),
+        _ => return Err(OpsError::new("the deck names no theme to edit: `theme --apply` gives it one")),
+    };
+    let set = scaena_core::palette::theme(&theme, &read).map_err(OpsError::new)?;
+    Ok(Photo { image: image.to_string(), read, set })
 }
 
 /// Edit the theme the deck names by `ops` (PLAN 2.61, ADR-0016): a theme file, written in
@@ -235,24 +278,41 @@ pub fn theme_edit(b: &Bundle, edit: &ThemeEdit, dry_run: bool) -> Result<ThemeEd
 /// the theme and is not refused. A client that keeps its bundle in memory, as the web editor
 /// does, writes it there.
 pub fn theme_editing(b: &Bundle, edit: &ThemeEdit) -> Result<(ThemeEdited, Option<Write>), OpsError> {
-    if edit.ops.is_empty() {
-        return Err(OpsError::new("no operations: a theme edit is a list of JSON Patch operations (RFC 6902)"));
-    }
+    let (ops, photo) = match (&edit.photo, edit.ops.is_empty()) {
+        (Some(_), false) => return Err(OpsError::new("a theme edit is `ops` or a `photo`, not both")),
+        (Some(image), true) => {
+            let photo = photo(b, image)?;
+            let ops = scaena_core::palette::ops(&photo.set);
+            if ops.is_empty() {
+                return Err(OpsError::new(format!("the theme's colors are {image}'s already: nothing to edit")));
+            }
+            (ops, Some(photo))
+        }
+        (None, true) => {
+            return Err(OpsError::new(
+                "no operations: a theme edit is a list of JSON Patch operations (RFC 6902), or a `photo`",
+            ));
+        }
+        (None, false) => (edit.ops.clone(), None),
+    };
     let failed = |e: scaena_core::patch::PatchError| OpsError { message: e.to_string(), plan: None, op: Some(e.index) };
     let mut paths: Vec<String> = Vec::new();
-    for path in edit.ops.iter().filter_map(|op| op.get("path").and_then(Value::as_str)) {
+    for path in ops.iter().filter_map(|op| op.get("path").and_then(Value::as_str)) {
         if !paths.iter().any(|p| p == path) {
             paths.push(path.to_string());
         }
     }
     let shown: Vec<&str> = paths.iter().map(|p| p.strip_prefix('/').unwrap_or(p)).collect();
-    let why = Why::new(format!("theme_edit: {}", shown.join(", ")));
+    let why = Why::new(match &photo {
+        Some(photo) => format!("theme_edit: colors from {}", photo.image),
+        None => format!("theme_edit: {}", shown.join(", ")),
+    });
     match &b.deck.theme {
         Some(Value::String(rel)) => {
             let bytes = b.read(rel).with_context(|| format!("reading the theme, {rel}"))?;
             let was: Value = serde_json::from_slice(&bytes).with_context(|| format!("{rel} is not JSON"))?;
             let mut theme = was.clone();
-            scaena_core::patch::apply(&mut theme, &edit.ops).map_err(failed)?;
+            scaena_core::patch::apply(&mut theme, &ops).map_err(failed)?;
             let text = serde_json::to_string_pretty(&theme)? + "\n";
             let (themed, mut w) = theming(b, rel, &text, &BTreeMap::new(), true, false)?;
             // The deck changes only where it lists a font the theme now names.
@@ -266,6 +326,7 @@ pub fn theme_editing(b: &Bundle, edit: &ThemeEdit) -> Result<(ThemeEdited, Optio
                 removed: themed.removed,
                 errors: themed.errors,
                 refused: themed.refused,
+                photo,
             };
             w.why = why;
             let write_it = (!edited.refused && changes).then_some(w);
@@ -274,7 +335,7 @@ pub fn theme_editing(b: &Bundle, edit: &ThemeEdit) -> Result<(ThemeEdited, Optio
         Some(Value::Object(inline)) => {
             let was = Value::Object(inline.clone());
             let mut theme = was.clone();
-            scaena_core::patch::apply(&mut theme, &edit.ops).map_err(failed)?;
+            scaena_core::patch::apply(&mut theme, &ops).map_err(failed)?;
             let mut deck = b.deck.clone();
             let listed = list_fonts(&mut deck, &theme, |file| b.files.exists(file));
             deck.theme = Some(theme.clone());
@@ -296,6 +357,7 @@ pub fn theme_editing(b: &Bundle, edit: &ThemeEdit) -> Result<(ThemeEdited, Optio
                 removed: removed.into_iter().cloned().collect(),
                 errors: errors(&after),
                 refused,
+                photo,
             };
             let changes = theme != was || !edited.listed.is_empty();
             let write_it = (!refused && changes).then(|| Write::new(deck, why));

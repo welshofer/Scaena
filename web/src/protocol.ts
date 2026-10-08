@@ -807,7 +807,7 @@ export type ToWorker =
   /** The theme the deck names edited by `ops`, RFC 6902 operations on it, as one change by the
    * user, the deck `source` compiles to drawn in it; refused where the deck would not validate in
    * it (ADR-0016). */
-  | { type: "themeEdit"; id: number; source: string; ops: unknown[]; index: number; format?: string }
+  | { type: "themeEdit"; id: number; source: string; ops: unknown[]; photo?: string; index: number; format?: string }
   /** Files written back, as an undo or a redo of a restore or a theme edit has them: `text` null
    * to take one out. With `edit`, the deck its source compiles to shown and linted again after,
    * as an edit is: the source did not change, so nothing else compiles it. */
@@ -966,6 +966,12 @@ export interface ThemeEdited {
   added: Finding[];
   removed: Finding[];
   errors: number;
+  /** For an edit to a photo's colors (PLAN 2.94): what they are, and what each of the theme's took. */
+  photo?: {
+    image: string;
+    read: { hues: { degrees: number; chroma: number; share: number }[]; cast: { degrees: number; chroma: number } };
+    set: { path: string; was: unknown; now: unknown; reads?: [number, number] }[];
+  };
 }
 
 /** What a re-theme did, as `scaena theme --apply` says it (PLAN 1.6, 2.39). */

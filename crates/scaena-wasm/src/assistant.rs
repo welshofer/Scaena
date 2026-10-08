@@ -241,7 +241,10 @@ struct DataEdit {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ThemeEdit {
+    #[serde(default)]
     ops: Vec<Value>,
+    #[serde(default)]
+    photo: Option<String>,
     #[serde(default)]
     dry_run: bool,
 }
@@ -407,7 +410,7 @@ impl Session {
             }
             "theme_edit" => {
                 let a: ThemeEdit = args(name, a)?;
-                let edit = scaena_ops::theme::ThemeEdit { ops: a.ops };
+                let edit = scaena_ops::theme::ThemeEdit { ops: a.ops, photo: a.photo };
                 let (edited, rewritten) = self.theme_edit(&edit, a.dry_run, by)?;
                 // An inline theme is the deck's: its edit changes the source.
                 let inline = edited.applied && edited.theme == "(inline)";

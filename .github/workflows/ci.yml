@@ -302,6 +302,9 @@ jobs:
       # The deck's theme edited in its tab: colors, a role's size, each one edit undone with the
       # theme written back, and recorded by the user (PLAN 2.61).
       - run: node web/theme-edit.mjs
+      # A theme's colors from a photo the bundle holds, by the Theme tab and a right click on the
+      # photo, and ⌘Z taking them back (PLAN 2.94).
+      - run: node web/theme-photo.mjs
       # The state shown in every format side by side, painted as a cue plays, each counting its
       # findings and opening the canvas in it (PLAN 2.62).
       - run: node web/formats.mjs

@@ -130,7 +130,7 @@ fn a_theme_edit_is_a_version_compared_and_restored() {
     let mut b = scaena_ops::open(&dir).unwrap();
     b.author = "agent:test".into();
     let ops = vec![json!({ "op": "replace", "path": "/type/roles/body/size", "value": 30 })];
-    let edited = scaena_ops::theme::theme_edit(&b, &scaena_ops::theme::ThemeEdit { ops }, false).unwrap();
+    let edited = scaena_ops::theme::theme_edit(&b, &scaena_ops::theme::ThemeEdit { ops, photo: None }, false).unwrap();
     assert!(edited.applied && !edited.refused, "{edited:?}");
     let log = changes(&dir);
     assert_eq!(
