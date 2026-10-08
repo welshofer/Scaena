@@ -66,6 +66,12 @@ struct DeckView: View {
     @SceneStorage("panel") private var panel: SidePanel = .inspector
     /// Whether the theme's grid is drawn over the canvas (PLAN 3.16).
     @SceneStorage("grid") private var showsGrid = false
+    /// Whether the state shown is drawn in each of the deck's formats under the canvas (PLAN 3.16).
+    @SceneStorage("formats") private var showsFormats = false
+    /// How close the canvas is shown, and the part of it shown (PLAN 3.16).
+    @State private var zoom = Zoom(canvas: CGSize(width: 1920, height: 1080))
+    /// Whether the find bar shows over the canvas (PLAN 3.16).
+    @State private var searching = false
 
     private var editor: DeckEditor { document.editor }
 
@@ -81,6 +87,7 @@ struct DeckView: View {
     var body: some View {
         presented(watched(window))
             .focusedSceneValue(\.deck, actions)
+            .focusedSceneValue(\.canvasActions, canvasActions)
     }
 
     /// The states down the side; beside them the canvas and the rest; and the toolbar.
@@ -145,7 +152,17 @@ struct DeckView: View {
             }
         } else {
             VStack(spacing: 0) {
+                if searching {
+                    FindBar(editor: editor, reveal: reveal, make: { ops in perform { try document.make(ops, undo: undo) } }) {
+                        searching = false
+                    }
+                    Divider()
+                }
                 stage
+                if showsFormats, let shown {
+                    Divider()
+                    FormatsStrip(editor: editor, state: shown) { format in showFormat(format) }
+                }
                 if let shown {
                     Divider()
                     CueBar(
@@ -205,6 +222,16 @@ struct DeckView: View {
             .keyboardShortcut("l", modifiers: [.option, .command])
             .help("Every slide in place of the canvas, to reorder, copy, and take out (⌥⌘L)")
             .disabled(rehearsal != nil)
+            Toggle(isOn: $showsFormats) {
+                Label("Formats", systemImage: "rectangle.split.3x1")
+            }
+            .help("The state shown in each of the deck's formats, side by side under the canvas: a click edits it there")
+            Button {
+                searching = true
+            } label: {
+                Label("Find", systemImage: "magnifyingglass")
+            }
+            .help("Find and replace the deck's words, in every state (⌘F on the canvas)")
             Toggle(isOn: $showsGrid) {
                 Label("Grid", systemImage: "grid")
             }
@@ -325,24 +352,67 @@ struct DeckView: View {
                 session: editor.session, state: shown, revision: editor.revision &+ editor.drawn, playhead: $playhead
             )
             .overlay {
-                if showsGrid { GridOverlay(editor: editor) }
+                if showsGrid { GridOverlay(editor: editor, shown: zoom.view) }
             }
             .overlay {
                 if let typing {
                     CanvasSelection(
-                        editor: editor, state: shown, size: size, node: $node, also: $also, typing: typing, pointed: $pointed,
-                        said: $said, delete: delete, clip: clip
+                        editor: editor, state: shown, size: size, zoom: $zoom, node: $node, also: $also, typing: typing,
+                        pointed: $pointed, said: $said, delete: delete, clip: clip, finding: { _ in searching = true }
                     ) { ops in
                         perform { try document.make(ops, undo: undo) }
                     }
                 }
             }
+            // The whole canvas shown again once it is another size: another format shown, say.
+            .onChange(of: size, initial: true) { _, now in zoom.resize(to: now) }
+            .onChange(of: zoom) { _, now in editor.look(through: now.view) }
             .aspectRatio(size.width / max(size.height, 1), contentMode: .fit)
             .padding()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ContentUnavailableView("No states", systemImage: "rectangle.stack")
         }
+    }
+
+    /// Show a match the find bar found (PLAN 3.16): its state, and its node selected.
+    private func reveal(_ state: String?, _ found: String?) {
+        if let state, state != shown {
+            arriving = found
+            chosen = state
+        } else {
+            node = found
+            also = []
+        }
+    }
+
+    /// Lay the canvas out in `format`, or on the deck's own canvas (PLAN 3.16, as the browser's
+    /// formats, PLAN 2.62): the canvas, its boxes, its grid, and what lint says holds there follow,
+    /// and a move of a node with a layout of its own there moves it there alone (PLAN 2.85).
+    private func showFormat(_ format: String?) {
+        guard format != editor.format else { return }
+        perform { try editor.show(format: format) }
+        said = format.map { "the canvas in \($0): a node placed anew here moves here alone" } ?? "the deck's own canvas"
+    }
+
+    /// Give `node` a layout of its own in `format`, the format shown, where it stands now (ADR-0020,
+    /// PLAN 2.85): from then on a move there moves it there alone. One step to undo.
+    private func placeAnew(_ node: String, in format: String, state: String) {
+        perform {
+            guard let patch = try editor.session.placingAnew(node, state: state, in: format) else {
+                said = "\(node) has a layout of its own in \(format) already"
+                return
+            }
+            try document.make(patch, undo: undo)
+            said = "\(node) placed anew in \(format): a move here moves it here alone · ⌘Z undoes it"
+        }
+    }
+
+    /// What the View menu does to the canvas (PLAN 3.16): zoom, the whole canvas, and find.
+    private var canvasActions: CanvasActions? {
+        guard shown != nil, !showsSlides, rehearsal == nil else { return nil }
+        return CanvasActions(
+            zoom: { by in zoom.step(by) }, fit: { zoom.fit() }, zoomed: zoom.level > 1, find: { searching = true })
     }
 
     /// Show what `finding` is about: its state, and its node selected.
@@ -411,7 +481,7 @@ struct DeckView: View {
         guard let shown, typing?.typing != true, rehearsal == nil else { return nil }
         let some = !selection.isEmpty
         let one = node != nil && also.isEmpty
-        return DeckActions(
+        var made = DeckActions(
             inserts: inserts,
             insert: { n in insert(n, in: shown) },
             duplicate: some ? { duplicate(in: shown) } : nil,
@@ -423,6 +493,11 @@ struct DeckView: View {
             group: selection.count > 1 ? { group(in: shown) } : nil,
             ungroup: one && grouped ? { ungroup(in: shown) } : nil,
             order: some ? { how in order(how, in: shown) } : nil)
+        // In another of the deck's formats, a node given a layout of its own there (PLAN 2.85).
+        if one, let node, let format = editor.format {
+            made.placeAnew = { placeAnew(node, in: format, state: shown) }
+        }
+        return made
     }
 
     /// The Edit menu's Copy, Cut, and Paste on the canvas (PLAN 3.12).

@@ -26,6 +26,9 @@ struct DeckActions {
     /// Order the nodes selected among what their container paints: `forward`, `backward`,
     /// `front`, or `back` (PLAN 2.42).
     let order: ((String) -> Void)?
+    /// In another of the deck's formats, give the node selected a layout of its own there, where
+    /// it stands (PLAN 2.85, 3.16).
+    var placeAnew: (() -> Void)? = nil
 }
 
 private struct DeckActionsKey: FocusedValueKey {
@@ -100,6 +103,9 @@ struct NodeCommands: Commands {
             Button(deck?.locked == true ? "Unlock" : "Lock") { deck?.lock?() }
                 .keyboardShortcut("l", modifiers: [.command, .shift])
                 .disabled(deck?.lock == nil)
+            Divider()
+            Button("Place Anew in This Format") { deck?.placeAnew?() }
+                .disabled(deck?.placeAnew == nil)
         }
     }
 

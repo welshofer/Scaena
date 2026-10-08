@@ -48,6 +48,9 @@ public struct Finding: Decodable, Equatable, Sendable {
     public let fixable: Bool
     /// Whether it holds in the format frames are laid out in.
     public let shown: Bool
+    /// The formats it holds in: `""` for the deck's own canvas, then each of the deck's `formats`
+    /// (PLAN 2.62). What the formats side by side count.
+    public let formats: [String]?
 }
 
 /// What compiling a source says (SPEC §4): why it does not compile, or what validation finds in
