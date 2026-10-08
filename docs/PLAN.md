@@ -1240,8 +1240,17 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 
 **Goal:** a native, document-based SwiftUI app on the same engine.
 
-- [ ] 3.1 `scaena-ffi` (C ABI via `cbindgen`): load bundle, states, timeline, `frame`, lint, patch, store ops; Swift package wrapper. *(Started 2026-10-08, on Jay's call, with gate 2's criterion 1 open.)*
-    - **The session, shared.** The session the browser edits moved from `scaena-wasm` to `scaena-session`, unchanged, with its tests and the random-edits fuzz (ADR-0021). `scaena-wasm` keeps `Player` and the WebGPU canvas, and the logic `Player` held moved into the session (`slots`, `theme_text`, `layouts_painted`, `keep_history`). `scaena-ffi` wraps the same session, so the Mac edits exactly as the browser does.
+- [x] 3.1 `scaena-ffi` (C ABI via `cbindgen`): load bundle, states, timeline, `frame`, lint, patch, store ops; Swift package wrapper. *(Started 2026-10-08, on Jay's call, with gate 2's criterion 1 open.)*
+    - **The session, shared.** The session the browser edits moved from `scaena-wasm` to `scaena-session`, unchanged, with its 77 tests and the random-edits fuzz (ADR-0021). `scaena-wasm` keeps `Player` and the WebGPU canvas, and the logic `Player` held moved into the session (`slots`, `theme_text`, `layouts_painted`, `keep_history`). `scaena-ffi` wraps the same session, so the Mac edits exactly as the browser does.
+    - **The C ABI** (`crates/scaena-ffi/include/scaena.h`, written by cbindgen, held to the code by a test, `just bless`):
+      - a bundle from its files, each by its path, or from a `.scaena` zip; Rust reads no filesystem, so a sandboxed app keeps its own access;
+      - `scaena_call` answers the session's calls by the names a page uses: `states`, `timeline`, `compile`, `lint`, `inspect`, `layers`, `choices`, and the rest, the JSON `Player` gives;
+      - `scaena_tool` runs any MCP operation on the bundle, as the browser's gestures and assistant do: a patch is `deck_patch`, by the author it names;
+      - `scaena_frame` gives a display list and `scaena_pixels` the CPU painter's pixels;
+      - `scaena_save` writes the bundle as `scaena save` does, fonts subset and the history recorded (`scaena_store::crdt::recorded`, which `scaena-history` now calls too), and `scaena_adopt` goes on from it.
+    - **Failure is said.** A null, text that is not UTF-8, JSON that is not, a state the deck lacks, and a panic are each an error the call returns, never a crash.
+    - **ScaenaKit** (`apps/mac/ScaenaKit`), the Swift package: `ScaenaSession` opens a folder, files, or a zip, and decodes each result (`Slot`, `Pixels`, `Saved`, `JSONValue`); a failure throws `ScaenaError`.
+    - Tests: `scaena-ffi`'s `ffi` suite (the torture deck's states at rest digest as the goldens, a patch, a save with its history zipped and reopened, and every misuse an error); `header`; `just ffi`, a C program compiled against the header with every warning an error, on B1, in CI on Linux and macOS; and ScaenaKit's Swift Testing suite on CI's macOS runner.
 - [ ] 3.2 Metal surface: `wgpu` surface from `CAMetalLayer`; `vello` painter in an `NSView`; 120 Hz on ProMotion.
 - [ ] 3.3 Document-based app (`FileDocument`/`ReferenceFileDocument`) over bundles; autosave to CRDT; versions.
 - [ ] 3.4 Chrome: state list with thumbnails, timeline scrubber, inspector, source pane (same `.scn`), lint panel with one-click fixes.

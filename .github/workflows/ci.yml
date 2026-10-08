@@ -85,7 +85,7 @@ jobs:
                   macos=false
                   for f in $(git diff --name-only "$BEFORE" "$AFTER"); do
                     case "$f" in
-                      crates/scaena-paint/* | crates/scaena-pixels/* | crates/scaena-core/src/shader.rs | tests/golden/* | Cargo.lock | .github/workflows/ci.yml) macos=true ;;
+                      crates/scaena-paint/* | crates/scaena-pixels/* | crates/scaena-core/src/shader.rs | crates/scaena-ffi/* | apps/mac/* | tests/golden/* | Cargo.lock | .github/workflows/ci.yml) macos=true ;;
                     esac
                   done
                 fi
@@ -134,6 +134,28 @@ jobs:
       - if: runner.os == 'Linux' && needs.changes.outputs.full == 'true'
         run: scripts/apt-install.sh ffmpeg && echo "SCAENA_REQUIRE_FFMPEG=1" >> "$GITHUB_ENV"
       - run: cargo test --workspace --locked --exclude scaena-paint
+      # The Mac's C ABI (PLAN 3.1, ADR-0021): from C on both runners, as `just ffi` runs it, with
+      # the system libraries rustc names; and from Swift on macOS, where ScaenaKit's tests link the
+      # same static library.
+      - name: The C ABI from C
+        run: |
+          libs=$(cargo rustc -q -p scaena-ffi --lib --crate-type staticlib --locked -- --print native-static-libs 2>&1 | sed -n 's/.*native-static-libs: //p')
+          echo "SCAENA_FFI_LIBS=$libs" >> "$GITHUB_ENV"
+          mkdir -p target/ffi
+          cc -std=c11 -Wall -Wextra -Werror -I crates/scaena-ffi/include crates/scaena-ffi/tests/c/smoke.c target/debug/libscaena_ffi.a $libs -o target/ffi/smoke
+          cd tests/bench/b1.scaena && ../../../target/ffi/smoke . $(find . -type f ! -name '.*' | sed 's|^\./||' | sort)
+      - name: ScaenaKit, the C ABI from Swift
+        if: runner.os == 'macOS'
+        run: |
+          flags=(-Xlinker -L"$PWD/target/debug")
+          set -- $SCAENA_FFI_LIBS
+          while [ $# -gt 0 ]; do
+            case "$1" in
+              -framework) flags+=(-Xlinker -framework -Xlinker "$2"); shift 2 ;;
+              *) flags+=(-Xlinker "$1"); shift ;;
+            esac
+          done
+          cd apps/mac/ScaenaKit && swift test "${flags[@]}"
       # Painter and CLI tests with the `gpu` feature. They print each torture state's raster delta
       # from the CPU goldens (blessed on x86-64 AVX2): vello_cpu at this runner's SIMD level, and
       # vello on this runner's adapter: Metal on macOS, Mesa's lavapipe (software Vulkan) on Linux.

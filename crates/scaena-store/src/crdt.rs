@@ -154,6 +154,30 @@ fn configure(doc: &LoroDoc) {
     doc.set_record_timestamp(true);
 }
 
+/// `history`, what a bundle's `history/deck.loro` holds, with `changes` recorded in it: the
+/// bytes to write in its place. `changes` is JSON, a list of [`Recorded`] in the order they were
+/// made. An empty `history` is begun by the first change: its deck, and the files it is drawn
+/// from, are the history's first version (PLAN 2.87), as `scaena save --history` begins one.
+/// What a client's save calls: the browser's history module (`scaena-history`) and the Mac's
+/// C ABI (`scaena-ffi`).
+pub fn recorded(history: &[u8], changes: &str) -> std::result::Result<Vec<u8>, String> {
+    let changes: Vec<Recorded> = serde_json::from_str(changes).map_err(|e| format!("the changes to record: {e}"))?;
+    let (doc, rest) = match history {
+        [] => {
+            let (first, rest) = changes.split_first().ok_or("a history begins with a change: none was given")?;
+            let deck = Deck::from_json(&first.deck).map_err(|e| format!("the deck to begin with: {e}"))?;
+            let files: Vec<(String, Vec<u8>)> =
+                first.files.iter().map(|(path, text)| (path.clone(), text.clone().into_bytes())).collect();
+            let edit =
+                Edit { message: first.message.as_deref(), timestamp: first.timestamp, ..Edit::by(&first.author) };
+            (DeckDoc::begin(&deck, &files, &edit).map_err(|e| e.to_string())?, rest)
+        }
+        held => (DeckDoc::load(held).map_err(|e| e.to_string())?, &changes[..]),
+    };
+    doc.record(rest).map_err(|e| e.to_string())?;
+    doc.save().map_err(|e| e.to_string())
+}
+
 impl DeckDoc {
     fn wrap(doc: LoroDoc) -> Self {
         configure(&doc);

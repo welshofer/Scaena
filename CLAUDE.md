@@ -63,7 +63,7 @@ apps/mac/              SwiftUI client                                           
 ## Commands
 
 ```
-just check          # fmt + clippy -D warnings (all features) + test + test-gpu + schema validation + the scripts' tests + wasm32 clippy; mirrors CI
+just check          # fmt + clippy -D warnings (all features) + test + test-gpu + schema validation + the scripts' tests + wasm32 clippy + the C ABI from C; mirrors CI
 just test           # cargo test --workspace
 just schema         # validate docs/examples + tests/fixtures against docs/schema; torture-deck font coverage (python jsonschema, fonttools)
 just cli ARGS       # cargo run -p scaena-cli -- ARGS
@@ -75,6 +75,7 @@ just wasm-smoke     # the WebGPU page in headless Chromium: WASM display lists m
 just web            # the web player (PLAN 2.1) into web/dist, and the single-file export's page (PLAN 2.5); `just web-dev` serves the player with the repository's bundles
 just web-smoke      # the web player in headless Chromium: every torture frame by WebGPU, by the CPU painter, and from a single-file export, held to the goldens; its controls, the editor, its storage and assistant, the static site, and what a reader needs
 just site [DECK]    # the player and editor as a static site with a demo deck (the trails example by default) into target/site, for any static host (PLAN 2.7)
+just ffi            # the Mac's C ABI from C: the static library, a C program compiled against `scaena.h`, run on B1 (PLAN 3.1); ScaenaKit's Swift tests run on CI's macOS runner
 just spike          # parity harness: vello_cpu goldens vs vello on this GPU vs vello on WebGPU in Chromium (PLAN 0.9)
 just bench [FILTER] # SPEC §15's stages on B1–B4, timed by criterion (PLAN 1.24); CI times each pull request ready for review beside its base on one Linux machine, and macOS weekly (scripts/bench_gate.py)
 just stages BUNDLE  # per-state medians and worst cases on one bundle (PLAN 0.14's tables); `just coldstart`: B1's WASM cold start
@@ -112,7 +113,7 @@ The steps for criterion 1 are in the doc. On 2026-10-08 Jay started Phase 3 with
 
 ## Phase 3
 
-The Mac client (SPEC §9.3). The session the browser edits moved to `scaena-session` (ADR-0021): `scaena-wasm` wraps it for a page and `scaena-ffi` for Swift, each only turning arguments and results into JSON, so the Mac edits exactly as the browser does (PLAN 3.1).
+The Mac client (SPEC §9.3). The session the browser edits moved to `scaena-session` (ADR-0021): `scaena-wasm` wraps it for a page and `scaena-ffi` for Swift, each only turning arguments and results into JSON, so the Mac edits exactly as the browser does (PLAN 3.1). The C ABI (`crates/scaena-ffi/include/scaena.h`, written by cbindgen and held to the code by the `header` test; `just bless` writes it again): Swift hands a bundle's files over by their paths (`scaena_files_add`, `scaena_open`) or a `.scaena` zip (`scaena_open_zip`), and reads no other way; `scaena_call` answers the session's calls by the names a page uses, and `scaena_tool` runs any MCP operation on the bundle (`deck_patch`, `deck_lint`, …), each `{"ok"}` or `{"error"}`; `scaena_frame` gives a display list and `scaena_pixels` the CPU painter's pixels; `scaena_save` writes the bundle as `scaena save` does, fonts subset and the history recorded, and `scaena_adopt` goes on from it. A null, text that is not UTF-8, bad JSON, or a panic is an error the call returns. `apps/mac/ScaenaKit` is the Swift package over it: `ScaenaSession`, its results decoded, tested with Swift Testing on CI's macOS runner, which links the debug static library.
 
 ## Working with Jay
 
