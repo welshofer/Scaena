@@ -161,7 +161,11 @@ char *scaena_drop(struct ScaenaSession *session,
 // wrote}`, and `dataUndo {redo?, at?}`, the file an edit wrote or a removal took out put back or
 // written again; and, from the bundle's history, `versions`, `viewVersion {version}`, its
 // states, `compareVersions {from, to?}`, and `restoreVersion {version, at?}`, `{restored,
-// files}`.
+// files}`. Handles and views (PLAN 3.16): `outline {state, node}`, a shape's points and corner;
+// `framing {state, node}`, an image's crop and focal point; `focalAt {state, node, x, y}`, the
+// point of an image under a press; `grid`, the theme's tracks and baselines; `setView {view?}`,
+// the part of the canvas frames are painted through; and `find {query}` and `replacing {query,
+// with, one?}`, the deck's texts found and the patch that replaces them.
 //
 // # Safety
 // `session` is a live handle; `method` a NUL-terminated string; `args` one, or null.
@@ -204,6 +208,21 @@ struct ScaenaPixels scaena_pixels(struct ScaenaSession *session,
                                   double t_ms,
                                   uint32_t width,
                                   char **error);
+
+// `state` at `t_ms` (infinity: at rest) in `format`, one of the deck's formats, or its own canvas
+// where null, painted by the CPU painter `height` pixels high, the width keeping the format's
+// aspect: what the editor paints beside the canvas, a format at a time (PLAN 2.62, 3.16). Each
+// format lays each state out once. Null bytes where it cannot be painted, `*error` then saying why.
+//
+// # Safety
+// `session` is a live handle; `format` null or a NUL-terminated string; `state` one; `error`
+// null or writable.
+struct ScaenaPixels scaena_pixels_in(struct ScaenaSession *session,
+                                     const char *format,
+                                     const char *state,
+                                     double t_ms,
+                                     uint32_t height,
+                                     char **error);
 
 // Save the bundle with the deck shown at `now` (RFC 3339; the engine reads no clock), as
 // `scaena save` lays one out: files named by their content, fonts subset to what the deck can

@@ -1063,6 +1063,64 @@ fn versions_are_listed_shown_compared_and_restored_from_the_history() {
     unsafe { scaena_session_free(s) };
 }
 
+/// Handles and views (PLAN 3.16), as the browser's canvas reads them (PLAN 2.45, 2.46, 2.47, 2.57,
+/// 2.62, 2.68, 2.74): a shape's points and a rect's corner, an image's framing and the point of it
+/// under a press, the theme's grid, frames painted through a view, a format painted beside the
+/// canvas, and texts found and replaced, every match or one.
+#[test]
+fn handles_and_views_read_as_the_browsers_canvas_reads_them() {
+    let s = open(TORTURE);
+    let rect = call(s, "outline", json!({ "state": "shapes", "node": "shape-panel" }));
+    assert_eq!((&rect["kind"], &rect["radius"]), (&json!("rect"), &json!(16.0)), "{rect}");
+    assert!(rect["radii"].as_array().is_some_and(|r| r.contains(&json!(32.0))), "the theme's steps: {rect}");
+    let tri = call(s, "outline", json!({ "state": "shapes", "node": "shape-tri" }));
+    assert_eq!((&tri["kind"], &tri["fewest"]), (&json!("polygon"), &json!(3)), "{tri}");
+    assert_eq!(tri["points"], json!([[0.5, 0.0], [1.0, 1.0], [0.0, 1.0]]));
+    assert!(call(s, "outline", json!({ "state": "shapes", "node": "nobody" })).is_null());
+
+    let framing = call(s, "framing", json!({ "state": "images", "node": "image-focal" }));
+    assert_eq!((&framing["crop"], &framing["fit"]), (&json!([0.0, 0.0, 1.0, 1.0]), &json!("cover")), "{framing}");
+    let point = call(s, "focalAt", json!({ "state": "images", "node": "image-focal", "x": 741, "y": 426 }));
+    let near = |v: &Value, to: f64| v.as_f64().is_some_and(|v| (v - to).abs() < 1e-6);
+    assert!(near(&point[0], 0.24) && near(&point[1], 0.5), "the point of the image under the press: {point}");
+    assert!(call(s, "focalAt", json!({ "state": "images", "node": "image-focal", "x": 10, "y": 10 })).is_null());
+
+    let grid = call(s, "grid", Value::Null);
+    assert_eq!(grid["canvas"], json!([1920.0, 1080.0]));
+    assert_eq!(grid["columns"].as_array().map(Vec::len), Some(12), "{grid}");
+
+    // The part of the canvas the Mac's surface paints through (`scaena_surface_paint`), a part of
+    // some size; none, the whole.
+    assert_eq!(call(s, "setView", json!({ "view": [0, 0, 960, 540] })), Value::Null);
+    assert_eq!(call(s, "setView", json!({})), Value::Null);
+    let refused = answered(s, "setView", &json!({ "view": [0, 0, 0, 10] }));
+    assert!(refused["error"]["message"].as_str().is_some_and(|m| m.contains("size")), "{refused}");
+
+    // A format beside the canvas, the deck's own where none is named.
+    let mut error = null_mut();
+    let tall = unsafe { scaena_pixels_in(s, c("9:16").as_ptr(), c("shapes").as_ptr(), f64::INFINITY, 320, &mut error) };
+    assert_eq!((tall.width, tall.height), (180, 320));
+    assert_eq!(bytes_of(tall.bytes).map(|b| b.len()), Some(180 * 320 * 4));
+    let own = unsafe { scaena_pixels_in(s, null(), c("shapes").as_ptr(), f64::INFINITY, 320, &mut error) };
+    assert_eq!((own.width, own.height), (569, 320));
+    unsafe { scaena_bytes_free(own.bytes) };
+    let none = unsafe { scaena_pixels_in(s, c("4:3").as_ptr(), c("shapes").as_ptr(), f64::INFINITY, 320, &mut error) };
+    assert!(none.bytes.data.is_null() && took(error).contains("not one of the deck's formats"));
+    unsafe { scaena_session_free(s) };
+
+    // Find and replace on B1: every match, each where its text lives, or one.
+    let b = open(B1);
+    let query = json!({ "find": "Scaena" });
+    let found = call(b, "find", json!({ "query": query }));
+    assert!(found.as_array().is_some_and(|f| f.iter().any(|t| t["node"] == "title")), "{found}");
+    let one = call(b, "replacing", json!({ "query": query, "with": "Stage", "one": [0, 0] }));
+    assert_eq!(one.as_array().map(Vec::len), Some(1), "{one}");
+    let every = call(b, "replacing", json!({ "query": query, "with": "Stage" }));
+    assert_eq!(tool(b, "deck_patch", json!({ "ops": every }))["edited"], true);
+    assert_eq!(call(b, "find", json!({ "query": query })), json!([]));
+    unsafe { scaena_session_free(b) };
+}
+
 /// Bytes the library returned, taken and freed: none where it returned none.
 fn bytes_of(made: ScaenaBytes) -> Option<Vec<u8>> {
     if made.data.is_null() {

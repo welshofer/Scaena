@@ -368,7 +368,11 @@ pub unsafe extern "C" fn scaena_drop(
 /// wrote}`, and `dataUndo {redo?, at?}`, the file an edit wrote or a removal took out put back or
 /// written again; and, from the bundle's history, `versions`, `viewVersion {version}`, its
 /// states, `compareVersions {from, to?}`, and `restoreVersion {version, at?}`, `{restored,
-/// files}`.
+/// files}`. Handles and views (PLAN 3.16): `outline {state, node}`, a shape's points and corner;
+/// `framing {state, node}`, an image's crop and focal point; `focalAt {state, node, x, y}`, the
+/// point of an image under a press; `grid`, the theme's tracks and baselines; `setView {view?}`,
+/// the part of the canvas frames are painted through; and `find {query}` and `replacing {query,
+/// with, one?}`, the deck's texts found and the patch that replaces them.
 ///
 /// # Safety
 /// `session` is a live handle; `method` a NUL-terminated string; `args` one, or null.
@@ -476,6 +480,38 @@ pub unsafe extern "C" fn scaena_pixels(
         let session = unsafe { handle(session, "session") }?;
         let state = unsafe { text(state, "state") }?;
         session.0.pixels(state, t_ms, width).map_err(said)
+    });
+    match painted {
+        Ok(raster) => ScaenaPixels { bytes: ScaenaBytes::of(raster.rgba), width: raster.width, height: raster.height },
+        Err(failure) => {
+            unsafe { report(error, failure) };
+            ScaenaPixels { bytes: ScaenaBytes::NONE, width: 0, height: 0 }
+        }
+    }
+}
+
+/// `state` at `t_ms` (infinity: at rest) in `format`, one of the deck's formats, or its own canvas
+/// where null, painted by the CPU painter `height` pixels high, the width keeping the format's
+/// aspect: what the editor paints beside the canvas, a format at a time (PLAN 2.62, 3.16). Each
+/// format lays each state out once. Null bytes where it cannot be painted, `*error` then saying why.
+///
+/// # Safety
+/// `session` is a live handle; `format` null or a NUL-terminated string; `state` one; `error`
+/// null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_pixels_in(
+    session: *mut ScaenaSession,
+    format: *const c_char,
+    state: *const c_char,
+    t_ms: f64,
+    height: u32,
+    error: *mut *mut c_char,
+) -> ScaenaPixels {
+    let painted = guarded(|| {
+        let session = unsafe { handle(session, "session") }?;
+        let format = unsafe { maybe_text(format, "format") }?;
+        let state = unsafe { text(state, "state") }?;
+        session.0.pixels_in(format, state, t_ms, height).map_err(said)
     });
     match painted {
         Ok(raster) => ScaenaPixels { bytes: ScaenaBytes::of(raster.rgba), width: raster.width, height: raster.height },
@@ -1221,6 +1257,48 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         "dataUndo" => {
             let redo = args.get("redo").and_then(Value::as_bool).unwrap_or(false);
             json!(s.data_undo(redo, user()).map_err(said)?)
+        }
+        // Handles and views (PLAN 3.16): a shape's outline (PLAN 2.68), an image's framing and the
+        // point of it under a press (PLAN 2.45, 2.74), the theme's grid (PLAN 2.57), the part of the
+        // canvas frames are painted through (PLAN 2.46), and the deck's texts found and replaced
+        // (PLAN 2.47).
+        "outline" => value(serde_json::to_value(s.outline(arg("state")?, arg("node")?).map_err(said)?))?,
+        "framing" => value(serde_json::to_value(s.framing(arg("state")?, arg("node")?).map_err(said)?))?,
+        "focalAt" => {
+            let at = [number("x")? as f32, number("y")? as f32];
+            // To a thousandth, as a person would write it.
+            let point = s.focal_at(arg("state")?, arg("node")?, at).map_err(said)?;
+            json!(point.map(|p| p.map(|v| (v * 1000.0).round() / 1000.0)))
+        }
+        "grid" => {
+            let g = s.grid().map_err(said)?;
+            json!({ "canvas": g.canvas, "columns": g.columns, "rows": g.rows, "baselines": g.baselines })
+        }
+        "setView" => {
+            let view = match args.get("view").and_then(Value::as_array) {
+                None => None,
+                Some(v) => match v.iter().map(Value::as_f64).collect::<Option<Vec<f64>>>().as_deref() {
+                    Some(&[x, y, w, h]) => Some([x as f32, y as f32, w as f32, h as f32]),
+                    _ => return Err(said("setView: a view is [x, y, w, h], canvas units")),
+                },
+            };
+            s.set_view(view).map_err(said)?;
+            Value::Null
+        }
+        "find" => {
+            let query = serde_json::from_value(args.get("query").cloned().unwrap_or(Value::Null)).map_err(said)?;
+            value(serde_json::to_value(s.find(&query).map_err(said)?))?
+        }
+        "replacing" => {
+            let query = serde_json::from_value(args.get("query").cloned().unwrap_or(Value::Null)).map_err(said)?;
+            let one = match args.get("one").and_then(Value::as_array) {
+                None => None,
+                Some(one) => match one.iter().map(Value::as_u64).collect::<Option<Vec<u64>>>().as_deref() {
+                    Some(&[i, k]) => Some([i as usize, k as usize]),
+                    _ => return Err(said("replacing: one match is [text, match]")),
+                },
+            };
+            json!(s.replacing(&query, arg("with")?, one).map_err(said)?)
         }
         // The versions the bundle's history keeps (PLAN 2.60), read from it as `scaena history`
         // reads them: listed; one shown read only in a session of its own, its states' ids (its
