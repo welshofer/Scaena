@@ -235,7 +235,7 @@ pub trait BundleFiles {
 ///   invalid id is E105);
 /// - a key written twice in one object (E105 for an id, E106 for anything else);
 /// - what a schema cannot say: references to nodes, states, data, files, and theme names
-///   (E102), a delta that sets `type` (E104), an id used twice (E105), and each state,
+///   (E102), a delta that sets `type` or `locked` (E104), an id used twice (E105), and each state,
 ///   resolved, against its nodes' types (E106).
 ///
 /// `Err` only when `deck_json` is not JSON.
@@ -593,11 +593,24 @@ fn load_theme(doc: &Value, files: &dyn BundleFiles, out: &mut Vec<Finding>) -> O
     }
 }
 
-/// E104: a node's type never changes, so neither a state's delta nor the node's overrides
-/// can set `type`.
+/// E104: a node's type never changes, and its lock is its own in every state (PLAN 2.95), so
+/// neither a state's delta nor the node's overrides can set `type` or `locked`.
 fn type_changes(deck: &Deck) -> Vec<Finding> {
     let mut out = Vec::new();
     for (id, over) in &deck.overrides {
+        // A lock is the node's own, in every state (PLAN 2.95).
+        if deck.nodes.contains_key(id) && over.contains_key("locked") {
+            out.push(
+                Finding::new(
+                    "E104",
+                    Severity::Error,
+                    format!("`{id}`'s lock is the node's own; overrides cannot set `locked`"),
+                )
+                .at(child(&format!("/overrides/{}", esc(id)), "locked"))
+                .node(id.clone())
+                .hint(LOCKED),
+            );
+        }
         let (Some(node), Some(_)) = (deck.nodes.get(id), over.get("type")) else { continue };
         let is = type_name(node.node_type);
         out.push(
@@ -612,6 +625,19 @@ fn type_changes(deck: &Deck) -> Vec<Finding> {
     }
     for (i, state) in deck.states.iter().enumerate() {
         for (id, delta) in &state.props {
+            if deck.nodes.contains_key(id) && delta.contains_key("locked") {
+                out.push(
+                    Finding::new(
+                        "E104",
+                        Severity::Error,
+                        format!("`{id}`'s lock is the node's own; a state cannot set `locked`"),
+                    )
+                    .at(child(&format!("/states/{i}/props/{}", esc(id)), "locked"))
+                    .state(state.id.clone())
+                    .node(id.clone())
+                    .hint(LOCKED),
+                );
+            }
             let (Some(node), Some(new)) = (deck.nodes.get(id), delta.get("type")) else { continue };
             let is = type_name(node.node_type);
             let message = match new.as_str() {
@@ -631,6 +657,10 @@ fn type_changes(deck: &Deck) -> Vec<Finding> {
     }
     out
 }
+
+/// What E104 says to do with a lock a state or the overrides set.
+const LOCKED: &str =
+    "A lock holds in every state: set `locked` in `nodes`, and the editor's canvas passes over the node.";
 
 /// E102: files the deck and its theme name that the bundle does not hold.
 fn missing_files(deck: &Deck, theme: Option<&LoadedTheme>, files: &dyn BundleFiles) -> Vec<Finding> {

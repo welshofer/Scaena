@@ -884,6 +884,10 @@
             "description": "Whether the state shows it. One it does not leaves in it, another state of its slide\nshows it, or no state does.",
             "type": "boolean"
           },
+          "locked": {
+            "description": "Whether it is locked (PLAN 2.95): the canvas passes over it, and the layers select it.",
+            "type": "boolean"
+          },
           "children": {
             "description": "What it holds, a container's or a group's children, listed as the state's are.",
             "type": "array",

@@ -1465,7 +1465,8 @@ fn print_layers(layers: &[scaena_core::layers::Layer], depth: usize) {
     for l in layers {
         let kind = serde_json::to_value(l.kind).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
         let hidden = if l.shown { "" } else { ", hidden" };
-        println!("{:width$}{} ({kind}{hidden})", "", l.node, width = depth * 2);
+        let locked = if l.locked { ", locked" } else { "" };
+        println!("{:width$}{} ({kind}{hidden}{locked})", "", l.node, width = depth * 2);
         print_layers(&l.children, depth + 1);
     }
 }

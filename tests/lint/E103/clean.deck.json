@@ -1,5 +1,5 @@
 {
-  "scaena": "0.16",
+  "scaena": "0.17",
   "_comment": "E103 clean: every field a chart or table reads is a column of its data, after its dataTransform if it has one, of a type its channel reads, every value fits the schema and its parse format, every category an annotation names is one, and no key repeats: a chart with a series, or a color field of text, keys each datum by its x and series.",
   "canvas": { "width": 1920, "height": 1080 },
   "data": {

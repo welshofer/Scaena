@@ -1199,6 +1199,13 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - On the trails example, the ridge photo turns the accent from #FF6A3D to #B97CFF (6.3:1 on the surfaces) and accent-2 from #FFC857 to #FFBFBA, and leans the neutrals violet: ink reads 15.7:1, muted 5.2:1. Lint finds nothing new.
     - The editor's module grows 11 KB gzipped. The palette reads only the theme's JSON it needs: the typed theme read from a `Value` compiled its deserializer a second time, 77 KB.
     - Tests: `scaena_core::palette`'s six (hues and lean, a gray photo, Dusk from a blue and orange photo, a light theme's accent darkened until it reads, a gray photo keeping the accents, and a photo taken again changing nothing), the CLI's `a_theme_takes_its_colors_from_a_photo_the_bundle_holds`, the MCP server's `a_theme_edit_takes_a_photos_colors`, the WASM session's `a_photo_gives_the_theme_its_colors`, and `web/theme-photo.mjs`.
+- [x] 2.95 Lock a node, so the canvas can't move or delete it (the parent session, 2026-10-07, at Jay's "ever forward").
+    - Done. A node's `locked: true` is for the editor and draws as nothing (deck format 0.17; SPEC §3.3). It is the node's own, in every state: a state's delta or `overrides` that sets it is E104, as `type` is.
+    - The canvas passes over a node locked, and over what a locked container or group holds. A click, the marquee, ⌘A, Tab, hover, a dropped photo, and a double click all reach what is under it. This is Figma's lock, so a full-bleed photo under a slide's texts no longer catches every press. `Player.boxes` and `Player.hit` name the node whose lock holds each.
+    - Selected in the layers, it is outlined dashed, with no handles. Its arrow keys, `[` and `]`, Enter, Delete, and ⌘X do nothing, and the status says why and that ⇧⌘L unlocks it.
+    - The lock beside each layer's eye, ⇧⌘L, and the Lock or Unlock command lock and unlock. Each is one patch of the node's own `locked`, one step to undo. A right click where a locked node is offers to unlock it.
+    - A patch, the CLI, the MCP server, and the assistant change a locked node as any other: a lock keeps the canvas's gestures off it. `scaena inspect --layers` says which are locked.
+    - Tests: validation's E104 with a lock in a state and in the overrides, and a locked node itself clean; the CLI's `inspect_says_a_states_layers` with a node locked; and `web/lock.mjs` on the trails example's storm photo.
 
 ### Exit criteria (gate 2)
 *(Evidence so far, and the runs that close it: `docs/gate-2.md`.)*

@@ -76,6 +76,9 @@ export interface NodeBox {
    * map `[a, b, c, d, e, f]` (`x' = a·x + c·y + e`), where something turns, scales, leans, or
    * moves it. */
   transform?: Map6;
+  /** Locked (PLAN 2.95): the node whose lock holds it, itself or what holds it. The canvas passes
+   * over it, and moves, resizes, turns, and deletes nothing of it. */
+  locked?: string;
 }
 
 /** A map of canvas points, `[a, b, c, d, e, f]`: `x' = a·x + c·y + e`, `y' = b·x + d·y + f`. */
@@ -114,6 +117,9 @@ export interface Hit {
   node: string;
   rect: Rect;
   containers: string[];
+  /** Locked (PLAN 2.95): the node whose lock holds it, itself or what holds it. A pointer passes
+   * over it. */
+  locked?: string;
 }
 
 /** What a row of a data source draws in a state at rest (PLAN 2.64): a chart's mark, or a table's
@@ -433,6 +439,8 @@ export interface Layer {
   /** Whether the state shows it: one it does not leaves in it, another state of its slide shows
    * it, or no state does. */
   shown: boolean;
+  /** Locked (PLAN 2.95): the canvas passes over it, and the layers select it. */
+  locked?: boolean;
   children?: Layer[];
 }
 

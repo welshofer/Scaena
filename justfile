@@ -172,6 +172,7 @@ web-smoke: site
     node web/draw.mjs
     node web/findings.mjs
     node web/layers.mjs
+    node web/lock.mjs
     node web/rotate.mjs
     node web/clipboard.mjs
     node web/charts.mjs
