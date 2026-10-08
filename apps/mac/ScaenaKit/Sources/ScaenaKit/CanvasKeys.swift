@@ -108,11 +108,14 @@ public final class CanvasKeys: NSView {
     /// The commands the input system makes of keys: while a text is typed in, deletes, moves, a
     /// new line, and Escape; else the canvas's (`command`).
     public override func doCommand(by selector: Selector) {
+        typealias Keys = NSStandardKeyBindingResponding
         guard typing.typing else {
-            _ = command?(selector)
+            guard command?(selector) != true else { return }
+            // Tab and Shift+Tab the canvas does not take pass the keyboard on, as anywhere.
+            if selector == #selector(Keys.insertTab(_:)) { window?.selectNextKeyView(self) }
+            if selector == #selector(Keys.insertBacktab(_:)) { window?.selectPreviousKeyView(self) }
             return
         }
-        typealias Keys = NSStandardKeyBindingResponding
         switch selector {
         case #selector(Keys.deleteBackward(_:)), #selector(Keys.deleteBackwardByDecomposingPreviousCharacter(_:)):
             typing.delete(backward: true, by: .character)

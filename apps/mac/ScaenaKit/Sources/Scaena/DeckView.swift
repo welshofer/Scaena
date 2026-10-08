@@ -353,11 +353,15 @@ struct DeckView: View {
     /// where no state shows it after; or, `everywhere`, out of the deck (Delete, Shift+Delete). A
     /// locked node is not taken: one step to undo.
     private func delete(_ everywhere: Bool) {
-        guard let shown, let node else { return said = "nothing selected to delete" }
+        guard let shown, let node else {
+            said = "nothing selected to delete"
+            return
+        }
         let boxes = (try? editor.session.boxes(state: shown)) ?? []
         if let holder = boxes.first(where: { $0.node == node })?.locked {
             let by = holder == node ? "" : " by \(holder)"
-            return said = "\(node) is locked\(by): nothing deleted · ⇧⌘L unlocks it"
+            said = "\(node) is locked\(by): nothing deleted · ⇧⌘L unlocks it"
+            return
         }
         perform {
             let ops = try editor.session.deleting(state: shown, node: node, everywhere: everywhere)
