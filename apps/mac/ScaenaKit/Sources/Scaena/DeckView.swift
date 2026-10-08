@@ -435,6 +435,7 @@ struct DeckView: View {
             let added = try editor.session.inserting(state: state, n: n, at: at, named: name)
             try document.make(added.patch, undo: undo)
             node = added.id
+            also = []
             said = "\(name) pasted as \(added.id), kept as \(path)"
         }
     }
@@ -461,6 +462,7 @@ struct DeckView: View {
             let added = try editor.session.inserting(state: state, n: n, at: at, with: with)
             try document.make(added.patch, undo: undo)
             node = added.id
+            also = []
             said = "a \(kind) of @\(attaching.data) pasted as \(added.id), its data kept as \(path)"
         }
     }
@@ -507,6 +509,7 @@ struct DeckView: View {
             let added = try editor.session.inserting(state: state, n: n, at: at)
             try document.make(added.patch, undo: undo)
             node = added.id
+            also = []
             said = "\(inserts.indices.contains(n) ? inserts[n].label : "it") inserted as \(added.id), in \(state)"
         }
     }
