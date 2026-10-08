@@ -8,7 +8,7 @@ root=$(cd "$(dirname "$0")/../.." && pwd)
 out=${1:-$root/target/mac}
 cd "$root"
 # The library, and the system libraries and frameworks rustc says it needs.
-libs=$(cargo rustc -q -p scaena-ffi --lib --crate-type staticlib --release --locked -- --print native-static-libs 2>&1 | sed -n 's/.*native-static-libs: //p')
+libs=$(cargo rustc -q --color never -p scaena-ffi --lib --crate-type staticlib --release --locked -- --print native-static-libs 2>&1 | sed -n 's/.*native-static-libs: //p')
 flags=(-Xlinker -L"$root/target/release")
 for l in $libs; do flags+=(-Xlinker "$l"); done
 cd apps/mac/ScaenaKit
