@@ -110,7 +110,7 @@ try {
   ]) {
     await page.keyboard.press(key);
     check(await says(words), `${key} does nothing to it, and says why: ${await status()}`);
-    check(await says("⌘⇧L unlocks it") || (await status()).includes("unlocks it"), `and how to unlock it: ${await status()}`);
+    check(await says("unlocks it"), `and how to unlock it: ${await status()}`);
   }
   check((await source()) === lockedSource, "the source is as the lock left it");
 
@@ -139,6 +139,8 @@ try {
   await page.locator("#overlay").focus();
   await page.keyboard.press("Control+Shift+L");
   await settled(original);
+  // The canvas draws the lock once it has the boxes of the deck the patch made.
+  await page.waitForFunction(() => window.scaena.canvas.boxes().find((b) => b.node === "storm-title")?.locked, null, { timeout: 30000 }).catch(() => {});
   const titled = (await source()).split("\n").find((l) => l.includes("storm-title text")) ?? "";
   const titleLocked = await page.evaluate(() => window.scaena.canvas.boxes().find((b) => b.node === "storm-title")?.locked);
   check(titleLocked === "storm-title", `⇧⌘L locks the title: ${titleLocked} · ${titled}`);
