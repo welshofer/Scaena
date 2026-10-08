@@ -35,12 +35,16 @@ extension ScaenaSession {
 
     /// The patch that inserts what `inserts` offers `n`th in `state`, about `point` (canvas units),
     /// or in the room nearest it where content there would overlap (PLAN 2.34, 2.79); `named`, a
-    /// dropped file's name, names it.
-    public func inserting(state: String, n: Int, at point: CGPoint, named: String? = nil) throws -> Added {
+    /// dropped file's name, names it, and `with`, properties of its own, are set on it: a pasted
+    /// sheet's table its columns (PLAN 2.96).
+    public func inserting(state: String, n: Int, at point: CGPoint, named: String? = nil, with: JSONValue? = nil) throws
+        -> Added
+    {
         var args: [String: JSONValue] = [
             "state": .string(state), "n": .number(Double(n)), "x": .number(Double(point.x)), "y": .number(Double(point.y)),
         ]
         if let named { args["named"] = .string(named) }
+        if let with { args["with"] = with }
         return try call("inserting", .object(args))
     }
 

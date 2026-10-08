@@ -15,6 +15,10 @@ struct DeckActions {
     let lock: (() -> Void)?
     /// Whether the node selected is locked by its own lock.
     let locked: Bool
+    /// Copy the look of the node selected (PLAN 2.58).
+    let copyLook: (() -> Void)?
+    /// Paste the look copied on the node selected.
+    let pasteLook: (() -> Void)?
 }
 
 private struct DeckActionsKey: FocusedValueKey {
@@ -31,8 +35,9 @@ extension FocusedValues {
 
 /// The Node menu (PLAN 3.11), as the browser's Insert menu and keys (PLAN 2.34, 2.95): Insert, by
 /// kind, what the theme and the bundle offer, landing where the pointer last pressed on the canvas;
-/// Duplicate (⌘D); Delete, from the state shown on, and from the deck; and Lock (⇧⌘L). The canvas
-/// takes Delete and Shift+Delete itself, as the browser's does.
+/// Duplicate (⌘D); Delete, from the state shown on, and from the deck; Copy Look (⌥⌘C) and Paste
+/// Look (⌥⌘V, PLAN 2.58); and Lock (⇧⌘L). The canvas takes Delete and Shift+Delete itself, as the
+/// browser's does.
 struct NodeCommands: Commands {
     @FocusedValue(\.deck) private var deck
 
@@ -56,6 +61,13 @@ struct NodeCommands: Commands {
                 .disabled(deck?.delete == nil)
             Button("Delete from the Deck") { deck?.delete?(true) }
                 .disabled(deck?.delete == nil)
+            Divider()
+            Button("Copy Look") { deck?.copyLook?() }
+                .keyboardShortcut("c", modifiers: [.command, .option])
+                .disabled(deck?.copyLook == nil)
+            Button("Paste Look") { deck?.pasteLook?() }
+                .keyboardShortcut("v", modifiers: [.command, .option])
+                .disabled(deck?.pasteLook == nil)
             Divider()
             Button(deck?.locked == true ? "Unlock" : "Lock") { deck?.lock?() }
                 .keyboardShortcut("l", modifiers: [.command, .shift])

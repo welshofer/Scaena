@@ -297,6 +297,35 @@ pub unsafe extern "C" fn scaena_add_file(
     .is_ok()
 }
 
+/// A file dropped or pasted on the canvas (PLAN 2.45, 2.76, 2.96, 3.12), handed over where the
+/// browser's canvas keeps one: a data file (`.csv`, `.json`) under `data/` by its name, numbered
+/// where the bundle holds other bytes there; anything else, an image above all, under `assets/`,
+/// named by its SHA-256 as a save names it. `{"ok": path}` or `{"error": {"message"}}`, a
+/// string to free.
+///
+/// # Safety
+/// `session` is a live handle; `name` a NUL-terminated string; `bytes` `len` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_drop(
+    session: *mut ScaenaSession,
+    name: *const c_char,
+    bytes: *const u8,
+    len: usize,
+) -> *mut c_char {
+    envelope(guarded(|| {
+        let session = unsafe { handle(session, "session") }?;
+        let name = unsafe { text(name, "name") }?;
+        let bytes = unsafe { self::bytes(bytes, len, "bytes") }?.to_vec();
+        let ext = name.rsplit_once('.').map(|(_, ext)| ext.to_ascii_lowercase());
+        let path = match ext.as_deref() {
+            Some("csv" | "json") => session.0.placing(name, &bytes),
+            _ => scaena_store::place(name, &bytes),
+        };
+        session.0.add_file(&path, bytes);
+        Ok(json!(path))
+    }))
+}
+
 /// Answer `method` with `args` (a JSON object, or null for none), as a page's `Player` does:
 /// `{"ok": value}` or `{"error": {"message"}}`, a string to free. The calls ([`call`]):
 /// `states`, `formats`, `setFormat {format?}`, `canvasSize`, `duration {state}`, `timeline`,
@@ -315,10 +344,16 @@ pub unsafe extern "C" fn scaena_add_file(
 /// {state, node, from, to}`, the look ⌘B and ⌘I give characters. A text's characters (PLAN
 /// 3.10): `characterChoices {state, node, from, to}`, what an inspector offers for them; and
 /// `linkAt {state, x, y}`, the link drawn there at rest, where a click goes. Nodes added and
-/// taken away (PLAN 3.11): `inserting {state, n, x, y, named?}`, the patch that inserts what
-/// `inserts` offers `n`th about a point, or in the room nearest it; `duplicating {state, node}`,
+/// taken away (PLAN 3.11): `inserting {state, n, x, y, named?, with?}`, the patch that inserts
+/// what `inserts` offers `n`th about a point, or in the room nearest it, `with` properties of its
+/// own set on it; `duplicating {state, node}`,
 /// a copy beside it; each `{id, cell, patch}`; and `deleting {state, node, everywhere?}`, the
-/// ops that take it out of the state and those after, or out of the deck.
+/// ops that take it out of the state and those after, or out of the deck. The clipboard (PLAN
+/// 3.12): `copying {state, nodes}`, the clip as text; `pasting {text, state, x, y}`, the patch that
+/// pastes a clip, or other text as a text, about a point, the files it carries handed over;
+/// `look {state, node}` and `putting {state, look, nodes}`, a look copied and the patch that
+/// puts it on others; `cells {text}`, a sheet's cells as the source they would be, or null; and
+/// `attaching {path, schema?}`, a data file the bundle holds as the source a chart of it reads.
 ///
 /// # Safety
 /// `session` is a live handle; `method` a NUL-terminated string; `args` one, or null.
@@ -957,6 +992,12 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         args.get(key).and_then(Value::as_f64).ok_or_else(|| said(format!("{method}: `{key}` is a number it needs")))
     };
     let value = |v: Result<Value, serde_json::Error>| v.map_err(said);
+    let strings = |key: &str| -> Result<Vec<String>, Failure> {
+        let list = args.get(key).and_then(Value::as_array);
+        let all = list.map(|l| l.iter().filter_map(|v| v.as_str().map(String::from)).collect::<Vec<_>>());
+        all.filter(|all| Some(all.len()) == list.map(Vec::len))
+            .ok_or_else(|| said(format!("{method}: `{key}` is a list of strings it needs")))
+    };
     Ok(match method {
         "states" => json!(s.states()),
         "formats" => json!(s.formats()),
@@ -1053,12 +1094,46 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         "inserting" => {
             let (state, n) = (arg("state")?, number("n")? as usize);
             let at = [number("x")? as f32, number("y")? as f32];
-            value(serde_json::to_value(s.inserting(state, n, at, optional("named")).map_err(said)?))?
+            // `with`: properties of the node's own on what is offered, a pasted sheet's columns.
+            let with = args.get("with").and_then(Value::as_object);
+            value(serde_json::to_value(s.inserting_with(state, n, at, optional("named"), with).map_err(said)?))?
         }
         "duplicating" => value(serde_json::to_value(s.duplicating(arg("state")?, arg("node")?).map_err(said)?))?,
         "deleting" => {
             let everywhere = args.get("everywhere").and_then(Value::as_bool).unwrap_or(false);
             json!(s.deleting(arg("state")?, arg("node")?, everywhere).map_err(said)?)
+        }
+        // The clipboard (PLAN 2.37, 2.58, 2.96, 3.12): a clip of nodes, pasted; a node's look,
+        // put on others; a sheet's cells pasted, as a data source.
+        // The clip as the text the clipboard holds, as the browser writes it.
+        "copying" => {
+            let nodes = strings("nodes")?;
+            let nodes: Vec<&str> = nodes.iter().map(String::as_str).collect();
+            json!(serde_json::to_string(&s.copying(arg("state")?, &nodes).map_err(said)?).map_err(said)?)
+        }
+        "pasting" => {
+            let text = arg("text")?;
+            // A clip pastes what it holds; other text, a text in the theme's body role.
+            let clip = match scaena_ops::clipboard::read(text).map_err(said)? {
+                Some(clip) => clip,
+                None => scaena_ops::clipboard::of_text(s.deck(), s.theme(), text).map_err(said)?,
+            };
+            let at = [number("x")? as f32, number("y")? as f32];
+            value(serde_json::to_value(s.pasting(&clip, arg("state")?, at).map_err(said)?))?
+        }
+        "look" => value(serde_json::to_value(s.look(arg("state")?, arg("node")?).map_err(said)?))?,
+        "putting" => {
+            let look = serde_json::from_value(args.get("look").cloned().unwrap_or_default())
+                .map_err(|e| said(format!("{method}: `look` is a look as `look` gives it: {e}")))?;
+            value(serde_json::to_value(s.putting(arg("state")?, &look, &strings("nodes")?).map_err(said)?))?
+        }
+        "cells" => value(serde_json::to_value(s.cells(arg("text")?)))?,
+        "attaching" => {
+            let schema = (args.get("schema").filter(|v| !v.is_null()).cloned())
+                .map(serde_json::from_value)
+                .transpose()
+                .map_err(|e| said(format!("{method}: `schema` is each column's type by its name: {e}")))?;
+            value(serde_json::to_value(s.attaching(arg("path")?, schema).map_err(said)?))?
         }
         "themes" => {
             let (current, files) = s.themes();

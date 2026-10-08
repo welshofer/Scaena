@@ -106,6 +106,19 @@ bool scaena_add_file(struct ScaenaSession *session,
                      const uint8_t *bytes,
                      size_t len);
 
+// A file dropped or pasted on the canvas (PLAN 2.45, 2.76, 2.96, 3.12), handed over where the
+// browser's canvas keeps one: a data file (`.csv`, `.json`) under `data/` by its name, numbered
+// where the bundle holds other bytes there; anything else, an image above all, under `assets/`,
+// named by its SHA-256 as a save names it. `{"ok": path}` or `{"error": {"message"}}`, a
+// string to free.
+//
+// # Safety
+// `session` is a live handle; `name` a NUL-terminated string; `bytes` `len` readable bytes.
+char *scaena_drop(struct ScaenaSession *session,
+                  const char *name,
+                  const uint8_t *bytes,
+                  size_t len);
+
 // Answer `method` with `args` (a JSON object, or null for none), as a page's `Player` does:
 // `{"ok": value}` or `{"error": {"message"}}`, a string to free. The calls ([`call`]):
 // `states`, `formats`, `setFormat {format?}`, `canvasSize`, `duration {state}`, `timeline`,
@@ -124,10 +137,16 @@ bool scaena_add_file(struct ScaenaSession *session,
 // {state, node, from, to}`, the look ⌘B and ⌘I give characters. A text's characters (PLAN
 // 3.10): `characterChoices {state, node, from, to}`, what an inspector offers for them; and
 // `linkAt {state, x, y}`, the link drawn there at rest, where a click goes. Nodes added and
-// taken away (PLAN 3.11): `inserting {state, n, x, y, named?}`, the patch that inserts what
-// `inserts` offers `n`th about a point, or in the room nearest it; `duplicating {state, node}`,
+// taken away (PLAN 3.11): `inserting {state, n, x, y, named?, with?}`, the patch that inserts
+// what `inserts` offers `n`th about a point, or in the room nearest it, `with` properties of its
+// own set on it; `duplicating {state, node}`,
 // a copy beside it; each `{id, cell, patch}`; and `deleting {state, node, everywhere?}`, the
-// ops that take it out of the state and those after, or out of the deck.
+// ops that take it out of the state and those after, or out of the deck. The clipboard (PLAN
+// 3.12): `copying {state, nodes}`, the clip as text; `pasting {text, state, x, y}`, the patch that
+// pastes a clip, or other text as a text, about a point, the files it carries handed over;
+// `look {state, node}` and `putting {state, look, nodes}`, a look copied and the patch that
+// puts it on others; `cells {text}`, a sheet's cells as the source they would be, or null; and
+// `attaching {path, schema?}`, a data file the bundle holds as the source a chart of it reads.
 //
 // # Safety
 // `session` is a live handle; `method` a NUL-terminated string; `args` one, or null.
