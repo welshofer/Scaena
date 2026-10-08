@@ -111,9 +111,10 @@ bool scaena_add_file(struct ScaenaSession *session,
 // `states`, `formats`, `setFormat {format?}`, `canvasSize`, `duration {state}`, `timeline`,
 // `files`, `imageFiles`, `digest {state}`, `reading {state}`, `source`, `compiledFrom
 // {source}`, `compile {source}`, `lint {state?}`, `fix {patch}`, `inspect {state}`, `boxes
-// {state}`, `hit {state, x, y}`, `layers {state}`, `choices {state, node}`, `stateChoices
-// {state}`, `inserts`, `themes`, `themeText`, `keepHistory`, `keepsHistory`, and `writeFiles
-// {files: [{path, text}]}`, which writes files back as an undo has them (`text` null: taken out).
+// {state}`, `hit {state, x, y}`, `layers {state}`, `carets {state, node}`, `choices {state,
+// node}`, `stateChoices {state}`, `inserts`, `themes`, `themeText`, `keepHistory`,
+// `keepsHistory`, and `writeFiles {files: [{path, text}]}`, which writes files back as an undo
+// has them (`text` null: taken out).
 //
 // # Safety
 // `session` is a live handle; `method` a NUL-terminated string; `args` one, or null.

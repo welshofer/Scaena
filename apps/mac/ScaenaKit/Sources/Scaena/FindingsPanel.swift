@@ -3,10 +3,13 @@ import SwiftUI
 
 /// What compiling and lint found (PLAN 3.4, SPEC §7.5), errors first: each with its code, the
 /// state and node it is about, and where the source sets it. A click shows its state with its
-/// node selected; Fix applies a fix lint has checked, one step to undo.
+/// node selected; Fix applies a fix lint has checked, one step to undo; and where the Mac has the
+/// on-device model, Explain says what the finding means for this deck (PLAN 3.6).
 struct FindingsPanel: View {
     let editor: DeckEditor
     let go: (Finding) -> Void
+    /// Explain a finding on this Mac; none where the on-device model is absent.
+    let explain: ((Finding) -> Void)?
     let fix: (Finding) -> Void
 
     var body: some View {
@@ -17,7 +20,7 @@ struct FindingsPanel: View {
                     .foregroundStyle(.secondary)
             }
             ForEach(found.indices, id: \.self) { i in
-                FindingRow(finding: found[i], fix: fix)
+                FindingRow(finding: found[i], explain: explain, fix: fix)
                     .contentShape(Rectangle())
                     .onTapGesture { go(found[i]) }
             }
@@ -39,6 +42,7 @@ struct FindingsPanel: View {
 
 private struct FindingRow: View {
     let finding: Finding
+    let explain: ((Finding) -> Void)?
     let fix: (Finding) -> Void
 
     var body: some View {
@@ -49,6 +53,15 @@ private struct FindingRow: View {
                 Text(about).font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
+            if let explain {
+                Button {
+                    explain(finding)
+                } label: {
+                    Image(systemName: "sparkles")
+                }
+                .buttonStyle(.borderless)
+                .help("What this means for the deck, answered on this Mac")
+            }
             if finding.fixable, finding.fix != nil {
                 Button("Fix") { fix(finding) }
                     .help(finding.hint ?? "Apply the fix lint has checked")

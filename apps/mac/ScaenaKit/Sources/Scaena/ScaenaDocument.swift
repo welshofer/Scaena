@@ -116,11 +116,22 @@ final class ScaenaDocument: ReferenceFileDocument {
         keep(before, undo: undo)
     }
 
-    /// Register making the deck `source` again as the step to undo; undone, its redo.
-    private func keep(_ source: String, undo: UndoManager?) {
+    /// Take an edit the assistant made on the deck (PLAN 3.6): `before`, the source it replaced,
+    /// and the files it wrote beside the deck, the theme `theme_edit` edited. One step to undo,
+    /// as the user's own edit is: the source made the deck again, and the files written back.
+    func took(_ before: String, files: [Rewritten], undo: UndoManager?) {
+        keep(before, files: files, undo: undo)
+    }
+
+    /// Register making the deck `source` again, `files` written back first, as the step to undo;
+    /// undone, its redo.
+    private func keep(_ source: String, files: [Rewritten] = [], undo: UndoManager?) {
         undo?.registerUndo(withTarget: self) { [weak undo] document in
+            if !files.isEmpty {
+                try? document.session.write(files.map { (path: $0.path, text: $0.before) })
+            }
             guard let now = document.editor.restore(source) else { return }
-            document.keep(now, undo: undo)
+            document.keep(now, files: files.map(\.undone), undo: undo)
         }
     }
 }

@@ -320,6 +320,25 @@ extension ScaenaSession {
 
     /// A digest of `state`'s display list at rest: what changes when its drawing does.
     public func digest(state: String) throws -> String { try call("digest", ["state": .string(state)]) }
+
+    /// `node`'s words as `state` shows them, as written: its `text`, or its runs' end to end. None
+    /// for a node that is no text there.
+    public func text(state: String, node: String) throws -> String? {
+        let carets: JSONValue = try call("carets", ["state": .string(state), "node": .string(node)])
+        return carets["text"]?.string
+    }
+
+    /// How `state` reads, as the player's live region says it (PLAN 2.8): HTML.
+    public func reading(state: String) throws -> String { try call("reading", ["state": .string(state)]) }
+
+    /// Write files back as an undo has them: each to its text, or taken out where it has none.
+    public func write(_ files: [(path: String, text: String?)]) throws {
+        let listed: [JSONValue] = files.map { file in
+            let text: JSONValue = file.text.map { JSONValue.string($0) } ?? .null
+            return ["path": .string(file.path), "text": text]
+        }
+        let _: JSONValue = try call("writeFiles", ["files": .array(listed)])
+    }
 }
 
 /// What `inspect` says of a state, of which a cue reads its timeline.

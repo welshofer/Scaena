@@ -447,6 +447,11 @@ fn the_assistant_asks_with_the_users_key_and_runs_each_call_on_the_bundle() {
     let next = step(chat, null_mut(), "answer", json!({ "status": 200, "body": done.to_string() }));
     assert_eq!(next, json!({ "next": "done", "text": "Clean.", "stop": "end", "usage": null }));
 
+    // A text's words as written, which the on-device model tightens (PLAN 3.6).
+    let carets = call(s, "carets", json!({ "state": "cover", "node": "title" }));
+    assert!(!carets["text"].as_str().unwrap().is_empty(), "{carets}");
+    assert_eq!(call(s, "carets", json!({ "state": "cover", "node": "nothing-here" })), Value::Null);
+
     // An edit the model makes is the agent's, and changes the deck; another model goes on with
     // the conversation.
     step(chat, null_mut(), "use", json!({ "provider": "openai", "model": "another" }));

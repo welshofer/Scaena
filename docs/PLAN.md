@@ -1273,7 +1273,50 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - **The presenter.** With an external display, the presenter's window takes this one: the state shown as the audience sees it, drawn on the stage's clock so one cue plays, not two; the next state at rest; the state's notes; where it is in the deck; and the time since the deck began. It takes the same keys, and closing it ends the show.
     - Tests: ScaenaKit's `aShowGoesOnAsTheBrowsersPlayerDoes` (a cue finished, the next played, the last waiting, back at rest, and holds).
     - **What waits.** A run on a Mac with a second display, and the remote, with iOS (SPEC §9.4).
-- [ ] 3.6 Keys in Keychain; BYOK assistant; Apple Foundation Models for on-device tasks.
+- [ ] 3.6 Keys in Keychain; BYOK assistant; Apple Foundation Models for on-device tasks. *(Built; waits on a run on a Mac: a question asked with a real key, and the on-device tasks on a Mac with Apple Intelligence.)*
+    - **The conversation, in Rust** (ADR-0022). `scaena-chat` ports the browser's assistant (`web/src/assistant/`):
+      - the conversation, in no provider's form;
+      - each provider's request built from it and its answer read back: Anthropic's Messages API, its system prompt cached; OpenAI's Chat Completions, a frame sent as the user's image; Gemini's generateContent, its thought signatures sent back as they came;
+      - the system prompt and the tools: the MCP tools' schemas less `bundle`, `out`, and `painter`, and `resource_read`;
+      - the loop, as steps a client drives.
+
+      It makes no HTTP call, reads no clock, and keeps no key.
+    - **Held to the browser's.** `web/exchanges.mjs` runs the browser's adapters on one conversation (`tests/assistant/conversation.json`). It records, in `tests/assistant/exchanges.json`, what each adapter sends and reads, the models it lists, its failures, and the page's system prompt and bracketed line. scaena-chat's tests hold the Rust code to that record; CI's schema job and `just scripts` hold the TypeScript to it. A drift in either fails.
+    - **The C ABI.**
+      - `scaena_chat_new` begins a conversation with the model the user chose.
+      - `scaena_chat_call` takes it a step at a time:
+        - `ask`: the question, begun with what the window shows, the model told the deck as it is now;
+        - `request`: the request for Swift to make, the key in its headers alone;
+        - `answer`: the answer read;
+        - `run`: a call run on the session by `agent:` and the model's name, as the browser runs it (`resource_read` from the resources; a frame as a PNG);
+        - `next`: every call answered, those the user stopped as stopped;
+        - `use`: another model, the conversation kept;
+        - `forget`: the next question is the first.
+      - `scaena_providers` lists the models a key can use.
+      - The session's calls gain `carets` (a text's words as written) and `writeFiles` (files written back by an undo).
+    - **On the Mac.**
+      - ScaenaKit's `ScaenaChat` wraps the steps, and `Assistant` drives them:
+        - each request is made with `URLSession`, under the app's sandbox and the system's proxies;
+        - each call runs on the window's deck;
+        - each edit is taken as the window's own (`DeckEditor.reread`) and is one step of its undo, the theme file `theme_edit` wrote written back with it.
+      - `Keychain` keeps a key for each provider under the app's service, never in a bundle; Settings keeps the keys.
+      - The window's Assistant (⌥⌘A):
+        - lists the provider's models from its key;
+        - begins each question with the state shown and the node selected;
+        - shows what each call came to and the frame it drew;
+        - Stop answers the calls not yet run as stopped.
+    - **On this Mac.** With Apple's Foundation Models (macOS 26, Apple Intelligence):
+      - Explain, beside a finding, says what it means for the deck;
+      - the inspector drafts a state's notes from how it reads;
+      - the inspector tightens a text's words.
+
+      Each answer is offered to take as one patch (a `set_state` of `notes`, a `replace_text` of the whole text), or to leave. Nothing leaves the Mac; without the model, none is offered.
+    - Tests:
+      - scaena-chat's `exchanges`: the three adapters' requests and reads, models, and failures, and the page's prompt, against the record; a question run through two rounds; frames named past the newest two.
+      - scaena-chat's unit tests: every MCP tool known; a summary for each kind of call.
+      - The `ffi` suite's `the_assistant_asks_with_the_users_key_and_runs_each_call_on_the_bundle` (on B1: the request; three calls run, the frame a PNG; an edit by the agent; a model switched; a stop; a refusal) and `an_assistants_theme_edit_is_written_back_by_an_undo`.
+      - ScaenaKit's `ChatTests` on CI's macOS runner: the conversation through the C ABI; a key's models; the loop, with a stand-in for the network, making the model's edit the window's own; and the Keychain, where the runner lets a test write it.
+    - **What waits.** A question asked in the app with a real key, and the on-device tasks on a Mac with Apple Intelligence.
 - [ ] 3.7 Direct manipulation v1: move/resize within template slots emits patches; off-template drags create explicit overrides (visibly flagged).
 - [ ] 3.8 Exports wired to Share sheet / Quick Look.
 
