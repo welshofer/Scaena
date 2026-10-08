@@ -1317,7 +1317,21 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
       - The `ffi` suite's `the_assistant_asks_with_the_users_key_and_runs_each_call_on_the_bundle` (on B1: the request; three calls run, the frame a PNG; an edit by the agent; a model switched; a stop; a refusal) and `an_assistants_theme_edit_is_written_back_by_an_undo`.
       - ScaenaKit's `ChatTests` on CI's macOS runner: the conversation through the C ABI; a key's models; the loop, with a stand-in for the network, making the model's edit the window's own; and the Keychain, where the runner lets a test write it.
     - **What waits.** A question asked in the app with a real key, and the on-device tasks on a Mac with Apple Intelligence.
-- [ ] 3.7 Direct manipulation v1: move/resize within template slots emits patches; off-template drags create explicit overrides (visibly flagged).
+- [ ] 3.7 Direct manipulation v1: move/resize within template slots emits patches; off-template drags create explicit overrides (visibly flagged). *(Built; waits on a run on a Mac.)*
+    - **As the browser's canvas** (PLAN 2.29–2.31, ADR-0013). A drag of a node, or a press on a node not selected, which selects it, moves it; a handle of the box selected, a corner or an edge's middle, resizes it.
+      - How it snaps is the browser's `snapOf`, ported to ScaenaKit (`Targets.snap`):
+        - on the theme's grid, by its tracks, or into the slot the box covers most;
+        - in a stack, among its children; in a frame, where it is left;
+        - Shift takes a node off the grid, as a `rect`, or puts one back on it.
+      - As it moves, the engine draws the node moved, laying nothing out (`setMoving`). It says where the node lands, with the guides that box meets (`snap`), and the states the patch changes (`reach`). A resize that pauses shows its text reflowed (`preview`).
+      - The drop is that one `place` patch by the user, written where the placement lives, or kept to the state shown with Option (`fork`): one step of the window's undo.
+    - **Flagged.** A node placed off the theme's grid (a `rect` that no container holds) is outlined dashed in orange on the canvas, as lint's W301 flags it in the findings.
+    - **The ABI.** `targets`, `snap`, `setMoving`, `preview`, and `reach` join the session's calls, each the answer `Player` gives a page. ScaenaKit wraps them (`Targets`, `Snapped`, `SnapMode`, `placements`), and `DeckEditor` draws the canvas again as a drag moves (`drawn`).
+    - A turned or scaled node is moved in the browser's editor for now: the Mac says so.
+    - Tests:
+      - the `ffi` suite's `a_drag_on_the_canvas_ends_in_the_patch_the_browsers_does`, on B1: the title drawn moved and back; snapped into another slot; off the grid kept to the state; the patch previewed, reached, and made as previewed; and W301 found;
+      - ScaenaKit's `PlacingTests` on CI's macOS runner: `snapOf`'s cases, and the drag through `DeckEditor`, undone.
+    - **What waits.** A run of the app on a Mac.
 - [ ] 3.8 Exports wired to Share sheet / Quick Look.
 
 ### Exit criteria (gate 3)

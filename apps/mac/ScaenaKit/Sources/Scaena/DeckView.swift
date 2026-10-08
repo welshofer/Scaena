@@ -143,11 +143,18 @@ struct DeckView: View {
     @ViewBuilder private var stage: some View {
         if let shown {
             let size = (try? editor.session.canvasSize()) ?? CGSize(width: 1920, height: 1080)
-            ScaenaCanvas(session: editor.session, state: shown, revision: editor.revision, playhead: $playhead)
-                .overlay { CanvasSelection(editor: editor, state: shown, size: size, node: $node) }
-                .aspectRatio(size.width / max(size.height, 1), contentMode: .fit)
-                .padding()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // Drawn again after each edit, and as a drag moves a node or shows its patch (PLAN 3.7).
+            ScaenaCanvas(
+                session: editor.session, state: shown, revision: editor.revision &+ editor.drawn, playhead: $playhead
+            )
+            .overlay {
+                CanvasSelection(editor: editor, state: shown, size: size, node: $node) { ops in
+                    perform { try document.make(ops, undo: undo) }
+                }
+            }
+            .aspectRatio(size.width / max(size.height, 1), contentMode: .fit)
+            .padding()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ContentUnavailableView("No states", systemImage: "rectangle.stack")
         }
