@@ -1,9 +1,9 @@
 {
   "name": "theme_edit",
-  "description": "Edit the theme the deck names (ADR-0016): its colors, type roles, spacing, and the rest, by RFC 6902 operations on its JSON (`ops`, each path a JSON Pointer into the theme: `/tokens/color/accent`, `/type/roles/body/size`, `/grid/gutter`). Every node that names what the edit changes changes with it, so a look asked of the whole deck is an edit here, not a literal in each node. Checked as a re-theme is: an edit that would leave the deck invalid, as one that takes out a name it uses does, is refused (`refused`, and its errors in `added`), and nothing is written. Otherwise the theme file is written in canonical form (an inline theme, in the deck), and the delta in what lint finds is reported. A theme that ships is edited in the bundle's copy.",
+  "description": "Edit the theme the deck names (ADR-0016): its colors, type roles, spacing, and the rest, by RFC 6902 operations on its JSON (`ops`, each path a JSON Pointer into the theme: `/tokens/color/accent`, `/type/roles/body/size`, `/grid/gutter`). Every node that names what the edit changes changes with it, so a look asked of the whole deck is an edit here, not a literal in each node. Checked as a re-theme is: an edit that would leave the deck invalid, as one that takes out a name it uses does, is refused (`refused`, and its errors in `added`), and nothing is written. Otherwise the theme file is written in canonical form (an inline theme, in the deck), and the delta in what lint finds is reported. A theme that ships is edited in the bundle's copy. Or, in place of `ops`, a `photo`: an image the bundle holds, whose colors the theme's take (PLAN 2.94). Its best hue goes to the accent, and the best far enough from that to the next chromatic color; the hue it leans to tints the neutrals. Each color keeps the theme's lightness and chroma, and each color text is set in moves until it reads on the surfaces. `photo` in the result says what the photo's colors are and what each of the theme's became.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "required": ["bundle", "ops"],
+    "required": ["bundle"],
     "additionalProperties": false,
     "type": "object",
     "properties": {
@@ -11,7 +11,13 @@
       "ops": {
         "description": "RFC 6902 operations on the theme the deck names, applied in order, all or none: each\npath a JSON Pointer into the theme's JSON (`/tokens/color/accent`,\n`/type/roles/body/size`, `/grid/gutter`), for a theme file and an inline theme alike.",
         "type": "array",
-        "items": true
+        "items": true,
+        "default": []
+      },
+      "photo": {
+        "description": "In place of `ops`: an image the bundle holds (`assets/ridge.png`), whose colors the\ntheme's take (PLAN 2.94). Its best hue becomes the accent's, and the best far enough from\nit the next chromatic color's. The hue the whole photo leans to tints the neutrals. Each\ncolor keeps the theme's tone, its lightness and chroma, and each color text is set in is\nmoved until it reads on the surfaces. The result's `photo` says what it read and set.",
+        "type": ["string", "null"],
+        "default": null
       },
       "dry_run": { "description": "Say what would change, and write nothing.", "type": "boolean", "default": false }
     }
@@ -47,7 +53,76 @@
         },
         "required": ["code", "severity", "message"]
       },
-      "Severity": { "type": "string", "enum": ["info", "warning", "error"] }
+      "Severity": { "type": "string", "enum": ["info", "warning", "error"] },
+      "Photo": {
+        "description": "What a theme edit from a photo read and set (PLAN 2.94, `scaena_core::palette`).",
+        "type": "object",
+        "properties": {
+          "image": { "description": "The image, as the bundle names it.", "type": "string" },
+          "read": {
+            "description": "What its colors are: its hues, best first, and the hue it leans to.",
+            "$ref": "#/$defs/Read"
+          },
+          "set": {
+            "description": "Each of the theme's colors and data palettes: what it was, what it takes, and, for a\ncolor text is set in, the least contrast it has on the surfaces and the least it needs.",
+            "type": "array",
+            "items": { "$ref": "#/$defs/Set" }
+          }
+        },
+        "required": ["image", "read", "set"]
+      },
+      "Read": {
+        "description": "What a photo's colors are.",
+        "type": "object",
+        "properties": {
+          "hues": {
+            "description": "Its hues, best first, each at least 30° from those before it: at most four.",
+            "type": "array",
+            "items": { "$ref": "#/$defs/Hue" }
+          },
+          "cast": { "description": "The hue its pixels lean to together, and how far.", "$ref": "#/$defs/Cast" }
+        },
+        "required": ["hues", "cast"]
+      },
+      "Hue": {
+        "description": "A hue a photo shows.",
+        "type": "object",
+        "properties": {
+          "degrees": { "description": "Its angle, in degrees of Oklch hue.", "type": "number" },
+          "chroma": { "description": "How colorful its pixels are: their mean Oklch chroma.", "type": "number" },
+          "share": { "description": "The share of the photo's pixels within 10° of it, 0 to 1.", "type": "number" }
+        },
+        "required": ["degrees", "chroma", "share"]
+      },
+      "Cast": {
+        "description": "The hue a photo's pixels lean to together: the Oklch of their mean.",
+        "type": "object",
+        "properties": {
+          "degrees": { "description": "In degrees of Oklch hue.", "type": "number" },
+          "chroma": { "description": "How far: the chroma of the pixels' mean.", "type": "number" }
+        },
+        "required": ["degrees", "chroma"]
+      },
+      "Set": {
+        "description": "A color, or a data palette, the photo sets in a theme.",
+        "type": "object",
+        "properties": {
+          "path": {
+            "description": "Where in the theme: a JSON Pointer (`/tokens/color/accent`, `/tokens/data/sequential`).",
+            "type": "string"
+          },
+          "was": { "description": "The value it had: a color, or a palette's colors." },
+          "now": { "description": "The value it takes." },
+          "reads": {
+            "description": "For a color a type role sets text in: the least contrast it has on the surfaces, and\nthe least it must have.",
+            "type": ["array", "null"],
+            "items": { "type": "number" },
+            "minItems": 2,
+            "maxItems": 2
+          }
+        },
+        "required": ["path", "was", "now"]
+      }
     },
     "required": ["theme", "paths", "applied", "listed", "added", "removed", "errors", "refused"],
     "type": "object",
@@ -84,6 +159,10 @@
       "refused": {
         "description": "Whether the edit was refused: it would have added a validation error (in `added`). The\ntheme stays as it was.",
         "type": "boolean"
+      },
+      "photo": {
+        "description": "With `photo`: what its colors are, and each of the theme's colors and data palettes, what\nit was and what it takes.",
+        "anyOf": [{ "$ref": "#/$defs/Photo" }, { "type": "null" }]
       }
     }
   }

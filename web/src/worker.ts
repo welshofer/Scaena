@@ -461,7 +461,8 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         saveable(data.source);
         player.setMoving([], 0, 0);
         player.preview(undefined);
-        const done = JSON.parse(player.themeEdit(JSON.stringify({ ops: data.ops }), false, "user", new Date().toISOString())) as {
+        const asked = data.photo ? { photo: data.photo } : { ops: data.ops };
+        const done = JSON.parse(player.themeEdit(JSON.stringify(asked), false, "user", new Date().toISOString())) as {
           edited: ThemeEdited;
           files: Rewritten[];
         };

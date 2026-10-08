@@ -196,6 +196,7 @@ web-smoke: site
     node web/files.mjs
     node web/versions.mjs
     node web/theme-edit.mjs
+    node web/theme-photo.mjs
     node web/formats.mjs
     node web/rehearse.mjs
     node web/rows.mjs

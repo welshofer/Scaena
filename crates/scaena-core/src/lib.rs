@@ -45,6 +45,7 @@ pub mod lint;
 pub mod lists;
 pub mod looks;
 pub mod model;
+pub mod palette;
 pub mod patch;
 pub mod pose;
 pub mod quotes;

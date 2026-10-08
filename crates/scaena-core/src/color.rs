@@ -68,7 +68,7 @@ fn hue(v: &str) -> Option<f64> {
 }
 
 /// Oklab to linear sRGB (Ottosson).
-fn oklab_to_linear([l, a, b]: [f64; 3]) -> [f64; 3] {
+pub(crate) fn oklab_to_linear([l, a, b]: [f64; 3]) -> [f64; 3] {
     let cube = |v: f64| v * v * v;
     let lms = [
         cube(l + 0.396_337_777_4 * a + 0.215_803_757_3 * b),
@@ -84,7 +84,7 @@ fn oklab_to_linear([l, a, b]: [f64; 3]) -> [f64; 3] {
 }
 
 /// Linear light, clipped to sRGB, to the nearest sRGB byte.
-fn encode(v: f64) -> u8 {
+pub(crate) fn encode(v: f64) -> u8 {
     let v = v.clamp(0.0, 1.0);
     let v = if v <= 0.003_130_8 { 12.92 * v } else { 1.055 * libm::pow(v, 1.0 / 2.4) - 0.055 };
     (v * 255.0).round() as u8

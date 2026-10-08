@@ -1183,6 +1183,18 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
         - They are judged again once edits pause, after the lint of every state, and when another state shows: typing never starts a round.
         - A round is the worker's longest task, so it judges a layout at a time (`Player.layoutsBegin`, `layoutsStep`) and answers what else the page asks between them; an edit meanwhile ends it. In headless Chromium on 4 cores, a round on the trails and revenue examples takes 80–430 ms, about 25–100 ms a layout. B1's edit round trip stays at a 28 ms median.
     - Tests: `crates/scaena-ops/tests/layouts.rs` (trails' budget slide offered figure, which poster and full draw alike, then narrow-figure in errors; storm a clean narrow-figure; the agenda one layout that every other draws alike; the change slide, its cards on the grid, none; `inspect` names the state), the WASM session's `a_states_layouts_come_judged_and_painted_best_first` (the CLI's list, painted, no two alike), and `web/suggest.mjs` (28 checks).
+- [x] 2.94 A theme's colors from a photo: the photo's hues on the theme's own tones, each color text is set in kept where it reads (the parent session, 2026-10-07, at Jay's "ever forward").
+    - Done. `scaena_core::palette` reads a photo in Oklab: its hues, best first, each scored by how much of the photo lies near it and how colorful it is there, and the hue all of it leans to. It gives a theme's colors those hues on the theme's own tones:
+        - The accent takes the best hue, and the next chromatic color the best at least 60° from it. Each other chromatic color turns with the accent. Each keeps its lightness and chroma.
+        - The neutrals take the photo's lean, a little of it.
+        - A color text is set in moves the least step that reads on the surfaces at WCAG's ratio, as lint judges it.
+        - The data palettes follow the theme's colors.
+        - The theme's fonts, type, grid, layouts, and motion stay as they are.
+    - The theme's chroma, not the photo's: both were tried on the repository's photos. The photo's chroma turned Daybreak's restrained teal into a loud orange-red, and its sequential palette jumped from near-white to salmon. The theme's chroma keeps each theme's style in the photo's hues.
+    - It is a theme edit like any other (ADR-0016): `scaena theme --from-photo IMAGE`, `theme_edit`'s `photo` for the MCP server and the assistant, the Theme tab's From a photo, and a right click on a photo, Theme colors from this photo. Each is one `theme_edit` and one step to undo. A color within a quarter of a difference seen keeps how the theme writes it, so a photo taken again changes nothing.
+    - On the trails example, the ridge photo turns the accent from #FF6A3D to #B97CFF (6.3:1 on the surfaces) and accent-2 from #FFC857 to #FFBFBA, and leans the neutrals violet: ink reads 15.7:1, muted 5.2:1. Lint finds nothing new.
+    - The editor's module grows 11 KB gzipped. The palette reads only the theme's JSON it needs: the typed theme read from a `Value` compiled its deserializer a second time, 77 KB.
+    - Tests: `scaena_core::palette`'s six (hues and lean, a gray photo, Dusk from a blue and orange photo, a light theme's accent darkened until it reads, a gray photo keeping the accents, and a photo taken again changing nothing), the CLI's `a_theme_takes_its_colors_from_a_photo_the_bundle_holds`, the MCP server's `a_theme_edit_takes_a_photos_colors`, the WASM session's `a_photo_gives_the_theme_its_colors`, and `web/theme-photo.mjs`.
 
 ### Exit criteria (gate 2)
 *(Evidence so far, and the runs that close it: `docs/gate-2.md`.)*

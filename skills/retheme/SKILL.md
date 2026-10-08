@@ -13,6 +13,7 @@ A theme change is a pure re-render: swap `theme`, and the next frame is in the n
 | swap | the same, without `--dry-run` | `theme_apply` |
 | swap with the fixes, all or none | `scaena patch <bundle> --ops ops.json` | `deck_patch` |
 | change one look of the deck's own theme | `scaena theme <bundle> --edit ops.json --dry-run --json`, then without `--dry-run` | `theme_edit`, with `dry_run` first |
+| give the theme a photo's colors | `scaena theme <bundle> --from-photo <image> --dry-run --json`, then without `--dry-run` | `theme_edit` with `photo`, `dry_run` first |
 | see each text node's new look | `scaena inspect <bundle> --state <id> --resolved` | `deck_inspect` with `resolved` |
 | check | `scaena lint <bundle> --json` | `deck_lint` |
 | look | `scaena render <bundle> --state <id> --out frame.png` | `deck_render` |
@@ -55,3 +56,6 @@ A theme change is a pure re-render: swap `theme`, and the next frame is in the n
    - The edit is JSON Patch on the theme's JSON, its paths into it: `/tokens/color/accent`, `/type/roles/headline/size`, `/grid/gutter`. Read the theme first, from the file the deck names, to see what is there.
    - It is checked as a swap is: an edit that takes out a name the deck uses (E102), or writes a value the theme's schema refuses (E106), is refused, and nothing is written. Otherwise the delta says what the new look breaks, as in step 4.
    - A theme that ships is edited in the bundle's copy, never where it ships. The bundle's history keeps each edit, by its author.
+9. **Or give the theme a photo's colors** when the ask is "colors from this photo" or "match the cover image" (PLAN 2.94). Name an image the bundle holds in place of the operations: `--from-photo assets/photo.jpg`, or `photo` in `theme_edit`.
+   - The accents take the photo's hues, and the neutrals the hue it leans to. Each color keeps the theme's lightness and chroma, and each color text is set in is moved until it reads on the surfaces. Fonts, type, grid, and layouts stay as they are.
+   - `photo` in the result lists each color as it was and as it is, and the contrast of each one text is set in. Read it in the dry run, then apply. The delta says what else the new colors break, as in step 4: text over a photo is judged against the photo, not the theme.

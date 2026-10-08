@@ -38,7 +38,7 @@ mod tests {
     const THEME: &str = "themes/dusk.theme.json";
 
     fn ops(ops: Value) -> ThemeEdit {
-        ThemeEdit { ops: serde_json::from_value(ops).unwrap() }
+        ThemeEdit { ops: serde_json::from_value(ops).unwrap(), photo: None }
     }
 
     fn user() -> Caller<'static> {
@@ -88,6 +88,29 @@ mod tests {
         let wrong = ops(json!([{ "op": "replace", "path": "/no/such", "value": 1 }]));
         let e = s.theme_edit(&wrong, false, user()).unwrap_err().to_string();
         assert!(e.contains("op 0"), "{e}");
+    }
+
+    /// A photo the bundle holds gives the theme its colors (PLAN 2.94): one edit, drawn, and undone
+    /// by writing the theme back, as any theme edit is.
+    #[test]
+    fn a_photo_gives_the_theme_its_colors() {
+        let mut files = revenue();
+        let ridge = "assets/trails-ridge.png";
+        files.insert(ridge.into(), std::fs::read(format!("../../docs/examples/{ridge}")).unwrap());
+        let mut s = Session::open(files).unwrap();
+        let before = s.png("revenue", 480).unwrap();
+        let photo = ThemeEdit { ops: Vec::new(), photo: Some(ridge.into()) };
+        let (said, files) = s.theme_edit(&photo, false, user()).unwrap();
+        assert!(said.applied && said.paths.contains(&"/tokens/color/accent".to_string()), "{said:?}");
+        assert_eq!(said.photo.as_ref().map(|p| p.image.as_str()), Some(ridge));
+        assert_eq!(theme(&s)["tokens"]["color"]["accent"], "#B97CFF");
+        assert_ne!(s.png("revenue", 480).unwrap(), before, "frames are drawn in the photo's colors");
+        s.write_files(vec![crate::versions::Written { path: THEME.into(), text: files[0].before.clone() }]);
+        assert_eq!(s.png("revenue", 480).unwrap(), before, "undone, the deck is drawn as it was");
+        // A photo the bundle does not hold says so.
+        let none = ThemeEdit { ops: Vec::new(), photo: Some("assets/none.png".into()) };
+        let e = s.theme_edit(&none, false, user()).unwrap_err().to_string();
+        assert!(e.contains("assets/none.png"), "{e}");
     }
 
     /// The save records the edit by its author, with the theme's text as the save writes it, and

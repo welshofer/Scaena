@@ -503,16 +503,18 @@ export class Stage {
     return this.request<"themeText">({ type: "themeText", id: ++this.asked }).then(({ theme }) => theme);
   }
 
-  /** The theme the deck names edited by `ops` (RFC 6902) as one change by the user, the deck
-   * `source` compiles to drawn in it at slot `index` (PLAN 2.61, ADR-0016): what it did, the theme
-   * file it wrote, before and after, the source after, and what the edit came to. */
+  /** The theme the deck names edited by `ops` (RFC 6902), or to the colors of the image `photo`
+   * the bundle holds (PLAN 2.94), as one change by the user, the deck `source` compiles to drawn in
+   * it at slot `index` (PLAN 2.61, ADR-0016): what it did, the theme file it wrote, before and
+   * after, the source after, and what the edit came to. */
   themeEdit(
     source: string,
     ops: unknown[],
     index: number,
     format?: string,
+    photo?: string,
   ): Promise<{ result: ThemeEdited; files: Rewritten[]; source?: string; edited?: Edited }> {
-    return this.request<"themeEdited">({ type: "themeEdit", id: ++this.asked, source, ops, index, format }).then((done) => {
+    return this.request<"themeEdited">({ type: "themeEdit", id: ++this.asked, source, ops, photo, index, format }).then((done) => {
       if (done.edited) this.moved(done.edited);
       return done;
     });
