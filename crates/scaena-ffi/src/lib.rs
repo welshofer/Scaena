@@ -884,7 +884,7 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         "boxes" => json!(s.boxes_json(arg("state")?).map_err(said)?),
         "hit" => json!(s.hits_json(arg("state")?, [number("x")? as f32, number("y")? as f32]).map_err(said)?),
         "layers" => value(serde_json::to_value(s.layers(arg("state")?).map_err(said)?))?,
-        "carets" => value(serde_json::to_value(s.carets(arg("state")?, arg("node")?).map_err(said)?))?,
+        "carets" => s.carets_json(arg("state")?, arg("node")?).map_err(said)?,
         "choices" => value(serde_json::to_value(s.choices(arg("state")?, arg("node")?).map_err(said)?))?,
         "stateChoices" => value(serde_json::to_value(s.state_choices(arg("state")?).map_err(said)?))?,
         "inserts" => value(serde_json::to_value(s.inserts()))?,

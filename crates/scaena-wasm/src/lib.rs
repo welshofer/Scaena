@@ -593,20 +593,7 @@ impl Player {
     /// lead, trail]] }], "items": [{ "kind", "level", "marker" } | null] }`, canvas units, `items`
     /// each paragraph as a list's item (PLAN 2.69); `null` for a node that is no text there.
     pub fn carets(&mut self, state: &str, node: &str) -> Result<String, JsError> {
-        let Some(c) = self.0.carets(state, node).map_err(js)? else { return Ok("null".into()) };
-        let units = utf16(&c.text);
-        let lines: Vec<serde_json::Value> = (c.lines.iter())
-            .map(|l| {
-                let chars: Vec<_> =
-                    l.chars.iter().map(|ch| serde_json::json!([units(ch.offset), ch.lead, ch.trail])).collect();
-                serde_json::json!({
-                    "top": l.top, "bottom": l.bottom, "x": l.x, "start": units(l.start), "end": units(l.end),
-                    "broken": l.broken, "chars": chars,
-                })
-            })
-            .collect();
-        // Each paragraph as a list's item (ADR-0018): what Enter, Tab, and the list keys act on.
-        serde_json::to_string(&serde_json::json!({ "text": c.text, "lines": lines, "items": c.items })).map_err(js)
+        serde_json::to_string(&self.0.carets_json(state, node).map_err(js)?).map_err(js)
     }
 
     /// What an inspector offers for `node` as `state` shows it, as JSON (ADR-0013, PLAN 2.33):
@@ -793,19 +780,6 @@ impl Player {
         let ops: serde_json::Value = serde_json::from_str(ops).map_err(js)?;
         self.0.typed(&ops, at.as_deref().and_then(store::seconds)).map_err(js)
     }
-}
-
-/// Byte offsets in `text` as UTF-16 code units, as the page counts a string.
-#[cfg(feature = "editor")]
-fn utf16(text: &str) -> impl Fn(usize) -> usize + '_ {
-    let mut at: Vec<(usize, usize)> = Vec::with_capacity(text.len() + 1);
-    let mut units = 0;
-    for (byte, c) in text.char_indices() {
-        at.push((byte, units));
-        units += c.len_utf16();
-    }
-    at.push((text.len(), units));
-    move |byte| at[at.partition_point(|&(b, _)| b < byte).min(at.len() - 1)].1
 }
 
 /// The bundle a page opens, edits, and saves (PLAN 2.4, SPEC §9.2).
