@@ -42,6 +42,15 @@ public struct Show: Equatable, Sendable {
         playhead = .rest
     }
 
+    /// `state`, its cue played: where a link goes (PLAN 2.70). False for a state the deck lacks.
+    @discardableResult
+    public mutating func go(to state: String) -> Bool {
+        guard let at = slots.firstIndex(where: { $0.state == state }) else { return false }
+        index = at
+        playhead = Playhead()
+        return true
+    }
+
     /// The first state, its cue played.
     public mutating func first() {
         index = 0

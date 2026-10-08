@@ -7,7 +7,8 @@ import SwiftUI
 /// the state shown, the next, its notes, and the time since the deck began. It is paced as the
 /// browser's player paces a deck (`Show`, PLAN 2.2): → ↓ Page Down Space Return and a click go on,
 /// ← ↑ Page Up Delete go back, Home and End go to the first and the last state, and Escape ends.
-/// A state that holds goes on by itself once its cue and its hold are over.
+/// A state that holds goes on by itself once its cue and its hold are over. A click on a link at
+/// rest follows it (PLAN 2.70): a state is shown, a web address opens in the browser.
 @MainActor
 enum Presenting {
     private static var windows: [NSWindow] = []
@@ -118,6 +119,39 @@ final class Showing {
         }
     }
 
+    /// A click at `location` on a stage `stage` points across: a link there at rest followed
+    /// (PLAN 2.70), a state shown, a web address opened in the browser; else on, as any click.
+    func click(at location: CGPoint, on stage: CGSize) {
+        if let link = link(at: location, on: stage), follow(link) { return }
+        on()
+    }
+
+    /// The link drawn at `location` on the stage, the state shown at rest: none while its cue
+    /// plays, as in the browser's player.
+    private func link(at location: CGPoint, on stage: CGSize) -> LinkTarget? {
+        guard let slot = show.slot, !show.playhead.playing else { return nil }
+        let size = self.size
+        let scale = min(stage.width / max(size.width, 1), stage.height / max(size.height, 1))
+        guard scale > 0 else { return nil }
+        // The canvas fits the stage, in its middle.
+        let x = (location.x - (stage.width - size.width * scale) / 2) / scale
+        let y = (location.y - (stage.height - size.height * scale) / 2) / scale
+        guard x >= 0, y >= 0, x <= size.width, y <= size.height else { return nil }
+        return (try? editor.session.link(state: slot.state, at: CGPoint(x: x, y: y))) ?? nil
+    }
+
+    /// Follow `link`: whether it went anywhere.
+    private func follow(_ link: LinkTarget) -> Bool {
+        switch link {
+        case .href(let href):
+            guard let url = URL(string: href) else { return false }
+            return NSWorkspace.shared.open(url)
+        case .state(let state):
+            holding?.cancel()
+            return show.go(to: state)
+        }
+    }
+
     /// `state`'s notes, for the presenter.
     func notes(_ state: String) -> String {
         let choices = try? editor.session.stateChoices(state: state)
@@ -190,9 +224,13 @@ struct StageView: View {
         }
         .ignoresSafeArea()
         .overlay {
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture { showing.on() }
+            GeometryReader { geometry in
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture(coordinateSpace: .local) { location in
+                        showing.click(at: location, on: geometry.size)
+                    }
+            }
         }
         .focusable()
         .focusEffectDisabled()

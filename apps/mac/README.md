@@ -28,4 +28,6 @@ On the canvas (PLAN 3.7), drag a node to move it and a handle to resize it: it s
 
 Double-click a text to type in it where you clicked (PLAN 3.9), with Option to keep what you type to the state shown. The keys are a text editor's: Shift extends the selection, Option moves by words, ⌘ to a line's ends; a second click selects a word, a third its paragraph; an input method composes in place; ⌘B and ⌘I make the characters selected bold or italic. A burst of typing is one step to undo. Escape, Tab, or a click outside the text stops typing.
 
+With characters selected, the inspector offers their look: a role, emphasis, family, weight, italic, or color for them alone (PLAN 3.10). ⌘K links them to a web address or a state, which a click follows in Play. ⌘⇧8 and ⌘⇧7 make paragraphs a bulleted or a numbered list. Tab and Shift+Tab move items a level in or out, and Return in an empty item ends the list.
+
 Export (PLAN 3.8), in the toolbar, shares the deck as a PDF, the same bytes `scaena export --format pdf` writes, or the state shown as a PNG, through the Share sheet; shows the PDF in Quick Look; or saves either where you say.

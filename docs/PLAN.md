@@ -1355,7 +1355,21 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
       - ScaenaKit's `TypingTests` on CI's macOS runner: the carets read, a press, a word, and a paragraph on B1's subtitle, up and down its two lines, and keys, a composition, an accent, and ⌘B through `TypingView`, the burst undone in one step;
       - `chrome.rs` holds the new Swift to gate 3's third criterion: nothing in it lays text out, measures it, or draws it.
     - **What waits.** A run on a Mac, with an input method that composes (Japanese, say), whose candidate window stands at the caret.
-- [ ] 3.10 A text's characters in the inspector, its links, and its lists: a role or a color for the characters selected (`style_text`, PLAN 2.38), ⌘K links them (PLAN 2.70), and a list's keys (PLAN 2.69).
+- [ ] 3.10 A text's characters in the inspector, its links, and its lists: a role or a color for the characters selected (`style_text`, PLAN 2.38), ⌘K links them (PLAN 2.70), and a list's keys (PLAN 2.69). *(Built; waits on a run on a Mac.)*
+    - **The characters' look.** With characters selected in a text typed in, the inspector offers what the engine offers for them (`characterChoices`, `scaena_core::choices::characters`): a run's role, emphasis, family, weight, italic, and color, each the first character's. Each choice is one `style_text` by the user, written where the text lives; Theme's takes the run's own away, so the text's look shows there.
+    - **⌘K** asks where the characters selected link to: a web address (`https://`, `http://`, `mailto:`) or a state's id, `#` before it or not. Left empty, it takes their link away. One `style_text` of `link`. The question is a field over the canvas; focus there, or in the inspector's fields, leaves typing as it is, as the browser's does. In Play, a click on a link at rest follows it (`linkAt`, `Show.go`): a state plays its cue, and a web address opens in the browser.
+    - **A list's keys** (ADR-0018), as a word processor's:
+      - ⌘⇧8 and ⌘⇧7 bullet or number the paragraphs the selection touches, by the keys' places; on items of that kind already, they take them out of the list;
+      - Tab and Shift+Tab move the items a level in or out; outside a list, Tab stops typing;
+      - Return makes an item like the one it leaves (`replace_text` keeps `list` in step), and Return in an empty item ends the list there.
+
+      Each is one `list` patch, one step to undo.
+    - **The ABI.** `characterChoices` and `linkAt` join the session's calls.
+    - Tests:
+      - the `ffi` suite's `a_texts_characters_take_a_look_a_link_and_a_list` on B1: what is offered for the title's characters, a link made and found where it is drawn, and the subtitle bulleted;
+      - ScaenaKit's `TypingTests`: a list's keys through `TypingView` on B1's subtitle, five steps to undo; a link asked, made, refused, taken away, and dismissed; and a role chosen for characters;
+      - `ShowTests`: a link goes to a state, its cue played.
+    - **What waits.** A run on a Mac.
 - [ ] 3.11 Insert, delete, duplicate, and lock: the Insert menu from what the theme and the bundle offer, landing in the room nearest the pointer (PLAN 2.34, 2.79); Delete, Shift+Delete, and ⌘D; ⇧⌘L locks a node (PLAN 2.95).
 - [ ] 3.12 The clipboard: ⌘C, ⌘X, and ⌘V copy, cut, and paste a node as a clip (PLAN 2.37); a picture or a sheet's cells another app copied paste as what they are (PLAN 2.96); ⌥⌘C and ⌥⌘V copy and paste a look (PLAN 2.58).
 - [ ] 3.13 Several selected: Shift+click and a marquee, moved together, aligned, spread, and ordered; ⌘G and ⌘⇧G group and ungroup (PLAN 2.42, 2.43).

@@ -153,6 +153,7 @@ struct CanvasSelection: View {
             // Another node selected, in the layers or by a finding, stops typing.
             if typing.typing, typing.node != now { typing.leave() }
         }
+        .modifier(LinkQuestion(typing: typing))
     }
 
     /// The caret, or the selection, in the text typed in, where it is drawn, and what an input
@@ -378,5 +379,31 @@ struct CanvasSelection: View {
             }
             path.closeSubpath()
         }
+    }
+}
+
+/// ⌘K's question (PLAN 2.70, 3.10): where the characters selected in the text typed in link to,
+/// a web address or a state's id. Left empty, it takes their link away.
+private struct LinkQuestion: ViewModifier {
+    let typing: Typing
+    @State private var to = ""
+
+    func body(content: Content) -> some View {
+        content
+            .alert("Link", isPresented: asking, presenting: typing.asking) { _ in
+                TextField("https://… or a state's id", text: $to)
+                Button("Link") { typing.link(to: to) }
+                Button("Cancel", role: .cancel) { typing.link(to: nil) }
+            } message: { words in
+                Text("Where “\(words)” links to: a web address, or a state's id. Left empty, its link is taken away.")
+            }
+            .onChange(of: typing.asking) { _, now in
+                if now != nil { to = "" }
+            }
+    }
+
+    /// Whether it asks: dismissed, it makes no link.
+    private var asking: Binding<Bool> {
+        Binding(get: { typing.asking != nil }, set: { if !$0, typing.asking != nil { typing.link(to: nil) } })
     }
 }

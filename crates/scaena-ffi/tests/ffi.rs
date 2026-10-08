@@ -648,6 +648,40 @@ fn text_typed_in_place_is_the_patch_the_browsers_typing_makes() {
     unsafe { scaena_session_free(s) };
 }
 
+/// A text's characters (PLAN 3.10), as the browser's editor gives them (PLAN 2.38, 2.69, 2.70):
+/// what the inspector offers for them, a link given them and found where it is drawn, and their
+/// paragraphs made a list's items.
+#[test]
+fn a_texts_characters_take_a_look_a_link_and_a_list() {
+    let s = open(B1);
+    let offered = call(s, "characterChoices", json!({ "state": "cover", "node": "title", "from": 0, "to": 6 }));
+    assert_eq!(offered["node"], "title", "{offered}");
+    let props: Vec<&str> = offered["fields"].as_array().unwrap().iter().filter_map(|f| f["prop"].as_str()).collect();
+    assert!(props.contains(&"role") && props.contains(&"style/color"), "{props:?}");
+
+    // ⌘K: the title links to a state, one `style_text`; a click on it goes there.
+    let link = json!({ "op": "style_text", "node": "title", "state": "cover", "from": 0, "to": 6, "look": { "link": { "state": "goal" } } });
+    assert_eq!(call(s, "typed", json!({ "ops": [link] })), true);
+    assert_eq!(call(s, "linkAt", json!({ "state": "cover", "x": 300, "y": 300 })), json!({ "state": "goal" }));
+    assert_eq!(call(s, "linkAt", json!({ "state": "cover", "x": 10, "y": 10 })), Value::Null, "off every link");
+
+    // ⌘⇧8: the subtitle's paragraph a bullet, one `list`.
+    let list = json!({ "op": "list", "node": "subtitle", "state": "cover", "from": 0, "to": 0, "kind": "bullet" });
+    assert_eq!(call(s, "typed", json!({ "ops": [list] })), true);
+    let carets = call(s, "carets", json!({ "state": "cover", "node": "subtitle" }));
+    assert_eq!(carets["items"][0]["kind"], "bullet", "{carets}");
+
+    // No characters selected, or no text: said.
+    for (node, from, to) in [("title", 3, 3), ("nobody", 0, 1)] {
+        let args = json!({ "state": "cover", "node": node, "from": from, "to": to }).to_string();
+        let answer: Value =
+            serde_json::from_str(&took(unsafe { scaena_call(s, c("characterChoices").as_ptr(), c(&args).as_ptr()) }))
+                .unwrap();
+        assert!(answer["error"]["message"].is_string(), "{answer}");
+    }
+    unsafe { scaena_session_free(s) };
+}
+
 /// Bytes the library returned, taken and freed: none where it returned none.
 fn bytes_of(made: ScaenaBytes) -> Option<Vec<u8>> {
     if made.data.is_null() {

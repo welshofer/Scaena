@@ -4,12 +4,16 @@ import SwiftUI
 /// The inspector (PLAN 3.4, as the browser's, PLAN 2.33 and 2.36): the state's layers, to select
 /// a node, then what the theme offers for the node selected, or for the state with none. Each
 /// choice is one patch, a `choose` written where the value lives or a `set_state`, as in the
-/// browser. Where the Mac has the on-device model (PLAN 3.6), it drafts the state's notes and
+/// browser. With characters selected in a text typed in on the canvas, it offers their look
+/// (PLAN 2.38, 3.10): a run's role, emphasis, family, weight, italic, and color, each chosen one
+/// `style_text`. Where the Mac has the on-device model (PLAN 3.6), it drafts the state's notes and
 /// tightens a text's words, each offered to take as one patch, or to leave.
 struct Inspector: View {
     let editor: DeckEditor
     let state: String?
     @Binding var node: String?
+    /// Text typed in on the canvas: its characters selected are what it offers a look for.
+    let typing: Typing?
     /// Ask the on-device model, its answer offered.
     let offer: (Asked) -> Void
     let make: ([JSONValue]) -> Void
@@ -29,9 +33,9 @@ struct Inspector: View {
                                 .help(lives(field))
                         }
                     } header: {
-                        Text(choices?.node ?? "State \(state)")
+                        Text(characters.map { "\($0.node) · characters \($0.from + 1)–\($0.to)" } ?? choices?.node ?? "State \(state)")
                     }
-                    if OnDevice.available {
+                    if OnDevice.available, characters == nil {
                         Section {
                             if let node = choices?.node {
                                 if choices?.type == "text" {
@@ -50,7 +54,21 @@ struct Inspector: View {
                 ContentUnavailableView("No state", systemImage: "slider.horizontal.3")
             }
         }
-        .task(id: "\(state ?? "")\u{1f}\(node ?? "")\u{1f}\(editor.revision)") { reload() }
+        .task(id: "\(state ?? "")\u{1f}\(node ?? "")\u{1f}\(editor.revision)\u{1f}\(selecting)") { reload() }
+    }
+
+    /// The characters selected in the text typed in, as `style_text` counts them, where it is in
+    /// the state shown: what the inspector offers a look for.
+    private var characters: (node: String, from: Int, to: Int)? {
+        guard let typing, typing.state == state, let node = typing.node, let carets = typing.carets,
+            typing.from < typing.to
+        else { return nil }
+        return (node, carets.scalars(typing.from), carets.scalars(typing.to))
+    }
+
+    /// The characters selected, as what reads the inspector again when they change.
+    private var selecting: String {
+        characters.map { "\($0.node):\($0.from)-\($0.to)" } ?? ""
     }
 
     private func reload() {
@@ -60,7 +78,9 @@ struct Inspector: View {
             return
         }
         layers = (try? editor.session.layers(state: state)) ?? []
-        if let node, let offered = try? editor.session.choices(state: state, node: node) {
+        if characters != nil, let offered = typing?.characterChoices() {
+            choices = offered
+        } else if let node, let offered = try? editor.session.choices(state: state, node: node) {
             choices = offered
         } else {
             choices = try? editor.session.stateChoices(state: state)
@@ -70,6 +90,11 @@ struct Inspector: View {
     /// Choose `value` for `prop`: the node selected's, or the state's with none. Null takes it
     /// away where it lives, and the theme's shows.
     private func choose(_ prop: String, _ value: JSONValue, in state: String) {
+        // The characters selected take it as a look of their own: one `style_text`.
+        if characters != nil, let typing {
+            typing.give(.object([prop: value]))
+            return
+        }
         let op: JSONValue
         if let node = choices?.node {
             op = ["op": "choose", "node": .string(node), "prop": .string(prop), "value": value, "state": .string(state)]
@@ -113,7 +138,7 @@ struct Inspector: View {
         case .overrides: "An override, in every state"
         case .state(let id): "Set in state \(id)"
         case .node: "Set on the node, in every state"
-        case nil: "The theme's"
+        case nil: characters == nil ? "The theme's" : "The text's look: these characters have none of their own"
         }
     }
 }

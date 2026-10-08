@@ -161,3 +161,102 @@ private func carets(_ json: String) throws -> Carets {
     #expect(!typing.typing && !view.acceptsFirstResponder)
     #expect(view.selectedRange().location == NSNotFound)
 }
+
+/// A text's paragraphs as the deck counts them: what a list's keys act on (ADR-0018).
+@Test func aListsKeysActOnTheParagraphsTheSelectionTouches() throws {
+    let c = try carets(twoLines)
+    #expect(c.paragraphs == [NSRange(location: 0, length: 5), NSRange(location: 6, length: 2)])
+    let both = c.touched(from: 1, to: 7)
+    #expect(both.first == 0 && both.last == 1)
+    let second = c.touched(from: 6, to: 6)
+    #expect(second.first == 1 && second.last == 1)
+    #expect(c.item(0) == nil && c.item(5) == nil)
+    let crlf = try carets(#"{"text": "a\r\nb", "lines": []}"#)
+    #expect(crlf.paragraphs == [NSRange(location: 0, length: 1), NSRange(location: 3, length: 1)])
+}
+
+/// A list's keys (PLAN 2.69, 3.10), as a word processor's: ⌘⇧8 bullets the paragraphs the
+/// selection touches, Tab moves them a level in, Return makes an item like the one it leaves, and
+/// Return in an empty item ends the list there; ⌘⇧8 on bullets takes them out of it, and Tab
+/// outside a list stops typing. Each is one patch, one step to undo.
+@MainActor
+@Test func aListsKeysMakeItemsAsAWordProcessorsDo() throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    editor.shown = "cover"
+    let typing = Typing(editor: editor)
+    var steps = 0
+    typing.edited = { _, joins in
+        if !joins { steps += 1 }
+    }
+    let view = TypingView(typing: typing)
+    #expect(typing.enter("subtitle", in: "cover", at: nil))
+    #expect(!typing.inList && !typing.endsList)
+
+    typing.toggle("bullet")
+    #expect(typing.carets?.item(0)?.kind == "bullet" && typing.inList)
+    #expect(typing.told == "subtitle: bulleted")
+    view.doCommand(by: #selector(NSStandardKeyBindingResponding.insertTab(_:)))
+    #expect(typing.carets?.item(0)?.level == 1 && typing.typing)
+
+    typing.move(.text(start: false))
+    view.doCommand(by: #selector(NSStandardKeyBindingResponding.insertNewline(_:)))
+    #expect(typing.carets?.item(1)?.kind == "bullet" && typing.endsList)
+    view.doCommand(by: #selector(NSStandardKeyBindingResponding.insertNewline(_:)))
+    #expect(typing.carets?.item(1) == nil && typing.carets?.item(0)?.level == 1)
+    #expect(typing.told == "subtitle: the list ends")
+
+    typing.move(.text(start: true))
+    typing.toggle("bullet")
+    #expect(typing.carets?.item(0) == nil && !typing.inList)
+    #expect(typing.told == "subtitle: out of the list")
+    view.doCommand(by: #selector(NSStandardKeyBindingResponding.insertTab(_:)))
+    #expect(!typing.typing)
+    #expect(steps == 5)
+}
+
+/// A text's characters (PLAN 3.10): what the inspector offers for them, a role chosen there as
+/// one `style_text`, and ⌘K's link, found where the engine draws it, as a click in Play follows it.
+@MainActor
+@Test func charactersTakeALookAndALink() throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    editor.shown = "cover"
+    let typing = Typing(editor: editor)
+    #expect(typing.enter("title", in: "cover", at: nil))
+    #expect(typing.characterChoices() == nil, "no characters selected")
+    typing.select(NSRange(location: 0, length: 6))
+    let offered = try #require(typing.characterChoices())
+    #expect(offered.node == "title" && offered.fields.contains(where: { $0.prop == "role" }))
+
+    // Where the characters are drawn, as the engine set them last.
+    func middle() throws -> CGPoint {
+        let r = try #require(typing.carets?.covered(from: 0, to: 6).first)
+        return CGPoint(x: r.midX, y: r.midY)
+    }
+
+    // ⌘K: asked, then linked to a state; the link is drawn where the characters are.
+    typing.askLink()
+    #expect(typing.asking == "Scaena")
+    #expect(!typing.link(to: "not a link!") && typing.asking == nil)
+    #expect(typing.told?.contains("is no link") == true, "\(typing.told ?? "")")
+    typing.askLink()
+    #expect(typing.link(to: "#goal"))
+    #expect(try editor.session.link(state: "cover", at: middle()) == .state("goal"))
+    #expect(try editor.session.link(state: "cover", at: CGPoint(x: 10, y: 10)) == nil)
+    typing.askLink()
+    #expect(typing.link(to: "https://example.com/scaena"))
+    #expect(try editor.session.link(state: "cover", at: middle()) == .href("https://example.com/scaena"))
+    // Nothing takes the link away; dismissed, the question makes none.
+    typing.askLink()
+    #expect(typing.link(to: ""))
+    #expect(try editor.session.link(state: "cover", at: middle()) == nil)
+    typing.askLink()
+    #expect(!typing.link(to: nil) && typing.told == "no link made")
+    #expect(!typing.link(to: "goal"), "nothing was asked")
+
+    // A role chosen in the inspector for the characters selected: one `style_text`.
+    #expect(typing.give(["role": "headline"]))
+    #expect(typing.told == "title, characters 1–6: role headline")
+    let role = typing.characterChoices()?.fields.first(where: { $0.prop == "role" })
+    #expect(role?.value?.string == "headline")
+    #expect(typing.selection == NSRange(location: 0, length: 6))
+}
