@@ -29,6 +29,9 @@ pub struct Layer {
     /// Whether the state shows it. One it does not leaves in it, another state of its slide
     /// shows it, or no state does.
     pub shown: bool,
+    /// Whether it is locked (PLAN 2.95): the canvas passes over it, and the layers select it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub locked: bool,
     /// What it holds, a container's or a group's children, listed as the state's are.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<Layer>,
@@ -103,9 +106,11 @@ fn nest<'a>(
     placed.extend(held.iter().map(|(id, _, _)| *id));
     (held.into_iter())
         .filter_map(|(id, _, shown)| {
-            let kind = deck.nodes.get(id)?.node_type;
+            let node = deck.nodes.get(id)?;
+            let kind = node.node_type;
+            let locked = node.props.get("locked").and_then(Value::as_bool) == Some(true);
             let children = if kind.is_container() { nest(Some(id), listed, deck, placed) } else { vec![] };
-            Some(Layer { node: id.to_string(), kind, shown, children })
+            Some(Layer { node: id.to_string(), kind, shown, locked, children })
         })
         .collect()
 }

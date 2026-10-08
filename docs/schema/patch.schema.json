@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/patch-0.16.json",
+  "$id": "https://scaena.dev/schema/patch-0.17.json",
   "title": "Scaena patch",
   "description": "A patch (SPEC §7.3): RFC 6902 ops and semantic ops, applied in order, all or none.",
   "type": "array",
@@ -632,6 +632,10 @@
         "semantic": { "$ref": "#/$defs/Semantic" },
         "z": { "type": "integer" },
         "tags": { "type": "array", "items": { "type": "string" } },
+        "locked": {
+          "description": "Locked in an editor (PLAN 2.95): its canvas passes over the node, and moves, resizes, turns, retypes, and deletes nothing of it; its layers and its inspector select it and unlock it. The node's own, in every state: a state and `overrides` cannot set it (E104). It draws as it would unlocked.",
+          "type": "boolean"
+        },
         "visible": { "type": "boolean" },
         "opacity": { "type": "number", "minimum": 0, "maximum": 1 },
         "transform": { "$ref": "#/$defs/Transform" },
@@ -1622,6 +1626,7 @@
         "semantic": { "anyOf": [{ "$ref": "#/$defs/Semantic" }, { "type": "null" }] },
         "z": { "type": ["integer", "null"] },
         "tags": { "anyOf": [{ "type": "array", "items": { "type": "string" } }, { "type": "null" }] },
+        "locked": { "type": ["boolean", "null"] },
         "visible": { "type": ["boolean", "null"] },
         "opacity": { "anyOf": [{ "type": "number", "minimum": 0, "maximum": 1 }, { "type": "null" }] },
         "transform": { "anyOf": [{ "$ref": "#/$defs/TransformDelta" }, { "type": "null" }] },

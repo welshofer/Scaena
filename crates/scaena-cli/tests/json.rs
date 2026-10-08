@@ -428,6 +428,26 @@ fn inspect_says_a_states_layers() {
     let text = String::from_utf8(out.stdout).unwrap();
     assert!(text.contains("  layers, topmost first:\n    note (text)\n    rev (chart)\n"), "{text}");
     assert!(text.contains("    bg (shader, hidden)\n"), "{text}");
+
+    // A node locked (PLAN 2.95), by a patch of its own `locked`, says so.
+    let dir = scratch("layers-locked");
+    for sub in ["fonts", "themes", "data"] {
+        copy_dir(&Path::new("../../docs/examples").join(sub), &dir.join(sub));
+    }
+    std::fs::copy(EXAMPLE, dir.join("deck.json")).unwrap();
+    let ops = dir.join("lock.json");
+    std::fs::write(&ops, r#"[{ "op": "add", "path": "/nodes/rev/locked", "value": true }]"#).unwrap();
+    let bundle = dir.to_str().unwrap();
+    assert_eq!(scaena(&["patch", bundle, "--ops", ops.to_str().unwrap()]).status.code(), Some(0));
+    let (_, states) = json(&["inspect", bundle, "--state", "revenue", "--layers"]);
+    let locked: Vec<&str> = (states[0]["layers"].as_array().unwrap().iter())
+        .filter(|l| l["locked"] == true)
+        .map(|l| l["node"].as_str().unwrap())
+        .collect();
+    assert_eq!(locked, ["rev"], "{states:#}");
+    let out = scaena(&["inspect", bundle, "--state", "revenue", "--layers"]);
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("    rev (chart, locked)\n"), "{text}");
 }
 
 /// `scaena files` (PLAN 2.59) says what uses each of a bundle's images, fonts, and data, and

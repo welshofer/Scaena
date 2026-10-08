@@ -1183,6 +1183,13 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
         - They are judged again once edits pause, after the lint of every state, and when another state shows: typing never starts a round.
         - A round is the worker's longest task, so it judges a layout at a time (`Player.layoutsBegin`, `layoutsStep`) and answers what else the page asks between them; an edit meanwhile ends it. In headless Chromium on 4 cores, a round on the trails and revenue examples takes 80–430 ms, about 25–100 ms a layout. B1's edit round trip stays at a 28 ms median.
     - Tests: `crates/scaena-ops/tests/layouts.rs` (trails' budget slide offered figure, which poster and full draw alike, then narrow-figure in errors; storm a clean narrow-figure; the agenda one layout that every other draws alike; the change slide, its cards on the grid, none; `inspect` names the state), the WASM session's `a_states_layouts_come_judged_and_painted_best_first` (the CLI's list, painted, no two alike), and `web/suggest.mjs` (28 checks).
+- [x] 2.95 Lock a node, so the canvas can't move or delete it (the parent session, 2026-10-07, at Jay's "ever forward").
+    - Done. A node's `locked: true` is for the editor and draws as nothing (deck format 0.17; SPEC §3.3). It is the node's own, in every state: a state's delta or `overrides` that sets it is E104, as `type` is.
+    - The canvas passes over a node locked, and over what a locked container or group holds. A click, the marquee, ⌘A, Tab, hover, a dropped photo, and a double click all reach what is under it. This is Figma's lock, so a full-bleed photo under a slide's texts no longer catches every press. `Player.boxes` and `Player.hit` name the node whose lock holds each.
+    - Selected in the layers, it is outlined dashed, with no handles. Its arrow keys, `[` and `]`, Enter, Delete, and ⌘X do nothing, and the status says why and that ⇧⌘L unlocks it.
+    - The lock beside each layer's eye, ⇧⌘L, and the Lock or Unlock command lock and unlock. Each is one patch of the node's own `locked`, one step to undo. A right click where a locked node is offers to unlock it.
+    - A patch, the CLI, the MCP server, and the assistant change a locked node as any other: a lock keeps the canvas's gestures off it. `scaena inspect --layers` says which are locked.
+    - Tests: validation's E104 with a lock in a state and in the overrides, and a locked node itself clean; the CLI's `inspect_says_a_states_layers` with a node locked; and `web/lock.mjs` on the trails example's storm photo.
 
 ### Exit criteria (gate 2)
 *(Evidence so far, and the runs that close it: `docs/gate-2.md`.)*

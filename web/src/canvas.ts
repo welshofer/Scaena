@@ -556,6 +556,21 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   };
 
   const box = (node?: string) => (node === undefined ? undefined : boxes.find((b) => b.node === node));
+  /** Those of `nodes` that are locked (PLAN 2.95), or held by what is: the canvas moves, resizes,
+   * turns, retypes, and deletes nothing of them. */
+  const lockedOf = (nodes: string[]) => nodes.filter((n) => box(n)?.locked);
+  /** Whether any of `nodes` is locked: the status says so, and what the gesture would have done. */
+  function locks(nodes: string[], doing: string): boolean {
+    const held = lockedOf(nodes);
+    if (!held.length) return false;
+    const [names, is] = held.length === 1 ? [held[0], "is"] : [held.join(", "), "are"];
+    editor.say(`${names} ${is} locked: nothing ${doing}. ${MOD}${SHIFT}L unlocks it`);
+    return true;
+  }
+  /** The topmost of `hits` a pointer reaches: a locked node it passes over (PLAN 2.95). */
+  const reached = <H extends { locked?: string }>(hits: H[]) => hits.find((h) => !h.locked);
+  /** The locked nodes under the pointer when the menu last opened on the canvas, to unlock. */
+  let lockedThere: string[] = [];
   const point = (e: MouseEvent): [number, number] => {
     const r = overlay.getBoundingClientRect();
     return [view[0] + ((e.clientX - r.left) / r.width) * view[2], view[1] + ((e.clientY - r.top) / r.height) * view[3]];
@@ -741,7 +756,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const [x, y] = [Math.min(m.from[0], m.at[0]), Math.min(m.from[1], m.at[1])];
     const area: Rect = [x, y, Math.abs(m.at[0] - m.from[0]), Math.abs(m.at[1] - m.from[1])];
     const within = (r: Rect) => r[0] >= area[0] && r[1] >= area[1] && r[0] + r[2] <= area[0] + area[2] && r[1] + r[3] <= area[1] + area[3];
-    const found = boxes.filter((b) => (b.parent ?? null) === null && within(drawnBox(b))).map((b) => b.node);
+    // The marquee passes over what is locked (PLAN 2.95).
+    const found = boxes.filter((b) => (b.parent ?? null) === null && !b.locked && within(drawnBox(b))).map((b) => b.node);
     const kept = m.adding && selected !== undefined && holder(selected) === null ? chosen() : [];
     return [...kept, ...found.filter((n) => !kept.includes(n))];
   }
@@ -889,14 +905,15 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const first = box(selected);
     if (first) {
       const turn = turning?.node === first.node ? (turning.now - turning.start) * turning.way : 0;
-      parts.push(shape(first, by, typed ? "selected typed" : "selected", turn));
+      // A node locked (PLAN 2.95) is outlined, with no handle to move, resize, or turn it by.
+      parts.push(shape(first, by, typed ? "selected typed" : first.locked ? "selected locked" : "selected", turn));
       // A point of its box, as laid out, where it is drawn.
       const place = (p: Point): Point => {
         const [x, y] = first.transform ? apply(first.transform, p) : p;
         return [x + by[0], y + by[1]];
       };
       const [x, y, w, h] = first.rect;
-      const still = !drag && !typed && !turning && !reshaping && !cropping && also.length === 0;
+      const still = !drag && !typed && !turning && !reshaping && !cropping && also.length === 0 && !first.locked;
       if (still && aim && snapOf(aim, editor.at(first.node), true, false)) {
         const s = 8 * u;
         const spot: Record<Edge, [number, number]> = {
@@ -1298,7 +1315,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       const kids = boxes.filter((b) => b.parent === node).map((b) => first(b.node));
       return kids.length ? Math.min(...kids) : Number.MAX_SAFE_INTEGER;
     };
-    const here = boxes.filter((b) => (b.parent ?? null) === parent).map((b) => b.node);
+    // Tab and ⌘A pass over what is locked, as a pointer does (PLAN 2.95).
+    const here = boxes.filter((b) => (b.parent ?? null) === parent && !b.locked).map((b) => b.node);
     return [...new Set(here)].sort((a, b) => first(a) - first(b) || a.localeCompare(b));
   }
 
@@ -1472,6 +1490,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
 
   /** What is selected turned `by` degrees, as its round handle turns it: one `choose`. */
   async function turnBy(node: string, by: number) {
+    if (locks([node], "turns")) return;
     const t = editor.transform(node);
     const start = typeof t?.rotate === "number" ? t.rotate : 0;
     const now = Math.round((start + by) * 1000) / 1000;
@@ -2017,9 +2036,31 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     });
   }
 
+  /** Lock `nodes` (what is selected, without them), or with `on` false unlock them (PLAN 2.95):
+   * each node's own `locked`, which holds in every state, one patch and one step to undo. Without
+   * `on`, it unlocks where every one is locked by its own lock, and locks otherwise. */
+  function lock(nodes: string[] = chosen(), on?: boolean) {
+    return inTurn(async () => {
+      if (!nodes.length) return editor.say("nothing selected to lock");
+      const own = (n: string) => box(n)?.locked === n;
+      const locking = on ?? !nodes.every(own);
+      const at = (n: string) => `/nodes/${n.replace(/~/g, "~0").replace(/\//g, "~1")}/locked`;
+      const ops = locking
+        ? nodes.filter((n) => !own(n)).map((n) => ({ op: "add", path: at(n), value: true }))
+        : nodes.filter((n) => on === false || own(n)).map((n) => ({ op: "remove", path: at(n) }));
+      const names = nodes.join(", ");
+      if (!ops.length) return editor.say(`${names} ${locking ? "locked" : "unlocked"} already`);
+      const done = locking
+        ? `${names} locked: the canvas passes over ${nodes.length === 1 ? "it" : "them"} · ${MOD}${SHIFT}L unlocks`
+        : `${names} unlocked`;
+      await change(ops, locking ? "locking…" : "unlocking…", done, nodes.length === 1 && !box(nodes[0]) ? undefined : nodes);
+    });
+  }
+
   /** Take `node`, with what it holds, out of the state shown and the states after it, or,
    * `everywhere`, out of the deck; `how` says what took it (a cut). */
   function remove(node: string, everywhere: boolean, how = "deleted") {
+    if (locks([node], `is ${how}`)) return Promise.resolve();
     return inTurn(async () => {
       const shown = editor.shown();
       if (!shown) return;
@@ -2038,6 +2079,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   /** Take `nodes`, children of one container, out of the state shown on, or, `everywhere`, out of
    * the deck, as Delete takes one (PLAN 2.42): one patch. `how` says what took them (a cut). */
   function removeAll(nodes: string[], everywhere: boolean, how = "deleted") {
+    if (locks(nodes, `is ${how}`)) return Promise.resolve();
     return inTurn(async () => {
       const shown = editor.shown();
       if (!shown) return;
@@ -2286,7 +2328,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       if (DATA.test(file.name)) return attach(at, file);
       // An image shows a PNG or a JPEG (SPEC §3.3): anything else stays out of the bundle.
       if (!PICTURE.test(file.name)) return editor.say(`${file.name} is neither a picture (PNG, JPEG) nor data (CSV, JSON): nothing was added`);
-      const top = (await stage.hit(shown.state, at, editor.format()).catch(() => []))[0];
+      const top = reached(await stage.hit(shown.state, at, editor.format()).catch(() => []));
       const choices = top && (await stage.choices(shown.state, top.node).catch(() => undefined));
       try {
         const path = await stage.drop(file.name, await file.arrayBuffer());
@@ -2332,7 +2374,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     return inTurn(async () => {
       const shown = editor.shown();
       if (!shown) return editor.say("the canvas waits for a source that compiles");
-      const top = (await stage.hit(shown.state, at, editor.format()).catch(() => []))[0];
+      const top = reached(await stage.hit(shown.state, at, editor.format()).catch(() => []));
       const choices = top && (await stage.choices(shown.state, top.node).catch(() => undefined));
       if (top && choices?.type === "image") {
         const op = { op: "choose", node: top.node, prop: "src", value: path, state: shown.state };
@@ -2523,6 +2565,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   /** Move the node selected a step, or, to `grow` it, resize it: a track on a grid, a place along
    * its stack, a canvas unit off the grid. `fork` keeps it to the state shown. */
   async function nudge(node: string, [sx, sy]: [number, number], grow: boolean, fork: boolean) {
+    if (locks(chosen(), grow ? "resizes" : "moves")) return;
     const shown = editor.shown();
     if (!shown) return;
     const t = await stage.targets(shown.state, node, editor.format());
@@ -2672,7 +2715,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       one ? stage.noteAt(shown.state, from, editor.format()).catch(() => undefined) : Promise.resolve(undefined),
     ]);
     mine.asking = false;
-    const top = hits[0];
+    const top = reached(hits);
     const chain = top ? [top.node, ...top.containers] : [];
     // In what is selected, or in what holds it, the press keeps it: a drag moves it, with the
     // rest of what is selected, and a click selects what is topmost.
@@ -2787,7 +2830,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const [at, alt] = [point(e), e.altKey];
     void inTurn(async () => {
       const shown = editor.shown();
-      const top = shown && (await stage.hit(shown.state, at, editor.format()).catch(() => []))[0];
+      const top = shown && reached(await stage.hit(shown.state, at, editor.format()).catch(() => []));
       if (!top) return;
       // On an annotation of the chart selected, what it says, changed (PLAN 2.67).
       if (top.node === selected && also.length === 0) {
@@ -2828,7 +2871,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     void inTurn(async () => {
       const shown = editor.shown();
       if (!shown) return editor.say("the canvas waits for a source that compiles");
-      const top = (await stage.hit(shown.state, at, editor.format()).catch(() => []))[0];
+      const hits = await stage.hit(shown.state, at, editor.format()).catch(() => []);
+      const top = reached(hits);
+      // What is locked there, which the menu offers to unlock (PLAN 2.95).
+      lockedThere = [...new Set(hits.flatMap((h) => (h.locked ? [h.locked] : [])))];
       const chain = top ? [top.node, ...top.containers] : [];
       if (!chain.some((n) => chosen().includes(n))) select(top?.node);
       // On a chart's mark, or one of its annotations, the menu offers what annotates it (PLAN 2.67).
@@ -2873,7 +2919,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     }
     if (!press) {
       // What a click would select, from the boxes the engine gave: nothing is asked.
-      const under = boxes.filter((b) => b.draws && over(b, at)).at(-1)?.node;
+      const under = boxes.filter((b) => b.draws && !b.locked && over(b, at)).at(-1)?.node;
       if (under !== hovered) {
         hovered = under;
         draw();
@@ -3094,6 +3140,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         select(inside[0]);
         return editor.say(`${inside[0]} selected, in ${into} · Tab goes on, Escape goes back out`);
       }
+      // What is locked keeps its handles and its text (PLAN 2.95).
+      if (locks([selected], "is edited on the canvas")) return;
       // A shape's or an image's handles.
       const list = also.length ? [] : handleList(selected);
       if (list.length && !e.altKey) {
@@ -3166,6 +3214,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       if (mod && e.shiftKey && !e.altKey && (e.code === "Digit8" || e.code === "Digit7")) {
         e.preventDefault();
         return void listing(e.code === "Digit8" ? "bullet" : "number");
+      }
+      // ⇧⌘L locks what is selected, or unlocks it (PLAN 2.95), by the key's place.
+      if (mod && e.shiftKey && !e.altKey && e.code === "KeyL") {
+        e.preventDefault();
+        return void lock();
       }
       // ⌘G groups what is selected, and ⌘⇧G takes the group selected apart (PLAN 2.43).
       if (mod && key === "g" && !e.altKey) {
@@ -3303,6 +3356,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
 
   return {
     refresh,
+    /** Lock what is selected, or `nodes`, or unlock them, as ⇧⌘L does (PLAN 2.95). */
+    lock,
+    /** The locked nodes under the pointer where the menu last opened on the canvas. */
+    lockedThere: () => [...lockedThere],
+    /** Whether `node` is locked, by its own lock or what holds it: the node whose lock holds it. */
+    lockedBy: (node: string) => box(node)?.locked,
     /** Zoom the preview (PLAN 2.46): a step closer or farther, as ⌘+ and ⌘− do, the whole canvas, as
      * ⌘0 does, or as close as a number, about canvas point `about` or the middle of what is shown.
      * Resolves once the preview is painted so. */

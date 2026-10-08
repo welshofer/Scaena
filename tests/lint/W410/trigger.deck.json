@@ -1,5 +1,5 @@
 {
-  "scaena": "0.16",
+  "scaena": "0.17",
   "_comment": "W410 trigger: an image with no alt text.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

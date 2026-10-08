@@ -1,5 +1,5 @@
 {
-  "scaena": "0.16",
+  "scaena": "0.17",
   "_comment": "W311 clean: the mesh opens the deck alone, and the chart's state drops it.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

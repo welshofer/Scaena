@@ -6,6 +6,8 @@
 //   show (it leaves here, or another state of its slide shows it) is listed dimmed.
 // - The eye shows a node in the state shown, or hides it there, with what it holds (`show_node`,
 //   `hide_node`): one patch, one step to undo.
+// - The lock locks a node, or unlocks it (PLAN 2.95): the canvas passes over a node locked, and
+//   moves, resizes, turns, and deletes nothing of it, while here it is selected as any other.
 // - A double click on a name, or F2, renames the node everywhere (`rename_node`): Enter renames,
 //   Escape leaves it.
 // - A node shown, dragged to another place in the list, or moved with Alt and an arrow key, goes
@@ -39,6 +41,8 @@ export interface LayersEditor {
   select(node: string): void;
   /** Take `source`, a patch's, as one change: one step to undo. */
   apply(source: string, edited: Edited): void;
+  /** Lock `node`, or with `on` false unlock it, as ⇧⌘L does (PLAN 2.95). */
+  lock(node: string, on: boolean): Promise<unknown>;
   say(text: string): void;
 }
 
@@ -92,11 +96,13 @@ export function layers(stage: Stage, into: HTMLElement, editor: LayersEditor) {
     const row = (l: Layer, depth: number): string => {
       const on = chosen.includes(l.node);
       const eye = l.shown ? `Hide ${l.node} in ${shown!.state}` : `Show ${l.node} in ${shown!.state}`;
+      const lock = l.locked ? `Unlock ${l.node}` : `Lock ${l.node}: the canvas passes over it`;
       const held = (l.children ?? []).map((c) => row(c, depth + 1)).join("");
       const holds = CONTAINERS.has(l.type) ? " data-container" : "";
       return `<li data-layer="${html(l.node)}" class="${l.shown ? "shown" : "hidden"}"${holds}${on ? ' aria-current="true"' : ""}>
         <div class="row" style="padding-left:${depth * 14}px"${l.shown ? ' draggable="true"' : ""}>
           <button type="button" class="eye" data-eye aria-pressed="${l.shown}" aria-label="${html(eye)}" title="${html(eye)}">${l.shown ? "◉" : "○"}</button>
+          <button type="button" class="lock" data-lock aria-pressed="${!!l.locked}" aria-label="${html(`Lock ${l.node}`)}" title="${html(lock)}">${l.locked ? "🔒" : "🔓"}</button>
           <button type="button" class="name" data-pick title="${html(l.shown ? `Select ${l.node} (double click or F2 renames it)` : `${l.node} is not shown in ${shown!.state} (double click or F2 renames it)`)}">${html(l.node)}</button>
           <span class="kind">${html(l.type)}</span>
         </div>${held ? `<ul>${held}</ul>` : ""}</li>`;
@@ -205,6 +211,10 @@ export function layers(stage: Stage, into: HTMLElement, editor: LayersEditor) {
     const node = layerOf(e);
     if (node === undefined) return;
     if ((e.target as Element).closest("[data-eye]")) return void toggle(node);
+    if ((e.target as Element).closest("[data-lock]")) {
+      const layer = shown && find(shown.layers, node);
+      return void editor.lock(node, !layer?.locked);
+    }
     if (!(e.target as Element).closest("[data-pick]")) return;
     const layer = shown && find(shown.layers, node);
     if (layer?.shown) editor.select(node);

@@ -566,8 +566,12 @@ async function edit(source: Source) {
     },
     // A right click, or the menu key (PLAN 2.53): what is done to the nodes selected, or on the
     // canvas where nothing is.
-    menu: (x, y, on) =>
-      void menu(x, y, on === "node" ? nodeCommands().filter((c) => c.where?.includes("node")) : canvasCommands(true), $("#overlay")),
+    // What is locked under the pointer, which the canvas passes over, is offered to unlock (PLAN 2.95).
+    menu: (x, y, on) => {
+      const unlock: Command[] = board.lockedThere().map((n) => ({ label: `Unlock ${n}`, run: () => board.lock([n], false) }));
+      const here = on === "node" ? nodeCommands().filter((c) => c.where?.includes("node")) : canvasCommands(true);
+      void menu(x, y, [...here, ...unlock], $("#overlay"));
+    },
     // A chart's mark, or a table's row (PLAN 2.64): a click chooses its rows where the data is
     // shown, and a double click opens the Data tab on them.
     // An annotation made from a mark keeps to the state shown as the inspector's choices do (PLAN 2.67).
@@ -591,6 +595,7 @@ async function edit(source: Source) {
     source: () => view.state.doc.toString(),
     select: (node) => board.select(node),
     apply: made,
+    lock: (node, on) => board.lock([node], on),
     say,
   });
   /** A data file written, the source as it stands (PLAN 2.55): its deck shown and linted again, as
@@ -1435,6 +1440,15 @@ async function edit(source: Source) {
       { label: "Type in it", keys: "Enter", group: "Type", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "text", run: () => press("Enter") },
       { label: "Bulleted list", keys: `${MOD}${SHIFT}8`, group: "Type", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "text", run: () => board.list("bullet") },
       { label: "Numbered list", keys: `${MOD}${SHIFT}7`, group: "Type", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "text", run: () => board.list("number") },
+      // A lock (PLAN 2.95): the canvas passes over what is locked, and moves and deletes nothing of it.
+      {
+        label: any() && picked().every((n) => board.lockedBy(n) === n) ? "Unlock" : "Lock",
+        keys: `${MOD}${SHIFT}L`,
+        group: "Edit",
+        where: ["node", "layer"],
+        applies: any,
+        run: () => board.lock(picked()),
+      },
       // In another of the deck's formats, a node placed there anew (ADR-0020): from then on a
       // move there moves it there alone.
       { label: "Place anew in this format", where: ["node"], applies: () => one() && !!format() && !anewIn(picked()[0]), run: () => placeAnew(picked()[0]) },

@@ -123,6 +123,12 @@ macro_rules! node {
             pub z: Option<i64>,
             #[serde(default, skip_serializing_if = "Option::is_none")]
             pub tags: Option<Vec<String>>,
+            /// Locked in an editor (PLAN 2.95): its canvas passes over the node, and moves,
+            /// resizes, turns, retypes, and deletes nothing of it; its layers and its inspector
+            /// select it and unlock it. The node's own, in every state: a state and `overrides`
+            /// cannot set it (E104). It draws as it would unlocked.
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            pub locked: Option<bool>,
             #[serde(default, skip_serializing_if = "Option::is_none")]
             pub visible: Option<bool>,
             #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -1,13 +1,13 @@
 {
-  "scaena": "0.16",
-  "_comment": "E104 trigger: a state tries to turn a text node into a chart, and its overrides to turn it into an image.",
+  "scaena": "0.17",
+  "_comment": "E104 trigger: a state tries to turn a text node into a chart, and its overrides to turn it into an image. Each also sets its lock, which is the node's own (PLAN 2.95).",
   "canvas": { "width": 1920, "height": 1080 },
   "nodes": {
     "figure": { "type": "text", "text": "42%", "at": { "in": "canvas" } }
   },
   "states": [
     { "id": "one", "props": { "figure": {} } },
-    { "id": "two", "props": { "figure": { "type": "chart" } } }
+    { "id": "two", "props": { "figure": { "type": "chart", "locked": true } } }
   ],
-  "overrides": { "figure": { "type": "image" } }
+  "overrides": { "figure": { "type": "image", "locked": false } }
 }
