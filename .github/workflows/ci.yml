@@ -155,7 +155,7 @@ jobs:
               *) flags+=(-Xlinker "$1"); shift ;;
             esac
           done
-          cd apps/mac/ScaenaKit && swift test "${flags[@]}"
+          cd apps/mac/ScaenaKit && swift test "${flags[@]}" && swift build --product Scaena "${flags[@]}"
       # Painter and CLI tests with the `gpu` feature. They print each torture state's raster delta
       # from the CPU goldens (blessed on x86-64 AVX2): vello_cpu at this runner's SIMD level, and
       # vello on this runner's adapter: Metal on macOS, Mesa's lavapipe (software Vulkan) on Linux.

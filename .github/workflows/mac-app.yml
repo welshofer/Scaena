@@ -1,0 +1,22 @@
+# Scaena.app for a Mac (PLAN 3.3), built when asked: Actions → mac-app → Run workflow, then the
+# run's `Scaena.app` artifact. Signed ad hoc, for trying it, not for shipping: macOS asks once
+# whether to open it (right-click → Open).
+name: mac-app
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  app:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: apps/mac/build-app.sh "$RUNNER_TEMP/out"
+      - run: cd "$RUNNER_TEMP/out" && ditto -c -k --keepParent Scaena.app Scaena.app.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Scaena.app
+          path: ${{ runner.temp }}/out/Scaena.app.zip

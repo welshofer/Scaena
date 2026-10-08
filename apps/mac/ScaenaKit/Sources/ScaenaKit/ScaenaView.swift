@@ -18,6 +18,11 @@ public final class ScaenaView: NSView {
         didSet { restart() }
     }
 
+    /// Changed by each edit of the deck: the state is painted again, at rest.
+    public var revision = 0 {
+        didSet { if revision != oldValue { resting = false } }
+    }
+
     /// Why the last frame could not be painted, if it could not.
     public private(set) var failure: ScaenaError?
 
@@ -111,25 +116,30 @@ public final class ScaenaView: NSView {
     }
 }
 
-/// `ScaenaView` in SwiftUI: `state` of `session`, its cue played each time it changes.
+/// `ScaenaView` in SwiftUI: `state` of `session`, its cue played each time it changes, and
+/// painted again at rest when `revision` does, after an edit.
 public struct ScaenaCanvas: NSViewRepresentable {
     public let session: ScaenaSession
     public let state: String
+    public let revision: Int
 
-    public init(session: ScaenaSession, state: String) {
+    public init(session: ScaenaSession, state: String, revision: Int = 0) {
         self.session = session
         self.state = state
+        self.revision = revision
     }
 
     public func makeNSView(context: Context) -> ScaenaView {
         let view = ScaenaView(frame: .zero)
         view.session = session
         view.state = state
+        view.revision = revision
         return view
     }
 
     public func updateNSView(_ view: ScaenaView, context: Context) {
         if view.session !== session { view.session = session }
         if view.state != state { view.state = state }
+        view.revision = revision
     }
 }

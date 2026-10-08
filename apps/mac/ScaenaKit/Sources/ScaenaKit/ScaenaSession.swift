@@ -66,6 +66,19 @@ public final class ScaenaSession {
         try self.init(files: files)
     }
 
+    private init(handle: OpaquePointer) {
+        self.handle = handle
+    }
+
+    /// A new deck, as New makes one in the browser (PLAN 2.12, 3.3): the theme that ships as
+    /// `theme` (`dusk`, `daybreak`, or `ember`), its fonts, and one state with nothing on it,
+    /// titled `title`. Kept nowhere until it is saved.
+    public static func create(theme: String, title: String) throws -> ScaenaSession {
+        var error: UnsafeMutablePointer<CChar>?
+        guard let made = scaena_create(theme, title, &error) else { throw ScaenaError.taking(error) }
+        return ScaenaSession(handle: made)
+    }
+
     /// Open a `.scaena` zip.
     public init(zip: Data) throws {
         var error: UnsafeMutablePointer<CChar>?
@@ -120,6 +133,13 @@ public final class ScaenaSession {
 
     /// The deck's states, in order.
     public func states() throws -> [String] { try call("states") }
+
+    /// The canvas frames are laid out on, in canvas units: the deck's, or its format's.
+    public func canvasSize() throws -> CGSize {
+        let size: [Double] = try call("canvasSize")
+        guard size.count == 2 else { throw ScaenaError(message: "a canvas has a width and a height") }
+        return CGSize(width: size[0], height: size[1])
+    }
 
     /// A state on the deck's timeline: where it starts, its cue's span, and its hold, ms.
     public struct Slot: Decodable, Equatable, Sendable {

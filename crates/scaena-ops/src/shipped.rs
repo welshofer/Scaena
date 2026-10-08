@@ -48,6 +48,11 @@ pub fn theme(name: &str) -> Option<Shipped> {
     THEMES.into_iter().find(|t| t.name.eq_ignore_ascii_case(name))
 }
 
+/// Every font the themes that ship name, each by the path it gives it.
+pub fn fonts() -> impl Iterator<Item = (&'static str, &'static [u8])> {
+    FONTS.into_iter()
+}
+
 /// A font a theme that ships names, by the path it gives it.
 pub fn font(path: &str) -> Option<&'static [u8]> {
     FONTS.iter().find(|(p, _)| *p == path).map(|(_, bytes)| *bytes)

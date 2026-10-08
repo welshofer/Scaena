@@ -222,6 +222,39 @@ pub unsafe extern "C" fn scaena_open_zip(bytes: *const u8, len: usize, error: *m
     }
 }
 
+/// A new bundle (PLAN 2.12, 3.3), as New makes one in the browser and `deck_create` does: the
+/// theme that ships as `theme` (`dusk`, `daybreak`, or `ember`), the fonts it names, and one
+/// state with nothing on it, titled `title`. Kept nowhere until it is saved. Null where no such
+/// theme ships, `*error` then saying why.
+///
+/// # Safety
+/// `theme` and `title` are NUL-terminated strings; `error` is null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_create(
+    theme: *const c_char,
+    title: *const c_char,
+    error: *mut *mut c_char,
+) -> *mut ScaenaSession {
+    let made = guarded(|| {
+        let name = unsafe { text(theme, "theme") }?;
+        let title = unsafe { text(title, "title") }?;
+        let shipped = scaena_ops::shipped::theme(name)
+            .ok_or_else(|| said(format!("`{name}` is not a theme that ships: {}", scaena_ops::shipped::names())))?;
+        let mut fonts = BTreeMap::new();
+        for (path, bytes) in scaena_ops::shipped::fonts() {
+            fonts.insert(path.to_string(), bytes.to_vec());
+        }
+        Session::create(shipped.file, shipped.text, &fonts, title).map_err(said)
+    });
+    match made {
+        Ok(session) => Box::into_raw(Box::new(ScaenaSession(session))),
+        Err(failure) => {
+            unsafe { report(error, failure) };
+            std::ptr::null_mut()
+        }
+    }
+}
+
 /// Close a session.
 ///
 /// # Safety
