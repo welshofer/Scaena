@@ -137,9 +137,9 @@
         font-size: 11px; font-weight: 600; line-height: 18px; color: #1d1c1a; box-shadow: 0 1px 3px rgb(0 0 0 / 0.4);
       }
       #marks .mark.state { border-radius: 4px; }
-      #marks .error, #strip .found.error { background: var(--error); }
-      #marks .warning, #strip .found.warning { background: var(--warning); }
-      #marks .info, #strip .found.info { background: var(--info); }
+      #marks .error, #strip .found.error, #slides .found.error { background: var(--error); }
+      #marks .warning, #strip .found.warning, #slides .found.warning { background: var(--warning); }
+      #marks .info, #strip .found.info, #slides .found.info { background: var(--info); }
       #marks .mark:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
       #marked {
         position: fixed; inset: auto; margin: 0; box-sizing: border-box; max-width: min(30em, calc(100vw - 16px)); max-height: 60vh;
@@ -224,6 +224,23 @@
       #strip .drop-before { box-shadow: -3px 0 0 var(--info); }
       #strip .drop-after { box-shadow: 3px 0 0 var(--info); }
       #strip .adds { display: flex; flex-direction: column; gap: 4px; justify-content: center; }
+      /* The light table (PLAN 2.97): the deck's slides in a grid, in place of the preview. */
+      #slides { flex: none; padding: 12px; }
+      #work.tabled #preview, #work.tabled #formats, #work.tabled #cue { display: none !important; }
+      #slides ol { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; margin: 0; padding: 4px; list-style: none; }
+      #slides li { position: relative; display: grid; grid-template-columns: auto 1fr auto; align-items: baseline; gap: 2px 8px; padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); cursor: pointer; font-size: 12px; }
+      #slides canvas { grid-column: 1 / -1; display: block; width: 100%; height: auto; aspect-ratio: auto 16 / 9; background: #000; border-radius: 3px; }
+      #slides .n { color: var(--muted); font-variant-numeric: tabular-nums; }
+      #slides .id { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #slides .steps { color: var(--muted); }
+      #slides .found {
+        position: absolute; top: 10px; right: 10px; box-sizing: border-box; min-width: 18px; height: 18px; padding: 0 5px;
+        border-radius: 9px; font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; color: #1d1c1a;
+      }
+      #slides li[aria-selected="true"] { border-color: var(--info); box-shadow: 0 0 0 2px var(--info); }
+      #slides li:focus-visible { outline: 2px solid var(--info); outline-offset: 3px; }
+      #slides .drop-before { box-shadow: -4px 0 0 var(--info); }
+      #slides .drop-after { box-shadow: 4px 0 0 var(--info); }
       /* The status keeps one place, two lines tall, whatever it says, so a message never moves the
          panels under it between two clicks; a longer one is clipped, whole in its title and to a
          screen reader. */
@@ -483,6 +500,9 @@
           ><svg aria-hidden="true"></svg></div>
           <div id="marks"></div>
         </div>
+        <section id="slides" aria-label="The light table: the deck's slides" hidden>
+          <ol role="listbox" aria-label="Slides" aria-multiselectable="true"></ol>
+        </section>
         <div id="formats" role="group" aria-label="The state shown in each format: a click edits the deck in it" hidden></div>
         <section id="cue" aria-label="The cue of the state shown" hidden>
           <p class="cue-head">
@@ -502,6 +522,7 @@
         <p>
           <select id="state" aria-label="State"></select>
           <select id="format" aria-label="Format"><option value="">own canvas</option></select>
+          <button type="button" id="slides-open" aria-pressed="false" aria-controls="slides" title="The light table: every slide, to move, copy, and take out across the deck (Escape closes it)">Slides</button>
           <button type="button" id="formats-open" aria-pressed="false" title="The state shown in each of the deck's formats, side by side, as it plays; a click on one edits the deck in it">Formats</button>
           <button type="button" id="rehearse-open" title="Play the deck as you present it, and keep the time each state took as its hold">Rehearse</button>
           <select id="theme" aria-label="Theme" title="The deck's theme: one that ships, or one the bundle holds. A theme the deck would not validate in is refused, and says why."></select>

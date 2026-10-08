@@ -24,7 +24,7 @@ const check = (ok, what) => {
   if (!ok) failures.push(what);
 };
 /** The groups, in the order the sheet lists them (`GROUPS` in web/src/commands.ts). */
-const ORDER = ["Select", "Edit", "Arrange", "Move and resize", "Points and corners", "Type", "Draw and insert", "See", "States", "Layers", "The cue", "Find and replace", "The data", "Annotate", "Layouts", "Rehearse", "The source", "The editor"];
+const ORDER = ["Select", "Edit", "Arrange", "Move and resize", "Points and corners", "Type", "Draw and insert", "See", "States", "Slides", "Layers", "The cue", "Find and replace", "The data", "Annotate", "Layouts", "Rehearse", "The source", "The editor"];
 
 const axe = createRequire(import.meta.url).resolve("axe-core/axe.min.js");
 const site = await serve();
@@ -74,7 +74,7 @@ try {
   check(rowsOf("Move and resize").some((r) => r.keys === "← ↑ → ↓") && rowsOf("Move and resize").some((r) => r.keys === "Shift+← ↑ → ↓"), "the canvas's arrow keys, and Shift with them");
   check(rowsOf("Rehearse").some((r) => r.keys === "→ ↓ PageDown Space Enter") && rowsOf("Rehearse").some((r) => r.keys === "← ↑ PageUp Backspace"), "a rehearsal's keys, from the keys it answers");
   check(["F8", "Shift+F8", "Ctrl+Shift+M"].every((k) => rowsOf("The source").some((r) => r.keys === k)), `the source's finding keys, from its keymap: ${rowsOf("The source").map((r) => r.keys).join(", ")}`);
-  check(rowsOf("The data").length >= 4 && rowsOf("Layers").length >= 3 && rowsOf("The cue").length >= 2 && rowsOf("Find and replace").length >= 4 && rowsOf("States").length >= 4, "the Data tab's, the layers', the cue's, the find bar's, and the strip's");
+  check(rowsOf("The data").length >= 4 && rowsOf("Layers").length >= 3 && rowsOf("The cue").length >= 2 && rowsOf("Find and replace").length >= 4 && rowsOf("States").length >= 4 && rowsOf("Slides").length >= 6, "the Data tab's, the layers', the cue's, the find bar's, the strip's, and the light table's");
   const count = sheet.reduce((n, s) => n + s.rows.length, 0);
   check(count === (await page.evaluate(() => window.scaena.keys.listed().length)), `the sheet shows what it lists: ${count} keys`);
 

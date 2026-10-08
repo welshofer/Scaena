@@ -186,6 +186,7 @@ web-smoke: site
     node web/runs.mjs
     node web/theme.mjs
     node web/strip.mjs
+    node web/slides.mjs
     node web/storage.mjs
     node web/assistant.mjs
     node web/seeing.mjs

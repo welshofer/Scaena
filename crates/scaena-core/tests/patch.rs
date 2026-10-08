@@ -191,6 +191,74 @@ fn states_are_added_moved_and_removed_with_their_references() {
     assert_eq!(c.doc["states"][3]["id"], "intro");
 }
 
+/// Slides move, copy, and go (PLAN 2.97), and every state shows what it showed: a state whose
+/// state before it changes is written again; the rest keep their JSON as it was.
+#[test]
+fn slides_move_copy_and_go_keeping_their_looks() {
+    let doc = example();
+    let looks = |doc: &Value| -> Vec<(String, Value)> {
+        let snaps = scaena_core::resolve_states(&deck(doc)).unwrap();
+        snaps.into_iter().map(|s| (s.state_id, json!({ "nodes": s.nodes, "layout": s.layout }))).collect()
+    };
+    let before = looks(&doc);
+    let was = |id: &str| before.iter().find(|(s, _)| s == id).unwrap().1.clone();
+    let ids = |doc: &Value| -> Vec<String> {
+        doc["states"].as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap().to_string()).collect()
+    };
+    let shows_as = |doc: &Value, pairs: &[(&str, &str)]| {
+        let now = looks(doc);
+        for (id, as_) in pairs {
+            let look = &now.iter().find(|(s, _)| s == id).unwrap().1;
+            assert_eq!(look, &was(as_), "{id} shows what {as_} showed");
+        }
+    };
+
+    // `close` before the slide `revenue`, and that slide, its step `mix` with it, after `close`.
+    for op in [
+        json!({ "op": "move_slide", "slide": "close", "before": "revenue" }),
+        json!({ "op": "move_slide", "slide": "revenue", "after": "close" }),
+    ] {
+        let c = patch(&doc, json!([op])).unwrap();
+        assert_eq!(ids(&c.doc), ["intro", "close", "revenue", "mix"], "{op}");
+        shows_as(&c.doc, &[("intro", "intro"), ("close", "close"), ("revenue", "revenue"), ("mix", "mix")]);
+        assert_eq!(c.doc["states"][0], doc["states"][0], "intro's JSON as it was");
+        assert_eq!(c.doc["states"][3], doc["states"][2], "mix builds on revenue as it did");
+        assert_ne!(c.doc["states"][1], doc["states"][3], "close, after intro now, is written again");
+        assert_eq!(errors(&c.doc), Vec::<String>::new());
+    }
+
+    // A copy of `revenue`, after its step: absolute, its step building on it, each in the beat.
+    let c = patch(&doc, json!([{ "op": "duplicate_slide", "slide": "revenue" }])).unwrap();
+    assert_eq!(ids(&c.doc), ["intro", "revenue", "mix", "revenue-2", "mix-2", "close"]);
+    shows_as(&c.doc, &[("revenue-2", "revenue"), ("mix-2", "mix"), ("close", "close"), ("revenue", "revenue")]);
+    assert_eq!(c.doc["states"][3]["mode"], "absolute");
+    assert_eq!(c.doc["states"][4]["slide"], "revenue-2");
+    assert_eq!(c.doc["spine"]["sections"][1]["beats"][0]["states"], json!(["revenue", "revenue-2", "mix", "mix-2"]));
+    assert_eq!(errors(&c.doc), Vec::<String>::new());
+    // Copied again, the copy's ids are new: `-3`.
+    let again = patch(&c.doc, json!([{ "op": "duplicate_slide", "slide": "revenue" }])).unwrap();
+    assert_eq!(&ids(&again.doc)[3..5], ["revenue-3", "mix-3"]);
+
+    // `revenue` gone, both its states: `close` written again to show what it showed.
+    let c = patch(&doc, json!([{ "op": "remove_slide", "slide": "revenue" }])).unwrap();
+    assert_eq!(ids(&c.doc), ["intro", "close"]);
+    shows_as(&c.doc, &[("intro", "intro"), ("close", "close")]);
+    assert_eq!(c.doc["spine"]["sections"][1]["beats"][0]["states"], json!([]));
+    assert_eq!(errors(&c.doc), Vec::<String>::new());
+
+    for (op, says) in [
+        (json!({ "op": "move_slide", "slide": "mix", "after": "close" }), "`mix` is a step of slide `revenue`"),
+        (json!({ "op": "move_slide", "slide": "close" }), "say where"),
+        (json!({ "op": "move_slide", "slide": "close", "after": "close" }), "next to itself"),
+        (json!({ "op": "move_slide", "slide": "close", "after": "mix" }), "a step of slide"),
+        (json!({ "op": "remove_slide", "slide": "nowhere" }), "no slide `nowhere`"),
+        (json!({ "op": "duplicate_slide", "slide": "mix" }), "a step of slide"),
+    ] {
+        let err = patch(&doc, json!([op])).unwrap_err();
+        assert!(err.message.contains(says), "{op}: {err}");
+    }
+}
+
 #[test]
 fn show_and_hide_make_a_node_enter_and_leave() {
     let c = patch(

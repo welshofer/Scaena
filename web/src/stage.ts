@@ -696,9 +696,10 @@ export class Stage {
   }
 
   /** Each state at rest, `height` pixels high, in `format`, for the state strip (PLAN 2.35): with
-   * pixels where its drawing is not the one `known` holds. */
-  thumbnails(height: number, known: Record<string, string>, format?: string): Promise<Thumb[]> {
-    return this.request<"thumbnails">({ type: "thumbnails", id: ++this.asked, height, known, format }).then(({ thumbs }) => thumbs);
+   * pixels where its drawing is not the one `known` holds. With `states`, those alone, for the
+   * light table (PLAN 2.97); a request for some does not stop one for all. */
+  thumbnails(height: number, known: Record<string, string>, format?: string, states?: string[]): Promise<Thumb[]> {
+    return this.request<"thumbnails">({ type: "thumbnails", id: ++this.asked, height, known, format, states }).then(({ thumbs }) => thumbs);
   }
 
   /** The patch that adds a state after `state`, a `step` of its slide or a `slide` of its own, on
