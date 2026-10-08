@@ -137,10 +137,6 @@ pub(crate) struct RunData {
     pub(crate) glyph_start: usize,
     /// Metrics for the run.
     pub(crate) metrics: RunMetrics,
-    /// Additional word spacing.
-    pub(crate) word_spacing: f32,
-    /// Additional letter spacing.
-    pub(crate) letter_spacing: f32,
     /// Total advance of the run.
     pub(crate) advance: f32,
 }
@@ -387,8 +383,6 @@ impl<B: Brush> LayoutData<B> {
         glyph_buffer: &harfrust::GlyphBuffer,
         bidi_level: u8,
         style_index: u16,
-        word_spacing: f32,
-        letter_spacing: f32,
         source_text: &str,
         char_infos: &[(CharInfo, u16)], // From text analysis
         text_range: Range<usize>,       // The text range this run covers
@@ -468,8 +462,6 @@ impl<B: Brush> LayoutData<B> {
             cluster_range,
             glyph_start: self.glyphs.len(),
             metrics,
-            word_spacing,
-            letter_spacing,
             advance: 0.,
         };
 
@@ -523,14 +515,17 @@ impl<B: Brush> LayoutData<B> {
     }
 
     pub(crate) fn finish(&mut self) {
+        // Each cluster is spaced as its own style asks, so a change of spacing within a run
+        // of text does not split it into runs shaped apart: kerning, ligatures, and
+        // contextual forms hold across it (Scaena's patch, see SCAENA.md).
         for run in &self.runs {
-            let word = run.word_spacing;
-            let letter = run.letter_spacing;
-            if nearly_zero(word) && nearly_zero(letter) {
-                continue;
-            }
             let clusters = &mut self.clusters[run.cluster_range.clone()];
             for cluster in clusters {
+                let style = &self.styles[cluster.style_index as usize];
+                let (word, letter) = (style.word_spacing, style.letter_spacing);
+                if nearly_zero(word) && nearly_zero(letter) {
+                    continue;
+                }
                 let mut spacing = letter;
                 if !nearly_zero(word) && cluster.info.whitespace().is_space_or_nbsp() {
                     spacing += word;

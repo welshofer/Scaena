@@ -156,6 +156,9 @@ use_self = "warn"
 wildcard_dependencies = "warn"
 
 [lints.rust]
+# Scaena: icu_properties 2.x deprecates a call parley 0.11.1 makes; as a path dependency the
+# warning would show in every build of the workspace (SCAENA.md).
+deprecated = "allow"
 elided_lifetimes_in_paths = "warn"
 keyword_idents_2024 = "forbid"
 missing_debug_implementations = "warn"

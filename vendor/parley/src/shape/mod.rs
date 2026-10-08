@@ -57,8 +57,6 @@ struct Item {
     locale: Option<Language>,
     variations: Resolved<FontVariation>,
     features: Resolved<FontFeature>,
-    word_spacing: f32,
-    letter_spacing: f32,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -104,8 +102,6 @@ pub(crate) fn shape_text<'a, B: Brush>(
         locale: style.locale,
         variations: style.font_variations,
         features: style.font_features,
-        word_spacing: style.word_spacing,
-        letter_spacing: style.letter_spacing,
     };
 
     let mut char_range = 0..0;
@@ -131,8 +127,6 @@ pub(crate) fn shape_text<'a, B: Brush>(
                 || style.locale != item.locale
                 || style.font_variations != item.variations
                 || style.font_features != item.features
-                || !nearly_eq(style.letter_spacing, item.letter_spacing)
-                || !nearly_eq(style.word_spacing, item.word_spacing)
             {
                 break_run = true;
             }
@@ -183,8 +177,6 @@ pub(crate) fn shape_text<'a, B: Brush>(
             item.locale = style.locale;
             item.variations = style.font_variations;
             item.features = style.font_features;
-            item.word_spacing = style.word_spacing;
-            item.letter_spacing = style.letter_spacing;
             text_range.start = text_range.end;
             char_range.start = char_range.end;
         }
@@ -486,8 +478,6 @@ fn shape_item<'a, B: Brush>(
             &glyph_buffer,
             item.level,
             item.style_index,
-            item.word_spacing,
-            item.letter_spacing,
             segment_text,
             segment_infos,
             (text_range.start + segment_start_offset)..(text_range.start + segment_end_offset),
