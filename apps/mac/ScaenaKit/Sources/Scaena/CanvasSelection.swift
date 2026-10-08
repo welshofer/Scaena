@@ -22,7 +22,12 @@ import SwiftUI
 /// one, and Delete takes the one picked away; a rect's corner rounds it to the theme's radius steps;
 /// and an image's crop bars crop it from a side, and its focal point moves. Each is one `choose`,
 /// kept to the state with Option. A node turned or scaled moves and resizes through what draws it.
-/// Every box and caret is the engine's, at rest; nothing here lays out.
+/// It works by keys alone (PLAN 3.17, as the browser's, PLAN 2.75, 2.89): Tab and Shift+Tab select
+/// in reading order, Return goes into a container or onto a node's handles, the arrows step a node
+/// a track (with Shift resize it) or move the handle the keys are on, `[` and `]` turn it, ⌘A
+/// selects all beside it, and Space, then Tab and Space, build a selection; each node is an
+/// element VoiceOver reads as the reader hears it. Every box and caret is the engine's, at rest;
+/// nothing here lays out.
 struct CanvasSelection: View {
     let editor: DeckEditor
     let state: String
@@ -57,6 +62,13 @@ struct CanvasSelection: View {
     @State private var shaped: Outline?
     @State private var pointPicked: Int?
     @State private var imaged: Framing?
+    /// The node the keys are on while a selection is built by keys (PLAN 2.89): Tab moves it among
+    /// those beside it, and Space puts it in the selection or takes it out.
+    @State private var keyOn: String?
+    /// The handle of the node selected the keys are on (PLAN 2.75), by its place among them.
+    @State private var keyed: Int?
+    /// How the state shown reads, node by node: what VoiceOver hears of the canvas (PLAN 3.17).
+    @State private var reads: [ReadPart] = []
     /// A resize that paused, shown laid out as its patch would make it.
     @State private var pausing: Task<Void, Never>?
 
@@ -138,7 +150,8 @@ struct CanvasSelection: View {
                 // Under the rest: the canvas's keys, the text's while one is typed in. It takes no
                 // press.
                 CanvasKeysHost(
-                    typing: typing, canvas: size, shown: zoom.view, command: command, clipping: clip, finding: finding)
+                    typing: typing, canvas: size, shown: zoom.view, command: command, clipping: clip, finding: finding,
+                    pressed: pressed)
                     .allowsHitTesting(false)
                 // The wheel and a pinch over the canvas, read before any view takes them.
                 CanvasWheel(
@@ -205,6 +218,10 @@ struct CanvasSelection: View {
                 }
                 typed(fit)
                     .allowsHitTesting(false)
+                // Each node read, where it is drawn, as VoiceOver hears it (PLAN 3.17).
+                ForEach(reads.indices, id: \.self) { i in
+                    readable(reads[i], order: reads.count - i, fit: fit)
+                }
                 if let words = told ?? typing.told ?? said {
                     Text(words)
                         .font(.caption)
@@ -216,9 +233,12 @@ struct CanvasSelection: View {
                 }
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("The canvas, \(state)")
         .task(id: "\(state)\u{1f}\(editor.revision)") {
             boxes = (try? editor.session.boxes(state: state)) ?? []
             placements = (try? editor.session.placements(state: state)) ?? [:]
+            reads = (try? editor.session.reads(state: state)) ?? []
             // The text typed in, read again where something else changed it.
             typing.sync(shown: state)
         }
@@ -233,6 +253,7 @@ struct CanvasSelection: View {
             // Another node selected, in the layers or by a finding, stops typing.
             if typing.typing, typing.node != now { typing.leave() }
             pointPicked = nil
+            keyed = nil
         }
         .modifier(LinkQuestion(typing: typing))
     }
@@ -295,10 +316,19 @@ struct CanvasSelection: View {
         typealias Keys = NSStandardKeyBindingResponding
         switch selector {
         case #selector(Keys.deleteBackward(_:)), #selector(Keys.deleteForward(_:)):
-            // A point picked on the shape selected is taken away, not the shape (PLAN 3.16).
+            // A point picked on the shape selected is taken away, not the shape (PLAN 3.16); so is
+            // the point the keys are on (PLAN 3.17).
             if let picked = pointPicked, let o = shaped, o.node == node, also.isEmpty {
                 unpoint(o, picked)
                 return true
+            }
+            if let k = keyed, let o = shaped, o.node == node, also.isEmpty {
+                let list = handles(of: o.node)
+                if list.indices.contains(k), case .point(let i) = list[k] {
+                    unpoint(o, i)
+                    keyed = max(0, k - 1)
+                    return true
+                }
             }
             delete(NSApp.currentEvent?.modifierFlags.contains(.shift) == true)
             return true
@@ -383,8 +413,11 @@ struct CanvasSelection: View {
                 let moved = hypot(value.translation.width, value.translation.height)
                 switch press {
                 case nil:
-                    // The canvas takes the keyboard, and Insert lands here next.
+                    // The canvas takes the keyboard, and Insert lands here next; the pointer takes
+                    // over from the keys (PLAN 2.89).
                     let at = fit.canvas(value.startLocation)
+                    keyOn = nil
+                    keyed = nil
                     typing.focus?()
                     pointed = at
                     said = nil
@@ -589,6 +622,301 @@ struct CanvasSelection: View {
         let fork = NSEvent.modifierFlags.contains(.option)
         make(Handling.reshaping(o.node, to: kept, in: state, fork: fork))
         said = "\(o.node)'s point \(index + 1) taken away\(fork ? " · kept to \(state)" : "")"
+    }
+
+    /// A node as VoiceOver hears it (PLAN 3.17), where it is drawn: a heading, a picture, a table,
+    /// or words, as the reader hears it; selected by its action.
+    @ViewBuilder private func readable(_ part: ReadPart, order: Int, fit: Fit) -> some View {
+        if let b = boxes.first(where: { $0.node == part.node }) {
+            let drawn = Self.bounds(b.corners.map { fit.view($0) })
+            Color.clear
+                .frame(width: max(drawn.width, 1), height: max(drawn.height, 1))
+                .position(x: drawn.midX, y: drawn.midY)
+                .allowsHitTesting(false)
+                .accessibilityElement()
+                .accessibilityLabel(Text(part.text.isEmpty ? part.node : part.text))
+                .accessibilityAddTraits(Self.traits(part))
+                .accessibilityAddTraits(selection.contains(part.node) ? .isSelected : [])
+                .accessibilityHeading(part.level == 1 ? .h1 : part.level == 2 ? .h2 : .unspecified)
+                .accessibilityHint("Selects \(part.node)")
+                .accessibilitySortPriority(Double(order))
+                .accessibilityAction {
+                    node = part.node
+                    also = []
+                }
+        }
+    }
+
+    /// The box around `points`.
+    private static func bounds(_ points: [CGPoint]) -> CGRect {
+        let xs = points.map(\.x)
+        let ys = points.map(\.y)
+        let (x0, y0) = (xs.min() ?? 0, ys.min() ?? 0)
+        return CGRect(x: x0, y: y0, width: (xs.max() ?? 0) - x0, height: (ys.max() ?? 0) - y0)
+    }
+
+    /// What a part is to VoiceOver.
+    private static func traits(_ part: ReadPart) -> AccessibilityTraits {
+        switch part.role {
+        case "heading": .isHeader
+        case "figure": .isImage
+        default: .isStaticText
+        }
+    }
+
+    /// A key on the canvas while no text is typed in (PLAN 3.17), as the browser's canvas reads it
+    /// (PLAN 2.75, 2.89): whether the canvas took it. What it does not take, the input system makes
+    /// a command of, and Tab past either end passes the keyboard on.
+    private func pressed(_ event: NSEvent) -> Bool {
+        guard press == nil else { return false }
+        let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        guard !flags.contains(.control) else { return false }
+        let (shift, option, command) = (flags.contains(.shift), flags.contains(.option), flags.contains(.command))
+        switch event.keyCode {
+        case 48 where !command && !option:
+            return tab(back: shift)
+        case 36, 76:
+            return command ? false : enter(option: option)
+        case 53:
+            return escape()
+        case 123 where !command:
+            return arrow(-1, 0, shift: shift, option: option)
+        case 124 where !command:
+            return arrow(1, 0, shift: shift, option: option)
+        case 125 where !command:
+            return arrow(0, 1, shift: shift, option: option)
+        case 126 where !command:
+            return arrow(0, -1, shift: shift, option: option)
+        case 49 where !command && !option:
+            return space()
+        case 33, 30:
+            return command || option ? false : turn(by: Double((event.keyCode == 30 ? 1 : -1) * (shift ? 1 : 15)))
+        case 24 where !command:
+            return addPoint(option: option)
+        case 0 where command && !shift && !option:
+            return selectAll()
+        default:
+            return false
+        }
+    }
+
+    /// Node `selected`'s handles the keys work, in order.
+    private func handles(of selected: String) -> [KeyedHandle] {
+        KeyedHandle.of(outline: shaped?.node == selected ? shaped : nil, framing: imaged?.node == selected ? imaged : nil)
+    }
+
+    /// What the status says of handle `h` of `node`, the `n`th of `of`, and what its keys do.
+    private func handleSaid(_ node: String, _ h: KeyedHandle, _ n: Int, _ of: Int) -> String {
+        var does = "arrows move it"
+        if case .point = h { does += ", + adds a point after it, Delete takes it away" }
+        return "\(node): \(h.label), \(n + 1) of \(of) · \(does) · Tab the next · Escape leaves them"
+    }
+
+    /// Tab, or Shift+Tab: the next handle the keys are on; the next node keyed while a selection is
+    /// built; or the next node beside the one selected, in reading order. Past either end, none: the
+    /// keyboard goes on.
+    private func tab(back: Bool) -> Bool {
+        if let selected = node, also.isEmpty, let k = keyed {
+            let list = handles(of: selected)
+            if !list.isEmpty {
+                let next = (k + (back ? list.count - 1 : 1)) % list.count
+                keyed = next
+                said = handleSaid(selected, list[next], next, list.count)
+                return true
+            }
+        }
+        if let on = keyOn {
+            let order = readingOrder(boxes, in: parent(of: on))
+            let next = (order.firstIndex(of: on) ?? -1) + (back ? -1 : 1)
+            guard order.indices.contains(next) else {
+                keyOn = nil
+                said = "\(selection.count) selected: the keyboard leaves the canvas"
+                return false
+            }
+            keyOn = order[next]
+            let inIt = selection.contains(order[next])
+            said =
+                "\(order[next]), \(next + 1) of \(order.count)\(inIt ? ", selected" : "") · Space "
+                + "\(inIt ? "takes it out of" : "puts it in") the selection · Tab the next · Escape stops"
+            return true
+        }
+        let level = parent(of: node)
+        let order = readingOrder(boxes, in: level)
+        let at = node.flatMap { order.firstIndex(of: $0) } ?? (back ? order.count : -1)
+        let next = at + (back ? -1 : 1)
+        guard order.indices.contains(next) else {
+            node = nil
+            also = []
+            said = "nothing selected: the keyboard leaves the canvas"
+            return false
+        }
+        node = order[next]
+        also = []
+        said = "\(order[next]) selected, \(next + 1) of \(order.count)\(level.map { " in \($0)" } ?? "") · Return goes into it or its handles"
+        return true
+    }
+
+    /// Return: on the handles, what the one the keys are on is; into a container or a group, its
+    /// first node; onto a shape's or an image's handles; or typing in a text where it begins, kept
+    /// to the state with Option, as a double click types there.
+    private func enter(option: Bool) -> Bool {
+        guard let selected = node else { return false }
+        if also.isEmpty, let k = keyed {
+            let list = handles(of: selected)
+            if list.indices.contains(k) { said = handleSaid(selected, list[k], k, list.count) }
+            return true
+        }
+        let inside = readingOrder(boxes, in: selected)
+        if also.isEmpty, let first = inside.first {
+            node = first
+            said = "\(first) selected, in \(selected) · Tab goes on, Escape goes back out"
+            return true
+        }
+        if boxes.first(where: { $0.node == selected })?.locked != nil {
+            said = "\(selected) is locked: unlock it to edit it"
+            return true
+        }
+        let list = also.isEmpty ? handles(of: selected) : []
+        if let first = list.first, !option {
+            keyed = 0
+            said = handleSaid(selected, first, 0, list.count)
+            return true
+        }
+        if also.isEmpty, typing.enter(selected, in: state, at: nil, fork: option) { return true }
+        said = "\(selected) has no handles, and no words to type in"
+        return true
+    }
+
+    /// Escape: a selection built by keys stops, what is selected staying; the handles are left; a
+    /// point picked is let go; several selected, the first alone; else what holds it is selected.
+    private func escape() -> Bool {
+        if keyOn != nil {
+            keyOn = nil
+            said = "\(selection.isEmpty ? "nothing" : selection.joined(separator: ", ")) selected"
+            return true
+        }
+        if keyed != nil {
+            keyed = nil
+            said = "\(node ?? "nothing") selected: its handles left"
+            return true
+        }
+        if pointPicked != nil {
+            pointPicked = nil
+            return true
+        }
+        guard let selected = node else { return false }
+        if !also.isEmpty {
+            also = []
+            return true
+        }
+        node = parent(of: selected)
+        said = node.map { "\($0) selected" } ?? "nothing selected"
+        return true
+    }
+
+    /// An arrow key: the handle the keys are on moved, as its drag moves it; else the node selected
+    /// stepped a track, with Shift resized, kept to the state with Option, and several together.
+    private func arrow(_ dx: Int, _ dy: Int, shift: Bool, option: Bool) -> Bool {
+        guard let selected = node else { return false }
+        if also.isEmpty, let k = keyed {
+            let list = handles(of: selected)
+            guard list.indices.contains(k) else { return true }
+            let patch = list[k].nudged(
+                dx: dx, dy: dy, far: shift, outline: shaped, framing: imaged, state: state, fork: option)
+            if let patch { make(patch) } else { said = "\(list[k].label) stays where it is" }
+            return true
+        }
+        step(selected, dx, dy, grow: shift, fork: option)
+        return true
+    }
+
+    /// `selected` stepped by an arrow key, as the browser's keys step it (PLAN 2.75): one patch,
+    /// the one a drag that far would make.
+    private func step(_ selected: String, _ dx: Int, _ dy: Int, grow: Bool, fork: Bool) {
+        if let held = boxes.first(where: { selection.contains($0.node) && $0.locked != nil }) {
+            said = "\(held.node) is locked: nothing moves"
+            return
+        }
+        if !also.isEmpty && grow {
+            said = "several move together; resize one at a time"
+            return
+        }
+        do {
+            let targets = try editor.session.targets(state: state, node: selected)
+            guard let how = targets.snap(at: placements[selected], resize: grow, shift: false) else {
+                said = "\(selected) is placed by name: drag it into another slot"
+                return
+            }
+            let drawn = { (n: String) -> CGRect? in boxes.first { $0.node == n }.flatMap { box($0) } }
+            guard let to = targets.stepped(selected, dx: dx, dy: dy, how: how, grow: grow, box: drawn) else {
+                said = "\(selected) is at the edge"
+                return
+            }
+            if !also.isEmpty {
+                let by = CGVector(dx: to.minX - targets.cell.minX, dy: to.minY - targets.cell.minY)
+                let arranged = try editor.session.together(
+                    state: state, nodes: selection, by: by, free: how == .free, fork: fork)
+                guard let arranged, !arranged.patch.isEmpty else {
+                    said = "\(selection.count) selected stay where they are"
+                    return
+                }
+                make(arranged.patch)
+                said = "\(selection.count) selected moved together"
+                return
+            }
+            guard let snapped = try editor.session.snap(state: state, node: selected, how: how, to: to, fork: fork),
+                !snapped.patch.isEmpty
+            else {
+                said = "\(selected) stays where it is"
+                return
+            }
+            make(snapped.patch)
+        } catch {
+            said = "not placed: \(error)"
+        }
+    }
+
+    /// `[` and `]`: the node selected turned `by` degrees, 15 back or on, with Shift 1, as its
+    /// round handle turns it: one `choose`, kept to the state with Option.
+    private func turn(by: Double) -> Bool {
+        guard let selected = node, also.isEmpty else { return false }
+        if boxes.first(where: { $0.node == selected })?.locked != nil {
+            said = "\(selected) is locked: nothing turns"
+            return true
+        }
+        do {
+            let start = try editor.session.turned(state: state, node: selected).rotate
+            let now = ((start + by) * 1000).rounded() / 1000
+            make(Handling.turning(selected, to: now, in: state, fork: NSEvent.modifierFlags.contains(.option)))
+            said = "\(selected) turned to \(now.formatted())°"
+        } catch {
+            said = "\(selected) cannot be turned: \(error)"
+        }
+        return true
+    }
+
+    /// `+` on a point the keys are on: a point added after it, at the middle of the edge to the
+    /// next, the keys going onto it.
+    private func addPoint(option: Bool) -> Bool {
+        guard let selected = node, also.isEmpty, let k = keyed, let o = shaped, o.node == selected else { return false }
+        let list = handles(of: selected)
+        guard list.indices.contains(k), case .point(let i) = list[k] else { return false }
+        make(Handling.reshaping(o.node, to: o.adding(after: i), in: state, fork: option))
+        keyed = k + 1
+        said = "\(o.node) has a point added after point \(i + 1)"
+        return true
+    }
+
+    /// ⌘A: the node selected and all beside it, in what holds it; with none selected, all that
+    /// stands on the canvas, but what is locked.
+    private func selectAll() -> Bool {
+        let level = parent(of: node)
+        let all = readingOrder(boxes, in: level)
+        guard let first = all.first else { return false }
+        node = first
+        also = Array(all.dropFirst())
+        said = "\(all.count) selected\(level.map { " in \($0)" } ?? "")"
+        return true
     }
 
     /// What draws `node`'s box where it is drawn: none for the canvas, or a node nothing turns.
