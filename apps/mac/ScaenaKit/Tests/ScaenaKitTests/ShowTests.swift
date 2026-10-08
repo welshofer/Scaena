@@ -52,3 +52,12 @@ private func slots() throws -> [ScaenaSession.Slot] {
     #expect(Show(slots: try slots(), from: "gone").slot?.state == "cover")
     #expect(Show(slots: []).slot == nil)
 }
+
+/// A link goes to a state, its cue played (PLAN 2.70, 3.10); one the deck lacks goes nowhere.
+@Test func aLinkGoesToAStateItsCuePlayed() throws {
+    var show = Show(slots: try slots())
+    #expect(show.go(to: "end"))
+    #expect(show.slot?.state == "end" && show.playhead == Playhead())
+    #expect(!show.go(to: "nowhere"))
+    #expect(show.slot?.state == "end")
+}

@@ -94,7 +94,7 @@ struct DeckView: View {
             }
         }
         .inspector(isPresented: $showsInspector) {
-            Inspector(editor: editor, state: shown, node: $node, offer: { asked = $0 }) { ops in
+            Inspector(editor: editor, state: shown, node: $node, typing: typing, offer: { asked = $0 }) { ops in
                 perform { try document.make(ops, undo: undo) }
             }
             .inspectorColumnWidth(min: 240, ideal: 300, max: 420)

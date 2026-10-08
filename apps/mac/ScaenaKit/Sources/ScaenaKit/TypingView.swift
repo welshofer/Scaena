@@ -6,8 +6,9 @@ import SwiftUI
 /// (`NSTextInputClient`), and hands each to `Typing`. It lays nothing out and draws nothing: it
 /// answers the input system from the engine's carets, and the canvas draws the caret and the
 /// selection. It takes no press: the canvas reads each, as the browser's does, and a press in the
-/// text typed in puts the caret there, one outside it stops typing. Focus gone to another editor,
-/// the source or a field, stops it too.
+/// text typed in puts the caret there, one outside it stops typing. Focus gone to the source stops
+/// it too; a field, the inspector's or the one ⌘K asks in, leaves it as it is, as the browser's
+/// inspector does.
 @MainActor
 public final class TypingView: NSView {
     public let typing: Typing
@@ -50,10 +51,11 @@ public final class TypingView: NSView {
     }
 
     public override func resignFirstResponder() -> Bool {
-        // Focus gone to another editor (the source, a field) stops typing, as in the browser.
+        // Focus gone to the source, an editor of its own, stops typing, as in the browser; a
+        // field (its editor is the window's field editor) leaves it as it is.
         Task { @MainActor [weak self] in
             guard let self, let window = self.window, window.firstResponder !== self else { return }
-            if window.firstResponder is NSText { self.typing.leave() }
+            if let text = window.firstResponder as? NSText, !text.isFieldEditor { self.typing.leave() }
         }
         return true
     }
@@ -64,14 +66,25 @@ public final class TypingView: NSView {
         interpretKeyEvents([event])
     }
 
-    /// ⌘B, ⌘I, and ⌘A while typing, as the browser's text typed in answers them (PLAN 2.38, 2.40).
+    /// ⌘B, ⌘I, ⌘K, ⌘A, ⌘⇧8, and ⌘⇧7 while typing, as the browser's text typed in answers them
+    /// (PLAN 2.38, 2.40, 2.69, 2.70).
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard typing.typing, window?.firstResponder === self else { return super.performKeyEquivalent(with: event) }
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        if flags == [.command, .shift] {
+            // By the keys' places, as Shift makes them other characters: the 8 key and the 7.
+            switch event.keyCode {
+            case 28: typing.toggle("bullet")
+            case 26: typing.toggle("number")
+            default: return super.performKeyEquivalent(with: event)
+            }
+            return true
+        }
         guard flags == .command else { return super.performKeyEquivalent(with: event) }
         switch event.charactersIgnoringModifiers?.lowercased() {
         case "b": typing.bold()
         case "i": typing.italic()
+        case "k": typing.askLink()
         case "a": typing.selectAll()
         default: return super.performKeyEquivalent(with: event)
         }
@@ -114,12 +127,22 @@ public final class TypingView: NSView {
             typing.delete(backward: true, by: .line)
         case #selector(Keys.deleteToEndOfLine(_:)), #selector(Keys.deleteToEndOfParagraph(_:)):
             typing.delete(backward: false, by: .line)
-        case #selector(Keys.insertNewline(_:)), #selector(Keys.insertLineBreak(_:)),
-            #selector(Keys.insertParagraphSeparator(_:)), #selector(Keys.insertNewlineIgnoringFieldEditor(_:)):
+        case #selector(Keys.insertNewline(_:)):
+            // In an empty item, the list ends there (ADR-0018); else a new paragraph, an item like
+            // the one it leaves in a list.
+            if typing.endsList { typing.list(kind: "none", done: "the list ends") } else { typing.insert("\n") }
+        case #selector(Keys.insertLineBreak(_:)), #selector(Keys.insertParagraphSeparator(_:)),
+            #selector(Keys.insertNewlineIgnoringFieldEditor(_:)):
             typing.insert("\n")
         case #selector(Keys.insertTab(_:)), #selector(Keys.insertBacktab(_:)):
-            // A text's field gives Tab to what is next, as the browser's does: typing stops.
-            typing.leave()
+            // In a list, the items selected a level in, or out; elsewhere a text's field gives Tab
+            // to what is next, as the browser's does: typing stops.
+            let out = selector == #selector(Keys.insertBacktab(_:))
+            if typing.inList {
+                typing.list(by: out ? -1 : 1, done: out ? "a level out" : "a level in")
+            } else {
+                typing.leave()
+            }
         case #selector(Keys.cancelOperation(_:)):
             typing.leave()
         case #selector(Keys.selectAll(_:)):
@@ -279,6 +302,7 @@ public struct TypingHost: NSViewRepresentable {
 
     public func updateNSView(_ view: TypingView, context: Context) {
         view.canvas = canvas
-        view.claim()
+        // Typing begun takes the keyboard itself (`Typing.focus`); stopped, it gives it back.
+        if !active { view.claim() }
     }
 }

@@ -13,8 +13,10 @@ import Observation
 ///   second apart with nothing else edited between, is one step to undo (`edited`).
 /// - What an input method composes is typed in place, so the engine sets it as it will read, and
 ///   stays where it is when the composition commits.
-/// - ⌘B and ⌘I give the characters selected a look (PLAN 2.38, 2.40): one `style_text`, one step
-///   to undo.
+/// - ⌘B and ⌘I give the characters selected a look (PLAN 2.38, 2.40), as does a role or a color
+///   chosen in the inspector (PLAN 3.10): one `style_text`, one step to undo.
+/// - ⌘K links them to a web address or a state (PLAN 2.70), and a list's keys make paragraphs a
+///   list's items, a level in or out, or out of the list (PLAN 2.69): one patch each.
 @MainActor @Observable
 public final class Typing {
     public let editor: DeckEditor
@@ -34,6 +36,8 @@ public final class Typing {
     public private(set) var box: NodeBox?
     /// What the status line says of typing: where it goes, or why something was not typed.
     public private(set) var told: String?
+    /// The characters ⌘K asks where to link, while it asks.
+    public private(set) var asking: String?
     /// The window's undo, given the source each change replaced and whether it joins the burst of
     /// typing before it.
     @ObservationIgnored public var edited: ((String, Bool) -> Void)?
@@ -389,7 +393,7 @@ public final class Typing {
         do {
             let look = try editor.session.bolding(
                 state: state, node: node, from: carets.scalars(from), to: carets.scalars(to))
-            style(look, said: look["style/weight"]?.number == 700 ? "bold" : "not bold")
+            give(look, said: look["style/weight"]?.number == 700 ? "bold" : "not bold")
         } catch {
             say("not bold: \(error)")
         }
@@ -404,15 +408,29 @@ public final class Typing {
         do {
             let look = try editor.session.italicizing(
                 state: state, node: node, from: carets.scalars(from), to: carets.scalars(to))
-            style(look, said: look["style/italic"]?.bool == true ? "italic" : "upright")
+            give(look, said: look["style/italic"]?.bool == true ? "italic" : "upright")
         } catch {
             say("not italic: \(error)")
         }
     }
 
-    /// Give the characters selected `look`: one `style_text`, one step to undo; the selection stays.
-    private func style(_ look: JSONValue, said: String) {
-        guard let node, let state, let carets, from < to else { return }
+    /// What the inspector offers for the characters selected (PLAN 2.38): each look a run of
+    /// their own takes, the first character's. None with no characters selected.
+    public func characterChoices() -> Choices? {
+        guard let node, let state, let carets, from < to else { return nil }
+        return try? editor.session.characterChoices(
+            state: state, node: node, from: carets.scalars(from), to: carets.scalars(to))
+    }
+
+    /// Give the characters selected `look`, keys of a run's look to values, `null` taking one
+    /// away so the text's shows: one `style_text`, one step to undo; the selection stays. `said`
+    /// is what the status says it did. Whether it was given.
+    @discardableResult
+    public func give(_ look: JSONValue, said: String? = nil) -> Bool {
+        guard let node, let state, let carets, from < to else {
+            say("select characters in a text to give them a look")
+            return false
+        }
         var op: [String: JSONValue] = [
             "op": "style_text", "node": .string(node), "state": .string(state),
             "from": .number(Double(carets.scalars(from))), "to": .number(Double(carets.scalars(to))),
@@ -425,13 +443,121 @@ public final class Typing {
             last = nil
             edited?(before, false)
         } catch {
-            return say("no look given: \(error)")
+            say("no look given: \(error)")
+            return false
         }
-        guard reread(), let found = self.carets else { return }
+        guard reread(), let found = self.carets else { return false }
         // A look that changes the characters (a quote's figure, PLAN 2.72) keeps them selected.
         anchor = min(keep.location, found.length)
         head = max(anchor, min(NSMaxRange(keep) + found.length - length, found.length))
-        say("\(node), characters \(carets.scalars(keep.location) + 1)–\(carets.scalars(NSMaxRange(keep))): \(said)")
+        let what = said ?? Self.described(look)
+        say("\(node), characters \(carets.scalars(keep.location) + 1)–\(carets.scalars(NSMaxRange(keep))): \(what)")
+        return true
+    }
+
+    /// `look` as the status says it: each key and its value, or taken away.
+    private static func described(_ look: JSONValue) -> String {
+        let keys = (look.object ?? [:]).sorted { $0.key < $1.key }
+        return keys.map { (key, value) -> String in
+            switch value {
+            case .null: "\(key) taken away"
+            case .string(let s): "\(key) \(s)"
+            default: "\(key) \((try? JSONEncoder().encode(value)).map { String(decoding: $0, as: UTF8.self) } ?? "?")"
+            }
+        }.joined(separator: ", ")
+    }
+
+    // MARK: Links (PLAN 2.70)
+
+    /// ⌘K: ask where the characters selected link to (`asking`), which `link(to:)` answers.
+    public func askLink() {
+        guard let selected else { return say("select characters to link them") }
+        asking = selected
+    }
+
+    /// Link the characters asked about to `words`: a web address (`https://`, `http://`,
+    /// `mailto:`), or a state's id, `#` before it or not; nothing takes their link away; none, the
+    /// question dismissed, makes none. One `style_text` of `link`, one step to undo. Whether it
+    /// was made.
+    @discardableResult
+    public func link(to words: String?) -> Bool {
+        guard asking != nil else { return false }
+        asking = nil
+        defer { focus?() }
+        guard let words else {
+            say("no link made")
+            return false
+        }
+        let to = words.trimmingCharacters(in: .whitespacesAndNewlines)
+        if to.isEmpty { return give(["link": nil], said: "the link taken away") }
+        if to.range(of: #"^(https?://|mailto:)\S+$"#, options: .regularExpression) != nil {
+            return give(["link": ["href": .string(to)]], said: "linked to \(to)")
+        }
+        let state = to.hasPrefix("#") ? String(to.dropFirst()) : to
+        if state.range(of: #"^[a-z][a-z0-9_-]{0,63}$"#, options: .regularExpression) != nil {
+            return give(["link": ["state": .string(state)]], said: "linked to the state \(state)")
+        }
+        say("\(to) is no link: a web address (https://…, mailto:…) or a state's id")
+        return false
+    }
+
+    // MARK: Lists (ADR-0018, PLAN 2.69)
+
+    /// The paragraphs the selection touches, each as a list's item where it is one, as the engine
+    /// last set them.
+    public var itemsSelected: [Carets.ListMark?] {
+        guard let carets else { return [] }
+        let (first, last) = carets.touched(from: from, to: to)
+        return (first...last).map { carets.item($0) }
+    }
+
+    /// Whether the paragraph the selection begins in is a list's item: where Tab moves the items
+    /// selected a level in, and Shift+Tab out.
+    public var inList: Bool {
+        guard let carets else { return false }
+        return carets.item(carets.touched(from: from, to: to).first) != nil
+    }
+
+    /// Whether Return here ends the list: the caret in an item with nothing in it.
+    public var endsList: Bool {
+        guard let carets, from == to else { return false }
+        let first = carets.touched(from: from, to: to).first
+        return carets.item(first) != nil && carets.paragraphs[first].length == 0
+    }
+
+    /// The paragraphs the selection touches made items of `kind` (`bullet`, `number`), or out of
+    /// the list (`none`); or, with `by`, moved that many levels in, or out where it is negative.
+    /// One `list` patch, one step to undo; `done` is what the status says. Whether it was made.
+    @discardableResult
+    public func list(kind: String? = nil, by: Int? = nil, done: String) -> Bool {
+        guard let node, let state, let carets else { return false }
+        var op: [String: JSONValue] = [
+            "op": "list", "node": .string(node), "state": .string(state),
+            "from": .number(Double(carets.scalars(from))), "to": .number(Double(carets.scalars(to))),
+        ]
+        if let kind { op["kind"] = .string(kind) }
+        if let by { op["by"] = .number(Double(by)) }
+        if fork { op["fork"] = true }
+        do {
+            let before = try editor.typed([.object(op)])
+            last = nil
+            edited?(before, false)
+        } catch {
+            say("not listed: \(error)")
+            return false
+        }
+        guard reread(), let found = self.carets else { return false }
+        anchor = min(anchor, found.length)
+        head = min(head, found.length)
+        say("\(node): \(done)")
+        return true
+    }
+
+    /// ⌘⇧8 and ⌘⇧7: the paragraphs the selection touches bulleted, or numbered; all of that kind
+    /// already, out of the list.
+    public func toggle(_ kind: String) {
+        let all = itemsSelected.allSatisfy { $0?.kind == kind }
+        list(kind: all ? "none" : kind, done: all ? "out of the list" : kind == "bullet" ? "bulleted" : "numbered")
     }
 
     // MARK: Inside
@@ -514,5 +640,36 @@ extension ScaenaSession {
     public func italicizing(state: String, node: String, from: Int, to: Int) throws -> JSONValue {
         try call(
             "italicizing", ["state": .string(state), "node": .string(node), "from": .number(Double(from)), "to": .number(Double(to))])
+    }
+
+    /// What an inspector offers for `node`'s characters `from` to `to` (Unicode scalar values) as
+    /// `state` shows them (PLAN 2.38, 3.10): each look a run of their own takes, the first's.
+    public func characterChoices(state: String, node: String, from: Int, to: Int) throws -> Choices {
+        try call(
+            "characterChoices",
+            ["state": .string(state), "node": .string(node), "from": .number(Double(from)), "to": .number(Double(to))])
+    }
+
+    /// The link drawn at `point` (canvas units) in `state` at rest (PLAN 2.70): where a click there
+    /// goes. None off every link.
+    public func link(state: String, at point: CGPoint) throws -> LinkTarget? {
+        try call("linkAt", ["state": .string(state), "x": .number(Double(point.x)), "y": .number(Double(point.y))])
+    }
+}
+
+/// Where a link goes (PLAN 2.70): a web address, or a state of the deck.
+public enum LinkTarget: Decodable, Equatable, Sendable {
+    case href(String)
+    case state(String)
+
+    private enum Keys: String, CodingKey { case href, state }
+
+    public init(from decoder: any Decoder) throws {
+        let fields = try decoder.container(keyedBy: Keys.self)
+        if let href = try fields.decodeIfPresent(String.self, forKey: .href) {
+            self = .href(href)
+        } else {
+            self = .state(try fields.decode(String.self, forKey: .state))
+        }
     }
 }

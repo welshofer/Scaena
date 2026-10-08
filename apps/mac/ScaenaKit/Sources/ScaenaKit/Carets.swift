@@ -187,22 +187,44 @@ public struct Carets: Decodable, Equatable, Sendable {
         words.first { $0.location <= offset && offset <= NSMaxRange($0) } ?? NSRange(location: offset, length: 0)
     }
 
-    /// The paragraph `offset` is in, without the break that ends it, as the deck counts them
+    /// The text's paragraphs, each without the break that ends it, as the deck counts them
     /// (`scaena_core::lists::paragraphs`): `\n`, `\r`, `\r\n`, U+2028, and U+2029 end one.
-    public func paragraph(at offset: Int) -> NSRange {
+    public var paragraphs: [NSRange] {
         let units = Array(text.utf16)
+        var out: [NSRange] = []
         var start = 0
         var i = 0
         while i < units.count {
             let c = units[i]
             if c == 0x0A || c == 0x0D || c == 0x2028 || c == 0x2029 {
-                if offset <= i { return NSRange(location: start, length: i - start) }
+                out.append(NSRange(location: start, length: i - start))
                 if c == 0x0D, i + 1 < units.count, units[i + 1] == 0x0A { i += 1 }
                 start = i + 1
             }
             i += 1
         }
-        return NSRange(location: start, length: units.count - start)
+        out.append(NSRange(location: start, length: units.count - start))
+        return out
+    }
+
+    /// The paragraph `offset` is in, without the break that ends it.
+    public func paragraph(at offset: Int) -> NSRange {
+        let all = paragraphs
+        return all.first { offset <= NSMaxRange($0) } ?? all[all.count - 1]
+    }
+
+    /// The paragraphs a selection from `from` to `to` touches: the first's index and the last's.
+    public func touched(from: Int, to: Int) -> (first: Int, last: Int) {
+        let all = paragraphs
+        let at = { (o: Int) in all.firstIndex { o <= NSMaxRange($0) } ?? 0 }
+        let first = at(from)
+        return (first, max(first, at(to)))
+    }
+
+    /// The paragraph at `index` as a list's item, if it is one.
+    public func item(_ index: Int) -> ListMark? {
+        guard let items, items.indices.contains(index) else { return nil }
+        return items[index]
     }
 
     /// The characters (Unicode scalar values) in the first `units` UTF-16 units: how `replace_text`

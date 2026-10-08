@@ -121,7 +121,9 @@ bool scaena_add_file(struct ScaenaSession *session,
 // patch would make them; and `reach {ops}`, the states a patch changes. Text typed in place
 // (PLAN 3.9): `typed {ops, at?}`, `replace_text`, `style_text`, and `list` ops by the user,
 // validated but not linted, and whether the deck changed; and `bolding` and `italicizing
-// {state, node, from, to}`, the look ⌘B and ⌘I give characters.
+// {state, node, from, to}`, the look ⌘B and ⌘I give characters. A text's characters (PLAN
+// 3.10): `characterChoices {state, node, from, to}`, what an inspector offers for them; and
+// `linkAt {state, x, y}`, the link drawn there at rest, where a click goes.
 //
 // # Safety
 // `session` is a live handle; `method` a NUL-terminated string; `args` one, or null.

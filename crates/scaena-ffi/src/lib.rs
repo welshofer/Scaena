@@ -312,7 +312,9 @@ pub unsafe extern "C" fn scaena_add_file(
 /// patch would make them; and `reach {ops}`, the states a patch changes. Text typed in place
 /// (PLAN 3.9): `typed {ops, at?}`, `replace_text`, `style_text`, and `list` ops by the user,
 /// validated but not linted, and whether the deck changed; and `bolding` and `italicizing
-/// {state, node, from, to}`, the look ⌘B and ⌘I give characters.
+/// {state, node, from, to}`, the look ⌘B and ⌘I give characters. A text's characters (PLAN
+/// 3.10): `characterChoices {state, node, from, to}`, what an inspector offers for them; and
+/// `linkAt {state, x, y}`, the link drawn there at rest, where a click goes.
 ///
 /// # Safety
 /// `session` is a live handle; `method` a NUL-terminated string; `args` one, or null.
@@ -980,6 +982,8 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         "inspect" => value(serde_json::to_value(s.inspect(arg("state")?).map_err(said)?))?,
         "boxes" => json!(s.boxes_json(arg("state")?).map_err(said)?),
         "hit" => json!(s.hits_json(arg("state")?, [number("x")? as f32, number("y")? as f32]).map_err(said)?),
+        // The link drawn at a point at rest (PLAN 2.70): `{"href"}` or `{"state"}`, or null.
+        "linkAt" => json!(s.link_at(arg("state")?, [number("x")? as f32, number("y")? as f32]).map_err(said)?),
         "layers" => value(serde_json::to_value(s.layers(arg("state")?).map_err(said)?))?,
         "carets" => s.carets_json(arg("state")?, arg("node")?).map_err(said)?,
         // Text typed in place (PLAN 2.32, 3.9): `replace_text`, `style_text`, and `list` ops by
@@ -1032,6 +1036,13 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             json!(s.reach(&ops).map_err(said)?)
         }
         "choices" => value(serde_json::to_value(s.choices(arg("state")?, arg("node")?).map_err(said)?))?,
+        // What an inspector offers for the characters `from` to `to` (characters, as
+        // `replace_text` counts them) of a text typed in (PLAN 2.38, 3.10).
+        "characterChoices" => {
+            let (state, node) = (arg("state")?, arg("node")?);
+            let (from, to) = (number("from")? as usize, number("to")? as usize);
+            value(serde_json::to_value(s.character_choices(state, node, from, to).map_err(said)?))?
+        }
         "stateChoices" => value(serde_json::to_value(s.state_choices(arg("state")?).map_err(said)?))?,
         "inserts" => value(serde_json::to_value(s.inserts()))?,
         "themes" => {
