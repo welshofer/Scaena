@@ -106,10 +106,13 @@ public enum KeyedHandle: Equatable, Sendable {
     public static func of(outline: Outline?, framing: Framing?) -> [KeyedHandle] {
         var out: [KeyedHandle] = []
         if let o = outline, ["line", "arrow", "polygon"].contains(o.kind) {
-            out += o.points.indices.map { .point($0) }
+            for i in o.points.indices { out.append(.point(i)) }
         }
         if let o = outline, o.kind == "rect", !o.radii.isEmpty { out.append(.corner) }
-        if framing != nil { out += Framing.Side.allCases.map { .crop($0) } + [.focal] }
+        if framing != nil {
+            for side in Framing.Side.allCases { out.append(.crop(side)) }
+            out.append(.focal)
+        }
         return out
     }
 
