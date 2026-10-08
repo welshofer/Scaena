@@ -17,6 +17,10 @@ typedef struct ScaenaSaved ScaenaSaved;
 // One bundle open for editing.
 typedef struct ScaenaSession ScaenaSession;
 
+// Frames painted onto a `CAMetalLayer` by vello on Metal (PLAN 3.2): what the Mac's view
+// shows. Made by [`scaena_surface_new`], on the Mac alone.
+typedef struct ScaenaSurface ScaenaSurface;
+
 // Bytes this library made, the caller's to free with [`scaena_bytes_free`]. `data` is null
 // where there are none, as where a call failed.
 typedef struct ScaenaBytes {
@@ -185,6 +189,58 @@ char *scaena_adopt(struct ScaenaSession *session, const struct ScaenaSaved *save
 // # Safety
 // `saved` is a live handle from [`scaena_save`], or null.
 void scaena_saved_free(struct ScaenaSaved *saved);
+
+// Paint on `layer`, a `CAMetalLayer`, `width` × `height` device pixels, with the adapter that
+// presents to it; frames are presented at the display's refresh. The layer keeps the deck's
+// aspect, and outlives the surface. Null where none can be made, as on any machine but a Mac,
+// `*error` then saying why.
+//
+// # Safety
+// `layer` is a live `CAMetalLayer` that outlives the surface; `error` is null or writable.
+struct ScaenaSurface *scaena_surface_new(void *layer,
+                                         uint32_t width,
+                                         uint32_t height,
+                                         char **error);
+
+// Paint at `width` × `height` device pixels from now on: the view's size, or its screen's
+// scale, changed.
+//
+// # Safety
+// `surface` is a live handle from [`scaena_surface_new`].
+bool scaena_surface_resize(struct ScaenaSurface *surface, uint32_t width, uint32_t height);
+
+// Paint `state` at `t_ms` into its cue (infinity: at rest) from `session` onto the layer, as
+// the canvas shows it (zoomed, where it is), and present it at the next refresh: 1. 0 where the
+// layer had no drawable to give, hidden or resized meanwhile: the frame is skipped. -1 where
+// it could not be painted, `*error` then saying why.
+//
+// # Safety
+// `surface` and `session` are live handles; `state` a NUL-terminated string; `error` null or
+// writable.
+int32_t scaena_surface_paint(struct ScaenaSurface *surface,
+                             struct ScaenaSession *session,
+                             const char *state,
+                             double t_ms,
+                             char **error);
+
+// The last frame the surface painted, read back as the layer was given it: what a test holds
+// to [`scaena_pixels`] (SPEC §13.5). Null bytes before any frame, `*error` then saying why.
+//
+// # Safety
+// `surface` is a live handle; `error` null or writable.
+struct ScaenaPixels scaena_surface_pixels(struct ScaenaSurface *surface, char **error);
+
+// The adapter that paints the surface, as JSON: `{"ok": {"name", "backend", "device"}}`.
+//
+// # Safety
+// `surface` is a live handle.
+char *scaena_surface_adapter(struct ScaenaSurface *surface);
+
+// Let go of a surface; the layer stays the caller's.
+//
+// # Safety
+// `surface` is a live handle from [`scaena_surface_new`], or null.
+void scaena_surface_free(struct ScaenaSurface *surface);
 
 // Free a string this library returned.
 //
