@@ -100,15 +100,6 @@ public final class DeckEditor {
         return before
     }
 
-    /// The deck read again from the session, where something beside the source changed it: the
-    /// theme edited or another taken, a data file written, a version restored (PLAN 3.15). It is
-    /// compiled, drawn, and linted again: the source it replaced, for an undo.
-    @discardableResult
-    public func reread() -> String? {
-        guard let next = try? session.source() else { return nil }
-        return take(next)
-    }
-
     /// Make the deck `source` again (an undo, or its redo): the source it replaces.
     @discardableResult
     public func restore(_ source: String) -> String? {
@@ -136,8 +127,9 @@ public final class DeckEditor {
     }
 
     /// Take the deck as the session holds it after an edit made on it directly, as the assistant
-    /// makes one (PLAN 3.6): compiled and linted as any edit is, and drawn again. The source it
-    /// replaces, for an undo.
+    /// makes one (PLAN 3.6), or a panel beside the source: the theme edited or another taken, a
+    /// data file written, a version restored (PLAN 3.15). It is compiled and linted as any edit
+    /// is, and drawn again: the source it replaces, for an undo.
     @discardableResult
     public func reread() -> String? {
         guard let next = try? session.source() else { return nil }
