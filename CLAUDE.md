@@ -123,7 +123,7 @@ Direct, rigorous, no filler. State the decision, the evidence, and the trade. If
 
 ## Gate 3
 
-Gate 3 is open. Every task of Phase 3 is built, and `docs/gate-3.md` holds the evidence:
+Gate 3 is open. Every task of Phase 3 has landed, and `docs/gate-3.md` holds the evidence:
 - Criterion 1, the web player's pixels, is met on CI's Mac: the session's display lists digest as the goldens, and vello on Metal paints every torture state within SPEC §13.5 of them, as the web player's painters do.
 - Criterion 3, no text layout in SwiftUI, is met for everything that draws a deck, and `crates/scaena-ffi/tests/chrome.rs` holds every Swift file to it. Jay's call is open on the source pane's `NSTextView`: TextKit in chrome, which SPEC §9.3 allows and invariant 8 as written does not.
-- Criterion 2, B1's first frame within 300 ms of opening, waits on the release build on an M-series Mac; the steps are in the doc. The `mac-app` workflow reads it the same way on CI's virtual Mac, which is not the gate's reading.
+- Criterion 2, B1's first frame within 300 ms of opening, waits on the release build on an M-series Mac; the steps are in the doc. The `mac-app` workflow reads it the same way on CI's virtual Mac: 32–35 ms, once the GPU the app makes as it starts is made, which is not the gate's reading.
