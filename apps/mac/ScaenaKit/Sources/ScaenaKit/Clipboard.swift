@@ -64,7 +64,7 @@ public struct Cells: Decodable, Sendable {
     /// cells inserted sets (`inserting`'s `with`).
     public var tableColumns: JSONValue {
         .array(
-            zip(columns, formats).map { field, format in
+            zip(columns, formats).map { (field: String, format: String?) -> JSONValue in
                 guard let format else { return ["field": .string(field)] }
                 return ["field": .string(field), "format": .string(format)]
             })
