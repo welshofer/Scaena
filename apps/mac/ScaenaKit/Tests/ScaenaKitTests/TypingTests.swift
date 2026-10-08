@@ -114,9 +114,7 @@ private func carets(_ json: String) throws -> Carets {
     view.canvas = CGSize(width: 1920, height: 1080)
     let nowhere = NSRange(location: NSNotFound, length: 0)
 
-    #expect(!view.acceptsFirstResponder)
     #expect(typing.enter("title", in: "cover", at: nil))
-    #expect(view.acceptsFirstResponder)
     #expect(view.selectedRange() == NSRange(location: 6, length: 0))
 
     view.insertText(" on the Mac", replacementRange: nowhere)
@@ -156,9 +154,9 @@ private func carets(_ json: String) throws -> Carets {
     typing.sync(shown: "cover")
     #expect(typing.carets?.text == "Scaena" && view.selectedRange().location <= 6)
 
-    // Escape stops typing, and gives the keyboard back.
+    // Escape stops typing; the canvas keeps the keys (PLAN 3.11).
     view.doCommand(by: #selector(NSStandardKeyBindingResponding.cancelOperation(_:)))
-    #expect(!typing.typing && !view.acceptsFirstResponder)
+    #expect(!typing.typing)
     #expect(view.selectedRange().location == NSNotFound)
 }
 
