@@ -41,6 +41,8 @@ pub use watch::{DECK, Failure, Problem, SOURCE};
 
 /// The largest file a page may write: a picture or a font, with room to spare.
 const MAX_FILE: usize = 256 << 20;
+/// The most of a refused request's body read through before it is answered (`refused`).
+const DRAIN: usize = 16 << 20;
 /// How often a quiet event stream says it is still there.
 const KEEP_ALIVE: Duration = Duration::from_secs(15);
 
@@ -174,19 +176,21 @@ pub fn run(
 impl Shared {
     async fn answer(self: Arc<Self>, request: Request<Incoming>) -> Response<Body> {
         if !self.ours(request.headers(), header::HOST, "") {
-            return said(StatusCode::FORBIDDEN, "scaena serve answers only to localhost and 127.0.0.1");
+            return refused(request, StatusCode::FORBIDDEN, "scaena serve answers only to localhost and 127.0.0.1")
+                .await;
         }
         let method = request.method().clone();
         let path = request.uri().path().to_string();
         if let Some(rel) = path.strip_prefix("/bundle/") {
             let Some(rel) = bundle_path(rel) else {
-                return said(StatusCode::BAD_REQUEST, "not a path inside the bundle");
+                return refused(request, StatusCode::BAD_REQUEST, "not a path inside the bundle").await;
             };
             return match method {
                 Method::GET | Method::HEAD => self.read(&rel, method == Method::HEAD).await,
                 Method::PUT | Method::DELETE => {
                     if !self.ours(request.headers(), header::ORIGIN, "http://") {
-                        return said(StatusCode::FORBIDDEN, "scaena serve writes only for its own pages");
+                        return refused(request, StatusCode::FORBIDDEN, "scaena serve writes only for its own pages")
+                            .await;
                     }
                     let by = request.headers().get("x-scaena-client").and_then(|v| v.to_str().ok()).map(str::to_string);
                     if method == Method::DELETE {
@@ -203,11 +207,11 @@ impl Shared {
                     let shared = self.clone();
                     done(tokio::task::spawn_blocking(move || shared.write(&rel, &bytes, by)).await)
                 }
-                _ => said(StatusCode::METHOD_NOT_ALLOWED, "GET, HEAD, PUT, or DELETE"),
+                _ => refused(request, StatusCode::METHOD_NOT_ALLOWED, "GET, HEAD, PUT, or DELETE").await,
             };
         }
         if method != Method::GET && method != Method::HEAD {
-            return said(StatusCode::METHOD_NOT_ALLOWED, "GET or HEAD");
+            return refused(request, StatusCode::METHOD_NOT_ALLOWED, "GET or HEAD").await;
         }
         match path.as_str() {
             "/" => moved("/index.html?bundle=/bundle/&serve"),
@@ -403,6 +407,14 @@ fn answer(status: StatusCode, media: &str, bytes: Bytes, cache: &'static str) ->
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
     headers.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
     response
+}
+
+/// `request`, refused before its body was read, answered once the body is in, up to `DRAIN`
+/// bytes of it. A connection closed with a body still coming is reset, and a reset can lose the
+/// answer before the page reads it: the page hears "connection reset", not why.
+async fn refused(request: Request<Incoming>, status: StatusCode, message: &str) -> Response<Body> {
+    let _ = Limited::new(request.into_body(), DRAIN).collect().await;
+    said(status, message)
 }
 
 fn said(status: StatusCode, message: &str) -> Response<Body> {
