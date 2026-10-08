@@ -34,7 +34,7 @@ use scaena_core::timeline::{Motion, Timeline};
 use scaena_core::{Deck, Snapshot};
 use serde_json::Value;
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::hash::{Hash, Hasher};
 
 #[derive(Debug, Clone)]
@@ -793,7 +793,15 @@ fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>)
                     (_, Some(Value::String(state))) => Some(LinkTarget::State(state.clone())),
                     _ => None,
                 });
-                Ok(Span { text, style: cascade::run_role(theme, &role, run)?, base_weight, base_italic, link })
+                Ok(Span {
+                    text,
+                    style: cascade::run_role(theme, &role, run)?,
+                    base_weight,
+                    base_italic,
+                    link,
+                    features: features(run.get("features"))?,
+                    axes: axes(run.get("axes")),
+                })
             })
             .collect::<Result<_, EngineError>>()?,
         None => vec![Span {
@@ -802,27 +810,15 @@ fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>)
             base_weight: role.weight,
             base_italic: role.italic,
             link: None,
+            features: BTreeMap::new(),
+            axes: BTreeMap::new(),
         }],
     };
     let written: String = spans.iter().map(|s| s.text.as_str()).collect();
     let items = list_marks(theme, props, &written)?;
     let (list_indent, list_gap, _, _) = theme.typography.lists.clone().unwrap_or_default().at(0);
-    let features = props
-        .get("features")
-        .and_then(Value::as_object)
-        .map(|f| {
-            scaena_core::sort::try_map(f.iter().map(|(k, v)| {
-                let value = v.as_bool().map(u16::from).or_else(|| v.as_u64().and_then(|n| u16::try_from(n).ok()));
-                value.map(|v| (k.clone(), v)).ok_or_else(|| EngineError::Layout(format!("feature `{k}`: {v}")))
-            }))
-        })
-        .transpose()?
-        .unwrap_or_default();
-    let axes = props
-        .get("axes")
-        .and_then(Value::as_object)
-        .map(|a| scaena_core::sort::map(a.iter().filter_map(|(k, v)| Some((k.clone(), v.as_f64()? as f32)))))
-        .unwrap_or_default();
+    let features = features(props.get("features"))?;
+    let axes = axes(props.get("axes"));
     Ok(TextSpec {
         spans,
         role,
@@ -842,6 +838,26 @@ fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>)
         list_indent: list_indent as f32,
         list_gap: list_gap as f32,
     })
+}
+
+/// A text's or a run's OpenType features (`features`): each on, off, or an alternate's index.
+fn features(v: Option<&Value>) -> Result<BTreeMap<String, u16>, EngineError> {
+    v.and_then(Value::as_object)
+        .map(|f| {
+            scaena_core::sort::try_map(f.iter().map(|(k, v)| {
+                let value = v.as_bool().map(u16::from).or_else(|| v.as_u64().and_then(|n| u16::try_from(n).ok()));
+                value.map(|v| (k.clone(), v)).ok_or_else(|| EngineError::Layout(format!("feature `{k}`: {v}")))
+            }))
+        })
+        .transpose()
+        .map(Option::unwrap_or_default)
+}
+
+/// A text's or a run's variable-font axis values (`axes`), by tag.
+fn axes(v: Option<&Value>) -> BTreeMap<String, f32> {
+    v.and_then(Value::as_object)
+        .map(|a| scaena_core::sort::map(a.iter().filter_map(|(k, v)| Some((k.clone(), v.as_f64()? as f32)))))
+        .unwrap_or_default()
 }
 
 /// A text's paragraphs as list items (ADR-0018): each item's level and marker, numbered as its

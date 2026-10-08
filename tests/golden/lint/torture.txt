@@ -31,6 +31,7 @@ W302 - dlig dlig-on /nodes/dlig-on/at/col
 W302 - dlig dlig-off /nodes/dlig-off/at/col
 W302 - kern kern-on /nodes/kern-on/at/col
 W302 - kern kern-off /nodes/kern-off/at/col
+W302 - kern kern-pair /nodes/kern-pair/at/col
 W302 - numerals num-tab-lin /nodes/num-tab-lin/at/col
 W302 - numerals num-tab-old /nodes/num-tab-old/at/col
 W302 - numerals num-pro-lin /nodes/num-pro-lin/at/col

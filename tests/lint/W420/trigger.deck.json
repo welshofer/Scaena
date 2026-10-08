@@ -1,5 +1,5 @@
 {
-  "scaena": "0.17",
+  "scaena": "0.18",
   "_comment": "W420 trigger: the beat's state shows context, and no claim.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

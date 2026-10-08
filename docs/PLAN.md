@@ -587,6 +587,13 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *Each format the deck lists is judged on its own grid, and with its own slots.*
     - *A range that runs backward is E106.*
     - *A re-theme onto a smaller grid is refused, as for a missing name: a test re-themes higher-ed onto a 6-row Ember. SPEC §3.4 and §7.5 and the retheme skill say so.)*
+- [x] 1.38 Kerning, on Jay's call (2026-10-08): the font's own across a change of tracking, a pair closed or opened on top of it, and OpenType features and axes on a run. A text's runs could not set features or axes, though SPEC said they could; and tracking on one letter, to close a pair, cut the pair's kerning, since parley shaped each side of a change of spacing apart.
+  *(Done: deck format 0.18.*
+    - *parley 0.11.1 is vendored and patched (`vendor/parley`, ADR-0004 finding 21): a run of text in one font is shaped whole across a change of tracking, each cluster spaced by its own style. Every torture state draws its golden display list as before.*
+    - *A run takes `features` and `axes` of its own, after its node's (SPEC §3.3). `style_text` sets each by tag (`features/kern`, `axes/wght`), refusing a tag that is not four characters, a feature that is not on, off, or an index, and an axis that is not a number.*
+    - *Tracking on a pair's first letter adds to the font's kerning. The inspectors offer it for the characters selected (`style/tracking`), in em, the browser's in steps of 0.01.*
+    - *The torture deck's `kern` case gains a line: AV closed 0.04 em past the font's kerning, To loose in a run with kern off, the rest kerned. Its golden display list and raster are blessed.*
+    - *Tests: the engine's `a_pair_tracked_on_its_first_letter_keeps_the_fonts_kerning_and_adds_to_it` (the V lands where the font's kerning set it, moved by the tracking; with the old split, 7.6 units right of that), `a_runs_own_features_and_axes_come_after_the_nodes`, and `style_text_gives_characters_features_and_axes_of_their_own`.)*
 
 ### Exit criteria (gate 1)
 1. From Claude Code, using only MCP: create a 12-state deck from a CSV and a one-paragraph brief; lint to zero errors; render every state; export PDF and a 1080p60 video. Document the transcript in `docs/examples/agent-run.md`.

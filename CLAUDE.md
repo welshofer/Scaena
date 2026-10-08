@@ -29,6 +29,7 @@ crates/scaena-history  the CRDT as its own WASM module, loaded to save a bundle 
 crates/scaena-pdf      the PDF writer as its own WASM module, loaded to export a PDF                    (PLAN 2.54)
 crates/scaena-ffi      C ABI for Swift: the session for the Mac, and the assistant's conversation      (PLAN 3.1, 3.6)
 crates/scaena-chat     the assistant's conversation for the Mac: requests built, answers read, no HTTP  (ADR-0022)
+vendor/parley          parley 0.11.1, patched: a change of spacing keeps a run shaped whole (ADR-0004 finding 21)
 docs/                  SPEC, PLAN, MANIFESTO, adr/, schema/, examples/
 skills/                agent skills (SKILL.md) that drive the CLI/MCP
 tests/                 golden display lists, golden rasters, lint fixtures, parity harness, bench decks B1–B3
@@ -98,7 +99,7 @@ Gate 1 is met and logged (2026-10-03). `docs/gate-1.md` holds the evidence per e
 - **A narrative repair.** A fresh agent repaired a narrative lint finding on the authorability deck.
 - **What the runs found.** Eight problems are fixed, and the rest are PLAN 1.33–1.36.
 
-Phase 2 may start at PLAN 2.1. Phase 1's chart forms, which Jay scheduled on 2026-10-07, are done. 1.9 is done (Jay approved the chart defaults), and so are 1.28, where a chart's `projected` rows run dashed and say they are estimates; 1.29, where a `bar` or a `stackedBar` with `orient: horizontal` runs its bars across, its categories named down the side (`scaena_engine::charts::compile::across`); 1.30, where `slope` compares two states, a line a series that says its change, and `range` draws a dumbbell between a category's series or each value with its `interval`; 1.31, where a chart's `facet` draws small multiples, a panel for each value of a field on one scale (`ChartLayout::panels`); and 1.32: no chart text in the torture deck has a mark, a line, or a rule across it.
+Phase 2 may start at PLAN 2.1. Phase 1's chart forms, which Jay scheduled on 2026-10-07, are done. 1.9 is done (Jay approved the chart defaults), and so are 1.28, where a chart's `projected` rows run dashed and say they are estimates; 1.29, where a `bar` or a `stackedBar` with `orient: horizontal` runs its bars across, its categories named down the side (`scaena_engine::charts::compile::across`); 1.30, where `slope` compares two states, a line a series that says its change, and `range` draws a dumbbell between a category's series or each value with its `interval`; 1.31, where a chart's `facet` draws small multiples, a panel for each value of a field on one scale (`ChartLayout::panels`); and 1.32: no chart text in the torture deck has a mark, a line, or a rule across it. On Jay's call (2026-10-08), 1.38 kerns as the font does across a change of tracking, so tracking on a pair's first letter closes or opens the pair on top of the font's kerning: parley is vendored and patched to shape a run of one font whole across it (`vendor/parley`, ADR-0004 finding 21). A run takes `features` and `axes` of its own, after its node's, which `style_text` sets by tag (`features/kern`), and the inspectors offer a run's tracking (deck format 0.18).
 
 ## Phase 2
 

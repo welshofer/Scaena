@@ -1,5 +1,5 @@
 {
-  "scaena": "0.17",
+  "scaena": "0.18",
   "_comment": "W302 clean: placed in a slot; or by cells, and in 9:16 placed anew (ADR-0020).",
   "canvas": {"width": 1920, "height": 1080},
   "formats": ["9:16"],

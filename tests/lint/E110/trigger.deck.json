@@ -1,5 +1,5 @@
 {
-  "scaena": "0.17",
+  "scaena": "0.18",
   "_comment": "E110 trigger: caption text (20 cu, body for contrast) in the theme's line color, on its dark surface.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

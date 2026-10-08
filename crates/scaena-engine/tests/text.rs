@@ -439,3 +439,79 @@ fn an_empty_text_is_one_empty_line_in_its_look() {
     });
     assert!(cased.runs.is_empty() && cased.lines.len() == 1);
 }
+
+/// The x of glyph `k` of `layout`, in its order on the line.
+fn glyph_x(layout: &TextLayout, k: usize) -> f32 {
+    layout.runs.iter().flat_map(|r| r.glyphs.iter().map(|g| g.x)).nth(k).unwrap()
+}
+
+/// `spec`'s one span split into spans of `parts`' texts, each in the same look.
+fn split(spec: &mut TextSpec, parts: &[&str]) {
+    let one = spec.spans[0].clone();
+    spec.spans = parts.iter().map(|t| scaena_engine::text::Span { text: t.to_string(), ..one.clone() }).collect();
+}
+
+#[test]
+fn a_pair_tracked_on_its_first_letter_keeps_the_fonts_kerning_and_adds_to_it() {
+    // AV kerns tight in Roboto Serif (the `kern` case): the V sits left of where it sits unkerned.
+    let kerned = glyph_x(&set("kern", "AV", 1600.0, |_| {}), 1);
+    let loose = glyph_x(
+        &set("kern", "AV", 1600.0, |s| {
+            s.features.insert("kern".into(), 0);
+        }),
+        1,
+    );
+    assert!(kerned < loose - 5.0, "AV kerns: {kerned} against {loose}");
+    // Tracking on the A alone moves the V by the tracking, from where the font's kerning set it:
+    // a change of tracking no longer shapes the A and the V apart (PLAN 1.38, ADR-0004 finding 21).
+    let size = theme().text_role("kern").unwrap().size;
+    for tracking in [-0.05_f32, 0.08] {
+        let pair = set("kern", "AV", 1600.0, |s| {
+            split(s, &["A", "V"]);
+            s.spans[0].style.tracking = tracking;
+        });
+        let v = glyph_x(&pair, 1);
+        assert!((v - (kerned + tracking * size)).abs() < 1e-3, "tracking {tracking}: V at {v}, kerned at {kerned}");
+    }
+    // A color of its own on the V shapes the pair whole too.
+    let colored = set("kern", "AV", 1600.0, |s| {
+        split(s, &["A", "V"]);
+        s.spans[1].style.color = Some("accent".into());
+    });
+    assert!((glyph_x(&colored, 1) - kerned).abs() < 1e-3);
+}
+
+#[test]
+fn a_runs_own_features_and_axes_come_after_the_nodes() {
+    let kerned = glyph_x(&set("kern", "AV", 1600.0, |_| {}), 1);
+    let loose = glyph_x(
+        &set("kern", "AV", 1600.0, |s| {
+            s.features.insert("kern".into(), 0);
+        }),
+        1,
+    );
+    // The run turns kerning off where the node leaves it on, and on where the node turns it off.
+    let off = set("kern", "AV", 1600.0, |s| {
+        s.spans[0].features.insert("kern".into(), 0);
+    });
+    assert!((glyph_x(&off, 1) - loose).abs() < 1e-3);
+    let on = set("kern", "AV", 1600.0, |s| {
+        s.features.insert("kern".into(), 0);
+        s.spans[0].features.insert("kern".into(), 1);
+    });
+    assert!((glyph_x(&on, 1) - kerned).abs() < 1e-3);
+    // The variable family's width axis, set on one run over the node's, widens that run alone.
+    let width = |l: &TextLayout| l.lines[0].width;
+    let plain = set("headline", "Wide words", 1600.0, |_| {});
+    let narrow = set("headline", "Wide words", 1600.0, |s| {
+        s.axes.insert("wdth".into(), 50.0);
+    });
+    let wide = set("headline", "Wide words", 1600.0, |s| {
+        s.axes.insert("wdth".into(), 50.0);
+        split(s, &["Wide", " words"]);
+        s.spans[0].axes.insert("wdth".into(), 150.0);
+    });
+    assert!(width(&narrow) < width(&plain) - 1.0, "{} against {}", width(&narrow), width(&plain));
+    assert!(width(&wide) > width(&narrow) + 1.0, "{} against {}", width(&wide), width(&narrow));
+    assert!(glyph_x(&wide, 5) - glyph_x(&wide, 4) < glyph_x(&plain, 5) - glyph_x(&plain, 4), "` words` stays narrow");
+}

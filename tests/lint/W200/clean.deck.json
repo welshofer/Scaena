@@ -1,5 +1,5 @@
 {
-  "scaena": "0.17",
+  "scaena": "0.18",
   "_comment": "W200 clean: a last line of two words.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

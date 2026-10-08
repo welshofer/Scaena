@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/deck-0.17.json",
+  "$id": "https://scaena.dev/schema/deck-0.18.json",
   "title": "Scaena deck document",
   "description": "Canonical deck.json. A deck is a scene graph (nodes) plus an ordered cue list (states) over a narrative spine, rendered against a theme. See docs/SPEC.md §3.",
   "type": "object",
@@ -10,7 +10,7 @@
     "scaena": {
       "description": "Format version (semver, major.minor[.patch]).",
       "type": "string",
-      "pattern": "^0\\.17(\\.[0-9]+)?$"
+      "pattern": "^0\\.18(\\.[0-9]+)?$"
     },
     "meta": { "$ref": "#/$defs/Meta" },
     "canvas": { "$ref": "#/$defs/Canvas" },
@@ -932,6 +932,16 @@
           "description": "What this run changes about its role's look, after the node's `style` when the run is set in the node's role (SPEC §3.6).",
           "$ref": "#/$defs/TextStyle"
         },
+        "features": {
+          "description": "OpenType features for this run, after the node's (SPEC §3.3, PLAN 1.38): `kern: false` sets a pair loose, `ss01: true` a word in a stylistic set. A change of them shapes the run apart from its neighbors, as a change of font does.",
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/FeatureValue" }
+        },
+        "axes": {
+          "description": "Variable-font axis values for this run, after the node's (PLAN 1.38).",
+          "type": "object",
+          "additionalProperties": { "type": "number" }
+        },
         "lang": { "type": "string" },
         "link": {
           "description": "Where the run goes when it is followed (SPEC §3.5, PLAN 2.70): a web address, or a state of the deck. It is drawn underlined.",
@@ -944,6 +954,7 @@
       }
     },
     "Emphasis": { "type": "string", "enum": ["high", "low"] },
+    "FeatureValue": { "anyOf": [{ "type": "boolean" }, { "type": "integer" }] },
     "Link": {
       "description": "Where a link goes (PLAN 2.70): a web address (`https:`, `http:`, or `mailto:`), which the player opens in a new window, or a state of the deck, which it shows.",
       "type": "object",
@@ -1004,7 +1015,6 @@
     },
     "Wrap": { "type": "string", "enum": ["greedy", "pretty", "balance"] },
     "TextBox": { "type": "string", "enum": ["cap", "line"] },
-    "FeatureValue": { "anyOf": [{ "type": "boolean" }, { "type": "integer" }] },
     "Numeric": {
       "type": "string",
       "enum": ["tabular-lining", "tabular-oldstyle", "proportional-lining", "proportional-oldstyle"]

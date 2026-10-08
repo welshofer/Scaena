@@ -260,6 +260,12 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
           const shown = typeof value === "number" ? String(value) : "";
           return `<input id="${id}" type="number" ${prop} step="1" value="${shown}" placeholder="0" aria-label="turned, degrees clockwise"> <span class="lives">°</span>`;
         }
+        // Tracking, in em after each character (PLAN 1.38): on a pair's first letter, the space
+        // between the two, on top of the font's kerning.
+        if (f.prop === "style/tracking") {
+          const shown = typeof value === "number" ? String(value) : "";
+          return `<input id="${id}" type="number" ${prop} step="0.01" value="${shown}" placeholder="the theme's" aria-label="tracking, em"> <span class="lives">em</span>`;
+        }
         const min = t.min ?? t.above;
         const bounds = `${min !== undefined ? ` min="${min}"` : ""}${t.max !== undefined ? ` max="${t.max}"` : ""}`;
         const step = t.whole ? "1" : t.max !== undefined && t.max <= 1 ? "0.05" : "any";

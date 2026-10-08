@@ -1,5 +1,5 @@
 {
-  "scaena": "0.17",
+  "scaena": "0.18",
   "_comment": "W221 trigger: body snaps to the baseline grid at a leading of 39.2 cu (4.9 lines of 8), and the 9:16 grid the deck is also laid out on has no baseline, for body or caption.",
   "canvas": {"width": 1920, "height": 1080},
   "formats": ["9:16"],
