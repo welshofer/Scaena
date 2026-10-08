@@ -529,3 +529,71 @@ fn an_assistants_theme_edit_is_written_back_by_an_undo() {
     assert_eq!(call(s, "themeText", Value::Null)["text"].as_str().unwrap(), before);
     unsafe { scaena_session_free(s) };
 }
+
+#[test]
+fn a_drag_on_the_canvas_ends_in_the_patch_the_browsers_does() {
+    let s = open(B1);
+    // Where the title may go: on the theme's grid, in its slot, or off the grid as a `rect`.
+    let targets = call(s, "targets", json!({ "state": "cover", "node": "title" }));
+    assert_eq!(targets["by"], "grid", "{targets}");
+    let slots = targets["slots"].as_object().unwrap();
+    assert!(slots.contains_key("title") && slots.contains_key("subtitle"), "{targets}");
+    let cell: Vec<f64> = serde_json::from_value(targets["cell"].clone()).unwrap();
+
+    // As it moves, the title is drawn moved, laying nothing out, and drawn as it was after.
+    let rest = call(s, "digest", json!({ "state": "cover" }));
+    call(s, "setMoving", json!({ "nodes": ["title"], "dx": 40, "dy": 30 }));
+    let moving = call(s, "digest", json!({ "state": "cover" }));
+    assert_ne!(moving, rest, "the moved title draws elsewhere");
+    call(s, "setMoving", json!({ "nodes": [] }));
+    assert_eq!(call(s, "digest", json!({ "state": "cover" })), rest);
+
+    // Into the slot it covers most: one `place`, in the state shown.
+    let over = slots["subtitle"].as_array().unwrap();
+    let to = json!({ "state": "cover", "node": "title", "how": "slot", "x": over[0], "y": over[1], "w": over[2], "h": over[3] });
+    let slotted = call(s, "snap", to);
+    assert_eq!(slotted["patch"][0]["op"], "place", "{slotted}");
+    assert_eq!(slotted["patch"][0]["at"]["in"], "subtitle", "{slotted}");
+
+    // Off the grid (Shift): a `rect` where it was left, an override lint flags (W301), kept to
+    // the state shown with Alt (`fork`).
+    let left = json!({
+        "state": "cover", "node": "title", "how": "free", "x": cell[0] + 40.0, "y": cell[1] + 30.0,
+        "w": cell[2], "h": cell[3], "fork": true, "reach": 6,
+    });
+    let freed = call(s, "snap", left);
+    let patch = freed["patch"].clone();
+    assert!(patch[0]["at"]["rect"].is_array(), "{freed}");
+    let reach = call(s, "reach", json!({ "ops": patch }));
+    assert!(reach.as_array().unwrap().iter().any(|st| st == "cover"), "{reach}");
+
+    // Shown before it is made: frames at rest draw the patch, until it is let go.
+    call(s, "preview", json!({ "ops": patch }));
+    let previewed = call(s, "digest", json!({ "state": "cover" }));
+    assert_ne!(previewed, rest, "the preview draws the title where the patch puts it");
+    call(s, "preview", json!({ "ops": null }));
+    assert_eq!(call(s, "digest", json!({ "state": "cover" })), rest);
+
+    // Made: the title is off the grid, and lint says so.
+    let made = tool(s, "deck_patch", json!({ "ops": patch }));
+    assert_eq!(made["edited"], true, "{made}");
+    assert_eq!(call(s, "digest", json!({ "state": "cover" })), previewed, "made as previewed");
+    // The editor compiles the deck's source after a patch, then lints it.
+    let source = call(s, "source", Value::Null);
+    call(s, "compile", json!({ "source": source }));
+    let linted = call(s, "lint", json!({ "state": "cover" }));
+    let flagged = linted["findings"].as_array().unwrap().iter().any(|f| f["code"] == "W301" && f["node"] == "title");
+    assert!(flagged, "an off-grid placement is flagged: {linted}");
+
+    // Misuse is said.
+    let answer: Value = serde_json::from_str(&took(unsafe {
+        scaena_call(
+            s,
+            c("snap").as_ptr(),
+            c(r#"{"state":"cover","node":"title","how":"sideways","x":0,"y":0,"w":1,"h":1}"#).as_ptr(),
+        )
+    }))
+    .unwrap();
+    assert!(answer["error"]["message"].is_string(), "{answer}");
+    unsafe { scaena_session_free(s) };
+}

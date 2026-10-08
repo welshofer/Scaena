@@ -303,7 +303,11 @@ pub unsafe extern "C" fn scaena_add_file(
 /// {state}`, `hit {state, x, y}`, `layers {state}`, `carets {state, node}`, `choices {state,
 /// node}`, `stateChoices {state}`, `inserts`, `themes`, `themeText`, `keepHistory`,
 /// `keepsHistory`, and `writeFiles {files: [{path, text}]}`, which writes files back as an undo
-/// has them (`text` null: taken out).
+/// has them (`text` null: taken out). A drag (PLAN 3.7, ADR-0013): `targets {state, node}`,
+/// where a node may go; `snap {state, node, how, x, y, w, h, fork?, reach?}`, where a box left
+/// there lands and the patch that puts it there; `setMoving {nodes, dx, dy}`, the nodes drawn
+/// moved in frames at rest, laying nothing out; `preview {ops?}`, frames at rest drawn as a
+/// patch would make them; and `reach {ops}`, the states a patch changes.
 ///
 /// # Safety
 /// `session` is a live handle; `method` a NUL-terminated string; `args` one, or null.
@@ -844,6 +848,15 @@ pub unsafe extern "C" fn scaena_bytes_free(bytes: ScaenaBytes) {
     }
 }
 
+/// A patch handed in as `ops`, a list of operations; none where none is.
+fn patch_of(ops: Option<&Value>, method: &str) -> Result<Option<Vec<Value>>, Failure> {
+    match ops {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Array(ops)) => Ok(Some(ops.clone())),
+        Some(_) => Err(said(format!("{method}: `ops` is a list of operations"))),
+    }
+}
+
 /// The session's answer to `method`, as `Player` gives it a page.
 fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
     let arg = |key: &str| {
@@ -885,6 +898,36 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         "hit" => json!(s.hits_json(arg("state")?, [number("x")? as f32, number("y")? as f32]).map_err(said)?),
         "layers" => value(serde_json::to_value(s.layers(arg("state")?).map_err(said)?))?,
         "carets" => s.carets_json(arg("state")?, arg("node")?).map_err(said)?,
+        "targets" => {
+            let found = s.targets(arg("state")?, arg("node")?).map_err(said)?.clone();
+            value(serde_json::to_value(scaena_ops::inspect::Targets::from(found)))?
+        }
+        "snap" => {
+            let how: scaena_ops::inspect::SnapMode = arg("how")?.parse().map_err(said)?;
+            let to = [number("x")? as f32, number("y")? as f32, number("w")? as f32, number("h")? as f32];
+            let fork = args.get("fork").and_then(Value::as_bool).unwrap_or(false);
+            let reach = args.get("reach").and_then(Value::as_f64).unwrap_or(0.0) as f32;
+            match s.guided(arg("state")?, arg("node")?, how, to, fork, reach).map_err(said)? {
+                None => Value::Null,
+                Some((snapped, guides)) => scaena_session::with_guides(value(serde_json::to_value(snapped))?, &guides),
+            }
+        }
+        "setMoving" => {
+            let nodes: Vec<String> = serde_json::from_value(args.get("nodes").cloned().unwrap_or_else(|| json!([])))
+                .map_err(|e| said(format!("{method}: `nodes` is a list of node ids: {e}")))?;
+            let by = [number("dx").unwrap_or(0.0) as f32, number("dy").unwrap_or(0.0) as f32];
+            s.set_moving((!nodes.is_empty()).then_some((nodes, by)));
+            Value::Null
+        }
+        "preview" => {
+            let ops = patch_of(args.get("ops"), method)?;
+            s.preview(ops.as_deref()).map_err(said)?;
+            Value::Null
+        }
+        "reach" => {
+            let ops = patch_of(args.get("ops"), method)?.ok_or_else(|| said(format!("{method}: `ops` is a patch")))?;
+            json!(s.reach(&ops).map_err(said)?)
+        }
         "choices" => value(serde_json::to_value(s.choices(arg("state")?, arg("node")?).map_err(said)?))?,
         "stateChoices" => value(serde_json::to_value(s.state_choices(arg("state")?).map_err(said)?))?,
         "inserts" => value(serde_json::to_value(s.inserts()))?,

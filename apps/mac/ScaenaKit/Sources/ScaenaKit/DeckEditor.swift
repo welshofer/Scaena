@@ -18,6 +18,9 @@ public final class DeckEditor {
 
     /// Bumped by each change to the deck: what draws it again.
     public private(set) var revision = 0
+    /// Bumped when what frames at rest draw changes without an edit: a node drawn moved by a
+    /// drag, or a patch shown before it is made (PLAN 3.7). What draws the canvas again.
+    public private(set) var drawn = 0
     /// The deck's states on its timeline, each step named by its slide.
     public private(set) var slots: [ScaenaSession.Slot] = []
     /// The source as the source pane shows it: the deck's, or what is typed.
@@ -86,6 +89,26 @@ public final class DeckEditor {
     @discardableResult
     public func restore(_ source: String) -> String? {
         take(source)
+    }
+
+    /// Draw `nodes` moved `by` canvas units in frames at rest, laying nothing out: a drag as it
+    /// moves (ADR-0013).
+    public func move(_ nodes: [String], by: CGVector) {
+        try? session.setMoving(nodes, by: by)
+        drawn += 1
+    }
+
+    /// Draw frames at rest as `ops` would make the deck, nothing made: a resize that paused.
+    public func show(_ ops: [JSONValue]) {
+        try? session.preview(ops)
+        drawn += 1
+    }
+
+    /// A drag over: every node drawn where it stands, and nothing shown before it is made.
+    public func still() {
+        try? session.setMoving([])
+        try? session.preview(nil)
+        drawn += 1
     }
 
     /// Take the deck as the session holds it after an edit made on it directly, as the assistant
