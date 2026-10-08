@@ -6,7 +6,6 @@
 #![cfg(feature = "gpu")]
 
 use scaena_core::displaylist::{Color, Op, ShaderKind};
-use scaena_core::shader::Job;
 use scaena_paint::gpu::GpuPainter;
 use scaena_paint::{Raster, diff};
 use std::collections::BTreeMap;
@@ -45,7 +44,7 @@ fn mesh(seed: u64, t: f32, rect: [f32; 4], palette: &[Color], params: &[(&str, f
 fn compare(gpu: &mut GpuPainter, cases: &[(&str, Op, [f64; 6], [u32; 2])]) -> Vec<String> {
     let mut failures = Vec::new();
     for (name, op, device, size) in cases {
-        let job = Job::new(op, *device, *size).unwrap().expect("covers pixels");
+        let job = scaena_core::shader::job(op, *device, *size).unwrap().expect("covers pixels");
         let [_, _, w, h] = job.bbox();
         let cpu = Raster { width: w, height: h, rgba: job.render() };
         let gpu = Raster { width: w, height: h, rgba: gpu.shader_pixels(&job).unwrap() };

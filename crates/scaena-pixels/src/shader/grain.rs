@@ -8,8 +8,8 @@
 //!
 //! Per pixel it is integer hashing and `+ − × ÷`, here and in `grain.wgsl` alike.
 
+use super::Color;
 use super::{BLOCK, ShaderError, Words, frame_box, grain_noise, lowbias32, seed_key, within};
-use crate::displaylist::Color;
 use std::collections::BTreeMap;
 
 /// The WGSL twin of [`Frame::pixel`].

@@ -85,7 +85,7 @@ jobs:
                   macos=false
                   for f in $(git diff --name-only "$BEFORE" "$AFTER"); do
                     case "$f" in
-                      crates/scaena-paint/* | crates/scaena-core/src/shader/* | tests/golden/* | Cargo.lock | .github/workflows/ci.yml) macos=true ;;
+                      crates/scaena-paint/* | crates/scaena-pixels/* | crates/scaena-core/src/shader.rs | tests/golden/* | Cargo.lock | .github/workflows/ci.yml) macos=true ;;
                     esac
                   done
                 fi

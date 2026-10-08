@@ -10,10 +10,10 @@
 //! Places come from `seed` and `t` once per frame (`libm` sine and cosine); per pixel it
 //! is `+ − × ÷` and comparisons, here and in `particles.wgsl` alike.
 
+use super::Color;
 use super::{
     ShaderError, SplitMix64, Words, encode, frame_box, linear, local_map, mesh::R2, thresholds, whole, within,
 };
-use crate::displaylist::Color;
 use std::collections::BTreeMap;
 
 /// The WGSL twin of [`Frame::pixel`].

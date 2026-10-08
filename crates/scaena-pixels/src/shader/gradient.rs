@@ -12,11 +12,11 @@
 //! (`libm` here, WGSL's own in `gradient.wgsl`), whose last bits a GPU may round
 //! differently.
 
+use super::Color;
 use super::{
     MAX_STOPS, ShaderError, Words, frame_box, grain_noise, local_map, oklab_rgba8, ramp, sample, seed_key, thresholds,
     within,
 };
-use crate::displaylist::Color;
 use std::collections::BTreeMap;
 
 /// The WGSL twin of [`Frame::pixel`].

@@ -18,5 +18,9 @@ schemars.workspace = true
 regex-lite.workspace = true
 thiserror.workspace = true
 postcard.workspace = true
-# Shader references (SPEC §3.8, §13.7): transcendental math that reads the same everywhere.
+# Springs, color, poses, and palettes (SPEC §13.7): transcendental math that reads the same everywhere.
 libm.workspace = true
+# What is done pixel by pixel: each shader kind's CPU reference and WGSL twin, and the JPEG
+# decoder, a crate of their own so the browser's modules build them for speed and the rest of
+# core for size (PLAN 2.98).
+scaena-pixels.workspace = true

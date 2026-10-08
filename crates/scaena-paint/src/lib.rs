@@ -398,7 +398,10 @@ fn check_version(dl: &DisplayList) -> Result<(), PaintError> {
 /// [`Job::bbox`] says.
 #[cfg(any(feature = "cpu", feature = "gpu"))]
 pub fn shader_jobs(dl: &DisplayList, scale: f32) -> Result<Vec<Option<Job>>, PaintError> {
-    shader_ops(dl, scale)?.into_iter().map(|(op, device, size)| Ok(Job::new(op, device, size)?)).collect()
+    shader_ops(dl, scale)?
+        .into_iter()
+        .map(|(op, device, size)| Ok(scaena_core::shader::job(op, device, size)?))
+        .collect()
 }
 
 /// [`shader_jobs`]' jobs as what each is made from: its op, the transform to device pixels,

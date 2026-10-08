@@ -8,8 +8,10 @@
 
 use std::path::Path;
 
-/// The crates the editor's module, the player's, and the history's are built from.
-const CARRIED: [&str; 5] = ["scaena-core", "scaena-engine", "scaena-ops", "scaena-store", "scaena-wasm"];
+/// The crates the editor's module, the player's, and the history's are built from. Core sits
+/// on `scaena-pixels`, which cannot reach `scaena_core::sort`, and sorts nothing.
+const CARRIED: [&str; 6] =
+    ["scaena-core", "scaena-engine", "scaena-ops", "scaena-pixels", "scaena-store", "scaena-wasm"];
 
 /// The stable sorts of `slice` and `Vec`, as a call reads.
 const SORTS: [&str; 4] = [".sort()", ".sort_by(", ".sort_by_key(", ".sort_by_cached_key("];
