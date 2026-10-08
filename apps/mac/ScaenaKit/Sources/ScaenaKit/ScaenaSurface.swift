@@ -8,6 +8,15 @@ import QuartzCore
 public final class ScaenaSurface {
     private let handle: OpaquePointer
 
+    /// Make the GPU every surface paints with, if it is not made yet: its device and vello's
+    /// pipelines, most of what a first frame costs. The app does it as it starts, off the main
+    /// thread, so that the first deck it opens shows its first frame without waiting for it
+    /// (gate 3). A surface made meanwhile waits for it.
+    public static func warm() throws {
+        var error: UnsafeMutablePointer<CChar>?
+        guard scaena_gpu_warm(&error) else { throw ScaenaError.taking(error) }
+    }
+
     /// Paint on `layer`, `width` × `height` device pixels. The layer keeps the deck's aspect, and
     /// outlives the surface.
     public init(layer: CAMetalLayer, width: Int, height: Int) throws {

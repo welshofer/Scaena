@@ -1,10 +1,10 @@
 # Gate 3
 
-Phase 3's exit criteria (PLAN, "Exit criteria (gate 3)"), each with its evidence so far. Every task of Phase 3 is built (3.1–3.8). What the gate still needs is a real Mac: CI's macOS runner is a virtual machine with a paravirtual GPU, which compiles and tests the Swift but cannot read the gate's bars.
+Phase 3's exit criteria (PLAN, "Exit criteria (gate 3)"), each with its evidence so far. Every task of Phase 3 has landed (3.1–3.8). What the gate still needs is a real Mac: CI's macOS runner is a virtual machine with a paravirtual GPU, which compiles and tests the Swift but cannot read the gate's bars.
 
 **Where it stands:**
 - **Criterion 1** (same pixels as the web player) is met on CI's Mac, through the goldens both clients are held to. A real M-series Mac's GPU reads it again in the run below.
-- **Criterion 2** (first frame under 300 ms) waits on that run: CI's reading is not the gate's.
+- **Criterion 2** (first frame under 300 ms) waits on that run. On CI's virtual Mac, the release build opens B1 to its first frame in 32–35 ms warm and 161 ms cold, once the GPU the app makes as it starts is made. That is not the gate's reading.
 - **Criterion 3** (no text layout in SwiftUI) is met for everything that draws a deck, and held there by a test. The source pane is TextKit in chrome, which is Jay's call (below).
 
 ## 1. Same bundle, same frame, same pixels (within tolerance) as the web player: met on CI's Mac
@@ -20,20 +20,35 @@ Phase 3's exit criteria (PLAN, "Exit criteria (gate 3)"), each with its evidence
 
 ## 2. Open → first frame < 300 ms for a 40-state deck on an M-series Mac: needs a real Mac
 
-`GateTests`' `aFortyStateDeckShowsItsFirstFrameSoonAfterOpening` times B1 (40 states, SPEC §15) as the app opens a deck:
+`GateTests`' `aFortyStateDeckShowsItsFirstFrameSoonAfterOpening` times B1 (40 states, SPEC §15) as the app opens a deck, once the app has started:
 - the bundle's files read;
-- the session opened;
+- the session opened, and its timeline;
 - the Metal surface made;
 - the first state's first frame presented on a layer.
 
-It prints the time.
+It prints the time, and where it went.
 
-- **CI's reading is not the gate's.** CI's first reading was 1.39 s, under three conditions that are not the gate's:
+- **Where the time went.** The `mac-app` workflow first read the release build on CI's virtual Mac at 0.62 s warm, and 2.2 s cold:
+  - files read and session opened, 2 ms; the timeline, 1 ms; the first frame, 31–50 ms;
+  - the surface, 0.56–0.61 s: the first device and vello's pipelines. A second surface, made after it, took 65–90 ms.
+- **So every layer paints on one GPU** (PLAN 3.2). The GPU is one device and one set of vello's pipelines for the process, which the app makes as it starts, off its main thread (`ScaenaSurface.warm`). A surface on it only configures its layer.
+  - The test makes the GPU first, as the app does.
+  - It prints the time that took beside the reading, and the reading from the app's start, both together.
+- **The same run, with one GPU:**
+
+  | | open → first frame | files and session | timeline | surface | first frame | the GPU, at the app's start | from the app's start |
+  |---|---|---|---|---|---|---|---|
+  | warm | 32–35 ms | 2–3 ms | 2 ms | 2 ms | 26–28 ms | 0.66–0.68 s | 0.70–0.71 s |
+  | cold | 161 ms | 39 ms | 3 ms | 24 ms | 97 ms | 2.5 s | 2.7 s |
+
+  A second surface, made right after the first frame, took 72–121 ms. That is most likely the first frame's work still finishing on the virtual GPU: wgpu waits for all of the device's work before it configures a layer. A real Mac reads it again.
+- **The reading is open → first frame with the app running**, as SPEC §15 reads its budgets: warm unless noted. The cold reading, an app launched by opening the deck, is printed beside it. Whether the gate means that one is Jay's call.
+- **CI's readings are not the gate's.** CI's macOS job runs the test on every pull request under three conditions that are not the gate's:
   - the engine linked unoptimized (the debug library);
-  - eleven tests at once;
-  - a virtual machine.
+  - every test at once;
+  - a virtual machine with a paravirtual GPU.
 
-  CI holds it to five seconds, so that a gross regression shows.
+  It holds the test to five seconds, so that a gross regression shows.
 - **The gate's reading** is the release build, on an M-series Mac. From the repository's root:
 
   ```
@@ -43,7 +58,9 @@ It prints the time.
   swift test -c release --filter aFortyStateDeck -Xlinker -L"$PWD/../../../target/release" $(for l in $libs; do printf -- '-Xlinker %s ' "$l"; done)
   ```
 
-  The line `gate 3, criterion 2: B1 (40 states), open to first frame: …` is the reading. Run it three times, and log the median.
+  The line `gate 3, criterion 2: B1 (40 states), open to first frame: …` is the reading, and the line after it says where the time went. Run it three times, and log the median.
+
+  CI's `mac-app` workflow runs the same command three times on its virtual Mac, beside the app it builds, and puts the readings in the run's summary. They show the command works and how near the release build comes, and are not the gate's.
 
 ## 3. SwiftUI code contains zero text layout; all geometry comes from the engine: met for what draws a deck
 

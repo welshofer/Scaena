@@ -324,6 +324,11 @@ fn every_misuse_is_an_error_never_a_crash() {
         let surface = unsafe { scaena_surface_new((&raw mut not_a_layer).cast(), 320, 180, &mut said) };
         assert!(surface.is_null());
         assert!(took(said).contains("on the Mac"));
+        // Nor a GPU for the surfaces to share.
+        let mut said = null_mut();
+        assert!(!unsafe { scaena_gpu_warm(&mut said) });
+        assert!(took(said).contains("on the Mac"));
+        assert!(!unsafe { scaena_gpu_warm(null_mut()) }, "an error with nowhere to say it is still one");
     }
     let mut said = null_mut();
     assert_eq!(unsafe { scaena_surface_paint(null_mut(), s, c("cover").as_ptr(), 0.0, &mut said) }, -1);

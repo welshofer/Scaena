@@ -210,10 +210,19 @@ char *scaena_adopt(struct ScaenaSession *session, const struct ScaenaSaved *save
 // `saved` is a live handle from [`scaena_save`], or null.
 void scaena_saved_free(struct ScaenaSaved *saved);
 
-// Paint on `layer`, a `CAMetalLayer`, `width` × `height` device pixels, with the adapter that
-// presents to it; frames are presented at the display's refresh. The layer keeps the deck's
-// aspect, and outlives the surface. Null where none can be made, as on any machine but a Mac,
-// `*error` then saying why.
+// Make the GPU every surface paints with, if it is not made yet: what the app calls as it starts,
+// off its main thread, so that the first deck it opens shows its first frame without waiting for
+// it (gate 3). A surface made meanwhile waits for it. False where none can be made, as on any
+// machine but a Mac, `*error` then saying why.
+//
+// # Safety
+// `error` is null or writable.
+bool scaena_gpu_warm(char **error);
+
+// Paint on `layer`, a `CAMetalLayer`, `width` × `height` device pixels, on the GPU every surface
+// shares, made first if [`scaena_gpu_warm`] has not made it; frames are presented at the
+// display's refresh. The layer keeps the deck's aspect, and outlives the surface. Null where
+// none can be made, as on any machine but a Mac, `*error` then saying why.
 //
 // # Safety
 // `layer` is a live `CAMetalLayer` that outlives the surface; `error` is null or writable.
