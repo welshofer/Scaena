@@ -7,8 +7,7 @@
 //! (`Player.save`): the page's edits, as the user's, and its assistant's, as its agent's. The
 //! engine's module leaves the CRDT out: it would add a third again to it (SPEC §15).
 
-use scaena_core::Deck;
-use scaena_store::crdt::{DeckDoc, Edit, Recorded};
+use scaena_store::crdt::DeckDoc;
 use wasm_bindgen::prelude::*;
 
 /// `history`, what a bundle's `history/deck.loro` holds, with `changes` recorded in it: the
@@ -21,25 +20,9 @@ pub fn record(history: &[u8], changes: &str) -> Result<Vec<u8>, JsError> {
     recorded(history, changes).map_err(|e| JsError::new(&e))
 }
 
-/// [`record`], for a caller in Rust. An empty `history` is begun by the first change: its deck,
-/// and the files it is drawn from, are the history's first version (PLAN 2.87), as `scaena save
-/// --history` begins one.
+/// [`record`], for a caller in Rust: [`scaena_store::crdt::recorded`].
 pub fn recorded(history: &[u8], changes: &str) -> Result<Vec<u8>, String> {
-    let changes: Vec<Recorded> = serde_json::from_str(changes).map_err(|e| format!("the changes to record: {e}"))?;
-    let (doc, rest) = match history {
-        [] => {
-            let (first, rest) = changes.split_first().ok_or("a history begins with a change: none was given")?;
-            let deck = Deck::from_json(&first.deck).map_err(|e| format!("the deck to begin with: {e}"))?;
-            let files: Vec<(String, Vec<u8>)> =
-                first.files.iter().map(|(path, text)| (path.clone(), text.clone().into_bytes())).collect();
-            let edit =
-                Edit { message: first.message.as_deref(), timestamp: first.timestamp, ..Edit::by(&first.author) };
-            (DeckDoc::begin(&deck, &files, &edit).map_err(|e| e.to_string())?, rest)
-        }
-        held => (DeckDoc::load(held).map_err(|e| e.to_string())?, &changes[..]),
-    };
-    doc.record(rest).map_err(|e| e.to_string())?;
-    doc.save().map_err(|e| e.to_string())
+    scaena_store::crdt::recorded(history, changes)
 }
 
 /// Every change `history` holds, oldest first, as JSON: `[{ id, author, message, timestamp,
@@ -93,7 +76,7 @@ pub fn version(history: &[u8], id: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use scaena_store::crdt::{Edit, FS, OUTSIDE};
+    use scaena_store::crdt::{Edit, FS, OUTSIDE, Recorded};
     use scaena_store::{Bundle, HISTORY, SaveOptions};
     use std::path::Path;
 

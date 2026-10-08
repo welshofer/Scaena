@@ -4,7 +4,7 @@ default:
     @just --list
 
 # fmt + clippy (-D warnings, all features) + tests (CPU and GPU) + schema + wasm32. Must be green before any commit; mirrors CI.
-check: fmt-check clippy test test-gpu schema scripts wasm-check
+check: fmt-check clippy test test-gpu schema scripts wasm-check ffi
 
 fmt:
     cargo fmt --all
@@ -29,15 +29,28 @@ test-gpu:
 bless:
     SCAENA_BLESS=1 cargo test -p scaena-core --test schemas --locked
     SCAENA_BLESS=1 cargo test -p scaena-mcp --test schemas --locked
+    SCAENA_BLESS=1 cargo test -p scaena-ffi --test header --locked
     SCAENA_BLESS=1 cargo test -p scaena-engine --test torture --locked
     SCAENA_BLESS=1 cargo test -p scaena-paint --test torture_rasters --locked
     rm -rf tests/golden/torture/actual
+
+# The Mac's C ABI from C (PLAN 3.1): the static library built, a C program compiled against
+# `scaena.h` with every warning an error, linked with the system libraries rustc names, and run
+# on B1: it opens, answers, draws, and saves a bundle.
+ffi:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    libs=$(cargo rustc -q --color never -p scaena-ffi --lib --crate-type staticlib --locked -- --print native-static-libs 2>&1 | sed -n 's/.*native-static-libs: //p')
+    mkdir -p target/ffi
+    cc -std=c11 -Wall -Wextra -Werror -I crates/scaena-ffi/include crates/scaena-ffi/tests/c/smoke.c target/debug/libscaena_ffi.a $libs -o target/ffi/smoke
+    cd tests/bench/b1.scaena
+    ../../../target/ffi/smoke . $(find . -type f ! -name '.*' | sed 's|^\./||' | sort)
 
 # The engine, both painters, and the WASM bindings must keep compiling for the browser (PLAN 0.1, 0.8):
 # with every feature, and as the player's engine alone, without the hyphenation patterns the
 # editor's module leaves out (ADR-0015).
 wasm-check:
-    cargo clippy -p scaena-engine -p scaena-paint -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf --all-features --target wasm32-unknown-unknown --locked -- -D warnings
+    cargo clippy -p scaena-engine -p scaena-paint -p scaena-session -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf --all-features --target wasm32-unknown-unknown --locked -- -D warnings
     cargo clippy -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --locked -- -D warnings
 
 # Validate examples and fixture bundles against docs/schema, and check torture-deck font coverage

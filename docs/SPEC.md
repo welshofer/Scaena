@@ -1637,6 +1637,8 @@ Every gesture the canvas takes has a key (PLAN 2.75, WCAG 2.1.1), which the keys
 ### 9.3 Mac client (Phase 3)
 
 - SwiftUI app; engine via `scaena-ffi` (C ABI, `cbindgen`), `vello` on Metal through `wgpu` with a `CAMetalLayer` surface.
+- The FFI wraps the session the browser edits (`scaena-session`, ADR-0021): Swift hands over a bundle's files by their paths, as a page does, and each call returns the JSON `Player` gives. A gesture makes the same patch, and lint finds the same things, in both.
+- The ABI (`crates/scaena-ffi/include/scaena.h`): `scaena_open` (files) or `scaena_open_zip`; `scaena_call` (the session's calls by a page's names) and `scaena_tool` (any MCP operation on the bundle, §7.2), each `{"ok"}` or `{"error"}`; `scaena_frame` (a display list, §6) and `scaena_pixels` (the CPU painter's); `scaena_save` and `scaena_adopt`. Strings and bytes it returns are the caller's to free with `scaena_string_free` and `scaena_bytes_free`. A misuse is an error it returns, never a crash. `apps/mac/ScaenaKit` wraps it for Swift.
 - SwiftUI owns chrome only: document browser, state list, timeline scrubber, inspector, source pane. **No TextKit/CoreText in the render path.**
 - Keychain for keys; Apple Foundation Models for on-device assistant tasks; Share/Quick Look via PDF export.
 
@@ -1684,15 +1686,16 @@ crates/
   scaena-paint    painters: vello (gpu), vello_cpu (cpu); both run shader ops
   scaena-export   pdf (krilla), svg, png, video (ffmpeg driver, chapters), html
   scaena-ops      the operations every client exposes, over a bundle, with typed results (ADR-0009)
+  scaena-session  one bundle open for editing, in memory: the deck, its files, its engine, what was laid out and linted; what scaena-wasm and scaena-ffi wrap (ADR-0021)
   scaena-cli      `scaena` binary over scaena-ops
   scaena-mcp      MCP server (rmcp) over scaena-ops
   scaena-serve    `scaena serve`: the web pages on a bundle's folder, on this machine (hyper), the folder watched and deck.scn compiled
   scaena-resources what agents read (SPEC by section, the schemas in parts, the lint catalog, the skills, examples): the MCP server's resources, and a WASM module of its own for the page's assistant
-  scaena-wasm     wasm-bindgen bindings
+  scaena-wasm     wasm-bindgen bindings: the session for a page, and the WebGPU canvas
   scaena-subset   the font subsetter as a WASM module of its own, which a page loads to download a bundle
   scaena-history  the CRDT as a WASM module of its own, which a page loads to save a bundle that keeps a history
   scaena-pdf      the PDF writer as a WASM module of its own, which a page loads to export a PDF
-  scaena-ffi      C ABI (cbindgen) for Swift
+  scaena-ffi      C ABI (cbindgen) for Swift: the session for the Mac
   scaena-store    CRDT document (loro), ops, history, bundle I/O
 web/              Vite + TS player/editor (Phase 2)
 apps/mac/         SwiftUI client (Phase 3)

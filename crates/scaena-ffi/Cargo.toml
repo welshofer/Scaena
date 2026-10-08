@@ -1,6 +1,6 @@
 [package]
 name = "scaena-ffi"
-description = "C ABI (cbindgen) for the Scaena engine, consumed by the Swift client. Phase 3, PLAN 3.1."
+description = "The session the browser edits, as a C ABI (cbindgen) for the Swift client (PLAN 3.1, ADR-0021)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,4 +12,16 @@ authors.workspace = true
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
+scaena-session.workspace = true
+# The CRDT a save records the history in, and the subsetter a save shrinks fonts with: what the
+# browser loads as modules of their own (scaena-history, scaena-subset), linked in here.
+scaena-store.workspace = true
+# Every language's hyphenation patterns compiled in, as natively everywhere (ADR-0015).
+scaena-engine = { workspace = true, features = ["hyphenation"] }
+serde_json.workspace = true
+
+[dev-dependencies]
+# Writes `include/scaena.h` from this crate's code, which the `header` test holds it to.
+cbindgen.workspace = true
+# Reads back a frame's display list, as a Swift painter will.
 scaena-core.workspace = true

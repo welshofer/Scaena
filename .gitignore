@@ -5,6 +5,8 @@ Cargo.lock.bak
 /web/dist
 /apps/mac/build
 /apps/mac/DerivedData
+/apps/mac/ScaenaKit/.build/
+/apps/mac/ScaenaKit/.swiftpm/
 *.scaena.zip
 /tests/**/actual/
 .DS_Store

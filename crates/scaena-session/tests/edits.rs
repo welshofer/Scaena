@@ -22,8 +22,8 @@
 //! longer search, over every deck in the repository, locally.
 
 use scaena_core::Deck;
-use scaena_wasm::Session;
-use scaena_wasm::assistant::Caller;
+use scaena_session::Session;
+use scaena_session::assistant::Caller;
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -407,7 +407,7 @@ fn tool_call(r: &mut Rng, b: &Bundle, states: &[String], values: &BTreeMap<Strin
         _ => json!(r.pick(states)),
     };
     let flag = |r: &mut Rng| if r.below(6) == 0 { junk(r) } else { json!(r.below(2) == 0) };
-    let mut tools = scaena_wasm::assistant::TOOLS.to_vec();
+    let mut tools = scaena_session::assistant::TOOLS.to_vec();
     tools.push("deck_paint");
     let name = *r.pick(&tools);
     let mut args = Map::new();

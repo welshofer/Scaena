@@ -1,0 +1,14 @@
+# The header Swift imports (`include/scaena.h`), made from this crate by cbindgen. The `header`
+# test holds it to the code; `just bless` writes it again.
+language = "C"
+include_guard = "SCAENA_H"
+autogen_warning = "/* Made by cbindgen from crates/scaena-ffi (`just bless`): edit the Rust, not this. */"
+documentation = true
+documentation_style = "c99"
+usize_is_size_t = true
+cpp_compat = true
+sys_includes = ["stdbool.h", "stddef.h", "stdint.h"]
+no_includes = true
+
+[parse]
+parse_deps = false

@@ -339,6 +339,28 @@ impl Session {
         Ok(painted)
     }
 
+    /// [`Session::layouts_end`] as a client lists it: each suggestion as JSON with its picture's
+    /// `width` and `height`, the pictures kept until [`Session::layout_pixels`] takes each.
+    pub fn layouts_painted(&mut self, height: u32) -> Result<Vec<serde_json::Value>, Error> {
+        let painted = self.layouts_end(height)?;
+        self.suggested.clear();
+        let mut listed = Vec::with_capacity(painted.len());
+        for (suggestion, picture) in painted {
+            let mut value = serde_json::to_value(&suggestion).map_err(|e| Error::Ops(e.to_string()))?;
+            value["width"] = picture.width.into();
+            value["height"] = picture.height.into();
+            listed.push(value);
+            self.suggested.push(picture.rgba);
+        }
+        Ok(listed)
+    }
+
+    /// The pixels of the `i`th picture [`Session::layouts_painted`] painted last, taken: a
+    /// second call gives none.
+    pub fn layout_pixels(&mut self, i: usize) -> Vec<u8> {
+        self.suggested.get_mut(i).map(std::mem::take).unwrap_or_default()
+    }
+
     /// The layouts `state` may take, best first, judged and painted in one go
     /// ([`Session::layouts_begin`], each step, then [`Session::layouts_end`]).
     pub fn layout_suggestions(

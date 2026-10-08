@@ -1,0 +1,5 @@
+module CScaena [system] {
+    header "../../../../../crates/scaena-ffi/include/scaena.h"
+    link "scaena_ffi"
+    export *
+}

@@ -1,0 +1,38 @@
+[package]
+name = "scaena-session"
+description = "One Scaena bundle open for editing, in memory: what the browser's module and the Mac client's C ABI both wrap (ADR-0021)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+default = ["cpu", "editor"]
+# Paint with vello_cpu into RGBA pixels: the painter the goldens hold, the web player's fallback
+# where WebGPU is missing (SPEC §9.2), and what the editor's lint judges contrast over. A
+# shader's rows can be worked out in bands elsewhere and handed in (PLAN 2.28).
+cpu = ["scaena-paint/cpu"]
+# Editing (PLAN 2.3 on): compile `.scn`, lint with fixes, inspect, and make each gesture's patch
+# by `scaena-ops`' operations (ADR-0009); open and save bundles in memory with `scaena-store`
+# (PLAN 2.4), and start new ones from a theme and its fonts (PLAN 2.12).
+editor = ["dep:scaena-ops", "dep:scaena-store", "dep:serde", "dep:indexmap", "cpu"]
+
+[dependencies]
+scaena-core.workspace = true
+scaena-engine.workspace = true
+# Not the workspace entry: which painters a client carries is its features.
+scaena-paint = { path = "../scaena-paint", default-features = false }
+scaena-ops = { workspace = true, optional = true }
+scaena-store = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+indexmap = { workspace = true, optional = true }
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+# Its hyphenation patterns, which the tests' decks hyphenate by (ADR-0015).
+scaena-engine = { workspace = true, features = ["hyphenation"] }
+# What a page loads to record a save in a bundle's history (PLAN 2.9), called here as Rust.
+scaena-history.workspace = true
