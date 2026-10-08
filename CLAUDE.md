@@ -120,3 +120,10 @@ The Mac client (SPEC §9.3). The session the browser edits moved to `scaena-sess
 ## Working with Jay
 
 Direct, rigorous, no filler. State the decision, the evidence, and the trade. If something in SPEC is wrong, say so and propose the ADR. Don't pad commits or reports; the task list and the gate log are the status report.
+
+## Gate 3
+
+Gate 3 is open. Every task of Phase 3 is built, and `docs/gate-3.md` holds the evidence:
+- Criterion 1, the web player's pixels, is met on CI's Mac: the session's display lists digest as the goldens, and vello on Metal paints every torture state within SPEC §13.5 of them, as the web player's painters do.
+- Criterion 3, no text layout in SwiftUI, is met for everything that draws a deck, and `crates/scaena-ffi/tests/chrome.rs` holds every Swift file to it. Jay's call is open on the source pane's `NSTextView`: TextKit in chrome, which SPEC §9.3 allows and invariant 8 as written does not.
+- Criterion 2, B1's first frame within 300 ms of opening, waits on the release build on an M-series Mac; the steps are in the doc.
