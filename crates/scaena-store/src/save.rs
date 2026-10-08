@@ -173,8 +173,9 @@ impl Bundle {
 
         // Images, by their content.
         let mut sources: Vec<&mut Value> = Vec::new();
-        let images: BTreeSet<String> =
-            deck.nodes.iter().filter(|(_, n)| n.node_type == NodeType::Image).map(|(id, _)| id.clone()).collect();
+        let images = scaena_core::sort::set(
+            deck.nodes.iter().filter(|(_, n)| n.node_type == NodeType::Image).map(|(id, _)| id.clone()),
+        );
         for (_, node) in deck.nodes.iter_mut().filter(|(id, _)| images.contains(*id)) {
             sources.extend(node.props.get_mut("src"));
         }
