@@ -12,6 +12,9 @@ struct Inspector: View {
     let editor: DeckEditor
     let state: String?
     @Binding var node: String?
+    /// The others selected with it (PLAN 3.13): with any, what they all share, and how to arrange
+    /// them.
+    @Binding var also: [String]
     /// Text typed in on the canvas: its characters selected are what it offers a look for.
     let typing: Typing?
     /// Ask the on-device model, its answer offered.
@@ -19,42 +22,127 @@ struct Inspector: View {
     let make: ([JSONValue]) -> Void
     @State private var layers: [Layer] = []
     @State private var choices: Choices?
+    /// What every node selected offers, where several are.
+    @State private var shared: [Field] = []
 
     var body: some View {
         VStack(spacing: 0) {
             if let state {
-                LayerList(layers: layers, node: $node, lock: lock)
+                LayerList(layers: layers, node: Binding(get: { node }, set: { node = $0; also = [] }), lock: lock)
                     .frame(minHeight: 90, idealHeight: 150)
                 Divider()
-                Form {
-                    Section {
-                        ForEach(choices?.fields ?? []) { field in
-                            FieldRow(field: field) { value in choose(field.prop, value, in: state) }
-                                .help(lives(field))
-                        }
-                    } header: {
-                        Text(characters.map { "\($0.node) · characters \($0.from + 1)–\($0.to)" } ?? choices?.node ?? "State \(state)")
-                    }
-                    if OnDevice.available, characters == nil {
-                        Section {
-                            if let node = choices?.node {
-                                if choices?.type == "text" {
-                                    Button("Tighten the words", systemImage: "sparkles") { tighten(node, in: state) }
-                                }
-                            } else {
-                                Button("Draft the notes", systemImage: "sparkles") { draft(state) }
-                            }
-                        } footer: {
-                            Text("Answered on this Mac").font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
+                if !also.isEmpty {
+                    several(state)
+                } else {
+                    one(state)
                 }
-                .formStyle(.grouped)
             } else {
                 ContentUnavailableView("No state", systemImage: "slider.horizontal.3")
             }
         }
-        .task(id: "\(state ?? "")\u{1f}\(node ?? "")\u{1f}\(editor.revision)\u{1f}\(selecting)") { reload() }
+        .task(id: "\(state ?? "")\u{1f}\(node ?? "")\u{1f}\(also.joined(separator: ","))\u{1f}\(editor.revision)\u{1f}\(selecting)") {
+            reload()
+        }
+    }
+
+    /// The node selected, or the state with none: what the theme offers for it.
+    private func one(_ state: String) -> some View {
+        Form {
+            Section {
+                ForEach(choices?.fields ?? []) { field in
+                    FieldRow(field: field) { value in choose(field.prop, value, in: state) }
+                        .help(lives(field))
+                }
+            } header: {
+                Text(characters.map { "\($0.node) · characters \($0.from + 1)–\($0.to)" } ?? choices?.node ?? "State \(state)")
+            }
+            if OnDevice.available, characters == nil {
+                Section {
+                    if let node = choices?.node {
+                        if choices?.type == "text" {
+                            Button("Tighten the words", systemImage: "sparkles") { tighten(node, in: state) }
+                        }
+                    } else {
+                        Button("Draft the notes", systemImage: "sparkles") { draft(state) }
+                    }
+                } footer: {
+                    Text("Answered on this Mac").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    /// Several selected (PLAN 3.13), as the browser's inspector takes them (PLAN 2.42, 2.43): what
+    /// they all share, each choice one patch of a `choose` for each; and buttons that align,
+    /// spread, order, and group them.
+    private func several(_ state: String) -> some View {
+        Form {
+            Section {
+                ForEach(shared) { field in
+                    FieldRow(field: field) { value in chooseAll(field.prop, value, in: state) }
+                        .help(lives(field))
+                }
+            } header: {
+                Text("\(selected.count) selected: \(selected.joined(separator: ", "))")
+            }
+            Section("Align") {
+                HStack {
+                    arrange("Left", "align.horizontal.left", .align("left"), in: state)
+                    arrange("Center", "align.horizontal.center", .align("center"), in: state)
+                    arrange("Right", "align.horizontal.right", .align("right"), in: state)
+                }
+                HStack {
+                    arrange("Top", "align.vertical.top", .align("top"), in: state)
+                    arrange("Middle", "align.vertical.center", .align("middle"), in: state)
+                    arrange("Bottom", "align.vertical.bottom", .align("bottom"), in: state)
+                }
+            }
+            Section("Spread and order") {
+                HStack {
+                    arrange("Across", "distribute.horizontal.center", .spread("across"), in: state)
+                    arrange("Down", "distribute.vertical.center", .spread("down"), in: state)
+                }
+                HStack {
+                    arrange("To front", "square.3.layers.3d.top.filled", .order("front"), in: state)
+                    arrange("To back", "square.3.layers.3d.bottom.filled", .order("back"), in: state)
+                }
+                Button("Group", systemImage: "rectangle.3.group") { group(in: state) }
+                    .help("Put them in a new group where they stand (⌘G)")
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    /// Every node selected, the first first.
+    private var selected: [String] { node.map { [$0] + also } ?? [] }
+
+    /// A button that arranges the nodes selected `how`: one patch, one step to undo.
+    private func arrange(_ title: String, _ symbol: String, _ how: Arrangement, in state: String) -> some View {
+        Button {
+            let nodes = selected
+            guard let arranged = (try? editor.session.arranging(state: state, nodes: nodes, how: how)) ?? nil,
+                !arranged.patch.isEmpty
+            else { return }
+            make(arranged.patch)
+        } label: {
+            Label(title, systemImage: symbol)
+        }
+        .labelStyle(.iconOnly)
+        .help(title)
+    }
+
+    /// The nodes selected in a new group where they stand, the group selected (PLAN 2.43).
+    private func group(in state: String) {
+        guard let grouping = try? editor.session.grouping(state: state, nodes: selected) else { return }
+        make(grouping.patch)
+        node = grouping.id
+        also = []
+    }
+
+    /// Choose `value` for `prop` on every node selected: one patch.
+    private func chooseAll(_ prop: String, _ value: JSONValue, in state: String) {
+        make(selected.map { ["op": "choose", "node": .string($0), "prop": .string(prop), "value": value, "state": .string(state)] })
     }
 
     /// The characters selected in the text typed in, as `style_text` counts them, where it is in
@@ -78,7 +166,10 @@ struct Inspector: View {
             return
         }
         layers = (try? editor.session.layers(state: state)) ?? []
-        if characters != nil, let offered = typing?.characterChoices() {
+        if !also.isEmpty {
+            shared = Field.shared(selected.compactMap { try? editor.session.choices(state: state, node: $0) })
+            choices = nil
+        } else if characters != nil, let offered = typing?.characterChoices() {
             choices = offered
         } else if let node, let offered = try? editor.session.choices(state: state, node: node) {
             choices = offered

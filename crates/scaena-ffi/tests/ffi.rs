@@ -793,6 +793,37 @@ fn the_clipboard_copies_and_pastes_as_the_browsers_does() {
     unsafe { scaena_session_free(s) };
 }
 
+/// Several selected (PLAN 3.13), as the browser's canvas and inspector take them (PLAN 2.42,
+/// 2.43): moved together as a drag moves the first; aligned, spread, and ordered; and grouped
+/// where they stand, then taken apart.
+#[test]
+fn several_nodes_move_arrange_and_group_together() {
+    let s = open(B1);
+    let nodes = json!(["kicker", "headline", "body"]);
+    let moved = call(s, "together", json!({ "state": "goal-bar", "nodes": nodes, "dx": 200, "dy": 0, "free": true }));
+    assert!(moved["patch"].as_array().is_some_and(|p| !p.is_empty()), "{moved}");
+    assert_eq!(moved["landed"].as_array().map(Vec::len), Some(3), "{moved}");
+    for how in [json!({ "align": "left" }), json!({ "spread": "down" }), json!({ "order": "front" })] {
+        let arranged = call(s, "arranging", json!({ "state": "goal-bar", "nodes": nodes, "how": how }));
+        assert!(arranged.is_null() || arranged["patch"].is_array(), "{how}: {arranged}");
+    }
+
+    let grouped = call(s, "grouping", json!({ "state": "goal-bar", "nodes": nodes }));
+    let id = grouped["id"].as_str().unwrap().to_string();
+    assert_eq!(tool(s, "deck_patch", json!({ "ops": grouped["patch"] }))["edited"], true);
+    let boxes = call(s, "boxes", json!({ "state": "goal-bar" }));
+    assert!(boxes.as_array().unwrap().iter().any(|b| b["node"] == "kicker" && b["parent"] == id.as_str()), "{boxes}");
+    let ungrouped = tool(s, "deck_patch", json!({ "ops": [{ "op": "ungroup", "group": id }] }));
+    assert_eq!(ungrouped["edited"], true, "{ungrouped}");
+
+    // A way to arrange them that is none: said.
+    let args = json!({ "state": "goal-bar", "nodes": nodes, "how": {} }).to_string();
+    let answer: Value =
+        serde_json::from_str(&took(unsafe { scaena_call(s, c("arranging").as_ptr(), c(&args).as_ptr()) })).unwrap();
+    assert!(answer["error"]["message"].is_string(), "{answer}");
+    unsafe { scaena_session_free(s) };
+}
+
 /// Bytes the library returned, taken and freed: none where it returned none.
 fn bytes_of(made: ScaenaBytes) -> Option<Vec<u8>> {
     if made.data.is_null() {

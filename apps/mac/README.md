@@ -34,4 +34,6 @@ The Node menu (PLAN 3.11) inserts, by kind, what the theme and the bundle offer.
 
 With the canvas focused, Copy, Cut, and Paste (PLAN 3.12) copy, cut, and paste the node selected, in this deck or another, or in the browser's editor. Paste also takes what other apps copied. A screenshot or a picture copied in the Finder comes in as an image. A CSV comes in as a data source with a chart of it. Cells copied from Numbers or Excel come in as a data source and the table they were. Other words come in as a text. ⌥⌘C and ⌥⌘V copy one node's look and paste it on another.
 
+Shift-click selects several nodes beside each other, and a drag from an empty spot draws a marquee (PLAN 3.13). Drag one of them to move them all. The inspector then shows what they share, and buttons to align, spread, order, and group them. ⌘G groups them, ⌘⇧G takes a group apart, and ⌘] and ⌘[ bring them forward or send them back.
+
 Export (PLAN 3.8), in the toolbar, shares the deck as a PDF, the same bytes `scaena export --format pdf` writes, or the state shown as a PNG, through the Share sheet; shows the PDF in Quick Look; or saves either where you say.
