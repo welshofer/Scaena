@@ -159,17 +159,6 @@ public final class ScaenaSession {
     /// The deck as canonical `.scn`.
     public func source() throws -> String { try call("source") }
 
-    /// Compile `source`: `{ error?, findings, states, valid }`. A deck that validates is what
-    /// frames show from then on.
-    public func compile(_ source: String) throws -> JSONValue { try call("compile", ["source": .string(source)]) }
-
-    /// Lint the deck compiled last: `{ findings, laid, whole }`; with `state`, the layout rules
-    /// run on that state alone.
-    public func lint(state: String? = nil) throws -> JSONValue {
-        guard let state else { return try call("lint") }
-        return try call("lint", ["state": .string(state)])
-    }
-
     /// `state`'s display list at `ms` into its cue (infinity: at rest), postcard-encoded (SPEC §6).
     public func frame(_ state: String, at ms: Double = .infinity) throws -> Data {
         var error: UnsafeMutablePointer<CChar>?

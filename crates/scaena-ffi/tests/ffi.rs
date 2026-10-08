@@ -142,6 +142,78 @@ fn the_editor_compiles_lints_and_patches_as_the_browser_does() {
 }
 
 #[test]
+fn a_findings_fix_is_one_click_as_in_the_browser() {
+    // The editor's loop (PLAN 2.3, 3.4): a choice in the inspector is a patch, the deck's source
+    // compiled again, and the state shown linted.
+    let s = open(B1);
+    let source = call(s, "source", Value::Null);
+    assert_eq!(call(s, "compile", json!({ "source": source }))["valid"], true);
+    // The title in the color of what lies behind it: it does not read.
+    let ops = json!([{ "op": "choose", "node": "title", "prop": "style/color", "value": "surface", "state": "cover" }]);
+    let chosen = tool(s, "deck_patch", json!({ "ops": ops }));
+    assert_eq!(chosen["edited"], true, "{chosen}");
+    let source = call(s, "source", Value::Null);
+    assert_eq!(call(s, "compile", json!({ "source": source }))["valid"], true);
+    let linted = call(s, "lint", json!({ "state": "cover" }));
+    let faint = (linted["findings"].as_array().unwrap().iter())
+        .find(|f| f["node"] == "title" && f["fixable"] == true)
+        .unwrap_or_else(|| panic!("the title reads too faintly, with a fix: {linted}"))
+        .clone();
+    assert!(["E110", "E111"].contains(&faint["code"].as_str().unwrap()), "{faint}");
+
+    // Its fix, applied to the source compiled last, is the deck's source fixed (PLAN 2.82):
+    // compiled, the title reads.
+    let fixed = call(s, "fix", json!({ "patch": faint["fix"] }));
+    let compiled = call(s, "compile", json!({ "source": fixed }));
+    assert_eq!(compiled["valid"], true, "{compiled}");
+    let linted = call(s, "lint", json!({ "state": "cover" }));
+    let left =
+        linted["findings"].as_array().unwrap().iter().filter(|f| f["node"] == "title" && f["code"] == faint["code"]);
+    assert_eq!(left.count(), 0, "{linted}");
+    unsafe { scaena_session_free(s) };
+}
+
+#[test]
+fn the_canvas_reads_what_stands_where_as_the_browser_does() {
+    let s = open(B1);
+    let states = call(s, "states", Value::Null);
+    let state = states[0].as_str().unwrap();
+    // Each node's box at rest, canvas units: one that draws, hit at its middle, is there.
+    let boxes = call(s, "boxes", json!({ "state": state }));
+    let drawn = (boxes.as_array().unwrap().iter())
+        .rfind(|b| b["draws"] == true)
+        .unwrap_or_else(|| panic!("a node draws in {state}: {boxes}"))
+        .clone();
+    let node = drawn["node"].as_str().unwrap();
+    let rect: Vec<f64> = drawn["rect"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+    let (x, y) = (rect[0] + rect[2] / 2.0, rect[1] + rect[3] / 2.0);
+    let hits = call(s, "hit", json!({ "state": state, "x": x, "y": y }));
+    assert!(hits.as_array().unwrap().iter().any(|h| h["node"] == node), "{node} at {x}, {y}: {hits}");
+    assert!(hits.as_array().unwrap().iter().all(|h| h.get("locked").is_none()), "{hits}");
+
+    // Locked by its own `locked`, as the canvas locks it (PLAN 2.95): a pointer passes over it.
+    let locked = tool(
+        s,
+        "deck_patch",
+        json!({ "ops": [{ "op": "add", "path": format!("/nodes/{node}/locked"), "value": true }] }),
+    );
+    assert_eq!(locked["edited"], true, "{locked}");
+    let hits = call(s, "hit", json!({ "state": state, "x": x, "y": y }));
+    let hit = hits.as_array().unwrap().iter().find(|h| h["node"] == node).unwrap();
+    assert_eq!(hit["locked"], node, "{hits}");
+    let boxes = call(s, "boxes", json!({ "state": state }));
+    let shown = boxes.as_array().unwrap().iter().find(|b| b["node"] == node).unwrap();
+    assert_eq!(shown["locked"], node, "{boxes}");
+
+    // A point that is no number is an error that says so.
+    let answer = took(unsafe {
+        scaena_call(s, c("hit").as_ptr(), c(&json!({ "state": state, "x": "left" }).to_string()).as_ptr())
+    });
+    assert!(answer.contains("`x` is a number"), "{answer}");
+    unsafe { scaena_session_free(s) };
+}
+
+#[test]
 fn a_save_writes_the_bundle_records_its_history_and_reopens() {
     let s = open(B1);
     call(s, "keepHistory", Value::Null);

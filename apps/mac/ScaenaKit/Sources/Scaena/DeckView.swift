@@ -1,56 +1,138 @@
 import ScaenaKit
 import SwiftUI
 
-/// A deck's window: its states down the side, as the timeline plays them, and the one selected
-/// painted by the engine on Metal, its cue played as it is chosen (PLAN 3.2–3.3).
+/// A deck's window (PLAN 3.3–3.4): its states down the side, each drawn small; the state chosen
+/// painted by the engine on Metal, a node selected on it by a click, and its cue under it, to
+/// play and scrub; what lint found, each with its fix; the deck's `.scn` beside the canvas; and
+/// the inspector, which edits the node selected, or the state with none. Every edit is a patch
+/// or a source, as in the browser, and one step to undo.
 struct DeckView: View {
     @ObservedObject var document: ScaenaDocument
     @Environment(\.undoManager) private var undo
-    @State private var selection: String?
+    /// The state chosen in the list.
+    @State private var chosen: String?
+    /// The node selected on the canvas or in the layers.
+    @State private var node: String?
+    /// The node to select once the state chosen is shown: a finding's, gone to.
+    @State private var arriving: String?
+    @State private var playhead = Playhead()
     @State private var failure: String?
+    @SceneStorage("source") private var showsSource = false
+    @SceneStorage("findings") private var showsFindings = true
+    @SceneStorage("inspector") private var showsInspector = true
+
+    private var editor: DeckEditor { document.editor }
+
+    /// The state shown: the one chosen, or the deck's first.
+    private var shown: String? {
+        let slots = editor.slots
+        if let chosen, slots.contains(where: { $0.state == chosen }) { return chosen }
+        return slots.first?.state
+    }
 
     var body: some View {
-        let slots = (try? document.session.timeline()) ?? []
-        let shown = selection.flatMap { s in slots.first { $0.state == s }?.state } ?? slots.first?.state
         NavigationSplitView {
-            List(slots, id: \.state, selection: $selection) { slot in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(slot.state)
-                    if slot.slide != slot.state {
-                        Text("step of \(slot.slide)").font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                .contextMenu {
-                    Button("Duplicate Slide") { make(["op": "duplicate_slide", "slide": .string(slot.slide)]) }
-                    Button("Delete Slide", role: .destructive) {
-                        make(["op": "remove_slide", "slide": .string(slot.slide)])
-                    }
-                }
-            }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 220)
+            StateList(editor: editor, chosen: $chosen, make: make)
+                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 320)
         } detail: {
-            if let shown {
-                ScaenaCanvas(session: document.session, state: shown, revision: document.revision)
-                    .aspectRatio(aspect, contentMode: .fit)
-                    .padding()
-            } else {
-                ContentUnavailableView("No states", systemImage: "rectangle.stack")
+            HSplitView {
+                if showsSource {
+                    SourcePane(text: editor.source) { typed in document.type(typed, undo: undo) }
+                        .frame(minWidth: 280, idealWidth: 420)
+                }
+                VSplitView {
+                    VStack(spacing: 0) {
+                        stage
+                        if let shown {
+                            Divider()
+                            CueBar(editor: editor, state: shown, playhead: $playhead)
+                        }
+                    }
+                    .frame(minHeight: 240)
+                    if showsFindings {
+                        FindingsPanel(editor: editor, go: go) { finding in
+                            perform { try document.fix(finding, undo: undo) }
+                        }
+                        .frame(minHeight: 90, idealHeight: 160)
+                    }
+                }
+                .frame(minWidth: 360)
+            }
+            .inspector(isPresented: $showsInspector) {
+                Inspector(editor: editor, state: shown, node: $node) { ops in
+                    perform { try document.make(ops, undo: undo) }
+                }
+                .inspectorColumnWidth(min: 240, ideal: 300, max: 420)
             }
         }
-        .alert("Not made", isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } }), presenting: failure) { _ in
+        .toolbar {
+            ToolbarItemGroup {
+                Toggle(isOn: $showsSource) {
+                    Label("Source", systemImage: "chevron.left.forwardslash.chevron.right")
+                }
+                .help("The deck's .scn beside the canvas")
+                Toggle(isOn: $showsFindings) {
+                    Label("Findings", systemImage: "exclamationmark.triangle")
+                }
+                .help("What lint found")
+                Toggle(isOn: $showsInspector) {
+                    Label("Inspector", systemImage: "sidebar.trailing")
+                }
+                .help("The node selected, or the state")
+            }
+        }
+        .onChange(of: shown, initial: true) { _, now in
+            // A state chosen plays its cue, as it does in the browser.
+            editor.shown = now
+            node = arriving
+            arriving = nil
+            playhead = Playhead()
+        }
+        .task(id: editor.revision) {
+            // Every state is linted once edits stop, as in the browser.
+            try? await Task.sleep(for: .milliseconds(700))
+            guard !Task.isCancelled, !editor.whole else { return }
+            editor.lintEvery()
+        }
+        .alert(
+            "Not made", isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } }),
+            presenting: failure
+        ) { _ in
             Button("OK") { failure = nil }
         } message: { Text($0) }
     }
 
-    /// The canvas's aspect: the deck's, or its format's.
-    private var aspect: CGFloat {
-        let size = (try? document.session.canvasSize()) ?? CGSize(width: 16, height: 9)
-        return size.height > 0 ? size.width / size.height : 16 / 9
+    /// The canvas: the state shown on Metal, with what is selected on it.
+    @ViewBuilder private var stage: some View {
+        if let shown {
+            let size = (try? editor.session.canvasSize()) ?? CGSize(width: 1920, height: 1080)
+            ScaenaCanvas(session: editor.session, state: shown, revision: editor.revision, playhead: $playhead)
+                .overlay { CanvasSelection(editor: editor, state: shown, size: size, node: $node) }
+                .aspectRatio(size.width / max(size.height, 1), contentMode: .fit)
+                .padding()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ContentUnavailableView("No states", systemImage: "rectangle.stack")
+        }
+    }
+
+    /// Show what `finding` is about: its state, and its node selected.
+    private func go(_ finding: Finding) {
+        if let state = finding.state, state != shown {
+            arriving = finding.node
+            chosen = state
+        } else {
+            node = finding.node
+        }
     }
 
     private func make(_ op: JSONValue) {
+        perform { try document.make([op], undo: undo) }
+    }
+
+    private func perform(_ edit: () throws -> Void) {
         do {
-            try document.make([op], undo: undo)
+            try edit()
         } catch {
             failure = "\(error)"
         }

@@ -525,6 +525,63 @@ impl Session {
         Ok(self.at_rest(state)?.hit(point))
     }
 
+    /// [`Session::boxes`] as a client lists them (ADR-0013): `[{ "node", "rect": [x, y, w, h],
+    /// "parent"?, "draws", "transform"?, "locked"? }]`, canvas units. `transform` is where its
+    /// own and its containers' draw it from `rect` (SPEC §3.3), `[a, b, c, d, e, f]`, where
+    /// something moves it; `locked`, where the node is locked (PLAN 2.95), the node whose lock
+    /// holds it: itself, or what holds it.
+    pub fn boxes_json(&mut self, state: &str) -> Result<Vec<serde_json::Value>, Error> {
+        let boxes = self.boxes(state)?;
+        // Locked, or held by what is, however deep (PLAN 2.95).
+        let parents: std::collections::HashMap<&str, &str> =
+            boxes.iter().filter_map(|b| Some((b.node.as_str(), b.parent.as_deref()?))).collect();
+        let held = |node: &str| {
+            let mut at = Some(node);
+            let mut seen = 0;
+            while let Some(n) = at.filter(|_| seen <= parents.len()) {
+                if self.locked(n) {
+                    return Some(n.to_string());
+                }
+                (at, seen) = (parents.get(n).copied(), seen + 1);
+            }
+            None
+        };
+        let locked: Vec<Option<String>> = boxes.iter().map(|b| held(&b.node)).collect();
+        Ok((boxes.into_iter().zip(locked))
+            .map(|(b, locked)| {
+                let mut out =
+                    serde_json::json!({ "node": b.node, "rect": b.rect, "parent": b.parent, "draws": b.draws });
+                if let Some(map) = b.transform {
+                    out["transform"] = serde_json::json!(map);
+                }
+                if let Some(by) = locked {
+                    out["locked"] = serde_json::json!(by);
+                }
+                out
+            })
+            .collect())
+    }
+
+    /// [`Session::hit`] as a client lists them (ADR-0013): `[{ "node", "rect", "containers",
+    /// "transform"?, "locked"? }]`, each node's containers innermost first, read through its
+    /// transform as a box's is; `locked` where the node is locked (PLAN 2.95), which a pointer
+    /// passes over: the node whose lock holds it, itself or the innermost container locked.
+    pub fn hits_json(&mut self, state: &str, point: [f32; 2]) -> Result<Vec<serde_json::Value>, Error> {
+        Ok((self.hit(state, point)?.into_iter())
+            .map(|h| {
+                let locked = std::iter::once(&h.node).chain(&h.containers).find(|n| self.locked(n)).cloned();
+                let mut out = serde_json::json!({ "node": h.node, "rect": h.rect, "containers": h.containers });
+                if let Some(map) = h.transform {
+                    out["transform"] = serde_json::json!(map);
+                }
+                if let Some(by) = locked {
+                    out["locked"] = serde_json::json!(by);
+                }
+                out
+            })
+            .collect())
+    }
+
     /// Whether `node` is locked (PLAN 2.95): its own `locked`, which holds in every state. What a
     /// locked container or group holds is locked with it, as the canvas reads it.
     pub fn locked(&self, node: &str) -> bool {
