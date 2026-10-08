@@ -255,6 +255,44 @@ fn a_page_writes_inside_the_folder_and_is_heard_once() {
     }
 }
 
+/// A write refused at once is answered once its body is in. A connection closed with a body still
+/// coming is reset, and the reset can lose the answer before the page reads it: on macOS the
+/// writes above heard "connection reset by peer" for a refused write's 16 bytes, now and then. A
+/// body of 4 MB, more than hyper reads through of itself, was reset on every system.
+#[test]
+fn a_refused_write_is_answered_once_its_body_is_in() {
+    let dir = bundle("refused");
+    let (addr, _) = serve(&dir);
+    let port = addr.port();
+    let ours = format!("http://localhost:{port}");
+    let body = vec![b'x'; 4 << 20];
+    for (head, status) in [
+        (
+            format!(
+                "PUT /bundle/assets/evil.png HTTP/1.1\r\nHost: localhost:{port}\r\nOrigin: http://attacker.example"
+            ),
+            403,
+        ),
+        (format!("PUT /bundle/../evil.png HTTP/1.1\r\nHost: localhost:{port}\r\nOrigin: {ours}"), 400),
+        (format!("PUT /bundle/assets/x.png HTTP/1.1\r\nHost: attacker.example\r\nOrigin: {ours}"), 403),
+        (format!("POST /bundle/assets/x.png HTTP/1.1\r\nHost: localhost:{port}\r\nOrigin: {ours}"), 405),
+        (format!("POST /scaena/state HTTP/1.1\r\nHost: localhost:{port}"), 405),
+    ] {
+        let mut stream = TcpStream::connect(addr).unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+        let length = body.len();
+        stream
+            .write_all(format!("{head}\r\nConnection: close\r\nContent-Length: {length}\r\n\r\n").as_bytes())
+            .unwrap();
+        stream.write_all(&body).unwrap_or_else(|e| panic!("{head}: {e}"));
+        let mut raw = Vec::new();
+        stream.read_to_end(&mut raw).unwrap_or_else(|e| panic!("{head}: {e}"));
+        let line = String::from_utf8_lossy(&raw).lines().next().unwrap_or_default().to_string();
+        assert_eq!(line.split(' ').nth(1), Some(status.to_string().as_str()), "{head}");
+    }
+    assert!(!dir.join("assets/evil.png").exists() && !dir.join("assets/x.png").exists());
+}
+
 #[test]
 fn a_source_saved_on_disk_compiles_into_the_deck_and_a_broken_one_keeps_it() {
     let dir = bundle("source");
