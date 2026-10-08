@@ -331,6 +331,10 @@
       #theming td select { max-width: 7em; }
       #theming [data-spacing] { display: grid; grid-template-columns: max-content 6em; gap: 4px 8px; align-items: center; font-size: 12px; }
       #theming [data-spacing] label { color: var(--muted); }
+      #theming .hint { color: var(--muted); font-size: 11px; margin: 0 0 4px; }
+      #theming [data-photos] li { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; padding: 2px 0; font-size: 12px; }
+      #theming [data-photos] button { font: inherit; font-size: 12px; overflow-wrap: anywhere; text-align: left; }
+      #theming [data-photos] .uses, #theming [data-photos] .none { color: var(--muted); font-size: 11px; }
       /* The versions (PLAN 2.60): the history's changes, the newest first; one shown as it was. */
       #versions { padding: 6px 12px; }
       #versions [data-summary] { color: var(--muted); font-size: 12px; margin: 0 0 6px; }
@@ -553,6 +557,9 @@
           <p data-summary></p>
           <h3 id="theming-colors">Colors</h3>
           <ul data-colors aria-labelledby="theming-colors"></ul>
+          <h3 id="theming-photo">From a photo</h3>
+          <p class="hint">The colors of a photo the bundle holds, on the theme's own tones: its hues for the accents, the hue it leans to for the neutrals. Text still reads on the surfaces.</p>
+          <ul data-photos aria-labelledby="theming-photo"></ul>
           <h3 id="theming-type">Type</h3>
           <div class="theming-roles">
             <table data-roles aria-labelledby="theming-type">

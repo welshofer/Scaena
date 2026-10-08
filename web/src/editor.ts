@@ -82,6 +82,7 @@ import type {
   Source,
   Where,
 } from "./protocol";
+import { PICTURE } from "./protocol";
 import { rehearsal, rehearsalKeys } from "./rehearse";
 import { scn, scnHighlight } from "./scn";
 import { client, listen, served, status as onDisk } from "./served";
@@ -744,11 +745,11 @@ async function edit(source: Source) {
    * the source's history takes it as a change that carries the theme's text before and after, so
    * ⌘Z writes the theme back, as with a restore's data files. An inline theme is the deck's own:
    * its edit is a change of the source. */
-  async function themeEdit(ops: unknown[], what: string) {
+  async function themeEdit(ops: unknown[], what: string, photo?: string) {
     if (assisting) return void say("theme not edited: the assistant is at work on the deck");
     if (!showing()) return void say("theme not edited while the source does not compile");
     try {
-      const done = await stage.themeEdit(view.state.doc.toString(), ops, shown, format());
+      const done = await stage.themeEdit(view.state.doc.toString(), ops, shown, format(), photo);
       const r = done.result;
       if (r.refused || done.source === undefined || !done.edited) {
         const why = r.added.filter((f) => f.severity === "error").map((f) => `${f.code} ${f.message}`);
@@ -772,7 +773,20 @@ async function edit(source: Source) {
       say(`theme not edited: ${said(e)}`);
     }
   }
-  const theming = themePanel(stage, $("#theming"), { edit: themeEdit });
+  /** The images the bundle holds that a theme may take its colors from (PLAN 2.94): each PNG and
+   * JPEG, with the nodes drawn from it. */
+  const photos = async () =>
+    (await stage.bundleFiles(view.state.doc.toString())).filter((f) => f.type === "image" && PICTURE.test(f.path));
+  const theming = themePanel(stage, $("#theming"), { edit: themeEdit, photos });
+  /** The theme given the colors of the photo the image `node` draws in the state shown (PLAN 2.94). */
+  async function colorsFrom(node: string) {
+    const state = showing()?.state;
+    const files = await photos().catch(() => []);
+    const draws = (f: (typeof files)[number], here: boolean) => f.used.some((u) => u.node === node && (!here || !state || u.states.includes(state)));
+    const file = files.find((f) => draws(f, true)) ?? files.find((f) => draws(f, false));
+    if (!file) return void say(`theme not edited: ${node} draws no photo the bundle holds`);
+    await theming.fromPhoto(file.path);
+  }
   /** Files an undo or a redo of a restore or a theme edit writes back (PLAN 2.60, 2.61), each to
    * its text after. Where the source did not change, it is `source`, which nothing compiles
    * again: the deck is shown and linted again here, as after a data file's edit. */
@@ -1460,6 +1474,8 @@ async function edit(source: Source) {
       // In another of the deck's formats, a node placed there anew (ADR-0020): from then on a
       // move there moves it there alone.
       { label: "Place anew in this format", where: ["node"], applies: () => one() && !!format() && !anewIn(picked()[0]), run: () => placeAnew(picked()[0]) },
+      // The theme's colors from the photo an image draws (PLAN 2.94), as the Theme tab gives them.
+      { label: "Theme colors from this photo", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "image", run: () => colorsFrom(picked()[0]) },
       pressing("Duplicate", `${MOD}D`, "d", mod(), "Edit"),
       { label: "Copy", keys: `${MOD}C`, group: "Edit", where: ["node", "layer"], applies: any, run: () => clip("copy") },
       { label: "Cut", keys: `${MOD}X`, group: "Edit", where: ["node", "layer"], applies: any, run: () => clip("cut") },

@@ -337,3 +337,63 @@ fn every_example_deck_moves_between_the_shipped_themes() {
         assert!(missing.is_empty(), "{run}: {missing:#?}");
     }
 }
+
+/// `theme --from-photo` (PLAN 2.94): the theme's colors from an image the bundle holds, written as
+/// `--edit` writes them. On the trails example, the ridge photo's violet becomes the accent, its
+/// pink `accent-2`, the neutrals lean to its cast, and every color text is set in still reads.
+#[test]
+fn a_theme_takes_its_colors_from_a_photo_the_bundle_holds() {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("theme-photo");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    for sub in ["fonts", "themes", "data", "assets"] {
+        copy_dir(&Path::new("../../docs/examples").join(sub), &dir.join(sub));
+    }
+    std::fs::copy("../../docs/examples/trails.deck.json", dir.join("deck.json")).unwrap();
+    let deck_before = std::fs::read(dir.join("deck.json")).unwrap();
+    let theme_before = std::fs::read(dir.join("themes/dusk.theme.json")).unwrap();
+    let bundle = dir.to_str().unwrap();
+
+    // A dry run says what the photo's colors are and what each of the theme's takes.
+    let out = scaena(&["theme", bundle, "--from-photo", "assets/trails-ridge.png", "--dry-run"]);
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(out.status.code(), Some(0), "{stdout}{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        stdout.starts_with("assets/trails-ridge.png: hues 303° (47% of it), 348° (24% of it), 24° (7% of it)"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("  accent     #FF6A3D → #B97CFF, 6.3:1 on the surfaces (needs 4.5)"), "{stdout}");
+    assert!(stdout.contains("would edit themes/dusk.theme.json at /tokens/color/ink,"), "{stdout}");
+    assert!(stdout.contains("lint delta: none"), "{stdout}");
+    assert_eq!(std::fs::read(dir.join("themes/dusk.theme.json")).unwrap(), theme_before, "a dry run writes nothing");
+
+    // Applied: the theme takes the colors, in canonical form, and the deck is as it was.
+    let out = scaena(&["--json", "theme", bundle, "--from-photo", "assets/trails-ridge.png"]);
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
+    let said: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!((said["applied"].as_bool(), said["refused"].as_bool()), (Some(true), Some(false)), "{said:#}");
+    assert_eq!(said["photo"]["image"], "assets/trails-ridge.png");
+    let reads: Vec<[f64; 2]> = (said["photo"]["set"].as_array().unwrap().iter())
+        .filter_map(|s| serde_json::from_value(s["reads"].clone()).ok())
+        .collect();
+    assert_eq!(reads.len(), 3, "ink, accent, and muted set text: {said:#}");
+    assert!(reads.iter().all(|[ratio, needs]| ratio >= needs), "{reads:?}");
+    let text = std::fs::read_to_string(dir.join("themes/dusk.theme.json")).unwrap();
+    let theme: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(theme["tokens"]["color"]["accent"], "#B97CFF");
+    assert_eq!(theme["tokens"]["data"]["sequential"][4], "#B97CFF", "the sequential palette ends at the accent");
+    assert_eq!(text, serde_json::to_string_pretty(&theme).unwrap() + "\n", "written in canonical form");
+    let typed = |bytes: &[u8]| {
+        scaena_core::Deck::from_value(&serde_json::from_slice(bytes).unwrap()).unwrap().to_json().unwrap()
+    };
+    assert_eq!(typed(&std::fs::read(dir.join("deck.json")).unwrap()), typed(&deck_before), "the deck is as it was");
+    assert_eq!(scaena(&["validate", bundle]).status.code(), Some(0));
+
+    // Taken again, the photo has nothing left to change; what is not a photo says so.
+    let out = scaena(&["--json", "theme", bundle, "--from-photo", "assets/trails-ridge.png"]);
+    let said: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(said["error"]["message"].as_str().unwrap().contains("nothing to edit"), "{said:#}");
+    let out = scaena(&["--json", "theme", bundle, "--from-photo", "deck.json"]);
+    let said: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(said["error"]["message"].as_str().unwrap().contains("not a photo to read"), "{said:#}");
+}

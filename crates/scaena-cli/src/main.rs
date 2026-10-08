@@ -336,17 +336,25 @@ enum Cmd {
     /// Re-theme: point the deck at another theme, copied into the bundle, and say what
     /// changes in what `validate` and `lint` find. A theme that would leave the deck invalid
     /// is refused. Or edit the theme the deck names (`--edit`, ADR-0016): its colors, type,
-    /// and spacing, refused as a re-theme is where the deck would not validate in it.
+    /// and spacing, refused as a re-theme is where the deck would not validate in it. Or give
+    /// its colors a photo's (`--from-photo`, PLAN 2.94).
     Theme {
         bundle: PathBuf,
         /// The theme file to apply. A theme outside the bundle is copied to `themes/`.
-        #[arg(long, required_unless_present = "edit")]
+        #[arg(long, required_unless_present_any = ["edit", "from_photo"])]
         apply: Option<PathBuf>,
         /// The edit: a JSON array of RFC 6902 operations on the theme the deck names, each
         /// path a JSON Pointer into it (`/tokens/color/accent`), or `-` for stdin. The theme
         /// file is written in canonical form; an inline theme, in the deck.
         #[arg(long, value_name = "OPS", conflicts_with = "apply")]
         edit: Option<PathBuf>,
+        /// Edit the theme's colors to a photo's: an image the bundle holds, by its path in it.
+        /// Its best hue goes to the accent, and the best far enough from that to the next
+        /// chromatic color. The hue the whole photo leans to tints the neutrals. Each color keeps
+        /// the theme's lightness and chroma. A color text is set in moves until it reads on the
+        /// surfaces. Written as `--edit` writes.
+        #[arg(long, value_name = "IMAGE", conflicts_with_all = ["apply", "edit"])]
+        from_photo: Option<String>,
         /// Say what would change, and write nothing.
         #[arg(long)]
         dry_run: bool,
@@ -671,10 +679,11 @@ fn run(cli: Cli) -> Result<ExitCode> {
             let query = scaena_core::patch::Query { find: text, case, words };
             find(&bundle, &query, replace.as_deref(), dry_run, cli.json)
         }
-        Cmd::Theme { bundle, apply, edit, dry_run, force } => match (apply, edit) {
-            (Some(apply), _) => theme_apply(&bundle, &apply, dry_run, force, cli.json),
-            (None, Some(edit)) => theme_edit(&bundle, &edit, dry_run, cli.json),
-            (None, None) => unreachable!("clap asks for --apply or --edit"),
+        Cmd::Theme { bundle, apply, edit, from_photo, dry_run, force } => match (apply, edit, from_photo) {
+            (Some(apply), ..) => theme_apply(&bundle, &apply, dry_run, force, cli.json),
+            (None, Some(edit), _) => theme_edit(&bundle, &edit, dry_run, cli.json),
+            (None, None, Some(photo)) => theme_photo(&bundle, &photo, dry_run, cli.json),
+            (None, None, None) => unreachable!("clap asks for --apply, --edit, or --from-photo"),
         },
         Cmd::Serve { bundle, port } => serve(&bundle, port, cli.json),
         Cmd::Mcp => {
@@ -911,7 +920,46 @@ fn theme_edit(bundle: &Path, ops: &Path, dry_run: bool, json: bool) -> Result<Ex
     };
     let ops: Vec<serde_json::Value> = serde_json::from_str(&text)
         .with_context(|| format!("{} is not a JSON array of JSON Patch operations (RFC 6902)", ops.display()))?;
-    let t = scaena_ops::theme::theme_edit(&b, &scaena_ops::theme::ThemeEdit { ops }, dry_run)?;
+    let t = scaena_ops::theme::theme_edit(&b, &scaena_ops::theme::ThemeEdit { ops, photo: None }, dry_run)?;
+    print_theme_edit(&t, dry_run, json)
+}
+
+/// `scaena theme --from-photo` (PLAN 2.94): the theme's colors edited to a photo's, as `--edit`
+/// writes them. Says what the photo's colors are and what each of the theme's takes, then what
+/// `--edit` says.
+fn theme_photo(bundle: &Path, image: &str, dry_run: bool, json: bool) -> Result<ExitCode> {
+    let b = open(bundle)?;
+    let edit = scaena_ops::theme::ThemeEdit { ops: Vec::new(), photo: Some(image.to_string()) };
+    let t = scaena_ops::theme::theme_edit(&b, &edit, dry_run)?;
+    if let Some(photo) = t.photo.as_ref().filter(|_| !json) {
+        let hues: Vec<String> =
+            photo.read.hues.iter().map(|h| format!("{:.0}° ({:.0}% of it)", h.degrees, h.share * 100.0)).collect();
+        let hues = if hues.is_empty() { "none".to_string() } else { hues.join(", ") };
+        println!("{image}: hues {hues}; it leans to {:.0}°", photo.read.cast.degrees);
+        for set in &photo.set {
+            let name = set.path.trim_start_matches("/tokens/").trim_start_matches("color/");
+            match (set.was.as_str(), set.now.as_str()) {
+                (Some(was), Some(now)) => {
+                    let to = if set.was == set.now { format!("{was}, as it was") } else { format!("{was} → {now}") };
+                    let reads =
+                        set.reads.map(|[r, n]| format!(", {r:.1}:1 on the surfaces (needs {n})")).unwrap_or_default();
+                    println!("  {name:<10} {to}{reads}");
+                }
+                _ => {
+                    let colors: Vec<&str> =
+                        set.now.as_array().into_iter().flatten().filter_map(|c| c.as_str()).collect();
+                    let same = if set.was == set.now { ", as it was" } else { "" };
+                    println!("  {name:<10} {}{same}", colors.join(" "));
+                }
+            }
+        }
+    }
+    print_theme_edit(&t, dry_run, json)
+}
+
+/// What a theme edit did, as `--edit` says it, and its exit: 1 where it was refused or leaves
+/// errors.
+fn print_theme_edit(t: &scaena_ops::theme::ThemeEdited, dry_run: bool, json: bool) -> Result<ExitCode> {
     if json {
         println!("{}", serde_json::to_string_pretty(&t)?);
         return Ok(if t.refused || t.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS });

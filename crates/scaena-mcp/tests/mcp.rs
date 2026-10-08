@@ -272,6 +272,24 @@ async fn an_agent_builds_a_deck_with_the_tools_alone() {
     client.cancel().await.unwrap();
 }
 
+/// A theme's colors from a photo the bundle holds (PLAN 2.94): what the photo's colors are, and
+/// each of the theme's as it would be, with nothing written under a dry run.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_theme_edit_takes_a_photos_colors() {
+    let client = connect().await;
+    let example = path(&Path::new(EXAMPLES).join("revenue.deck.json"));
+    let args = json!({ "bundle": example, "photo": "assets/trails-ridge.png", "dry_run": true });
+    let edited = ok(&client, "theme_edit", args).await;
+    assert_eq!((edited["applied"].clone(), edited["refused"].clone()), (json!(false), json!(false)), "{edited:#}");
+    let hue = edited["photo"]["read"]["hues"][0]["degrees"].as_f64().unwrap();
+    assert!((hue - 303.4).abs() < 0.1, "the ridge's violet: {edited:#}");
+    let accent =
+        edited["photo"]["set"].as_array().unwrap().iter().find(|s| s["path"] == "/tokens/color/accent").cloned();
+    assert_eq!(accent.map(|s| s["now"].clone()), Some(json!("#B97CFF")), "{edited:#}");
+    assert!(edited["paths"].as_array().unwrap().contains(&json!("/tokens/color/accent")), "{edited:#}");
+    client.cancel().await.unwrap();
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_tool_that_stops_says_why() {
     let client = connect().await;
@@ -294,6 +312,13 @@ async fn a_tool_that_stops_says_why() {
             "theme_edit",
             json!({ "bundle": example, "dry_run": true, "ops": [{ "op": "replace", "path": "/no/such", "value": 1 }] }),
             json!({ "op": 0 }),
+        ),
+        // A theme edit is ops or a photo, not both (PLAN 2.94).
+        (
+            "theme_edit",
+            json!({ "bundle": example, "dry_run": true, "photo": "assets/trails-ridge.png",
+                    "ops": [{ "op": "replace", "path": "/grid/gutter", "value": 32 }] }),
+            json!({}),
         ),
         // A bundle that keeps no history, and one thing asked of a history at a time.
         ("deck_history", json!({ "bundle": example }), json!({})),
