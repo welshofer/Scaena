@@ -139,7 +139,7 @@ jobs:
       # same static library.
       - name: The C ABI from C
         run: |
-          libs=$(cargo rustc -q -p scaena-ffi --lib --crate-type staticlib --locked -- --print native-static-libs 2>&1 | sed -n 's/.*native-static-libs: //p')
+          libs=$(cargo rustc -q --color never -p scaena-ffi --lib --crate-type staticlib --locked -- --print native-static-libs 2>&1 | sed -n 's/.*native-static-libs: //p')
           echo "SCAENA_FFI_LIBS=$libs" >> "$GITHUB_ENV"
           mkdir -p target/ffi
           cc -std=c11 -Wall -Wextra -Werror -I crates/scaena-ffi/include crates/scaena-ffi/tests/c/smoke.c target/debug/libscaena_ffi.a $libs -o target/ffi/smoke

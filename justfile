@@ -40,7 +40,7 @@ bless:
 ffi:
     #!/usr/bin/env bash
     set -euo pipefail
-    libs=$(cargo rustc -q -p scaena-ffi --lib --crate-type staticlib --locked -- --print native-static-libs 2>&1 | sed -n 's/.*native-static-libs: //p')
+    libs=$(cargo rustc -q --color never -p scaena-ffi --lib --crate-type staticlib --locked -- --print native-static-libs 2>&1 | sed -n 's/.*native-static-libs: //p')
     mkdir -p target/ffi
     cc -std=c11 -Wall -Wextra -Werror -I crates/scaena-ffi/include crates/scaena-ffi/tests/c/smoke.c target/debug/libscaena_ffi.a $libs -o target/ffi/smoke
     cd tests/bench/b1.scaena

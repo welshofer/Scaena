@@ -8,7 +8,7 @@ SwiftUI owns chrome only (document browser, state list, timeline scrubber, inspe
 
 ```
 cargo build -p scaena-ffi
-libs=$(cargo rustc -q -p scaena-ffi --lib --crate-type staticlib -- --print native-static-libs 2>&1 | sed -n 's/.*native-static-libs: //p')
+libs=$(cargo rustc -q --color never -p scaena-ffi --lib --crate-type staticlib -- --print native-static-libs 2>&1 | sed -n 's/.*native-static-libs: //p')
 cd apps/mac/ScaenaKit && swift test -Xlinker -L"$PWD/../../../target/debug" $(for l in $libs; do printf -- '-Xlinker %s ' "$l"; done)
 ```
 
