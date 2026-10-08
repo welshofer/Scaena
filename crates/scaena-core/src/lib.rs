@@ -14,9 +14,10 @@
 //! - [`data`] — data sources read and typed (SPEC §3.10), from bytes the caller hands over.
 //! - [`format`] — number and date formats, d3's grammar (`docs/spec/format.md`).
 //! - [`files`] — a bundle's images, fonts, and data, and what in the deck uses each (PLAN 2.59).
-//! - [`jpeg`] — photos: a JPEG decoder in integers alone, the same pixels on every target (ADR-0017).
-//! - [`shader`] — what a shader op draws: each kind's CPU reference and its WGSL twin
-//!   (SPEC §3.8), here because every painter runs them.
+//! - [`jpeg`] — photos: a JPEG decoder in integers alone, the same pixels on every target
+//!   (ADR-0017); `scaena-pixels`' own, re-exported.
+//! - [`shader`] — what a shader op draws, here because every painter runs it: each kind's CPU
+//!   reference and its WGSL twin (SPEC §3.8), from `scaena-pixels`.
 //! - [`lint`] — findings, rules, and the document-level rule set (SPEC §7.4–7.5).
 //! - [`looks`] — a node's look, picked up and put down on others as `choose`s (PLAN 2.58).
 //! - [`patch`] — JSON Patch, and the semantic ops that compile to it (SPEC §7.3).
@@ -39,7 +40,6 @@ pub mod files;
 pub mod format;
 pub mod ids;
 pub mod inserts;
-pub mod jpeg;
 pub mod layers;
 pub mod lint;
 pub mod lists;
@@ -57,6 +57,9 @@ pub mod timeline;
 pub mod tracking;
 pub mod transform;
 pub mod validate;
+
+/// JPEG, read the same on every target (ADR-0017): `scaena-pixels`' decoder.
+pub use scaena_pixels::jpeg;
 
 pub use document::Deck;
 pub use lint::{Finding, Severity};

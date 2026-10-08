@@ -1,0 +1,15 @@
+[package]
+name = "scaena-pixels"
+description = "What is done pixel by pixel, the same bytes everywhere: each shader kind's CPU reference and WGSL twin, and the JPEG decoder. Kept fast where the rest of core is built for size."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+# The references' per-frame math (SPEC §3.8, §13.7): transcendental math that reads the same everywhere.
+libm.workspace = true
+

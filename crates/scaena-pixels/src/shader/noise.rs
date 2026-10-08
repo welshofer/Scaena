@@ -11,11 +11,11 @@
 //! The seed moves the field and keys its hashes. Per pixel the noise is `+ − × ÷`,
 //! `floor`, comparisons, and integer hashing, here and in `noise.wgsl` alike.
 
+use super::Color;
 use super::{
     BLOCK, Encoder, MAX_STOPS, ShaderError, SplitMix64, Words, frame_box, grain_noise, local_map, lowbias32,
     oklab_linear, oklab_rgba8, ramp, sample, seed_key, thresholds, whole, within,
 };
-use crate::displaylist::Color;
 use std::collections::BTreeMap;
 
 /// The WGSL twin of [`Frame::pixel`].

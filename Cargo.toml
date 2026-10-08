@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
   "crates/scaena-core",
+  "crates/scaena-pixels",
   "crates/scaena-engine",
   "crates/scaena-paint",
   "crates/scaena-export",
@@ -19,6 +20,7 @@ members = [
 ]
 default-members = [
   "crates/scaena-core",
+  "crates/scaena-pixels",
   "crates/scaena-engine",
   "crates/scaena-paint",
   "crates/scaena-export",
@@ -38,6 +40,7 @@ authors = ["Jay Welshofer"]
 [workspace.dependencies]
 # internal
 scaena-core   = { path = "crates/scaena-core" }
+scaena-pixels = { path = "crates/scaena-pixels" }
 # Without its hyphenation patterns, which the editor's module leaves out (ADR-0015): a crate
 # that lays out natively asks for them.
 scaena-engine = { path = "crates/scaena-engine", default-features = false }
@@ -155,6 +158,12 @@ opt-level = "s"
 [profile.wasm]
 inherits = "release"
 [profile.wasm.package.scaena-ops]
+opt-level = "z"
+# Core is the document, its tracking, patches, validation, and lint: built for size, the editor's
+# module is 255 KB less gzipped, and B1's compile and lint take half again as long in Chromium
+# (12.5 ms to lint a state). What is done pixel by pixel, the shaders and the JPEG decoder, is
+# `scaena-pixels`, built at opt-level 3, as fast as before (PLAN 2.98).
+[profile.wasm.package.scaena-core]
 opt-level = "z"
 [profile.wasm.package.scaena-store]
 opt-level = "z"

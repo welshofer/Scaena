@@ -503,7 +503,7 @@ Requirements:
 - Uniforms are animatable properties like any other.
 - For PDF/SVG export, shaders rasterize at a declared DPI (default 2× canvas) and embed as images.
 - **Clock.** A shader's `t` is the frame's time on the global timeline (§2.4), in seconds, so a background that persists across states drifts on through every transition, motion, and hold instead of starting over. At rest, a state's shaders show the moment it comes to rest; a frame `t` past its span, in its hold, shows that later time. The clock is an `f32` in the display list (§6), so past 3.4 × 10³⁸ s it holds at its largest value.
-- **Where the code lives.** Each kind's CPU reference and its WGSL twin sit side by side in `scaena-core::shader`, because painters run them and painters depend only on core. The engine resolves a node to a shader op (§6): the kind, the seed, the theme palette's colors, typed params, and its rect.
+- **Where the code lives.** Each kind's CPU reference and its WGSL twin sit side by side in `scaena-pixels::shader`, which `scaena-core::shader` re-exports: painters run them, and painters depend only on core. They are a crate of their own, with the JPEG decoder (§13), so the browser's modules can build what is done pixel by pixel for speed and the rest of core for size (§15). The engine resolves a node to a shader op (§6): the kind, the seed, the theme palette's colors, typed params, and its rect.
 - **Fast, and the same.** The CPU painter computes `mesh`, `grain`, and `noise` a block of a row at a time, one step of the reference across the block before the next, which the compiler runs as SIMD; `noise` hashes each lattice cell's corners once, not each pixel's four. Each pixel does its reference's arithmetic in its order, so the bytes are the reference's, which a test holds pixel for pixel. Off the web, every kind's rows are spread in bands over the cores, up to 8; no row reads another, so the bytes do not depend on how many. There, sRGB encoding reads two tables made from the 255 thresholds, which give the threshold search's byte for every `f32`, all 2³² of them tested.
 
 **Shaders stay off data** (PLAN 1.26). A shader is atmosphere for title and section slides. A chart or a table reads against a plain surface: a mesh, noise, or particles under its marks become noise in the data, and a gradient shifts the colors that encode it. Lint W311 warns about a shader painted behind a chart or a table where they overlap, in any state. The shipped themes' presets are for slides without data, and their example decks keep the mesh off data slides.
@@ -1605,7 +1605,7 @@ Storage (PLAN 2.4): a bundle opens from a URL, a folder on disk (File System Acc
 
 Export: **single-file HTML** (PLAN 2.5, §10): `scaena export --format html` writes the player, the engine, and the bundle as one file that plays from a disk, or a USB stick, with no network.
 
-- **The page** is the player's (`web/standalone.html`): the same controls, holds, presenter view, and fullscreen. `just web` builds it with its code, its styles, and the engine inside it: the player's module alone, without the editor's operations, 2.15 MB gzipped (§15), in base64. A `scaena` built after it carries it.
+- **The page** is the player's (`web/standalone.html`): the same controls, holds, presenter view, and fullscreen. `just web` builds it with its code, its styles, and the engine inside it: the player's module alone, without the editor's operations, 2.13 MB gzipped (§15), in base64. A `scaena` built after it carries it.
 - **The export fills it in** with the deck's title and language, every file the player reads (each gzipped, in base64, by its path in the bundle: what `scaena save` writes, fonts subset to what the deck draws, without the manifest or the history), the states it plays, and how each reads (§3.12).
 - **A file's page starts no module worker, and no worker from its own address.** The page compiles the engine and hands it to the worker, which starts from the page's own code as a classic script. Nothing the page keeps goes into the browser's storage.
 - **No network.** The page's content security policy lets nothing load, and nothing in it is anywhere else. Opened from its address on disk with the network off, the torture deck's file shows every golden frame within §13.5 of the goldens by the CPU painter, and WebGPU paints a file too. The engine it carries paints each frame byte for byte as the web player's engine does (`web/standalone.mjs`).
@@ -1678,7 +1678,8 @@ The existing export code integrates against `spine.json` + `scaena render`/`expo
 
 ```
 crates/
-  scaena-core     document model (serde + schemars), ids, tracking resolution, timeline math (easing, springs), display list, shader kinds (CPU reference + WGSL), document-level lints, the spine projection
+  scaena-core     document model (serde + schemars), ids, tracking resolution, timeline math (easing, springs), display list, shader ops, document-level lints, the spine projection
+  scaena-pixels   what is done pixel by pixel, the same bytes everywhere: shader kinds (CPU reference + WGSL), the JPEG decoder; core re-exports both, and the WASM modules build it for speed, the rest of core for size
   scaena-engine   theme cascade, layout (taffy), text (parley/harfrust), charts→marks, shader nodes→ops, timeline resolution, sampling
   scaena-paint    painters: vello (gpu), vello_cpu (cpu); both run shader ops
   scaena-export   pdf (krilla), svg, png, video (ffmpeg driver, chapters), html

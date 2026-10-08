@@ -10,11 +10,11 @@
 //! Positions come from `seed` and `t` once per frame (`libm` sine and cosine); the
 //! per-pixel function is `+ − × ÷` and comparisons, here and in `mesh.wgsl` alike.
 
+use super::Color;
 use super::{
     BLOCK, Encoder, ShaderError, SplitMix64, Words, device_box, encode, invert, linear, linear_to_oklab, lowbias32,
     thresholds,
 };
-use crate::displaylist::Color;
 use std::collections::BTreeMap;
 
 /// The WGSL twin of [`Frame::pixel`].

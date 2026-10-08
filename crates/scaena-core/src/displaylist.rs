@@ -79,7 +79,7 @@ pub struct FontRef {
 
 /// The longest side an [`Op::Image`] asset may have, in pixels: vello's image atlas is
 /// 8192 px square, and an image that does not fit it is not drawn on the GPU at all.
-pub const MAX_IMAGE_SIDE: u32 = 8192;
+pub use scaena_pixels::MAX_IMAGE_SIDE;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase", rename_all_fields = "camelCase", deny_unknown_fields)]

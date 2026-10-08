@@ -22,7 +22,7 @@
 //! [`stripped`] is the file without what it says beyond its picture, for the exports that carry
 //! the file itself.
 
-use crate::displaylist::MAX_IMAGE_SIDE;
+use crate::MAX_IMAGE_SIDE;
 
 /// Why a JPEG cannot be read.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
