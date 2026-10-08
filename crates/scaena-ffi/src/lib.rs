@@ -360,7 +360,15 @@ pub unsafe extern "C" fn scaena_drop(
 /// `align`, `spread`, `order`, `before`, `after`, `into`); and `grouping {state, nodes}`, the
 /// patch that puts them in a new group, `{id, patch}`. States (PLAN 3.14): `addingState {state,
 /// what}`, the patch that adds a state after it, a `step` of its slide or a `slide` of its own,
-/// `{id, patch}`.
+/// `{id, patch}`. The panels (PLAN 3.15), each edit by the user at `at` (RFC 3339) where given:
+/// `shippedThemes`; `retheme {path | ships, at?}`, the deck in a theme the bundle holds or one
+/// that ships, as `theme --apply` says it; `themeEdit {ops | photo, dryRun?, at?}`, `{edited,
+/// files}`, the theme file written before and after for the undo; `bundleFiles` and `removeFile
+/// {path}`; `dataSources`, `dataSheet {name}`, `dataEdit {source, edits, at?}`, `{result,
+/// wrote}`, and `dataUndo {redo?, at?}`, the file an edit wrote or a removal took out put back or
+/// written again; and, from the bundle's history, `versions`, `viewVersion {version}`, its
+/// states, `compareVersions {from, to?}`, and `restoreVersion {version, at?}`, `{restored,
+/// files}`.
 ///
 /// # Safety
 /// `session` is a live handle; `method` a NUL-terminated string; `args` one, or null.
@@ -797,8 +805,8 @@ pub unsafe extern "C" fn scaena_surface_free(surface: *mut ScaenaSurface) {
 /// The deck exported as `format` (PLAN 3.8), the bytes `scaena export` writes for it: `pdf`, a page
 /// for each slide at its last state, as the browser's PDF module draws it from the pages the
 /// session lays out; or `png`, `args` `{state, width}`, the state at rest painted by the CPU
-/// painter that wide, as the editor's PNG export paints it. Null bytes where it cannot be made,
-/// `*error` then saying why.
+/// painter that wide, as the editor's PNG export paints it; or `version`, the same of the version
+/// `viewVersion` shows (PLAN 3.15). Null bytes where it cannot be made, `*error` then saying why.
 ///
 /// # Safety
 /// `session` is a live handle; `format` a NUL-terminated string; `args` one, or null; `error`
@@ -837,7 +845,19 @@ pub unsafe extern "C" fn scaena_export(
                     .ok_or_else(|| said("png: `width` is a number of pixels, 1 to 16384"))?;
                 session.0.png(state, width).map_err(said)
             }
-            _ => Err(said(format!("`{format}` is not an export this library makes: pdf or png"))),
+            // The version shown (`viewVersion`, PLAN 2.60): `args` `{state, width}`, as `png`.
+            "version" => {
+                let state = args
+                    .get("state")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| said("version: `state` is a string it needs"))?;
+                let width = (args.get("width").and_then(Value::as_u64))
+                    .and_then(|w| u32::try_from(w).ok())
+                    .filter(|w| (1..=16384).contains(w))
+                    .ok_or_else(|| said("version: `width` is a number of pixels, 1 to 16384"))?;
+                session.0.version_png(state, width).map_err(said)
+            }
+            _ => Err(said(format!("`{format}` is not an export this library makes: pdf, png, or version"))),
         }
     });
     match made {
@@ -989,6 +1009,31 @@ fn patch_of(ops: Option<&Value>, method: &str) -> Result<Option<Vec<Value>>, Fai
     }
 }
 
+/// The bundle's history, and the versions it keeps, oldest first; an error that says how to begin
+/// one where it keeps none.
+fn history_of(s: &Session) -> Result<(scaena_store::crdt::DeckDoc, Vec<scaena_ops::history::Version>), Failure> {
+    let bytes = s
+        .file(scaena_store::HISTORY)
+        .ok_or_else(|| said("the bundle keeps no history: Keep a History begins one with the next save"))?;
+    let doc = scaena_store::crdt::DeckDoc::load(bytes).map_err(said)?;
+    let versions = scaena_ops::history::listed(&doc);
+    Ok((doc, versions))
+}
+
+/// Version `name` (its number as listed, or its id) as a session takes one, as the history's own
+/// module hands a page one: the deck as `deck.json`'s text, and the files it is drawn from, its
+/// data files and its theme, as their text.
+fn held(s: &Session, name: &str) -> Result<scaena_session::versions::Held, Failure> {
+    let (doc, versions) = history_of(s)?;
+    let version = scaena_ops::history::named(&versions, name).map_err(said)?;
+    let (deck, files) = scaena_ops::history::then(&doc, version).map_err(said)?;
+    let mut held = scaena_session::versions::Held { deck: deck.to_json().map_err(said)?, files: BTreeMap::new() };
+    for (path, bytes) in files {
+        held.files.insert(path, String::from_utf8_lossy(&bytes).into_owned());
+    }
+    Ok(held)
+}
+
 /// The session's answer to `method`, as `Player` gives it a page.
 fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
     let arg = |key: &str| {
@@ -999,6 +1044,9 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         args.get(key).and_then(Value::as_f64).ok_or_else(|| said(format!("{method}: `{key}` is a number it needs")))
     };
     let value = |v: Result<Value, serde_json::Error>| v.map_err(said);
+    // An edit the panels make: by the user, at the time the call gives (RFC 3339), if it gives one.
+    let at = || optional("at").and_then(scaena_session::store::seconds);
+    let user = || Caller { author: "user", at: at() };
     let strings = |key: &str| -> Result<Vec<String>, Failure> {
         let list = args.get(key).and_then(Value::as_array);
         let all = list.map(|l| l.iter().filter_map(|v| v.as_str().map(String::from)).collect::<Vec<_>>());
@@ -1111,6 +1159,91 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         "addingState" => {
             let what = serde_json::from_value(Value::String(arg("what")?.to_string())).map_err(said)?;
             value(serde_json::to_value(s.adding_state(arg("state")?, what).map_err(said)?))?
+        }
+        // The panels (PLAN 3.15). The theme (PLAN 2.39, 2.61, 2.94): the themes that ship; the deck
+        // put in another, one the bundle holds by its path or one that ships by its name, with its
+        // fonts; and the theme edited by RFC 6902 operations, or to a photo's colors, with the file
+        // it wrote, before and after, for the undo.
+        "shippedThemes" => {
+            let shipped = scaena_ops::shipped::THEMES.iter().map(|t| json!({ "name": t.name, "file": t.file }));
+            Value::Array(shipped.collect())
+        }
+        "retheme" => {
+            let themed = match optional("ships") {
+                Some(name) => {
+                    let shipped = scaena_ops::shipped::theme(name).ok_or_else(|| {
+                        said(format!("`{name}` is not a theme that ships: {}", scaena_ops::shipped::names()))
+                    })?;
+                    let mut fonts = BTreeMap::new();
+                    for (path, bytes) in scaena_ops::shipped::fonts() {
+                        fonts.insert(path.to_string(), bytes.to_vec());
+                    }
+                    s.retheme(&format!("themes/{}", shipped.file), Some(shipped.text), fonts, at())
+                }
+                None => s.retheme(arg("path")?, None, BTreeMap::new(), at()),
+            };
+            value(serde_json::to_value(themed.map_err(said)?))?
+        }
+        "themeEdit" => {
+            let asked = json!({ "ops": args.get("ops").cloned().unwrap_or(json!([])), "photo": args.get("photo") });
+            let edit: scaena_ops::theme::ThemeEdit = serde_json::from_value(asked).map_err(said)?;
+            let dry = args.get("dryRun").and_then(Value::as_bool).unwrap_or(false);
+            let (edited, files) = s.theme_edit(&edit, dry, user()).map_err(said)?;
+            json!({ "edited": edited, "files": files })
+        }
+        // The bundle's files (PLAN 2.59): each with what names it and the nodes drawn from it; and
+        // one nothing names taken out, which `dataUndo` puts back.
+        "bundleFiles" => value(serde_json::to_value(s.bundle_files().map_err(said)?))?,
+        "removeFile" => {
+            s.remove_file(arg("path")?).map_err(said)?;
+            Value::Null
+        }
+        // The data (PLAN 2.55): the deck's sources, one as a sheet, its rows edited as `data_edit`
+        // edits them, and the file an edit wrote, or the Files panel took out, put back, or with
+        // `redo` written again: the source it is, or null where there was nothing to undo.
+        "dataSources" => {
+            let source = |(name, file): (String, Option<String>)| match file {
+                Some(file) => json!({ "name": name, "file": file }),
+                None => json!({ "name": name }),
+            };
+            Value::Array(s.data_sources().into_iter().map(source).collect())
+        }
+        "dataSheet" => {
+            let (sheet, file) = s.data_sheet(arg("name")?).map_err(said)?;
+            json!({ "sheet": sheet, "file": file })
+        }
+        "dataEdit" => {
+            let asked = json!({ "source": arg("source")?, "edits": args.get("edits").cloned().unwrap_or(json!([])) });
+            let req: scaena_ops::data::DataEdit = serde_json::from_value(asked).map_err(said)?;
+            let (result, wrote) = s.data_edit(&req, false, user()).map_err(said)?;
+            json!({ "result": result, "wrote": wrote })
+        }
+        "dataUndo" => {
+            let redo = args.get("redo").and_then(Value::as_bool).unwrap_or(false);
+            json!(s.data_undo(redo, user()).map_err(said)?)
+        }
+        // The versions the bundle's history keeps (PLAN 2.60), read from it as `scaena history`
+        // reads them: listed; one shown read only in a session of its own, its states' ids (its
+        // states drawn by `scaena_export`'s `version`); one compared with another or with the deck
+        // now; and one made the deck again, with each file it wrote for the undo. A version is
+        // named by its number as listed, or its id.
+        "versions" => json!(history_of(s)?.1),
+        "viewVersion" => {
+            let held = held(s, arg("version")?)?;
+            json!(s.view_version(&held).map_err(said)?)
+        }
+        "compareVersions" => {
+            let from = held(s, arg("from")?)?;
+            let to = optional("to").map(|to| held(s, to)).transpose()?;
+            s.compare_versions(&from, to.as_ref()).map_err(said)?
+        }
+        "restoreVersion" => {
+            let name = arg("version")?;
+            let (_, versions) = history_of(s)?;
+            let version = scaena_ops::history::named(&versions, name).map_err(said)?.clone();
+            let held = held(s, name)?;
+            let (restored, files) = s.restore_version(&held, version, user()).map_err(said)?;
+            json!({ "restored": restored, "files": files })
         }
         "deleting" => {
             let everywhere = args.get("everywhere").and_then(Value::as_bool).unwrap_or(false);
