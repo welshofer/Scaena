@@ -1387,7 +1387,7 @@ async function edit(source: Source) {
       view.dispatch({ effects: locked.reconfigure(on ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []) });
     },
     drawings: async () => {
-      await states.paint();
+      await states.painted();
       return { ...states.drawings(), states: last?.states.map(([id]) => id) ?? [] };
     },
     show: (state) => {
