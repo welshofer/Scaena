@@ -1240,7 +1240,8 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 
 **Goal:** a native, document-based SwiftUI app on the same engine.
 
-- [ ] 3.1 `scaena-ffi` (C ABI via `cbindgen`): load bundle, states, timeline, `frame`, lint, patch, store ops; Swift package wrapper.
+- [ ] 3.1 `scaena-ffi` (C ABI via `cbindgen`): load bundle, states, timeline, `frame`, lint, patch, store ops; Swift package wrapper. *(Started 2026-10-08, on Jay's call, with gate 2's criterion 1 open.)*
+    - **The session, shared.** The session the browser edits moved from `scaena-wasm` to `scaena-session`, unchanged, with its tests and the random-edits fuzz (ADR-0021). `scaena-wasm` keeps `Player` and the WebGPU canvas, and the logic `Player` held moved into the session (`slots`, `theme_text`, `layouts_painted`, `keep_history`). `scaena-ffi` wraps the same session, so the Mac edits exactly as the browser does.
 - [ ] 3.2 Metal surface: `wgpu` surface from `CAMetalLayer`; `vello` painter in an `NSView`; 120 Hz on ProMotion.
 - [ ] 3.3 Document-based app (`FileDocument`/`ReferenceFileDocument`) over bundles; autosave to CRDT; versions.
 - [ ] 3.4 Chrome: state list with thumbnails, timeline scrubber, inspector, source pane (same `.scn`), lint panel with one-click fixes.
@@ -1311,5 +1312,5 @@ Not before Jay schedules it: until then Scaena's focus is editing and rendering.
 |---|---|---|---|
 | 0 | 2026-10-02 | met: go | All seven exit criteria met; evidence, timings, and what did not match in `docs/spike-report.md`. Phase 1 starts at 1.1. |
 | 1 | 2026-10-03 | met | All five exit criteria met. The evidence per criterion is in `docs/gate-1.md`, and the agent runs are in `docs/examples/agent-run.md`. Phase 2 may start at 2.1. Of Phase 1's open tasks, 1.9 and 1.32 wait on Jay's review, 1.28–1.31 on his scheduling, and 1.33–1.36 come from the runs. |
-| 2 | — | open | Criteria 2 and 3 are met in headless Chromium, and criterion 4 by Jay's run with his own key on 2026-10-07 (Anthropic, `claude-haiku-5-5`). Criterion 1 needs a real machine's browsers, read with the player's frame meter (`?fps`). The evidence and the steps are in `docs/gate-2.md`. |
+| 2 | — | open | Criteria 2 and 3 are met in headless Chromium, and criterion 4 by Jay's run with his own key on 2026-10-07 (Anthropic, `claude-haiku-5-5`). Criterion 1 needs a real machine's browsers, read with the player's frame meter (`?fps`). The evidence and the steps are in `docs/gate-2.md`. On 2026-10-08 Jay started Phase 3 with criterion 1 open, not waived: the gate is logged met when his browsers read the bar. |
 | 3 | — | — | — |

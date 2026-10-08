@@ -44,6 +44,18 @@ pub fn seconds(rfc3339: &str) -> Option<i64> {
 }
 
 impl Session {
+    /// Begin a history with the next save, where the bundle keeps none (PLAN 2.87): it holds
+    /// the deck as saved, and the files it is drawn from, as its first version, and each save
+    /// after records the edits since, as `scaena save --history` begins one.
+    pub fn keep_history(&mut self) {
+        self.begins = true;
+    }
+
+    /// Whether the bundle keeps a history, or the next save begins one.
+    pub fn keeps_history(&self) -> bool {
+        self.begins || self.files.contains_key(scaena_store::HISTORY)
+    }
+
     /// A bundle's files, by their paths inside it, opened: its deck from `deck.json`, its
     /// theme from the file the deck names, and every other file handed over.
     pub fn open(mut files: BTreeMap<String, Vec<u8>>) -> Result<Session, Error> {

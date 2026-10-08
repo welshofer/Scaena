@@ -21,18 +21,20 @@ gpu = ["scaena-paint/gpu", "dep:vello", "dep:web-sys", "dep:wasm-bindgen-futures
 # (PLAN 2.1, SPEC §9.2). A shader's rows can come from other workers, each band copied in from
 # its `Uint8Array` once, and a frame goes onto a canvas's 2D context from the module's memory
 # (PLAN 2.28).
-cpu = ["scaena-paint/cpu", "dep:js-sys", "dep:web-sys", "web-sys/ImageData", "web-sys/OffscreenCanvasRenderingContext2d"]
+cpu = ["scaena-session/cpu", "scaena-paint/cpu", "dep:js-sys", "dep:web-sys", "web-sys/ImageData", "web-sys/OffscreenCanvasRenderingContext2d"]
 # The seventeen languages' hyphenation patterns compiled in: the player's module, which a
 # single-file export carries offline (PLAN 2.5). The editor's leaves them out, and its page
 # hands a language's patterns over the first time a text hyphenates in it (ADR-0015).
 hyphenation = ["scaena-engine/hyphenation"]
-# The source editor (PLAN 2.3): compile `.scn`, lint with fixes, inspect, by `scaena-ops`'
-# operations (ADR-0009). Its lint judges contrast over what the CPU painter paints. It opens
-# and saves bundles in memory with `scaena-store` (PLAN 2.4), and starts new ones from a theme
-# and its fonts, which the page hands over as a `Map` (PLAN 2.12).
-editor = ["dep:scaena-ops", "dep:scaena-store", "dep:serde", "dep:indexmap", "dep:js-sys", "cpu"]
+# The source editor (PLAN 2.3): the session's editing (`scaena-session`'s `editor`, ADR-0021),
+# for a page: it compiles `.scn`, lints with fixes, inspects, opens and saves bundles in memory
+# (PLAN 2.4), and starts new ones from a theme and its fonts, which the page hands over as a
+# `Map` (PLAN 2.12).
+editor = ["scaena-session/editor", "dep:scaena-ops", "dep:scaena-store", "dep:serde", "dep:indexmap", "dep:js-sys", "cpu"]
 
 [dependencies]
+# The session a page edits (ADR-0021); which painters and editing it carries is this crate's features.
+scaena-session = { workspace = true, default-features = false }
 scaena-core.workspace = true
 scaena-engine.workspace = true
 # Not the workspace entry: which painters the browser build carries is this crate's features.

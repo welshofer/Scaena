@@ -18,15 +18,16 @@ crates/scaena-paint    painters: vello_cpu (default), vello/wgpu (feature "gpu")
 crates/scaena-export   pdf, png, svg, video, html                                                     (Phase 1)
 crates/scaena-store    bundle I/O, and the loro CRDT document that keeps a bundle's history       (PLAN 1.23)
 crates/scaena-ops      the operations every client exposes, over a bundle, with typed results         (ADR-0009)
+crates/scaena-session  one bundle open for editing, in memory: what the browser and the Mac both wrap (ADR-0021)
 crates/scaena-cli      `scaena` binary — the first client
 crates/scaena-mcp      MCP server (rmcp): the operations as tools, the format as resources             (PLAN 1.17)
 crates/scaena-serve    `scaena serve`: the web pages on a bundle's folder, on this machine; deck.scn compiled as saved (PLAN 2.11)
 crates/scaena-resources what agents read: the MCP server's resources, and the assistant's WASM module    (PLAN 2.6)
-crates/scaena-wasm     wasm-bindgen bindings                                                           (PLAN 0.8)
+crates/scaena-wasm     wasm-bindgen bindings: the session for a page, and the WebGPU canvas            (PLAN 0.8)
 crates/scaena-subset   the font subsetter as its own WASM module, loaded to download a bundle          (PLAN 2.4)
 crates/scaena-history  the CRDT as its own WASM module, loaded to save a bundle that keeps a history   (PLAN 2.9)
 crates/scaena-pdf      the PDF writer as its own WASM module, loaded to export a PDF                    (PLAN 2.54)
-crates/scaena-ffi      C ABI for Swift                                                                 (PLAN 3.1)
+crates/scaena-ffi      C ABI for Swift: the session for the Mac                                        (PLAN 3.1)
 docs/                  SPEC, PLAN, MANIFESTO, adr/, schema/, examples/
 skills/                agent skills (SKILL.md) that drive the CLI/MCP
 tests/                 golden display lists, golden rasters, lint fixtures, parity harness, bench decks B1–B3
@@ -50,10 +51,10 @@ apps/mac/              SwiftUI client                                           
 ## Conventions
 
 - Rust 2024 edition, stable toolchain. `cargo clippy --all-targets -- -D warnings` is clean. `cargo fmt` (rustfmt.toml: 120 cols).
-- Crates depend downward only: `cli`/`mcp`/`serve → ops → export/paint/engine/store → core → pixels`. `core` has no heavy dependencies, and `pixels` none but `thiserror` and `libm`. An operation lives in `scaena-ops` and returns a typed result; the CLI and the MCP server only parse, call, and print or return it (ADR-0009).
-- Stable sorts in the crates the browser's modules carry (core, engine, ops, store, wasm) go through `scaena_core::sort`: `slice::sort_by` compiles a whole sort for each call site, some 10 KB of WASM, and the editor's module is held to SPEC §15's 3 MB. `crates/scaena-wasm/tests/sorts.rs` holds them to it. A map or a set built from an iterator goes through `sort::map`, `sort::try_map`, or `sort::set`: `collect` into a `BTreeMap` sorts first, and compiles that sort for each type and caller (PLAN 2.91). The same test finds a `collect` typed as one.
+- Crates depend downward only: `cli`/`mcp`/`serve → ops → export/paint/engine/store → core → pixels`, and `wasm`/`ffi → session → ops`. `core` has no heavy dependencies, and `pixels` none but `thiserror` and `libm`. An operation lives in `scaena-ops` and returns a typed result; the CLI and the MCP server only parse, call, and print or return it (ADR-0009).
+- Stable sorts in the crates the browser's modules carry (core, engine, ops, session, store, wasm) go through `scaena_core::sort`: `slice::sort_by` compiles a whole sort for each call site, some 10 KB of WASM, and the editor's module is held to SPEC §15's 3 MB. `crates/scaena-wasm/tests/sorts.rs` holds them to it. A map or a set built from an iterator goes through `sort::map`, `sort::try_map`, or `sort::set`: `collect` into a `BTreeMap` sorts first, and compiles that sort for each type and caller (PLAN 2.91). The same test finds a `collect` typed as one.
 - Errors: `thiserror` in libraries, `anyhow` only in `scaena-cli`. Unimplemented paths return `NotImplemented("… — PLAN x.y")`, never `todo!()`, so the CLI exits 3 with a pointer instead of panicking.
-- A deck, theme, bundle file, or tool call the engine cannot serve is an error that says why, never a panic or a hang: in the browser either stops the editor's worker. `crates/scaena-wasm/tests/edits.rs` makes random edits to sources, decks, patches, and themes, and random calls to the assistant's tools, in `just check`. A damaged font's glyphs are checked before a painter sees them, and a raster holds at most `scaena_paint::MAX_PIXELS` (PLAN 2.23–2.26).
+- A deck, theme, bundle file, or tool call the engine cannot serve is an error that says why, never a panic or a hang: in the browser either stops the editor's worker. `crates/scaena-session/tests/edits.rs` makes random edits to sources, decks, patches, and themes, and random calls to the assistant's tools, in `just check`. A damaged font's glyphs are checked before a painter sees them, and a raster holds at most `scaena_paint::MAX_PIXELS` (PLAN 2.23–2.26).
 - Every lint rule: a struct implementing `Rule` with a stable code from SPEC §7.5, plus fixtures under `tests/lint/<CODE>/trigger.deck.json` and `tests/lint/<CODE>/clean.deck.json`.
 - Every change to layout/text/timeline/painters updates golden display lists in the same PR; the diff is reviewed, not regenerated blindly.
 - New node types, properties, or state fields: change the typed model (`scaena-core::model`; the deck's skeleton is `scaena-core::document`) → `just bless` regenerates `docs/schema/*.json`, which nobody edits by hand (ADR-0007) → `docs/examples/*` → SPEC §3. Run `just schema` to validate.
@@ -107,7 +108,11 @@ Gate 2 is open. `docs/gate-2.md` holds the evidence:
 - Criterion 1 waits on a real machine's browsers, held to the bar Jay set: 60 fps on WebGPU; on the CPU fallback, 60 where a cue draws no shader and 30 where it draws one. The player's frame meter (`?fps`) reads it, and `just fps` holds each cue to the bar.
 - Criterion 4, the assistant's loop, is met: Jay ran it with his own key on the published site (2026-10-07).
 
-The steps for criterion 1 are in the doc.
+The steps for criterion 1 are in the doc. On 2026-10-08 Jay started Phase 3 with criterion 1 still open: it is not waived, and gate 2 is logged met when his browsers' readings meet the bar (PLAN gate log).
+
+## Phase 3
+
+The Mac client (SPEC §9.3). The session the browser edits moved to `scaena-session` (ADR-0021): `scaena-wasm` wraps it for a page and `scaena-ffi` for Swift, each only turning arguments and results into JSON, so the Mac edits exactly as the browser does (PLAN 3.1).
 
 ## Working with Jay
 

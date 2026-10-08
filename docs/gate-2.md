@@ -8,6 +8,10 @@ Phase 2's exit criteria (PLAN, "Exit criteria (gate 2)"), each with its evidence
 
 **The first needs a real machine's browsers,** held to the bar Jay set on 2026-10-04. The gate log stays open until it is run: about ten minutes a browser, on the site (PLAN 2.7).
 
+**Phase 3 began before this gate closed, on Jay's call.** On 2026-10-08 Jay said: "Move forward. Next phase." Phase 3 starts at PLAN 3.1 with the first criterion open. It is not waived: the bar stands, and the gate is logged met when Jay's browsers read it.
+- **The one reading so far** is 59.6 fps, the worst frame 25 ms, painting in 0.7–0.8 ms. Jay read it on his machine before the steps below were written; which browser it was is not recorded.
+- **The risk.** In this repository's 4-core container, the noise slide on the CPU path ran 5.6 fps against a bar of 30. If Firefox's CPU path misses it on Jay's machine, that is work on the web player, which Phase 3 does not wait on.
+
 ## 1. A Phase 1 deck plays at 60 fps on WebGPU in Chrome and Safari 26+, and on the CPU fallback in Firefox: needs a real machine
 
 **The bar.** Jay set it on 2026-10-04 ("a high bar for fps: 30, or even 60 if it is remotely achievable"). It holds on the machine you present on, at the size you present at:

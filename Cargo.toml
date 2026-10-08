@@ -8,6 +8,7 @@ members = [
   "crates/scaena-export",
   "crates/scaena-store",
   "crates/scaena-ops",
+  "crates/scaena-session",
   "crates/scaena-cli",
   "crates/scaena-mcp",
   "crates/scaena-serve",
@@ -48,6 +49,7 @@ scaena-paint  = { path = "crates/scaena-paint" }
 scaena-export = { path = "crates/scaena-export" }
 scaena-store  = { path = "crates/scaena-store" }
 scaena-ops    = { path = "crates/scaena-ops" }
+scaena-session = { path = "crates/scaena-session" }
 scaena-mcp    = { path = "crates/scaena-mcp" }
 scaena-serve  = { path = "crates/scaena-serve" }
 scaena-resources = { path = "crates/scaena-resources" }
@@ -191,6 +193,9 @@ opt-level = "z"
 [profile.wasm.package.scaena-wasm]
 opt-level = "z"
 strip = true
+# The session the module wraps (ADR-0021), built as it was inside `scaena-wasm`.
+[profile.wasm.package.scaena-session]
+opt-level = "z"
 [profile.wasm.package.serde_json]
 opt-level = "z"
 [profile.wasm.package.zip]
