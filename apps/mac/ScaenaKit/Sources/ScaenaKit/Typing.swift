@@ -217,7 +217,9 @@ public final class Typing {
     @discardableResult
     public func replace(_ range: NSRange, with text: String) -> Bool {
         guard let node, let state, let carets, range.location != NSNotFound else { return false }
-        let range = NSIntersectionRange(range, NSRange(location: 0, length: carets.length))
+        // Kept to the text. Not `NSIntersectionRange`: it makes a caret, an empty range, `{0, 0}`.
+        let start = min(max(range.location, 0), carets.length)
+        let range = NSRange(location: start, length: min(max(range.length, 0), carets.length - start))
         // What reads so already (a composition committed as it was typed) only moves the caret.
         if (carets.text as NSString).substring(with: range) == text {
             put(range.location + text.utf16.count)

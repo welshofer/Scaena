@@ -86,9 +86,10 @@ private func carets(_ json: String) throws -> Carets {
     #expect(typing.selected == "this")
     typing.press(at: CGPoint(x: 280, y: 720), clicks: 3)
     #expect(typing.selection == NSRange(location: 0, length: 62))
-    typing.press(at: CGPoint(x: 280, y: 720))
+    // "this" is characters 4 to 8; the engine sets the "i" from x 271.7 to 282.3, the "s" to 306.1.
+    typing.press(at: CGPoint(x: 266, y: 720))
     #expect(typing.head == 6 && typing.selected == nil)
-    typing.drag(to: CGPoint(x: 316, y: 720))
+    typing.drag(to: CGPoint(x: 303, y: 720))
     #expect(typing.selected == "is")
 
     // Another state shown stops typing.
