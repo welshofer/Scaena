@@ -28,6 +28,8 @@ scaena-ops = { workspace = true, features = ["shipped"] }
 scaena-chat.workspace = true
 scaena-resources.workspace = true
 base64.workspace = true
+# The PDF drawn from the pages the session lays out, as the browser's PDF module draws it (PLAN 3.8).
+scaena-export.workspace = true
 
 # vello on Metal, painting onto a CAMetalLayer (PLAN 3.2): the Mac's alone.
 [target.'cfg(target_vendor = "apple")'.dependencies]

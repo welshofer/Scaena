@@ -3094,6 +3094,7 @@ dependencies = [
  "scaena-chat",
  "scaena-core",
  "scaena-engine",
+ "scaena-export",
  "scaena-ops",
  "scaena-paint",
  "scaena-resources",

@@ -262,6 +262,20 @@ char *scaena_surface_adapter(struct ScaenaSurface *surface);
 // `surface` is a live handle from [`scaena_surface_new`], or null.
 void scaena_surface_free(struct ScaenaSurface *surface);
 
+// The deck exported as `format` (PLAN 3.8), the bytes `scaena export` writes for it: `pdf`, a page
+// for each slide at its last state, as the browser's PDF module draws it from the pages the
+// session lays out; or `png`, `args` `{state, width}`, the state at rest painted by the CPU
+// painter that wide, as the editor's PNG export paints it. Null bytes where it cannot be made,
+// `*error` then saying why.
+//
+// # Safety
+// `session` is a live handle; `format` a NUL-terminated string; `args` one, or null; `error`
+// null or writable.
+struct ScaenaBytes scaena_export(struct ScaenaSession *session,
+                                 const char *format,
+                                 const char *args,
+                                 char **error);
+
 // Begin a conversation with `args`' model, `{"provider": "anthropic" | "openai" | "gemini",
 // "model", "base"?}`, which calls the tools a page's assistant has (`deck_read`, `deck_patch`,
 // `deck_lint`, `deck_render`, …) and `resource_read`. Null where it cannot begin, `*error` then

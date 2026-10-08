@@ -1332,7 +1332,18 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
       - the `ffi` suite's `a_drag_on_the_canvas_ends_in_the_patch_the_browsers_does`, on B1: the title drawn moved and back; snapped into another slot; off the grid kept to the state; the patch previewed, reached, and made as previewed; and W301 found;
       - ScaenaKit's `PlacingTests` on CI's macOS runner: `snapOf`'s cases, and the drag through `DeckEditor`, undone.
     - **What waits.** A run of the app on a Mac.
-- [ ] 3.8 Exports wired to Share sheet / Quick Look.
+- [ ] 3.8 Exports wired to Share sheet / Quick Look. *(Built; waits on a run on a Mac.)*
+    - **The exports.** `scaena_export` makes `scaena export`'s bytes from the session:
+      - `pdf`: a page for each slide at its last state, drawn as the browser's PDF module draws the pages the session lays out (`pdf_laid_out`, then `scaena_export::pdf::prepared`), byte for byte the CLI's;
+      - `png`: a state at rest, painted by the CPU painter at the width asked.
+    - **In the window.** The toolbar's Export menu:
+      - shares the deck's PDF, or the state shown as a PNG, through the Share sheet (`NSSharingServicePicker`);
+      - shows the PDF in Quick Look;
+      - saves either where the user says.
+
+      Each is written when it is asked for, named for the deck.
+    - Tests: the `ffi` suite's `an_export_is_the_bytes_scaena_export_writes` (B1's PDF is the CLI's, byte for byte; a PNG 640 wide; misuse said); ScaenaKit's `theDeckExportsAsTheCLIWritesIt` on CI's macOS runner.
+    - **What waits.** A run on a Mac. A Quick Look preview of a `.scaena` bundle in the Finder needs an app extension, which an Xcode project builds and the Swift package cannot: it waits for the app's Xcode project.
 
 ### Exit criteria (gate 3)
 1. Same bundle, same frame, same pixels (within tolerance) as the web player.
@@ -1397,4 +1408,5 @@ Not before Jay schedules it: until then Scaena's focus is editing and rendering.
 | 0 | 2026-10-02 | met: go | All seven exit criteria met; evidence, timings, and what did not match in `docs/spike-report.md`. Phase 1 starts at 1.1. |
 | 1 | 2026-10-03 | met | All five exit criteria met. The evidence per criterion is in `docs/gate-1.md`, and the agent runs are in `docs/examples/agent-run.md`. Phase 2 may start at 2.1. Of Phase 1's open tasks, 1.9 and 1.32 wait on Jay's review, 1.28–1.31 on his scheduling, and 1.33–1.36 come from the runs. |
 | 2 | — | open | Criteria 2 and 3 are met in headless Chromium, and criterion 4 by Jay's run with his own key on 2026-10-07 (Anthropic, `claude-haiku-5-5`). Criterion 1 needs a real machine's browsers, read with the player's frame meter (`?fps`). The evidence and the steps are in `docs/gate-2.md`. On 2026-10-08 Jay started Phase 3 with criterion 1 open, not waived: the gate is logged met when his browsers read the bar. |
+| 3 | — | open | Every task of Phase 3 is built (3.1–3.8), each waiting on a run on a Mac. Criterion 1 is met on CI's Mac through the goldens the web player is held to; criterion 3 is met for everything that draws a deck, held by `crates/scaena-ffi/tests/chrome.rs`, with Jay's call open on the source pane's TextKit (invariant 8 against SPEC §9.3). Criterion 2 needs the release build on an M-series Mac: CI's debug reading, 1.39 s, is not the gate's. The evidence and the steps are in `docs/gate-3.md`. |
 | 3 | — | — | — |
