@@ -62,6 +62,8 @@ struct DeckView: View {
     @SceneStorage("source") private var showsSource = false
     @SceneStorage("findings") private var showsFindings = true
     @SceneStorage("inspector") private var showsInspector = true
+    /// The panel the inspector's column shows (PLAN 3.15).
+    @SceneStorage("panel") private var panel: SidePanel = .inspector
 
     private var editor: DeckEditor { document.editor }
 
@@ -114,10 +116,14 @@ struct DeckView: View {
             }
         }
         .inspector(isPresented: $showsInspector) {
-            Inspector(editor: editor, state: shown, node: $node, also: $also, typing: typing, offer: { asked = $0 }) { ops in
-                perform { try document.make(ops, undo: undo) }
+            SidePanels(editor: editor, panel: $panel, edits: panelEdits) {
+                Inspector(
+                    editor: editor, state: shown, node: $node, also: $also, typing: typing, offer: { asked = $0 }
+                ) { ops in
+                    perform { try document.make(ops, undo: undo) }
+                }
             }
-            .inspectorColumnWidth(min: 240, ideal: 300, max: 420)
+            .inspectorColumnWidth(min: 240, ideal: 320, max: 520)
         }
     }
 
@@ -208,7 +214,7 @@ struct DeckView: View {
             Toggle(isOn: $showsInspector) {
                 Label("Inspector", systemImage: "sidebar.trailing")
             }
-            .help("The node selected, or the state")
+            .help("The node selected, or the state; the theme, the data, the files, and the versions")
             Toggle(isOn: $showsAssistant) {
                 Label("Assistant", systemImage: "bubble.left.and.text.bubble.right")
             }
@@ -691,6 +697,13 @@ struct DeckView: View {
         return DeckActions(
             inserts: [], insert: { _ in }, duplicate: picked.isEmpty ? nil : duplicate, delete: nil, lock: nil,
             locked: false, copyLook: nil, pasteLook: nil, group: nil, ungroup: nil, order: nil)
+    }
+
+    /// What the panels do to the deck (PLAN 3.15): each edit one step of the window's undo.
+    private var panelEdits: PanelEdits {
+        PanelEdits(
+            beside: { edit in perform { try document.beside(edit, undo: undo) } },
+            data: { edit in perform { try document.data(edit, undo: undo) } })
     }
 
     /// The state list's patches (PLAN 3.14): one step to undo, then `then` shown.
