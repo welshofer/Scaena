@@ -4,8 +4,9 @@ import SwiftUI
 /// A deck's window (PLAN 3.3–3.4): its states down the side, each drawn small; the state chosen
 /// painted by the engine on Metal, a node selected on it by a click, and its cue under it, to
 /// play and scrub; what lint found, each with its fix; the deck's `.scn` beside the canvas; and
-/// the inspector, which edits the node selected, or the state with none. Every edit is a patch
-/// or a source, as in the browser, and one step to undo.
+/// the inspector, which edits the node selected, or the state with none; and the assistant, which
+/// edits it with the user (PLAN 3.6). Every edit is a patch or a source, as in the browser, and
+/// one step to undo.
 struct DeckView: View {
     @ObservedObject var document: ScaenaDocument
     @Environment(\.undoManager) private var undo
@@ -17,6 +18,11 @@ struct DeckView: View {
     @State private var arriving: String?
     @State private var playhead = Playhead()
     @State private var failure: String?
+    /// The assistant: the conversation this window keeps.
+    @State private var assistant: Assistant?
+    /// What the on-device model is asked, shown in a sheet.
+    @State private var asked: Asked?
+    @SceneStorage("assistant") private var showsAssistant = false
     @SceneStorage("source") private var showsSource = false
     @SceneStorage("findings") private var showsFindings = true
     @SceneStorage("inspector") private var showsInspector = true
@@ -50,16 +56,20 @@ struct DeckView: View {
                     }
                     .frame(minHeight: 240)
                     if showsFindings {
-                        FindingsPanel(editor: editor, go: go) { finding in
+                        FindingsPanel(editor: editor, go: go, explain: OnDevice.available ? explain : nil) { finding in
                             perform { try document.fix(finding, undo: undo) }
                         }
                         .frame(minHeight: 90, idealHeight: 160)
                     }
                 }
                 .frame(minWidth: 360)
+                if showsAssistant, let assistant {
+                    AssistantPanel(assistant: assistant, seeing: seeing)
+                        .frame(minWidth: 280, idealWidth: 340)
+                }
             }
             .inspector(isPresented: $showsInspector) {
-                Inspector(editor: editor, state: shown, node: $node) { ops in
+                Inspector(editor: editor, state: shown, node: $node, offer: { asked = $0 }) { ops in
                     perform { try document.make(ops, undo: undo) }
                 }
                 .inspectorColumnWidth(min: 240, ideal: 300, max: 420)
@@ -89,6 +99,11 @@ struct DeckView: View {
                     Label("Inspector", systemImage: "sidebar.trailing")
                 }
                 .help("The node selected, or the state")
+                Toggle(isOn: $showsAssistant) {
+                    Label("Assistant", systemImage: "bubble.left.and.text.bubble.right")
+                }
+                .keyboardShortcut("a", modifiers: [.option, .command])
+                .help("Ask about the deck, or for an edit, with your own key (⌥⌘A)")
             }
         }
         .onChange(of: shown, initial: true) { _, now in
@@ -97,6 +112,18 @@ struct DeckView: View {
             node = arriving
             arriving = nil
             playhead = Playhead()
+        }
+        .onChange(of: undo, initial: true) { _, now in
+            // The assistant's edits are each one step of this window's undo.
+            if assistant == nil { assistant = Assistant(editor: editor) }
+            assistant?.edited = { [weak document = self.document, weak now] before, files in
+                document?.took(before, files: files, undo: now)
+            }
+        }
+        .sheet(item: $asked) { asked in
+            OfferSheet(title: asked.title, ask: asked.ask, take: asked.take) { ops in
+                perform { try document.make(ops, undo: undo) }
+            }
         }
         .task(id: editor.revision) {
             // Every state is linted once edits stop, as in the browser.
@@ -134,6 +161,27 @@ struct DeckView: View {
         } else {
             node = finding.node
         }
+    }
+
+    /// What the window shows, which a question to the assistant begins with: the state shown,
+    /// and the node selected.
+    private func seeing() -> Seeing? {
+        guard let shown else { return nil }
+        var nodes: [Seeing.Selected] = []
+        if let node {
+            nodes.append(Seeing.Selected(node: node, type: (try? editor.session.choices(state: shown, node: node))?.type))
+        }
+        return Seeing(state: shown, nodes: nodes)
+    }
+
+    /// `finding` explained by the on-device model.
+    private func explain(_ finding: Finding) {
+        var words: String?
+        if let state = finding.state, let node = finding.node {
+            words = (try? editor.session.text(state: state, node: node)) ?? nil
+        }
+        let text = words
+        asked = Asked(title: "\(finding.code), explained", ask: { try await OnDevice.explain(finding, text: text) }, take: nil)
     }
 
     private func make(_ op: JSONValue) {

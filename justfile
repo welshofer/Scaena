@@ -68,9 +68,11 @@ schema:
     python3 scripts/build_lint_fonts.py --check
     python3 scripts/build_bench_decks.py --check
 
-# The scripts' own tests: the bench gate's judgment (PLAN 1.24).
+# The scripts' own tests: the bench gate's judgment (PLAN 1.24); and the browser's assistant, held to
+# the exchanges scaena-chat's tests hold the Mac's to (ADR-0022).
 scripts:
     python3 -m unittest discover -s scripts -p 'test_*.py'
+    node --experimental-strip-types web/exchanges.mjs
 
 # CI runs these on each runner, and fails a pull request on a bench slower than its base, timed
 # beside it on the same machine, by more than the run's floor every time: 10%, or 2.5 times the

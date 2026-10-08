@@ -15,6 +15,10 @@
 //! - **Bytes for frames.** [`scaena_frame`] gives a state's display list, postcard-encoded (SPEC
 //!   §6), and [`scaena_pixels`] paints it with the CPU painter. A save gives the saved bundle's
 //!   files ([`scaena_save`]), fonts subset and the history recorded in it, as `scaena save` does.
+//! - **The assistant's conversation** (PLAN 3.6, ADR-0022). [`scaena_chat_new`] begins one with
+//!   the model the user chose, and [`scaena_chat_call`] takes it a step at a time: the question,
+//!   each request for Swift to make with the user's key, the answer read, and each call the model
+//!   makes run on the session. [`scaena_providers`] lists the models a key can use.
 //!
 //! **Memory.** A string or bytes this library returns are the caller's, to free with
 //! [`scaena_string_free`] or [`scaena_bytes_free`]; a handle, with its own `_free`. Every pointer
@@ -23,6 +27,8 @@
 //! **Failure.** A null where a value is needed, text that is not UTF-8, and arguments that are
 //! not JSON are each an error the call returns. A panic is caught at the boundary and is an
 //! error that says so: nothing unwinds into Swift.
+
+mod chat;
 
 use scaena_session::Session;
 use scaena_session::assistant::{Caller, failure};
@@ -294,8 +300,10 @@ pub unsafe extern "C" fn scaena_add_file(
 /// `states`, `formats`, `setFormat {format?}`, `canvasSize`, `duration {state}`, `timeline`,
 /// `files`, `imageFiles`, `digest {state}`, `reading {state}`, `source`, `compiledFrom
 /// {source}`, `compile {source}`, `lint {state?}`, `fix {patch}`, `inspect {state}`, `boxes
-/// {state}`, `hit {state, x, y}`, `layers {state}`, `choices {state, node}`, `stateChoices
-/// {state}`, `inserts`, `themes`, `themeText`, `keepHistory`, `keepsHistory`.
+/// {state}`, `hit {state, x, y}`, `layers {state}`, `carets {state, node}`, `choices {state,
+/// node}`, `stateChoices {state}`, `inserts`, `themes`, `themeText`, `keepHistory`,
+/// `keepsHistory`, and `writeFiles {files: [{path, text}]}`, which writes files back as an undo
+/// has them (`text` null: taken out).
 ///
 /// # Safety
 /// `session` is a live handle; `method` a NUL-terminated string; `args` one, or null.
@@ -705,6 +713,113 @@ pub unsafe extern "C" fn scaena_surface_free(surface: *mut ScaenaSurface) {
     }
 }
 
+/// A conversation with a model (PLAN 3.6, ADR-0022), kept between questions until it is
+/// forgotten: the user's own key, and the tools the browser's assistant has. Free with
+/// [`scaena_chat_free`].
+pub struct ScaenaChat(chat::Asking);
+
+/// Begin a conversation with `args`' model, `{"provider": "anthropic" | "openai" | "gemini",
+/// "model", "base"?}`, which calls the tools a page's assistant has (`deck_read`, `deck_patch`,
+/// `deck_lint`, `deck_render`, …) and `resource_read`. Null where it cannot begin, `*error` then
+/// saying why.
+///
+/// # Safety
+/// `args` is a NUL-terminated string; `error` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_chat_new(args: *const c_char, error: *mut *mut c_char) -> *mut ScaenaChat {
+    let made = guarded(|| {
+        let args = unsafe { text(args, "args") }?;
+        let args: Value = serde_json::from_str(args).map_err(|e| said(format!("the arguments are not JSON: {e}")))?;
+        chat::Asking::new(&args)
+    });
+    match made {
+        Ok(asking) => Box::into_raw(Box::new(ScaenaChat(asking))),
+        Err(failure) => {
+            unsafe { report(error, failure) };
+            std::ptr::null_mut()
+        }
+    }
+}
+
+/// One step of the conversation `chat`, on `session`'s bundle, as `{"ok": value}` or
+/// `{"error": {"message"}}`. The client makes each request, and hands its answer back:
+///
+/// - `ask {text, seeing?}`: the user's question, begun with what the window shows (`seeing`:
+///   `{state, format?, nodes: [{node, type?}], characters?: {node, from, to, text}}`), the model
+///   told the deck as it is now.
+/// - `request {key}`: the request for the model's next turn, `{method, url, headers, body}`, the
+///   body the text to send; the key goes into its headers and is kept nowhere.
+/// - `answer {status, statusText?, body}`: the answer read, `{"next": "calls", text, calls,
+///   usage}`, the calls to run, or `{"next": "done", text, stop, usage}`; a provider's refusal is
+///   an error, and the conversation is as it was.
+/// - `run {index, at?}`: the last answer's call `index` run on the session by `agent:` and the
+///   model's name, at `at` (RFC 3339): `{id, name, error, summary, json, png?, edited,
+///   rewritten}`. A `call` `{id, name, args}` may be given in its place.
+/// - `next`: the calls' results handed to the model, every call answered (those not run, as
+///   stopped): whether it may be asked again, or the question has taken its rounds.
+/// - `use {provider, model, base?}`: another model from the next request on, the conversation
+///   kept. `forget`: the next question is the first. `conversation`: the conversation as kept.
+///
+/// `session` may be null for a step that runs nothing on it: all but `ask` and `run`.
+///
+/// # Safety
+/// `chat` is a live handle; `session` one, or null; `method` a NUL-terminated string; `args` one,
+/// or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_chat_call(
+    chat: *mut ScaenaChat,
+    session: *mut ScaenaSession,
+    method: *const c_char,
+    args: *const c_char,
+) -> *mut c_char {
+    envelope(guarded(|| {
+        let chat = unsafe { handle(chat, "chat") }?;
+        // SAFETY: the caller gives a live handle, used by one thread at a time, or null.
+        let session = unsafe { session.as_mut() }.map(|s| &mut s.0);
+        let method = unsafe { text(method, "method") }?;
+        let args = match unsafe { maybe_text(args, "args") }? {
+            None => json!({}),
+            Some(a) => {
+                serde_json::from_str(a).map_err(|e| said(format!("{method}: the arguments are not JSON: {e}")))?
+            }
+        };
+        chat.0.call(session, method, &args)
+    }))
+}
+
+/// Free a conversation.
+///
+/// # Safety
+/// `chat` is a handle this library made and has not freed, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_chat_free(chat: *mut ScaenaChat) {
+    if !chat.is_null() {
+        // SAFETY: the caller gives a handle this library made and has not freed.
+        drop(unsafe { Box::from_raw(chat) });
+    }
+}
+
+/// The models' providers, as `{"ok": value}` or `{"error": {"message"}}`: `list`, each provider
+/// `{id, name, base}`; `models {provider, key, base?}`, the request that lists the models a key
+/// can use, as `request` gives one; and `readModels {provider, status, statusText?, body}`, the
+/// models its answer lists.
+///
+/// # Safety
+/// `method` is a NUL-terminated string; `args` one, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_providers(method: *const c_char, args: *const c_char) -> *mut c_char {
+    envelope(guarded(|| {
+        let method = unsafe { text(method, "method") }?;
+        let args = match unsafe { maybe_text(args, "args") }? {
+            None => json!({}),
+            Some(a) => {
+                serde_json::from_str(a).map_err(|e| said(format!("{method}: the arguments are not JSON: {e}")))?
+            }
+        };
+        chat::providers(method, &args)
+    }))
+}
+
 /// Free a string this library returned.
 ///
 /// # Safety
@@ -769,6 +884,7 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         "boxes" => json!(s.boxes_json(arg("state")?).map_err(said)?),
         "hit" => json!(s.hits_json(arg("state")?, [number("x")? as f32, number("y")? as f32]).map_err(said)?),
         "layers" => value(serde_json::to_value(s.layers(arg("state")?).map_err(said)?))?,
+        "carets" => s.carets_json(arg("state")?, arg("node")?).map_err(said)?,
         "choices" => value(serde_json::to_value(s.choices(arg("state")?, arg("node")?).map_err(said)?))?,
         "stateChoices" => value(serde_json::to_value(s.state_choices(arg("state")?).map_err(said)?))?,
         "inserts" => value(serde_json::to_value(s.inserts()))?,
@@ -782,6 +898,12 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             Value::Null
         }
         "keepsHistory" => json!(s.keeps_history()),
+        "writeFiles" => {
+            let files = serde_json::from_value(args.get("files").cloned().unwrap_or_default())
+                .map_err(|e| said(format!("{method}: `files` is a list of {{path, text}}: {e}")))?;
+            s.write_files(files);
+            Value::Null
+        }
         _ => return Err(said(format!("`{method}` is not a call this library answers"))),
     })
 }

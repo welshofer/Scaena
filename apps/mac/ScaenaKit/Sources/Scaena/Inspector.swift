@@ -4,11 +4,14 @@ import SwiftUI
 /// The inspector (PLAN 3.4, as the browser's, PLAN 2.33 and 2.36): the state's layers, to select
 /// a node, then what the theme offers for the node selected, or for the state with none. Each
 /// choice is one patch, a `choose` written where the value lives or a `set_state`, as in the
-/// browser.
+/// browser. Where the Mac has the on-device model (PLAN 3.6), it drafts the state's notes and
+/// tightens a text's words, each offered to take as one patch, or to leave.
 struct Inspector: View {
     let editor: DeckEditor
     let state: String?
     @Binding var node: String?
+    /// Ask the on-device model, its answer offered.
+    let offer: (Asked) -> Void
     let make: ([JSONValue]) -> Void
     @State private var layers: [Layer] = []
     @State private var choices: Choices?
@@ -27,6 +30,19 @@ struct Inspector: View {
                         }
                     } header: {
                         Text(choices?.node ?? "State \(state)")
+                    }
+                    if OnDevice.available {
+                        Section {
+                            if let node = choices?.node {
+                                if choices?.type == "text" {
+                                    Button("Tighten the words", systemImage: "sparkles") { tighten(node, in: state) }
+                                }
+                            } else {
+                                Button("Draft the notes", systemImage: "sparkles") { draft(state) }
+                            }
+                        } footer: {
+                            Text("Answered on this Mac").font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                 }
                 .formStyle(.grouped)
@@ -61,6 +77,34 @@ struct Inspector: View {
             op = ["op": "set_state", "id": .string(state), "prop": .string(prop), "value": value]
         }
         make([op])
+    }
+
+    /// `node`'s words tightened on this Mac, offered as one `replace_text` of them all.
+    private func tighten(_ node: String, in state: String) {
+        guard let words = (try? editor.session.text(state: state, node: node)) ?? nil, !words.isEmpty else { return }
+        let count = Double(words.unicodeScalars.count)
+        offer(
+            Asked(
+                title: "\(node), tightened", ask: { try await OnDevice.tighten(words) },
+                take: { tightened in
+                    [
+                        [
+                            "op": "replace_text", "state": .string(state), "node": .string(node), "from": 0,
+                            "to": .number(count), "text": .string(tightened),
+                        ]
+                    ]
+                }))
+    }
+
+    /// `state`'s notes drafted on this Mac from how it reads, offered as one `set_state`.
+    private func draft(_ state: String) {
+        guard let reading = try? editor.session.reading(state: state) else { return }
+        offer(
+            Asked(
+                title: "Notes for \(state)", ask: { try await OnDevice.notes(state: state, reading: reading) },
+                take: { notes in
+                    [["op": "set_state", "id": .string(state), "prop": "notes", "value": .string(notes)]]
+                }))
     }
 
     /// Where a field's value lives, which is where a choice is written.

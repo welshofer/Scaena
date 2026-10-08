@@ -9,5 +9,9 @@ struct ScaenaApp: App {
         DocumentGroup(newDocument: { ScaenaDocument() }) { file in
             DeckView(document: file.document)
         }
+        // The assistant's keys, kept in the Keychain (PLAN 3.6).
+        Settings {
+            KeysSettings()
+        }
     }
 }

@@ -2998,6 +2998,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "scaena-chat"
+version = "0.1.0"
+dependencies = [
+ "scaena-resources",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "scaena-cli"
 version = "0.1.0"
 dependencies = [
@@ -3079,11 +3089,14 @@ dependencies = [
 name = "scaena-ffi"
 version = "0.1.0"
 dependencies = [
+ "base64 0.23.1",
  "cbindgen",
+ "scaena-chat",
  "scaena-core",
  "scaena-engine",
  "scaena-ops",
  "scaena-paint",
+ "scaena-resources",
  "scaena-session",
  "scaena-store",
  "serde_json",

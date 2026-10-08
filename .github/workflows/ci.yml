@@ -147,6 +147,7 @@ jobs:
       - name: ScaenaKit, the C ABI from Swift
         if: runner.os == 'macOS'
         run: |
+          swift --version && xcrun --show-sdk-version
           flags=(-Xlinker -L"$PWD/target/debug")
           set -- $SCAENA_FFI_LIBS
           while [ $# -gt 0 ]; do
@@ -433,3 +434,9 @@ jobs:
       - run: python3 scripts/build_bench_decks.py --check
       # The bench gate judges a pull request beside its base (PLAN 1.24).
       - run: python3 -m unittest discover -s scripts -p "test_*.py"
+      # The browser's assistant still makes the exchanges recorded, which scaena-chat's tests hold
+      # the Mac's to (PLAN 3.6, ADR-0022). Node reads the adapters' TypeScript, its types stripped.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --experimental-strip-types web/exchanges.mjs

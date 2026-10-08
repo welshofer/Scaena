@@ -936,6 +936,27 @@ impl Session {
         Ok(self.at_rest(state)?.carets(node))
     }
 
+    /// [`Session::carets`] as a page and the Mac take it (PLAN 2.32, 3.6): `{ "text", "lines":
+    /// [{ "top", "bottom", "x", "start", "end", "broken", "chars": [[offset, lead, trail]] }],
+    /// "items": [{ "kind", "level", "marker" } | null] }`, canvas units, its offsets in UTF-16
+    /// code units, as JavaScript and Swift count a string; `items` each paragraph as a list's
+    /// item (ADR-0018). Null for a node that is no text there.
+    pub fn carets_json(&mut self, state: &str, node: &str) -> Result<serde_json::Value, Error> {
+        let Some(c) = self.carets(state, node)? else { return Ok(serde_json::Value::Null) };
+        let units = utf16(&c.text);
+        let lines: Vec<serde_json::Value> = (c.lines.iter())
+            .map(|l| {
+                let chars: Vec<_> =
+                    l.chars.iter().map(|ch| serde_json::json!([units(ch.offset), ch.lead, ch.trail])).collect();
+                serde_json::json!({
+                    "top": l.top, "bottom": l.bottom, "x": l.x, "start": units(l.start), "end": units(l.end),
+                    "broken": l.broken, "chars": chars,
+                })
+            })
+            .collect();
+        Ok(serde_json::json!({ "text": c.text, "lines": lines, "items": c.items }))
+    }
+
     /// What an inspector offers for `node` as `state` shows it (ADR-0013, PLAN 2.33): each
     /// property it edits, with the theme's names for it or what the schema allows, the value
     /// shown, and where that value lives, which is where a `choose` patch writes. A chart's or a
@@ -1524,6 +1545,18 @@ pub fn note_json(n: scaena_engine::marks::NoteMark) -> serde_json::Value {
     }
     out
 }
+/// Each byte offset into `text` as UTF-16 code units, as JavaScript and Swift count a string.
+fn utf16(text: &str) -> impl Fn(usize) -> usize + '_ {
+    let mut at: Vec<(usize, usize)> = Vec::with_capacity(text.len() + 1);
+    let mut units = 0;
+    for (byte, c) in text.char_indices() {
+        at.push((byte, units));
+        units += c.len_utf16();
+    }
+    at.push((text.len(), units));
+    move |byte| at[at.partition_point(|&(b, _)| b < byte).min(at.len() - 1)].1
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,0 +1,346 @@
+{
+  "comment": "One conversation, as each provider is asked it and its answer read back, and what the model is told: the system prompt for each deck and what the editor shows as a question is asked (ADR-0022). web/exchanges.mjs runs the browser's adapters and prompt on it and records what they send, read, and say in exchanges.json; scaena-chat's tests hold the Rust adapters and the page's prompt to that record. The PNG is one transparent pixel.",
+  "model": "a-model",
+  "key": "sk-test",
+  "system": "You are the assistant.",
+  "tools": [
+    {
+      "name": "deck_lint",
+      "description": "Lint the deck.",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "fix": {
+            "$ref": "#/$defs/Fix"
+          }
+        },
+        "$defs": {
+          "Fix": {
+            "type": "boolean",
+            "description": "Apply the fixes."
+          }
+        }
+      }
+    },
+    {
+      "name": "deck_render",
+      "description": "Render a state.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ]
+      }
+    }
+  ],
+  "messages": [
+    {
+      "role": "user",
+      "text": "[In the editor: state cover shown; nothing selected.]\n\nIs the cover clean?"
+    },
+    {
+      "role": "assistant",
+      "text": "I will lint it and look.",
+      "calls": [
+        {
+          "id": "toolu_01",
+          "name": "deck_lint",
+          "args": {
+            "state": "cover",
+            "fix": false
+          }
+        },
+        {
+          "id": "local-1-deck_render",
+          "name": "deck_render",
+          "args": {}
+        }
+      ],
+      "raw": [
+        {
+          "text": "Thinking about the cover.",
+          "thought": true
+        },
+        {
+          "text": "I will lint it and look."
+        },
+        {
+          "functionCall": {
+            "id": "toolu_01",
+            "name": "deck_lint",
+            "args": {
+              "state": "cover",
+              "fix": false
+            }
+          },
+          "thoughtSignature": "c2ln"
+        },
+        {
+          "functionCall": {
+            "name": "deck_render",
+            "args": {}
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "results": [
+        {
+          "id": "toolu_01",
+          "name": "deck_lint",
+          "json": "{\"findings\":[]}",
+          "error": false
+        },
+        {
+          "id": "local-1-deck_render",
+          "name": "deck_render",
+          "json": "{\"state\":\"cover\",\"width\":1}",
+          "error": false,
+          "png": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "results": [
+        {
+          "id": "toolu_02",
+          "name": "deck_patch",
+          "json": "{\"message\":\"no such op\"}",
+          "error": true
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "text": "And the next state?"
+    }
+  ],
+  "answers": {
+    "anthropic": {
+      "id": "msg_01",
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "The cover is clean."
+        },
+        {
+          "type": "tool_use",
+          "id": "toolu_03",
+          "name": "deck_render",
+          "input": {
+            "state": "why"
+          }
+        }
+      ],
+      "stop_reason": "tool_use",
+      "usage": {
+        "input_tokens": 1200,
+        "output_tokens": 40
+      }
+    },
+    "openai": {
+      "id": "chatcmpl-01",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "tool_calls",
+          "message": {
+            "role": "assistant",
+            "content": "The cover is clean.",
+            "tool_calls": [
+              {
+                "id": "call_03",
+                "type": "function",
+                "function": {
+                  "name": "deck_render",
+                  "arguments": "{\"state\":\"why\"}"
+                }
+              },
+              {
+                "id": "call_04",
+                "type": "function",
+                "function": {
+                  "name": "deck_lint",
+                  "arguments": "not json"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 1200,
+        "completion_tokens": 40
+      }
+    },
+    "gemini": {
+      "candidates": [
+        {
+          "content": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "Looking again.",
+                "thought": true
+              },
+              {
+                "text": "The cover is clean."
+              },
+              {
+                "functionCall": {
+                  "name": "deck_render",
+                  "args": {
+                    "state": "why"
+                  }
+                },
+                "thoughtSignature": "c2lnMg=="
+              }
+            ]
+          },
+          "finishReason": "STOP"
+        }
+      ],
+      "usageMetadata": {
+        "promptTokenCount": 1200,
+        "candidatesTokenCount": 40
+      }
+    }
+  },
+  "models": {
+    "anthropic": {
+      "data": [
+        {
+          "id": "claude-b",
+          "type": "model"
+        },
+        {
+          "id": "claude-a",
+          "type": "model"
+        }
+      ]
+    },
+    "openai": {
+      "data": [
+        {
+          "id": "gpt-b"
+        },
+        {
+          "id": "gpt-a"
+        }
+      ]
+    },
+    "gemini": {
+      "models": [
+        {
+          "name": "models/gemini-b",
+          "supportedGenerationMethods": [
+            "generateContent"
+          ]
+        },
+        {
+          "name": "models/embed",
+          "supportedGenerationMethods": [
+            "embedContent"
+          ]
+        },
+        {
+          "name": "models/gemini-a"
+        }
+      ]
+    }
+  },
+  "failures": {
+    "anthropic": {
+      "status": 401,
+      "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"}}"
+    },
+    "openai": {
+      "status": 429,
+      "body": "{\"error\":{\"message\":\"Rate limit reached\"}}"
+    },
+    "gemini": {
+      "status": 500,
+      "body": "upstream exploded"
+    }
+  },
+  "prompt": {
+    "decks": [
+      {
+        "title": "Ridgeline",
+        "states": [
+          "cover",
+          "why",
+          "close"
+        ],
+        "formats": [
+          "9:16",
+          "1:1"
+        ],
+        "theme": "dusk"
+      },
+      {
+        "states": [
+          "only"
+        ],
+        "formats": []
+      }
+    ],
+    "resources": [
+      {
+        "uri": "scaena://schema/deck",
+        "name": "The deck format"
+      },
+      {
+        "uri": "scaena://skills/author-deck",
+        "name": "Skill: author a deck"
+      }
+    ],
+    "bundleSkills": [
+      [
+        "house-style",
+        "brand-voice"
+      ],
+      []
+    ],
+    "authorDeck": "# Author a deck\n\nStart from the brief.",
+    "seeings": [
+      null,
+      {
+        "state": "cover",
+        "nodes": []
+      },
+      {
+        "state": "why",
+        "format": "9:16",
+        "nodes": [
+          {
+            "node": "title",
+            "type": "text"
+          },
+          {
+            "node": "chart"
+          }
+        ],
+        "characters": {
+          "node": "title",
+          "from": 4,
+          "to": 9,
+          "text": "say \"so\" — é"
+        }
+      }
+    ]
+  }
+}

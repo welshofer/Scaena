@@ -88,6 +88,15 @@ public final class DeckEditor {
         take(source)
     }
 
+    /// Take the deck as the session holds it after an edit made on it directly, as the assistant
+    /// makes one (PLAN 3.6): compiled and linted as any edit is, and drawn again. The source it
+    /// replaces, for an undo.
+    @discardableResult
+    public func reread() -> String? {
+        guard let next = try? session.source() else { return nil }
+        return take(next)
+    }
+
     /// Lint the state shown, laid out alone, the others' findings kept: what an edit shows at once.
     public func lintShown() {
         guard let shown else { return lintEvery() }

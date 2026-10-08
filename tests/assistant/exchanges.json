@@ -1,0 +1,549 @@
+{
+  "anthropic": {
+    "turn": {
+      "request": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "headers": {
+          "anthropic-dangerous-direct-browser-access": "true",
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+          "x-api-key": "sk-test"
+        },
+        "body": {
+          "model": "a-model",
+          "max_tokens": 8192,
+          "system": [
+            {
+              "type": "text",
+              "text": "You are the assistant.",
+              "cache_control": {
+                "type": "ephemeral"
+              }
+            }
+          ],
+          "tools": [
+            {
+              "name": "deck_lint",
+              "description": "Lint the deck.",
+              "input_schema": {
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "type": "string"
+                  },
+                  "fix": {
+                    "type": "boolean",
+                    "description": "Apply the fixes."
+                  }
+                }
+              }
+            },
+            {
+              "name": "deck_render",
+              "description": "Render a state.",
+              "input_schema": {
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "state"
+                ]
+              }
+            }
+          ],
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "[In the editor: state cover shown; nothing selected.]\n\nIs the cover clean?"
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "I will lint it and look."
+                },
+                {
+                  "type": "tool_use",
+                  "id": "toolu_01",
+                  "name": "deck_lint",
+                  "input": {
+                    "state": "cover",
+                    "fix": false
+                  }
+                },
+                {
+                  "type": "tool_use",
+                  "id": "local-1-deck_render",
+                  "name": "deck_render",
+                  "input": {}
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "toolu_01",
+                  "is_error": false,
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "{\"findings\":[]}"
+                    }
+                  ]
+                },
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "local-1-deck_render",
+                  "is_error": false,
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "{\"state\":\"cover\",\"width\":1}"
+                    },
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "toolu_02",
+                  "is_error": true,
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "{\"message\":\"no such op\"}"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": "And the next state?"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "read": {
+        "text": "The cover is clean.",
+        "calls": [
+          {
+            "id": "toolu_03",
+            "name": "deck_render",
+            "args": {
+              "state": "why"
+            }
+          }
+        ],
+        "stop": "tools",
+        "usage": {
+          "input": 1200,
+          "output": 40
+        }
+      }
+    },
+    "models": {
+      "request": {
+        "method": "GET",
+        "url": "https://api.anthropic.com/v1/models?limit=100",
+        "headers": {
+          "anthropic-dangerous-direct-browser-access": "true",
+          "anthropic-version": "2023-06-01",
+          "x-api-key": "sk-test"
+        },
+        "body": null
+      },
+      "read": [
+        "claude-b",
+        "claude-a"
+      ]
+    },
+    "failure": {
+      "message": "401 : invalid x-api-key"
+    }
+  },
+  "openai": {
+    "turn": {
+      "request": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "headers": {
+          "authorization": "Bearer sk-test",
+          "content-type": "application/json"
+        },
+        "body": {
+          "model": "a-model",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are the assistant."
+            },
+            {
+              "role": "user",
+              "content": "[In the editor: state cover shown; nothing selected.]\n\nIs the cover clean?"
+            },
+            {
+              "role": "assistant",
+              "content": "I will lint it and look.",
+              "tool_calls": [
+                {
+                  "id": "toolu_01",
+                  "type": "function",
+                  "function": {
+                    "name": "deck_lint",
+                    "arguments": "{\"state\":\"cover\",\"fix\":false}"
+                  }
+                },
+                {
+                  "id": "local-1-deck_render",
+                  "type": "function",
+                  "function": {
+                    "name": "deck_render",
+                    "arguments": "{}"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "tool_call_id": "toolu_01",
+              "content": "{\"findings\":[]}"
+            },
+            {
+              "role": "tool",
+              "tool_call_id": "local-1-deck_render",
+              "content": "{\"state\":\"cover\",\"width\":1}"
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "The frame deck_render drew (local-1-deck_render):"
+                },
+                {
+                  "type": "image_url",
+                  "image_url": {
+                    "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "tool_call_id": "toolu_02",
+              "content": "{\"message\":\"no such op\"}"
+            },
+            {
+              "role": "user",
+              "content": "And the next state?"
+            }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "deck_lint",
+                "description": "Lint the deck.",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string"
+                    },
+                    "fix": {
+                      "type": "boolean",
+                      "description": "Apply the fixes."
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "deck_render",
+                "description": "Render a state.",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "state"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      },
+      "read": {
+        "text": "The cover is clean.",
+        "calls": [
+          {
+            "id": "call_03",
+            "name": "deck_render",
+            "args": {
+              "state": "why"
+            }
+          },
+          {
+            "id": "call_04",
+            "name": "deck_lint",
+            "args": "not json"
+          }
+        ],
+        "stop": "tools",
+        "usage": {
+          "input": 1200,
+          "output": 40
+        }
+      }
+    },
+    "models": {
+      "request": {
+        "method": "GET",
+        "url": "https://api.openai.com/v1/models",
+        "headers": {
+          "authorization": "Bearer sk-test"
+        },
+        "body": null
+      },
+      "read": [
+        "gpt-a",
+        "gpt-b"
+      ]
+    },
+    "failure": {
+      "message": "429 : Rate limit reached"
+    }
+  },
+  "gemini": {
+    "turn": {
+      "request": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/a-model:generateContent",
+        "headers": {
+          "content-type": "application/json",
+          "x-goog-api-key": "sk-test"
+        },
+        "body": {
+          "systemInstruction": {
+            "parts": [
+              {
+                "text": "You are the assistant."
+              }
+            ]
+          },
+          "contents": [
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "[In the editor: state cover shown; nothing selected.]\n\nIs the cover clean?"
+                }
+              ]
+            },
+            {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "Thinking about the cover.",
+                  "thought": true
+                },
+                {
+                  "text": "I will lint it and look."
+                },
+                {
+                  "functionCall": {
+                    "id": "toolu_01",
+                    "name": "deck_lint",
+                    "args": {
+                      "state": "cover",
+                      "fix": false
+                    }
+                  },
+                  "thoughtSignature": "c2ln"
+                },
+                {
+                  "functionCall": {
+                    "name": "deck_render",
+                    "args": {}
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "functionResponse": {
+                    "id": "toolu_01",
+                    "name": "deck_lint",
+                    "response": {
+                      "result": {
+                        "findings": []
+                      }
+                    }
+                  }
+                },
+                {
+                  "functionResponse": {
+                    "name": "deck_render",
+                    "response": {
+                      "result": {
+                        "state": "cover",
+                        "width": 1
+                      }
+                    }
+                  }
+                },
+                {
+                  "inlineData": {
+                    "mimeType": "image/png",
+                    "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+                  }
+                },
+                {
+                  "functionResponse": {
+                    "id": "toolu_02",
+                    "name": "deck_patch",
+                    "response": {
+                      "error": {
+                        "message": "no such op"
+                      }
+                    }
+                  }
+                },
+                {
+                  "text": "And the next state?"
+                }
+              ]
+            }
+          ],
+          "tools": [
+            {
+              "functionDeclarations": [
+                {
+                  "name": "deck_lint",
+                  "description": "Lint the deck.",
+                  "parametersJsonSchema": {
+                    "type": "object",
+                    "properties": {
+                      "state": {
+                        "type": "string"
+                      },
+                      "fix": {
+                        "type": "boolean",
+                        "description": "Apply the fixes."
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "deck_render",
+                  "description": "Render a state.",
+                  "parametersJsonSchema": {
+                    "type": "object",
+                    "properties": {
+                      "state": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "state"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "read": {
+        "text": "The cover is clean.",
+        "calls": [
+          {
+            "id": "local-2-deck_render",
+            "name": "deck_render",
+            "args": {
+              "state": "why"
+            }
+          }
+        ],
+        "stop": "tools",
+        "raw": [
+          {
+            "text": "Looking again.",
+            "thought": true
+          },
+          {
+            "text": "The cover is clean."
+          },
+          {
+            "functionCall": {
+              "name": "deck_render",
+              "args": {
+                "state": "why"
+              }
+            },
+            "thoughtSignature": "c2lnMg=="
+          }
+        ],
+        "usage": {
+          "input": 1200,
+          "output": 40
+        }
+      }
+    },
+    "models": {
+      "request": {
+        "method": "GET",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000",
+        "headers": {
+          "x-goog-api-key": "sk-test"
+        },
+        "body": null
+      },
+      "read": [
+        "gemini-b",
+        "gemini-a"
+      ]
+    },
+    "failure": {
+      "message": "500 : upstream exploded"
+    }
+  },
+  "prompt": {
+    "system": [
+      "You are the assistant in Scaena's editor, working with the user on the deck they have open.\n\nScaena decks are states over one scene graph: nodes exist for the whole deck, each state says what changes, and the theme owns type and layout, so a deck names roles, slots, and presets, never pixels.\n\nYour tools are the Scaena MCP server's, working on the open deck: they take no `bundle`, `out`, or `painter`. Each edit you make (deck_patch, spine_update, data_attach, data_edit, theme_edit, deck_lint with `fix`) shows in the user's editor as you make it, and they can undo it. Edit with deck_patch (`dry_run` first when unsure), check with deck_lint, and look with deck_render, which returns the frame as an image. A file the user dropped on the editor is in the bundle, data_attach declares a data file the bundle holds, and data_edit reads a data source's rows and edits them in place: a cell set, a row added or taken away. theme_edit edits the deck's own theme, its colors, type roles, and spacing, by JSON Patch operations on it (resource_read of bundle://theme reads it as it is, and scaena://schema/theme says what it takes): a look asked of the whole deck, such as larger headlines or a warmer accent, is an edit of the theme, never a literal written into each node. There is no deck_create, theme_apply, deck_export, or deck_history here: the page opens and downloads bundles itself, and its Versions tab reads and restores the deck's history, so ask the user when the work needs a new bundle, another theme, an export, or an earlier version.\n\nresource_read reads the resources: the schemas, the lint catalog, the specification by section (scaena://spec is its index), the skills, and examples. The patch ops are in scaena://schema/patch. Follow the author-deck skill below, and read the others when the work calls for them.\n\nA question may begin with what the user sees in the editor, in brackets: the state shown, the nodes selected, and any characters selected in a text, counted as replace_text and style_text count them, with the text they make. \"This\", \"it\", \"these\", \"here\", and words like \"shorter\" or \"bolder\" mean what it names: change those, in that state, unless the question says otherwise. What you change is selected in the editor after.\n\nSay briefly what you do and what you found, in the user's language. Lint to zero errors before you say a deck is done, and look at what you changed.\n\nThe deck: \"Ridgeline\", 3 states (cover, why, close), theme dusk, also in 9:16, 1:1.\n\nThe resources:\n- scaena://schema/deck: The deck format\n- scaena://skills/author-deck: Skill: author a deck\n\nThe bundle carries its own skills too; follow them over the general ones where they differ:\n- bundle://skills/house-style\n- bundle://skills/brand-voice\n\n--- scaena://skills/author-deck ---\n# Author a deck\n\nStart from the brief.",
+      "You are the assistant in Scaena's editor, working with the user on the deck they have open.\n\nScaena decks are states over one scene graph: nodes exist for the whole deck, each state says what changes, and the theme owns type and layout, so a deck names roles, slots, and presets, never pixels.\n\nYour tools are the Scaena MCP server's, working on the open deck: they take no `bundle`, `out`, or `painter`. Each edit you make (deck_patch, spine_update, data_attach, data_edit, theme_edit, deck_lint with `fix`) shows in the user's editor as you make it, and they can undo it. Edit with deck_patch (`dry_run` first when unsure), check with deck_lint, and look with deck_render, which returns the frame as an image. A file the user dropped on the editor is in the bundle, data_attach declares a data file the bundle holds, and data_edit reads a data source's rows and edits them in place: a cell set, a row added or taken away. theme_edit edits the deck's own theme, its colors, type roles, and spacing, by JSON Patch operations on it (resource_read of bundle://theme reads it as it is, and scaena://schema/theme says what it takes): a look asked of the whole deck, such as larger headlines or a warmer accent, is an edit of the theme, never a literal written into each node. There is no deck_create, theme_apply, deck_export, or deck_history here: the page opens and downloads bundles itself, and its Versions tab reads and restores the deck's history, so ask the user when the work needs a new bundle, another theme, an export, or an earlier version.\n\nresource_read reads the resources: the schemas, the lint catalog, the specification by section (scaena://spec is its index), the skills, and examples. The patch ops are in scaena://schema/patch. Follow the author-deck skill below, and read the others when the work calls for them.\n\nA question may begin with what the user sees in the editor, in brackets: the state shown, the nodes selected, and any characters selected in a text, counted as replace_text and style_text count them, with the text they make. \"This\", \"it\", \"these\", \"here\", and words like \"shorter\" or \"bolder\" mean what it names: change those, in that state, unless the question says otherwise. What you change is selected in the editor after.\n\nSay briefly what you do and what you found, in the user's language. Lint to zero errors before you say a deck is done, and look at what you changed.\n\nThe deck: 1 state (only).\n\nThe resources:\n- scaena://schema/deck: The deck format\n- scaena://skills/author-deck: Skill: author a deck\n\n--- scaena://skills/author-deck ---\n# Author a deck\n\nStart from the brief."
+    ],
+    "seen": [
+      "",
+      "[In the editor: state cover shown; nothing selected.]\n\n",
+      "[In the editor: state why shown in 9:16; selected: title (text), chart; in title, characters 4 to 9 selected: \"say \\\"so\\\" — é\".]\n\n"
+    ]
+  }
+}

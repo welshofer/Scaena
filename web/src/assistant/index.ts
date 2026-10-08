@@ -8,7 +8,7 @@ import initResources, { list, text } from "@scaena/resources";
 import type { Rewritten, Seeing } from "../protocol";
 import { converse, type Event } from "./converse";
 import { type Call, type Message, type ProviderId, providers, type Result } from "./providers";
-import { type Listed, system } from "./prompt";
+import { type Listed, seen, system } from "./prompt";
 import { summary, tools } from "./tools";
 
 export type { Event } from "./converse";
@@ -90,20 +90,6 @@ export async function ask(
     emit,
     signal,
   });
-}
-
-/** What the editor shows as a question is asked (PLAN 2.52), as the question's first line, in
- * brackets: the system prompt says how to read it. The conversation keeps it with the question,
- * so what was selected then stays said. */
-export function seen(seeing: Seeing | undefined): string {
-  if (!seeing) return "";
-  const format = seeing.format ? ` in ${seeing.format}` : "";
-  const nodes = seeing.nodes.length
-    ? `selected: ${seeing.nodes.map((n) => (n.type ? `${n.node} (${n.type})` : n.node)).join(", ")}`
-    : "nothing selected";
-  const c = seeing.characters;
-  const characters = c ? `; in ${c.node}, characters ${c.from} to ${c.to} selected: ${JSON.stringify(c.text)}` : "";
-  return `[In the editor: state ${seeing.state} shown${format}; ${nodes}${characters}.]\n\n`;
 }
 
 /** The open deck, in a few facts: its title, states, formats, and theme. */

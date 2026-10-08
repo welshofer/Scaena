@@ -7,6 +7,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// A conversation with a model (PLAN 3.6, ADR-0022), kept between questions until it is
+// forgotten: the user's own key, and the tools the browser's assistant has. Free with
+// [`scaena_chat_free`].
+typedef struct ScaenaChat ScaenaChat;
+
 // A bundle's files, gathered to open it.
 typedef struct ScaenaFiles ScaenaFiles;
 
@@ -106,8 +111,10 @@ bool scaena_add_file(struct ScaenaSession *session,
 // `states`, `formats`, `setFormat {format?}`, `canvasSize`, `duration {state}`, `timeline`,
 // `files`, `imageFiles`, `digest {state}`, `reading {state}`, `source`, `compiledFrom
 // {source}`, `compile {source}`, `lint {state?}`, `fix {patch}`, `inspect {state}`, `boxes
-// {state}`, `hit {state, x, y}`, `layers {state}`, `choices {state, node}`, `stateChoices
-// {state}`, `inserts`, `themes`, `themeText`, `keepHistory`, `keepsHistory`.
+// {state}`, `hit {state, x, y}`, `layers {state}`, `carets {state, node}`, `choices {state,
+// node}`, `stateChoices {state}`, `inserts`, `themes`, `themeText`, `keepHistory`,
+// `keepsHistory`, and `writeFiles {files: [{path, text}]}`, which writes files back as an undo
+// has them (`text` null: taken out).
 //
 // # Safety
 // `session` is a live handle; `method` a NUL-terminated string; `args` one, or null.
@@ -250,6 +257,59 @@ char *scaena_surface_adapter(struct ScaenaSurface *surface);
 // # Safety
 // `surface` is a live handle from [`scaena_surface_new`], or null.
 void scaena_surface_free(struct ScaenaSurface *surface);
+
+// Begin a conversation with `args`' model, `{"provider": "anthropic" | "openai" | "gemini",
+// "model", "base"?}`, which calls the tools a page's assistant has (`deck_read`, `deck_patch`,
+// `deck_lint`, `deck_render`, …) and `resource_read`. Null where it cannot begin, `*error` then
+// saying why.
+//
+// # Safety
+// `args` is a NUL-terminated string; `error` null or writable.
+struct ScaenaChat *scaena_chat_new(const char *args, char **error);
+
+// One step of the conversation `chat`, on `session`'s bundle, as `{"ok": value}` or
+// `{"error": {"message"}}`. The client makes each request, and hands its answer back:
+//
+// - `ask {text, seeing?}`: the user's question, begun with what the window shows (`seeing`:
+//   `{state, format?, nodes: [{node, type?}], characters?: {node, from, to, text}}`), the model
+//   told the deck as it is now.
+// - `request {key}`: the request for the model's next turn, `{method, url, headers, body}`, the
+//   body the text to send; the key goes into its headers and is kept nowhere.
+// - `answer {status, statusText?, body}`: the answer read, `{"next": "calls", text, calls,
+//   usage}`, the calls to run, or `{"next": "done", text, stop, usage}`; a provider's refusal is
+//   an error, and the conversation is as it was.
+// - `run {index, at?}`: the last answer's call `index` run on the session by `agent:` and the
+//   model's name, at `at` (RFC 3339): `{id, name, error, summary, json, png?, edited,
+//   rewritten}`. A `call` `{id, name, args}` may be given in its place.
+// - `next`: the calls' results handed to the model, every call answered (those not run, as
+//   stopped): whether it may be asked again, or the question has taken its rounds.
+// - `use {provider, model, base?}`: another model from the next request on, the conversation
+//   kept. `forget`: the next question is the first. `conversation`: the conversation as kept.
+//
+// `session` may be null for a step that runs nothing on it: all but `ask` and `run`.
+//
+// # Safety
+// `chat` is a live handle; `session` one, or null; `method` a NUL-terminated string; `args` one,
+// or null.
+char *scaena_chat_call(struct ScaenaChat *chat,
+                       struct ScaenaSession *session,
+                       const char *method,
+                       const char *args);
+
+// Free a conversation.
+//
+// # Safety
+// `chat` is a handle this library made and has not freed, or null.
+void scaena_chat_free(struct ScaenaChat *chat);
+
+// The models' providers, as `{"ok": value}` or `{"error": {"message"}}`: `list`, each provider
+// `{id, name, base}`; `models {provider, key, base?}`, the request that lists the models a key
+// can use, as `request` gives one; and `readModels {provider, status, statusText?, body}`, the
+// models its answer lists.
+//
+// # Safety
+// `method` is a NUL-terminated string; `args` one, or null.
+char *scaena_providers(const char *method, const char *args);
 
 // Free a string this library returned.
 //

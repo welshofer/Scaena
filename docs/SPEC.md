@@ -1644,7 +1644,7 @@ Every gesture the canvas takes has a key (PLAN 2.75, WCAG 2.1.1), which the keys
 - SwiftUI owns chrome only: document browser, state list, timeline scrubber, inspector, source pane. **No TextKit/CoreText in the render path.**
 - The window edits as the browser's editor does (§9.2, PLAN 3.4): the deck's `.scn` is what it is made from. A gesture or a choice is a patch, after which the source is the deck's again; a source typed is compiled as it stands; a finding's fix rewrites it. Each is compiled, becomes the deck where it validates, and lints the state shown at once, every state once edits stop, and is one step of the document's undo. What draws where is the engine's (`boxes`, `hit`), as are a state's cue and the inspector's choices. The source pane is chrome: the deck's text is laid out by the engine alone.
 - Presentation (PLAN 3.5): Play fills the external display where there is one, and the presenter's window shows the state as the audience sees it, the next state, its notes, and the time since the deck began. The pace is the player's (§9.2): going on finishes a cue or plays the next, a state that holds goes on by itself, and the last waits.
-- Keychain for keys; Apple Foundation Models for on-device assistant tasks; Share/Quick Look via PDF export.
+- The assistant (PLAN 3.6, §11): the browser's, its conversation kept in Rust (`scaena-chat`, ADR-0022) and taken a step at a time through the ABI (`scaena_chat_new`, `scaena_chat_call`: `ask`, `request`, `answer`, `run`, `next`). Swift makes each request with `URLSession`, the key from the Keychain handed in for its headers alone; each call the model makes runs on the window's deck by `agent:` and the model's name, is the window's own edit, and is one step of its undo. On-device tasks are Apple's Foundation Models'. Share/Quick Look via PDF export.
 
 ### 9.4 Presenter remote (later)
 
@@ -1675,8 +1675,8 @@ The existing export code integrates against `spine.json` + `scaena render`/`expo
 ## 11. LLM integration (BYOK, no backend)
 
 1. **Any agent via MCP** (Phase 1). No keys handled by Scaena.
-2. **In-app assistant** (Phase 2/3). Provider adapters: Anthropic Messages API (direct browser calls with the explicit opt-in header), OpenAI (Chat Completions, or a server that speaks it), Gemini. Keys: Keychain (Mac); the tab's own storage, or the device's, encrypted, when the user asks (web). Keys are never written into a bundle. The assistant uses the same operations as the CLI through function calling: on the web, the MCP server's tools on the bundle the page holds (§9.2, ADR-0011). Prompts come from `skills/`: the author-deck skill, and the rest as resources the model reads.
-3. **On-device** (Mac): Apple Foundation Models for lint explanations, notes drafting, copy tightening.
+2. **In-app assistant** (Phase 2/3). Provider adapters: Anthropic Messages API (direct browser calls with the explicit opt-in header), OpenAI (Chat Completions, or a server that speaks it), Gemini. Keys: Keychain (Mac), one item for each provider under the app's own service; the tab's own storage, or the device's, encrypted, when the user asks (web). Keys are never written into a bundle, and each goes to its provider alone. The assistant uses the same operations as the CLI through function calling: the MCP server's tools on the bundle the client holds, less `bundle`, `out`, and `painter`, and `resource_read` (§9.2, ADR-0011). Prompts come from `skills/`: the author-deck skill, and the rest as resources the model reads. Each question begins with what the client shows, in brackets: the state shown, the nodes selected, and the characters selected. The browser's adapters are TypeScript (`web/src/assistant/`); the Mac's are `scaena-chat`'s, in Rust, which builds each request and reads each answer while the client makes the call (ADR-0022). One record of exchanges (`tests/assistant/exchanges.json`: each provider's request for one conversation and its answer read back, and the page's prompt) holds the two to the same words.
+3. **On-device** (Mac, PLAN 3.6): Apple's Foundation Models, where the Mac has them (macOS 26, Apple Intelligence), explain a finding, draft a state's notes from how it reads, and tighten a text's words. Each answer is offered to take as one patch, or to leave; nothing leaves the Mac, and without the model nothing is offered.
 
 ---
 
@@ -1699,7 +1699,8 @@ crates/
   scaena-subset   the font subsetter as a WASM module of its own, which a page loads to download a bundle
   scaena-history  the CRDT as a WASM module of its own, which a page loads to save a bundle that keeps a history
   scaena-pdf      the PDF writer as a WASM module of its own, which a page loads to export a PDF
-  scaena-ffi      C ABI (cbindgen) for Swift: the session for the Mac
+  scaena-ffi      C ABI (cbindgen) for Swift: the session for the Mac, and the assistant's conversation
+  scaena-chat     the assistant's conversation (ADR-0022): each provider's request built and its answer read, the prompt, the tools, and the loop as steps; no HTTP, no key kept
   scaena-store    CRDT document (loro), ops, history, bundle I/O
 web/              Vite + TS player/editor (Phase 2)
 apps/mac/         SwiftUI client (Phase 3)
