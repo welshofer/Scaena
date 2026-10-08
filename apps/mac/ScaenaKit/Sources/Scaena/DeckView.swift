@@ -8,8 +8,9 @@ import UniformTypeIdentifiers
 /// play and scrub; what lint found, each with its fix; the deck's `.scn` beside the canvas; and
 /// the inspector, which edits the node selected, or the state with none; and the assistant, which
 /// edits it with the user (PLAN 3.6). A double click types in a text on the canvas (PLAN 3.9).
-/// Every edit is a patch or a source, as in the browser, and one step to undo; a burst of typing
-/// is one.
+/// The Node menu inserts what the theme and the bundle offer, copies, deletes, and locks a node
+/// (PLAN 3.11). Every edit is a patch or a source, as in the browser, and one step to undo; a
+/// burst of typing is one.
 struct DeckView: View {
     @ObservedObject var document: ScaenaDocument
     @Environment(\.undoManager) private var undo
@@ -25,6 +26,14 @@ struct DeckView: View {
     @State private var assistant: Assistant?
     /// Text typed in place on the canvas.
     @State private var typing: Typing?
+    /// Where the pointer last pressed on the canvas, canvas units: where Insert puts what it adds.
+    @State private var pointed: CGPoint?
+    /// What the canvas says of an edit its keys or the Node menu made.
+    @State private var said: String?
+    /// What the deck may have inserted, read again after each edit.
+    @State private var inserts: [Insert] = []
+    /// Whether the node selected is locked by its own lock: what Lock undoes.
+    @State private var locked = false
     /// What the on-device model is asked, shown in a sheet.
     @State private var asked: Asked?
     /// An export shown in Quick Look (PLAN 3.8).
@@ -51,6 +60,7 @@ struct DeckView: View {
     // than the compiler type-checks in reasonable time.
     var body: some View {
         presented(watched(window))
+            .focusedSceneValue(\.deck, actions)
     }
 
     /// The states down the side; beside them the canvas and the rest; and the toolbar.
@@ -174,6 +184,12 @@ struct DeckView: View {
                     document?.typedInPlace(before, joins: joins, undo: now)
                 }
             }
+            .task(id: "\(shown ?? "")\u{1f}\(node ?? "")\u{1f}\(editor.revision)") {
+                // What the Node menu offers, read again as the deck or the selection changes.
+                inserts = (try? editor.session.inserts()) ?? []
+                let boxes = shown.flatMap { try? editor.session.boxes(state: $0) } ?? []
+                locked = boxes.contains { $0.node == node && $0.locked == node }
+            }
             .task(id: editor.revision) {
                 // Every state is linted once edits stop, as in the browser.
                 try? await Task.sleep(for: .milliseconds(700))
@@ -224,7 +240,10 @@ struct DeckView: View {
             )
             .overlay {
                 if let typing {
-                    CanvasSelection(editor: editor, state: shown, size: size, node: $node, typing: typing) { ops in
+                    CanvasSelection(
+                        editor: editor, state: shown, size: size, node: $node, typing: typing, pointed: $pointed,
+                        said: $said, delete: delete
+                    ) { ops in
                         perform { try document.make(ops, undo: undo) }
                     }
                 }
@@ -290,6 +309,78 @@ struct DeckView: View {
         }
         let text = words
         asked = Asked(title: "\(finding.code), explained", ask: { try await OnDevice.explain(finding, text: text) }, take: nil)
+    }
+
+    /// What the Node menu does in this window (PLAN 3.11): nothing while a text is typed in, whose
+    /// keys are the text's.
+    private var actions: DeckActions? {
+        guard let shown, typing?.typing != true else { return nil }
+        let selected = node
+        return DeckActions(
+            inserts: inserts,
+            insert: { n in insert(n, in: shown) },
+            duplicate: selected.map { node in { duplicate(node, in: shown) } },
+            delete: selected == nil ? nil : delete,
+            lock: selected.map { node in { lock(node) } },
+            locked: locked)
+    }
+
+    /// Insert what the deck offers `n`th where the pointer last pressed on the canvas, or in its
+    /// middle; in the room nearest there where content would overlap (PLAN 2.34, 2.79). It enters
+    /// in the state shown, selected: one step to undo.
+    private func insert(_ n: Int, in state: String) {
+        let size = (try? editor.session.canvasSize()) ?? CGSize(width: 1920, height: 1080)
+        let at = pointed ?? CGPoint(x: size.width / 2, y: size.height / 2)
+        perform {
+            let added = try editor.session.inserting(state: state, n: n, at: at)
+            try document.make(added.patch, undo: undo)
+            node = added.id
+            said = "\(inserts.indices.contains(n) ? inserts[n].label : "it") inserted as \(added.id), in \(state)"
+        }
+    }
+
+    /// A copy of `node` beside it, selected (⌘D): one step to undo.
+    private func duplicate(_ node: String, in state: String) {
+        perform {
+            let added = try editor.session.duplicating(state: state, node: node)
+            try document.make(added.patch, undo: undo)
+            self.node = added.id
+            said = "\(node) copied as \(added.id)"
+        }
+    }
+
+    /// Take the node selected out of the state shown and the states after it, and out of the deck
+    /// where no state shows it after; or, `everywhere`, out of the deck (Delete, Shift+Delete). A
+    /// locked node is not taken: one step to undo.
+    private func delete(_ everywhere: Bool) {
+        guard let shown, let node else {
+            said = "nothing selected to delete"
+            return
+        }
+        let boxes = (try? editor.session.boxes(state: shown)) ?? []
+        if let holder = boxes.first(where: { $0.node == node })?.locked {
+            let by = holder == node ? "" : " by \(holder)"
+            said = "\(node) is locked\(by): nothing deleted · ⇧⌘L unlocks it"
+            return
+        }
+        perform {
+            let ops = try editor.session.deleting(state: shown, node: node, everywhere: everywhere)
+            let gone = ops.allSatisfy { $0["op"]?.string == "remove_node" }
+            try document.make(ops, undo: undo)
+            self.node = nil
+            said = gone ? "\(node) deleted from the deck" : "\(node) deleted from \(shown) on"
+        }
+    }
+
+    /// Lock `node` by its own lock, or unlock it (⇧⌘L, PLAN 2.95): the canvas passes over a node
+    /// locked, in every state. One step to undo.
+    private func lock(_ node: String) {
+        let (ops, locks) = ScaenaKit.locking([node], own: { _ in locked })
+        guard !ops.isEmpty else { return }
+        perform {
+            try document.make(ops, undo: undo)
+            said = locks ? "\(node) locked: the canvas passes over it · ⇧⌘L unlocks it" : "\(node) unlocked"
+        }
     }
 
     private func make(_ op: JSONValue) {

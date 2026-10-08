@@ -682,6 +682,52 @@ fn a_texts_characters_take_a_look_a_link_and_a_list() {
     unsafe { scaena_session_free(s) };
 }
 
+/// Nodes added and taken away (PLAN 3.11), as the browser's Insert menu, ⌘D, and Delete make them
+/// (PLAN 2.34, 2.79): what is offered, inserted about a point and entering in the state shown;
+/// a copy beside a node; and a node taken out of the state and those after, or out of the deck.
+#[test]
+fn a_node_is_inserted_copied_and_taken_away_as_the_browser_does() {
+    let s = open(B1);
+    let offered = call(s, "inserts", Value::Null);
+    let n = offered.as_array().unwrap().iter().position(|i| i["label"] == "Shape · rect").expect("a rect is offered");
+
+    let added = call(s, "inserting", json!({ "state": "cover", "n": n, "x": 1500, "y": 900 }));
+    let id = added["id"].as_str().unwrap().to_string();
+    assert_eq!(added["patch"][0]["op"], "add_node", "{added}");
+    assert_eq!(added["cell"].as_array().map(Vec::len), Some(4), "{added}");
+    let made = tool(s, "deck_patch", json!({ "ops": added["patch"] }));
+    assert_eq!(made["edited"], true, "{made}");
+    let shown = call(s, "boxes", json!({ "state": "cover" }));
+    assert!(shown.as_array().unwrap().iter().any(|b| b["node"] == id.as_str()), "{shown}");
+
+    // ⌘D: a copy of it beside it.
+    let copy = call(s, "duplicating", json!({ "state": "cover", "node": id }));
+    assert_ne!(copy["id"], id.as_str(), "{copy}");
+    assert_eq!(tool(s, "deck_patch", json!({ "ops": copy["patch"] }))["edited"], true);
+
+    // Delete: shown in no state after this one, it goes from the deck; a headline the states
+    // after show goes from this one on, and with Shift from the deck.
+    let gone = call(s, "deleting", json!({ "state": "cover", "node": id }));
+    assert!(gone.as_array().unwrap().iter().all(|op| op["op"] == "remove_node"), "{gone}");
+    let hidden = call(s, "deleting", json!({ "state": "goal-why", "node": "headline" }));
+    assert!(hidden.as_array().unwrap().iter().all(|op| op["op"] != "remove_node"), "{hidden}");
+    let everywhere = call(s, "deleting", json!({ "state": "goal-why", "node": "headline", "everywhere": true }));
+    assert!(everywhere.as_array().unwrap().iter().all(|op| op["op"] == "remove_node"), "{everywhere}");
+
+    // Nothing offered there, or no such node: said.
+    for (method, args) in [
+        ("inserting", json!({ "state": "cover", "n": 999, "x": 0, "y": 0 })),
+        ("duplicating", json!({ "state": "cover", "node": "nobody" })),
+        ("deleting", json!({ "state": "cover", "node": "nobody" })),
+    ] {
+        let answer: Value =
+            serde_json::from_str(&took(unsafe { scaena_call(s, c(method).as_ptr(), c(&args.to_string()).as_ptr()) }))
+                .unwrap();
+        assert!(answer["error"]["message"].is_string(), "{method}: {answer}");
+    }
+    unsafe { scaena_session_free(s) };
+}
+
 /// Bytes the library returned, taken and freed: none where it returned none.
 fn bytes_of(made: ScaenaBytes) -> Option<Vec<u8>> {
     if made.data.is_null() {

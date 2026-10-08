@@ -123,7 +123,11 @@ bool scaena_add_file(struct ScaenaSession *session,
 // validated but not linted, and whether the deck changed; and `bolding` and `italicizing
 // {state, node, from, to}`, the look ⌘B and ⌘I give characters. A text's characters (PLAN
 // 3.10): `characterChoices {state, node, from, to}`, what an inspector offers for them; and
-// `linkAt {state, x, y}`, the link drawn there at rest, where a click goes.
+// `linkAt {state, x, y}`, the link drawn there at rest, where a click goes. Nodes added and
+// taken away (PLAN 3.11): `inserting {state, n, x, y, named?}`, the patch that inserts what
+// `inserts` offers `n`th about a point, or in the room nearest it; `duplicating {state, node}`,
+// a copy beside it; each `{id, cell, patch}`; and `deleting {state, node, everywhere?}`, the
+// ops that take it out of the state and those after, or out of the deck.
 //
 // # Safety
 // `session` is a live handle; `method` a NUL-terminated string; `args` one, or null.

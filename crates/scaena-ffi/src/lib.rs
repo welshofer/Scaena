@@ -314,7 +314,11 @@ pub unsafe extern "C" fn scaena_add_file(
 /// validated but not linted, and whether the deck changed; and `bolding` and `italicizing
 /// {state, node, from, to}`, the look ⌘B and ⌘I give characters. A text's characters (PLAN
 /// 3.10): `characterChoices {state, node, from, to}`, what an inspector offers for them; and
-/// `linkAt {state, x, y}`, the link drawn there at rest, where a click goes.
+/// `linkAt {state, x, y}`, the link drawn there at rest, where a click goes. Nodes added and
+/// taken away (PLAN 3.11): `inserting {state, n, x, y, named?}`, the patch that inserts what
+/// `inserts` offers `n`th about a point, or in the room nearest it; `duplicating {state, node}`,
+/// a copy beside it; each `{id, cell, patch}`; and `deleting {state, node, everywhere?}`, the
+/// ops that take it out of the state and those after, or out of the deck.
 ///
 /// # Safety
 /// `session` is a live handle; `method` a NUL-terminated string; `args` one, or null.
@@ -1045,6 +1049,17 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         }
         "stateChoices" => value(serde_json::to_value(s.state_choices(arg("state")?).map_err(said)?))?,
         "inserts" => value(serde_json::to_value(s.inserts()))?,
+        // What Insert, ⌘D, and Delete make (PLAN 2.34, 3.11): `{id, cell, patch}`, or the ops.
+        "inserting" => {
+            let (state, n) = (arg("state")?, number("n")? as usize);
+            let at = [number("x")? as f32, number("y")? as f32];
+            value(serde_json::to_value(s.inserting(state, n, at, optional("named")).map_err(said)?))?
+        }
+        "duplicating" => value(serde_json::to_value(s.duplicating(arg("state")?, arg("node")?).map_err(said)?))?,
+        "deleting" => {
+            let everywhere = args.get("everywhere").and_then(Value::as_bool).unwrap_or(false);
+            json!(s.deleting(arg("state")?, arg("node")?, everywhere).map_err(said)?)
+        }
         "themes" => {
             let (current, files) = s.themes();
             json!({ "current": current, "files": files })

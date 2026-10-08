@@ -23,7 +23,7 @@ struct Inspector: View {
     var body: some View {
         VStack(spacing: 0) {
             if let state {
-                LayerList(layers: layers, node: $node)
+                LayerList(layers: layers, node: $node, lock: lock)
                     .frame(minHeight: 90, idealHeight: 150)
                 Divider()
                 Form {
@@ -104,6 +104,13 @@ struct Inspector: View {
         make([op])
     }
 
+    /// Lock `layer`'s node by its own lock, or unlock it (PLAN 2.95, 3.11): the canvas passes over
+    /// a node locked, in every state. One patch, one step to undo.
+    private func lock(_ layer: Layer) {
+        let (ops, _) = ScaenaKit.locking([layer.node], own: { _ in layer.locked })
+        if !ops.isEmpty { make(ops) }
+    }
+
     /// `node`'s words tightened on this Mac, offered as one `replace_text` of them all.
     private func tighten(_ node: String, in state: String) {
         guard let words = (try? editor.session.text(state: state, node: node)) ?? nil, !words.isEmpty else { return }
@@ -143,10 +150,12 @@ struct Inspector: View {
     }
 }
 
-/// A state's layers, the topmost first, each with what it holds, to select from.
+/// A state's layers, the topmost first, each with what it holds, to select from; the lock beside
+/// each locks it, or unlocks it (PLAN 2.95).
 private struct LayerList: View {
     let layers: [Layer]
     @Binding var node: String?
+    let lock: (Layer) -> Void
 
     private struct Row {
         let layer: Layer
@@ -171,9 +180,16 @@ private struct LayerList: View {
                 HStack(spacing: 6) {
                     Image(systemName: symbol(row.layer.type)).frame(width: 16)
                     Text(row.layer.node).foregroundStyle(row.layer.shown ? Color.primary : Color.secondary)
-                    if row.layer.locked {
-                        Image(systemName: "lock.fill").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        lock(row.layer)
+                    } label: {
+                        Image(systemName: row.layer.locked ? "lock.fill" : "lock.open")
+                            .font(.caption)
+                            .foregroundStyle(row.layer.locked ? Color.primary : Color.secondary.opacity(0.5))
                     }
+                    .buttonStyle(.borderless)
+                    .help(row.layer.locked ? "Unlock \(row.layer.node)" : "Lock \(row.layer.node): the canvas passes over it")
                 }
                 .padding(.leading, CGFloat(row.depth) * 12)
             }

@@ -30,4 +30,6 @@ Double-click a text to type in it where you clicked (PLAN 3.9), with Option to k
 
 With characters selected, the inspector offers their look: a role, emphasis, family, weight, italic, or color for them alone (PLAN 3.10). ⌘K links them to a web address or a state, which a click follows in Play. ⌘⇧8 and ⌘⇧7 make paragraphs a bulleted or a numbered list. Tab and Shift+Tab move items a level in or out, and Return in an empty item ends the list.
 
+The Node menu (PLAN 3.11) inserts, by kind, what the theme and the bundle offer. It lands where you last clicked on the canvas, or in the room nearest there. The menu also duplicates the node selected (⌘D), deletes it from the state shown on or from the whole deck, and locks it (⇧⌘L) so the canvas passes over it. On the canvas, Delete and Shift+Delete do the same as the menu's two deletes, and Escape selects what holds the node. The lock beside each layer in the inspector locks or unlocks it.
+
 Export (PLAN 3.8), in the toolbar, shares the deck as a PDF, the same bytes `scaena export --format pdf` writes, or the state shown as a PNG, through the Share sheet; shows the PDF in Quick Look; or saves either where you say.
