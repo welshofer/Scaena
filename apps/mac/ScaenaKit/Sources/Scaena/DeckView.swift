@@ -1,5 +1,6 @@
 import ScaenaKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// A deck's window (PLAN 3.3–3.4): its states down the side, each drawn small; the state chosen
 /// painted by the engine on Metal, a node selected on it by a click, and its cue under it, to
@@ -22,6 +23,12 @@ struct DeckView: View {
     @State private var assistant: Assistant?
     /// What the on-device model is asked, shown in a sheet.
     @State private var asked: Asked?
+    /// An export shown in Quick Look (PLAN 3.8).
+    @State private var looking: URL?
+    /// An export to save where the user says, its type, and the name offered.
+    @State private var saving: ExportedFile?
+    @State private var savingType = UTType.pdf
+    @State private var savingName = ""
     @SceneStorage("assistant") private var showsAssistant = false
     @SceneStorage("source") private var showsSource = false
     @SceneStorage("findings") private var showsFindings = true
@@ -86,6 +93,22 @@ struct DeckView: View {
                 .help("Play the deck from the state shown, on the external display if there is one (⌥⌘P)")
                 .disabled(editor.slots.isEmpty)
             }
+            ToolbarItem {
+                Menu {
+                    Button("Share the PDF…") { export(.pdf, sharing: true) }
+                    Button("Quick Look the PDF") { export(.pdf, sharing: false) }
+                    Button("Save the PDF…") { save(.pdf) }
+                    if let shown {
+                        Divider()
+                        Button("Share \(shown) as a PNG…") { export(png(shown), sharing: true) }
+                        Button("Save \(shown) as a PNG…") { save(png(shown)) }
+                    }
+                } label: {
+                    Label("Export", systemImage: "square.and.arrow.up")
+                }
+                .help("The deck as a PDF, or the state shown as a PNG: shared, looked at, or saved")
+                .disabled(editor.slots.isEmpty)
+            }
             ToolbarItemGroup {
                 Toggle(isOn: $showsSource) {
                     Label("Source", systemImage: "chevron.left.forwardslash.chevron.right")
@@ -119,6 +142,13 @@ struct DeckView: View {
             assistant?.edited = { [weak document = self.document, weak now] before, files in
                 document?.took(before, files: files, undo: now)
             }
+        }
+        .quickLookPreview($looking)
+        .fileExporter(
+            isPresented: Binding(get: { saving != nil }, set: { if !$0 { saving = nil } }), document: saving,
+            contentType: savingType, defaultFilename: savingName
+        ) { result in
+            if case .failure(let error) = result { failure = "\(error)" }
         }
         .sheet(item: $asked) { asked in
             OfferSheet(title: asked.title, ask: asked.ask, take: asked.take) { ops in
@@ -167,6 +197,30 @@ struct DeckView: View {
             chosen = state
         } else {
             node = finding.node
+        }
+    }
+
+    /// `state` at rest as a PNG the canvas's width, a pixel to the unit.
+    private func png(_ state: String) -> Exporting.Kind {
+        let size = (try? editor.session.canvasSize()) ?? CGSize(width: 1920, height: 1080)
+        return .png(state: state, width: Int(size.width.rounded()))
+    }
+
+    /// Write `kind` and share it, or show it in Quick Look.
+    private func export(_ kind: Exporting.Kind, sharing: Bool) {
+        perform {
+            let url = try Exporting.file(kind, of: editor)
+            if sharing { Exporting.share(url) } else { looking = url }
+        }
+    }
+
+    /// Offer `kind` to save where the user says.
+    private func save(_ kind: Exporting.Kind) {
+        perform {
+            let data = try Exporting.bytes(kind, of: editor)
+            savingType = kind.type
+            savingName = Exporting.name(kind, of: editor)
+            saving = ExportedFile(data: data)
         }
     }
 

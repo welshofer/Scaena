@@ -15,6 +15,8 @@
 //! - **Bytes for frames.** [`scaena_frame`] gives a state's display list, postcard-encoded (SPEC
 //!   §6), and [`scaena_pixels`] paints it with the CPU painter. A save gives the saved bundle's
 //!   files ([`scaena_save`]), fonts subset and the history recorded in it, as `scaena save` does.
+//! - **Exports** (PLAN 3.8). [`scaena_export`] makes the PDF and PNGs `scaena export` writes,
+//!   which the app shares and previews.
 //! - **The assistant's conversation** (PLAN 3.6, ADR-0022). [`scaena_chat_new`] begins one with
 //!   the model the user chose, and [`scaena_chat_call`] takes it a step at a time: the question,
 //!   each request for Swift to make with the user's key, the answer read, and each call the model
@@ -714,6 +716,61 @@ pub unsafe extern "C" fn scaena_surface_free(surface: *mut ScaenaSurface) {
     if !surface.is_null() {
         // SAFETY: the caller gives a handle this library made and has not freed.
         drop(unsafe { Box::from_raw(surface) });
+    }
+}
+
+/// The deck exported as `format` (PLAN 3.8), the bytes `scaena export` writes for it: `pdf`, a page
+/// for each slide at its last state, as the browser's PDF module draws it from the pages the
+/// session lays out; or `png`, `args` `{state, width}`, the state at rest painted by the CPU
+/// painter that wide, as the editor's PNG export paints it. Null bytes where it cannot be made,
+/// `*error` then saying why.
+///
+/// # Safety
+/// `session` is a live handle; `format` a NUL-terminated string; `args` one, or null; `error`
+/// null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_export(
+    session: *mut ScaenaSession,
+    format: *const c_char,
+    args: *const c_char,
+    error: *mut *mut c_char,
+) -> ScaenaBytes {
+    let made = guarded(|| {
+        let session = unsafe { handle(session, "session") }?;
+        let format = unsafe { text(format, "format") }?;
+        let args: Value = match unsafe { maybe_text(args, "args") }? {
+            None => json!({}),
+            Some(a) => {
+                serde_json::from_str(a).map_err(|e| said(format!("{format}: the arguments are not JSON: {e}")))?
+            }
+        };
+        match format {
+            "pdf" => {
+                use scaena_export::pdf::{PdfSettings, Prepared, prepared};
+                let laid = session.0.pdf_laid_out().map_err(said)?;
+                let laid = Prepared::from_bytes(&laid).map_err(said)?;
+                prepared(&laid, &PdfSettings::default()).map_err(said)
+            }
+            "png" => {
+                let state = args
+                    .get("state")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| said("png: `state` is a string it needs"))?;
+                let width = (args.get("width").and_then(Value::as_u64))
+                    .and_then(|w| u32::try_from(w).ok())
+                    .filter(|w| (1..=16384).contains(w))
+                    .ok_or_else(|| said("png: `width` is a number of pixels, 1 to 16384"))?;
+                session.0.png(state, width).map_err(said)
+            }
+            _ => Err(said(format!("`{format}` is not an export this library makes: pdf or png"))),
+        }
+    });
+    match made {
+        Ok(bytes) => ScaenaBytes::of(bytes),
+        Err(failure) => {
+            unsafe { report(error, failure) };
+            ScaenaBytes::NONE
+        }
     }
 }
 

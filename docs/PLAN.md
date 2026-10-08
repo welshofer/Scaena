@@ -1332,7 +1332,18 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
       - the `ffi` suite's `a_drag_on_the_canvas_ends_in_the_patch_the_browsers_does`, on B1: the title drawn moved and back; snapped into another slot; off the grid kept to the state; the patch previewed, reached, and made as previewed; and W301 found;
       - ScaenaKit's `PlacingTests` on CI's macOS runner: `snapOf`'s cases, and the drag through `DeckEditor`, undone.
     - **What waits.** A run of the app on a Mac.
-- [ ] 3.8 Exports wired to Share sheet / Quick Look.
+- [ ] 3.8 Exports wired to Share sheet / Quick Look. *(Built; waits on a run on a Mac.)*
+    - **The exports.** `scaena_export` makes `scaena export`'s bytes from the session:
+      - `pdf`: a page for each slide at its last state, drawn as the browser's PDF module draws the pages the session lays out (`pdf_laid_out`, then `scaena_export::pdf::prepared`), byte for byte the CLI's;
+      - `png`: a state at rest, painted by the CPU painter at the width asked.
+    - **In the window.** The toolbar's Export menu:
+      - shares the deck's PDF, or the state shown as a PNG, through the Share sheet (`NSSharingServicePicker`);
+      - shows the PDF in Quick Look;
+      - saves either where the user says.
+
+      Each is written when it is asked for, named for the deck.
+    - Tests: the `ffi` suite's `an_export_is_the_bytes_scaena_export_writes` (B1's PDF is the CLI's, byte for byte; a PNG 640 wide; misuse said); ScaenaKit's `theDeckExportsAsTheCLIWritesIt` on CI's macOS runner.
+    - **What waits.** A run on a Mac. A Quick Look preview of a `.scaena` bundle in the Finder needs an app extension, which an Xcode project builds and the Swift package cannot: it waits for the app's Xcode project.
 
 ### Exit criteria (gate 3)
 1. Same bundle, same frame, same pixels (within tolerance) as the web player.

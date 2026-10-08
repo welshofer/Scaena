@@ -597,3 +597,40 @@ fn a_drag_on_the_canvas_ends_in_the_patch_the_browsers_does() {
     assert!(answer["error"]["message"].is_string(), "{answer}");
     unsafe { scaena_session_free(s) };
 }
+
+/// Bytes the library returned, taken and freed: none where it returned none.
+fn bytes_of(made: ScaenaBytes) -> Option<Vec<u8>> {
+    if made.data.is_null() {
+        return None;
+    }
+    let out = unsafe { std::slice::from_raw_parts(made.data, made.len) }.to_vec();
+    unsafe { scaena_bytes_free(made) };
+    Some(out)
+}
+
+#[test]
+fn an_export_is_the_bytes_scaena_export_writes() {
+    let s = open(B1);
+    let mut error = null_mut();
+    let pdf = bytes_of(unsafe { scaena_export(s, c("pdf").as_ptr(), null(), &mut error) }).expect("a PDF");
+    assert!(pdf.starts_with(b"%PDF-"), "a PDF");
+    // The CLI's, for the bundle on disk.
+    let disk = scaena_store::Bundle::open(Path::new(B1)).unwrap();
+    let (cli, _) = scaena_ops::export::pdf_document(&disk, None, &scaena_export::pdf::PdfSettings::default()).unwrap();
+    assert!(pdf == cli, "the Mac's PDF is the CLI's, byte for byte");
+
+    let png = bytes_of(unsafe {
+        scaena_export(s, c("png").as_ptr(), c(r#"{"state":"cover","width":640}"#).as_ptr(), &mut error)
+    })
+    .expect("a PNG");
+    assert!(png.starts_with(&[0x89, b'P', b'N', b'G']), "a PNG");
+    assert_eq!(u32::from_be_bytes(png[16..20].try_into().unwrap()), 640, "640 pixels wide");
+
+    for (format, args) in [("png", r#"{"state":"cover","width":0}"#), ("png", r#"{"width":10}"#), ("docx", "{}")] {
+        let mut error = null_mut();
+        let none = bytes_of(unsafe { scaena_export(s, c(format).as_ptr(), c(args).as_ptr(), &mut error) });
+        assert!(none.is_none(), "{format} {args}");
+        assert!(took(error).contains("message"), "{format} {args}: said why");
+    }
+    unsafe { scaena_session_free(s) };
+}

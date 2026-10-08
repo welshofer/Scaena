@@ -180,6 +180,22 @@ public final class ScaenaSession {
         return Pixels(rgba: rgba, width: Int(painted.width), height: Int(painted.height))
     }
 
+    /// The deck as a PDF (PLAN 3.8): a page for each slide at its last state, the bytes `scaena
+    /// export --format pdf` writes, as the browser's PDF module draws them.
+    public func pdf() throws -> Data {
+        var error: UnsafeMutablePointer<CChar>?
+        return try Self.take(scaena_export(handle, "pdf", nil, &error), error)
+    }
+
+    /// `state` at rest as a PNG `width` pixels wide, painted by the CPU painter, as the editor's
+    /// PNG export paints it.
+    public func png(_ state: String, width: Int) throws -> Data {
+        let asked: JSONValue = ["state": .string(state), "width": .number(Double(width))]
+        let args = String(decoding: try JSONEncoder().encode(asked), as: UTF8.self)
+        var error: UnsafeMutablePointer<CChar>?
+        return try Self.take(scaena_export(handle, "png", args, &error), error)
+    }
+
     /// A save: the bundle's files as saved, to write where it is kept, then to adopt.
     public final class Saved {
         fileprivate let handle: OpaquePointer
