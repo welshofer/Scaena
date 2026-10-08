@@ -16,8 +16,13 @@ import SwiftUI
 /// (PLAN 3.11); Copy, Cut, and Paste are the window's (PLAN 3.12). Several are selected (PLAN
 /// 3.13), children of one container, by Shift and a click, or a marquee dragged across the
 /// canvas from where nothing draws; a drag of one moves them all, the first snapped as it would be
-/// alone and the rest as far as it went. Every box and caret is the engine's, at rest; nothing
-/// here lays out.
+/// alone and the rest as far as it went. The node selected has handles (PLAN 3.16), as the
+/// browser's canvas has: one above its box turns it about its anchor, whole degrees or with Shift
+/// fifteens; a line's, an arrow's, or a polygon's points move, a press at an edge's middle adds
+/// one, and Delete takes the one picked away; a rect's corner rounds it to the theme's radius steps;
+/// and an image's crop bars crop it from a side, and its focal point moves. Each is one `choose`,
+/// kept to the state with Option. A node turned or scaled moves and resizes through what draws it.
+/// Every box and caret is the engine's, at rest; nothing here lays out.
 struct CanvasSelection: View {
     let editor: DeckEditor
     let state: String
@@ -42,6 +47,11 @@ struct CanvasSelection: View {
     /// Where each node the state shows is placed.
     @State private var placements: [String: JSONValue] = [:]
     @State private var press: Press?
+    /// The shape selected, its outline, and the point picked on it, which Delete takes away; the
+    /// image selected, its framing (PLAN 3.16).
+    @State private var shaped: Outline?
+    @State private var pointPicked: Int?
+    @State private var imaged: Framing?
     /// A resize that paused, shown laid out as its patch would make it.
     @State private var pausing: Task<Void, Never>?
 
@@ -53,13 +63,15 @@ struct CanvasSelection: View {
     private static let slop = 4.0
 
     /// A press on the canvas: a click until it moves, then a drag, or one refused; a press in
-    /// the text typed in, which selects as it drags; or a marquee, from where nothing draws.
+    /// the text typed in, which selects as it drags; a marquee, from where nothing draws; or a
+    /// handle of the node selected held.
     private enum Press {
         case pressing
         case dragging(Drag)
         case refused(String)
         case typing
         case banding(from: CGPoint, to: CGPoint)
+        case handling(Holding)
     }
 
     /// A drag under way: the node, how it is held, and where it would land now; with others
@@ -109,6 +121,11 @@ struct CanvasSelection: View {
         return nil
     }
 
+    private var holding: Holding? {
+        if case .handling(let h) = press { return h }
+        return nil
+    }
+
     var body: some View {
         GeometryReader { geometry in
             let scale = geometry.size.width / max(size.width, 1)
@@ -139,11 +156,11 @@ struct CanvasSelection: View {
                     outline(selected.corners.map { CGPoint(x: $0.x + by.dx, y: $0.y + by.dy) }, scale: scale)
                         .stroke(offGrid ? Color.orange : Color.accentColor, lineWidth: 1.5)
                         .allowsHitTesting(false)
-                    if drag == nil, also.isEmpty, !typing.typing, selected.transform == nil, selected.locked == nil,
+                    if drag == nil, holding == nil, also.isEmpty, !typing.typing, selected.locked == nil,
                         let r = box(selected)
                     {
                         ForEach(Edge.allCases, id: \.self) { edge in
-                            let p = edge.point(r)
+                            let p = selected.onCanvas(edge.point(r))
                             Rectangle()
                                 .fill(Color.white)
                                 .overlay(Rectangle().stroke(Color.accentColor, lineWidth: 1))
@@ -151,6 +168,16 @@ struct CanvasSelection: View {
                                 .position(x: p.x * scale, y: p.y * scale)
                                 .allowsHitTesting(false)
                         }
+                        // Its handles over its box's (PLAN 3.16).
+                        HandleMarks(
+                            box: selected, outline: shaped?.node == selected.node ? shaped : nil,
+                            framing: imaged?.node == selected.node ? imaged : nil, picked: pointPicked, scale: scale
+                        )
+                        .allowsHitTesting(false)
+                    }
+                    if let holding, holding.node == selected.node {
+                        HandleHolding(holding: holding, box: selected, outline: shaped, framing: imaged, scale: scale)
+                            .allowsHitTesting(false)
                     }
                 }
                 landings(scale)
@@ -179,9 +206,17 @@ struct CanvasSelection: View {
             // The text typed in, read again where something else changed it.
             typing.sync(shown: state)
         }
+        .task(id: "\(state)\u{1f}\(editor.revision)\u{1f}\(node ?? "")") {
+            // The node selected's handles: a shape's outline, an image's framing (PLAN 3.16).
+            let session = editor.session
+            shaped = node.flatMap { try? session.outline(state: state, node: $0) }
+            imaged = node.flatMap { try? session.framing(state: state, node: $0) }
+            if let picked = pointPicked, picked >= shaped?.points.count ?? 0 { pointPicked = nil }
+        }
         .onChange(of: node) { _, now in
             // Another node selected, in the layers or by a finding, stops typing.
             if typing.typing, typing.node != now { typing.leave() }
+            pointPicked = nil
         }
         .modifier(LinkQuestion(typing: typing))
     }
@@ -244,9 +279,18 @@ struct CanvasSelection: View {
         typealias Keys = NSStandardKeyBindingResponding
         switch selector {
         case #selector(Keys.deleteBackward(_:)), #selector(Keys.deleteForward(_:)):
+            // A point picked on the shape selected is taken away, not the shape (PLAN 3.16).
+            if let picked = pointPicked, let o = shaped, o.node == node, also.isEmpty {
+                unpoint(o, picked)
+                return true
+            }
             delete(NSApp.currentEvent?.modifierFlags.contains(.shift) == true)
             return true
         case #selector(Keys.cancelOperation(_:)):
+            if pointPicked != nil {
+                pointPicked = nil
+                return true
+            }
             node = boxes.first { $0.node == node }?.parent
             also = []
             return true
@@ -276,10 +320,36 @@ struct CanvasSelection: View {
             return "\(them) → \(to) · \(inWhich)\(keep)"
         case .banding:
             return "select what lies wholly inside"
+        case .handling(let h):
+            return holdingTold(h)
         default:
             return nil
         }
     }
+
+    /// What a handle held does, as the browser's status line says it.
+    private func holdingTold(_ h: Holding) -> String? {
+        let kept = h.fork ? " · kept to \(state)" : ""
+        switch h.handle {
+        case .turn(let turn):
+            return h.moved
+                ? "\(h.node) turns to \(Int(turn.now))°\(kept)"
+                : "turning \(h.node) about its anchor · Shift by 15° · Option keeps it to \(state)"
+        case .point(let index, let added):
+            guard h.moved || added, h.points.indices.contains(index) else { return nil }
+            return "\(h.node)'s point \(index + 1) → \(Self.spoken(h.points[index]))\(kept)"
+        case .corner(let step):
+            return h.moved ? "\(h.node)'s corners round to radius.\(step)\(kept)" : nil
+        case .crop:
+            guard h.moved else { return nil }
+            return "\(h.node) cropped to \(h.crop.map { "\($0)" }.joined(separator: ", ")) of the image\(kept)"
+        case .focal:
+            return h.moved ? "\(h.node)'s focal point → \(Self.spoken(h.focal))\(kept)" : nil
+        }
+    }
+
+    /// A point as the status line says it.
+    private static func spoken(_ p: CGPoint) -> String { "\(Double(p.x)), \(Double(p.y))" }
 
     /// Where a patch places its node, as the status says it.
     private func placed(_ patch: [JSONValue]) -> String {
@@ -303,13 +373,19 @@ struct CanvasSelection: View {
                     pointed = at
                     said = nil
                     // Typing: a press in the text puts the caret there, one outside it stops typing.
-                    if typing.typing {
+                    let typed = typing.typing
+                    if typed {
                         if typing.holds(at, slop: Self.slop / max(scale, 0.01)) {
                             press = .typing
                             let clicks = NSApp.currentEvent?.clickCount ?? 1
                             return typing.press(at: at, clicks: clicks, extend: NSEvent.modifierFlags.contains(.shift))
                         }
                         typing.leave()
+                    }
+                    // A handle of the node selected, which shows while nothing is typed in.
+                    if !typed, let held = handle(at: at, scale: scale) {
+                        press = .handling(held)
+                        return
                     }
                     press = .pressing
                 case .typing:
@@ -321,6 +397,13 @@ struct CanvasSelection: View {
                     aim(value, scale: scale)
                 case .banding(let from, _):
                     press = .banding(from: from, to: CGPoint(x: value.location.x / scale, y: value.location.y / scale))
+                case .handling(var h):
+                    // A click until it goes further than one.
+                    guard h.moved || moved >= 3 else { break }
+                    h.moved = true
+                    h.fork = NSEvent.modifierFlags.contains(.option)
+                    hold(&h, to: CGPoint(x: value.location.x / scale, y: value.location.y / scale))
+                    press = .handling(h)
                 default:
                     break
                 }
@@ -338,10 +421,164 @@ struct CanvasSelection: View {
                 case .typing:
                     // The keys stay with the text, whatever took them as the press ended.
                     typing.focus?()
+                case .handling(var h):
+                    if h.moved {
+                        h.fork = NSEvent.modifierFlags.contains(.option)
+                        hold(&h, to: CGPoint(x: value.location.x / scale, y: value.location.y / scale))
+                    }
+                    letGo(h)
                 default:
                     break
                 }
             }
+    }
+
+    /// The handle of the node selected under a press at `point`, canvas units, held (PLAN 3.16):
+    /// the topmost of an image's focal point and crop bars, a shape's points, its corner, the
+    /// middles of its edges, and the rotate handle; none where the press is on none of them.
+    private func handle(at point: CGPoint, scale: CGFloat) -> Holding? {
+        guard also.isEmpty, let selected = boxes.first(where: { $0.node == node }), selected.locked == nil else {
+            return nil
+        }
+        let near = Self.reach / max(scale, 0.01)
+        let close = { (p: CGPoint) -> Bool in hypot(p.x - point.x, p.y - point.y) <= near }
+        let units = Double(max(scale, 0.01))
+        func held(_ handle: Holding.Handle) -> Holding {
+            Holding(
+                handle: handle, node: selected.node, from: point, revision: editor.revision,
+                points: shaped?.points ?? [], crop: imaged?.crop ?? [], focal: imaged?.focal ?? .zero)
+        }
+        if let f = imaged, f.node == selected.node {
+            if close(f.focalHandle) { return held(.focal) }
+            if let side = Framing.Side.allCases.first(where: { close(f.handle($0, inset: HandleSpacing.inset / units)) }) {
+                return held(.crop(side))
+            }
+        }
+        if let o = shaped, o.node == selected.node {
+            if ["line", "arrow", "polygon"].contains(o.kind) {
+                if let i = o.drawn.lastIndex(where: close) { return held(.point(i, added: false)) }
+                if let i = o.middles.firstIndex(where: close) {
+                    var h = held(.point(i + 1, added: true))
+                    h.points = o.adding(after: i)
+                    return h
+                }
+            }
+            if o.kind == "rect", !o.radii.isEmpty, close(o.corner(clear: HandleSpacing.clear / units)) {
+                return held(.corner(o.step(nearest: o.radius ?? 0)))
+            }
+        }
+        if let arm = selected.turnHandle(arm: HandleSpacing.arm / units), close(arm.at) {
+            do {
+                let turned = try editor.session.turned(state: state, node: selected.node)
+                let holder = transform(of: selected.parent)
+                return held(.turn(Turn(selected, turned: turned, from: point, holder: holder)))
+            } catch {
+                said = "\(selected.node) cannot be turned: \(error)"
+            }
+        }
+        return nil
+    }
+
+    /// Handle `h` with the pointer at `at`, canvas units: the node turned as far as the pointer
+    /// went round; the point there, kept to the box; the corner's step; the crop's side; or the
+    /// focal point there.
+    private func hold(_ h: inout Holding, to at: CGPoint) {
+        switch h.handle {
+        case .turn(var turn):
+            turn.move(to: at, snap: NSEvent.modifierFlags.contains(.shift))
+            h.handle = .turn(turn)
+        case .point(let index, _):
+            if let o = shaped, h.points.indices.contains(index) { h.points[index] = o.fraction(at: at) }
+        case .corner:
+            if let o = shaped { h.handle = .corner(o.step(from: h.from, to: at)) }
+        case .crop(let side):
+            if let f = imaged { h.crop = f.cropped(side, from: h.from, to: at) }
+        case .focal:
+            if let f = imaged { h.focal = f.focal(at: at) }
+        }
+    }
+
+    /// Handle `h` let go: one `choose` of what it changed, written where the value lives, or kept
+    /// to the state shown with Option; a point pressed and let go where it was is picked.
+    private func letGo(_ h: Holding) {
+        guard h.revision == editor.revision else {
+            said = "the source changed under the drag: nothing is changed"
+            return
+        }
+        let kept = h.fork ? " · kept to \(state)" : ""
+        switch h.handle {
+        case .turn(let turn):
+            guard turn.now != turn.start else {
+                said = "\(h.node) stays as it is"
+                return
+            }
+            make(Handling.turning(h.node, to: turn.now, in: state, fork: h.fork))
+            said = "\(h.node) turned to \(Int(turn.now))°\(kept)"
+        case .point(let index, let added):
+            guard let o = shaped else { return }
+            if !h.moved && !added {
+                pointPicked = index
+                said = "\(h.node)'s point \(index + 1) picked: Delete takes it away, a drag moves it"
+                return
+            }
+            if !added && h.points == o.points {
+                said = "\(h.node)'s point \(index + 1) stays where it is"
+                return
+            }
+            pointPicked = nil
+            make(Handling.reshaping(h.node, to: h.points, in: state, fork: h.fork))
+            said = added ? "\(h.node) has a point added\(kept)" : "\(h.node)'s point \(index + 1) moved\(kept)"
+        case .corner(let step):
+            guard let o = shaped else { return }
+            guard h.moved, o.rounds(to: step) else {
+                said =
+                    h.moved
+                    ? "\(h.node)'s corners stay as they are"
+                    : "drag \(h.node)'s corner handle to round it to the theme's radius steps"
+                return
+            }
+            make(Handling.rounding(h.node, to: step, in: state, fork: h.fork))
+            said = "\(h.node)'s corners round to radius.\(step)\(kept)"
+        case .crop:
+            guard let f = imaged else { return }
+            guard h.moved, f.changes(crop: h.crop) else {
+                said = h.moved ? "\(h.node)'s crop stays as it is" : "drag \(h.node)'s crop handle to crop it from that side"
+                return
+            }
+            make(Handling.cropping(h.node, to: h.crop, in: state, fork: h.fork))
+            said = Framing.keepsWhole(h.crop) ? "\(h.node) shows the whole image\(kept)" : "\(h.node) cropped\(kept)"
+        case .focal:
+            guard let f = imaged else { return }
+            guard h.moved, f.changes(focal: h.focal) else {
+                said =
+                    h.moved
+                    ? "\(h.node)'s focal point stays where it is"
+                    : "drag \(h.node)'s focal point to keep that part of the image in view"
+                return
+            }
+            make(Handling.focusing(h.node, on: h.focal, in: state, fork: h.fork))
+            said = "\(h.node)'s focal point → \(Self.spoken(h.focal))\(kept)"
+        }
+    }
+
+    /// Point `index` of shape `o` taken away, unless it keeps no fewer: a line or an arrow two, a
+    /// polygon three. One `choose` of its points, kept to the state shown with Option.
+    private func unpoint(_ o: Outline, _ index: Int) {
+        guard let kept = o.removing(index) else {
+            let kind = o.kind == "arrow" ? "an arrow" : "a \(o.kind)"
+            said = "\(kind) keeps \(o.fewest == 2 ? "two" : "three") points: \(o.node)'s point \(index + 1) stays"
+            return
+        }
+        pointPicked = nil
+        let fork = NSEvent.modifierFlags.contains(.option)
+        make(Handling.reshaping(o.node, to: kept, in: state, fork: fork))
+        said = "\(o.node)'s point \(index + 1) taken away\(fork ? " · kept to \(state)" : "")"
+    }
+
+    /// What draws `node`'s box where it is drawn: none for the canvas, or a node nothing turns.
+    private func transform(of node: String?) -> [Double]? {
+        guard let node else { return nil }
+        return boxes.first { $0.node == node }?.transform
     }
 
     /// Select what draws at `point`, canvas units: nothing where nothing does. The second click of
@@ -401,11 +638,11 @@ struct CanvasSelection: View {
     /// move of what draws there, selected.
     private func begin(at point: CGPoint, scale: CGFloat) {
         var held: (node: String, edge: Edge?)?
-        if let selected = boxes.first(where: { $0.node == node }), selected.transform == nil,
-            selected.locked == nil, let r = box(selected)
-        {
+        if let selected = boxes.first(where: { $0.node == node }), selected.locked == nil, let r = box(selected) {
             let near = Self.reach / max(scale, 0.01)
-            if let edge = Edge.allCases.first(where: { hypot($0.point(r).x - point.x, $0.point(r).y - point.y) <= near }) {
+            // Each handle where the box is drawn, turned or scaled as it is.
+            let spot = { (edge: Edge) in selected.onCanvas(edge.point(r)) }
+            if let edge = Edge.allCases.first(where: { hypot(spot($0).x - point.x, spot($0).y - point.y) <= near }) {
                 held = (selected.node, edge)
             }
         }
@@ -422,10 +659,6 @@ struct CanvasSelection: View {
             }
             node = hit.node
             also = []
-            guard hit.transform == nil else {
-                press = .refused("\(hit.node) is turned or scaled: move it in the browser's editor for now")
-                return
-            }
             held = (hit.node, nil)
         }
         guard let held else { return }
@@ -444,8 +677,8 @@ struct CanvasSelection: View {
     /// A drag of `first`, one of several selected: all of them moved together.
     private func beginTogether(_ first: String) {
         let all = [first] + selection.filter { $0 != first }
-        if let held = boxes.first(where: { all.contains($0.node) && ($0.locked != nil || $0.transform != nil) }) {
-            press = .refused("\(held.node) is \(held.locked != nil ? "locked" : "turned or scaled"): nothing moves")
+        if let held = boxes.first(where: { all.contains($0.node) && $0.locked != nil }) {
+            press = .refused("\(held.node) is locked: nothing moves")
             return
         }
         do {
@@ -468,12 +701,17 @@ struct CanvasSelection: View {
         d.by = CGVector(dx: value.translation.width / scale, dy: value.translation.height / scale)
         d.fork = flags.contains(.option)
         d.how = d.targets.snap(at: d.at, resize: d.edge != nil, shift: flags.contains(.shift))
-        let to = d.edge.map { resized(d.targets.cell, $0, d.by) } ?? d.targets.cell.offsetBy(dx: d.by.dx, dy: d.by.dy)
+        // As what holds it lays it out, through whatever turns or scales that; a resize along the
+        // node's own sides (PLAN 2.51).
+        let held = across(transform(of: parent(of: d.node)), d.by)
+        let to =
+            d.edge.map { resized(d.targets.cell, $0, across(transform(of: d.node), d.by)) }
+            ?? d.targets.cell.offsetBy(dx: held.dx, dy: held.dy)
         if d.edge == nil { editor.move(d.together, by: d.by) }
         if d.together.count > 1 {
             // Moved together: the first snapped as it would be alone, the rest as far as it went.
             d.arranged = (try? editor.session.together(
-                state: state, nodes: d.together, by: d.by, free: flags.contains(.shift), fork: d.fork,
+                state: state, nodes: d.together, by: held, free: flags.contains(.shift), fork: d.fork,
                 reach: Self.reach / max(scale, 0.01))) ?? nil
         } else if let how = d.how {
             d.snapped = try? editor.session.snap(

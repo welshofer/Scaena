@@ -64,6 +64,8 @@ struct DeckView: View {
     @SceneStorage("inspector") private var showsInspector = true
     /// The panel the inspector's column shows (PLAN 3.15).
     @SceneStorage("panel") private var panel: SidePanel = .inspector
+    /// Whether the theme's grid is drawn over the canvas (PLAN 3.16).
+    @SceneStorage("grid") private var showsGrid = false
 
     private var editor: DeckEditor { document.editor }
 
@@ -203,6 +205,11 @@ struct DeckView: View {
             .keyboardShortcut("l", modifiers: [.option, .command])
             .help("Every slide in place of the canvas, to reorder, copy, and take out (⌥⌘L)")
             .disabled(rehearsal != nil)
+            Toggle(isOn: $showsGrid) {
+                Label("Grid", systemImage: "grid")
+            }
+            .keyboardShortcut("'", modifiers: .command)
+            .help("The theme's grid over the canvas: its columns, rows, margins, and baselines (⌘')")
             Toggle(isOn: $showsSource) {
                 Label("Source", systemImage: "chevron.left.forwardslash.chevron.right")
             }
@@ -317,6 +324,9 @@ struct DeckView: View {
             ScaenaCanvas(
                 session: editor.session, state: shown, revision: editor.revision &+ editor.drawn, playhead: $playhead
             )
+            .overlay {
+                if showsGrid { GridOverlay(editor: editor) }
+            }
             .overlay {
                 if let typing {
                     CanvasSelection(
