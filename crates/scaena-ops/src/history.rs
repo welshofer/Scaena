@@ -16,7 +16,7 @@ use scaena_store::crdt::DeckDoc;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 /// A version of the deck: as it was just after one change its history keeps.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -264,7 +264,7 @@ pub fn differing(a: (&Deck, &BTreeMap<String, Vec<u8>>), b: (&Deck, &BTreeMap<St
     let unknown = |(deck, files): (&Deck, &BTreeMap<String, Vec<u8>>), path: &str| {
         !files.contains_key(path) && scaena_store::kept_paths(deck).contains(&path)
     };
-    let paths: BTreeSet<&String> = a.1.keys().chain(b.1.keys()).collect();
+    let paths = scaena_core::sort::set(a.1.keys().chain(b.1.keys()));
     (paths.into_iter()).filter(|p| !unknown(a, p) && !unknown(b, p) && a.1.get(*p) != b.1.get(*p)).cloned().collect()
 }
 

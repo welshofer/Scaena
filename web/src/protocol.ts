@@ -828,7 +828,7 @@ export type ToWorker =
   /** Ask the assistant (PLAN 2.6): the editor's `source` must compile to a deck that
    * validates, which its tools then work on. Each step comes back as an `assistant` event,
    * until one that is `done` or `failed`. */
-  | { type: "ask"; id: number; source: string; ask: Asking }
+  | { type: "ask"; id: number; source: string; ask: Asking; drawn?: Drawn }
   /** Stop the assistant: the call it is in finishes, and it says no more. */
   | { type: "stop" }
   /** Start a new conversation with the assistant. */
@@ -867,6 +867,13 @@ export type ProviderId = "anthropic" | "openai" | "gemini";
 /** A question for the assistant, and who answers it: the provider, at its own address or at
  * `base`, with the user's key, and the model they picked; and what the editor shows as it is
  * asked (PLAN 2.52), which "this" and "shorter" mean. */
+/** Each state's drawing as the page holds it, by the digest of its display list, and how many
+ * pixels high its pictures are (PLAN 2.93): what an assistant's edit is drawn against. */
+export interface Drawn {
+  height: number;
+  known: Record<string, string>;
+}
+
 export interface Asking {
   provider: ProviderId;
   model: string;
@@ -901,7 +908,17 @@ export type AssistantEvent =
    * nothing of a source the assistant has moved past. `touched` are the nodes the question has
    * changed so far, in the deck's order: those whose own props, a state's delta for them, or
    * the deck's overrides of them differ from before it was asked, and those it added. */
-  | { kind: "edited"; source: string; edited: Edited; touched?: string[]; files?: Rewritten[] }
+  | {
+      kind: "edited";
+      source: string;
+      edited: Edited;
+      touched?: string[];
+      files?: Rewritten[];
+      /** Each state whose drawing the edit changed, at rest, as the page's pictures are drawn
+       * (`Drawn`), and each it took away (PLAN 2.93). */
+      drawn?: Thumb[];
+      gone?: string[];
+    }
   /** Tokens in and out of one answer, as the provider counts them. */
   | { kind: "usage"; input: number; output: number }
   /** It stopped: its answer is done (`end`), it ran out of room (`length`), it called tools

@@ -47,6 +47,8 @@ const seconds = (ms: number) => `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)} s`;
 
 /** How high a thumbnail is painted, CSS pixels, on a display of `ratio` device pixels each. */
 const HIGH = 54;
+/** How many pixels high a thumbnail is painted: `HIGH` at the display's density, at most twice. */
+const high = () => Math.round(HIGH * Math.min(2, window.devicePixelRatio || 1));
 
 /** The strip in `into` (its `ol` the states, its buttons the strip's own), over `stage`. */
 export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
@@ -115,10 +117,9 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
   async function paint() {
     const asked = ++painting;
     const known = Object.fromEntries([...thumbs].map(([id, t]) => [id, t.digest]));
-    const ratio = Math.min(2, window.devicePixelRatio || 1);
     let got: Thumb[];
     try {
-      got = await stage.thumbnails(Math.round(HIGH * ratio), known, editor.format());
+      got = await stage.thumbnails(high(), known, editor.format());
     } catch {
       return;
     }
@@ -310,5 +311,8 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
     settled: () => making,
     /** Each state's thumbnail digest, for a test. */
     digests: () => Object.fromEntries([...thumbs].map(([id, t]) => [id, t.digest])),
+    /** The thumbnails it holds now, by state, and how many pixels high they are: what an
+     * assistant's edit is drawn against (PLAN 2.93). */
+    drawings: () => ({ height: high(), drawn: new Map(thumbs) }),
   };
 }

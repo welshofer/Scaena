@@ -1350,6 +1350,14 @@ async function edit(source: Source) {
       assisting = on;
       view.dispatch({ effects: locked.reconfigure(on ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []) });
     },
+    drawings: async () => {
+      await states.paint();
+      return { ...states.drawings(), states: last?.states.map(([id]) => id) ?? [] };
+    },
+    show: (state) => {
+      const index = last?.states.findIndex(([id]) => id === state) ?? -1;
+      if (index >= 0) void show(index);
+    },
   });
 
   /** Every command the editor has, by name (PLAN 2.53): what its key or its button does, nothing
