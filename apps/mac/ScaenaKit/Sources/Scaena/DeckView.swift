@@ -43,130 +43,165 @@ struct DeckView: View {
         return slots.first?.state
     }
 
+    // The window's parts, each its own expression: one modifier chain over all of them is more
+    // than the compiler type-checks in reasonable time.
     var body: some View {
+        presented(watched(window))
+    }
+
+    /// The states down the side; beside them the canvas and the rest; and the toolbar.
+    private var window: some View {
         NavigationSplitView {
             StateList(editor: editor, chosen: $chosen, make: make)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 320)
         } detail: {
-            HSplitView {
-                if showsSource {
-                    SourcePane(text: editor.source) { typed in document.type(typed, undo: undo) }
-                        .frame(minWidth: 280, idealWidth: 420)
-                }
-                VSplitView {
-                    VStack(spacing: 0) {
-                        stage
-                        if let shown {
-                            Divider()
-                            CueBar(editor: editor, state: shown, playhead: $playhead)
-                        }
-                    }
-                    .frame(minHeight: 240)
-                    if showsFindings {
-                        FindingsPanel(editor: editor, go: go, explain: OnDevice.available ? explain : nil) { finding in
-                            perform { try document.fix(finding, undo: undo) }
-                        }
-                        .frame(minHeight: 90, idealHeight: 160)
-                    }
-                }
-                .frame(minWidth: 360)
-                if showsAssistant, let assistant {
-                    AssistantPanel(assistant: assistant, seeing: seeing)
-                        .frame(minWidth: 280, idealWidth: 340)
-                }
-            }
-            .inspector(isPresented: $showsInspector) {
-                Inspector(editor: editor, state: shown, node: $node, offer: { asked = $0 }) { ops in
-                    perform { try document.make(ops, undo: undo) }
-                }
-                .inspectorColumnWidth(min: 240, ideal: 300, max: 420)
-            }
+            detail
         }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    Presenting.play(editor, from: shown)
-                } label: {
-                    Label("Play", systemImage: "play.rectangle.fill")
-                }
-                .keyboardShortcut("p", modifiers: [.option, .command])
-                .help("Play the deck from the state shown, on the external display if there is one (⌥⌘P)")
-                .disabled(editor.slots.isEmpty)
+        .toolbar { toolbar }
+    }
+
+    /// The source, the canvas with its cue and the findings, the assistant, and the inspector.
+    private var detail: some View {
+        HSplitView {
+            if showsSource {
+                SourcePane(text: editor.source) { typed in document.type(typed, undo: undo) }
+                    .frame(minWidth: 280, idealWidth: 420)
             }
-            ToolbarItem {
-                Menu {
-                    Button("Share the PDF…") { export(.pdf, sharing: true) }
-                    Button("Quick Look the PDF") { export(.pdf, sharing: false) }
-                    Button("Save the PDF…") { save(.pdf) }
+            VSplitView {
+                VStack(spacing: 0) {
+                    stage
                     if let shown {
                         Divider()
-                        Button("Share \(shown) as a PNG…") { export(png(shown), sharing: true) }
-                        Button("Save \(shown) as a PNG…") { save(png(shown)) }
+                        CueBar(editor: editor, state: shown, playhead: $playhead)
                     }
-                } label: {
-                    Label("Export", systemImage: "square.and.arrow.up")
                 }
-                .help("The deck as a PDF, or the state shown as a PNG: shared, looked at, or saved")
-                .disabled(editor.slots.isEmpty)
+                .frame(minHeight: 240)
+                if showsFindings {
+                    FindingsPanel(editor: editor, go: go, explain: OnDevice.available ? explain : nil) { finding in
+                        perform { try document.fix(finding, undo: undo) }
+                    }
+                    .frame(minHeight: 90, idealHeight: 160)
+                }
             }
-            ToolbarItemGroup {
-                Toggle(isOn: $showsSource) {
-                    Label("Source", systemImage: "chevron.left.forwardslash.chevron.right")
-                }
-                .help("The deck's .scn beside the canvas")
-                Toggle(isOn: $showsFindings) {
-                    Label("Findings", systemImage: "exclamationmark.triangle")
-                }
-                .help("What lint found")
-                Toggle(isOn: $showsInspector) {
-                    Label("Inspector", systemImage: "sidebar.trailing")
-                }
-                .help("The node selected, or the state")
-                Toggle(isOn: $showsAssistant) {
-                    Label("Assistant", systemImage: "bubble.left.and.text.bubble.right")
-                }
-                .keyboardShortcut("a", modifiers: [.option, .command])
-                .help("Ask about the deck, or for an edit, with your own key (⌥⌘A)")
+            .frame(minWidth: 360)
+            if showsAssistant, let assistant {
+                AssistantPanel(assistant: assistant, seeing: seeing)
+                    .frame(minWidth: 280, idealWidth: 340)
             }
         }
-        .onChange(of: shown, initial: true) { _, now in
-            // A state chosen plays its cue, as it does in the browser.
-            editor.shown = now
-            node = arriving
-            arriving = nil
-            playhead = Playhead()
-        }
-        .onChange(of: undo, initial: true) { _, now in
-            // The assistant's edits are each one step of this window's undo.
-            if assistant == nil { assistant = Assistant(editor: editor) }
-            assistant?.edited = { [weak document = self.document, weak now] before, files in
-                document?.took(before, files: files, undo: now)
-            }
-        }
-        .quickLookPreview($looking)
-        .fileExporter(
-            isPresented: Binding(get: { saving != nil }, set: { if !$0 { saving = nil } }), document: saving,
-            contentType: savingType, defaultFilename: savingName
-        ) { result in
-            if case .failure(let error) = result { failure = "\(error)" }
-        }
-        .sheet(item: $asked) { asked in
-            OfferSheet(title: asked.title, ask: asked.ask, take: asked.take) { ops in
+        .inspector(isPresented: $showsInspector) {
+            Inspector(editor: editor, state: shown, node: $node, offer: { asked = $0 }) { ops in
                 perform { try document.make(ops, undo: undo) }
             }
+            .inspectorColumnWidth(min: 240, ideal: 300, max: 420)
         }
-        .task(id: editor.revision) {
-            // Every state is linted once edits stop, as in the browser.
-            try? await Task.sleep(for: .milliseconds(700))
-            guard !Task.isCancelled, !editor.whole else { return }
-            editor.lintEvery()
+    }
+
+    /// Play, Export, and the panes the window shows.
+    @ToolbarContentBuilder private var toolbar: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                Presenting.play(editor, from: shown)
+            } label: {
+                Label("Play", systemImage: "play.rectangle.fill")
+            }
+            .keyboardShortcut("p", modifiers: [.option, .command])
+            .help("Play the deck from the state shown, on the external display if there is one (⌥⌘P)")
+            .disabled(editor.slots.isEmpty)
         }
-        .alert(
-            "Not made", isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } }),
-            presenting: failure
-        ) { _ in
-            Button("OK") { failure = nil }
-        } message: { Text($0) }
+        ToolbarItem {
+            Menu {
+                Button("Share the PDF…") { export(.pdf, sharing: true) }
+                Button("Quick Look the PDF") { export(.pdf, sharing: false) }
+                Button("Save the PDF…") { save(.pdf) }
+                if let shown {
+                    Divider()
+                    Button("Share \(shown) as a PNG…") { export(png(shown), sharing: true) }
+                    Button("Save \(shown) as a PNG…") { save(png(shown)) }
+                }
+            } label: {
+                Label("Export", systemImage: "square.and.arrow.up")
+            }
+            .help("The deck as a PDF, or the state shown as a PNG: shared, looked at, or saved")
+            .disabled(editor.slots.isEmpty)
+        }
+        ToolbarItemGroup {
+            Toggle(isOn: $showsSource) {
+                Label("Source", systemImage: "chevron.left.forwardslash.chevron.right")
+            }
+            .help("The deck's .scn beside the canvas")
+            Toggle(isOn: $showsFindings) {
+                Label("Findings", systemImage: "exclamationmark.triangle")
+            }
+            .help("What lint found")
+            Toggle(isOn: $showsInspector) {
+                Label("Inspector", systemImage: "sidebar.trailing")
+            }
+            .help("The node selected, or the state")
+            Toggle(isOn: $showsAssistant) {
+                Label("Assistant", systemImage: "bubble.left.and.text.bubble.right")
+            }
+            .keyboardShortcut("a", modifiers: [.option, .command])
+            .help("Ask about the deck, or for an edit, with your own key (⌥⌘A)")
+        }
+    }
+
+    /// `view`, keeping up with the window: the state shown, the undo the assistant's edits go
+    /// into, and every state linted once edits stop.
+    private func watched(_ view: some View) -> some View {
+        view
+            .onChange(of: shown, initial: true) { _, now in
+                // A state chosen plays its cue, as it does in the browser.
+                editor.shown = now
+                node = arriving
+                arriving = nil
+                playhead = Playhead()
+            }
+            .onChange(of: undo, initial: true) { _, now in
+                // The assistant's edits are each one step of this window's undo.
+                if assistant == nil { assistant = Assistant(editor: editor) }
+                assistant?.edited = { [weak document = self.document, weak now] before, files in
+                    document?.took(before, files: files, undo: now)
+                }
+            }
+            .task(id: editor.revision) {
+                // Every state is linted once edits stop, as in the browser.
+                try? await Task.sleep(for: .milliseconds(700))
+                guard !Task.isCancelled, !editor.whole else { return }
+                editor.lintEvery()
+            }
+    }
+
+    /// `view` with what the window shows over it: an export in Quick Look or to save, the
+    /// on-device model's answer, and why an edit was not made.
+    private func presented(_ view: some View) -> some View {
+        view
+            .quickLookPreview($looking)
+            .fileExporter(
+                isPresented: exporting, document: saving, contentType: savingType, defaultFilename: savingName
+            ) { result in
+                if case .failure(let error) = result { failure = "\(error)" }
+            }
+            .sheet(item: $asked) { asked in
+                OfferSheet(title: asked.title, ask: asked.ask, take: asked.take) { ops in
+                    perform { try document.make(ops, undo: undo) }
+                }
+            }
+            .alert("Not made", isPresented: failing, presenting: failure) { _ in
+                Button("OK") { failure = nil }
+            } message: { said in
+                Text(said)
+            }
+    }
+
+    /// Whether an export waits to be saved.
+    private var exporting: Binding<Bool> {
+        Binding(get: { saving != nil }, set: { if !$0 { saving = nil } })
+    }
+
+    /// Whether an alert says why an edit was not made.
+    private var failing: Binding<Bool> {
+        Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })
     }
 
     /// The canvas: the state shown on Metal, with what is selected on it.
