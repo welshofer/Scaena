@@ -1,3 +1,4 @@
+import QuickLook
 import ScaenaKit
 import SwiftUI
 import UniformTypeIdentifiers
