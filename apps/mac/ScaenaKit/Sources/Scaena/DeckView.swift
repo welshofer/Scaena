@@ -9,8 +9,9 @@ import UniformTypeIdentifiers
 /// the inspector, which edits the node selected, or the state with none; and the assistant, which
 /// edits it with the user (PLAN 3.6). A double click types in a text on the canvas (PLAN 3.9).
 /// The Node menu inserts what the theme and the bundle offer, copies, deletes, and locks a node
-/// (PLAN 3.11). Every edit is a patch or a source, as in the browser, and one step to undo; a
-/// burst of typing is one.
+/// (PLAN 3.11); Copy, Cut, and Paste take a node as a clip, and paste a picture, a sheet's cells,
+/// or words another app copied, and ⌥⌘C and ⌥⌘V a look (PLAN 3.12). Every edit is a patch or a
+/// source, as in the browser, and one step to undo; a burst of typing is one.
 struct DeckView: View {
     @ObservedObject var document: ScaenaDocument
     @Environment(\.undoManager) private var undo
@@ -34,6 +35,8 @@ struct DeckView: View {
     @State private var inserts: [Insert] = []
     /// Whether the node selected is locked by its own lock: what Lock undoes.
     @State private var locked = false
+    /// The look ⌥⌘C copied last, which ⌥⌘V pastes, as `look` gives it.
+    @State private var copiedLook: JSONValue?
     /// What the on-device model is asked, shown in a sheet.
     @State private var asked: Asked?
     /// An export shown in Quick Look (PLAN 3.8).
@@ -242,7 +245,7 @@ struct DeckView: View {
                 if let typing {
                     CanvasSelection(
                         editor: editor, state: shown, size: size, node: $node, typing: typing, pointed: $pointed,
-                        said: $said, delete: delete
+                        said: $said, delete: delete, clip: clip
                     ) { ops in
                         perform { try document.make(ops, undo: undo) }
                     }
@@ -322,7 +325,153 @@ struct DeckView: View {
             duplicate: selected.map { node in { duplicate(node, in: shown) } },
             delete: selected == nil ? nil : delete,
             lock: selected.map { node in { lock(node) } },
-            locked: locked)
+            locked: locked,
+            copyLook: selected.map { node in { copyLook(node, in: shown) } },
+            pasteLook: copiedLook != nil && selected != nil ? { pasteLook(in: shown) } : nil)
+    }
+
+    /// The Edit menu's Copy, Cut, and Paste on the canvas (PLAN 3.12).
+    private func clip(_ what: CanvasKeys.Clipping) {
+        switch what {
+        case .copy: copy(cut: false)
+        case .cut: copy(cut: true)
+        case .paste: paste()
+        }
+    }
+
+    /// ⌘C, and ⌘X with `cut`: the node selected onto the pasteboard as a clip, and as its text,
+    /// which pastes in this deck or another, or the browser's (PLAN 2.37); a cut then takes it out
+    /// of the state shown on, as Delete does.
+    private func copy(cut: Bool) {
+        guard let shown, let node else {
+            said = "nothing selected to \(cut ? "cut" : "copy")"
+            return
+        }
+        do {
+            Pasteboard.write(clip: try editor.session.copying(state: shown, nodes: [node]))
+        } catch {
+            said = "not copied: \(error)"
+            return
+        }
+        said = "\(node) \(cut ? "cut" : "copied"): ⌘V pastes it, in this deck or another"
+        if cut { delete(false) }
+    }
+
+    /// ⌘V: what the pasteboard holds, where the pointer last pressed on the canvas, as Insert
+    /// places a node (PLAN 2.37, 2.96): a clip's nodes under ids new to the deck; a picture as an
+    /// image; a data file as a source and a chart of it; a sheet's cells as a source and the table
+    /// they were; other words as a text in the theme's body role. Each enters in the state shown,
+    /// selected: a step to undo for the source a file declares, and one for what is pasted.
+    private func paste() {
+        guard let shown else { return }
+        let size = (try? editor.session.canvasSize()) ?? CGSize(width: 1920, height: 1080)
+        let at = pointed ?? CGPoint(x: size.width / 2, y: size.height / 2)
+        switch Pasteboard.read() {
+        case .clip(let text):
+            pasteText(text, in: shown, at: at)
+        case .words(let text):
+            if let cells = (try? editor.session.cells(text)) ?? nil {
+                attach(Data(cells.csv.utf8), named: "\(cells.name).csv", cells: cells, in: shown, at: at)
+            } else {
+                pasteText(text, in: shown, at: at)
+            }
+        case .file(let data, let name):
+            let ext = (name as NSString).pathExtension.lowercased()
+            if ext == "csv" || ext == "json" {
+                attach(data, named: name, cells: nil, in: shown, at: at)
+            } else if ["png", "jpg", "jpeg"].contains(ext) {
+                picture(data, named: name, in: shown, at: at)
+            } else if let png = Pasteboard.png(data) {
+                picture(png, named: "\((name as NSString).deletingPathExtension).png", in: shown, at: at)
+            } else {
+                said = "\(name) is neither a picture (PNG, JPEG) nor data (CSV, JSON): nothing was added"
+            }
+        case nil:
+            said = "nothing on the clipboard to paste"
+        }
+    }
+
+    /// A clip's text, or words, pasted in `state` about `at`.
+    private func pasteText(_ text: String, in state: String, at: CGPoint) {
+        perform {
+            let pasted = try editor.session.pasting(text, state: state, at: at)
+            try document.make(pasted.patch, undo: undo)
+            node = pasted.id
+            said = (["\(pasted.ids.joined(separator: ", ")) pasted in \(state)"] + pasted.lacked).joined(separator: "; ")
+        }
+    }
+
+    /// A picture kept in the bundle, by its content, and inserted as an image about `at`.
+    private func picture(_ data: Data, named name: String, in state: String, at: CGPoint) {
+        perform {
+            let path = try editor.session.drop(data, named: name)
+            let offered = try editor.session.inserts()
+            guard let n = offered.firstIndex(where: { $0.node["type"]?.string == "image" && $0.node["src"]?.string == path })
+            else {
+                said = "\(path) is no image the deck can insert: a PNG or a JPEG"
+                return
+            }
+            let added = try editor.session.inserting(state: state, n: n, at: at, named: name)
+            try document.make(added.patch, undo: undo)
+            node = added.id
+            said = "\(name) pasted as \(added.id), kept as \(path)"
+        }
+    }
+
+    /// A data file kept in the bundle and declared as a source (PLAN 2.76), then a chart of it
+    /// inserted about `at`; a sheet's `cells`, typed as they read, and the table they were, each
+    /// column printing its figures as they were copied (PLAN 2.96).
+    private func attach(_ data: Data, named name: String, cells: Cells?, in state: String, at: CGPoint) {
+        perform {
+            let path = try editor.session.drop(data, named: name)
+            let attaching = try editor.session.attaching(path: path, schema: cells?.schema)
+            if !attaching.patch.isEmpty { try document.make(attaching.patch, undo: undo) }
+            let kind = cells == nil ? "chart" : "table"
+            let offered = try editor.session.inserts()
+            guard
+                let n = offered.firstIndex(where: {
+                    $0.node["type"]?.string == kind && $0.node["data"]?.string == "@\(attaching.data)"
+                })
+            else {
+                said = "@\(attaching.data) attached: Insert offers no \(kind) of it"
+                return
+            }
+            let with: JSONValue? = cells.map { ["columns": $0.tableColumns] }
+            let added = try editor.session.inserting(state: state, n: n, at: at, with: with)
+            try document.make(added.patch, undo: undo)
+            node = added.id
+            said = "a \(kind) of @\(attaching.data) pasted as \(added.id), its data kept as \(path)"
+        }
+    }
+
+    /// ⌥⌘C: `node`'s look as `state` shows it, copied for ⌥⌘V (PLAN 2.58).
+    private func copyLook(_ node: String, in state: String) {
+        perform {
+            let look = try editor.session.look(state: state, node: node)
+            guard look["props"]?.array?.isEmpty == false else {
+                said = "\(node) has no look of its own to copy"
+                return
+            }
+            copiedLook = look
+            said = "\(node)'s look copied: ⌥⌘V pastes it on what is selected"
+        }
+    }
+
+    /// ⌥⌘V: the look copied pasted on the node selected, in the state shown: one patch of
+    /// `choose`s, each written where that node's own value lives (PLAN 2.58).
+    private func pasteLook(in state: String) {
+        guard let look = copiedLook, let node else { return }
+        let from = look["node"]?.string ?? "the"
+        perform {
+            let put = try editor.session.putting(state: state, look: look, nodes: [node])
+            let others = (put.same.isEmpty ? [] : ["\(node) looks so already"]) + put.refused.map { "\($0.node): \($0.why)" }
+            guard !put.patch.isEmpty else {
+                said = others.isEmpty ? "nothing takes \(from)'s look" : others.joined(separator: "; ")
+                return
+            }
+            try document.make(put.patch, undo: undo)
+            said = (["\(from)'s look pasted on \(put.took.joined(separator: ", "))"] + others).joined(separator: "; ")
+        }
     }
 
     /// Insert what the deck offers `n`th where the pointer last pressed on the canvas, or in its

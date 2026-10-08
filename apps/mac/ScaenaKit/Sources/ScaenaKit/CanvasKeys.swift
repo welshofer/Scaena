@@ -19,6 +19,14 @@ public final class CanvasKeys: NSView {
     /// What the canvas does with a command the keys make while no text is typed in: whether it did
     /// anything with it.
     public var command: (@MainActor (Selector) -> Bool)?
+    /// What the canvas does with the Edit menu's Copy, Cut, and Paste while no text is typed in
+    /// (PLAN 3.12): the nodes selected copied as a clip, or what the pasteboard holds pasted.
+    public var clipping: (@MainActor (Clipping) -> Void)?
+
+    /// The Edit menu's Copy, Cut, and Paste.
+    public enum Clipping: Sendable {
+        case copy, cut, paste
+    }
 
     public init(typing: Typing) {
         self.typing = typing
@@ -85,9 +93,11 @@ public final class CanvasKeys: NSView {
         return true
     }
 
-    // The Edit menu's Copy, Cut, and Paste, on the characters selected: plain text.
+    // The Edit menu's Copy, Cut, and Paste: on the characters selected, as plain text, while a
+    // text is typed in; else the canvas's (`clipping`).
 
     @objc public func copy(_ sender: Any?) {
+        guard typing.typing else { return clip(.copy) }
         guard let selected = typing.selected else { return }
         let board = NSPasteboard.general
         board.clearContents()
@@ -95,14 +105,20 @@ public final class CanvasKeys: NSView {
     }
 
     @objc public func cut(_ sender: Any?) {
+        guard typing.typing else { return clip(.cut) }
         guard typing.selected != nil else { return }
         copy(sender)
         typing.replace(typing.selection, with: "")
     }
 
     @objc public func paste(_ sender: Any?) {
+        guard typing.typing else { return clip(.paste) }
         guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else { return }
         typing.insert(text)
+    }
+
+    private func clip(_ what: Clipping) {
+        clipping?(what)
     }
 
     /// The commands the input system makes of keys: while a text is typed in, deletes, moves, a
@@ -291,11 +307,16 @@ public struct CanvasKeysHost: NSViewRepresentable {
     /// The canvas, in canvas units.
     public let canvas: CGSize
     public let command: @MainActor (Selector) -> Bool
+    public let clipping: @MainActor (CanvasKeys.Clipping) -> Void
 
-    public init(typing: Typing, canvas: CGSize, command: @escaping @MainActor (Selector) -> Bool) {
+    public init(
+        typing: Typing, canvas: CGSize, command: @escaping @MainActor (Selector) -> Bool,
+        clipping: @escaping @MainActor (CanvasKeys.Clipping) -> Void
+    ) {
         self.typing = typing
         self.canvas = canvas
         self.command = command
+        self.clipping = clipping
     }
 
     public func makeNSView(context: Context) -> CanvasKeys {
@@ -307,5 +328,6 @@ public struct CanvasKeysHost: NSViewRepresentable {
     public func updateNSView(_ view: CanvasKeys, context: Context) {
         view.canvas = canvas
         view.command = command
+        view.clipping = clipping
     }
 }

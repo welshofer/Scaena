@@ -728,6 +728,71 @@ fn a_node_is_inserted_copied_and_taken_away_as_the_browser_does() {
     unsafe { scaena_session_free(s) };
 }
 
+/// The clipboard (PLAN 3.12), as the browser's (PLAN 2.37, 2.58, 2.96): a node copied as a clip
+/// and pasted in another state under an id new to the deck; words from another app pasted as a
+/// text; a look copied and put on another node; a sheet's cells read as a source, its file
+/// dropped and attached; and a picture dropped, kept by its content.
+#[test]
+fn the_clipboard_copies_and_pastes_as_the_browsers_does() {
+    let s = open(B1);
+    let clip = call(s, "copying", json!({ "state": "cover", "nodes": ["title"] }));
+    let clip = clip.as_str().expect("a clip is the text the clipboard holds");
+    assert_eq!(serde_json::from_str::<Value>(clip).unwrap()["kind"], "scaena/clip", "{clip}");
+    let pasted = call(s, "pasting", json!({ "text": clip, "state": "goal", "x": 960, "y": 540 }));
+    let id = pasted["id"].as_str().unwrap().to_string();
+    assert_ne!(id, "title");
+    assert_eq!(tool(s, "deck_patch", json!({ "ops": pasted["patch"] }))["edited"], true);
+    let shown = call(s, "boxes", json!({ "state": "goal" }));
+    assert!(shown.as_array().unwrap().iter().any(|b| b["node"] == id.as_str()), "{shown}");
+
+    let words = call(s, "pasting", json!({ "text": "Words from elsewhere", "state": "goal", "x": 100, "y": 100 }));
+    assert_eq!(words["patch"][0]["node"]["type"], "text", "{words}");
+
+    // ⌥⌘C on the title, ⌥⌘V on the subtitle: one patch of `choose`s.
+    let look = call(s, "look", json!({ "state": "cover", "node": "title" }));
+    let put = call(s, "putting", json!({ "state": "cover", "look": look, "nodes": ["subtitle"] }));
+    assert!(put["patch"].as_array().is_some_and(|p| !p.is_empty()), "{put}");
+
+    // A sheet's cells: the source they would be; words are none.
+    let cells = call(s, "cells", json!({ "text": "Quarter\tSales\nQ1\t1,200\nQ2\t1,450\n" }));
+    assert_eq!(cells["rows"], 2, "{cells}");
+    assert_eq!(call(s, "cells", json!({ "text": "just words" })), Value::Null);
+    let name = format!("{}.csv", cells["name"].as_str().unwrap());
+    let csv = cells["csv"].as_str().unwrap().as_bytes().to_vec();
+    let dropped: Value =
+        serde_json::from_str(&took(unsafe { scaena_drop(s, c(&name).as_ptr(), csv.as_ptr(), csv.len()) })).unwrap();
+    let path = dropped["ok"].as_str().unwrap().to_string();
+    assert!(path.starts_with("data/"), "{dropped}");
+    let attaching = call(s, "attaching", json!({ "path": path, "schema": cells["schema"] }));
+    assert!(attaching["patch"].as_array().is_some_and(|p| !p.is_empty()), "{attaching}");
+    assert_eq!(tool(s, "deck_patch", json!({ "ops": attaching["patch"] }))["edited"], true);
+
+    // A picture, kept under its content's name.
+    let picture = std::fs::read(format!("{TORTURE}/assets/test-card.png")).unwrap();
+    let kept: Value = serde_json::from_str(&took(unsafe {
+        scaena_drop(s, c("Screenshot.png").as_ptr(), picture.as_ptr(), picture.len())
+    }))
+    .unwrap();
+    let image = kept["ok"].as_str().unwrap();
+    assert!(image.starts_with("assets/") && image.ends_with(".png"), "{kept}");
+    let offered = call(s, "inserts", Value::Null);
+    let insertable =
+        offered.as_array().unwrap().iter().any(|i| i["node"]["type"] == "image" && i["node"]["src"] == image);
+    assert!(insertable, "Insert offers it as an image: {offered}");
+
+    // What is not a clip's, a look's, or a list of nodes: said.
+    for (method, args) in [
+        ("copying", json!({ "state": "cover", "nodes": "title" })),
+        ("putting", json!({ "state": "cover", "look": 3, "nodes": ["subtitle"] })),
+    ] {
+        let answer: Value =
+            serde_json::from_str(&took(unsafe { scaena_call(s, c(method).as_ptr(), c(&args.to_string()).as_ptr()) }))
+                .unwrap();
+        assert!(answer["error"]["message"].is_string(), "{method}: {answer}");
+    }
+    unsafe { scaena_session_free(s) };
+}
+
 /// Bytes the library returned, taken and freed: none where it returned none.
 fn bytes_of(made: ScaenaBytes) -> Option<Vec<u8>> {
     if made.data.is_null() {

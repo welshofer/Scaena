@@ -13,7 +13,7 @@ import SwiftUI
 /// where it stands (PLAN 3.9): a press in it puts the caret there, and one outside it stops
 /// typing. A press takes the keyboard for the canvas: Delete takes the node selected out of the
 /// state shown and those after, Shift+Delete out of the deck, and Escape selects what holds it
-/// (PLAN 3.11). Every box and caret is the engine's, at rest; nothing here lays out.
+/// (PLAN 3.11); Copy, Cut, and Paste are the window's (PLAN 3.12). Every box and caret is the engine's, at rest; nothing here lays out.
 struct CanvasSelection: View {
     let editor: DeckEditor
     let state: String
@@ -28,6 +28,8 @@ struct CanvasSelection: View {
     @Binding var said: String?
     /// Take the node selected out of the state shown and those after, or, `true`, out of the deck.
     let delete: (Bool) -> Void
+    /// The Edit menu's Copy, Cut, and Paste while no text is typed in (PLAN 3.12).
+    let clip: (CanvasKeys.Clipping) -> Void
     /// Make the patch a drag ended in: one step to undo.
     let make: ([JSONValue]) -> Void
     @State private var boxes: [NodeBox] = []
@@ -95,7 +97,7 @@ struct CanvasSelection: View {
             ZStack(alignment: .topLeading) {
                 // Under the rest: the canvas's keys, the text's while one is typed in. It takes no
                 // press.
-                CanvasKeysHost(typing: typing, canvas: size, command: command)
+                CanvasKeysHost(typing: typing, canvas: size, command: command, clipping: clip)
                     .allowsHitTesting(false)
                 Color.clear
                     .contentShape(Rectangle())

@@ -1,0 +1,89 @@
+import AppKit
+import Foundation
+import ScaenaKit
+import Testing
+
+/// What the pasteboard holds, as the canvas pastes it (PLAN 2.37, 2.96): a clip, written beside
+/// its text; a picture, the words beside it only naming it; words, which outrank a picture of
+/// them, as a sheet's cells come with one.
+@MainActor
+@Test func thePasteboardIsReadAsTheBrowsersClipboardIs() throws {
+    let board = NSPasteboard.withUniqueName()
+    defer { board.releaseGlobally() }
+    #expect(Pasteboard.read(board) == nil)
+
+    Pasteboard.write(clip: #"{"kind":"scaena/clip"}"#, to: board)
+    #expect(Pasteboard.read(board) == .clip(#"{"kind":"scaena/clip"}"#))
+    #expect(board.string(forType: .string) == #"{"kind":"scaena/clip"}"#, "beside it, its text")
+
+    let png = try Data(contentsOf: repository.appending(path: "tests/fixtures/torture.scaena/assets/test-card.png"))
+    board.clearContents()
+    board.setData(png, forType: .png)
+    #expect(Pasteboard.read(board) == .file(png, name: "picture.png"))
+
+    // A sheet's cells, with a picture of them: the words.
+    board.clearContents()
+    board.setData(png, forType: .png)
+    board.setString("Quarter\tSales\nQ1\t1,200", forType: .string)
+    #expect(Pasteboard.read(board) == .words("Quarter\tSales\nQ1\t1,200"))
+
+    // A picture of a kind an image does not show, as a PNG of it.
+    let tiff = try #require(NSBitmapImageRep(data: png)?.tiffRepresentation)
+    board.clearContents()
+    board.setData(tiff, forType: .tiff)
+    guard case .file(let made, let name) = Pasteboard.read(board) else {
+        Issue.record("a TIFF reads as a picture")
+        return
+    }
+    #expect(name == "picture.png" && made.starts(with: [0x89, 0x50, 0x4E, 0x47]))
+}
+
+/// The clipboard through the editor (PLAN 3.12), as the browser's (PLAN 2.37, 2.58, 2.96): a node
+/// copied as a clip pasted in another state, a look put on another node, a sheet's cells pasted
+/// as a source and the table they were, and a picture as an image; each patch made.
+@Test func aClipALookCellsAndAPicturePasteAsTheBrowsersDo() throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    editor.shown = "goal"
+    let session = editor.session
+
+    let clip = try session.copying(state: "cover", nodes: ["title"])
+    #expect(clip.contains("\"scaena/clip\""))
+    let pasted = try session.pasting(clip, state: "goal", at: CGPoint(x: 960, y: 540))
+    #expect(pasted.id != "title" && pasted.ids == [pasted.id] && pasted.lacked.isEmpty)
+    try editor.make(pasted.patch)
+    #expect(try session.boxes(state: "goal").contains { $0.node == pasted.id })
+    let words = try session.pasting("Words from elsewhere", state: "goal", at: CGPoint(x: 100, y: 100))
+    #expect(words.patch.first?["node"]?["type"]?.string == "text")
+
+    let look = try session.look(state: "cover", node: "title")
+    #expect(look["node"]?.string == "title")
+    let put = try session.putting(state: "cover", look: look, nodes: ["subtitle"])
+    #expect(!put.patch.isEmpty && put.took == ["subtitle"])
+    try editor.make(put.patch)
+
+    // A sheet's cells: a source, typed as they read, and the table they were.
+    let cells = try #require(try session.cells("Quarter\tSales\nQ1\t1,200\nQ2\t1,450\n"))
+    #expect(cells.rows == 2 && cells.columns == ["Quarter", "Sales"])
+    #expect(try session.cells("just words") == nil)
+    let path = try session.drop(Data(cells.csv.utf8), named: "\(cells.name).csv")
+    #expect(path.hasPrefix("data/"))
+    let attaching = try session.attaching(path: path, schema: cells.schema)
+    try editor.make(attaching.patch)
+    let offered = try session.inserts()
+    let n = try #require(
+        offered.firstIndex { $0.node["type"]?.string == "table" && $0.node["data"]?.string == "@\(attaching.data)" })
+    let table = try session.inserting(
+        state: "goal", n: n, at: CGPoint(x: 960, y: 700), with: ["columns": cells.tableColumns])
+    try editor.make(table.patch)
+    #expect(try session.boxes(state: "goal").contains { $0.node == table.id })
+
+    // A picture, kept by its content, and inserted as an image.
+    let png = try Data(contentsOf: repository.appending(path: "tests/fixtures/torture.scaena/assets/test-card.png"))
+    let image = try session.drop(png, named: "Screenshot.png")
+    #expect(image.hasPrefix("assets/") && image.hasSuffix(".png"))
+    let m = try #require(
+        try session.inserts().firstIndex { $0.node["type"]?.string == "image" && $0.node["src"]?.string == image })
+    let added = try session.inserting(state: "goal", n: m, at: CGPoint(x: 400, y: 400), named: "Screenshot.png")
+    try editor.make(added.patch)
+    #expect(try session.boxes(state: "goal").contains { $0.node == added.id })
+}

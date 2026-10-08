@@ -32,4 +32,6 @@ With characters selected, the inspector offers their look: a role, emphasis, fam
 
 The Node menu (PLAN 3.11) inserts, by kind, what the theme and the bundle offer. It lands where you last clicked on the canvas, or in the room nearest there. The menu also duplicates the node selected (⌘D), deletes it from the state shown on or from the whole deck, and locks it (⇧⌘L) so the canvas passes over it. On the canvas, Delete and Shift+Delete do the same as the menu's two deletes, and Escape selects what holds the node. The lock beside each layer in the inspector locks or unlocks it.
 
+With the canvas focused, Copy, Cut, and Paste (PLAN 3.12) copy, cut, and paste the node selected, in this deck or another, or in the browser's editor. Paste also takes what other apps copied. A screenshot or a picture copied in the Finder comes in as an image. A CSV comes in as a data source with a chart of it. Cells copied from Numbers or Excel come in as a data source and the table they were. Other words come in as a text. ⌥⌘C and ⌥⌘V copy one node's look and paste it on another.
+
 Export (PLAN 3.8), in the toolbar, shares the deck as a PDF, the same bytes `scaena export --format pdf` writes, or the state shown as a PNG, through the Share sheet; shows the PDF in Quick Look; or saves either where you say.

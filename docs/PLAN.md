@@ -1384,7 +1384,29 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
       - the `ffi` suite's `a_node_is_inserted_copied_and_taken_away_as_the_browser_does` on B1: a rect offered, inserted, made, and copied; deleted from the deck, a headline the next states show deleted from its state on, and with Shift from the deck; misuse said;
       - ScaenaKit's `NodesTests`: Lock's patch, escaped as JSON pointers, as the browser's; a rect inserted, copied, locked, unlocked, and deleted through `DeckEditor`; and the canvas's keys, the canvas's with no text typed in and the text's while one is.
     - **What waits.** A run on a Mac.
-- [ ] 3.12 The clipboard: ⌘C, ⌘X, and ⌘V copy, cut, and paste a node as a clip (PLAN 2.37); a picture or a sheet's cells another app copied paste as what they are (PLAN 2.96); ⌥⌘C and ⌥⌘V copy and paste a look (PLAN 2.58).
+- [ ] 3.12 The clipboard: ⌘C, ⌘X, and ⌘V copy, cut, and paste a node as a clip (PLAN 2.37); a picture or a sheet's cells another app copied paste as what they are (PLAN 2.96); ⌥⌘C and ⌥⌘V copy and paste a look (PLAN 2.58). *(Built; waits on a run on a Mac.)*
+    - **Nodes.** With the canvas focused and no text typed in, the Edit menu's Copy and Cut put the node selected on the pasteboard as a clip (`copying`). The clip goes under its own type, and beside it as its text, which the browser's editor pastes too; Cut then deletes the node from the state shown on. Paste puts a clip's nodes where the pointer last pressed, as Insert places a node, under ids new to the deck (`pasting`), in this deck or another. The status says what the theme lacked, which was taken out.
+    - **From another app** (`Pasteboard.read`, as the browser reads its clipboard):
+      - a picture, a screenshot or a file copied in the Finder, with the words beside it only naming it, is kept by its content (`scaena_drop`) and inserted as an image; a picture of a kind an image does not show comes in as a PNG of it;
+      - a data file comes in as a source and a chart of it;
+      - a sheet's cells, which outrank the picture of them that comes along, come in as a source typed as they read (`cells`, `attaching`) and the table they were, each column printing its figures as they were copied (`inserting`'s `with`);
+      - other words come in as a text in the theme's body role.
+    - **A look.** ⌥⌘C copies the look of the node selected (`look`), and ⌥⌘V puts it on the node selected (`putting`): one patch of `choose`s, each written where that node's own value lives.
+
+      Each paste is a step to undo, and a file's source declared is one before it.
+    - **The ABI.** `copying`, `pasting`, `look`, `putting`, `cells`, and `attaching` join the session's calls, and `inserting` takes `with`. `scaena_drop` hands over a file dropped or pasted where the browser's canvas keeps one.
+    - Tests:
+      - the `ffi` suite's `the_clipboard_copies_and_pastes_as_the_browsers_does` on B1:
+        - the title copied, and pasted in another state;
+        - words pasted as a text;
+        - a look put on the subtitle;
+        - a sheet's cells read, their file dropped and attached;
+        - a picture dropped, and offered to insert;
+        - misuse said;
+      - ScaenaKit's `ClipboardTests`:
+        - the pasteboard read as the browser's clipboard is: a clip beside its text, a picture, words outranking a picture of them, and a TIFF as a PNG;
+        - through `DeckEditor`, a clip, words, a look, a sheet's cells with their table, and a picture, each made.
+    - **What waits.** A run on a Mac, copying from Numbers, Preview, and the Finder.
 - [ ] 3.13 Several selected: Shift+click and a marquee, moved together, aligned, spread, and ordered; ⌘G and ⌘⇧G group and ungroup (PLAN 2.42, 2.43).
 - [ ] 3.14 States and slides: the state list adds a step or a slide, moves, renames, and removes states (PLAN 2.35); the light table (PLAN 2.97); rehearse (PLAN 2.63); the cue's bars dragged (PLAN 2.44).
 - [ ] 3.15 The panels: the theme (its colors, type, and spacing; another theme; one from a photo, PLAN 2.39, 2.61, 2.94), the data (a source as a table, edited; quotes, PLAN 2.55, 2.72), the files (PLAN 2.59), and the versions the history keeps (PLAN 2.60).
