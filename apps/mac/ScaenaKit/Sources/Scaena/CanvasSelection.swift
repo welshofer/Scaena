@@ -787,6 +787,35 @@ struct CanvasSelection: View {
         return true
     }
 
+    /// Space (PLAN 2.89), as the browser's canvas takes a tap of it: the node the keys are on put in
+    /// the selection, or taken out of it; with none keyed, the keys start on the node selected, to
+    /// build a selection from there. One beside another container's starts the selection anew.
+    private func space() -> Bool {
+        guard let on = keyOn else {
+            guard let selected = node else {
+                said = "nothing selected: Tab selects a node, then Space builds a selection from it"
+                return true
+            }
+            keyOn = selected
+            said = "\(selected) selected · Tab keys the next beside it, and Space puts it in the selection or takes it out"
+            return true
+        }
+        if !selection.contains(on), let selected = node, parent(of: on) != parent(of: selected) {
+            node = nil
+            also = []
+        }
+        if node == nil {
+            node = on
+        } else {
+            toggle(on)
+        }
+        keyOn = on
+        let now = selection
+        let them = now.isEmpty ? "nothing" : now.joined(separator: ", ")
+        said = "\(on) \(now.contains(on) ? "put in" : "taken out of") the selection: \(them) selected · Tab the next · Escape stops"
+        return true
+    }
+
     /// Escape: a selection built by keys stops, what is selected staying; the handles are left; a
     /// point picked is let go; several selected, the first alone; else what holds it is selected.
     private func escape() -> Bool {
