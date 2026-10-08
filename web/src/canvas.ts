@@ -38,10 +38,15 @@
 // - ⌘C and ⌘X put the nodes selected, with what they hold, on the clipboard as JSON
 //   (`application/x-scaena+json`) and as text; a cut then takes them out as Delete does. ⌘V
 //   pastes them where the pointer last pressed, as Insert places a node, several where they stood
-//   about each other, under ids new to the deck, in this deck or another; text from elsewhere
-//   comes in as a text in the theme's body role. What the clip names that the theme lacks is
-//   taken out of it, and the status says so (PLAN 2.37). A page must fill the clipboard at once,
-//   so what is selected is copied when it is selected.
+//   about each other, under ids new to the deck, in this deck or another. What the clip names
+//   that the theme lacks is taken out of it, and the status says so (PLAN 2.37). A page must
+//   fill the clipboard at once, so what is selected is copied when it is selected.
+// - From another app, ⌘V pastes what it copied there (PLAN 2.96). A picture, a screenshot or a
+//   file copied where files are kept, comes in as an image, as one dropped there does; one of a
+//   kind an image does not show that the browser reads, a GIF, a WebP, a TIFF in Safari, as a
+//   PNG of it. A sheet's cells, rows of cells split by tabs, become a data source, typed as they
+//   read, and the table they were, each column printing its figures as they were copied
+//   (`scaena_core::data::cells`). Other text comes in as a text in the theme's body role.
 // - Lint's findings stand on what they are about, a mark at each box's corner, and a mark opened
 //   offers each finding's fix (PLAN 2.49, `marks.ts`).
 // - Guides (PLAN 2.57): ⌘' (Ctrl+'), the Grid button, or the command draws the theme's grid of the
@@ -61,7 +66,7 @@
 import { ALT, type Key, MOD, SHIFT } from "./commands";
 import { marks } from "./marks";
 import { BUNDLE_PATH, CLIP, DATA, PICTURE } from "./protocol";
-import type { Added, Arrange, DataMark, Edited, Finding, Framing, Grid, Insert, LayoutSlots, Look, Map6, NodeBox, NoteMark, Outline, Rect, SlotBox, SnapMode, Snapped, Targets } from "./protocol";
+import type { Added, Arrange, Cells, DataMark, Edited, Finding, Framing, Grid, Insert, LayoutSlots, Look, Map6, NodeBox, NoteMark, Outline, Rect, SlotBox, SnapMode, Snapped, Targets } from "./protocol";
 import { pointer } from "./theme-panel";
 import * as notes from "./notes";
 import { annotate, askWords, markName, noteName } from "./notes";
@@ -342,6 +347,30 @@ const PAUSE = 300;
 const REACH = 6;
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/** Whether the words a clipboard holds beside a file only name it (PLAN 2.96): none, its name, or
+ * an address alone, as a picture copied in a browser may carry. */
+function namesOnly(words: string, file: File): boolean {
+  const w = words.trim();
+  return !w || w === file.name || /^(https?|file):\/\/\S+$/i.test(w);
+}
+
+/** A picture of a kind an image does not show (SPEC §3.3), as a PNG of it, where the browser
+ * reads it: a GIF's first frame, a WebP, an AVIF, a TIFF in Safari. None where it does not. */
+async function asPng(file: File): Promise<File | undefined> {
+  if (!file.type.startsWith("image/")) return undefined;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    canvas.getContext("2d")?.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    const png = await canvas.convertToBlob({ type: "image/png" });
+    return new File([png], `${file.name.replace(/\.[^.]*$/, "") || "picture"}.png`, { type: "image/png" });
+  } catch {
+    return undefined;
+  }
+}
+
 const has = (at: Placement | undefined, key: string) => at?.[key] !== undefined && at?.[key] !== null;
 
 /** How a drag of a node placed `at`, held as `t` says, snaps: `resize` by a handle. Shift takes a
@@ -1948,11 +1977,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   /** Insert what the deck offers `n`th as Insert does, `label` saying what it is; `named`, a
    * dropped file's name, names it (PLAN 2.79). Content lands about the pointer, or in the room
    * nearest it where that is taken. */
-  async function inserting(n: number, label: string, named?: string) {
+  async function inserting(n: number, label: string, named?: string, with_?: Record<string, unknown>) {
     const shown = editor.shown();
     if (!shown) return editor.say("the canvas waits for a source that compiles");
     try {
-      const added = await stage.inserting(editor.source(), shown.state, n, landing(), editor.format(), named);
+      const added = await stage.inserting(editor.source(), shown.state, n, landing(), editor.format(), named, with_);
       await change(added.patch, "inserting…", `${label} inserted as ${added.id}, in ${shown.state}`, added.id);
     } catch (e) {
       editor.say(`not inserted: ${said(e)}`);
@@ -2322,47 +2351,60 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
    * a data source, declared as `data_attach` declares it, with a chart of it there (the
    * first-deck walk). */
   function dropped(at: [number, number], file: File) {
-    return inTurn(async () => {
-      const shown = editor.shown();
-      if (!shown) return editor.say("the canvas waits for a source that compiles");
-      if (DATA.test(file.name)) return attach(at, file);
-      // An image shows a PNG or a JPEG (SPEC §3.3): anything else stays out of the bundle.
-      if (!PICTURE.test(file.name)) return editor.say(`${file.name} is neither a picture (PNG, JPEG) nor data (CSV, JSON): nothing was added`);
-      const top = reached(await stage.hit(shown.state, at, editor.format()).catch(() => []));
-      const choices = top && (await stage.choices(shown.state, top.node).catch(() => undefined));
-      try {
-        const path = await stage.drop(file.name, await file.arrayBuffer());
-        if (top && choices?.type === "image") {
-          const op = { op: "choose", node: top.node, prop: "src", value: path, state: shown.state };
-          return void (await change([op], "replacing…", `${top.node} shows ${file.name}, kept as ${path}`, top.node));
-        }
-        offered = await stage.inserts();
-        await inserted(at, path, file.name, file.name);
-      } catch (e) {
-        editor.say(`not added: ${said(e)}`);
+    return inTurn(() => joining(at, file, true));
+  }
+  /** `file` into the bundle and onto the canvas at `at`: a picture on the image there, `onto`,
+   * else inserted; data, a source with a chart of it. A picture of a kind an image does not show
+   * (SPEC §3.3) that the browser reads, a GIF, a WebP, or a TIFF where Safari reads one, joins as
+   * a PNG of it (PLAN 2.96). */
+  async function joining(at: [number, number], file: File, onto: boolean) {
+    const shown = editor.shown();
+    if (!shown) return editor.say("the canvas waits for a source that compiles");
+    if (DATA.test(file.name)) return attach(at, file);
+    const picture = PICTURE.test(file.name) ? file : await asPng(file);
+    // An image shows a PNG or a JPEG: anything else stays out of the bundle.
+    if (!picture) return editor.say(`${file.name} is neither a picture (PNG, JPEG) nor data (CSV, JSON): nothing was added`);
+    const top = onto ? reached(await stage.hit(shown.state, at, editor.format()).catch(() => [])) : undefined;
+    const choices = top && (await stage.choices(shown.state, top.node).catch(() => undefined));
+    try {
+      const path = await stage.drop(picture.name, await picture.arrayBuffer());
+      const kept = picture === file ? `kept as ${path}` : `kept as a PNG, ${path}`;
+      if (top && choices?.type === "image") {
+        const op = { op: "choose", node: top.node, prop: "src", value: path, state: shown.state };
+        return void (await change([op], "replacing…", `${top.node} shows ${file.name}, ${kept}`, top.node));
       }
-    });
+      offered = await stage.inserts();
+      await inserted(at, path, picture === file ? file.name : `${file.name}, ${kept}`, picture.name);
+    } catch (e) {
+      editor.say(`not added: ${said(e)}`);
+    }
   }
   /** A data file dropped on the canvas joins the bundle as a source, as `data_attach` declares
    * it, one change; a chart of it goes where it was dropped, as Insert inserts one, another. The
    * same file again is the source that reads it, and other rows under its name go beside it. */
-  async function attach(at: [number, number], file: File) {
+  async function attach(at: [number, number], file: File, sheet?: Cells) {
+    const what = sheet ? `the ${sheet.rows} rows pasted` : file.name;
     try {
-      const { path, data, attached, patch } = await stage.attaching(editor.source(), file.name, await file.arrayBuffer());
-      let made = `${file.name} is @${data} already`;
+      const { path, data, attached, patch } = await stage.attaching(editor.source(), file.name, await file.arrayBuffer(), sheet?.schema);
+      let made = `${what} ${sheet ? "are" : "is"} @${data} already`;
       if (attached) {
         if (!patch.length) {
           const why = attached.added.map((f) => `${f.code} ${f.message}`).join("; ");
-          return editor.say(`${file.name} not attached: ${why || "the deck would not validate with it"}`);
+          return editor.say(`${what} not attached: ${why || "the deck would not validate with it"}`);
         }
-        made = `${file.name} attached as @${data}, ${attached.rows} rows${path.endsWith(`/${file.name}`) ? "" : `, kept as ${path}`}`;
+        made = sheet
+          ? `${what} attached as @${data}, kept as ${path}`
+          : `${file.name} attached as @${data}, ${attached.rows} rows${path.endsWith(`/${file.name}`) ? "" : `, kept as ${path}`}`;
         if (!(await change(patch, "attaching…", made, null))) return;
       }
       offered = await stage.inserts();
-      const n = offered.findIndex((i) => i.node.type === "chart" && i.node.data === `@${data}`);
-      if (n < 0) return editor.say(`${made}: Insert offers a table of it, since its columns make no chart`);
+      // A sheet's cells come in as the table they were; a file's rows, as a chart of them.
+      const kind = sheet ? "table" : "chart";
+      const n = offered.findIndex((i) => i.node.type === kind && i.node.data === `@${data}`);
+      if (n < 0) return editor.say(sheet ? `${made}: Insert offers no table of it, since no column tells its rows apart` : `${made}: Insert offers a table of it, since its columns make no chart`);
       pointed = at;
-      await inserting(n, `a chart of @${data}`);
+      const columns = sheet?.columns.map((field, i) => (sheet.formats[i] ? { field, format: sheet.formats[i] } : { field }));
+      await inserting(n, `a ${kind} of @${data}`, undefined, columns && { columns });
     } catch (e) {
       editor.say(`not attached: ${said(e)}`);
     }
@@ -2472,19 +2514,37 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
    * node: a clip's nodes under ids new to the deck, or other text as a text in the theme's body
    * role. It enters in the state shown, selected; the status says what the theme lacked. */
   function paste(clip: string) {
+    return inTurn(() => pasting(clip));
+  }
+  async function pasting(clip: string) {
+    const shown = editor.shown();
+    if (!shown) return editor.say("the canvas waits for a source that compiles");
+    try {
+      const pasted = await stage.pasting(editor.source(), shown.state, clip, landing(), editor.format());
+      const lacked = pasted.findings.map((f) => `${f.message.replace(/, which has .*$/, "")}, ${f.hint ?? "taken out"}`);
+      const ids = [pasted.id, ...(pasted.also ?? [])];
+      const done = [`${ids.join(", ")} pasted in ${shown.state}`, ...lacked].join("; ");
+      await change(pasted.patch, "pasting…", done, ids.length > 1 ? ids : pasted.id);
+    } catch (e) {
+      editor.say(`not pasted: ${said(e)}`);
+    }
+  }
+  /** Text from another app (PLAN 2.96): a sheet's cells, rows of cells split by tabs, become a
+   * data source, typed as they read, and the table they were, where the pointer last pressed,
+   * each column printing its figures as they were copied; words, a text, as a clip's text does. */
+  function pasteText(text: string) {
     return inTurn(async () => {
-      const shown = editor.shown();
-      if (!shown) return editor.say("the canvas waits for a source that compiles");
-      try {
-        const pasted = await stage.pasting(editor.source(), shown.state, clip, landing(), editor.format());
-        const lacked = pasted.findings.map((f) => `${f.message.replace(/, which has .*$/, "")}, ${f.hint ?? "taken out"}`);
-        const ids = [pasted.id, ...(pasted.also ?? [])];
-        const done = [`${ids.join(", ")} pasted in ${shown.state}`, ...lacked].join("; ");
-        await change(pasted.patch, "pasting…", done, ids.length > 1 ? ids : pasted.id);
-      } catch (e) {
-        editor.say(`not pasted: ${said(e)}`);
-      }
+      const cells = editor.shown() && (await stage.cells(editor.source(), text).catch(() => null));
+      if (!cells) return pasting(text);
+      const file = new File([cells.csv], `${cells.name}.csv`, { type: "text/csv" });
+      await attach(landing(), file, cells);
     });
+  }
+  /** A file from another app (PLAN 2.96), a screenshot or a file copied where files are kept:
+   * a picture inserted where the pointer last pressed, as one dropped there is; data, a source
+   * with a chart of it. */
+  function pasteFile(file: File) {
+    return inTurn(() => joining(landing(), file, false));
   }
 
   /** The look ⌥⌘C copied last (PLAN 2.58): what ⌥⌘V pastes, until another is copied. */
@@ -2553,10 +2613,23 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       "paste",
       (e) => {
         if (!pastes()) return;
-        const clip = e.clipboardData?.getData(CLIP) || e.clipboardData?.getData("text/plain");
-        if (!clip) return;
+        const clip = e.clipboardData?.getData(CLIP);
+        const words = e.clipboardData?.getData("text/plain") ?? "";
+        const file = e.clipboardData?.files[0];
+        if (clip) {
+          e.preventDefault();
+          return void paste(clip);
+        }
+        // A file where the words beside it, if any, only name it (PLAN 2.96): a screenshot has
+        // none, and a file copied where files are kept has its name. A sheet's cells and words
+        // come with a picture of them, which their text outranks.
+        if (file && namesOnly(words, file)) {
+          e.preventDefault();
+          return void pasteFile(file);
+        }
+        if (!words) return;
         e.preventDefault();
-        void paste(clip);
+        void pasteText(words);
       },
     ],
   ];

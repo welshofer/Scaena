@@ -22,6 +22,7 @@ import type {
   AssistantEvent,
   Attached,
   Carets,
+  Cells,
   Choices,
   DataEdited,
   DataSource,
@@ -276,7 +277,11 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "inserting":
         current(data.source);
         layOut(data.format);
-        return post({ type: "adding", id: data.id, added: JSON.parse(player.inserting(data.state, data.n, ...data.at, data.named)) as Added });
+        return post({
+          type: "adding",
+          id: data.id,
+          added: JSON.parse(player.inserting(data.state, data.n, ...data.at, data.named, data.with && JSON.stringify(data.with))) as Added,
+        });
       case "drawing":
         current(data.source);
         layOut(data.format);
@@ -387,9 +392,12 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         const bytes = new Uint8Array(data.bytes);
         const path = player.placing(data.name, bytes);
         player.addFile(path, bytes);
-        const made = JSON.parse(player.attaching(path)) as { path: string; data: string; attached: Attached | null; patch: unknown[] };
+        const made = JSON.parse(player.attaching(path, data.schema && JSON.stringify(data.schema))) as { path: string; data: string; attached: Attached | null; patch: unknown[] };
         return post({ type: "attached", id: data.id, ...made });
       }
+      case "cells":
+        current(data.source);
+        return post({ type: "cells", id: data.id, cells: JSON.parse(player.cells(data.text)) as Cells | null });
       case "sheet":
         return post({ type: "sheet", id: data.id, ...sheet(data.source, data.name) });
       case "dataEdit":

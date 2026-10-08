@@ -6,7 +6,10 @@
 
 use crate::assistant::Caller;
 use crate::{Error, Session};
+use indexmap::IndexMap;
+use scaena_core::data::cells::Cells;
 use scaena_core::files::BundleFile;
+use scaena_core::format::Locale;
 use scaena_ops::create::{Attach, Attached};
 use scaena_ops::data::{DataEdit, DataEdited, Sheet};
 use scaena_ops::lint::Why;
@@ -82,7 +85,9 @@ impl Session {
     /// `data_attach` declares it, under an id made from its name and new to the deck's sources,
     /// each column typed as narrowly as its values allow. Nothing is written here: the page
     /// applies the patch.
-    pub fn attaching(&self, path: &str) -> Result<Attaching, Error> {
+    /// `schema`, where given, types the columns, as a pasted sheet's cells say they read
+    /// (PLAN 2.96); else each is typed as narrowly as its values allow.
+    pub fn attaching(&self, path: &str, schema: Option<IndexMap<String, String>>) -> Result<Attaching, Error> {
         let bytes =
             (self.files.get(path).cloned()).ok_or_else(|| Error::Ops(format!("the bundle holds no `{path}`")))?;
         if let Some(id) = self.deck.data.iter().find(|(_, d)| d.source.as_str() == Some(path)).map(|(id, _)| id) {
@@ -94,7 +99,7 @@ impl Session {
             .map(|n| if n == 1 { base.clone() } else { format!("{base}-{n}") })
             .find(|id| !self.deck.data.contains_key(id))
             .expect("some number is free");
-        let req = Attach { id: id.clone(), file: path.into(), schema: None, parse: None };
+        let req = Attach { id: id.clone(), file: path.into(), schema, parse: None };
         let (attached, write) =
             scaena_ops::create::attaching(&self.bundle(), &req, bytes).map_err(|e| Error::Ops(e.to_string()))?;
         let declared = write.as_ref().and_then(|w| w.deck.data.get(&id));
@@ -107,6 +112,13 @@ impl Session {
             Some(source) => vec![json!({ "op": "add", "path": format!("/data/{id}"), "value": source })],
         };
         Ok(Attaching { path: path.into(), data: id, attached: Some(attached), patch })
+    }
+
+    /// `text` pasted on the canvas as a sheet's cells, read in the deck's language (PLAN 2.96):
+    /// the source they would be, or none where `text` is not cells, so it pastes as text.
+    pub fn cells(&self, text: &str) -> Option<Cells> {
+        let lang = self.deck.meta.as_ref().and_then(|m| m.lang.as_deref());
+        scaena_core::data::cells::read(text, Locale::of(lang))
     }
 
     /// The deck's data sources, in its order, each with the file it is: none for rows written

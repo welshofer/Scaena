@@ -12,6 +12,7 @@ use serde_json::Value;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 
+pub mod cells;
 pub mod edit;
 
 /// The bundle's files, by bundle path (`data/q3.csv`), as far as data needs them.
@@ -348,6 +349,14 @@ fn csv(text: &str) -> Result<(Vec<String>, Records), String> {
 
 /// A CSV's header and its records, as text.
 fn csv_rows(text: &str) -> Result<(Vec<String>, Vec<Vec<String>>), String> {
+    let mut records = delimited(text, ',')?.into_iter();
+    let header = records.next().ok_or("no header row")?;
+    Ok((header, records.collect()))
+}
+
+/// RFC 4180's records, their fields split at `sep`: a field holding `sep`, a line break, or
+/// a quote is quoted, with `""` for a quote. A blank line is no record.
+fn delimited(text: &str, sep: char) -> Result<Vec<Vec<String>>, String> {
     let mut records: Vec<Vec<String>> = Vec::new();
     let (mut record, mut field) = (Vec::new(), String::new());
     let (mut quoted, mut chars) = (false, text.trim_start_matches('\u{FEFF}').chars().peekable());
@@ -360,7 +369,7 @@ fn csv_rows(text: &str) -> Result<(Vec<String>, Vec<Vec<String>>), String> {
             (true, '"') => quoted = false,
             (true, c) => field.push(c),
             (false, '"') if field.is_empty() => quoted = true,
-            (false, ',') => record.push(std::mem::take(&mut field)),
+            (false, c) if c == sep => record.push(std::mem::take(&mut field)),
             (false, '\r') if chars.peek() == Some(&'\n') => {}
             (false, '\n' | '\r') => {
                 record.push(std::mem::take(&mut field));
@@ -377,9 +386,7 @@ fn csv_rows(text: &str) -> Result<(Vec<String>, Vec<Vec<String>>), String> {
         records.push(record);
     }
     records.retain(|r| !(r.len() == 1 && r[0].is_empty()));
-    let mut records = records.into_iter();
-    let header = records.next().ok_or("no header row")?;
-    Ok((header, records.collect()))
+    Ok(records)
 }
 
 /// An array of objects; each row keeps its own key order.

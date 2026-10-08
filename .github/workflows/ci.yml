@@ -255,6 +255,9 @@ jobs:
       - run: node web/rotate.mjs
       # The clipboard: a node and what it holds copied, cut, and pasted, into this deck or another (PLAN 2.37).
       - run: node web/clipboard.mjs
+      # What another app copied, pasted: a screenshot, a WebP as a PNG of it, a file copied, words
+      # with a picture of them, and a sheet's cells as a data source and the table they were (PLAN 2.96).
+      - run: node web/paste.mjs
       # A chart and a table inserted from a data source, and what a chart reads chosen in the inspector (PLAN 2.41).
       - run: node web/charts.mjs
       # Several nodes at once: selected, moved, aligned, ordered, deleted, copied, and pasted, each a patch (PLAN 2.42).
