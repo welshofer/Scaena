@@ -1,9 +1,15 @@
 # Scaena.app for a Mac (PLAN 3.3), built when asked: Actions → mac-app → Run workflow, then the
 # run's `Scaena.app` artifact. Signed ad hoc, for trying it, not for shipping: macOS asks once
-# whether to open it (right-click → Open).
+# whether to open it (right-click → Open). A pull request that changes how the app is made builds
+# it too.
 name: mac-app
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/mac-app.yml
+      - apps/mac/build-app.sh
+      - apps/mac/Scaena/Info.plist
 permissions:
   contents: read
 jobs:
@@ -20,3 +26,20 @@ jobs:
         with:
           name: Scaena.app
           path: ${{ runner.temp }}/out/Scaena.app.zip
+      # Gate 3's second criterion, by the command `docs/gate-3.md` gives for a real Mac, three
+      # times, the readings in the run's summary. This runner is a virtual Mac with a paravirtual
+      # GPU, so its readings are not the gate's: the step shows the command works, and how near the
+      # release build comes to the bar.
+      - name: Gate 3, criterion 2, as docs/gate-3.md reads it
+        shell: bash
+        run: |
+          cargo build --release -p scaena-ffi --locked
+          libs=$(cargo rustc -q --color never --release -p scaena-ffi --lib --crate-type staticlib --locked -- --print native-static-libs 2>&1 | sed -n 's/.*native-static-libs: //p')
+          cd apps/mac/ScaenaKit
+          for run in 1 2 3; do
+            swift test -c release --filter aFortyStateDeck -Xlinker -L"$PWD/../../../target/release" $(for l in $libs; do printf -- '-Xlinker %s ' "$l"; done) 2>&1 | tee -a "$RUNNER_TEMP/gate.log"
+          done
+          {
+            echo "### Gate 3, criterion 2, on this virtual Mac (not the gate's reading)"
+            grep "gate 3, criterion 2" "$RUNNER_TEMP/gate.log" | sed 's/^/- /'
+          } >> "$GITHUB_STEP_SUMMARY"
