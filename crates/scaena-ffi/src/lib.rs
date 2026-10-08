@@ -354,6 +354,11 @@ pub unsafe extern "C" fn scaena_drop(
 /// `look {state, node}` and `putting {state, look, nodes}`, a look copied and the patch that
 /// puts it on others; `cells {text}`, a sheet's cells as the source they would be, or null; and
 /// `attaching {path, schema?}`, a data file the bundle holds as the source a chart of it reads.
+/// Several selected (PLAN 3.13): `together {state, nodes, dx, dy, free?, fork?, reach?}`,
+/// children of one container moved together as a drag moves the first, with the guides they
+/// meet; `arranging {state, nodes, how, fork?}`, them aligned, spread, or ordered (`how`: one of
+/// `align`, `spread`, `order`, `before`, `after`, `into`); and `grouping {state, nodes}`, the
+/// patch that puts them in a new group, `{id, patch}`.
 ///
 /// # Safety
 /// `session` is a live handle; `method` a NUL-terminated string; `args` one, or null.
@@ -1103,6 +1108,29 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             let everywhere = args.get("everywhere").and_then(Value::as_bool).unwrap_or(false);
             json!(s.deleting(arg("state")?, arg("node")?, everywhere).map_err(said)?)
         }
+        // Several selected (PLAN 2.42, 2.43, 3.13): moved together as a drag moves the first, the
+        // guides the box around them meets; arranged; grouped.
+        "together" => {
+            let by = [number("dx")? as f32, number("dy")? as f32];
+            let free = args.get("free").and_then(Value::as_bool).unwrap_or(false);
+            let fork = args.get("fork").and_then(Value::as_bool).unwrap_or(false);
+            let reach = args.get("reach").and_then(Value::as_f64).unwrap_or(0.0) as f32;
+            match s.together(arg("state")?, &strings("nodes")?, by, free, fork, reach).map_err(said)? {
+                None => Value::Null,
+                Some((arranged, guides)) => {
+                    scaena_session::with_guides(value(serde_json::to_value(arranged))?, &guides)
+                }
+            }
+        }
+        "arranging" => {
+            let asked: scaena_ops::arrange::Asked =
+                serde_json::from_value(args.get("how").cloned().unwrap_or_default())
+                    .map_err(|e| said(format!("{method}: `how` is one way to arrange them: {e}")))?;
+            let how = asked.how().map_err(said)?;
+            let fork = args.get("fork").and_then(Value::as_bool).unwrap_or(false);
+            value(serde_json::to_value(s.arranging(arg("state")?, &strings("nodes")?, how, fork).map_err(said)?))?
+        }
+        "grouping" => value(serde_json::to_value(s.grouping(arg("state")?, &strings("nodes")?)))?,
         // The clipboard (PLAN 2.37, 2.58, 2.96, 3.12): a clip of nodes, pasted; a node's look,
         // put on others; a sheet's cells pasted, as a data source.
         // The clip as the text the clipboard holds, as the browser writes it.

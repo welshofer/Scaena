@@ -147,6 +147,11 @@ char *scaena_drop(struct ScaenaSession *session,
 // `look {state, node}` and `putting {state, look, nodes}`, a look copied and the patch that
 // puts it on others; `cells {text}`, a sheet's cells as the source they would be, or null; and
 // `attaching {path, schema?}`, a data file the bundle holds as the source a chart of it reads.
+// Several selected (PLAN 3.13): `together {state, nodes, dx, dy, free?, fork?, reach?}`,
+// children of one container moved together as a drag moves the first, with the guides they
+// meet; `arranging {state, nodes, how, fork?}`, them aligned, spread, or ordered (`how`: one of
+// `align`, `spread`, `order`, `before`, `after`, `into`); and `grouping {state, nodes}`, the
+// patch that puts them in a new group, `{id, patch}`.
 //
 // # Safety
 // `session` is a live handle; `method` a NUL-terminated string; `args` one, or null.

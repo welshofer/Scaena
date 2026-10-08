@@ -13,13 +13,19 @@ import SwiftUI
 /// where it stands (PLAN 3.9): a press in it puts the caret there, and one outside it stops
 /// typing. A press takes the keyboard for the canvas: Delete takes the node selected out of the
 /// state shown and those after, Shift+Delete out of the deck, and Escape selects what holds it
-/// (PLAN 3.11); Copy, Cut, and Paste are the window's (PLAN 3.12). Every box and caret is the engine's, at rest; nothing here lays out.
+/// (PLAN 3.11); Copy, Cut, and Paste are the window's (PLAN 3.12). Several are selected (PLAN
+/// 3.13), children of one container, by Shift and a click, or a marquee dragged across the
+/// canvas from where nothing draws; a drag of one moves them all, the first snapped as it would be
+/// alone and the rest as far as it went. Every box and caret is the engine's, at rest; nothing
+/// here lays out.
 struct CanvasSelection: View {
     let editor: DeckEditor
     let state: String
     /// The canvas, in canvas units.
     let size: CGSize
+    /// The node selected, and the others selected with it, children of the same container.
     @Binding var node: String?
+    @Binding var also: [String]
     /// Text typed in place, which takes the keys while it types.
     let typing: Typing
     /// Where the pointer last pressed, canvas units: where Insert puts what it inserts.
@@ -46,18 +52,22 @@ struct CanvasSelection: View {
     /// How far outside the text typed in, in points, a press still puts the caret in it.
     private static let slop = 4.0
 
-    /// A press on the canvas: a click until it moves, then a drag, or one refused; or a press in
-    /// the text typed in, which selects as it drags.
+    /// A press on the canvas: a click until it moves, then a drag, or one refused; a press in
+    /// the text typed in, which selects as it drags; or a marquee, from where nothing draws.
     private enum Press {
         case pressing
         case dragging(Drag)
         case refused(String)
         case typing
+        case banding(from: CGPoint, to: CGPoint)
     }
 
-    /// A drag under way: the node, how it is held, and where it would land now.
+    /// A drag under way: the node, how it is held, and where it would land now; with others
+    /// selected, all of them moved together.
     private struct Drag {
         let node: String
+        /// Every node it moves, `node` first: more than one where several are selected.
+        let together: [String]
         let targets: Targets
         let at: JSONValue?
         /// The handle a resize holds: none for a move.
@@ -67,9 +77,17 @@ struct CanvasSelection: View {
         var how: SnapMode?
         var fork = false
         var snapped: Snapped?
+        /// Where the nodes moved together land, and the patch.
+        var arranged: Arranged?
         var states: [String] = []
         var reached: [JSONValue] = []
+
+        /// The patch where it lands now.
+        var patch: [JSONValue] { together.count > 1 ? arranged?.patch ?? [] : snapped?.patch ?? [] }
     }
+
+    /// Every node selected, the first first.
+    private var selection: [String] { node.map { [$0] + also } ?? [] }
 
     /// A handle of the box selected: a corner, or the middle of an edge.
     private enum Edge: CaseIterable {
@@ -108,13 +126,22 @@ struct CanvasSelection: View {
                         .stroke(Color.orange, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
                         .allowsHitTesting(false)
                 }
+                // The others selected with the first, each outlined, moved as the drag moves.
+                ForEach(boxes.filter { also.contains($0.node) }, id: \.node) { other in
+                    let by = drag?.edge == nil ? (drag?.by ?? .zero) : .zero
+                    outline(other.corners.map { CGPoint(x: $0.x + by.dx, y: $0.y + by.dy) }, scale: scale)
+                        .stroke(Color.accentColor.opacity(0.8), lineWidth: 1.5)
+                        .allowsHitTesting(false)
+                }
                 if let selected = boxes.first(where: { $0.node == node }) {
                     let by = drag?.edge == nil ? (drag?.by ?? .zero) : .zero
                     let offGrid = placements[selected.node]?.offGrid == true
                     outline(selected.corners.map { CGPoint(x: $0.x + by.dx, y: $0.y + by.dy) }, scale: scale)
                         .stroke(offGrid ? Color.orange : Color.accentColor, lineWidth: 1.5)
                         .allowsHitTesting(false)
-                    if drag == nil, !typing.typing, selected.transform == nil, selected.locked == nil, let r = box(selected) {
+                    if drag == nil, also.isEmpty, !typing.typing, selected.transform == nil, selected.locked == nil,
+                        let r = box(selected)
+                    {
                         ForEach(Edge.allCases, id: \.self) { edge in
                             let p = edge.point(r)
                             Rectangle()
@@ -126,20 +153,12 @@ struct CanvasSelection: View {
                         }
                     }
                 }
-                if let landing = drag?.snapped {
-                    let r = landing.cell
+                landings(scale)
+                    .allowsHitTesting(false)
+                if let r = banded {
                     Path(CGRect(x: r.minX * scale, y: r.minY * scale, width: r.width * scale, height: r.height * scale))
-                        .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
+                        .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
                         .allowsHitTesting(false)
-                    ForEach(landing.guides.indices, id: \.self) { i in
-                        let line = landing.guides[i]
-                        Path { path in
-                            path.move(to: CGPoint(x: line[0].x * scale, y: line[0].y * scale))
-                            path.addLine(to: CGPoint(x: line[1].x * scale, y: line[1].y * scale))
-                        }
-                        .stroke(Color.pink, lineWidth: 1)
-                        .allowsHitTesting(false)
-                    }
                 }
                 typed(scale)
                     .allowsHitTesting(false)
@@ -165,6 +184,40 @@ struct CanvasSelection: View {
             if typing.typing, typing.node != now { typing.leave() }
         }
         .modifier(LinkQuestion(typing: typing))
+    }
+
+    /// Where a drag lands now: each box dashed, with the guides it meets.
+    @ViewBuilder private func landings(_ scale: CGFloat) -> some View {
+        let cells = landedCells
+        let guides = landedGuides
+        ForEach(cells.indices, id: \.self) { i in
+            let r = cells[i]
+            Path(CGRect(x: r.minX * scale, y: r.minY * scale, width: r.width * scale, height: r.height * scale))
+                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
+        }
+        ForEach(guides.indices, id: \.self) { i in
+            line(guides[i][0], guides[i][1], scale: scale).stroke(Color.pink, lineWidth: 1)
+        }
+    }
+
+    /// Where each node a drag moves lands now, canvas units.
+    private var landedCells: [CGRect] {
+        guard let d = drag else { return [] }
+        if d.together.count > 1 { return d.arranged?.landed.map(\.cell) ?? [] }
+        guard let snapped = d.snapped else { return [] }
+        return [snapped.cell]
+    }
+
+    /// The guides the box a drag moves meets where it lands now.
+    private var landedGuides: [[CGPoint]] {
+        guard let d = drag else { return [] }
+        return d.together.count > 1 ? d.arranged?.guides ?? [] : d.snapped?.guides ?? []
+    }
+
+    /// The marquee dragged now, canvas units.
+    private var banded: CGRect? {
+        guard case .banding(let from, let to) = press else { return nil }
+        return CGRect(from: from, to: to)
     }
 
     /// The caret, or the selection, in the text typed in, where it is drawn, and what an input
@@ -195,6 +248,7 @@ struct CanvasSelection: View {
             return true
         case #selector(Keys.cancelOperation(_:)):
             node = boxes.first { $0.node == node }?.parent
+            also = []
             return true
         default:
             return false
@@ -207,13 +261,21 @@ struct CanvasSelection: View {
         case .refused(let why):
             return why
         case .dragging(let d):
-            guard d.how != nil else { return "\(d.node) is not placed that way" }
-            guard let snapped = d.snapped else { return "\(d.node) lands nowhere new" }
-            if snapped.patch.isEmpty { return "\(d.node) stays where it is" }
+            let them = d.together.count > 1 ? "\(d.together.count) selected" : d.node
+            if d.together.count > 1 {
+                guard d.arranged != nil else { return "\(them) land nowhere new" }
+            } else {
+                guard d.how != nil else { return "\(d.node) is not placed that way" }
+                guard d.snapped != nil else { return "\(d.node) lands nowhere new" }
+            }
+            if d.patch.isEmpty { return "\(them) stay where they are" }
             let n = d.states.count
             let inWhich = n == 1 && d.states.first == state ? "in this state" : "in \(n) states"
             let keep = d.fork ? " · kept to \(state)" : n > 1 ? " · Option keeps it to \(state)" : ""
-            return "\(d.node) → \(placed(snapped.patch)) · \(inWhich)\(keep)"
+            let to = d.together.count > 1 ? "moved together" : placed(d.patch)
+            return "\(them) → \(to) · \(inWhich)\(keep)"
+        case .banding:
+            return "select what lies wholly inside"
         default:
             return nil
         }
@@ -257,6 +319,8 @@ struct CanvasSelection: View {
                     if case .dragging = press { aim(value, scale: scale) }
                 case .dragging:
                     aim(value, scale: scale)
+                case .banding(let from, _):
+                    press = .banding(from: from, to: CGPoint(x: value.location.x / scale, y: value.location.y / scale))
                 default:
                     break
                 }
@@ -269,6 +333,8 @@ struct CanvasSelection: View {
                     drop()
                 case .pressing, nil:
                     pick(CGPoint(x: value.location.x / scale, y: value.location.y / scale))
+                case .banding(let from, _):
+                    band(CGRect(from: from, to: CGPoint(x: value.location.x / scale, y: value.location.y / scale)))
                 case .typing:
                     // The keys stay with the text, whatever took them as the press ended.
                     typing.focus?()
@@ -279,13 +345,56 @@ struct CanvasSelection: View {
     }
 
     /// Select what draws at `point`, canvas units: nothing where nothing does. The second click of
-    /// a double click on a text types in it there, kept to the state with Option (PLAN 3.9).
+    /// a double click on a text types in it there, kept to the state with Option (PLAN 3.9). With
+    /// Shift, a click adds what draws there to what is selected, or takes it out (PLAN 3.13).
     private func pick(_ point: CGPoint) {
         let hits = (try? editor.session.hits(state: state, at: point)) ?? []
-        node = hits.first { $0.locked == nil }?.node
+        let hit = hits.first { $0.locked == nil }?.node
+        if NSEvent.modifierFlags.contains(.shift), let hit, node != nil {
+            return toggle(hit)
+        }
+        node = hit
+        also = []
         if let node, (NSApp.currentEvent?.clickCount ?? 1) >= 2 {
             typing.enter(node, in: state, at: point, fork: NSEvent.modifierFlags.contains(.option))
         }
+    }
+
+    /// `hit` added to what is selected, or taken out of it: children of one container alone, as
+    /// the browser's canvas selects several (PLAN 2.42).
+    private func toggle(_ hit: String) {
+        if hit == node {
+            node = also.first
+            also = Array(also.dropFirst())
+        } else if let at = also.firstIndex(of: hit) {
+            also.remove(at: at)
+        } else if parent(of: hit) == parent(of: node) {
+            also.append(hit)
+        } else {
+            said = "\(hit) is not beside \(node ?? "it"): select children of one container"
+        }
+    }
+
+    /// What holds `node` in the state shown: none for the canvas.
+    private func parent(of node: String?) -> String? {
+        boxes.first { $0.node == node }?.parent
+    }
+
+    /// The marquee let go over `band`, canvas units: what lies wholly inside it, children of the
+    /// canvas that a pointer reaches, selected; with Shift, added to what is.
+    private func band(_ band: CGRect) {
+        let inside = boxes.filter { b in
+            guard b.parent == nil, b.locked == nil, b.draws else { return false }
+            let xs = b.corners.map(\.x)
+            let ys = b.corners.map(\.y)
+            guard let x0 = xs.min(), let x1 = xs.max(), let y0 = ys.min(), let y1 = ys.max() else { return false }
+            return band.contains(CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0))
+        }.map(\.node)
+        let keep = NSEvent.modifierFlags.contains(.shift) && parent(of: node) == nil ? selection : []
+        let all = keep + inside.filter { !keep.contains($0) }
+        node = all.first
+        also = Array(all.dropFirst())
+        said = all.isEmpty ? "nothing lies wholly inside" : "\(all.count) selected"
     }
 
     /// A drag begun at `point`, canvas units: of a handle of the box selected, a resize; else a
@@ -303,10 +412,16 @@ struct CanvasSelection: View {
         if held == nil {
             let hits = (try? editor.session.hits(state: state, at: point)) ?? []
             guard let hit = hits.first(where: { $0.locked == nil }) else {
-                press = .refused("nothing to move here")
+                // From where nothing draws, a marquee.
+                press = .banding(from: point, to: point)
                 return
             }
+            // A node selected with others moves them all.
+            if also.count > 0, selection.contains(hit.node) {
+                return beginTogether(hit.node)
+            }
             node = hit.node
+            also = []
             guard hit.transform == nil else {
                 press = .refused("\(hit.node) is turned or scaled: move it in the browser's editor for now")
                 return
@@ -319,10 +434,29 @@ struct CanvasSelection: View {
             editor.still()
             press = .dragging(
                 Drag(
-                    node: held.node, targets: targets, at: placements[held.node], edge: held.edge,
+                    node: held.node, together: [held.node], targets: targets, at: placements[held.node], edge: held.edge,
                     revision: editor.revision))
         } catch {
             press = .refused("\(held.node) cannot be moved: \(error)")
+        }
+    }
+
+    /// A drag of `first`, one of several selected: all of them moved together.
+    private func beginTogether(_ first: String) {
+        let all = [first] + selection.filter { $0 != first }
+        if let held = boxes.first(where: { all.contains($0.node) && ($0.locked != nil || $0.transform != nil) }) {
+            press = .refused("\(held.node) is \(held.locked != nil ? "locked" : "turned or scaled"): nothing moves")
+            return
+        }
+        do {
+            let targets = try editor.session.targets(state: state, node: first)
+            editor.still()
+            press = .dragging(
+                Drag(
+                    node: first, together: all, targets: targets, at: placements[first], edge: nil, revision: editor.revision
+                ))
+        } catch {
+            press = .refused("\(first) cannot be moved: \(error)")
         }
     }
 
@@ -335,14 +469,19 @@ struct CanvasSelection: View {
         d.fork = flags.contains(.option)
         d.how = d.targets.snap(at: d.at, resize: d.edge != nil, shift: flags.contains(.shift))
         let to = d.edge.map { resized(d.targets.cell, $0, d.by) } ?? d.targets.cell.offsetBy(dx: d.by.dx, dy: d.by.dy)
-        if d.edge == nil { editor.move([d.node], by: d.by) }
-        if let how = d.how {
+        if d.edge == nil { editor.move(d.together, by: d.by) }
+        if d.together.count > 1 {
+            // Moved together: the first snapped as it would be alone, the rest as far as it went.
+            d.arranged = (try? editor.session.together(
+                state: state, nodes: d.together, by: d.by, free: flags.contains(.shift), fork: d.fork,
+                reach: Self.reach / max(scale, 0.01))) ?? nil
+        } else if let how = d.how {
             d.snapped = try? editor.session.snap(
                 state: state, node: d.node, how: how, to: to, fork: d.fork, reach: Self.reach / max(scale, 0.01))
         } else {
             d.snapped = nil
         }
-        let patch = d.snapped?.patch ?? []
+        let patch = d.patch
         if patch != d.reached {
             d.reached = patch
             d.states = patch.isEmpty ? [] : (try? editor.session.reach(patch)) ?? []
@@ -363,9 +502,8 @@ struct CanvasSelection: View {
     private func drop() {
         pausing?.cancel()
         editor.still()
-        guard let d = drag, d.revision == editor.revision else { return }
-        guard let patch = d.snapped?.patch, !patch.isEmpty else { return }
-        make(patch)
+        guard let d = drag, d.revision == editor.revision, !d.patch.isEmpty else { return }
+        make(d.patch)
     }
 
     /// `selected`'s box at rest, canvas units.
@@ -436,5 +574,12 @@ private struct LinkQuestion: ViewModifier {
     /// Whether it asks: dismissed, it makes no link.
     private var asking: Binding<Bool> {
         Binding(get: { typing.asking != nil }, set: { if !$0, typing.asking != nil { typing.link(to: nil) } })
+    }
+}
+
+extension CGRect {
+    /// The rectangle with corners `from` and `to`, whichever way they lie.
+    fileprivate init(from: CGPoint, to: CGPoint) {
+        self.init(x: min(from.x, to.x), y: min(from.y, to.y), width: abs(to.x - from.x), height: abs(to.y - from.y))
     }
 }

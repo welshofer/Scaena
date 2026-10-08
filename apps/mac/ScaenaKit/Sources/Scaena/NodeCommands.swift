@@ -17,8 +17,15 @@ struct DeckActions {
     let locked: Bool
     /// Copy the look of the node selected (PLAN 2.58).
     let copyLook: (() -> Void)?
-    /// Paste the look copied on the node selected.
+    /// Paste the look copied on the nodes selected.
     let pasteLook: (() -> Void)?
+    /// Put the nodes selected in a new group (PLAN 2.43).
+    let group: (() -> Void)?
+    /// Take the group selected apart.
+    let ungroup: (() -> Void)?
+    /// Order the nodes selected among what their container paints: `forward`, `backward`,
+    /// `front`, or `back` (PLAN 2.42).
+    let order: ((String) -> Void)?
 }
 
 private struct DeckActionsKey: FocusedValueKey {
@@ -35,9 +42,11 @@ extension FocusedValues {
 
 /// The Node menu (PLAN 3.11), as the browser's Insert menu and keys (PLAN 2.34, 2.95): Insert, by
 /// kind, what the theme and the bundle offer, landing where the pointer last pressed on the canvas;
-/// Duplicate (⌘D); Delete, from the state shown on, and from the deck; Copy Look (⌥⌘C) and Paste
-/// Look (⌥⌘V, PLAN 2.58); and Lock (⇧⌘L). The canvas takes Delete and Shift+Delete itself, as the
-/// browser's does.
+/// Duplicate (⌘D); Delete, from the state shown on, and from the deck; Group (⌘G) and Ungroup
+/// (⌘⇧G, PLAN 2.43); the order among what their container paints (⌘], ⌘[, with Option to the front
+/// and the back, PLAN 2.42); Copy Look (⌥⌘C) and Paste Look (⌥⌘V, PLAN 2.58); and Lock (⇧⌘L).
+/// Each acts on every node selected (PLAN 3.13). The canvas takes Delete and Shift+Delete itself,
+/// as the browser's does.
 struct NodeCommands: Commands {
     @FocusedValue(\.deck) private var deck
 
@@ -61,6 +70,25 @@ struct NodeCommands: Commands {
                 .disabled(deck?.delete == nil)
             Button("Delete from the Deck") { deck?.delete?(true) }
                 .disabled(deck?.delete == nil)
+            Divider()
+            Button("Group") { deck?.group?() }
+                .keyboardShortcut("g", modifiers: .command)
+                .disabled(deck?.group == nil)
+            Button("Ungroup") { deck?.ungroup?() }
+                .keyboardShortcut("g", modifiers: [.command, .shift])
+                .disabled(deck?.ungroup == nil)
+            Button("Bring Forward") { deck?.order?("forward") }
+                .keyboardShortcut("]", modifiers: .command)
+                .disabled(deck?.order == nil)
+            Button("Send Backward") { deck?.order?("backward") }
+                .keyboardShortcut("[", modifiers: .command)
+                .disabled(deck?.order == nil)
+            Button("Bring to Front") { deck?.order?("front") }
+                .keyboardShortcut("]", modifiers: [.command, .option])
+                .disabled(deck?.order == nil)
+            Button("Send to Back") { deck?.order?("back") }
+                .keyboardShortcut("[", modifiers: [.command, .option])
+                .disabled(deck?.order == nil)
             Divider()
             Button("Copy Look") { deck?.copyLook?() }
                 .keyboardShortcut("c", modifiers: [.command, .option])

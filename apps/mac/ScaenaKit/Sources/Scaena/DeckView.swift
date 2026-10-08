@@ -33,8 +33,12 @@ struct DeckView: View {
     @State private var said: String?
     /// What the deck may have inserted, read again after each edit.
     @State private var inserts: [Insert] = []
-    /// Whether the node selected is locked by its own lock: what Lock undoes.
-    @State private var locked = false
+    /// The others selected with the node selected, children of the same container (PLAN 3.13).
+    @State private var also: [String] = []
+    /// The nodes the state shown has locked by their own lock: what Lock undoes.
+    @State private var ownLocks: Set<String> = []
+    /// Whether the node selected is a group, which Ungroup takes apart.
+    @State private var grouped = false
     /// The look ⌥⌘C copied last, which ⌥⌘V pastes, as `look` gives it.
     @State private var copiedLook: JSONValue?
     /// What the on-device model is asked, shown in a sheet.
@@ -107,7 +111,7 @@ struct DeckView: View {
             }
         }
         .inspector(isPresented: $showsInspector) {
-            Inspector(editor: editor, state: shown, node: $node, typing: typing, offer: { asked = $0 }) { ops in
+            Inspector(editor: editor, state: shown, node: $node, also: $also, typing: typing, offer: { asked = $0 }) { ops in
                 perform { try document.make(ops, undo: undo) }
             }
             .inspectorColumnWidth(min: 240, ideal: 300, max: 420)
@@ -171,6 +175,7 @@ struct DeckView: View {
                 // A state chosen plays its cue, as it does in the browser.
                 editor.shown = now
                 node = arriving
+                also = []
                 arriving = nil
                 playhead = Playhead()
                 typing?.sync(shown: now)
@@ -191,7 +196,12 @@ struct DeckView: View {
                 // What the Node menu offers, read again as the deck or the selection changes.
                 inserts = (try? editor.session.inserts()) ?? []
                 let boxes = shown.flatMap { try? editor.session.boxes(state: $0) } ?? []
-                locked = boxes.contains { $0.node == node && $0.locked == node }
+                ownLocks = Set(boxes.filter { $0.locked == $0.node }.map(\.node))
+                if let shown, let node, let choices = try? editor.session.choices(state: shown, node: node) {
+                    grouped = choices.type == "group"
+                } else {
+                    grouped = false
+                }
             }
             .task(id: editor.revision) {
                 // Every state is linted once edits stop, as in the browser.
@@ -244,7 +254,7 @@ struct DeckView: View {
             .overlay {
                 if let typing {
                     CanvasSelection(
-                        editor: editor, state: shown, size: size, node: $node, typing: typing, pointed: $pointed,
+                        editor: editor, state: shown, size: size, node: $node, also: $also, typing: typing, pointed: $pointed,
                         said: $said, delete: delete, clip: clip
                     ) { ops in
                         perform { try document.make(ops, undo: undo) }
@@ -266,6 +276,7 @@ struct DeckView: View {
             chosen = state
         } else {
             node = finding.node
+            also = []
         }
     }
 
@@ -314,20 +325,27 @@ struct DeckView: View {
         asked = Asked(title: "\(finding.code), explained", ask: { try await OnDevice.explain(finding, text: text) }, take: nil)
     }
 
-    /// What the Node menu does in this window (PLAN 3.11): nothing while a text is typed in, whose
-    /// keys are the text's.
+    /// Every node selected, the first first (PLAN 3.13).
+    private var selection: [String] { node.map { [$0] + also } ?? [] }
+
+    /// What the Node menu does in this window (PLAN 3.11, 3.13): nothing while a text is typed in,
+    /// whose keys are the text's.
     private var actions: DeckActions? {
         guard let shown, typing?.typing != true else { return nil }
-        let selected = node
+        let some = !selection.isEmpty
+        let one = node != nil && also.isEmpty
         return DeckActions(
             inserts: inserts,
             insert: { n in insert(n, in: shown) },
-            duplicate: selected.map { node in { duplicate(node, in: shown) } },
-            delete: selected == nil ? nil : delete,
-            lock: selected.map { node in { lock(node) } },
-            locked: locked,
-            copyLook: selected.map { node in { copyLook(node, in: shown) } },
-            pasteLook: copiedLook != nil && selected != nil ? { pasteLook(in: shown) } : nil)
+            duplicate: some ? { duplicate(in: shown) } : nil,
+            delete: some ? delete : nil,
+            lock: some ? { lock() } : nil,
+            locked: some && selection.allSatisfy(ownLocks.contains),
+            copyLook: one ? { copyLook(node ?? "", in: shown) } : nil,
+            pasteLook: copiedLook != nil && some ? { pasteLook(in: shown) } : nil,
+            group: selection.count > 1 ? { group(in: shown) } : nil,
+            ungroup: one && grouped ? { ungroup(in: shown) } : nil,
+            order: some ? { how in order(how, in: shown) } : nil)
     }
 
     /// The Edit menu's Copy, Cut, and Paste on the canvas (PLAN 3.12).
@@ -343,17 +361,19 @@ struct DeckView: View {
     /// which pastes in this deck or another, or the browser's (PLAN 2.37); a cut then takes it out
     /// of the state shown on, as Delete does.
     private func copy(cut: Bool) {
-        guard let shown, let node else {
+        let nodes = selection
+        guard let shown, !nodes.isEmpty else {
             said = "nothing selected to \(cut ? "cut" : "copy")"
             return
         }
         do {
-            Pasteboard.write(clip: try editor.session.copying(state: shown, nodes: [node]))
+            Pasteboard.write(clip: try editor.session.copying(state: shown, nodes: nodes))
         } catch {
             said = "not copied: \(error)"
             return
         }
-        said = "\(node) \(cut ? "cut" : "copied"): ⌘V pastes it, in this deck or another"
+        let them = nodes.count > 1 ? "\(nodes.count) selected" : nodes[0]
+        said = "\(them) \(cut ? "cut" : "copied"): ⌘V pastes \(nodes.count > 1 ? "them" : "it"), in this deck or another"
         if cut { delete(false) }
     }
 
@@ -397,6 +417,7 @@ struct DeckView: View {
             let pasted = try editor.session.pasting(text, state: state, at: at)
             try document.make(pasted.patch, undo: undo)
             node = pasted.id
+            also = pasted.also
             said = (["\(pasted.ids.joined(separator: ", ")) pasted in \(state)"] + pasted.lacked).joined(separator: "; ")
         }
     }
@@ -457,14 +478,16 @@ struct DeckView: View {
         }
     }
 
-    /// ⌥⌘V: the look copied pasted on the node selected, in the state shown: one patch of
+    /// ⌥⌘V: the look copied pasted on each node selected, in the state shown: one patch of
     /// `choose`s, each written where that node's own value lives (PLAN 2.58).
     private func pasteLook(in state: String) {
-        guard let look = copiedLook, let node else { return }
+        let nodes = selection
+        guard let look = copiedLook, !nodes.isEmpty else { return }
         let from = look["node"]?.string ?? "the"
         perform {
-            let put = try editor.session.putting(state: state, look: look, nodes: [node])
-            let others = (put.same.isEmpty ? [] : ["\(node) looks so already"]) + put.refused.map { "\($0.node): \($0.why)" }
+            let put = try editor.session.putting(state: state, look: look, nodes: nodes)
+            let same = put.same.isEmpty ? [] : ["\(put.same.joined(separator: ", ")) look so already"]
+            let others = same + put.refused.map { "\($0.node): \($0.why)" }
             guard !put.patch.isEmpty else {
                 said = others.isEmpty ? "nothing takes \(from)'s look" : others.joined(separator: "; ")
                 return
@@ -488,47 +511,100 @@ struct DeckView: View {
         }
     }
 
-    /// A copy of `node` beside it, selected (⌘D): one step to undo.
-    private func duplicate(_ node: String, in state: String) {
+    /// A copy of each node selected beside it, the copies selected (⌘D, PLAN 2.42): one patch, one
+    /// step to undo.
+    private func duplicate(in state: String) {
+        let nodes = selection
         perform {
-            let added = try editor.session.duplicating(state: state, node: node)
-            try document.make(added.patch, undo: undo)
-            self.node = added.id
-            said = "\(node) copied as \(added.id)"
+            let added = try nodes.map { try editor.session.duplicating(state: state, node: $0) }
+            let ids = added.map(\.id)
+            guard Set(ids).count == ids.count else {
+                said = "not copied: two copies would take one id, \(ids.joined(separator: ", "))"
+                return
+            }
+            try document.make(added.flatMap(\.patch), undo: undo)
+            node = ids.first
+            also = Array(ids.dropFirst())
+            said = "\(nodes.joined(separator: ", ")) copied as \(ids.joined(separator: ", "))"
         }
     }
 
-    /// Take the node selected out of the state shown and the states after it, and out of the deck
-    /// where no state shows it after; or, `everywhere`, out of the deck (Delete, Shift+Delete). A
-    /// locked node is not taken: one step to undo.
+    /// Take the nodes selected out of the state shown and the states after it, and out of the
+    /// deck where no state shows them after; or, `everywhere`, out of the deck (Delete,
+    /// Shift+Delete). Locked nodes are not taken: one patch, one step to undo.
     private func delete(_ everywhere: Bool) {
-        guard let shown, let node else {
+        let nodes = selection
+        guard let shown, !nodes.isEmpty else {
             said = "nothing selected to delete"
             return
         }
         let boxes = (try? editor.session.boxes(state: shown)) ?? []
-        if let holder = boxes.first(where: { $0.node == node })?.locked {
-            let by = holder == node ? "" : " by \(holder)"
-            said = "\(node) is locked\(by): nothing deleted · ⇧⌘L unlocks it"
+        if let held = boxes.first(where: { nodes.contains($0.node) && $0.locked != nil }), let holder = held.locked {
+            let by = holder == held.node ? "" : " by \(holder)"
+            said = "\(held.node) is locked\(by): nothing deleted · ⇧⌘L unlocks it"
             return
         }
         perform {
-            let ops = try editor.session.deleting(state: shown, node: node, everywhere: everywhere)
+            let ops = try nodes.flatMap { try editor.session.deleting(state: shown, node: $0, everywhere: everywhere) }
             let gone = ops.allSatisfy { $0["op"]?.string == "remove_node" }
             try document.make(ops, undo: undo)
-            self.node = nil
-            said = gone ? "\(node) deleted from the deck" : "\(node) deleted from \(shown) on"
+            node = nil
+            also = []
+            let them = nodes.joined(separator: ", ")
+            said = gone ? "\(them) deleted from the deck" : "\(them) deleted from \(shown) on"
         }
     }
 
-    /// Lock `node` by its own lock, or unlock it (⇧⌘L, PLAN 2.95): the canvas passes over a node
-    /// locked, in every state. One step to undo.
-    private func lock(_ node: String) {
-        let (ops, locks) = ScaenaKit.locking([node], own: { _ in locked })
+    /// Lock the nodes selected by their own lock, or unlock them where each is so locked
+    /// (⇧⌘L, PLAN 2.95): the canvas passes over a node locked, in every state. One step to undo.
+    private func lock() {
+        let nodes = selection
+        let (ops, locks) = ScaenaKit.locking(nodes, own: { ownLocks.contains($0) })
         guard !ops.isEmpty else { return }
         perform {
             try document.make(ops, undo: undo)
-            said = locks ? "\(node) locked: the canvas passes over it · ⇧⌘L unlocks it" : "\(node) unlocked"
+            let them = nodes.joined(separator: ", ")
+            said = locks ? "\(them) locked: the canvas passes over it · ⇧⌘L unlocks" : "\(them) unlocked"
+        }
+    }
+
+    /// ⌘G: the nodes selected in a new group where they stand, the group selected (PLAN 2.43).
+    private func group(in state: String) {
+        let nodes = selection
+        perform {
+            let grouping = try editor.session.grouping(state: state, nodes: nodes)
+            try document.make(grouping.patch, undo: undo)
+            node = grouping.id
+            also = []
+            said = "\(nodes.joined(separator: ", ")) grouped as \(grouping.id)"
+        }
+    }
+
+    /// ⌘⇧G: the group selected taken apart, what it held selected (PLAN 2.43).
+    private func ungroup(in state: String) {
+        guard let group = node else { return }
+        let held = ((try? editor.session.boxes(state: state)) ?? []).filter { $0.parent == group }.map(\.node)
+        perform {
+            try document.make([["op": "ungroup", "group": .string(group)]], undo: undo)
+            node = held.first
+            also = Array(held.dropFirst())
+            said = "\(group) taken apart: \(held.joined(separator: ", "))"
+        }
+    }
+
+    /// ⌘] and ⌘[, with Option to the front and the back: the nodes selected ordered `how` among
+    /// what their container paints (PLAN 2.42), one patch of `choose`s of `z`.
+    private func order(_ how: String, in state: String) {
+        let nodes = selection
+        perform {
+            guard let arranged = try editor.session.arranging(state: state, nodes: nodes, how: .order(how)),
+                !arranged.patch.isEmpty
+            else {
+                said = "\(nodes.joined(separator: ", ")): nothing to bring \(how)"
+                return
+            }
+            try document.make(arranged.patch, undo: undo)
+            said = "\(nodes.joined(separator: ", ")) brought \(how)"
         }
     }
 

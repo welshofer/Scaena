@@ -14,7 +14,7 @@ public enum SnapMode: String, Codable, Sendable {
 }
 
 /// `[x, y, width, height]`, canvas units, as a rectangle.
-private func rect(_ v: [Double]) throws -> CGRect {
+func rect(_ v: [Double]) throws -> CGRect {
     guard v.count == 4 else { throw ScaenaError(message: "a box is [x, y, width, height]") }
     return CGRect(x: v[0], y: v[1], width: v[2], height: v[3])
 }
