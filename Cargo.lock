@@ -3082,6 +3082,7 @@ dependencies = [
  "cbindgen",
  "scaena-core",
  "scaena-engine",
+ "scaena-ops",
  "scaena-paint",
  "scaena-session",
  "scaena-store",

@@ -21,6 +21,8 @@ scaena-engine = { workspace = true, features = ["hyphenation"] }
 serde_json.workspace = true
 # A frame's pixels, as the painters give them.
 scaena-paint.workspace = true
+# The themes that ship and their fonts, which a new deck starts from (PLAN 2.12, 3.3).
+scaena-ops = { workspace = true, features = ["shipped"] }
 
 # vello on Metal, painting onto a CAMetalLayer (PLAN 3.2): the Mac's alone.
 [target.'cfg(target_vendor = "apple")'.dependencies]

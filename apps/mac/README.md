@@ -13,3 +13,7 @@ cd apps/mac/ScaenaKit && swift test -Xlinker -L"$PWD/../../../target/debug" $(fo
 ```
 
 CI's macOS runner does the same on every pull request ready for review that touches the engine or the app.
+
+## The app
+
+`just mac` builds `Scaena.app` (`apps/mac/build-app.sh`) and opens it: New starts a deck from Dusk, and Open takes a `.scaena` bundle or zip, such as `tests/bench/b1.scaena`. Without Rust on the Mac, run the `mac-app` workflow (Actions → mac-app → Run workflow) and download its `Scaena.app` artifact; macOS asks once whether to open an app signed ad hoc (right-click → Open).

@@ -9,12 +9,17 @@ let package = Package(
     name: "ScaenaKit",
     platforms: [.macOS(.v15)],
     products: [
-        .library(name: "ScaenaKit", targets: ["ScaenaKit"])
+        .library(name: "ScaenaKit", targets: ["ScaenaKit"]),
+        // The app's executable; `apps/mac/build-app.sh` puts it in `Scaena.app` (PLAN 3.3).
+        .executable(name: "Scaena", targets: ["Scaena"]),
     ],
     targets: [
         // `scaena.h`, from where cbindgen writes it, and the static library it declares.
         .systemLibrary(name: "CScaena", path: "Sources/CScaena"),
         .target(name: "ScaenaKit", dependencies: ["CScaena"]),
+        // SwiftUI's document protocols are not yet annotated for Swift 6's isolation checking
+        // the way this app uses them; the app builds in Swift 5 mode, ScaenaKit in 6.
+        .executableTarget(name: "Scaena", dependencies: ["ScaenaKit"], swiftSettings: [.swiftLanguageMode(.v5)]),
         .testTarget(name: "ScaenaKitTests", dependencies: ["ScaenaKit"]),
     ]
 )

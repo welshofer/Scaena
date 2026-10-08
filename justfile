@@ -46,6 +46,11 @@ ffi:
     cd tests/bench/b1.scaena
     ../../../target/ffi/smoke . $(find . -type f ! -name '.*' | sed 's|^\./||' | sort)
 
+# Scaena.app, built and opened (PLAN 3.3): on a Mac with Xcode's Swift and this repository's Rust.
+mac:
+    apps/mac/build-app.sh
+    open target/mac/Scaena.app
+
 # The engine, both painters, and the WASM bindings must keep compiling for the browser (PLAN 0.1, 0.8):
 # with every feature, and as the player's engine alone, without the hyphenation patterns the
 # editor's module leaves out (ADR-0015).

@@ -75,6 +75,15 @@ struct ScaenaSession *scaena_open(struct ScaenaFiles *files, char **error);
 // `bytes` is `len` readable bytes; `error` is null or writable.
 struct ScaenaSession *scaena_open_zip(const uint8_t *bytes, size_t len, char **error);
 
+// A new bundle (PLAN 2.12, 3.3), as New makes one in the browser and `deck_create` does: the
+// theme that ships as `theme` (`dusk`, `daybreak`, or `ember`), the fonts it names, and one
+// state with nothing on it, titled `title`. Kept nowhere until it is saved. Null where no such
+// theme ships, `*error` then saying why.
+//
+// # Safety
+// `theme` and `title` are NUL-terminated strings; `error` is null or writable.
+struct ScaenaSession *scaena_create(const char *theme, const char *title, char **error);
+
 // Close a session.
 //
 // # Safety

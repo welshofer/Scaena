@@ -180,6 +180,31 @@ fn a_save_writes_the_bundle_records_its_history_and_reopens() {
 }
 
 #[test]
+fn a_new_deck_starts_from_a_theme_that_ships() {
+    let mut error = null_mut();
+    let s = unsafe { scaena_create(c("Dusk").as_ptr(), c("Trail report").as_ptr(), &mut error) };
+    assert!(!s.is_null(), "made: {}", took(error));
+    let states = call(s, "states", Value::Null);
+    assert_eq!(states.as_array().map(Vec::len), Some(1), "{states}");
+    let files = call(s, "files", Value::Null);
+    let files = files.as_array().unwrap();
+    assert!(files.contains(&json!("themes/dusk.theme.json")), "{files:?}");
+    assert!(files.iter().any(|f| f.as_str().is_some_and(|f| f.starts_with("fonts/"))), "{files:?}");
+    let source = call(s, "source", Value::Null);
+    assert!(source.as_str().unwrap().contains("Trail report"), "titled");
+    let state = c(states[0].as_str().unwrap());
+    let pixels = unsafe { scaena_pixels(s, state.as_ptr(), f64::INFINITY, 64, &mut error) };
+    assert_eq!((pixels.width, pixels.height), (64, 36));
+    unsafe { scaena_bytes_free(pixels.bytes) };
+    unsafe { scaena_session_free(s) };
+
+    let mut error = null_mut();
+    assert!(unsafe { scaena_create(c("sepia").as_ptr(), c("x").as_ptr(), &mut error) }.is_null());
+    let said = took(error);
+    assert!(said.contains("not a theme that ships") && said.contains("dusk"), "{said}");
+}
+
+#[test]
 fn every_misuse_is_an_error_never_a_crash() {
     let s = open(B1);
     let answer = |method: *const c_char, args: *const c_char| -> Value {
