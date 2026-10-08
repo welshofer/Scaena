@@ -180,6 +180,7 @@ try {
   await click(pivot);
   await selects("tf-flag");
   await page.locator("#tab-inspector").click().catch(() => {});
+  await page.waitForFunction(() => window.scaena.look.offered()?.node === "tf-flag", null, { timeout: 30000 }).catch(() => {});
   await page.waitForSelector("#look-transform-rotate", { timeout: 30000 }).catch(() => {});
   check((await page.locator("#look-transform-rotate").count()) === 1, "the inspector shows the angle");
   await page.evaluate(() => {
@@ -198,6 +199,9 @@ try {
   // back through the turn, which the point unread would miss by most of the canvas.
   await click(raised);
   await selects("tf-title");
+  // The inspector shows the headline before its angle is typed: the pennant's angle stands there
+  // until it does, and a value typed there turns the pennant.
+  await page.waitForFunction(() => window.scaena.look.offered()?.node === "tf-title", null, { timeout: 30000 }).catch(() => {});
   await page.waitForSelector("#look-transform-rotate", { timeout: 30000 }).catch(() => {});
   await page.evaluate(() => {
     const input = document.querySelector("#look-transform-rotate");
