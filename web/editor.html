@@ -389,6 +389,13 @@
       #transcript .call pre { white-space: pre-wrap; max-height: 12em; overflow: auto; background: var(--panel); padding: 4px 6px; margin: 4px 0; }
       #transcript img { display: block; max-width: 100%; margin-top: 4px; border: 1px solid var(--line); }
       #transcript .failed { color: var(--error); }
+      /* Under a call that changed what states draw, each before and after (PLAN 2.93). */
+      #transcript .changed { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 4px; white-space: normal; }
+      #transcript .change { display: inline-flex; align-items: center; gap: 4px; padding: 3px; font-size: 11px; color: var(--muted); }
+      #transcript .change canvas { display: block; height: 36px; width: auto; background: #000; }
+      #transcript .change .none { display: inline-block; min-width: 2.5em; text-align: center; }
+      #transcript .change .name { color: var(--ink); }
+      #transcript .changed .more { font-size: 11px; }
       #transcript .end { color: var(--muted); font-size: 12px; }
       #asking { display: flex; gap: 6px; flex-wrap: wrap; align-items: flex-end; }
       #question { flex: 1 1 100%; resize: vertical; }

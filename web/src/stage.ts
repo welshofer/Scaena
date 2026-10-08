@@ -12,6 +12,7 @@ import type {
   DataEdited,
   DataMark,
   DataSource,
+  Drawn,
   Edited,
   Export,
   Found,
@@ -767,7 +768,7 @@ export class Stage {
   /** Ask the assistant `asking.text` about the deck `source` says, which must compile and
    * validate (PLAN 2.6). `hear` hears each step; the promise holds the last, `done` or
    * `failed`, and fails if the question could not be asked. */
-  ask(source: string, asking: Asking, hear: (event: AssistantEvent) => void): Promise<AssistantEvent> {
+  ask(source: string, asking: Asking, hear: (event: AssistantEvent) => void, drawn?: Drawn): Promise<AssistantEvent> {
     const id = ++this.asked;
     return new Promise((resolve, reject) => {
       this.hearing.set(id, (event) => {
@@ -779,7 +780,7 @@ export class Stage {
         }
       });
       this.waiting.set(id, { resolve: () => {}, reject: (e) => (this.hearing.delete(id), reject(e)) });
-      this.send({ type: "ask", id, source, ask: asking });
+      this.send({ type: "ask", id, source, ask: asking, drawn });
     });
   }
 

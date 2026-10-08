@@ -25,6 +25,7 @@ import type {
   Choices,
   DataEdited,
   DataSource,
+  Drawn,
   Edited,
   Export,
   Finding,
@@ -481,7 +482,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return post({ type: "filesWritten", id: data.id, edited: await edit(data.edit.source, data.edit.index, data.edit.format) });
       }
       case "ask":
-        return await ask(data.id, data.source, data.ask);
+        return await ask(data.id, data.source, data.ask, data.drawn);
       case "stop":
         return asking?.abort();
       case "forget":
@@ -892,21 +893,25 @@ let shown: { index: number; format?: string } = { index: 0 };
 /** Ask the assistant `question` about the deck `source` says (PLAN 2.6), which must compile
  * and validate: the assistant's tools work on that deck, and each edit they make comes back to
  * the editor as source. The assistant's code and what it reads load the first time. */
-async function ask(id: number, source: string, question: Asking) {
+async function ask(id: number, source: string, question: Asking, drawn?: Drawn) {
   saveable(source);
   const assistant = await import("@scaena/assistant");
   asking?.abort();
   const stop = (asking = new AbortController());
-  const emit = (event: AssistantEvent) => post({ type: "assistant", id, event });
+  const emit = (event: AssistantEvent, transfer: Transferable[] = []) => post({ type: "assistant", id, event }, transfer);
   // Each edit the assistant makes is compiled, shown, and linted here, as the editor's edit of
   // its source would be, before its next call: the editor takes the source and what the edit
   // came to, and sends nothing back that the assistant has moved past. With it go the nodes the
-  // question has changed so far, which the editor selects (PLAN 2.52).
+  // question has changed so far, which the editor selects (PLAN 2.52), and each state the edit
+  // drew otherwise, drawn now, before the next call can change it again (PLAN 2.93).
   const before = deckRead();
+  const known = { ...drawn?.known };
   const edited = async (source: string, files: Rewritten[]) => {
     latest++;
     const touched = changed(before, deckRead());
-    emit({ kind: "edited", source, edited: await edit(source, shown.index, shown.format), touched, files });
+    const event: AssistantEvent = { kind: "edited", source, edited: await edit(source, shown.index, shown.format), touched, files };
+    if (drawn) Object.assign(event, redrawn(drawn.height, known));
+    emit(event, event.drawn?.flatMap((t) => (t.pixels ? [t.pixels] : [])));
   };
   try {
     await assistant.ask(player, Player.toolNames(), question, emit, edited, stop.signal);
@@ -1028,6 +1033,29 @@ async function thumbnails(height: number, known: Record<string, string>): Promis
     await new Promise((go) => setTimeout(go, 0));
   }
   return thumbs;
+}
+
+/** Each state whose drawing is not the one `known` holds, at rest, `height` pixels high, as the
+ * strip draws it, and each `known` holds that the deck no longer has (PLAN 2.93); `known` takes
+ * the drawings as they are now. All at once: an assistant's next call waits for it. */
+function redrawn(height: number, known: Record<string, string>): { drawn: Thumb[]; gone: string[] } {
+  const [w, h] = player.canvasSize();
+  const width = Math.max(1, Math.round((height * w) / h));
+  const drawn: Thumb[] = [];
+  for (const { state } of slots) {
+    try {
+      const digest = player.digest(state);
+      if (known[state] === digest) continue;
+      const pixels = player.pixels(state, Infinity, width);
+      drawn.push({ state, digest, width, height: pixels.length / 4 / width, pixels: pixels.buffer as ArrayBuffer });
+      known[state] = digest;
+    } catch {
+      continue;
+    }
+  }
+  const gone = Object.keys(known).filter((state) => !slots.some((s) => s.state === state));
+  for (const state of gone) delete known[state];
+  return { drawn, gone };
 }
 
 /** The deck the editor's `source` compiles to: compiled first where the deck shown is not yet that
