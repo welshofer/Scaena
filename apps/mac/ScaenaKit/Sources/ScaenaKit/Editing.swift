@@ -261,16 +261,58 @@ public struct Cue: Decodable, Sendable {
 
     public struct Transition: Decodable, Sendable {
         public let duration: Double
+        /// On a spring, which lasts as long as it takes to settle (SPEC §3.9).
+        public let sprung: Bool
+
+        private enum Keys: String, CodingKey { case duration, curve }
+
+        public init(from decoder: any Decoder) throws {
+            let fields = try decoder.container(keyedBy: Keys.self)
+            duration = try fields.decode(Double.self, forKey: .duration)
+            sprung = try fields.decodeIfPresent(JSONValue.self, forKey: .curve)?["spring"] != nil
+        }
     }
 
     public struct Motion: Decodable, Sendable {
         public let node: String
         /// `enter`, `exit`, `emphasis`, or `anim`.
         public let motion: String
+        /// What it moves one at a time: lines, words, glyphs, children, or marks.
+        public let split: String?
+        /// How many it moves, each `stagger` ms after the one before.
+        public let units: Int
+        public let stagger: Double
         public let start: Double
         public let end: Double
         /// When its first unit starts to change and its last comes to rest.
         public let moving: [Double]
+        /// Its `delay` as written, and each unit's `duration`: what `time_motion` reads and sets.
+        public let delay: Double
+        public let duration: Double
+        /// Where it is written: a JSON pointer into the deck.
+        public let written: String?
+        /// On a spring, which lasts as long as it takes to settle.
+        public let sprung: Bool
+
+        private enum Keys: String, CodingKey {
+            case node, motion, split, units, stagger, start, end, moving, delay, duration, written, curve
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let fields = try decoder.container(keyedBy: Keys.self)
+            node = try fields.decode(String.self, forKey: .node)
+            motion = try fields.decode(String.self, forKey: .motion)
+            split = try fields.decodeIfPresent(String.self, forKey: .split)
+            units = try fields.decodeIfPresent(Int.self, forKey: .units) ?? 1
+            stagger = try fields.decodeIfPresent(Double.self, forKey: .stagger) ?? 0
+            start = try fields.decode(Double.self, forKey: .start)
+            end = try fields.decode(Double.self, forKey: .end)
+            moving = try fields.decode([Double].self, forKey: .moving)
+            delay = try fields.decodeIfPresent(Double.self, forKey: .delay) ?? 0
+            duration = try fields.decodeIfPresent(Double.self, forKey: .duration) ?? end - start
+            written = try fields.decodeIfPresent(String.self, forKey: .written)
+            sprung = try fields.decodeIfPresent(JSONValue.self, forKey: .curve)?["spring"] != nil
+        }
     }
 }
 
@@ -341,9 +383,24 @@ extension ScaenaSession {
     }
 }
 
-/// What `inspect` says of a state, of which a cue reads its timeline.
-private struct Inspected: Decodable {
+/// What `inspect` says of a state: its cue, the nodes it shows, and those that enter it and leave
+/// it, which the cue offers motions for (PLAN 2.44).
+struct Inspected: Decodable {
     let timeline: Cue?
+    /// The nodes it shows, by id, sorted.
+    let nodes: [String]
+    let entered: [String]
+    let exited: [String]
+
+    private enum Keys: String, CodingKey { case timeline, nodes, entered, exited }
+
+    init(from decoder: any Decoder) throws {
+        let fields = try decoder.container(keyedBy: Keys.self)
+        timeline = try fields.decodeIfPresent(Cue.self, forKey: .timeline)
+        nodes = try fields.decodeIfPresent([String: JSONValue].self, forKey: .nodes)?.keys.sorted() ?? []
+        entered = try fields.decodeIfPresent([String].self, forKey: .entered) ?? []
+        exited = try fields.decodeIfPresent([String].self, forKey: .exited) ?? []
+    }
 }
 
 extension ScaenaSession.Pixels {

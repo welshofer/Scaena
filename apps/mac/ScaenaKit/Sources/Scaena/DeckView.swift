@@ -10,8 +10,11 @@ import UniformTypeIdentifiers
 /// edits it with the user (PLAN 3.6). A double click types in a text on the canvas (PLAN 3.9).
 /// The Node menu inserts what the theme and the bundle offer, copies, deletes, and locks a node
 /// (PLAN 3.11); Copy, Cut, and Paste take a node as a clip, and paste a picture, a sheet's cells,
-/// or words another app copied, and ⌥⌘C and ⌥⌘V a look (PLAN 3.12). Every edit is a patch or a
-/// source, as in the browser, and one step to undo; a burst of typing is one.
+/// or words another app copied, and ⌥⌘C and ⌥⌘V a look (PLAN 3.12). The state list adds, renames,
+/// moves, and removes states; Slides shows the light table in place of the canvas, and Rehearse
+/// plays the deck there, keeping the time each state took; the cue's bars are dragged to time it
+/// (PLAN 3.14). Every edit is a patch or a source, as in the browser, and one step to undo; a burst
+/// of typing is one.
 struct DeckView: View {
     @ObservedObject var document: ScaenaDocument
     @Environment(\.undoManager) private var undo
@@ -43,6 +46,12 @@ struct DeckView: View {
     @State private var copiedLook: JSONValue?
     /// What the on-device model is asked, shown in a sheet.
     @State private var asked: Asked?
+    /// The light table shown in place of the canvas, and the slides selected on it (PLAN 3.14).
+    @State private var showsSlides = false
+    @State private var slidesPicked: Set<String> = []
+    /// A rehearsal running in place of the canvas, and one over, what it kept shown in a sheet.
+    @State private var rehearsal: Rehearsal?
+    @State private var rehearsed: Rehearsal?
     /// An export shown in Quick Look (PLAN 3.8).
     @State private var looking: URL?
     /// An export to save where the user says, its type, and the name offered.
@@ -73,7 +82,7 @@ struct DeckView: View {
     /// The states down the side; beside them the canvas and the rest; and the toolbar.
     private var window: some View {
         NavigationSplitView {
-            StateList(editor: editor, chosen: $chosen, make: make)
+            StateList(editor: editor, chosen: $chosen, make: restage, add: addState)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 320)
         } detail: {
             detail
@@ -89,14 +98,8 @@ struct DeckView: View {
                     .frame(minWidth: 280, idealWidth: 420)
             }
             VSplitView {
-                VStack(spacing: 0) {
-                    stage
-                    if let shown {
-                        Divider()
-                        CueBar(editor: editor, state: shown, playhead: $playhead)
-                    }
-                }
-                .frame(minHeight: 240)
+                middle
+                    .frame(minHeight: 240)
                 if showsFindings {
                     FindingsPanel(editor: editor, go: go, explain: OnDevice.available ? explain : nil) { finding in
                         perform { try document.fix(finding, undo: undo) }
@@ -118,6 +121,36 @@ struct DeckView: View {
         }
     }
 
+    /// The canvas and its cue; or the light table, or a rehearsal, in its place (PLAN 3.14).
+    @ViewBuilder private var middle: some View {
+        if let running = Binding($rehearsal) {
+            RehearsalStage(editor: editor, rehearsal: running) {
+                rehearsed = rehearsal
+                rehearsal = nil
+            }
+        } else if showsSlides {
+            LightTable(editor: editor, picked: $slidesPicked, show: showState) { ops, then in
+                perform {
+                    try document.make(ops, undo: undo)
+                    slidesPicked = Set(then)
+                }
+            }
+        } else {
+            VStack(spacing: 0) {
+                stage
+                if let shown {
+                    Divider()
+                    CueBar(
+                        editor: editor, state: shown, node: node, playhead: $playhead, make: timing
+                    ) { picked in
+                        node = picked
+                        also = []
+                    }
+                }
+            }
+        }
+    }
+
     /// Play, Export, and the panes the window shows.
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
@@ -129,6 +162,17 @@ struct DeckView: View {
             .keyboardShortcut("p", modifiers: [.option, .command])
             .help("Play the deck from the state shown, on the external display if there is one (⌥⌘P)")
             .disabled(editor.slots.isEmpty)
+        }
+        ToolbarItem {
+            Button {
+                showsSlides = false
+                rehearsal = Rehearsal(slots: editor.slots)
+            } label: {
+                Label("Rehearse", systemImage: "stopwatch")
+            }
+            .keyboardShortcut("r", modifiers: [.option, .command])
+            .help("Play the deck as presented, here, and keep the time each state takes as its hold (⌥⌘R)")
+            .disabled(editor.slots.isEmpty || rehearsal != nil || !editor.valid)
         }
         ToolbarItem {
             Menu {
@@ -147,6 +191,12 @@ struct DeckView: View {
             .disabled(editor.slots.isEmpty)
         }
         ToolbarItemGroup {
+            Toggle(isOn: $showsSlides) {
+                Label("Slides", systemImage: "square.grid.3x2")
+            }
+            .keyboardShortcut("l", modifiers: [.option, .command])
+            .help("Every slide in place of the canvas, to reorder, copy, and take out (⌥⌘L)")
+            .disabled(rehearsal != nil)
             Toggle(isOn: $showsSource) {
                 Label("Source", systemImage: "chevron.left.forwardslash.chevron.right")
             }
@@ -221,6 +271,11 @@ struct DeckView: View {
             ) { result in
                 if case .failure(let error) = result { failure = "\(error)" }
             }
+            .sheet(isPresented: showingRehearsed) {
+                if let done = rehearsed {
+                    RehearsedSheet(rehearsal: done) { keep(done) }
+                }
+            }
             .sheet(item: $asked) { asked in
                 OfferSheet(title: asked.title, ask: asked.ask, take: asked.take) { ops in
                     perform { try document.make(ops, undo: undo) }
@@ -236,6 +291,11 @@ struct DeckView: View {
     /// Whether an export waits to be saved.
     private var exporting: Binding<Bool> {
         Binding(get: { saving != nil }, set: { if !$0 { saving = nil } })
+    }
+
+    /// Whether what a rehearsal kept is shown.
+    private var showingRehearsed: Binding<Bool> {
+        Binding(get: { rehearsed != nil }, set: { if !$0 { rehearsed = nil } })
     }
 
     /// Whether an alert says why an edit was not made.
@@ -331,7 +391,8 @@ struct DeckView: View {
     /// What the Node menu does in this window (PLAN 3.11, 3.13): nothing while a text is typed in,
     /// whose keys are the text's.
     private var actions: DeckActions? {
-        guard let shown, typing?.typing != true else { return nil }
+        if showsSlides { return slideActions }
+        guard let shown, typing?.typing != true, rehearsal == nil else { return nil }
         let some = !selection.isEmpty
         let one = node != nil && also.isEmpty
         return DeckActions(
@@ -611,8 +672,73 @@ struct DeckView: View {
         }
     }
 
-    private func make(_ op: JSONValue) {
-        perform { try document.make([op], undo: undo) }
+    /// What the Node menu does while the light table shows: Duplicate copies the slides selected,
+    /// each just after itself, the copies selected (PLAN 2.97).
+    private var slideActions: DeckActions {
+        let picked = Slide.of(editor.slots).map(\.id).filter(slidesPicked.contains)
+        let duplicate = {
+            perform {
+                try document.make(Restaging.duplicateSlides(picked), undo: undo)
+                // Each copy is the slide just after the one it copies.
+                let ids = Slide.of(editor.slots).map(\.id)
+                slidesPicked = Set(
+                    picked.compactMap { id -> String? in
+                        guard let i = ids.firstIndex(of: id), i + 1 < ids.count else { return nil }
+                        return ids[i + 1]
+                    })
+            }
+        }
+        return DeckActions(
+            inserts: [], insert: { _ in }, duplicate: picked.isEmpty ? nil : duplicate, delete: nil, lock: nil,
+            locked: false, copyLook: nil, pasteLook: nil, group: nil, ungroup: nil, order: nil)
+    }
+
+    /// The state list's patches (PLAN 3.14): one step to undo, then `then` shown.
+    private func restage(_ ops: [JSONValue], then: String?) {
+        perform {
+            try document.make(ops, undo: undo)
+            if let then { chosen = then }
+        }
+    }
+
+    /// A step or a slide added after `state`, then shown (PLAN 2.35): one step to undo.
+    private func addState(after state: String, as what: StateAdding) {
+        perform {
+            let added = try editor.session.addingState(after: state, as: what)
+            try document.make(added.patch, undo: undo)
+            chosen = added.id
+            said = "\(added.id) added after \(what == .step ? state : "\(state)'s slide")"
+        }
+    }
+
+    /// `state` shown on the canvas, the light table put away.
+    private func showState(_ state: String) {
+        showsSlides = false
+        chosen = state
+    }
+
+    /// The cue's patches (PLAN 2.44): a bar timed, or a motion added, one step to undo; with no
+    /// ops, only what the status says.
+    private func timing(_ ops: [JSONValue], said words: String) {
+        guard !ops.isEmpty else {
+            said = words
+            return
+        }
+        perform {
+            try document.make(ops, undo: undo)
+            said = words
+        }
+    }
+
+    /// What a rehearsal kept, made the deck's: each state reached holding as long as it took, less
+    /// its cue, one patch (PLAN 2.63).
+    private func keep(_ done: Rehearsal) {
+        let holds = done.holds
+        guard !holds.isEmpty else { return }
+        perform {
+            try document.make(holds, undo: undo)
+            said = "\(holds.count) hold\(holds.count == 1 ? "" : "s") from the rehearsal"
+        }
     }
 
     private func perform(_ edit: () throws -> Void) {

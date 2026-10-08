@@ -358,7 +358,9 @@ pub unsafe extern "C" fn scaena_drop(
 /// children of one container moved together as a drag moves the first, with the guides they
 /// meet; `arranging {state, nodes, how, fork?}`, them aligned, spread, or ordered (`how`: one of
 /// `align`, `spread`, `order`, `before`, `after`, `into`); and `grouping {state, nodes}`, the
-/// patch that puts them in a new group, `{id, patch}`.
+/// patch that puts them in a new group, `{id, patch}`. States (PLAN 3.14): `addingState {state,
+/// what}`, the patch that adds a state after it, a `step` of its slide or a `slide` of its own,
+/// `{id, patch}`.
 ///
 /// # Safety
 /// `session` is a live handle; `method` a NUL-terminated string; `args` one, or null.
@@ -1104,6 +1106,12 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             value(serde_json::to_value(s.inserting_with(state, n, at, optional("named"), with).map_err(said)?))?
         }
         "duplicating" => value(serde_json::to_value(s.duplicating(arg("state")?, arg("node")?).map_err(said)?))?,
+        // A state added after the state shown (PLAN 2.35, 3.14): a `step` of its slide, or a
+        // `slide` of its own, `{id, patch}`.
+        "addingState" => {
+            let what = serde_json::from_value(Value::String(arg("what")?.to_string())).map_err(said)?;
+            value(serde_json::to_value(s.adding_state(arg("state")?, what).map_err(said)?))?
+        }
         "deleting" => {
             let everywhere = args.get("everywhere").and_then(Value::as_bool).unwrap_or(false);
             json!(s.deleting(arg("state")?, arg("node")?, everywhere).map_err(said)?)
