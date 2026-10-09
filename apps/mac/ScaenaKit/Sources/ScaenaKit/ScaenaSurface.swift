@@ -57,7 +57,8 @@ public final class ScaenaSurface {
         return ScaenaSession.Pixels(rgba: rgba, width: Int(read.width), height: Int(read.height))
     }
 
-    /// The adapter that paints: `{ name, backend, device }`.
+    /// The adapter that paints, and what paints on it: `{ name, backend, device, painter }`, the
+    /// painter `vello`, or `cpu` where the GPU runs no vello (the iPad simulator's, PLAN 4.1).
     public func adapter() throws -> JSONValue {
         try ScaenaSession.decode(scaena_surface_adapter(handle), as: JSONValue.self)
     }

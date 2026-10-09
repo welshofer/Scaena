@@ -43,7 +43,9 @@ func aFortyStateDeckShowsItsFirstFrameSoonAfterOpening() throws {
         withExtendedLifetime(second) {}
         return spent
     }
-    print("gate 3, criterion 2: B1 (\(timeline.count) states), open to first frame: \(took)")
+    // vello, or the CPU painter on the iPad simulator, whose GPU runs no vello (PLAN 4.1).
+    let painter = (try? surface.adapter()["painter"]?.string) ?? "unknown"
+    print("gate 3, criterion 2: B1 (\(timeline.count) states), open to first frame: \(took), painted by \(painter)")
     print(
         "gate 3, criterion 2, where the time goes: the GPU made as the app starts \(ms(started)); then"
             + " files read and session opened \(ms(opened - start)), timeline \(ms(timed - opened)),"

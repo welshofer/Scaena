@@ -69,14 +69,22 @@ let b1 = repository.appending(path: "tests/bench/b1.scaena")
 }
 
 /// What a surface paints on Metal is what the CPU painter paints (gate 3's first criterion):
-/// B1's cover, on a layer no window shows, read back.
+/// B1's cover, on a layer no window shows, read back. vello paints it on every GPU but the iPad
+/// simulator's, which has no indirect dispatch, and where the CPU painter paints each frame and
+/// Metal shows it (PLAN 4.1).
 @Test(.enabled(if: MTLCreateSystemDefaultDevice() != nil))
 func aSurfacePaintsOnMetalWhatTheCPUPainterPaints() throws {
     let session = try ScaenaSession(directory: b1)
     let layer = CAMetalLayer()
     layer.drawableSize = CGSize(width: 320, height: 180)
     let surface = try ScaenaSurface(layer: layer, width: 320, height: 180)
-    #expect(try surface.adapter()["backend"]?.string == "Metal")
+    let adapter = try surface.adapter()
+    #expect(adapter["backend"]?.string == "Metal")
+    #if targetEnvironment(simulator)
+    #expect(adapter["painter"]?.string == "cpu")
+    #else
+    #expect(adapter["painter"]?.string == "vello")
+    #endif
     try surface.paint(session, state: "cover")
     let gpu = try surface.lastFrame()
     let cpu = try session.pixels("cover", width: 320)
