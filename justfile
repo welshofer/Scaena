@@ -51,6 +51,12 @@ mac:
     apps/mac/build-app.sh
     open target/mac/Scaena.app
 
+# ScaenaKit's tests on an iPad simulator (PLAN 4.1): the engine built for the simulator, the Xcode
+# project XcodeGen makes from apps/ipad/project.yml, and xcodebuild's run, on a Mac with Xcode
+# and XcodeGen (`brew install xcodegen`).
+ipad-test:
+    apps/ipad/test.sh
+
 # The engine, both painters, and the WASM bindings must keep compiling for the browser (PLAN 0.1, 0.8):
 # with every feature, and as the player's engine alone, without the hyphenation patterns the
 # editor's module leaves out (ADR-0015).

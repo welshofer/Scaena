@@ -1,4 +1,6 @@
+#if os(macOS)
 import AppKit
+#endif
 import CoreGraphics
 import Foundation
 import ScaenaKit
@@ -61,6 +63,7 @@ private let torture = repository.appending(path: "tests/fixtures/torture.scaena"
     #expect(editor.findings.contains { $0.state == "shapes" && $0.formats == ["", "9:16"] })
 }
 
+#if os(macOS)  // the canvas's keys are AppKit's; the iPad's come with PLAN 4.4 and 4.6
 /// Find's matches (PLAN 3.16, as the browser's find bar, PLAN 2.47): each match of each text found,
 /// in order, stepped through both ways and round; and the Edit menu's Find on the canvas, which
 /// opens the deck's find bar.
@@ -84,3 +87,4 @@ private let torture = repository.appending(path: "tests/fixtures/torture.scaena"
     keys.performFindPanelAction(nil)
     #expect(asked == [.nextMatch, .showFindInterface])
 }
+#endif

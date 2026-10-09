@@ -1,8 +1,17 @@
-import AppKit
+import CoreGraphics
 import Foundation
+import ImageIO
 import ScaenaKit
 import Testing
+import UniformTypeIdentifiers
 
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
+
+#if os(macOS)
 /// What the pasteboard holds, as the canvas pastes it (PLAN 2.37, 2.96): a clip, written beside
 /// its text; a picture, the words beside it only naming it; words, which outrank a picture of
 /// them, as a sheet's cells come with one.
@@ -37,6 +46,50 @@ import Testing
     }
     #expect(name == "picture.png" && made.starts(with: [0x89, 0x50, 0x4E, 0x47]))
 }
+#else
+/// The iPad's pasteboard, read as the Mac's is (PLAN 4.1): a clip, written beside its text; a
+/// picture, the words beside it only naming it; words, which outrank a picture of them; and a
+/// picture of a kind an image does not show, as a PNG of it.
+@MainActor
+@Test func theIPadsPasteboardIsReadAsTheMacsIs() throws {
+    let board = UIPasteboard.withUniqueName()
+    defer { UIPasteboard.remove(withName: board.name) }
+    #expect(Pasteboard.read(board) == nil)
+
+    Pasteboard.write(clip: #"{"kind":"scaena/clip"}"#, to: board)
+    #expect(Pasteboard.read(board) == .clip(#"{"kind":"scaena/clip"}"#))
+    #expect(board.string == #"{"kind":"scaena/clip"}"#, "beside it, its text")
+
+    let png = try Data(contentsOf: repository.appending(path: "tests/fixtures/torture.scaena/assets/test-card.png"))
+    board.items = [[UTType.png.identifier: png]]
+    #expect(Pasteboard.read(board) == .file(png, name: "picture.png"))
+
+    // A sheet's cells, with a picture of them: the words.
+    board.items = [[UTType.png.identifier: png, UTType.utf8PlainText.identifier: "Quarter\tSales\nQ1\t1,200"]]
+    #expect(Pasteboard.read(board) == .words("Quarter\tSales\nQ1\t1,200"))
+
+    // A picture of a kind an image does not show, as a PNG of it.
+    let tiff = try #require(tiff(png))
+    board.items = [[UTType.tiff.identifier: tiff]]
+    guard case .file(let made, let name) = Pasteboard.read(board) else {
+        Issue.record("a TIFF reads as a picture")
+        return
+    }
+    #expect(name == "picture.png" && made.starts(with: [0x89, 0x50, 0x4E, 0x47]))
+}
+
+/// `png` written again as a TIFF, by ImageIO.
+private func tiff(_ png: Data) -> Data? {
+    guard let source = CGImageSourceCreateWithData(png as CFData, nil),
+        let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+    else { return nil }
+    let out = NSMutableData()
+    guard let made = CGImageDestinationCreateWithData(out as CFMutableData, UTType.tiff.identifier as CFString, 1, nil)
+    else { return nil }
+    CGImageDestinationAddImage(made, image, nil)
+    return CGImageDestinationFinalize(made) ? out as Data : nil
+}
+#endif
 
 /// The clipboard through the editor (PLAN 3.12), as the browser's (PLAN 2.37, 2.58, 2.96): a node
 /// copied as a clip pasted in another state, a look put on another node, a sheet's cells pasted

@@ -1,8 +1,9 @@
-//! Gate 3's third criterion (PLAN §Phase 3, SPEC §9.3): the Mac's SwiftUI owns chrome only, and
-//! every frame, glyph, and layout of a deck is the engine's. No Swift in `apps/mac` lays text out
-//! or measures it with Core Text or TextKit, or draws a string itself. The one exception is the
-//! source pane: an `NSTextView` of the deck's `.scn`, which is chrome, as the browser's CodeMirror
-//! is (invariant 8 bars TextKit from the render path).
+//! Gate 3's third criterion (PLAN §Phase 3, SPEC §9.3), and gate 4's (SPEC §9.4): the Mac's and
+//! the iPad's SwiftUI own chrome only, and every frame, glyph, and layout of a deck is the
+//! engine's. No Swift in `apps/mac` lays text out or measures it with Core Text or TextKit, by
+//! AppKit or UIKit, or draws a string itself. The one exception is the source pane: an
+//! `NSTextView` of the deck's `.scn`, which is chrome, as the browser's CodeMirror is (invariant 8
+//! bars TextKit from the render path).
 
 use std::path::{Path, PathBuf};
 
@@ -21,6 +22,9 @@ const LAYOUT: &[&str] = &[
     "NSTypesetter",
     "NSTextView",
     "NSTextField",
+    "UITextView",
+    "UITextField",
+    "UILabel",
     "boundingRect(with",
     "size(withAttributes",
     "draw(at:",
