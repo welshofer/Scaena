@@ -2,9 +2,9 @@ import XCTest
 
 /// The canvas by touch (PLAN 4.3), on B1's cover, a gesture at a time and in order, each the
 /// patch the Mac's pointer makes for it: a tap selects the title, a pinch zooms and another takes
-/// the whole canvas back, a double tap types in it, a drag moves it, and a long press offers what
-/// is done to it, whose Duplicate copies it; then, in the light table, a slide dragged onto another
-/// moves after it.
+/// the whole canvas back, a double tap types in it and the keys type there (PLAN 4.4), a drag
+/// moves it, and a long press offers what is done to it, whose Duplicate copies it; then, in the
+/// light table, a slide dragged onto another moves after it.
 final class TouchTests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -18,7 +18,8 @@ final class TouchTests: XCTestCase {
         let canvas = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'canvas'")).firstMatch
         XCTAssertTrue(canvas.waitForExistence(timeout: 10), "no canvas: \(app.debugDescription)")
         XCTAssertEqual(canvas.label, "Slide 1", "the canvas reads as no slide")
-        let titles = canvas.descendants(matching: .any).matching(NSPredicate(format: "label == 'Scaena'"))
+        // The title reads "Scaena", and once typed in, more.
+        let titles = canvas.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Scaena'"))
         let title = titles.firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: 10), "no title on the canvas: \(app.debugDescription)")
         settle()
@@ -50,11 +51,17 @@ final class TouchTests: XCTestCase {
             }
         }
 
-        try XCTContext.runActivity(named: "A double tap types in the title") { _ in
+        try XCTContext.runActivity(named: "A double tap types in the title, and the keys type there") { _ in
             title.doubleTap()
-            let typing = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Editing'")).firstMatch
-            guard typing.waitForExistence(timeout: 5) else {
+            let typing = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'typing'")).firstMatch
+            guard typing.waitForExistence(timeout: 5), typing.label == "Editing text" else {
                 throw Unseen(description: "a double tap typed in nothing: \(app.debugDescription)")
+            }
+            // The keyboard's keys, through `UITextInput`, at the caret the double tap put there.
+            app.typeText("!")
+            let typed = canvas.descendants(matching: .any).matching(NSPredicate(format: "label == 'Scaena!'")).firstMatch
+            guard typed.waitForExistence(timeout: 5) else {
+                throw Unseen(description: "the keys typed nothing in the title: \(app.debugDescription)")
             }
             keep(app, as: "typing")
             // A tap where nothing draws stops typing.

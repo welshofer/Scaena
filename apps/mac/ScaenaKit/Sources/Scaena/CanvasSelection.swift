@@ -187,13 +187,18 @@ struct CanvasSelection: View {
         GeometryReader { geometry in
             let fit = Fit(shown: zoom.view, canvas: size, width: geometry.size.width)
             ZStack(alignment: .topLeading) {
-                #if os(macOS)
                 // Under the rest: the canvas's keys, the text's while one is typed in. It takes no
-                // press. The iPad's come with PLAN 4.4 and 4.6.
+                // press. On the iPad, the keyboard's and the Pencil's while a text is typed in
+                // (PLAN 4.4); the canvas's own keys there come with PLAN 4.6.
+                #if os(macOS)
                 CanvasKeysHost(
                     typing: typing, canvas: size, shown: zoom.view, command: command, clipping: clip,
                     finding: { _ in finding() }, pressed: pressed)
                     .allowsHitTesting(false)
+                #else
+                CanvasKeysHost(typing: typing, canvas: size, shown: zoom.view, clipping: clip) { finding() }
+                #endif
+                #if os(macOS)
                 // The wheel and a pinch over the canvas, read before any view takes them. On the
                 // iPad, two fingers do it (`CanvasPinch`, `CanvasPan`, PLAN 4.3).
                 CanvasWheel(
@@ -336,6 +341,14 @@ struct CanvasSelection: View {
                 lingering?.cancel()
                 #endif
                 press = nil
+            }
+        }
+        .onChange(of: typing.node) { _, now in
+            // Typing begun where no press began it (the Pencil writing on a text, PLAN 4.4) selects
+            // the text typed in, as a double click does.
+            if let now, node != now {
+                node = now
+                also = []
             }
         }
         .onChange(of: node) { _, now in
