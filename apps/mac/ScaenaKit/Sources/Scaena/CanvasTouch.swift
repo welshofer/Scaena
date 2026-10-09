@@ -122,6 +122,24 @@ struct CanvasPan: UIGestureRecognizerRepresentable {
     }
 }
 
+/// A right click on the canvas (PLAN 4.5), a trackpad's or a mouse's secondary button: it offers
+/// what a long press offers, over where it clicked, as the browser's right click does (PLAN 2.53).
+struct CanvasRightClick: UIGestureRecognizerRepresentable {
+    /// Clicked at a point on the view, points.
+    let clicked: (CGPoint) -> Void
+
+    func makeUIGestureRecognizer(context: Context) -> UITapGestureRecognizer {
+        let click = UITapGestureRecognizer()
+        click.buttonMaskRequired = .secondary
+        return click
+    }
+
+    func handleUIGestureRecognizerAction(_ click: UITapGestureRecognizer, context: Context) {
+        guard click.state == .ended else { return }
+        clicked(context.converter.localLocation)
+    }
+}
+
 /// What two fingers keep as they move: the level the pinch began at, and how far they had moved.
 final class Fingers: NSObject, UIGestureRecognizerDelegate {
     var level = 1.0
