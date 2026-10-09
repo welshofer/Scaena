@@ -755,16 +755,22 @@ struct DeckView: View {
 
     /// Insert what the deck offers `n`th where the pointer last pressed on the canvas, or in its
     /// middle; in the room nearest there where content would overlap (PLAN 2.34, 2.79). It enters
-    /// in the state shown, selected: one step to undo.
+    /// in the state shown, selected: one step to undo. A text enters typed in, its words selected,
+    /// so what is typed next takes their place, as a presentation app's new text box does (PLAN 3.21).
     private func insert(_ n: Int, in state: String) {
         let size = (try? editor.session.canvasSize()) ?? CGSize(width: 1920, height: 1080)
         let at = pointed ?? CGPoint(x: size.width / 2, y: size.height / 2)
+        let offered = inserts.indices.contains(n) ? inserts[n] : nil
         perform {
             let added = try editor.session.inserting(state: state, n: n, at: at)
             try document.make(added.patch, undo: undo)
             node = added.id
             also = []
-            said = "\(inserts.indices.contains(n) ? Words.inserted(inserts[n]) : "Object") inserted"
+            if offered?.kind == "Text", let typing, typing.enter(added.id, in: state, at: nil) {
+                typing.selectAll()
+                return
+            }
+            said = "\(offered.map(Words.inserted) ?? "Object") inserted"
         }
     }
 
