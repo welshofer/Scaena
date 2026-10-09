@@ -126,7 +126,7 @@ struct NodeCommands: Commands {
     }
 
     /// A kind as the Insert menu names it.
-    private static func kind(_ kind: String) -> String {
+    static func kind(_ kind: String) -> String {
         switch kind {
         case "Image": "Picture"
         case "Shader": "Background Effect"

@@ -28,8 +28,11 @@ import SwiftUI
 /// in reading order, Return goes into a container or onto a node's handles, the arrows step a node
 /// a track (with Shift resize it) or move the handle the keys are on, `[` and `]` turn it, ⌘A
 /// selects all beside it, and Space, then Tab and Space, build a selection; each node is an
-/// element VoiceOver reads as the reader hears it. Every box and caret is the engine's, at rest;
-/// nothing here lays out.
+/// element VoiceOver reads as the reader hears it. On the iPad (PLAN 4.3), a finger makes each of
+/// these gestures' patches: a tap is a click and a double tap a double click; a handle is taken
+/// within 22 points; a long press offers what the Node menu and the clipboard do to what it
+/// pressed; and two fingers zoom and pan, a second finger stopping the first's press as it touches
+/// down. Every box and caret is the engine's, at rest; nothing here lays out.
 struct CanvasSelection: View {
     let editor: DeckEditor
     let state: String
@@ -53,6 +56,8 @@ struct CanvasSelection: View {
     let clip: (Clipping) -> Void
     /// The Edit menu's Find, and ⌘F on the canvas: the deck's find bar (PLAN 3.16).
     let finding: () -> Void
+    /// What the Node menu does to the node selected, which a long press offers on the iPad (PLAN 4.3).
+    let actions: DeckActions?
     /// Make the patch a drag ended in: one step to undo.
     let make: ([JSONValue]) -> Void
     @State private var boxes: [NodeBox] = []
@@ -73,13 +78,42 @@ struct CanvasSelection: View {
     @State private var reads: [ReadPart] = []
     /// A resize that paused, shown laid out as its patch would make it.
     @State private var pausing: Task<Void, Never>?
+    /// Presses counted as a double click or a double tap counts them, and how many the press now
+    /// under way makes: two types in the text pressed (PLAN 3.9, 4.3).
+    @State private var presses = Presses()
+    @State private var clicks = 1
+    /// Whether a press is under way: false again as it ends or the system takes it away.
+    @GestureState private var touching = false
+    #if !os(macOS)
+    /// A finger held still, waiting to offer what is done to what it pressed (PLAN 4.3).
+    @State private var lingering: Task<Void, Never>?
+    /// The menu a long press asks for: a count, new with each ask, and where, view points.
+    @State private var offering: (count: Int, at: CGPoint)?
+    #endif
 
     /// How long a resize pauses before the canvas shows its text reflowed (as the browser's).
     private static let pause = Duration.milliseconds(300)
     /// How near, in points, an edge moved off the grid goes onto another's (PLAN 2.57).
     private static let reach = 6.0
+    #if os(macOS)
+    /// How near a handle, in points, a press takes it: a pointer's reach.
+    private static let grab = 6.0
+    /// How far, in points, a press goes before it is a drag and not a click.
+    private static let still = 3.0
     /// How far outside the text typed in, in points, a press still puts the caret in it.
     private static let slop = 4.0
+    #else
+    /// How near a handle, in points, a finger takes it: half the 44 points Apple gives a target
+    /// for a finger (PLAN 4.3), and less on a box too small for its handles to keep apart.
+    private static let grab = 22.0
+    /// How far, in points, a finger goes before its press is a drag and not a tap: a finger rolls
+    /// further than a pointer as it presses.
+    private static let still = 10.0
+    /// How far outside the text typed in, in points, a finger still puts the caret in it.
+    private static let slop = 12.0
+    /// How long a finger stays still before its press offers what is done to what it pressed.
+    private static let lingers = Duration.milliseconds(500)
+    #endif
 
     /// A press on the canvas: a click until it moves, then a drag, or one refused; a press in
     /// the text typed in, which selects as it drags; a marquee, from where nothing draws; or a
@@ -91,6 +125,10 @@ struct CanvasSelection: View {
         case typing
         case banding(from: CGPoint, to: CGPoint)
         case handling(Holding)
+        /// A finger stayed still: the menu of what is done to what it pressed is offered (PLAN 4.3).
+        case offered
+        /// Two fingers took the press over, to zoom or pan: the first finger edits nothing.
+        case fingers
     }
 
     /// A drag under way: the node, how it is held, and where it would land now; with others
@@ -156,8 +194,8 @@ struct CanvasSelection: View {
                     typing: typing, canvas: size, shown: zoom.view, command: command, clipping: clip,
                     finding: { _ in finding() }, pressed: pressed)
                     .allowsHitTesting(false)
-                // The wheel and a pinch over the canvas, read before any view takes them. The
-                // iPad's pinch and pan come with PLAN 4.3.
+                // The wheel and a pinch over the canvas, read before any view takes them. On the
+                // iPad, two fingers do it (`CanvasPinch`, `CanvasPan`, PLAN 4.3).
                 CanvasWheel(
                     zoom: { factor, at in zoom.zoom(to: zoom.level * factor, about: fit.canvas(at)) },
                     pan: { by in
@@ -171,6 +209,25 @@ struct CanvasSelection: View {
                 Color.clear
                     .contentShape(Rectangle())
                     .gesture(pressing(fit))
+                    #if !os(macOS)
+                    // Two fingers zoom and pan, as the Mac's pinch and wheel do (PLAN 4.3).
+                    .gesture(
+                        CanvasPinch(
+                            level: { zoom.level }, zoom: { to, at in zoom.zoom(to: to, about: fit.canvas(at)) },
+                            fingers: fingers))
+                    .gesture(
+                        CanvasPan(
+                            pan: { by in
+                                guard zoom.level > 1 else { return }
+                                zoom.pan(by: CGVector(dx: -Double(by.dx) * fit.units, dy: -Double(by.dy) * fit.units))
+                            }, fingers: fingers))
+                    #endif
+                #if !os(macOS)
+                // What a long press offers, shown over what the finger pressed (PLAN 4.3).
+                CanvasMenu(asked: offering, deck: actions, clip: clip)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .allowsHitTesting(false)
+                #endif
                 // Nodes off the theme's grid, flagged as lint flags them (W301).
                 ForEach(boxes.filter { placements[$0.node]?.offGrid == true }, id: \.node) { flagged in
                     outline(flagged.corners, fit: fit)
@@ -223,10 +280,24 @@ struct CanvasSelection: View {
                 }
                 typed(fit)
                     .allowsHitTesting(false)
-                // Each node read, where it is drawn, as VoiceOver hears it (PLAN 3.17).
-                ForEach(reads.indices, id: \.self) { i in
-                    readable(reads[i], order: reads.count - i, fit: fit)
+                // The slide as VoiceOver reads it (PLAN 3.17): each node where it is drawn, as much of
+                // it as the view shows, in a container the view's own size. Nothing drawn past the view,
+                // a handle or an outline zoomed past it, widens the canvas a pinch's fingers are placed
+                // by (PLAN 4.3).
+                ZStack(alignment: .topLeading) {
+                    Color.clear
+                    ForEach(reads.indices, id: \.self) { i in
+                        readable(
+                            reads[i], order: reads.count - i, fit: fit, in: CGRect(origin: .zero, size: geometry.size))
+                    }
                 }
+                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+                .allowsHitTesting(false)
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(Words.slide(state, in: editor.slots))
+                .accessibilityIdentifier("canvas")
+                // How close it is shown, where it is zoomed in (PLAN 3.16).
+                .accessibilityValue(zoom.level > 1 + 1e-9 ? "at \(Int((zoom.level * 100).rounded())) percent" : "")
                 if let words = told ?? typing.told ?? said {
                     Text(words)
                         .font(.caption)
@@ -238,9 +309,6 @@ struct CanvasSelection: View {
                 }
             }
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(Words.slide(state, in: editor.slots))
-        .accessibilityIdentifier("canvas")
         .task(id: "\(state)\u{1f}\(editor.revision)") {
             boxes = (try? editor.session.boxes(state: state)) ?? []
             placements = (try? editor.session.placements(state: state)) ?? [:]
@@ -254,6 +322,21 @@ struct CanvasSelection: View {
             shaped = node.flatMap { try? session.outline(state: state, node: $0) }
             imaged = node.flatMap { try? session.framing(state: state, node: $0) }
             if let picked = pointPicked, picked >= shaped?.points.count ?? 0 { pointPicked = nil }
+        }
+        .onChange(of: touching) { _, now in
+            // A press the system took away (a swipe from the screen's edge, say) has no end of its
+            // own: what it began stops once the gesture's own end, where there was one, has run.
+            guard !now else { return }
+            Task { @MainActor in
+                guard !touching, press != nil else { return }
+                if case .fingers = press { return }
+                if case .dragging = press { editor.still() }
+                pausing?.cancel()
+                #if !os(macOS)
+                lingering?.cancel()
+                #endif
+                press = nil
+            }
         }
         .onChange(of: node) { _, now in
             // Another node selected, in the layers or by a finding, stops typing.
@@ -383,9 +466,11 @@ struct CanvasSelection: View {
         }
     }
 
-    /// A press: a click where it does not move, else a drag of what it pressed.
+    /// A press: a click where it does not move, else a drag of what it pressed. On the iPad a finger
+    /// that stays still offers what is done to what it pressed (PLAN 4.3).
     private func pressing(_ fit: Fit) -> some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .local)
+            .updating($touching) { _, pressed, _ in pressed = true }
             .onChanged { value in
                 let moved = hypot(value.translation.width, value.translation.height)
                 switch press {
@@ -398,12 +483,13 @@ struct CanvasSelection: View {
                     typing.focus?()
                     pointed = at
                     said = nil
+                    clicks = presses.began(at: value.startLocation)
                     // Typing: a press in the text puts the caret there, one outside it stops typing.
                     let typed = typing.typing
                     if typed {
                         if typing.holds(at, slop: Self.slop * fit.units) {
                             press = .typing
-                            return typing.press(at: at, clicks: Held.clicks, extend: Held.shift)
+                            return typing.press(at: at, clicks: clicks, extend: Held.shift)
                         }
                         typing.leave()
                     }
@@ -413,9 +499,15 @@ struct CanvasSelection: View {
                         return
                     }
                     press = .pressing
+                    #if !os(macOS)
+                    linger(at: value.startLocation, fit: fit)
+                    #endif
                 case .typing:
                     typing.drag(to: fit.canvas(value.location))
-                case .pressing where moved >= 3:
+                case .pressing where moved >= Self.still:
+                    #if !os(macOS)
+                    lingering?.cancel()
+                    #endif
                     begin(at: fit.canvas(value.startLocation), scale: fit.scale)
                     if case .dragging = press { aim(value, scale: fit.scale) }
                 case .dragging:
@@ -424,7 +516,7 @@ struct CanvasSelection: View {
                     press = .banding(from: from, to: fit.canvas(value.location))
                 case .handling(var h):
                     // A click until it goes further than one.
-                    guard h.moved || moved >= 3 else { break }
+                    guard h.moved || moved >= Self.still else { break }
                     h.moved = true
                     h.fork = Held.option
                     hold(&h, to: fit.canvas(value.location))
@@ -435,6 +527,9 @@ struct CanvasSelection: View {
             }
             .onEnded { value in
                 defer { press = nil }
+                #if !os(macOS)
+                lingering?.cancel()
+                #endif
                 switch press {
                 case .dragging:
                     aim(value, scale: fit.scale)
@@ -465,7 +560,7 @@ struct CanvasSelection: View {
         guard also.isEmpty, let selected = boxes.first(where: { $0.node == node }), selected.locked == nil else {
             return nil
         }
-        let near = Self.reach / max(scale, 0.01)
+        let near = grabbing(selected, scale: scale)
         let close = { (p: CGPoint) -> Bool in hypot(p.x - point.x, p.y - point.y) <= near }
         let units = Double(max(scale, 0.01))
         func held(_ handle: Holding.Handle) -> Holding {
@@ -492,7 +587,11 @@ struct CanvasSelection: View {
                 return held(.corner(o.step(nearest: o.radius ?? 0)))
             }
         }
-        if let arm = selected.turnHandle(arm: HandleSpacing.arm / units), close(arm.at) {
+        // The rotate handle stands clear of the box: a finger takes it from as far as it reaches.
+        let arming = Self.grab / units
+        if let arm = selected.turnHandle(arm: HandleSpacing.arm / units),
+            hypot(arm.at.x - point.x, arm.at.y - point.y) <= arming
+        {
             do {
                 let turned = try editor.session.turned(state: state, node: selected.node)
                 let holder = transform(of: selected.parent)
@@ -595,10 +694,13 @@ struct CanvasSelection: View {
     }
 
     /// A node as VoiceOver hears it (PLAN 3.17), where it is drawn: a heading, a picture, a table,
-    /// or words, as the reader hears it; selected by its action.
-    @ViewBuilder private func readable(_ part: ReadPart, order: Int, fit: Fit) -> some View {
-        if let b = boxes.first(where: { $0.node == part.node }) {
-            let drawn = Self.bounds(b.corners.map { fit.view($0) })
+    /// or words, as the reader hears it; selected by its action. Its frame is the part of it `view`
+    /// shows, and a node zoomed out of view is not read, so nothing the canvas holds reaches past
+    /// it: VoiceOver outlines what is shown, and a pinch's fingers land on the canvas (PLAN 4.3).
+    @ViewBuilder private func readable(_ part: ReadPart, order: Int, fit: Fit, in view: CGRect) -> some View {
+        if let b = boxes.first(where: { $0.node == part.node }),
+            let drawn = Self.shown(b.corners.map { fit.view($0) }, in: view)
+        {
             Color.clear
                 .frame(width: max(drawn.width, 1), height: max(drawn.height, 1))
                 .position(x: drawn.midX, y: drawn.midY)
@@ -615,6 +717,12 @@ struct CanvasSelection: View {
                     also = []
                 }
         }
+    }
+
+    /// As much of the box around `points` as `view` shows; none where it shows none of it.
+    private static func shown(_ points: [CGPoint], in view: CGRect) -> CGRect? {
+        let shown = bounds(points).intersection(view)
+        return shown.isNull ? nil : shown
     }
 
     /// The box around `points`.
@@ -940,10 +1048,52 @@ struct CanvasSelection: View {
         }
         node = hit
         also = []
-        if let node, Held.clicks >= 2 {
+        if let node, clicks >= 2 {
             typing.enter(node, in: state, at: point, fork: Held.option)
         }
     }
+
+    #if !os(macOS)
+    /// A finger pressing still (PLAN 4.3): held long enough, its press offers what is done to what
+    /// it pressed, as the Mac's Node menu and Edit menu do to the node selected.
+    private func linger(at start: CGPoint, fit: Fit) {
+        lingering?.cancel()
+        lingering = Task { @MainActor in
+            try? await Task.sleep(for: Self.lingers)
+            guard !Task.isCancelled, case .pressing = press else { return }
+            press = .offered
+            offer(at: fit.canvas(start), shown: start)
+        }
+    }
+
+    /// Offer what is done to what draws at `point`, canvas units, from `shown`, view points: what
+    /// draws there on top selected first, locked or not, so that Unlock is offered too; where
+    /// nothing draws, nothing, and Paste and Insert land there. What is selected stays selected
+    /// where it draws there too, under another or not: the menu is for what the press was on, the
+    /// node whose handles show, or the several selected together.
+    private func offer(at point: CGPoint, shown: CGPoint) {
+        let hits = (try? editor.session.hits(state: state, at: point)) ?? []
+        if !hits.contains(where: { selection.contains($0.node) }) {
+            node = hits.first?.node
+            also = []
+        }
+        pointed = point
+        offering = (count: (offering?.count ?? 0) + 1, at: shown)
+    }
+
+    /// Two fingers began, or let go (PLAN 4.3). As they begin the first finger's press stops, and
+    /// a drag it began is drawn back, editing nothing; once they let go, the next press is new.
+    private func fingers(_ down: Bool) {
+        guard down else {
+            if !touching, case .fingers = press { press = nil }
+            return
+        }
+        lingering?.cancel()
+        pausing?.cancel()
+        if case .dragging = press { editor.still() }
+        press = .fingers
+    }
+    #endif
 
     /// `hit` added to what is selected, or taken out of it: children of one container alone, as
     /// the browser's canvas selects several (PLAN 2.42).
@@ -987,7 +1137,7 @@ struct CanvasSelection: View {
     private func begin(at point: CGPoint, scale: CGFloat) {
         var held: (node: String, edge: Edge?)?
         if let selected = boxes.first(where: { $0.node == node }), selected.locked == nil, let r = box(selected) {
-            let near = Self.reach / max(scale, 0.01)
+            let near = grabbing(selected, scale: scale)
             // Each handle where the box is drawn, turned or scaled as it is.
             let spot = { (edge: Edge) in selected.onCanvas(edge.point(r)) }
             if let edge = Edge.allCases.first(where: { hypot(spot($0).x - point.x, spot($0).y - point.y) <= near }) {
@@ -1089,6 +1239,15 @@ struct CanvasSelection: View {
         editor.still()
         guard let d = drag, d.revision == editor.revision, !d.patch.isEmpty else { return }
         make(d.patch)
+    }
+
+    /// How near a handle of `selected`, canvas units, a press takes it: `grab` points, no more than
+    /// a quarter of the box's shorter side, so that a finger inside a small box still moves it, and
+    /// never less than a pointer's reach (PLAN 4.3).
+    private func grabbing(_ selected: NodeBox, scale: CGFloat) -> Double {
+        let units = Double(max(scale, 0.01))
+        guard let r = box(selected) else { return Self.grab / units }
+        return min(Self.grab / units, max(Self.reach / units, Double(min(r.width, r.height)) / 4))
     }
 
     /// `selected`'s box at rest, canvas units.

@@ -65,9 +65,14 @@ struct Holding {
 }
 
 /// How far the rotate handle stands beyond the box, a rect's corner handle in from its corner at
-/// least, and an image's crop bars in from its sides, in points.
+/// least, and an image's crop bars in from its sides, in points. On the iPad the rotate handle
+/// stands further out, so that a finger takes it and not the box's top (PLAN 4.3).
 enum HandleSpacing {
+    #if os(macOS)
     static let arm = 24.0
+    #else
+    static let arm = 36.0
+    #endif
     static let clear = 12.0
     static let inset = 10.0
 }
