@@ -220,7 +220,7 @@ struct CanvasSelection: View {
                 #else
                 CanvasKeysHost(
                     typing: typing, canvas: size, shown: zoom.view, clipping: clip, finding: { finding() },
-                    pressed: pressed, selectingAll: { selectAll() })
+                    pressed: pressed, commanded: commanded, selectingAll: { selectAll() })
                 #endif
                 #if os(macOS)
                 // The wheel and a pinch over the canvas, read before any view takes them. On the
@@ -881,6 +881,13 @@ struct CanvasSelection: View {
         default:
             return false
         }
+    }
+
+    /// Escape or Return on the canvas while no text is typed in (PLAN 4.6), which the system hands
+    /// it as a key command rather than a press: what a press of either does.
+    private func commanded(_ input: String, _ flags: UIKeyModifierFlags) -> Bool {
+        guard press == nil, flags.isDisjoint(with: [.command, .control]) else { return false }
+        return input == UIKeyCommand.inputEscape ? escape() : enter(option: flags.contains(.alternate))
     }
     #endif
 

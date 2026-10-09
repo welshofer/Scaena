@@ -747,12 +747,16 @@ public struct CanvasKeysHost: UIViewRepresentable {
     public let finding: (@MainActor () -> Void)?
     /// A hardware keyboard's key on the canvas while no text is typed in: whether it took it.
     public let pressed: (@MainActor (UIKey) -> Bool)?
+    /// Escape or Return on the canvas while no text is typed in, which the system hands it as a
+    /// key command rather than a press: the key's input and its flags, and whether it took it.
+    public let commanded: (@MainActor (String, UIKeyModifierFlags) -> Bool)?
     /// ⌘A on the canvas while no text is typed in: whether it selected anything.
     public let selectingAll: (@MainActor () -> Bool)?
 
     public init(
         typing: Typing, canvas: CGSize, shown: CGRect? = nil, clipping: @escaping @MainActor (Clipping) -> Void,
         finding: (@MainActor () -> Void)? = nil, pressed: (@MainActor (UIKey) -> Bool)? = nil,
+        commanded: (@MainActor (String, UIKeyModifierFlags) -> Bool)? = nil,
         selectingAll: (@MainActor () -> Bool)? = nil
     ) {
         self.typing = typing
@@ -761,6 +765,7 @@ public struct CanvasKeysHost: UIViewRepresentable {
         self.clipping = clipping
         self.finding = finding
         self.pressed = pressed
+        self.commanded = commanded
         self.selectingAll = selectingAll
     }
 
@@ -776,6 +781,7 @@ public struct CanvasKeysHost: UIViewRepresentable {
         view.clipping = clipping
         view.finding = finding
         view.presses.pressed = pressed
+        view.presses.commanded = commanded
         view.presses.clipping = clipping
         view.presses.selectingAll = selectingAll
     }
@@ -785,9 +791,11 @@ public struct CanvasKeysHost: UIViewRepresentable {
 /// `CanvasKeys` takes them then (PLAN 3.17): a hardware keyboard's Tab, Return, Escape, the arrows,
 /// Space, the brackets, +, and Delete, each handed to the canvas first (`pressed`), which says
 /// whether it took it. One it does not take goes on, so Tab past either end leaves the slide, and
-/// the app's commands keep their keys. The Edit menu's Copy, Cut, Paste, and Select All are the
-/// canvas's (`clipping`, `selectingAll`). It is no text input, so no software keyboard comes with
-/// it, and it takes no touch.
+/// the app's commands keep their keys. Escape and Return reach it as no press, the iPad's UI tests'
+/// key log says: the system answers them first. So they are key commands of the canvas's own,
+/// ahead of the system's (`commanded`), which a sheet or a popover over the canvas leaves it. The
+/// Edit menu's Copy, Cut, Paste, and Select All are the canvas's (`clipping`, `selectingAll`). It
+/// is no text input, so no software keyboard comes with it, and it takes no touch.
 ///
 /// A command run by its key can take the keyboard from it with nothing taking it in its place:
 /// ⌘Z's Undo ends editing in the window first. The keyboard comes back once the command has run,
@@ -796,6 +804,8 @@ public struct CanvasKeysHost: UIViewRepresentable {
 @MainActor
 public final class CanvasPresses: UIView {
     public var pressed: (@MainActor (UIKey) -> Bool)?
+    /// Escape or Return, by its input and flags: whether the canvas took it.
+    public var commanded: (@MainActor (String, UIKeyModifierFlags) -> Bool)?
     public var clipping: (@MainActor (Clipping) -> Void)?
     public var selectingAll: (@MainActor () -> Bool)?
     /// The presses the canvas took: how each goes on and ends is its too.
@@ -806,6 +816,32 @@ public final class CanvasPresses: UIView {
     private var watching: [NSObjectProtocol] = []
 
     public override var canBecomeFirstResponder: Bool { true }
+
+    /// Escape and Return, and Return with Shift or Option, ahead of the system's own behavior for
+    /// them (`wantsPriorityOverSystemBehavior`).
+    public override var keyCommands: [UIKeyCommand]? {
+        commanded == nil ? nil : Self.commands
+    }
+
+    private static let commands: [UIKeyCommand] = {
+        let keys: [(String, UIKeyModifierFlags)] = [
+            (UIKeyCommand.inputEscape, []),
+            ("\r", []), ("\r", .shift), ("\r", .alternate), ("\r", [.shift, .alternate]),
+        ]
+        return keys.map { input, flags in
+            let command = UIKeyCommand(input: input, modifierFlags: flags, action: #selector(CanvasPresses.keyed(_:)))
+            command.wantsPriorityOverSystemBehavior = true
+            return command
+        }
+    }()
+
+    @objc private func keyed(_ command: UIKeyCommand) {
+        guard let input = command.input else { return }
+        let took = commanded?(input, command.modifierFlags) == true
+        let key = input == UIKeyCommand.inputEscape ? "Escape" : "Return"
+        let flags = command.modifierFlags.rawValue
+        keysLog.debug("command \(key, privacy: .public) flags \(flags): \(took ? "taken" : "not taken", privacy: .public)")
+    }
 
     public override func didMoveToWindow() {
         super.didMoveToWindow()
@@ -926,6 +962,9 @@ public final class CanvasPresses: UIView {
             return clipping != nil
         case #selector(Edits.selectAll(_:)):
             return selectingAll != nil
+        case #selector(CanvasPresses.keyed(_:)):
+            // A sheet or a popover over the canvas keeps Escape and Return for itself.
+            return commanded != nil && !covered
         default:
             return super.canPerformAction(action, withSender: sender)
         }
