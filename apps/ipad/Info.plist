@@ -58,6 +58,12 @@
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_scaena-remote._tcp</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Scaena offers the deck you present to the remote on your iPhone, and finds the Mac or the iPad presenting when this iPad is the remote.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

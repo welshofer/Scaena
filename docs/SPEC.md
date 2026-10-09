@@ -1688,7 +1688,13 @@ Every gesture the canvas takes has a key (PLAN 2.75, WCAG 2.1.1), which the keys
 
 ### 9.5 Presenter remote (Phase 4)
 
-iPhone/iPad remote and notes view over local network; trivial once state is `(stateId, t)`.
+An iPhone or an iPad drives a deck a Mac or an iPad presents, over the local network, and shows its notes and the next state (ADR-0025).
+- **Offering.** Remote… in the Play menu offers the deck by Bonjour (`_scaena-remote._tcp`), under the device's name and the deck's. Its sheet, in the editor and never on the stage, shows a code of four digits.
+- **Joining.** A remote lists the presenters on its network and joins one with the code. Both ends derive a pre-shared key for TLS 1.2 from it, and no session is resumed, so a remote without it is never joined, and nothing passes in the clear.
+- **Messages.** Each is JSON after its length, four bytes big-endian.
+  - The presenter sends a place: a state and a time into its cue, or at rest (§2.4); its index and the count; its notes; when the show began; and the state and the next drawn at rest, as PNGs.
+  - The remote sends play, on, back, first, last, or end, the player's steps (§9.2).
+- **The remote.** It holds no deck and no engine. It shows the slide, the next, the notes, where the show is, and the time. A tap or a swipe goes on, as on the stage, and with no show playing, Play plays the deck from the slide the editor shows. It is an iPhone app of its own, and a window of the iPad's (Control a Presentation…).
 
 ---
 

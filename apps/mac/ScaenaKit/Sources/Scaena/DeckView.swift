@@ -56,6 +56,8 @@ struct DeckView: View {
     /// A rehearsal running in place of the canvas, and one over, what it kept shown in a sheet.
     @State private var rehearsal: Rehearsal?
     @State private var rehearsed: Rehearsal?
+    /// Remote…: the code a remote joins with, shown in a sheet (PLAN 4.10).
+    @State private var remoting = false
     /// An export shown in Quick Look (PLAN 3.8).
     @State private var looking: URL?
     /// An export to save where the user says, its type, and the name offered.
@@ -423,7 +425,8 @@ struct DeckView: View {
             issues: $showsFindings, source: $showsSource, assistant: $showsAssistant, inspector: $showsInspector,
             tab: $tab,
             play: editor.slots.isEmpty ? nil : { Presenting.play(editor, from: shown) },
-            rehearse: editor.slots.isEmpty || rehearsal != nil || !editor.valid ? nil : { rehearse() })
+            rehearse: editor.slots.isEmpty || rehearsal != nil || !editor.valid ? nil : { rehearse() },
+            remote: { remoting = true })
     }
 
     /// The deck played here, as presented, keeping the time each slide takes (PLAN 3.14).
@@ -501,6 +504,9 @@ struct DeckView: View {
                 if let done = rehearsed {
                     RehearsedSheet(rehearsal: done) { keep(done) }
                 }
+            }
+            .sheet(isPresented: $remoting) {
+                RemoteSheet(editor: editor) { shown }
             }
             .sheet(item: $asked) { asked in
                 OfferSheet(title: asked.title, ask: asked.ask, take: asked.take) { ops in

@@ -1597,7 +1597,19 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - **The keys.** The iPad keeps them in its Keychain, in a sheet, since it has no Settings window. The sheet names each provider beside its field, and each of a row's buttons takes its own tap. A row of a form on the iPad otherwise takes a tap as every button's in it, so keeping a second key took the first away.
     - **No key yet.** With no key kept for the provider chosen, the panel says so and offers Add a Key…, which opens the sheet on the iPad and Settings on the Mac. The models are listed again once the sheet closes.
     - Tests: the iPad's `AssistantTests` open the assistant on B1, add a key through Add a Key…, keep another in its place, and take it away. The panel then offers a key to add again. A conversation with a provider and the on-device tasks wait on an iPad with a key and with Apple Intelligence.
-- [ ] 4.10 The remote (SPEC §9.5): an iPhone or an iPad drives a deck a Mac or an iPad presents, over the local network, and shows its notes and the next state. A place in the deck is a state and a time into its cue.
+- [x] 4.10 The remote (SPEC §9.5): an iPhone or an iPad drives a deck a Mac or an iPad presents, over the local network, and shows its notes and the next state. A place in the deck is a state and a time into its cue.
+    - **The protocol** (ADR-0025, proposed). `ScaenaRemote` is a library of the ScaenaKit package with no engine in it.
+      - A presenter's `RemoteServer` offers the deck by Bonjour and listens under TLS. Its pre-shared key is derived from a code of four digits.
+      - A remote's `RemoteBrowser` finds presenters, and its `RemoteClient` joins one with the code.
+      - Each message is JSON after its length. The presenter sends a place (`RemotePlace`): a state, its time into its cue or at rest, its notes, and it and the next drawn at rest, as PNGs. The remote sends a command (`RemoteCommand`): play, on, back, first, last, or end.
+    - **Presenting.** Remote… in the Play menu turns the host on for the Mac or the iPad (`RemoteHost`), its sheet showing the code in the editor, where the audience does not see it.
+      - The host follows whichever show plays (`Presenting.current`). It sends a place when the state changes or its cue comes to rest, each picture drawn once for each revision of the deck.
+      - It does what a remote asks. With no show playing, play plays the deck from the slide the editor shows.
+    - **The remote.** `RemoteView` lists the presenters nearby, takes the code, and then shows the slide, the next, the notes, where the show is, and the time. A tap or a swipe on the slide goes on, Back and Next are buttons, and End Show ends the show. The screen stays on while it is joined.
+      - On an iPhone it is the Remote app (`apps/ipad/Remote`, the `RemoteApp` target), which holds no deck and no engine.
+      - On an iPad it is the app's window Control a Presentation…, in the Play menu.
+      - Each app's Info.plist names the Bonjour service and says why it uses the local network.
+    - Tests: ScaenaKit's `aRemoteJoinsWithTheCodeAndDrivesTheShow`, on the Mac and the iPad's simulator, joins a server on the loopback with its code. The remote hears where the show is as it joins and as it goes, and the presenter hears what it asks. A remote with another code is never joined. CI builds the Remote app with the iPad's. A show driven from an iPhone across a room waits on the devices.
 
 ### Exit criteria (gate 4)
 1. Same bundle, same frame, same pixels (within tolerance) as the web player, painted on an iPad's GPU.
