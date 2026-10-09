@@ -564,7 +564,7 @@ extension CanvasKeys: UITextInput {
     }
 }
 
-extension CanvasKeys: UIIndirectScribbleInteractionDelegate {
+extension CanvasKeys: @preconcurrency UIIndirectScribbleInteractionDelegate {
     /// The state shown's texts the Pencil writes in, by node, near `rect` on the view.
     public func indirectScribbleInteraction(
         _ interaction: any UIInteraction, requestElementsIn rect: CGRect, completion: @escaping ([String]) -> Void
