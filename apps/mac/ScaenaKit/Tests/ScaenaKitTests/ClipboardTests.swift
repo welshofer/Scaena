@@ -103,7 +103,10 @@ private func tiff(_ png: Data) -> Data? {
 
     let card = folder.appending(path: "Test Card.png")
     try png.write(to: card)
+    // The Finder and Files name what they drag; an item made of a file here has no name of its
+    // own, and its copy is named by its kind ("PNG image.png").
     let cardItem = try #require(NSItemProvider(contentsOf: card))
+    cardItem.suggestedName = "Test Card"
     let picture = try #require(await Pasteboard.dropped(cardItem))
     #expect(picture.name == "Test Card.png", "named \(picture.name)")
     #expect(picture.data == png)
@@ -111,6 +114,7 @@ private func tiff(_ png: Data) -> Data? {
     let rows = folder.appending(path: "bars.csv")
     try Data("quarter,sales\nQ1,1200\n".utf8).write(to: rows)
     let rowsItem = try #require(NSItemProvider(contentsOf: rows))
+    rowsItem.suggestedName = "bars"
     let data = try #require(await Pasteboard.dropped(rowsItem))
     #expect(data.name == "bars.csv", "named \(data.name)")
     #expect(String(decoding: data.data, as: UTF8.self).hasPrefix("quarter,sales"))
