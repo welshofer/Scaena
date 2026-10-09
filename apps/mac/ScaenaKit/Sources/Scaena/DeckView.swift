@@ -456,7 +456,7 @@ struct DeckView: View {
                     CanvasSelection(
                         editor: editor, state: shown, size: size, zoom: $zoom, node: $node, also: $also, typing: typing,
                         pointed: $pointed, said: $said, delete: delete, clip: clip, finding: { searching = true },
-                        actions: actions
+                        actions: actions, fix: { finding in perform { try document.fix(finding, undo: undo) } }
                     ) { ops in
                         perform { try document.make(ops, undo: undo) }
                     }
