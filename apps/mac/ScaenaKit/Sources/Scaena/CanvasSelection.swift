@@ -92,11 +92,12 @@ struct CanvasSelection: View {
     @GestureState private var touching = false
     /// What a press would take where the pointer or the Pencil hovers (PLAN 4.5).
     @State private var hovered: Hover?
+    /// The menu a long press or a right click asks for: a count, new with each ask, and where,
+    /// view points (PLAN 3.23, 4.3).
+    @State private var offering: (count: Int, at: CGPoint)?
     #if !os(macOS)
     /// A finger held still, waiting to offer what is done to what it pressed (PLAN 4.3).
     @State private var lingering: Task<Void, Never>?
-    /// The menu a long press asks for: a count, new with each ask, and where, view points.
-    @State private var offering: (count: Int, at: CGPoint)?
     #endif
     /// Whether a drag from another app is over the canvas, with something it takes (PLAN 3.22).
     @State private var dropping = false
@@ -229,6 +230,14 @@ struct CanvasSelection: View {
                     }
                 )
                 .allowsHitTesting(false)
+                // A right click, or a click with Control, offers what is done to what it clicked, as
+                // a long press does on the iPad (PLAN 3.23); in a text typed in, it is the text's.
+                CanvasRightClick { at in
+                    guard !typing.typing else { return false }
+                    offer(at: fit.canvas(at), shown: at)
+                    return true
+                }
+                .allowsHitTesting(false)
                 #endif
                 Color.clear
                     .contentShape(Rectangle())
@@ -259,12 +268,10 @@ struct CanvasSelection: View {
                     .onDrop(of: Pasteboard.droppable, isTargeted: $dropping) { items, at in
                         dropped(items, fit.canvas(at))
                     }
-                #if !os(macOS)
-                // What a long press offers, shown over what the finger pressed (PLAN 4.3).
+                // What a long press or a right click offers, over where it pressed (PLAN 3.23, 4.3).
                 CanvasMenu(asked: offering, deck: actions, clip: clip)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .allowsHitTesting(false)
-                #endif
                 // What a press would take under the pointer or the Pencil: a node outlined dashed, as
                 // the browser's canvas outlines it, or a handle ringed (PLAN 4.5).
                 if press == nil, let over = hovered?.node, let b = boxes.first(where: { $0.node == over }) {
@@ -1120,6 +1127,22 @@ struct CanvasSelection: View {
         }
     }
 
+    /// Offer what is done to what draws at `point`, canvas units, from `shown`, view points: what
+    /// draws there on top selected first, locked or not, so that Unlock is offered too; where
+    /// nothing draws, nothing, and Paste and Insert land there. What is selected stays selected
+    /// where it draws there too, under another or not: the menu is for what the press was on, the
+    /// node whose handles show, or the several selected together. A long press or a right click on
+    /// the iPad (PLAN 4.3, 4.5), and a right click on the Mac (PLAN 3.23).
+    private func offer(at point: CGPoint, shown: CGPoint) {
+        let hits = (try? editor.session.hits(state: state, at: point)) ?? []
+        if !hits.contains(where: { selection.contains($0.node) }) {
+            node = hits.first?.node
+            also = []
+        }
+        pointed = point
+        offering = (count: (offering?.count ?? 0) + 1, at: shown)
+    }
+
     #if !os(macOS)
     /// A finger pressing still (PLAN 4.3): held long enough, its press offers what is done to what
     /// it pressed, as the Mac's Node menu and Edit menu do to the node selected.
@@ -1131,21 +1154,6 @@ struct CanvasSelection: View {
             press = .offered
             offer(at: fit.canvas(start), shown: start)
         }
-    }
-
-    /// Offer what is done to what draws at `point`, canvas units, from `shown`, view points: what
-    /// draws there on top selected first, locked or not, so that Unlock is offered too; where
-    /// nothing draws, nothing, and Paste and Insert land there. What is selected stays selected
-    /// where it draws there too, under another or not: the menu is for what the press was on, the
-    /// node whose handles show, or the several selected together.
-    private func offer(at point: CGPoint, shown: CGPoint) {
-        let hits = (try? editor.session.hits(state: state, at: point)) ?? []
-        if !hits.contains(where: { selection.contains($0.node) }) {
-            node = hits.first?.node
-            also = []
-        }
-        pointed = point
-        offering = (count: (offering?.count ?? 0) + 1, at: shown)
     }
 
     /// Two fingers began, or let go (PLAN 4.3). As they begin the first finger's press stops, and
