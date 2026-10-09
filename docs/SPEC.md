@@ -1684,7 +1684,7 @@ Every gesture the canvas takes has a key (PLAN 2.75, WCAG 2.1.1), which the keys
 - Input makes the Mac's patches. A tap selects what the engine says draws there; a drag moves a node, and a handle resizes, turns, or reshapes it; a double tap types in a text; a long press offers what is done to a node; two fingers pan and a pinch zooms. The Pencil is a pointer with hover. A trackpad, a mouse, and a keyboard work as on the Mac: hover, Shift and a click, the marquee, the right click, the commands' keys, and the canvas by keys alone. Each edit is one patch and one step of undo.
 - Typing is the Mac's (§9.3) through `UITextInput`: the software keyboard, a hardware keyboard, an input method's composition, dictation, and Scribble, each change a `replace_text`.
 - Presentation: Play fills an external display or an AirPlay screen, and the iPad shows the presenter's view; with neither, it fills the iPad. A display that comes while the deck plays takes the stage, and one that goes gives it back. A tap or a swipe to the left goes on, a swipe to the right goes back, and a pinch closed ends the show. The pace is the player's (§9.2). The stage reads as the slide reads (§3.12).
-- The assistant, the on-device tasks, and the exports are the Mac's (§9.3).
+- The assistant, the on-device tasks, and the exports are the Mac's (§9.3). The keys are in the iPad's Keychain, kept in a sheet.
 
 ### 9.5 Presenter remote (Phase 4)
 
