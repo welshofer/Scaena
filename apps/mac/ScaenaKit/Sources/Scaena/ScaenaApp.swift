@@ -1,3 +1,6 @@
+#if os(macOS)
+import AppKit
+#endif
 import ScaenaKit
 import SwiftUI
 
@@ -12,13 +15,28 @@ struct ScaenaApp: App {
         DispatchQueue.global(qos: .userInitiated).async { try? ScaenaSurface.warm() }
     }
 
+    #if os(macOS)
+    /// A new window's size: room for the slides, the slide, and the inspector, within the screen it
+    /// opens on.
+    private static var opening: CGSize {
+        let screen = NSScreen.main?.visibleFrame.size ?? CGSize(width: 1440, height: 900)
+        return CGSize(width: min(1440, screen.width * 0.96), height: min(900, screen.height * 0.96))
+    }
+    #endif
+
     var body: some Scene {
         DocumentGroup(newDocument: { ScaenaDocument() }) { file in
             DeckView(document: file.document)
         }
+        #if os(macOS)
+        // Room for the slides, the slide, and the inspector, as a presentation app opens (PLAN 3.18).
+        .defaultSize(Self.opening)
+        .defaultPosition(.center)
+        #endif
         .commands {
             NodeCommands()
             ViewCommands()
+            WindowCommands()
         }
         #if os(macOS)
         // The assistant's keys, kept in the Keychain (PLAN 3.6); on the iPad, a sheet of the

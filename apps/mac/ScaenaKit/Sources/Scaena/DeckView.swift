@@ -3,11 +3,15 @@ import ScaenaKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// A deck's window (PLAN 3.3–3.4): its states down the side, each drawn small; the state chosen
-/// painted by the engine on Metal, a node selected on it by a click, and its cue under it, to
-/// play and scrub; what lint found, each with its fix; the deck's `.scn` beside the canvas; and
-/// the inspector, which edits the node selected, or the state with none; and the assistant, which
-/// edits it with the user (PLAN 3.6). A double click types in a text on the canvas (PLAN 3.9).
+/// A deck's window (PLAN 3.3–3.4), as a presentation app's (PLAN 3.18): the slides down the side,
+/// numbered, each drawn small, a slide's steps under it; the slide chosen painted by the engine on
+/// Metal, on the gray a slide sits on, an object selected on it by a click; the toolbar's View and
+/// Zoom, Add Slide and Play, what may be inserted by kind, Share and the assistant, and Format,
+/// Animate, and Document, the inspector's tabs; and the inspector, which edits the object
+/// selected, or the slide with none (PLAN 3.6 for the assistant). What a person working on slides
+/// does not need at first stays in the View menu, off: the cue as a timeline, the deck in its other
+/// sizes, the grid, what lint found, and the deck's `.scn`. A double click types in a text on the
+/// canvas (PLAN 3.9).
 /// The Node menu inserts what the theme and the bundle offer, copies, deletes, and locks a node
 /// (PLAN 3.11); Copy, Cut, and Paste take a node as a clip, and paste a picture, a sheet's cells,
 /// or words another app copied, and ⌥⌘C and ⌥⌘V a look (PLAN 3.12). The state list adds, renames,
@@ -60,10 +64,14 @@ struct DeckView: View {
     @State private var savingName = ""
     @SceneStorage("assistant") private var showsAssistant = false
     @SceneStorage("source") private var showsSource = false
-    @SceneStorage("findings") private var showsFindings = true
+    /// What lint found, under the canvas: off until asked for (PLAN 3.18).
+    @SceneStorage("issues") private var showsFindings = false
     @SceneStorage("inspector") private var showsInspector = true
-    /// The panel the inspector's column shows (PLAN 3.15).
-    @SceneStorage("panel") private var panel: SidePanel = .inspector
+    /// The inspector's tab, and the Document tab's panel (PLAN 3.15, 3.18).
+    @SceneStorage("tab") private var tab: InspectorTab = .format
+    @SceneStorage("documentPanel") private var documentPanel: DocumentPanel = .theme
+    /// The cue of the slide shown as a timeline under the canvas (PLAN 3.14), off until asked for.
+    @SceneStorage("timeline") private var showsTimeline = false
     /// Whether the theme's grid is drawn over the canvas (PLAN 3.16).
     @SceneStorage("grid") private var showsGrid = false
     /// Whether the state shown is drawn in each of the deck's formats under the canvas (PLAN 3.16).
@@ -88,6 +96,7 @@ struct DeckView: View {
         presented(watched(window))
             .focusedSceneValue(\.deck, actions)
             .focusedSceneValue(\.canvasActions, canvasActions)
+            .focusedSceneValue(\.panes, panes)
     }
 
     /// The states down the side; beside them the canvas and the rest; and the toolbar.
@@ -125,14 +134,21 @@ struct DeckView: View {
             }
         }
         .inspector(isPresented: $showsInspector) {
-            SidePanels(editor: editor, panel: $panel, edits: panelEdits) {
-                Inspector(
-                    editor: editor, state: shown, node: $node, also: $also, typing: typing, offer: { asked = $0 }
-                ) { ops in
-                    perform { try document.make(ops, undo: undo) }
-                }
+            InspectorColumn(editor: editor, tab: $tab, document: $documentPanel, edits: panelEdits) {
+                inspecting(.format)
+            } animate: {
+                inspecting(.animate)
             }
-            .inspectorColumnWidth(min: 240, ideal: 320, max: 520)
+            .inspectorColumnWidth(min: 260, ideal: 300, max: 480)
+        }
+    }
+
+    /// The inspector under `tab`: the object selected, or the slide with none.
+    private func inspecting(_ tab: InspectorTab) -> some View {
+        Inspector(
+            editor: editor, state: shown, node: $node, also: $also, typing: typing, tab: tab, offer: { asked = $0 }
+        ) { ops in
+            perform { try document.make(ops, undo: undo) }
         }
     }
 
@@ -163,7 +179,7 @@ struct DeckView: View {
                     Divider()
                     FormatsStrip(editor: editor, state: shown) { format in showFormat(format) }
                 }
-                if let shown {
+                if showsTimeline, let shown {
                     Divider()
                     CueBar(
                         editor: editor, state: shown, node: node, playhead: $playhead, make: timing
@@ -176,85 +192,160 @@ struct DeckView: View {
         }
     }
 
-    /// Play, Export, and the panes the window shows.
+    /// The toolbar, as a presentation app's (PLAN 3.18): what the window shows and how close; a
+    /// slide added, and the deck played; a text, a shape, an image, a chart, or a table inserted;
+    /// the deck shared, and the assistant; and the inspector's tabs. Every item is in the menus too,
+    /// with its key there.
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .primaryAction) {
+        ToolbarItemGroup(placement: .navigation) {
+            viewing
+            zooming
+        }
+        ToolbarItemGroup {
+            adding
             Button {
                 Presenting.play(editor, from: shown)
             } label: {
-                Label("Play", systemImage: "play.rectangle.fill")
+                Label("Play", systemImage: "play.fill")
             }
-            .keyboardShortcut("p", modifiers: [.option, .command])
-            .help("Play the deck from the state shown, on the external display if there is one (⌥⌘P)")
-            .disabled(editor.slots.isEmpty)
-        }
-        ToolbarItem {
-            Button {
-                showsSlides = false
-                rehearsal = Rehearsal(slots: editor.slots)
-            } label: {
-                Label("Rehearse", systemImage: "stopwatch")
-            }
-            .keyboardShortcut("r", modifiers: [.option, .command])
-            .help("Play the deck as presented, here, and keep the time each state takes as its hold (⌥⌘R)")
-            .disabled(editor.slots.isEmpty || rehearsal != nil || !editor.valid)
-        }
-        ToolbarItem {
-            Menu {
-                Button("Share the PDF…") { export(.pdf, sharing: true) }
-                Button("Quick Look the PDF") { export(.pdf, sharing: false) }
-                Button("Save the PDF…") { save(.pdf) }
-                if let shown {
-                    Divider()
-                    Button("Share \(shown) as a PNG…") { export(png(shown), sharing: true) }
-                    Button("Save \(shown) as a PNG…") { save(png(shown)) }
-                }
-            } label: {
-                Label("Export", systemImage: "square.and.arrow.up")
-            }
-            .help("The deck as a PDF, or the state shown as a PNG: shared, looked at, or saved")
+            .help("Play the slideshow from this slide (⌥⌘P)")
             .disabled(editor.slots.isEmpty)
         }
         ToolbarItemGroup {
-            Toggle(isOn: $showsSlides) {
-                Label("Slides", systemImage: "square.grid.3x2")
-            }
-            .keyboardShortcut("l", modifiers: [.option, .command])
-            .help("Every slide in place of the canvas, to reorder, copy, and take out (⌥⌘L)")
-            .disabled(rehearsal != nil)
-            Toggle(isOn: $showsFormats) {
-                Label("Formats", systemImage: "rectangle.split.3x1")
-            }
-            .help("The state shown in each of the deck's formats, side by side under the canvas: a click edits it there")
-            Button {
-                searching = true
-            } label: {
-                Label("Find", systemImage: "magnifyingglass")
-            }
-            .help("Find and replace the deck's words, in every state (⌘F on the canvas)")
-            Toggle(isOn: $showsGrid) {
-                Label("Grid", systemImage: "grid")
-            }
-            .keyboardShortcut("'", modifiers: .command)
-            .help("The theme's grid over the canvas: its columns, rows, margins, and baselines (⌘')")
-            Toggle(isOn: $showsSource) {
-                Label("Source", systemImage: "chevron.left.forwardslash.chevron.right")
-            }
-            .help("The deck's .scn beside the canvas")
-            Toggle(isOn: $showsFindings) {
-                Label("Findings", systemImage: "exclamationmark.triangle")
-            }
-            .help("What lint found")
-            Toggle(isOn: $showsInspector) {
-                Label("Inspector", systemImage: "sidebar.trailing")
-            }
-            .help("The node selected, or the state; the theme, the data, the files, and the versions")
+            InsertMenu(title: "Text", symbol: "textbox", kinds: ["Text"], first: "body", inserts: inserts, insert: insertHere)
+            InsertMenu(
+                title: "Shape", symbol: "square.on.circle", kinds: ["Shape", "Shader"], first: "rect", inserts: inserts,
+                insert: insertHere)
+            InsertMenu(title: "Image", symbol: "photo", kinds: ["Image"], first: nil, inserts: inserts, insert: insertHere)
+            InsertMenu(title: "Chart", symbol: "chart.bar", kinds: ["Chart"], first: nil, inserts: inserts, insert: insertHere)
+            InsertMenu(title: "Table", symbol: "tablecells", kinds: ["Table"], first: nil, inserts: inserts, insert: insertHere)
+        }
+        ToolbarItemGroup {
+            sharing
             Toggle(isOn: $showsAssistant) {
-                Label("Assistant", systemImage: "bubble.left.and.text.bubble.right")
+                Label("Assistant", systemImage: "sparkles")
             }
-            .keyboardShortcut("a", modifiers: [.option, .command])
             .help("Ask about the deck, or for an edit, with your own key (⌥⌘A)")
         }
+        ToolbarItemGroup {
+            ForEach(InspectorTab.allCases) { tab in
+                Toggle(isOn: showing(tab)) {
+                    Label(tab.title, systemImage: tab.symbol)
+                }
+                .help(tab.help)
+            }
+        }
+    }
+
+    /// What the window shows: the slide, or every slide on the light table; and, off until asked
+    /// for, the slide's timeline, its other sizes, the grid, what lint found, and the source.
+    private var viewing: some View {
+        Menu {
+            Toggle("Light Table", isOn: $showsSlides)
+                .disabled(rehearsal != nil)
+            Divider()
+            Toggle("Timeline", isOn: $showsTimeline)
+            Toggle("Other Sizes", isOn: $showsFormats)
+            Toggle("Grid", isOn: $showsGrid)
+            Divider()
+            Toggle("Issues", isOn: $showsFindings)
+            Toggle("Source", isOn: $showsSource)
+        } label: {
+            Label("View", systemImage: "rectangle.on.rectangle")
+        }
+        .help("The light table, and what the window shows beside the slide")
+    }
+
+    /// How close the slide is shown: the whole of it, or closer.
+    private var zooming: some View {
+        Menu {
+            Button("Fit Slide") { zoom.fit() }
+            Divider()
+            ForEach([1.5, 2, 3, 4], id: \.self) { level in
+                let percent = "\(Int(level * 100))%"
+                Button(percent) { zoom.zoom(to: level) }
+            }
+            Divider()
+            Button("Zoom In") { zoom.step(1) }
+            Button("Zoom Out") { zoom.step(-1) }
+                .disabled(zoom.level <= 1 + 1e-9)
+        } label: {
+            Label(zoomed, systemImage: "plus.magnifyingglass")
+        }
+        .help("How close the slide is shown (⌘=, ⌘−, ⌘0)")
+        .disabled(shown == nil || showsSlides)
+    }
+
+    /// How close the slide is shown, as the Zoom menu says it.
+    private var zoomed: String {
+        zoom.level > 1 + 1e-9 ? "\(Int((zoom.level * 100).rounded()))%" : "Fit"
+    }
+
+    /// A slide added after the one shown, then shown; or a step of it.
+    private var adding: some View {
+        Menu {
+            Button("New Slide") { if let shown { addState(after: shown, as: .slide) } }
+            Button("New Step on This Slide") { if let shown { addState(after: shown, as: .step) } }
+        } label: {
+            Label("Add Slide", systemImage: "plus.rectangle.on.rectangle")
+        } primaryAction: {
+            if let shown { addState(after: shown, as: .slide) }
+        }
+        .help("Add a slide after this one; its menu adds a step of this slide")
+        .disabled(shown == nil)
+    }
+
+    /// The deck as a PDF, or the slide shown as a PNG: shared, looked at, or saved.
+    private var sharing: some View {
+        Menu {
+            Button("Share as PDF…") { export(.pdf, sharing: true) }
+            Button("Quick Look the PDF") { export(.pdf, sharing: false) }
+            Button("Save as PDF…") { save(.pdf) }
+            if let shown {
+                Divider()
+                Button("Share This Slide as PNG…") { export(png(shown), sharing: true) }
+                Button("Save This Slide as PNG…") { save(png(shown)) }
+            }
+        } label: {
+            Label("Share", systemImage: "square.and.arrow.up")
+        }
+        .help("The deck as a PDF, or this slide as a picture")
+        .disabled(editor.slots.isEmpty)
+    }
+
+    /// The inspector shown at `tab`, or put away where it shows that tab already.
+    private func showing(_ tab: InspectorTab) -> Binding<Bool> {
+        Binding(
+            get: { showsInspector && self.tab == tab },
+            set: { on in
+                if on {
+                    self.tab = tab
+                    showsInspector = true
+                } else {
+                    showsInspector = false
+                }
+            })
+    }
+
+    /// What the View and Play menus do in this window (PLAN 3.18).
+    private var panes: WindowPanes {
+        WindowPanes(
+            slides: $showsSlides, timeline: $showsTimeline, formats: $showsFormats, grid: $showsGrid,
+            issues: $showsFindings, source: $showsSource, assistant: $showsAssistant, inspector: $showsInspector,
+            tab: $tab,
+            play: editor.slots.isEmpty ? nil : { Presenting.play(editor, from: shown) },
+            rehearse: editor.slots.isEmpty || rehearsal != nil || !editor.valid ? nil : { rehearse() })
+    }
+
+    /// The deck played here, as presented, keeping the time each slide takes (PLAN 3.14).
+    private func rehearse() {
+        showsSlides = false
+        rehearsal = Rehearsal(slots: editor.slots)
+    }
+
+    /// Insert what the deck offers `n`th in the slide shown.
+    private func insertHere(_ n: Int) {
+        if let shown { insert(n, in: shown) }
     }
 
     /// `view`, keeping up with the window: the state shown, the undo the assistant's edits go
@@ -292,6 +383,12 @@ struct DeckView: View {
                 } else {
                     grouped = false
                 }
+            }
+            .task(id: said) {
+                // What the canvas says of an edit fades once read, as a presentation app's tips do.
+                guard said != nil else { return }
+                try? await Task.sleep(for: .seconds(5))
+                if !Task.isCancelled { said = nil }
             }
             .task(id: editor.revision) {
                 // Every state is linted once edits stop, as in the browser.
@@ -368,10 +465,17 @@ struct DeckView: View {
             .onChange(of: size, initial: true) { _, now in zoom.resize(to: now) }
             .onChange(of: zoom) { _, now in editor.look(through: now.view) }
             .aspectRatio(size.width / max(size.height, 1), contentMode: .fit)
-            .padding()
+            // The slide on the gray a slide sits on, lifted off it a little (PLAN 3.18).
+            .background {
+                Rectangle()
+                    .fill(.background)
+                    .shadow(color: .black.opacity(0.2), radius: 10, y: 3)
+            }
+            .padding(28)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Desk.color)
         } else {
-            ContentUnavailableView("No states", systemImage: "rectangle.stack")
+            ContentUnavailableView("No Slides", systemImage: "rectangle.stack")
         }
     }
 
@@ -392,7 +496,7 @@ struct DeckView: View {
     private func showFormat(_ format: String?) {
         guard format != editor.format else { return }
         perform { try editor.show(format: format) }
-        said = format.map { "the canvas in \($0): a node placed anew here moves here alone" } ?? "the deck's own canvas"
+        said = format.map { "Showing the slide in \($0)" } ?? "Showing the slide in its own size"
     }
 
     /// Give `node` a layout of its own in `format`, the format shown, where it stands now (ADR-0020,
@@ -400,11 +504,11 @@ struct DeckView: View {
     private func placeAnew(_ node: String, in format: String, state: String) {
         perform {
             guard let patch = try editor.session.placingAnew(node, state: state, in: format) else {
-                said = "\(node) has a layout of its own in \(format) already"
+                said = "Laid out on its own in \(format) already"
                 return
             }
             try document.make(patch, undo: undo)
-            said = "\(node) placed anew in \(format): a move here moves it here alone · ⌘Z undoes it"
+            said = "Laid out on its own in \(format): a move here moves it here alone · ⌘Z undoes it"
         }
     }
 
@@ -468,7 +572,7 @@ struct DeckView: View {
             words = (try? editor.session.text(state: state, node: node)) ?? nil
         }
         let text = words
-        asked = Asked(title: "\(finding.code), explained", ask: { try await OnDevice.explain(finding, text: text) }, take: nil)
+        asked = Asked(title: "What This Means", ask: { try await OnDevice.explain(finding, text: text) }, take: nil)
     }
 
     /// Every node selected, the first first (PLAN 3.13).
@@ -515,17 +619,16 @@ struct DeckView: View {
     private func copy(cut: Bool) {
         let nodes = selection
         guard let shown, !nodes.isEmpty else {
-            said = "nothing selected to \(cut ? "cut" : "copy")"
+            said = cut ? "Nothing selected to cut" : "Nothing selected to copy"
             return
         }
         do {
             Pasteboard.write(clip: try editor.session.copying(state: shown, nodes: nodes))
         } catch {
-            said = "not copied: \(error)"
+            said = "Not copied: \(error)"
             return
         }
-        let them = nodes.count > 1 ? "\(nodes.count) selected" : nodes[0]
-        said = "\(them) \(cut ? "cut" : "copied"): ⌘V pastes \(nodes.count > 1 ? "them" : "it"), in this deck or another"
+        said = cut ? "Cut" : "Copied"
         if cut { delete(false) }
     }
 
@@ -570,7 +673,7 @@ struct DeckView: View {
             try document.make(pasted.patch, undo: undo)
             node = pasted.id
             also = pasted.also
-            said = (["\(pasted.ids.joined(separator: ", ")) pasted in \(state)"] + pasted.lacked).joined(separator: "; ")
+            said = (["Pasted"] + pasted.lacked).joined(separator: "; ")
         }
     }
 
@@ -581,14 +684,14 @@ struct DeckView: View {
             let offered = try editor.session.inserts()
             guard let n = offered.firstIndex(where: { $0.node["type"]?.string == "image" && $0.node["src"]?.string == path })
             else {
-                said = "\(path) is no image the deck can insert: a PNG or a JPEG"
+                said = "\(name) is not a picture the deck can show: a PNG or a JPEG"
                 return
             }
             let added = try editor.session.inserting(state: state, n: n, at: at, named: name)
             try document.make(added.patch, undo: undo)
             node = added.id
             also = []
-            said = "\(name) pasted as \(added.id), kept as \(path)"
+            said = "Picture pasted"
         }
     }
 
@@ -607,7 +710,7 @@ struct DeckView: View {
                     $0.node["type"]?.string == kind && $0.node["data"]?.string == "@\(attaching.data)"
                 })
             else {
-                said = "@\(attaching.data) attached: Insert offers no \(kind) of it"
+                said = "The data is kept as \(attaching.data), but no \(kind) of it can be made"
                 return
             }
             let with: JSONValue? = cells.map { ["columns": $0.tableColumns] }
@@ -615,7 +718,7 @@ struct DeckView: View {
             try document.make(added.patch, undo: undo)
             node = added.id
             also = []
-            said = "a \(kind) of @\(attaching.data) pasted as \(added.id), its data kept as \(path)"
+            said = "A \(kind) of \(attaching.data) pasted"
         }
     }
 
@@ -624,11 +727,11 @@ struct DeckView: View {
         perform {
             let look = try editor.session.look(state: state, node: node)
             guard look["props"]?.array?.isEmpty == false else {
-                said = "\(node) has no look of its own to copy"
+                said = "No style of its own to copy"
                 return
             }
             copiedLook = look
-            said = "\(node)'s look copied: ⌥⌘V pastes it on what is selected"
+            said = "Style copied: ⌥⌘V pastes it on what is selected"
         }
     }
 
@@ -637,17 +740,15 @@ struct DeckView: View {
     private func pasteLook(in state: String) {
         let nodes = selection
         guard let look = copiedLook, !nodes.isEmpty else { return }
-        let from = look["node"]?.string ?? "the"
         perform {
             let put = try editor.session.putting(state: state, look: look, nodes: nodes)
-            let same = put.same.isEmpty ? [] : ["\(put.same.joined(separator: ", ")) look so already"]
-            let others = same + put.refused.map { "\($0.node): \($0.why)" }
+            let refused = put.refused.map(\.why)
             guard !put.patch.isEmpty else {
-                said = others.isEmpty ? "nothing takes \(from)'s look" : others.joined(separator: "; ")
+                said = put.same.isEmpty ? (refused.first ?? "Nothing here takes that style") : "It has that style already"
                 return
             }
             try document.make(put.patch, undo: undo)
-            said = (["\(from)'s look pasted on \(put.took.joined(separator: ", "))"] + others).joined(separator: "; ")
+            said = (["Style pasted"] + refused).joined(separator: "; ")
         }
     }
 
@@ -662,7 +763,7 @@ struct DeckView: View {
             try document.make(added.patch, undo: undo)
             node = added.id
             also = []
-            said = "\(inserts.indices.contains(n) ? inserts[n].label : "it") inserted as \(added.id), in \(state)"
+            said = "\(inserts.indices.contains(n) ? Words.inserted(inserts[n]) : "Object") inserted"
         }
     }
 
@@ -674,13 +775,13 @@ struct DeckView: View {
             let added = try nodes.map { try editor.session.duplicating(state: state, node: $0) }
             let ids = added.map(\.id)
             guard Set(ids).count == ids.count else {
-                said = "not copied: two copies would take one id, \(ids.joined(separator: ", "))"
+                said = "Not duplicated: two of the copies would have one name"
                 return
             }
             try document.make(added.flatMap(\.patch), undo: undo)
             node = ids.first
             also = Array(ids.dropFirst())
-            said = "\(nodes.joined(separator: ", ")) copied as \(ids.joined(separator: ", "))"
+            said = "Duplicated"
         }
     }
 
@@ -690,13 +791,12 @@ struct DeckView: View {
     private func delete(_ everywhere: Bool) {
         let nodes = selection
         guard let shown, !nodes.isEmpty else {
-            said = "nothing selected to delete"
+            said = "Nothing selected to delete"
             return
         }
         let boxes = (try? editor.session.boxes(state: shown)) ?? []
         if let held = boxes.first(where: { nodes.contains($0.node) && $0.locked != nil }), let holder = held.locked {
-            let by = holder == held.node ? "" : " by \(holder)"
-            said = "\(held.node) is locked\(by): nothing deleted · ⇧⌘L unlocks it"
+            said = holder == held.node ? "It is locked: ⇧⌘L unlocks it" : "What holds it is locked: unlock that first"
             return
         }
         perform {
@@ -705,8 +805,7 @@ struct DeckView: View {
             try document.make(ops, undo: undo)
             node = nil
             also = []
-            let them = nodes.joined(separator: ", ")
-            said = gone ? "\(them) deleted from the deck" : "\(them) deleted from \(shown) on"
+            said = gone ? "Deleted from every slide · ⌘Z brings it back" : "Deleted · ⌘Z brings it back"
         }
     }
 
@@ -718,8 +817,7 @@ struct DeckView: View {
         guard !ops.isEmpty else { return }
         perform {
             try document.make(ops, undo: undo)
-            let them = nodes.joined(separator: ", ")
-            said = locks ? "\(them) locked: the canvas passes over it · ⇧⌘L unlocks" : "\(them) unlocked"
+            said = locks ? "Locked: a click passes over it · ⇧⌘L unlocks it" : "Unlocked"
         }
     }
 
@@ -731,7 +829,7 @@ struct DeckView: View {
             try document.make(grouping.patch, undo: undo)
             node = grouping.id
             also = []
-            said = "\(nodes.joined(separator: ", ")) grouped as \(grouping.id)"
+            said = "Grouped"
         }
     }
 
@@ -743,7 +841,7 @@ struct DeckView: View {
             try document.make([["op": "ungroup", "group": .string(group)]], undo: undo)
             node = held.first
             also = Array(held.dropFirst())
-            said = "\(group) taken apart: \(held.joined(separator: ", "))"
+            said = "Ungrouped"
         }
     }
 
@@ -755,11 +853,16 @@ struct DeckView: View {
             guard let arranged = try editor.session.arranging(state: state, nodes: nodes, how: .order(how)),
                 !arranged.patch.isEmpty
             else {
-                said = "\(nodes.joined(separator: ", ")): nothing to bring \(how)"
+                said = how == "front" || how == "forward" ? "In front already" : "Behind already"
                 return
             }
             try document.make(arranged.patch, undo: undo)
-            said = "\(nodes.joined(separator: ", ")) brought \(how)"
+            switch how {
+            case "front": said = "Brought to front"
+            case "back": said = "Sent to back"
+            case "forward": said = "Brought forward"
+            default: said = "Sent backward"
+            }
         }
     }
 
@@ -805,7 +908,7 @@ struct DeckView: View {
             let added = try editor.session.addingState(after: state, as: what)
             try document.make(added.patch, undo: undo)
             chosen = added.id
-            said = "\(added.id) added after \(what == .step ? state : "\(state)'s slide")"
+            said = what == .step ? "Step added" : "Slide added"
         }
     }
 
@@ -835,7 +938,7 @@ struct DeckView: View {
         guard !holds.isEmpty else { return }
         perform {
             try document.make(holds, undo: undo)
-            said = "\(holds.count) hold\(holds.count == 1 ? "" : "s") from the rehearsal"
+            said = "Kept the rehearsal's timing for \(holds.count) slide\(holds.count == 1 ? "" : "s")"
         }
     }
 

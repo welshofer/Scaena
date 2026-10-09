@@ -129,7 +129,7 @@ struct LightTable: View {
     }
 }
 
-/// A slide drawn at its last state, its number and id, and how many steps it has.
+/// A slide drawn at its last state, its number, and how many steps it has.
 private struct SlideCell: View {
     let editor: DeckEditor
     let slide: Slide
@@ -155,7 +155,6 @@ private struct SlideCell: View {
             }
             HStack(spacing: 6) {
                 Text("\(number)").monospacedDigit().foregroundStyle(.secondary)
-                Text(slide.id).lineLimit(1)
                 Spacer(minLength: 0)
                 if slide.states.count > 1 {
                     Text("\(slide.states.count) steps").foregroundStyle(.secondary)
@@ -164,7 +163,9 @@ private struct SlideCell: View {
             .font(.caption)
         }
         .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(slide.states.count > 1 ? "Slide \(number), \(slide.states.count) steps" : "Slide \(number)")
+        .accessibilityIdentifier("slide-\(slide.id)")
         .accessibilityAddTraits(picked ? .isSelected : [])
         .task(id: "\(slide.last)\u{1f}\(revision)") {
             drawing = editor.drawing(slide.last, width: Int(320 * scale))

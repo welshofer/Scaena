@@ -12,6 +12,8 @@ out="$root/target/mac/window"
 app="$out/Scaena.app"
 rm -rf "$out"
 mkdir -p "$app/Contents/MacOS" "$out/shots"
+# What it says goes with the screenshots too.
+exec > >(tee "$out/shots/window.txt") 2>&1
 cp "$bin/Scaena" "$app/Contents/MacOS/Scaena"
 cp "$root/apps/mac/Scaena/Info.plist" "$app/Contents/Info.plist"
 codesign --force --sign - "$app"

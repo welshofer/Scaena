@@ -41,7 +41,7 @@ struct FilesPanel: View {
             Spacer()
             if file.named.isEmpty {
                 Button("Remove") { remove(file.path) }
-                    .help("Take \(file.path) out: nothing names it")
+                    .help("Take it out of the deck: nothing uses it")
             }
         }
         .help(file.path)
@@ -51,12 +51,13 @@ struct FilesPanel: View {
         edits.data { try editor.session.removeFile(path) }
     }
 
-    /// What a file is, its size, what names it, and what draws from it.
+    /// What a file is: its size, and how much of the deck uses it (PLAN 3.18).
     private static func said(_ file: BundleFile) -> String {
         let size = ByteCountFormatter.string(fromByteCount: Int64(file.bytes), countStyle: .file)
-        let named = file.named.isEmpty ? "nothing names it" : "named by \(file.named.joined(separator: ", "))"
-        let used = file.used.isEmpty ? "" : "; drawn in \(file.used.joined(separator: ", "))"
-        return "\(size), \(named)\(used)"
+        let n = file.used.count
+        let used =
+            n > 0 ? "on \(n) object\(n == 1 ? "" : "s")" : file.named.isEmpty ? "not used" : "used by the deck"
+        return "\(size) · \(used)"
     }
 
     private static func heading(_ type: String) -> String {

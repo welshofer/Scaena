@@ -1,20 +1,52 @@
 import ScaenaKit
 import SwiftUI
 
-/// The panels beside the canvas (PLAN 3.15), as the browser's tabs at the right: the inspector, the
-/// theme, the data, the bundle's files, and the versions its history keeps.
-enum SidePanel: String, CaseIterable, Identifiable {
-    case inspector, theme, data, files, versions
+/// The inspector's tabs (PLAN 3.18), as a presentation app's: Format, the object selected or the
+/// slide; Animate, its builds or the slide's transition; Document, the theme, the data, the media,
+/// and the history (PLAN 3.15).
+enum InspectorTab: String, CaseIterable, Identifiable {
+    case format, animate, document
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .inspector: "Node"
+        case .format: "Format"
+        case .animate: "Animate"
+        case .document: "Document"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .format: "paintbrush"
+        case .animate: "rhombus"
+        case .document: "doc.text"
+        }
+    }
+
+    var help: String {
+        switch self {
+        case .format: "Format: the object selected, or the slide"
+        case .animate: "Animate: the object's builds, or the slide's transition"
+        case .document: "Document: the theme, the data, the media, and the history"
+        }
+    }
+}
+
+/// What the Document tab shows (PLAN 3.15, 3.18): the theme, a data source as a table, the
+/// bundle's pictures, fonts, and data files, and the versions its history keeps.
+enum DocumentPanel: String, CaseIterable, Identifiable {
+    case theme, data, media, history
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
         case .theme: "Theme"
         case .data: "Data"
-        case .files: "Files"
-        case .versions: "Versions"
+        case .media: "Media"
+        case .history: "History"
         }
     }
 }
@@ -35,18 +67,43 @@ struct Refused: Error, CustomStringConvertible {
     let description: String
 }
 
-/// The panel chosen, under the buttons that choose it.
-struct SidePanels<Inspecting: View>: View {
+/// The inspector's column (PLAN 3.18): the tab chosen. On the Mac the toolbar's Format, Animate,
+/// and Document choose it, as a presentation app's do; on the iPad, whose toolbar folds, the
+/// column's own control does too.
+struct InspectorColumn<Formatting: View, Animating: View>: View {
     let editor: DeckEditor
-    @Binding var panel: SidePanel
+    @Binding var tab: InspectorTab
+    @Binding var document: DocumentPanel
     let edits: PanelEdits
-    /// The inspector, the first panel.
-    @ViewBuilder let inspector: () -> Inspecting
+    @ViewBuilder let format: () -> Formatting
+    @ViewBuilder let animate: () -> Animating
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("Panel", selection: $panel) {
-                ForEach(SidePanel.allCases) { panel in
+            #if !os(macOS)
+            Picker("Inspector", selection: $tab) {
+                ForEach(InspectorTab.allCases) { tab in
+                    Text(tab.title).tag(tab)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(8)
+            Divider()
+            #endif
+            switch tab {
+            case .format: format()
+            case .animate: animate()
+            case .document: documentTab
+            }
+        }
+    }
+
+    /// The deck as a whole: its theme, its data, its media, and its history, one at a time.
+    private var documentTab: some View {
+        VStack(spacing: 0) {
+            Picker("Document", selection: $document) {
+                ForEach(DocumentPanel.allCases) { panel in
                     Text(panel.title).tag(panel)
                 }
             }
@@ -54,12 +111,11 @@ struct SidePanels<Inspecting: View>: View {
             .labelsHidden()
             .padding(8)
             Divider()
-            switch panel {
-            case .inspector: inspector()
+            switch document {
             case .theme: ThemePanel(editor: editor, edits: edits)
             case .data: DataPanel(editor: editor, edits: edits)
-            case .files: FilesPanel(editor: editor, edits: edits)
-            case .versions: VersionsPanel(editor: editor, edits: edits)
+            case .media: FilesPanel(editor: editor, edits: edits)
+            case .history: VersionsPanel(editor: editor, edits: edits)
             }
         }
     }

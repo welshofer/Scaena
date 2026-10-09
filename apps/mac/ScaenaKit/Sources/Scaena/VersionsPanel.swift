@@ -149,11 +149,12 @@ struct VersionsPanel: View {
             return "The deck now is as this version was."
         }
         var said: [String] = []
-        if !compared.states.isEmpty {
-            said.append("since: \(compared.states.map { "\($0.state) \($0.how)" }.joined(separator: ", "))")
+        let n = compared.states.count
+        if n > 0 { said.append("\(n) slide\(n == 1 ? "" : "s") changed since") }
+        if !compared.deck.isEmpty { said.append("the deck's settings changed") }
+        if !compared.files.isEmpty {
+            said.append("\(compared.files.count) file\(compared.files.count == 1 ? "" : "s") changed")
         }
-        if !compared.deck.isEmpty { said.append("the deck's \(compared.deck.joined(separator: ", "))") }
-        if !compared.files.isEmpty { said.append("files \(compared.files.joined(separator: ", "))") }
-        return said.joined(separator: "; ")
+        return said.joined(separator: "; ").prefix(1).uppercased() + said.joined(separator: "; ").dropFirst()
     }
 }

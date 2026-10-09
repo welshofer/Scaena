@@ -239,7 +239,8 @@ struct CanvasSelection: View {
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("The canvas, \(state)")
+        .accessibilityLabel(Words.slide(state, in: editor.slots))
+        .accessibilityIdentifier("canvas")
         .task(id: "\(state)\u{1f}\(editor.revision)") {
             boxes = (try? editor.session.boxes(state: state)) ?? []
             placements = (try? editor.session.placements(state: state)) ?? [:]
@@ -352,27 +353,18 @@ struct CanvasSelection: View {
     }
     #endif
 
-    /// What the drag does, as the browser's status line says it.
+    /// What a drag does, where a person needs telling (PLAN 3.18): why it cannot be made; that it
+    /// reaches other slides too, and how to keep it to this one; or a turn's angle.
     private var told: String? {
         switch press {
         case .refused(let why):
             return why
         case .dragging(let d):
-            let them = d.together.count > 1 ? "\(d.together.count) selected" : d.node
-            if d.together.count > 1 {
-                guard d.arranged != nil else { return "\(them) land nowhere new" }
-            } else {
-                guard d.how != nil else { return "\(d.node) is not placed that way" }
-                guard d.snapped != nil else { return "\(d.node) lands nowhere new" }
-            }
-            if d.patch.isEmpty { return "\(them) stay where they are" }
-            let n = d.states.count
-            let inWhich = n == 1 && d.states.first == state ? "in this state" : "in \(n) states"
-            let keep = d.fork ? " · kept to \(state)" : n > 1 ? " · Option keeps it to \(state)" : ""
-            let to = d.together.count > 1 ? "moved together" : placed(d.patch)
-            return "\(them) → \(to) · \(inWhich)\(keep)"
-        case .banding:
-            return "select what lies wholly inside"
+            if d.patch.isEmpty { return nil }
+            if d.fork { return "On this slide only" }
+            let others = d.states.filter { $0 != state }.count
+            guard others > 0 else { return nil }
+            return "Also moves it on \(others) other slide\(others == 1 ? "" : "s") · ⌥ moves it here only"
         case .handling(let h):
             return holdingTold(h)
         default:
@@ -380,37 +372,15 @@ struct CanvasSelection: View {
         }
     }
 
-    /// What a handle held does, as the browser's status line says it.
+    /// What a handle held does: a turn's angle, and a change kept to this slide.
     private func holdingTold(_ h: Holding) -> String? {
-        let kept = h.fork ? " · kept to \(state)" : ""
+        let kept = h.fork ? " · on this slide only" : ""
         switch h.handle {
         case .turn(let turn):
-            return h.moved
-                ? "\(h.node) turns to \(Int(turn.now))°\(kept)"
-                : "turning \(h.node) about its anchor · Shift by 15° · Option keeps it to \(state)"
-        case .point(let index, let added):
-            guard h.moved || added, h.points.indices.contains(index) else { return nil }
-            return "\(h.node)'s point \(index + 1) → \(Self.spoken(h.points[index]))\(kept)"
-        case .corner(let step):
-            return h.moved ? "\(h.node)'s corners round to radius.\(step)\(kept)" : nil
-        case .crop:
-            guard h.moved else { return nil }
-            return "\(h.node) cropped to \(h.crop.map { "\($0)" }.joined(separator: ", ")) of the image\(kept)"
-        case .focal:
-            return h.moved ? "\(h.node)'s focal point → \(Self.spoken(h.focal))\(kept)" : nil
+            return h.moved ? "\(Int(turn.now))°\(kept)" : "Drag to rotate · Shift turns by 15°"
+        default:
+            return h.fork && h.moved ? "On this slide only" : nil
         }
-    }
-
-    /// A point as the status line says it.
-    private static func spoken(_ p: CGPoint) -> String { "\(Double(p.x)), \(Double(p.y))" }
-
-    /// Where a patch places its node, as the status says it.
-    private func placed(_ patch: [JSONValue]) -> String {
-        guard let at = patch.first?["at"] else { return "placed" }
-        if let slot = at["in"]?.string { return "slot \(slot)" }
-        if let area = at["area"]?.string { return "area \(area)" }
-        if let rect = at["rect"], rect != .null { return "off the grid, as lint will flag (W301)" }
-        return "the grid's cells"
     }
 
     /// A press: a click where it does not move, else a drag of what it pressed.
@@ -528,7 +498,7 @@ struct CanvasSelection: View {
                 let holder = transform(of: selected.parent)
                 return held(.turn(Turn(selected, turned: turned, from: point, holder: holder)))
             } catch {
-                said = "\(selected.node) cannot be turned: \(error)"
+                said = "Can't be rotated: \(error)"
             }
         }
         return nil
@@ -557,62 +527,56 @@ struct CanvasSelection: View {
     /// to the state shown with Option; a point pressed and let go where it was is picked.
     private func letGo(_ h: Holding) {
         guard h.revision == editor.revision else {
-            said = "the source changed under the drag: nothing is changed"
+            said = "The deck changed during the drag: nothing was changed"
             return
         }
-        let kept = h.fork ? " · kept to \(state)" : ""
+        let kept = h.fork ? " · on this slide only" : ""
         switch h.handle {
         case .turn(let turn):
             guard turn.now != turn.start else {
-                said = "\(h.node) stays as it is"
+                said = nil
                 return
             }
             make(Handling.turning(h.node, to: turn.now, in: state, fork: h.fork))
-            said = "\(h.node) turned to \(Int(turn.now))°\(kept)"
+            said = "Rotated to \(Int(turn.now))°\(kept)"
         case .point(let index, let added):
             guard let o = shaped else { return }
             if !h.moved && !added {
                 pointPicked = index
-                said = "\(h.node)'s point \(index + 1) picked: Delete takes it away, a drag moves it"
+                said = "Point \(index + 1) selected: Delete removes it, a drag moves it"
                 return
             }
             if !added && h.points == o.points {
-                said = "\(h.node)'s point \(index + 1) stays where it is"
+                said = nil
                 return
             }
             pointPicked = nil
             make(Handling.reshaping(h.node, to: h.points, in: state, fork: h.fork))
-            said = added ? "\(h.node) has a point added\(kept)" : "\(h.node)'s point \(index + 1) moved\(kept)"
+            said = added ? "Point added\(kept)" : "Point moved\(kept)"
         case .corner(let step):
             guard let o = shaped else { return }
             guard h.moved, o.rounds(to: step) else {
-                said =
-                    h.moved
-                    ? "\(h.node)'s corners stay as they are"
-                    : "drag \(h.node)'s corner handle to round it to the theme's radius steps"
+                said = h.moved ? nil : "Drag the corner handle to round the corners"
                 return
             }
             make(Handling.rounding(h.node, to: step, in: state, fork: h.fork))
-            said = "\(h.node)'s corners round to radius.\(step)\(kept)"
+            said = "Corners rounded\(kept)"
         case .crop:
             guard let f = imaged else { return }
             guard h.moved, f.changes(crop: h.crop) else {
-                said = h.moved ? "\(h.node)'s crop stays as it is" : "drag \(h.node)'s crop handle to crop it from that side"
+                said = h.moved ? nil : "Drag a crop handle to crop the picture from that side"
                 return
             }
             make(Handling.cropping(h.node, to: h.crop, in: state, fork: h.fork))
-            said = Framing.keepsWhole(h.crop) ? "\(h.node) shows the whole image\(kept)" : "\(h.node) cropped\(kept)"
+            said = Framing.keepsWhole(h.crop) ? "Showing the whole picture\(kept)" : "Cropped\(kept)"
         case .focal:
             guard let f = imaged else { return }
             guard h.moved, f.changes(focal: h.focal) else {
-                said =
-                    h.moved
-                    ? "\(h.node)'s focal point stays where it is"
-                    : "drag \(h.node)'s focal point to keep that part of the image in view"
+                said = h.moved ? nil : "Drag the focal point to keep that part of the picture in view"
                 return
             }
             make(Handling.focusing(h.node, on: h.focal, in: state, fork: h.fork))
-            said = "\(h.node)'s focal point → \(Self.spoken(h.focal))\(kept)"
+            said = "Focal point moved\(kept)"
         }
     }
 
@@ -620,14 +584,14 @@ struct CanvasSelection: View {
     /// polygon three. One `choose` of its points, kept to the state shown with Option.
     private func unpoint(_ o: Outline, _ index: Int) {
         guard let kept = o.removing(index) else {
-            let kind = o.kind == "arrow" ? "an arrow" : "a \(o.kind)"
-            said = "\(kind) keeps \(o.fewest == 2 ? "two" : "three") points: \(o.node)'s point \(index + 1) stays"
+            let kind = o.kind == "arrow" ? "An arrow" : "A \(o.kind)"
+            said = "\(kind) needs at least \(o.fewest == 2 ? "two" : "three") points"
             return
         }
         pointPicked = nil
         let fork = Held.option
         make(Handling.reshaping(o.node, to: kept, in: state, fork: fork))
-        said = "\(o.node)'s point \(index + 1) taken away\(fork ? " · kept to \(state)" : "")"
+        said = "Point removed\(fork ? " · on this slide only" : "")"
     }
 
     /// A node as VoiceOver hears it (PLAN 3.17), where it is drawn: a heading, a picture, a table,
@@ -640,11 +604,11 @@ struct CanvasSelection: View {
                 .position(x: drawn.midX, y: drawn.midY)
                 .allowsHitTesting(false)
                 .accessibilityElement()
-                .accessibilityLabel(Text(part.text.isEmpty ? part.node : part.text))
+                .accessibilityLabel(Text(part.text.isEmpty ? name(part.node, starting: true) : part.text))
                 .accessibilityAddTraits(Self.traits(part))
                 .accessibilityAddTraits(selection.contains(part.node) ? .isSelected : [])
                 .accessibilityHeading(part.level == 1 ? .h1 : part.level == 2 ? .h2 : .unspecified)
-                .accessibilityHint("Selects \(part.node)")
+                .accessibilityHint("Selects it")
                 .accessibilitySortPriority(Double(order))
                 .accessibilityAction {
                     node = part.node
@@ -714,10 +678,21 @@ struct CanvasSelection: View {
     }
 
     /// What the status says of handle `h` of `node`, the `n`th of `of`, and what its keys do.
+    /// A node as the window names it (PLAN 3.18): its first words, quoted, where a reader hears
+    /// any; else what it is to a reader, or an object.
+    private func name(_ node: String, starting: Bool = false) -> String {
+        let part = reads.first { $0.node == node }
+        if let part, !part.text.isEmpty {
+            return "“\(Words.node(nil, words: part.text))”"
+        }
+        let named = part?.role == "table" ? "a table" : part?.role == "figure" ? "a figure" : "an object"
+        return starting ? named.prefix(1).uppercased() + named.dropFirst() : named
+    }
+
     private func handleSaid(_ node: String, _ h: KeyedHandle, _ n: Int, _ of: Int) -> String {
         var does = "arrows move it"
         if case .point = h { does += ", + adds a point after it, Delete takes it away" }
-        return "\(node): \(h.label), \(n + 1) of \(of) · \(does) · Tab the next · Escape leaves them"
+        return "\(name(node, starting: true)): \(h.label), \(n + 1) of \(of) · \(does) · Tab the next · Escape leaves them"
     }
 
     /// Tab, or Shift+Tab: the next handle the keys are on; the next node keyed while a selection is
@@ -738,13 +713,13 @@ struct CanvasSelection: View {
             let next = (order.firstIndex(of: on) ?? -1) + (back ? -1 : 1)
             guard order.indices.contains(next) else {
                 keyOn = nil
-                said = "\(selection.count) selected: the keyboard leaves the canvas"
+                said = "\(selection.count) selected: the keyboard leaves the slide"
                 return false
             }
             keyOn = order[next]
             let inIt = selection.contains(order[next])
             said =
-                "\(order[next]), \(next + 1) of \(order.count)\(inIt ? ", selected" : "") · Space "
+                "\(name(order[next], starting: true)), \(next + 1) of \(order.count)\(inIt ? ", selected" : "") · Space "
                 + "\(inIt ? "takes it out of" : "puts it in") the selection · Tab the next · Escape stops"
             return true
         }
@@ -755,12 +730,12 @@ struct CanvasSelection: View {
         guard order.indices.contains(next) else {
             node = nil
             also = []
-            said = "nothing selected: the keyboard leaves the canvas"
+            said = "Nothing selected: the keyboard leaves the slide"
             return false
         }
         node = order[next]
         also = []
-        said = "\(order[next]) selected, \(next + 1) of \(order.count)\(level.map { " in \($0)" } ?? "") · Return goes into it or its handles"
+        said = "\(name(order[next], starting: true)) selected, \(next + 1) of \(order.count)\(level.map { " in \(name($0))" } ?? "") · Return goes into it or its handles"
         return true
     }
 
@@ -777,11 +752,11 @@ struct CanvasSelection: View {
         let inside = readingOrder(boxes, in: selected)
         if also.isEmpty, let first = inside.first {
             node = first
-            said = "\(first) selected, in \(selected) · Tab goes on, Escape goes back out"
+            said = "\(name(first, starting: true)) selected, in \(name(selected)) · Tab goes on, Escape goes back out"
             return true
         }
         if boxes.first(where: { $0.node == selected })?.locked != nil {
-            said = "\(selected) is locked: unlock it to edit it"
+            said = "It is locked: ⇧⌘L unlocks it"
             return true
         }
         let list = also.isEmpty ? handles(of: selected) : []
@@ -791,7 +766,7 @@ struct CanvasSelection: View {
             return true
         }
         if also.isEmpty, typing.enter(selected, in: state, at: nil, fork: option) { return true }
-        said = "\(selected) has no handles, and no words to type in"
+        said = "Nothing to edit in it here"
         return true
     }
 
@@ -801,19 +776,18 @@ struct CanvasSelection: View {
     private func space() -> Bool {
         guard let on = keyOn else {
             guard let selected = node else {
-                said = "nothing selected: Tab selects a node, then Space builds a selection from it"
+                said = "Nothing selected: Tab selects an object, then Space builds a selection from it"
                 return true
             }
             keyOn = selected
-            said = "\(selected) selected · Tab keys the next beside it, and Space puts it in the selection or takes it out"
+            said = "\(name(selected, starting: true)) selected · Tab keys the next beside it, and Space puts it in the selection or takes it out"
             return true
         }
         let now = toggled(on, in: selection) { parent(of: $0) }
         node = now.first
         also = Array(now.dropFirst())
         keyOn = on
-        let them = now.isEmpty ? "nothing" : now.joined(separator: ", ")
-        said = "\(on) \(now.contains(on) ? "put in" : "taken out of") the selection: \(them) selected · Tab the next · Escape stops"
+        said = "\(name(on, starting: true)) \(now.contains(on) ? "put in" : "taken out of") the selection: \(now.count) selected · Tab the next · Escape stops"
         return true
     }
 
@@ -822,12 +796,12 @@ struct CanvasSelection: View {
     private func escape() -> Bool {
         if keyOn != nil {
             keyOn = nil
-            said = "\(selection.isEmpty ? "nothing" : selection.joined(separator: ", ")) selected"
+            said = selection.isEmpty ? "Nothing selected" : "\(selection.count) selected"
             return true
         }
         if keyed != nil {
             keyed = nil
-            said = "\(node ?? "nothing") selected: its handles left"
+            said = node.map { "\(name($0, starting: true)) selected" } ?? "Nothing selected"
             return true
         }
         if pointPicked != nil {
@@ -840,7 +814,7 @@ struct CanvasSelection: View {
             return true
         }
         node = parent(of: selected)
-        said = node.map { "\($0) selected" } ?? "nothing selected"
+        said = node.map { "\(name($0, starting: true)) selected" } ?? "Nothing selected"
         return true
     }
 
@@ -853,7 +827,7 @@ struct CanvasSelection: View {
             guard list.indices.contains(k) else { return true }
             let patch = list[k].nudged(
                 dx: dx, dy: dy, far: shift, outline: shaped, framing: imaged, state: state, fork: option)
-            if let patch { make(patch) } else { said = "\(list[k].label) stays where it is" }
+            if let patch { make(patch) } else { said = nil }
             return true
         }
         step(selected, dx, dy, grow: shift, fork: option)
@@ -864,22 +838,22 @@ struct CanvasSelection: View {
     /// the one a drag that far would make.
     private func step(_ selected: String, _ dx: Int, _ dy: Int, grow: Bool, fork: Bool) {
         if let held = boxes.first(where: { selection.contains($0.node) && $0.locked != nil }) {
-            said = "\(held.node) is locked: nothing moves"
+            said = "It is locked: ⇧⌘L unlocks it"
             return
         }
         if !also.isEmpty && grow {
-            said = "several move together; resize one at a time"
+            said = "Resize one object at a time"
             return
         }
         do {
             let targets = try editor.session.targets(state: state, node: selected)
             guard let how = targets.snap(at: placements[selected], resize: grow, shift: false) else {
-                said = "\(selected) is placed by name: drag it into another slot"
+                said = "Drag it to move it"
                 return
             }
             let drawn = { (n: String) -> CGRect? in boxes.first { $0.node == n }.flatMap { box($0) } }
             guard let to = targets.stepped(selected, dx: dx, dy: dy, how: how, grow: grow, box: drawn) else {
-                said = "\(selected) is at the edge"
+                said = "At the edge"
                 return
             }
             if !also.isEmpty {
@@ -887,22 +861,22 @@ struct CanvasSelection: View {
                 let arranged = try editor.session.together(
                     state: state, nodes: selection, by: by, free: how == .free, fork: fork)
                 guard let arranged, !arranged.patch.isEmpty else {
-                    said = "\(selection.count) selected stay where they are"
+                    said = nil
                     return
                 }
                 make(arranged.patch)
-                said = "\(selection.count) selected moved together"
+                said = nil
                 return
             }
             guard let snapped = try editor.session.snap(state: state, node: selected, how: how, to: to, fork: fork),
                 !snapped.patch.isEmpty
             else {
-                said = "\(selected) stays where it is"
+                said = nil
                 return
             }
             make(snapped.patch)
         } catch {
-            said = "not placed: \(error)"
+            said = "Not moved: \(error)"
         }
     }
 
@@ -911,16 +885,16 @@ struct CanvasSelection: View {
     private func turn(by: Double) -> Bool {
         guard let selected = node, also.isEmpty else { return false }
         if boxes.first(where: { $0.node == selected })?.locked != nil {
-            said = "\(selected) is locked: nothing turns"
+            said = "It is locked: ⇧⌘L unlocks it"
             return true
         }
         do {
             let start = try editor.session.turned(state: state, node: selected).rotate
             let now = ((start + by) * 1000).rounded() / 1000
             make(Handling.turning(selected, to: now, in: state, fork: Held.option))
-            said = "\(selected) turned to \(now.formatted())°"
+            said = "Rotated to \(now.formatted())°"
         } catch {
-            said = "\(selected) cannot be turned: \(error)"
+            said = "Can't be rotated: \(error)"
         }
         return true
     }
@@ -933,7 +907,7 @@ struct CanvasSelection: View {
         guard list.indices.contains(k), case .point(let i) = list[k] else { return false }
         make(Handling.reshaping(o.node, to: o.adding(after: i), in: state, fork: option))
         keyed = k + 1
-        said = "\(o.node) has a point added after point \(i + 1)"
+        said = "Point added after point \(i + 1)"
         return true
     }
 
@@ -945,7 +919,7 @@ struct CanvasSelection: View {
         guard let first = all.first else { return false }
         node = first
         also = Array(all.dropFirst())
-        said = "\(all.count) selected\(level.map { " in \($0)" } ?? "")"
+        said = "\(all.count) selected"
         return true
     }
 
@@ -982,7 +956,7 @@ struct CanvasSelection: View {
         } else if parent(of: hit) == parent(of: node) {
             also.append(hit)
         } else {
-            said = "\(hit) is not beside \(node ?? "it"): select children of one container"
+            said = "Select objects in the same group together"
         }
     }
 
@@ -1005,7 +979,7 @@ struct CanvasSelection: View {
         let all = keep + inside.filter { !keep.contains($0) }
         node = all.first
         also = Array(all.dropFirst())
-        said = all.isEmpty ? "nothing lies wholly inside" : "\(all.count) selected"
+        said = all.isEmpty ? "Nothing lies wholly inside" : "\(all.count) selected"
     }
 
     /// A drag begun at `point`, canvas units: of a handle of the box selected, a resize; else a

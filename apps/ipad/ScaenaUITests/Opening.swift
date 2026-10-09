@@ -18,11 +18,11 @@ extension XCTestCase {
 
     /// B1, which `apps/ipad/app-test.sh` puts in the app's own folder, open in its window, as
     /// someone opens it: in the document browser, Browse, On My iPad, the app's folder, then B1.
-    /// Its first state, `cover`, is shown; a window the app brought back already showing it is
-    /// taken as it is.
+    /// Its first state, `cover`, is shown, found by its id in the slides down the side; a window the
+    /// app brought back already showing it is taken as it is.
     @MainActor
     func openB1(in app: XCUIApplication) throws {
-        let first = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'cover'")).firstMatch
+        let first = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'state-cover'")).firstMatch
         if first.waitForExistence(timeout: 5) { return }
         let b1 = cell(in: app, named: "b1")
         let folder = cell(in: app, named: "Scaena")

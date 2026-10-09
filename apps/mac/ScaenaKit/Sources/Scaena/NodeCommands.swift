@@ -43,36 +43,61 @@ extension FocusedValues {
     }
 }
 
-/// The Node menu (PLAN 3.11), as the browser's Insert menu and keys (PLAN 2.34, 2.95): Insert, by
-/// kind, what the theme and the bundle offer, landing where the pointer last pressed on the canvas;
-/// Duplicate (⌘D); Delete, from the state shown on, and from the deck; Group (⌘G) and Ungroup
-/// (⌘⇧G, PLAN 2.43); the order among what their container paints (⌘], ⌘[, with Option to the front
-/// and the back, PLAN 2.42); Copy Look (⌥⌘C) and Paste Look (⌥⌘V, PLAN 2.58); and Lock (⇧⌘L).
-/// Each acts on every node selected (PLAN 3.13). The canvas takes Delete and Shift+Delete itself,
-/// as the browser's does.
+/// What is done to objects, in the menus a presentation app has them in (PLAN 3.11, 3.18), as the
+/// browser's Insert menu and keys (PLAN 2.34, 2.95): the Insert menu, by kind, what the theme and
+/// the bundle offer, landing where the pointer last pressed on the canvas; in the Edit menu,
+/// Duplicate (⌘D), Delete, from this slide on, Delete from All Slides, and Copy Style (⌥⌘C) and
+/// Paste Style (⌥⌘V, PLAN 2.58); and the Arrange menu: the order among what their container paints
+/// (⌥⌘], ⌘], ⌘[, ⌥⌘[, PLAN 2.42), Group (⌘G) and Ungroup (⌘⇧G, PLAN 2.43), and Lock (⇧⌘L). Each
+/// acts on every object selected (PLAN 3.13). The canvas takes Delete and Shift+Delete itself, as
+/// the browser's does.
 struct NodeCommands: Commands {
     @FocusedValue(\.deck) private var deck
 
     var body: some Commands {
-        CommandMenu("Node") {
-            Menu("Insert") {
-                ForEach(kinds, id: \.self) { kind in
-                    Menu(kind) {
-                        ForEach(offered(of: kind)) { item in
-                            Button(item.name) { deck?.insert(item.id) }
-                        }
+        CommandMenu("Insert") {
+            ForEach(kinds, id: \.self) { kind in
+                Menu(Self.kind(kind)) {
+                    ForEach(offered(of: kind)) { item in
+                        Button(item.name) { deck?.insert(item.id) }
                     }
                 }
             }
-            .disabled(kinds.isEmpty)
+            if kinds.isEmpty {
+                Button("Nothing to Insert") {}
+                    .disabled(true)
+            }
+        }
+        CommandGroup(after: .pasteboard) {
             Divider()
             Button("Duplicate") { deck?.duplicate?() }
                 .keyboardShortcut("d", modifiers: .command)
                 .disabled(deck?.duplicate == nil)
-            Button("Delete from Here On") { deck?.delete?(false) }
+            Button("Delete from This Slide On") { deck?.delete?(false) }
                 .disabled(deck?.delete == nil)
-            Button("Delete from the Deck") { deck?.delete?(true) }
+            Button("Delete from All Slides") { deck?.delete?(true) }
                 .disabled(deck?.delete == nil)
+            Divider()
+            Button("Copy Style") { deck?.copyLook?() }
+                .keyboardShortcut("c", modifiers: [.command, .option])
+                .disabled(deck?.copyLook == nil)
+            Button("Paste Style") { deck?.pasteLook?() }
+                .keyboardShortcut("v", modifiers: [.command, .option])
+                .disabled(deck?.pasteLook == nil)
+        }
+        CommandMenu("Arrange") {
+            Button("Bring to Front") { deck?.order?("front") }
+                .keyboardShortcut("]", modifiers: [.command, .option])
+                .disabled(deck?.order == nil)
+            Button("Bring Forward") { deck?.order?("forward") }
+                .keyboardShortcut("]", modifiers: .command)
+                .disabled(deck?.order == nil)
+            Button("Send Backward") { deck?.order?("backward") }
+                .keyboardShortcut("[", modifiers: .command)
+                .disabled(deck?.order == nil)
+            Button("Send to Back") { deck?.order?("back") }
+                .keyboardShortcut("[", modifiers: [.command, .option])
+                .disabled(deck?.order == nil)
             Divider()
             Button("Group") { deck?.group?() }
                 .keyboardShortcut("g", modifiers: .command)
@@ -80,32 +105,14 @@ struct NodeCommands: Commands {
             Button("Ungroup") { deck?.ungroup?() }
                 .keyboardShortcut("g", modifiers: [.command, .shift])
                 .disabled(deck?.ungroup == nil)
-            Button("Bring Forward") { deck?.order?("forward") }
-                .keyboardShortcut("]", modifiers: .command)
-                .disabled(deck?.order == nil)
-            Button("Send Backward") { deck?.order?("backward") }
-                .keyboardShortcut("[", modifiers: .command)
-                .disabled(deck?.order == nil)
-            Button("Bring to Front") { deck?.order?("front") }
-                .keyboardShortcut("]", modifiers: [.command, .option])
-                .disabled(deck?.order == nil)
-            Button("Send to Back") { deck?.order?("back") }
-                .keyboardShortcut("[", modifiers: [.command, .option])
-                .disabled(deck?.order == nil)
-            Divider()
-            Button("Copy Look") { deck?.copyLook?() }
-                .keyboardShortcut("c", modifiers: [.command, .option])
-                .disabled(deck?.copyLook == nil)
-            Button("Paste Look") { deck?.pasteLook?() }
-                .keyboardShortcut("v", modifiers: [.command, .option])
-                .disabled(deck?.pasteLook == nil)
             Divider()
             Button(deck?.locked == true ? "Unlock" : "Lock") { deck?.lock?() }
                 .keyboardShortcut("l", modifiers: [.command, .shift])
                 .disabled(deck?.lock == nil)
-            Divider()
-            Button("Place Anew in This Format") { deck?.placeAnew?() }
-                .disabled(deck?.placeAnew == nil)
+            if deck?.placeAnew != nil {
+                Divider()
+                Button("Lay Out on Its Own in This Size") { deck?.placeAnew?() }
+            }
         }
     }
 
@@ -118,9 +125,21 @@ struct NodeCommands: Commands {
         return seen
     }
 
+    /// A kind as the Insert menu names it.
+    private static func kind(_ kind: String) -> String {
+        switch kind {
+        case "Image": "Picture"
+        case "Shader": "Background Effect"
+        default: kind
+        }
+    }
+
     /// What is offered of `kind`, each by its place in the offer.
     private func offered(of kind: String) -> [Offered] {
-        (deck?.inserts ?? []).enumerated().filter { $0.element.kind == kind }.map { Offered(id: $0.offset, name: $0.element.name) }
+        let all = deck?.inserts ?? []
+        return all.enumerated().filter { $0.element.kind == kind }.map {
+            Offered(id: $0.offset, name: Words.insertion($0.element, among: all))
+        }
     }
 }
 
