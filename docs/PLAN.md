@@ -1496,6 +1496,7 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - **Where it lands.** A picture let go on an image takes its place, one `choose` of `src`; anywhere else it is inserted there, as Insert inserts one. A data file joins the deck as a source, declared as `data_attach` declares it, with a chart of it there. A PNG or a JPEG goes in as it is, any other picture as a PNG of it; the slide is outlined while a drag that holds one is over it. Each is one step to undo.
     - **How** (`Pasteboard.dropped`): each thing dropped gives its file as the Finder or Files dragged it, or a copy of a picture's data, by its name.
     - Tests: ScaenaKit's `aDroppedFileIsReadAsThePasteboardsIs`: a PNG and a CSV by their names, a TIFF's data as a PNG of it, and words not at all.
+- [ ] 3.23 A right click on the canvas, or a click with Control, offers what a long press offers on the iPad (PLAN 4.3): what it clicked selected first, unless it is one of several selected, then Cut, Copy, and Paste, Duplicate, Delete, Arrange, Copy and Paste Style, Lock or Unlock, and Insert where it clicked. One list (`CanvasOffer`) makes both platforms' menus. In a text typed in, a right click is the text's. *(Built; waits on a run on a Mac.)*
 
 ### Exit criteria (gate 3)
 1. Same bundle, same frame, same pixels (within tolerance) as the web player.

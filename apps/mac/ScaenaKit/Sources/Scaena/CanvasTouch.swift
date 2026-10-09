@@ -199,71 +199,24 @@ struct CanvasMenu: UIViewRepresentable {
         }
     }
 
-    /// What the menu offers: what the clipboard and the Node menu can do now, and nothing else.
+    /// What the menu offers (`CanvasOffer`, as the Mac's right click offers it, PLAN 3.23), as
+    /// iPadOS's edit menu shows it: no lines between kinds.
     static func items(_ deck: DeckActions?, clip: @escaping (Clipping) -> Void) -> [UIMenuElement] {
-        func action(
-            _ title: String, _ symbol: String, attributes: UIMenuElement.Attributes = [], _ run: @escaping () -> Void
-        ) -> UIAction {
-            UIAction(title: title, image: UIImage(systemName: symbol), attributes: attributes) { _ in run() }
+        CanvasOffer.offers(deck, clip: clip).compactMap(element)
+    }
+
+    private static func element(_ offer: CanvasOffer) -> UIMenuElement? {
+        switch offer {
+        case .action(let title, let symbol, let destructive, let run):
+            let attributes: UIMenuElement.Attributes = destructive ? .destructive : []
+            return UIAction(title: title, image: symbol.flatMap { UIImage(systemName: $0) }, attributes: attributes) { _ in
+                run()
+            }
+        case .menu(let title, let symbol, let children):
+            return UIMenu(title: title, image: symbol.flatMap { UIImage(systemName: $0) }, children: children.compactMap(element))
+        case .divider:
+            return nil
         }
-        var items: [UIMenuElement] = []
-        if deck?.duplicate != nil {
-            items.append(action("Cut", "scissors") { clip(.cut) })
-            items.append(action("Copy", "doc.on.doc") { clip(.copy) })
-        }
-        items.append(action("Paste", "doc.on.clipboard") { clip(.paste) })
-        guard let deck else { return items }
-        if let duplicate = deck.duplicate {
-            items.append(action("Duplicate", "plus.square.on.square", duplicate))
-        }
-        if let delete = deck.delete {
-            items.append(
-                UIMenu(
-                    title: "Delete", image: UIImage(systemName: "trash"),
-                    children: [
-                        action("Delete from This Slide On", "trash", attributes: .destructive) { delete(false) },
-                        action("Delete from All Slides", "trash", attributes: .destructive) { delete(true) },
-                    ]))
-        }
-        var arranging: [UIMenuElement] = []
-        if let group = deck.group { arranging.append(action("Group", "square.on.square.dashed", group)) }
-        if let ungroup = deck.ungroup { arranging.append(action("Ungroup", "square.on.square", ungroup)) }
-        if let order = deck.order {
-            arranging += [
-                action("Bring Forward", "square.2.layers.3d.top.filled") { order("forward") },
-                action("Send Backward", "square.2.layers.3d.bottom.filled") { order("backward") },
-                action("Bring to Front", "square.3.layers.3d.top.filled") { order("front") },
-                action("Send to Back", "square.3.layers.3d.bottom.filled") { order("back") },
-            ]
-        }
-        if !arranging.isEmpty {
-            items.append(UIMenu(title: "Arrange", image: UIImage(systemName: "square.3.layers.3d"), children: arranging))
-        }
-        if let copyLook = deck.copyLook { items.append(action("Copy Style", "paintbrush", copyLook)) }
-        if let pasteLook = deck.pasteLook { items.append(action("Paste Style", "paintbrush.pointed", pasteLook)) }
-        if let lock = deck.lock {
-            items.append(action(deck.locked ? "Unlock" : "Lock", deck.locked ? "lock.open" : "lock", lock))
-        }
-        if let placeAnew = deck.placeAnew {
-            items.append(action("Lay Out on Its Own in This Size", "rectangle.badge.plus", placeAnew))
-        }
-        // What the theme and the bundle offer, by kind, landing where the finger pressed.
-        var kinds: [String] = []
-        for insert in deck.inserts where !kinds.contains(insert.kind) { kinds.append(insert.kind) }
-        if !kinds.isEmpty {
-            let offered = deck.inserts.enumerated().map { (id: $0.offset, insert: $0.element) }
-            items.append(
-                UIMenu(
-                    title: "Insert", image: UIImage(systemName: "plus"),
-                    children: kinds.map { kind in
-                        UIMenu(
-                            title: NodeCommands.kind(kind),
-                            children: offered.filter { $0.insert.kind == kind }.map { o in
-                                UIAction(title: Words.insertion(o.insert, among: deck.inserts)) { _ in deck.insert(o.id) }
-                            })
-                    }))
-        }
-        return items
     }
 }
 #endif
