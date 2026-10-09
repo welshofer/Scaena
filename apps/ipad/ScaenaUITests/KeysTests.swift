@@ -2,8 +2,8 @@ import XCTest
 
 /// The canvas by keys alone (PLAN 4.6), on B1's cover with a hardware keyboard, as the Mac's canvas
 /// takes them (PLAN 3.17), each key the patch its gesture makes: a tap where nothing draws gives the
-/// canvas the keyboard; Tab selects in reading order and Shift+Tab goes back; an arrow steps the
-/// title as its drag would, and ⌘Z, Undo by its key, takes the step back; Return types in the
+/// canvas the keyboard; Tab selects in reading order and Shift+Tab goes back; the arrows nudge the
+/// title as its drag would, and ⌘Z, Undo by its key, takes each nudge back; Return types in the
 /// title and Escape stops, the keys the canvas's again; ⌘D, Duplicate by its key, copies it; and
 /// Escape selects what holds it. Each node is an element that reads as the reader hears it.
 final class KeysTests: XCTestCase {
@@ -42,15 +42,20 @@ final class KeysTests: XCTestCase {
             keep(app, as: "tabbed")
         }
 
-        try XCTContext.runActivity(named: "An arrow steps the title as its drag would, and ⌘Z takes it back") { _ in
+        try XCTContext.runActivity(named: "The arrows nudge the title as its drag would, and ⌘Z takes each nudge back") { _ in
+            // A canvas unit a press, about half a point at this size: eight of them, each a step to undo.
             let before = title.frame
-            app.typeKey(XCUIKeyboardKey.rightArrow, modifierFlags: [])
+            for _ in 0..<8 {
+                app.typeKey(XCUIKeyboardKey.rightArrow, modifierFlags: [])
+            }
             guard wait(5, { title.frame.minX > before.minX + 2 }) else {
-                throw Unseen(description: "the arrow stepped nothing: \(before) → \(title.frame)")
+                throw Unseen(description: "the arrows nudged nothing: \(before) → \(title.frame)")
             }
             keep(app, as: "stepped")
-            app.typeKey("z", modifierFlags: .command)
-            XCTAssertTrue(wait(5) { abs(title.frame.minX - before.minX) < 2 }, "⌘Z left the step: \(title.frame)")
+            for _ in 0..<8 {
+                app.typeKey("z", modifierFlags: .command)
+            }
+            XCTAssertTrue(wait(5) { abs(title.frame.minX - before.minX) < 0.5 }, "⌘Z left a nudge: \(title.frame)")
         }
 
         try XCTContext.runActivity(named: "Return types in the title; Escape stops, and the keys are the canvas's") { _ in

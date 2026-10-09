@@ -1062,8 +1062,10 @@ struct CanvasSelection: View {
         return true
     }
 
-    /// `selected` stepped by an arrow key, as the browser's keys step it (PLAN 2.75): one patch,
-    /// the one a drag that far would make.
+    /// `selected` stepped by an arrow key (PLAN 2.75, 3.17): one patch, the one a drag that far
+    /// would make. As a drag goes (PLAN 3.19, ADR-0024), a node on the theme's grid is nudged a
+    /// canvas unit at a time, out of its slot or cells if it was in them; what a container holds
+    /// steps as the container places it.
     private func step(_ selected: String, _ dx: Int, _ dy: Int, grow: Bool, fork: Bool) {
         if let held = boxes.first(where: { selection.contains($0.node) && $0.locked != nil }) {
             said = "It is locked: ⇧⌘L unlocks it"
@@ -1075,7 +1077,7 @@ struct CanvasSelection: View {
         }
         do {
             let targets = try editor.session.targets(state: state, node: selected)
-            guard let how = targets.snap(at: placements[selected], resize: grow, shift: false) else {
+            guard let how = targets.dragged(at: placements[selected], resize: grow, shift: false) else {
                 said = "Drag it to move it"
                 return
             }
