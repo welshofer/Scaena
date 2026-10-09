@@ -1,6 +1,6 @@
 # ADR-0022: The assistant's conversation in Rust, its calls made by the client
 
-**Status:** proposed · **Date:** 2026-10-08
+**Status:** accepted (Jay, 2026-10-09) · **Date:** 2026-10-08
 
 ## Context
 
