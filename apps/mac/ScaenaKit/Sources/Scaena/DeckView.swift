@@ -107,11 +107,48 @@ struct DeckView: View {
         } detail: {
             detail
         }
+        #if os(macOS)
+        .toolbar(id: "deck") { customizable }
+        #else
         .toolbar { toolbar }
+        #endif
     }
 
-    /// The source, the canvas with its cue and the findings, the assistant, and the inspector.
-    private var detail: some View {
+    /// The canvas and the panes beside it, and the inspector. On the Mac the inspector is a column
+    /// of the window's own, as a presentation app's is (PLAN 3.27): the system's inspector is a
+    /// split view under the slides' floating column, and each split view there counts that
+    /// column's width again in the narrowest the window may be.
+    @ViewBuilder private var detail: some View {
+        #if os(macOS)
+        HStack(spacing: 0) {
+            divided
+            if showsInspector {
+                Divider()
+                inspectorColumn
+                    .frame(width: 300)
+                    .background(Color(nsColor: .windowBackgroundColor))
+            }
+        }
+        #else
+        divided
+            .inspector(isPresented: $showsInspector) {
+                inspectorColumn
+                    .inspectorColumnWidth(min: 260, ideal: 300, max: 480)
+            }
+        #endif
+    }
+
+    /// The inspector's tabs: the object selected, or the slide with none, and the deck as a whole.
+    private var inspectorColumn: some View {
+        InspectorColumn(editor: editor, tab: $tab, document: $documentPanel, edits: panelEdits) {
+            inspecting(.format)
+        } animate: {
+            inspecting(.animate)
+        }
+    }
+
+    /// The source, the canvas with its cue and the findings, and the assistant.
+    private var divided: some View {
         Panes(axis: .horizontal) {
             if showsSource {
                 SourcePane(text: editor.source) { typed in document.type(typed, undo: undo) }
@@ -132,14 +169,6 @@ struct DeckView: View {
                 AssistantPanel(assistant: assistant, seeing: seeing)
                     .frame(minWidth: 280, idealWidth: 340)
             }
-        }
-        .inspector(isPresented: $showsInspector) {
-            InspectorColumn(editor: editor, tab: $tab, document: $documentPanel, edits: panelEdits) {
-                inspecting(.format)
-            } animate: {
-                inspecting(.animate)
-            }
-            .inspectorColumnWidth(min: 260, ideal: 300, max: 480)
         }
     }
 
@@ -203,38 +232,98 @@ struct DeckView: View {
         }
         ToolbarItemGroup {
             adding
-            Button {
-                Presenting.play(editor, from: shown)
-            } label: {
-                Label("Play", systemImage: "play.fill")
-            }
-            .help("Play the slideshow from this slide (⌥⌘P)")
-            .disabled(editor.slots.isEmpty)
+            playing
         }
         ToolbarItemGroup {
-            InsertMenu(title: "Text", symbol: "textbox", kinds: ["Text"], first: "body", inserts: inserts, insert: insertHere)
-            InsertMenu(
-                title: "Shape", symbol: "square.on.circle", kinds: ["Shape", "Shader"], first: "rect", inserts: inserts,
-                insert: insertHere)
-            InsertMenu(title: "Image", symbol: "photo", kinds: ["Image"], first: nil, inserts: inserts, insert: insertHere)
-            InsertMenu(title: "Chart", symbol: "chart.bar", kinds: ["Chart"], first: nil, inserts: inserts, insert: insertHere)
-            InsertMenu(title: "Table", symbol: "tablecells", kinds: ["Table"], first: nil, inserts: inserts, insert: insertHere)
+            ForEach(Insertable.allCases) { inserting($0) }
         }
         ToolbarItemGroup {
             sharing
-            Toggle(isOn: $showsAssistant) {
-                Label("Assistant", systemImage: "sparkles")
-            }
-            .help("Ask about the deck, or for an edit, with your own key (⌥⌘A)")
+            assisting
         }
         ToolbarItemGroup {
-            ForEach(InspectorTab.allCases) { tab in
-                Toggle(isOn: showing(tab)) {
-                    Label(tab.title, systemImage: tab.symbol)
-                }
-                .help(tab.help)
-            }
+            ForEach(InspectorTab.allCases) { tabbing($0) }
         }
+    }
+
+    #if os(macOS)
+    /// The toolbar on the Mac (PLAN 3.27): the same items, each its own, as a Mac window's toolbar
+    /// has them, so the window narrows as a Mac window does. What does not fit goes into the
+    /// toolbar's overflow menu, rather than holding the window as wide as every item, and View ›
+    /// Customize Toolbar… takes away what a person does not want.
+    @ToolbarContentBuilder private var customizable: some CustomizableToolbarContent {
+        Group {
+            ToolbarItem(id: "view", placement: .navigation) { viewing }
+            ToolbarItem(id: "zoom", placement: .navigation) { zooming }
+            ToolbarItem(id: "add") { adding }
+            ToolbarItem(id: "play") { playing }
+        }
+        Group {
+            ToolbarItem(id: "insert-text") { inserting(.text) }
+            ToolbarItem(id: "insert-shape") { inserting(.shape) }
+            ToolbarItem(id: "insert-image") { inserting(.image) }
+            ToolbarItem(id: "insert-chart") { inserting(.chart) }
+            ToolbarItem(id: "insert-table") { inserting(.table) }
+        }
+        Group {
+            ToolbarItem(id: "share") { sharing }
+            ToolbarItem(id: "assistant") { assisting }
+            ToolbarItem(id: "format") { tabbing(.format) }
+            ToolbarItem(id: "animate") { tabbing(.animate) }
+            ToolbarItem(id: "document") { tabbing(.document) }
+        }
+    }
+    #endif
+
+    /// Play the slideshow from the slide shown.
+    private var playing: some View {
+        Button {
+            Presenting.play(editor, from: shown)
+        } label: {
+            Label("Play", systemImage: "play.fill")
+        }
+        .help("Play the slideshow from this slide (⌥⌘P)")
+        .disabled(editor.slots.isEmpty)
+    }
+
+    /// A kind of thing the toolbar inserts.
+    private enum Insertable: CaseIterable, Identifiable {
+        case text, shape, image, chart, table
+        var id: Self { self }
+    }
+
+    /// The toolbar's menu that inserts `kind`.
+    private func inserting(_ kind: Insertable) -> InsertMenu {
+        switch kind {
+        case .text:
+            InsertMenu(title: "Text", symbol: "textbox", kinds: ["Text"], first: "body", inserts: inserts, insert: insertHere)
+        case .shape:
+            InsertMenu(
+                title: "Shape", symbol: "square.on.circle", kinds: ["Shape", "Shader"], first: "rect", inserts: inserts,
+                insert: insertHere)
+        case .image:
+            InsertMenu(title: "Image", symbol: "photo", kinds: ["Image"], first: nil, inserts: inserts, insert: insertHere)
+        case .chart:
+            InsertMenu(title: "Chart", symbol: "chart.bar", kinds: ["Chart"], first: nil, inserts: inserts, insert: insertHere)
+        case .table:
+            InsertMenu(title: "Table", symbol: "tablecells", kinds: ["Table"], first: nil, inserts: inserts, insert: insertHere)
+        }
+    }
+
+    /// The assistant, shown or put away.
+    private var assisting: some View {
+        Toggle(isOn: $showsAssistant) {
+            Label("Assistant", systemImage: "sparkles")
+        }
+        .help("Ask about the deck, or for an edit, with your own key (⌥⌘A)")
+    }
+
+    /// The inspector shown at `tab`, or put away.
+    private func tabbing(_ tab: InspectorTab) -> some View {
+        Toggle(isOn: showing(tab)) {
+            Label(tab.title, systemImage: tab.symbol)
+        }
+        .help(tab.help)
     }
 
     /// What the window shows: the slide, or every slide on the light table; and, off until asked

@@ -122,17 +122,23 @@ enum Desk {
 }
 
 /// Panes side by side, or one above another: split views the user divides on the Mac; on the
-/// iPad, stacked, each pane at its own size (PLAN 4.2).
+/// iPad, stacked, each pane at its own size (PLAN 4.2). A pane alone is in no split view on the
+/// Mac (PLAN 3.27): one under the slides' floating column counts that column's width again in the
+/// narrowest the window may be.
 struct Panes<Content: View>: View {
     let axis: Axis
     @ViewBuilder let content: Content
 
     var body: some View {
         #if os(macOS)
-        if axis == .horizontal {
-            HSplitView { content }
-        } else {
-            VSplitView { content }
+        Group(subviews: content) { panes in
+            if panes.count < 2 {
+                ForEach(panes) { pane in pane }
+            } else if axis == .horizontal {
+                HSplitView { ForEach(panes) { pane in pane } }
+            } else {
+                VSplitView { ForEach(panes) { pane in pane } }
+            }
         }
         #else
         if axis == .horizontal {
