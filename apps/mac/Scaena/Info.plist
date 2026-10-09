@@ -40,6 +40,19 @@
 				<string>com.scaena.deck</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Zipped Scaena Deck</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.scaena.deck.zip</string>
+				<string>public.zip-archive</string>
+			</array>
+		</dict>
 	</array>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
@@ -51,6 +64,24 @@
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>com.apple.package</string>
+				<string>public.composite-content</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>scaena</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.scaena.deck.zip</string>
+			<key>UTTypeDescription</key>
+			<string>Zipped Scaena Deck</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.zip-archive</string>
 				<string>public.composite-content</string>
 			</array>
 			<key>UTTypeTagSpecification</key>

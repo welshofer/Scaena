@@ -8,6 +8,11 @@ extension UTType {
     /// fonts, images, data, and its history (SPEC §3.1). A `.scaena` zip opens too, and is
     /// saved as the folder.
     static let scaenaDeck = UTType(exportedAs: "com.scaena.deck", conformingTo: .package)
+
+    /// A Scaena bundle zipped, as `scaena save` and the browser's download write one. It shares
+    /// the `.scaena` extension: macOS gives a folder `scaenaDeck` and a file this, as Keynote's
+    /// `.key` is a package or a flat file.
+    static let scaenaDeckZip = UTType(exportedAs: "com.scaena.deck.zip", conformingTo: .zip)
 }
 
 /// A deck open in the app: the session the browser edits (ADR-0021), edited as the browser's
@@ -15,7 +20,7 @@ extension UTType {
 /// each edit since the last save recorded in its history (PLAN 3.3, SPEC §8). macOS keeps its
 /// versions, as it does any document's that saves in place.
 final class ScaenaDocument: ReferenceFileDocument {
-    static var readableContentTypes: [UTType] { [.scaenaDeck, .zip] }
+    static var readableContentTypes: [UTType] { [.scaenaDeck, .scaenaDeckZip, .zip] }
     static var writableContentTypes: [UTType] { [.scaenaDeck] }
 
     let editor: DeckEditor
