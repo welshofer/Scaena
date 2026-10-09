@@ -128,3 +128,12 @@ Gate 3 is open. Every task of Phase 3 has landed, and `docs/gate-3.md` holds the
 - Criterion 1, the web player's pixels, is met on CI's Mac: the session's display lists digest as the goldens, and vello on Metal paints every torture state within SPEC §13.5 of them, as the web player's painters do.
 - Criterion 3, no text layout in SwiftUI, is met for everything that draws a deck, and `crates/scaena-ffi/tests/chrome.rs` holds every Swift file to it. Jay's call is open on the source pane's `NSTextView`: TextKit in chrome, which SPEC §9.3 allows and invariant 8 as written does not.
 - Criterion 2, B1's first frame within 300 ms of opening, waits on the release build on an M-series Mac; the steps are in the doc. The `mac-app` workflow reads it the same way on CI's virtual Mac: 32–35 ms, once the GPU the app makes as it starts is made, which is not the gate's reading.
+
+## Phase 4
+
+The iPad client (SPEC §9.4, ADR-0023), started on Jay's call on 2026-10-09 with gate 3 open, not waived: gate 3 is logged met when his Mac's run meets it.
+- **One ScaenaKit, one app's sources.** The iPad shares the Mac's ScaenaKit and compiles the Mac app's SwiftUI: what is platform-neutral as it is, and a UIKit twin beside each AppKit piece (the Metal view, the pasteboard, the canvas's text input).
+- **Xcode builds it.** The app is an Xcode project that XcodeGen makes from `apps/ipad/project.yml`, and a build phase builds the engine with cargo for the platform Xcode builds for.
+- **A touch is the Mac's gesture.** Each makes the patch the Mac's pointer makes, through the same ScaenaKit functions.
+
+The tasks are PLAN 4.1–4.10, the remote (SPEC §9.5) last; gate 4's criteria are PLAN's.
