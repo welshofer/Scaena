@@ -1918,17 +1918,13 @@ pub mod gpu {
             }
         }
 
-        /// The device a painter asks `adapter` for: the largest textures and buffers it holds,
-        /// not wgpu's defaults (8192 pixels a side, 128 MiB a shader's pixels), so a raster the
-        /// CPU painter makes, this one makes too, where the GPU can.
+        /// The device a painter asks `adapter` for: all the adapter holds, not wgpu's defaults,
+        /// which are WebGPU's. It may hold more: the largest textures and buffers, not 8192
+        /// pixels a side and 128 MiB of a shader's pixels, so a raster the CPU painter makes,
+        /// this one makes too, where the GPU can. Or less: Metal on iPadOS passes 15 variables
+        /// between a shader's stages, not 16, and a device asked for 16 is refused (PLAN 4.1).
         fn descriptor(adapter: &wgpu::Adapter) -> wgpu::DeviceDescriptor<'static> {
-            let most = adapter.limits();
-            let required_limits = wgpu::Limits {
-                max_buffer_size: most.max_buffer_size,
-                max_storage_buffer_binding_size: most.max_storage_buffer_binding_size,
-                ..wgpu::Limits::default().using_resolution(most)
-            };
-            wgpu::DeviceDescriptor { label: Some("scaena"), required_limits, ..Default::default() }
+            wgpu::DeviceDescriptor { label: Some("scaena"), required_limits: adapter.limits(), ..Default::default() }
         }
 
         /// The GPU every layer in this process paints with (PLAN 3.2): one adapter, one device,
