@@ -182,7 +182,7 @@ struct CanvasMenu: NSViewRepresentable {
         switch offer {
         case .action(let title, let symbol, _, let run):
             let action = MenuRun(run)
-            let item = NSMenuItem(title: title, action: #selector(MenuRun.perform), keyEquivalent: "")
+            let item = NSMenuItem(title: title, action: #selector(MenuRun.chosen), keyEquivalent: "")
             item.target = action
             // The item keeps what it runs: a menu item's target is not kept.
             item.representedObject = action
@@ -210,6 +210,7 @@ final class MenuRun: NSObject {
         self.run = run
     }
 
-    @objc func perform() { run() }
+    /// The item chosen. Not `perform`: NSObject's own `perform(_:)` makes that selector ambiguous.
+    @objc func chosen() { run() }
 }
 #endif
