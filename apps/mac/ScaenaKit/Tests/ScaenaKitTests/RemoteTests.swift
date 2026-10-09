@@ -22,8 +22,29 @@ private func waited(_ seconds: Double = 10, _ holds: () -> Bool) async -> Bool {
 }
 
 /// The presenter at `port` on this machine.
-private func here(_ port: UInt16) -> NWEndpoint {
-    .hostPort(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!)
+private func here(_ port: UInt16, host: NWEndpoint.Host = "127.0.0.1") -> NWEndpoint {
+    .hostPort(host: host, port: NWEndpoint.Port(rawValue: port)!)
+}
+
+/// The states a connection went through.
+@MainActor
+private final class Seen {
+    var states: [String] = []
+}
+
+/// What became of a connection of the test's own to `endpoint` with `parameters` within `seconds`:
+/// each state it went through, in words. Where a remote does not join, it says why.
+@MainActor
+private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds: Double = 5) async -> String {
+    let seen = Seen()
+    let connection = NWConnection(to: endpoint, using: parameters)
+    connection.stateUpdateHandler = { state in
+        MainActor.assumeIsolated { seen.states.append("\(state)") }
+    }
+    connection.start(queue: .main)
+    _ = await waited(seconds) { seen.states.last == "ready" }
+    connection.cancel()
+    return seen.states.joined(separator: " → ")
 }
 
 /// A remote joins a presenter with its code, here over the loopback (PLAN 4.10): it hears where the
@@ -41,7 +62,20 @@ private func here(_ port: UInt16) -> NWEndpoint {
     server.tell(cover)
 
     let remote = RemoteClient(here(port), code: "4821")
-    #expect(await waited { remote.status == .joined }, "the remote joins with the code: \(remote.status)")
+    guard await waited(10, { remote.status == .joined }) else {
+        // Why not, as connections of the test's own find the presenter: TCP alone to either
+        // loopback address, then TLS with the code.
+        let v4 = await tried(here(port), .tcp)
+        let v6 = await tried(here(port, host: "::1"), .tcp)
+        let tls = await tried(here(port), Remote.parameters(code: "4821"))
+        let why =
+            "the remote joins with the code: \(remote.status); TCP to 127.0.0.1: \(v4); TCP to ::1: \(v6); "
+            + "TLS with the code: \(tls)"
+        Issue.record("\(why)")
+        remote.leave()
+        server.stop()
+        return
+    }
     #expect(await waited { remote.place == cover }, "it hears where the show is as it joins")
     #expect(await waited { heard.joined == 1 }, "the presenter counts it")
     remote.send(.on)
