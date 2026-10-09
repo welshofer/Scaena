@@ -161,7 +161,17 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   if [[ "${th:-}" =~ ^[0-9]+$ ]]; then
     echo "the toolbar's Text: $tx $ty $tw $th"
     pointer click $((tx + tw / 2)) $((ty + th / 2))
-    sleep 2
+    # Typed once the hint over the slide says the text is typed in: on CI's virtual Mac the insert
+    # has taken longer than two seconds, and words typed before it went to the canvas as its keys.
+    typing="not within 20 s"
+    for waited in $(seq 0 20); do
+      if [[ "$(frames saying Editing)" =~ ^-?[0-9]+\ -?[0-9]+ ]]; then
+        typing="within $waited s"
+        break
+      fi
+      sleep 1
+    done
+    echo "the text inserted, typed in: $typing"
     shot inserted
     events 'keystroke "Seen on a Mac"'
     sleep 2
