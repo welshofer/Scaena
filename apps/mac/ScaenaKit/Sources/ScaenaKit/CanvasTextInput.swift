@@ -4,6 +4,11 @@
 import Observation
 import SwiftUI
 import UIKit
+import os
+
+/// What the canvas's keys do, at the debug level, which nothing keeps unless asked: the iPad's UI
+/// tests stream it to say where a key went (`apps/ipad/app-test.sh`, PLAN 4.6).
+private let keysLog = Logger(subsystem: "com.welshofer.Scaena", category: "keys")
 
 /// The canvas's keys on the iPad (PLAN 4.4), as the Mac's are (PLAN 3.9, 3.10): a view under the
 /// canvas that takes the keyboard while a text is typed in, and hands `Typing` what the text input
@@ -85,6 +90,7 @@ public final class CanvasKeys: UIView {
 
     public override func resignFirstResponder() -> Bool {
         let resigned = super.resignFirstResponder()
+        keysLog.debug("text input resigned: \(resigned)")
         // Focus gone to the source, an editor of its own (a text input that scrolls), stops typing,
         // as on the Mac; a field (the inspector's, or the one ⌘K asks in) leaves it as it is.
         Task { @MainActor [weak self] in
@@ -796,8 +802,29 @@ public final class CanvasPresses: UIView {
     private var taken: Set<UIPress> = []
     /// Whether the canvas let the keyboard go: Tab past either end of the slide.
     private var lettingGo = false
+    /// The window's becoming key and an undo's running, logged beside the keys (`keysLog`).
+    private var watching: [NSObjectProtocol] = []
 
     public override var canBecomeFirstResponder: Bool { true }
+
+    public override func didMoveToWindow() {
+        super.didMoveToWindow()
+        let center = NotificationCenter.default
+        for watched in watching { center.removeObserver(watched) }
+        watching = []
+        guard window != nil else { return }
+        let said: [(Notification.Name, String)] = [
+            (UIWindow.didBecomeKeyNotification, "became key"), (UIWindow.didResignKeyNotification, "resigned key"),
+            (UndoManager.willUndoChangeNotification, "will undo"), (UndoManager.didUndoChangeNotification, "did undo"),
+        ]
+        for (name, what) in said {
+            watching.append(
+                center.addObserver(forName: name, object: nil, queue: .main) { note in
+                    let which = note.object.map { String(describing: type(of: $0)) } ?? "none"
+                    keysLog.debug("\(which, privacy: .public) \(what, privacy: .public)")
+                })
+        }
+    }
 
     /// Touches go through to the canvas over it.
     public override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? { nil }
@@ -805,10 +832,14 @@ public final class CanvasPresses: UIView {
     public override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         var rest = Set<UIPress>()
         for press in presses {
+            let code = press.key?.keyCode.rawValue ?? -1
+            let flags = press.key?.modifierFlags.rawValue ?? 0
             if let key = press.key, pressed?(key) == true {
+                keysLog.debug("press \(code) flags \(flags): taken")
                 taken.insert(press)
                 lettingGo = false
             } else {
+                keysLog.debug("press \(code) flags \(flags): passed on")
                 if press.key?.keyCode == .keyboardTab { lettingGo = true }
                 rest.insert(press)
             }
@@ -819,6 +850,7 @@ public final class CanvasPresses: UIView {
     @discardableResult
     public override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
+        keysLog.debug("canvas keys became first responder: \(became)")
         if became { lettingGo = false }
         return became
     }
@@ -826,6 +858,8 @@ public final class CanvasPresses: UIView {
     @discardableResult
     public override func resignFirstResponder() -> Bool {
         let resigned = super.resignFirstResponder()
+        let going = lettingGo
+        keysLog.debug("canvas keys resigned: \(resigned), let go: \(going)")
         if resigned, !lettingGo {
             Task { @MainActor [weak self] in self?.takeBack() }
         }
@@ -834,14 +868,21 @@ public final class CanvasPresses: UIView {
 
     /// The keyboard taken back, once what took it has run, where nothing else has it.
     private func takeBack() {
-        guard let window, window.isKeyWindow, !isFirstResponder, !covered,
-            (superview as? CanvasKeys)?.typing.typing != true
-        else { return }
-        // What has the keys now, if anything: none but what holds the canvas lets it take them.
-        if let holder = CanvasKeys.responder(in: window), holder is UIKeyInput || !isDescendant(of: holder) {
+        let (hasWindow, key, first, over) = (window != nil, window?.isKeyWindow == true, isFirstResponder, covered)
+        let typing = (superview as? CanvasKeys)?.typing.typing == true
+        guard let window, key, !first, !over, !typing else {
+            keysLog.debug(
+                "take back: no; window \(hasWindow), key \(key), first \(first), covered \(over), typing \(typing)")
             return
         }
-        becomeFirstResponder()
+        // What has the keys now, if anything: none but what holds the canvas lets it take them.
+        if let holder = CanvasKeys.responder(in: window), holder is UIKeyInput || !isDescendant(of: holder) {
+            let name = String(describing: type(of: holder))
+            keysLog.debug("take back: no; \(name, privacy: .public) has the keys")
+            return
+        }
+        let became = becomeFirstResponder()
+        keysLog.debug("take back: \(became)")
     }
 
     /// Whether a sheet, a popover, or an alert shows over the canvas.
