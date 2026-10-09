@@ -84,8 +84,12 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
     server.tell(goal)
     #expect(await waited { remote.place == goal }, "it hears each place told after")
 
+    // Joined after the remote with the code, from the same process: a session it resumed would
+    // join it without the code.
     let stranger = RemoteClient(here(port), code: "1234", seconds: 3)
-    #expect(await waited { if case .lost = stranger.status { true } else { false } }, "another code is never joined")
+    #expect(
+        await waited { if case .lost = stranger.status { true } else { false } },
+        "another code is never joined: \(stranger.status)")
     stranger.send(.end)
     #expect(stranger.place == nil)
     #expect(heard.asked == [.on], "nothing it asks is heard")

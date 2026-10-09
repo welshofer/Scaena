@@ -22,6 +22,7 @@ Four things are open:
 2. **A code the editor shows lets a remote in.** Turning Remote… on makes a code of four digits. The sheet shows it in the editor, never on the stage, so the audience does not see it.
    - Both ends derive TLS's pre-shared key from the code: HMAC-SHA256 of the protocol's name, keyed with the code. This is Apple's pattern for a peer-to-peer protocol.
    - The connection is TLS 1.2, with `TLS_PSK_WITH_AES_128_GCM_SHA256`, the cipher suite of Apple's pattern, which is TLS 1.2's.
+   - No TLS session is resumed. A connection that resumed one another join made would skip the key, and join without the code; each join proves it again. A handshake with a pre-shared key costs little.
    - A remote without the code fails the handshake, so it is never joined. Nothing passes in the clear.
    - Four digits are what a presentation app's remote pairs with. They guard a show against a passer-by, not against a determined attacker on the same network who records a handshake. That is enough for a slide show, and the code changes each time Remote… is turned on.
 3. **Messages are JSON, each after its length.** Each frame is four bytes big-endian, then the JSON (`ScaenaRemote`'s `RemoteMessage`).

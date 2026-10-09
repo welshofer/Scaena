@@ -22,7 +22,9 @@ public enum Remote {
 
     /// TCP under TLS 1.2 with a key both ends derive from `code`, the identity it is known by in
     /// the handshake the service's: Apple's pattern for a peer-to-peer protocol. Its cipher suite,
-    /// `TLS_PSK_WITH_AES_128_GCM_SHA256`, is TLS 1.2's, so both ends hold to TLS 1.2.
+    /// `TLS_PSK_WITH_AES_128_GCM_SHA256`, is TLS 1.2's, so both ends hold to TLS 1.2. No session is
+    /// resumed: one that resumed a session another join made would join without the code, so each
+    /// join proves it again.
     public static func parameters(code: String) -> NWParameters {
         let tls = NWProtocolTLS.Options()
         let identity = Data("Scaena Remote".utf8)
@@ -34,6 +36,8 @@ public enum Remote {
             tls.securityProtocolOptions, tls_ciphersuite_t(rawValue: UInt16(TLS_PSK_WITH_AES_128_GCM_SHA256))!)
         sec_protocol_options_set_min_tls_protocol_version(tls.securityProtocolOptions, .TLSv12)
         sec_protocol_options_set_max_tls_protocol_version(tls.securityProtocolOptions, .TLSv12)
+        sec_protocol_options_set_tls_resumption_enabled(tls.securityProtocolOptions, false)
+        sec_protocol_options_set_tls_tickets_enabled(tls.securityProtocolOptions, false)
         let tcp = NWProtocolTCP.Options()
         tcp.enableKeepalive = true
         tcp.keepaliveIdle = 2
