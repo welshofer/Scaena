@@ -122,7 +122,14 @@ try {
   await page.waitForFunction(() => document.querySelector("#keys").open, null, { timeout: 5000 }).catch(() => {});
   check(await open(), "the Keys button opens them");
   await page.keyboard.press("Escape");
-  await page.waitForFunction(() => !document.querySelector("#keys").open, null, { timeout: 5000 }).catch(() => {});
+  // Closed, and the focus back on the Keys button that opened it: the sheet gives it back as it
+  // hears its close event, a task after it closes, and focus given back after the canvas is
+  // focused below would take the grid's key from it.
+  await page
+    .waitForFunction(() => !document.querySelector("#keys").open && document.activeElement?.id === "keys-open", null, {
+      timeout: 5000,
+    })
+    .catch(() => {});
 
   // The grid's key, as the sheet says it, draws the grid.
   const grid = rowsOf("See").find((r) => r.label === "Show the grid")?.keys;
