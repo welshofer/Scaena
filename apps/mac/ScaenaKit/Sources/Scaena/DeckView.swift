@@ -99,14 +99,14 @@ struct DeckView: View {
             .focusedSceneValue(\.panes, panes)
     }
 
-    /// The window layout the Mac walk tries (PLAN 3.27; an experiment, not to land): the launch
-    /// argument `-ScaenaWindow` names it by letters, B for the inspector on the whole split view
-    /// rather than its detail, C for stacks in place of split views where one pane shows.
-    private static let trying = UserDefaults.standard.string(forKey: "ScaenaWindow") ?? ""
-
     /// The states down the side; beside them the canvas and the rest; and the toolbar.
     private var window: some View {
-        inspected(split, whole: true)
+        NavigationSplitView {
+            StateList(editor: editor, chosen: $chosen, make: restage, add: addState)
+                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 320)
+        } detail: {
+            detail
+        }
         #if os(macOS)
         .toolbar(id: "deck") { customizable }
         #else
@@ -114,41 +114,40 @@ struct DeckView: View {
         #endif
     }
 
-    private var split: some View {
-        NavigationSplitView {
-            StateList(editor: editor, chosen: $chosen, make: restage, add: addState)
-                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 320)
-        } detail: {
-            inspected(detail, whole: false)
+    /// The canvas and the panes beside it, and the inspector. On the Mac the inspector is a column
+    /// of the window's own, as a presentation app's is (PLAN 3.27): the system's inspector is a
+    /// split view under the slides' floating column, and each split view there counts that
+    /// column's width again in the narrowest the window may be.
+    @ViewBuilder private var detail: some View {
+        #if os(macOS)
+        HStack(spacing: 0) {
+            divided
+            if showsInspector {
+                Divider()
+                inspectorColumn
+                    .frame(width: 300)
+                    .background(Color(nsColor: .windowBackgroundColor))
+            }
         }
+        #else
+        divided
+            .inspector(isPresented: $showsInspector) {
+                inspectorColumn
+                    .inspectorColumnWidth(min: 260, ideal: 300, max: 480)
+            }
+        #endif
     }
 
-    /// `view` with the inspector beside it, where the layout tried puts it.
-    @ViewBuilder private func inspected(_ view: some View, whole: Bool) -> some View {
-        if whole == Self.trying.contains("B") {
-            view.inspector(isPresented: $showsInspector) {
-                InspectorColumn(editor: editor, tab: $tab, document: $documentPanel, edits: panelEdits) {
-                    inspecting(.format)
-                } animate: {
-                    inspecting(.animate)
-                }
-                .inspectorColumnWidth(min: 260, ideal: 300, max: 480)
-            }
-        } else {
-            view
+    /// The inspector's tabs: the object selected, or the slide with none, and the deck as a whole.
+    private var inspectorColumn: some View {
+        InspectorColumn(editor: editor, tab: $tab, document: $documentPanel, edits: panelEdits) {
+            inspecting(.format)
+        } animate: {
+            inspecting(.animate)
         }
     }
 
     /// The source, the canvas with its cue and the findings, and the assistant.
-    @ViewBuilder private var detail: some View {
-        if Self.trying.contains("C"), !showsSource, !showsFindings, !showsAssistant {
-            middle
-                .frame(minWidth: 360, minHeight: 240)
-        } else {
-            divided
-        }
-    }
-
     private var divided: some View {
         Panes(axis: .horizontal) {
             if showsSource {

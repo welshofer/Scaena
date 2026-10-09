@@ -21,7 +21,6 @@ codesign --force --sign - "$app"
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app"
 cd "$root"
 cargo run -q -p scaena-cli --locked -- save docs/examples/trails.deck.json --to "$out/trails.scaena"
-cp -R "$out/trails.scaena" "$out/trial.scaena"
 system_profiler SPDisplaysDataType | grep -i resolution || true
 open -a "$app" "$out/trails.scaena"
 # The window, its states drawn small, and the canvas painted.
@@ -104,6 +103,10 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   toggle Toolbar
   echo "narrowest, the toolbar hidden: $(narrowest)"
   toggle Toolbar
+  # A second pane beside the canvas, in a split view the user divides.
+  toggle Source
+  echo "narrowest, the source shown: $(narrowest)"
+  toggle Source
 
   # The window fitted to the screen, as small as its content lets it be; where it is still wider,
   # the walk goes on with the slides hidden, so what it clicks is on the screen.
@@ -184,24 +187,6 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   frames holds canvas
   events 'key code 53'
   sleep 1
-
-  # Each other layout the window may take, from a launch of its own on the deck as it was saved
-  # (PLAN 3.27; an experiment, not to land): B, the inspector on the whole split view; C, stacks
-  # in place of split views where one pane shows; both. The deck is edited now: no saving it, so
-  # no asking.
-  for trying in B C BC; do
-    pkill -x Scaena || true
-    for _ in $(seq 10); do pgrep -x Scaena >/dev/null || break; sleep 1; done
-    open -a "$app" "$out/trial.scaena" --args -ScaenaWindow "$trying" -ApplePersistenceIgnoreState YES
-    sleep 15
-    osascript -e 'tell application "Scaena" to activate' || true
-    echo "layout $trying, as opened: $(window)"
-    app "set position of window 1 to {$vx, $vy}" >/dev/null
-    echo "layout $trying, narrowest: $(narrowest)"
-    shot "layout-$trying"
-    inspector
-    echo "layout $trying, narrowest, the inspector hidden: $(narrowest)"
-  done
 fi
 # The deck is edited now: no saving it, so no asking.
 pkill -x Scaena || true
