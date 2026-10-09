@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/patch-0.17.json",
+  "$id": "https://scaena.dev/schema/patch-0.18.json",
   "title": "Scaena patch",
   "description": "A patch (SPEC §7.3): RFC 6902 ops and semantic ops, applied in order, all or none.",
   "type": "array",
@@ -220,7 +220,7 @@
           }
         },
         {
-          "description": "The look of characters selected in a text node (ADR-0013, PLAN 2.38): characters `from` to `to` of its text as `state` shows it, counted as `replace_text` counts them, take each key of `look`: a run's `role`, `emphasis`, or `lang`, or one key of its `style` (`style/weight`, `style/color`); a key set to `null` is taken away, so the node's own look shows there. The text becomes runs split at `from` and `to`; neighbors left alike are joined, and runs that all read as the node does are its `text` again. It is written where the text lives, as `replace_text` writes typing. A size, and a color written out, are refused: a size comes with a role, and a run takes the theme's names.",
+          "description": "The look of characters selected in a text node (ADR-0013, PLAN 2.38): characters `from` to `to` of its text as `state` shows it, counted as `replace_text` counts them, take each key of `look`: a run's `role`, `emphasis`, or `lang`, one key of its `style` (`style/weight`, `style/color`, `style/tracking`), or one of its OpenType features or axes by tag (`features/kern`, `axes/wght`, PLAN 1.38); a key set to `null` is taken away, so the node's own look shows there. The text becomes runs split at `from` and `to`; neighbors left alike are joined, and runs that all read as the node does are its `text` again. It is written where the text lives, as `replace_text` writes typing. A size, and a color written out, are refused: a size comes with a role, and a run takes the theme's names.",
           "type": "object",
           "required": ["op", "node", "from", "to", "look"],
           "additionalProperties": false,
@@ -1280,6 +1280,16 @@
           "description": "What this run changes about its role's look, after the node's `style` when the run is set in the node's role (SPEC §3.6).",
           "$ref": "#/$defs/TextStyle"
         },
+        "features": {
+          "description": "OpenType features for this run, after the node's (SPEC §3.3, PLAN 1.38): `kern: false` sets a pair loose, `ss01: true` a word in a stylistic set. A change of them shapes the run apart from its neighbors, as a change of font does.",
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/FeatureValue" }
+        },
+        "axes": {
+          "description": "Variable-font axis values for this run, after the node's (PLAN 1.38).",
+          "type": "object",
+          "additionalProperties": { "type": "number" }
+        },
         "lang": { "type": "string" },
         "link": {
           "description": "Where the run goes when it is followed (SPEC §3.5, PLAN 2.70): a web address, or a state of the deck. It is drawn underlined.",
@@ -1292,6 +1302,7 @@
       }
     },
     "Emphasis": { "type": "string", "enum": ["high", "low"] },
+    "FeatureValue": { "anyOf": [{ "type": "boolean" }, { "type": "integer" }] },
     "Link": {
       "description": "Where a link goes (PLAN 2.70): a web address (`https:`, `http:`, or `mailto:`), which the player opens in a new window, or a state of the deck, which it shows.",
       "type": "object",
@@ -1352,7 +1363,6 @@
     },
     "Wrap": { "type": "string", "enum": ["greedy", "pretty", "balance"] },
     "TextBox": { "type": "string", "enum": ["cap", "line"] },
-    "FeatureValue": { "anyOf": [{ "type": "boolean" }, { "type": "integer" }] },
     "Numeric": {
       "type": "string",
       "enum": ["tabular-lining", "tabular-oldstyle", "proportional-lining", "proportional-oldstyle"]

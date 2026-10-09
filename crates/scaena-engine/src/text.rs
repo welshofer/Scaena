@@ -96,6 +96,10 @@ pub struct Span {
     pub base_italic: bool,
     /// Where it goes when it is followed (PLAN 2.70): it is drawn underlined.
     pub link: Option<LinkTarget>,
+    /// The run's own OpenType features and variable-font axes, set after the node's (PLAN
+    /// 1.38). A change of them shapes the span apart from its neighbors.
+    pub features: BTreeMap<String, u16>,
+    pub axes: BTreeMap<String, f32>,
 }
 
 /// A span of the text as written, as an editor reads its look (ADR-0013, PLAN 2.38).
@@ -518,6 +522,8 @@ impl TextSpec {
                 base_italic: role.italic,
                 style: role.clone(),
                 link: None,
+                features: BTreeMap::new(),
+                axes: BTreeMap::new(),
             }],
             role,
             features: BTreeMap::new(),
@@ -577,15 +583,15 @@ impl TextEngine {
         };
         let mut layout = {
             let mut builder = self.lcx.ranged_builder(&mut fonts.cx, &text, 1.0, false);
-            for prop in style_props(theme, base, spec)? {
+            for prop in style_props(theme, base, spec, None)? {
                 builder.push_default(prop);
             }
             let mut at = 0;
             for (span, t) in spec.spans.iter().zip(&cased) {
                 let range = at..at + t.len();
                 at = range.end;
-                if span.style != spec.role {
-                    for prop in style_props(theme, &span.style, spec)? {
+                if span.style != spec.role || !span.features.is_empty() || !span.axes.is_empty() {
+                    for prop in style_props(theme, &span.style, spec, Some(span))? {
                         builder.push(prop, range.clone());
                     }
                 }
@@ -603,7 +609,7 @@ impl TextEngine {
             let range = at..at + t.len();
             at = range.end;
             if t.contains(SHY) {
-                hyphens.push(self.hyphen(fonts, theme, spec, &span.style, range)?);
+                hyphens.push(self.hyphen(fonts, theme, spec, span, range)?);
             }
         }
 
@@ -693,7 +699,8 @@ impl TextEngine {
             let (Some(item), Some(at)) = (item, read.lines.iter().position(|l| l.paragraph == k)) else { continue };
             let start = read.lines[at].text.start;
             let span = starts.iter().rposition(|&s| s <= start).unwrap_or(0);
-            let (mut run, advance) = self.shaped(fonts, theme, spec, &spec.spans[span].style, &item.marker)?;
+            let first = &spec.spans[span];
+            let (mut run, advance) = self.shaped(fonts, theme, spec, &first.style, Some(first), &item.marker)?;
             let (indent, gap) = (indents[k], spec.list_gap * em);
             let x = if read.rtl { width - indent + gap } else { indent - gap - advance };
             let baseline = read.lines[at].baseline;
@@ -730,32 +737,33 @@ impl TextEngine {
         Ok(read)
     }
 
-    /// The hyphen text in `style` draws at a line it breaks inside a word: `-` shaped in
-    /// that look, so the breaking reserves exactly the width it draws.
+    /// The hyphen `span` draws at a line it breaks inside a word: `-` shaped in its look, so
+    /// the breaking reserves exactly the width it draws.
     fn hyphen(
         &mut self,
         fonts: &mut BundleFonts,
         theme: &Theme,
         spec: &TextSpec,
-        style: &TextRole,
+        span: &Span,
         range: Range<usize>,
     ) -> Result<Hyphen, EngineError> {
-        let (run, advance) = self.shaped(fonts, theme, spec, style, "-")?;
+        let (run, advance) = self.shaped(fonts, theme, spec, &span.style, Some(span), "-")?;
         Ok(Hyphen { range, advance, run })
     }
 
-    /// `text`, a hyphen or a list item's marker, shaped on one line in `style`: its glyphs from
-    /// x = 0 on their own baseline, and its advance.
+    /// `text`, a hyphen or a list item's marker, shaped on one line in `style`, with `run`'s
+    /// own features and axes: its glyphs from x = 0 on their own baseline, and its advance.
     fn shaped(
         &mut self,
         fonts: &mut BundleFonts,
         theme: &Theme,
         spec: &TextSpec,
         style: &TextRole,
+        run: Option<&Span>,
         text: &str,
     ) -> Result<(GlyphRun, f32), EngineError> {
         let mut builder = self.lcx.ranged_builder(&mut fonts.cx, text, 1.0, false);
-        for prop in style_props(theme, style, spec)? {
+        for prop in style_props(theme, style, spec, run)? {
             builder.push_default(prop);
         }
         let mut layout = builder.build(text);
@@ -780,7 +788,7 @@ impl TextEngine {
     /// `ch` in the node's look: the advance of `0` (CSS `ch`), which `measure` counts in.
     fn ch(&mut self, fonts: &mut BundleFonts, theme: &Theme, spec: &TextSpec) -> Result<f32, EngineError> {
         let mut builder = self.lcx.ranged_builder(&mut fonts.cx, "0", 1.0, false);
-        for prop in style_props(theme, &spec.role, spec)? {
+        for prop in style_props(theme, &spec.role, spec, None)? {
             builder.push_default(prop);
         }
         let mut layout = builder.build("0");
@@ -891,11 +899,13 @@ fn upright(theme: &Theme, spec: &TextSpec) -> Vec<String> {
     out
 }
 
-/// parley style properties for text set in `role`, with the node's settings on top.
+/// parley style properties for text set in `role`, with the node's settings on top, and a
+/// run's own features and axes on top of those (PLAN 1.38).
 fn style_props(
     theme: &Theme,
     role: &TextRole,
     spec: &TextSpec,
+    run: Option<&Span>,
 ) -> Result<Vec<StyleProperty<'static, Ink>>, EngineError> {
     // A size or line height past f32's range sets glyphs or lines an infinite length apart,
     // which parley breaks into lines forever, and letter spacing past it sets glyphs
@@ -911,7 +921,7 @@ fn style_props(
     let family =
         FontFamily::List(Cow::Owned(stack.into_iter().map(|n| FontFamilyName::Named(Cow::Owned(n))).collect()));
 
-    // Features, later wins: family defaults, role, numeral style (node over role), node.
+    // Features, later wins: family defaults, role, numeral style (node over role), node, run.
     let mut features: BTreeMap<String, u16> = match theme.families().get(&role.family) {
         Some(f) => crate::theme::features(f.features.as_ref())
             .map_err(|e| EngineError::Theme(format!("family `{}`: {e}", role.family)))?,
@@ -925,16 +935,22 @@ fn style_props(
         features.insert("smcp".into(), 1);
     }
     features.extend(spec.features.iter().map(|(k, v)| (k.clone(), *v)));
+    if let Some(run) = run {
+        features.extend(run.features.iter().map(|(k, v)| (k.clone(), *v)));
+    }
     let features: Vec<FontFeature> =
         features.iter().map(|(k, v)| Ok(FontFeature::new(tag(k)?, *v))).collect::<Result<_, EngineError>>()?;
 
     // Variations: `opsz` from the role, else the size (CSS `font-optical-sizing: auto`),
-    // then role and node axes. Weight goes through FontWeight so fontique sets `wght`
+    // then role, node, and run axes. Weight goes through FontWeight so fontique sets `wght`
     // on variable fonts; an explicit `wght` here would fight it.
     let mut axes: BTreeMap<String, f32> = BTreeMap::new();
     axes.insert("opsz".into(), role.opsz.unwrap_or(role.size));
     axes.extend(role.axes.iter().map(|(k, v)| (k.clone(), *v)));
     axes.extend(spec.axes.iter().map(|(k, v)| (k.clone(), *v)));
+    if let Some(run) = run {
+        axes.extend(run.axes.iter().map(|(k, v)| (k.clone(), *v)));
+    }
     let variations: Vec<FontVariation> =
         axes.iter().map(|(k, v)| Ok(FontVariation::new(tag(k)?, *v))).collect::<Result<_, EngineError>>()?;
 

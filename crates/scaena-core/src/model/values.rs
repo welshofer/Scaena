@@ -429,6 +429,14 @@ pub struct Run {
     /// is set in the node's role (SPEC §3.6).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub style: Option<TextStyle>,
+    /// OpenType features for this run, after the node's (SPEC §3.3, PLAN 1.38): `kern: false`
+    /// sets a pair loose, `ss01: true` a word in a stylistic set. A change of them shapes the
+    /// run apart from its neighbors, as a change of font does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub features: Option<Features>,
+    /// Variable-font axis values for this run, after the node's (PLAN 1.38).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub axes: Option<FontAxes>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lang: Option<String>,
     /// Where the run goes when it is followed (SPEC §3.5, PLAN 2.70): a web address, or a state

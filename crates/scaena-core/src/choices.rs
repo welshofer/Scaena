@@ -275,12 +275,15 @@ pub fn choices(
 
 /// What an inspector edits on characters selected in a text (PLAN 2.38): a run's own, which
 /// `style_text` sets. A run takes the theme's names only, so a color has no override.
-const CHARACTERS: [(&str, Source); 6] = [
+const CHARACTERS: [(&str, Source); 7] = [
     ("role", Names(V::TextRole, false)),
     ("emphasis", Schema(false)),
     ("style/family", Names(V::FontFamily, false)),
     ("style/weight", Schema(false)),
     ("style/italic", Schema(false)),
+    // In em after each character selected, on top of the font's kerning: on a pair's first
+    // letter, the space between the two (PLAN 1.38).
+    ("style/tracking", Schema(false)),
     ("style/color", Names(V::Color, false)),
 ];
 

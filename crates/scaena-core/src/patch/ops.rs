@@ -713,7 +713,7 @@ fn style_text(
 ) -> Result<Vec<JsonOp>, String> {
     if look.is_empty() {
         return Err(
-            "`look` names nothing to set: a run's `role`, `emphasis`, `lang`, `link`, `quote`, or one key of its `style`".into(),
+            "`look` names nothing to set: a run's `role`, `emphasis`, `lang`, `link`, `quote`, or one key of its `style`, `features`, or `axes`".into(),
         );
     }
     for (key, value) in look {
@@ -734,9 +734,22 @@ fn style_text(
                 ));
             }
             ("style", Some(k)) if STYLE_KEYS.contains(&k) => {}
+            // A run's own OpenType feature or axis, by its tag (PLAN 1.38).
+            ("features" | "axes", Some(tag)) if !is_tag(tag) => {
+                return Err(format!(
+                    "`{key}`: an OpenType tag is four letters, digits, or spaces, as `kern` or `ss01`"
+                ));
+            }
+            ("features", Some(_))
+                if value.is_null() || value.is_boolean() || value.as_u64().is_some_and(|n| n <= 0xFFFF) => {}
+            ("features", Some(_)) => {
+                return Err(format!("`{key}` is on (`true`), off (`false`), or an alternate's index, not {value}"));
+            }
+            ("axes", Some(_)) if value.is_null() || value.is_number() => {}
+            ("axes", Some(_)) => return Err(format!("`{key}` is the axis's value, a number, not {value}")),
             _ => {
                 return Err(format!(
-                    "a run's look is its `role`, `emphasis`, `lang`, `link`, `quote`, or one key of its `style` ({}), not `{key}`",
+                    "a run's look is its `role`, `emphasis`, `lang`, `link`, `quote`, one key of its `style` ({}), or one of its `features/<tag>` or `axes/<tag>`, not `{key}`",
                     STYLE_KEYS.iter().map(|k| format!("`style/{k}`")).collect::<Vec<_>>().join(", ")
                 ));
             }
@@ -768,6 +781,11 @@ fn style_text(
         ("runs".into(), None, Value::Array(runs))
     };
     shown.write(d, node, state, fork, vec![entry], shown.prop())
+}
+
+/// An OpenType tag: four printable ASCII characters, as `kern`, `ss01`, or `wght`.
+fn is_tag(tag: &str) -> bool {
+    tag.len() == 4 && tag.bytes().all(|b| (0x20..=0x7E).contains(&b))
 }
 
 /// The keys of a run's `style` that `style_text` sets: the theme's names, and numbers that

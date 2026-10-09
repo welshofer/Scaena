@@ -1,5 +1,5 @@
 {
-  "scaena": "0.17",
+  "scaena": "0.18",
   "_comment": "W423 clean: a chart reads @sales in the beat's state.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

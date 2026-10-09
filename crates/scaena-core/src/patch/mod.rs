@@ -278,9 +278,10 @@ pub enum SemanticOp {
     },
     /// The look of characters selected in a text node (ADR-0013, PLAN 2.38): characters
     /// `from` to `to` of its text as `state` shows it, counted as `replace_text` counts them,
-    /// take each key of `look`: a run's `role`, `emphasis`, or `lang`, or one key of its
-    /// `style` (`style/weight`, `style/color`); a key set to `null` is taken away, so the
-    /// node's own look shows there. The text becomes runs split at `from` and `to`; neighbors
+    /// take each key of `look`: a run's `role`, `emphasis`, or `lang`, one key of its `style`
+    /// (`style/weight`, `style/color`, `style/tracking`), or one of its OpenType features or
+    /// axes by tag (`features/kern`, `axes/wght`, PLAN 1.38); a key set to `null` is taken
+    /// away, so the node's own look shows there. The text becomes runs split at `from` and `to`; neighbors
     /// left alike are joined, and runs that all read as the node does are its `text` again.
     /// It is written where the text lives, as `replace_text` writes typing. A size, and a
     /// color written out, are refused: a size comes with a role, and a run takes the theme's

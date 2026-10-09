@@ -1,5 +1,5 @@
 {
-  "scaena": "0.17",
+  "scaena": "0.18",
   "meta": {
     "title": "Typography torture deck",
     "author": "Scaena",
@@ -1056,8 +1056,42 @@
           12
         ],
         "row": [
-          5,
-          6
+          4,
+          5
+        ]
+      }
+    },
+    "kern-pair": {
+      "type": "text",
+      "role": "kern",
+      "runs": [
+        {
+          "text": "A",
+          "style": {
+            "tracking": -0.04
+          }
+        },
+        {
+          "text": "VATAR "
+        },
+        {
+          "text": "To",
+          "features": {
+            "kern": false
+          }
+        },
+        {
+          "text": " LT Wa Yo ff fi"
+        }
+      ],
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          6,
+          7
         ]
       }
     },
@@ -4543,9 +4577,10 @@
           "text": "04 · Kerning-sensitive pairs · kill"
         },
         "kern-on": {},
-        "kern-off": {}
+        "kern-off": {},
+        "kern-pair": {}
       },
-      "notes": "Pass: AV, To, LT, Wa and Yo close up in the top line (GPOS kern, -55 to -75 units/em in Roboto Serif) and sit loose in the bottom line with kern off."
+      "notes": "Pass: AV, To, LT, Wa and Yo close up in the top line (GPOS kern, -55 to -75 units/em in Roboto Serif) and sit loose in the middle line with kern off. In the bottom line (PLAN 1.38), AV closes 0.04 em more than in the top line: tracking on the A adds to the font's kerning, which a change of tracking no longer cuts. To sits loose there, a run with kern off of its own, and LT, Wa and Yo kern as in the top line."
     },
     {
       "id": "numerals",

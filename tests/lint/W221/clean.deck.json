@@ -1,5 +1,5 @@
 {
-  "scaena": "0.17",
+  "scaena": "0.18",
   "_comment": "W221 clean: body and caption snap at 40 and 24 cu, whole lines of the 8 cu grid, in both formats.",
   "canvas": {"width": 1920, "height": 1080},
   "formats": ["9:16"],
