@@ -1,4 +1,3 @@
-import AppKit
 import ScaenaKit
 import SwiftUI
 
@@ -69,10 +68,9 @@ struct LightTable: View {
     private func click(_ id: String, in slides: [Slide]) {
         focused = true
         let ids = slides.map(\.id)
-        let flags = NSEvent.modifierFlags
-        if flags.contains(.shift), let anchor, let a = ids.firstIndex(of: anchor), let b = ids.firstIndex(of: id) {
+        if Held.shift, let anchor, let a = ids.firstIndex(of: anchor), let b = ids.firstIndex(of: id) {
             picked = Set(ids[min(a, b)...max(a, b)])
-        } else if flags.contains(.command) {
+        } else if Held.command {
             if picked.contains(id) { picked.remove(id) } else { picked.insert(id) }
             anchor = id
         } else {

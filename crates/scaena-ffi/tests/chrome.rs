@@ -1,9 +1,9 @@
 //! Gate 3's third criterion (PLAN §Phase 3, SPEC §9.3), and gate 4's (SPEC §9.4): the Mac's and
 //! the iPad's SwiftUI own chrome only, and every frame, glyph, and layout of a deck is the
-//! engine's. No Swift in `apps/mac` lays text out or measures it with Core Text or TextKit, by
-//! AppKit or UIKit, or draws a string itself. The one exception is the source pane: an
-//! `NSTextView` of the deck's `.scn`, which is chrome, as the browser's CodeMirror is (invariant 8
-//! bars TextKit from the render path).
+//! engine's. No Swift in `apps/mac` or `apps/ipad` lays text out or measures it with Core Text or
+//! TextKit, by AppKit or UIKit, or draws a string itself. The one exception is the source pane: an
+//! `NSTextView` of the deck's `.scn`, or the iPad's `UITextView`, which is chrome, as the
+//! browser's CodeMirror is (invariant 8 bars TextKit from the render path).
 
 use std::path::{Path, PathBuf};
 
@@ -47,9 +47,10 @@ fn swift(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 #[test]
-fn the_macs_swift_lays_no_text_out() {
+fn the_apps_swift_lays_no_text_out() {
     let mut files = Vec::new();
     swift(Path::new("../../apps/mac/ScaenaKit/Sources"), &mut files);
+    swift(Path::new("../../apps/ipad"), &mut files);
     assert!(files.len() > 10, "the app's Swift is where it was: {files:?}");
     let mut found = Vec::new();
     for file in &files {
@@ -58,7 +59,7 @@ fn the_macs_swift_lays_no_text_out() {
         for (i, line) in text.lines().enumerate() {
             let code = line.split("//").next().unwrap_or_default();
             for what in LAYOUT {
-                if code.contains(what) && !(pane && *what == "NSTextView") {
+                if code.contains(what) && !(pane && (*what == "NSTextView" || *what == "UITextView")) {
                     found.push(format!("{}:{}: {what}", file.display(), i + 1));
                 }
             }

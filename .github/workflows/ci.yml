@@ -200,6 +200,15 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: brew install xcodegen && xcodegen --version && xcodebuild -version
       - run: apps/ipad/test.sh
+      # The app as someone opens it (PLAN 4.2), whether or not ScaenaKit's tests passed.
+      - if: ${{ !cancelled() }}
+        run: apps/ipad/app-test.sh
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ipad-screenshots
+          path: target/ipad/shots
+          if-no-files-found: ignore
   wasm:
     # PLAN 0.8: the engine as WASM in headless Chromium. Every torture state's display list must
     # hash to the native digest (tests/golden/torture/raw.fnv1a) and paint through WebGPU.

@@ -1,4 +1,3 @@
-import AppKit
 import ScaenaKit
 import SwiftUI
 
@@ -211,11 +210,11 @@ private struct ColorRow: View {
 
     /// `color` as `#RRGGBB`, or `#RRGGBBAA` where it is not opaque.
     static func hex(_ color: Color) -> String? {
-        guard let srgb = NSColor(color).usingColorSpace(.sRGB) else { return nil }
-        let byte = { (v: CGFloat) in Int((min(max(v, 0), 1) * 255).rounded()) }
-        let (r, g, b) = (byte(srgb.redComponent), byte(srgb.greenComponent), byte(srgb.blueComponent))
+        guard let srgb = color.srgb else { return nil }
+        let byte = { (v: Double) in Int((min(max(v, 0), 1) * 255).rounded()) }
+        let (r, g, b) = (byte(srgb.red), byte(srgb.green), byte(srgb.blue))
         let rgb = String(format: "#%02X%02X%02X", r, g, b)
-        let alpha = byte(srgb.alphaComponent)
+        let alpha = byte(srgb.alpha)
         return alpha == 255 ? rgb : rgb + String(format: "%02X", alpha)
     }
 }

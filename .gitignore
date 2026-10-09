@@ -8,6 +8,7 @@ Cargo.lock.bak
 /apps/mac/ScaenaKit/.build/
 /apps/mac/ScaenaKit/.swiftpm/
 /apps/ipad/Engine.xcconfig
+/apps/ipad/Team.xcconfig
 /apps/ipad/*.xcodeproj/
 *.scaena.zip
 /tests/**/actual/

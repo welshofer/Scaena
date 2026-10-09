@@ -1,11 +1,14 @@
+#if os(macOS)
 import AppKit
+#endif
 import ScaenaKit
 import SwiftUI
 
 /// The wheel and a pinch over the canvas (PLAN 3.16), as the browser's preview takes them (PLAN
 /// 2.46): a pinch, or the wheel with ⌘, zooms about the pointer; the wheel alone pans what is
 /// zoomed in, and passes on where the whole canvas shows. It reads them as the window gets them,
-/// before any view, and takes no press.
+/// before any view, and takes no press. The iPad's pinch and pan come with PLAN 4.3.
+#if os(macOS)
 struct CanvasWheel: NSViewRepresentable {
     /// Zoom by a factor about a point on the view.
     let zoom: (Double, CGPoint) -> Void
@@ -74,6 +77,7 @@ struct CanvasWheel: NSViewRepresentable {
         }
     }
 }
+#endif
 
 /// What the View menu does to the canvas in the window in front (PLAN 3.16): zoom a step closer or
 /// farther, show the whole canvas, and find in the deck.
@@ -157,7 +161,7 @@ struct FindBar: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(minWidth: 140, idealWidth: 200)
                 .focused($focused)
-                .onSubmit { go(NSEvent.modifierFlags.contains(.shift) ? -1 : 1) }
+                .onSubmit { go(Held.shift ? -1 : 1) }
             Toggle("Aa", isOn: $matchCase)
                 .toggleStyle(.button)
                 .help("Match case")
@@ -205,7 +209,14 @@ struct FindBar: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .onAppear { focused = true }
+        #if os(macOS)
         .onExitCommand { close() }
+        #else
+        .onKeyPress(.escape) {
+            close()
+            return .handled
+        }
+        #endif
         .task(id: "\(text)\u{1f}\(matchCase)\u{1f}\(words)\u{1f}\(editor.revision)") { search() }
     }
 

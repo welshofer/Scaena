@@ -1,7 +1,9 @@
-# The iPad client's Xcode project (PLAN 4.1, ADR-0023), made by XcodeGen and kept out of the
-# repository. `apps/ipad/engine.sh` writes `Engine.xcconfig` first: where the engine's static
-# library is, and the system libraries it links. `just ipad-test` makes both and runs
-# ScaenaKit's tests on an iPad simulator.
+# The iPad client's Xcode project (PLAN 4.1, 4.2, ADR-0023), made by XcodeGen and kept out of the
+# repository. The app is the Mac app's own sources, built for the iPad; `apps/ipad/engine.sh`
+# builds the engine for what Xcode builds, from a build phase of each target, and writes
+# `Engine.xcconfig`: where the engine's static library is, and the system libraries it links.
+# `just ipad` makes the project and opens it; `just ipad-test` runs ScaenaKit's tests and the app's
+# on an iPad simulator.
 name: Scaena
 options:
   bundleIdPrefix: com.scaena
@@ -18,6 +20,44 @@ packages:
   ScaenaKit:
     path: ../mac/ScaenaKit
 targets:
+  # Scaena on the iPad: the Mac app's sources, each AppKit piece behind `os(macOS)` with a UIKit
+  # twin (PLAN 4.2). Named apart from ScaenaKit's own `Scaena`, the Mac's executable, which a test
+  # host of the same name is taken for; the iPad shows it as Scaena (`CFBundleDisplayName`).
+  ScaenaApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: ../mac/ScaenaKit/Sources/Scaena
+    dependencies:
+      - package: ScaenaKit
+        product: ScaenaKit
+    preBuildScripts:
+      - name: Engine
+        script: |
+          "$SRCROOT/engine.sh" "$([ "$PLATFORM_NAME" = iphoneos ] && echo device || echo sim)" "$([ "$CONFIGURATION" = Release ] && echo release || echo debug)"
+        basedOnDependencyAnalysis: false
+    settings:
+      base:
+        # The Mac app's language mode, as its package builds it.
+        SWIFT_VERSION: "5.0"
+        INFOPLIST_FILE: Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.welshofer.Scaena
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+  # The app as someone opens it, driven by XCUITest (PLAN 4.2): `apps/ipad/app-test.sh` runs it.
+  ScaenaUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: ScaenaUITests
+    dependencies:
+      - target: ScaenaApp
+    settings:
+      base:
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.scaena.ScaenaUITests
+        TEST_TARGET_NAME: ScaenaApp
   # The Mac's tests of ScaenaKit, on the iPad: all but those of AppKit's views.
   ScaenaKitTests:
     type: bundle.unit-test
@@ -27,11 +67,30 @@ targets:
     dependencies:
       - package: ScaenaKit
         product: ScaenaKit
+    preBuildScripts:
+      - name: Engine
+        script: |
+          "$SRCROOT/engine.sh" "$([ "$PLATFORM_NAME" = iphoneos ] && echo device || echo sim)" "$([ "$CONFIGURATION" = Release ] && echo release || echo debug)"
+        basedOnDependencyAnalysis: false
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.scaena.ScaenaKitTests
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
 schemes:
+  ScaenaApp:
+    build:
+      targets:
+        ScaenaApp: all
+        ScaenaUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - ScaenaUITests
+    archive:
+      config: Release
   ScaenaKitTests:
     build:
       targets:

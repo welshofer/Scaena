@@ -1,4 +1,3 @@
-import AppKit
 import ScaenaKit
 import SwiftUI
 
@@ -18,7 +17,12 @@ struct AssistantPanel: View {
     @State private var question = ""
     @State private var models: [String] = []
     @State private var listing: String?
+    #if os(macOS)
     @Environment(\.openSettings) private var openSettings
+    #else
+    /// The keys, on the iPad in a sheet: it has no Settings window (PLAN 4.2).
+    @State private var keying = false
+    #endif
 
     private let keychain = Keychain()
 
@@ -39,6 +43,14 @@ struct AssistantPanel: View {
             asking
         }
         .task(id: provider) { await list() }
+        #if !os(macOS)
+        .sheet(isPresented: $keying) {
+            NavigationStack {
+                KeysSettings()
+                    .toolbar { Button("Done") { keying = false } }
+            }
+        }
+        #endif
     }
 
     /// The provider and its model.
@@ -64,7 +76,13 @@ struct AssistantPanel: View {
             Menu {
                 Button("New conversation") { assistant.forget() }
                     .disabled(assistant.working)
-                Button("Keys…") { openSettings() }
+                Button("Keys…") {
+                    #if os(macOS)
+                    openSettings()
+                    #else
+                    keying = true
+                    #endif
+                }
             } label: {
                 Image(systemName: "ellipsis.circle")
             }
@@ -181,8 +199,8 @@ private struct EntryRow: View {
                         Text(summary).font(.callout).foregroundStyle(.secondary).lineLimit(2)
                     }
                 }
-                if let frame = ran?.frame, let image = NSImage(data: frame) {
-                    Image(nsImage: image)
+                if let frame = ran?.frame, let image = Image(png: frame) {
+                    image
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .frame(maxWidth: 260)

@@ -9,6 +9,11 @@ import AppKit
 import UIKit
 #endif
 
+/// The Edit menu's Copy, Cut, and Paste on the canvas (PLAN 3.12), on the Mac and the iPad.
+public enum Clipping: Sendable {
+    case copy, cut, paste
+}
+
 /// What a paste makes (PLAN 2.37): the copy of the node copied, the copies of the others copied
 /// with it, the patch that adds them, the files they read that the bundle lacked, and what the
 /// deck's theme lacked, each taken out of the copies.

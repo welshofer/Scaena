@@ -1,7 +1,12 @@
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 import ScaenaKit
 import SwiftUI
 
+#if os(macOS)
 /// The deck presented (PLAN 3.5): the stage fills the external display where there is one, and
 /// this one where there is not; with an external display, the presenter's window takes this one:
 /// the state shown, the next, its notes, and the time since the deck began. It is paced as the
@@ -60,6 +65,38 @@ enum Presenting {
         }
     }
 }
+#else
+/// The deck presented on the iPad (PLAN 4.2): the stage fills the iPad, paced as the Mac's and
+/// the browser's player pace a deck, a tap going on. An external display and the presenter's view
+/// come with PLAN 4.8.
+@MainActor
+enum Presenting {
+    private static weak var stage: UIViewController?
+
+    /// Present `editor`'s deck from `state`, its cue first.
+    static func play(_ editor: DeckEditor, from state: String?) {
+        end()
+        let showing = Showing(editor: editor, from: state)
+        showing.ended = { Presenting.end() }
+        let scene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }
+        guard var top = scene?.keyWindow?.rootViewController else { return }
+        while let shown = top.presentedViewController { top = shown }
+        let host = UIHostingController(rootView: StageView(showing: showing))
+        host.modalPresentationStyle = .fullScreen
+        host.view.backgroundColor = .black
+        top.present(host, animated: true)
+        stage = host
+    }
+
+    /// End the show: the stage goes.
+    static func end() {
+        stage?.dismiss(animated: true)
+        stage = nil
+    }
+}
+#endif
 
 /// A show as it goes (PLAN 3.5): where it is, as both windows draw it, and the time since it began.
 @MainActor @Observable
@@ -145,7 +182,12 @@ final class Showing {
         switch link {
         case .href(let href):
             guard let url = URL(string: href) else { return false }
+            #if os(macOS)
             return NSWorkspace.shared.open(url)
+            #else
+            UIApplication.shared.open(url)
+            return true
+            #endif
         case .state(let state):
             holding?.cancel()
             return show.go(to: state)
@@ -162,6 +204,7 @@ final class Showing {
     var size: CGSize { (try? editor.session.canvasSize()) ?? CGSize(width: 1920, height: 1080) }
 }
 
+#if os(macOS)
 /// A borderless window filling a screen above its menu bar, that takes the keys.
 final class StageWindow: NSWindow {
     convenience init(screen: NSScreen, content: some View) {
@@ -177,6 +220,7 @@ final class StageWindow: NSWindow {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
 }
+#endif
 
 extension View {
     /// The player's keys (PLAN 2.2): on, back, the first and the last state, and Escape to end.
