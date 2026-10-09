@@ -97,7 +97,7 @@ public final class CanvasKeys: UIView {
     }
 
     /// The view in `view` that has the keyboard, if one does.
-    private static func responder(in view: UIView) -> UIView? {
+    fileprivate static func responder(in view: UIView) -> UIView? {
         if view.isFirstResponder { return view }
         for inside in view.subviews {
             if let found = responder(in: inside) { return found }
@@ -782,6 +782,11 @@ public struct CanvasKeysHost: UIViewRepresentable {
 /// the app's commands keep their keys. The Edit menu's Copy, Cut, Paste, and Select All are the
 /// canvas's (`clipping`, `selectingAll`). It is no text input, so no software keyboard comes with
 /// it, and it takes no touch.
+///
+/// A command run by its key can take the keyboard from it with nothing taking it in its place:
+/// ⌘Z's Undo ends editing in the window first. The keyboard comes back once the command has run,
+/// unless the canvas let it go on purpose (Tab past either end) or something else has it now: a
+/// field, a list, a sheet or a popover over the canvas, typing, or another window.
 @MainActor
 public final class CanvasPresses: UIView {
     public var pressed: (@MainActor (UIKey) -> Bool)?
@@ -789,6 +794,8 @@ public final class CanvasPresses: UIView {
     public var selectingAll: (@MainActor () -> Bool)?
     /// The presses the canvas took: how each goes on and ends is its too.
     private var taken: Set<UIPress> = []
+    /// Whether the canvas let the keyboard go: Tab past either end of the slide.
+    private var lettingGo = false
 
     public override var canBecomeFirstResponder: Bool { true }
 
@@ -800,11 +807,55 @@ public final class CanvasPresses: UIView {
         for press in presses {
             if let key = press.key, pressed?(key) == true {
                 taken.insert(press)
+                lettingGo = false
             } else {
+                if press.key?.keyCode == .keyboardTab { lettingGo = true }
                 rest.insert(press)
             }
         }
         if !rest.isEmpty { super.pressesBegan(rest, with: event) }
+    }
+
+    @discardableResult
+    public override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        if became { lettingGo = false }
+        return became
+    }
+
+    @discardableResult
+    public override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned, !lettingGo {
+            Task { @MainActor [weak self] in self?.takeBack() }
+        }
+        return resigned
+    }
+
+    /// The keyboard taken back, once what took it has run, where nothing else has it.
+    private func takeBack() {
+        guard let window, window.isKeyWindow, !isFirstResponder, !covered,
+            (superview as? CanvasKeys)?.typing.typing != true
+        else { return }
+        // What has the keys now, if anything: none but what holds the canvas lets it take them.
+        if let holder = CanvasKeys.responder(in: window), holder is UIKeyInput || !isDescendant(of: holder) {
+            return
+        }
+        becomeFirstResponder()
+    }
+
+    /// Whether a sheet, a popover, or an alert shows over the canvas.
+    private var covered: Bool {
+        var responder: UIResponder? = next
+        while let at = responder {
+            if let controller = at as? UIViewController, let shown = controller.presentedViewController,
+                !(shown.viewIfLoaded.map { isDescendant(of: $0) } ?? false)
+            {
+                return true
+            }
+            responder = at.next
+        }
+        return false
     }
 
     public override func pressesChanged(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
