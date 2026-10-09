@@ -28,11 +28,14 @@ extension XCTestCase {
         let folder = cell(in: app, named: "Scaena")
         let onIPad = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'On My iPad'")).firstMatch
         let browse = app.buttons.matching(NSPredicate(format: "label == 'Browse'")).firstMatch
-        // A step at a time, from wherever the browser stands: each tap goes one place further.
+        // A step at a time, from wherever the browser stands: each tap goes one place further. A tap
+        // on B1 the browser lets go by, as it may while it reads the folder again after the app is
+        // installed, is made again.
         for _ in 0..<8 {
             if b1.waitForExistence(timeout: 3) {
                 b1.tap()
-                break
+                if first.waitForExistence(timeout: 15) { return }
+                continue
             }
             if folder.exists {
                 folder.tap()
