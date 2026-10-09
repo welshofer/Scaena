@@ -1592,7 +1592,11 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - **The iPad alone.** With no other display, the stage fills the iPad. A tap or a swipe to the left goes on, a swipe to the right goes back, and a pinch closed ends the show; a keyboard's keys pace it as on the Mac. The presenter's view takes the same swipes and the pinch, a tap on the slide goes on, and End Show ends it. Held upright, the presenter's view puts the next and the notes under the slide.
     - **VoiceOver.** The stage is one element that reads as the slide reads (§3.12) and says where the show is ("3 of 40"). VoiceOver's swipes up and down go on and back, and its escape ends the show.
     - Tests: the iPad's `PresentingTests` play B1 on the simulator: the stage on the cover and reading as it, a swipe on and one back, a tap on, and a pinch closed ending the show. The stage on another display waits on an iPad with one; XCUITest attaches none.
-- [ ] 4.9 The assistant and the on-device tasks, as on the Mac, the key in the iPad's Keychain (PLAN 3.6).
+- [x] 4.9 The assistant and the on-device tasks, as on the Mac, the key in the iPad's Keychain (PLAN 3.6).
+    - **As on the Mac.** The assistant's panel, its conversation (`scaena-chat`, ADR-0022), and the on-device tasks are the Mac's own code, compiled for the iPad since PLAN 4.2. The on-device tasks are offered where the iPad has Apple's Foundation Models.
+    - **The keys.** The iPad keeps them in its Keychain, in a sheet, since it has no Settings window. The sheet names each provider beside its field, and each of a row's buttons takes its own tap. A row of a form on the iPad otherwise takes a tap as every button's in it, so keeping a second key took the first away.
+    - **No key yet.** With no key kept for the provider chosen, the panel says so and offers Add a Key…, which opens the sheet on the iPad and Settings on the Mac. The models are listed again once the sheet closes.
+    - Tests: the iPad's `AssistantTests` open the assistant on B1, add a key through Add a Key…, keep another in its place, and take it away. The panel then offers a key to add again. A conversation with a provider and the on-device tasks wait on an iPad with a key and with Apple Intelligence.
 - [ ] 4.10 The remote (SPEC §9.5): an iPhone or an iPad drives a deck a Mac or an iPad presents, over the local network, and shows its notes and the next state. A place in the deck is a state and a time into its cue.
 
 ### Exit criteria (gate 4)

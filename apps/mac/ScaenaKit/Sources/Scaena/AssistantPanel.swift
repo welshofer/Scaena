@@ -23,6 +23,10 @@ struct AssistantPanel: View {
     /// The keys, on the iPad in a sheet: it has no Settings window (PLAN 4.2).
     @State private var keying = false
     #endif
+    /// Whether the provider has no key kept: the panel offers to add one.
+    @State private var keyless = false
+    /// Bumped as the keys sheet closes, so that the models are listed again with the key kept.
+    @State private var keysChanged = 0
 
     private let keychain = Keychain()
 
@@ -42,9 +46,9 @@ struct AssistantPanel: View {
             Divider()
             asking
         }
-        .task(id: provider) { await list() }
+        .task(id: "\(provider.rawValue)\u{1f}\(keysChanged)") { await list() }
         #if !os(macOS)
-        .sheet(isPresented: $keying) {
+        .sheet(isPresented: $keying, onDismiss: { keysChanged += 1 }) {
             NavigationStack {
                 KeysSettings()
                     .toolbar { Button("Done") { keying = false } }
@@ -76,18 +80,14 @@ struct AssistantPanel: View {
             Menu {
                 Button("New conversation") { assistant.forget() }
                     .disabled(assistant.working)
-                Button("Keys…") {
-                    #if os(macOS)
-                    openSettings()
-                    #else
-                    keying = true
-                    #endif
-                }
+                Button("Keys…", action: openKeys)
             } label: {
                 Image(systemName: "ellipsis.circle")
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
+            .accessibilityLabel("Assistant Options")
+            .accessibilityIdentifier("assistant-options")
         }
         .padding(8)
     }
@@ -99,6 +99,10 @@ struct AssistantPanel: View {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     if assistant.entries.isEmpty {
                         Text(introduction).foregroundStyle(.secondary)
+                        if keyless {
+                            Button("Add a Key…", action: openKeys)
+                                .accessibilityIdentifier("add-key")
+                        }
                     }
                     ForEach(assistant.entries) { entry in
                         EntryRow(entry: entry).id(entry.id)
@@ -149,20 +153,41 @@ struct AssistantPanel: View {
         let text = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !model.wrappedValue.isEmpty else { return }
         guard let key = keychain.key(for: provider) else {
-            listing = "Add your \(provider.name) key in Settings (⌘,) to ask \(provider.name)'s models."
+            listing = noKey
+            keyless = true
             return
         }
         assistant.ask(text, provider: provider, model: model.wrappedValue, key: key, seeing: seeing())
         question = ""
     }
 
+    /// Where the keys are kept: Settings on the Mac, a sheet on the iPad (PLAN 4.9).
+    private func openKeys() {
+        #if os(macOS)
+        openSettings()
+        #else
+        keying = true
+        #endif
+    }
+
+    /// What the panel says while the provider has no key kept.
+    private var noKey: String {
+        #if os(macOS)
+        return "Add your \(provider.name) key in Settings (⌘,) to ask \(provider.name)'s models."
+        #else
+        return "Add your \(provider.name) key to ask \(provider.name)'s models."
+        #endif
+    }
+
     /// The models the provider's key can use.
     private func list() async {
         models = []
         guard let key = keychain.key(for: provider) else {
-            listing = "Add your \(provider.name) key in Settings (⌘,) to ask \(provider.name)'s models."
+            listing = noKey
+            keyless = true
             return
         }
+        keyless = false
         listing = nil
         do {
             let request = try provider.modelsRequest(key: key).urlRequest()
@@ -247,15 +272,28 @@ struct KeysSettings: View {
             Section {
                 ForEach(Provider.allCases) { provider in
                     HStack {
+                        #if !os(macOS)
+                        // A form on the iPad shows a field's prompt, not its name.
+                        Text(provider.name).frame(minWidth: 84, alignment: .leading)
+                        #endif
                         SecureField(
                             provider.name,
                             text: Binding(get: { typed[provider] ?? "" }, set: { typed[provider] = $0 }),
-                            prompt: Text(kept.contains(provider) ? "Kept in the Keychain" : "Paste a key"))
+                            prompt: Text(kept.contains(provider) ? "Kept in the Keychain" : "Paste a key")
+                        )
+                        .accessibilityIdentifier("key-\(provider.rawValue)")
                         Button("Keep") { keep(typed[provider], for: provider) }
                             .disabled((typed[provider] ?? "").isEmpty)
+                            .accessibilityIdentifier("keep-\(provider.rawValue)")
                         Button("Remove") { keep(nil, for: provider) }
                             .disabled(!kept.contains(provider))
+                            .accessibilityIdentifier("remove-\(provider.rawValue)")
                     }
+                    #if !os(macOS)
+                    // A row of a form on the iPad takes a tap as every button's in it, Keep's and
+                    // Remove's at once, unless each is borderless.
+                    .buttonStyle(.borderless)
+                    #endif
                 }
             } header: {
                 Text("The assistant's keys")
@@ -270,7 +308,11 @@ struct KeysSettings: View {
             }
         }
         .formStyle(.grouped)
+        #if os(macOS)
         .frame(width: 480)
+        #else
+        .navigationTitle("Keys")
+        #endif
         .onAppear { kept = Set(keychain.providers) }
     }
 
