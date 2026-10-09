@@ -1067,14 +1067,14 @@ struct CanvasSelection: View {
     }
 
     /// Offer what is done to what draws at `point`, canvas units, from `shown`, view points: what
-    /// draws there selected first, locked or not, so that Unlock is offered too, unless it is one
-    /// of several selected; where nothing draws, nothing, and Paste and Insert land there.
+    /// draws there on top selected first, locked or not, so that Unlock is offered too; where
+    /// nothing draws, nothing, and Paste and Insert land there. What is selected stays selected
+    /// where it draws there too, under another or not: the menu is for what the press was on, the
+    /// node whose handles show, or the several selected together.
     private func offer(at point: CGPoint, shown: CGPoint) {
-        let hit = ((try? editor.session.hits(state: state, at: point)) ?? []).first?.node
-        // Several selected stay selected, for what is done to all of them.
-        let kept = hit.map { selection.contains($0) } ?? false
-        if !kept {
-            node = hit
+        let hits = (try? editor.session.hits(state: state, at: point)) ?? []
+        if !hits.contains(where: { selection.contains($0.node) }) {
+            node = hits.first?.node
             also = []
         }
         pointed = point
