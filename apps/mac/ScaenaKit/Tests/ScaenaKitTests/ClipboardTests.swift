@@ -103,12 +103,14 @@ private func tiff(_ png: Data) -> Data? {
 
     let card = folder.appending(path: "Test Card.png")
     try png.write(to: card)
-    let picture = try #require(await Pasteboard.dropped(try #require(NSItemProvider(contentsOf: card))))
+    let cardItem = try #require(NSItemProvider(contentsOf: card))
+    let picture = try #require(await Pasteboard.dropped(cardItem))
     #expect(picture.name == "Test Card.png" && picture.data == png)
 
     let rows = folder.appending(path: "bars.csv")
     try Data("quarter,sales\nQ1,1200\n".utf8).write(to: rows)
-    let data = try #require(await Pasteboard.dropped(try #require(NSItemProvider(contentsOf: rows))))
+    let rowsItem = try #require(NSItemProvider(contentsOf: rows))
+    let data = try #require(await Pasteboard.dropped(rowsItem))
     #expect(data.name == "bars.csv" && String(decoding: data.data, as: UTF8.self).hasPrefix("quarter,sales"))
 
     // A TIFF's data, as a picture dragged from another app may be: a PNG of it.
@@ -120,7 +122,9 @@ private func tiff(_ png: Data) -> Data? {
     // Words are no file the canvas takes.
     let words = folder.appending(path: "notes.txt")
     try Data("hello".utf8).write(to: words)
-    #expect(await Pasteboard.dropped(try #require(NSItemProvider(contentsOf: words))) == nil)
+    let wordsItem = try #require(NSItemProvider(contentsOf: words))
+    let taken = await Pasteboard.dropped(wordsItem)
+    #expect(taken?.name == nil, "words are taken as \(taken?.name ?? "")")
 }
 
 /// `png` written again as `kind`, by ImageIO.
