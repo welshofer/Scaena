@@ -15,7 +15,7 @@ A backend costs money and operational attention and is not required by any v1 fe
 
 ## Consequences
 
-- **+** Zero infrastructure until Phase 4; nothing in v1 may assume a server.
+- **+** Zero infrastructure until Phase 5; nothing in v1 may assume a server.
 - **+** Decks are portable artifacts users own.
 - **−** Browser-stored keys carry risk; the UI must say so and offer session-only storage.
-- **−** No link previews or hosted rendering until Phase 4 (reuses the CLI when it arrives).
+- **−** No link previews or hosted rendering until Phase 5 (reuses the CLI when it arrives).

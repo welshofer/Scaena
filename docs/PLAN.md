@@ -1272,7 +1272,7 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - **The stage.** Play (⌥⌘P) fills the external display where there is one, and this one where there is not: a borderless window above the menu bar, the state's cue played on Metal from the state shown. The player's keys go on (→ ↓ Page Down Space Return, or a click) and back (← ↑ Page Up Delete), Home and End go to the first and the last state, and Escape ends.
     - **The presenter.** With an external display, the presenter's window takes this one: the state shown as the audience sees it, drawn on the stage's clock so one cue plays, not two; the next state at rest; the state's notes; where it is in the deck; and the time since the deck began. It takes the same keys, and closing it ends the show.
     - Tests: ScaenaKit's `aShowGoesOnAsTheBrowsersPlayerDoes` (a cue finished, the next played, the last waiting, back at rest, and holds).
-    - **What waits.** A run on a Mac with a second display, and the remote, with iOS (SPEC §9.4).
+    - **What waits.** A run on a Mac with a second display, and the remote, with iOS (SPEC §9.5, PLAN 4.10).
 - [ ] 3.6 Keys in Keychain; BYOK assistant; Apple Foundation Models for on-device tasks. *(Built; waits on a run on a Mac: a question asked with a real key, and the on-device tasks on a Mac with Apple Intelligence.)*
     - **The conversation, in Rust** (ADR-0022). `scaena-chat` ports the browser's assistant (`web/src/assistant/`):
       - the conversation, in no provider's form;
@@ -1473,11 +1473,34 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 
 ---
 
-## Phase 4 — When there is a second user (unscheduled)
+## Phase 4 — iPad client (≈ 4 weeks)
 
-- [ ] 4.1 Sync server (Loro sync or `automerge-repo`), identity, presence; conflict UX.
-- [ ] 4.2 Shared links with permissions; comments on states/beats.
-- [ ] 4.3 Hosted render for link previews (first server-side rendering — reuse the CLI).
+**Goal:** the Mac's editor and player on iPad, on the same ScaenaKit, each edit by touch, Pencil, pointer, or keyboard the patch the Mac makes for it (SPEC §9.4, ADR-0023). *(Started 2026-10-09, on Jay's call, with gate 3 open.)*
+
+- [ ] 4.1 ScaenaKit on iPadOS: `scaena-ffi` built for iPadOS and its simulator (`aarch64-apple-ios`, `aarch64-apple-ios-sim`); the package builds for iPadOS 26, each of its AppKit pieces with a UIKit twin: `ScaenaView` on a `CAMetalLayer` in a `UIView`, its `CADisplayLink` asking for 120 Hz on ProMotion; the pasteboard; a picture as a PNG. ScaenaKit's tests run on an iPad simulator on CI's macOS runner, and on the Mac as before.
+- [ ] 4.2 The iPad app: an Xcode project XcodeGen makes (`apps/ipad/project.yml`, `just ipad`), which builds the engine for the platform Xcode builds for; a `DocumentGroup` over the Mac's `ScaenaDocument`, a deck a `.scaena` package in Files; the chrome both apps show moved into `ScaenaUI`: the state list and the light table, the inspector and its panels, the cue's bar, the findings. The window is a split view whose columns fold to its size. CI builds it for the simulator, opens B1 in it, and reads its first frame.
+- [ ] 4.3 The canvas by touch: a tap selects what the engine says draws there; a drag moves a node, and a handle resizes, turns, or reshapes it, each taken by a finger within 22 pt; two fingers pan and a pinch zooms; a long press offers what is done to a node (the Node menu, the clipboard, its lock); a double tap types in a text; slides move in the light table by a drag. Each is the patch the Mac's gesture makes (PLAN 3.7, 3.11, 3.14, 3.16).
+- [ ] 4.4 Typing through `UITextInput`: the software keyboard and a hardware one, an input method's composition, dictation, and Scribble, the caret and the selection read from the engine's carets; the characters' look, ⌘K's link, and a list's keys as on the Mac (PLAN 3.9, 3.10).
+- [ ] 4.5 The Pencil and the pointer: the Pencil's hover shows what a press would select and the handle under it; a trackpad or a mouse hovers, Shift-clicks, draws a marquee, and right-clicks as on the Mac (PLAN 3.13).
+- [ ] 4.6 The keyboard and VoiceOver: the Mac's commands in iPadOS's menu bar and by their keys; the canvas by keys alone, and each node an accessibility element that reads as the reader hears it (PLAN 3.17).
+- [ ] 4.7 Files in and out: a picture, a data file, a sheet's cells, or a clip dropped on the canvas from another app or window lands as it pastes (PLAN 3.12, 2.96); the PDF and a state's PNG go out through the share sheet and Quick Look (PLAN 3.8).
+- [ ] 4.8 Presenting: Play fills an external display or an AirPlay screen and shows the presenter's view on the iPad, or fills the iPad alone, a tap or a swipe going on (PLAN 3.5).
+- [ ] 4.9 The assistant and the on-device tasks, as on the Mac, the key in the iPad's Keychain (PLAN 3.6).
+- [ ] 4.10 The remote (SPEC §9.5): an iPhone or an iPad drives a deck a Mac or an iPad presents, over the local network, and shows its notes and the next state. A place in the deck is a state and a time into its cue.
+
+### Exit criteria (gate 4)
+1. Same bundle, same frame, same pixels (within tolerance) as the web player, painted on an iPad's GPU.
+2. Open → first frame < 300 ms for a 40-state deck on an M-series iPad.
+3. Neither SwiftUI nor UIKit lays out text where a deck is drawn; all geometry comes from the engine.
+4. Each edit by touch or Pencil is the patch the Mac's pointer makes for it, and one step of undo.
+
+---
+
+## Phase 5 — When there is a second user (unscheduled)
+
+- [ ] 5.1 Sync server (Loro sync or `automerge-repo`), identity, presence; conflict UX.
+- [ ] 5.2 Shared links with permissions; comments on states/beats.
+- [ ] 5.3 Hosted render for link previews (first server-side rendering — reuse the CLI).
 
 ## Deck generation (unscheduled)
 
@@ -1518,7 +1541,7 @@ Not before Jay schedules it: until then Scaena's focus is editing and rendering.
 | Chart grammar scope creep | 1.9 | fixed kind list; everything else is annotations or deferred |
 | Agent output quality | 1.15–1.19 | lint + render loop; roles not pixels; skills |
 | Font licensing | 1.4 | honor embedding bits with warnings; document policy |
-| Solo bandwidth | all | phases are sequential by design; Phase 4 is unscheduled |
+| Solo bandwidth | all | phases are sequential by design; Phase 5 is unscheduled |
 
 ---
 
@@ -1529,5 +1552,4 @@ Not before Jay schedules it: until then Scaena's focus is editing and rendering.
 | 0 | 2026-10-02 | met: go | All seven exit criteria met; evidence, timings, and what did not match in `docs/spike-report.md`. Phase 1 starts at 1.1. |
 | 1 | 2026-10-03 | met | All five exit criteria met. The evidence per criterion is in `docs/gate-1.md`, and the agent runs are in `docs/examples/agent-run.md`. Phase 2 may start at 2.1. Of Phase 1's open tasks, 1.9 and 1.32 wait on Jay's review, 1.28–1.31 on his scheduling, and 1.33–1.36 come from the runs. |
 | 2 | — | open | Criteria 2 and 3 are met in headless Chromium, and criterion 4 by Jay's run with his own key on 2026-10-07 (Anthropic, `claude-haiku-5-5`). Criterion 1 needs a real machine's browsers, read with the player's frame meter (`?fps`). The evidence and the steps are in `docs/gate-2.md`. On 2026-10-08 Jay started Phase 3 with criterion 1 open, not waived: the gate is logged met when his browsers read the bar. |
-| 3 | — | open | Every task of Phase 3 has landed: the app (3.1–3.8), then the editor as the browser's (3.9–3.17), each waiting on a run on a Mac. Criterion 1 is met on CI's Mac through the goldens the web player is held to; criterion 3 is met for everything that draws a deck, held by `crates/scaena-ffi/tests/chrome.rs`, with Jay's call open on the source pane's TextKit (invariant 8 against SPEC §9.3). Criterion 2 needs the release build on an M-series Mac. On CI's virtual Mac, the release build opens B1 to its first frame in 32–35 ms warm and 161 ms cold, once the GPU the app makes as it starts is made (0.66 s); before every layer shared that GPU, it took 0.62 s. That is not the gate's reading. The evidence and the steps are in `docs/gate-3.md`. |
-| 3 | — | — | — |
+| 3 | — | open | Every task of Phase 3 has landed: the app (3.1–3.8), then the editor as the browser's (3.9–3.17), each waiting on a run on a Mac. Criterion 1 is met on CI's Mac through the goldens the web player is held to; criterion 3 is met for everything that draws a deck, held by `crates/scaena-ffi/tests/chrome.rs`, with Jay's call open on the source pane's TextKit (invariant 8 against SPEC §9.3). Criterion 2 needs the release build on an M-series Mac. On CI's virtual Mac, the release build opens B1 to its first frame in 32–35 ms warm and 161 ms cold, once the GPU the app makes as it starts is made (0.66 s); before every layer shared that GPU, it took 0.62 s. That is not the gate's reading. The evidence and the steps are in `docs/gate-3.md`. On 2026-10-09 Jay started Phase 4, the iPad client, with gate 3 open, not waived: the gate is logged met when his Mac's run meets it. |

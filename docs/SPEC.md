@@ -1657,7 +1657,17 @@ Every gesture the canvas takes has a key (PLAN 2.75, WCAG 2.1.1), which the keys
 - The assistant (PLAN 3.6, §11): the browser's, its conversation kept in Rust (`scaena-chat`, ADR-0022) and taken a step at a time through the ABI (`scaena_chat_new`, `scaena_chat_call`: `ask`, `request`, `answer`, `run`, `next`). Swift makes each request with `URLSession`, the key from the Keychain handed in for its headers alone; each call the model makes runs on the window's deck by `agent:` and the model's name, is the window's own edit, and is one step of its undo. On-device tasks are Apple's Foundation Models'.
 - Exports (PLAN 3.8): `scaena_export` makes `scaena export`'s PDF, byte for byte, and a state's PNG; the window shares them through the Share sheet, shows the PDF in Quick Look, and saves either.
 
-### 9.4 Presenter remote (later)
+### 9.4 iPad client (Phase 4)
+
+- SwiftUI app for iPadOS 26 on the Mac's ScaenaKit (ADR-0023): the same session over the same C ABI (§9.3), and vello on Metal onto a `CAMetalLayer` in a `UIView`, its display link asking for 120 Hz on ProMotion.
+- Document-based, as the Mac's: a deck is a `.scaena` package in Files or iCloud Drive, and each save is `scaena save`'s, recording the edits since in the bundle's history (§8).
+- The window is the Mac's (§9.3): the states, the canvas, the inspector and its panels, and the findings, in a split view whose columns fold to the window's size. The chrome is the Mac's own SwiftUI. Neither SwiftUI nor UIKit lays out text where a deck is drawn.
+- Input makes the Mac's patches. A tap selects what the engine says draws there; a drag moves a node, and a handle resizes, turns, or reshapes it; a double tap types in a text; a long press offers what is done to a node; two fingers pan and a pinch zooms. The Pencil is a pointer with hover. A trackpad, a mouse, and a keyboard work as on the Mac: hover, Shift and a click, the marquee, the right click, the commands' keys, and the canvas by keys alone. Each edit is one patch and one step of undo.
+- Typing is the Mac's (§9.3) through `UITextInput`: the software keyboard, a hardware keyboard, an input method's composition, dictation, and Scribble, each change a `replace_text`.
+- Presentation: Play fills an external display or an AirPlay screen, and the iPad shows the presenter's view; with neither, it fills the iPad, and a tap or a swipe goes on. The pace is the player's (§9.2).
+- The assistant, the on-device tasks, and the exports are the Mac's (§9.3).
+
+### 9.5 Presenter remote (Phase 4)
 
 iPhone/iPad remote and notes view over local network; trivial once state is `(stateId, t)`.
 
