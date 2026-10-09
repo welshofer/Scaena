@@ -12,15 +12,15 @@ case "${1:-sim}" in
   *) echo "usage: apps/ipad/engine.sh [sim|device] [debug|release]" >&2; exit 2 ;;
 esac
 profile=${2:-debug}
-release=()
+# A word, not an array: macOS's bash 3.2 calls an empty array unbound under `set -u`.
 case "$profile" in
-  debug) ;;
-  release) release=(--release) ;;
+  debug) release= ;;
+  release) release=--release ;;
   *) echo "usage: apps/ipad/engine.sh [sim|device] [debug|release]" >&2; exit 2 ;;
 esac
 cd "$root"
 rustup target list --installed | grep -qx "$target" || rustup target add "$target"
-libs=$(cargo rustc -q --color never -p scaena-ffi --lib --crate-type staticlib --target "$target" "${release[@]}" --locked -- --print native-static-libs 2>&1 | sed -n 's/.*native-static-libs: //p')
+libs=$(cargo rustc -q --color never -p scaena-ffi --lib --crate-type staticlib --target "$target" $release --locked -- --print native-static-libs 2>&1 | sed -n 's/.*native-static-libs: //p')
 if [ -z "$libs" ]; then
   echo "rustc named no system libraries for $target: did the build fail?" >&2
   exit 1
