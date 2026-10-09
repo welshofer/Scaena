@@ -85,7 +85,7 @@ jobs:
                   macos=false
                   for f in $(git diff --name-only "$BEFORE" "$AFTER"); do
                     case "$f" in
-                      crates/scaena-paint/* | crates/scaena-pixels/* | crates/scaena-core/src/shader.rs | crates/scaena-ffi/* | apps/mac/* | apps/ipad/* | tests/golden/* | Cargo.lock | .github/workflows/ci.yml) macos=true ;;
+                      crates/scaena-paint/* | crates/scaena-pixels/* | crates/scaena-core/src/shader.rs | crates/scaena-ffi/* | apps/mac/* | apps/ipad/* | tests/golden/* | Cargo.lock | .github/workflows/ci.yml | scripts/shots.sh) macos=true ;;
                     esac
                   done
                 fi
@@ -104,6 +104,9 @@ jobs:
       matrix:
         os: ${{ fromJSON(needs.changes.outputs.os) }}
     runs-on: ${{ matrix.os }}
+    # The Mac app's window is pushed to a branch of the pull request's own (scripts/shots.sh).
+    permissions:
+      contents: write
     # A stalled GPU readback or test must fail the job, not hold a runner for six hours. A run
     # with nothing in its cache, as the first after the cache's key changes, builds everything:
     # #103's took 39 minutes on Linux and 27 on macOS.
@@ -157,6 +160,13 @@ jobs:
             esac
           done
           cd apps/mac/ScaenaKit && swift test "${flags[@]}" && swift build --product Scaena "${flags[@]}"
+      # The app as someone opens it, the trails example in its window, pushed to the branch
+      # `shots/pr-N-mac` beside the iPad's, where a reviewer without the run's artifacts fetches it
+      # (scripts/shots.sh). Seen, not tested: it fails nothing.
+      - name: The Mac app's window
+        if: runner.os == 'macOS' && github.event_name == 'pull_request'
+        continue-on-error: true
+        run: apps/mac/window.sh && scripts/shots.sh target/mac/window/shots "pr-${{ github.event.pull_request.number }}-mac"
       # Painter and CLI tests with the `gpu` feature. They print each torture state's raster delta
       # from the CPU goldens (blessed on x86-64 AVX2): vello_cpu at this runner's SIMD level, and
       # vello on this runner's adapter: Metal on macOS, Mesa's lavapipe (software Vulkan) on Linux.
@@ -189,6 +199,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && contains(needs.changes.outputs.os, 'macos')
     runs-on: macos-latest
+    # The UI tests' screenshots are pushed to a branch of the pull request's own (scripts/shots.sh).
+    permissions:
+      contents: write
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -209,6 +222,10 @@ jobs:
           name: ipad-screenshots
           path: target/ipad/shots
           if-no-files-found: ignore
+      # The same, on the branch `shots/pr-N-ipad`, for a reviewer without the run's artifacts.
+      - if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        continue-on-error: true
+        run: scripts/shots.sh target/ipad/shots "pr-${{ github.event.pull_request.number }}-ipad"
   wasm:
     # PLAN 0.8: the engine as WASM in headless Chromium. Every torture state's display list must
     # hash to the native digest (tests/golden/torture/raw.fnv1a) and paint through WebGPU.
