@@ -33,7 +33,10 @@ Three things differ on the iPad:
      - a picture as a PNG: `UIImage`;
      - the canvas's text input: `UITextInput`, in place of `NSTextInputClient`.
    - ScaenaKit's tests run on both: `swift test` on the Mac, and `xcodebuild test` on an iPad simulator.
-2. **The chrome both apps show moves into `ScaenaUI`,** a library target of the package: the state list, the light table, the inspector and its panels, the cue's bar, and the findings. The Mac's app keeps what only AppKit does. The source pane is a text view on each platform; Jay's call on TextKit in chrome (gate 3, criterion 3) covers both.
+2. **The app's sources are the Mac's.** The iPad's app target compiles the Mac app's SwiftUI (`apps/mac/ScaenaKit/Sources/Scaena`) as it is: the window, the state list, the light table, the inspector and its panels, the cue's bar, and the findings.
+   - Each AppKit piece sits behind `#if os(macOS)`, with a UIKit twin beside it, as in ScaenaKit.
+   - What only the iPad has lives in `apps/ipad/Sources`.
+   - The source pane is a text view on each platform; Jay's call on TextKit in chrome (gate 3, criterion 3) covers both.
 3. **The iPad app is an Xcode project that XcodeGen makes from `apps/ipad/project.yml`.** The generated project is not kept in the repository.
    - A build phase builds `scaena-ffi` with cargo for the platform Xcode builds for: `aarch64-apple-ios` or `aarch64-apple-ios-sim`, in release for a Release build.
    - The app links the library by search path, as the Mac's app links its own.
@@ -55,6 +58,8 @@ Three things differ on the iPad:
 
 ## Alternatives
 
+- **The shared chrome as a library (`ScaenaUI`).** It would make each view, its initializers, and the app's own state types public API, to share code that one app target can simply compile.
+
 - **A SwiftPM executable wrapped by a script,** as the Mac's is. It builds and runs on the simulator. A device needs a provisioning profile, which Xcode makes for a project.
 - **An Xcode project kept in the repository.** It would be written without Xcode at hand, and reviewed as `project.pbxproj` diffs.
 - **A Swift Playgrounds app package (`AppleProductTypes`).** Plain `swift build` cannot read its manifest.
@@ -66,4 +71,4 @@ Three things differ on the iPad:
 - **+** No binary framework to build or keep in step.
 - **−** XcodeGen is one more tool to install (`brew install xcodegen`), on CI's Mac too, and the project is generated rather than kept.
 - **−** The iPad's tests run on the simulator, whose GPU is the Mac's. A device's pixels and timing are read on a real iPad, as gate 3's are read on a real Mac.
-- **−** The SwiftUI views that move into `ScaenaUI` become public API of the package.
+- **−** The Mac app's sources build twice: by SwiftPM for the Mac, and by Xcode for the iPad. CI's macOS and `ipad` jobs each check a change to them.

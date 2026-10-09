@@ -131,7 +131,7 @@ Gate 3 is open. Every task of Phase 3 has landed, and `docs/gate-3.md` holds the
 ## Phase 4
 
 The iPad client (SPEC §9.4, ADR-0023), started on Jay's call on 2026-10-09 with gate 3 open, not waived: gate 3 is logged met when his Mac's run meets it.
-- **One ScaenaKit.** The iPad shares the Mac's: what is platform-neutral as it is, and a UIKit twin for each AppKit piece (the Metal view, the pasteboard, the canvas's text input). The chrome both apps show moves into `ScaenaUI`.
+- **One ScaenaKit, one app's sources.** The iPad shares the Mac's ScaenaKit and compiles the Mac app's SwiftUI: what is platform-neutral as it is, and a UIKit twin beside each AppKit piece (the Metal view, the pasteboard, the canvas's text input).
 - **Xcode builds it.** The app is an Xcode project that XcodeGen makes from `apps/ipad/project.yml`, and a build phase builds the engine with cargo for the platform Xcode builds for.
 - **A touch is the Mac's gesture.** Each makes the patch the Mac's pointer makes, through the same ScaenaKit functions.
 
