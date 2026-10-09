@@ -2408,7 +2408,8 @@ mod tests {
 
     /// What may be inserted goes where the pointer is, and a copy of a node beside it (PLAN
     /// 2.34): each patch adds a node new to the deck, entering in the state shown, placed on
-    /// the theme's grid as a drop places it; a shader fills the canvas under the rest.
+    /// the theme's grid as a drop places it, and leaving at the next slide (PLAN 3.24); a
+    /// shader fills the canvas under the rest.
     #[cfg(feature = "editor")]
     #[test]
     fn an_insert_lands_where_the_pointer_is_and_a_copy_beside_its_node() {
@@ -2428,6 +2429,11 @@ mod tests {
         // On free ground, a headline lands where the pointer is: under `close`'s title.
         let free = s.inserting("close", n("Text · headline"), [960.0, 900.0], None).unwrap();
         assert!(within(free.cell, [960.0, 900.0]), "{:?}", free.cell);
+        assert!(
+            free.patch.iter().all(|op| op["op"] != "hide_node"),
+            "the last slide's leave nowhere: {:?}",
+            free.patch
+        );
 
         // On the chart in the middle of `revenue`, it goes to the room on the grid nearest the
         // pointer, clear of what draws there as lint E101 judges it (PLAN 2.79).
@@ -2435,8 +2441,9 @@ mod tests {
         let added = s.inserting("revenue", n("Text · headline"), [960.0, 540.0], None).unwrap();
         assert_eq!(added.id, "headline");
         let ops: Vec<&str> = added.patch.iter().map(|op| op["op"].as_str().unwrap()).collect();
-        assert_eq!(ops, ["add_node", "place"]);
+        assert_eq!(ops, ["add_node", "place", "hide_node"]);
         assert_eq!(added.patch[0]["state"], "revenue", "it enters in the state shown");
+        assert_eq!(added.patch[2]["state"], "close", "and leaves at the next slide (PLAN 3.24)");
         let apart = |c: [f32; 4], o: [f32; 4]| {
             (c[0] + c[2]).min(o[0] + o[2]) - c[0].max(o[0]) <= 2.0
                 || (c[1] + c[3]).min(o[1] + o[3]) - c[1].max(o[1]) <= 2.0
@@ -2446,7 +2453,8 @@ mod tests {
         s.tool("deck_patch", serde_json::json!({ "ops": added.patch }), by).unwrap();
         assert_eq!(stands(&mut s, "revenue", "headline"), Some(added.cell));
         assert_eq!(stands(&mut s, "intro", "headline"), None, "nor before it");
-        assert!(stands(&mut s, "mix", "headline").is_some(), "the states after it track it");
+        assert!(stands(&mut s, "mix", "headline").is_some(), "the slide's step after it tracks it");
+        assert_eq!(stands(&mut s, "close", "headline"), None, "the next slide does not (PLAN 3.24)");
 
         // A copy beside it, under the next free id, clear of it.
         let copy = s.duplicating("revenue", "headline").unwrap();
@@ -2461,6 +2469,8 @@ mod tests {
         assert_eq!((c[2], c[3]), (w, h), "the same span");
         s.tool("deck_patch", serde_json::json!({ "ops": copy.patch }), by).unwrap();
         assert_eq!(stands(&mut s, "revenue", "headline-2"), Some(copy.cell));
+        assert!(stands(&mut s, "mix", "headline-2").is_some(), "the copy shows on its slide");
+        assert_eq!(stands(&mut s, "close", "headline-2"), None, "and stays there (PLAN 3.24)");
         assert_eq!(s.deck.nodes["headline-2"].props.get("text"), s.deck.nodes["headline"].props.get("text"));
 
         // In a slot nothing fills, a text fills it: `close` shows nothing in `subtitle`.
@@ -2526,8 +2536,9 @@ mod tests {
         let rect = s.drawing("revenue", n("Shape · rect"), drag, false).unwrap();
         assert_eq!(rect.id, "rect");
         let ops: Vec<&str> = rect.patch.iter().map(|op| op["op"].as_str().unwrap()).collect();
-        assert_eq!(ops, ["add_node", "place"]);
+        assert_eq!(ops, ["add_node", "place", "hide_node"]);
         assert_eq!(rect.patch[0]["state"], "revenue", "it enters in the state shown");
+        assert_eq!(rect.patch[2]["state"], "close", "and leaves at the next slide (PLAN 3.24)");
         let [x, y, w, h] = rect.cell;
         let (cols, rows) = (&grid.columns, &grid.rows);
         assert!(on(cols, x, 0) && on(cols, x + w, 1) && on(rows, y, 0) && on(rows, y + h, 1), "{:?}", rect.cell);
@@ -2685,6 +2696,15 @@ mod tests {
         assert_eq!(stands(&mut s, "close", "rev-2"), Some(pasted.cell));
         assert_eq!(s.deck.nodes["rev-2"].props.get("data"), Some(&serde_json::json!("@q3")));
         assert_eq!(s.deck.data.len(), 1, "no source is declared twice");
+
+        // Pasted on the first slide, it stays there (PLAN 3.24).
+        let early = s.pasting(&clip, "intro", [700.0, 600.0]).unwrap();
+        let ops: Vec<&str> = early.patch.iter().map(|op| op["op"].as_str().unwrap()).collect();
+        assert_eq!(ops, ["add_node", "place", "hide_node"]);
+        s.tool("deck_patch", serde_json::json!({ "ops": early.patch }), by).unwrap();
+        assert!(stands(&mut s, "intro", &early.id).is_some());
+        assert_eq!(stands(&mut s, "revenue", &early.id), None, "the next slide does not show it");
+        s.tool("deck_patch", serde_json::json!({ "ops": [{ "op": "remove_node", "id": early.id }] }), by).unwrap();
 
         // From a bundle whose file of that name holds other rows: the file comes in under a
         // name of its own, and so the source that reads it.

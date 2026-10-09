@@ -1497,6 +1497,11 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - **How** (`Pasteboard.dropped`): each thing dropped gives its file as the Finder or Files dragged it, or a copy of a picture's data, by its name.
     - Tests: ScaenaKit's `aDroppedFileIsReadAsThePasteboardsIs`: a PNG and a CSV by their names, a TIFF's data as a PNG of it, and words not at all.
 - [ ] 3.23 A right click on the canvas, or a click with Control, offers what a long press offers on the iPad (PLAN 4.3): what it clicked selected first, unless it is one of several selected, then Cut, Copy, and Paste, Duplicate, Delete, Arrange, Copy and Paste Style, Lock or Unlock, and Insert where it clicked. One list (`CanvasOffer`) makes both platforms' menus. In a text typed in, a right click is the text's. *(Built; waits on a run on a Mac.)*
+- [ ] 3.24 What is inserted, drawn, pasted, or duplicated stays on its slide, as a presentation app's objects do, on the Mac, the iPad, and in the browser. *(Added on 2026-10-09: a text inserted on the iPad showed on every slide after it, "it changes on 39 other slides too". Built; waits on a run on a Mac.)*
+    - **Where it leaves.** Each patch ends in a `hide_node` for each node it adds, in each state of another slide that would show it: one that tracks from a state of the slide that shows it (`scaena_ops::inspect::leaving`). In a deck whose states each track from the one before, that is the next slide's first state. The steps of the slide after the state shown still show it, and on the last slide it leaves nowhere.
+    - **Why there.** `add_node` itself is unchanged: an agent's patch says what it means, and tracking stays in `scaena-core::tracking`. The four gestures each make one patch, so one undo takes the hide with the node, and Delete in the state it entered still takes a node out of the deck, the exit with it.
+    - Tests: `scaena-ops`' `leaving` over steps, slides, a deck's last slide, a state tracking from an earlier one by `from`, and an absolute state; the session's insert, draw, duplicate, and paste each shown on its slide's steps and gone from the next slide.
+    - **What waits.** A run on a Mac.
 
 ### Exit criteria (gate 3)
 1. Same bundle, same frame, same pixels (within tolerance) as the web player.

@@ -843,12 +843,13 @@ pub struct Added {
     /// Its box once placed, `[x, y, width, height]` in canvas units.
     pub cell: [f32; 4],
     /// `add_node`, the node entering in the state named, then the `place` ops that put it
-    /// there.
+    /// there, then the `hide_node`s that keep it to that state's slide (PLAN 3.26).
     pub patch: Vec<Value>,
 }
 
 /// The patch that inserts `insert` in `state` as `room`'s node (PLAN 2.34): `add_node`, the
-/// node entering there, then `place`. A text or an image fills the template's slot under `at`
+/// node entering there, then `place`, then where it leaves, so it stays on the slide (PLAN
+/// 3.26). A text or an image fills the template's slot under `at`
 /// (canvas units) where no node of the state's is placed in it; anything else, or a text where
 /// the slot is filled, takes the box it starts as, about `at`, snapped to the theme's grid as a
 /// drop snaps; a shader fills the slot it names. What draws content (a text, an image, a chart,
@@ -887,7 +888,7 @@ pub fn inserting(
             room.snap(Snap::Slot, *rect)
         }
     };
-    added(room, insert.node.clone(), state, target)
+    added(deck, room, insert.node.clone(), state, target)
 }
 
 /// `about`, where it is clear of `crowded`; else the place on `room`'s grid for a box its size,
@@ -925,7 +926,8 @@ fn roomy(
 }
 
 /// The patch that draws `insert` in `state` as `room`'s node (PLAN 2.48): `add_node`, the node
-/// entering there, then `place`. It takes the box a drag from `from` to `to` (canvas units)
+/// entering there, then `place`, then where it leaves, so it stays on the slide (PLAN 3.26). It
+/// takes the box a drag from `from` to `to` (canvas units)
 /// covers, each edge snapped to the nearest track's as a resize snaps, or, `free`, where it was
 /// drawn, in whole canvas units: a `rect` (W301). A line or an arrow runs across that box from
 /// the corner the drag began at to the one it ended at, or across its middle where the drag was
@@ -950,7 +952,7 @@ pub fn drawing(
     {
         node["points"] = points;
     }
-    added(room, node, state, target)
+    added(deck, room, node, state, target)
 }
 
 /// The points of a line drawn from `from` to `to`, as fractions of its box: from the corner the
@@ -972,8 +974,9 @@ fn across(from: [f32; 2], to: [f32; 2]) -> Option<Value> {
 }
 
 /// `add_node` for `node` as `room`'s, entering in `state`, then the `place` ops that put it on
-/// `target`.
+/// `target`, then where it leaves, so it stays on the slide (PLAN 3.26).
 fn added(
+    deck: &Deck,
     room: &scaena_engine::geometry::Targets,
     node: Value,
     state: &str,
@@ -982,9 +985,36 @@ fn added(
     let target = target.ok_or_else(|| OpsError::new("the theme's grid has no tracks to place it on"))?;
     let node = serde_json::from_value(node).context("an inserted node")?;
     let add = SemanticOp::AddNode { id: room.node.clone(), node, state: Some(state.into()), props: None };
-    let ops: Vec<SemanticOp> = std::iter::once(add).chain(target.ops(Some(state), false)).collect();
+    let ops: Vec<SemanticOp> = std::iter::once(add)
+        .chain(target.ops(Some(state), false))
+        .chain(leaving(deck, state, std::slice::from_ref(&room.node)))
+        .collect();
     let patch = ops.iter().map(serde_json::to_value).collect::<Result<_, _>>().context("a patch")?;
     Ok(Added { id: room.node.clone(), cell: target.cell, patch })
+}
+
+/// Where nodes new in `state` leave, so that they stay on its slide as a slide's own do (PLAN
+/// 3.26): a `hide_node` for each in each state of another slide that would show them, one that
+/// tracks from a state of `state`'s slide that shows them. Where each state tracks from the one
+/// before, that is the next slide's first state; the last slide's leave nowhere.
+pub(crate) fn leaving(deck: &Deck, state: &str, ids: &[String]) -> Vec<SemanticOp> {
+    let Some(s) = deck.state_index(state) else { return Vec::new() };
+    let slide = deck.slide_of(&deck.states[s]);
+    // Whether what enters in `s` shows in each state from it on, once it has left.
+    let mut shows = vec![false; deck.states.len()];
+    shows[s] = true;
+    let mut leaves = Vec::new();
+    for k in s + 1..deck.states.len() {
+        let from = scaena_core::tracking::tracks_from(deck, k).filter(|&j| s <= j && j < k);
+        shows[k] = from.is_some_and(|j| shows[j]);
+        if shows[k] && deck.slide_of(&deck.states[k]) != slide {
+            shows[k] = false;
+            leaves.push(deck.states[k].id.clone());
+        }
+    }
+    let hide =
+        |state: String| ids.iter().map(move |id| SemanticOp::HideNode { node: id.clone(), state: state.clone() });
+    leaves.into_iter().flat_map(hide).collect()
 }
 
 /// The smallest of the template's slots under `at` that no node `state` shows is placed in.
@@ -1016,7 +1046,8 @@ pub(crate) fn empty_slot(
 /// first of those clear of the node and of what else draws there in front of the background
 /// (`boxes`, what stands where in `state`), or else the first clear of the node, or else the
 /// first that moves it at all, the grid's edge holding it in; elsewhere it takes the node's own
-/// placement. `found` is where `node` may go, its node the copy's id.
+/// placement. Then each copy leaves where it would show on another slide, so the copy stays on
+/// this one (PLAN 3.26). `found` is where `node` may go, its node the copy's id.
 pub fn duplicating(
     deck: &Deck,
     found: &scaena_engine::geometry::Targets,
@@ -1078,6 +1109,8 @@ pub fn duplicating(
         _ => None,
     };
     ops.extend(target.iter().flat_map(|t| t.ops(Some(state), false)));
+    let copies: Vec<String> = ids.values().cloned().collect();
+    ops.extend(leaving(deck, state, &copies));
     let patch = ops.iter().map(serde_json::to_value).collect::<Result<_, _>>().context("a patch")?;
     Ok(Added { id: found.node.clone(), cell: target.map_or(found.cell, |t| t.cell), patch })
 }
@@ -1357,4 +1390,59 @@ pub fn diff(b: &Bundle, from: &str, to: &str) -> Result<IndexMap<String, Change>
         changes.insert(id.clone(), Change::Exit(true));
     }
     Ok(changes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const REVENUE: &str = include_str!("../../../docs/examples/revenue.deck.json");
+
+    /// The states where `leaving` has a node new in `state` leave, in the revenue example
+    /// changed by `edit`: intro, then revenue and its step mix, then close.
+    fn leaves(state: &str, edit: impl Fn(&mut Value)) -> Vec<String> {
+        let mut doc: Value = serde_json::from_str(REVENUE).unwrap();
+        edit(&mut doc);
+        let deck = Deck::from_value(&doc).unwrap();
+        let hides = leaving(&deck, state, &["new".to_string()]);
+        let state = |op: &SemanticOp| match op {
+            SemanticOp::HideNode { node, state } if node == "new" => state.clone(),
+            other => panic!("not a hide of `new`: {other:?}"),
+        };
+        hides.iter().map(state).collect()
+    }
+
+    #[test]
+    fn what_is_new_stays_on_its_slide() {
+        let as_is = |_: &mut Value| {};
+        assert_eq!(leaves("intro", as_is), ["revenue"], "the next slide's first state");
+        assert_eq!(leaves("revenue", as_is), ["close"], "past the slide's step, mix");
+        assert_eq!(leaves("mix", as_is), ["close"]);
+        assert!(leaves("close", as_is).is_empty(), "the last slide's leave nowhere");
+        assert!(leaves("nowhere", as_is).is_empty());
+    }
+
+    #[test]
+    fn a_state_that_would_show_it_by_from_hides_it_too() {
+        let later = |doc: &mut Value| {
+            let state = serde_json::json!({ "id": "later", "mode": "delta", "from": "mix" });
+            doc["states"].as_array_mut().unwrap().push(state);
+        };
+        assert_eq!(leaves("revenue", later), ["close", "later"]);
+        // From close, which it leaves: it is gone there already.
+        let after_close = |doc: &mut Value| {
+            let state = serde_json::json!({ "id": "later", "mode": "delta", "from": "close" });
+            doc["states"].as_array_mut().unwrap().push(state);
+        };
+        assert_eq!(leaves("revenue", after_close), ["close"]);
+    }
+
+    #[test]
+    fn a_state_that_shows_nothing_before_it_needs_no_hide() {
+        let absolute = |doc: &mut Value| doc["states"][3]["mode"] = "absolute".into();
+        assert!(leaves("revenue", absolute).is_empty(), "close starts afresh");
+        // A step of the slide that starts afresh does not show it, nor what tracks from it.
+        let step = |doc: &mut Value| doc["states"][2]["mode"] = "absolute".into();
+        assert!(leaves("revenue", step).is_empty(), "{:?}", leaves("revenue", step));
+    }
 }
