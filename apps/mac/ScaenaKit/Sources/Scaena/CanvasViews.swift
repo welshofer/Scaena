@@ -351,7 +351,9 @@ struct FormatsStrip: View {
 
     private func drawn(_ figure: Figure) -> some View {
         let pressed = figure.name == (editor.format ?? "")
-        let found = editor.findings.filter { $0.state == state && ($0.formats ?? []).contains(figure.name) }
+        let found = editor.findings.filter {
+            $0.state == state && ($0.formats ?? []).contains(figure.name) && !FindingsPanel.freely.contains($0.code)
+        }
         return VStack(spacing: 4) {
             Group {
                 if let image = figure.image {

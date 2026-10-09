@@ -762,6 +762,44 @@ impl Session {
         Ok(Some((snapped, lines)))
     }
 
+    /// Where the box `to` lands as a presentation app's drag puts it (PLAN 3.19, ADR-0024): where
+    /// it was let go, after it goes the least way, within `reach` canvas units, that brings an edge
+    /// of it, or its middle, onto another box's, the canvas's, or a track of the theme's grid; on
+    /// the grid's tracks all round, by those cells, as a drag on the grid places it, else by a
+    /// `rect`. With the guides it meets there, the grid's tracks among them. None where nothing
+    /// places the node so: a stack's child, or a grid container's.
+    #[cfg(feature = "editor")]
+    #[allow(clippy::type_complexity)]
+    pub fn guided_freely(
+        &mut self,
+        state: &str,
+        node: &str,
+        to: [f32; 4],
+        fork: bool,
+        reach: f32,
+    ) -> Result<Option<(scaena_ops::inspect::Snapped, Vec<[f32; 4]>)>, Error> {
+        use scaena_engine::guides;
+        use scaena_ops::inspect::SnapMode;
+        let found = self.targets(state, node)?.clone();
+        let mut magnets = self.around(state, &[node])?;
+        // The theme's grid draws it in too, each column down the canvas and each row across it;
+        // nothing does where it is drawn turned, as `around` says.
+        if !magnets.is_empty() {
+            let canvas = self.at_rest(state)?.canvas;
+            magnets.extend(found.columns.iter().map(|c| [c[0], 0.0, c[1] - c[0], canvas[1]]));
+            magnets.extend(found.rows.iter().map(|r| [0.0, r[0], canvas[0], r[1] - r[0]]));
+        }
+        let to = guides::align(to, found.cell, &magnets, reach);
+        let on = |tracks: &[[f32; 2]], start: f32, end: f32| {
+            tracks.iter().any(|t| (t[0] - start).abs() <= 0.5) && tracks.iter().any(|t| (t[1] - end).abs() <= 0.5)
+        };
+        let cells = on(&found.columns, to[0], to[0] + to[2]) && on(&found.rows, to[1], to[1] + to[3]);
+        let how = if cells { SnapMode::Resize } else { SnapMode::Free };
+        let Some(snapped) = self.snap(state, node, how, to, fork)? else { return Ok(None) };
+        let lines = guides::meets(snapped.cell, &magnets);
+        Ok(Some((snapped, lines)))
+    }
+
     /// `nodes`, children of one container, moved together `by` (PLAN 2.42) as
     /// [`Session::arranging`] moves them, and the guides the box around them meets where they
     /// land (PLAN 2.57). Off the grid (`free`), that box goes first the least way that brings an
@@ -1922,6 +1960,35 @@ mod tests {
         assert!(s.targets("process", "process-title").unwrap().cell[1] > cell[1], "moved down in 9:16");
         s.set_format(None).unwrap();
         assert_eq!(s.targets("process", "process-title").unwrap().cell, own, "and where it stood in its own");
+    }
+
+    /// A drag as a presentation app's (PLAN 3.19, ADR-0024): the card let go a column to the left
+    /// and 3 units off goes onto the grid's tracks, which draw it in, and takes their cells, its
+    /// guides down the column it lands on; let go with nothing to draw it in, it lands where it
+    /// was let go, by a `rect`.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_drag_lands_where_it_is_let_go_the_grid_drawing_it_in() {
+        let mut s = torture();
+        let found = s.targets("containers", "card").unwrap().clone();
+        let card = found.cell;
+        let step = found.columns[1][0] - found.columns[0][0];
+        let to = [card[0] - step + 3.0, card[1], card[2], card[3]];
+        let (landed, guides) = s.guided_freely("containers", "card", to, false, 6.0).unwrap().unwrap();
+        assert_eq!(landed.cell[0], card[0] - step, "{landed:?}");
+        assert_eq!(landed.patch[0]["at"], serde_json::json!({ "col": [8, 11], "row": [6, 8] }), "{landed:?}");
+        assert!(guides.iter().any(|g| g[0] == g[2] && (g[0] - (card[0] - step)).abs() <= 0.5), "{guides:?}");
+
+        let away = [card[0] + 40.0, card[1] + 17.0, card[2], card[3]];
+        let (left, _) = s.guided_freely("containers", "card", away, false, 0.0).unwrap().unwrap();
+        assert_eq!(left.cell, away.map(f32::round), "{left:?}");
+        let rect = &left.patch[0]["at"]["rect"];
+        assert_eq!(rect[0], serde_json::json!(away[0].round()), "{left:?}");
+        assert_eq!(rect[1], serde_json::json!(away[1].round()), "{left:?}");
+
+        // A stack's child goes by its order, which nothing lands it out of.
+        let flow = s.targets("containers", "stat-b").unwrap().cell;
+        assert!(s.guided_freely("containers", "stat-b", flow, false, 6.0).unwrap().is_none());
     }
 
     /// Guides (PLAN 2.57): the theme's grid in the format shown, and where a box a drag moves

@@ -81,6 +81,20 @@ public struct Targets: Decodable, Sendable {
     }
 }
 
+extension Targets {
+    /// How a drag of the node snaps as a presentation app's does (PLAN 3.19, ADR-0024): on the
+    /// theme's grid it lands where it is let go, the grid's tracks, the canvas, and what else draws
+    /// drawing it in (`free`, asked with `grid`); with Shift it snaps as the browser's canvas does,
+    /// into a slot or onto the grid's cells, one placed by a `rect` back onto them. What a
+    /// container holds goes as its container places it, as `snap(at:resize:shift:)` says.
+    public func dragged(at: JSONValue?, resize: Bool, shift: Bool) -> SnapMode? {
+        guard by == "grid" else { return snap(at: at, resize: resize, shift: shift) }
+        guard shift else { return .free }
+        let placedFreely = at?["rect"].map { $0 != .null } ?? false
+        return snap(at: at, resize: resize, shift: placedFreely)
+    }
+}
+
 /// Where a box left on the canvas lands: the box a guide shows there, the patch that puts the node
 /// there (`place` ops, each written where that placement lives; empty where it is there already),
 /// and the guides it meets, each a line from one point to another.
@@ -109,16 +123,19 @@ extension ScaenaSession {
     /// Where `node`'s box, left at `to` (canvas units), lands in `state` when it snaps `how`,
     /// and the patch that puts it there, or, to `fork` it, keeps it to `state`; off the grid,
     /// it goes first the least way that brings an edge, or its middle, onto another's within
-    /// `reach` canvas units. None where nothing places it that way. It lays nothing out.
+    /// `reach` canvas units. With `grid`, `free` is a presentation app's drag (PLAN 3.19,
+    /// ADR-0024): the theme grid's tracks draw it in too, and on them all round it takes their
+    /// cells. None where nothing places it that way. It lays nothing out.
     public func snap(
-        state: String, node: String, how: SnapMode, to: CGRect, fork: Bool = false, reach: Double = 0
+        state: String, node: String, how: SnapMode, to: CGRect, fork: Bool = false, reach: Double = 0,
+        grid: Bool = false
     ) throws -> Snapped? {
         try call(
             "snap",
             [
                 "state": .string(state), "node": .string(node), "how": .string(how.rawValue),
                 "x": .number(to.minX), "y": .number(to.minY), "w": .number(to.width), "h": .number(to.height),
-                "fork": .bool(fork), "reach": .number(reach),
+                "fork": .bool(fork), "reach": .number(reach), "grid": .bool(grid),
             ])
     }
 

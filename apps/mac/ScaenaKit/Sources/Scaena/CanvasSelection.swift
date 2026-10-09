@@ -10,8 +10,10 @@ import SwiftUI
 /// browser's canvas does: the engine draws it moved, laying nothing out, and says where it lands,
 /// snapped to the theme's grid, into a slot, or among a stack's children, with the guides it
 /// meets; the drop is that one `place` patch, written where the placement lives, or kept to the
-/// state shown with Option. Shift takes a node off the theme's grid, as a `rect`, or puts one back
-/// on it; a node off the grid is flagged, as lint flags it (W301). A double click types in a text
+/// state shown with Option. A node on the theme's grid lands where it is let go, as a presentation
+/// app's does, the grid's tracks, the canvas, and what else draws drawing it in, ⌘ holding them
+/// off; on the tracks all round it takes their cells (PLAN 3.19, ADR-0024). Shift snaps it into a
+/// slot or onto the grid's cells instead, as the browser's canvas does. A double click types in a text
 /// where it stands (PLAN 3.9): a press in it puts the caret there, and one outside it stops
 /// typing. A press takes the keyboard for the canvas: Delete takes the node selected out of the
 /// state shown and those after, Shift+Delete out of the deck, and Escape selects what holds it
@@ -93,8 +95,9 @@ struct CanvasSelection: View {
 
     /// How long a resize pauses before the canvas shows its text reflowed (as the browser's).
     private static let pause = Duration.milliseconds(300)
-    /// How near, in points, an edge moved off the grid goes onto another's (PLAN 2.57).
-    private static let reach = 6.0
+    /// How near, in points, an edge a drag moves goes onto another's, or a track of the grid's
+    /// (PLAN 2.57, 3.19).
+    private static let reach = 8.0
     #if os(macOS)
     /// How near a handle, in points, a press takes it: a pointer's reach.
     private static let grab = 6.0
@@ -228,12 +231,6 @@ struct CanvasSelection: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .allowsHitTesting(false)
                 #endif
-                // Nodes off the theme's grid, flagged as lint flags them (W301).
-                ForEach(boxes.filter { placements[$0.node]?.offGrid == true }, id: \.node) { flagged in
-                    outline(flagged.corners, fit: fit)
-                        .stroke(Color.orange, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                        .allowsHitTesting(false)
-                }
                 // The others selected with the first, each outlined, moved as the drag moves.
                 ForEach(boxes.filter { also.contains($0.node) }, id: \.node) { other in
                     let by = drag?.edge == nil ? (drag?.by ?? .zero) : .zero
@@ -243,9 +240,8 @@ struct CanvasSelection: View {
                 }
                 if let selected = boxes.first(where: { $0.node == node }) {
                     let by = drag?.edge == nil ? (drag?.by ?? .zero) : .zero
-                    let offGrid = placements[selected.node]?.offGrid == true
                     outline(selected.corners.map { CGPoint(x: $0.x + by.dx, y: $0.y + by.dy) }, fit: fit)
-                        .stroke(offGrid ? Color.orange : Color.accentColor, lineWidth: 1.5)
+                        .stroke(Color.accentColor, lineWidth: 1.5)
                         .allowsHitTesting(false)
                     if drag == nil, holding == nil, also.isEmpty, !typing.typing, selected.locked == nil,
                         let r = box(selected)
@@ -1197,7 +1193,9 @@ struct CanvasSelection: View {
         guard var d = drag, d.revision == editor.revision else { return }
         d.by = CGVector(dx: value.translation.width / scale, dy: value.translation.height / scale)
         d.fork = Held.option
-        d.how = d.targets.snap(at: d.at, resize: d.edge != nil, shift: Held.shift)
+        d.how = d.targets.dragged(at: d.at, resize: d.edge != nil, shift: Held.shift)
+        // ⌘ holds the magnets off (PLAN 3.19).
+        let reach = Held.command ? 0 : Self.reach / max(scale, 0.01)
         // As what holds it lays it out, through whatever turns or scales that; a resize along the
         // node's own sides (PLAN 2.51).
         let held = across(transform(of: parent(of: d.node)), d.by)
@@ -1208,11 +1206,12 @@ struct CanvasSelection: View {
         if d.together.count > 1 {
             // Moved together: the first snapped as it would be alone, the rest as far as it went.
             d.arranged = (try? editor.session.together(
-                state: state, nodes: d.together, by: held, free: Held.shift, fork: d.fork,
-                reach: Self.reach / max(scale, 0.01))) ?? nil
+                state: state, nodes: d.together, by: held, free: !Held.shift && d.targets.by == "grid", fork: d.fork,
+                reach: reach)) ?? nil
         } else if let how = d.how {
             d.snapped = try? editor.session.snap(
-                state: state, node: d.node, how: how, to: to, fork: d.fork, reach: Self.reach / max(scale, 0.01))
+                state: state, node: d.node, how: how, to: to, fork: d.fork, reach: reach,
+                grid: how == .free && d.targets.by == "grid")
         } else {
             d.snapped = nil
         }
