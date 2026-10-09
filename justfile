@@ -51,11 +51,20 @@ mac:
     apps/mac/build-app.sh
     open target/mac/Scaena.app
 
-# ScaenaKit's tests on an iPad simulator (PLAN 4.1): the engine built for the simulator, the Xcode
-# project XcodeGen makes from apps/ipad/project.yml, and xcodebuild's run, on a Mac with Xcode
-# and XcodeGen (`brew install xcodegen`).
+# The iPad app's Xcode project (PLAN 4.2): the engine built for the simulator, the project XcodeGen
+# makes from apps/ipad/project.yml, opened in Xcode, which builds the engine again for whatever it
+# builds; on a Mac with Xcode and XcodeGen (`brew install xcodegen`). An iPad needs your team in
+# apps/ipad/Team.xcconfig: `DEVELOPMENT_TEAM = <your team's ID>`.
+ipad:
+    apps/ipad/engine.sh sim debug
+    cd apps/ipad && xcodegen generate --quiet
+    open apps/ipad/Scaena.xcodeproj
+
+# On an iPad simulator: ScaenaKit's tests (PLAN 4.1), then the app's, B1 opened in it, each window's
+# screenshot in target/ipad/shots (PLAN 4.2).
 ipad-test:
     apps/ipad/test.sh
+    apps/ipad/app-test.sh
 
 # The engine, both painters, and the WASM bindings must keep compiling for the browser (PLAN 0.1, 0.8):
 # with every feature, and as the player's engine alone, without the hyphenation patterns the

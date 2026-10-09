@@ -20,9 +20,12 @@ struct ScaenaApp: App {
             NodeCommands()
             ViewCommands()
         }
-        // The assistant's keys, kept in the Keychain (PLAN 3.6).
+        #if os(macOS)
+        // The assistant's keys, kept in the Keychain (PLAN 3.6); on the iPad, a sheet of the
+        // assistant's (PLAN 4.2).
         Settings {
             KeysSettings()
         }
+        #endif
     }
 }

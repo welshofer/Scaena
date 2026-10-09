@@ -1,4 +1,6 @@
+#if os(macOS)
 import AppKit
+#endif
 import ScaenaKit
 import SwiftUI
 
@@ -48,9 +50,9 @@ struct CanvasSelection: View {
     /// Take the node selected out of the state shown and those after, or, `true`, out of the deck.
     let delete: (Bool) -> Void
     /// The Edit menu's Copy, Cut, and Paste while no text is typed in (PLAN 3.12).
-    let clip: (CanvasKeys.Clipping) -> Void
+    let clip: (Clipping) -> Void
     /// The Edit menu's Find, and ⌘F on the canvas: the deck's find bar (PLAN 3.16).
-    let finding: (NSTextFinder.Action) -> Void
+    let finding: () -> Void
     /// Make the patch a drag ended in: one step to undo.
     let make: ([JSONValue]) -> Void
     @State private var boxes: [NodeBox] = []
@@ -147,13 +149,15 @@ struct CanvasSelection: View {
         GeometryReader { geometry in
             let fit = Fit(shown: zoom.view, canvas: size, width: geometry.size.width)
             ZStack(alignment: .topLeading) {
+                #if os(macOS)
                 // Under the rest: the canvas's keys, the text's while one is typed in. It takes no
-                // press.
+                // press. The iPad's come with PLAN 4.4 and 4.6.
                 CanvasKeysHost(
-                    typing: typing, canvas: size, shown: zoom.view, command: command, clipping: clip, finding: finding,
-                    pressed: pressed)
+                    typing: typing, canvas: size, shown: zoom.view, command: command, clipping: clip,
+                    finding: { _ in finding() }, pressed: pressed)
                     .allowsHitTesting(false)
-                // The wheel and a pinch over the canvas, read before any view takes them.
+                // The wheel and a pinch over the canvas, read before any view takes them. The
+                // iPad's pinch and pan come with PLAN 4.3.
                 CanvasWheel(
                     zoom: { factor, at in zoom.zoom(to: zoom.level * factor, about: fit.canvas(at)) },
                     pan: { by in
@@ -163,6 +167,7 @@ struct CanvasSelection: View {
                     }
                 )
                 .allowsHitTesting(false)
+                #endif
                 Color.clear
                     .contentShape(Rectangle())
                     .gesture(pressing(fit))
@@ -310,6 +315,7 @@ struct CanvasSelection: View {
         }
     }
 
+    #if os(macOS)
     /// What the canvas does with a command its keys make while no text is typed in (PLAN 3.11):
     /// Delete and Shift+Delete take the node selected away; Escape selects what holds it.
     private func command(_ selector: Selector) -> Bool {
@@ -344,6 +350,7 @@ struct CanvasSelection: View {
             return false
         }
     }
+    #endif
 
     /// What the drag does, as the browser's status line says it.
     private var told: String? {
@@ -426,8 +433,7 @@ struct CanvasSelection: View {
                     if typed {
                         if typing.holds(at, slop: Self.slop * fit.units) {
                             press = .typing
-                            let clicks = NSApp.currentEvent?.clickCount ?? 1
-                            return typing.press(at: at, clicks: clicks, extend: NSEvent.modifierFlags.contains(.shift))
+                            return typing.press(at: at, clicks: Held.clicks, extend: Held.shift)
                         }
                         typing.leave()
                     }
@@ -450,7 +456,7 @@ struct CanvasSelection: View {
                     // A click until it goes further than one.
                     guard h.moved || moved >= 3 else { break }
                     h.moved = true
-                    h.fork = NSEvent.modifierFlags.contains(.option)
+                    h.fork = Held.option
                     hold(&h, to: fit.canvas(value.location))
                     press = .handling(h)
                 default:
@@ -472,7 +478,7 @@ struct CanvasSelection: View {
                     typing.focus?()
                 case .handling(var h):
                     if h.moved {
-                        h.fork = NSEvent.modifierFlags.contains(.option)
+                        h.fork = Held.option
                         hold(&h, to: fit.canvas(value.location))
                     }
                     letGo(h)
@@ -534,7 +540,7 @@ struct CanvasSelection: View {
     private func hold(_ h: inout Holding, to at: CGPoint) {
         switch h.handle {
         case .turn(var turn):
-            turn.move(to: at, snap: NSEvent.modifierFlags.contains(.shift))
+            turn.move(to: at, snap: Held.shift)
             h.handle = .turn(turn)
         case .point(let index, _):
             if let o = shaped, h.points.indices.contains(index) { h.points[index] = o.fraction(at: at) }
@@ -619,7 +625,7 @@ struct CanvasSelection: View {
             return
         }
         pointPicked = nil
-        let fork = NSEvent.modifierFlags.contains(.option)
+        let fork = Held.option
         make(Handling.reshaping(o.node, to: kept, in: state, fork: fork))
         said = "\(o.node)'s point \(index + 1) taken away\(fork ? " · kept to \(state)" : "")"
     }
@@ -664,6 +670,7 @@ struct CanvasSelection: View {
         }
     }
 
+    #if os(macOS)
     /// A key on the canvas while no text is typed in (PLAN 3.17), as the browser's canvas reads it
     /// (PLAN 2.75, 2.89): whether the canvas took it. What it does not take, the input system makes
     /// a command of, and Tab past either end passes the keyboard on.
@@ -699,6 +706,7 @@ struct CanvasSelection: View {
             return false
         }
     }
+    #endif
 
     /// Node `selected`'s handles the keys work, in order.
     private func handles(of selected: String) -> [KeyedHandle] {
@@ -909,7 +917,7 @@ struct CanvasSelection: View {
         do {
             let start = try editor.session.turned(state: state, node: selected).rotate
             let now = ((start + by) * 1000).rounded() / 1000
-            make(Handling.turning(selected, to: now, in: state, fork: NSEvent.modifierFlags.contains(.option)))
+            make(Handling.turning(selected, to: now, in: state, fork: Held.option))
             said = "\(selected) turned to \(now.formatted())°"
         } catch {
             said = "\(selected) cannot be turned: \(error)"
@@ -953,13 +961,13 @@ struct CanvasSelection: View {
     private func pick(_ point: CGPoint) {
         let hits = (try? editor.session.hits(state: state, at: point)) ?? []
         let hit = hits.first { $0.locked == nil }?.node
-        if NSEvent.modifierFlags.contains(.shift), let hit, node != nil {
+        if Held.shift, let hit, node != nil {
             return toggle(hit)
         }
         node = hit
         also = []
-        if let node, (NSApp.currentEvent?.clickCount ?? 1) >= 2 {
-            typing.enter(node, in: state, at: point, fork: NSEvent.modifierFlags.contains(.option))
+        if let node, Held.clicks >= 2 {
+            typing.enter(node, in: state, at: point, fork: Held.option)
         }
     }
 
@@ -993,7 +1001,7 @@ struct CanvasSelection: View {
             guard let x0 = xs.min(), let x1 = xs.max(), let y0 = ys.min(), let y1 = ys.max() else { return false }
             return band.contains(CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0))
         }.map(\.node)
-        let keep = NSEvent.modifierFlags.contains(.shift) && parent(of: node) == nil ? selection : []
+        let keep = Held.shift && parent(of: node) == nil ? selection : []
         let all = keep + inside.filter { !keep.contains($0) }
         node = all.first
         also = Array(all.dropFirst())
@@ -1063,10 +1071,9 @@ struct CanvasSelection: View {
     /// landing, guides, and the states it changes asked of the engine.
     private func aim(_ value: DragGesture.Value, scale: CGFloat) {
         guard var d = drag, d.revision == editor.revision else { return }
-        let flags = NSEvent.modifierFlags
         d.by = CGVector(dx: value.translation.width / scale, dy: value.translation.height / scale)
-        d.fork = flags.contains(.option)
-        d.how = d.targets.snap(at: d.at, resize: d.edge != nil, shift: flags.contains(.shift))
+        d.fork = Held.option
+        d.how = d.targets.snap(at: d.at, resize: d.edge != nil, shift: Held.shift)
         // As what holds it lays it out, through whatever turns or scales that; a resize along the
         // node's own sides (PLAN 2.51).
         let held = across(transform(of: parent(of: d.node)), d.by)
@@ -1077,7 +1084,7 @@ struct CanvasSelection: View {
         if d.together.count > 1 {
             // Moved together: the first snapped as it would be alone, the rest as far as it went.
             d.arranged = (try? editor.session.together(
-                state: state, nodes: d.together, by: held, free: flags.contains(.shift), fork: d.fork,
+                state: state, nodes: d.together, by: held, free: Held.shift, fork: d.fork,
                 reach: Self.reach / max(scale, 0.01))) ?? nil
         } else if let how = d.how {
             d.snapped = try? editor.session.snap(

@@ -103,12 +103,12 @@ struct DeckView: View {
 
     /// The source, the canvas with its cue and the findings, the assistant, and the inspector.
     private var detail: some View {
-        HSplitView {
+        Panes(axis: .horizontal) {
             if showsSource {
                 SourcePane(text: editor.source) { typed in document.type(typed, undo: undo) }
                     .frame(minWidth: 280, idealWidth: 420)
             }
-            VSplitView {
+            Panes(axis: .vertical) {
                 middle
                     .frame(minHeight: 240)
                 if showsFindings {
@@ -358,7 +358,7 @@ struct DeckView: View {
                 if let typing {
                     CanvasSelection(
                         editor: editor, state: shown, size: size, zoom: $zoom, node: $node, also: $also, typing: typing,
-                        pointed: $pointed, said: $said, delete: delete, clip: clip, finding: { _ in searching = true }
+                        pointed: $pointed, said: $said, delete: delete, clip: clip, finding: { searching = true }
                     ) { ops in
                         perform { try document.make(ops, undo: undo) }
                     }
@@ -501,7 +501,7 @@ struct DeckView: View {
     }
 
     /// The Edit menu's Copy, Cut, and Paste on the canvas (PLAN 3.12).
-    private func clip(_ what: CanvasKeys.Clipping) {
+    private func clip(_ what: Clipping) {
         switch what {
         case .copy: copy(cut: false)
         case .cut: copy(cut: true)

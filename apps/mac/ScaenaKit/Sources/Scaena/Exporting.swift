@@ -1,4 +1,8 @@
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 import ScaenaKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -56,10 +60,23 @@ enum Exporting {
 
     /// `url` offered through the Share sheet, from the window's top right.
     @MainActor static func share(_ url: URL) {
+        #if os(macOS)
         guard let view = NSApp.keyWindow?.contentView else { return }
         let picker = NSSharingServicePicker(items: [url])
         let corner = NSRect(x: view.bounds.maxX - 80, y: view.bounds.maxY - 8, width: 1, height: 1)
         picker.show(relativeTo: corner, of: view, preferredEdge: .minY)
+        #else
+        let scene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }
+        guard var top = scene?.keyWindow?.rootViewController else { return }
+        while let shown = top.presentedViewController { top = shown }
+        let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        // On the iPad the sheet is a popover, which must point at something.
+        sheet.popoverPresentationController?.sourceView = top.view
+        sheet.popoverPresentationController?.sourceRect = CGRect(x: top.view.bounds.maxX - 80, y: 8, width: 1, height: 1)
+        top.present(sheet, animated: true)
+        #endif
     }
 }
 

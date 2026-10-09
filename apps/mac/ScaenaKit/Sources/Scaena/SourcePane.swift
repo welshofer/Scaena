@@ -1,4 +1,8 @@
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 import SwiftUI
 
 /// The deck's `.scn` (PLAN 3.4, SPEC §4), as the browser's source pane shows it: what is typed is
@@ -6,7 +10,9 @@ import SwiftUI
 /// gesture, a choice, a fix, an undo) writes the deck's source back here. The pane keeps no undo
 /// of its own: each source that becomes the deck is one step of the document's.
 ///
-/// Source is chrome: the canvas's text is the engine's, never laid out here (SPEC §9.3).
+/// Source is chrome: the canvas's text is the engine's, never laid out here (SPEC §9.3, §9.4). On
+/// the iPad it is a `UITextView`, with no quote, dash, or spelling substitutions (PLAN 4.2).
+#if os(macOS)
 struct SourcePane: NSViewRepresentable {
     /// The source as the editor has it.
     let text: String
@@ -68,3 +74,59 @@ struct SourcePane: NSViewRepresentable {
         }
     }
 }
+#else
+struct SourcePane: UIViewRepresentable {
+    /// The source as the editor has it.
+    let text: String
+    /// Told the pane's text once typing pauses.
+    let typed: (String) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UITextView {
+        let view = UITextView()
+        view.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        view.textContainerInset = UIEdgeInsets(top: 8, left: 6, bottom: 8, right: 6)
+        view.autocorrectionType = .no
+        view.autocapitalizationType = .none
+        view.spellCheckingType = .no
+        view.smartQuotesType = .no
+        view.smartDashesType = .no
+        view.smartInsertDeleteType = .no
+        view.text = text
+        view.delegate = context.coordinator
+        context.coordinator.typed = typed
+        return view
+    }
+
+    func updateUIView(_ view: UITextView, context: Context) {
+        context.coordinator.typed = typed
+        // The deck changed elsewhere: its source is written back, the selection kept where it can be.
+        guard !context.coordinator.typing, view.text != text else { return }
+        let selected = view.selectedRange
+        view.text = text
+        let length = (text as NSString).length
+        let location = min(selected.location, length)
+        view.selectedRange = NSRange(location: location, length: min(selected.length, length - location))
+    }
+
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var typed: (String) -> Void = { _ in }
+        /// Whether typing waits to be compiled: the pane's text is ahead of the editor's.
+        var typing = false
+        private var pending: DispatchWorkItem?
+
+        func textViewDidChange(_ view: UITextView) {
+            typing = true
+            pending?.cancel()
+            let work = DispatchWorkItem { [weak self, weak view] in
+                guard let self, let view else { return }
+                self.typing = false
+                self.typed(view.text)
+            }
+            pending = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250), execute: work)
+        }
+    }
+}
+#endif

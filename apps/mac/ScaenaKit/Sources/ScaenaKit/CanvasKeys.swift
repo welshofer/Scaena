@@ -35,11 +35,6 @@ public final class CanvasKeys: NSView {
     /// (PLAN 3.12): the nodes selected copied as a clip, or what the pasteboard holds pasted.
     public var clipping: (@MainActor (Clipping) -> Void)?
 
-    /// The Edit menu's Copy, Cut, and Paste.
-    public enum Clipping: Sendable {
-        case copy, cut, paste
-    }
-
     public init(typing: Typing) {
         self.typing = typing
         super.init(frame: .zero)
@@ -353,13 +348,13 @@ public struct CanvasKeysHost: NSViewRepresentable {
     /// The part of it shown, where it is zoomed in.
     public let shown: CGRect?
     public let command: @MainActor (Selector) -> Bool
-    public let clipping: @MainActor (CanvasKeys.Clipping) -> Void
+    public let clipping: @MainActor (Clipping) -> Void
     public let finding: (@MainActor (NSTextFinder.Action) -> Void)?
     public let pressed: (@MainActor (NSEvent) -> Bool)?
 
     public init(
         typing: Typing, canvas: CGSize, shown: CGRect? = nil, command: @escaping @MainActor (Selector) -> Bool,
-        clipping: @escaping @MainActor (CanvasKeys.Clipping) -> Void,
+        clipping: @escaping @MainActor (Clipping) -> Void,
         finding: (@MainActor (NSTextFinder.Action) -> Void)? = nil, pressed: (@MainActor (NSEvent) -> Bool)? = nil
     ) {
         self.typing = typing

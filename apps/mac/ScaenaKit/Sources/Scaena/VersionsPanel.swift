@@ -1,4 +1,3 @@
-import AppKit
 import ScaenaKit
 import SwiftUI
 
@@ -15,7 +14,7 @@ struct VersionsPanel: View {
     @State private var chosen: String?
     @State private var states: [String] = []
     @State private var state: String?
-    @State private var drawing: NSImage?
+    @State private var drawing: Image?
     @State private var compared: Compared?
     @State private var problem: String?
 
@@ -68,7 +67,7 @@ struct VersionsPanel: View {
                 }
             }
             if let drawing {
-                Image(nsImage: drawing).resizable().aspectRatio(contentMode: .fit)
+                drawing.resizable().aspectRatio(contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 3))
                     .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(.separator))
             }
@@ -108,7 +107,7 @@ struct VersionsPanel: View {
     private func draw() {
         guard chosen != nil, let state, states.contains(state) else { return }
         do {
-            drawing = NSImage(data: try editor.session.versionPNG(state, width: 640))
+            drawing = Image(png: try editor.session.versionPNG(state, width: 640))
         } catch {
             drawing = nil
             problem = "\(error)"
