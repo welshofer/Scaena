@@ -8,8 +8,9 @@ import Network
 public final class RemoteServer {
     /// The code a remote joins with: shown where the audience does not see it, in the editor.
     public let code: String
-    /// The port it listens on, once it does.
-    public var port: UInt16? { listener.port?.rawValue }
+    /// The port it listens on, once it does: until then the listener's port is 0, any port, which
+    /// no remote can join.
+    public private(set) var port: UInt16?
     /// What a remote asks.
     public var command: (RemoteCommand) -> Void = { _ in }
     /// How many remotes are joined, as it changes.
@@ -33,8 +34,18 @@ public final class RemoteServer {
             MainActor.assumeIsolated { self?.join(connection) }
         }
         listener.stateUpdateHandler = { [weak self] state in
-            guard case .failed(let error) = state else { return }
-            MainActor.assumeIsolated { self?.failed("\(error)") }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                switch state {
+                case .ready:
+                    self.port = self.listener.port?.rawValue
+                case .failed(let error):
+                    self.port = nil
+                    self.failed("\(error)")
+                default:
+                    break
+                }
+            }
         }
         listener.start(queue: .main)
     }
