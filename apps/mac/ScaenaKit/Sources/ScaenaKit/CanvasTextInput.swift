@@ -815,7 +815,8 @@ public final class CanvasPresses: UIView {
         guard window != nil else { return }
         let said: [(Notification.Name, String)] = [
             (UIWindow.didBecomeKeyNotification, "became key"), (UIWindow.didResignKeyNotification, "resigned key"),
-            (UndoManager.willUndoChangeNotification, "will undo"), (UndoManager.didUndoChangeNotification, "did undo"),
+            (Notification.Name("NSUndoManagerWillUndoChangeNotification"), "will undo"),
+            (Notification.Name("NSUndoManagerDidUndoChangeNotification"), "did undo"),
         ]
         for (name, what) in said {
             watching.append(
