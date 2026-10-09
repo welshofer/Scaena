@@ -17,6 +17,8 @@ struct WindowPanes {
     let play: (() -> Void)?
     /// Rehearse it here; none while it cannot be.
     let rehearse: (() -> Void)?
+    /// Remote…: let a remote play it (PLAN 4.10).
+    let remote: () -> Void
 }
 
 private struct WindowPanesKey: FocusedValueKey {
@@ -34,9 +36,11 @@ extension FocusedValues {
 /// The View menu's parts of the window and the Play menu (PLAN 3.18), as a presentation app's: the
 /// light table (⌥⌘L); the timeline, the other sizes, the grid (⌘'), the issues, and the source,
 /// each off until asked for; the assistant (⌥⌘A) and the inspector's tabs; then Play Slideshow
-/// (⌥⌘P) and Rehearse Slideshow (⌥⌘R).
+/// (⌥⌘P) and Rehearse Slideshow (⌥⌘R); Remote…, which lets a remote play the deck, and on the
+/// iPad, Control a Presentation…, the remote itself (PLAN 4.10).
 struct WindowCommands: Commands {
     @FocusedValue(\.panes) private var panes
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
         CommandGroup(before: .toolbar) {
@@ -78,6 +82,12 @@ struct WindowCommands: Commands {
             Button("Rehearse Slideshow") { panes?.rehearse?() }
                 .keyboardShortcut("r", modifiers: [.option, .command])
                 .disabled(panes?.rehearse == nil)
+            Divider()
+            Button("Remote…") { panes?.remote() }
+                .disabled(panes == nil)
+            #if !os(macOS)
+            Button("Control a Presentation…") { openWindow(id: RemoteWindow.id) }
+            #endif
         }
     }
 

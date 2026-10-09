@@ -18,12 +18,16 @@ import SwiftUI
 enum Presenting {
     private static var windows: [NSWindow] = []
     private static var closing: NSObjectProtocol?
+    /// The show that plays, if one does: what a remote drives (PLAN 4.10).
+    private(set) static weak var current: Showing?
 
     /// Present `editor`'s deck from `state`, its cue first.
     static func play(_ editor: DeckEditor, from state: String?) {
         end()
         let showing = Showing(editor: editor, from: state)
         showing.ended = { Presenting.end() }
+        current = showing
+        RemoteHost.shared.follow(showing)
         let main = NSScreen.main ?? NSScreen.screens.first
         let external = NSScreen.screens.first { $0 != main }
         guard let screen = external ?? main else { return }
@@ -55,6 +59,8 @@ enum Presenting {
 
     /// End the show: its windows close.
     static func end() {
+        current = nil
+        RemoteHost.shared.follow(nil)
         if let closing { NotificationCenter.default.removeObserver(closing) }
         closing = nil
         let open = windows
@@ -79,6 +85,8 @@ enum Presenting {
     /// The stage on the display the iPad drives, while the deck plays there.
     private static var stage: UIWindow?
     private static var watching: [NSObjectProtocol] = []
+    /// The show that plays, if one does: what a remote drives (PLAN 4.10).
+    static var current: Showing? { showing }
 
     /// Present `editor`'s deck from `state`, its cue first.
     static func play(_ editor: DeckEditor, from state: String?) {
@@ -91,6 +99,7 @@ enum Presenting {
         let showing = Showing(editor: editor, from: state)
         showing.ended = { Presenting.end() }
         self.showing = showing
+        RemoteHost.shared.follow(showing)
         place()
         let host = UIHostingController(rootView: ShowHere(showing: showing))
         host.modalPresentationStyle = .fullScreen
@@ -112,6 +121,7 @@ enum Presenting {
         watching = []
         leave()
         showing = nil
+        RemoteHost.shared.follow(nil)
         shown?.dismiss(animated: true)
         shown = nil
     }

@@ -2,6 +2,7 @@
 import AppKit
 #endif
 import ScaenaKit
+import ScaenaRemote
 import SwiftUI
 import os
 
@@ -63,6 +64,16 @@ struct ScaenaApp: App {
         Settings {
             KeysSettings()
         }
+        #else
+        // The remote, on the iPad: it plays a show a Mac or another iPad presents (PLAN 4.10).
+        WindowGroup("Remote", id: RemoteWindow.id) {
+            RemoteView()
+        }
         #endif
     }
+}
+
+/// The remote's window on the iPad (PLAN 4.10).
+enum RemoteWindow {
+    static let id = "remote"
 }

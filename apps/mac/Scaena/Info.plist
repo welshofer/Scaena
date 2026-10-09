@@ -24,6 +24,12 @@
 	<true/>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Scaena offers the deck you present to the remote on your iPhone or iPad.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_scaena-remote._tcp</string>
+	</array>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
