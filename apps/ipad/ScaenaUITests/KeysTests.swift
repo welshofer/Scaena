@@ -3,9 +3,10 @@ import XCTest
 /// The canvas by keys alone (PLAN 4.6), on B1's cover with a hardware keyboard, as the Mac's canvas
 /// takes them (PLAN 3.17), each key the patch its gesture makes: a tap where nothing draws gives the
 /// canvas the keyboard; Tab selects in reading order and Shift+Tab goes back; the arrows nudge the
-/// title as its drag would, and ⌘Z, Undo by its key, takes each nudge back; Return types in the
-/// title and Escape stops, the keys the canvas's again; ⌘D, Duplicate by its key, copies it; and
-/// Escape selects what holds it. Each node is an element that reads as the reader hears it.
+/// title as its drag would, and ⌘Z, Undo by its key, takes each nudge back, the keys still the
+/// canvas's; Return types in the title and Escape stops, the keys the canvas's again; ⌘D,
+/// Duplicate by its key, copies it; and Escape selects what holds it. Each node is an element that
+/// reads as the reader hears it.
 final class KeysTests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -58,11 +59,33 @@ final class KeysTests: XCTestCase {
             XCTAssertTrue(wait(5) { abs(title.frame.minX - before.minX) < 0.5 }, "⌘Z left a nudge: \(title.frame)")
         }
 
+        try XCTContext.runActivity(named: "After ⌘Z the keys are still the canvas's: Escape, then Tab") { _ in
+            // Escape selects what holds the title, the slide, as a key with no modifier the canvas
+            // reads; Tab, which the canvas declines with ⌘, selects the title again.
+            app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
+            guard wait(5, { !title.isSelected }) else {
+                keep(app, as: "undone-escape")
+                throw Unseen(description: "after ⌘Z, Escape did not reach the canvas: \(app.debugDescription)")
+            }
+            app.typeKey(XCUIKeyboardKey.tab, modifierFlags: [])
+            guard wait(5, { title.isSelected }) else {
+                keep(app, as: "undone-tab")
+                throw Unseen(
+                    description: "after ⌘Z, Escape reached the canvas and Tab did not: \(app.debugDescription)")
+            }
+        }
+
         try XCTContext.runActivity(named: "Return types in the title; Escape stops, and the keys are the canvas's") { _ in
             app.typeKey(XCUIKeyboardKey.return, modifierFlags: [])
             let typing = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'typing'")).firstMatch
             guard typing.waitForExistence(timeout: 5) else {
-                throw Unseen(description: "Return typed in nothing: \(app.debugDescription)")
+                keep(app, as: "return-typed-nothing")
+                // Which key the canvas did not hear: the keypad's Enter is Return to it too.
+                app.typeKey(XCUIKeyboardKey.enter, modifierFlags: [])
+                let entered = typing.waitForExistence(timeout: 5)
+                throw Unseen(
+                    description: "Return typed in nothing, though Escape and Tab reached the canvas; Enter "
+                        + "\(entered ? "did" : "did not either"): \(app.debugDescription)")
             }
             app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
             XCTAssertTrue(wait(5) { !typing.exists && title.isSelected }, "Escape did not stop typing")

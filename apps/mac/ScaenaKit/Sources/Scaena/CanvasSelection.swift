@@ -850,11 +850,15 @@ struct CanvasSelection: View {
         let flags = key.modifierFlags.intersection([.command, .shift, .alternate, .control])
         guard !flags.contains(.control) else { return false }
         let (shift, option, command) = (flags.contains(.shift), flags.contains(.alternate), flags.contains(.command))
+        // Return by any code a keyboard gives it, or by what it types: the keypad's Enter is it too.
+        if [.keyboardReturnOrEnter, .keyboardReturn, .keypadEnter].contains(key.keyCode)
+            || ["\r", "\n"].contains(key.charactersIgnoringModifiers)
+        {
+            return command ? false : enter(option: option)
+        }
         switch key.keyCode {
         case .keyboardTab where !command && !option:
             return tab(back: shift)
-        case .keyboardReturnOrEnter, .keypadEnter:
-            return command ? false : enter(option: option)
         case .keyboardEscape:
             return escape()
         case .keyboardLeftArrow where !command:
