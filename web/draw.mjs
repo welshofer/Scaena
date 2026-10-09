@@ -56,10 +56,13 @@ try {
     await page.waitForFunction((t) => document.querySelector("#status").textContent.includes(t), text, { timeout: 30000 }).catch(() => {});
     return (await status()).includes(text);
   };
-  /** The source as it was, as one edit of it; the boxes those of `revenue` again. */
+  /** The source as it was, as one edit of it; the boxes those of `revenue` again. What is drawn
+   * leaves at the next slide (PLAN 3.24), so the edit reaches `close` too: the cursor goes back to
+   * `revenue`, which the preview follows. */
   const restore = async (to) => {
     if ((await source()) !== to) await page.evaluate((s) => window.scaena.type(s), to);
     await back(to);
+    await page.evaluate((offset) => window.scaena.cursor(offset), to.indexOf("state revenue") + "state ".length);
     await page.waitForFunction(() => window.scaena.canvas.boxed() === "revenue" && !window.scaena.canvas.busy(), null, { timeout: 30000 });
   };
   /** Client px of `at`, canvas units. */
