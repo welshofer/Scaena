@@ -105,19 +105,22 @@ private func tiff(_ png: Data) -> Data? {
     try png.write(to: card)
     let cardItem = try #require(NSItemProvider(contentsOf: card))
     let picture = try #require(await Pasteboard.dropped(cardItem))
-    #expect(picture.name == "Test Card.png" && picture.data == png)
+    #expect(picture.name == "Test Card.png", "named \(picture.name)")
+    #expect(picture.data == png)
 
     let rows = folder.appending(path: "bars.csv")
     try Data("quarter,sales\nQ1,1200\n".utf8).write(to: rows)
     let rowsItem = try #require(NSItemProvider(contentsOf: rows))
     let data = try #require(await Pasteboard.dropped(rowsItem))
-    #expect(data.name == "bars.csv" && String(decoding: data.data, as: UTF8.self).hasPrefix("quarter,sales"))
+    #expect(data.name == "bars.csv", "named \(data.name)")
+    #expect(String(decoding: data.data, as: UTF8.self).hasPrefix("quarter,sales"))
 
     // A TIFF's data, as a picture dragged from another app may be: a PNG of it.
     let tiff = try #require(retyped(png, as: .tiff))
     let item = NSItemProvider(item: tiff as NSData, typeIdentifier: UTType.tiff.identifier)
     let made = try #require(await Pasteboard.dropped(item))
-    #expect(made.name.hasSuffix(".png") && made.data.starts(with: [0x89, 0x50, 0x4E, 0x47]))
+    #expect(made.name.hasSuffix(".png"), "named \(made.name)")
+    #expect(made.data.starts(with: [0x89, 0x50, 0x4E, 0x47]))
 
     // Words are no file the canvas takes.
     let words = folder.appending(path: "notes.txt")

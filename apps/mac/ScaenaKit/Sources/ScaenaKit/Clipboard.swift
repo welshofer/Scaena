@@ -260,13 +260,15 @@ extension Pasteboard {
     @MainActor
     public static func dropped(_ item: NSItemProvider) async -> (data: Data, name: String)? {
         let kinds = item.registeredTypeIdentifiers.compactMap { UTType($0) }
+        // The name it was dragged by: a file's copy may be named otherwise, as on the iPad.
+        let suggested = item.suggestedName.flatMap { $0.isEmpty ? nil : $0 }
         for kind in [UTType.commaSeparatedText, .json, .png, .jpeg] where kinds.contains(where: { $0.conforms(to: kind) }) {
-            if let file = await file(item, kind) { return (file.data, named(file.name, as: kind)) }
+            if let file = await file(item, kind) { return (file.data, named(suggested ?? file.name, as: kind)) }
         }
         if let kind = kinds.first(where: { $0.conforms(to: .image) }), let file = await file(item, kind),
             let png = png(file.data)
         {
-            return (png, named((file.name as NSString).deletingPathExtension, as: .png))
+            return (png, named(((suggested ?? file.name) as NSString).deletingPathExtension, as: .png))
         }
         return nil
     }
