@@ -444,40 +444,54 @@ struct DeckView: View {
     @ViewBuilder private var stage: some View {
         if let shown {
             let size = (try? editor.session.canvasSize()) ?? CGSize(width: 1920, height: 1080)
-            // Drawn again after each edit, and as a drag moves a node or shows its patch (PLAN 3.7).
-            ScaenaCanvas(
-                session: editor.session, state: shown, revision: editor.revision &+ editor.drawn, playhead: $playhead
-            )
-            .overlay {
-                if showsGrid { GridOverlay(editor: editor, shown: zoom.view) }
-            }
-            .overlay {
-                if let typing {
-                    CanvasSelection(
-                        editor: editor, state: shown, size: size, zoom: $zoom, node: $node, also: $also, typing: typing,
-                        pointed: $pointed, said: $said, delete: delete, clip: clip, finding: { searching = true },
-                        actions: actions, fix: { finding in perform { try document.fix(finding, undo: undo) } }
-                    ) { ops in
-                        perform { try document.make(ops, undo: undo) }
+            // The slide fitted to the room the window gives it, which it does not ask the window
+            // for: the window opens at its own size, within the screen, whatever the slide's shape.
+            GeometryReader { room in
+                let fitted = Self.fitted(size, in: room.size, margin: 28)
+                // Drawn again after each edit, and as a drag moves a node or shows its patch (PLAN 3.7).
+                ScaenaCanvas(
+                    session: editor.session, state: shown, revision: editor.revision &+ editor.drawn,
+                    playhead: $playhead
+                )
+                .overlay {
+                    if showsGrid { GridOverlay(editor: editor, shown: zoom.view) }
+                }
+                .overlay {
+                    if let typing {
+                        CanvasSelection(
+                            editor: editor, state: shown, size: size, zoom: $zoom, node: $node, also: $also,
+                            typing: typing, pointed: $pointed, said: $said, delete: delete, clip: clip,
+                            finding: { searching = true }, actions: actions,
+                            fix: { finding in perform { try document.fix(finding, undo: undo) } }
+                        ) { ops in
+                            perform { try document.make(ops, undo: undo) }
+                        }
                     }
                 }
+                // The whole canvas shown again once it is another size: another format shown, say.
+                .onChange(of: size, initial: true) { _, now in zoom.resize(to: now) }
+                .onChange(of: zoom) { _, now in editor.look(through: now.view) }
+                .frame(width: fitted.width, height: fitted.height)
+                // The slide on the gray a slide sits on, lifted off it a little (PLAN 3.18).
+                .background {
+                    Rectangle()
+                        .fill(.background)
+                        .shadow(color: .black.opacity(0.2), radius: 10, y: 3)
+                }
+                .position(x: room.size.width / 2, y: room.size.height / 2)
             }
-            // The whole canvas shown again once it is another size: another format shown, say.
-            .onChange(of: size, initial: true) { _, now in zoom.resize(to: now) }
-            .onChange(of: zoom) { _, now in editor.look(through: now.view) }
-            .aspectRatio(size.width / max(size.height, 1), contentMode: .fit)
-            // The slide on the gray a slide sits on, lifted off it a little (PLAN 3.18).
-            .background {
-                Rectangle()
-                    .fill(.background)
-                    .shadow(color: .black.opacity(0.2), radius: 10, y: 3)
-            }
-            .padding(28)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(minWidth: 320, minHeight: 200)
             .background(Desk.color)
         } else {
             ContentUnavailableView("No Slides", systemImage: "rectangle.stack")
         }
+    }
+
+    /// The largest box of `canvas`'s shape in `room`, `margin` points in from each of its edges.
+    private static func fitted(_ canvas: CGSize, in room: CGSize, margin: CGFloat) -> CGSize {
+        let (w, h) = (max(room.width - 2 * margin, 1), max(room.height - 2 * margin, 1))
+        let shape = canvas.width / max(canvas.height, 1)
+        return w / h > shape ? CGSize(width: h * shape, height: h) : CGSize(width: w, height: w / shape)
     }
 
     /// Show a match the find bar found (PLAN 3.16): its state, and its node selected.
@@ -755,16 +769,22 @@ struct DeckView: View {
 
     /// Insert what the deck offers `n`th where the pointer last pressed on the canvas, or in its
     /// middle; in the room nearest there where content would overlap (PLAN 2.34, 2.79). It enters
-    /// in the state shown, selected: one step to undo.
+    /// in the state shown, selected: one step to undo. A text enters typed in, its words selected,
+    /// so what is typed next takes their place, as a presentation app's new text box does (PLAN 3.21).
     private func insert(_ n: Int, in state: String) {
         let size = (try? editor.session.canvasSize()) ?? CGSize(width: 1920, height: 1080)
         let at = pointed ?? CGPoint(x: size.width / 2, y: size.height / 2)
+        let offered = inserts.indices.contains(n) ? inserts[n] : nil
         perform {
             let added = try editor.session.inserting(state: state, n: n, at: at)
             try document.make(added.patch, undo: undo)
             node = added.id
             also = []
-            said = "\(inserts.indices.contains(n) ? Words.inserted(inserts[n]) : "Object") inserted"
+            if offered?.kind == "Text", let typing, typing.enter(added.id, in: state, at: nil) {
+                typing.selectAll()
+                return
+            }
+            said = "\(offered.map(Words.inserted) ?? "Object") inserted"
         }
     }
 

@@ -128,5 +128,6 @@ struct InsertMenu: View {
         }
         .disabled(all.isEmpty)
         .help(all.isEmpty ? "Nothing of this kind to insert" : "Insert \(title.lowercased()); its menu offers each kind")
+        .accessibilityIdentifier("insert-\(title)")
     }
 }

@@ -27,4 +27,19 @@ final class OpeningTests: XCTestCase {
         settle()
         keep(app, as: "b1")
     }
+
+    /// A text inserted from the toolbar is typed in, its words selected, as a presentation app's
+    /// new text box is (PLAN 3.21).
+    @MainActor
+    func testATextInsertedIsTypedIn() throws {
+        let app = launched()
+        try openB1(in: app)
+        let text = app.buttons.matching(identifier: "insert-Text").firstMatch
+        XCTAssertTrue(text.waitForExistence(timeout: 10), "no Text in the toolbar: \(app.debugDescription)")
+        text.tap()
+        let typing = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Editing'")).firstMatch
+        XCTAssertTrue(typing.waitForExistence(timeout: 5), "the text inserted is not typed in: \(app.debugDescription)")
+        settle()
+        keep(app, as: "inserted")
+    }
 }
