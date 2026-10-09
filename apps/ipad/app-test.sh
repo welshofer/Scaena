@@ -12,11 +12,11 @@ xcodegen generate --quiet
 udid=$("$here/simulator.sh")
 destination="platform=iOS Simulator,arch=arm64,id=$udid"
 built="$root/target/ipad/derived"
-xcodebuild build-for-testing -quiet -project Scaena.xcodeproj -scheme Scaena -destination "$destination" \
+xcodebuild build-for-testing -quiet -project Scaena.xcodeproj -scheme ScaenaApp -destination "$destination" \
   -derivedDataPath "$built"
 # Installed before the tests run, so that B1 can go in its folder: the tests install it again
 # over itself, which keeps what the folder holds.
-xcrun simctl install "$udid" "$built/Build/Products/Debug-iphonesimulator/Scaena.app"
+xcrun simctl install "$udid" "$built/Build/Products/Debug-iphonesimulator/ScaenaApp.app"
 documents="$(xcrun simctl get_app_container "$udid" com.welshofer.Scaena data)/Documents"
 mkdir -p "$documents"
 rm -rf "$documents/b1.scaena"
@@ -26,7 +26,7 @@ rm -rf "$results"
 status=0
 # xcodebuild hands the test runner what is named TEST_RUNNER_*, without the prefix.
 TEST_RUNNER_SCAENA_DECK="$documents/b1.scaena" xcodebuild test-without-building -quiet \
-  -project Scaena.xcodeproj -scheme Scaena -destination "$destination" -derivedDataPath "$built" \
+  -project Scaena.xcodeproj -scheme ScaenaApp -destination "$destination" -derivedDataPath "$built" \
   -resultBundlePath "$results" || status=$?
 "$here/results.sh" "$results" "$root/target/ipad/shots"
 exit "$status"

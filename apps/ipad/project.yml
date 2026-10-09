@@ -21,8 +21,9 @@ packages:
     path: ../mac/ScaenaKit
 targets:
   # Scaena on the iPad: the Mac app's sources, each AppKit piece behind `os(macOS)` with a UIKit
-  # twin (PLAN 4.2).
-  Scaena:
+  # twin (PLAN 4.2). Named apart from ScaenaKit's own `Scaena`, the Mac's executable, which a test
+  # host of the same name is taken for; the iPad shows it as Scaena (`CFBundleDisplayName`).
+  ScaenaApp:
     type: application
     platform: iOS
     sources:
@@ -50,13 +51,13 @@ targets:
     sources:
       - path: ScaenaUITests
     dependencies:
-      - target: Scaena
+      - target: ScaenaApp
     settings:
       base:
         SWIFT_VERSION: "5.0"
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.scaena.ScaenaUITests
-        TEST_TARGET_NAME: Scaena
+        TEST_TARGET_NAME: ScaenaApp
   # The Mac's tests of ScaenaKit, on the iPad: all but those of AppKit's views.
   ScaenaKitTests:
     type: bundle.unit-test
@@ -77,10 +78,10 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.scaena.ScaenaKitTests
         ENABLE_USER_SCRIPT_SANDBOXING: NO
 schemes:
-  Scaena:
+  ScaenaApp:
     build:
       targets:
-        Scaena: all
+        ScaenaApp: all
         ScaenaUITests: [test]
     run:
       config: Debug
