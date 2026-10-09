@@ -12,8 +12,13 @@ struct FindingsPanel: View {
     let explain: ((Finding) -> Void)?
     let fix: (Finding) -> Void
 
+    /// Advice for a deck placed by its theme's grid, which a person placing freely does not take
+    /// (ADR-0024): a node placed by a `rect` (W301), or by cells in a deck with formats (W302). The
+    /// CLI, the MCP server, and the browser still say it.
+    static let freely: Set<String> = ["W301", "W302"]
+
     var body: some View {
-        let found = ordered(editor.findings)
+        let found = ordered(editor.findings.filter { !Self.freely.contains($0.code) })
         List {
             if found.isEmpty {
                 Text(editor.whole ? "No issues." : "Checking every slide…")

@@ -1154,7 +1154,15 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             let to = [number("x")? as f32, number("y")? as f32, number("w")? as f32, number("h")? as f32];
             let fork = args.get("fork").and_then(Value::as_bool).unwrap_or(false);
             let reach = args.get("reach").and_then(Value::as_f64).unwrap_or(0.0) as f32;
-            match s.guided(arg("state")?, arg("node")?, how, to, fork, reach).map_err(said)? {
+            // `grid`: a presentation app's drag, where it is let go, the grid's tracks drawing it
+            // in (PLAN 3.19, ADR-0024).
+            let grid = args.get("grid").and_then(Value::as_bool).unwrap_or(false);
+            let (state, node) = (arg("state")?, arg("node")?);
+            let guided = match grid && how == scaena_ops::inspect::SnapMode::Free {
+                true => s.guided_freely(state, node, to, fork, reach),
+                false => s.guided(state, node, how, to, fork, reach),
+            };
+            match guided.map_err(said)? {
                 None => Value::Null,
                 Some((snapped, guides)) => scaena_session::with_guides(value(serde_json::to_value(snapped))?, &guides),
             }
