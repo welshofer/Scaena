@@ -249,9 +249,9 @@ public enum Pasteboard: Equatable, Sendable {
 // MARK: A drop
 
 extension Pasteboard {
-    /// What a drop on the canvas takes (PLAN 3.22): a file, from the Finder or Files, or a
-    /// picture's data, from Photos or a browser.
-    public static let droppable: [UTType] = [.fileURL, .image, .commaSeparatedText, .json]
+    /// What a drop on the canvas takes (PLAN 3.22, 4.7): a file, from the Finder or Files; a
+    /// picture's data, from Photos or a browser; or words, a sheet's cells among them.
+    public static let droppable: [UTType] = [.fileURL, .image, .commaSeparatedText, .json, .plainText, .tabSeparatedText]
 
     /// The file `item`, one thing dropped, holds that the canvas takes, as `held` reads one from
     /// the pasteboard: a CSV or a JSON file, or a PNG or a JPEG, as it is; any other picture as a
@@ -271,6 +271,26 @@ extension Pasteboard {
             return (png, named(((suggested ?? file.name) as NSString).deletingPathExtension, as: .png))
         }
         return nil
+    }
+
+    /// The words `item`, one thing dropped, holds (PLAN 4.7): a sheet's cells, a clip copied as
+    /// text, or words, which land as they paste. None where it holds no words.
+    @MainActor
+    public static func droppedWords(_ item: NSItemProvider) async -> String? {
+        let kinds = item.registeredTypeIdentifiers.compactMap { UTType($0) }
+        for kind in [UTType.utf8TabSeparatedText, .tabSeparatedText, .utf8PlainText, .plainText]
+        where kinds.contains(where: { $0.conforms(to: kind) }) {
+            if let data = await data(item, kind), let words = String(data: data, encoding: .utf8) { return words }
+        }
+        return nil
+    }
+
+    /// The bytes `item` gives as `kind`.
+    @MainActor
+    private static func data(_ item: NSItemProvider, _ kind: UTType) async -> Data? {
+        await withCheckedContinuation { done in
+            _ = item.loadDataRepresentation(forTypeIdentifier: kind.identifier) { data, _ in done.resume(returning: data) }
+        }
     }
 
     /// The bytes and the name of the file `item` gives as `kind`, read while it is there: a file
