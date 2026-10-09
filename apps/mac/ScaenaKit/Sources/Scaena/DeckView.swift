@@ -462,7 +462,8 @@ struct DeckView: View {
                             editor: editor, state: shown, size: size, zoom: $zoom, node: $node, also: $also,
                             typing: typing, pointed: $pointed, said: $said, delete: delete, clip: clip,
                             finding: { searching = true }, actions: actions,
-                            fix: { finding in perform { try document.fix(finding, undo: undo) } }
+                            fix: { finding in perform { try document.fix(finding, undo: undo) } },
+                            dropped: { items, at in drop(items, in: shown, at: at) }
                         ) { ops in
                             perform { try document.make(ops, undo: undo) }
                         }
@@ -693,7 +694,7 @@ struct DeckView: View {
     }
 
     /// A picture kept in the bundle, by its content, and inserted as an image about `at`.
-    private func picture(_ data: Data, named name: String, in state: String, at: CGPoint) {
+    private func picture(_ data: Data, named name: String, in state: String, at: CGPoint, verb: String = "pasted") {
         perform {
             let path = try editor.session.drop(data, named: name)
             let offered = try editor.session.inserts()
@@ -706,14 +707,16 @@ struct DeckView: View {
             try document.make(added.patch, undo: undo)
             node = added.id
             also = []
-            said = "Picture pasted"
+            said = "Picture \(verb)"
         }
     }
 
     /// A data file kept in the bundle and declared as a source (PLAN 2.76), then a chart of it
     /// inserted about `at`; a sheet's `cells`, typed as they read, and the table they were, each
     /// column printing its figures as they were copied (PLAN 2.96).
-    private func attach(_ data: Data, named name: String, cells: Cells?, in state: String, at: CGPoint) {
+    private func attach(
+        _ data: Data, named name: String, cells: Cells?, in state: String, at: CGPoint, verb: String = "pasted"
+    ) {
         perform {
             let path = try editor.session.drop(data, named: name)
             let attaching = try editor.session.attaching(path: path, schema: cells?.schema)
@@ -733,7 +736,51 @@ struct DeckView: View {
             try document.make(added.patch, undo: undo)
             node = added.id
             also = []
-            said = "A \(kind) of \(attaching.data) pasted"
+            said = "A \(kind) of \(attaching.data) \(verb)"
+        }
+    }
+
+    /// What another app dropped on the canvas at `point`, canvas units (PLAN 3.22), each file as the
+    /// browser's canvas takes one (PLAN 2.45, 2.76): a picture let go on an image takes its place,
+    /// one `choose` of `src`; anywhere else it is inserted there, as Insert inserts one; a CSV or
+    /// JSON file joins the deck as a data source, with a chart of it there. Whether any is taken.
+    private func drop(_ items: [NSItemProvider], in state: String, at point: CGPoint) -> Bool {
+        let taken = items.filter { item in
+            Pasteboard.droppable.contains { item.hasItemConformingToTypeIdentifier($0.identifier) }
+        }
+        guard !taken.isEmpty else { return false }
+        Task { @MainActor in
+            for item in taken {
+                guard let file = await Pasteboard.dropped(item) else {
+                    said = "Only a picture or data (CSV, JSON) can go on a slide"
+                    continue
+                }
+                land(file.data, named: file.name, in: state, at: point)
+            }
+        }
+        return true
+    }
+
+    /// A file dropped at `point`: data as a source with a chart of it; a picture on the image there,
+    /// or inserted.
+    private func land(_ data: Data, named name: String, in state: String, at point: CGPoint) {
+        let ext = (name as NSString).pathExtension.lowercased()
+        if ext == "csv" || ext == "json" {
+            return attach(data, named: name, cells: nil, in: state, at: point, verb: "added")
+        }
+        let hit = ((try? editor.session.hits(state: state, at: point)) ?? []).first { $0.locked == nil }
+        guard let onto = hit?.node, (try? editor.session.choices(state: state, node: onto))?.type == "image" else {
+            return picture(data, named: name, in: state, at: point, verb: "added")
+        }
+        perform {
+            let path = try editor.session.drop(data, named: name)
+            let op: JSONValue = [
+                "op": "choose", "node": .string(onto), "prop": "src", "value": .string(path), "state": .string(state),
+            ]
+            try document.make([op], undo: undo)
+            node = onto
+            also = []
+            said = "Picture replaced"
         }
     }
 

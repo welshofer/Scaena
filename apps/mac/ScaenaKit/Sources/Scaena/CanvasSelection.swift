@@ -62,6 +62,8 @@ struct CanvasSelection: View {
     let actions: DeckActions?
     /// Apply what lint found's fix, from the mark on its object (PLAN 3.20): one step to undo.
     let fix: (Finding) -> Void
+    /// What was dropped on the canvas, and where, canvas units (PLAN 3.22): whether it is taken.
+    let dropped: ([NSItemProvider], CGPoint) -> Bool
     /// Make the patch a drag ended in: one step to undo.
     let make: ([JSONValue]) -> Void
     @State private var boxes: [NodeBox] = []
@@ -94,6 +96,8 @@ struct CanvasSelection: View {
     /// The menu a long press asks for: a count, new with each ask, and where, view points.
     @State private var offering: (count: Int, at: CGPoint)?
     #endif
+    /// Whether a drag from another app is over the canvas, with something it takes (PLAN 3.22).
+    @State private var dropping = false
 
     /// How long a resize pauses before the canvas shows its text reflowed (as the browser's).
     private static let pause = Duration.milliseconds(300)
@@ -232,6 +236,10 @@ struct CanvasSelection: View {
                                 zoom.pan(by: CGVector(dx: -Double(by.dx) * fit.units, dy: -Double(by.dy) * fit.units))
                             }, fingers: fingers))
                     #endif
+                    // A picture or a data file from another app, where it is let go (PLAN 3.22).
+                    .onDrop(of: Pasteboard.droppable, isTargeted: $dropping) { items, at in
+                        dropped(items, fit.canvas(at))
+                    }
                 #if !os(macOS)
                 // What a long press offers, shown over what the finger pressed (PLAN 4.3).
                 CanvasMenu(asked: offering, deck: actions, clip: clip)
@@ -276,6 +284,12 @@ struct CanvasSelection: View {
                 }
                 landings(fit)
                     .allowsHitTesting(false)
+                // A drag from another app over the slide: the slide outlined, where it would go.
+                if dropping {
+                    Rectangle()
+                        .strokeBorder(Color.accentColor, lineWidth: 3)
+                        .allowsHitTesting(false)
+                }
                 if let r = banded {
                     Path(r).applying(fit.transform)
                         .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1, dash: [3, 3]))

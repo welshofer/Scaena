@@ -245,3 +245,48 @@ public enum Pasteboard: Equatable, Sendable {
         return w.isEmpty || w == name || w.range(of: #"^(https?|file)://\S+$"#, options: [.regularExpression, .caseInsensitive]) != nil
     }
 }
+
+// MARK: A drop
+
+extension Pasteboard {
+    /// What a drop on the canvas takes (PLAN 3.22): a file, from the Finder or Files, or a
+    /// picture's data, from Photos or a browser.
+    public static let droppable: [UTType] = [.fileURL, .image, .commaSeparatedText, .json]
+
+    /// The file `item`, one thing dropped, holds that the canvas takes, as `held` reads one from
+    /// the pasteboard: a CSV or a JSON file, or a PNG or a JPEG, as it is; any other picture as a
+    /// PNG of it. Each is named as it was, or by its kind where it had no name of its kind. None
+    /// where it holds none of them.
+    @MainActor
+    public static func dropped(_ item: NSItemProvider) async -> (data: Data, name: String)? {
+        let kinds = item.registeredTypeIdentifiers.compactMap { UTType($0) }
+        for kind in [UTType.commaSeparatedText, .json, .png, .jpeg] where kinds.contains(where: { $0.conforms(to: kind) }) {
+            if let file = await file(item, kind) { return (file.data, named(file.name, as: kind)) }
+        }
+        if let kind = kinds.first(where: { $0.conforms(to: .image) }), let file = await file(item, kind),
+            let png = png(file.data)
+        {
+            return (png, named((file.name as NSString).deletingPathExtension, as: .png))
+        }
+        return nil
+    }
+
+    /// The bytes and the name of the file `item` gives as `kind`, read while it is there: a file
+    /// the Finder or Files dragged, or a copy written of a picture's data.
+    @MainActor
+    private static func file(_ item: NSItemProvider, _ kind: UTType) async -> (data: Data, name: String)? {
+        await withCheckedContinuation { done in
+            _ = item.loadFileRepresentation(forTypeIdentifier: kind.identifier) { url, _ in
+                let read = url.flatMap { url in (try? Data(contentsOf: url)).map { (data: $0, name: url.lastPathComponent) } }
+                done.resume(returning: read)
+            }
+        }
+    }
+
+    /// `name`, with an extension of `kind` where it has none of it: `dropped` where it has no name.
+    static func named(_ name: String, as kind: UTType) -> String {
+        let ext = (name as NSString).pathExtension
+        if !ext.isEmpty, let found = UTType(filenameExtension: ext), found.conforms(to: kind) { return name }
+        return "\(name.isEmpty ? "dropped" : name).\(kind.preferredFilenameExtension ?? "bin")"
+    }
+}
