@@ -14,7 +14,8 @@ enum Words {
     private static let labels: [String: String] = [
         "role": "Text Style", "emphasis": "Emphasis", "style/family": "Font", "style/weight": "Weight",
         "style/italic": "Italic", "style/size": "Size", "style/color": "Color", "style/case": "Capitalization",
-        "style/tracking": "Character Spacing", "fit": "Fit", "wrap": "Line Breaks", "maxLines": "Most Lines",
+        "style/tracking": "Character Spacing", "align/x": "Alignment", "fit": "Fit", "wrap": "Line Breaks",
+        "maxLines": "Most Lines",
         "opacity": "Opacity", "transform/rotate": "Rotation", "enter": "Build In", "exit": "Build Out",
         "alt": "Description", "semantic": "Part in the Story", "focal": "Focal Point", "crop": "Crop",
         "radius": "Corners", "fill": "Fill", "stroke/paint": "Border", "stroke/width": "Border Width",
@@ -41,6 +42,9 @@ enum Words {
         case ("wrap", "greedy"): return "Plain"
         case ("wrap", "pretty"): return "Even"
         case ("wrap", "balance"): return "Balanced"
+        case ("align/x", "start"): return "Left"
+        case ("align/x", "center"): return "Center"
+        case ("align/x", "end"): return "Right"
         case ("style/case", "none"): return "As Typed"
         case ("style/case", "upper"): return "All Caps"
         case ("style/case", "lower"): return "Lowercase"

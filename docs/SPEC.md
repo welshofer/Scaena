@@ -939,6 +939,8 @@ Exit codes: `0` ok; `1` findings that are errors (`validate`, `lint`, `compile`,
 
 A command that writes a bundle that keeps history (`patch`, `find --replace`, `data --edits`, `theme --apply`, `lint --fix`, `history --restore`, `save`; §8) records its change there, by `$SCAENA_AUTHOR` (`user` without it), saying what it did.
 
+#### 7.1.1 Finding, data, files, and history
+
 **`scaena find`** (PLAN 2.47, 2.83) finds TEXT in the deck's words, in every state: its texts, each node's description (`alt`), each state's `notes`, and each beat's `claim` and `notes`. A text node's text is written in one place for each state that shows it: the deck's `overrides`, which hold it in every state; else the latest delta that sets it, from the state back along what it tracks; else the node's own (§2.2). A node's `alt` is written as a text is. Each is found once for each place it is written, with what it is (`kind`: `text`, `alt`, `notes`, or `claim`), its node or its beat, the states that show it from there (a beat's, for its claim and notes), its words (a text's runs' texts end to end), and each match, `[from, to]` in characters (Unicode scalar values), none overlapping. `--case` keeps upper and lower case apart; `--words` takes whole words only, a match that neither begins nor ends inside a word. With `--replace`, every match is replaced by WITH in one patch: in a text, a `replace_text` for each (§7.3), made in the first state that shows its text, so it is written where the text lives, the last match in a text first; in other words, a JSON Patch `replace` of them where they are written. The patch is checked, reported, written, and recorded as `patch` does one; `--dry-run` writes nothing.
 
 **`scaena data`** (PLAN 2.55) shows data source SOURCE as a table (§3.10). Each column shows its name and type, each row its index from 0 and its cells as written, and each cell its column does not read is listed with why. With `--edits`, it makes the edits:
@@ -960,6 +962,8 @@ A command that writes a bundle that keeps history (`patch`, `find --replace`, `d
 
 A bundle that keeps no history exits 2, and says that `scaena save --history` begins one.
 
+#### 7.1.2 `--json`
+
 `--json` goes anywhere on the line. With it, stdout holds exactly one JSON value: the command's result, or, when the command stops with exit 2 or 3, `{ "error": { "exit", "message", "plan"? } }`. A usage error is one too. `compile` adds the `line` and `col` of source that does not compile, and the JSON pointer into the deck (`path`) when the error is about part of it. So an agent parses stdout, then reads the exit code. stderr is for people and is not part of the contract. The results:
 
 | Command | `--json` |
@@ -978,6 +982,8 @@ A bundle that keeps no history exits 2, and says that `scaena save --history` be
 | `data` | `{ edited, source, file?, sheet, added, removed, errors, refused }`: the file the source is (none for rows written inline); the sheet, `{ columns, rows, problems? }`, each column `{ name, type }`, each row's cells as written, and each cell its column does not read, `{ row, column, why }`, as the edits leave it, or as it is with none or when they are refused; and the lint delta. An edit that does not apply adds `op`, its index, to the error object |
 | `history` | `{ versions }`, each `{ n, id, author?, message?, at?, ops }`; `--at`, `{ seen }`: `{ version, deck?, scn?, files }`; `--diff`, `{ compared }`: `{ from, to?, states, deck, files }`, each state `{ "added": true }`, `{ "removed": true }`, or `{ "changed": { fields?, nodes? } }`; `--restore`, `{ restored }`: `{ version, applied, files, added, removed, errors, states }` |
 | `files` | `{ files }`: each `{ path, type, bytes, named, used }`, `type` one of `image`, `font`, and `data`; `named` what names it, each `{ by: "node", node }`, `{ by: "evidence", beat }`, `{ by: "font", family, style? }`, `{ by: "theme", family }`, or `{ by: "source", source }`; `used` each node drawn from it, `{ node, states }`. With `--remove`, `{ removed, refused, applied }`: the paths taken out, all asked or none; each kept, `{ path, why }`; and whether the bundle was written |
+
+#### 7.1.3 Timelines, data, diffs, exports, validation, and themes
 
 `inspect --timeline` shows each state's cue (§2.4, §3.9) in ms, worked out as `render` does, so it reads the bundle's fonts:
 - Where the state falls on the deck's timeline: `start`, `span` (its transition and motions), and `hold`.
@@ -1003,6 +1009,8 @@ A theme that would leave the deck invalid is refused, as `patch` refuses a patch
 `theme --edit` edits the theme the deck names (PLAN 2.61, ADR-0016, §3.6): RFC 6902 operations on its JSON, read from a file or stdin, applied in order, all or none. The theme file is written in canonical form, as `save` writes it; an inline theme is written into `deck.json`. A theme that ships is edited in the bundle's copy. The deck is checked in the theme as edited, as `--apply` checks it: an edit after which it would not validate is refused, exits 1, and writes nothing; one that would add no validation error is written, recorded in the history with the theme's bytes, and reports the lint delta. An operation that does not apply exits 2 with its index. `--dry-run` reports without writing. `--from-photo IMAGE` makes the edit from a photo the bundle holds (§3.6), and says each color as it was and as it is.
 
 `inspect --resolved` runs each state through the theme cascade (§3.6): the deck's overrides merged in, each text node's look (role, family, size, leading, weight, tracking, color), and what each node's overrides set.
+
+#### 7.1.4 Where nodes stand and where they may go
 
 `inspect --boxes` and `--at` say what stands where in each state at rest (ADR-0013), from the layout its frames at rest draw, so they read the bundle's fonts. They answer what a pointer needs to select a node and move it:
 - **`boxes`:** each visible node by id, with its `rect` (`[x, y, width, height]`, canvas units) and the container or group it sits in (`parent`). The rect is its grid cell or slot, the box its container gave it, or a group's box around its members, as laid out. Where its `transform` or that of what holds it moves it (§3.3), `transform` is the map that draws the rect where it is drawn, `[a, b, c, d, e, f]` (`x' = a·x + c·y + e`, `y' = b·x + d·y + f`). Those that draw come first, in paint order; then the containers and groups that only hold others (`draws: false`).
@@ -1039,10 +1047,12 @@ A way that does not place the node is an error that names those that do.
 
 A node that lands where it stands is left out of the patch, so its placement stays as written, a slot's name and all. Nodes of two containers are an error, and so is any way but order in a stack, which places what it holds by its order.
 
+#### 7.1.5 What an editor offers
+
 `inspect --state S --choices NODE` says what an inspector offers for the node as that state shows it (ADR-0013, PLAN 2.33): each property it edits (`fields`), the node type's own first, then those every node has.
 - **What each takes** (`takes`). Some take one of the theme's names of a kind (`name`, with `of`: a text role, a font family, a color, a motion preset, a shader preset of the node's kind, a shader palette, a stroke, or a step of the space or radius scale), in the theme's order (`Theme::names`). Others take a word, a number in range, or yes or no, as the schema generated from the model allows. An image's focal point and crop take fractions of the image, from 0 to 1 (`fractions`, with `names`: `x` and `y`, or `x`, `y`, `w`, and `h`), which are never overrides (PLAN 2.45). Where a value written out is legal too, a color or a length in canvas units, `overrides` says so: one goes in the deck's `overrides`. A text size is always written out, and always an override.
 - **The fields by type:**
-  - a text: `role`, `style/family`, `style/weight`, `style/italic`, `style/size`, `style/color`, `style/case`, `fit`, `wrap`, and `maxLines`;
+  - a text: `role`, `style/family`, `style/weight`, `style/italic`, `style/size`, `style/color`, `style/case`, `align/x` (where its lines stand across its box: `start`, `center`, or `end`, PLAN 3.25), `fit`, `wrap`, and `maxLines`;
   - a shape: `fill`, `stroke/paint`, `stroke/width`, and `radius`;
   - an image: `fit`, `focal`, `crop`, and `radius`;
   - a shader: `preset` and `palette`;
@@ -1056,7 +1066,7 @@ A node that lands where it stands is left out of the patch, so its placement sta
   - any column for the rest.
 
   Where its data cannot be read (a file the bundle does not hold), no column is offered, and its `data` still is.
-- **The value shown** (`value`) is the deck's: tracked (§2.2), then the overrides; absent where the theme's shows.
+- **The value shown** (`value`) is the deck's: tracked (§2.2), then the overrides; absent where the theme's shows. One keyword sets both axes of an `align`, so it is the value of each; a `choose` of one axis there writes the keyword out as both, the one chosen changed, so the other stays as it showed (PLAN 3.25).
 - **Where it lives** (`lives`): `overrides`, a state's delta (`{ "state": id }`, the one shown or one it tracks from), or the `node`. That is where `choose` writes (§7.3).
 - `literal` marks a value written out where the theme has names: an override in the overrides, W300's anywhere else.
 
@@ -1101,6 +1111,8 @@ A node the state does not show is an error that says so.
 - **A shader** of each of the theme's presets, filling the `canvas` slot (`{ "slot": "canvas" }`) under what is there (`z` -1).
 
 An editor puts a box about the pointer, snapped to the theme's grid as a dropped box snaps (`move`), and the node enters in the state shown: `add_node` with its `state`, then `place`, then `hide_node` where another slide would show it, so it stays on its slide, as a copy and a paste do (PLAN 3.24, §9.2). A text or an image fills instead the template's slot under the pointer where no node the state shows is placed in it (`slot`), so it moves with the deck's formats. Content (a text, an image, a chart, a table) whose box would overlap what lint E101 judges it against there, the content that stacks at `z` 0 at the root less a decoration, goes instead to the place on the grid clear of it whose middle is nearest the pointer, and stays about the pointer where none is (PLAN 2.79). Its id is the first of `id`, `id-2`, … that names no node, `id` the dropped file's name for a file dropped on the canvas (`Trail Head.jpg` is `trail-head`). A copy of a node is made the same way, of the props the state shows it with, with a copy of each node it holds there, held by the copy. It goes one span to the right of the node, below it, to its left, or above it: the first of those clear of the node and of what else draws there in front of the background, or else the first clear of the node. It is placed so in each format the node lays out in: the one shown, the deck's own canvas, and each where the node has a layout of its own (§3.4, ADR-0020), so it stands on the node in none (PLAN 2.86). A pasted node keeps a layout only for a format the deck lays out anew, and goes where it is pasted in each: its placements in its formats go, and what else it lays out by there stays. Deleting a node in a state is `hide_node` for it and for each node it holds there, and `remove_node` for one that no state shows after that, so a node inserted and deleted leaves nothing behind; deleting it from the deck is `remove_node` for each, what it holds first.
+
+#### 7.1.6 Formats, compiling, new bundles, serving, and rendering
 
 `--format` inspects the deck in one of its formats, laid out again with its template set (§3.4), for every view.
 

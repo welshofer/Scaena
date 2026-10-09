@@ -175,6 +175,8 @@ struct Inspector: View {
                 WeightRow(value: field.value?.number, choose: choose)
             case "transform/rotate":
                 NumberRow(label: label, value: field.value?.number, whole: false, unit: "°", choose: choose)
+            case "align/x":
+                AlignmentRow(value: field.value?.string, choose: choose)
             case "notes", "alt":
                 TextRow(label: label, value: field.value?.string ?? "", long: true, choose: choose)
             default:
@@ -711,6 +713,36 @@ private struct OpacityRow: View {
         guard chosen != (value ?? 1) else { return }
         choose(.number(chosen))
     }
+}
+
+/// Where a text's lines stand across its box (PLAN 3.25), as a presentation app's alignment
+/// buttons: left, centered, or right. Where the text sets none, the slot's shows and none is
+/// picked.
+private struct AlignmentRow: View {
+    let value: String?
+    let choose: (JSONValue) -> Void
+
+    var body: some View {
+        LabeledContent("Alignment") {
+            Picker("Alignment", selection: Binding(get: { value }, set: { picked in
+                if let picked, picked != value { choose(.string(picked)) }
+            })) {
+                ForEach(Self.ways, id: \.word) { way in
+                    Image(systemName: way.symbol)
+                        .accessibilityLabel(Words.word(way.word, of: "align/x", type: "text"))
+                        .tag(String?.some(way.word))
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+        }
+    }
+
+    /// Each way, by the word the deck writes, and its symbol.
+    private static let ways: [(word: String, symbol: String)] = [
+        ("start", "text.alignleft"), ("center", "text.aligncenter"), ("end", "text.alignright"),
+    ]
 }
 
 /// How the slide goes on to the next: on a click, or by itself after some seconds (its `hold`).

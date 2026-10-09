@@ -54,6 +54,7 @@ fn a_text_offers_its_role_style_and_props_from_the_theme_and_the_schema() {
             "style/size",
             "style/color",
             "style/case",
+            "align/x",
             "fit",
             "wrap",
             "maxLines",
@@ -98,6 +99,11 @@ fn a_text_offers_its_role_style_and_props_from_the_theme_and_the_schema() {
     );
     let Takes::Name { of: Vocabulary::MotionPreset, names, .. } = &field(&c, "enter").takes else { panic!() };
     assert!(names.contains(&"rise".to_string()), "{names:?}");
+
+    // Where its lines stand across its box (PLAN 3.25): none stretches, and the slot's shows.
+    let align = field(&c, "align/x");
+    assert_eq!(align.takes, Takes::Word { words: ["start", "center", "end"].map(String::from).into() });
+    assert_eq!((align.value.as_ref(), align.lives.as_ref()), (None, None), "the slot's alignment shows");
 
     // `mix` tracks the role from `revenue`, where it lives; `intro` shows the node's own.
     assert_eq!(field(&offered(&example(), "mix", "title"), "role").lives, Some(Where::State("revenue".into())));
@@ -511,4 +517,16 @@ fn characters_offer_a_runs_look_and_show_the_first_ones() {
     assert!(e.contains("15 characters"), "{e}");
     assert!(characters(&deck(&doc), &theme, "revenue", "title", (3, 16)).is_err());
     assert!(characters(&deck(&doc), &theme, "revenue", "rev", (0, 1)).unwrap_err().contains("no text"));
+}
+
+/// One keyword aligns both axes: an inspector shows it as the axis's own (PLAN 3.25).
+#[test]
+fn one_keyword_shows_as_each_axis() {
+    let mut doc = example();
+    doc["nodes"]["note"]["align"] = json!("center");
+    let note = offered(&doc, "revenue", "note");
+    let align = field(&note, "align/x");
+    assert_eq!((align.value.clone(), align.lives.clone()), (Some(json!("center")), Some(Where::Node)));
+    doc["nodes"]["note"]["align"] = json!({ "y": "end" });
+    assert_eq!(field(&offered(&doc, "revenue", "note"), "align/x").value, None, "it sets no `x`");
 }

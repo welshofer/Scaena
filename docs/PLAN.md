@@ -1501,6 +1501,10 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - **Where it leaves.** Each patch ends in a `hide_node` for each node it adds, in each state of another slide that would show it: one that tracks from a state of the slide that shows it (`scaena_ops::inspect::leaving`). In a deck whose states each track from the one before, that is the next slide's first state. The steps of the slide after the state shown still show it, and on the last slide it leaves nowhere.
     - **Why there.** `add_node` itself is unchanged: an agent's patch says what it means, and tracking stays in `scaena-core::tracking`. The four gestures each make one patch, so one undo takes the hide with the node, and Delete in the state it entered still takes a node out of the deck, the exit with it.
     - Tests: `scaena-ops`' `leaving` over steps, slides, a deck's last slide, a state tracking from an earlier one by `from`, and an absolute state; the session's insert, draw, duplicate, and paste each shown on its slide's steps and gone from the next slide.
+- [ ] 3.25 A text's alignment in the Format tab: Left, Center, and Right, as a presentation app's buttons, each a `choose` of `align/x`. *(Added on 2026-10-09: a text could not be centered from the window. Built; waits on a run on a Mac.)*
+    - **What the inspector offers.** A text's `align/x` takes `start`, `center`, or `end`; none stretches, as the engine sets a text's lines from its start there. Where nothing sets it, the slot's alignment shows and none is picked.
+    - **One keyword, two axes.** A keyword aligns both axes (`"center"`): the inspector shows it as the axis's own, and a `choose` of one axis writes the keyword out as both, the one chosen changed, so the other stays as it showed. The schema's lookup reads a value written more ways than one, so `align/x` is the axes' `x`.
+    - Tests: `scaena-core`'s choices on the example's title (the words, the slot's showing) and a note aligned by one keyword; `choose` of one axis keeping the other, taken away, and where nothing aligned the text.
     - **What waits.** A run on a Mac.
 
 ### Exit criteria (gate 3)

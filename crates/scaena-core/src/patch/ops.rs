@@ -90,6 +90,10 @@ pub(super) fn compile(doc: &Value, op: &SemanticOp, files: &dyn BundleFiles) -> 
             "data" if !value.is_null() && matches!(d.kind(node)?, "chart" | "table") => {
                 choose_data(&d, files, node, value, state.as_deref(), *fork)?
             }
+            "align/x" | "align/y" => match both_axes(&d, node, prop, value, state.as_deref())? {
+                Some(axes) => choose(&d, node, "align", &axes, state.as_deref(), *fork)?,
+                None => choose(&d, node, prop, value, state.as_deref(), *fork)?,
+            },
             _ => choose(&d, node, prop, value, state.as_deref(), *fork)?,
         },
         SemanticOp::Annotate { node, index, annotation, state, fork } => {
@@ -1096,6 +1100,29 @@ fn choose(
         Some(j) if value.is_null() && !fork => Ok(unset(d, node, j, &name, key.as_deref())),
         _ => set(d, node, vec![(name, key, value.clone())], at),
     }
+}
+
+/// `node`'s `align` as `state` shows it, or as its own props have it, where one keyword aligns
+/// both axes: that keyword written out as each, the axis `prop` names given `value`, or taken
+/// away with `null`, so a choice of one axis keeps the other as it showed (PLAN 3.25). `None`
+/// where the axes are written apart already, or nothing sets it.
+fn both_axes(d: &Doc, node: &str, prop: &str, value: &Value, state: Option<&str>) -> Result<Option<Value>, String> {
+    let axis = prop.trim_start_matches("align/");
+    let over = d.0.get("overrides").and_then(|o| o.get(node)).and_then(|o| o.get("align")).cloned();
+    let shown = match d.showing(node, state)? {
+        Some((_, props)) => props.get("align").cloned(),
+        None => d.node(node)?.get("align").cloned(),
+    };
+    let Some(Value::String(keyword)) = over.or(shown) else { return Ok(None) };
+    let mut axes = Map::new();
+    for each in ["x", "y"] {
+        axes.insert(each.to_string(), Value::String(keyword.clone()));
+    }
+    match value.is_null() {
+        true => drop(axes.remove(axis)),
+        false => drop(axes.insert(axis.to_string(), value.clone())),
+    }
+    Ok(Some(Value::Object(axes)))
 }
 
 /// `annotate` (PLAN 2.67): one of chart `node`'s annotations added, changed, or taken away,
