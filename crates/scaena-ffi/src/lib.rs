@@ -373,7 +373,11 @@ pub unsafe extern "C" fn scaena_drop(
 /// `framing {state, node}`, an image's crop and focal point; `focalAt {state, node, x, y}`, the
 /// point of an image under a press; `grid`, the theme's tracks and baselines; `setView {view?}`,
 /// the part of the canvas frames are painted through; and `find {query}` and `replacing {query,
-/// with, one?}`, the deck's texts found and the patch that replaces them.
+/// with, one?}`, the deck's texts found and the patch that replaces them. The layouts a state may
+/// take (PLAN 2.92, 3.26): `layoutsBegin {state}`, how many are to be judged; `layoutsStep`, the
+/// next judged, and whether any is left; and `layoutSuggestions {height}`, those judged, best
+/// first, each with the `set_state` that gives it and its picture's size, painted `height`
+/// pixels high, which [`scaena_layout_pixels`] takes.
 ///
 /// # Safety
 /// `session` is a live handle; `method` a NUL-terminated string; `args` one, or null.
@@ -513,6 +517,33 @@ pub unsafe extern "C" fn scaena_pixels_in(
         let format = unsafe { maybe_text(format, "format") }?;
         let state = unsafe { text(state, "state") }?;
         session.0.pixels_in(format, state, t_ms, height).map_err(said)
+    });
+    match painted {
+        Ok(raster) => ScaenaPixels { bytes: ScaenaBytes::of(raster.rgba), width: raster.width, height: raster.height },
+        Err(failure) => {
+            unsafe { report(error, failure) };
+            ScaenaPixels { bytes: ScaenaBytes::NONE, width: 0, height: 0 }
+        }
+    }
+}
+
+/// The `i`th picture `layoutSuggestions` painted last (PLAN 2.92, 3.26), taken: the state laid out
+/// in that layout, at rest, as [`scaena_pixels`] gives a frame. Null bytes for one taken already,
+/// or past the last, `*error` then saying why.
+///
+/// # Safety
+/// `session` is a live handle; `error` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_layout_pixels(
+    session: *mut ScaenaSession,
+    i: usize,
+    error: *mut *mut c_char,
+) -> ScaenaPixels {
+    let painted = guarded(|| {
+        let session = unsafe { handle(session, "session") }?;
+        session.0.layout_picture(i).ok_or_else(|| {
+            said(format!("no layout's picture {i} is kept: `layoutSuggestions` paints them, and each is taken once"))
+        })
     });
     match painted {
         Ok(raster) => ScaenaPixels { bytes: ScaenaBytes::of(raster.rgba), width: raster.width, height: raster.height },
@@ -1192,6 +1223,9 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             value(serde_json::to_value(s.character_choices(state, node, from, to).map_err(said)?))?
         }
         "stateChoices" => value(serde_json::to_value(s.state_choices(arg("state")?).map_err(said)?))?,
+        "layoutsBegin" => json!(s.layouts_begin(arg("state")?).map_err(said)?),
+        "layoutsStep" => json!(s.layouts_step().map_err(said)?),
+        "layoutSuggestions" => json!(s.layouts_painted(number("height")?.max(1.0) as u32).map_err(said)?),
         "inserts" => value(serde_json::to_value(s.inserts()))?,
         // What Insert, ⌘D, and Delete make (PLAN 2.34, 3.11): `{id, cell, patch}`, or the ops.
         "inserting" => {

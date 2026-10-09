@@ -1186,3 +1186,49 @@ fn a_state_reads_node_by_node_as_a_screen_reader_hears_it() {
     assert!(table.as_array().is_some_and(|p| p.iter().any(|p| p["node"] == "k-table" && p["role"] == "table")));
     unsafe { scaena_session_free(t) };
 }
+
+/// The layouts a state may take (PLAN 2.92, 3.26), as the browser's inspector shows them: judged
+/// a step at a time, best first, each painted small and taken once, and one chosen by its patch.
+#[test]
+fn a_states_layouts_are_judged_a_step_at_a_time_and_drawn_small() {
+    let s = revenue();
+    let count = call(s, "layoutsBegin", json!({ "state": "revenue" })).as_u64().unwrap_or(0);
+    let mut steps = 1;
+    while call(s, "layoutsStep", Value::Null) == json!(true) {
+        steps += 1;
+    }
+    assert_eq!(steps, count, "each step judges one layout");
+    let suggested = call(s, "layoutSuggestions", json!({ "height": 90 }));
+    let list = suggested.as_array().cloned().unwrap_or_default();
+    let judged: Vec<(&str, bool, u64)> = list
+        .iter()
+        .map(|x| (x["layout"].as_str().unwrap_or(""), x["current"] == true, x["errors"].as_u64().unwrap_or(0)))
+        .collect();
+    // As the session judges them on its own: the layout it takes now first, the others with errors.
+    assert_eq!(judged.len(), 3, "{suggested}");
+    assert_eq!(judged[0], ("figure", true, 0), "{suggested}");
+    assert!(judged[1..].iter().all(|&(_, current, errors)| !current && errors > 0), "{suggested}");
+    for (i, x) in list.iter().enumerate() {
+        let mut error = null_mut();
+        let picture = unsafe { scaena_layout_pixels(s, i, &mut error) };
+        assert_eq!((picture.width, picture.height), (160, 90), "{}", x["layout"]);
+        assert_eq!((x["width"].as_u64(), x["height"].as_u64()), (Some(160), Some(90)));
+        assert_eq!(bytes_of(picture.bytes).map(|b| b.len()), Some(160 * 90 * 4));
+    }
+    // Each is taken once, and none is past the last.
+    for i in [0, list.len()] {
+        let mut error = null_mut();
+        let none = unsafe { scaena_layout_pixels(s, i, &mut error) };
+        assert!(none.bytes.data.is_null() && took(error).contains("taken once"));
+    }
+    // A step with no round begun says so.
+    let refused = answered(s, "layoutsStep", &Value::Null);
+    assert!(refused["error"]["message"].as_str().is_some_and(|m| m.contains("no layouts")), "{refused}");
+    // Another chosen by its patch: the state takes it.
+    let other = &list[1];
+    assert_eq!(tool(s, "deck_patch", json!({ "ops": other["patch"] }))["edited"], true);
+    let now = call(s, "stateChoices", json!({ "state": "revenue" }));
+    let layout = now["fields"].as_array().and_then(|f| f.iter().find(|f| f["prop"] == "layout")).cloned();
+    assert_eq!(layout.map(|f| f["value"].clone()), Some(other["layout"].clone()), "{now}");
+    unsafe { scaena_session_free(s) };
+}

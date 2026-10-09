@@ -1506,6 +1506,12 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - **One keyword, two axes.** A keyword aligns both axes (`"center"`): the inspector shows it as the axis's own, and a `choose` of one axis writes the keyword out as both, the one chosen changed, so the other stays as it showed. The schema's lookup reads a value written more ways than one, so `align/x` is the axes' `x`.
     - Tests: `scaena-core`'s choices on the example's title (the words, the slot's showing) and a note aligned by one keyword; `choose` of one axis keeping the other, taken away, and where nothing aligned the text.
     - **What waits.** A run on a Mac.
+- [ ] 3.26 A slide's layouts in the Format tab, drawn small as a presentation app's layout picker draws them, best first, as the browser's inspector suggests them (PLAN 2.92). *(Added on 2026-10-09 for the light window, PLAN 3.18. Built; waits on a run on a Mac.)*
+    - **What it shows.** With nothing selected, the Format tab's Layout is each layout the slide may take, drawn at rest, best first by what lint finds in the slide laid out in it in every size the deck comes in. Layouts that draw it alike are one. The one it takes now is outlined, and one with something to put right is marked, red for an error and orange for a warning. Where there is no other to take, the layout is picked by name, as before.
+    - **The pointer and a click.** The pointer over one shows the slide laid out in it on the canvas, nothing made (`preview`). A click gives the slide that layout: its `set_state`, written where the layout lives, one step to undo.
+    - **The ABI.** `layoutsBegin {state}`, `layoutsStep`, and `layoutSuggestions {height}` join the session's calls, and `scaena_layout_pixels` takes each picture, as a page's worker asks for them (PLAN 2.92). They are judged a step at a time, so the window answers a person between steps.
+    - Tests: the `ffi` suite's `a_states_layouts_are_judged_a_step_at_a_time_and_drawn_small` and ScaenaKit's `aSlidesLayoutsAreJudgedAStepAtATimeAndDrawnSmall`, on the revenue example: three layouts, the one it takes now first with nothing found in it, each drawn 160 × 90 and taken once, and another chosen by its patch.
+    - **What waits.** A run on a Mac.
 
 ### Exit criteria (gate 3)
 1. Same bundle, same frame, same pixels (within tolerance) as the web player.

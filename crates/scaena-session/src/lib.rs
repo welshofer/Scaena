@@ -134,9 +134,9 @@ pub struct Session {
     #[cfg(feature = "editor")]
     suggesting: Option<editor::Suggesting>,
     /// The pictures `layoutSuggestions` painted last, each until `layoutPixels` takes it
-    /// (PLAN 2.92).
+    /// (PLAN 2.92, 3.26).
     #[cfg(feature = "editor")]
-    suggested: Vec<Vec<u8>>,
+    suggested: Vec<scaena_paint::Raster>,
     /// What the next save records in the bundle's history, if it keeps one, besides the save:
     /// each edit an operation made since the bundle was opened or saved, after the deck
     /// before it (PLAN 2.9).

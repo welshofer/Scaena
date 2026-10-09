@@ -350,7 +350,7 @@ impl Session {
             value["width"] = picture.width.into();
             value["height"] = picture.height.into();
             listed.push(value);
-            self.suggested.push(picture.rgba);
+            self.suggested.push(picture);
         }
         Ok(listed)
     }
@@ -358,7 +358,14 @@ impl Session {
     /// The pixels of the `i`th picture [`Session::layouts_painted`] painted last, taken: a
     /// second call gives none.
     pub fn layout_pixels(&mut self, i: usize) -> Vec<u8> {
-        self.suggested.get_mut(i).map(std::mem::take).unwrap_or_default()
+        self.layout_picture(i).map(|picture| picture.rgba).unwrap_or_default()
+    }
+
+    /// The `i`th picture [`Session::layouts_painted`] painted last, taken, with its size: none for
+    /// one taken already, or past the last (PLAN 3.26).
+    pub fn layout_picture(&mut self, i: usize) -> Option<scaena_paint::Raster> {
+        let kept = self.suggested.get_mut(i).filter(|kept| !kept.rgba.is_empty())?;
+        Some(std::mem::replace(kept, scaena_paint::Raster { width: 0, height: 0, rgba: Vec::new() }))
     }
 
     /// The layouts `state` may take, best first, judged and painted in one go
