@@ -1491,6 +1491,7 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 - [ ] 3.21 A text inserted is typed in, its words selected, so what is typed next takes their place, as a presentation app's new text box is. *(Built; waits on a run on a Mac.)*
     - **Where.** The toolbar's Text and the Insert menu insert where the pointer last pressed, as before (PLAN 3.11). A text enters typed in (`Typing.enter`), every character selected (`selectAll`); anything else enters selected, as before. Escape stops typing and leaves the text selected.
     - Tests: the iPad's UI test `testATextInsertedIsTypedIn`, B1's toolbar's Text tapped and the canvas typing in what it inserted.
+    - **Seen on CI's Mac.** `apps/mac/window.sh` walks the window after opening trails: the window fitted to the screen, a click on the slide, Tab, Insert › Text, and words typed in its place, each screen kept and pushed beside the iPad's (`scripts/shots.sh`), and where the window stands said. The window opens within the screen: the slide fits the room the window gives it and does not size the window (`fitted`).
 
 ### Exit criteria (gate 3)
 1. Same bundle, same frame, same pixels (within tolerance) as the web player.
