@@ -126,12 +126,18 @@ private func tiff(_ png: Data) -> Data? {
     #expect(made.name.hasSuffix(".png"), "named \(made.name)")
     #expect(made.data.starts(with: [0x89, 0x50, 0x4E, 0x47]))
 
-    // Words are no file the canvas takes.
+    // Words are no file the canvas takes: they land as they paste (PLAN 4.7), a file of them and
+    // a sheet's cells alike; a picture holds none.
     let words = folder.appending(path: "notes.txt")
     try Data("hello".utf8).write(to: words)
     let wordsItem = try #require(NSItemProvider(contentsOf: words))
     let taken = await Pasteboard.dropped(wordsItem)
     #expect(taken?.name == nil, "words are taken as \(taken?.name ?? "")")
+    #expect(await Pasteboard.droppedWords(wordsItem) == "hello")
+    let sheet = "quarter\tsales\nQ1\t1200\n"
+    let cells = NSItemProvider(item: Data(sheet.utf8) as NSData, typeIdentifier: UTType.utf8TabSeparatedText.identifier)
+    #expect(await Pasteboard.droppedWords(cells) == sheet)
+    #expect(await Pasteboard.droppedWords(item) == nil)
 }
 
 /// `png` written again as `kind`, by ImageIO.

@@ -750,11 +750,7 @@ struct DeckView: View {
         case .clip(let text):
             pasteText(text, in: shown, at: at)
         case .words(let text):
-            if let cells = (try? editor.session.cells(text)) ?? nil {
-                attach(Data(cells.csv.utf8), named: "\(cells.name).csv", cells: cells, in: shown, at: at)
-            } else {
-                pasteText(text, in: shown, at: at)
-            }
+            landWords(text, in: shown, at: at)
         case .file(let data, let name):
             let ext = (name as NSString).pathExtension.lowercased()
             if ext == "csv" || ext == "json" {
@@ -771,14 +767,25 @@ struct DeckView: View {
         }
     }
 
+    /// Words pasted or dropped in `state` about `at` (PLAN 2.96, 4.7): a sheet's cells as the
+    /// source they read as and the table they were; else a clip's text as its nodes, or a text.
+    private func landWords(_ text: String, in state: String, at: CGPoint, verb: String = "pasted") {
+        if let cells = (try? editor.session.cells(text)) ?? nil {
+            attach(Data(cells.csv.utf8), named: "\(cells.name).csv", cells: cells, in: state, at: at, verb: verb)
+        } else {
+            pasteText(text, in: state, at: at, verb: verb)
+        }
+    }
+
     /// A clip's text, or words, pasted in `state` about `at`.
-    private func pasteText(_ text: String, in state: String, at: CGPoint) {
+    private func pasteText(_ text: String, in state: String, at: CGPoint, verb: String = "pasted") {
         perform {
             let pasted = try editor.session.pasting(text, state: state, at: at)
             try document.make(pasted.patch, undo: undo)
             node = pasted.id
             also = pasted.also
-            said = (["Pasted"] + pasted.lacked).joined(separator: "; ")
+            let done: String = verb.prefix(1).uppercased() + verb.dropFirst()
+            said = ([done] + pasted.lacked).joined(separator: "; ")
         }
     }
 
@@ -840,11 +847,14 @@ struct DeckView: View {
         guard !taken.isEmpty else { return false }
         Task { @MainActor in
             for item in taken {
-                guard let file = await Pasteboard.dropped(item) else {
-                    said = "Only a picture or data (CSV, JSON) can go on a slide"
-                    continue
+                if let file = await Pasteboard.dropped(item) {
+                    land(file.data, named: file.name, in: state, at: point)
+                } else if let text = await Pasteboard.droppedWords(item) {
+                    // Words land as they paste (PLAN 4.7).
+                    landWords(text, in: state, at: point, verb: "added")
+                } else {
+                    said = "Only a picture, data (CSV, JSON), or words can go on a slide"
                 }
-                land(file.data, named: file.name, in: state, at: point)
             }
         }
         return true
