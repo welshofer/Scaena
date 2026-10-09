@@ -1,0 +1,16 @@
+/Users/runner/work/Scaena/Scaena/target/mac/window/Scaena.app: replacing existing signature
+saved /Users/runner/work/Scaena/Scaena/target/mac/window/trails.scaena: 19 files
+  subset fonts/Fraunces-VF.ttf: 244 KB → 244 KB
+  subset fonts/Inter-VF.ttf: 256 KB → 256 KB
+  subset fonts/JetBrainsMono-VF.ttf: 103 KB → 105 KB
+  subset fonts/Fraunces-Italic-VF.ttf: 283 KB → 283 KB
+  subset fonts/Inter-Italic-VF.ttf: 264 KB → 264 KB
+  subset fonts/JetBrainsMono-Italic-VF.ttf: 106 KB → 107 KB
+  assets/trails-ridge.png → assets/a81b573617499dc538413626bd010673b5dde5f3318cf8a78aaecb0120baed87.png
+  fonts/Fraunces-Italic-VF.ttf → fonts/Fraunces-Italic-478936ccd4b06d3d.ttf
+  fonts/Fraunces-VF.ttf → fonts/Fraunces-af2a473ead29d01e.ttf
+  fonts/Inter-Italic-VF.ttf → fonts/Inter-Italic-5a81e633895bf83d.ttf
+  fonts/Inter-VF.ttf → fonts/Inter-dd1988f3e75c6301.ttf
+  fonts/JetBrainsMono-Italic-VF.ttf → fonts/JetBrainsMono-Italic-a4533dfa2ba36dea.ttf
+  fonts/JetBrainsMono-VF.ttf → fonts/JetBrainsMono-3b384d3f8fc54c51.ttf
+trails.scaena
