@@ -6,7 +6,7 @@ Scaena is a presentation engine: **a timeline of states over one persistent scen
 
 1. `docs/PLAN.md` is the live task list. Work the lowest unchecked task in the current phase. Do not start the next phase before the current gate's exit criteria are met and logged in the gate log.
 2. `just check` must be green before any commit (fmt, clippy with `-D warnings`, tests, schema validation).
-3. Keep `docs/SPEC.md`, the JSON schemas, and the examples consistent with the code. If a code change forces a format change, the same PR updates the schema, the examples, the spec section, and bumps the format version.
+3. Keep `docs/SPEC.md`, the JSON schemas, and the examples consistent with the code. If a code change forces a format change, the same PR updates the schema, the examples, the spec section, and bumps the format version. A change that takes anything away, or narrows what a value may be, also raises `OLDEST_FORMAT_VERSION` (or `OLDEST_THEME_FORMAT_VERSION`): every older format from the oldest on opens as the current one (SPEC §3.1).
 
 ## Repo map
 

@@ -39,6 +39,16 @@ public final class DeckEditor {
     /// for its own canvas.
     public private(set) var format: String?
 
+    /// Why the deck shows no state, where it shows none: it opened, but its source does not
+    /// compile or validate, so it is no deck to show or edit yet. What the window says in place
+    /// of a slide, the source pane open to mend it.
+    public var unshown: String? {
+        guard slots.isEmpty, !valid else { return nil }
+        let first = error ?? findings.first { $0.severity == .error }
+        return first.map { [$0.message, $0.hint].compactMap(\.self).joined(separator: ". ") }
+            ?? "Its source does not compile."
+    }
+
     /// The source the deck was made from last: what an undo of the next edit makes it again.
     @ObservationIgnored private var made = ""
     /// Each state drawn small, by the digest of its drawing at rest and the width asked.

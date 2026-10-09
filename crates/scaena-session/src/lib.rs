@@ -20,6 +20,7 @@
 use scaena_core::Deck;
 use scaena_core::displaylist::DisplayList;
 use scaena_core::timeline::Timeline;
+use scaena_core::version;
 use scaena_engine::data::DataFiles;
 use scaena_engine::fonts::BundleFonts;
 use scaena_engine::images::BundleImages;
@@ -201,6 +202,23 @@ fn read_from(deck: &Deck) -> Vec<&str> {
     deck.data.values().filter_map(|s| s.source.as_str()).collect()
 }
 
+/// `deck_json` as a deck: one saved in an older format this build reads, in the current one; one
+/// in a format it does not read refused with why, before what parsing it would find (SPEC §3.1).
+pub(crate) fn read_deck(deck_json: &str) -> Result<Deck, Error> {
+    let deck = Deck::from_json(deck_json)
+        .map_err(|e| Error::Deck(unread(deck_json, "scaena", version::DECK).unwrap_or_else(|| e.to_string())))?;
+    match version::DECK.unread(&deck.scaena) {
+        Some(why) => Err(Error::Deck(why)),
+        None => Ok(deck),
+    }
+}
+
+/// Why this build does not read `json`, where the format its `key` says is not one it reads.
+fn unread(json: &str, key: &str, formats: version::Formats) -> Option<String> {
+    let doc: serde_json::Value = serde_json::from_str(json).ok()?;
+    formats.unread(doc.get(key)?.as_str()?)
+}
+
 impl Session {
     /// The deck as the session holds it: as opened, or as compiled or patched last.
     pub fn deck(&self) -> &Deck {
@@ -212,15 +230,30 @@ impl Session {
         &self.theme
     }
 
+    /// A deck and its theme, opened. A deck or a theme saved in an older format this build reads
+    /// opens as the current one; one in a format it does not read is refused with why, before
+    /// what parsing it would find (SPEC §3.1).
     pub fn new(deck_json: &str, theme_json: &str) -> Result<Self, Error> {
-        let deck = Deck::from_json(deck_json).map_err(|e| Error::Deck(e.to_string()))?;
+        let deck = read_deck(deck_json)?;
+        let named = match &deck.theme {
+            Some(serde_json::Value::String(path)) => path.as_str(),
+            _ => "the theme",
+        };
+        let theme =
+            Theme::from_json(theme_json).map_err(|e| match unread(theme_json, "scaena-theme", version::THEME) {
+                Some(why) => Error::Ops(format!("{named}: {why}")),
+                None => e.into(),
+            })?;
+        if let Some(why) = version::THEME.unread(&theme.version) {
+            return Err(Error::Ops(format!("{named}: {why}")));
+        }
         let mut files = BTreeMap::from([("deck.json".to_string(), deck_json.as_bytes().to_vec())]);
         if let Some(path) = deck.theme.as_ref().and_then(|t| t.as_str()) {
             files.insert(path.to_string(), theme_json.as_bytes().to_vec());
         }
         Ok(Self {
             deck,
-            theme: Theme::from_json(theme_json)?,
+            theme,
             files: Arc::new(files),
             data: DataFiles::new(),
             engine: None,

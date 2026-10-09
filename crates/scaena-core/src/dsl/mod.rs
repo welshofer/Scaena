@@ -83,7 +83,10 @@ impl SourceMap {
 
 /// `source` as a deck.
 pub fn compile(source: &str) -> Result<Deck, DslError> {
-    let (doc, map) = compile_json(source)?;
+    let (mut doc, map) = compile_json(source)?;
+    // An older format this build reads is the current one, here as everywhere (SPEC §3.1): no
+    // reason the deck is not one.
+    crate::version::DECK.as_read(&mut doc, "scaena");
     Deck::deserialize(&doc).map_err(|e| {
         // The schema says why in the deck's terms, and where; serde says neither.
         match Checker::deck().check(&doc).into_iter().next() {

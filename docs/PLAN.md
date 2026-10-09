@@ -1645,7 +1645,7 @@ Not before Jay schedules it: until then Scaena's focus is editing and rendering.
 1. **Small, green PRs.** Every PR compiles, passes golden tests, and updates PLAN checkboxes.
 2. **Determinism is a test, not a hope.** Any change to layout, text, timeline, or painters updates golden display lists in the same PR with a reviewed diff.
 3. **Decisions get an ADR.** Library choices, format changes, anything that would be expensive to reverse: `docs/adr/NNNN-title.md`, status `proposed → accepted`.
-4. **Schema is law.** `deck.json` changes are made in the typed model (`scaena-core::model`), which regenerates the schema (`just bless`), with example updates and a format version bump (minor for additive, major for breaking; before 1.0 a breaking change takes the minor, ADR-0007).
+4. **Schema is law.** `deck.json` changes are made in the typed model (`scaena-core::model`), which regenerates the schema (`just bless`), with example updates and a format version bump (minor for additive, major for breaking; before 1.0 a breaking change takes the minor, ADR-0007). A breaking change also raises the oldest format a build reads, since every one from it on opens as the current one (SPEC §3.1).
 5. **Lint rules come with fixtures.** One deck that triggers, one that doesn't.
 6. **PPTX/Keynote never touch the model or the engine.** No import filter, no shared abstraction, no "just a quick converter" in `crates/`. A lossy external projection is permitted in principle, like PDF export, and is not planned.
 7. **No HTML/CSS layout in the engine, no TextKit in the Mac app.** The engine lays out; clients paint.

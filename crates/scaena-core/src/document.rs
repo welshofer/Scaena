@@ -25,7 +25,9 @@ pub const MAX_NESTING: usize = 64;
 #[schemars(title = "Scaena deck document")]
 pub struct Deck {
     /// Format version (semver, major.minor[.patch]).
-    // The schema's pattern for it comes from `crate::FORMAT_VERSION`.
+    // The schema's pattern for it comes from `crate::FORMAT_VERSION`. An older format this
+    // build reads is read as the current one (`crate::version`).
+    #[serde(deserialize_with = "read_format")]
     pub scaena: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub meta: Option<Meta>,
@@ -326,6 +328,12 @@ pub struct State {
     pub notes: Option<String>,
     #[serde(default, rename = "_comment", skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
+}
+
+/// A deck's format as read: an older one this build reads is the current one (SPEC §3.1).
+fn read_format<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    let saved = String::deserialize(d)?;
+    Ok(crate::version::DECK.read(&saved).to_string())
 }
 
 impl Deck {

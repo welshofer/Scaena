@@ -114,3 +114,54 @@ import Testing
     let changed = try #require(editor.drawing("cover", width: 160))
     #expect(changed !== first)
 }
+
+/// B1's files by their paths in it, `deck.json` changed by `edit`.
+private func b1Files(_ edit: (String) throws -> String) throws -> [String: Data] {
+    let root = b1.resolvingSymlinksInPath()
+    var files: [String: Data] = [:]
+    for path in try FileManager.default.subpathsOfDirectory(atPath: root.path) {
+        guard !path.split(separator: "/").contains(where: { $0.hasPrefix(".") }) else { continue }
+        var folder: ObjCBool = false
+        let url = root.appending(path: path)
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &folder), !folder.boolValue else { continue }
+        files[path] = try Data(contentsOf: url)
+    }
+    let deck = String(decoding: try #require(files["deck.json"]), as: UTF8.self)
+    files["deck.json"] = Data(try edit(deck).utf8)
+    return files
+}
+
+/// B1 as a build that writes deck format `version` saved it.
+private func savedB1(in version: String) throws -> [String: Data] {
+    try b1Files { deck in
+        let saved = try #require(deck.range(of: #""scaena": "[0-9.]+""#, options: .regularExpression))
+        return deck.replacingCharacters(in: saved, with: #""scaena": "\#(version)""#)
+    }
+}
+
+/// A deck an older build saved (SPEC §3.1), as one downloaded from a site built before the app
+/// was: it opens in the current format with every state shown, where it once showed no slide.
+@Test func aDeckSavedByAnOlderBuildOpensWithEveryState() throws {
+    let editor = DeckEditor(session: try ScaenaSession(files: try savedB1(in: "0.15")))
+    #expect(editor.valid && editor.error == nil)
+    #expect(editor.slots.count == 40)
+    #expect(editor.unshown == nil)
+    #expect(editor.source.split(separator: "\n").first?.contains("scaena:") == false)
+}
+
+/// A deck a newer build saved is not opened: the alert says why, in words.
+@Test func aDeckSavedByANewerBuildIsRefusedSayingWhy() throws {
+    let files = try savedB1(in: "0.99")
+    let refused = #expect(throws: ScaenaError.self) { _ = try ScaenaSession(files: files) }
+    #expect(refused?.localizedDescription.hasPrefix("deck.json: deck format 0.99 is newer than this build reads") == true)
+}
+
+/// A deck that opens but is no deck yet, a role its theme lacks: the window says why in place
+/// of a slide, and shows no state.
+@Test func aDeckThatDoesNotValidateSaysWhyItShowsNothing() throws {
+    let files = try b1Files { $0.replacingOccurrences(of: #""role": "display""#, with: #""role": "nope""#) }
+    let editor = DeckEditor(session: try ScaenaSession(files: files))
+    #expect(!editor.valid && editor.slots.isEmpty)
+    let why = try #require(editor.unshown)
+    #expect(why.contains("text role `nope` is not in the theme"))
+}
