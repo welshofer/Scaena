@@ -1610,6 +1610,32 @@ pub mod gpu {
             view: wgpu::TextureView,
         }
 
+        impl Target {
+            /// The target `kept` holds, made again where it is not `size`: a storage texture
+            /// vello writes, or a CPU painter's frame is copied into, read back, or sampled by
+            /// the blit onto a layer.
+            fn kept<'a>(device: &wgpu::Device, kept: &'a mut Option<Target>, size: wgpu::Extent3d) -> &'a Target {
+                if kept.as_ref().is_none_or(|t| t.size != size) {
+                    let texture = device.create_texture(&wgpu::TextureDescriptor {
+                        label: Some("scaena target"),
+                        size,
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        usage: wgpu::TextureUsages::STORAGE_BINDING
+                            | wgpu::TextureUsages::COPY_SRC
+                            | wgpu::TextureUsages::COPY_DST
+                            | wgpu::TextureUsages::TEXTURE_BINDING,
+                        view_formats: &[],
+                    });
+                    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+                    *kept = Some(Target { size, texture, view });
+                }
+                kept.as_ref().expect("made above")
+            }
+        }
+
         /// A frame painted and on its way back: copied into `buffer`, which is mapped
         /// once the GPU has done `submitted`.
         struct Flight {
@@ -1806,24 +1832,7 @@ pub mod gpu {
                 let scene = scene(dl, fonts, scale, images)?;
                 let (width, height) = raster_size(dl, scale).map(|(w, h)| (u32::from(w), u32::from(h)))?;
                 let size = wgpu::Extent3d { width, height, depth_or_array_layers: 1 };
-                if target.as_ref().is_none_or(|t| t.size != size) {
-                    let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-                        label: Some("scaena target"),
-                        size,
-                        mip_level_count: 1,
-                        sample_count: 1,
-                        dimension: wgpu::TextureDimension::D2,
-                        format: wgpu::TextureFormat::Rgba8Unorm,
-                        // Read back, or sampled by the blit onto a layer.
-                        usage: wgpu::TextureUsages::STORAGE_BINDING
-                            | wgpu::TextureUsages::COPY_SRC
-                            | wgpu::TextureUsages::TEXTURE_BINDING,
-                        view_formats: &[],
-                    });
-                    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-                    *target = Some(Target { size, texture, view });
-                }
-                let target = target.as_ref().expect("made above");
+                let target = Target::kept(&self.device, target, size);
                 let params = vello::RenderParams {
                     base_color: peniko::Color::TRANSPARENT,
                     width,
@@ -1918,17 +1927,13 @@ pub mod gpu {
             }
         }
 
-        /// The device a painter asks `adapter` for: the largest textures and buffers it holds,
-        /// not wgpu's defaults (8192 pixels a side, 128 MiB a shader's pixels), so a raster the
-        /// CPU painter makes, this one makes too, where the GPU can.
+        /// The device a painter asks `adapter` for: all the adapter holds, not wgpu's defaults,
+        /// which are WebGPU's. It may hold more: the largest textures and buffers, not 8192
+        /// pixels a side and 128 MiB of a shader's pixels, so a raster the CPU painter makes,
+        /// this one makes too, where the GPU can. Or less: Metal on iPadOS passes 15 variables
+        /// between a shader's stages, not 16, and a device asked for 16 is refused (PLAN 4.1).
         fn descriptor(adapter: &wgpu::Adapter) -> wgpu::DeviceDescriptor<'static> {
-            let most = adapter.limits();
-            let required_limits = wgpu::Limits {
-                max_buffer_size: most.max_buffer_size,
-                max_storage_buffer_binding_size: most.max_storage_buffer_binding_size,
-                ..wgpu::Limits::default().using_resolution(most)
-            };
-            wgpu::DeviceDescriptor { label: Some("scaena"), required_limits, ..Default::default() }
+            wgpu::DeviceDescriptor { label: Some("scaena"), required_limits: adapter.limits(), ..Default::default() }
         }
 
         /// The GPU every layer in this process paints with (PLAN 3.2): one adapter, one device,
@@ -1944,8 +1949,14 @@ pub mod gpu {
             info: wgpu::AdapterInfo,
             device: wgpu::Device,
             queue: wgpu::Queue,
-            /// vello's renderer and the shaders' pipelines: a frame is painted at a time.
-            painter: std::sync::Mutex<GpuPainter>,
+            /// vello's renderer and the shaders' pipelines: a frame is painted at a time. None
+            /// where the GPU has no indirect dispatch, which vello's buffers all ask for: the iPad
+            /// simulator's, which Metal gives only Apple's second GPU family (PLAN 4.1).
+            painter: Option<std::sync::Mutex<GpuPainter>>,
+            /// Where vello cannot paint, the CPU painter paints each frame, and the layer shows
+            /// it through the same blit, as the browser paints where it has no WebGPU.
+            #[cfg(feature = "cpu")]
+            cpu: std::sync::Mutex<crate::cpu::CpuPainter>,
             /// The blit onto a layer, made for each format a layer has offered.
             blitters: std::sync::Mutex<Vec<(wgpu::TextureFormat, std::sync::Arc<wgpu::util::TextureBlitter>)>>,
         }
@@ -1967,7 +1978,22 @@ pub mod gpu {
                     .map_err(|e| PaintError::Gpu(format!("no adapter: {e}")))?;
                 let (device, queue) = ready(adapter.request_device(&descriptor(&adapter)))?.map_err(gpu)?;
                 let info = adapter.get_info();
-                let painter = GpuPainter::with_device(device.clone(), queue.clone(), info.clone())?;
+                let indirect =
+                    adapter.get_downlevel_capabilities().flags.contains(wgpu::DownlevelFlags::INDIRECT_EXECUTION);
+                let painter = match indirect {
+                    true => Some(std::sync::Mutex::new(GpuPainter::with_device(
+                        device.clone(),
+                        queue.clone(),
+                        info.clone(),
+                    )?)),
+                    false if cfg!(feature = "cpu") => None,
+                    false => {
+                        return Err(PaintError::Gpu(format!(
+                            "{} has no indirect dispatch, which vello needs, and no CPU painter is built in",
+                            info.name
+                        )));
+                    }
+                };
                 // The blit for the format a CAMetalLayer offers first, made now, not on a first frame.
                 let format = wgpu::TextureFormat::Bgra8Unorm;
                 let blit = std::sync::Arc::new(wgpu::util::TextureBlitter::new(&device, format));
@@ -1977,14 +2003,23 @@ pub mod gpu {
                     info,
                     device,
                     queue,
-                    painter: std::sync::Mutex::new(painter),
+                    painter,
+                    #[cfg(feature = "cpu")]
+                    cpu: std::sync::Mutex::new(crate::cpu::CpuPainter::default()),
                     blitters: std::sync::Mutex::new(vec![(format, blit)]),
                 })
             }
 
-            /// The painter, a frame at a time. One that panicked mid-frame is still the device's.
-            fn painter(&self) -> std::sync::MutexGuard<'_, GpuPainter> {
-                self.painter.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+            /// vello's painter, a frame at a time, where the GPU runs vello. One that panicked
+            /// mid-frame is still the device's.
+            fn painter(&self) -> Option<std::sync::MutexGuard<'_, GpuPainter>> {
+                (self.painter.as_ref()).map(|p| p.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
+            }
+
+            /// The CPU painter, a frame at a time, where the GPU runs no vello.
+            #[cfg(feature = "cpu")]
+            fn cpu(&self) -> std::sync::MutexGuard<'_, crate::cpu::CpuPainter> {
+                self.cpu.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
             }
 
             /// The blit onto a layer of `format`, made the first time a layer offers it.
@@ -2032,6 +2067,9 @@ pub mod gpu {
             target: Option<Target>,
             /// The size of the last frame drawn, which [`LayerPainter::last`] reads back.
             drawn: Option<wgpu::Extent3d>,
+            /// The last frame the CPU painter painted, where vello cannot: what was copied into
+            /// the target.
+            painted: Option<Raster>,
         }
 
         #[cfg(target_vendor = "apple")]
@@ -2067,7 +2105,7 @@ pub mod gpu {
                 };
                 surface.configure(&shared.device, &config);
                 let blitter = shared.blitter(format);
-                Ok(Self { gpu: shared, surface, config, blitter, target: None, drawn: None })
+                Ok(Self { gpu: shared, surface, config, blitter, target: None, drawn: None, painted: None })
             }
 
             /// Paint at `width` × `height` device pixels from now on: the view's size changed.
@@ -2084,20 +2122,30 @@ pub mod gpu {
                 &self.gpu.info
             }
 
+            /// What paints the frames: `vello` on the GPU, or `cpu`, the CPU painter, where the
+            /// GPU runs no vello (the iPad simulator's, PLAN 4.1).
+            pub fn painter(&self) -> &'static str {
+                if self.gpu.painter.is_some() { "vello" } else { "cpu" }
+            }
+
             /// Paint `dl` at the layer's width and present it at the next refresh. False where
             /// the layer had no drawable to give, hidden or resized meanwhile: the frame is
             /// skipped, and the next one is painted.
             pub fn paint(&mut self, dl: &DisplayList, fonts: &Assets) -> Result<bool, PaintError> {
                 let scale = self.config.width as f32 / dl.viewport[0];
-                let jobs = shader_jobs(dl, scale)?;
                 let gpu = self.gpu;
-                let mut painter = gpu.painter();
-                let p = &mut *painter;
-                p.holds(dl, scale, &jobs)?;
-                let images = p.shaders.prepare(&p.device, &p.queue, &mut p.renderer, &jobs);
-                let drawn = p.draw_into(&mut self.target, dl, fonts, scale, &images);
-                Shaders::release(&mut p.renderer, images);
-                self.drawn = Some(drawn?);
+                match gpu.painter() {
+                    Some(mut painter) => {
+                        let jobs = shader_jobs(dl, scale)?;
+                        let p = &mut *painter;
+                        p.holds(dl, scale, &jobs)?;
+                        let images = p.shaders.prepare(&p.device, &p.queue, &mut p.renderer, &jobs);
+                        let drawn = p.draw_into(&mut self.target, dl, fonts, scale, &images);
+                        Shaders::release(&mut p.renderer, images);
+                        self.drawn = Some(drawn?);
+                    }
+                    None => self.drawn = Some(self.painted_on_cpu(dl, fonts, scale)?),
+                }
                 let frame = match self.surface.get_current_texture() {
                     wgpu::CurrentSurfaceTexture::Success(frame) | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => {
                         frame
@@ -2119,13 +2167,52 @@ pub mod gpu {
             }
 
             /// The last frame painted, read back as the layer was given it: what a test holds to
-            /// the CPU painter's pixels (SPEC §13.5, gate 3's first criterion).
+            /// the CPU painter's pixels (SPEC §13.5, gate 3's first criterion). Where the CPU
+            /// painter painted it, that frame.
             pub fn last(&mut self) -> Result<Raster, PaintError> {
                 let size = self.drawn.ok_or_else(|| PaintError::Gpu("no frame painted yet".into()))?;
                 let texture = &self.target.as_ref().expect("drawn with the size").texture;
-                let mut painter = self.gpu.painter();
-                let flight = painter.copy_back(texture, size)?;
-                painter.finish(flight)
+                match self.gpu.painter() {
+                    Some(mut painter) => {
+                        let flight = painter.copy_back(texture, size)?;
+                        painter.finish(flight)
+                    }
+                    None => self.painted.clone().ok_or_else(|| PaintError::Gpu("no frame painted yet".into())),
+                }
+            }
+
+            /// Paint `dl` at `scale` with the CPU painter, and copy the frame into this layer's
+            /// target, where the blit takes it from as it takes vello's: straight alpha, as vello
+            /// writes it.
+            #[cfg(feature = "cpu")]
+            fn painted_on_cpu(
+                &mut self,
+                dl: &DisplayList,
+                fonts: &Assets,
+                scale: f32,
+            ) -> Result<wgpu::Extent3d, PaintError> {
+                let raster = self.gpu.cpu().paint(dl, fonts, scale)?;
+                let size = wgpu::Extent3d { width: raster.width, height: raster.height, depth_or_array_layers: 1 };
+                let target = Target::kept(&self.gpu.device, &mut self.target, size);
+                self.gpu.queue.write_texture(
+                    target.texture.as_image_copy(),
+                    &raster.rgba,
+                    wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(raster.width * 4),
+                        rows_per_image: None,
+                    },
+                    size,
+                );
+                self.painted = Some(raster);
+                Ok(size)
+            }
+
+            /// Without a CPU painter there is none to fall back on: the GPU was refused as it
+            /// was made ([`warm`]), so no layer gets here.
+            #[cfg(not(feature = "cpu"))]
+            fn painted_on_cpu(&mut self, _: &DisplayList, _: &Assets, _: f32) -> Result<wgpu::Extent3d, PaintError> {
+                Err(PaintError::Gpu("this GPU runs no vello, and no CPU painter is built in".into()))
             }
         }
 

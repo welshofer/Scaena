@@ -1,3 +1,5 @@
+// The Mac's: the iPad's text input is `UITextInput`, its own view (PLAN 4.4, ADR-0023).
+#if os(macOS)
 import AppKit
 import SwiftUI
 
@@ -384,3 +386,4 @@ public struct CanvasKeysHost: NSViewRepresentable {
         view.pressed = pressed
     }
 }
+#endif

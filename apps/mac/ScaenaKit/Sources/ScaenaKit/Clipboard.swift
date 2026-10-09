@@ -1,6 +1,13 @@
-import AppKit
 import CScaena
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
+
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 /// What a paste makes (PLAN 2.37): the copy of the node copied, the copies of the others copied
 /// with it, the patch that adds them, the files they read that the bundle lacked, and what the
@@ -142,7 +149,11 @@ public enum Pasteboard: Equatable, Sendable {
     case words(String)
 
     /// Where a clip of nodes goes on the pasteboard, beside its text.
-    public static let clipType = NSPasteboard.PasteboardType("com.scaena.clip")
+    public static let clipKind = "com.scaena.clip"
+
+    #if os(macOS)
+    /// Where a clip of nodes goes on the pasteboard, beside its text.
+    public static let clipType = NSPasteboard.PasteboardType(clipKind)
 
     /// What `board` holds that the canvas pastes; none where it holds nothing it takes.
     @MainActor
@@ -168,15 +179,57 @@ public enum Pasteboard: Equatable, Sendable {
         let urls = board.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]
         if let url = urls?.first, let data = try? Data(contentsOf: url) { return (data, url.lastPathComponent) }
         if let png = board.data(forType: .png) { return (png, "picture.png") }
-        if let jpeg = board.data(forType: NSPasteboard.PasteboardType("public.jpeg")) { return (jpeg, "picture.jpg") }
+        if let jpeg = board.data(forType: NSPasteboard.PasteboardType(UTType.jpeg.identifier)) { return (jpeg, "picture.jpg") }
         if let tiff = board.data(forType: .tiff), let png = png(tiff) { return (png, "picture.png") }
         return nil
     }
+    #else
+    /// What `board` holds that the canvas pastes; none where it holds nothing it takes (PLAN 4.1).
+    @MainActor
+    public static func read(_ board: UIPasteboard = .general) -> Pasteboard? {
+        if let data = board.data(forPasteboardType: clipKind), let clip = String(data: data, encoding: .utf8) {
+            return .clip(clip)
+        }
+        let words = board.string ?? ""
+        if let found = held(board), namesOnly(words, found.name) { return .file(found.data, name: found.name) }
+        return words.isEmpty ? nil : .words(words)
+    }
 
-    /// `data`, a picture of any kind AppKit reads, as a PNG of it (PLAN 2.96): what an image shows
-    /// of a picture of a kind it does not (SPEC §3.3).
+    /// Put `clip`, a clip's text, on `board`: as a clip, and as its text, which the browser reads.
+    @MainActor
+    public static func write(clip: String, to board: UIPasteboard = .general) {
+        board.items = [[clipKind: Data(clip.utf8), UTType.utf8PlainText.identifier: clip]]
+    }
+
+    /// The file `board` holds: one a Files item put there, or a picture's data, a PNG or a JPEG as
+    /// it is and any other kind of picture as a PNG of it.
+    @MainActor
+    static func held(_ board: UIPasteboard) -> (data: Data, name: String)? {
+        if let url = board.urls?.first(where: \.isFileURL), let data = try? Data(contentsOf: url) {
+            return (data, url.lastPathComponent)
+        }
+        if let png = board.data(forPasteboardType: UTType.png.identifier) { return (png, "picture.png") }
+        if let jpeg = board.data(forPasteboardType: UTType.jpeg.identifier) { return (jpeg, "picture.jpg") }
+        for kind in board.types where UTType(kind)?.conforms(to: .image) == true {
+            if let data = board.data(forPasteboardType: kind), let png = png(data) { return (png, "picture.png") }
+        }
+        return nil
+    }
+    #endif
+
+    /// `data`, a picture of any kind ImageIO reads, as a PNG of it (PLAN 2.96): what an image
+    /// shows of a picture of a kind it does not (SPEC §3.3).
     public static func png(_ data: Data) -> Data? {
-        NSBitmapImageRep(data: data)?.representation(using: .png, properties: [:])
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+            let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+        else { return nil }
+        let out = NSMutableData()
+        guard let made = CGImageDestinationCreateWithData(out as CFMutableData, UTType.png.identifier as CFString, 1, nil)
+        else {
+            return nil
+        }
+        CGImageDestinationAddImage(made, image, nil)
+        return CGImageDestinationFinalize(made) ? out as Data : nil
     }
 
     /// Whether the words beside a file only name it (PLAN 2.96): none, its name, or an address

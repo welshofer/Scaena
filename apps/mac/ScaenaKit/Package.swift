@@ -2,12 +2,13 @@
 // ScaenaKit: the session the browser edits, for Swift (PLAN 3.1, ADR-0021), over the C ABI
 // `crates/scaena-ffi` makes. Build the library first (`cargo build -p scaena-ffi`) and hand its
 // folder to the linker: `swift test -Xlinker -L<repo>/target/debug` and the system libraries
-// rustc names (`just ffi`'s list; CI's macOS job passes them).
+// rustc names (`just ffi`'s list; CI's macOS job passes them). On the iPad (PLAN 4.1, ADR-0023),
+// the project `apps/ipad/project.yml` makes links it, and `just ipad-test` runs the tests.
 import PackageDescription
 
 let package = Package(
     name: "ScaenaKit",
-    platforms: [.macOS(.v15)],
+    platforms: [.macOS(.v15), .iOS("26.0")],
     products: [
         .library(name: "ScaenaKit", targets: ["ScaenaKit"]),
         // The app's executable; `apps/mac/build-app.sh` puts it in `Scaena.app` (PLAN 3.3).

@@ -1,4 +1,6 @@
+#if os(macOS)
 import AppKit
+#endif
 import CoreGraphics
 import Foundation
 import ScaenaKit
@@ -105,6 +107,7 @@ private func box(_ boxes: [NodeBox], _ node: String) -> CGRect? {
     #expect(focal.first?["value"] == [0.1, 0.5] && focal.first?["fork"] == true)
 }
 
+#if os(macOS)  // the canvas's keys are AppKit's; the iPad's come with PLAN 4.4 and 4.6
 /// The canvas reads a key before the input system while no text is typed in (PLAN 3.17): what it
 /// takes goes no further.
 @MainActor
@@ -125,3 +128,4 @@ private func box(_ boxes: [NodeBox], _ node: String) -> CGRect? {
     }
     #expect(heard == [124, 48, 49])
 }
+#endif

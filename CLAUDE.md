@@ -35,6 +35,7 @@ skills/                agent skills (SKILL.md) that drive the CLI/MCP
 tests/                 golden display lists, golden rasters, lint fixtures, parity harness, bench decks B1–B3
 web/                   Vite + TS player/editor                                                         (Phase 2)
 apps/mac/              SwiftUI client                                                                   (Phase 3)
+apps/ipad/             the iPad client: an Xcode project XcodeGen makes, on the Mac's ScaenaKit          (Phase 4)
 ```
 
 ## Invariants (violations are bugs, not style)
@@ -79,6 +80,7 @@ just web-smoke      # the web player in headless Chromium: every torture frame b
 just site [DECK]    # the player and editor as a static site with a demo deck (the trails example by default) into target/site, for any static host (PLAN 2.7)
 just mac            # Scaena.app built (apps/mac/build-app.sh: the release static library, the Swift app, Info.plist) and opened, on a Mac (PLAN 3.3)
 just ffi            # the Mac's C ABI from C: the static library, a C program compiled against `scaena.h`, run on B1 (PLAN 3.1); ScaenaKit's Swift tests run on CI's macOS runner
+just ipad-test      # ScaenaKit's tests on an iPad simulator: the engine for the simulator (apps/ipad/engine.sh), the project XcodeGen makes, xcodebuild (PLAN 4.1); on a Mac with Xcode and XcodeGen
 just spike          # parity harness: vello_cpu goldens vs vello on this GPU vs vello on WebGPU in Chromium (PLAN 0.9)
 just bench [FILTER] # SPEC §15's stages on B1–B4, timed by criterion (PLAN 1.24); CI times each pull request ready for review beside its base on one Linux machine, and macOS weekly (scripts/bench_gate.py)
 just stages BUNDLE  # per-state medians and worst cases on one bundle (PLAN 0.14's tables); `just coldstart`: B1's WASM cold start
@@ -137,3 +139,5 @@ The iPad client (SPEC §9.4, ADR-0023), started on Jay's call on 2026-10-09 with
 - **A touch is the Mac's gesture.** Each makes the patch the Mac's pointer makes, through the same ScaenaKit functions.
 
 The tasks are PLAN 4.1–4.10, the remote (SPEC §9.5) last; gate 4's criteria are PLAN's.
+
+ScaenaKit builds for iPadOS 26 (PLAN 4.1). `ScaenaView` is one class over `NSView` or `UIView`, its layer a `CAMetalLayer` and its display link asking for 120 Hz on both. `ScaenaCanvas` is a `UIViewRepresentable` on the iPad. The pasteboard reads `UIPasteboard` as it reads `NSPasteboard` on the Mac, and ImageIO makes a PNG of a picture on both. The canvas's keys stay the Mac's until 4.4. `apps/ipad/engine.sh` builds the engine for the iPad's simulator or an iPad and writes `Engine.xcconfig`, which the project XcodeGen makes from `apps/ipad/project.yml` links. `just ipad-test` runs ScaenaKit's tests with xcodebuild on an iPad simulator, and CI's `ipad` job runs them wherever macOS runs.

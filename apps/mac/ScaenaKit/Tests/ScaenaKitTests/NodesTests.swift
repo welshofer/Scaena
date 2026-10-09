@@ -1,4 +1,7 @@
+#if os(macOS)
 import AppKit
+#endif
+import CoreGraphics
 import Foundation
 import ScaenaKit
 import Testing
@@ -57,6 +60,7 @@ import Testing
     #expect(throws: ScaenaError.self) { try session.deleting(state: "cover", node: "nobody") }
 }
 
+#if os(macOS)  // the canvas's keys are AppKit's; the iPad's come with PLAN 4.4 and 4.6
 /// The canvas's keys (PLAN 3.11): with no text typed in, the commands they make are the canvas's;
 /// while one is, the text's.
 @MainActor
@@ -87,3 +91,4 @@ import Testing
     #expect(commands.count == 2, "the text's, not the canvas's")
     #expect(typing.carets?.text == "Scaen")
 }
+#endif

@@ -322,7 +322,8 @@ int32_t scaena_surface_paint(struct ScaenaSurface *surface,
 // `surface` is a live handle; `error` null or writable.
 struct ScaenaPixels scaena_surface_pixels(struct ScaenaSurface *surface, char **error);
 
-// The adapter that paints the surface, as JSON: `{"ok": {"name", "backend", "device"}}`.
+// The adapter that paints the surface, and what paints on it (`vello`, or `cpu` where the GPU runs no
+// vello), as JSON: `{"ok": {"name", "backend", "device", "painter"}}`.
 //
 // # Safety
 // `surface` is a live handle.

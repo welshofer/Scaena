@@ -1,4 +1,7 @@
+#if os(macOS)
 import AppKit
+#endif
+import CoreGraphics
 import Foundation
 import ScaenaKit
 import Testing
@@ -97,6 +100,7 @@ private func carets(_ json: String) throws -> Carets {
     #expect(!typing.typing && typing.told == nil)
 }
 
+#if os(macOS)  // the canvas's keys are AppKit's; the iPad's come with PLAN 4.4 and 4.6
 /// Keys and an input method through the text input system (PLAN 3.9): each change a
 /// `replace_text` by the user, the burst of typing one step to undo, a composition typed in
 /// place, an accent chosen for the letter before, ⌘B's look its own step, and Escape leaving.
@@ -159,6 +163,7 @@ private func carets(_ json: String) throws -> Carets {
     #expect(!typing.typing)
     #expect(view.selectedRange().location == NSNotFound)
 }
+#endif
 
 /// A text's paragraphs as the deck counts them: what a list's keys act on (ADR-0018).
 @Test func aListsKeysActOnTheParagraphsTheSelectionTouches() throws {
@@ -173,6 +178,7 @@ private func carets(_ json: String) throws -> Carets {
     #expect(crlf.paragraphs == [NSRange(location: 0, length: 1), NSRange(location: 3, length: 1)])
 }
 
+#if os(macOS)  // the canvas's keys are AppKit's; the iPad's come with PLAN 4.4 and 4.6
 /// A list's keys (PLAN 2.69, 3.10), as a word processor's: ⌘⇧8 bullets the paragraphs the
 /// selection touches, Tab moves them a level in, Return makes an item like the one it leaves, and
 /// Return in an empty item ends the list there; ⌘⇧8 on bullets takes them out of it, and Tab
@@ -211,6 +217,7 @@ private func carets(_ json: String) throws -> Carets {
     #expect(!typing.typing)
     #expect(steps == 5)
 }
+#endif
 
 /// A text's characters (PLAN 3.10): what the inspector offers for them, a role chosen there as
 /// one `style_text`, and ⌘K's link, found where the engine draws it, as a click in Play follows it.

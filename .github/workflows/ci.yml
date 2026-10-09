@@ -85,7 +85,7 @@ jobs:
                   macos=false
                   for f in $(git diff --name-only "$BEFORE" "$AFTER"); do
                     case "$f" in
-                      crates/scaena-paint/* | crates/scaena-pixels/* | crates/scaena-core/src/shader.rs | crates/scaena-ffi/* | apps/mac/* | tests/golden/* | Cargo.lock | .github/workflows/ci.yml) macos=true ;;
+                      crates/scaena-paint/* | crates/scaena-pixels/* | crates/scaena-core/src/shader.rs | crates/scaena-ffi/* | apps/mac/* | apps/ipad/* | tests/golden/* | Cargo.lock | .github/workflows/ci.yml) macos=true ;;
                     esac
                   done
                 fi
@@ -181,6 +181,25 @@ jobs:
       # The player's engine alone, as a single-file export carries it (PLAN 2.5), and the engine
       # without its hyphenation patterns, as the editor's module leaves them out (ADR-0015).
       - run: cargo clippy -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --locked -- -D warnings
+  # ScaenaKit on an iPad simulator (PLAN 4.1, ADR-0023), wherever macOS runs: the engine built
+  # for the simulator, the Xcode project XcodeGen makes, and ScaenaKit's tests run by xcodebuild
+  # on the newest iPad the runner's Xcode offers. Beside the macOS job, not in it, so the two
+  # take their time together.
+  ipad:
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && contains(needs.changes.outputs.os, 'macos')
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios-sim
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: brew install xcodegen && xcodegen --version && xcodebuild -version
+      - run: apps/ipad/test.sh
   wasm:
     # PLAN 0.8: the engine as WASM in headless Chromium. Every torture state's display list must
     # hash to the native digest (tests/golden/torture/raw.fnv1a) and paint through WebGPU.

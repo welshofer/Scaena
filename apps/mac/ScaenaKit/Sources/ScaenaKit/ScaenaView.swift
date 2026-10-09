@@ -1,6 +1,17 @@
-import AppKit
 import QuartzCore
 import SwiftUI
+
+#if os(macOS)
+import AppKit
+
+/// The view a canvas paints on: AppKit's on the Mac, UIKit's on the iPad (ADR-0023).
+public typealias PlatformView = NSView
+#else
+import UIKit
+
+/// The view a canvas paints on: AppKit's on the Mac, UIKit's on the iPad (ADR-0023).
+public typealias PlatformView = UIView
+#endif
 
 /// Where a canvas is in its state's cue: a time into it, ms (infinity: at rest), and whether the
 /// cue plays on from there (PLAN 3.4). A place in the deck is a state and a time into its cue,
@@ -22,9 +33,10 @@ public struct Playhead: Equatable, Sendable {
 /// up to 120 Hz on ProMotion (PLAN 3.2, SPEC §9.3). It shows its playhead (PLAN 3.4): a time
 /// into the state's cue, held, or the cue played on from it by the view's own display link,
 /// then at rest. Once nothing moves, it idles until the state, the playhead, the deck, or the
-/// size changes. SwiftUI shows it through `ScaenaCanvas`.
+/// size changes. SwiftUI shows it through `ScaenaCanvas`. On the iPad it is a `UIView` on the
+/// same layer, painted the same way (PLAN 4.1, SPEC §9.4).
 @MainActor
-public final class ScaenaView: NSView {
+public final class ScaenaView: PlatformView {
     /// The session whose frames it shows.
     public var session: ScaenaSession? {
         didSet { restart() }
@@ -65,6 +77,7 @@ public final class ScaenaView: NSView {
     /// Whether the frame shown is not the playhead's.
     private var dirty = true
 
+    #if os(macOS)
     public override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
@@ -85,14 +98,7 @@ public final class ScaenaView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        link?.invalidate()
-        link = nil
-        guard window != nil else { return }
-        let link = displayLink(target: self, selector: #selector(step(_:)))
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 120)
-        link.add(to: .main, forMode: .common)
-        self.link = link
-        resized()
+        attach(window == nil ? nil : displayLink(target: self, selector: #selector(step(_:))))
     }
 
     public override func setFrameSize(_ size: NSSize) {
@@ -102,6 +108,57 @@ public final class ScaenaView: NSView {
 
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
+        resized()
+    }
+
+    /// Device pixels to a point: the window's backing scale.
+    private var scale: CGFloat { window?.backingScaleFactor ?? metalLayer?.contentsScale ?? 1 }
+    #else
+    public override class var layerClass: AnyClass { CAMetalLayer.self }
+
+    public override init(frame: CGRect) {
+        super.init(frame: frame)
+        made()
+    }
+
+    public required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        made()
+    }
+
+    private func made() {
+        metalLayer?.pixelFormat = .bgra8Unorm
+        registerForTraitChanges([UITraitDisplayScale.self]) { (view: ScaenaView, _: UITraitCollection) in
+            view.resized()
+        }
+    }
+
+    public override func didMoveToWindow() {
+        super.didMoveToWindow()
+        attach(window == nil ? nil : CADisplayLink(target: self, selector: #selector(step(_:))))
+    }
+
+    /// Laid out again, as UIKit does whenever anything about the view may have changed: painted
+    /// again only where its size in pixels did.
+    public override func layoutSubviews() {
+        super.layoutSubviews()
+        if metalLayer?.drawableSize != pixels { resized() }
+    }
+
+    /// Device pixels to a point: the screen's scale, as the view's traits give it.
+    private var scale: CGFloat { max(traitCollection.displayScale, 1) }
+    #endif
+
+    private var metalLayer: CAMetalLayer? { layer as? CAMetalLayer }
+
+    /// Paint on `next`'s ticks, asking for 120 Hz, in place of the link it had; none while the
+    /// view is in no window.
+    private func attach(_ next: CADisplayLink?) {
+        link?.invalidate()
+        link = next
+        guard let next else { return }
+        next.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 120)
+        next.add(to: .main, forMode: .common)
         resized()
     }
 
@@ -115,10 +172,12 @@ public final class ScaenaView: NSView {
         dirty = true
     }
 
+    /// The view's size in device pixels, at least one each way.
+    private var pixels: CGSize { CGSize(width: max(bounds.width * scale, 1), height: max(bounds.height * scale, 1)) }
+
     private func resized() {
-        guard let layer = layer as? CAMetalLayer else { return }
-        let scale = window?.backingScaleFactor ?? layer.contentsScale
-        let size = CGSize(width: max(bounds.width * scale, 1), height: max(bounds.height * scale, 1))
+        guard let layer = metalLayer else { return }
+        let size = pixels
         layer.contentsScale = scale
         layer.drawableSize = size
         surface?.resize(width: Int(size.width), height: Int(size.height))
@@ -134,7 +193,7 @@ public final class ScaenaView: NSView {
     }
 
     @objc private func step(_ link: CADisplayLink) {
-        guard dirty || playhead.playing, let session, let state, let layer = layer as? CAMetalLayer, bounds.width > 0
+        guard dirty || playhead.playing, let session, let state, let layer = metalLayer, bounds.width > 0
         else { return }
         do {
             if surface == nil {
@@ -181,9 +240,17 @@ public final class ScaenaView: NSView {
     }
 }
 
+#if os(macOS)
+/// What SwiftUI shows a platform's view through: AppKit's on the Mac, UIKit's on the iPad.
+public typealias PlatformViewRepresentable = NSViewRepresentable
+#else
+/// What SwiftUI shows a platform's view through: AppKit's on the Mac, UIKit's on the iPad.
+public typealias PlatformViewRepresentable = UIViewRepresentable
+#endif
+
 /// `ScaenaView` in SwiftUI: `state` of `session` where `playhead` is, painted again when
 /// `revision` changes, after an edit. While the cue plays, the view moves the playhead.
-public struct ScaenaCanvas: NSViewRepresentable {
+public struct ScaenaCanvas: PlatformViewRepresentable {
     public let session: ScaenaSession
     public let state: String
     public let revision: Int
@@ -196,13 +263,29 @@ public struct ScaenaCanvas: NSViewRepresentable {
         self._playhead = playhead
     }
 
+    #if os(macOS)
     public func makeNSView(context: Context) -> ScaenaView {
         let view = ScaenaView(frame: .zero)
-        updateNSView(view, context: context)
+        update(view)
         return view
     }
 
     public func updateNSView(_ view: ScaenaView, context: Context) {
+        update(view)
+    }
+    #else
+    public func makeUIView(context: Context) -> ScaenaView {
+        let view = ScaenaView(frame: .zero)
+        update(view)
+        return view
+    }
+
+    public func updateUIView(_ view: ScaenaView, context: Context) {
+        update(view)
+    }
+    #endif
+
+    private func update(_ view: ScaenaView) {
         if view.session !== session { view.session = session }
         if view.state != state { view.state = state }
         view.revision = revision

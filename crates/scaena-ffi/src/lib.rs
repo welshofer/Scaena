@@ -802,7 +802,8 @@ pub unsafe extern "C" fn scaena_surface_pixels(surface: *mut ScaenaSurface, erro
     }
 }
 
-/// The adapter that paints the surface, as JSON: `{"ok": {"name", "backend", "device"}}`.
+/// The adapter that paints the surface, and what paints on it (`vello`, or `cpu` where the GPU runs no
+/// vello), as JSON: `{"ok": {"name", "backend", "device", "painter"}}`.
 ///
 /// # Safety
 /// `surface` is a live handle.
@@ -817,6 +818,7 @@ pub unsafe extern "C" fn scaena_surface_adapter(surface: *mut ScaenaSurface) -> 
                 "name": info.name,
                 "backend": format!("{:?}", info.backend),
                 "device": format!("{:?}", info.device_type),
+                "painter": surface.painter.painter(),
             }))
         }
         #[cfg(not(target_vendor = "apple"))]

@@ -1,0 +1,41 @@
+# The iPad client's Xcode project (PLAN 4.1, ADR-0023), made by XcodeGen and kept out of the
+# repository. `apps/ipad/engine.sh` writes `Engine.xcconfig` first: where the engine's static
+# library is, and the system libraries it links. `just ipad-test` makes both and runs
+# ScaenaKit's tests on an iPad simulator.
+name: Scaena
+options:
+  bundleIdPrefix: com.scaena
+  deploymentTarget:
+    iOS: "26.0"
+configFiles:
+  Debug: Engine.xcconfig
+  Release: Engine.xcconfig
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    TARGETED_DEVICE_FAMILY: "2"
+packages:
+  ScaenaKit:
+    path: ../mac/ScaenaKit
+targets:
+  # The Mac's tests of ScaenaKit, on the iPad: all but those of AppKit's views.
+  ScaenaKitTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: ../mac/ScaenaKit/Tests/ScaenaKitTests
+    dependencies:
+      - package: ScaenaKit
+        product: ScaenaKit
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.scaena.ScaenaKitTests
+schemes:
+  ScaenaKitTests:
+    build:
+      targets:
+        ScaenaKitTests: [test]
+    test:
+      targets:
+        - ScaenaKitTests
