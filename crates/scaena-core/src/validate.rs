@@ -15,6 +15,7 @@ use crate::model::values::{Annotation, Duration, Easing, Range};
 use crate::model::{Format, Theme};
 use crate::tracking::{Snapshot, resolve_states};
 use crate::transform;
+use crate::version;
 use serde::de::{DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -240,7 +241,13 @@ pub trait BundleFiles {
 ///
 /// `Err` only when `deck_json` is not JSON.
 pub fn validate_bundle(deck_json: &str, files: &dyn BundleFiles) -> Result<Vec<Finding>, serde_json::Error> {
-    let doc: Value = serde_json::from_str(deck_json)?;
+    let mut doc: Value = serde_json::from_str(deck_json)?;
+    // A deck, or a theme written in it, saved in an older format this build reads is checked as
+    // the current one, as it reads (SPEC §3.1).
+    version::DECK.as_read(&mut doc, "scaena");
+    if let Some(theme @ Value::Object(_)) = doc.get_mut("theme") {
+        version::THEME.as_read(theme, "scaena-theme");
+    }
     let mut out = Vec::new();
     for path in repeated_keys(deck_json)? {
         out.push(locate(repeated(&path), &doc, &path));
@@ -300,8 +307,14 @@ fn schema_finding(v: Violation) -> Finding {
         _ => "E106",
     };
     let mut finding = Finding::new(code, Severity::Error, v.message).at(v.path.clone());
-    if v.path == "/scaena" {
-        finding = finding.hint(format!("This build reads deck format {}.", crate::FORMAT_VERSION));
+    // A format this build does not read: which it reads (SPEC §3.1).
+    let formats = match v.path.as_str() {
+        "/scaena" => Some(version::DECK),
+        "/scaena-theme" | "/theme/scaena-theme" => Some(version::THEME),
+        _ => None,
+    };
+    if let Some(formats) = formats {
+        finding = finding.hint(formats.hint());
     }
     finding
 }
@@ -567,13 +580,14 @@ fn load_theme(doc: &Value, files: &dyn BundleFiles, out: &mut Vec<Finding>) -> O
                 out.push(Finding::new("E102", Severity::Error, message).at("/theme"));
                 return None;
             };
-            let value: Value = match serde_json::from_str(&text) {
+            let mut value: Value = match serde_json::from_str(&text) {
                 Ok(value) => value,
                 Err(e) => {
                     out.push(Finding::new("E106", Severity::Error, format!("not JSON: {e}")).at("").file(path.clone()));
                     return None;
                 }
             };
+            version::THEME.as_read(&mut value, "scaena-theme");
             for at in repeated_keys(&text).unwrap_or_default() {
                 out.push(repeated(&at).file(path.clone()));
             }

@@ -603,3 +603,51 @@ fn a_nodes_layout_in_a_format_is_checked_where_it_is_written() {
     wrong["overrides"] = serde_json::json!({ "photo": { "formats": { "9:16": { "align": "center" } } } });
     assert_eq!(codes(&wrong), ["E106 /overrides/photo/formats", "E106 /states/0/props/title/formats"]);
 }
+
+/// `deck` saved in format `version` instead of the current one.
+fn saved_in(deck: &str, version: &str) -> String {
+    let current = format!(r#""scaena": "{}""#, scaena_core::FORMAT_VERSION);
+    assert!(deck.contains(&current), "the fixture is in the current format");
+    deck.replacen(&current, &format!(r#""scaena": "{version}""#), 1)
+}
+
+#[test]
+fn a_deck_or_a_theme_in_an_older_format_this_build_reads_validates_as_the_current_one() {
+    // SPEC §3.1: every format since the oldest this build reads has only added to what a file
+    // may say, so a file saved in one is the same document in the current format.
+    for version in [scaena_core::OLDEST_FORMAT_VERSION, "0.11", "0.15", "0.17"] {
+        assert_eq!(findings(&saved_in(fixture!("E106", "clean"), version)), Vec::<String>::new(), "{version}");
+    }
+    let older = EditedTheme(|t| {
+        let current = format!(r#""scaena-theme": "{}""#, scaena_core::THEME_FORMAT_VERSION);
+        assert!(t.contains(&current), "the fixture theme is in the current format");
+        t.replacen(&current, r#""scaena-theme": "0.9""#, 1)
+    });
+    assert_eq!(placed(&older), []);
+}
+
+#[test]
+fn a_deck_or_a_theme_in_a_format_this_build_does_not_read_says_which_it_reads() {
+    let reads = format!(
+        "This build reads deck formats {} to {}.",
+        scaena_core::OLDEST_FORMAT_VERSION,
+        scaena_core::FORMAT_VERSION
+    );
+    for version in ["0.99", "1.0", "0.3"] {
+        let found = validate_bundle(&saved_in(fixture!("E106", "clean"), version), &Fixtures).unwrap();
+        let said: Vec<_> = found.iter().map(|f| (f.code.as_str(), f.path.as_deref(), f.hint.as_deref())).collect();
+        assert_eq!(said, [("E106", Some("/scaena"), Some(reads.as_str()))], "{version}");
+    }
+    let newer = EditedTheme(|t| {
+        let current = format!(r#""scaena-theme": "{}""#, scaena_core::THEME_FORMAT_VERSION);
+        t.replacen(&current, r#""scaena-theme": "0.99""#, 1)
+    });
+    let found = validate_bundle(fixture!("E102", "clean"), &newer).unwrap();
+    let said: Vec<_> = found.iter().map(|f| (f.code.as_str(), f.path.as_deref(), f.hint.clone())).collect();
+    let reads = format!(
+        "This build reads theme formats {} to {}.",
+        scaena_core::OLDEST_THEME_FORMAT_VERSION,
+        scaena_core::THEME_FORMAT_VERSION
+    );
+    assert_eq!(said, [("E106", Some("/scaena-theme"), Some(reads))]);
+}

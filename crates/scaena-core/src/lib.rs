@@ -26,6 +26,8 @@
 //! - [`spine`] — the spine projection the pipelines beyond the deck read (SPEC §10).
 //! - [`sort`] — stable sorts that share one compiled merge sort, for the browser's module.
 //! - [`validate`] — semantic validation (ids, references), surfaced as lint findings.
+//! - [`version`] — which formats this build reads: an older one reads as the current one
+//!   (SPEC §3.1).
 //!
 //! Invariant: nothing in this crate reads a clock, a font, or the filesystem.
 
@@ -57,6 +59,7 @@ pub mod timeline;
 pub mod tracking;
 pub mod transform;
 pub mod validate;
+pub mod version;
 
 /// JPEG, read the same on every target (ADR-0017): `scaena-pixels`' decoder.
 pub use scaena_pixels::jpeg;
@@ -71,3 +74,13 @@ pub const FORMAT_VERSION: &str = "0.18";
 
 /// The theme format version (a theme's `scaena-theme` key), versioned apart from decks.
 pub const THEME_FORMAT_VERSION: &str = "0.10";
+
+/// The oldest deck format this crate reads (SPEC §3.1, [`version`]). Every format since has only
+/// added to what a deck may say, so a deck saved in one reads as the current format. A format
+/// that takes anything away, or narrows what a value may be, raises it: 0.4 moved a container's
+/// `children` to each child's `at.parent`.
+pub const OLDEST_FORMAT_VERSION: &str = "0.4";
+
+/// The oldest theme format this crate reads, as [`OLDEST_FORMAT_VERSION`] is a deck's: 0.5 gave
+/// a chart's labels and its legend their own styles.
+pub const OLDEST_THEME_FORMAT_VERSION: &str = "0.5";

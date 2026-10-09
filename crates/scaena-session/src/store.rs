@@ -64,7 +64,7 @@ impl Session {
             String::from_utf8(bytes).map_err(|e| Error::Deck(format!("{path}: {e}")))
         };
         let deck = text("deck.json")?;
-        let theme = match Deck::from_json(&deck).map_err(|e| Error::Deck(e.to_string()))?.theme {
+        let theme = match crate::read_deck(&deck)?.theme {
             Some(serde_json::Value::String(path)) => text(&path)?,
             Some(inline) => inline.to_string(),
             None => return Err(Error::Deck("the deck names no theme".into())),
@@ -431,6 +431,58 @@ pub(crate) mod tests {
         s.set_deck(deck);
         let stale = s.save(NOW, true, None).unwrap_err().to_string();
         assert!(stale.contains("its subset keeps other characters"), "{stale}");
+    }
+
+    /// A bundle saved by an older build (SPEC §3.1), as one downloaded from a site built before
+    /// this build is: it opens in the current format, its source compiles to a deck that
+    /// validates, and every state is on its timeline, where it showed no slide at all. One saved
+    /// by a newer build, or in a format older than the oldest this build reads, is refused with why.
+    #[test]
+    fn a_bundle_saved_in_an_older_format_opens_in_the_current_one() {
+        let files = files("../../tests/bench/b1.scaena");
+        let saved_in = |key: &str, path: &str, now: &str, version: &str| {
+            let text = String::from_utf8(files[path].clone()).unwrap();
+            let current = format!(r#""{key}": "{now}""#);
+            assert!(text.contains(&current), "{path} is in the current format");
+            let mut files = files.clone();
+            files.insert(path.into(), text.replacen(&current, &format!(r#""{key}": "{version}""#), 1).into_bytes());
+            files
+        };
+        let deck = |version: &str| saved_in("scaena", "deck.json", scaena_core::FORMAT_VERSION, version);
+        let theme = Session::open(files.clone()).unwrap().deck().theme.clone().unwrap();
+        let theme = theme.as_str().unwrap();
+        let themed = |version: &str| saved_in("scaena-theme", theme, scaena_core::THEME_FORMAT_VERSION, version);
+
+        for files in [deck("0.15"), deck(scaena_core::OLDEST_FORMAT_VERSION), themed("0.9")] {
+            let mut s = Session::open(files).unwrap();
+            assert_eq!(s.deck().scaena, scaena_core::FORMAT_VERSION);
+            assert_eq!(s.theme().version, scaena_core::THEME_FORMAT_VERSION);
+            let source = s.source();
+            let header = source.lines().next().unwrap();
+            assert!(!header.contains("scaena:"), "the source names no older format: {header}");
+            let compiled = s.compile(&source);
+            assert!(compiled.valid && compiled.error.is_none(), "{:?}", compiled.findings);
+            assert_eq!(s.slots().unwrap().as_array().unwrap().len(), s.states().len());
+        }
+
+        let deck_reads = format!("({} to {})", scaena_core::OLDEST_FORMAT_VERSION, scaena_core::FORMAT_VERSION);
+        let theme_reads =
+            format!("({} to {})", scaena_core::OLDEST_THEME_FORMAT_VERSION, scaena_core::THEME_FORMAT_VERSION);
+        let newer = ": open it in a newer Scaena";
+        for (files, says) in [
+            (deck("0.99"), format!("deck.json: deck format 0.99 is newer than this build reads {deck_reads}{newer}")),
+            (deck("0.3"), format!("deck.json: deck format 0.3 is older than this build reads {deck_reads}")),
+            (themed("0.99"), format!("{theme}: theme format 0.99 is newer than this build reads {theme_reads}{newer}")),
+        ] {
+            assert_eq!(Session::open(files).err().unwrap().to_string(), says);
+        }
+        // A deck a newer build saved with what this one has no word for: why, before what.
+        let newer = deck("0.99");
+        let text = String::from_utf8(newer["deck.json"].clone()).unwrap();
+        let mut newer = newer.clone();
+        newer.insert("deck.json".into(), text.replacen("{", r#"{ "lens": "wide","#, 1).into_bytes());
+        let refused = Session::open(newer).err().unwrap().to_string();
+        assert!(refused.contains("newer than this build reads"), "{refused}");
     }
 
     /// What the editor exports (PLAN 2.54) is what `scaena export` writes for the same bundle:

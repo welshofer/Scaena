@@ -14,8 +14,9 @@ use serde::{Deserialize, Serialize};
 #[schemars(title = "Scaena theme (design system)")]
 pub struct Theme {
     /// Theme format version.
-    // The schema's pattern for it comes from `crate::THEME_FORMAT_VERSION`.
-    #[serde(rename = "scaena-theme")]
+    // The schema's pattern for it comes from `crate::THEME_FORMAT_VERSION`. An older format this
+    // build reads is read as the current one (`crate::version`).
+    #[serde(rename = "scaena-theme", deserialize_with = "read_format")]
     pub version: String,
     #[schemars(length(min = 1))]
     pub name: String,
@@ -40,6 +41,12 @@ pub struct Theme {
     pub tables: Option<Tables>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub density: Option<Density>,
+}
+
+/// A theme's format as read: an older one this build reads is the current one (SPEC §3.1).
+fn read_format<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    let saved = String::deserialize(d)?;
+    Ok(crate::version::THEME.read(&saved).to_string())
 }
 
 impl Theme {

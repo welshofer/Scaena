@@ -3,12 +3,14 @@ import Foundation
 
 /// Why the engine stopped: what it was given is not what it takes, or what it needs is built
 /// by a later PLAN task (`plan`), or a patch's op `op` failed.
-public struct ScaenaError: Error, Decodable, Sendable, CustomStringConvertible {
+public struct ScaenaError: Error, Decodable, Sendable, CustomStringConvertible, LocalizedError {
     public let message: String
     public let plan: String?
     public let op: Int?
 
     public var description: String { message }
+    /// What an alert says: why a deck did not open, say, rather than that an operation failed.
+    public var errorDescription: String? { message }
 
     init(message: String) {
         self.message = message

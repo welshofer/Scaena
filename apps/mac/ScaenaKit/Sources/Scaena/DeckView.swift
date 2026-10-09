@@ -578,6 +578,16 @@ struct DeckView: View {
             }
             .frame(minWidth: 320, minHeight: 200)
             .background(Desk.color)
+        } else if let why = editor.unshown {
+            // The deck opened, but its source is no deck yet: why, and where to mend it.
+            ContentUnavailableView {
+                Label("This Deck Can’t Be Shown", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(why)
+            } actions: {
+                Button("Show Source") { showsSource = true }
+                    .disabled(showsSource)
+            }
         } else {
             ContentUnavailableView("No Slides", systemImage: "rectangle.stack")
         }
