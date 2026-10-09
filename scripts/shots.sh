@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # The screenshots a CI run kept, where whoever reviews the pull request can fetch them without the
 # run's artifacts: each PNG under DIR made a JPEG no wider than 1600 pixels, named as the test that
-# kept it named it; each screen recording a UI test made (MP4), and what the step that took them
-# said (`window.txt`), as they are; in one commit with no parent, force-pushed to the branch
-# `shots/NAME`, which the next run replaces. On a Mac (sips); in a job that may push
-# (`contents: write`).
+# kept it named it; each screen recording a UI test made (MP4), and what the steps that took them
+# said (each `.txt`: the Mac's `window.txt`, the iPad's `log.txt`), as they are; in one commit with
+# no parent, force-pushed to the branch `shots/NAME`, which the next run replaces. On a Mac (sips);
+# in a job that may push (`contents: write`).
 #
 #   scripts/shots.sh DIR NAME
 #   git fetch origin shots/NAME && git archive FETCH_HEAD | tar -x -C SOMEWHERE
@@ -23,7 +23,7 @@ if os.path.exists(manifest):
         for shot in test.get("attachments", []):
             names[shot["exportedFileName"]] = shot.get("suggestedHumanReadableName") or shot["exportedFileName"]
 for file in sorted(os.listdir(src)):
-    if file == "window.txt":
+    if file.endswith(".txt"):
         shutil.copy(os.path.join(src, file), os.path.join(out, file))
         continue
     ext = os.path.splitext(file)[1].lower()

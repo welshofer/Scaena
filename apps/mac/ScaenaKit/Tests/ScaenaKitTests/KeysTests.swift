@@ -1,5 +1,7 @@
 #if os(macOS)
 import AppKit
+#else
+import UIKit
 #endif
 import CoreGraphics
 import Foundation
@@ -127,5 +129,30 @@ private func box(_ boxes: [NodeBox], _ node: String) -> CGRect? {
         keys.keyDown(with: event)
     }
     #expect(heard == [124, 48, 49])
+}
+#else
+/// Escape and Return come to the iPad's canvas as key commands of its own, ahead of the system's,
+/// since neither reaches it as a press (PLAN 4.6): none is offered until the canvas takes them, and
+/// each goes to it, Return with Option too.
+@MainActor
+@Test func escapeAndReturnAreTheIPadCanvassOwnKeyCommands() throws {
+    let presses = CanvasPresses()
+    #expect(presses.keyCommands == nil)
+    var heard: [String] = []
+    presses.commanded = { input, flags in
+        heard.append(flags.contains(.alternate) ? "⌥" + input : input)
+        return true
+    }
+    let commands = try #require(presses.keyCommands)
+    let first = commands.allSatisfy { $0.wantsPriorityOverSystemBehavior }
+    #expect(first, "each comes ahead of the system's own behavior")
+    let keyed = NSSelectorFromString("keyed:")
+    let keys: [(String, UIKeyModifierFlags)] = [(UIKeyCommand.inputEscape, []), ("\r", []), ("\r", .alternate)]
+    for (input, flags) in keys {
+        let command = try #require(commands.first { $0.input == input && $0.modifierFlags == flags })
+        #expect(presses.canPerformAction(keyed, withSender: command))
+        _ = presses.perform(keyed, with: command)
+    }
+    #expect(heard == [UIKeyCommand.inputEscape, "\r", "⌥\r"])
 }
 #endif

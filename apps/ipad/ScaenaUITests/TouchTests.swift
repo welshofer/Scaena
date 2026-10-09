@@ -135,15 +135,4 @@ final class TouchTests: XCTestCase {
         let value = canvas.value as? String ?? ""
         return value.isEmpty ? "whole" : value
     }
-
-    /// Whether `holds` comes to hold within `seconds`, asked every tenth of a second.
-    @MainActor
-    private func wait(_ seconds: TimeInterval, _ holds: () -> Bool) -> Bool {
-        let end = Date().addingTimeInterval(seconds)
-        while Date() < end {
-            if holds() { return true }
-            _ = XCTWaiter.wait(for: [XCTestExpectation(description: "a tenth")], timeout: 0.1)
-        }
-        return holds()
-    }
 }

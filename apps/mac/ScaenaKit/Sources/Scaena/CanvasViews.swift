@@ -206,6 +206,7 @@ struct FindBar: View {
             }
             .buttonStyle(.borderless)
             .help("Close the find bar (Escape)")
+            .accessibilityLabel("Close the find bar")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)

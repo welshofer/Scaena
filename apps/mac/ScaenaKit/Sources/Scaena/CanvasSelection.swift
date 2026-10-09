@@ -1,5 +1,7 @@
 #if os(macOS)
 import AppKit
+#else
+import UIKit
 #endif
 import ScaenaKit
 import SwiftUI
@@ -216,7 +218,9 @@ struct CanvasSelection: View {
                     finding: { _ in finding() }, pressed: pressed)
                     .allowsHitTesting(false)
                 #else
-                CanvasKeysHost(typing: typing, canvas: size, shown: zoom.view, clipping: clip) { finding() }
+                CanvasKeysHost(
+                    typing: typing, canvas: size, shown: zoom.view, clipping: clip, finding: { finding() },
+                    pressed: pressed, commanded: commanded, selectingAll: { selectAll() })
                 #endif
                 #if os(macOS)
                 // The wheel and a pinch over the canvas, read before any view takes them. On the
@@ -479,22 +483,7 @@ struct CanvasSelection: View {
         typealias Keys = NSStandardKeyBindingResponding
         switch selector {
         case #selector(Keys.deleteBackward(_:)), #selector(Keys.deleteForward(_:)):
-            // A point picked on the shape selected is taken away, not the shape (PLAN 3.16); so is
-            // the point the keys are on (PLAN 3.17).
-            if let picked = pointPicked, let o = shaped, o.node == node, also.isEmpty {
-                unpoint(o, picked)
-                return true
-            }
-            if let k = keyed, let o = shaped, o.node == node, also.isEmpty {
-                let list = handles(of: o.node)
-                if list.indices.contains(k), case .point(let i) = list[k] {
-                    unpoint(o, i)
-                    keyed = max(0, k - 1)
-                    return true
-                }
-            }
-            delete(NSApp.currentEvent?.modifierFlags.contains(.shift) == true)
-            return true
+            return deleting(everywhere: NSApp.currentEvent?.modifierFlags.contains(.shift) == true)
         case #selector(Keys.cancelOperation(_:)):
             if pointPicked != nil {
                 pointPicked = nil
@@ -852,7 +841,109 @@ struct CanvasSelection: View {
             return false
         }
     }
+    #else
+    /// A hardware keyboard's key on the canvas while no text is typed in (PLAN 4.6), as the Mac's
+    /// canvas reads it (PLAN 3.17), by UIKit's codes: whether the canvas took it. What it does not
+    /// take goes on, so Tab past either end leaves the slide.
+    private func pressed(_ key: UIKey) -> Bool {
+        guard press == nil else { return false }
+        let flags = key.modifierFlags.intersection([.command, .shift, .alternate, .control])
+        guard !flags.contains(.control) else { return false }
+        let (shift, option, command) = (flags.contains(.shift), flags.contains(.alternate), flags.contains(.command))
+        // Return by any code a keyboard gives it, or by what it types: the keypad's Enter is it too.
+        if [.keyboardReturnOrEnter, .keyboardReturn, .keypadEnter].contains(key.keyCode)
+            || ["\r", "\n"].contains(key.charactersIgnoringModifiers)
+        {
+            return command ? false : enter(option: option)
+        }
+        // ⌘. is Escape, the system's cancel key: what a keyboard with no Escape key, the iPad's own
+        // among them, gives for it.
+        if key.keyCode == .keyboardPeriod, command, !shift, !option {
+            return escape()
+        }
+        if command, menuKey(key.keyCode, shift: shift, option: option) {
+            return true
+        }
+        switch key.keyCode {
+        case .keyboardTab where !command && !option:
+            return tab(back: shift)
+        case .keyboardEscape:
+            return escape()
+        case .keyboardLeftArrow where !command:
+            return arrow(-1, 0, shift: shift, option: option)
+        case .keyboardRightArrow where !command:
+            return arrow(1, 0, shift: shift, option: option)
+        case .keyboardDownArrow where !command:
+            return arrow(0, 1, shift: shift, option: option)
+        case .keyboardUpArrow where !command:
+            return arrow(0, -1, shift: shift, option: option)
+        case .keyboardSpacebar where !command && !option:
+            return space()
+        case .keyboardOpenBracket, .keyboardCloseBracket:
+            let way = key.keyCode == .keyboardCloseBracket ? 1 : -1
+            return command || option ? false : turn(by: Double(way * (shift ? 1 : 15)))
+        case .keyboardEqualSign where !command:
+            return addPoint(option: option)
+        case .keyboardDeleteOrBackspace, .keyboardDeleteForward:
+            return command || option || (node == nil && pointPicked == nil) ? false : deleting(everywhere: shift)
+        default:
+            return false
+        }
+    }
+
+    /// A menu bar key that reached the canvas (PLAN 4.6), as the browser's canvas takes ⌘D itself:
+    /// what its item in the Node menu or the View menu's Find in Deck does. On the iPad a press
+    /// comes to the canvas before the menu bar's keys are matched, and the menu's own keys went
+    /// unheard there. Whether it did anything; what the menu would not do now goes on.
+    private func menuKey(_ code: UIKeyboardHIDUsage, shift: Bool, option: Bool) -> Bool {
+        let run: (() -> Void)?
+        switch (code, shift, option) {
+        case (.keyboardD, false, false): run = actions?.duplicate
+        case (.keyboardG, false, false): run = actions?.group
+        case (.keyboardG, true, false): run = actions?.ungroup
+        case (.keyboardL, true, false): run = actions?.lock
+        case (.keyboardC, false, true): run = actions?.copyLook
+        case (.keyboardV, false, true): run = actions?.pasteLook
+        case (.keyboardF, _, false): run = finding
+        case (.keyboardCloseBracket, false, _), (.keyboardOpenBracket, false, _):
+            guard let order = actions?.order else { return false }
+            let up = code == .keyboardCloseBracket
+            order(up ? (option ? "front" : "forward") : (option ? "back" : "backward"))
+            return true
+        default: run = nil
+        }
+        guard let run else { return false }
+        run()
+        return true
+    }
+
+    /// Escape or Return on the canvas while no text is typed in (PLAN 4.6), which the system hands
+    /// it as a key command rather than a press: what a press of either does.
+    private func commanded(_ input: String, _ flags: UIKeyModifierFlags) -> Bool {
+        guard press == nil, flags.isDisjoint(with: [.command, .control]) else { return false }
+        return input == UIKeyCommand.inputEscape ? escape() : enter(option: flags.contains(.alternate))
+    }
     #endif
+
+    /// Delete, or Shift+Delete (PLAN 3.11): a point picked on the shape selected is taken away, not
+    /// the shape (PLAN 3.16), and so is the point the keys are on (PLAN 3.17); else the nodes
+    /// selected, from the state shown on, or out of the deck.
+    private func deleting(everywhere: Bool) -> Bool {
+        if let picked = pointPicked, let o = shaped, o.node == node, also.isEmpty {
+            unpoint(o, picked)
+            return true
+        }
+        if let k = keyed, let o = shaped, o.node == node, also.isEmpty {
+            let list = handles(of: o.node)
+            if list.indices.contains(k), case .point(let i) = list[k] {
+                unpoint(o, i)
+                keyed = max(0, k - 1)
+                return true
+            }
+        }
+        delete(everywhere)
+        return true
+    }
 
     /// Node `selected`'s handles the keys work, in order.
     private func handles(of selected: String) -> [KeyedHandle] {
@@ -1016,8 +1107,10 @@ struct CanvasSelection: View {
         return true
     }
 
-    /// `selected` stepped by an arrow key, as the browser's keys step it (PLAN 2.75): one patch,
-    /// the one a drag that far would make.
+    /// `selected` stepped by an arrow key (PLAN 2.75, 3.17): one patch, the one a drag that far
+    /// would make. As a drag goes (PLAN 3.19, ADR-0024), a node on the theme's grid is nudged a
+    /// canvas unit at a time, out of its slot or cells if it was in them; what a container holds
+    /// steps as the container places it.
     private func step(_ selected: String, _ dx: Int, _ dy: Int, grow: Bool, fork: Bool) {
         if let held = boxes.first(where: { selection.contains($0.node) && $0.locked != nil }) {
             said = "It is locked: ⇧⌘L unlocks it"
@@ -1029,7 +1122,7 @@ struct CanvasSelection: View {
         }
         do {
             let targets = try editor.session.targets(state: state, node: selected)
-            guard let how = targets.snap(at: placements[selected], resize: grow, shift: false) else {
+            guard let how = targets.dragged(at: placements[selected], resize: grow, shift: false) else {
                 said = "Drag it to move it"
                 return
             }

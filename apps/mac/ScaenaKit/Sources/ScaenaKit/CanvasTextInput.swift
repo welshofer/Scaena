@@ -1,9 +1,15 @@
 // The iPad's: the Mac's canvas keys take `NSTextInputClient`'s, in CanvasKeys.swift (PLAN 3.9, 4.4,
 // ADR-0023).
 #if os(iOS)
+import GameController
 import Observation
 import SwiftUI
 import UIKit
+import os
+
+/// What the canvas's keys do, at the debug level, which nothing keeps unless asked: the iPad's UI
+/// tests stream it to say where a key went (`apps/ipad/app-test.sh`, PLAN 4.6).
+private let keysLog = Logger(subsystem: "com.welshofer.Scaena", category: "keys")
 
 /// The canvas's keys on the iPad (PLAN 4.4), as the Mac's are (PLAN 3.9, 3.10): a view under the
 /// canvas that takes the keyboard while a text is typed in, and hands `Typing` what the text input
@@ -19,6 +25,8 @@ import UIKit
 /// - Writing with the Pencil on a text begins typing in it there (`UIIndirectScribbleInteraction`):
 ///   the state shown's texts are what Scribble writes in.
 /// - The input system is told of each change it did not make itself: a press, a key's move, a look.
+/// - While no text is typed in, the keyboard is the canvas's own (PLAN 4.6): a press on the canvas
+///   gives it to `presses`, as does typing stopped where this view had it.
 @MainActor
 public final class CanvasKeys: UIView {
     public let typing: Typing
@@ -32,6 +40,8 @@ public final class CanvasKeys: UIView {
     /// What the canvas does with Copy, Cut, and Paste while no text is typed in (PLAN 3.12): the
     /// nodes selected copied as a clip, or what the pasteboard holds pasted.
     public var clipping: (@MainActor (Clipping) -> Void)?
+    /// The canvas's keys while no text is typed in (PLAN 4.6).
+    public let presses = CanvasPresses()
 
     /// Told of each change the input system did not make.
     public weak var inputDelegate: (any UITextInputDelegate)?
@@ -43,6 +53,8 @@ public final class CanvasKeys: UIView {
     private var seen: Seen?
     /// Whether the input system's own change is under way: it is told of none.
     private var asked = false
+    /// The presses that stopped typing: how each goes on and ends is this view's too.
+    private var stopped: Set<UIPress> = []
 
     public init(typing: Typing) {
         self.typing = typing
@@ -51,6 +63,7 @@ public final class CanvasKeys: UIView {
         typing.focus = { [weak self] in self?.claim() }
         typing.discarded = { [weak self] in self?.changed() }
         addInteraction(UIIndirectScribbleInteraction(delegate: self))
+        addSubview(presses)
         watch()
     }
 
@@ -64,16 +77,23 @@ public final class CanvasKeys: UIView {
     /// Only while a text is typed in: with the keyboard comes the software one.
     public override var canBecomeFirstResponder: Bool { typing.typing }
 
-    /// Take the keyboard for the text typed in, once the touch that asked has gone by.
+    /// Take the keyboard once the touch that asked has gone by: for the text typed in, the
+    /// software keyboard with it; else for the canvas's own keys (PLAN 4.6), as a press on the
+    /// Mac's canvas takes it.
     public func claim() {
         Task { @MainActor [weak self] in
-            guard let self, self.window != nil, self.typing.typing, !self.isFirstResponder else { return }
-            self.becomeFirstResponder()
+            guard let self, self.window != nil else { return }
+            if self.typing.typing {
+                if !self.isFirstResponder { self.becomeFirstResponder() }
+            } else if !self.presses.isFirstResponder {
+                self.presses.becomeFirstResponder()
+            }
         }
     }
 
     public override func resignFirstResponder() -> Bool {
         let resigned = super.resignFirstResponder()
+        keysLog.debug("text input resigned: \(resigned)")
         // Focus gone to the source, an editor of its own (a text input that scrolls), stops typing,
         // as on the Mac; a field (the inspector's, or the one ⌘K asks in) leaves it as it is.
         Task { @MainActor [weak self] in
@@ -86,7 +106,7 @@ public final class CanvasKeys: UIView {
     }
 
     /// The view in `view` that has the keyboard, if one does.
-    private static func responder(in view: UIView) -> UIView? {
+    fileprivate static func responder(in view: UIView) -> UIView? {
         if view.isFirstResponder { return view }
         for inside in view.subviews {
             if let found = responder(in: inside) { return found }
@@ -98,6 +118,44 @@ public final class CanvasKeys: UIView {
     /// keys (`wantsPriorityOverSystemBehavior`).
     public override var keyCommands: [UIKeyCommand]? {
         typing.typing ? Self.commands : nil
+    }
+
+    /// Escape, and ⌘., the system's cancel key, stop typing where the system hands either on as a
+    /// press rather than as a key command (PLAN 4.6), as the canvas's keys take each.
+    public override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        var rest = Set<UIPress>()
+        for press in presses {
+            if typing.typing, let key = press.key, Self.cancels(key) {
+                stopped.insert(press)
+                typing.leave()
+            } else {
+                rest.insert(press)
+            }
+        }
+        if !rest.isEmpty { super.pressesBegan(rest, with: event) }
+    }
+
+    public override func pressesChanged(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = presses.subtracting(stopped)
+        if !rest.isEmpty { super.pressesChanged(rest, with: event) }
+    }
+
+    public override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = presses.subtracting(stopped)
+        stopped.subtract(presses)
+        if !rest.isEmpty { super.pressesEnded(rest, with: event) }
+    }
+
+    public override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = presses.subtracting(stopped)
+        stopped.subtract(presses)
+        if !rest.isEmpty { super.pressesCancelled(rest, with: event) }
+    }
+
+    /// Whether `key` is Escape, or ⌘. alone.
+    private static func cancels(_ key: UIKey) -> Bool {
+        let flags = key.modifierFlags.intersection([.command, .shift, .alternate, .control])
+        return key.keyCode == .keyboardEscape && flags.isEmpty || key.keyCode == .keyboardPeriod && flags == .command
     }
 
     @objc private func keyed(_ command: UIKeyCommand) {
@@ -190,6 +248,7 @@ public final class CanvasKeys: UIView {
             Key(input: "\u{8}", flags: .alternate, does: .delete(backward: true, .word)),
             Key(input: "\u{8}", flags: .command, does: .delete(backward: true, .line)),
             Key(input: UIKeyCommand.inputEscape, flags: [], does: .leave),
+            Key(input: ".", flags: .command, does: .leave),
             Key(input: "\t", flags: [], does: .tab(back: false)),
             Key(input: "\t", flags: .shift, does: .tab(back: true)),
             Key(input: "b", flags: .command, does: .bold, title: "Bold"),
@@ -299,10 +358,13 @@ public final class CanvasKeys: UIView {
     }
 
     /// Tell the input system what changed since it last looked, where it did not change it; and
-    /// once typing stops, give the keyboard up.
+    /// once typing stops, give the keyboard up, to the canvas's own keys (PLAN 4.6).
     private func changed() {
         guard !asked else { return }
-        if !typing.typing, isFirstResponder { _ = resignFirstResponder() }
+        if !typing.typing, isFirstResponder {
+            _ = resignFirstResponder()
+            presses.becomeFirstResponder()
+        }
         let current = now
         guard current != seen else { return }
         let texts = current?.text != seen?.text || current?.marked != seen?.marked
@@ -716,7 +778,7 @@ final class Boundaries: UITextInputStringTokenizer {
 }
 
 /// `CanvasKeys` in SwiftUI, under the canvas: the keyboard's and the Pencil's while a text is
-/// typed in. The canvas's own keys while none is come with PLAN 4.6.
+/// typed in, and the canvas's own keys while none is (PLAN 4.6).
 public struct CanvasKeysHost: UIViewRepresentable {
     public let typing: Typing
     /// The canvas, in canvas units.
@@ -725,16 +787,28 @@ public struct CanvasKeysHost: UIViewRepresentable {
     public let shown: CGRect?
     public let clipping: @MainActor (Clipping) -> Void
     public let finding: (@MainActor () -> Void)?
+    /// A hardware keyboard's key on the canvas while no text is typed in: whether it took it.
+    public let pressed: (@MainActor (UIKey) -> Bool)?
+    /// Escape or Return on the canvas while no text is typed in, which the system hands it as a
+    /// key command rather than a press: the key's input and its flags, and whether it took it.
+    public let commanded: (@MainActor (String, UIKeyModifierFlags) -> Bool)?
+    /// ⌘A on the canvas while no text is typed in: whether it selected anything.
+    public let selectingAll: (@MainActor () -> Bool)?
 
     public init(
         typing: Typing, canvas: CGSize, shown: CGRect? = nil, clipping: @escaping @MainActor (Clipping) -> Void,
-        finding: (@MainActor () -> Void)? = nil
+        finding: (@MainActor () -> Void)? = nil, pressed: (@MainActor (UIKey) -> Bool)? = nil,
+        commanded: (@MainActor (String, UIKeyModifierFlags) -> Bool)? = nil,
+        selectingAll: (@MainActor () -> Bool)? = nil
     ) {
         self.typing = typing
         self.canvas = canvas
         self.shown = shown
         self.clipping = clipping
         self.finding = finding
+        self.pressed = pressed
+        self.commanded = commanded
+        self.selectingAll = selectingAll
     }
 
     public func makeUIView(context: Context) -> CanvasKeys {
@@ -748,6 +822,224 @@ public struct CanvasKeysHost: UIViewRepresentable {
         view.shown = shown
         view.clipping = clipping
         view.finding = finding
+        view.presses.pressed = pressed
+        view.presses.commanded = commanded
+        view.presses.clipping = clipping
+        view.presses.selectingAll = selectingAll
+    }
+}
+
+/// The canvas's own keys on the iPad while no text is typed in (PLAN 4.6), as the Mac's
+/// `CanvasKeys` takes them then (PLAN 3.17): a hardware keyboard's Tab, Return, Escape, the arrows,
+/// Space, the brackets, +, and Delete, each handed to the canvas first (`pressed`), which says
+/// whether it took it. One it does not take goes on, so Tab past either end leaves the slide, and
+/// the app's commands keep their keys. Escape and Return reach it as no press, the iPad's UI tests'
+/// key log says: the system answers them first. So they are key commands of the canvas's own,
+/// ahead of the system's (`commanded`), which a sheet or a popover over the canvas leaves it. The
+/// Edit menu's Copy, Cut, Paste, and Select All are the canvas's (`clipping`, `selectingAll`). It
+/// is no text input, so no software keyboard comes with it, and it takes no touch.
+///
+/// A command run by its key can take the keyboard from it with nothing taking it in its place:
+/// ⌘Z's Undo ends editing in the window first. The keyboard comes back once the command has run,
+/// unless the canvas let it go on purpose (Tab past either end) or something else has it now: a
+/// field, a list, a sheet or a popover over the canvas, typing, or another window.
+@MainActor
+public final class CanvasPresses: UIView {
+    public var pressed: (@MainActor (UIKey) -> Bool)?
+    /// Escape or Return, by its input and flags: whether the canvas took it.
+    public var commanded: (@MainActor (String, UIKeyModifierFlags) -> Bool)?
+    public var clipping: (@MainActor (Clipping) -> Void)?
+    public var selectingAll: (@MainActor () -> Bool)?
+    /// The presses the canvas took: how each goes on and ends is its too.
+    private var taken: Set<UIPress> = []
+    /// Whether the canvas let the keyboard go: Tab past either end of the slide.
+    private var lettingGo = false
+    /// The window's becoming key and an undo's running, logged beside the keys (`keysLog`).
+    private var watching: [NSObjectProtocol] = []
+
+    public override var canBecomeFirstResponder: Bool { true }
+
+    /// Escape and Return, and Return with Shift or Option, ahead of the system's own behavior for
+    /// them (`wantsPriorityOverSystemBehavior`).
+    public override var keyCommands: [UIKeyCommand]? {
+        commanded == nil ? nil : Self.commands
+    }
+
+    private static let commands: [UIKeyCommand] = {
+        let keys: [(String, UIKeyModifierFlags)] = [
+            (UIKeyCommand.inputEscape, []),
+            ("\r", []), ("\r", .shift), ("\r", .alternate), ("\r", [.shift, .alternate]),
+        ]
+        return keys.map { input, flags in
+            let command = UIKeyCommand(input: input, modifierFlags: flags, action: #selector(CanvasPresses.keyed(_:)))
+            command.wantsPriorityOverSystemBehavior = true
+            return command
+        }
+    }()
+
+    @objc private func keyed(_ command: UIKeyCommand) {
+        guard let input = command.input else { return }
+        let took = commanded?(input, command.modifierFlags) == true
+        let key = input == UIKeyCommand.inputEscape ? "Escape" : "Return"
+        let flags = command.modifierFlags.rawValue
+        keysLog.debug("command \(key, privacy: .public) flags \(flags): \(took ? "taken" : "not taken", privacy: .public)")
+    }
+
+    public override func didMoveToWindow() {
+        super.didMoveToWindow()
+        let center = NotificationCenter.default
+        for watched in watching { center.removeObserver(watched) }
+        watching = []
+        guard window != nil else { return }
+        let said: [(Notification.Name, String)] = [
+            (UIWindow.didBecomeKeyNotification, "became key"), (UIWindow.didResignKeyNotification, "resigned key"),
+            (Notification.Name("NSUndoManagerWillUndoChangeNotification"), "will undo"),
+            (Notification.Name("NSUndoManagerDidUndoChangeNotification"), "did undo"),
+        ]
+        for (name, what) in said {
+            watching.append(
+                center.addObserver(forName: name, object: nil, queue: .main) { note in
+                    let which = note.object.map { String(describing: type(of: $0)) } ?? "none"
+                    keysLog.debug("\(which, privacy: .public) \(what, privacy: .public)")
+                })
+        }
+        // Each key as the keyboard itself reports it, below UIKit's presses and key commands: what
+        // reached the app at all; from a keyboard here now, or one that connects.
+        Self.hearKeyboard()
+        watching.append(
+            center.addObserver(forName: .GCKeyboardDidConnect, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { Self.hearKeyboard() }
+            })
+    }
+
+    /// Each key the keyboard reports, logged as it goes down and comes up (`keysLog`).
+    private static func hearKeyboard() {
+        GCKeyboard.coalesced?.keyboardInput?.keyChangedHandler = { _, _, code, down in
+            keysLog.debug("keyboard \(code.rawValue) \(down ? "down" : "up", privacy: .public)")
+        }
+    }
+
+    /// Touches go through to the canvas over it.
+    public override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? { nil }
+
+    public override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        var rest = Set<UIPress>()
+        for press in presses {
+            let code = press.key?.keyCode.rawValue ?? -1
+            let flags = press.key?.modifierFlags.rawValue ?? 0
+            if let key = press.key, pressed?(key) == true {
+                keysLog.debug("press \(code) flags \(flags): taken")
+                taken.insert(press)
+                lettingGo = false
+            } else {
+                keysLog.debug("press \(code) flags \(flags): passed on")
+                if press.key?.keyCode == .keyboardTab { lettingGo = true }
+                rest.insert(press)
+            }
+        }
+        if !rest.isEmpty { super.pressesBegan(rest, with: event) }
+    }
+
+    @discardableResult
+    public override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        keysLog.debug("canvas keys became first responder: \(became)")
+        if became { lettingGo = false }
+        return became
+    }
+
+    @discardableResult
+    public override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        let going = lettingGo
+        keysLog.debug("canvas keys resigned: \(resigned), let go: \(going)")
+        if resigned, !lettingGo {
+            Task { @MainActor [weak self] in self?.takeBack() }
+        }
+        return resigned
+    }
+
+    /// The keyboard taken back, once what took it has run, where nothing else has it.
+    private func takeBack() {
+        let (hasWindow, key, first, over) = (window != nil, window?.isKeyWindow == true, isFirstResponder, covered)
+        let typing = (superview as? CanvasKeys)?.typing.typing == true
+        guard let window, key, !first, !over, !typing else {
+            keysLog.debug(
+                "take back: no; window \(hasWindow), key \(key), first \(first), covered \(over), typing \(typing)")
+            return
+        }
+        // What has the keys now, if anything: none but what holds the canvas lets it take them.
+        if let holder = CanvasKeys.responder(in: window), holder is UIKeyInput || !isDescendant(of: holder) {
+            let name = String(describing: type(of: holder))
+            keysLog.debug("take back: no; \(name, privacy: .public) has the keys")
+            return
+        }
+        let became = becomeFirstResponder()
+        keysLog.debug("take back: \(became)")
+    }
+
+    /// Whether a sheet, a popover, or an alert shows over the canvas.
+    private var covered: Bool {
+        var responder: UIResponder? = next
+        while let at = responder {
+            if let controller = at as? UIViewController, let shown = controller.presentedViewController,
+                !(shown.viewIfLoaded.map { isDescendant(of: $0) } ?? false)
+            {
+                return true
+            }
+            responder = at.next
+        }
+        return false
+    }
+
+    public override func pressesChanged(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = presses.subtracting(taken)
+        if !rest.isEmpty { super.pressesChanged(rest, with: event) }
+    }
+
+    public override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = presses.subtracting(taken)
+        taken.subtract(presses)
+        if !rest.isEmpty { super.pressesEnded(rest, with: event) }
+    }
+
+    public override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = presses.subtracting(taken)
+        taken.subtract(presses)
+        if !rest.isEmpty { super.pressesCancelled(rest, with: event) }
+    }
+
+    // MARK: The Edit menu's, on the canvas
+
+    public override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        typealias Edits = UIResponderStandardEditActions
+        switch action {
+        case #selector(Edits.copy(_:)), #selector(Edits.cut(_:)), #selector(Edits.paste(_:)):
+            return clipping != nil
+        case #selector(Edits.selectAll(_:)):
+            return selectingAll != nil
+        case #selector(CanvasPresses.keyed(_:)):
+            // A sheet or a popover over the canvas keeps Escape and Return for itself.
+            return commanded != nil && !covered
+        default:
+            return super.canPerformAction(action, withSender: sender)
+        }
+    }
+
+    public override func copy(_ sender: Any?) {
+        clipping?(.copy)
+    }
+
+    public override func cut(_ sender: Any?) {
+        clipping?(.cut)
+    }
+
+    public override func paste(_ sender: Any?) {
+        clipping?(.paste)
+    }
+
+    public override func selectAll(_ sender: Any?) {
+        _ = selectingAll?()
     }
 }
 #endif
