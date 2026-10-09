@@ -377,11 +377,37 @@ public final class Typing {
     /// The caret's line box at `offset` on the canvas, axis-aligned: where an input method's window goes.
     public func caretBox(at offset: Int) -> CGRect? {
         guard let r = carets?.box(at: offset, on: on) else { return nil }
-        let points = corners(r)
-        let xs = points.map(\.x)
-        let ys = points.map(\.y)
-        guard let x0 = xs.min(), let x1 = xs.max(), let y0 = ys.min(), let y1 = ys.max() else { return nil }
-        return CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)
+        return bounds(of: corners(r))
+    }
+
+    /// What characters `from` to `to` (UTF-16) cover on the canvas, a box for each stretch of a
+    /// line, axis-aligned where the text is drawn: what the iPad's text input says of a range
+    /// (PLAN 4.4).
+    public func covering(from: Int, to: Int) -> [CGRect] {
+        guard let carets, from < to else { return [] }
+        return carets.covered(from: from, to: to).map { bounds(of: corners($0)) }
+    }
+
+    /// The character drawn at `point`, canvas units where the text is drawn, as the reader sees it:
+    /// where it begins and how long it is, UTF-16. None off every character.
+    public func character(at point: CGPoint) -> NSRange? {
+        guard let carets, let at = carets.character(at: back(map, point)) else { return nil }
+        return NSRange(location: at, length: carets.after(at) - at)
+    }
+
+    /// The texts of the state shown that the Pencil may write in (PLAN 4.4): each a text the state
+    /// shows and no lock holds, with its box as the engine says it stands.
+    public func writable() -> [NodeBox] {
+        guard let state = editor.shown, let layers = try? editor.session.layers(state: state),
+            let boxes = try? editor.session.boxes(state: state)
+        else { return [] }
+        var texts = Set<String>()
+        var rest = layers
+        while let layer = rest.popLast() {
+            if layer.type == "text", layer.shown { texts.insert(layer.node) }
+            rest += layer.children
+        }
+        return boxes.filter { texts.contains($0.node) && $0.locked == nil }
     }
 
     // MARK: A look for the characters selected
@@ -593,6 +619,14 @@ public final class Typing {
         head = offset
         on = line
         goal = nil
+    }
+
+    /// The smallest box, axis-aligned, that holds `points`.
+    private func bounds(of points: [CGPoint]) -> CGRect {
+        let xs = points.map(\.x)
+        let ys = points.map(\.y)
+        guard let x0 = xs.min(), let x1 = xs.max(), let y0 = ys.min(), let y1 = ys.max() else { return .null }
+        return CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)
     }
 
     /// `rect`, canvas units as the text is laid out, as corners where it is drawn.

@@ -1,4 +1,4 @@
-// The Mac's: the iPad's text input is `UITextInput`, its own view (PLAN 4.4, ADR-0023).
+// The Mac's: the iPad's take `UITextInput`'s, in CanvasTextInput.swift (PLAN 4.4, ADR-0023).
 #if os(macOS)
 import AppKit
 import SwiftUI

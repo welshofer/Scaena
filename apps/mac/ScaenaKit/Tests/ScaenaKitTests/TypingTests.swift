@@ -1,5 +1,7 @@
 #if os(macOS)
 import AppKit
+#else
+import UIKit
 #endif
 import CoreGraphics
 import Foundation
@@ -100,7 +102,7 @@ private func carets(_ json: String) throws -> Carets {
     #expect(!typing.typing && typing.told == nil)
 }
 
-#if os(macOS)  // the canvas's keys are AppKit's; the iPad's come with PLAN 4.4 and 4.6
+#if os(macOS)  // the canvas's keys are AppKit's; the iPad's, `UITextInput`'s, are tested below
 /// Keys and an input method through the text input system (PLAN 3.9): each change a
 /// `replace_text` by the user, the burst of typing one step to undo, a composition typed in
 /// place, an accent chosen for the letter before, ⌘B's look its own step, and Escape leaving.
@@ -179,7 +181,7 @@ private func carets(_ json: String) throws -> Carets {
     #expect(crlf.paragraphs == [NSRange(location: 0, length: 1), NSRange(location: 3, length: 1)])
 }
 
-#if os(macOS)  // the canvas's keys are AppKit's; the iPad's come with PLAN 4.4 and 4.6
+#if os(macOS)  // the canvas's keys are AppKit's; the iPad's, `UITextInput`'s, are tested below
 /// A list's keys (PLAN 2.69, 3.10), as a word processor's: ⌘⇧8 bullets the paragraphs the
 /// selection touches, Tab moves them a level in, Return makes an item like the one it leaves, and
 /// Return in an empty item ends the list there; ⌘⇧8 on bullets takes them out of it, and Tab
@@ -266,3 +268,195 @@ private func carets(_ json: String) throws -> Carets {
     #expect(role?.value?.string == "headline")
     #expect(typing.selection == NSRange(location: 0, length: 6))
 }
+
+/// What the iPad's text input asks of a text (PLAN 4.4), answered from the engine's carets on both
+/// platforms: the boxes a range covers, the character at a point, and the texts the Pencil may
+/// write in.
+@MainActor
+@Test func whatTheTextInputAsksIsAnsweredFromTheEnginesCarets() throws {
+    let c = try carets(twoLines)
+    #expect(c.character(at: CGPoint(x: 6, y: 5)) == 1 && c.character(at: CGPoint(x: 3, y: 15)) == 6)
+    #expect(c.character(at: CGPoint(x: 23, y: 5)) == nil, "a line's break draws nothing")
+    #expect(c.character(at: CGPoint(x: 40, y: 5)) == nil && c.character(at: CGPoint(x: 3, y: 25)) == nil)
+
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    editor.shown = "cover"
+    let typing = Typing(editor: editor)
+    let writable = typing.writable().map(\.node)
+    #expect(writable.contains("title") && writable.contains("subtitle"), "\(writable)")
+    #expect(typing.enter("subtitle", in: "cover", at: nil))
+    let lines = try #require(typing.carets?.lines)
+    let all = typing.covering(from: 0, to: typing.carets?.length ?? 0)
+    #expect(all.count == lines.count, "a box a line: \(all)")
+    #expect(typing.covering(from: 3, to: 3).isEmpty)
+    // The character drawn where the text's first box begins is its first.
+    let first = try #require(typing.covering(from: 0, to: 1).first)
+    #expect(typing.character(at: CGPoint(x: first.midX, y: first.midY)) == NSRange(location: 0, length: 1))
+}
+
+#if os(iOS)
+/// The iPad's keys and an input method through `UITextInput` (PLAN 4.4), as the Mac's through
+/// `NSTextInputClient` (PLAN 3.9): each change a `replace_text` by the user, the burst of typing
+/// one step to undo, a composition typed in place, autocorrection's replacement, where the input
+/// system is told the caret and the characters stand, a hardware keyboard's keys as the Mac's key
+/// bindings make them, ⌘B's look its own step, and Escape giving the keyboard up.
+@MainActor
+@Test func theIPadsKeysAndAnInputMethodTypeThroughUITextInput() throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    editor.shown = "cover"
+    let original = editor.source
+    let typing = Typing(editor: editor)
+    typing.burst = .seconds(60)
+    var steps: [(before: String, joins: Bool)] = []
+    typing.edited = { steps.append(($0, $1)) }
+    let view = CanvasKeys(typing: typing)
+    view.frame = CGRect(x: 0, y: 0, width: 960, height: 540)
+    view.canvas = CGSize(width: 1920, height: 1080)
+
+    /// `r` as the input system names it, UTF-16.
+    func range(_ r: UITextRange?) -> NSRange? {
+        guard let r else { return nil }
+        return NSRange(
+            location: view.offset(from: view.beginningOfDocument, to: r.start), length: view.offset(from: r.start, to: r.end))
+    }
+    func span(_ from: Int, _ to: Int) throws -> UITextRange {
+        let start = try #require(view.position(from: view.beginningOfDocument, offset: from))
+        let end = try #require(view.position(from: view.beginningOfDocument, offset: to))
+        return try #require(view.textRange(from: start, to: end))
+    }
+
+    #expect(view.selectedTextRange == nil && !view.canBecomeFirstResponder)
+    #expect(typing.enter("title", in: "cover", at: nil))
+    #expect(view.canBecomeFirstResponder && view.hasText)
+    #expect(range(view.selectedTextRange) == NSRange(location: 6, length: 0))
+
+    view.insertText(" on the iPad")
+    view.deleteBackward()
+    #expect(typing.carets?.text == "Scaena on the iPa")
+    #expect(range(view.selectedTextRange) == NSRange(location: 17, length: 0))
+    #expect(editor.source.contains("Scaena on the iPa"))
+
+    // A dead key composes in place, and the letter it makes takes its place.
+    view.setMarkedText("´", selectedRange: NSRange(location: 1, length: 0))
+    #expect(range(view.markedTextRange) == NSRange(location: 17, length: 1))
+    #expect(typing.carets?.text == "Scaena on the iPa´" && typing.composing.count == 1)
+    view.insertText("d")
+    #expect(view.markedTextRange == nil && typing.carets?.text == "Scaena on the iPad")
+    #expect(view.text(in: try span(7, 9)) == "on")
+
+    // Autocorrection replaces a word.
+    view.replace(try span(14, 18), withText: "iPads")
+    #expect(typing.carets?.text == "Scaena on the iPads")
+    #expect(steps.count == 5 && steps.dropFirst().allSatisfy({ $0.joins }) && !steps[0].joins)
+    #expect(steps[0].before == original)
+
+    // The caret and the characters where the canvas draws them, the view showing it at half.
+    let caret = view.caretRect(for: try #require(view.selectedTextRange).end)
+    let box = try #require(typing.caretBox(at: typing.head))
+    #expect(abs(caret.minX - box.minX / 2) < 0.01 && abs(caret.height - box.height / 2) < 0.01)
+    let near = try #require(view.closestPosition(to: CGPoint(x: caret.midX, y: caret.midY)))
+    #expect(view.offset(from: view.beginningOfDocument, to: near) == typing.head)
+    let rects = view.selectionRects(for: try span(0, 6))
+    #expect(rects.count == 1 && rects[0].containsStart && rects[0].containsEnd)
+    let s = CGPoint(x: rects[0].rect.minX + 2, y: rects[0].rect.midY)
+    #expect(range(view.characterRange(at: s)) == NSRange(location: 0, length: 1))
+    // Its first line's end, as the engine set it, for the input system's own moves.
+    let forward = UITextDirection(rawValue: UITextStorageDirection.forward.rawValue)
+    let end = try #require(view.tokenizer.position(from: view.beginningOfDocument, toBoundary: .line, inDirection: forward))
+    #expect(view.offset(from: view.beginningOfDocument, to: end) == typing.carets?.end(ofLine: 0))
+
+    // A hardware keyboard's keys, as the Mac's key bindings make them.
+    #expect(view.key(UIKeyCommand.inputUpArrow, flags: [.command, .shift]))
+    #expect(typing.selected == "Scaena on the iPads")
+    #expect(!view.key("q", flags: .command), "a key typing does not take")
+    view.key(UIKeyCommand.inputRightArrow)
+    #expect(typing.head == 19 && typing.selected == nil)
+    view.key("\u{8}", flags: .alternate)
+    #expect(typing.carets?.text == "Scaena on the ")
+
+    // The shortcuts bar's B, as ⌘B: a look, its own step.
+    typing.select(NSRange(location: 7, length: 2))
+    #expect(view.canPerformAction(#selector(UIResponderStandardEditActions.toggleBoldface(_:)), withSender: nil))
+    let typed = editor.source
+    view.toggleBoldface(nil)
+    #expect(steps.count == 7 && !steps[6].joins && steps[6].before == typed)
+    #expect(typing.selected == "on" && typing.told == "Not bold", "\(typing.told ?? "")")
+
+    // The burst undone in one step: the deck as it was, and the caret where it still fits.
+    editor.restore(steps[0].before)
+    #expect(editor.source == original)
+    typing.sync(shown: "cover")
+    #expect(typing.carets?.text == "Scaena" && (range(view.selectedTextRange)?.location ?? 99) <= 6)
+
+    // Escape stops typing, and the keyboard is given up.
+    view.key(UIKeyCommand.inputEscape)
+    #expect(!typing.typing && view.selectedTextRange == nil && !view.canBecomeFirstResponder)
+}
+
+/// A list's keys on the iPad (PLAN 4.4), as the Mac's (PLAN 3.10): ⌘⇧8 bullets, Tab moves the
+/// items a level in, Return makes an item like the one it leaves and ends the list in an empty
+/// one, and Tab outside a list stops typing. Each is one patch, one step to undo.
+@MainActor
+@Test func theIPadsListKeysMakeItemsAsTheMacsDo() throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    editor.shown = "cover"
+    let typing = Typing(editor: editor)
+    var steps = 0
+    typing.edited = { _, joins in
+        if !joins { steps += 1 }
+    }
+    let view = CanvasKeys(typing: typing)
+    #expect(typing.enter("subtitle", in: "cover", at: nil))
+
+    #expect(view.key("8", flags: [.command, .shift]))
+    #expect(typing.carets?.item(0)?.kind == "bullet" && typing.told == "Bulleted")
+    view.insertText("\t")
+    #expect(typing.carets?.item(0)?.level == 1 && typing.typing)
+
+    typing.move(.text(start: false))
+    view.insertText("\n")
+    #expect(typing.carets?.item(1)?.kind == "bullet" && typing.endsList)
+    view.insertText("\n")
+    #expect(typing.carets?.item(1) == nil && typing.carets?.item(0)?.level == 1)
+    #expect(typing.told == "The list ends")
+
+    typing.move(.text(start: true))
+    view.key("8", flags: [.command, .shift])
+    #expect(typing.carets?.item(0) == nil && typing.told == "Out of the list")
+    view.key("\t")
+    #expect(!typing.typing)
+    #expect(steps == 5)
+}
+
+/// The Pencil writes in the texts the state shows (PLAN 4.4): Scribble asks for them near where it
+/// writes, each where the canvas draws it, and writing on one types in it, at the caret nearest
+/// where the Pencil began.
+@MainActor
+@Test func thePencilWritesInTheTextsTheStateShows() throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    editor.shown = "cover"
+    let typing = Typing(editor: editor)
+    let view = CanvasKeys(typing: typing)
+    view.frame = CGRect(x: 0, y: 0, width: 960, height: 540)
+    view.canvas = CGSize(width: 1920, height: 1080)
+    let scribble = UIIndirectScribbleInteraction(delegate: view)
+
+    var found: [String] = []
+    view.indirectScribbleInteraction(scribble, requestElementsIn: view.bounds) { found = $0 }
+    #expect(found.contains("title") && found.contains("subtitle"), "\(found)")
+    let frame = view.indirectScribbleInteraction(scribble, frameForElement: "subtitle")
+    #expect(frame.width > 0 && view.bounds.contains(frame), "\(frame)")
+    view.indirectScribbleInteraction(scribble, requestElementsIn: CGRect(x: frame.midX, y: frame.midY, width: 1, height: 1)) {
+        found = $0
+    }
+    #expect(found.contains("subtitle"), "\(found)")
+    #expect(!view.indirectScribbleInteraction(scribble, isElementFocused: "subtitle"))
+
+    var focused: (UIResponder & UITextInput)?
+    view.indirectScribbleInteraction(scribble, focusElementIfNeeded: "subtitle", referencePoint: CGPoint(x: 65, y: 360)) {
+        focused = $0
+    }
+    #expect(typing.node == "subtitle" && focused === view)
+    #expect(typing.head == 0, "the caret nearest the subtitle's start")
+}
+#endif

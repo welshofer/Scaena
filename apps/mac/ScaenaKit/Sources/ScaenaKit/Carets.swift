@@ -134,6 +134,14 @@ public struct Carets: Decodable, Equatable, Sendable {
         return out
     }
 
+    /// The character drawn at `point`, canvas units as the text is laid out: where it begins,
+    /// UTF-16. None off every character, and on a line's break, which draws nothing.
+    public func character(at point: CGPoint) -> Int? {
+        let (x, y) = (Double(point.x), Double(point.y))
+        guard let line = lines.first(where: { y >= $0.top && y < $0.bottom }) else { return nil }
+        return line.chars.first { min($0.lead, $0.trail) <= x && x < max($0.lead, $0.trail) }?.offset
+    }
+
     /// The caret at `offset` as a line box, canvas units as the text is laid out: where an input
     /// method's window goes.
     public func box(at offset: Int, on: Int? = nil) -> CGRect? {
