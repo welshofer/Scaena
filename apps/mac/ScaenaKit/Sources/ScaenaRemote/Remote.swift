@@ -20,8 +20,9 @@ public enum Remote {
         String(format: "%04d", Int.random(in: 0..<10_000))
     }
 
-    /// TCP under TLS with a key both ends derive from `code`, the identity it is known by in the
-    /// handshake the service's: Apple's pattern for a peer-to-peer protocol.
+    /// TCP under TLS 1.2 with a key both ends derive from `code`, the identity it is known by in
+    /// the handshake the service's: Apple's pattern for a peer-to-peer protocol. Network framework
+    /// takes a pre-shared key in TLS 1.2 alone: offered TLS 1.3, the handshake never ends.
     public static func parameters(code: String) -> NWParameters {
         let tls = NWProtocolTLS.Options()
         let identity = Data("Scaena Remote".utf8)
@@ -31,6 +32,8 @@ public enum Remote {
         sec_protocol_options_add_pre_shared_key(tls.securityProtocolOptions, key as __DispatchData, name as __DispatchData)
         sec_protocol_options_append_tls_ciphersuite(
             tls.securityProtocolOptions, tls_ciphersuite_t(rawValue: UInt16(TLS_PSK_WITH_AES_128_GCM_SHA256))!)
+        sec_protocol_options_set_min_tls_protocol_version(tls.securityProtocolOptions, .TLSv12)
+        sec_protocol_options_set_max_tls_protocol_version(tls.securityProtocolOptions, .TLSv12)
         let tcp = NWProtocolTCP.Options()
         tcp.enableKeepalive = true
         tcp.keepaliveIdle = 2
