@@ -21,8 +21,8 @@ public enum Remote {
     }
 
     /// TCP under TLS 1.2 with a key both ends derive from `code`, the identity it is known by in
-    /// the handshake the service's: Apple's pattern for a peer-to-peer protocol. Network framework
-    /// takes a pre-shared key in TLS 1.2 alone: offered TLS 1.3, the handshake never ends.
+    /// the handshake the service's: Apple's pattern for a peer-to-peer protocol. Its cipher suite,
+    /// `TLS_PSK_WITH_AES_128_GCM_SHA256`, is TLS 1.2's, so both ends hold to TLS 1.2.
     public static func parameters(code: String) -> NWParameters {
         let tls = NWProtocolTLS.Options()
         let identity = Data("Scaena Remote".utf8)
