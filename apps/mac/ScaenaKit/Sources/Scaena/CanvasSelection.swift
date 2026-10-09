@@ -1,5 +1,7 @@
 #if os(macOS)
 import AppKit
+#else
+import UIKit
 #endif
 import ScaenaKit
 import SwiftUI
@@ -216,7 +218,9 @@ struct CanvasSelection: View {
                     finding: { _ in finding() }, pressed: pressed)
                     .allowsHitTesting(false)
                 #else
-                CanvasKeysHost(typing: typing, canvas: size, shown: zoom.view, clipping: clip) { finding() }
+                CanvasKeysHost(
+                    typing: typing, canvas: size, shown: zoom.view, clipping: clip, finding: { finding() },
+                    pressed: pressed, selectingAll: { selectAll() })
                 #endif
                 #if os(macOS)
                 // The wheel and a pinch over the canvas, read before any view takes them. On the
@@ -479,22 +483,7 @@ struct CanvasSelection: View {
         typealias Keys = NSStandardKeyBindingResponding
         switch selector {
         case #selector(Keys.deleteBackward(_:)), #selector(Keys.deleteForward(_:)):
-            // A point picked on the shape selected is taken away, not the shape (PLAN 3.16); so is
-            // the point the keys are on (PLAN 3.17).
-            if let picked = pointPicked, let o = shaped, o.node == node, also.isEmpty {
-                unpoint(o, picked)
-                return true
-            }
-            if let k = keyed, let o = shaped, o.node == node, also.isEmpty {
-                let list = handles(of: o.node)
-                if list.indices.contains(k), case .point(let i) = list[k] {
-                    unpoint(o, i)
-                    keyed = max(0, k - 1)
-                    return true
-                }
-            }
-            delete(NSApp.currentEvent?.modifierFlags.contains(.shift) == true)
-            return true
+            return deleting(everywhere: NSApp.currentEvent?.modifierFlags.contains(.shift) == true)
         case #selector(Keys.cancelOperation(_:)):
             if pointPicked != nil {
                 pointPicked = nil
@@ -852,7 +841,64 @@ struct CanvasSelection: View {
             return false
         }
     }
+    #else
+    /// A hardware keyboard's key on the canvas while no text is typed in (PLAN 4.6), as the Mac's
+    /// canvas reads it (PLAN 3.17), by UIKit's codes: whether the canvas took it. What it does not
+    /// take goes on, so Tab past either end leaves the slide.
+    private func pressed(_ key: UIKey) -> Bool {
+        guard press == nil else { return false }
+        let flags = key.modifierFlags.intersection([.command, .shift, .alternate, .control])
+        guard !flags.contains(.control) else { return false }
+        let (shift, option, command) = (flags.contains(.shift), flags.contains(.alternate), flags.contains(.command))
+        switch key.keyCode {
+        case .keyboardTab where !command && !option:
+            return tab(back: shift)
+        case .keyboardReturnOrEnter, .keypadEnter:
+            return command ? false : enter(option: option)
+        case .keyboardEscape:
+            return escape()
+        case .keyboardLeftArrow where !command:
+            return arrow(-1, 0, shift: shift, option: option)
+        case .keyboardRightArrow where !command:
+            return arrow(1, 0, shift: shift, option: option)
+        case .keyboardDownArrow where !command:
+            return arrow(0, 1, shift: shift, option: option)
+        case .keyboardUpArrow where !command:
+            return arrow(0, -1, shift: shift, option: option)
+        case .keyboardSpacebar where !command && !option:
+            return space()
+        case .keyboardOpenBracket, .keyboardCloseBracket:
+            let way = key.keyCode == .keyboardCloseBracket ? 1 : -1
+            return command || option ? false : turn(by: Double(way * (shift ? 1 : 15)))
+        case .keyboardEqualSign where !command:
+            return addPoint(option: option)
+        case .keyboardDeleteOrBackspace, .keyboardDeleteForward:
+            return command || option || (node == nil && pointPicked == nil) ? false : deleting(everywhere: shift)
+        default:
+            return false
+        }
+    }
     #endif
+
+    /// Delete, or Shift+Delete (PLAN 3.11): a point picked on the shape selected is taken away, not
+    /// the shape (PLAN 3.16), and so is the point the keys are on (PLAN 3.17); else the nodes
+    /// selected, from the state shown on, or out of the deck.
+    private func deleting(everywhere: Bool) -> Bool {
+        if let picked = pointPicked, let o = shaped, o.node == node, also.isEmpty {
+            unpoint(o, picked)
+            return true
+        }
+        if let k = keyed, let o = shaped, o.node == node, also.isEmpty {
+            let list = handles(of: o.node)
+            if list.indices.contains(k), case .point(let i) = list[k] {
+                unpoint(o, i)
+                keyed = max(0, k - 1)
+                return true
+            }
+        }
+        delete(everywhere)
+        return true
+    }
 
     /// Node `selected`'s handles the keys work, in order.
     private func handles(of selected: String) -> [KeyedHandle] {

@@ -19,6 +19,8 @@ import UIKit
 /// - Writing with the Pencil on a text begins typing in it there (`UIIndirectScribbleInteraction`):
 ///   the state shown's texts are what Scribble writes in.
 /// - The input system is told of each change it did not make itself: a press, a key's move, a look.
+/// - While no text is typed in, the keyboard is the canvas's own (PLAN 4.6): a press on the canvas
+///   gives it to `presses`, as does typing stopped where this view had it.
 @MainActor
 public final class CanvasKeys: UIView {
     public let typing: Typing
@@ -32,6 +34,8 @@ public final class CanvasKeys: UIView {
     /// What the canvas does with Copy, Cut, and Paste while no text is typed in (PLAN 3.12): the
     /// nodes selected copied as a clip, or what the pasteboard holds pasted.
     public var clipping: (@MainActor (Clipping) -> Void)?
+    /// The canvas's keys while no text is typed in (PLAN 4.6).
+    public let presses = CanvasPresses()
 
     /// Told of each change the input system did not make.
     public weak var inputDelegate: (any UITextInputDelegate)?
@@ -51,6 +55,7 @@ public final class CanvasKeys: UIView {
         typing.focus = { [weak self] in self?.claim() }
         typing.discarded = { [weak self] in self?.changed() }
         addInteraction(UIIndirectScribbleInteraction(delegate: self))
+        addSubview(presses)
         watch()
     }
 
@@ -64,11 +69,17 @@ public final class CanvasKeys: UIView {
     /// Only while a text is typed in: with the keyboard comes the software one.
     public override var canBecomeFirstResponder: Bool { typing.typing }
 
-    /// Take the keyboard for the text typed in, once the touch that asked has gone by.
+    /// Take the keyboard once the touch that asked has gone by: for the text typed in, the
+    /// software keyboard with it; else for the canvas's own keys (PLAN 4.6), as a press on the
+    /// Mac's canvas takes it.
     public func claim() {
         Task { @MainActor [weak self] in
-            guard let self, self.window != nil, self.typing.typing, !self.isFirstResponder else { return }
-            self.becomeFirstResponder()
+            guard let self, self.window != nil else { return }
+            if self.typing.typing {
+                if !self.isFirstResponder { self.becomeFirstResponder() }
+            } else if !self.presses.isFirstResponder {
+                self.presses.becomeFirstResponder()
+            }
         }
     }
 
@@ -299,10 +310,13 @@ public final class CanvasKeys: UIView {
     }
 
     /// Tell the input system what changed since it last looked, where it did not change it; and
-    /// once typing stops, give the keyboard up.
+    /// once typing stops, give the keyboard up, to the canvas's own keys (PLAN 4.6).
     private func changed() {
         guard !asked else { return }
-        if !typing.typing, isFirstResponder { _ = resignFirstResponder() }
+        if !typing.typing, isFirstResponder {
+            _ = resignFirstResponder()
+            presses.becomeFirstResponder()
+        }
         let current = now
         guard current != seen else { return }
         let texts = current?.text != seen?.text || current?.marked != seen?.marked
@@ -716,7 +730,7 @@ final class Boundaries: UITextInputStringTokenizer {
 }
 
 /// `CanvasKeys` in SwiftUI, under the canvas: the keyboard's and the Pencil's while a text is
-/// typed in. The canvas's own keys while none is come with PLAN 4.6.
+/// typed in, and the canvas's own keys while none is (PLAN 4.6).
 public struct CanvasKeysHost: UIViewRepresentable {
     public let typing: Typing
     /// The canvas, in canvas units.
@@ -725,16 +739,23 @@ public struct CanvasKeysHost: UIViewRepresentable {
     public let shown: CGRect?
     public let clipping: @MainActor (Clipping) -> Void
     public let finding: (@MainActor () -> Void)?
+    /// A hardware keyboard's key on the canvas while no text is typed in: whether it took it.
+    public let pressed: (@MainActor (UIKey) -> Bool)?
+    /// ⌘A on the canvas while no text is typed in: whether it selected anything.
+    public let selectingAll: (@MainActor () -> Bool)?
 
     public init(
         typing: Typing, canvas: CGSize, shown: CGRect? = nil, clipping: @escaping @MainActor (Clipping) -> Void,
-        finding: (@MainActor () -> Void)? = nil
+        finding: (@MainActor () -> Void)? = nil, pressed: (@MainActor (UIKey) -> Bool)? = nil,
+        selectingAll: (@MainActor () -> Bool)? = nil
     ) {
         self.typing = typing
         self.canvas = canvas
         self.shown = shown
         self.clipping = clipping
         self.finding = finding
+        self.pressed = pressed
+        self.selectingAll = selectingAll
     }
 
     public func makeUIView(context: Context) -> CanvasKeys {
@@ -748,6 +769,89 @@ public struct CanvasKeysHost: UIViewRepresentable {
         view.shown = shown
         view.clipping = clipping
         view.finding = finding
+        view.presses.pressed = pressed
+        view.presses.clipping = clipping
+        view.presses.selectingAll = selectingAll
+    }
+}
+
+/// The canvas's own keys on the iPad while no text is typed in (PLAN 4.6), as the Mac's
+/// `CanvasKeys` takes them then (PLAN 3.17): a hardware keyboard's Tab, Return, Escape, the arrows,
+/// Space, the brackets, +, and Delete, each handed to the canvas first (`pressed`), which says
+/// whether it took it. One it does not take goes on, so Tab past either end leaves the slide, and
+/// the app's commands keep their keys. The Edit menu's Copy, Cut, Paste, and Select All are the
+/// canvas's (`clipping`, `selectingAll`). It is no text input, so no software keyboard comes with
+/// it, and it takes no touch.
+@MainActor
+public final class CanvasPresses: UIView {
+    public var pressed: (@MainActor (UIKey) -> Bool)?
+    public var clipping: (@MainActor (Clipping) -> Void)?
+    public var selectingAll: (@MainActor () -> Bool)?
+    /// The presses the canvas took: how each goes on and ends is its too.
+    private var taken: Set<UIPress> = []
+
+    public override var canBecomeFirstResponder: Bool { true }
+
+    /// Touches go through to the canvas over it.
+    public override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? { nil }
+
+    public override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        var rest = Set<UIPress>()
+        for press in presses {
+            if let key = press.key, pressed?(key) == true {
+                taken.insert(press)
+            } else {
+                rest.insert(press)
+            }
+        }
+        if !rest.isEmpty { super.pressesBegan(rest, with: event) }
+    }
+
+    public override func pressesChanged(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = presses.subtracting(taken)
+        if !rest.isEmpty { super.pressesChanged(rest, with: event) }
+    }
+
+    public override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = presses.subtracting(taken)
+        taken.subtract(presses)
+        if !rest.isEmpty { super.pressesEnded(rest, with: event) }
+    }
+
+    public override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = presses.subtracting(taken)
+        taken.subtract(presses)
+        if !rest.isEmpty { super.pressesCancelled(rest, with: event) }
+    }
+
+    // MARK: The Edit menu's, on the canvas
+
+    public override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        typealias Edits = UIResponderStandardEditActions
+        switch action {
+        case #selector(Edits.copy(_:)), #selector(Edits.cut(_:)), #selector(Edits.paste(_:)):
+            return clipping != nil
+        case #selector(Edits.selectAll(_:)):
+            return selectingAll != nil
+        default:
+            return super.canPerformAction(action, withSender: sender)
+        }
+    }
+
+    public override func copy(_ sender: Any?) {
+        clipping?(.copy)
+    }
+
+    public override func cut(_ sender: Any?) {
+        clipping?(.cut)
+    }
+
+    public override func paste(_ sender: Any?) {
+        clipping?(.paste)
+    }
+
+    public override func selectAll(_ sender: Any?) {
+        _ = selectingAll?()
     }
 }
 #endif
