@@ -234,11 +234,17 @@ try {
   await drop("marks-dot", "card", "into");
   check(await has("card [marks-dot, card-tag-label, card-tag, card-photo]", "marks [marks-ring]"), `into the frame, first: ${(await listed()).join(" | ")}`);
   check(await says("marks-dot moved into card"), `the status says so: ${await status()}`);
-  const [dot, card] = [await box("marks-dot"), await box("card")];
-  check(
-    dot && card && dot[0] >= card[0] && dot[1] >= card[1] && dot[0] + dot[2] <= card[0] + card[2] + 0.5 && dot[1] + dot[3] <= card[1] + card[3] + 0.5,
-    `inside it: ${JSON.stringify(dot)} in ${JSON.stringify(card)}`,
-  );
+  // The canvas's boxes come after the list and the status: waited for, as the drop onto the canvas
+  // waits for its own.
+  const inside = await page
+    .waitForFunction(() => {
+      const boxes = window.scaena.canvas.boxes() ?? [];
+      const [d, c] = ["marks-dot", "card"].map((n) => boxes.find((b) => b.node === n)?.rect);
+      return d && c && d[0] >= c[0] && d[1] >= c[1] && d[0] + d[2] <= c[0] + c[2] + 0.5 && d[1] + d[3] <= c[1] + c[3] + 0.5 && [d, c];
+    }, null, { timeout: 10000, polling: 50 })
+    .then((h) => h.jsonValue(), () => undefined);
+  const [dot, card] = inside ?? [await box("marks-dot"), await box("card")];
+  check(inside !== undefined, `inside it: ${JSON.stringify(dot)} in ${JSON.stringify(card)}`);
   await undo();
   check(await back(torture), "one undo takes it back");
 
