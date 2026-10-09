@@ -7,7 +7,8 @@ import SwiftUI
 /// The wheel and a pinch over the canvas (PLAN 3.16), as the browser's preview takes them (PLAN
 /// 2.46): a pinch, or the wheel with ⌘, zooms about the pointer; the wheel alone pans what is
 /// zoomed in, and passes on where the whole canvas shows. It reads them as the window gets them,
-/// before any view, and takes no press. The iPad's pinch and pan come with PLAN 4.3.
+/// before any view, and takes no press. On the iPad, two fingers do it (`CanvasPinch`,
+/// `CanvasPan`, PLAN 4.3).
 #if os(macOS)
 struct CanvasWheel: NSViewRepresentable {
     /// Zoom by a factor about a point on the view.

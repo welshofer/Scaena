@@ -455,7 +455,8 @@ struct DeckView: View {
                 if let typing {
                     CanvasSelection(
                         editor: editor, state: shown, size: size, zoom: $zoom, node: $node, also: $also, typing: typing,
-                        pointed: $pointed, said: $said, delete: delete, clip: clip, finding: { searching = true }
+                        pointed: $pointed, said: $said, delete: delete, clip: clip, finding: { searching = true },
+                        actions: actions
                     ) { ops in
                         perform { try document.make(ops, undo: undo) }
                     }
