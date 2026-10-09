@@ -144,7 +144,8 @@ private func box(_ boxes: [NodeBox], _ node: String) -> CGRect? {
         return true
     }
     let commands = try #require(presses.keyCommands)
-    #expect(commands.allSatisfy(\.wantsPriorityOverSystemBehavior))
+    let first = commands.allSatisfy { $0.wantsPriorityOverSystemBehavior }
+    #expect(first, "each comes ahead of the system's own behavior")
     let keyed = NSSelectorFromString("keyed:")
     let keys: [(String, UIKeyModifierFlags)] = [(UIKeyCommand.inputEscape, []), ("\r", []), ("\r", .alternate)]
     for (input, flags) in keys {
