@@ -157,6 +157,8 @@ fn own(node_type: NodeType) -> &'static [(&'static str, Source)] {
             ("style/size", Schema(true)),
             ("style/color", Names(V::Color, true)),
             ("style/case", Schema(false)),
+            // Where its lines stand across its box: left, centered, or right (PLAN 3.25).
+            ("align/x", Schema(false)),
             ("fit", Schema(false)),
             ("wrap", Schema(false)),
             ("maxLines", Schema(false)),
@@ -258,11 +260,20 @@ pub fn choices(
                 }
                 Takes::Name { of, names, overrides }
             }
-            Schema(overrides) => allowed(Checker::deck().property(&tag, prop)?, overrides)?,
+            Schema(overrides) => match allowed(Checker::deck().property(&tag, prop)?, overrides)? {
+                // A text's lines are set from its start where it would stretch.
+                Takes::Word { mut words } if prop == "align/x" => {
+                    words.retain(|w| w != "stretch");
+                    Takes::Word { words }
+                }
+                takes => takes,
+            },
             Fractions(names) => Takes::Fractions { names: names.iter().map(|n| n.to_string()).collect() },
         };
         let (name, key) = prop.split_once('/').map_or((prop, None), |(n, k)| (n, Some(k)));
         let value = match key {
+            // One keyword aligns both axes (PLAN 3.25).
+            Some(_) if name == "align" && shown.get(name).is_some_and(Value::is_string) => shown.get(name),
             Some(key) => shown.get(name).and_then(|v| v.get(key)),
             None => shown.get(name),
         };

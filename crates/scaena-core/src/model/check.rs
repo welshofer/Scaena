@@ -160,10 +160,16 @@ impl Checker {
     }
 
     /// `name` among the properties of `schema`, else of the definition it refers to: a
-    /// node's own properties, then those every node has.
+    /// node's own properties, then those every node has. Of a value written more ways than
+    /// one, the first way that has it: an `align`'s `x` is its axes' (PLAN 3.25).
     fn member<'s>(&'s self, schema: &'s Value, name: &str) -> Option<&'s Value> {
         let own = schema.get("properties").and_then(|p| p.get(name));
-        own.or_else(|| self.member(self.defs.get(def_of(schema.get("$ref")?.as_str()?))?, name))
+        let referred = || self.member(self.defs.get(def_of(schema.get("$ref")?.as_str()?))?, name);
+        let ways = || {
+            let ways = schema.get("anyOf").or_else(|| schema.get("oneOf"))?.as_array()?;
+            ways.iter().find_map(|way| self.member(self.follow(way), name))
+        };
+        own.or_else(referred).or_else(ways)
     }
 
     /// The definition `schema` only refers to (`{"$ref": …}`, perhaps with a description or

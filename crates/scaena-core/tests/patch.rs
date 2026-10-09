@@ -1025,6 +1025,30 @@ fn replace_text_keeps_runs_and_their_looks() {
     assert!(e.to_string().contains("overrides"), "{e}");
 }
 
+/// A choice of one axis where one keyword aligns both keeps the other as it showed (PLAN
+/// 3.25): the keyword is written out as each axis, the one chosen changed.
+#[test]
+fn choose_one_axis_of_an_alignment_keeps_the_other() {
+    let mut doc = example();
+    doc["nodes"]["note"]["align"] = json!("center");
+    let choose = |doc: &Value, value: Value| {
+        patch(doc, json!([{ "op": "choose", "node": "note", "prop": "align/x", "value": value, "state": "revenue" }]))
+            .unwrap()
+    };
+    let c = choose(&doc, json!("end"));
+    assert_eq!(c.doc["nodes"]["note"]["align"], json!({ "x": "end", "y": "center" }));
+    assert!(errors(&c.doc).is_empty(), "{:?}", errors(&c.doc));
+    // Its axes written apart, the one chosen changes alone.
+    let again = choose(&c.doc, json!("start"));
+    assert_eq!(rfc(&again), json!([{ "op": "add", "path": "/nodes/note/align/x", "value": "start" }]));
+    // Taken away, the other stays.
+    let away = choose(&doc, Value::Null);
+    assert_eq!(away.doc["nodes"]["note"]["align"], json!({ "y": "center" }));
+    // Where nothing aligns it, the axis is all it sets: the slot's other shows.
+    let plain = choose(&example(), json!("center"));
+    assert_eq!(plain.doc["nodes"]["note"]["align"], json!({ "x": "center" }));
+}
+
 #[test]
 fn choose_writes_a_choice_where_the_property_lives() {
     let shown = |doc: &Value, i: usize, node: &str, prop: &str| {
