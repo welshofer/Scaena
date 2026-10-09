@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # The iPad app on an iPad simulator (PLAN 4.2): built as Xcode builds it, B1 put in the app's own
-# folder, and its UI tests run (`ScaenaUITests`): B1 opened in its window, and a new deck made.
+# folder, and its UI tests run (`ScaenaUITests`): the app launched, and B1 opened in its window from
+# the document browser, On My iPad › Scaena.
 # The screenshot each test keeps of its window lands in target/ipad/shots. Needs Xcode and
 # XcodeGen (`brew install xcodegen`).
 set -euo pipefail
@@ -24,9 +25,7 @@ cp -R "$root/tests/bench/b1.scaena" "$documents/b1.scaena"
 results="$root/target/ipad/Scaena.xcresult"
 rm -rf "$results"
 status=0
-# xcodebuild hands the test runner what is named TEST_RUNNER_*, without the prefix.
-TEST_RUNNER_SCAENA_DECK="$documents/b1.scaena" xcodebuild test-without-building -quiet \
-  -project Scaena.xcodeproj -scheme ScaenaApp -destination "$destination" -derivedDataPath "$built" \
-  -resultBundlePath "$results" || status=$?
+xcodebuild test-without-building -quiet -project Scaena.xcodeproj -scheme ScaenaApp -destination "$destination" \
+  -derivedDataPath "$built" -resultBundlePath "$results" || status=$?
 "$here/results.sh" "$results" "$root/target/ipad/shots"
 exit "$status"

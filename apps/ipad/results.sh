@@ -15,7 +15,7 @@ print("%s passed, %s failed, %s skipped" % tuple(counts))
 for failure in summary.get("testFailures", []):
     print("failed: %s: %s" % (failure.get("testName"), failure.get("failureText")))
 '
-xcrun xcresulttool get log --path "$results" --type console 2>/dev/null | grep -E "^gate |^skipping"
+xcrun xcresulttool get log --path "$results" --type console 2>/dev/null | grep -oE "gate [0-9], criterion [0-9].*|skipping: .*"
 if [ -n "${2:-}" ]; then
   rm -rf "$2"
   mkdir -p "$2"
