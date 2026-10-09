@@ -1,9 +1,11 @@
 // What the Mac app's window holds, as its accessibility tree says (PLAN 3.27): each element's role,
-// identifier, name, and frame in screen points from the top left, to a depth; or the frame of the
-// first element with an identifier, as "x y width height".
+// identifier, name, and frame in screen points from the top left, to a depth; the frame of the
+// first element with an identifier, as "x y width height"; or what that element holds, each by its
+// role and name, one to a line: the canvas's objects as a reader hears them.
 //
 //   osascript -l JavaScript apps/mac/frames.js tree DEPTH
 //   osascript -l JavaScript apps/mac/frames.js find IDENTIFIER
+//   osascript -l JavaScript apps/mac/frames.js holds IDENTIFIER
 function run(argv) {
   const [what, arg] = argv;
   const window = Application("System Events").processes.byName("Scaena").windows[0];
@@ -23,28 +25,36 @@ function run(argv) {
   };
   const children = (e) => read(() => e.uiElements()) ?? [];
 
-  if (what === "find") {
-    // Breadth first, as far as a window's chrome goes and no further.
+  const name = (e) => read(() => e.title()) || read(() => e.description()) || "";
+  // The first element identified as `tag`: breadth first, as far as a window's chrome goes and no
+  // further.
+  const found = (tag) => {
     let level = [window];
     for (let depth = 0, seen = 0; depth < 16 && level.length && seen < 4000; depth++) {
       const next = [];
       for (const e of level) {
         seen++;
-        if (id(e) === arg) return frame(e).join(" ");
+        if (id(e) === tag) return e;
         next.push(...children(e));
       }
       level = next;
     }
-    throw new Error(`nothing is identified as ${arg}`);
+    throw new Error(`nothing is identified as ${tag}`);
+  };
+  if (what === "find") return frame(found(arg)).join(" ");
+  if (what === "holds") {
+    return children(found(arg))
+      .map((e) => `${read(() => e.role()) ?? "?"} "${name(e)}" ${frame(e).join(" ")}`)
+      .join("\n");
   }
 
   // Each element on a line of its own, indented by its depth; a long list cut short.
   const lines = [];
   const walk = (e, depth, most) => {
-    const name = read(() => e.title()) || read(() => e.description()) || "";
+    const named = name(e);
     const tag = id(e);
     lines.push(
-      `${"  ".repeat(depth)}${read(() => e.role()) ?? "?"}${tag ? ` #${tag}` : ""}${name ? ` "${name}"` : ""} ${frame(e).join(" ")}`,
+      `${"  ".repeat(depth)}${read(() => e.role()) ?? "?"}${tag ? ` #${tag}` : ""}${named ? ` "${named}"` : ""} ${frame(e).join(" ")}`,
     );
     if (depth >= most) return;
     const all = children(e);

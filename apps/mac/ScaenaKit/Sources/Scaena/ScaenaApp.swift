@@ -37,6 +37,12 @@ struct ScaenaApp: App {
             NodeCommands()
             ViewCommands()
             WindowCommands()
+            #if os(macOS)
+            // The View menu's Show and Hide Toolbar, Customize Toolbar…, and Show and Hide Sidebar,
+            // as a Mac app's (PLAN 3.27).
+            ToolbarCommands()
+            SidebarCommands()
+            #endif
         }
         #if os(macOS)
         // The assistant's keys, kept in the Keychain (PLAN 3.6); on the iPad, a sheet of the

@@ -64,18 +64,20 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
     sleep 1
     echo "$w"
   }
+  inspector() { events 'keystroke "i" using {option down, command down}' >/dev/null; sleep 2; }
   app "set position of window 1 to {$vx, $vy}" >/dev/null
   echo "narrowest, as it opens: $(narrowest)"
   menu View "Hide Toolbar"
   sleep 2
   echo "narrowest, the toolbar hidden: $(narrowest)"
+  inspector
+  echo "narrowest, the toolbar and the inspector hidden: $(narrowest)"
+  inspector
   menu View "Show Toolbar"
   sleep 2
-  events 'keystroke "i" using {option down, command down}'
-  sleep 2
+  inspector
   echo "narrowest, the inspector hidden: $(narrowest)"
-  events 'keystroke "i" using {option down, command down}'
-  sleep 2
+  inspector
   menu View "Hide Sidebar"
   sleep 2
   echo "narrowest, the slides hidden: $(narrowest)"
@@ -138,6 +140,8 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
     echo "no Text in the toolbar: $tx $ty $tw $th"
   fi
   # The same from the Insert menu, opened as a person opens it.
+  echo "the slide holds, before:"
+  frames holds canvas
   app 'click menu bar item "Insert" of menu bar 1' >/dev/null
   sleep 1
   app 'click menu item "Text" of menu 1 of menu bar item "Insert" of menu bar 1' >/dev/null
@@ -147,6 +151,8 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   echo "insert: $(app 'click menu item 1 of menu 1 of menu item "Text" of menu 1 of menu bar item "Insert" of menu bar 1')"
   sleep 2
   shot inserted-menu
+  echo "the slide holds, after:"
+  frames holds canvas
   events 'key code 53'
   sleep 1
 fi
