@@ -649,7 +649,7 @@ public final class Typing {
         ]
         if fork { op["fork"] = true }
         let states = (try? editor.session.reach([.object(op)])) ?? [state]
-        let n = states.count
+        _ = states.count
         // Said as a person says it (PLAN 3.18): where the change shows beyond this slide, and how
         // to keep it here.
         let others = states.filter { $0 != state }.count
