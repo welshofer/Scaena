@@ -280,10 +280,24 @@ struct CanvasSelection: View {
                 }
                 typed(fit)
                     .allowsHitTesting(false)
-                // Each node read, where it is drawn, as VoiceOver hears it (PLAN 3.17).
-                ForEach(reads.indices, id: \.self) { i in
-                    readable(reads[i], order: reads.count - i, fit: fit, in: CGRect(origin: .zero, size: geometry.size))
+                // The slide as VoiceOver reads it (PLAN 3.17): each node where it is drawn, as much of
+                // it as the view shows, in a container the view's own size. Nothing drawn past the view,
+                // a handle or an outline zoomed past it, widens the canvas a pinch's fingers are placed
+                // by (PLAN 4.3).
+                ZStack(alignment: .topLeading) {
+                    Color.clear
+                    ForEach(reads.indices, id: \.self) { i in
+                        readable(
+                            reads[i], order: reads.count - i, fit: fit, in: CGRect(origin: .zero, size: geometry.size))
+                    }
                 }
+                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+                .allowsHitTesting(false)
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(Words.slide(state, in: editor.slots))
+                .accessibilityIdentifier("canvas")
+                // How close it is shown, where it is zoomed in (PLAN 3.16).
+                .accessibilityValue(zoom.level > 1 + 1e-9 ? "at \(Int((zoom.level * 100).rounded())) percent" : "")
                 if let words = told ?? typing.told ?? said {
                     Text(words)
                         .font(.caption)
@@ -295,11 +309,6 @@ struct CanvasSelection: View {
                 }
             }
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(Words.slide(state, in: editor.slots))
-        .accessibilityIdentifier("canvas")
-        // How close it is shown, where it is zoomed in (PLAN 3.16).
-        .accessibilityValue(zoom.level > 1 + 1e-9 ? "at \(Int((zoom.level * 100).rounded())) percent" : "")
         .task(id: "\(state)\u{1f}\(editor.revision)") {
             boxes = (try? editor.session.boxes(state: state)) ?? []
             placements = (try? editor.session.placements(state: state)) ?? [:]
