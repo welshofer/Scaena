@@ -369,9 +369,10 @@ public final class CanvasKeys: UIView {
         set {}
     }
 
-    /// What a test finds it by: VoiceOver does not read it.
+    /// What a test finds it by while a text is typed in, as its label says: VoiceOver does not
+    /// read it.
     public override var accessibilityIdentifier: String? {
-        get { "typing" }
+        get { typing.node == nil ? nil : "typing" }
         set {}
     }
 
