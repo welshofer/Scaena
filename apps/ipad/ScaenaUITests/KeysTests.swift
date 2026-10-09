@@ -6,9 +6,12 @@ import XCTest
 /// title as its drag would, and ⌘Z, Undo by its key, takes each nudge back, the keys still the
 /// canvas's; Return types in the title and Escape stops, the keys the canvas's again; ⌘D,
 /// Duplicate by its key, copies it; and Escape selects what holds it. Each node is an element that
-/// reads as the reader hears it. A key the canvas does not hear is said, and the test goes on as far
-/// as it can without it and fails at its end, saying every such key; where Escape is not heard, it
-/// is tried in the find bar's text field, which says whether it reaches the app at all.
+/// reads as the reader hears it. Return is sent as a newline, the Return key of the simulator's
+/// keyboard. Where Escape is not heard, ⌘., the system's cancel key, which the canvas takes as
+/// Escape, is pressed in its place, and that is said beside the results. A key the canvas does not
+/// hear is said, and the test goes on as far as it can without it and fails at its end, saying
+/// every such key; where neither Escape nor ⌘. is heard, Escape is tried in the find bar's text
+/// field, which says whether it reaches the app at all.
 final class KeysTests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -46,14 +49,20 @@ final class KeysTests: XCTestCase {
         }
 
         // Each key the canvas did not hear, said as the test goes on, so that one run says it of
-        // every key; the test fails at its end where any is said.
+        // every key; the test fails at its end where any is said. Where Escape is not heard and ⌘.,
+        // which the canvas takes as Escape, is, that is said beside the results instead.
         var unheard: [String] = []
+        var cancelled: [String] = []
 
         try XCTContext.runActivity(named: "Escape selects what holds the title, before any edit; Tab selects it again") { _ in
-            app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
-            guard wait(5, { !title.isSelected }) else {
+            switch cancel(app, until: { !title.isSelected }) {
+            case .escape:
+                break
+            case .commandPeriod:
+                cancelled.append("before any edit")
+            case .neither:
                 keep(app, as: "escape-unheard")
-                unheard.append("Escape, before any edit, did not reach the canvas; \(escapeInTheFindBar(app))")
+                unheard.append("neither Escape nor ⌘. reached the canvas before any edit; \(escapeInTheFindBar(app))")
                 // The canvas given the keyboard again, the title selected, for what follows.
                 title.tap()
                 guard wait(5, { title.isSelected }) else {
@@ -83,20 +92,22 @@ final class KeysTests: XCTestCase {
 
         try XCTContext.runActivity(named: "After ⌘Z the keys are still the canvas's: Escape, then Tab") { _ in
             // Escape selects what holds the title, the slide, as a key with no modifier the canvas
-            // reads; Tab, which the canvas declines with ⌘, selects the title again. Where Escape is
-            // not heard, Tab goes on to the subtitle: the keys are still the canvas's all the same.
-            app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
-            let escaped = wait(5) { !title.isSelected }
-            if !escaped {
+            // reads; Tab, which the canvas declines with ⌘, selects the title again. Where neither
+            // Escape nor ⌘. is heard, Tab goes on to the subtitle: the keys are still the canvas's.
+            let heard = cancel(app, until: { !title.isSelected })
+            switch heard {
+            case .escape: break
+            case .commandPeriod: cancelled.append("after ⌘Z")
+            case .neither:
                 keep(app, as: "undone-escape")
-                unheard.append("after ⌘Z, Escape did not reach the canvas")
+                unheard.append("after ⌘Z, neither Escape nor ⌘. reached the canvas")
             }
             app.typeKey(XCUIKeyboardKey.tab, modifierFlags: [])
-            guard wait(5, { escaped ? title.isSelected : subtitle.isSelected }) else {
+            guard wait(5, { heard == .neither ? subtitle.isSelected : title.isSelected }) else {
                 keep(app, as: "undone-tab")
                 throw Unseen(description: "after ⌘Z, Tab did not reach the canvas: \(app.debugDescription)")
             }
-            if !escaped {
+            if heard == .neither {
                 app.typeKey(XCUIKeyboardKey.tab, modifierFlags: .shift)
                 guard wait(5, { title.isSelected }) else {
                     throw Unseen(description: "Shift+Tab did not go back to the title: \(app.debugDescription)")
@@ -106,27 +117,20 @@ final class KeysTests: XCTestCase {
 
         try XCTContext.runActivity(named: "Return types in the title; Escape stops, and the keys are the canvas's") { _ in
             let typing = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'typing'")).firstMatch
-            app.typeKey(XCUIKeyboardKey.return, modifierFlags: [])
-            if !typing.waitForExistence(timeout: 5) {
+            // Return as the simulator's keyboard sends it: XCUITest's `.return` sends it no key
+            // there, and its `.enter` sends Ctrl+C; a newline is the Return key.
+            app.typeKey("\n", modifierFlags: [])
+            guard typing.waitForExistence(timeout: 5) else {
                 keep(app, as: "return-typed-nothing")
-                // Which key the canvas did not hear: the keypad's Enter, and a newline, are Return to
-                // it too.
-                app.typeKey(XCUIKeyboardKey.enter, modifierFlags: [])
-                let entered = typing.waitForExistence(timeout: 5)
-                var newline = false
-                if !entered {
-                    app.typeKey("\n", modifierFlags: [])
-                    newline = typing.waitForExistence(timeout: 5)
-                }
-                unheard.append(
-                    "Return typed in nothing; Enter \(entered ? "did" : "did not either")"
-                        + (entered ? "" : ", and a newline \(newline ? "did" : "did not either")"))
-                guard entered || newline else { return }
+                unheard.append("Return typed in nothing")
+                return
             }
-            app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
-            if !wait(5, { !typing.exists && title.isSelected }) {
+            switch cancel(app, until: { !typing.exists && title.isSelected }) {
+            case .escape: break
+            case .commandPeriod: cancelled.append("while typing")
+            case .neither:
                 keep(app, as: "typing-not-stopped")
-                unheard.append("Escape did not stop typing")
+                unheard.append("neither Escape nor ⌘. stopped typing")
                 // Typing stopped as a tap stops it, where nothing draws, and the title selected again.
                 canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.97)).tap()
                 title.tap()
@@ -156,15 +160,37 @@ final class KeysTests: XCTestCase {
             // A tap selects it, and gives the canvas the keyboard.
             title.tap()
             XCTAssertTrue(wait(5) { title.isSelected }, "the title is not selected")
-            app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
-            if !wait(5, { !title.isSelected && !subtitle.isSelected }) {
-                unheard.append("Escape, the title selected by a tap, left it selected")
+            switch cancel(app, until: { !title.isSelected && !subtitle.isSelected }) {
+            case .escape: break
+            case .commandPeriod: cancelled.append("the title selected by a tap")
+            case .neither: unheard.append("neither Escape nor ⌘., the title selected by a tap, selected the slide")
             }
         }
 
+        if !cancelled.isEmpty {
+            XCTContext.runActivity(
+                named: "Escape reached nothing in the app; ⌘., which the canvas takes as Escape, did: "
+                    + cancelled.joined(separator: "; ")
+            ) { _ in }
+        }
         if !unheard.isEmpty {
             throw Unseen(description: "keys the canvas did not hear: " + unheard.joined(separator: "; "))
         }
+    }
+
+    /// What was heard of the canvas's Escape (PLAN 4.6).
+    private enum Cancel {
+        case escape, commandPeriod, neither
+    }
+
+    /// Escape, as a keyboard sends it, until `done` holds; where it does not, ⌘., the system's
+    /// cancel key, which the canvas takes as Escape, as a keyboard with no Escape key gives it.
+    @MainActor
+    private func cancel(_ app: XCUIApplication, until done: () -> Bool) -> Cancel {
+        app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
+        if wait(5, done) { return .escape }
+        app.typeKey(".", modifierFlags: .command)
+        return wait(5, done) ? .commandPeriod : .neither
     }
 
     /// Whether Escape reaches the app at all, said where it did not reach the canvas: the find bar,

@@ -856,6 +856,14 @@ struct CanvasSelection: View {
         {
             return command ? false : enter(option: option)
         }
+        // ⌘. is Escape, the system's cancel key: what a keyboard with no Escape key, the iPad's own
+        // among them, gives for it.
+        if key.keyCode == .keyboardPeriod, command, !shift, !option {
+            return escape()
+        }
+        if command, menuKey(key.keyCode, shift: shift, option: option) {
+            return true
+        }
         switch key.keyCode {
         case .keyboardTab where !command && !option:
             return tab(back: shift)
@@ -881,6 +889,32 @@ struct CanvasSelection: View {
         default:
             return false
         }
+    }
+
+    /// A menu bar key that reached the canvas (PLAN 4.6), as the browser's canvas takes ⌘D itself:
+    /// what its item in the Node menu or the View menu's Find in Deck does. On the iPad a press
+    /// comes to the canvas before the menu bar's keys are matched, and the menu's own keys went
+    /// unheard there. Whether it did anything; what the menu would not do now goes on.
+    private func menuKey(_ code: UIKeyboardHIDUsage, shift: Bool, option: Bool) -> Bool {
+        let run: (() -> Void)?
+        switch (code, shift, option) {
+        case (.keyboardD, false, false): run = actions?.duplicate
+        case (.keyboardG, false, false): run = actions?.group
+        case (.keyboardG, true, false): run = actions?.ungroup
+        case (.keyboardL, true, false): run = actions?.lock
+        case (.keyboardC, false, true): run = actions?.copyLook
+        case (.keyboardV, false, true): run = actions?.pasteLook
+        case (.keyboardF, _, false): run = finding
+        case (.keyboardCloseBracket, false, _), (.keyboardOpenBracket, false, _):
+            guard let order = actions?.order else { return false }
+            let up = code == .keyboardCloseBracket
+            order(up ? (option ? "front" : "forward") : (option ? "back" : "backward"))
+            return true
+        default: run = nil
+        }
+        guard let run else { return false }
+        run()
+        return true
     }
 
     /// Escape or Return on the canvas while no text is typed in (PLAN 4.6), which the system hands

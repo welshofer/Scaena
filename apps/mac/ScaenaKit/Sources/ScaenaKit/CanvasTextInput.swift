@@ -53,6 +53,8 @@ public final class CanvasKeys: UIView {
     private var seen: Seen?
     /// Whether the input system's own change is under way: it is told of none.
     private var asked = false
+    /// The presses that stopped typing: how each goes on and ends is this view's too.
+    private var stopped: Set<UIPress> = []
 
     public init(typing: Typing) {
         self.typing = typing
@@ -116,6 +118,44 @@ public final class CanvasKeys: UIView {
     /// keys (`wantsPriorityOverSystemBehavior`).
     public override var keyCommands: [UIKeyCommand]? {
         typing.typing ? Self.commands : nil
+    }
+
+    /// Escape, and ⌘., the system's cancel key, stop typing where the system hands either on as a
+    /// press rather than as a key command (PLAN 4.6), as the canvas's keys take each.
+    public override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        var rest = Set<UIPress>()
+        for press in presses {
+            if typing.typing, let key = press.key, Self.cancels(key) {
+                stopped.insert(press)
+                typing.leave()
+            } else {
+                rest.insert(press)
+            }
+        }
+        if !rest.isEmpty { super.pressesBegan(rest, with: event) }
+    }
+
+    public override func pressesChanged(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = presses.subtracting(stopped)
+        if !rest.isEmpty { super.pressesChanged(rest, with: event) }
+    }
+
+    public override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = presses.subtracting(stopped)
+        stopped.subtract(presses)
+        if !rest.isEmpty { super.pressesEnded(rest, with: event) }
+    }
+
+    public override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = presses.subtracting(stopped)
+        stopped.subtract(presses)
+        if !rest.isEmpty { super.pressesCancelled(rest, with: event) }
+    }
+
+    /// Whether `key` is Escape, or ⌘. alone.
+    private static func cancels(_ key: UIKey) -> Bool {
+        let flags = key.modifierFlags.intersection([.command, .shift, .alternate, .control])
+        return key.keyCode == .keyboardEscape && flags.isEmpty || key.keyCode == .keyboardPeriod && flags == .command
     }
 
     @objc private func keyed(_ command: UIKeyCommand) {
@@ -208,6 +248,7 @@ public final class CanvasKeys: UIView {
             Key(input: "\u{8}", flags: .alternate, does: .delete(backward: true, .word)),
             Key(input: "\u{8}", flags: .command, does: .delete(backward: true, .line)),
             Key(input: UIKeyCommand.inputEscape, flags: [], does: .leave),
+            Key(input: ".", flags: .command, does: .leave),
             Key(input: "\t", flags: [], does: .tab(back: false)),
             Key(input: "\t", flags: .shift, does: .tab(back: true)),
             Key(input: "b", flags: .command, does: .bold, title: "Bold"),
