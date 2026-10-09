@@ -786,8 +786,9 @@ private struct LayoutsRow<Named: View>: View {
         var id: String { suggestion.layout }
     }
 
-    /// How high each is painted, pixels: a tile's width on a Retina screen.
-    private static let painted = 150
+    /// How high each is painted, pixels: a tile's width on a Retina screen. Computed: a generic
+    /// type keeps no static stored property.
+    private static var painted: Int { 150 }
 
     var body: some View {
         Group {
