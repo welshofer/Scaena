@@ -67,7 +67,7 @@ private func carets(_ json: String) throws -> Carets {
     let near = CGPoint(x: 130, y: 720)
     #expect(typing.enter("subtitle", in: "cover", at: near))
     #expect(typing.typing && typing.node == "subtitle" && typing.state == "cover")
-    #expect(typing.told?.hasPrefix("typing in subtitle · ") == true, "\(typing.told ?? "")")
+    #expect(typing.told?.hasPrefix("Editing") == true, "\(typing.told ?? "")")
     #expect(typing.carets?.lines.count == 2)
     #expect(typing.head == 0 && typing.caret?.count == 2)
     #expect(typing.holds(near) && typing.holds(CGPoint(x: 118, y: 702), slop: 4))
@@ -150,7 +150,8 @@ private func carets(_ json: String) throws -> Carets {
     #expect(steps.count == 6 && !steps[5].joins && steps[5].before == typed)
     #expect(editor.source != typed, "the look is in the deck")
     #expect(typing.carets?.text == "Scaena on the Maç" && typing.selected == "on")
-    #expect(typing.told?.contains("bold") == true, "\(typing.told ?? "")")
+    // The title is set at 600, which counts as bold: ⌘B takes it to regular.
+    #expect(typing.told == "Not bold", "\(typing.told ?? "")")
 
     // The burst undone in one step: the deck as it was, and the caret where it still fits.
     editor.restore(steps[0].before)
@@ -198,7 +199,7 @@ private func carets(_ json: String) throws -> Carets {
 
     typing.toggle("bullet")
     #expect(typing.carets?.item(0)?.kind == "bullet" && typing.inList)
-    #expect(typing.told == "subtitle: bulleted")
+    #expect(typing.told == "Bulleted")
     view.doCommand(by: #selector(NSStandardKeyBindingResponding.insertTab(_:)))
     #expect(typing.carets?.item(0)?.level == 1 && typing.typing)
 
@@ -207,12 +208,12 @@ private func carets(_ json: String) throws -> Carets {
     #expect(typing.carets?.item(1)?.kind == "bullet" && typing.endsList)
     view.doCommand(by: #selector(NSStandardKeyBindingResponding.insertNewline(_:)))
     #expect(typing.carets?.item(1) == nil && typing.carets?.item(0)?.level == 1)
-    #expect(typing.told == "subtitle: the list ends")
+    #expect(typing.told == "The list ends")
 
     typing.move(.text(start: true))
     typing.toggle("bullet")
     #expect(typing.carets?.item(0) == nil && !typing.inList)
-    #expect(typing.told == "subtitle: out of the list")
+    #expect(typing.told == "Out of the list")
     view.doCommand(by: #selector(NSStandardKeyBindingResponding.insertTab(_:)))
     #expect(!typing.typing)
     #expect(steps == 5)
@@ -242,7 +243,7 @@ private func carets(_ json: String) throws -> Carets {
     typing.askLink()
     #expect(typing.asking == "Scaena")
     #expect(!typing.link(to: "not a link!") && typing.asking == nil)
-    #expect(typing.told?.contains("is no link") == true, "\(typing.told ?? "")")
+    #expect(typing.told?.contains("isn't a link") == true, "\(typing.told ?? "")")
     typing.askLink()
     #expect(typing.link(to: "#goal"))
     #expect(try editor.session.link(state: "cover", at: middle()) == .state("goal"))
@@ -255,12 +256,12 @@ private func carets(_ json: String) throws -> Carets {
     #expect(typing.link(to: ""))
     #expect(try editor.session.link(state: "cover", at: middle()) == nil)
     typing.askLink()
-    #expect(!typing.link(to: nil) && typing.told == "no link made")
+    #expect(!typing.link(to: nil) && typing.told == "No link made")
     #expect(!typing.link(to: "goal"), "nothing was asked")
 
     // A role chosen in the inspector for the characters selected: one `style_text`.
     #expect(typing.give(["role": "headline"]))
-    #expect(typing.told == "title, characters 1–6: role headline")
+    #expect(typing.told == "Text style: headline")
     let role = typing.characterChoices()?.fields.first(where: { $0.prop == "role" })
     #expect(role?.value?.string == "headline")
     #expect(typing.selection == NSRange(location: 0, length: 6))

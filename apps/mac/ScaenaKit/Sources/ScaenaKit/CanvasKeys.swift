@@ -183,7 +183,7 @@ public final class CanvasKeys: NSView {
         case #selector(Keys.insertNewline(_:)):
             // In an empty item, the list ends there (ADR-0018); else a new paragraph, an item like
             // the one it leaves in a list.
-            if typing.endsList { typing.list(kind: "none", done: "the list ends") } else { typing.insert("\n") }
+            if typing.endsList { typing.list(kind: "none", done: "The list ends") } else { typing.insert("\n") }
         case #selector(Keys.insertLineBreak(_:)), #selector(Keys.insertParagraphSeparator(_:)),
             #selector(Keys.insertNewlineIgnoringFieldEditor(_:)):
             typing.insert("\n")
@@ -192,7 +192,7 @@ public final class CanvasKeys: NSView {
             // to what is next, as the browser's does: typing stops.
             let out = selector == #selector(Keys.insertBacktab(_:))
             if typing.inList {
-                typing.list(by: out ? -1 : 1, done: out ? "a level out" : "a level in")
+                typing.list(by: out ? -1 : 1, done: out ? "A level out" : "A level in")
             } else {
                 typing.leave()
             }

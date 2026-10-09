@@ -16,7 +16,7 @@ struct FindingsPanel: View {
         let found = ordered(editor.findings)
         List {
             if found.isEmpty {
-                Text(editor.whole ? "Lint finds nothing." : "Linting every state once edits stop…")
+                Text(editor.whole ? "No issues." : "Checking every slide…")
                     .foregroundStyle(.secondary)
             }
             ForEach(found.indices, id: \.self) { i in

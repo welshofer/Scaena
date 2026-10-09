@@ -21,6 +21,9 @@ if os.path.exists(manifest):
         for shot in test.get("attachments", []):
             names[shot["exportedFileName"]] = shot.get("suggestedHumanReadableName") or shot["exportedFileName"]
 for file in sorted(os.listdir(src)):
+    # The screenshots, and what the step that took them said (`window.txt`).
+    if file == "window.txt":
+        shutil.copy(os.path.join(src, file), os.path.join(out, file))
     if not file.lower().endswith(".png"):
         continue
     name = re.sub(r"[^A-Za-z0-9._-]+", "-", names.get(file, file))
@@ -37,7 +40,7 @@ for shot in "${shots[@]}"; do
   sips -Z 1600 -s format jpeg -s formatOptions 70 "$shot" --out "${shot%.png}.jpg" >/dev/null
   rm "$shot"
 done
-tree=$(for jpeg in "$work"/*.jpg; do printf '100644 blob %s\t%s\n' "$(git hash-object -w "$jpeg")" "$(basename "$jpeg")"; done | git mktree)
+tree=$(for kept in "$work"/*.jpg "$work"/*.txt; do printf '100644 blob %s\t%s\n' "$(git hash-object -w "$kept")" "$(basename "$kept")"; done | git mktree)
 commit=$(git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
   commit-tree "$tree" -m "Screenshots of ${GITHUB_SHA:-$(git rev-parse HEAD)}")
 git push -q -f origin "$commit:refs/heads/shots/$name"

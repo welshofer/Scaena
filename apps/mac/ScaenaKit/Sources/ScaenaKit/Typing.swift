@@ -244,7 +244,7 @@ public final class Typing {
             told = whereTold
             edited?(before, joins)
         } catch {
-            told = "not typed: \(error)"
+            told = "Not typed: \(error)"
             return false
         }
         guard reread() else { return false }
@@ -389,13 +389,13 @@ public final class Typing {
     /// ⌘B: the characters selected bold, or, all bold already, not (PLAN 2.38), as the engine reads
     /// the weight it sets each in.
     public func bold() {
-        guard let node, let state, let carets, from < to else { return say("select characters to make them bold") }
+        guard let node, let state, let carets, from < to else { return say("Select some words to make them bold") }
         do {
             let look = try editor.session.bolding(
                 state: state, node: node, from: carets.scalars(from), to: carets.scalars(to))
-            give(look, said: look["style/weight"]?.number == 700 ? "bold" : "not bold")
+            give(look, said: look["style/weight"]?.number == 700 ? "Bold" : "Not bold")
         } catch {
-            say("not bold: \(error)")
+            say("Not bold: \(error)")
         }
     }
 
@@ -403,14 +403,14 @@ public final class Typing {
     /// asks for it: a family without an italic face sets them upright all the same (W231).
     public func italic() {
         guard let node, let state, let carets, from < to else {
-            return say("select characters to set them in italic")
+            return say("Select some words to set them in italic")
         }
         do {
             let look = try editor.session.italicizing(
                 state: state, node: node, from: carets.scalars(from), to: carets.scalars(to))
-            give(look, said: look["style/italic"]?.bool == true ? "italic" : "upright")
+            give(look, said: look["style/italic"]?.bool == true ? "Italic" : "Not italic")
         } catch {
-            say("not italic: \(error)")
+            say("Not italic: \(error)")
         }
     }
 
@@ -428,7 +428,7 @@ public final class Typing {
     @discardableResult
     public func give(_ look: JSONValue, said: String? = nil) -> Bool {
         guard let node, let state, let carets, from < to else {
-            say("select characters in a text to give them a look")
+            say("Select some words in a text to style them")
             return false
         }
         var op: [String: JSONValue] = [
@@ -443,15 +443,14 @@ public final class Typing {
             last = nil
             edited?(before, false)
         } catch {
-            say("no look given: \(error)")
+            say("Not styled: \(error)")
             return false
         }
         guard reread(), let found = self.carets else { return false }
         // A look that changes the characters (a quote's figure, PLAN 2.72) keeps them selected.
         anchor = min(keep.location, found.length)
         head = max(anchor, min(NSMaxRange(keep) + found.length - length, found.length))
-        let what = said ?? Self.described(look)
-        say("\(node), characters \(carets.scalars(keep.location) + 1)–\(carets.scalars(NSMaxRange(keep))): \(what)")
+        say(said ?? Self.described(look))
         return true
     }
 
@@ -459,19 +458,26 @@ public final class Typing {
     private static func described(_ look: JSONValue) -> String {
         let keys = (look.object ?? [:]).sorted { $0.key < $1.key }
         return keys.map { (key, value) -> String in
+            let what = looks[key] ?? key
             switch value {
-            case .null: "\(key) taken away"
-            case .string(let s): "\(key) \(s)"
-            default: "\(key) \((try? JSONEncoder().encode(value)).map { String(decoding: $0, as: UTF8.self) } ?? "?")"
+            case .null: return "\(what) as the text's"
+            case .string(let s): return "\(what): \(s)"
+            default: return "\(what) changed"
             }
         }.joined(separator: ", ")
     }
+
+    /// What a look a run takes is called, as the inspector labels it (PLAN 3.18).
+    private static let looks = [
+        "role": "Text style", "emphasis": "Emphasis", "style/family": "Font", "style/weight": "Weight",
+        "style/italic": "Italic", "style/tracking": "Character spacing", "style/color": "Color", "link": "Link",
+    ]
 
     // MARK: Links (PLAN 2.70)
 
     /// ⌘K: ask where the characters selected link to (`asking`), which `link(to:)` answers.
     public func askLink() {
-        guard let selected else { return say("select characters to link them") }
+        guard let selected else { return say("Select some words to link them") }
         asking = selected
     }
 
@@ -485,19 +491,19 @@ public final class Typing {
         asking = nil
         defer { focus?() }
         guard let words else {
-            say("no link made")
+            say("No link made")
             return false
         }
         let to = words.trimmingCharacters(in: .whitespacesAndNewlines)
-        if to.isEmpty { return give(["link": nil], said: "the link taken away") }
+        if to.isEmpty { return give(["link": nil], said: "Link removed") }
         if to.range(of: #"^(https?://|mailto:)\S+$"#, options: .regularExpression) != nil {
-            return give(["link": ["href": .string(to)]], said: "linked to \(to)")
+            return give(["link": ["href": .string(to)]], said: "Linked to \(to)")
         }
         let state = to.hasPrefix("#") ? String(to.dropFirst()) : to
         if state.range(of: #"^[a-z][a-z0-9_-]{0,63}$"#, options: .regularExpression) != nil {
-            return give(["link": ["state": .string(state)]], said: "linked to the state \(state)")
+            return give(["link": ["state": .string(state)]], said: "Linked to another slide")
         }
-        say("\(to) is no link: a web address (https://…, mailto:…) or a state's id")
+        say("“\(to)” isn't a link: type a web address (https://…, mailto:…)")
         return false
     }
 
@@ -543,13 +549,13 @@ public final class Typing {
             last = nil
             edited?(before, false)
         } catch {
-            say("not listed: \(error)")
+            say("Not made a list: \(error)")
             return false
         }
         guard reread(), let found = self.carets else { return false }
         anchor = min(anchor, found.length)
         head = min(head, found.length)
-        say("\(node): \(done)")
+        say(done)
         return true
     }
 
@@ -557,7 +563,7 @@ public final class Typing {
     /// already, out of the list.
     public func toggle(_ kind: String) {
         let all = itemsSelected.allSatisfy { $0?.kind == kind }
-        list(kind: all ? "none" : kind, done: all ? "out of the list" : kind == "bullet" ? "bulleted" : "numbered")
+        list(kind: all ? "none" : kind, done: all ? "Out of the list" : kind == "bullet" ? "Bulleted" : "Numbered")
     }
 
     // MARK: Inside
@@ -610,9 +616,16 @@ public final class Typing {
         if fork { op["fork"] = true }
         let states = (try? editor.session.reach([.object(op)])) ?? [state]
         let n = states.count
-        let reaches = fork ? "kept to \(state)" : n == 1 && states.first == state ? "in this state" : "in \(n) states"
-        let keep = fork || n < 2 ? "" : "; Option and a double click keep it to \(state)"
-        whereTold = "typing in \(node) · \(reaches) · Escape leaves it\(keep)"
+        // Said as a person says it (PLAN 3.18): where the change shows beyond this slide, and how
+        // to keep it here.
+        let others = states.filter { $0 != state }.count
+        if fork {
+            whereTold = "Editing on this slide only · Escape stops"
+        } else if others > 0 {
+            whereTold = "Editing · it changes on \(others) other slide\(others == 1 ? "" : "s") too · ⌥ with a double click keeps it to this one"
+        } else {
+            whereTold = "Editing · Escape stops"
+        }
         told = whereTold
     }
 }
