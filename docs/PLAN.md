@@ -1496,7 +1496,24 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
       - The first run found the GPU painter asked for WebGPU's limits, and Metal on iPadOS passes 15 variables between a shader's stages, not 16: the device was refused on the simulator and would have been on an iPad. A painter now asks the adapter for all it holds (ADR-0004 finding 22).
       - The simulator's GPU, Apple's second family alone, has no indirect dispatch, which vello asks for on every buffer: there a layer is painted by the CPU painter and shown through the same blit, and the surface says so (`painter`). Every other GPU is held to vello (ADR-0004 finding 23).
     - **Chrome.** `chrome.rs` bars UIKit's text views from ScaenaKit too (`UITextView`, `UITextField`, `UILabel`).
-- [ ] 4.2 The iPad app: an Xcode project XcodeGen makes (`apps/ipad/project.yml`, `just ipad`), which builds the engine for the platform Xcode builds for; a `DocumentGroup` over the Mac's `ScaenaDocument`, a deck a `.scaena` package in Files; the Mac app's own SwiftUI compiled for the iPad, each AppKit piece behind `os(macOS)` with a UIKit twin: the state list and the light table, the inspector and its panels, the cue's bar, the findings. The window is a split view whose columns fold to its size. CI builds it for the simulator, opens B1 in it, and reads its first frame.
+- [x] 4.2 The iPad app: an Xcode project XcodeGen makes (`apps/ipad/project.yml`, `just ipad`), which builds the engine for the platform Xcode builds for; a `DocumentGroup` over the Mac's `ScaenaDocument`, a deck a `.scaena` package in Files; the Mac app's own SwiftUI compiled for the iPad, each AppKit piece behind `os(macOS)` with a UIKit twin: the state list and the light table, the inspector and its panels, the cue's bar, the findings. The window is a split view whose columns fold to its size. CI builds it for the simulator and opens B1 in it from Files; ScaenaKit's gate test reads B1's first frame there.
+    - **The project.** The app's target is `ScaenaApp`, shown as Scaena. Its name is kept apart from ScaenaKit's own `Scaena`, the Mac's executable, which a UI test's host of that name was taken for.
+      - Its build phase runs `apps/ipad/engine.sh` for the platform and configuration Xcode builds. The script runs in a terminal's environment, not Xcode's: build scripts compiled for the Mac must not see the iPad's SDK.
+      - `Info.plist` declares a deck's two types, a `.scaena` package and a zipped one. Each opens in place from Files.
+      - A team in `apps/ipad/Team.xcconfig`, kept out of the repository, signs the app for an iPad.
+    - **The Mac's sources on the iPad.** Each AppKit piece sits behind `os(macOS)`, with a UIKit twin beside it:
+      - the keys held, read from GameController's keyboard;
+      - a picture from PNG bytes, and a color's sRGB;
+      - the panes, stacked where the Mac's split views divide them;
+      - Play, presented full screen;
+      - Export, through the share sheet;
+      - the source pane, a `UITextView` (gate 3's open call on TextKit in chrome covers it);
+      - the assistant's keys, a sheet, since the iPad has no Settings window.
+    - **The window.** The Mac's `NavigationSplitView`, its state list folding away in a narrow window, with an inspector that becomes a sheet there.
+    - **Tested by XCUITest.** `apps/ipad/app-test.sh` (`just ipad-test`, and CI's `ipad` job) builds the app and its UI tests for the simulator, installs the app, puts B1 in its Documents folder, and runs the tests (`apps/ipad/ScaenaUITests`):
+      - the app opens to the document browser;
+      - B1 opens from Files › On My iPad › Scaena, as a person opens it, and its window shows the cover with Play;
+      - each test keeps a screenshot (`ipad-screenshots`).
 - [ ] 4.3 The canvas by touch: a tap selects what the engine says draws there; a drag moves a node, and a handle resizes, turns, or reshapes it, each taken by a finger within 22 pt; two fingers pan and a pinch zooms; a long press offers what is done to a node (the Node menu, the clipboard, its lock); a double tap types in a text; slides move in the light table by a drag. Each is the patch the Mac's gesture makes (PLAN 3.7, 3.11, 3.14, 3.16).
 - [ ] 4.4 Typing through `UITextInput`: the software keyboard and a hardware one, an input method's composition, dictation, and Scribble, the caret and the selection read from the engine's carets; the characters' look, ⌘K's link, and a list's keys as on the Mac (PLAN 3.9, 3.10).
 - [ ] 4.5 The Pencil and the pointer: the Pencil's hover shows what a press would select and the handle under it; a trackpad or a mouse hovers, Shift-clicks, draws a marquee, and right-clicks as on the Mac (PLAN 3.13).
