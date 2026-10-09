@@ -373,7 +373,7 @@ struct FormatsStrip: View {
                         .font(.caption2.monospacedDigit())
                         .padding(.horizontal, 5)
                         .background(Self.color(worst).opacity(0.25), in: Capsule())
-                        .help("\(found.count) \(found.count == 1 ? "finding" : "findings") about \(state) here")
+                        .help("\(found.count) \(found.count == 1 ? "issue" : "issues") on this slide in this size")
                 }
             }
         }

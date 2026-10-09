@@ -54,7 +54,7 @@ struct RehearsalStage: View {
             }
             Spacer()
             Button("Back") { go(-1) }
-            Button("On") { go(1) }
+            Button("Next") { go(1) }
             Button("End") { stop() }
         }
         .padding(.horizontal, 12)
@@ -64,7 +64,8 @@ struct RehearsalStage: View {
     private func whereItIs(at _: Date) -> String {
         let n = rehearsal.slots.count
         let here = rehearsal.slots.indices.contains(rehearsal.index) ? rehearsal.index + 1 : n
-        return "Rehearsing \(rehearsal.state ?? "") (\(here) of \(n)) · \(readable(rehearsal.here())) here · "
+        let slide = rehearsal.state.map { Words.slide($0, in: rehearsal.slots) } ?? "the end"
+        return "Rehearsing \(slide) · \(here) of \(n) · \(readable(rehearsal.here())) here · "
             + "\(readable(rehearsal.total())) in all"
     }
 
@@ -91,29 +92,29 @@ struct RehearsedSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("What each state took").font(.headline)
+            Text("Your Rehearsal").font(.headline)
             Text(
-                "\(readable(rehearsal.total())) in all. A state's cue plays, then its hold: the hold kept is the "
-                    + "time less its cue.")
+                "\(readable(rehearsal.total())) in all. Keep makes each slide advance by itself after the time you "
+                    + "spent on it.")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             ScrollView {
                 Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 4) {
                     GridRow {
-                        Text("State")
-                        Text("Shown")
-                        Text("Cue")
-                        Text("Keeps")
-                        Text("Hold now")
+                        Text("Slide")
+                        Text("You Took")
+                        Text("Animation")
+                        Text("Advances After")
+                        Text("Now")
                     }
                     .font(.caption.bold())
                     ForEach(Array(rehearsal.kept.enumerated()), id: \.offset) { _, row in
                         GridRow {
-                            Text(row.state)
-                            Text(row.spent > 0 ? readable(row.spent) : "not reached")
+                            Text(Words.slide(row.state, in: rehearsal.slots))
+                            Text(row.spent > 0 ? readable(row.spent) : "Not reached")
                             Text(readable(row.span))
-                            Text(row.keeps.map(readable) ?? "as it is")
-                            Text(row.hold > 0 ? readable(row.hold) : "none")
+                            Text(row.keeps.map(readable) ?? "As it is")
+                            Text(row.hold > 0 ? readable(row.hold) : "On click")
                         }
                         .monospacedDigit()
                     }

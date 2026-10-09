@@ -93,9 +93,9 @@ struct CueBar: View {
     }
 
     private func time(_ span: Double) -> String {
-        guard span > 0 else { return "no cue" }
+        guard span > 0 else { return "No animation" }
         let at = playhead.ms.isFinite ? min(playhead.ms, span) : span
-        return "\(Int(at.rounded())) / \(Int(span.rounded())) ms"
+        return "\(Words.seconds(at)) / \(Words.seconds(span))"
     }
 
     /// `bar`'s start or end moved `by` ms: the patch that times it, made.
@@ -108,9 +108,9 @@ struct CueBar: View {
     private func add(_ preset: String, as offer: MotionOffer) {
         let verb = ["enter": "as it enters", "exit": "as it leaves"][offer.motion] ?? "for emphasis"
         guard let patch = offer.applying(preset, in: state, states: editor.slots.map(\.state)) else {
-            return make([], "\(offer.node) leaves no state before \(state)")
+            return make([], "It isn't on the slide before this one")
         }
-        make(patch, "\(preset) on \(offer.node) \(verb)")
+        make(patch, "\(Words.phrase(preset)) added \(verb)")
     }
 }
 
@@ -171,8 +171,8 @@ private struct Lanes: View {
 
     /// What a pointer over `bar` is told: what it is, and where the timeline places it.
     private func said(_ bar: Cue.Bar) -> String {
-        let waits = bar.node == nil ? "" : ", waiting \(Int(bar.delay)) ms"
-        return "\(bar.label): \(Int(bar.from))–\(Int(bar.to)) ms\(waits)"
+        let waits = bar.node == nil ? "" : ", after \(Words.seconds(bar.delay))"
+        return "\(bar.label): \(Words.seconds(bar.from))–\(Words.seconds(bar.to))\(waits)"
     }
 
     /// A drag of `bar`'s `part`: the bar follows it, and where it is let go is one patch.

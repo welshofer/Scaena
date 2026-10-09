@@ -604,11 +604,11 @@ struct CanvasSelection: View {
                 .position(x: drawn.midX, y: drawn.midY)
                 .allowsHitTesting(false)
                 .accessibilityElement()
-                .accessibilityLabel(Text(part.text.isEmpty ? part.node : part.text))
+                .accessibilityLabel(Text(part.text.isEmpty ? name(part.node, starting: true) : part.text))
                 .accessibilityAddTraits(Self.traits(part))
                 .accessibilityAddTraits(selection.contains(part.node) ? .isSelected : [])
                 .accessibilityHeading(part.level == 1 ? .h1 : part.level == 2 ? .h2 : .unspecified)
-                .accessibilityHint("Selects \(part.node)")
+                .accessibilityHint("Selects it")
                 .accessibilitySortPriority(Double(order))
                 .accessibilityAction {
                     node = part.node
