@@ -21,6 +21,7 @@ codesign --force --sign - "$app"
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app"
 cd "$root"
 cargo run -q -p scaena-cli --locked -- save docs/examples/trails.deck.json --to "$out/trails.scaena"
+cp -R "$out/trails.scaena" "$out/trial.scaena"
 system_profiler SPDisplaysDataType | grep -i resolution || true
 open -a "$app" "$out/trails.scaena"
 # The window, its states drawn small, and the canvas painted.
@@ -53,43 +54,71 @@ echo "window as opened: $(window)"
 osascript -e 'tell application "Scaena" to activate' || true
 read -r _ _ vx vy vw vh <<<"$screen" || true
 if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
+  # The View menu's items as a person reads them: opened, so a title that says what it does now
+  # (Hide Toolbar, say, or Show) is brought up to date first; then closed.
+  viewing() {
+    app 'click menu bar item "View" of menu bar 1' >/dev/null
+    sleep 1
+    app 'get name of every menu item of menu 1 of menu bar item "View" of menu bar 1'
+    events 'key code 53' >/dev/null
+    sleep 1
+  }
+  # The View menu's item that shows or hides `$1`, whichever it reads as now, chosen.
+  toggle() {
+    local items verb
+    items=$(viewing)
+    for verb in Hide Show Toggle; do
+      if [[ ", $items, " == *", $verb $1, "* ]]; then
+        menu View "$verb $1"
+        sleep 2
+        echo "View › $verb $1"
+        return
+      fi
+    done
+    echo "the View menu shows or hides no $1"
+  }
   # How narrow the window goes, as a person drags its edge in: asked for 600 points, the width it
-  # takes, with each part of it shown and put away in turn (PLAN 3.27).
+  # takes, and each split view's panes at that width; then the window as wide as the screen again
+  # (PLAN 3.27).
   narrowest() {
     app "set size of window 1 to {600, $vh}" >/dev/null
     sleep 2
     local w
     read -r _ _ w _ <<<"$(window)"
+    echo "$w"
+    frames splits | sed 's/^/    /'
     app "set size of window 1 to {$vw, $vh}" >/dev/null
     sleep 1
-    echo "$w"
   }
   inspector() { events 'keystroke "i" using {option down, command down}' >/dev/null; sleep 2; }
   app "set position of window 1 to {$vx, $vy}" >/dev/null
+  echo "the View menu: $(viewing)"
   echo "narrowest, as it opens: $(narrowest)"
-  menu View "Hide Toolbar"
-  sleep 2
-  echo "narrowest, the toolbar hidden: $(narrowest)"
-  inspector
-  echo "narrowest, the toolbar and the inspector hidden: $(narrowest)"
-  inspector
-  menu View "Show Toolbar"
-  sleep 2
   inspector
   echo "narrowest, the inspector hidden: $(narrowest)"
+  toggle Sidebar
+  echo "narrowest, the slides and the inspector hidden: $(narrowest)"
   inspector
-  menu View "Hide Sidebar"
-  sleep 2
   echo "narrowest, the slides hidden: $(narrowest)"
-  menu View "Show Sidebar"
-  sleep 2
+  toggle Sidebar
+  toggle Toolbar
+  echo "narrowest, the toolbar hidden: $(narrowest)"
+  toggle Toolbar
 
-  # The window fitted to the screen, as small as its content lets it be.
+  # The window fitted to the screen, as small as its content lets it be; where it is still wider,
+  # the walk goes on with the slides hidden, so what it clicks is on the screen.
   app "set position of window 1 to {$vx, $vy}" >/dev/null
   app "set size of window 1 to {$vw, $vh}" >/dev/null
   sleep 3
   echo "window fitted to the screen: $(window)"
   shot fitted
+  read -r _ _ fw _ <<<"$(window)"
+  if [[ "${fw:-}" =~ ^[0-9]+$ ]] && ((fw > vw)); then
+    toggle Sidebar
+    app "set size of window 1 to {$vw, $vh}" >/dev/null
+    sleep 2
+    echo "window fitted with the slides hidden: $(window)"
+  fi
   echo "what it holds, three deep:"
   frames tree 3
 
@@ -155,6 +184,24 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   frames holds canvas
   events 'key code 53'
   sleep 1
+
+  # Each other layout the window may take, from a launch of its own on the deck as it was saved
+  # (PLAN 3.27; an experiment, not to land): B, the inspector on the whole split view; C, stacks
+  # in place of split views where one pane shows; both. The deck is edited now: no saving it, so
+  # no asking.
+  for trying in B C BC; do
+    pkill -x Scaena || true
+    for _ in $(seq 10); do pgrep -x Scaena >/dev/null || break; sleep 1; done
+    open -a "$app" "$out/trial.scaena" --args -ScaenaWindow "$trying" -ApplePersistenceIgnoreState YES
+    sleep 15
+    osascript -e 'tell application "Scaena" to activate' || true
+    echo "layout $trying, as opened: $(window)"
+    app "set position of window 1 to {$vx, $vy}" >/dev/null
+    echo "layout $trying, narrowest: $(narrowest)"
+    shot "layout-$trying"
+    inspector
+    echo "layout $trying, narrowest, the inspector hidden: $(narrowest)"
+  done
 fi
 # The deck is edited now: no saving it, so no asking.
 pkill -x Scaena || true

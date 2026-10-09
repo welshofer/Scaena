@@ -1,11 +1,13 @@
 // What the Mac app's window holds, as its accessibility tree says (PLAN 3.27): each element's role,
 // identifier, name, and frame in screen points from the top left, to a depth; the frame of the
-// first element with an identifier, as "x y width height"; or what that element holds, each by its
-// role and name, one to a line: the canvas's objects as a reader hears them.
+// first element with an identifier, as "x y width height"; what that element holds, each by its
+// role and name, one to a line: the canvas's objects as a reader hears them; or each split view in
+// the window with the frame of each pane in it: how the window's width is shared out.
 //
 //   osascript -l JavaScript apps/mac/frames.js tree DEPTH
 //   osascript -l JavaScript apps/mac/frames.js find IDENTIFIER
 //   osascript -l JavaScript apps/mac/frames.js holds IDENTIFIER
+//   osascript -l JavaScript apps/mac/frames.js splits
 function run(argv) {
   const [what, arg] = argv;
   const window = Application("System Events").processes.byName("Scaena").windows[0];
@@ -46,6 +48,29 @@ function run(argv) {
     return children(found(arg))
       .map((e) => `${read(() => e.role()) ?? "?"} "${name(e)}" ${frame(e).join(" ")}`)
       .join("\n");
+  }
+  if (what === "splits") {
+    // Breadth first through the window's groups, past what a split view is never inside: the
+    // toolbar, a list, a scroll view, the canvas's objects, and every control.
+    const into = new Set(["AXWindow", "AXGroup", "AXSplitGroup", "AXLayoutArea", "AXTabGroup"]);
+    const said = (e) => `${read(() => e.role()) ?? "?"}${id(e) ? ` #${id(e)}` : ""} ${frame(e).join(" ")}`;
+    const lines = [];
+    let level = [window];
+    for (let depth = 0, seen = 0; depth < 16 && level.length && seen < 2000; depth++) {
+      const next = [];
+      for (const e of level) {
+        seen++;
+        const role = read(() => e.role());
+        if (!into.has(role) || id(e) === "canvas") continue;
+        const all = children(e);
+        if (role === "AXSplitGroup") {
+          lines.push(`${said(e)}:`, ...all.map((c) => `  ${said(c)}`));
+        }
+        next.push(...all);
+      }
+      level = next;
+    }
+    return lines.join("\n") || "no split views";
   }
 
   // Each element on a line of its own, indented by its depth; a long list cut short.
