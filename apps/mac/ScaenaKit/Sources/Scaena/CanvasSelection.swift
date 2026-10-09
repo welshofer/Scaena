@@ -90,6 +90,8 @@ struct CanvasSelection: View {
     @State private var clicks = 1
     /// Whether a press is under way: false again as it ends or the system takes it away.
     @GestureState private var touching = false
+    /// What a press would take where the pointer or the Pencil hovers (PLAN 4.5).
+    @State private var hovered: Hover?
     #if !os(macOS)
     /// A finger held still, waiting to offer what is done to what it pressed (PLAN 4.3).
     @State private var lingering: Task<Void, Never>?
@@ -138,6 +140,14 @@ struct CanvasSelection: View {
         case offered
         /// Two fingers took the press over, to zoom or pan: the first finger edits nothing.
         case fingers
+    }
+
+    /// What a press would take where the pointer or the Pencil hovers (PLAN 4.5), as the browser's
+    /// canvas shows it: the node a click would select, or the handle of the node selected that a
+    /// press would hold, where it stands, canvas units.
+    private struct Hover: Equatable {
+        var node: String?
+        var handle: CGPoint?
     }
 
     /// A drag under way: the node, how it is held, and where it would land now; with others
@@ -223,7 +233,16 @@ struct CanvasSelection: View {
                 Color.clear
                     .contentShape(Rectangle())
                     .gesture(pressing(fit))
+                    // The pointer, or the Pencil held over the screen, shows what a press would take.
+                    .onContinuousHover(coordinateSpace: .local) { phase in
+                        switch phase {
+                        case .active(let at): hover(at: at, fit: fit)
+                        case .ended: hovered = nil
+                        }
+                    }
                     #if !os(macOS)
+                    // A trackpad's or a mouse's right click offers what a long press offers (PLAN 4.5).
+                    .gesture(CanvasRightClick { at in offer(at: fit.canvas(at), shown: at) })
                     // Two fingers zoom and pan, as the Mac's pinch and wheel do (PLAN 4.3).
                     .gesture(
                         CanvasPinch(
@@ -246,6 +265,20 @@ struct CanvasSelection: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .allowsHitTesting(false)
                 #endif
+                // What a press would take under the pointer or the Pencil: a node outlined dashed, as
+                // the browser's canvas outlines it, or a handle ringed (PLAN 4.5).
+                if press == nil, let over = hovered?.node, let b = boxes.first(where: { $0.node == over }) {
+                    outline(b.corners, fit: fit)
+                        .stroke(Color.accentColor.opacity(0.7), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                        .allowsHitTesting(false)
+                }
+                if press == nil, let spot = hovered?.handle {
+                    Circle()
+                        .stroke(Color.accentColor, lineWidth: 2)
+                        .frame(width: 20, height: 20)
+                        .position(fit.view(spot))
+                        .allowsHitTesting(false)
+                }
                 // The others selected with the first, each outlined, moved as the drag moves.
                 ForEach(boxes.filter { also.contains($0.node) }, id: \.node) { other in
                     let by = drag?.edge == nil ? (drag?.by ?? .zero) : .zero
@@ -513,6 +546,7 @@ struct CanvasSelection: View {
                     let at = fit.canvas(value.startLocation)
                     keyOn = nil
                     keyed = nil
+                    hovered = nil
                     typing.focus?()
                     pointed = at
                     said = nil
@@ -1275,6 +1309,61 @@ struct CanvasSelection: View {
         editor.still()
         guard let d = drag, d.revision == editor.revision, !d.patch.isEmpty else { return }
         make(d.patch)
+    }
+
+    /// The pointer, or the Pencil held over the screen, at `shown` (view points): what a press there
+    /// would take (PLAN 4.5). A handle of the node selected first, as a press takes one; else the
+    /// node a click would select, outlined where it is not selected already. Nothing while a press
+    /// is under way or a text is typed in, as in the browser.
+    private func hover(at shown: CGPoint, fit: Fit) {
+        guard press == nil, !typing.typing else {
+            hovered = nil
+            return
+        }
+        let point = fit.canvas(shown)
+        let now: Hover
+        if let spot = handleSpot(at: point, fit: fit) {
+            now = Hover(handle: spot)
+        } else {
+            let under = boxes.under(point)
+            now = Hover(node: under.flatMap { selection.contains($0) ? nil : $0 })
+        }
+        if now != hovered { hovered = now }
+    }
+
+    /// Where the handle of the node selected that a press at `point` (canvas units) would hold
+    /// stands, as `handle(at:scale:)` and `begin(at:scale:)` take one, asking the engine nothing: an
+    /// image's focal point and crop bars, a shape's points and edges' middles and its corner, the
+    /// rotate handle, then the box's own.
+    private func handleSpot(at point: CGPoint, fit: Fit) -> CGPoint? {
+        guard also.isEmpty, !typing.typing, let selected = boxes.first(where: { $0.node == node }),
+            selected.locked == nil
+        else { return nil }
+        let near = grabbing(selected, scale: fit.scale)
+        let close = { (p: CGPoint) -> Bool in hypot(p.x - point.x, p.y - point.y) <= near }
+        let units = Double(max(fit.scale, 0.01))
+        if let f = imaged, f.node == selected.node {
+            if close(f.focalHandle) { return f.focalHandle }
+            let bars = Framing.Side.allCases.map { f.handle($0, inset: HandleSpacing.inset / units) }
+            if let bar = bars.first(where: close) { return bar }
+        }
+        if let o = shaped, o.node == selected.node {
+            if ["line", "arrow", "polygon"].contains(o.kind) {
+                if let i = o.drawn.lastIndex(where: close) { return o.drawn[i] }
+                if let middle = o.middles.first(where: close) { return middle }
+            }
+            if o.kind == "rect", !o.radii.isEmpty {
+                let corner = o.corner(clear: HandleSpacing.clear / units)
+                if close(corner) { return corner }
+            }
+        }
+        if let arm = selected.turnHandle(arm: HandleSpacing.arm / units)?.at,
+            hypot(arm.x - point.x, arm.y - point.y) <= Self.grab / units
+        {
+            return arm
+        }
+        guard let r = box(selected) else { return nil }
+        return Edge.allCases.map { selected.onCanvas($0.point(r)) }.first(where: close)
     }
 
     /// How near a handle of `selected`, canvas units, a press takes it: `grab` points, no more than

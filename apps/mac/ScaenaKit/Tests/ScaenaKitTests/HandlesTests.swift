@@ -148,3 +148,24 @@ private func made(_ session: ScaenaSession, _ ops: [JSONValue]) throws -> Bool {
     #expect(try made(deck, try deck.replacing("Scaena", with: "Stage")))
     #expect(try deck.find("Scaena").isEmpty && !deck.find("Stage", matchCase: true).isEmpty)
 }
+
+/// What a press would select under the pointer or the Pencil (PLAN 4.5), read from the boxes alone
+/// as the browser's canvas reads it: the topmost box drawn there that no lock holds, through its
+/// turn, as a click selects.
+@Test func whatAPressWouldSelectIsReadFromTheBoxesAlone() throws {
+    let session = try ScaenaSession(directory: b1)
+    let boxes = try session.boxes(state: "cover")
+    let title = try #require(boxes.first { $0.node == "title" })
+    let middle = CGPoint(x: title.rect[0] + title.rect[2] / 2, y: title.rect[1] + title.rect[3] / 2)
+    let clicked = try session.hits(state: "cover", at: middle).first?.node
+    #expect(boxes.under(middle) == "title" && clicked == "title", "as a click selects")
+
+    // A box turned a quarter about its corner holds what it is drawn over, not what it was laid out on.
+    let turned = try JSONDecoder().decode(
+        NodeBox.self, from: Data(#"{"node": "a", "rect": [0, 0, 100, 50], "draws": true, "transform": [0, 1, -1, 0, 100, 0]}"#.utf8))
+    #expect(turned.holds(CGPoint(x: 75, y: 80)) && !turned.holds(CGPoint(x: 25, y: 10)))
+    #expect(turned.holds(CGPoint(x: 50, y: 0)), "its edges included")
+    let locked = try JSONDecoder().decode(
+        NodeBox.self, from: Data(#"{"node": "b", "rect": [0, 0, 100, 100], "draws": true, "locked": "b"}"#.utf8))
+    #expect([turned, locked].under(CGPoint(x: 75, y: 80)) == "a", "the canvas passes over what is locked")
+}

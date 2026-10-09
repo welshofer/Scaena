@@ -229,6 +229,30 @@ public struct NodeBox: Decodable, Sendable {
 
     /// Its box's corners where it is drawn, clockwise from the top left, canvas units.
     public var corners: [CGPoint] { drawn(rect, through: transform) }
+
+    /// Whether `point`, canvas units, is inside its box where it is drawn: within the four corners
+    /// its map draws it at, its edges included.
+    public func holds(_ point: CGPoint) -> Bool {
+        let c = corners
+        guard c.count == 4 else { return false }
+        var turn = 0.0
+        for i in 0..<4 {
+            let (a, b) = (c[i], c[(i + 1) % 4])
+            let cross = Double((b.x - a.x) * (point.y - a.y) - (b.y - a.y) * (point.x - a.x))
+            guard cross != 0 else { continue }
+            if turn == 0 { turn = cross } else if (cross > 0) != (turn > 0) { return false }
+        }
+        return turn != 0
+    }
+}
+
+extension [NodeBox] {
+    /// What a click at `point` (canvas units) would select, read from the boxes alone, as the
+    /// browser's canvas shows it under the pointer (PLAN 2.29, 4.5): the topmost that draws there
+    /// and no lock holds. Nothing is asked of the engine.
+    public func under(_ point: CGPoint) -> String? {
+        last { $0.draws && $0.locked == nil && $0.holds(point) }?.node
+    }
 }
 
 /// A node that draws at a point (ADR-0013), with the containers it sits in, innermost first.
