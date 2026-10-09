@@ -380,7 +380,7 @@ private func carets(_ json: String) throws -> Carets {
     let typed = editor.source
     view.toggleBoldface(nil)
     #expect(steps.count == 7 && !steps[6].joins && steps[6].before == typed)
-    #expect(typing.selected == "on" && typing.told?.contains("bold") == true, "\(typing.told ?? "")")
+    #expect(typing.selected == "on" && typing.told == "Not bold", "\(typing.told ?? "")")
 
     // The burst undone in one step: the deck as it was, and the caret where it still fits.
     editor.restore(steps[0].before)
@@ -409,7 +409,7 @@ private func carets(_ json: String) throws -> Carets {
     #expect(typing.enter("subtitle", in: "cover", at: nil))
 
     #expect(view.key("8", flags: [.command, .shift]))
-    #expect(typing.carets?.item(0)?.kind == "bullet" && typing.told == "subtitle: bulleted")
+    #expect(typing.carets?.item(0)?.kind == "bullet" && typing.told == "Bulleted")
     view.insertText("\t")
     #expect(typing.carets?.item(0)?.level == 1 && typing.typing)
 
@@ -418,11 +418,11 @@ private func carets(_ json: String) throws -> Carets {
     #expect(typing.carets?.item(1)?.kind == "bullet" && typing.endsList)
     view.insertText("\n")
     #expect(typing.carets?.item(1) == nil && typing.carets?.item(0)?.level == 1)
-    #expect(typing.told == "subtitle: the list ends")
+    #expect(typing.told == "The list ends")
 
     typing.move(.text(start: true))
     view.key("8", flags: [.command, .shift])
-    #expect(typing.carets?.item(0) == nil && typing.told == "subtitle: out of the list")
+    #expect(typing.carets?.item(0) == nil && typing.told == "Out of the list")
     view.key("\t")
     #expect(!typing.typing)
     #expect(steps == 5)

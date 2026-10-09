@@ -139,7 +139,7 @@ public final class CanvasKeys: UIView {
     /// field gives Tab to what is next, as the browser's does: typing stops.
     private func tab(back: Bool) {
         if typing.inList {
-            typing.list(by: back ? -1 : 1, done: back ? "a level out" : "a level in")
+            typing.list(by: back ? -1 : 1, done: back ? "A level out" : "A level in")
         } else {
             typing.leave()
         }
@@ -365,7 +365,13 @@ public final class CanvasKeys: UIView {
     }
 
     public override var accessibilityLabel: String? {
-        get { typing.node.map { "typing in \($0)" } }
+        get { typing.node == nil ? nil : "Editing text" }
+        set {}
+    }
+
+    /// What a test finds it by: VoiceOver does not read it.
+    public override var accessibilityIdentifier: String? {
+        get { "typing" }
         set {}
     }
 
@@ -393,7 +399,7 @@ extension CanvasKeys: UITextInput {
             case "\n" where typing.marked == nil && typing.endsList:
                 // In an empty item, the list ends there (ADR-0018); else a new paragraph, an item
                 // like the one it leaves in a list.
-                typing.list(kind: "none", done: "the list ends")
+                typing.list(kind: "none", done: "The list ends")
             case "\t" where typing.marked == nil:
                 tab(back: false)
             default:
