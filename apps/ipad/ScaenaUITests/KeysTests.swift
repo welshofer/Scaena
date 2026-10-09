@@ -43,6 +43,23 @@ final class KeysTests: XCTestCase {
             keep(app, as: "tabbed")
         }
 
+        try XCTContext.runActivity(named: "Escape selects what holds the title, before any edit; Tab selects it again") { _ in
+            app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
+            guard wait(5, { !title.isSelected }) else {
+                keep(app, as: "escape-unheard")
+                // Whether Return, which types in the title selected, reaches the canvas where Escape
+                // does not: the key log (keys.txt) says what the keyboard itself reported of each.
+                app.typeKey(XCUIKeyboardKey.return, modifierFlags: [])
+                let typing = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'typing'")).firstMatch
+                let returned = typing.waitForExistence(timeout: 5)
+                throw Unseen(
+                    description: "Escape did not reach the canvas, before any edit; Return "
+                        + "\(returned ? "did" : "did not either"): \(app.debugDescription)")
+            }
+            app.typeKey(XCUIKeyboardKey.tab, modifierFlags: [])
+            XCTAssertTrue(wait(5) { title.isSelected }, "Tab did not select the title again")
+        }
+
         try XCTContext.runActivity(named: "The arrows nudge the title as its drag would, and ⌘Z takes each nudge back") { _ in
             // A canvas unit a press, about half a point at this size: eight of them, each a step to undo.
             let before = title.frame

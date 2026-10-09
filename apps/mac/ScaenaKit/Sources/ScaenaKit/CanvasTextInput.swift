@@ -1,6 +1,7 @@
 // The iPad's: the Mac's canvas keys take `NSTextInputClient`'s, in CanvasKeys.swift (PLAN 3.9, 4.4,
 // ADR-0023).
 #if os(iOS)
+import GameController
 import Observation
 import SwiftUI
 import UIKit
@@ -860,6 +861,20 @@ public final class CanvasPresses: UIView {
                     let which = note.object.map { String(describing: type(of: $0)) } ?? "none"
                     keysLog.debug("\(which, privacy: .public) \(what, privacy: .public)")
                 })
+        }
+        // Each key as the keyboard itself reports it, below UIKit's presses and key commands: what
+        // reached the app at all; from a keyboard here now, or one that connects.
+        Self.hearKeyboard()
+        watching.append(
+            center.addObserver(forName: .GCKeyboardDidConnect, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { Self.hearKeyboard() }
+            })
+    }
+
+    /// Each key the keyboard reports, logged as it goes down and comes up (`keysLog`).
+    private static func hearKeyboard() {
+        GCKeyboard.coalesced?.keyboardInput?.keyChangedHandler = { _, _, code, down in
+            keysLog.debug("keyboard \(code.rawValue) \(down ? "down" : "up", privacy: .public)")
         }
     }
 
