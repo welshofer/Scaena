@@ -60,6 +60,8 @@ struct CanvasSelection: View {
     let finding: () -> Void
     /// What the Node menu does to the node selected, which a long press offers on the iPad (PLAN 4.3).
     let actions: DeckActions?
+    /// Apply what lint found's fix, from the mark on its object (PLAN 3.20): one step to undo.
+    let fix: (Finding) -> Void
     /// Make the patch a drag ended in: one step to undo.
     let make: ([JSONValue]) -> Void
     @State private var boxes: [NodeBox] = []
@@ -299,6 +301,14 @@ struct CanvasSelection: View {
                 .accessibilityIdentifier("canvas")
                 // How close it is shown, where it is zoomed in (PLAN 3.16).
                 .accessibilityValue(zoom.level > 1 + 1e-9 ? "at \(Int((zoom.level * 100).rounded())) percent" : "")
+                // What is wrong with an object, marked at its top right, a click saying what and
+                // offering the fix (PLAN 3.20); not while a drag, a handle, or typing goes on.
+                if drag == nil, holding == nil, !typing.typing {
+                    ForEach(marks) { mark in
+                        IssueBadge(issues: mark.issues, fix: fix)
+                            .position(fit.view(mark.at))
+                    }
+                }
                 if let words = told ?? typing.told ?? said {
                     Text(words)
                         .font(.caption)
@@ -1263,6 +1273,29 @@ struct CanvasSelection: View {
     }
 
     /// `selected`'s box at rest, canvas units.
+    /// An object the canvas marks (PLAN 3.20): where the mark stands, its box's top right corner
+    /// as it is drawn, canvas units, and what it marks.
+    private struct Mark: Identifiable {
+        let id: String
+        let at: CGPoint
+        let issues: [Finding]
+    }
+
+    /// Each object the state shows that lint found something wrong with that a person can put
+    /// right on the slide (`Issues`).
+    private var marks: [Mark] {
+        let marked = Issues.marked(editor.findings, in: state)
+        guard !marked.isEmpty else { return [] }
+        var seen: Set<String> = []
+        return boxes.compactMap { b in
+            guard b.draws, let issues = marked[b.node], seen.insert(b.node).inserted else { return nil }
+            let xs = b.corners.map(\.x)
+            let ys = b.corners.map(\.y)
+            guard let x = xs.max(), let y = ys.min() else { return nil }
+            return Mark(id: b.node, at: CGPoint(x: x, y: y), issues: issues)
+        }
+    }
+
     private func box(_ selected: NodeBox) -> CGRect? {
         guard selected.rect.count == 4 else { return nil }
         return CGRect(x: selected.rect[0], y: selected.rect[1], width: selected.rect[2], height: selected.rect[3])
