@@ -177,6 +177,10 @@ struct Inspector: View {
                 NumberRow(label: label, value: field.value?.number, whole: false, unit: "°", choose: choose)
             case "align/x":
                 AlignmentRow(value: field.value?.string, choose: choose)
+            case "layout" where choices?.node == nil:
+                LayoutsRow(editor: editor, state: state, look: look, make: make) {
+                    named(field, label: label, choose: choose)
+                }
             case "notes", "alt":
                 TextRow(label: label, value: field.value?.string ?? "", long: true, choose: choose)
             default:
@@ -207,6 +211,18 @@ struct Inspector: View {
             }
         }
         .help(lives(field))
+    }
+
+    /// A field the theme names the values of, picked by name.
+    @ViewBuilder private func named(_ field: Field, label: String, choose: @escaping (JSONValue) -> Void) -> some View {
+        switch field.takes {
+        case .name(let of, let names, _):
+            PickRow(
+                label: label, value: field.value,
+                options: names.map { Option(tag: $0, title: Words.name($0, of: of, theme: look)) }, choose: choose)
+        default:
+            EmptyView()
+        }
     }
 
     /// The objects on the slide, the topmost first, each named by what it shows: a click selects
@@ -743,6 +759,150 @@ private struct AlignmentRow: View {
     private static let ways: [(word: String, symbol: String)] = [
         ("start", "text.alignleft"), ("center", "text.aligncenter"), ("end", "text.alignright"),
     ]
+}
+
+/// The layouts the slide may take (PLAN 3.26), as a presentation app's layout picker shows them:
+/// each drawn small, best first by what lint finds in the slide laid out in it, in every size the
+/// deck comes in, the one it takes now outlined and any with something to put right marked. The
+/// pointer over one shows the slide laid out in it on the canvas, nothing made; a click gives the
+/// slide that layout, one step to undo (PLAN 2.92). Until they are drawn, and where there is no
+/// other to take, the layout is picked by name.
+private struct LayoutsRow<Named: View>: View {
+    let editor: DeckEditor
+    let state: String
+    let look: ThemeLook?
+    let make: ([JSONValue]) -> Void
+    @ViewBuilder let named: () -> Named
+    @State private var drawn: [Drawn] = []
+    /// The slide they were drawn for.
+    @State private var drawnFor: String?
+    /// The layout the pointer is over, shown on the canvas.
+    @State private var over: String?
+
+    private struct Drawn: Identifiable {
+        let suggestion: LayoutSuggestion
+        let image: CGImage
+
+        var id: String { suggestion.layout }
+    }
+
+    /// How high each is painted, pixels: a tile's width on a Retina screen. Computed: a generic
+    /// type keeps no static stored property.
+    private static var painted: Int { 150 }
+
+    var body: some View {
+        Group {
+            if drawn.count < 2 {
+                named()
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Layout")
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 8)], spacing: 10) {
+                        ForEach(drawn) { one in tile(one) }
+                    }
+                }
+            }
+        }
+        // Once the inspector has settled on the slide: each layout laid out, linted in every size,
+        // and drawn, a step at a time, the window answering a person between steps.
+        .task(id: "\(state)\u{1f}\(editor.revision)\u{1f}\(editor.format ?? "")") {
+            if drawnFor != state {
+                drawn = []
+                drawnFor = state
+            }
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled, let found = await judged() else { return }
+            drawn = found
+        }
+        .onDisappear { leave() }
+    }
+
+    /// The slide's layouts, best first, each drawn: none where it has one to take; nil where the
+    /// slide changed, or an edit came, while they were judged.
+    private func judged() async -> [Drawn]? {
+        let session = editor.session
+        guard let count = try? session.layoutsBegin(state: state) else { return nil }
+        guard count > 1 else { return [] }
+        while (try? session.layoutsStep()) == true {
+            await Task.yield()
+            if Task.isCancelled { return nil }
+        }
+        guard let all = try? session.layoutsDrawn(height: Self.painted) else { return nil }
+        return all.map { Drawn(suggestion: $0.suggestion, image: $0.image) }
+    }
+
+    private func tile(_ one: Drawn) -> some View {
+        let s = one.suggestion
+        let name = Words.name(s.layout, of: "layout", theme: look)
+        return Button {
+            guard !s.current else { return }
+            leave()
+            make(s.patch)
+        } label: {
+            VStack(spacing: 4) {
+                Image(decorative: one.image, scale: 1)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 4)
+                            .strokeBorder(
+                                s.current ? Color.accentColor : Color.secondary.opacity(over == s.layout ? 0.8 : 0.3),
+                                lineWidth: s.current ? 2.5 : 1)
+                    }
+                HStack(spacing: 3) {
+                    if s.errors + s.warnings > 0 {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(s.errors > 0 ? Color.red : Color.orange)
+                            .imageScale(.small)
+                    }
+                    Text(name)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .font(.caption)
+                .foregroundStyle(s.current ? .primary : .secondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { inside in hover(s, inside) }
+        .help([name, Self.said(s, look: look)].joined(separator: ". "))
+        .accessibilityLabel(name)
+        .accessibilityValue(Self.said(s, look: look))
+        .accessibilityAddTraits(s.current ? .isSelected : [])
+    }
+
+    /// The pointer over a layout shows the slide laid out in it; off it, as it is.
+    private func hover(_ s: LayoutSuggestion, _ inside: Bool) {
+        if inside {
+            over = s.layout
+            if s.current { editor.still() } else { editor.show(s.patch) }
+        } else if over == s.layout {
+            leave()
+        }
+    }
+
+    /// The canvas drawn as the deck is again.
+    private func leave() {
+        guard over != nil else { return }
+        over = nil
+        editor.still()
+    }
+
+    /// What a layout does, in a person's words: whether the slide takes it now, what there would be
+    /// to put right, the layouts that look the same, and how many slides and steps it changes.
+    private static func said(_ s: LayoutSuggestion, look: ThemeLook?) -> String {
+        var parts = [s.current ? "The slide's layout now" : "Click to use it"]
+        let issues = s.errors + s.warnings
+        parts.append(issues == 0 ? "No issues" : issues == 1 ? "1 issue" : "\(issues) issues")
+        if !s.alike.isEmpty {
+            let alike = s.alike.map { Words.name($0, of: "layout", theme: look) }
+            parts.append("Looks the same as \(alike.formatted(.list(type: .or)))")
+        }
+        if s.reach.count > 1 { parts.append("Changes \(s.reach.count) slides and steps") }
+        return parts.joined(separator: ". ")
+    }
 }
 
 /// How the slide goes on to the next: on a click, or by itself after some seconds (its `hold`).
