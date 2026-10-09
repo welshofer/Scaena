@@ -69,8 +69,8 @@ import UIKit
     #expect(Pasteboard.read(board) == .words("Quarter\tSales\nQ1\t1,200"))
 
     // A picture of a kind an image does not show, as a PNG of it.
-    let tiff = try #require(tiff(png))
-    board.items = [[UTType.tiff.identifier: tiff]]
+    let tiffed = try #require(tiff(png))
+    board.items = [[UTType.tiff.identifier: tiffed]]
     guard case .file(let made, let name) = Pasteboard.read(board) else {
         Issue.record("a TIFF reads as a picture")
         return

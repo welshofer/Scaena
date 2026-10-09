@@ -23,4 +23,4 @@ pads.sort()
 print(pads[-1][3])
 print("on", pads[-1][2], "with iOS", ".".join(map(str, pads[-1][0])), file=sys.stderr)
 ')
-xcodebuild test -quiet -project Scaena.xcodeproj -scheme ScaenaKitTests -destination "id=$udid"
+xcodebuild test -quiet -project Scaena.xcodeproj -scheme ScaenaKitTests -destination "platform=iOS Simulator,arch=arm64,id=$udid"
