@@ -48,7 +48,7 @@ final class KeysTests: XCTestCase {
             guard wait(5, { !title.isSelected }) else {
                 keep(app, as: "escape-unheard")
                 // Whether Return, which types in the title selected, reaches the canvas where Escape
-                // does not: the key log (keys.txt) says what the keyboard itself reported of each.
+                // does not: the app's log (log.txt) says what the keyboard itself reported of each.
                 app.typeKey(XCUIKeyboardKey.return, modifierFlags: [])
                 let typing = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'typing'")).firstMatch
                 let returned = typing.waitForExistence(timeout: 5)

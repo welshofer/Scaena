@@ -2,6 +2,7 @@ import Foundation
 import ScaenaKit
 import SwiftUI
 import UniformTypeIdentifiers
+import os
 
 extension UTType {
     /// A Scaena bundle: a folder the Finder shows as one file, holding `deck.json`, its theme,
@@ -40,10 +41,20 @@ final class ScaenaDocument: ReferenceFileDocument {
     }
 
     init(configuration: ReadConfiguration) throws {
-        let session = try Self.open(configuration.file)
+        let name = configuration.file.filename ?? "a deck"
+        openingLog.debug("opening \(name, privacy: .public)")
+        let began = Date()
+        let session: ScaenaSession
+        do {
+            session = try Self.open(configuration.file)
+        } catch {
+            openingLog.debug("\(name, privacy: .public) did not open: \(String(describing: error), privacy: .public)")
+            throw error
+        }
         // Each save records the edits since in the bundle's history, which the first begins.
         _ = try? session.call("keepHistory") as JSONValue
         editor = DeckEditor(session: session)
+        openingLog.debug("\(name, privacy: .public) opened in \(Date().timeIntervalSince(began)) s")
     }
 
     /// The bundle `file` holds: a folder's files by their paths in it, or a zip.

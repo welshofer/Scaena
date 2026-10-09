@@ -1,5 +1,10 @@
 import QuartzCore
 import SwiftUI
+import os
+
+/// How long a canvas's surface took to make, at the debug level: a surface made before the GPU
+/// the app makes as it starts waits for it (`apps/ipad/app-test.sh` keeps what the app says).
+private let surfaceLog = Logger(subsystem: "com.welshofer.Scaena", category: "opening")
 
 #if os(macOS)
 import AppKit
@@ -198,7 +203,9 @@ public final class ScaenaView: PlatformView {
         do {
             if surface == nil {
                 let size = layer.drawableSize
+                let began = Date()
                 surface = try ScaenaSurface(layer: layer, width: Int(size.width), height: Int(size.height))
+                surfaceLog.debug("a surface made in \(Date().timeIntervalSince(began)) s")
             }
             var at = playhead.ms
             var over = false

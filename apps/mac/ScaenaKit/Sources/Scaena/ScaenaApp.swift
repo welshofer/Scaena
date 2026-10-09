@@ -3,6 +3,11 @@ import AppKit
 #endif
 import ScaenaKit
 import SwiftUI
+import os
+
+/// How long the GPU and each deck took to open, at the debug level, which nothing keeps unless
+/// asked: the iPad's UI tests stream it beside their screenshots (`apps/ipad/app-test.sh`).
+let openingLog = Logger(subsystem: "com.welshofer.Scaena", category: "opening")
 
 /// Scaena on the Mac (PLAN 3.3, SPEC §9.3): a document-based app over bundles. SwiftUI owns the
 /// chrome; every frame, glyph, and layout comes from the engine.
@@ -12,7 +17,15 @@ struct ScaenaApp: App {
         // The GPU every canvas paints with, made as the app starts rather than when the first deck
         // shows (gate 3); on a queue of its own, since making it blocks. A failure here is said
         // again, by the surface that needs it.
-        DispatchQueue.global(qos: .userInitiated).async { try? ScaenaSurface.warm() }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let began = Date()
+            do {
+                try ScaenaSurface.warm()
+                openingLog.debug("the GPU made in \(Date().timeIntervalSince(began)) s")
+            } catch {
+                openingLog.debug("no GPU: \(String(describing: error), privacy: .public)")
+            }
+        }
     }
 
     #if os(macOS)

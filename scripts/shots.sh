@@ -2,7 +2,7 @@
 # The screenshots a CI run kept, where whoever reviews the pull request can fetch them without the
 # run's artifacts: each PNG under DIR made a JPEG no wider than 1600 pixels, named as the test that
 # kept it named it; each screen recording a UI test made (MP4), and what the steps that took them
-# said (each `.txt`: the Mac's `window.txt`, the iPad's `keys.txt`), as they are; in one commit with
+# said (each `.txt`: the Mac's `window.txt`, the iPad's `log.txt`), as they are; in one commit with
 # no parent, force-pushed to the branch `shots/NAME`, which the next run replaces. On a Mac (sips);
 # in a job that may push (`contents: write`).
 #

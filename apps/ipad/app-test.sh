@@ -24,16 +24,16 @@ rm -rf "$documents/b1.scaena"
 cp -R "$root/tests/bench/b1.scaena" "$documents/b1.scaena"
 results="$root/target/ipad/Scaena.xcresult"
 rm -rf "$results"
-# What the canvas's keys did while the tests ran, as the app logs them at the debug level: kept
-# beside the screenshots, to say where a key went (PLAN 4.6).
-keys="$root/target/ipad/keys.log"
+# What the app says at the debug level while the tests run, kept beside the screenshots: where
+# each key went (PLAN 4.6), and how long the GPU, each deck, and each canvas's surface took to open.
+said="$root/target/ipad/log.txt"
 xcrun simctl spawn "$udid" log stream --level debug --style compact \
-  --predicate 'subsystem == "com.welshofer.Scaena"' >"$keys" 2>&1 &
+  --predicate 'subsystem == "com.welshofer.Scaena"' >"$said" 2>&1 &
 logging=$!
 status=0
 xcodebuild test-without-building -quiet -project Scaena.xcodeproj -scheme ScaenaApp -destination "$destination" \
   -derivedDataPath "$built" -resultBundlePath "$results" || status=$?
 kill "$logging" 2>/dev/null || true
 "$here/results.sh" "$results" "$root/target/ipad/shots"
-cp "$keys" "$root/target/ipad/shots/keys.txt" 2>/dev/null || true
+cp "$said" "$root/target/ipad/shots/log.txt" 2>/dev/null || true
 exit "$status"
