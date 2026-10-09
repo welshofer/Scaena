@@ -14,7 +14,7 @@
 //!   refused for it. A text keeps a role: one the theme lacks gives way to the role every
 //!   theme has that was nearest it in size where it was copied from.
 
-use crate::inspect::{copied_layouts, empty_slot, free_id, held};
+use crate::inspect::{copied_layouts, empty_slot, free_id, held, leaving};
 use crate::{Context, OpsError};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
@@ -271,8 +271,9 @@ pub struct Pasted {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub also: Vec<String>,
     /// `add_node` for each copy, entering in the state; the overrides they carry; a
-    /// `bind_data` for each source the deck lacks; then the `place` ops that put the copy of
-    /// the node copied where the pointer pressed.
+    /// `bind_data` for each source the deck lacks; the `place` ops that put the copy of the
+    /// node copied where the pointer pressed; then the `hide_node`s that keep the copies to
+    /// the state's slide (PLAN 3.26).
     pub patch: Vec<Value>,
     /// The files the copies read that the bundle lacks, by path: each is added before the
     /// patch is made.
@@ -295,7 +296,8 @@ pub struct Pasted {
 /// engine's for the copy in `deck`, its cell the clip's share of the canvas. `files` is the
 /// bundle, and `read` its bytes: a file the clip carries that the bundle holds with other
 /// bytes, and a data source the deck declares otherwise, come in under names of their own.
-/// What the theme lacks is taken out, and said in `findings`.
+/// What the theme lacks is taken out, and said in `findings`. The copies stay on `state`'s
+/// slide, leaving where another would show them (PLAN 3.26).
 pub fn pasting(
     deck: &Deck,
     files: &dyn BundleFiles,
@@ -421,7 +423,8 @@ pub fn pasting(
         .collect::<Option<_>>()
         .ok_or_else(|| OpsError::new("the theme's grid has no tracks to place it on"))?;
     let cell = targets[0].cell;
-    let placing = targets.iter().flat_map(|t| t.ops(Some(state), false));
+    let copies: Vec<String> = nodes.keys().cloned().collect();
+    let placing = targets.iter().flat_map(|t| t.ops(Some(state), false)).chain(leaving(deck, state, &copies));
     let place: Vec<Value> = placing.map(serde_json::to_value).collect::<Result<_, _>>().context("a patch")?;
     let also: Vec<String> = roots[1..].iter().map(|(node, _)| ids[*node].clone()).collect();
 
@@ -508,7 +511,7 @@ fn together(
 }
 
 /// The paste's patch: each data source declared, each copy added, entering in `state`, their
-/// overrides, then `place`.
+/// overrides, then `place` and where they leave.
 fn ops(
     doc: &Value,
     nodes: &IndexMap<String, Map<String, Value>>,
