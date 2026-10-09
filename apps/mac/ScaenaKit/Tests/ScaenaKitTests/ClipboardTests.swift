@@ -91,6 +91,61 @@ private func tiff(_ png: Data) -> Data? {
 }
 #endif
 
+/// A drop's files, as the canvas takes them (PLAN 3.22): a picture or a data file the Finder or
+/// Files dragged, by its name; a picture of a kind an image does not show, as a PNG of it; and
+/// anything else, none.
+@MainActor
+@Test func aDroppedFileIsReadAsThePasteboardsIs() async throws {
+    let png = try Data(contentsOf: repository.appending(path: "tests/fixtures/torture.scaena/assets/test-card.png"))
+    let folder = FileManager.default.temporaryDirectory.appending(path: "drop-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
+
+    let card = folder.appending(path: "Test Card.png")
+    try png.write(to: card)
+    // The Finder and Files name what they drag; an item made of a file here has no name of its
+    // own, and its copy is named by its kind ("PNG image.png").
+    let cardItem = try #require(NSItemProvider(contentsOf: card))
+    cardItem.suggestedName = "Test Card"
+    let picture = try #require(await Pasteboard.dropped(cardItem))
+    #expect(picture.name == "Test Card.png", "named \(picture.name)")
+    #expect(picture.data == png)
+
+    let rows = folder.appending(path: "bars.csv")
+    try Data("quarter,sales\nQ1,1200\n".utf8).write(to: rows)
+    let rowsItem = try #require(NSItemProvider(contentsOf: rows))
+    rowsItem.suggestedName = "bars"
+    let data = try #require(await Pasteboard.dropped(rowsItem))
+    #expect(data.name == "bars.csv", "named \(data.name)")
+    #expect(String(decoding: data.data, as: UTF8.self).hasPrefix("quarter,sales"))
+
+    // A TIFF's data, as a picture dragged from another app may be: a PNG of it.
+    let tiff = try #require(retyped(png, as: .tiff))
+    let item = NSItemProvider(item: tiff as NSData, typeIdentifier: UTType.tiff.identifier)
+    let made = try #require(await Pasteboard.dropped(item))
+    #expect(made.name.hasSuffix(".png"), "named \(made.name)")
+    #expect(made.data.starts(with: [0x89, 0x50, 0x4E, 0x47]))
+
+    // Words are no file the canvas takes.
+    let words = folder.appending(path: "notes.txt")
+    try Data("hello".utf8).write(to: words)
+    let wordsItem = try #require(NSItemProvider(contentsOf: words))
+    let taken = await Pasteboard.dropped(wordsItem)
+    #expect(taken?.name == nil, "words are taken as \(taken?.name ?? "")")
+}
+
+/// `png` written again as `kind`, by ImageIO.
+private func retyped(_ png: Data, as kind: UTType) -> Data? {
+    guard let source = CGImageSourceCreateWithData(png as CFData, nil),
+        let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+    else { return nil }
+    let out = NSMutableData()
+    guard let made = CGImageDestinationCreateWithData(out as CFMutableData, kind.identifier as CFString, 1, nil)
+    else { return nil }
+    CGImageDestinationAddImage(made, image, nil)
+    return CGImageDestinationFinalize(made) ? out as Data : nil
+}
+
 /// The clipboard through the editor (PLAN 3.12), as the browser's (PLAN 2.37, 2.58, 2.96): a node
 /// copied as a clip pasted in another state, a look put on another node, a sheet's cells pasted
 /// as a source and the table they were, and a picture as an image; each patch made.

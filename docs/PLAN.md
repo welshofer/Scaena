@@ -1492,6 +1492,10 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - **Where.** The toolbar's Text and the Insert menu insert where the pointer last pressed, as before (PLAN 3.11). A text enters typed in (`Typing.enter`), every character selected (`selectAll`); anything else enters selected, as before. Escape stops typing and leaves the text selected.
     - Tests: the iPad's UI test `testATextInsertedIsTypedIn`, B1's toolbar's Text tapped and the canvas typing in what it inserted.
     - **Seen on CI's Mac.** `apps/mac/window.sh` walks the window after opening trails: the window fitted to the screen, a click on the slide, Tab, Insert › Text, and words typed in its place, each screen kept and pushed beside the iPad's (`scripts/shots.sh`), and where the window stands said. The window opens within the screen: the slide fits the room the window gives it and does not size the window (`fitted`).
+- [ ] 3.22 Drop a file on the slide, as the browser's canvas takes one (PLAN 2.45, 2.76): a picture from the Finder, Files, Photos, or a browser, or a CSV or JSON file. *(Built; waits on a run on a Mac.)*
+    - **Where it lands.** A picture let go on an image takes its place, one `choose` of `src`; anywhere else it is inserted there, as Insert inserts one. A data file joins the deck as a source, declared as `data_attach` declares it, with a chart of it there. A PNG or a JPEG goes in as it is, any other picture as a PNG of it; the slide is outlined while a drag that holds one is over it. Each is one step to undo.
+    - **How** (`Pasteboard.dropped`): each thing dropped gives its file as the Finder or Files dragged it, or a copy of a picture's data, by its name.
+    - Tests: ScaenaKit's `aDroppedFileIsReadAsThePasteboardsIs`: a PNG and a CSV by their names, a TIFF's data as a PNG of it, and words not at all.
 
 ### Exit criteria (gate 3)
 1. Same bundle, same frame, same pixels (within tolerance) as the web player.
