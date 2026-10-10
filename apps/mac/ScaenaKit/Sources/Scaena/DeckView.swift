@@ -76,6 +76,8 @@ struct DeckView: View {
     @SceneStorage("timeline") private var showsTimeline = false
     /// Whether the theme's grid is drawn over the canvas (PLAN 3.16).
     @SceneStorage("grid") private var showsGrid = false
+    /// Whether Add Slide's gallery of layouts is open (PLAN 3.30).
+    @State private var choosingSlide = false
     /// Whether the state shown is drawn in each of the deck's formats under the canvas (PLAN 3.16).
     @SceneStorage("formats") private var showsFormats = false
     /// How close the canvas is shown, and the part of it shown (PLAN 3.16).
@@ -376,18 +378,28 @@ struct DeckView: View {
         zoom.level > 1 + 1e-9 ? "\(Int((zoom.level * 100).rounded()))%" : "Fit"
     }
 
-    /// A slide added after the one shown, then shown; or a step of it.
+    /// A slide added after the one shown, then shown, from the gallery of the theme's layouts
+    /// (PLAN 3.30); or a step of it.
     private var adding: some View {
-        Menu {
-            Button("New Slide") { if let shown { addState(after: shown, as: .slide) } }
-            Button("New Step on This Slide") { if let shown { addState(after: shown, as: .step) } }
+        Button {
+            choosingSlide = true
         } label: {
             Label("Add Slide", systemImage: "plus.rectangle.on.rectangle")
-        } primaryAction: {
-            if let shown { addState(after: shown, as: .slide) }
         }
-        .help("Add a slide after this one; its menu adds a step of this slide")
+        .help("Add a slide after this one, in one of the theme's layouts, or a step of this slide")
         .disabled(shown == nil)
+        .accessibilityIdentifier("add-slide")
+        .popover(isPresented: $choosingSlide, arrowEdge: .bottom) {
+            if let shown {
+                SlideGallery(editor: editor, state: shown) { layout in
+                    choosingSlide = false
+                    startSlide(after: shown, layout: layout)
+                } step: {
+                    choosingSlide = false
+                    addState(after: shown, as: .step)
+                }
+            }
+        }
     }
 
     /// The deck as a PDF, or the slide shown as a PNG: shared, looked at, or saved.
@@ -554,6 +566,9 @@ struct DeckView: View {
                 )
                 .overlay {
                     if showsGrid { GridOverlay(editor: editor, shown: zoom.view) }
+                }
+                .overlay {
+                    if !showsSlides { WaitingOverlay(editor: editor, state: shown, shown: zoom.view) }
                 }
                 .overlay {
                     if let typing {
@@ -1100,6 +1115,18 @@ struct DeckView: View {
         perform {
             try document.make(ops, undo: undo)
             if let then { chosen = then }
+        }
+    }
+
+    /// A slide started in `layout` after `state`'s slide, or a blank one with none, then shown
+    /// (PLAN 3.30): one step to undo.
+    private func startSlide(after state: String, layout: String?) {
+        perform {
+            let started = try editor.session.starting(after: state, layout: layout)
+            try document.make(started.patch, undo: undo)
+            undo?.setActionName("New Slide")
+            chosen = started.id
+            said = "Slide added"
         }
     }
 

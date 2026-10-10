@@ -60,7 +60,9 @@ import type {
   Put,
   BundleFile,
   Compared,
+  Starter,
   Version,
+  Waiting,
 } from "./protocol";
 
 type Reply = Extract<
@@ -136,6 +138,9 @@ type Reply = Extract<
       | "pasted"
       | "thumbnails"
       | "addingState"
+      | "starters"
+      | "starting"
+      | "waiting"
       | "layoutSuggestions";
   }
 >;
@@ -708,6 +713,24 @@ export class Stage {
     return this.request<"addingState">({ type: "addingState", id: ++this.asked, source, state, what }).then(({ added }) => added);
   }
 
+  /** The slides a person may start after `state`'s slide, on the deck `source` compiles to (PLAN
+   * 3.30): one in each of the theme's layouts, then a blank one, painted `height` pixels high. */
+  starters(source: string, state: string, height: number, format?: string): Promise<Starter[]> {
+    return this.request<"starters">({ type: "starters", id: ++this.asked, source, state, height, format }).then(({ starters }) => starters);
+  }
+
+  /** The patch that starts a slide in `layout`, or a blank one with none, after `state`'s slide, on
+   * the deck `source` compiles to (PLAN 3.30). */
+  starting(source: string, state: string, layout?: string): Promise<{ id: string; patch: unknown[] }> {
+    return this.request<"starting">({ type: "starting", id: ++this.asked, source, state, layout }).then(({ added }) => added);
+  }
+
+  /** The slots of `state`'s layout, in `format`, with nothing placed in them, each waiting for
+   * what its prompt says goes there (PLAN 3.30). */
+  waits(state: string, format?: string): Promise<Waiting[]> {
+    return this.request<"waiting">({ type: "waiting", id: ++this.asked, state, format }).then(({ waiting }) => waiting);
+  }
+
   /** The patch that takes `node`, with what it holds, out of `state` and the states after it, or,
    * `everywhere`, out of the deck, on the deck `source` compiles to. */
   deleting(source: string, state: string, node: string, everywhere: boolean): Promise<unknown[]> {
@@ -915,6 +938,9 @@ export class Stage {
       case "pasted":
       case "thumbnails":
       case "addingState":
+      case "starters":
+      case "starting":
+      case "waiting":
       case "layoutSuggestions":
       case "sheet":
       case "dataEdited":

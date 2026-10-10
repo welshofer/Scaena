@@ -300,6 +300,32 @@ export interface StateChoices {
  * lint finds in the state laid out in it, the states the change reaches, and the `set_state` that
  * makes it (none for the layout it takes now), with its picture at rest, `width` × `height` pixels
  * of straight-alpha RGBA. */
+/** A slide a person may start (PLAN 3.30): one in a layout of the theme, a text in each slot that
+ * says what goes there, or a blank one; and its picture. */
+export interface Starter {
+  /** The theme's layout it is in; none for the blank slide. */
+  layout: string | null;
+  /** What the theme says the layout is for. */
+  description: string | null;
+  /** The gallery's section it is offered under; none for the blank slide. */
+  group: string | null;
+  width: number;
+  height: number;
+  pixels: ArrayBuffer;
+}
+
+/** A slot of the state's layout with nothing placed in it, which waits for what its prompt says
+ * goes there (PLAN 3.30): the canvas outlines it with the prompt's words. */
+export interface Waiting {
+  slot: string;
+  /** Its box in the format shown, canvas units. */
+  rect: [number, number, number, number];
+  /** What goes there, as the prompt says it. */
+  words: string;
+  /** Whether words go there; else a picture or a figure. */
+  typed: boolean;
+}
+
 export interface LayoutSuggestion {
   layout: string;
   current?: boolean;
@@ -767,6 +793,14 @@ export type ToWorker =
   /** The patch that adds a state after `state`, on the deck the editor's `source` compiles to: a
    * `step` of its slide, or a `slide` of its own (PLAN 2.35). */
   | { type: "addingState"; id: number; source: string; state: string; what: "step" | "slide" }
+  /** The slides a person may start after `state`'s slide, on the deck the editor's `source`
+   * compiles to (PLAN 3.30): one in each of the theme's layouts, then a blank one, each painted at
+   * rest `height` pixels high in `format`. */
+  | { type: "starters"; id: number; source: string; state: string; height: number; format?: string }
+  /** The patch that starts a slide in `layout`, or a blank one with none, after `state`'s slide. */
+  | { type: "starting"; id: number; source: string; state: string; layout?: string }
+  /** The slots of `state`'s layout, in `format`, that wait for what their prompts say goes there. */
+  | { type: "waiting"; id: number; state: string; format?: string }
   /** Text typed on the canvas (PLAN 2.32): `ops`, a `replace_text`, made by the user on the deck
    * the editor's `source` compiles to, validated but not linted; then the deck's source, shown
    * at slot `index` and linted as an edit of it is, and where a caret stands in `node`'s text in
@@ -1273,6 +1307,11 @@ export type FromWorker =
   | { type: "thumbnails"; id: number; thumbs: Thumb[] }
   /** The patch that adds a state, and the state's id. */
   | { type: "addingState"; id: number; added: { id: string; patch: unknown[] } }
+  /** The slides a person may start, each with its picture. */
+  | { type: "starters"; id: number; starters: Starter[] }
+  /** The patch that starts a slide, and the slide's id. */
+  | { type: "starting"; id: number; added: { id: string; patch: unknown[] } }
+  | { type: "waiting"; id: number; waiting: Waiting[] }
   /** The text is typed: the deck's source now, what the edit came to, and the text's carets. */
   | { type: "typed"; id: number; source: string; edited: Edited; carets: Carets | null }
   /** The bundle is saved `where`, and the session goes on from it: the files the save

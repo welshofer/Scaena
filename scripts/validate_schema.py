@@ -77,7 +77,7 @@ patch_accept = {
     'an RFC 6902 op with a member it ignores': ops({'op': 'remove', 'path': '/nodes/rev', 'value': 1}),
     'a test of the whole document': ops({'op': 'test', 'path': '', 'value': {}}),
     'a state added with its deltas': ops({'op': 'add_state', 'state': {'id': 'b', 'props': {'t': {'at': {'in': None}}}}}),
-    'a theme inline': ops({'op': 'retheme', 'theme': {'scaena-theme': '0.10'}}),
+    'a theme inline': ops({'op': 'retheme', 'theme': {'scaena-theme': '0.11'}}),
 }
 for name, inst in patch_reject.items():
     assert list(Draft202012Validator(patch_schema).iter_errors(inst)), f"patch schema failed to reject {name}"

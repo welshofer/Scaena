@@ -56,6 +56,7 @@ import type {
   Arrange,
   Arranged,
   Source,
+  Starter,
   StateChoices,
   Themed,
   ThemeEdited,
@@ -63,6 +64,7 @@ import type {
   Themes,
   ToHelper,
   ToWorker,
+  Waiting,
   Where,
 } from "./protocol";
 
@@ -309,6 +311,19 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "addingState":
         current(data.source);
         return post({ type: "addingState", id: data.id, added: JSON.parse(player.addingState(data.state, data.what)) as { id: string; patch: unknown[] } });
+      case "starters": {
+        current(data.source);
+        layOut(data.format);
+        const listed = JSON.parse(player.startersPainted(data.state, data.height)) as Omit<Starter, "pixels">[];
+        const starters = listed.map((s, i) => ({ ...s, pixels: player.starterPixels(i).buffer as ArrayBuffer }));
+        return post({ type: "starters", id: data.id, starters }, starters.map((s) => s.pixels));
+      }
+      case "starting":
+        current(data.source);
+        return post({ type: "starting", id: data.id, added: JSON.parse(player.starting(data.state, data.layout)) as { id: string; patch: unknown[] } });
+      case "waiting":
+        layOut(data.format);
+        return post({ type: "waiting", id: data.id, waiting: JSON.parse(player.waiting(data.state)) as Waiting[] });
       case "deleting":
         current(data.source);
         return post({ type: "deleting", id: data.id, patch: JSON.parse(player.deleting(data.state, data.node, data.everywhere)) as unknown[] });

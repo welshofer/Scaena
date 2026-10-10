@@ -57,6 +57,9 @@
       #overlay .handle { fill: var(--surface); stroke: var(--info); stroke-width: 1; pointer-events: all; }
       #overlay .track { stroke: rgb(156 196 228 / 0.35); stroke-width: 1; }
       #overlay .slot { fill: none; stroke: var(--warning); stroke-width: 1; stroke-dasharray: 6 4; }
+      /* A layout's empty slot, outlined with its prompt's words (PLAN 3.30). */
+      #overlay .waiting { fill: rgb(156 196 228 / 0.06); stroke: rgb(156 196 228 / 0.7); stroke-width: 1; stroke-dasharray: 5 4; }
+      #overlay .waiting-words { fill: rgb(156 196 228 / 0.9); paint-order: stroke; stroke: rgb(0 0 0 / 0.35); stroke-width: 3px; font-family: system-ui, sans-serif; }
       #overlay .flow { fill: none; stroke: rgb(156 196 228 / 0.5); stroke-width: 1; stroke-dasharray: 2 3; }
       #overlay .landing { fill: rgb(156 196 228 / 0.18); stroke: var(--info); stroke-width: 1.5; }
       #overlay.picking, #overlay.drawing { cursor: crosshair; }
@@ -422,6 +425,15 @@
       #usage { color: var(--muted); font-size: 12px; margin-left: auto; }
       dialog { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 16px; width: min(26em, 90vw); }
       dialog::backdrop { background: rgb(0 0 0 / 0.5); }
+      /* Add Slide's gallery (PLAN 3.30): the theme's layouts, each a slide started in it, by section. */
+      #starting { width: min(880px, 94vw); }
+      #starting .starters { max-height: 70vh; overflow-y: auto; padding: 2px; }
+      #starting h3 { font-size: 12px; font-weight: 600; color: var(--muted); margin: 14px 0 6px; }
+      #starting h3:first-child { margin-top: 0; }
+      #starting .group { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+      #starting .group button { display: flex; flex-direction: column; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); color: var(--ink); font: inherit; font-size: 11px; text-align: left; cursor: pointer; }
+      #starting .group button:hover, #starting .group button:focus-visible { border-color: var(--info); outline: none; }
+      #starting canvas { display: block; width: 100%; height: auto; border-radius: 3px; background: #000; }
       dialog h2 { font-size: 15px; margin: 0 0 12px; }
       dialog form { display: flex; flex-direction: column; gap: 10px; }
       dialog label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
@@ -516,7 +528,7 @@
           <ol role="listbox" aria-label="States" aria-orientation="horizontal"></ol>
           <span class="adds">
             <button type="button" data-add="step" title="A state after the one shown, in its slide, showing what it shows">+ Step</button>
-            <button type="button" data-add="slide" title="An empty slide after the shown state's slide">+ Slide</button>
+            <button type="button" data-add="slide" title="A slide after the shown state's slide, in one of the theme's layouts, or blank" aria-haspopup="dialog">+ Slide</button>
           </span>
         </div>
         <p>
@@ -649,6 +661,15 @@
         <menu>
           <button value="cancel" formnovalidate>Cancel</button>
           <button value="create" id="making-create">Create</button>
+        </menu>
+      </form>
+    </dialog>
+    <dialog id="starting" aria-labelledby="starting-title">
+      <form method="dialog">
+        <h2 id="starting-title">Add a slide</h2>
+        <div class="starters" aria-live="polite"></div>
+        <menu>
+          <button value="cancel" formnovalidate>Cancel</button>
         </menu>
       </form>
     </dialog>

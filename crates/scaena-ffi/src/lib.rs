@@ -377,7 +377,12 @@ pub unsafe extern "C" fn scaena_drop(
 /// take (PLAN 2.92, 3.26): `layoutsBegin {state}`, how many are to be judged; `layoutsStep`, the
 /// next judged, and whether any is left; and `layoutSuggestions {height}`, those judged, best
 /// first, each with the `set_state` that gives it and its picture's size, painted `height`
-/// pixels high, which [`scaena_layout_pixels`] takes.
+/// pixels high, which [`scaena_layout_pixels`] takes. The slides a person may start (PLAN 3.30):
+/// `startersPainted {state, height}`, one in each of the theme's layouts, then a blank one, each
+/// `{layout, description, width, height}`, painted `height` pixels high, which
+/// [`scaena_starter_pixels`] takes; `starting {state, layout?}`, the patch that starts one after
+/// the slide of `state`, `{id, patch}`; and `waiting {state}`, the slots of its layout that wait
+/// for what their prompts say goes there, each `{slot, rect, words, typed}`.
 ///
 /// # Safety
 /// `session` is a live handle; `method` a NUL-terminated string; `args` one, or null.
@@ -543,6 +548,33 @@ pub unsafe extern "C" fn scaena_layout_pixels(
         let session = unsafe { handle(session, "session") }?;
         session.0.layout_picture(i).ok_or_else(|| {
             said(format!("no layout's picture {i} is kept: `layoutSuggestions` paints them, and each is taken once"))
+        })
+    });
+    match painted {
+        Ok(raster) => ScaenaPixels { bytes: ScaenaBytes::of(raster.rgba), width: raster.width, height: raster.height },
+        Err(failure) => {
+            unsafe { report(error, failure) };
+            ScaenaPixels { bytes: ScaenaBytes::NONE, width: 0, height: 0 }
+        }
+    }
+}
+
+/// The `i`th picture `startersPainted` painted last (PLAN 3.30), taken: a slide started in that
+/// layout, at rest, as [`scaena_pixels`] gives a frame. Null bytes for one taken already, or past
+/// the last, `*error` then saying why.
+///
+/// # Safety
+/// `session` is a live handle; `error` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_starter_pixels(
+    session: *mut ScaenaSession,
+    i: usize,
+    error: *mut *mut c_char,
+) -> ScaenaPixels {
+    let painted = guarded(|| {
+        let session = unsafe { handle(session, "session") }?;
+        session.0.starter_picture(i).ok_or_else(|| {
+            said(format!("no starter's picture {i} is kept: `startersPainted` paints them, and each is taken once"))
         })
     });
     match painted {
@@ -1226,6 +1258,12 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         "layoutsBegin" => json!(s.layouts_begin(arg("state")?).map_err(said)?),
         "layoutsStep" => json!(s.layouts_step().map_err(said)?),
         "layoutSuggestions" => json!(s.layouts_painted(number("height")?.max(1.0) as u32).map_err(said)?),
+        // The slides a person may start after the slide shown, painted, and one started (PLAN 3.30).
+        "startersPainted" => {
+            json!(s.starters_painted(arg("state")?, number("height")?.max(1.0) as u32).map_err(said)?)
+        }
+        "starting" => value(serde_json::to_value(s.starting(arg("state")?, optional("layout")).map_err(said)?))?,
+        "waiting" => value(serde_json::to_value(s.waiting(arg("state")?).map_err(said)?))?,
         "inserts" => value(serde_json::to_value(s.inserts()))?,
         // What Insert, ⌘D, and Delete make (PLAN 2.34, 3.11): `{id, cell, patch}`, or the ops.
         "inserting" => {

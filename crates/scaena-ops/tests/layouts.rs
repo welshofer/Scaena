@@ -13,7 +13,7 @@ const TRAILS: &str = "../../docs/examples/trails.deck.json";
 #[test]
 fn a_state_is_offered_each_layout_that_draws_it_otherwise_judged_by_lint_best_first() {
     let b = scaena_ops::open(Path::new(TRAILS)).unwrap();
-    // The budget slide places its note in a slot, which four of the theme's layouts have: three
+    // The budget slide places its note in a slot, which five of the theme's layouts have: four
     // set it at the slide's foot, where it reads alike, and narrow-figure over the table and the
     // aside, where they collide (E101).
     let suggested = suggest(&b, "budget", None).unwrap();
@@ -22,7 +22,7 @@ fn a_state_is_offered_each_layout_that_draws_it_otherwise_judged_by_lint_best_fi
     // The layout it takes now first, with nothing to patch, and those it draws alike beside it.
     let now = &suggested[0];
     assert!(now.current && now.patch.is_empty() && now.reach.is_empty(), "{now:?}");
-    assert_eq!(now.alike, ["poster", "full"]);
+    assert_eq!(now.alike, ["poster", "full", "photo-caption"]);
     // The other is one `set_state`, changes this state alone, and makes the slide's errors.
     let other = &suggested[1];
     assert!(!other.current && other.alike.is_empty() && other.errors > 0, "{other:?}");
@@ -50,26 +50,31 @@ fn a_state_is_offered_each_layout_that_draws_it_otherwise_judged_by_lint_best_fi
 #[test]
 fn a_clean_layout_that_draws_the_state_otherwise_is_suggested() {
     let b = scaena_ops::open(Path::new(TRAILS)).unwrap();
-    // The storm slide's caption is its one node in a slot: three layouts set it at the foot of the
+    // The storm slide's caption is its one node in a slot: four layouts set it at the foot of the
     // photo, alike, and narrow-figure higher up and to the right, where lint finds nothing.
     let suggested = suggest(&b, "storm", None).unwrap();
     let judged: Vec<_> = suggested.iter().map(|s| (s.layout.as_str(), s.current, s.errors, s.warnings)).collect();
     assert_eq!(judged, [("full", true, 0, 0), ("narrow-figure", false, 0, 0)], "{suggested:#?}");
-    assert_eq!(suggested[0].alike, ["poster", "figure"]);
+    assert_eq!(suggested[0].alike, ["poster", "figure", "photo-caption"]);
 }
 
 #[test]
-fn a_state_every_layout_draws_alike_is_offered_the_one_it_takes() {
+fn the_layouts_that_draw_a_state_alike_fold_into_the_one_it_takes() {
     let b = scaena_ops::open(Path::new(TRAILS)).unwrap();
-    // The agenda's kicker is the one node in a slot, and each layout puts it in the same place.
+    // The agenda's header is the one node in a slot. Most layouts put it in the same place, folded
+    // into the one the agenda takes; three put it elsewhere: beside a picture off either edge,
+    // and beside an agenda's topics (PLAN 3.30).
     let suggested = suggest(&b, "agenda", None).unwrap();
-    assert_eq!(suggested.len(), 1, "{suggested:#?}");
-    assert!(suggested[0].current && suggested[0].layout == "full");
-    assert_eq!(suggested[0].alike, ["figure", "narrow-figure", "art-left", "art-right"]);
-    // As the cover is, which one layout holds.
+    let names: Vec<&str> = suggested.iter().map(|s| s.layout.as_str()).collect();
+    assert_eq!(names, ["full", "photo-left", "photo-right", "agenda"], "{suggested:#?}");
+    assert!(suggested[0].current && suggested[1..].iter().all(|s| !s.current && s.alike.is_empty()));
+    assert_eq!(suggested[0].alike[..4], ["figure", "narrow-figure", "art-left", "art-right"]);
+    assert!(["bullets", "cards", "three-up", "number-grid"].iter().all(|l| suggested[0].alike.iter().any(|a| a == l)));
+    // The cover's title and subtitle: in `title`, and over a picture in `photo-title`.
     let cover = suggest(&b, "cover", None).unwrap();
-    assert_eq!(cover.len(), 1, "{cover:#?}");
-    assert!(cover[0].current && cover[0].layout == "title" && cover[0].alike.is_empty());
+    let names: Vec<(&str, bool)> = cover.iter().map(|s| (s.layout.as_str(), s.current)).collect();
+    assert_eq!(names, [("title", true), ("photo-title", false)], "{cover:#?}");
+    assert!(cover.iter().all(|s| s.alike.is_empty()));
 }
 
 #[test]

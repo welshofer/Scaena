@@ -159,22 +159,33 @@ static ALL: LazyLock<Vec<Served>> = LazyLock::new(|| {
             include_str!("../../../docs/examples/revenue.deck.scn"),
         ),
         ("revenue.patch.json", "An example patch", JSON, include_str!("../../../docs/examples/revenue.patch.json")),
-        ("dusk.theme.json", "A theme: Dusk, dark", JSON, include_str!("../../../docs/examples/themes/dusk.theme.json")),
+    ] {
+        let text = if mime == JSON { compact(text) } else { text.to_string() };
+        out.push(listed(&format!("scaena://examples/{name}"), about, mime, &text));
+    }
+    // The shipped themes, each in two parts (PLAN 3.30): the theme, its `layouts` a `$ref` to the
+    // part that holds them, each slot with what goes in it.
+    for (name, about, text) in [
+        ("dusk.theme.json", "A theme: Dusk, dark", include_str!("../../../docs/examples/themes/dusk.theme.json")),
         (
             "daybreak.theme.json",
             "A theme: Daybreak, Dusk's light twin",
-            JSON,
             include_str!("../../../docs/examples/authorability/themes/daybreak.theme.json"),
         ),
         (
             "ember.theme.json",
             "A theme: Ember, near-black with one signal orange",
-            JSON,
             include_str!("../../../docs/examples/themes/ember.theme.json"),
         ),
     ] {
-        let text = if mime == JSON { compact(text) } else { text.to_string() };
-        out.push(listed(&format!("scaena://examples/{name}"), about, mime, &text));
+        let uri = format!("scaena://examples/{name}");
+        let mut theme: Value = serde_json::from_str(text).expect("a theme is JSON");
+        let layouts = theme.get_mut("layouts").map(Value::take).unwrap_or_default();
+        theme["layouts"] = serde_json::json!({ "$ref": format!("{uri}/layouts") });
+        let part = |v: &Value| serde_json::to_string(v).expect("JSON prints");
+        out.push(listed(&uri, about, JSON, &part(&theme)));
+        let layouts_about = format!("{about}: its layouts, each slot with what goes in it");
+        out.push(listed(&format!("{uri}/layouts"), &layouts_about, JSON, &part(&layouts)));
     }
     out
 });

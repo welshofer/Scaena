@@ -10,8 +10,11 @@
 //   just after an edit on the canvas stays shown once the editor lints the source.
 // - + Step adds `revenue-2` after `revenue`, in its slide: it shows what `revenue` shows, its
 //   thumbnail the same drawing, and it is shown. One undo takes it back.
-// - + Slide adds an empty slide after `revenue`'s slide, after `mix`, in its layout. Alt with an
-//   arrow key moves it, and so does a drag; Delete removes it, and the source is as it was.
+// - + Slide opens the gallery of Dusk's layouts (PLAN 3.30): a slide drawn for each of its 47, by
+//   its sections, then a blank one. Bullets starts a slide after `mix` with its headline and its
+//   points in their slots, one undo; Photo one whose picture, edge to edge, the canvas outlines
+//   with its words. Blank adds an empty slide after `mix`. Alt with an arrow key moves it, and so
+//   does a drag; Delete removes it, and the source is as it was.
 // - F2 renames a state; a state another builds on is not removed, and the status says why.
 // - The state shown, renamed and taken away, leaves no error on the page, and ⌘Z and ⇧⌘Z with the
 //   strip focused undo and redo (PLAN 2.77).
@@ -162,13 +165,61 @@ try {
   check(await back(original), "one undo takes it back");
   check(await holds(["intro", "revenue", "mix", "close"]), "and the strip with it");
 
-  // + Slide after revenue's slide: empty, after mix, in its layout.
+  // + Slide opens the gallery of the theme's layouts, each a slide started in it (PLAN 3.30).
+  const gallery = async () => {
+    await page.click("#strip [data-add=slide]");
+    await page.waitForSelector("#starting[open] button[data-start]", { timeout: 60000 });
+  };
+  const tile = (name) => page.locator("#starting").getByRole("button", { name, exact: true });
   await item("revenue").click();
   await shows(1);
-  await page.click("#strip [data-add=slide]");
-  check(await holds(["intro", "revenue", "mix", "slide", "close"]), `+ Slide adds an empty slide after mix: ${await order()}`);
+  await gallery();
+  const offered = await page.evaluate(() => ({
+    tiles: document.querySelectorAll("#starting button[data-start]").length,
+    sections: [...document.querySelectorAll("#starting h3")].map((h) => h.textContent),
+    names: [...document.querySelectorAll("#starting button[data-start] span")].map((s) => s.textContent),
+    drawn: [...document.querySelectorAll("#starting canvas")].filter((c) => c.width === 0 || c.height === 0).length,
+  }));
+  check(offered.tiles === 48 && offered.drawn === 0, `a slide drawn for each of Dusk's 47 layouts and a blank one: ${offered.tiles}`);
+  check(offered.sections.join() === "Titles,Words,Pictures,Charts,Numbers,Blank", `by its sections: ${offered.sections.join(", ")}`);
+  const wanted = ["Big number", "Photo", "Two up", "Three up", "Four up", "Cards", "Funnel"];
+  check(wanted.every((n) => offered.names.includes(n)), `among them ${wanted.join(", ")}`);
+  await tile("Bullets").click();
+  check(await holds(["intro", "revenue", "mix", "bullets", "close"]), `Bullets starts a slide after mix: ${await order()}`);
+  const started = await source();
+  check(started.includes("state bullets mode:absolute layout:bullets"), "absolute, in its layout");
+  check(started.includes('"What this slide says"') && started.includes("The first point"), "its headline and its points in their slots");
+  check(await shows(3), "and shows it");
+  await undo();
+  check(await back(original), "one undo takes it back");
+
+  // Photo: its picture waits, edge to edge, outlined with its words.
+  await item("revenue").click();
+  await shows(1);
+  await gallery();
+  await tile("Photo").click();
+  check(await holds(["intro", "revenue", "mix", "photo", "close"]), `Photo starts a slide after mix: ${await order()}`);
+  await shows(3);
+  const waits = await page.waitForFunction(() => {
+    const w = window.scaena.canvas.waiting();
+    return w.length ? w : undefined;
+  }, null, { timeout: 30000 }).then((h) => h.jsonValue(), () => []);
+  check(
+    waits.length === 1 && waits[0].slot === "art" && waits[0].words === "A picture, edge to edge" && waits[0].rect.join() === "0,0,1920,1080",
+    `the canvas outlines its picture's slot, edge to edge: ${JSON.stringify(waits)}`,
+  );
+  check((await page.locator("#overlay .waiting-words").textContent()) === "A picture, edge to edge", "with its words");
+  await undo();
+  check(await back(original), "one undo takes it back");
+
+  // Blank: an empty slide after revenue's slide, after mix.
+  await item("revenue").click();
+  await shows(1);
+  await gallery();
+  await tile("Blank").click();
+  check(await holds(["intro", "revenue", "mix", "slide", "close"]), `Blank adds an empty slide after mix: ${await order()}`);
   const declared = (await source()).split("\n").find((l) => l.startsWith("state slide"));
-  check(Boolean(declared?.includes("mode:absolute") && declared.includes("layout:figure")), `empty, in revenue's layout: ${declared}`);
+  check(Boolean(declared?.includes("mode:absolute") && !declared.includes("layout:")), `empty, in no layout: ${declared}`);
   check(await shows(3), "and shows it");
 
   // Alt with an arrow key moves it; so does a drag; Delete removes it.

@@ -5,15 +5,15 @@
 //
 // On the trails example, with nothing selected:
 // - `budget` is drawn in each layout it may take, best first by what lint finds there: `figure`,
-//   the one it takes now, which `poster` and `full` draw alike, then `narrow-figure`, which sets
-//   its note over the table.
+//   the one it takes now, which `poster`, `full`, and `photo-caption` draw alike, then
+//   `narrow-figure`, which sets its note over the table.
 // - `storm`: a pointer over `narrow-figure` shows the state laid out in it on the canvas, nothing
 //   made, and the canvas is as it was once the pointer leaves. A click gives the state that
 //   layout: one `set_state` by the user, written where the layout lives, one step to undo; the
 //   suggestions are judged again, the new one pressed. By keys: the focus on one shows it, Enter
 //   chooses it, and the focus leaving lets it go.
-// - A state every layout draws alike (`agenda`), or that places no node in a slot (`change`, its
-//   cards on the grid), has nothing drawn to choose between.
+// - A state one layout alone holds (`hours`, a stat), or that places no node in a slot (`change`,
+//   its cards on the grid), has nothing drawn to choose between.
 // Exits 1 on any failure.
 import { launch, serve } from "./serve.mjs";
 
@@ -98,7 +98,7 @@ try {
   const shown = await buttons();
   check(shown.map((b) => b.layout).join() === "figure,narrow-figure", `best first: ${shown.map((b) => b.layout).join(", ")}`);
   check(shown[0]?.pressed === "true" && shown[1]?.pressed === "false", "the layout it takes now is pressed");
-  check(shown[0]?.says === "figure · nothing found · also poster, full", `poster and full draw it as figure does: ${shown[0]?.says}`);
+  check(shown[0]?.says === "figure · nothing found · also poster, full, photo-caption", `poster, full, and photo-caption draw it as figure does: ${shown[0]?.says}`);
   const last = (await suggested()).at(-1);
   check(last?.errors === 3 && shown[1]?.says === "narrow-figure · 3 errors", `narrow-figure says its errors: ${shown[1]?.says}`);
   check(
@@ -120,7 +120,10 @@ try {
   await showState("storm");
   await suggestedFor("storm", "full");
   const storm = await buttons();
-  check(storm.map((b) => b.says).join(" | ") === "full · nothing found · also poster, figure | narrow-figure · nothing found", `storm: ${storm.map((b) => b.says).join(" | ")}`);
+  check(
+    storm.map((b) => b.says).join(" | ") === "full · nothing found · also poster, figure, photo-caption | narrow-figure · nothing found",
+    `storm: ${storm.map((b) => b.says).join(" | ")}`,
+  );
   const before = await shot();
   await page.hover('#look .layouts [data-layout="narrow-figure"]');
   await previewing("narrow-figure");
@@ -167,7 +170,7 @@ try {
   check(kept === "narrow-figure", `the focus stays on it, drawn again: ${kept}`);
   // The other drawing is named for the first in the theme's order of the layouts that draw it.
   const other = (await buttons()).find((b) => b.pressed === "false")?.layout;
-  check(other === "poster", `the other is poster, which full and figure draw alike: ${other}`);
+  check(other === "poster", `the other is poster, which full, figure, and photo-caption draw alike: ${other}`);
   await page.focus(`#look .layouts [data-layout="${other}"]`);
   await previewing(other);
   check((await previewed()) === other, `the focus on ${other} previews it`);
@@ -178,10 +181,10 @@ try {
   await page.waitForFunction((s) => window.scaena.source() === s, original, { timeout: 30000 }).catch(() => {});
   check((await source()) === original, "and one undo takes it back");
 
-  // Nothing drawn to choose between: every layout draws the agenda alike, and change's cards stand
-  // on the grid, in no slot.
+  // Nothing drawn to choose between: `stat` alone holds hours' number, claim, and detail, and
+  // change's cards stand on the grid, in no slot.
   for (const [state, why] of [
-    ["agenda", "every layout draws it alike"],
+    ["hours", "one layout alone holds it"],
     ["change", "it places no node in a slot"],
   ]) {
     await showState(state);

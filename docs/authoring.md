@@ -352,25 +352,63 @@ What the props mean is in SPEC §3: the objects in §3.3, layout in §3.4, type 
 
 The shipped themes, Dusk, Daybreak, and Ember, share these names, so a deck moves between them with no other change (`scaena theme --apply`). A name the theme does not have is E102. A test holds this section to the themes.
 
-| Layout | Its slots |
-|---|---|
-| `title` | `kicker`, `title`, `subtitle`, `art` |
-| `statement` | `kicker`, `statement`, `support` |
-| `poster` | `kicker`, `statement`, `support`, `note`, `art` |
-| `full` | `kicker`, `header`, `main`, `note` |
-| `figure` | `kicker`, `header`, `main`, `note` |
-| `narrow-figure` | `kicker`, `header`, `main`, `note` |
-| `stat` | `kicker`, `number`, `claim`, `detail`, `under` |
-| `split` | `body`, `main` |
-| `art-left` | `kicker`, `header`, `art`, `body` |
-| `art-right` | `kicker`, `header`, `body`, `art` |
-| `quote` | `quote`, `who` |
+Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type over, a picture, a chart, or a card or a rule. Add Slide in the editor offers every layout as a slide started in it, by the gallery's sections, and a new slide in one has the words in its slots and its cards and rules (PLAN 3.30). A slot that `bleed`s reaches the canvas's edge: `photo` is a picture edge to edge, and `photo-left` one off the left edge.
+
+| Layout | Its slots | In the gallery |
+|---|---|---|
+| `title` | `kicker`, `title`, `subtitle`, `art` | Titles |
+| `statement` | `kicker`, `statement`, `support` | Words |
+| `poster` | `kicker`, `statement`, `support`, `note`, `art` | Words |
+| `full` | `kicker`, `header`, `main`, `note` | Pictures |
+| `figure` | `kicker`, `header`, `main`, `note` | Charts |
+| `narrow-figure` | `kicker`, `header`, `main`, `note` | Charts |
+| `stat` | `kicker`, `number`, `claim`, `detail`, `under` | Numbers |
+| `split` | `body`, `main` | Charts |
+| `art-left` | `kicker`, `header`, `art`, `body` | Pictures |
+| `art-right` | `kicker`, `header`, `body`, `art` | Pictures |
+| `quote` | `quote`, `who` | Words |
+| `section` | `kicker`, `number`, `title`, `support` | Titles |
+| `photo-title` | `art`, `title`, `subtitle` | Titles |
+| `closing` | `kicker`, `statement`, `support` | Titles |
+| `title-only` | `kicker`, `header` | Titles |
+| `bullets` | `kicker`, `header`, `body` | Words |
+| `numbered` | `kicker`, `header`, `body` | Words |
+| `agenda` | `kicker`, `header`, `body` | Words |
+| `two-columns` | `kicker`, `header`, `first`, `second` | Words |
+| `comparison` | `kicker`, `header`, `first-title`, `first`, `second-title`, `second` | Words |
+| `pros-cons` | `kicker`, `header`, `first-title`, `first`, `second-title`, `second` | Words |
+| `three-columns` | `kicker`, `header`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Words |
+| `cards` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Words |
+| `roadmap` | `kicker`, `header`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Words |
+| `steps` | `kicker`, `header`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Words |
+| `timeline` | `kicker`, `header`, `first-title`, `second-title`, `third-title`, `fourth-title`, `rule`, `first`, `second`, `third`, `fourth` | Words |
+| `quadrants` | `kicker`, `header`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Words |
+| `three-rows` | `kicker`, `header`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Words |
+| `definition` | `kicker`, `term`, `meaning`, `example` | Words |
+| `testimonials` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `first`, `second`, `third`, `first-note`, `second-note`, `third-note` | Words |
+| `quote-portrait` | `art`, `quote`, `who` | Words |
+| `funnel` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `fourth-card`, `first`, `second`, `third`, `fourth` | Words |
+| `pyramid` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `fourth-card`, `first`, `second`, `third`, `fourth` | Words |
+| `photo` | `art` | Pictures |
+| `photo-caption` | `art`, `note` | Pictures |
+| `photo-left` | `art`, `header`, `body` | Pictures |
+| `photo-right` | `header`, `body`, `art` | Pictures |
+| `two-up` | `kicker`, `header`, `first-art`, `second-art`, `first`, `second` | Pictures |
+| `three-up` | `kicker`, `header`, `first-art`, `second-art`, `third-art`, `first`, `second`, `third` | Pictures |
+| `four-up` | `kicker`, `header`, `first-art`, `second-art`, `third-art`, `fourth-art` | Pictures |
+| `mosaic` | `first-art`, `second-art`, `third-art` | Pictures |
+| `team` | `kicker`, `header`, `first-art`, `second-art`, `third-art`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Pictures |
+| `figure-numbers` | `kicker`, `header`, `main`, `first-title`, `first`, `second-title`, `second` | Charts |
+| `big-number` | `number`, `claim`, `under` | Numbers |
+| `two-numbers` | `kicker`, `first-title`, `second-title`, `first`, `second` | Numbers |
+| `numbers` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Numbers |
+| `number-grid` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `fourth-card`, `fifth-card`, `sixth-card`, `first-title`, `second-title`, `third-title`, `fourth-title`, `fifth-title`, `sixth-title`, `first`, `second`, `third`, `fourth`, `fifth`, `sixth` | Numbers |
 
 Every layout also has `in(canvas)`, the whole canvas, and `in(grid)`, the margins' box. `at:col(1-6) row(2-8)` places by the theme's 12 × 12 grid instead.
 
 | Names | |
 |---|---|
-| Text roles (`role:`) | `display`, `headline`, `title`, `body`, `caption`, `label`, `axis`, `value`, `lede`, `kicker`, `figure`, `quote`, `numeral`, `code` |
+| Text roles (`role:`) | `display`, `headline`, `title`, `body`, `caption`, `label`, `axis`, `value`, `lede`, `kicker`, `figure`, `quote`, `numeral`, `hero`, `code` |
 | Motion presets (`enter:`, `exit:`, `emphasis:`) | `fade`, `rise`, `grow`, `draw`, `words`, `pulse` |
 | Durations (`transition:`, `duration:`) | `fast`, `standard`, `slow` |
 | Easings (`ease:`) | `standard`, `in`, `out`, `linear` |
