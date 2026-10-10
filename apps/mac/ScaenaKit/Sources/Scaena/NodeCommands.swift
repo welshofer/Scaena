@@ -31,6 +31,9 @@ struct DeckActions {
     var placeAnew: (() -> Void)? = nil
     /// Ask for a picture, or a sheet's data, from a file, to put on the slide shown.
     var choosePicture: (() -> Void)? = nil
+    /// Whether a node selected shows on another slide too: Delete from All Slides takes it off
+    /// those as well, where Delete takes it off this slide on.
+    var deletesElsewhere = false
 }
 
 private struct DeckActionsKey: FocusedValueKey {

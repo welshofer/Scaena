@@ -46,6 +46,8 @@ struct DeckView: View {
     @State private var ownLocks: Set<String> = []
     /// Whether the node selected is a group, which Ungroup takes apart.
     @State private var grouped = false
+    /// Whether a node selected shows on another slide than the one shown (`showsElsewhere`).
+    @State private var elsewhere = false
     /// The look ⌥⌘C copied last, which ⌥⌘V pastes, as `look` gives it.
     @State private var copiedLook: JSONValue?
     /// What the on-device model is asked, shown in a sheet.
@@ -601,7 +603,7 @@ struct DeckView: View {
                     document?.typedInPlace(before, joins: joins, undo: now)
                 }
             }
-            .task(id: "\(shown ?? "")\u{1f}\(node ?? "")\u{1f}\(editor.revision)") {
+            .task(id: "\(shown ?? "")\u{1f}\(selection.joined(separator: ","))\u{1f}\(editor.revision)") {
                 // What the Node menu offers, read again as the deck or the selection changes.
                 inserts = (try? editor.session.inserts()) ?? []
                 let boxes = shown.flatMap { try? editor.session.boxes(state: $0) } ?? []
@@ -611,6 +613,7 @@ struct DeckView: View {
                 } else {
                     grouped = false
                 }
+                elsewhere = shown.map { showsElsewhere(in: $0) } ?? false
             }
             .task(id: said) {
                 // What the canvas says of an edit fades once read, as a presentation app's tips do.
@@ -905,6 +908,7 @@ struct DeckView: View {
             ungroup: one && grouped ? { ungroup(in: shown) } : nil,
             order: some ? { how in order(how, in: shown) } : nil)
         made.choosePicture = { choosingPicture = true }
+        made.deletesElsewhere = elsewhere
         // In another of the deck's formats, a node given a layout of its own there (PLAN 2.85).
         if one, let node, let format = editor.format {
             made.placeAnew = { placeAnew(node, in: format, state: shown) }
@@ -1177,6 +1181,20 @@ struct DeckView: View {
             also = []
             said = gone ? "Deleted from every slide · ⌘Z brings it back" : "Deleted · ⌘Z brings it back"
         }
+    }
+
+    /// Whether a node selected shows on a slide other than `state`'s: what Delete from All Slides
+    /// takes it off too, where Delete takes it off this slide on. Read as that delete would reach.
+    private func showsElsewhere(in state: String) -> Bool {
+        let nodes = selection
+        guard !nodes.isEmpty, let slide = editor.slots.first(where: { $0.state == state })?.slide else {
+            return false
+        }
+        let here = Set(editor.slots.filter { $0.slide == slide }.map(\.state))
+        let session = editor.session
+        let ops = (try? nodes.flatMap { try session.deleting(state: state, node: $0, everywhere: true) }) ?? []
+        guard !ops.isEmpty, let reached = try? session.reach(ops) else { return false }
+        return reached.contains { !here.contains($0) }
     }
 
     /// Lock the nodes selected by their own lock, or unlock them where each is so locked
