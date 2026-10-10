@@ -165,7 +165,7 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
     # has taken longer than two seconds, and words typed before it went to the canvas as its keys.
     typing="not within 20 s"
     for waited in $(seq 0 20); do
-      if [[ "$(frames saying Editing)" =~ ^-?[0-9]+\ -?[0-9]+ ]]; then
+      if [[ "$(frames value hint)" == Editing* ]]; then
         typing="within $waited s"
         break
       fi

@@ -375,6 +375,8 @@ struct CanvasSelection: View {
                         .background(.regularMaterial, in: Capsule())
                         .padding(8)
                         .allowsHitTesting(false)
+                        // What the walk reads to know a text is typed in (PLAN 3.21).
+                        .accessibilityIdentifier("hint")
                 }
             }
         }
