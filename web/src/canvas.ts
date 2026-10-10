@@ -828,46 +828,50 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     );
   }
 
-  /** Where `node` may go, for its handles. */
+  /** Where `node` may go, for its handles, and what its handles stand on, each asked of the source
+   * as it stands. An answer that comes once the source changed again is dropped, since the change
+   * asks again: the outline asked before an undo is not the deck's after it. */
   function aimAt(node: string) {
     const shown = editor.shown();
     if (!shown) return;
+    const version = editor.version();
+    const current = () => selected === node && editor.version() === version;
     stage
       .targets(shown.state, node, editor.format())
       .then((t) => {
-        if (selected !== node) return;
+        if (!current()) return;
         aim = t;
         draw();
       })
-      .catch(() => (aim = undefined));
+      .catch(() => current() && (aim = undefined));
     // A shape's points and corners (PLAN 2.68).
     stage
       .outline(shown.state, node, editor.format())
       .then((o) => {
-        if (selected !== node) return;
+        if (!current()) return;
         shaped = o && { state: shown.state, outline: o };
         if (pointPicked !== undefined && pointPicked >= (o?.points.length ?? 0)) pointPicked = undefined;
         draw();
       })
-      .catch(() => (shaped = undefined));
+      .catch(() => current() && (shaped = undefined));
     // An image's crop and focal point (PLAN 2.74).
     stage
       .framing(shown.state, node, editor.format())
       .then((f) => {
-        if (selected !== node) return;
+        if (!current()) return;
         imaged = f && { state: shown.state, framing: f };
         draw();
       })
-      .catch(() => (imaged = undefined));
+      .catch(() => current() && (imaged = undefined));
     // A chart's marks and annotations, for the keys (PLAN 2.75).
     stage
       .marksIn(shown.state, node, editor.format())
       .then((found) => {
-        if (selected !== node) return;
+        if (!current()) return;
         charted = found && { state: shown.state, node, ...found };
         if (handling?.node === node && handling.index >= handleList(node).length) handling.index = 0;
       })
-      .catch(() => (charted = undefined));
+      .catch(() => current() && (charted = undefined));
   }
 
   /** Draw the theme's grid of the format shown over the canvas, or stop (PLAN 2.57): `on`, or
