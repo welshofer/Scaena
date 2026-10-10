@@ -1070,11 +1070,25 @@ struct DeckView: View {
             locked: false, copyLook: nil, pasteLook: nil, group: nil, ungroup: nil, order: nil)
     }
 
-    /// What the panels do to the deck (PLAN 3.15): each edit one step of the window's undo.
+    /// What the panels do to the deck (PLAN 3.15): each edit one step of the window's undo, named
+    /// as the Edit menu says it (PLAN 3.28).
     private var panelEdits: PanelEdits {
         PanelEdits(
-            beside: { edit in perform { try document.beside(edit, undo: undo) } },
-            data: { edit in perform { try document.data(edit, undo: undo) } })
+            besideMade: { name, edit in making(name) { try document.beside(edit, undo: undo) } },
+            dataMade: { name, edit in making(name) { try document.data(edit, undo: undo) } })
+    }
+
+    /// `edit` made, its step to undo named `name` in the Edit menu: whether it was. Where it was
+    /// not, the window says why, and no step is named.
+    private func making(_ name: String, _ edit: () throws -> Void) -> Bool {
+        do {
+            try edit()
+            undo?.setActionName(name)
+            return true
+        } catch {
+            failure = "\(error)"
+            return false
+        }
     }
 
     /// The state list's patches (PLAN 3.14): one step to undo, then `then` shown.

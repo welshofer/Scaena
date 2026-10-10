@@ -920,7 +920,10 @@ private struct AdvanceRow: View {
             LabeledContent("After") {
                 HStack(spacing: 4) {
                     TextField("Seconds", text: $seconds)
+                        .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
                         .multilineTextAlignment(.trailing)
+                        .monospacedDigit()
                         .frame(width: 64)
                         .onSubmit(commit)
                     Text("s").foregroundStyle(.secondary)
@@ -986,7 +989,10 @@ private struct Coordinate: View {
     var body: some View {
         HStack(spacing: 2) {
             TextField(label, text: $text)
+                .labelsHidden()
+                .textFieldStyle(.roundedBorder)
                 .multilineTextAlignment(.trailing)
+                .monospacedDigit()
                 .frame(width: 56)
                 .focused($focused)
                 .onSubmit(commit)
@@ -1023,7 +1029,9 @@ private struct NumberRow: View {
             HStack(spacing: 4) {
                 TextField(label, text: $text, prompt: Text("Default"))
                     .labelsHidden()
+                    .textFieldStyle(.roundedBorder)
                     .multilineTextAlignment(.trailing)
+                    .monospacedDigit()
                     .frame(minWidth: 60, maxWidth: 90)
                     .focused($focused)
                     .onSubmit(commit)
@@ -1072,6 +1080,7 @@ private struct TextRow: View {
                     .lineLimit(1...6)
             }
         }
+        .textFieldStyle(.roundedBorder)
         .focused($focused)
         .onSubmit(commit)
         .onChange(of: focused) { _, now in

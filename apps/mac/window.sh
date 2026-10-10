@@ -165,7 +165,7 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
     # has taken longer than two seconds, and words typed before it went to the canvas as its keys.
     typing="not within 20 s"
     for waited in $(seq 0 20); do
-      if [[ "$(frames saying Editing)" =~ ^-?[0-9]+\ -?[0-9]+ ]]; then
+      if [[ "$(frames value hint)" == Editing* ]]; then
         typing="within $waited s"
         break
       fi
@@ -197,6 +197,48 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   frames holds canvas
   events 'key code 53'
   sleep 1
+
+  # The Document tab's Theme (PLAN 3.28): each value a field that reads as one. A color typed in
+  # the paper's field is set on Return, and the Edit menu names the step; ⌘Z takes it back and
+  # ⌘⇧Z makes it again, the slide drawn in each; then ⌘Z leaves the deck as it was.
+  # The Edit menu's Undo and Redo as a person reads them, and whether each is enabled: opened, so
+  # their titles are brought up to date, its screen kept as `$1`, then closed.
+  undoing() {
+    app 'click menu bar item "Edit" of menu bar 1' >/dev/null
+    sleep 1
+    shot "$1"
+    app 'get {name, enabled} of menu items 1 thru 2 of menu 1 of menu bar item "Edit" of menu bar 1'
+    events 'key code 53' >/dev/null
+    sleep 1
+  }
+  menu View Document
+  sleep 2
+  shot theme
+  read -r px py pw ph <<<"$(frames find theme-color-paper)" || true
+  if [[ "${ph:-}" =~ ^[0-9]+$ ]]; then
+    echo "the theme's paper: $px $py $pw $ph, $(frames value theme-color-paper)"
+    pointer click $((px + pw / 2)) $((py + ph / 2))
+    sleep 1
+    events 'keystroke "a" using command down'
+    events 'keystroke "#2B1B3D"'
+    events 'key code 36'
+    sleep 3
+    echo "typed and Return: $(frames value theme-color-paper); the Edit menu: $(undoing theme-edit-menu)"
+    shot theme-typed
+    events 'keystroke "z" using command down'
+    sleep 3
+    echo "⌘Z: $(frames value theme-color-paper); the Edit menu: $(undoing theme-edit-menu-undone)"
+    shot theme-undone
+    events 'keystroke "z" using {shift down, command down}'
+    sleep 3
+    echo "⌘⇧Z: $(frames value theme-color-paper)"
+    shot theme-redone
+    events 'keystroke "z" using command down'
+    sleep 2
+    echo "⌘Z again: $(frames value theme-color-paper)"
+  else
+    echo "no field for the theme's paper: $px $py $pw $ph"
+  fi
 fi
 # The deck is edited now: no saving it, so no asking.
 pkill -x Scaena || true

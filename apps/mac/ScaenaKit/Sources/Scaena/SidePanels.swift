@@ -51,15 +51,25 @@ enum DocumentPanel: String, CaseIterable, Identifiable {
     }
 }
 
-/// What the panels do to the deck (PLAN 3.15): each edit one step of the window's undo; one that
-/// throws, refused or failed, makes nothing, and the window says why.
+/// What the panels do to the deck (PLAN 3.15): each edit one step of the window's undo, named as
+/// the Edit menu's Undo says it (PLAN 3.28); one that throws, refused or failed, makes nothing,
+/// and the window says why.
 struct PanelEdits {
     /// An edit made on the session beside the source (the theme edited or another taken, a version
     /// restored, rows written inline): the deck read again, its undo writing back the files the
-    /// edit gives.
-    let beside: (_ edit: () throws -> [Rewritten]) -> Void
+    /// edit gives. Whether it was made.
+    let besideMade: (_ name: String, _ edit: () throws -> [Rewritten]) -> Bool
     /// A data file written, or a file taken out: the deck read again, its undo the session's.
-    let data: (_ edit: () throws -> Void) -> Void
+    /// Whether it was made.
+    let dataMade: (_ name: String, _ edit: () throws -> Void) -> Bool
+
+    /// `edit` made beside the source, one step to undo named `name`: whether it was.
+    @discardableResult
+    func beside(_ name: String, _ edit: () throws -> [Rewritten]) -> Bool { besideMade(name, edit) }
+
+    /// `edit` of a file, one step to undo named `name`: whether it was made.
+    @discardableResult
+    func data(_ name: String, _ edit: () throws -> Void) -> Bool { dataMade(name, edit) }
 }
 
 /// An edit the deck refused, and why: thrown, nothing made, the window says why.

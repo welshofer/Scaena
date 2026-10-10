@@ -1,11 +1,18 @@
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 import ScaenaKit
 import SwiftUI
 
 /// The deck's theme, edited (PLAN 3.15, as the browser's Theme tab, PLAN 2.39, 2.61, 2.94): another
 /// theme, one the bundle holds or one that ships; its colors, its type roles, and its spacing,
 /// each change one edit of the theme the deck names, RFC 6902 operations on its JSON; and its
-/// colors from a photo the bundle holds. Each is one step to undo, refused with why where the deck
-/// would not validate in the theme it leaves. The panel shows the theme frames are drawn in.
+/// colors from a photo the bundle holds. Each value is a field that reads as one, set on Return or
+/// when the field is left, Escape putting it back, and each change is one step to undo, named in
+/// the Edit menu (PLAN 3.28); one is refused with why where the deck would not validate in the
+/// theme it leaves. The panel shows the theme frames are drawn in, each name in a person's words.
 struct ThemePanel: View {
     let editor: DeckEditor
     let edits: PanelEdits
@@ -31,30 +38,34 @@ struct ThemePanel: View {
             }
             Section("Colors") {
                 ForEach(entries(theme?["tokens"]?["color"])) { entry in
-                    ColorRow(name: entry.key, value: entry.value.string ?? "") { value in
+                    let name = Words.name(entry.key, of: "color", theme: nil)
+                    ColorRow(key: entry.key, name: name, value: entry.value.string ?? "") { value in
                         let path = "/tokens/color/\(escaped(entry.key))"
-                        edit([replace(path, .string(value))], "\(entry.key) set to \(value)")
+                        return edit([put(path, .string(value), over: entry.value)], "\(name) Color")
                     }
                 }
             }
             Section("Type") {
                 ForEach(entries(theme?["type"]?["roles"])) { role in
-                    RoleRow(name: role.key, role: role.value) { key, value in
-                        let path = "/type/roles/\(escaped(role.key))/\(key)"
-                        let op = role.value[key] == nil ? add(path, value) : replace(path, value)
-                        edit([op], "\(role.key)'s \(key) set")
+                    RoleRow(key: role.key, role: role.value) { field, value in
+                        let path = "/type/roles/\(escaped(role.key))/\(field.key)"
+                        let name = "\(Words.phrase(role.key)) \(field.label)"
+                        return edit([put(path, .number(value), over: role.value[field.key])], name)
                     }
                 }
             }
             Section("Spacing") {
-                NumberRow(label: "Gutter", value: theme?["grid"]?["gutter"]?.number) {
-                    edit([replace("/grid/gutter", .number($0))], "gutter set")
+                let gutter = theme?["grid"]?["gutter"]
+                NumberRow(label: "Gutter", id: "theme-gutter", step: 1, unit: "pt", value: gutter?.number) {
+                    edit([put("/grid/gutter", .number($0), over: gutter)], "Gutter")
                 }
-                NumberRow(label: "Baseline", value: theme?["grid"]?["baseline"]?.number) {
-                    edit([replace("/grid/baseline", .number($0))], "baseline set")
+                let baseline = theme?["grid"]?["baseline"]
+                NumberRow(label: "Baseline Grid", id: "theme-baseline", step: 1, unit: "pt", value: baseline?.number) {
+                    edit([put("/grid/baseline", .number($0), over: baseline)], "Baseline Grid")
                 }
-                NumberRow(label: "Space unit", value: theme?["tokens"]?["space"]?["unit"]?.number) {
-                    edit([replace("/tokens/space/unit", .number($0))], "space unit set")
+                let space = theme?["tokens"]?["space"]?["unit"]
+                NumberRow(label: "Space Unit", id: "theme-space-unit", step: 1, unit: "pt", value: space?.number) {
+                    edit([put("/tokens/space/unit", .number($0), over: space)], "Space Unit")
                 }
             }
             Section("From a photo") {
@@ -94,7 +105,7 @@ struct ThemePanel: View {
     }
 
     private func retheme(_ picked: String) {
-        edits.beside {
+        edits.beside("Theme Change") {
             let session = editor.session
             let themed =
                 try picked.hasPrefix("ships:")
@@ -106,20 +117,22 @@ struct ThemePanel: View {
         }
     }
 
-    /// The theme edited by `ops`: one step to undo, the theme file written back; refused with why.
-    private func edit(_ ops: [JSONValue], _ what: String) {
-        edits.beside {
+    /// The theme edited by `ops`, one step to undo named `name`, the theme file written back:
+    /// whether it was; refused, the window says why.
+    @discardableResult
+    private func edit(_ ops: [JSONValue], _ name: String) -> Bool {
+        edits.beside(name) {
             let edited = try editor.session.themeEdit(ops)
             guard edited.applied else {
                 let why = edited.why.first ?? "the deck would not validate in it"
-                throw Refused(description: "\(what): refused, \(why)")
+                throw Refused(description: "\(name) not changed: \(why)")
             }
             return edited.files
         }
     }
 
     private func fromPhoto(_ photo: String) {
-        edits.beside {
+        edits.beside("Colors from Photo") {
             let edited = try editor.session.themeEdit(photo: photo)
             guard edited.applied else {
                 let why = edited.why.first ?? "the deck would not validate in it"
@@ -129,12 +142,9 @@ struct ThemePanel: View {
         }
     }
 
-    private func replace(_ path: String, _ value: JSONValue) -> JSONValue {
-        ["op": "replace", "path": .string(path), "value": value]
-    }
-
-    private func add(_ path: String, _ value: JSONValue) -> JSONValue {
-        ["op": "add", "path": .string(path), "value": value]
+    /// The op that sets `path` to `value`: a replace where `old` is there, an add where nothing is.
+    private func put(_ path: String, _ value: JSONValue, over old: JSONValue?) -> JSONValue {
+        ["op": .string(old == nil ? "add" : "replace"), "path": .string(path), "value": value]
     }
 
     /// `key` as one step of a JSON Pointer.
@@ -156,111 +166,259 @@ private struct ThemeEntry: Identifiable {
     var id: String { key }
 }
 
-/// A color: its swatch, which picks one, and its value as the theme writes it, which takes any the
-/// theme reads (`#rrggbb[aa]`, `oklch(…)`). A swatch dragged commits once it rests.
+/// A color: its swatch, which picks one, and its value as the theme writes it, in a field that
+/// takes any the theme reads (`#rrggbb[aa]`, `oklch(…)`). What is typed is set on Return or when
+/// the field is left, and Escape puts it back; a swatch dragged is set once it rests. One refused
+/// shows the color as it was.
 private struct ColorRow: View {
+    /// The color's name in the theme: what a test finds its field by.
+    let key: String
+    /// The color's name, as a person reads it.
     let name: String
     let value: String
-    let set: (String) -> Void
+    /// Set the color: whether it was.
+    let set: (String) -> Bool
     @State private var typed = ""
+    /// The color set and not yet shown back: set once.
+    @State private var asked: String?
     @State private var settling: Task<Void, Never>?
+    @FocusState private var focused: Bool
 
     var body: some View {
-        HStack {
+        HStack(spacing: 8) {
             ColorPicker(name, selection: swatch, supportsOpacity: true)
                 .labelsHidden()
             Text(name)
+                .lineLimit(1)
             Spacer()
-            TextField("Value", text: $typed)
-                .frame(width: 120)
-                .onSubmit { if typed != value { set(typed) } }
+            TextField(name, text: $typed)
+                .labelsHidden()
+                .textFieldStyle(.roundedBorder)
+                .monospaced()
+                .frame(width: 96)
+                .focused($focused)
+                .onSubmit(commit)
+                #if os(macOS)
+                .onExitCommand(perform: putBack)
+                #else
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .onKeyPress(.escape) {
+                    putBack()
+                    return .handled
+                }
+                #endif
+                .accessibilityIdentifier("theme-color-\(key)")
         }
-        .onAppear { typed = value }
-        .onChange(of: value) { _, now in typed = now }
+        .onChange(of: value, initial: true) { _, now in
+            typed = now
+            asked = nil
+        }
+        .onChange(of: focused) { _, now in
+            if now { selectWhole($focused) } else { commit() }
+        }
+        .onDisappear(perform: commit)
+    }
+
+    /// What is typed, set where it is another color than the one shown; nothing typed shows the
+    /// color as it was.
+    private func commit() {
+        let color = typed.trimmingCharacters(in: .whitespaces)
+        guard !color.isEmpty, color.lowercased() != value.lowercased() else {
+            typed = value
+            return
+        }
+        guard color.lowercased() != asked?.lowercased() else { return }
+        asked = color
+        if !set(color) {
+            asked = nil
+            typed = value
+        }
+    }
+
+    /// The color as it is shown again, what was typed let go.
+    private func putBack() {
+        typed = value
+        focused = false
     }
 
     /// The swatch: the value as a color, where it is a hex color; a color picked, its hex, once the
     /// picker rests.
     private var swatch: Binding<Color> {
         Binding(
-            get: { Self.color(value) ?? .clear },
+            get: { ThemeLook.hex(value) ?? .clear },
             set: { picked in
-                guard let hex = Self.hex(picked), hex.lowercased() != value.lowercased() else { return }
+                guard let hex = ThemeLook.hex(picked), hex.lowercased() != value.lowercased() else { return }
                 settling?.cancel()
                 settling = Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(400))
                     guard !Task.isCancelled else { return }
-                    set(hex)
+                    _ = set(hex)
                 }
             })
     }
-
-    /// `#rrggbb` or `#rrggbbaa` as a color; none for another kind.
-    static func color(_ value: String) -> Color? {
-        guard value.hasPrefix("#"), value.count == 7 || value.count == 9,
-            let n = UInt64(value.dropFirst(), radix: 16)
-        else { return nil }
-        let alpha = value.count == 9
-        let (r, g, b, a) =
-            alpha
-            ? (Double((n >> 24) & 0xFF), Double((n >> 16) & 0xFF), Double((n >> 8) & 0xFF), Double(n & 0xFF))
-            : (Double((n >> 16) & 0xFF), Double((n >> 8) & 0xFF), Double(n & 0xFF), 255.0)
-        return Color(.sRGB, red: r / 255, green: g / 255, blue: b / 255, opacity: a / 255)
-    }
-
-    /// `color` as `#RRGGBB`, or `#RRGGBBAA` where it is not opaque.
-    static func hex(_ color: Color) -> String? {
-        guard let srgb = color.srgb else { return nil }
-        let byte = { (v: Double) in Int((min(max(v, 0), 1) * 255).rounded()) }
-        let (r, g, b) = (byte(srgb.red), byte(srgb.green), byte(srgb.blue))
-        let rgb = String(format: "#%02X%02X%02X", r, g, b)
-        let alpha = byte(srgb.alpha)
-        return alpha == 255 ? rgb : rgb + String(format: "%02X", alpha)
-    }
 }
 
-/// A type role: its size, weight, leading, and tracking, each set when typed.
+/// A type role: its name and its size, opened to its size, weight, line spacing, and character
+/// spacing, each a number to type or step.
 private struct RoleRow: View {
-    let name: String
+    let key: String
     let role: JSONValue
-    /// One of its fields set: its key, and the value.
-    let set: (String, JSONValue) -> Void
+    /// One of its fields set to a number: whether it was.
+    let set: (RoleField, Double) -> Bool
 
     var body: some View {
-        DisclosureGroup(name) {
-            ForEach(["size", "weight", "leading", "tracking"], id: \.self) { key in
-                NumberRow(label: key.capitalized, value: role[key]?.number) { set(key, .number($0)) }
+        DisclosureGroup {
+            ForEach(RoleField.all) { field in
+                NumberRow(
+                    label: field.label, id: "theme-\(key)-\(field.key)", step: field.step, unit: field.unit,
+                    value: role[field.key]?.number
+                ) { set(field, $0) }
+            }
+        } label: {
+            HStack {
+                Text(Words.phrase(key))
+                Spacer()
+                if let size = role["size"]?.number {
+                    Text("\(FieldNumber.shown(size)) pt").monospacedDigit().foregroundStyle(.secondary)
+                }
             }
         }
     }
 }
 
-/// A number the theme sets, typed and set on Return.
+/// One of a type role's numbers: its key in the theme, its label, what a stepper's click moves it
+/// by, and what it counts.
+private struct RoleField: Identifiable {
+    let key: String
+    let label: String
+    let step: Double
+    let unit: String?
+
+    var id: String { key }
+
+    static let all = [
+        RoleField(key: "size", label: "Size", step: 1, unit: "pt"),
+        RoleField(key: "weight", label: "Weight", step: 50, unit: nil),
+        RoleField(key: "leading", label: "Line Spacing", step: 0.05, unit: nil),
+        RoleField(key: "tracking", label: "Character Spacing", step: 0.01, unit: nil),
+    ]
+}
+
+/// A number the theme sets: a field that reads as one, a stepper beside it. What is typed is set
+/// on Return or when the field is left, and Escape puts it back; a stepper's clicks are set once
+/// they rest. One refused shows the number as it was.
 private struct NumberRow: View {
     let label: String
+    /// What a test finds the field by.
+    let id: String
+    /// What a stepper's click moves the number by.
+    let step: Double
+    /// What the number counts, said after it: `pt`.
+    let unit: String?
     let value: Double?
-    let set: (Double) -> Void
+    /// Set the number: whether it was.
+    let set: (Double) -> Bool
     @State private var typed = ""
+    /// The number set and not yet shown back: set once.
+    @State private var asked: Double?
+    @State private var settling: Task<Void, Never>?
+    @FocusState private var focused: Bool
 
     var body: some View {
-        HStack {
-            Text(label)
-            Spacer()
-            TextField(label, text: $typed)
-                .multilineTextAlignment(.trailing)
-                .frame(width: 90)
-                .onSubmit {
-                    let number = Double(typed.trimmingCharacters(in: .whitespaces))
-                    guard let number, number != value else { return }
-                    set(number)
+        LabeledContent(label) {
+            HStack(spacing: 4) {
+                TextField(label, text: $typed)
+                    .labelsHidden()
+                    .textFieldStyle(.roundedBorder)
+                    .multilineTextAlignment(.trailing)
+                    .monospacedDigit()
+                    .frame(width: 72)
+                    .focused($focused)
+                    .onSubmit(commit)
+                    #if os(macOS)
+                    .onExitCommand(perform: putBack)
+                    #else
+                    .keyboardType(.numbersAndPunctuation)
+                    .onKeyPress(.escape) {
+                        putBack()
+                        return .handled
+                    }
+                    #endif
+                    .accessibilityIdentifier(id)
+                Stepper(label, onIncrement: { nudge(step) }, onDecrement: { nudge(-step) })
+                    .labelsHidden()
+                    .accessibilityIdentifier("\(id)-stepper")
+                if let unit {
+                    Text(unit).foregroundStyle(.secondary)
                 }
+            }
         }
-        .onAppear { typed = Self.shown(value) }
-        .onChange(of: value) { _, now in typed = Self.shown(now) }
+        .onChange(of: value, initial: true) { _, now in
+            typed = FieldNumber.shown(now)
+            asked = nil
+        }
+        .onChange(of: focused) { _, now in
+            if now { selectWhole($focused) } else { commit() }
+        }
+        .onDisappear(perform: commit)
     }
 
-    static func shown(_ value: Double?) -> String {
-        guard let value else { return "" }
-        return value == value.rounded() ? String(Int(value)) : String(value)
+    /// What is typed, set where it is a number other than the one shown; anything else shows the
+    /// number as it was.
+    private func commit() {
+        settling?.cancel()
+        settling = nil
+        guard let number = FieldNumber.read(typed), FieldNumber.shown(number) != FieldNumber.shown(value) else {
+            typed = FieldNumber.shown(value)
+            return
+        }
+        guard FieldNumber.shown(number) != FieldNumber.shown(asked) else { return }
+        asked = number
+        if !set(number) {
+            asked = nil
+            typed = FieldNumber.shown(value)
+        }
+    }
+
+    /// The number as it is shown again, what was typed let go.
+    private func putBack() {
+        settling?.cancel()
+        settling = nil
+        typed = FieldNumber.shown(value)
+        focused = false
+    }
+
+    /// A stepper's click: the number moved `by`, shown at once and set once the clicks rest.
+    private func nudge(_ by: Double) {
+        let from = FieldNumber.read(typed) ?? value ?? 0
+        typed = FieldNumber.shown(FieldNumber.stepped(from, by: by))
+        settling?.cancel()
+        settling = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            commit()
+        }
+    }
+}
+
+/// A field's value selected whole as the field takes the keys, so what is typed takes its place, as
+/// a presentation app's inspector fields do: a tap or a click left of a number set in from the right
+/// would put the caret before it. Once the click that gave it the keys is let go, which sets the
+/// caret, and only while the field still has them.
+@MainActor
+private func selectWhole(_ focused: FocusState<Bool>.Binding) {
+    Task { @MainActor in
+        #if os(macOS)
+        while NSEvent.pressedMouseButtons != 0 { try? await Task.sleep(for: .milliseconds(16)) }
+        try? await Task.sleep(for: .milliseconds(16))
+        #endif
+        guard focused.wrappedValue else { return }
+        #if os(macOS)
+        _ = NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
+        #else
+        _ = UIApplication.shared.sendAction(
+            #selector(UIResponderStandardEditActions.selectAll(_:)), to: nil, from: nil, for: nil)
+        #endif
     }
 }

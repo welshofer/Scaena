@@ -125,7 +125,7 @@ struct VersionsPanel: View {
 
     private func restore() {
         guard let chosen else { return }
-        edits.beside {
+        edits.beside("Restore Version") {
             let restored = try editor.session.restoreVersion(chosen)
             guard restored.applied else {
                 let why = restored.why.first ?? "it would not validate in the bundle as it is"

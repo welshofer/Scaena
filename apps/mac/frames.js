@@ -2,14 +2,15 @@
 // identifier, name, and frame in screen points from the top left, to a depth; the frame of the
 // first element with an identifier, as "x y width height"; what that element holds, each by its
 // role and name, one to a line: the canvas's objects as a reader hears them; each split view in
-// the window with the frame of each pane in it: how the window's width is shared out; or the frame
-// of the first text that begins with some words, as the hint over the canvas says what it does.
+// the window with the frame of each pane in it: how the window's width is shared out; or the value
+// of the first element with an identifier, as a field shows what it holds (PLAN 3.28) and the hint
+// over the canvas says what it does.
 //
 //   osascript -l JavaScript apps/mac/frames.js tree DEPTH
 //   osascript -l JavaScript apps/mac/frames.js find IDENTIFIER
+//   osascript -l JavaScript apps/mac/frames.js value IDENTIFIER
 //   osascript -l JavaScript apps/mac/frames.js holds IDENTIFIER
 //   osascript -l JavaScript apps/mac/frames.js splits
-//   osascript -l JavaScript apps/mac/frames.js saying WORDS
 function run(argv) {
   const [what, arg] = argv;
   const window = Application("System Events").processes.byName("Scaena").windows[0];
@@ -46,32 +47,18 @@ function run(argv) {
     throw new Error(`nothing is identified as ${tag}`);
   };
   if (what === "find") return frame(found(arg)).join(" ");
+  if (what === "value") {
+    const e = read(() => found(arg));
+    return e ? String(read(() => e.value()) || name(e) || "") : "";
+  }
   if (what === "holds") {
     return children(found(arg))
       .map((e) => `${read(() => e.role()) ?? "?"} "${name(e)}" ${frame(e).join(" ")}`)
       .join("\n");
   }
-  // Breadth first through the window's groups, past what holds no hint: the toolbar, a list, a
-  // scroll view, the canvas's objects, and every control.
+  // Breadth first through the window's groups, past what holds no split view: the toolbar, a
+  // list, a scroll view, the canvas's objects, and every control.
   const into = new Set(["AXWindow", "AXGroup", "AXSplitGroup", "AXLayoutArea", "AXTabGroup"]);
-  if (what === "saying") {
-    let level = [window];
-    for (let depth = 0, seen = 0; depth < 16 && level.length && seen < 2000; depth++) {
-      const next = [];
-      for (const e of level) {
-        seen++;
-        const role = read(() => e.role());
-        if (role === "AXStaticText") {
-          const words = name(e) || read(() => e.value()) || "";
-          if (String(words).startsWith(arg)) return frame(e).join(" ");
-        }
-        if (!into.has(role) || id(e) === "canvas") continue;
-        next.push(...children(e));
-      }
-      level = next;
-    }
-    return "";
-  }
   if (what === "splits") {
     const said = (e) => `${read(() => e.role()) ?? "?"}${id(e) ? ` #${id(e)}` : ""} ${frame(e).join(" ")}`;
     const lines = [];
