@@ -8,7 +8,8 @@
 //   and the focus leaves the canvas. Enter goes into a stack, and Escape back out.
 // - Enter on a shape goes to its points, on an image to its crop's sides and focal point, on a
 //   chart to its marks: Tab steps through them, an arrow moves a handle, each move the patch its drag
-//   makes, one step to undo; + adds a point, and a mark reached is picked, so its menu annotates it.
+//   makes, one step to undo, and quick presses each move it on from where the last left it; + adds a
+//   point, and a mark reached is picked, so its menu annotates it.
 // - [ and ] turn what is selected; ⌘A selects all beside it. Space, Tab, and Space build a
 //   selection by keys, a node at a time, and Escape stops (PLAN 2.89).
 // - In a layout shown, Tab keys a slot and an arrow moves it a track: one theme edit.
@@ -111,6 +112,12 @@ try {
   await press(page, "Tab");
   await press(page, "ArrowLeft");
   check(await comes(page, "points:\\[\\[0\\.5, 0\\], \\[0\\.99, 1\\], \\[0, 1\\]\\]"), `← moves the second point a hundredth left: ${(await page.evaluate(() => window.scaena.source())).match(/shape-tri[^\n]*/)?.[0]}`);
+  // Pressed quickly, each moves it on from where the last left it.
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowLeft");
+  check(await comes(page, "points:\\[\\[0\\.5, 0\\], \\[0\\.97, 1\\], \\[0, 1\\]\\]"), `two quick ← move it two hundredths more: ${(await page.evaluate(() => window.scaena.source())).match(/shape-tri[^\n]*/)?.[0]}`);
+  await undo(page);
+  await undo(page);
   await undo(page);
   check(await back(page, original), "one undo takes it back");
   // The undo compiled and laid out again: the outline is the source's.

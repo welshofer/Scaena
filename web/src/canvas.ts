@@ -502,6 +502,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   let reshaping: Reshape | undefined;
   /** The framing of the image selected (PLAN 2.74): its crop's handles and its focal point's. */
   let imaged: { state: string; framing: Framing } | undefined;
+  /** The outline and the framing the last change asked for, once they come: a key that moves a
+   * handle again moves it from where the last left it (PLAN 2.75). */
+  let aiming: Promise<unknown> = Promise.resolve();
   /** A crop handle, or the focal point, dragged. */
   let cropping: Cropping | undefined;
   /** The handle the keys work (PLAN 2.75): of the shape's or the image's handles, in order, the
@@ -845,7 +848,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       })
       .catch(() => current() && (aim = undefined));
     // A shape's points and corners (PLAN 2.68).
-    stage
+    const outlined = stage
       .outline(shown.state, node, editor.format())
       .then((o) => {
         if (!current()) return;
@@ -855,7 +858,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       })
       .catch(() => current() && (shaped = undefined));
     // An image's crop and focal point (PLAN 2.74).
-    stage
+    const framed = stage
       .framing(shown.state, node, editor.format())
       .then((f) => {
         if (!current()) return;
@@ -863,6 +866,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         draw();
       })
       .catch(() => current() && (imaged = undefined));
+    aiming = Promise.all([outlined, framed]);
     // A chart's marks and annotations, for the keys (PLAN 2.75).
     stage
       .marksIn(shown.state, node, editor.format())
@@ -1523,6 +1527,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   /** Handle `h` of `node` moved by the arrow `[dx, dy]`, a hundredth (with `far`, a tenth), or a
    * corner a radius step: the patch its drag makes, kept to the state shown with `fork`. */
   async function nudgeHandle(node: string, h: Handle, [dx, dy]: Point, far: boolean, alt: boolean) {
+    await aiming;
     const shown = editor.shown();
     if (!shown) return;
     const by = far ? 0.1 : 0.01;
@@ -1566,6 +1571,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
 
   /** A point added after point `index` of shape `node`, at the middle of the edge to the next. */
   async function addAfter(node: string, index: number, alt: boolean) {
+    await aiming;
     const shown = editor.shown();
     const o = shaped?.outline;
     if (!shown || !o || o.node !== node) return;
@@ -1608,6 +1614,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   /** Take the point picked away, unless the shape keeps no fewer: a line or an arrow two, a polygon three. */
   function unpoint() {
     return inTurn(async () => {
+      await aiming;
       const [shown, s, i] = [editor.shown(), shaped, pointPicked];
       if (!shown || !s || i === undefined) return;
       const o = s.outline;
