@@ -172,6 +172,25 @@ enum Words {
         return phrase(name)
     }
 
+    /// A bundle's file as a person names it: a font by its family and face, as
+    /// `fonts/Inter-Italic-5a81e633895bf83d.ttf` is Inter Italic, without the hash a save adds;
+    /// a data file by its name. None for a file a save names by its content alone, as it names a
+    /// picture, whose name says nothing to a person.
+    static func file(_ path: String, type: String) -> String? {
+        let name = (path as NSString).lastPathComponent
+        var stem = (name as NSString).deletingPathExtension
+        let hex = { (part: Substring) in part.allSatisfy(\.isHexDigit) }
+        if stem.count == 64, hex(stem[...]) { return nil }
+        guard type == "font" else { return name }
+        if let dash = stem.lastIndex(of: "-"), stem[stem.index(after: dash)...].count == 16,
+            hex(stem[stem.index(after: dash)...])
+        {
+            stem = String(stem[..<dash])
+        }
+        if stem.hasSuffix("-VF") { stem.removeLast(3) }
+        return stem.replacingOccurrences(of: "-", with: " ")
+    }
+
     /// Milliseconds said in seconds: `5.5 s`, `0.18 s`.
     static func seconds(_ ms: Double) -> String {
         "\(number(ms / 1000)) s"

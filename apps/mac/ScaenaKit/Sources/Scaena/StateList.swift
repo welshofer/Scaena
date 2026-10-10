@@ -5,7 +5,8 @@ import SwiftUI
 /// numbered and drawn small at rest by the engine, painted again only when its drawing changes, as
 /// the browser's strip is (PLAN 2.35, 3.14); a slide's steps under it, set in. A slide or a step is
 /// added after one, moved by a drag or a step up or down, and removed; a slide copied or taken out.
-/// Each is one patch, one step to undo.
+/// Each is one patch, one step to undo. On the Mac, Delete takes out the slide chosen, with its
+/// steps, or the step chosen, as a presentation app's navigator does, and the one after it shows.
 struct StateList: View {
     let editor: DeckEditor
     @Binding var chosen: String?
@@ -35,7 +36,7 @@ struct StateList: View {
 
     var body: some View {
         let numbered = places
-        List(selection: $chosen) {
+        let list = List(selection: $chosen) {
             ForEach(editor.slots, id: \.state) { slot in
                 let place = numbered[slot.state] ?? (slide: 0, step: 1)
                 StateRow(editor: editor, slot: slot, number: place.slide, step: place.step, revision: editor.revision)
@@ -43,6 +44,31 @@ struct StateList: View {
             }
             .onMove(perform: move)
         }
+        #if os(macOS)
+        list.onDeleteCommand(perform: deleteChosen)
+        #else
+        list
+        #endif
+    }
+
+    /// The row chosen taken out: its slide, with its steps, where it is a slide's first state;
+    /// else the step. The deck's only slide stays.
+    private func deleteChosen() {
+        guard let chosen, let slot = editor.slots.first(where: { $0.state == chosen }) else { return }
+        if places[chosen]?.step == 1 {
+            guard Slide.of(editor.slots).count > 1 else { return }
+            make(Restaging.removeSlides([slot.slide]), shownAfter(removing: slot.slide))
+        } else {
+            remove(chosen)
+        }
+    }
+
+    /// What shows once `slide` is taken out: the slide after it, or, past the last, the one before.
+    private func shownAfter(removing slide: String) -> String? {
+        let slides = Slide.of(editor.slots)
+        guard let i = slides.firstIndex(where: { $0.id == slide }) else { return nil }
+        let next = i + 1 < slides.count ? i + 1 : i - 1
+        return slides.indices.contains(next) ? slides[next].states.first : nil
     }
 
     /// What is done to a slide, or a step of it.
@@ -64,7 +90,7 @@ struct StateList: View {
             Button("Delete Step", systemImage: "minus.square", role: .destructive) { remove(slot.state) }
         }
         Button("Delete Slide", systemImage: "trash", role: .destructive) {
-            make(Restaging.removeSlides([slot.slide]), nil)
+            make(Restaging.removeSlides([slot.slide]), shownAfter(removing: slot.slide))
         }
         .disabled(Slide.of(editor.slots).count < 2)
     }

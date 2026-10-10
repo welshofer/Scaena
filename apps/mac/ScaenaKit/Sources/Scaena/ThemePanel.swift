@@ -77,8 +77,8 @@ struct ThemePanel: View {
                 if photos.isEmpty {
                     Text("The bundle holds no PNG or JPEG photo.").foregroundStyle(.secondary)
                 }
-                ForEach(photos, id: \.self) { photo in
-                    Button(photo) { fromPhoto(photo) }
+                ForEach(Array(photos.enumerated()), id: \.element) { n, photo in
+                    Button(Words.file(photo, type: "image") ?? "Photo \(n + 1)") { fromPhoto(photo) }
                         .help("Give the theme this photo's colors, each color text is set in kept where it reads")
                 }
             }

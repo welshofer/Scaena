@@ -16,8 +16,8 @@ struct FilesPanel: View {
                 let held = files.filter { $0.type == type }
                 if !held.isEmpty {
                     Section(Self.heading(type)) {
-                        ForEach(held) { file in
-                            row(file)
+                        ForEach(Array(held.enumerated()), id: \.element.id) { n, file in
+                            row(file, n: n + 1)
                         }
                     }
                 }
@@ -32,10 +32,12 @@ struct FilesPanel: View {
         .task(id: editor.revision) { files = (try? editor.session.bundleFiles()) ?? [] }
     }
 
-    private func row(_ file: BundleFile) -> some View {
+    /// A file by its name in a person's words, the `n`th of its kind: a picture a save names by its
+    /// content is Picture and its number. Its path is its help.
+    private func row(_ file: BundleFile, n: Int) -> some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(file.path).lineLimit(1).truncationMode(.middle)
+                Text(Words.file(file.path, type: file.type) ?? "Picture \(n)").lineLimit(1).truncationMode(.middle)
                 Text(Self.said(file)).font(.caption).foregroundStyle(.secondary).lineLimit(3)
             }
             Spacer()

@@ -80,6 +80,8 @@ struct DeckView: View {
     @State private var choosingSlide = false
     /// Whether Choose Picture… asks for a file.
     @State private var choosingPicture = false
+    /// The themes that ship, offered as a deck made by New opens (PLAN 3.3); none once one is chosen.
+    @State private var offeredThemes: [ShippedTheme] = []
     /// Whether the state shown is drawn in each of the deck's formats under the canvas (PLAN 3.16).
     @SceneStorage("formats") private var showsFormats = false
     /// How close the canvas is shown, and the part of it shown (PLAN 3.16).
@@ -378,6 +380,8 @@ struct DeckView: View {
         } label: {
             Label("View", systemImage: "rectangle.on.rectangle")
         }
+        // Read by its name, not its symbol's: VoiceOver would say Screen Sharing.
+        .accessibilityLabel("View")
         .help("The light table, and what the window shows beside the slide")
     }
 
@@ -449,6 +453,7 @@ struct DeckView: View {
         } label: {
             Label("Share", systemImage: "square.and.arrow.up")
         }
+        .accessibilityLabel("Share")
         .help("The deck as a PDF, or this slide as a picture")
         .disabled(editor.slots.isEmpty)
     }
@@ -467,15 +472,53 @@ struct DeckView: View {
             })
     }
 
-    /// What the View and Play menus do in this window (PLAN 3.18).
+    /// What the View, Slide, and Play menus do in this window (PLAN 3.18).
     private var panes: WindowPanes {
-        WindowPanes(
+        var made = WindowPanes(
             slides: $showsSlides, timeline: $showsTimeline, formats: $showsFormats, grid: $showsGrid,
             issues: $showsFindings, source: $showsSource, assistant: $showsAssistant, inspector: $showsInspector,
             tab: $tab,
             play: editor.slots.isEmpty ? nil : { Presenting.play(editor, from: shown) },
             rehearse: editor.slots.isEmpty || rehearsal != nil || !editor.valid ? nil : { rehearse() },
             remote: { remoting = true })
+        // The Slide menu acts on the slide shown, as the slide list's menu acts on its slide.
+        if let shown, rehearsal == nil, let slide = editor.slots.first(where: { $0.state == shown })?.slide {
+            made.newSlide = { addState(after: shown, as: .slide) }
+            made.newStep = { addState(after: shown, as: .step) }
+            made.duplicateSlide = { duplicateSlide(slide) }
+            if Slide.of(editor.slots).count > 1 { made.deleteSlide = { deleteSlide(slide) } }
+        }
+        return made
+    }
+
+    /// A copy of `slide` just after it, shown (PLAN 3.14): one step to undo.
+    private func duplicateSlide(_ slide: String) {
+        perform {
+            try document.make(Restaging.duplicateSlides([slide]), undo: undo)
+            undo?.setActionName("Duplicate Slide")
+            // The copy is the slide just after the one it copies.
+            let slides = Slide.of(editor.slots)
+            if let i = slides.firstIndex(where: { $0.id == slide }), i + 1 < slides.count,
+                let first = slides[i + 1].states.first
+            {
+                chosen = first
+            }
+            said = "Slide duplicated"
+        }
+    }
+
+    /// `slide` taken out, with its steps, and the slide after it shown, or, past the last, the one
+    /// before (PLAN 3.14): one step to undo.
+    private func deleteSlide(_ slide: String) {
+        let slides = Slide.of(editor.slots)
+        guard slides.count > 1, let i = slides.firstIndex(where: { $0.id == slide }) else { return }
+        let next = i + 1 < slides.count ? slides[i + 1] : slides[i - 1]
+        perform {
+            try document.make(Restaging.removeSlides([slide]), undo: undo)
+            undo?.setActionName("Delete Slide")
+            chosen = next.states.first
+            said = "Slide deleted"
+        }
     }
 
     /// The deck played here, as presented, keeping the time each slide takes (PLAN 3.14).
@@ -570,6 +613,19 @@ struct DeckView: View {
                     perform { try document.make(ops, undo: undo) }
                 }
             }
+            .sheet(isPresented: choosingTheme) {
+                ThemeChooser(themes: offeredThemes) { name in
+                    offeredThemes = []
+                    if let name { begin(in: name) }
+                }
+            }
+            // A deck New made: the themes that ship offered first, once its window is up.
+            .task {
+                guard document.startsNew else { return }
+                document.startsNew = false
+                try? await Task.sleep(for: .milliseconds(250))
+                offeredThemes = (try? editor.session.shippedThemes()) ?? []
+            }
             .alert("Not made", isPresented: failing, presenting: failure) { _ in
                 Button("OK") { failure = nil }
             } message: { said in
@@ -580,6 +636,31 @@ struct DeckView: View {
     /// Whether an export waits to be saved.
     private var exporting: Binding<Bool> {
         Binding(get: { saving != nil }, set: { if !$0 { saving = nil } })
+    }
+
+    /// Whether the themes that ship are offered.
+    private var choosingTheme: Binding<Bool> {
+        Binding(get: { !offeredThemes.isEmpty }, set: { if !$0 { offeredThemes = [] } })
+    }
+
+    /// A deck New made put in the theme that ships named `name`, before anything is on it (PLAN
+    /// 3.3): no step to undo. What only the theme it leaves named, its file and its fonts, goes
+    /// with it, so the bundle holds the one theme.
+    private func begin(in name: String) {
+        perform {
+            let session = editor.session
+            let ships = try session.shippedThemes().first { $0.name == name }
+            let current = try session.themes().current.map { ($0 as NSString).lastPathComponent }
+            guard let ships, current != ships.file else { return }
+            let themed = try session.retheme(ships: name)
+            guard themed.applied else {
+                throw Refused(description: "not re-themed: \(themed.why.first ?? "the deck would not validate in it")")
+            }
+            for file in try session.bundleFiles() where file.named.isEmpty {
+                try session.removeFile(file.path)
+            }
+            editor.reread()
+        }
     }
 
     /// Whether what a rehearsal kept is shown.

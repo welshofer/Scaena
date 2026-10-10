@@ -19,6 +19,13 @@ struct WindowPanes {
     let rehearse: (() -> Void)?
     /// Remote…: let a remote play it (PLAN 4.10).
     let remote: () -> Void
+    /// The Slide menu, as a presentation app's: New Slide, after the slide shown, in its layout;
+    /// New Step, a step of it; and the slide shown copied, or taken out. None that cannot be done
+    /// now: no slide shown, or the deck's only slide taken out.
+    var newSlide: (() -> Void)? = nil
+    var newStep: (() -> Void)? = nil
+    var duplicateSlide: (() -> Void)? = nil
+    var deleteSlide: (() -> Void)? = nil
 }
 
 private struct WindowPanesKey: FocusedValueKey {
@@ -131,6 +138,8 @@ struct InsertMenu: View {
             .menuIndicator(.hidden)
             .disabled(all.isEmpty && choose == nil)
             .help(help(all))
+            // Read by its name: a pop-up button in the toolbar is otherwise read as one.
+            .accessibilityLabel(title)
             .accessibilityIdentifier("insert-\(title)")
     }
 
