@@ -36,10 +36,30 @@ app() { events "tell process \"Scaena\" to $1"; }
 window() { app "get {position, size} of window 1" | tr -d ','; }
 pointer() { osascript -l JavaScript "$root/apps/mac/pointer.js" "$@" 2>&1 || true; }
 frames() { osascript -l JavaScript "$root/apps/mac/frames.js" "$@" 2>&1 || true; }
+# A menu's item chosen; again a moment later while the app is too busy to be asked, as it may be
+# just after an edit, up to five times.
 menu() {
   local said
-  said=$(app "click menu item \"$2\" of menu 1 of menu bar item \"$1\" of menu bar 1")
-  if [[ "$said" == *rror* ]]; then echo "$1 › $2: $said"; fi
+  for _ in 1 2 3 4 5; do
+    said=$(app "click menu item \"$2\" of menu 1 of menu bar item \"$1\" of menu bar 1")
+    [[ "$said" == *rror* ]] || return 0
+    sleep 1
+  done
+  echo "$1 › $2: $said"
+}
+# Wait until the canvas reads as other than `$1`, the slide it read as (with `same`, as `$1`), up
+# to 20 s: "<what it reads as>, within N s".
+reads() {
+  local now waited
+  for waited in $(seq 0 20); do
+    now=$(frames value canvas)
+    if [[ -n "$now" && "$now" != *rror* ]] && { [[ "${2:-}" == same && "$now" == "$1" ]] || [[ "${2:-}" != same && "$now" != "$1" ]]; }; then
+      echo "$now, within $waited s"
+      return
+    fi
+    sleep 1
+  done
+  echo "still ${now:-nothing} after 20 s"
 }
 shot() { screencapture -x "$out/shots/mac-$1.png"; }
 # The screen, and the part of it a window may take: width, height, then the part's left, top,
@@ -242,17 +262,18 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
 
   # The Slide menu (PLAN 3.14), as a presentation app's: what it offers, opened so each item is
   # enabled as it is now; then New Slide adds one after the slide shown, in its layout, and ⌘Z
-  # takes it back.
+  # takes it back, each waited for until the canvas reads as the slide it shows then.
   app 'click menu bar item "Slide" of menu bar 1' >/dev/null
   sleep 1
   echo "the Slide menu: $(app 'get {name, enabled} of every menu item of menu 1 of menu bar item "Slide" of menu bar 1')"
   events 'key code 53'
   sleep 1
+  before=$(frames value canvas)
   menu Slide "New Slide"
-  sleep 2
+  echo "New Slide, the canvas shows: $(reads "$before")"
   shot slide-menu-new
   events 'keystroke "z" using command down'
-  sleep 2
+  echo "⌘Z, the canvas shows: $(reads "$before" same)"
   shot slide-menu-undone
 
   # The Document tab's Theme (PLAN 3.28): each value a field that reads as one. A color typed in
