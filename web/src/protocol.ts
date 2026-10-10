@@ -356,6 +356,9 @@ export interface Field {
   lives?: Lives;
   /** The value is written out where the theme has names: an override, or lint W300's. */
   literal?: boolean;
+  /** What the theme gives a text's look where the deck sets none, which the state then shows: its
+   * role's family, weight, size, italic, case, tracking, or color. Absent for the rest. */
+  theme?: unknown;
 }
 
 /** What a property takes: one of the theme's names of a kind (with `overrides`, or a value written
