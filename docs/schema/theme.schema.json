@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/theme-0.10.json",
+  "$id": "https://scaena.dev/schema/theme-0.11.json",
   "title": "Scaena theme (design system)",
   "description": "Tokens, typographic roles, layout templates, motion, and palettes. Documents reference these by name; they never store resolved values. See docs/SPEC.md §3.6.",
   "type": "object",
   "required": ["scaena-theme", "name", "tokens", "type", "grid", "layouts", "motion"],
   "additionalProperties": false,
   "properties": {
-    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.10(\\.[0-9]+)?$" },
+    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.11(\\.[0-9]+)?$" },
     "name": { "type": "string", "minLength": 1 },
     "description": { "type": "string" },
     "tokens": { "$ref": "#/$defs/Tokens" },
@@ -364,6 +364,10 @@
       "additionalProperties": false,
       "properties": {
         "description": { "type": "string" },
+        "group": {
+          "description": "Where an editor's gallery of slides to start offers it (theme format 0.11, PLAN 3.30): a section named for what the layouts in it hold (`Titles`, `Words`, `Pictures`), in the order the theme first names each.",
+          "type": "string"
+        },
         "formats": {
           "description": "The slots that move in other formats (SPEC §3.4): `\"9:16\": { \"slots\": … }`.",
           "type": "object",
@@ -397,7 +401,18 @@
         "row": { "$ref": "#/$defs/Range" },
         "align": { "$ref": "#/$defs/Align" },
         "role": { "description": "Default text role for nodes placed in this slot.", "type": "string" },
-        "inset": { "type": "number" }
+        "inset": {
+          "description": "How far in from its cells the slot stands on each side, canvas units (theme format 0.11, PLAN 3.30): words on a card that fills the same cells.",
+          "type": "number"
+        },
+        "prompt": {
+          "description": "What goes in the slot (theme format 0.11, PLAN 3.30). Words a person types over: a new slide in the layout puts a text in the slot's `role` there, with these words, each item of a list a paragraph. A slot with no role says in words what goes in it, a picture or a figure, and a new slide leaves it empty, an editor outlining it. A shape: a new slide puts one there, under what is placed in the slots over it, a card or a rule. A format's slot keeps the layout's prompt.",
+          "$ref": "#/$defs/Prompt"
+        },
+        "bleed": {
+          "description": "The slot reaches the canvas's edge on each side where its tracks meet the edge of the grid (theme format 0.11, PLAN 3.30): a picture that bleeds, off the page or one side of it.",
+          "type": "boolean"
+        }
       }
     },
     "Range": {
@@ -418,6 +433,49 @@
       "properties": { "x": { "$ref": "#/$defs/AlignX" }, "y": { "$ref": "#/$defs/AlignY" } }
     },
     "AlignY": { "type": "string", "enum": ["start", "center", "end", "stretch", "cap", "baseline", "x-height"] },
+    "Prompt": {
+      "description": "What goes in a slot (PLAN 3.30): words, a paragraph to each line; a list's items; or a shape.",
+      "anyOf": [
+        { "type": "string", "minLength": 1 },
+        { "$ref": "#/$defs/PromptItems" },
+        { "$ref": "#/$defs/PromptShape" }
+      ]
+    },
+    "PromptItems": {
+      "description": "A list's items, as a slot's prompt gives them: `{ \"bullet\": [...] }` or `{ \"number\": [...] }`.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["bullet"],
+          "additionalProperties": false,
+          "properties": { "bullet": { "type": "array", "items": { "type": "string" }, "minItems": 1 } }
+        },
+        {
+          "type": "object",
+          "required": ["number"],
+          "additionalProperties": false,
+          "properties": { "number": { "type": "array", "items": { "type": "string" }, "minItems": 1 } }
+        }
+      ]
+    },
+    "PromptShape": {
+      "description": "A shape a new slide puts in a slot (PLAN 3.30): a card behind words, or a rule between them.",
+      "type": "object",
+      "required": ["shape"],
+      "additionalProperties": false,
+      "properties": {
+        "shape": { "$ref": "#/$defs/PromptShapeKind" },
+        "fill": {
+          "description": "What fills a rectangle or an ellipse: a color token or role. A line and an arrow take the theme's rule.",
+          "type": "string"
+        }
+      }
+    },
+    "PromptShapeKind": {
+      "description": "The shapes a slot's prompt makes: those that need no points.",
+      "type": "string",
+      "enum": ["rect", "ellipse", "line", "arrow"]
+    },
     "ThemeFormat": {
       "description": "A theme in another format: the grid there.",
       "type": "object",

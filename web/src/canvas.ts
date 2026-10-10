@@ -66,12 +66,15 @@
 import { ALT, type Key, MOD, SHIFT } from "./commands";
 import { marks } from "./marks";
 import { BUNDLE_PATH, CLIP, DATA, PICTURE } from "./protocol";
-import type { Added, Arrange, Cells, DataMark, Edited, Finding, Framing, Grid, Insert, LayoutSlots, Look, Map6, NodeBox, NoteMark, Outline, Rect, SlotBox, SnapMode, Snapped, Targets } from "./protocol";
+import type { Added, Arrange, Cells, DataMark, Edited, Finding, Framing, Grid, Insert, LayoutSlots, Look, Map6, NodeBox, NoteMark, Outline, Rect, SlotBox, SnapMode, Snapped, Targets, Waiting } from "./protocol";
 import { pointer } from "./theme-panel";
 import * as notes from "./notes";
 import { annotate, askWords, markName, noteName } from "./notes";
 import type { Stage } from "./stage";
 import { covered, paragraphs, type Selected, typing } from "./typing";
+
+/** `text` as SVG holds it: the words of a slot's prompt (PLAN 3.30). */
+const escaped = (text: string) => text.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]!);
 
 /** What the canvas answers that no command runs by name (PLAN 2.65): the pointer's gestures and the
  * keys held with them, and the keys that move what is selected. The keys sheet lists them with the
@@ -537,6 +540,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
    * shown's, asked again whenever what stands where is. */
   let ruled = false;
   let grid: Grid | undefined;
+  /** The slots of the state shown with nothing in them, outlined with their prompts' words (PLAN
+   * 3.30): where a slide's picture or figure goes, or words taken out. */
+  let waits: Waiting[] = [];
+  /** The slides made here, from the gallery or after the slide shown: only theirs show their
+   * layout's empty slots, so a deck opened shows none it never filled. */
+  const fresh = new Set<string>();
   /** Whether the safe area's strip is drawn around the canvas's edge (PLAN 3.29), from the same
    * grid. */
   let safeShown = false;
@@ -678,6 +687,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (!shown) return;
     const [was, format] = [size, editor.format()];
     const ruling = ruled || safeShown ? stage.grid(format).catch(() => undefined) : undefined;
+    const waiting = fresh.has(shown.state) ? stage.waits(shown.state, format).catch((): Waiting[] => []) : Promise.resolve([]);
     // A state renamed or taken away while its boxes were asked for (PLAN 2.77): the edit that did it
     // asks again, for the state shown now.
     try {
@@ -687,6 +697,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       throw e;
     }
     if (ruling) grid = await ruling;
+    waits = await waiting;
     boxed = shown.state;
     // Another format, laid out again, or another canvas: the preview shows all of it again.
     if (size[0] !== was[0] || size[1] !== was[1] || format !== framed) void look([0, 0, size[0], size[1]]);
@@ -923,6 +934,17 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       const [cw, ch] = size;
       parts.push(`<path class="safe-strip" fill-rule="evenodd" d="M0 0H${cw}V${ch}H0Z M${x} ${y}H${x + w}V${y + h}H${x}Z"/>`);
       parts.push(rect(grid.safe, "safe-edge"));
+    }
+    // What waits in the layout's empty slots (PLAN 3.30), outlined with its words: a press there
+    // and Insert, or a picture dropped there, fills it.
+    if (!slotting) {
+      for (const w of waits) {
+        const [x, y, width, height] = w.rect;
+        parts.push(rect(w.rect, "waiting"));
+        parts.push(
+          `<text class="waiting-words" x="${x + width / 2}" y="${y + height / 2}" text-anchor="middle" dominant-baseline="middle" font-size="${13 * u}">${escaped(w.words)}</text>`,
+        );
+      }
     }
     if (drag) {
       const t = drag.targets;
@@ -3498,6 +3520,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     rule,
     ruled: () => ruled,
     grid: () => (ruled ? grid : undefined),
+    /** The empty slots outlined on the canvas, with their words (PLAN 3.30). */
+    waiting: () => waits,
+    /** A slide made here: its layout's empty slots are outlined once it shows. */
+    freshen: (state: string) => void fresh.add(state),
     /** Draw the safe area around the canvas's edge, or stop, as ⌥⌘' does (PLAN 3.29); and whether
      * it is drawn, and what lies inside it. */
     shield,

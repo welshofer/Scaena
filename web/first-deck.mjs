@@ -10,11 +10,12 @@
 // - New, from its dialog: a deck in Dusk with one empty state.
 // - A title slide: the state's layout from the inspector, a text from Insert in the title slot,
 //   its words typed where it stands.
-// - + Slide, then a body text typed as three lines and made a bulleted list with ⌘⇧8.
+// - + Slide, and Blank from its gallery of the theme's layouts (PLAN 3.30), then a body text typed
+//   as three lines and made a bulleted list with ⌘⇧8.
 // - A CSV dropped on the slide becomes the deck's data source, and a chart of it lands there; the
 //   same file again is another chart of it, not a second source, and one undo takes it out; the
 //   Data tab shows its rows.
-// - + Slide, and a photo dropped on it is put there.
+// - Another blank slide, and a photo dropped on it is put there.
 // - A motion from the cue's menu on the title.
 // - Every state linted: no error.
 // - Save keeps it in the browser, and Play plays it in a tab of its own.
@@ -95,6 +96,13 @@ try {
     await until(`${node} on the canvas`, (n) => window.scaena.canvas.boxes().some((b) => b.node === n), node);
     const [x, y, w, h] = (await boxes()).find((b) => b.node === node).rect;
     return client([x + w / 2, y + h / 2]);
+  };
+  /** + Slide, then `name`'s slide from its gallery of the theme's layouts, as a click there starts
+   * it (PLAN 3.30). */
+  const addSlide = async (name) => {
+    await page.click("#strip [data-add=slide]");
+    await page.waitForSelector("#starting[open] button[data-start]", { timeout: 60000 });
+    await page.locator("#starting").getByRole("button", { name, exact: true }).click();
   };
   /** Show the `n`th state, as a click on its card in the strip does. */
   const showState = async (n) => {
@@ -200,10 +208,10 @@ try {
 
   await step("add-slide", async () => {
     const before = await mark();
-    await page.click("#strip [data-add=slide]");
+    await addSlide("Blank");
     await changed(before);
     const states = await page.evaluate(() => [...document.querySelectorAll("#strip li")].map((li) => li.dataset.state));
-    check(states.length === 2, `+ Slide adds a slide: ${states.join(", ")}`);
+    check(states.length === 2, `+ Slide's Blank adds a slide: ${states.join(", ")}`);
     await showState(1);
   });
 
@@ -269,7 +277,7 @@ try {
   await step("photo-on-canvas", async () => {
     // A slide of its own for a photo, dragged onto it from the desktop: it is put where it lands.
     const before = await mark();
-    await page.click("#strip [data-add=slide]");
+    await addSlide("Blank");
     await changed(before);
     await showState(2);
     await page.waitForFunction(() => window.scaena.canvas.boxes().length === 0, null, { timeout: 30000 });

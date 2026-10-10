@@ -78,6 +78,11 @@ struct DeckView: View {
     @SceneStorage("grid") private var showsGrid = false
     /// Whether the safe area's strip is drawn around the slide's edge (PLAN 3.29).
     @SceneStorage("safeArea") private var showsSafeArea = false
+    /// Whether Add Slide's gallery of layouts is open (PLAN 3.30).
+    @State private var choosingSlide = false
+    /// The slides made in this window, from the gallery or after the slide shown (PLAN 3.30):
+    /// only theirs show their layout's empty slots, so a deck opened shows none it never filled.
+    @State private var fresh: Set<String> = []
     /// Whether the state shown is drawn in each of the deck's formats under the canvas (PLAN 3.16).
     @SceneStorage("formats") private var showsFormats = false
     /// How close the canvas is shown, and the part of it shown (PLAN 3.16).
@@ -380,18 +385,28 @@ struct DeckView: View {
         zoom.level > 1 + 1e-9 ? "\(Int((zoom.level * 100).rounded()))%" : "Fit"
     }
 
-    /// A slide added after the one shown, then shown; or a step of it.
+    /// A slide added after the one shown, then shown, from the gallery of the theme's layouts
+    /// (PLAN 3.30); or a step of it.
     private var adding: some View {
-        Menu {
-            Button("New Slide") { if let shown { addState(after: shown, as: .slide) } }
-            Button("New Step on This Slide") { if let shown { addState(after: shown, as: .step) } }
+        Button {
+            choosingSlide = true
         } label: {
             Label("Add Slide", systemImage: "plus.rectangle.on.rectangle")
-        } primaryAction: {
-            if let shown { addState(after: shown, as: .slide) }
         }
-        .help("Add a slide after this one; its menu adds a step of this slide")
+        .help("Add a slide after this one, in one of the theme's layouts, or a step of this slide")
         .disabled(shown == nil)
+        .accessibilityIdentifier("add-slide")
+        .popover(isPresented: $choosingSlide, arrowEdge: .bottom) {
+            if let shown {
+                SlideGallery(editor: editor, state: shown) { layout in
+                    choosingSlide = false
+                    startSlide(after: shown, layout: layout)
+                } step: {
+                    choosingSlide = false
+                    addState(after: shown, as: .step)
+                }
+            }
+        }
     }
 
     /// The deck as a PDF, or the slide shown as a PNG: shared, looked at, or saved.
@@ -561,7 +576,13 @@ struct DeckView: View {
                     if showsGrid { GridOverlay(editor: editor, shown: zoom.view) }
                 }
                 .overlay {
-                    if showsSafeArea { SafeAreaOverlay(editor: editor, shown: zoom.view) }
+                    // The guides that hold nothing off the slide, and the layout's empty slots.
+                    ZStack {
+                        if showsSafeArea { SafeAreaOverlay(editor: editor, shown: zoom.view) }
+                        if !showsSlides, fresh.contains(shown) {
+                            WaitingOverlay(editor: editor, state: shown, shown: zoom.view)
+                        }
+                    }
                 }
                 .overlay {
                     if let typing {
@@ -1111,10 +1132,24 @@ struct DeckView: View {
         }
     }
 
+    /// A slide started in `layout` after `state`'s slide, or a blank one with none, then shown
+    /// (PLAN 3.30): one step to undo.
+    private func startSlide(after state: String, layout: String?) {
+        perform {
+            let started = try editor.session.starting(after: state, layout: layout)
+            fresh.insert(started.id)
+            try document.make(started.patch, undo: undo)
+            undo?.setActionName("New Slide")
+            chosen = started.id
+            said = "Slide added"
+        }
+    }
+
     /// A step or a slide added after `state`, then shown (PLAN 2.35): one step to undo.
     private func addState(after state: String, as what: StateAdding) {
         perform {
             let added = try editor.session.addingState(after: state, as: what)
+            if what == .slide { fresh.insert(added.id) }
             try document.make(added.patch, undo: undo)
             chosen = added.id
             said = what == .step ? "Step added" : "Slide added"

@@ -368,6 +368,77 @@ impl Session {
         Some(std::mem::replace(kept, scaena_paint::Raster { width: 0, height: 0, rgba: Vec::new() }))
     }
 
+    /// The slides a person may start after the slide of `state`, the state shown (PLAN 3.30): one
+    /// in each of the theme's layouts, in its order, then a blank one, each as
+    /// [`Session::starting`] makes it, laid out in the format shown and painted at rest `height`
+    /// pixels high by a CPU painter of its own, a box of the theme's second surface (`surface-2`)
+    /// in each slot that waits for a picture or a figure. Each as JSON: its `layout` (none for the
+    /// blank one), the layout's `description` and `group`, and its picture's `width` and `height`,
+    /// the pictures kept until [`Session::starter_picture`] takes each. Nothing is made.
+    pub fn starters_painted(&mut self, state: &str, height: u32) -> Result<Vec<Value>, Error> {
+        use scaena_paint::Painter;
+        self.build()?;
+        let base = self.deck.to_value().map_err(|e| Error::Ops(e.to_string()))?;
+        let fill = ["surface-2", "line"].into_iter().find(|c| self.theme.tokens.roles.contains_key(*c));
+        let mut layouts: Vec<Option<String>> = self.theme.layouts.keys().cloned().map(Some).collect();
+        layouts.push(None);
+        let mut painter = scaena_paint::cpu::CpuPainter::default();
+        let (mut listed, mut painted) = (Vec::with_capacity(layouts.len()), Vec::with_capacity(layouts.len()));
+        for layout in layouts {
+            let started = scaena_ops::states::starting(&self.deck, &self.theme, state, layout.as_deref())
+                .map_err(|e| Error::Ops(e.message))?;
+            let mut patch = started.patch;
+            // A box where a picture or a figure goes, drawn under the words: in the picture only.
+            let template = layout.as_deref().and_then(|name| self.theme.layouts.get(name));
+            let (description, group) =
+                (template.and_then(|t| t.description.clone()), template.and_then(|t| t.group.clone()));
+            let waits = |s: &scaena_core::model::theme::Slot| {
+                s.role.is_none() && matches!(s.prompt, Some(scaena_core::model::theme::Prompt::Words(_)))
+            };
+            let waiting = template.into_iter().flat_map(|t| &t.slots).filter(|(_, s)| waits(s));
+            for (n, (slot, _)) in waiting.enumerate() {
+                let Some(fill) = fill else { break };
+                let node =
+                    serde_json::json!({ "type": "shape", "kind": "rect", "fill": fill, "at": { "in": slot }, "z": -1 });
+                let id = format!("{}-waiting-{n}", started.id);
+                patch.push(serde_json::json!({ "op": "add_node", "id": id, "node": node, "state": started.id }));
+            }
+            let doc = scaena_core::patch::compile(&base, &patch, &Handed(&self.files))
+                .map_err(|e| Error::Ops(format!("{e:?}")))?
+                .doc;
+            let made = Deck::from_value(&doc).map_err(|e| Error::Deck(e.to_string()))?;
+            let Session { theme, data, engine, store, format, .. } = &mut *self;
+            let engine = engine.as_mut().expect("built above");
+            let req = FrameRequest {
+                deck: &made,
+                theme,
+                data,
+                state: &started.id,
+                t_ms: f64::INFINITY,
+                format: format.as_deref(),
+            };
+            let list = engine.frame(&req)?.display_list;
+            let picture = painter.paint(&list, store, height as f32 / list.viewport[1])?;
+            listed.push(serde_json::json!({
+                "layout": layout,
+                "description": description,
+                "group": group,
+                "width": picture.width,
+                "height": picture.height,
+            }));
+            painted.push(picture);
+        }
+        self.started = painted;
+        Ok(listed)
+    }
+
+    /// The `i`th picture [`Session::starters_painted`] painted last, taken, with its size: none
+    /// for one taken already, or past the last (PLAN 3.30).
+    pub fn starter_picture(&mut self, i: usize) -> Option<scaena_paint::Raster> {
+        let kept = self.started.get_mut(i).filter(|kept| !kept.rgba.is_empty())?;
+        Some(std::mem::replace(kept, scaena_paint::Raster { width: 0, height: 0, rgba: Vec::new() }))
+    }
+
     /// The layouts `state` may take, best first, judged and painted in one go
     /// ([`Session::layouts_begin`], each step, then [`Session::layouts_end`]).
     pub fn layout_suggestions(
@@ -484,6 +555,36 @@ mod tests {
         }
         // The canvas draws the deck as it was.
         assert!(s.pixels("revenue", f64::INFINITY, 160).unwrap().rgba == before.rgba);
+    }
+
+    /// The slides a person may start (PLAN 3.30): one in each of the theme's layouts, in its
+    /// order, then a blank one, each painted small and none alike, with nothing made.
+    #[test]
+    fn the_slides_to_start_come_painted_one_for_each_layout_then_a_blank_one() {
+        let mut s = revenue();
+        let before = s.pixels("revenue", f64::INFINITY, 160).unwrap();
+        let listed = s.starters_painted("revenue", 90).unwrap();
+        let layouts: Vec<&str> = listed.iter().map(|one| one["layout"].as_str().unwrap_or("blank")).collect();
+        assert_eq!(layouts.len(), 48, "Dusk's 47 layouts, then a blank slide: {layouts:?}");
+        assert_eq!((layouts[0], layouts[47]), ("title", "blank"));
+        let bullets = &listed[layouts.iter().position(|l| *l == "bullets").unwrap()];
+        assert_eq!(bullets["description"], "A headline, and the points that make its case.");
+        assert_eq!(bullets["group"], "Words");
+        assert!(listed[47]["description"].is_null() && listed[47]["group"].is_null());
+        let mut pictures: Vec<scaena_paint::Raster> = Vec::new();
+        for (i, one) in listed.iter().enumerate() {
+            let picture = s.starter_picture(i).unwrap();
+            assert_eq!((one["width"].as_u64(), one["height"].as_u64()), (Some(160), Some(90)));
+            assert_eq!((picture.width, picture.height), (160, 90), "{}", layouts[i]);
+            assert!(s.starter_picture(i).is_none(), "taken");
+            assert!(pictures.iter().all(|p| p.rgba != picture.rgba), "{} draws as another", layouts[i]);
+            pictures.push(picture);
+        }
+        // Nothing is made: the deck draws as it was, and a slide started is a patch to make.
+        assert!(s.pixels("revenue", f64::INFINITY, 160).unwrap().rgba == before.rgba);
+        let started = s.starting("revenue", Some("bullets")).unwrap();
+        assert_eq!((started.id.as_str(), started.patch.len()), ("bullets", 5));
+        assert!(s.states().iter().all(|id| id != "bullets"));
     }
 
     #[test]

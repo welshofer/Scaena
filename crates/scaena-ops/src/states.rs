@@ -1,10 +1,13 @@
 //! The state strip's patches (PLAN 2.35, ADR-0013): a state added after the one shown, as a
 //! step of its slide or as a slide of its own, with an id new to the deck, in the beat of the
-//! state it follows. Moving, renaming, and removing a state are the ops themselves
-//! (`move_state`, `rename_state`, `remove_state`, SPEC §7.3).
+//! state it follows; and a slide started from one of the theme's layouts, its words in its slots
+//! (PLAN 3.30). Moving, renaming, and removing a state are the ops themselves (`move_state`,
+//! `rename_state`, `remove_state`, SPEC §7.3).
 
 use crate::{Context, OpsError};
 use scaena_core::Deck;
+use scaena_core::inserts::slug;
+use scaena_core::model::theme::{Prompt, Theme};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -55,13 +58,138 @@ pub fn adding(deck: &Deck, shown: &str, what: Adding) -> Result<AddedState, OpsE
             (id, i + steps, state)
         }
     };
+    Ok(AddedState { id, patch: vec![added(deck, after, state)] })
+}
+
+/// `add_state` for `state`, after the `after`th state, in that state's beat.
+fn added(deck: &Deck, after: usize, state: Value) -> Value {
     let after = &deck.states[after].id;
     let mut op = json!({ "op": "add_state", "state": state, "after": after });
     let beats = deck.spine.iter().flat_map(|s| &s.sections).flat_map(|s| &s.beats);
     if let Some(beat) = beats.into_iter().find(|b| b.states.contains(after)) {
         op["beat"] = json!(beat.id);
     }
-    Ok(AddedState { id, patch: vec![op] })
+    op
+}
+
+/// The patch that starts a slide in `layout`, one of `theme`'s, after `shown`'s slide (PLAN
+/// 3.30): one `add_state`, then an `add_node` for each of the layout's slots that says what goes
+/// there, words in its role or a shape, then where those leave (PLAN 3.24).
+///
+/// The slide goes where [`Adding::Slide`] puts one, after the last step of `shown`'s slide, in
+/// the beat of the state it follows. It is named after its layout (`bullets`, `bullets-2`, …),
+/// absolute, and in the layout. Each slot's text is in the slot's role, with its prompt's words,
+/// a list's items each a paragraph, and is named after the slide and the slot
+/// (`bullets-header`). A slot's shape is under the words over it (`z` −1), a decoration. The
+/// slots that wait for a picture or a figure it leaves empty. With no layout, the slide is
+/// `slide`, blank.
+pub fn starting(deck: &Deck, theme: &Theme, shown: &str, layout: Option<&str>) -> Result<AddedState, OpsError> {
+    let i = deck
+        .states
+        .iter()
+        .position(|s| s.id == shown)
+        .ok_or_else(|| OpsError::new(format!("unknown state `{shown}`")))?;
+    let template = match layout {
+        Some(name) => {
+            Some(theme.layouts.get(name).ok_or_else(|| OpsError::new(format!("the theme has no layout `{name}`")))?)
+        }
+        None => None,
+    };
+    let slide = deck.states[i].slide.clone().unwrap_or_else(|| shown.to_string());
+    let after = i + deck.states[i + 1..].iter().take_while(|s| s.slide.as_deref() == Some(slide.as_str())).count();
+    let id = fresh(deck, &layout.map_or_else(|| "slide".to_string(), |name| slug(name, "slide")));
+    let mut state = json!({ "id": id, "mode": "absolute" });
+    if let Some(layout) = layout {
+        state["layout"] = json!(layout);
+    }
+    let mut patch = vec![added(deck, after, state.clone())];
+    let mut ids: Vec<String> = Vec::new();
+    for (slot, s) in template.into_iter().flat_map(|t| &t.slots) {
+        let Some(prompt) = &s.prompt else { continue };
+        let node = match (prompt, prompt.text(), &s.role) {
+            (_, Some((text, list)), Some(role)) => {
+                let mut node = json!({ "type": "text", "role": role, "text": text, "at": { "in": slot } });
+                if let Some(kind) = list {
+                    node["list"] = json!(vec![json!({ "kind": kind }); text.split('\n').count()]);
+                }
+                node
+            }
+            // A card or a rule, under the words in the slots over it, which a reader passes over.
+            (Prompt::Shape(shape), _, _) => {
+                let mut node = json!({ "type": "shape", "kind": shape.shape, "at": { "in": slot }, "z": -1 });
+                if let Some(fill) = &shape.fill {
+                    node["fill"] = json!(fill);
+                }
+                node["semantic"] = json!("decoration");
+                node
+            }
+            // Words that say what goes in a slot with no role, a picture or a figure: it waits.
+            _ => continue,
+        };
+        let base = format!("{id}-{}", slug(slot, "slot"));
+        let taken = |n: &str| deck.nodes.contains_key(n) || ids.iter().any(|i| i == n);
+        let node_id = (1..)
+            .map(|n| if n == 1 { base.clone() } else { format!("{base}-{n}") })
+            .find(|n| !taken(n))
+            .expect("some number is free");
+        patch.push(json!({ "op": "add_node", "id": node_id, "node": node, "state": id }));
+        ids.push(node_id);
+    }
+    // Each stays on the slide: where it leaves, read with the slide in the deck.
+    let mut made = deck.clone();
+    made.states.insert(after + 1, serde_json::from_value(state).context("a slide")?);
+    for op in crate::inspect::leaving(&made, &id, &ids) {
+        patch.push(serde_json::to_value(op).context("a patch")?);
+    }
+    Ok(AddedState { id, patch })
+}
+
+/// A slot of the state's layout that waits for what its prompt says goes there (PLAN 3.30): an
+/// editor outlines it, with the prompt's words, until something is placed in it.
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct Waiting {
+    pub slot: String,
+    /// Its box in the format shown, `[x, y, width, height]`, canvas units.
+    pub rect: [f32; 4],
+    /// What goes there, as the prompt says it: its first line.
+    pub words: String,
+    /// Whether words go there, typed in the slot's role; else a picture or a figure.
+    pub typed: bool,
+}
+
+/// The slots of `state`'s layout, in `format`, that say what goes in them in words and that
+/// nothing the state shows is placed in, in the order the theme writes them (PLAN 3.30): the
+/// places a new slide's picture or figure goes, and words taken out. None for a state with no
+/// layout. A slot whose prompt is a shape is a card or a rule, made with the slide.
+pub fn waiting(
+    deck: &Deck,
+    theme: &scaena_engine::theme::Theme,
+    state: &str,
+    format: Option<&str>,
+) -> Result<Vec<Waiting>, OpsError> {
+    let Some((name, boxes)) = scaena_engine::guides::layout(deck, theme, state, format).context("the layout")? else {
+        return Ok(Vec::new());
+    };
+    let snaps = scaena_core::resolve_states(deck).context("tracking")?;
+    let snap =
+        snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+    let filled: Vec<&str> = snap
+        .nodes
+        .values()
+        .filter_map(|p| p.get("at").filter(|a| a.get("parent").is_none())?.get("in")?.as_str())
+        .collect();
+    let Some(layout) = theme.layouts.get(&name) else { return Ok(Vec::new()) };
+    let mut out = Vec::new();
+    for b in boxes {
+        let Some(slot) = layout.slots.get(&b.name) else { continue };
+        let Some((text, _)) = slot.prompt.as_ref().and_then(Prompt::text) else { continue };
+        if filled.contains(&b.name.as_str()) {
+            continue;
+        }
+        let words = text.lines().next().unwrap_or_default().to_string();
+        out.push(Waiting { slot: b.name, rect: b.rect, words, typed: slot.role.is_some() });
+    }
+    Ok(out)
 }
 
 /// `id` without a step's number: `revenue` of `revenue-2`.
@@ -113,5 +241,87 @@ mod tests {
         assert_eq!(stem("q3-2026"), "q3");
         assert_eq!(stem("-2"), "-2");
         assert!(adding(&deck, "nowhere", Adding::Step).is_err());
+    }
+
+    /// A slide started from a layout (PLAN 3.30): after the slide shown, in its layout, a text in
+    /// each slot that says what goes there, in its role, and none where another slide would show
+    /// it.
+    #[test]
+    fn a_slide_started_from_a_layout_has_its_words_in_its_slots_and_keeps_them() {
+        let deck = revenue();
+        let theme =
+            scaena_engine::theme::Theme::from_json(include_str!("../../../docs/examples/themes/dusk.theme.json"))
+                .unwrap();
+        let started = starting(&deck, &theme, "revenue", Some("bullets")).unwrap();
+        assert_eq!(started.id, "bullets");
+        let bullet = json!({ "kind": "bullet" });
+        assert_eq!(
+            started.patch,
+            [
+                json!({ "op": "add_state", "state": { "id": "bullets", "mode": "absolute", "layout": "bullets" }, "after": "mix", "beat": "doubled" }),
+                json!({ "op": "add_node", "id": "bullets-header", "state": "bullets", "node": {
+                    "type": "text", "role": "headline", "text": "What this slide says", "at": { "in": "header" } } }),
+                json!({ "op": "add_node", "id": "bullets-body", "state": "bullets", "node": {
+                    "type": "text", "role": "body", "text": "The first point\nThe second point\nThe third point",
+                    "at": { "in": "body" }, "list": [bullet, bullet, bullet] } }),
+                // `close` tracks from the state before it, now the new slide: they leave there.
+                json!({ "op": "hide_node", "node": "bullets-header", "state": "close" }),
+                json!({ "op": "hide_node", "node": "bullets-body", "state": "close" }),
+            ]
+        );
+        // A second takes the next name, and a blank one has no layout and nothing in it.
+        let mut with = deck.clone();
+        with.states.push(serde_json::from_value(json!({ "id": "bullets", "mode": "absolute" })).unwrap());
+        assert_eq!(starting(&with, &theme, "revenue", Some("bullets")).unwrap().id, "bullets-2");
+        let blank = starting(&deck, &theme, "close", None).unwrap();
+        assert_eq!(
+            blank.patch,
+            [
+                json!({ "op": "add_state", "state": { "id": "slide", "mode": "absolute" }, "after": "close", "beat": "thanks" })
+            ]
+        );
+        assert!(starting(&deck, &theme, "revenue", Some("nowhere")).is_err());
+        assert!(starting(&deck, &theme, "nowhere", Some("bullets")).is_err());
+    }
+
+    /// What waits on a slide (PLAN 3.30): a slide started in `art-left` waits for its picture,
+    /// its words in place; with its header taken out, the header waits too; and a state with no
+    /// layout waits for nothing.
+    #[test]
+    fn a_slot_with_nothing_in_it_waits_for_what_its_prompt_says() {
+        let deck = revenue();
+        let theme =
+            scaena_engine::theme::Theme::from_json(include_str!("../../../docs/examples/themes/dusk.theme.json"))
+                .unwrap();
+        let started = starting(&deck, &theme, "revenue", Some("art-left")).unwrap();
+        let patched = |ops: &[Value]| {
+            let doc = scaena_core::patch::compile(&deck.to_value().unwrap(), ops, &NoFiles).unwrap().doc;
+            Deck::from_value(&doc).unwrap()
+        };
+        let made = patched(&started.patch);
+        let waits = waiting(&made, &theme, "art-left", None).unwrap();
+        let said: Vec<(&str, &str, bool)> =
+            waits.iter().map(|w| (w.slot.as_str(), w.words.as_str(), w.typed)).collect();
+        assert_eq!(said, [("art", "A picture", false)]);
+        assert_eq!(waits[0].rect, [120.0, 248.0, 686.0, 736.0], "columns 1 to 5, rows 3 to 12");
+        let mut ops = started.patch.clone();
+        ops.push(json!({ "op": "remove_node", "id": "art-left-header" }));
+        let without = patched(&ops);
+        let slots: Vec<String> =
+            waiting(&without, &theme, "art-left", None).unwrap().into_iter().map(|w| w.slot).collect();
+        assert_eq!(slots, ["header", "art"], "in the order the theme writes them");
+        let blank = patched(&starting(&deck, &theme, "revenue", None).unwrap().patch);
+        assert!(waiting(&blank, &theme, "slide", None).unwrap().is_empty());
+    }
+
+    /// No file: the patches here read none.
+    struct NoFiles;
+    impl scaena_core::validate::BundleFiles for NoFiles {
+        fn exists(&self, _: &str) -> bool {
+            false
+        }
+        fn read_text(&self, _: &str) -> Option<String> {
+            None
+        }
     }
 }

@@ -755,6 +755,35 @@ impl Player {
         serde_json::to_string(&self.0.adding_state(state, what).map_err(js)?).map_err(js)
     }
 
+    /// The slots of `state`'s layout, in the format shown, that wait for what their prompts say
+    /// goes there, nothing placed in them, as JSON: each `{ slot, rect, words, typed }` (PLAN
+    /// 3.30), which the canvas outlines.
+    pub fn waiting(&self, state: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.waiting(state).map_err(js)?).map_err(js)
+    }
+
+    /// The patch that starts a slide in `layout`, one of the theme's, after the slide of `state`,
+    /// the state shown, or a blank one with none, as JSON: `{ id, patch }` (PLAN 3.30).
+    pub fn starting(&self, state: &str, layout: Option<String>) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.starting(state, layout.as_deref()).map_err(js)?).map_err(js)
+    }
+
+    /// The slides a person may start after the slide of `state` (PLAN 3.30), each painted at rest
+    /// `height` pixels high in the format shown: JSON, an array of `{ layout, description, group,
+    /// width, height }`, one in each of the theme's layouts, then a blank one. `starterPixels(i)`
+    /// takes the `i`th picture's pixels, as `pixels` gives a frame's.
+    #[wasm_bindgen(js_name = startersPainted)]
+    pub fn starters_painted(&mut self, state: &str, height: u32) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.starters_painted(state, height).map_err(js)?).map_err(js)
+    }
+
+    /// The pixels of the `i`th picture `startersPainted` painted last, taken: a second call gives
+    /// none.
+    #[wasm_bindgen(js_name = starterPixels)]
+    pub fn starter_pixels(&mut self, i: usize) -> wasm_bindgen::Clamped<Vec<u8>> {
+        wasm_bindgen::Clamped(self.0.starter_picture(i).map(|picture| picture.rgba).unwrap_or_default())
+    }
+
     /// The deck in another theme, by `user` at `at` (RFC 3339), as JSON: what `theme --apply`
     /// says (PLAN 2.39). `path` is a theme file in the bundle, or, with `text`, where that
     /// theme goes; `fonts` maps the paths its families give to their bytes.

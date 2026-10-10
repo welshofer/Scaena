@@ -204,6 +204,42 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   shot safe-area
   toggle "Safe Area"
 
+  # Add Slide's gallery (PLAN 3.30): the theme's layouts in its sections, each drawn as a slide
+  # started in it. A click on the first, a title slide, starts it after the slide shown, and ⌘Z
+  # takes it back. The gallery draws a tile only once it is scrolled to: the first is in view.
+  read -r ax ay aw ah <<<"$(frames find add-slide)" || true
+  if [[ "${ah:-}" =~ ^[0-9]+$ ]]; then
+    pointer click $((ax + aw / 2)) $((ay + ah / 2))
+    drawn="not within 30 s"
+    for waited in $(seq 0 30); do
+      read -r bx by bw bh <<<"$(frames find start-title)" || true
+      if [[ "${bh:-}" =~ ^[0-9]+$ ]]; then
+        drawn="within $waited s"
+        break
+      fi
+      sleep 1
+    done
+    echo "the gallery drawn: $drawn"
+    shot gallery
+    if [[ "${bh:-}" =~ ^[0-9]+$ ]]; then
+      pointer click $((bx + bw / 2)) $((by + bh / 2))
+      sleep 2
+      echo "the slide started holds:"
+      frames holds canvas
+      shot started
+      events 'keystroke "z" using command down'
+      sleep 2
+      echo "⌘Z, the slide shown holds:"
+      frames holds canvas
+      shot started-undone
+    else
+      events 'key code 53'
+      sleep 1
+    fi
+  else
+    echo "no Add Slide in the toolbar: $ax $ay $aw $ah"
+  fi
+
   # The Document tab's Theme (PLAN 3.28): each value a field that reads as one. A color typed in
   # the paper's field is set on Return, and the Edit menu names the step; ⌘Z takes it back and
   # ⌘⇧Z makes it again, the slide drawn in each; then ⌘Z leaves the deck as it was.

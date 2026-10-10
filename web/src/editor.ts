@@ -852,6 +852,7 @@ async function edit(source: Source) {
     },
     apply: made,
     say,
+    started: (state) => board.freshen(state),
   });
   /** The light table (PLAN 2.97): every slide in a grid, in place of the preview, to move, copy,
    * and take out across the deck. */
@@ -1623,7 +1624,7 @@ async function edit(source: Source) {
     const count = () => last?.states.length ?? 0;
     return [
       { label: "Add a step", where: ["state"], applies: () => now() !== undefined, run: () => states.add("step") },
-      { label: "Add a slide", where: ["state"], applies: () => now() !== undefined, run: () => states.add("slide") },
+      { label: "Add a slide…", where: ["state"], applies: () => now() !== undefined, run: () => void states.gallery() },
       { label: "Rename the state", where: ["state"], applies: () => now() !== undefined, run: () => states.rename(now()!) },
       { label: "Delete the state", where: ["state"], applies: () => now() !== undefined && count() > 1, run: () => states.remove(now()!) },
       { label: "Export it as a PNG…", where: ["state"], applies: () => now() !== undefined, run: () => openExport("png") },

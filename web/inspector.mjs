@@ -131,6 +131,16 @@ try {
     input.dispatchEvent(new Event("change", { bubbles: true }));
   });
   check(await reads("override title"), "a color written out goes in the deck's overrides");
+  // The inspector is drawn again from the deck the edit made, which takes the worker a while.
+  await page
+    .waitForFunction(
+      () =>
+        window.scaena.look.offered()?.fields.find((f) => f.prop === "style/color")?.lives === "overrides" &&
+        document.querySelector("#look-style-color")?.closest(".control")?.nextElementSibling?.textContent.includes("override"),
+      null,
+      { timeout: 30000 },
+    )
+    .catch(() => {});
   const red = await field("style/color");
   check(red?.value === "#ff3366" && red?.lives === "overrides", `the inspector shows it as an override: ${JSON.stringify(red)}`);
   const flagged = await page.evaluate(() => document.querySelector("#look-style-color")?.closest(".control")?.nextElementSibling?.textContent);

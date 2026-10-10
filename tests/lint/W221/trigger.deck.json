@@ -4,7 +4,7 @@
   "canvas": {"width": 1920, "height": 1080},
   "formats": ["9:16"],
   "theme": {
-    "scaena-theme": "0.10",
+    "scaena-theme": "0.11",
     "name": "Lint on a baseline grid",
     "description": "The lint bundle's theme with an 8 cu baseline grid: body and caption snap their baselines to it, body at a leading that is 4.9 grid lines, and a 9:16 grid with no baseline.",
     "tokens": {

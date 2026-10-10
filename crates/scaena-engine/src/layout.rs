@@ -101,6 +101,17 @@ impl Grid {
         Ok(rect)
     }
 
+    /// `cells`, a slot's, reaching the canvas's edge on each side where they meet the edge of the
+    /// grid's tracks: a slot that bleeds (theme format 0.11, PLAN 3.30).
+    fn bled(&self, [x, y, w, h]: Rect) -> Rect {
+        let meets = |a: f32, b: Option<f32>| b.is_some_and(|b| (a - b).abs() < 0.5);
+        let left = if meets(x, self.cols.first().map(|c| c.0)) { 0.0 } else { x };
+        let top = if meets(y, self.rows.first().map(|r| r.0)) { 0.0 } else { y };
+        let right = if meets(x + w, self.cols.last().map(|c| c.1)) { self.canvas[0] } else { x + w };
+        let bottom = if meets(y + h, self.rows.last().map(|r| r.1)) { self.canvas[1] } else { y + h };
+        [left, top, right - left, bottom - top]
+    }
+
     /// The box `at` places a node in, before its `inset` and `offset`: its cells, its slot,
     /// or its `rect`.
     pub fn cell(&self, theme: &Theme, template: Option<&str>, at: Option<&Value>) -> Result<Rect, EngineError> {
@@ -129,7 +140,11 @@ impl Grid {
                     })?;
                     let range =
                         |r: &Option<Range>| r.as_ref().map(|r| serde_json::to_value(r).expect("a range is JSON"));
-                    self.cells(range(&slot.col).as_ref(), range(&slot.row).as_ref())?
+                    let cells = self.cells(range(&slot.col).as_ref(), range(&slot.row).as_ref())?;
+                    let [x, y, w, h] = if slot.bleed == Some(true) { self.bled(cells) } else { cells };
+                    // Its inset pulls each side in: words on a card that fills the same cells.
+                    let inset = slot.inset.unwrap_or(0.0) as f32;
+                    [x + inset, y + inset, (w - 2.0 * inset).max(0.0), (h - 2.0 * inset).max(0.0)]
                 }
             }
         } else {

@@ -465,7 +465,7 @@ fn a_state_offers_its_layout_transition_hold_and_notes() {
     assert_eq!(shown(own(&revenue, "notes")), (None, None));
     let intro = state(&example(), "intro");
     let Takes::Name { names, .. } = &own(&intro, "layout").takes else { panic!() };
-    assert_eq!(names, &["title"], "the title and the subtitle have slots in `title` alone");
+    assert_eq!(names, &["title", "photo-title"], "the title and the subtitle have slots in these alone");
 
     // An empty slide (`absolute`) with no layout takes none from anywhere.
     let ops = json!([{ "op": "add_state", "state": { "id": "blank", "mode": "absolute" }, "after": "close" }]);
@@ -473,7 +473,7 @@ fn a_state_offers_its_layout_transition_hold_and_notes() {
     let blank = state(&doc, "blank");
     assert_eq!(shown(own(&blank, "layout")), (None, None));
     let Takes::Name { names, .. } = &own(&blank, "layout").takes else { panic!() };
-    assert_eq!(names.len(), 11, "with nothing placed in a slot, every layout fits: {names:?}");
+    assert_eq!(names.len(), 47, "with nothing placed in a slot, every layout fits: {names:?}");
     let deck: Deck = serde_json::from_value(example()).unwrap();
     assert!(state_choices(&deck, &Theme::from_json(DUSK).unwrap(), "nowhere").is_err());
 }

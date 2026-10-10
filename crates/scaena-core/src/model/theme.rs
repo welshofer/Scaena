@@ -392,6 +392,11 @@ pub enum Margin {
 pub struct Layout {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Where an editor's gallery of slides to start offers it (theme format 0.11, PLAN 3.30): a
+    /// section named for what the layouts in it hold (`Titles`, `Words`, `Pictures`), in the order
+    /// the theme first names each.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
     /// The slots that move in other formats (SPEC §3.4): `"9:16": { "slots": … }`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub formats: Option<IndexMap<super::Format, LayoutFormat>>,
@@ -428,8 +433,74 @@ pub struct Slot {
     /// Default text role for nodes placed in this slot.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
+    /// How far in from its cells the slot stands on each side, canvas units (theme format 0.11,
+    /// PLAN 3.30): words on a card that fills the same cells.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inset: Option<f64>,
+    /// What goes in the slot (theme format 0.11, PLAN 3.30). Words a person types over: a new
+    /// slide in the layout puts a text in the slot's `role` there, with these words, each item of
+    /// a list a paragraph. A slot with no role says in words what goes in it, a picture or a
+    /// figure, and a new slide leaves it empty, an editor outlining it. A shape: a new slide puts
+    /// one there, under what is placed in the slots over it, a card or a rule. A format's slot
+    /// keeps the layout's prompt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<Prompt>,
+    /// The slot reaches the canvas's edge on each side where its tracks meet the edge of the grid
+    /// (theme format 0.11, PLAN 3.30): a picture that bleeds, off the page or one side of it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bleed: Option<bool>,
+}
+
+/// What goes in a slot (PLAN 3.30): words, a paragraph to each line; a list's items; or a shape.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum Prompt {
+    Words(#[schemars(length(min = 1))] String),
+    Items(PromptItems),
+    Shape(PromptShape),
+}
+
+/// A shape a new slide puts in a slot (PLAN 3.30): a card behind words, or a rule between them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PromptShape {
+    pub shape: PromptShapeKind,
+    /// What fills a rectangle or an ellipse: a color token or role. A line and an arrow take the
+    /// theme's rule.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fill: Option<String>,
+}
+
+/// The shapes a slot's prompt makes: those that need no points.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum PromptShapeKind {
+    Rect,
+    Ellipse,
+    Line,
+    Arrow,
+}
+
+/// A list's items, as a slot's prompt gives them: `{ "bullet": [...] }` or `{ "number": [...] }`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum PromptItems {
+    Bullet(#[schemars(length(min = 1))] Vec<String>),
+    Number(#[schemars(length(min = 1))] Vec<String>),
+}
+
+impl Prompt {
+    /// The words, a paragraph to each line, and the kind of list each paragraph is an item of,
+    /// if any; none for a shape.
+    pub fn text(&self) -> Option<(String, Option<super::values::ListKind>)> {
+        use super::values::ListKind;
+        match self {
+            Prompt::Words(words) => Some((words.clone(), None)),
+            Prompt::Items(PromptItems::Bullet(items)) => Some((items.join("\n"), Some(ListKind::Bullet))),
+            Prompt::Items(PromptItems::Number(items)) => Some((items.join("\n"), Some(ListKind::Number))),
+            Prompt::Shape(_) => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]

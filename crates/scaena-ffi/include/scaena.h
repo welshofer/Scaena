@@ -170,7 +170,12 @@ char *scaena_drop(struct ScaenaSession *session,
 // take (PLAN 2.92, 3.26): `layoutsBegin {state}`, how many are to be judged; `layoutsStep`, the
 // next judged, and whether any is left; and `layoutSuggestions {height}`, those judged, best
 // first, each with the `set_state` that gives it and its picture's size, painted `height`
-// pixels high, which [`scaena_layout_pixels`] takes.
+// pixels high, which [`scaena_layout_pixels`] takes. The slides a person may start (PLAN 3.30):
+// `startersPainted {state, height}`, one in each of the theme's layouts, then a blank one, each
+// `{layout, description, width, height}`, painted `height` pixels high, which
+// [`scaena_starter_pixels`] takes; `starting {state, layout?}`, the patch that starts one after
+// the slide of `state`, `{id, patch}`; and `waiting {state}`, the slots of its layout that wait
+// for what their prompts say goes there, each `{slot, rect, words, typed}`.
 //
 // # Safety
 // `session` is a live handle; `method` a NUL-terminated string; `args` one, or null.
@@ -236,6 +241,14 @@ struct ScaenaPixels scaena_pixels_in(struct ScaenaSession *session,
 // # Safety
 // `session` is a live handle; `error` null or writable.
 struct ScaenaPixels scaena_layout_pixels(struct ScaenaSession *session, size_t i, char **error);
+
+// The `i`th picture `startersPainted` painted last (PLAN 3.30), taken: a slide started in that
+// layout, at rest, as [`scaena_pixels`] gives a frame. Null bytes for one taken already, or past
+// the last, `*error` then saying why.
+//
+// # Safety
+// `session` is a live handle; `error` null or writable.
+struct ScaenaPixels scaena_starter_pixels(struct ScaenaSession *session, size_t i, char **error);
 
 // Save the bundle with the deck shown at `now` (RFC 3339; the engine reads no clock), as
 // `scaena save` lays one out: files named by their content, fonts subset to what the deck can
