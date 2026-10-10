@@ -2,11 +2,13 @@
 // identifier, name, and frame in screen points from the top left, to a depth; the frame of the
 // first element with an identifier, as "x y width height"; what that element holds, each by its
 // role and name, one to a line: the canvas's objects as a reader hears them; each split view in
-// the window with the frame of each pane in it: how the window's width is shared out; or the frame
-// of the first text that begins with some words, as the hint over the canvas says what it does.
+// the window with the frame of each pane in it: how the window's width is shared out; the frame
+// of the first text that begins with some words, as the hint over the canvas says what it does; or
+// the value of the first element with an identifier, as a field shows what it holds (PLAN 3.28).
 //
 //   osascript -l JavaScript apps/mac/frames.js tree DEPTH
 //   osascript -l JavaScript apps/mac/frames.js find IDENTIFIER
+//   osascript -l JavaScript apps/mac/frames.js value IDENTIFIER
 //   osascript -l JavaScript apps/mac/frames.js holds IDENTIFIER
 //   osascript -l JavaScript apps/mac/frames.js splits
 //   osascript -l JavaScript apps/mac/frames.js saying WORDS
@@ -46,6 +48,7 @@ function run(argv) {
     throw new Error(`nothing is identified as ${tag}`);
   };
   if (what === "find") return frame(found(arg)).join(" ");
+  if (what === "value") return String(read(() => found(arg).value()) ?? "");
   if (what === "holds") {
     return children(found(arg))
       .map((e) => `${read(() => e.role()) ?? "?"} "${name(e)}" ${frame(e).join(" ")}`)

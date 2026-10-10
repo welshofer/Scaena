@@ -383,3 +383,38 @@ extension ScaenaSession {
         try call("restoreVersion", ["version": .string(version), "at": .string(date.formatted(.iso8601))])
     }
 }
+
+/// A number as a panel's field shows and reads it (PLAN 3.28): shown without the trailing zeros
+/// or the noise a binary fraction leaves, read from what was typed, and moved by a stepper to the
+/// places of its step.
+public enum FieldNumber {
+    /// `value` as a field shows it: `32`, `1.25`, `-0.02`; nothing where there is none.
+    public static func shown(_ value: Double?) -> String {
+        guard let value, value.isFinite else { return "" }
+        let rounded = (value * 10_000).rounded() / 10_000
+        if rounded == rounded.rounded(), abs(rounded) < 1e15 { return String(Int(rounded)) }
+        var text = String(format: "%.4f", rounded)
+        while text.hasSuffix("0") { text.removeLast() }
+        if text.hasSuffix(".") { text.removeLast() }
+        return text
+    }
+
+    /// What was typed, as a number: the blanks about it ignored, and a comma taken for the decimal
+    /// point; none where it is no finite number.
+    public static func read(_ typed: String) -> Double? {
+        let text = typed.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ".")
+        guard let number = Double(text), number.isFinite else { return nil }
+        return number
+    }
+
+    /// `value` moved once by `step`, rounded to the places either is shown to.
+    public static func stepped(_ value: Double, by step: Double) -> Double {
+        let scale = pow(10, Double(max(places(value), places(step))))
+        return ((value + step) * scale).rounded() / scale
+    }
+
+    /// The places after the point `value` is shown to.
+    private static func places(_ value: Double) -> Int {
+        shown(value).split(separator: ".").dropFirst().first?.count ?? 0
+    }
+}

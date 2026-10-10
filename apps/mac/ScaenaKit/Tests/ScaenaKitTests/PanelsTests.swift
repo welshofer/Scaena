@@ -98,3 +98,27 @@ private let torture = repository.appending(path: "tests/fixtures/torture.scaena"
     #expect(try !session.source().contains("anew"))
     #expect(throws: ScaenaError.self) { try session.viewVersion("9") }
 }
+
+/// A panel's number field (PLAN 3.28): a number shown as a person writes it, read from what they
+/// typed, and stepped without the noise of a binary fraction.
+@Test func aFieldShowsReadsAndStepsANumberAsAPersonWritesIt() {
+    #expect(FieldNumber.shown(32) == "32")
+    #expect(FieldNumber.shown(1.25) == "1.25")
+    #expect(FieldNumber.shown(-0.02) == "-0.02")
+    #expect(FieldNumber.shown(0.1 + 0.2) == "0.3")
+    #expect(FieldNumber.shown(-0.0) == "0")
+    #expect(FieldNumber.shown(nil) == "")
+    #expect(FieldNumber.read(" 40 ") == 40)
+    #expect(FieldNumber.read("1,5") == 1.5)
+    #expect(FieldNumber.read("-0.02") == -0.02)
+    #expect(FieldNumber.read("big") == nil)
+    #expect(FieldNumber.read("") == nil)
+    #expect(FieldNumber.read("inf") == nil)
+    #expect(FieldNumber.stepped(1.2, by: 0.05) == 1.25)
+    #expect(FieldNumber.stepped(1.25, by: -0.05) == 1.2)
+    #expect(FieldNumber.stepped(-0.02, by: 0.01) == -0.01)
+    #expect(FieldNumber.stepped(-0.025, by: 0.01) == -0.015)
+    #expect(FieldNumber.stepped(0.92, by: 0.05) == 0.97)
+    #expect(FieldNumber.stepped(333, by: 100) == 433)
+    #expect(FieldNumber.shown(FieldNumber.stepped(0.1, by: 0.2)) == "0.3")
+}
