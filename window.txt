@@ -1,0 +1,114 @@
+/Users/runner/work/Scaena/Scaena/target/mac/window/Scaena.app: replacing existing signature
+saved /Users/runner/work/Scaena/Scaena/target/mac/window/trails.scaena: 19 files
+  subset fonts/Fraunces-VF.ttf: 244 KB → 244 KB
+  subset fonts/Inter-VF.ttf: 256 KB → 256 KB
+  subset fonts/JetBrainsMono-VF.ttf: 103 KB → 105 KB
+  subset fonts/Fraunces-Italic-VF.ttf: 283 KB → 283 KB
+  subset fonts/Inter-Italic-VF.ttf: 264 KB → 264 KB
+  subset fonts/JetBrainsMono-Italic-VF.ttf: 106 KB → 107 KB
+  assets/trails-ridge.png → assets/a81b573617499dc538413626bd010673b5dde5f3318cf8a78aaecb0120baed87.png
+  fonts/Fraunces-Italic-VF.ttf → fonts/Fraunces-Italic-478936ccd4b06d3d.ttf
+  fonts/Fraunces-VF.ttf → fonts/Fraunces-af2a473ead29d01e.ttf
+  fonts/Inter-Italic-VF.ttf → fonts/Inter-Italic-5a81e633895bf83d.ttf
+  fonts/Inter-VF.ttf → fonts/Inter-dd1988f3e75c6301.ttf
+  fonts/JetBrainsMono-Italic-VF.ttf → fonts/JetBrainsMono-Italic-a4533dfa2ba36dea.ttf
+  fonts/JetBrainsMono-VF.ttf → fonts/JetBrainsMono-3b384d3f8fc54c51.ttf
+screen: 1024 768 0 31 1024 677
+window as opened: 20 46 984 648
+the View menu: Show Tab Bar, Show All Tabs, missing value, missing value, Show Toolbar, Customize Toolbar…, missing value, Light Table, missing value, Show Timeline, Show Other Sizes, Show Grid, Show Safe Area, Show Issues, Show Source, missing value, Show Assistant, Show Inspector, Format, Animate, Document, missing value, missing value, Zoom In, Zoom Out, Whole Canvas, missing value, Find in Deck…, missing value, Show Sidebar, Enter Full Screen
+narrowest, as it opens: 889
+    AXSplitGroup 0 31 889 676:
+      AXGroup 8 39 220 660
+      AXSplitter 228 83 0 624
+      AXGroup 0 31 889 676
+narrowest, the inspector hidden: 600
+    AXSplitGroup 0 31 600 676:
+      AXGroup 8 39 220 660
+      AXSplitter 228 83 0 624
+      AXGroup 0 31 600 676
+View › Show Sidebar
+narrowest, the slides and the inspector hidden: 600
+    AXSplitGroup 0 31 600 676:
+      AXGroup 0 31 600 676
+narrowest, the slides hidden: 661
+    AXSplitGroup 0 31 661 676:
+      AXGroup 0 31 661 676
+View › Show Sidebar
+View › Show Toolbar
+narrowest, the toolbar hidden: 889
+    AXSplitGroup 0 31 889 676:
+      AXGroup 8 63 220 636
+      AXSplitter 228 63 0 644
+      AXGroup 0 31 889 676
+View › Show Toolbar
+View › Show Source
+narrowest, the source shown: 1398
+    AXSplitGroup 0 31 1398 676:
+      AXGroup 8 39 220 660
+      AXSplitter 228 83 0 624
+      AXGroup 0 31 1398 676
+    AXSplitGroup 0 31 1097 676:
+      AXGroup 0 31 662 676
+      AXSplitter 662 83 1 624
+      AXGroup 663 31 434 676
+View › Show Source
+window fitted to the screen: 0 31 1024 676
+what it holds, three deep:
+AXWindow "trails.scaena" 0 31 1024 676
+  AXGroup "group" 0 31 1024 676
+    AXSplitGroup "split group" 0 31 1024 676
+      AXGroup "group" 8 39 220 660
+      AXSplitter "splitter" 228 83 0 624
+      AXGroup "group" 0 31 1024 676
+  AXToolbar "toolbar" 0 31 1024 52
+    AXButton "Hide Sidebar" 181 31 47 52
+    AXGroup "group" 232 31 61 52
+      AXMenuButton "Screen Sharing" 236 39 53 36
+    AXGroup "group" 293 31 57 52
+      AXMenuButton "Zoom In" 297 39 49 36
+    AXGroup "group" 510 31 83 52
+      AXPopUpButton "pop up button" 514 39 75 36
+    AXButton "Play" 593 31 44 52
+    AXGroup "group" 637 31 83 52
+      AXPopUpButton #insert-Text "pop up button" 641 39 75 36
+    AXGroup "group" 720 31 81 52
+      AXPopUpButton #insert-Shape "pop up button" 724 39 73 36
+    AXGroup "group" 801 31 82 52
+      AXPopUpButton #insert-Image "pop up button" 805 39 74 36
+    AXGroup "group" 883 31 84 52
+      AXPopUpButton #insert-Chart "pop up button" 887 39 76 36
+    AXPopUpButton "more toolbar items" 979 38 38 38
+  AXButton "close button" 18 49 16 16
+  AXButton "full screen button" 64 49 16 16
+    AXGroup "group" 65 50 14 14
+  AXButton "minimize button" 41 49 16 16
+  AXStaticText "text" 350 31 160 52
+the slide: 256 272 439 246
+click at 475, 395
+drag at 475, 395, 565, 435
+right at 475, 395
+frontmost: true
+the toolbar's Text: 641 39 75 36
+click at 678, 57
+the text inserted, typed in: within 1 s
+the slide holds, before:
+AXButton "button" 283 293 255 30
+AXHeading "heading" 283 328 320 99
+AXHeading "heading" 283 432 255 30
+AXButton "button" 381 380 222 12
+Insert › Text: Display, Headline, Title, Body, Caption, Label, Axis, Value, Lede, Kicker, Figure, Quote, Numeral, Code, true, true, true, true, true, true, true, true, true, true, true, true, true, true
+insert: menu item Display of menu Text of menu item Text of menu Insert of menu bar item Insert of menu bar 1 of application process Scaena
+the slide holds, after:
+AXButton "button" 283 293 255 30
+AXHeading "heading" 283 328 320 99
+AXHeading "heading" 283 432 255 30
+AXButton "button" 381 380 222 12
+AXHeading "heading" 446 363 222 64
+View › Show Safe Area
+View › Show Safe Area
+the theme's paper: 898 499 96 24, #101014
+click at 946, 511
+typed and Return: #2B1B3D; the Edit menu: Undo, Redo, true, false
+⌘Z: #101014; the Edit menu: Undo, Redo, true, true
+⌘⇧Z: #2B1B3D
+⌘Z again: #101014
