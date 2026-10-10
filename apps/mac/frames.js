@@ -13,7 +13,8 @@
 //   osascript -l JavaScript apps/mac/frames.js splits
 function run(argv) {
   const [what, arg] = argv;
-  const window = Application("System Events").processes.byName("Scaena").windows[0];
+  const process = Application("System Events").processes.byName("Scaena");
+  const window = process.windows[0];
   // An attribute an element may not have: none where it has not.
   const read = (f) => {
     try {
@@ -32,9 +33,9 @@ function run(argv) {
 
   const name = (e) => read(() => e.title()) || read(() => e.description()) || "";
   // The first element identified as `tag`: breadth first, as far as a window's chrome goes and no
-  // further.
+  // further, through each of the app's windows, the front one first: a popover is one of its own.
   const found = (tag) => {
-    let level = [window];
+    let level = read(() => process.windows()) ?? [window];
     for (let depth = 0, seen = 0; depth < 16 && level.length && seen < 4000; depth++) {
       const next = [];
       for (const e of level) {
