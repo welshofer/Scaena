@@ -66,6 +66,12 @@ ipad-test:
     apps/ipad/test.sh
     apps/ipad/app-test.sh
 
+# Gate 4's readings (docs/gate-4.md): on an iPad joined to this Mac, by its UDID (`xcrun xctrace
+# list devices`), in release; with none, on the newest iPad simulator in debug, which is not the
+# gate's reading (apps/ipad/gate.sh).
+ipad-gate UDID="":
+    apps/ipad/gate.sh {{UDID}}
+
 # The engine, both painters, and the WASM bindings must keep compiling for the browser (PLAN 0.1, 0.8):
 # with every feature, and as the player's engine alone, without the hyphenation patterns the
 # editor's module leaves out (ADR-0015).

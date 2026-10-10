@@ -82,6 +82,7 @@ just mac            # Scaena.app built (apps/mac/build-app.sh: the release stati
 just ffi            # the Mac's C ABI from C: the static library, a C program compiled against `scaena.h`, run on B1 (PLAN 3.1); ScaenaKit's Swift tests run on CI's macOS runner
 just ipad           # the iPad app's Xcode project, made by XcodeGen and opened; its build phase builds the engine for what Xcode builds (apps/ipad/engine.sh, PLAN 4.2); on a Mac with Xcode and XcodeGen
 just ipad-test      # on an iPad simulator: ScaenaKit's tests (PLAN 4.1), then the app's, B1 opened in its window, each test's screenshot in target/ipad/shots (PLAN 4.2)
+just ipad-gate [UDID] # gate 4's readings on an iPad joined to this Mac, in release: the torture deck's display lists held to the goldens, B1's cover on a layer held to the CPU painter's pixels, and B1's first frame (apps/ipad/gate.sh); with no UDID, on the simulator in debug, which is not the gate's reading
 just spike          # parity harness: vello_cpu goldens vs vello on this GPU vs vello on WebGPU in Chromium (PLAN 0.9)
 just bench [FILTER] # SPEC §15's stages on B1–B4, timed by criterion (PLAN 1.24); CI times each pull request ready for review beside its base on one Linux machine, and macOS weekly (scripts/bench_gate.py)
 just stages BUNDLE  # per-state medians and worst cases on one bundle (PLAN 0.14's tables); `just coldstart`: B1's WASM cold start
@@ -162,3 +163,10 @@ Presenting (PLAN 4.8): with an external display or an AirPlay screen, Play puts 
 The assistant (PLAN 4.9) is the Mac's on the iPad. Its keys are kept in the iPad's Keychain from a sheet: each row is named, and each of its buttons takes its own tap (`.borderless`, since a form's row otherwise fires them all). With no key kept, the panel offers Add a Key…, and the models are listed again when the sheet closes. The iPad's `AssistantTests` keep a key and take it away.
 
 The remote (PLAN 4.10, SPEC §9.5, ADR-0025 proposed). `ScaenaRemote` is a library of the ScaenaKit package with no engine in it. Remote… in the Play menu offers the deck by Bonjour (`RemoteServer`, `RemoteHost`), and its sheet shows a code of four digits in the editor; TLS's pre-shared key is derived from the code. A remote finds the presenter (`RemoteBrowser`) and joins with the code (`RemoteClient`). Then the presenter sends each place: a state, its time into its cue or at rest, its notes, and it and the next as PNGs. The remote sends play, on, back, first, last, or end. `RemoteView` is the iPhone's Remote app (`apps/ipad/Remote`, `RemoteApp`), and the iPad's Control a Presentation… window. ScaenaKit's `RemoteTests` join over the loopback.
+
+## Gate 4
+
+Gate 4 is open. Every task of Phase 4 has landed, and `docs/gate-4.md` holds the evidence:
+- Criterion 3, no text layout where a deck is drawn, is met, held by `chrome.rs` as gate 3's is.
+- Criterion 1's same frame is met on CI's iPad simulator: the torture deck's display lists there are the goldens' (`theTortureDeckDrawsTheGoldensDisplayLists`). Its pixels on an iPad's GPU, and criterion 2's first frame, wait on an M-series iPad. `just ipad-gate UDID` reads both there in release (`apps/ipad/gate.sh`). Gate 4's tests are a target of their own (`ScaenaGateTests`), hosted by an app that does nothing (`GateHost`), whose bundle carries B1 and the torture deck: an iPad reaches none of the Mac's files and runs no test bundle without an app. CI's `ipad` job runs the same command on the simulator.
+- Criterion 4 is met in part: each touch makes the Mac's patch, and undo is held step by step for keys and in the panels, but no test yet undoes a touch on the canvas.
