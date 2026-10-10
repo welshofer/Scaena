@@ -161,6 +161,8 @@ export interface Editor {
   zoomed(zoom: number): void;
   /** The theme's grid is drawn over the canvas, or not (PLAN 2.57). */
   ruled(on: boolean): void;
+  /** The safe area is drawn around the canvas's edge, or not (PLAN 3.29). */
+  safe(on: boolean): void;
   /** Take `f`'s fix: one patch, one step to undo (PLAN 2.49). */
   fix(f: Finding): Promise<void>;
   /** Show where the source writes what `f` is about. */
@@ -541,6 +543,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   /** The slots of the state shown with nothing in them, outlined with their prompts' words (PLAN
    * 3.30): where a slide's picture or figure goes, or words taken out. */
   let waits: Waiting[] = [];
+  /** Whether the safe area's strip is drawn around the canvas's edge (PLAN 3.29), from the same
+   * grid. */
+  let safeShown = false;
   let hovered: string | undefined;
   /** Where the pointer last pressed, canvas units: where Insert puts what it inserts. */
   let pointed: [number, number] | undefined;
@@ -678,7 +683,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const shown = editor.shown();
     if (!shown) return;
     const [was, format] = [size, editor.format()];
-    const ruling = ruled ? stage.grid(format).catch(() => undefined) : undefined;
+    const ruling = ruled || safeShown ? stage.grid(format).catch(() => undefined) : undefined;
     const waiting = stage.waits(shown.state, format).catch((): Waiting[] => []);
     // A state renamed or taken away while its boxes were asked for (PLAN 2.77): the edit that did it
     // asks again, for the state shown now.
@@ -882,6 +887,26 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     editor.say(on ? `the theme's grid: ${grid?.columns.length ?? 0} columns and ${grid?.rows.length ?? 0} rows${where}` : "the grid is hidden");
   }
 
+  /** Draw the safe area over the canvas, or stop (PLAN 3.29): a strip 3/8 inch deep around the
+   * canvas's edge, which shows where to keep what must not be cut off and keeps nothing out; `on`,
+   * or the other way from now. Resolves once it is drawn so. */
+  async function shield(on = !safeShown) {
+    safeShown = on;
+    if (on && !(grid && grid.canvas[0] === size[0] && grid.canvas[1] === size[1])) {
+      try {
+        grid = await stage.grid(editor.format());
+      } catch (e) {
+        safeShown = false;
+        editor.safe(false);
+        return editor.say(`no safe area: ${said(e)}`);
+      }
+    }
+    if (safeShown !== on) return;
+    draw();
+    editor.safe(on);
+    editor.say(on ? "the safe area: 3/8 inch around the canvas's edge, inside which to keep what must not be cut off" : "the safe area is hidden");
+  }
+
   function draw() {
     const u = unit();
     const parts: string[] = [];
@@ -898,6 +923,14 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       for (const [a, b] of grid.rows) parts.push(rect([left, a, right - left, b - a], "grid-track"));
       for (const y of grid.baselines) parts.push(line(left, y, right, y, "baseline"));
       parts.push(rect([left, top, right - left, bottom - top], "grid-margin"));
+    }
+    // The safe area (PLAN 3.29): the strip between the canvas's edge and what lies inside it, and
+    // its inner edge dashed.
+    if (safeShown && grid?.safe && grid.canvas[0] === size[0] && grid.canvas[1] === size[1]) {
+      const [x, y, w, h] = grid.safe;
+      const [cw, ch] = size;
+      parts.push(`<path class="safe-strip" fill-rule="evenodd" d="M0 0H${cw}V${ch}H0Z M${x} ${y}H${x + w}V${y + h}H${x}Z"/>`);
+      parts.push(rect(grid.safe, "safe-edge"));
     }
     // What waits in the layout's empty slots (PLAN 3.30), outlined with its words: a press there
     // and Insert, or a picture dropped there, fills it.
@@ -3141,6 +3174,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       e.preventDefault();
       return void rule();
     }
+    // The safe area, drawn or not (PLAN 3.29), by the key's place: Alt changes what it types.
+    if (mod && e.altKey && !e.shiftKey && e.code === "Quote" && !drag) {
+      e.preventDefault();
+      return void shield();
+    }
     // The text typed in takes its own keys.
     if (text.node() !== undefined) return;
     // A layout shown takes Escape, and leaves the rest alone (PLAN 2.71).
@@ -3481,6 +3519,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     grid: () => (ruled ? grid : undefined),
     /** The empty slots outlined on the canvas, with their words (PLAN 3.30). */
     waiting: () => waits,
+    /** Draw the safe area around the canvas's edge, or stop, as ⌥⌘' does (PLAN 3.29); and whether
+     * it is drawn, and what lies inside it. */
+    shield,
+    shielded: () => safeShown,
+    safe: () => (safeShown ? grid?.safe : undefined),
     /** The guides the drag under way shows: where its box meets others (PLAN 2.57). */
     guides: () => drag?.snapped?.guides ?? [],
     /** What lint found, every finding: those about the state shown, in the format shown, stand on

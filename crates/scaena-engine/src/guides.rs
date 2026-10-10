@@ -1,7 +1,9 @@
 //! Guides (PLAN 2.57, ADR-0013): what an editor draws over the canvas to place things by.
 //!
 //! On request, the theme's grid in the format shown ([`grid`]): its columns and rows, the
-//! gutters between them, the margins around them, and the baseline grid. And as a drag moves
+//! gutters between them, the margins around them, and the baseline grid; and the safe area, a
+//! strip [`SAFE_INCHES`] deep around the canvas's edge, a guide that keeps nothing out
+//! (PLAN 3.29). And as a drag moves
 //! or resizes a box, a line wherever one of its edges, or its middle, meets another box's or
 //! the canvas's ([`meets`]); a box moved off the grid goes first the least way that brings
 //! one of them onto another's, within reach ([`align`]).
@@ -32,6 +34,25 @@ pub struct Guides {
     /// one, as text that snaps sits on them (SPEC §3.4); none where the theme sets no
     /// `grid.baseline`, or one so fine that more than [`BASELINES`] would fill the canvas.
     pub baselines: Vec<f32>,
+    /// What lies inside the safe area's strip, `[x, y, width, height]`: the canvas less
+    /// [`SAFE_INCHES`] on each side, none where the canvas is too small to keep any.
+    pub safe: Rect,
+}
+
+/// Canvas units to the inch, as a PDF page lays a canvas out: two to the point, so a 1920 × 1080
+/// canvas is a 13⅓ × 7½ inch page (`scaena_export::pdf::POINTS_PER_UNIT`, which holds to it).
+pub const UNITS_PER_INCH: f32 = 144.0;
+
+/// How deep the safe area's strip is around the canvas's edge, in inches (PLAN 3.29): what an
+/// editor shows a person as the edge of where to set what must not be cut off, keeping nothing
+/// out. 3/8 inch, 54 canvas units.
+pub const SAFE_INCHES: f32 = 0.375;
+
+/// What lies inside the safe area's strip on a canvas `[width, height]`.
+pub fn safe(canvas: [f32; 2]) -> Rect {
+    let inset = SAFE_INCHES * UNITS_PER_INCH;
+    let [w, h] = canvas.map(|side| (side - 2.0 * inset).max(0.0));
+    [inset.min(canvas[0] / 2.0), inset.min(canvas[1] / 2.0), w, h]
 }
 
 /// The most baseline lines guides draw: a pitch finer than the canvas's height over this is
@@ -57,7 +78,7 @@ pub fn grid(deck: &Deck, theme: &Theme, format: Option<&str>) -> Result<Guides, 
         }
         _ => Vec::new(),
     };
-    Ok(Guides { canvas, columns, rows, baselines })
+    Ok(Guides { canvas, columns, rows, baselines, safe: safe(canvas) })
 }
 
 /// A slot of a theme's layout as the canvas shows it (PLAN 2.71): its name, its box in the

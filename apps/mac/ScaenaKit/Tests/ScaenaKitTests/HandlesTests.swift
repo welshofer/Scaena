@@ -118,15 +118,16 @@ private func made(_ session: ScaenaSession, _ ops: [JSONValue]) throws -> Bool {
     #expect(try session.framing(state: "images", node: "image-focal")?.crop == [0, 0, 1, 1], "the whole image: no crop")
 }
 
-/// The views (PLAN 3.16): the theme's grid in the format shown, the part of the canvas the surface
-/// paints (none, the whole), a format beside the canvas, and find and replace on B1, every match
-/// where its words live, or one.
+/// The views (PLAN 3.16): the theme's grid in the format shown and the safe area (PLAN 3.29), the
+/// part of the canvas the surface paints (none, the whole), a format beside the canvas, and find
+/// and replace on B1, every match where its words live, or one.
 @Test func theGridTheViewAFormatAndFindReadAsTheBrowsersDo() throws {
     let session = try ScaenaSession(directory: torture)
     let grid = try session.grid()
     #expect(grid.canvas == CGSize(width: 1920, height: 1080) && grid.columns.count == 12 && grid.rows.count == 8)
     let column = try #require(grid.columns.first)
     #expect(column.lowerBound == 96 && column.upperBound == 218 && grid.baselines.count == 112)
+    #expect(grid.safe == CGRect(x: 54, y: 54, width: 1812, height: 972), "3/8 inch in from each edge")
 
     try session.setView(CGRect(x: 0, y: 0, width: 960, height: 540))
     try session.setView(nil)
