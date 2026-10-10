@@ -87,6 +87,18 @@ try {
   await page.click("#formats-open");
   await page.waitForFunction(() => window.scaena.formats.painted()?.state === "revenue", null, { timeout: 30000 }).catch(() => {});
   check((await page.locator("#formats-open").getAttribute("aria-pressed")) === "true", "Formats is pressed");
+  // A figure takes its format's shape from the worker's frame, which can come after the worker
+  // says it painted: until then it is a blank canvas, twice as wide as tall.
+  await page
+    .waitForFunction(
+      () => {
+        const sized = [...document.querySelectorAll("#formats button[data-format] canvas")].map((c) => c.getBoundingClientRect());
+        return sized.length > 0 && sized.every((r) => r.height > 0 && Math.abs(r.width - 2 * r.height) > 1);
+      },
+      null,
+      { timeout: 30000 },
+    )
+    .catch(() => {});
   const shown = await figures();
   check(JSON.stringify(shown.map((f) => f.format)) === JSON.stringify(["", "16:9", "9:16"]), `a figure for each: ${JSON.stringify(shown.map((f) => f.format))}`);
   const [own, wide, tall] = shown;
