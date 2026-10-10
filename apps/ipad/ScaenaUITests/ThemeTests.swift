@@ -1,10 +1,10 @@
 import XCTest
 
 /// The theme's values on the iPad (PLAN 3.28), on B1: the Document tab's Theme shows each value in
-/// a field that reads as one. A size typed is set on Return, and the role's row says the size the
-/// theme now gives it; ⌘Z takes it back and ⌘⇧Z makes it again, each one step; a stepper's tap is
-/// one step too. B1 is left as it was, and the inspector on its Format tab: the tests after this one
-/// open it too.
+/// a field that reads as one. A field tapped selects its value, so a size typed takes its place, and
+/// is set on Return: the role's row says the size the theme now gives it. ⌘Z takes it back and ⌘⇧Z
+/// makes it again, each one step; a stepper's tap is one step too. B1 is left as it was, and the
+/// inspector on its Format tab: the tests after this one open it too.
 final class ThemeTests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -58,9 +58,10 @@ final class ThemeTests: XCTestCase {
         }
 
         try XCTContext.runActivity(named: "A size typed is set on Return: ⌘Z takes it back, ⌘⇧Z makes it again") { _ in
-            size.tap()
-            app.typeKey("a", modifierFlags: .command)
-            // Return as the simulator's keyboard sends it: a newline.
+            // Tapped as a person taps it, left of the number: the field selects its value, so what
+            // is typed takes its place. Return as the simulator's keyboard sends it: a newline.
+            size.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).tap()
+            settle(1)
             size.typeText("37\n")
             guard says(37).waitForExistence(timeout: 10) else {
                 keep(app, as: "size-not-set")
@@ -79,10 +80,7 @@ final class ThemeTests: XCTestCase {
         }
 
         try XCTContext.runActivity(named: "A stepper's tap is one step to undo") { _ in
-            // By its identifier, else the form's first: the body role's, the only one opened.
-            let identified = any.matching(NSPredicate(format: "identifier == 'theme-body-size-stepper'")).firstMatch
-            let stepper = identified.exists ? identified : app.steppers.firstMatch
-            let more = stepper.buttons.matching(NSPredicate(format: "label == 'Increment'")).firstMatch
+            let more = any.matching(NSPredicate(format: "identifier == 'theme-body-size-stepper-Increment'")).firstMatch
             guard more.waitForExistence(timeout: 5) else {
                 keep(app, as: "no-stepper")
                 throw Unseen(description: "the size has no stepper: \(app.debugDescription)")

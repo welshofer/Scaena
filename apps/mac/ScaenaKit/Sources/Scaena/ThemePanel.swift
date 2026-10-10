@@ -1,3 +1,8 @@
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 import ScaenaKit
 import SwiftUI
 
@@ -184,12 +189,13 @@ private struct ColorRow: View {
             ColorPicker(name, selection: swatch, supportsOpacity: true)
                 .labelsHidden()
             Text(name)
+                .lineLimit(1)
             Spacer()
             TextField(name, text: $typed)
                 .labelsHidden()
                 .textFieldStyle(.roundedBorder)
                 .monospaced()
-                .frame(width: 116)
+                .frame(width: 96)
                 .focused($focused)
                 .onSubmit(commit)
                 #if os(macOS)
@@ -209,7 +215,7 @@ private struct ColorRow: View {
             asked = nil
         }
         .onChange(of: focused) { _, now in
-            if !now { commit() }
+            if now { selectWhole($focused) } else { commit() }
         }
         .onDisappear(perform: commit)
     }
@@ -353,7 +359,7 @@ private struct NumberRow: View {
             asked = nil
         }
         .onChange(of: focused) { _, now in
-            if !now { commit() }
+            if now { selectWhole($focused) } else { commit() }
         }
         .onDisappear(perform: commit)
     }
@@ -393,5 +399,26 @@ private struct NumberRow: View {
             guard !Task.isCancelled else { return }
             commit()
         }
+    }
+}
+
+/// A field's value selected whole as the field takes the keys, so what is typed takes its place, as
+/// a presentation app's inspector fields do: a tap or a click left of a number set in from the right
+/// would put the caret before it. Once the click that gave it the keys is let go, which sets the
+/// caret, and only while the field still has them.
+@MainActor
+private func selectWhole(_ focused: FocusState<Bool>.Binding) {
+    Task { @MainActor in
+        #if os(macOS)
+        while NSEvent.pressedMouseButtons != 0 { try? await Task.sleep(for: .milliseconds(16)) }
+        try? await Task.sleep(for: .milliseconds(16))
+        #endif
+        guard focused.wrappedValue else { return }
+        #if os(macOS)
+        _ = NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
+        #else
+        _ = UIApplication.shared.sendAction(
+            #selector(UIResponderStandardEditActions.selectAll(_:)), to: nil, from: nil, for: nil)
+        #endif
     }
 }
