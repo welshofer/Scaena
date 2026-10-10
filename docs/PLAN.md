@@ -1621,6 +1621,11 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
       - On an iPad it is the app's window Control a Presentation…, in the Play menu.
       - Each app's Info.plist names the Bonjour service and says why it uses the local network.
     - Tests: ScaenaKit's `aRemoteJoinsWithTheCodeAndDrivesTheShow`, on the Mac and the iPad's simulator, joins a server on the loopback with its code. The remote hears where the show is as it joins and as it goes, and the presenter hears what it asks. A remote with another code is never joined. CI builds the Remote app with the iPad's. A show driven from an iPhone across a room waits on the devices.
+- [ ] 4.11 Undo by touch: the toolbar's Undo takes back the last step, and a long press on it offers Redo, as a presentation app's does on the iPad. *(Added on 2026-10-10: gate 4's fourth criterion asks that each edit by touch be one step of undo, and an iPad without a keyboard had no Undo to touch: no ⌘Z, and the menu bar a swipe from the top away. Built; waits on a run on an iPad.)*
+    - **The button.** Undo stands beside View and Zoom (`UndoButton`). A tap undoes; a long press offers Redo, named for the step it makes again.
+    - **It reads as its step.** VoiceOver and the pointer's tooltip say what a tap takes back as the Edit menu names it (`Undo Body Size`, PLAN 3.28), read again whenever the window's undo makes, takes back, or makes again a step (`UndoSteps`). With nothing to undo or redo, it is dimmed.
+    - **The Mac** keeps its Edit menu and ⌘Z, as a Mac's presentation app does: its toolbar has no Undo.
+    - Tests: the iPad's `TouchTests` on B1. A drag's move and a long press's Duplicate are each taken back by one tap of Undo, and a long press on Undo offers Redo, which makes the copy again.
 
 ### Exit criteria (gate 4)
 1. Same bundle, same frame, same pixels (within tolerance) as the web player, painted on an iPad's GPU.
