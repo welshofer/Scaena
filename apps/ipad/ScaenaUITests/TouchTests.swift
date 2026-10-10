@@ -4,7 +4,9 @@ import XCTest
 /// patch the Mac's pointer makes for it: a tap selects the title, a pinch zooms and another takes
 /// the whole canvas back, a double tap types in it and the keys type there (PLAN 4.4), a drag
 /// moves it, and a long press offers what is done to it, whose Duplicate copies it; then, in the
-/// light table, a slide dragged onto another moves after it.
+/// light table, a slide dragged onto another moves after it. The move and the copy are each one
+/// step that the toolbar's Undo takes back by touch, and a long press on Undo offers Redo, which
+/// makes the copy again (PLAN 4.11).
 final class TouchTests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -22,6 +24,10 @@ final class TouchTests: XCTestCase {
         let titles = canvas.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Scaena'"))
         let title = titles.firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: 10), "no title on the canvas: \(app.debugDescription)")
+        // Undo in the toolbar, by touch (PLAN 4.11); a test finds it by its id, apart from the
+        // software keyboard's own.
+        let undo = app.navigationBars.buttons.matching(NSPredicate(format: "identifier == 'undo'")).firstMatch
+        XCTAssertTrue(undo.waitForExistence(timeout: 5), "no Undo in the toolbar: \(app.debugDescription)")
         settle()
 
         XCTContext.runActivity(named: "A tap selects the title") { _ in
@@ -69,7 +75,7 @@ final class TouchTests: XCTestCase {
             XCTAssertTrue(wait(5) { !typing.exists }, "still typing: \(app.debugDescription)")
         }
 
-        try XCTContext.runActivity(named: "A drag moves the title") { _ in
+        try XCTContext.runActivity(named: "A drag moves the title, and Undo takes the move back") { _ in
             title.tap()
             let before = title.frame
             let from = title.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
@@ -78,9 +84,13 @@ final class TouchTests: XCTestCase {
                 throw Unseen(description: "the drag moved nothing: \(before) → \(title.frame)")
             }
             keep(app, as: "dragged")
+            undo.tap()
+            guard wait(5, { abs(title.frame.midY - before.midY) < 2 }) else {
+                throw Unseen(description: "Undo did not take the move back: \(before) → \(title.frame)")
+            }
         }
 
-        try XCTContext.runActivity(named: "A long press offers what is done to the title, and Duplicate copies it") { _ in
+        try XCTContext.runActivity(named: "A long press offers what is done to the title, Duplicate copies it, and Undo takes the copy away") { _ in
             title.press(forDuration: 1.2)
             let duplicate = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Duplicate'")).firstMatch
             guard duplicate.waitForExistence(timeout: 5) else {
@@ -94,6 +104,22 @@ final class TouchTests: XCTestCase {
             }
             settle()
             keep(app, as: "duplicated")
+            undo.tap()
+            guard wait(5, { titles.count == 1 }) else {
+                throw Unseen(description: "Undo left the copy: \(app.debugDescription)")
+            }
+            // A long press on Undo offers Redo, which makes the copy again.
+            undo.press(forDuration: 1.2)
+            let redo = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Redo'")).firstMatch
+            guard redo.waitForExistence(timeout: 5) else {
+                keep(app, as: "no-redo")
+                throw Unseen(description: "a long press on Undo offered no Redo: \(app.debugDescription)")
+            }
+            keep(app, as: "redo-offered")
+            redo.tap()
+            guard wait(5, { titles.count == 2 }) else {
+                throw Unseen(description: "Redo made no copy again: \(app.debugDescription)")
+            }
         }
 
         try XCTContext.runActivity(named: "In the light table, a slide dragged onto another moves after it") { _ in

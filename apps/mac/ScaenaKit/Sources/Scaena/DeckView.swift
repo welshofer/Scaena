@@ -223,14 +223,18 @@ struct DeckView: View {
         }
     }
 
-    /// The toolbar, as a presentation app's (PLAN 3.18): what the window shows and how close; a
-    /// slide added, and the deck played; a text, a shape, an image, a chart, or a table inserted;
-    /// the deck shared, and the assistant; and the inspector's tabs. Every item is in the menus too,
-    /// with its key there.
+    /// The toolbar, as a presentation app's (PLAN 3.18): what the window shows and how close, and on
+    /// the iPad Undo (PLAN 4.11); a slide added, and the deck played; a text, a shape, an image, a
+    /// chart, or a table inserted; the deck shared, and the assistant; and the inspector's tabs.
+    /// Every item is in the menus too, with its key there.
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .navigation) {
             viewing
             zooming
+            #if !os(macOS)
+            // Undo by touch, as a presentation app's on the iPad (PLAN 4.11).
+            UndoButton(undo: undo)
+            #endif
         }
         ToolbarItemGroup {
             adding
