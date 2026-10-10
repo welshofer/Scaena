@@ -92,17 +92,19 @@ extension ScaenaSession {
 }
 
 extension Field {
-    init(prop: String, takes: Takes, value: JSONValue?, lives: Lives?, literal: Bool) {
+    init(prop: String, takes: Takes, value: JSONValue?, lives: Lives?, literal: Bool, theme: JSONValue? = nil) {
         self.prop = prop
         self.takes = takes
         self.value = value
         self.lives = lives
         self.literal = literal
+        self.theme = theme
     }
 
     /// What every one of several nodes' inspectors offers (PLAN 2.42), as the browser's inspector
     /// offers what they share: each field the first offers that every other offers too, with its
-    /// value where they all show it alike, and where it lives where they agree.
+    /// value where they all show it alike, where it lives where they agree, and what the theme
+    /// gives where it gives each the same.
     public static func shared(_ all: [Choices]) -> [Field] {
         guard let first = all.first else { return [] }
         let rest = all.dropFirst()
@@ -111,9 +113,10 @@ extension Field {
             guard others.count == rest.count else { return nil }
             let alike = others.allSatisfy { $0.value == field.value }
             let lives = others.allSatisfy { $0.lives == field.lives } ? field.lives : nil
+            let theme = others.allSatisfy { $0.theme == field.theme } ? field.theme : nil
             return Field(
                 prop: field.prop, takes: field.takes, value: alike ? field.value : nil, lives: lives,
-                literal: alike && field.literal)
+                literal: alike && field.literal, theme: theme)
         }
     }
 }

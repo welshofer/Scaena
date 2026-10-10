@@ -224,8 +224,10 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     // A value no control here sets (a preset with parameters, a gradient) shows as the source has it.
     const kept = (known: unknown[]) =>
       value !== undefined && !known.includes(value) ? `<option value="" selected disabled>${html(spoken(value))}</option>` : "";
-    const unset = f.prop === "transition/duration" && cuts() ? "cut" : f.prop === "layout" ? "none" : "the theme's";
-    const none = `<option value=""${value === undefined ? " selected" : ""}>${value === undefined ? unset : "—"}</option>`;
+    // What shows where nothing sets it: the theme's, by what it gives a text's look.
+    const gives = f.theme === undefined ? "" : `: ${typeof f.theme === "boolean" ? (f.theme ? "yes" : "no") : spoken(f.theme)}`;
+    const unset = f.prop === "transition/duration" && cuts() ? "cut" : f.prop === "layout" ? "none" : `the theme's${gives}`;
+    const none = `<option value=""${value === undefined ? " selected" : ""}>${value === undefined || gives ? html(unset) : "—"}</option>`;
     const options = (all: string[]) => all.map((o) => `<option${o === value ? " selected" : ""}>${html(o)}</option>`).join("");
     const t = f.takes;
     switch (t.kind) {
@@ -264,13 +266,13 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
         // between the two, on top of the font's kerning.
         if (f.prop === "style/tracking") {
           const shown = typeof value === "number" ? String(value) : "";
-          return `<input id="${id}" type="number" ${prop} step="0.01" value="${shown}" placeholder="the theme's" aria-label="tracking, em"> <span class="lives">em</span>`;
+          return `<input id="${id}" type="number" ${prop} step="0.01" value="${shown}" placeholder="the theme's${html(gives)}" aria-label="tracking, em"> <span class="lives">em</span>`;
         }
         const min = t.min ?? t.above;
         const bounds = `${min !== undefined ? ` min="${min}"` : ""}${t.max !== undefined ? ` max="${t.max}"` : ""}`;
         const step = t.whole ? "1" : t.max !== undefined && t.max <= 1 ? "0.05" : "any";
         const shown = typeof value === "number" ? String(value) : "";
-        return `<input id="${id}" type="number" ${prop}${bounds} step="${step}" value="${shown}" placeholder="the theme's">`;
+        return `<input id="${id}" type="number" ${prop}${bounds} step="${step}" value="${shown}" placeholder="the theme's${html(gives)}">`;
       }
       case "text": {
         // A text says its words unless it is described; anything else says nothing until it is.

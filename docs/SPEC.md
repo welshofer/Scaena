@@ -1076,6 +1076,7 @@ A node that lands where it stands is left out of the patch, so its placement sta
 
   Where its data cannot be read (a file the bundle does not hold), no column is offered, and its `data` still is.
 - **The value shown** (`value`) is the deck's: tracked (§2.2), then the overrides; absent where the theme's shows. One keyword sets both axes of an `align`, so it is the value of each; a `choose` of one axis there writes the keyword out as both, the one chosen changed, so the other stays as it showed (PLAN 3.25).
+- **What the theme gives** (`theme`): of a text's look where the deck sets none, what the state shows, from the role it shows the text in: its family, weight, size, italic, case, tracking, or color (`onSurface` where the role names none; upright, as typed, and untracked where it says nothing). An inspector shows it in place of a blank. It is absent for every other property.
 - **Where it lives** (`lives`): `overrides`, a state's delta (`{ "state": id }`, the one shown or one it tracks from), or the `node`. That is where `choose` writes (§7.3).
 - `literal` marks a value written out where the theme has names: an override in the overrides, W300's anywhere else.
 
