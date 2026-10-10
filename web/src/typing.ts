@@ -270,6 +270,12 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
   let bounds: { start: number; fromEnd: number } | undefined;
   /** A change is with the worker, or the text is being read again; another waits for it. */
   let sending = false;
+  /** Typing left while a change was with the worker, straight after keys (Escape, or a press
+   * elsewhere): the text as it was typed then, and the text and source that change came to, once
+   * it is made. What was typed after it is made then (`finish`), so leaving loses no key. */
+  let finishing:
+    | { now: NonNullable<typeof open>; value: string; end: number; bounds: typeof bounds; text?: string; read?: string }
+    | undefined;
   /** The text was asked to be read again while one was: it is, once none is. */
   let behind = false;
   /** What waits for every change typed so far to be made: an undo, so that none is made after
@@ -531,9 +537,11 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     return false;
   }
 
-  /** Stop typing: the node stays selected. */
+  /** Stop typing: the node stays selected. Keys typed after a change still with the worker are
+   * made once it is (`finish`). */
   function leave() {
     if (!open) return;
+    if (sending && carets && area.value !== carets.text) finishing = { now: open, value: area.value, end: area.selectionEnd, bounds };
     open = carets = read = undefined;
     on = goal = anchor = bounds = undefined;
     behind = false;
@@ -574,6 +582,7 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     try {
       const typed = await stage.type(source, [op], { index: now.index, state: now.state, node: now.node }, around.format());
       around.typed(typed.source, typed.edited, joins);
+      if (finishing?.now === now && typed.carets) [finishing.text, finishing.read] = [typed.carets.text, typed.source];
       if (open !== now) return;
       if (!typed.carets) return leave();
       carets = typed.carets;
@@ -586,6 +595,40 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
         area.value = carets.text;
         area.setSelectionRange(at, at);
       }
+    } finally {
+      sending = false;
+      around.draw();
+      settle();
+    }
+  }
+
+  /** What was typed when typing was left with a change still with the worker, made once that change
+   * is, as part of the burst it ended (`leave`): one step to undo with it. Where the source changed
+   * meanwhile, it is not made, and the status says so. */
+  async function finish() {
+    const left = finishing;
+    finishing = undefined;
+    if (!left) return;
+    const { now, value, end, text, read: source } = left;
+    if (text === undefined || source === undefined) return;
+    const change = changed(text, value, end, left.bounds);
+    if (!change) return;
+    if (source !== around.source()) return around.say(`not typed in ${now.node}: the source changed as typing ended`);
+    const op = {
+      op: "replace_text",
+      node: now.node,
+      state: now.state,
+      from: points(text, change.from),
+      to: points(text, change.to),
+      text: change.text,
+      ...(now.fork ? { fork: true } : {}),
+    };
+    sending = true;
+    try {
+      const typed = await stage.type(source, [op], { index: now.index, state: now.state, node: now.node }, around.format());
+      around.typed(typed.source, typed.edited, true);
+    } catch (e) {
+      around.say(`not typed: ${said(e)}`);
     } finally {
       sending = false;
       around.draw();
@@ -632,6 +675,7 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
    * if it was asked to be, and what waits for typing to settle goes on. */
   function settle() {
     if (open && carets && area.value !== carets.text) void send();
+    else if (finishing && !sending) void finish();
     else if (behind) {
       behind = false;
       void sync();
