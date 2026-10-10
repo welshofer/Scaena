@@ -932,16 +932,16 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       parts.push(`<path class="safe-strip" fill-rule="evenodd" d="M0 0H${cw}V${ch}H0Z M${x} ${y}H${x + w}V${y + h}H${x}Z"/>`);
       parts.push(rect(grid.safe, "safe-edge"));
     }
-    // What waits in the layout's empty slots (PLAN 3.30), outlined with its words: a press there
-    // and Insert, or a picture dropped there, fills it.
+    // What waits in the layout's empty slots (PLAN 3.30), outlined with its words, which a press
+    // fills it from; a press there and Insert, or a picture dropped there, fills it too.
     if (!slotting) {
-      for (const w of waits) {
+      waits.forEach((w, i) => {
         const [x, y, width, height] = w.rect;
         parts.push(rect(w.rect, "waiting"));
         parts.push(
-          `<text class="waiting-words" x="${x + width / 2}" y="${y + height / 2}" text-anchor="middle" dominant-baseline="middle" font-size="${13 * u}">${escaped(w.words)}</text>`,
+          `<text class="waiting-words" data-wait="${i}" x="${x + width / 2}" y="${y + height / 2}" text-anchor="middle" dominant-baseline="middle" font-size="${13 * u}">${escaped(w.words)}</text>`,
         );
-      }
+      });
     }
     if (drag) {
       const t = drag.targets;
@@ -2040,6 +2040,24 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     }
   }
 
+  /** An empty slot of the layout filled from a press on its words, as a presentation app's
+   * placeholder fills (PLAN 3.30): a text in the slot's role, inserted there; else a picture, or a
+   * sheet's data, chosen from a file and put there, as a drop there puts it. */
+  function fill(w: Waiting) {
+    const at: [number, number] = [w.rect[0] + w.rect[2] / 2, w.rect[1] + w.rect[3] / 2];
+    pointed = at;
+    const n = w.role === undefined ? -1 : offered.findIndex((i) => i.node.type === "text" && i.id === w.role);
+    if (n >= 0) return void insert(n, offered[n].label);
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/png,image/jpeg,image/*,.csv,.json";
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (file) void dropped(at, file);
+    };
+    input.click();
+  }
+
   /** Arm the canvas to draw what `key` draws (PLAN 2.48); armed with it already, stop. */
   function arm(key: string) {
     if (armed?.key === key) return disarm("not drawing");
@@ -2808,6 +2826,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (!shown || drag) return editor.say(shown ? "" : "the canvas waits for a source that compiles");
     overlay.setPointerCapture(e.pointerId);
     const client: [number, number] = [e.clientX, e.clientY];
+    // An empty slot's words, which a press fills it from (PLAN 3.30).
+    const wait = waits[Number((e.target as Element).closest?.("[data-wait]")?.getAttribute("data-wait") ?? NaN)];
+    if (wait) {
+      e.preventDefault();
+      return fill(wait);
+    }
     // A shape's point, an edge's middle, or a rect's corner (PLAN 2.68).
     const handle = (e.target as Element).closest?.("[data-point],[data-add],[data-radius]");
     if (handle && selected !== undefined && shaped?.outline.node === selected) {

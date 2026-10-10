@@ -324,6 +324,8 @@ export interface Waiting {
   words: string;
   /** Whether words go there; else a picture or a figure. */
   typed: boolean;
+  /** The text role words there are set in, which a press on its words inserts a text of. */
+  role?: string;
 }
 
 export interface LayoutSuggestion {
