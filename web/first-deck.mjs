@@ -7,9 +7,9 @@
 //
 // - The editor opens with the canvas first, the source folded away; Source opens it beside the
 //   canvas, and ⌘\\ folds it again (PLAN 2.80).
-// - New, from its dialog: a deck in Dusk with one empty state.
-// - A title slide: the state's layout from the inspector, a text from Insert in the title slot,
-//   its words typed where it stands.
+// - New, from its dialog: a deck in Dusk that opens on a title slide in the theme's title layout,
+//   its words to type over and its picture's place outlined (PLAN 3.30).
+// - Its title and the line under it typed over where they stand.
 // - + Slide, and Blank from its gallery of the theme's layouts (PLAN 3.30), then a body text typed
 //   as three lines and made a bulleted list with ⌘⇧8.
 // - A CSV dropped on the slide becomes the deck's data source, and a chart of it lands there; the
@@ -170,40 +170,38 @@ try {
     check(await page.evaluate(() => document.querySelector("#source-toggle").getAttribute("aria-pressed") === "false"), "⌘\\ folds it away again");
   });
 
+  let title;
+  let subtitle;
   await step("new", async () => {
     await page.click("#new-deck");
     await page.fill("#making-name", "Trail report");
     await page.selectOption("#making-theme", "Dusk");
     await page.click("#making-create");
     await page.waitForFunction(() => window.scaena.where().name === "trail-report" && window.scaena.last(), null, { timeout: 120000 });
-    check((await shownNodes()).length === 0, "New makes a deck with one empty state");
-  });
-
-  await step("title-layout", async () => {
-    await page.keyboard.press("Escape");
-    await page.waitForSelector("#look-layout", { timeout: 30000 });
-    const layouts = await page.evaluate(() => [...document.querySelectorAll("#look-layout option")].map((o) => o.value));
-    check(layouts.includes("title"), `the empty state offers the theme's layouts: ${layouts.filter(Boolean).join(", ")}`);
-    const before = await mark();
-    await page.selectOption("#look-layout", "title");
-    await changed(before);
-    check(/state \S+ layout:title/.test(await source()), "the state takes the title layout");
-  });
-
-  let title;
-  await step("insert-title", async () => {
-    await page.waitForFunction(() => document.querySelectorAll("#insert option").length > 1, null, { timeout: 30000 });
-    const before = await shownNodes();
-    await page.selectOption("#insert", { label: "display" });
-    await page.waitForFunction((n) => window.scaena.canvas.boxes().length > n, before.length, { timeout: 60000 });
-    title = (await shownNodes()).find((n) => !before.includes(n));
-    check(Boolean(title), `Insert puts a display text in the title slot: ${title}`);
+    const text = await source();
+    /** The text the title slide places in `slot`. */
+    const placed = (slot) => new RegExp(`^\\s*(\\S+) text .*at:in\\(${slot}\\)`, "m").exec(text)?.[1];
+    [title, subtitle] = [placed("title"), placed("subtitle")];
+    check(
+      /^state \S+ .*layout:title/m.test(text) && Boolean(title) && Boolean(subtitle),
+      `New opens on a title slide, its words to type over: ${title}, ${subtitle}`,
+    );
+    const art = await page
+      .waitForFunction(() => window.scaena.canvas.waiting().find((w) => w.slot === "art"), null, { timeout: 30000 })
+      .then((h) => h.jsonValue(), () => undefined);
+    check(art?.typed === false, `and its picture's place outlined: ${art?.words}`);
   });
 
   await step("type-title", async () => {
     await typeInto(title, ["Trail report"]);
     await page.keyboard.press("Escape");
-    check((await source()).includes('"Trail report"'), "the title reads Trail report where it was typed");
+    await typeInto(subtitle, ["Three trails, one season"]);
+    await page.keyboard.press("Escape");
+    const text = await source();
+    check(
+      text.includes('"Trail report"') && text.includes('"Three trails, one season"') && !text.includes("The talk's title"),
+      "the title and the line under it read as typed, over the words the slide began with",
+    );
   });
 
   await step("add-slide", async () => {

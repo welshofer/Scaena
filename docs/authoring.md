@@ -154,7 +154,7 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
 
 | | |
 |---|---|
-| **New…** | a new deck: a title and a theme (Dusk, Daybreak, or Ember), with its fonts and one empty state. It is kept nowhere until you save it. |
+| **New…** | a new deck: a title and a theme (Dusk, Daybreak, or Ember), with its fonts, on a title slide whose words you type over. It is kept nowhere until you save it. |
 | **Open folder…** (Chrome, Edge) | a bundle folder on your disk. **Save** writes back into it. Use this to keep your work as files. |
 | **Open .scaena…** | a `.scaena` file, copied into the browser's storage. |
 | **Kept in this browser** | the bundles this browser keeps. A deck opened from the site's own folder saves here, under its name. |
@@ -167,7 +167,7 @@ A file dropped on the source joins the bundle, and its path, quoted, goes where 
 
 **Your own deck in the site.** Copy its folder into the site's `decks/`, then open `editor.html?bundle=decks/my-talk/`, or the same address on `index.html` to play it. **Open folder…** shows only where the browser can open one (Chrome and Edge, not Safari or Firefox). Elsewhere, saves stay in the browser until you **Download .scaena**, or until you serve the folder with `scaena serve` instead.
 
-**Start a deck.** **New…** asks for a title and a theme. The deck it makes has the theme, the fonts the theme names, and one state with nothing on it, as an assistant's `deck_create` makes one. Its first **Save** keeps it in the browser under a name made from its title; **Save as…** puts it in a folder on your disk instead. To start from another deck, open that one and **Save as…** under a new name.
+**Start a deck.** **New…** asks for a title and a theme. The deck it makes has the theme and the fonts the theme names, as an assistant's `deck_create` makes one, and opens on a title slide in the theme's `title` layout: its title, the line under it, and its kicker are words to type over, and the place for a picture is outlined. Its first **Save** keeps it in the browser under a name made from its title; **Save as…** puts it in a folder on your disk instead. To start from another deck, open that one and **Save as…** under a new name.
 
 ## The command line: edit, check, look
 

@@ -3,9 +3,11 @@
 //
 //   node web/new.mjs     (after `just web`; from the repository's root)
 //
-// - New, from its dialog: a title and a theme that ships. The deck is the theme, its fonts, and
-//   one state with nothing on it, as `deck_create` makes one; it compiles and lints with no
-//   error, kept nowhere, named for its title, and Play waits for a save. Each theme makes one.
+// - New, from its dialog: a title and a theme that ships. The deck is the theme and its fonts, as
+//   `deck_create` makes one, on a title slide in the theme's title layout, its words to type over
+//   and its picture's place outlined, which no undo takes back (PLAN 3.30). It compiles and lints
+//   with no error, kept nowhere, named for its title, and Play waits for a save. Each theme
+//   makes one.
 // - Its first save goes into the browser's storage under its name; Play then plays it.
 // - Save as, from its dialog, keeps it in the browser's storage under another name, and the
 //   address names that. Save as a folder (any directory handle; here one in the browser's
@@ -82,13 +84,30 @@ try {
   check(made.where === undefined && !made.dirty, `a new deck is kept nowhere, named for its title: ${JSON.stringify(made)}`);
   const source = await page.evaluate(() => window.scaena.source());
   check(source.includes('deck "Field notes: what’s next"') && source.includes('theme:"themes/daybreak.theme.json"'), `its source has its title and its theme: ${source.split("\n")[0]}`);
-  check(/state start\b/.test(source) && !/^\s*\w+ (text|shape|chart|table|image)\b/m.test(source), "one state, with nothing on it");
+  check(
+    (source.match(/^state /gm) ?? []).length === 1 && /^state title\b.*layout:title/m.test(source),
+    `it opens on a title slide in the theme's title layout: ${source.match(/^state .*$/m)?.[0]}`,
+  );
+  const words = [...source.matchAll(/^\s*\S+ text role:\S+ "([^"]*)" at:in\((\w+)\)/gm)].map(([, said, slot]) => `${slot}: ${said}`);
+  check(
+    words.join(" · ") === "kicker: Your name · the date · title: The talk's title · subtitle: What it's about, in a line",
+    `its words to type over: ${words.join(" · ")}`,
+  );
+  const art = await page
+    .waitForFunction(() => window.scaena.canvas.waiting().find((w) => w.slot === "art"), null, { timeout: 30000 })
+    .then((h) => h.jsonValue(), () => undefined);
+  check(art?.typed === false, `its picture's place outlined: ${art?.words}`);
+  // Made as the deck was made: an undo has nothing to take back.
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Control+z");
+  await page.waitForTimeout(1000);
+  check((await page.evaluate(() => window.scaena.source())) === source, "no undo goes back to an empty state");
   check((await page.evaluate(() => window.scaena.last().valid)) && (await errors()).length === 0, `it compiles and lints with no error: ${await errors()}`);
   check(await page.locator("#play").isHidden(), "Play waits for a save");
   check(!(await page.locator("#stage").screenshot()).equals(revenue), "the preview shows it");
 
-  // A title on its state, then its first save: into the browser's storage under its name.
-  const titled = source.replace(/^state start\b.*$/m, 'state start layout:title\n  title text role:display "Field notes" at:in(title)');
+  // Its title typed over, then its first save: into the browser's storage under its name.
+  const titled = source.replace(`"The talk's title"`, '"Field notes"');
   const typed = await type(titled);
   check(typed.valid && (await where()).dirty, `an edit compiles and marks it changed: ${typed.error?.message ?? ""}`);
   const saved = await page.evaluate(() => window.scaena.save());
@@ -126,12 +145,15 @@ try {
   await ready("on-disk");
   check((await page.evaluate(() => window.scaena.source())).includes('"Field notes, again"'), "a save writes the folder, and the page opens it from there");
 
-  // Every theme that ships makes a deck that lints with no error.
+  // Every theme that ships makes a deck on a title slide that lints with no error.
   for (const theme of themes) {
     await page.evaluate((theme) => window.scaena.open({ create: { theme, title: `A ${theme} deck` } }), theme);
     await ready(`a-${theme.toLowerCase()}-deck`);
     const text = await page.evaluate(() => window.scaena.source());
-    check(text.includes(`themes/${theme.toLowerCase()}.theme.json`) && (await errors()).length === 0, `${theme} makes a deck with no error: ${await errors()}`);
+    check(
+      text.includes(`themes/${theme.toLowerCase()}.theme.json`) && /^state title\b.*layout:title/m.test(text) && (await errors()).length === 0,
+      `${theme} makes a deck on a title slide with no error: ${await errors()}`,
+    );
   }
 
   const standalone = await readFile("crates/scaena-export/player/standalone.html", "utf8");

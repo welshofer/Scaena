@@ -591,6 +591,8 @@ async function edit(source: Source) {
       return true;
     },
   }, $("#marks"), $("#marked"));
+  // A new deck's title slide outlines its empty places, as a slide made here does (PLAN 3.30).
+  if ("create" in source) for (const state of stage.opened.states) board.freshen(state);
   /** The layers of the state shown (PLAN 2.50): a tab beside the inspector, each change a patch. */
   const layering = layers(stage, $("#layers"), {
     shown: showing,
