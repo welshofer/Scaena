@@ -16,9 +16,10 @@ Phase 4's exit criteria (PLAN, "Exit criteria (gate 4)"), each with its evidence
 - **Same frame.** The iPad edits and draws through the session the Mac and the browser do (`scaena-session`, ADR-0021, ADR-0023), compiled for the iPad.
   - ScaenaKit's `theTortureDeckDrawsTheGoldensDisplayLists` opens the torture deck from its files, as the app does. Every state at rest digests to the goldens (`tests/golden/torture/raw.fnv1a`), as the web player's engine does (PLAN 0.8).
   - CI runs it on the simulator. Gate 4's own tests carry the deck and the digests (below), so an iPad runs the same test on its own engine, built in release.
+  - On CI's simulator, all 60 of the torture deck's states at rest draw the goldens' display lists (`gate 4, criterion 1: 60 of the torture deck's 60 states …`).
 - **Same pixels.** The iPad paints with vello on Metal, as the Mac does (`LayerPainter`).
   - On the simulator, Metal is Apple's second GPU family alone. It has no indirect dispatch, which vello asks for. So a layer there is painted by the CPU painter and shown through the same blit (ADR-0004 finding 23).
-  - CI's `aSurfacePaintsOnMetalWhatTheCPUPainterPaints` therefore checks the blit on the simulator, not vello.
+  - CI's `aSurfacePaintsOnMetalWhatTheCPUPainterPaints` therefore checks the blit on the simulator, not vello. There the layer's pixels are the CPU painter's own, 0.000 of a level off on average.
   - On an iPad, the same test asks for vello. It holds B1's cover on a layer to the CPU painter's pixels: a channel under one level off on average (SPEC §13.5). It prints how far off.
   - The simulator caught one thing an iPad would have refused. Metal on iPadOS passes 15 variables between a shader's stages, not 16, so a painter now asks the adapter for what it holds (ADR-0004 finding 22).
   - The web player's frames, by WebGPU and by the CPU painter, are held to the same goldens (`just web-smoke`). The clients meet there.
@@ -41,6 +42,13 @@ On the iPad it prints `gate 4, criterion 2: …`, and where the time went.
   - the machine is a virtual Mac.
 
   It holds the test to five seconds, so that a gross regression shows. The job runs the gate's own command too (`apps/ipad/gate.sh`, below), so that the command keeps working, and prints the simulator's readings.
+- **The simulator's reading**, from the first run of `gate.sh` on CI: B1 open to first frame in 26 ms, painted by the CPU painter.
+
+  | | open → first frame | files and session | timeline | surface | first frame | a second surface |
+  |---|---|---|---|---|---|---|
+  | CI's iPad simulator, debug | 26.4 ms | 5.7 ms | 3.1 ms | 0.4 ms | 17.2 ms | 12.3 ms |
+
+  The GPU was already made by the tests before it, so its time reads 0.0 ms. That is not the gate's reading.
 - **The gate's reading** is the release build, on an M-series iPad joined to a Mac with Xcode and XcodeGen:
   1. Put a team that signs for the iPad in `apps/ipad/Team.xcconfig`, kept out of the repository: `DEVELOPMENT_TEAM = <your team's ID>`.
   2. Turn on the iPad's Developer Mode, unlock it, and find its UDID: `xcrun xctrace list devices`.
