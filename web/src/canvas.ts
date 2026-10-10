@@ -543,6 +543,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   /** The slots of the state shown with nothing in them, outlined with their prompts' words (PLAN
    * 3.30): where a slide's picture or figure goes, or words taken out. */
   let waits: Waiting[] = [];
+  /** The slides made here, from the gallery or after the slide shown: only theirs show their
+   * layout's empty slots, so a deck opened shows none it never filled. */
+  const fresh = new Set<string>();
   /** Whether the safe area's strip is drawn around the canvas's edge (PLAN 3.29), from the same
    * grid. */
   let safeShown = false;
@@ -684,7 +687,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (!shown) return;
     const [was, format] = [size, editor.format()];
     const ruling = ruled || safeShown ? stage.grid(format).catch(() => undefined) : undefined;
-    const waiting = stage.waits(shown.state, format).catch((): Waiting[] => []);
+    const waiting = fresh.has(shown.state) ? stage.waits(shown.state, format).catch((): Waiting[] => []) : Promise.resolve([]);
     // A state renamed or taken away while its boxes were asked for (PLAN 2.77): the edit that did it
     // asks again, for the state shown now.
     try {
@@ -3543,6 +3546,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     grid: () => (ruled ? grid : undefined),
     /** The empty slots outlined on the canvas, with their words (PLAN 3.30). */
     waiting: () => waits,
+    /** A slide made here: its layout's empty slots are outlined once it shows. */
+    freshen: (state: string) => void fresh.add(state),
     /** Draw the safe area around the canvas's edge, or stop, as ⌥⌘' does (PLAN 3.29); and whether
      * it is drawn, and what lies inside it. */
     shield,

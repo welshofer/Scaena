@@ -84,6 +84,9 @@ struct DeckView: View {
     @State private var choosingPicture = false
     /// The themes that ship, offered as a deck made by New opens (PLAN 3.3); none once one is chosen.
     @State private var offeredThemes: [ShippedTheme] = []
+    /// The slides made in this window, from the gallery or after the slide shown (PLAN 3.30):
+    /// only theirs show their layout's empty slots, so a deck opened shows none it never filled.
+    @State private var fresh: Set<String> = []
     /// Whether the state shown is drawn in each of the deck's formats under the canvas (PLAN 3.16).
     @SceneStorage("formats") private var showsFormats = false
     /// How close the canvas is shown, and the part of it shown (PLAN 3.16).
@@ -710,7 +713,9 @@ struct DeckView: View {
                     // The guides that hold nothing off the slide, and the layout's empty slots.
                     ZStack {
                         if showsSafeArea { SafeAreaOverlay(editor: editor, shown: zoom.view) }
-                        if !showsSlides { WaitingOverlay(editor: editor, state: shown, shown: zoom.view) }
+                        if !showsSlides, fresh.contains(shown) {
+                            WaitingOverlay(editor: editor, state: shown, shown: zoom.view)
+                        }
                     }
                 }
                 .overlay {
@@ -1268,6 +1273,7 @@ struct DeckView: View {
     private func startSlide(after state: String, layout: String?) {
         perform {
             let started = try editor.session.starting(after: state, layout: layout)
+            fresh.insert(started.id)
             try document.make(started.patch, undo: undo)
             undo?.setActionName("New Slide")
             chosen = started.id
@@ -1279,6 +1285,7 @@ struct DeckView: View {
     private func addState(after state: String, as what: StateAdding) {
         perform {
             let added = try editor.session.addingState(after: state, as: what)
+            if what == .slide { fresh.insert(added.id) }
             try document.make(added.patch, undo: undo)
             chosen = added.id
             said = what == .step ? "Step added" : "Slide added"

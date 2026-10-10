@@ -13,7 +13,8 @@
 // - + Slide opens the gallery of Dusk's layouts (PLAN 3.30): a slide drawn for each of its 47, by
 //   its sections, then a blank one. Bullets starts a slide after `mix` with its headline and its
 //   points in their slots, one undo; Photo one whose picture, edge to edge, the canvas outlines
-//   with its words. Blank adds an empty slide after `mix`. Alt with an arrow key moves it, and so
+//   with its words, where it outlines nothing on `intro`, a title slide the deck opened with no
+//   picture and no kicker. Blank adds an empty slide after `mix`. Alt with an arrow key moves it, and so
 //   does a drag; Delete removes it, and the source is as it was.
 // - F2 renames a state; a state another builds on is not removed, and the status says why.
 // - The state shown, renamed and taken away, leaves no error on the page, and ⌘Z and ⇧⌘Z with the
@@ -211,6 +212,14 @@ try {
   check((await page.locator("#overlay .waiting-words").textContent()) === "A picture, edge to edge", "with its words");
   await undo();
   check(await back(original), "one undo takes it back");
+  // intro, a title slide the deck opened with no picture and no kicker, outlines neither: only a
+  // slide made here shows its layout's empty slots.
+  await item("intro").click();
+  await shows(0);
+  await page.waitForFunction(() => window.scaena.canvas.boxes()?.some((b) => b.node === "title"), null, { timeout: 30000 }).catch(() => {});
+  await page.waitForTimeout(500);
+  const opened = await page.evaluate(() => ({ waits: window.scaena.canvas.waiting().length, words: document.querySelectorAll("#overlay .waiting-words").length }));
+  check(opened.waits === 0 && opened.words === 0, `intro, a title slide as the deck opened, outlines no slot it left empty: ${JSON.stringify(opened)}`);
 
   // Blank: an empty slide after revenue's slide, after mix.
   await item("revenue").click();
