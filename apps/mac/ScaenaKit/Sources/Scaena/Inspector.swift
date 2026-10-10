@@ -38,6 +38,9 @@ struct Inspector: View {
     @State private var placed: CGRect?
     @State private var showsObjects = false
     @State private var showsMore = false
+    /// Whether a text's fitting (how it fits its box, its line breaks, its most lines) is shown:
+    /// folded until asked for, as the inspector's More is, so a text's look comes first.
+    @State private var showsFitting = false
 
     var body: some View {
         Group {
@@ -60,9 +63,9 @@ struct Inspector: View {
     private func one(_ state: String) -> some View {
         Form {
             ForEach(shelves) { shelf in
-                if shelf.part == .more {
+                if shelf.part == .more || shelf.part == .fitting {
                     Section {
-                        DisclosureGroup("More", isExpanded: $showsMore) {
+                        DisclosureGroup(shelf.title, isExpanded: shelf.part == .more ? $showsMore : $showsFitting) {
                             ForEach(shelf.fields) { field in row(field, in: state) }
                         }
                     }

@@ -76,6 +76,8 @@ struct CanvasSelection: View {
     /// The layout's slots with nothing in them, in the format shown, which a press on the words
     /// in each fills (PLAN 3.30).
     @State private var waits: [WaitingSlot] = []
+    /// Whether Tab has said once what Return does on what it selects (PLAN 3.17).
+    @State private var toldReturn = false
     /// Where each node the state shows is placed.
     @State private var placements: [String: JSONValue] = [:]
     @State private var press: Press?
@@ -1045,7 +1047,10 @@ struct CanvasSelection: View {
         }
         node = order[next]
         also = []
-        said = "\(name(order[next], starting: true)) selected, \(next + 1) of \(order.count)\(level.map { " in \(name($0))" } ?? "") · Return goes into it or its handles"
+        // What Return does is said the first time only: after that, what is selected is enough.
+        let hint = toldReturn ? "" : " · Return goes into it or its handles"
+        toldReturn = true
+        said = "\(name(order[next], starting: true)) selected, \(next + 1) of \(order.count)\(level.map { " in \(name($0))" } ?? "")\(hint)"
         return true
     }
 
