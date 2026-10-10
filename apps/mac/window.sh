@@ -280,8 +280,12 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   # enter in turn. With the timeline shown, a click on the chart's lane selects the chart, and its
   # lane stands out while the others step back; then, the canvas given the keys by a click on the
   # chart, Shift+Tab selects the words before it, a stack, and its title's and words' lanes stand
-  # out. Funding is ten slides down from the cover.
+  # out. Funding is ten slides down from the cover. The canvas keeps the room the timeline leaves:
+  # the slide as tall as it was, or near it, not its least.
+  read -r _ _ bw bh <<<"$(frames find canvas)" || true
   toggle Timeline
+  read -r _ _ tw th <<<"$(frames find canvas)" || true
+  echo "the slide, the timeline hidden: ${bw:-?} × ${bh:-?}; shown: ${tw:-?} × ${th:-?}"
   read -r lx ly lw lh <<<"$(frames find state-cover)" || true
   if [[ "${lh:-}" =~ ^[0-9]+$ ]]; then
     pointer click $((lx + lw / 2)) $((ly + lh / 2))

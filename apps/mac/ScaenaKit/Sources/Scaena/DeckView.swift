@@ -235,7 +235,8 @@ struct DeckView: View {
                 }
             }
         } else {
-            VStack(spacing: 0) {
+            // The canvas takes the room the find bar, the other sizes, and the timeline leave.
+            CanvasColumn {
                 if searching {
                     FindBar(editor: editor, reveal: reveal, make: { ops in perform { try document.make(ops, undo: undo) } }) {
                         searching = false
@@ -243,6 +244,7 @@ struct DeckView: View {
                     Divider()
                 }
                 stage
+                    .columnCanvas()
                 if showsFormats, let shown {
                     Divider()
                     FormatsStrip(editor: editor, state: shown) { format in showFormat(format) }
