@@ -208,7 +208,8 @@ try {
   // `node` of its own, gives none.
   const keptLines = kept.split("\n").filter((l) => l.includes("[[0, 0.5], [0.5, 0.5]]"));
   const declaration = kept.split("\n").find((l) => /shape-rule shape /.test(l)) ?? "";
-  check(keptLines.length === 1 && keptLines[0].trim() === "shape-rule points:[[0, 0.5], [0.5, 0.5]]", `with Alt, in the state's own props: ${keptLines.join(" | ")}`);
+  const ruleLines = kept.split("\n").filter((l) => l.includes("shape-rule")).map((l) => l.trim());
+  check(keptLines.length === 1 && keptLines[0].trim() === "shape-rule points:[[0, 0.5], [0.5, 0.5]]", `with Alt, in the state's own props: ${(keptLines.length ? keptLines : ruleLines).join(" | ")}`);
   check(declaration !== "" && !declaration.includes("points:"), `and not on the rule: ${declaration}`);
   await undo();
   check(await back(original), "one undo takes it back");
