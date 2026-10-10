@@ -124,6 +124,13 @@ try {
 
   // `revenue`: the transition's end sets the state's transition; the chart grows on a spring.
   await show("revenue");
+  // The bars are drawn again once the inspector has read the state shown: until then they can be
+  // the last state's, whose transition is none.
+  await page
+    .waitForFunction(() => window.scaena.cue.bars().find((b) => b.key === "transition")?.duration === 420, null, {
+      timeout: 10000,
+    })
+    .catch(() => {});
   const transition = await bar("transition");
   check(transition.duration === 420, `revenue's transition, the theme's standard: ${transition.duration}`);
   n = await trips();
