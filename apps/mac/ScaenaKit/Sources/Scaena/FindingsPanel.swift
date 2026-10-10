@@ -1,10 +1,10 @@
 import ScaenaKit
 import SwiftUI
 
-/// What compiling and lint found (PLAN 3.4, SPEC §7.5), errors first: each with its code, the
-/// state and node it is about, and where the source sets it. A click shows its state with its
-/// node selected; Fix applies a fix lint has checked, one step to undo; and where the Mac has the
-/// on-device model, Explain says what the finding means for this deck (PLAN 3.6).
+/// What compiling and lint found (PLAN 3.4, SPEC §7.5), errors first: each said, with the slide
+/// it is about and the size it shows in, as a person reads them (PLAN 3.18). A click shows its
+/// slide with its object selected; Fix applies a fix lint has checked, one step to undo; and where
+/// the Mac has the on-device model, Explain says what the finding means for this deck (PLAN 3.6).
 struct FindingsPanel: View {
     let editor: DeckEditor
     let go: (Finding) -> Void
@@ -20,17 +20,30 @@ struct FindingsPanel: View {
     var body: some View {
         let found = ordered(editor.findings.filter { !Self.freely.contains($0.code) })
         List {
-            if found.isEmpty {
-                Text(editor.whole ? "No issues." : "Checking every slide…")
-                    .foregroundStyle(.secondary)
-            }
             ForEach(found.indices, id: \.self) { i in
-                FindingRow(finding: found[i], explain: explain, fix: fix)
+                FindingRow(finding: found[i], about: about(found[i]), explain: explain, fix: fix)
                     .contentShape(Rectangle())
                     .onTapGesture { go(found[i]) }
             }
         }
         .listStyle(.inset)
+        .overlay {
+            if found.isEmpty {
+                Label(
+                    editor.whole ? "No issues on any slide" : "Checking every slide…",
+                    systemImage: editor.whole ? "checkmark.circle" : "hourglass")
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// Where a finding is, as a person finds it: its slide, and the size it shows in where the
+    /// deck has others; the source where it is about no slide.
+    private func about(_ finding: Finding) -> String {
+        var parts: [String] = []
+        if let state = finding.state { parts.append(Words.slide(state, in: editor.slots)) }
+        if let format = finding.format { parts.append("in \(format)") }
+        return parts.isEmpty ? "The deck" : parts.joined(separator: " · ")
     }
 
     /// Errors, then warnings, then the rest; in the format shown first; else as lint lists them.
@@ -47,6 +60,8 @@ struct FindingsPanel: View {
 
 private struct FindingRow: View {
     let finding: Finding
+    /// Where it is, in a person's words.
+    let about: String
     let explain: ((Finding) -> Void)?
     let fix: (Finding) -> Void
 
@@ -89,15 +104,5 @@ private struct FindingRow: View {
         case .warning: .orange
         case .info: .secondary
         }
-    }
-
-    /// Its code, the state and node it is about, its format, and its line in the source.
-    private var about: String {
-        var parts = [finding.code]
-        if let state = finding.state { parts.append(state) }
-        if let node = finding.node { parts.append(node) }
-        if let format = finding.format { parts.append("in \(format)") }
-        if let at = finding.at { parts.append("line \(at.line)") }
-        return parts.joined(separator: " · ")
     }
 }

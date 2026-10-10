@@ -367,16 +367,21 @@ struct CanvasSelection: View {
                             .position(fit.view(mark.at))
                     }
                 }
+                // What the canvas says, at the foot of the slide, clear of a title at its head.
                 if let words = told ?? typing.told ?? said {
                     Text(words)
-                        .font(.caption)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
+                        .font(.callout)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
                         .background(.regularMaterial, in: Capsule())
-                        .padding(8)
-                        .allowsHitTesting(false)
+                        .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
                         // What the walk reads to know a text is typed in (PLAN 3.21).
                         .accessibilityIdentifier("hint")
+                        .padding(12)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                        .allowsHitTesting(false)
                 }
             }
         }

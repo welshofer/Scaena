@@ -29,6 +29,8 @@ struct DeckActions {
     /// In another of the deck's formats, give the node selected a layout of its own there, where
     /// it stands (PLAN 2.85, 3.16).
     var placeAnew: (() -> Void)? = nil
+    /// Ask for a picture, or a sheet's data, from a file, to put on the slide shown.
+    var choosePicture: (() -> Void)? = nil
 }
 
 private struct DeckActionsKey: FocusedValueKey {
@@ -50,9 +52,11 @@ extension FocusedValues {
 /// Paste Style (⌥⌘V, PLAN 2.58); and the Arrange menu: the order among what their container paints
 /// (⌥⌘], ⌘], ⌘[, ⌥⌘[, PLAN 2.42), Group (⌘G) and Ungroup (⌘⇧G, PLAN 2.43), and Lock (⇧⌘L). Each
 /// acts on every object selected (PLAN 3.13). The canvas takes Delete and Shift+Delete itself, as
-/// the browser's does.
+/// the browser's does. Between Insert and Arrange, as a presentation app has it, the Slide menu:
+/// New Slide (⇧⌘N), New Step, Duplicate Slide, and Delete Slide, on the slide shown.
 struct NodeCommands: Commands {
     @FocusedValue(\.deck) private var deck
+    @FocusedValue(\.panes) private var panes
 
     var body: some Commands {
         CommandMenu("Insert") {
@@ -67,6 +71,21 @@ struct NodeCommands: Commands {
                 Button("Nothing to Insert") {}
                     .disabled(true)
             }
+            Divider()
+            Button("Choose Picture…") { deck?.choosePicture?() }
+                .disabled(deck?.choosePicture == nil)
+        }
+        CommandMenu("Slide") {
+            Button("New Slide") { panes?.newSlide?() }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+                .disabled(panes?.newSlide == nil)
+            Button("New Step") { panes?.newStep?() }
+                .disabled(panes?.newStep == nil)
+            Divider()
+            Button("Duplicate Slide") { panes?.duplicateSlide?() }
+                .disabled(panes?.duplicateSlide == nil)
+            Button("Delete Slide") { panes?.deleteSlide?() }
+                .disabled(panes?.deleteSlide == nil)
         }
         CommandGroup(after: .pasteboard) {
             Divider()

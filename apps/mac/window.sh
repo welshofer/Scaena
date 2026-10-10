@@ -240,6 +240,21 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
     echo "no Add Slide in the toolbar: $ax $ay $aw $ah"
   fi
 
+  # The Slide menu (PLAN 3.14), as a presentation app's: what it offers, opened so each item is
+  # enabled as it is now; then New Slide adds one after the slide shown, in its layout, and ⌘Z
+  # takes it back.
+  app 'click menu bar item "Slide" of menu bar 1' >/dev/null
+  sleep 1
+  echo "the Slide menu: $(app 'get {name, enabled} of every menu item of menu 1 of menu bar item "Slide" of menu bar 1')"
+  events 'key code 53'
+  sleep 1
+  menu Slide "New Slide"
+  sleep 2
+  shot slide-menu-new
+  events 'keystroke "z" using command down'
+  sleep 2
+  shot slide-menu-undone
+
   # The Document tab's Theme (PLAN 3.28): each value a field that reads as one. A color typed in
   # the paper's field is set on Return, and the Edit menu names the step; ⌘Z takes it back and
   # ⌘⇧Z makes it again, the slide drawn in each; then ⌘Z leaves the deck as it was.
