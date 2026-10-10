@@ -105,10 +105,13 @@ public struct Field: Decodable, Sendable, Identifiable {
     public let lives: Lives?
     /// The value is written out where the theme has names: an override.
     public let literal: Bool
+    /// What the theme gives a text's look where the deck sets none, which the slide then shows:
+    /// its role's family, weight, size, italic, case, tracking, or color. None for the rest.
+    public let theme: JSONValue?
 
     public var id: String { prop }
 
-    private enum Keys: String, CodingKey { case prop, takes, value, lives, literal }
+    private enum Keys: String, CodingKey { case prop, takes, value, lives, literal, theme }
 
     public init(from decoder: any Decoder) throws {
         let fields = try decoder.container(keyedBy: Keys.self)
@@ -117,6 +120,7 @@ public struct Field: Decodable, Sendable, Identifiable {
         value = try fields.decodeIfPresent(JSONValue.self, forKey: .value)
         lives = try fields.decodeIfPresent(Lives.self, forKey: .lives)
         literal = try fields.decodeIfPresent(Bool.self, forKey: .literal) ?? false
+        theme = try fields.decodeIfPresent(JSONValue.self, forKey: .theme)
     }
 }
 

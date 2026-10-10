@@ -320,6 +320,10 @@ fn inspect_says_what_an_inspector_offers() {
     let text = String::from_utf8(out.stdout).unwrap();
     assert!(text.contains("choices for title (text):"), "{text}");
     assert!(text.contains("role           headline, in revenue's delta · display, headline, title"), "{text}");
+    assert!(
+        text.contains("style/family   the theme's: display · "),
+        "what the theme gives, where the deck sets none: {text}"
+    );
 }
 
 #[test]

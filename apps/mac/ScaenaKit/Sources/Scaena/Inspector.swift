@@ -172,7 +172,7 @@ struct Inspector: View {
             case "opacity":
                 OpacityRow(value: field.value?.number, choose: choose)
             case "style/weight":
-                WeightRow(value: field.value?.number, choose: choose)
+                WeightRow(value: field.value?.number, shows: field.theme?.number, choose: choose)
             case "transform/rotate":
                 NumberRow(label: label, value: field.value?.number, whole: false, unit: "°", choose: choose)
             case "align/x":
@@ -192,20 +192,31 @@ struct Inspector: View {
             default:
                 switch field.takes {
                 case .name(let of, let names, let overrides) where of == "color":
-                    SwatchRow(label: label, value: field.value, names: names, look: look, any: overrides, choose: choose)
+                    SwatchRow(
+                        label: label, value: field.value, names: names, look: look, any: overrides,
+                        shows: field.theme?.string, choose: choose)
                 case .name(let of, let names, _):
+                    let said = { (name: String) in Option(tag: name, title: Words.name(name, of: of, theme: look)) }
                     PickRow(
-                        label: label, value: field.value,
-                        options: names.map { Option(tag: $0, title: Words.name($0, of: of, theme: look)) }, choose: choose)
+                        label: label, value: field.value, options: names.map(said), shows: field.theme?.string.map(said),
+                        choose: choose)
                 case .word(let words):
+                    let said = { (word: String) in
+                        Option(tag: word, title: Words.word(word, of: field.prop, type: choices?.type))
+                    }
                     PickRow(
-                        label: label, value: field.value,
-                        options: words.map { Option(tag: $0, title: Words.word($0, of: field.prop, type: choices?.type)) },
-                        segmented: words.count <= 2, choose: choose)
+                        label: label, value: field.value, options: words.map(said), segmented: words.count <= 2,
+                        shows: field.theme?.string.map(said), choose: choose)
                 case .number(_, _, _, let whole):
-                    NumberRow(label: label, value: field.value?.number, whole: whole, unit: nil, choose: choose)
+                    NumberRow(
+                        label: label, value: field.value?.number, whole: whole, unit: nil, shows: field.theme?.number,
+                        choose: choose)
                 case .flag:
-                    Toggle(label, isOn: Binding(get: { field.value?.bool ?? false }, set: { choose(.bool($0)) }))
+                    // Where the deck sets none, the theme's: an italic role reads as italic.
+                    Toggle(
+                        label,
+                        isOn: Binding(
+                            get: { field.value?.bool ?? field.theme?.bool ?? false }, set: { choose(.bool($0)) }))
                 case .text:
                     TextRow(label: label, value: field.value?.string ?? "", long: false, choose: choose)
                 case .fractions(let names):
@@ -549,22 +560,25 @@ private struct Option: Identifiable {
 }
 
 /// One of the theme's names, or one of the words a property takes; Default takes the value away,
-/// and a value written out shows as Custom.
+/// and a value written out shows as Custom. Where the theme gives a value (`shows`), Default is
+/// called by it, the Fraunces a headline is set in, say, and is not offered again beside it.
 private struct PickRow: View {
     let label: String
     let value: JSONValue?
     let options: [Option]
     var segmented = false
+    /// What the slide shows where nothing sets it: the theme's, by its name.
+    var shows: Option? = nil
     let choose: (JSONValue) -> Void
 
     var body: some View {
         let current = value?.string ?? value.map(written) ?? ""
         let picker = Picker(label, selection: Binding(get: { current }, set: { picked in pick(picked, over: current) })) {
-            Text("Default").tag("")
+            Text(shows?.title ?? "Default").tag("")
             if !current.isEmpty, !options.contains(where: { $0.tag == current }) {
                 Text("Custom").tag(current)
             }
-            ForEach(options) { option in
+            ForEach(options.filter { $0.tag != shows?.tag || $0.tag == current }) { option in
                 Text(option.title).tag(option.tag)
             }
         }
@@ -591,6 +605,9 @@ private struct SwatchRow: View {
     let look: ThemeLook?
     /// Whether a color written out may be chosen too.
     let any: Bool
+    /// The color the slide shows where nothing sets it: the theme's, by its name. Its swatch is
+    /// picked then, and picking it again takes a color set away.
+    var shows: String? = nil
     let choose: (JSONValue) -> Void
     @State private var settling: Task<Void, Never>?
 
@@ -604,7 +621,7 @@ private struct SwatchRow: View {
                 Text(said(current)).foregroundStyle(.secondary)
             }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 26, maximum: 30), spacing: 6)], alignment: .leading, spacing: 6) {
-                swatch(nil)
+                if shows == nil { swatch(nil) }
                 ForEach(shown, id: \.self) { name in swatch(name) }
                 if any {
                     ColorPicker("Other Color", selection: other, supportsOpacity: true)
@@ -625,14 +642,15 @@ private struct SwatchRow: View {
     }
 
     private func said(_ name: String?) -> String {
-        guard let name else { return "Default" }
+        guard let name = name ?? shows else { return "Default" }
         return names.contains(name) ? Words.name(name, of: "color", theme: look) : "Custom"
     }
 
     private func swatch(_ name: String?) -> some View {
-        let picked = current == name
+        // The theme's color is picked where nothing sets one, and picked again takes one away.
+        let picked = current == name || (current == nil && name != nil && name == shows)
         return Button {
-            if !picked { choose(name.map { .string($0) } ?? .null) }
+            if !picked { choose(name == nil || name == shows ? .null : .string(name ?? "")) }
         } label: {
             ZStack {
                 if let name, let color = look?.color(name) {
@@ -676,6 +694,8 @@ private struct SwatchRow: View {
 /// A font's weight by its name, Regular to Black; a weight between them shows as its number.
 private struct WeightRow: View {
     let value: Double?
+    /// The weight the slide shows where nothing sets one: the theme's, which Default is called by.
+    var shows: Double? = nil
     let choose: (JSONValue) -> Void
 
     private struct Weight: Identifiable {
@@ -691,14 +711,20 @@ private struct WeightRow: View {
         Weight(value: 700, name: "Bold"), Weight(value: 800, name: "Extra Bold"), Weight(value: 900, name: "Black"),
     ]
 
+    /// A weight by its name, or by its number where it falls between two.
+    private static func name(_ value: Int) -> String {
+        weights.first { $0.value == value }?.name ?? "\(value)"
+    }
+
     var body: some View {
         let current = value.map { Int($0.rounded()) } ?? 0
+        let theirs = shows.map { Int($0.rounded()) }
         Picker("Weight", selection: Binding(get: { current }, set: { picked in pick(picked, over: current) })) {
-            Text("Default").tag(0)
+            Text(theirs.map(Self.name) ?? "Default").tag(0)
             if current != 0, !Self.weights.contains(where: { $0.value == current }) {
                 Text("\(current)").tag(current)
             }
-            ForEach(Self.weights) { weight in
+            ForEach(Self.weights.filter { $0.value != theirs || $0.value == current }) { weight in
                 Text(weight.name).tag(weight.value)
             }
         }
@@ -1020,12 +1046,15 @@ private struct Coordinate: View {
     }
 }
 
-/// A number, typed: chosen when typed and entered, or when the field is left; empty is Default.
+/// A number, typed: chosen when typed and entered, or when the field is left; empty is Default,
+/// which shows the theme's number where it gives one.
 private struct NumberRow: View {
     let label: String
     let value: Double?
     let whole: Bool
     let unit: String?
+    /// The number the slide shows where nothing sets one: the theme's, shown in the empty field.
+    var shows: Double? = nil
     let choose: (JSONValue) -> Void
     @State private var text = ""
     @FocusState private var focused: Bool
@@ -1033,7 +1062,7 @@ private struct NumberRow: View {
     var body: some View {
         LabeledContent(label) {
             HStack(spacing: 4) {
-                TextField(label, text: $text, prompt: Text("Default"))
+                TextField(label, text: $text, prompt: Text(shows.map(Words.number) ?? "Default"))
                     .labelsHidden()
                     .textFieldStyle(.roundedBorder)
                     .multilineTextAlignment(.trailing)
