@@ -805,6 +805,9 @@ export type ToWorker =
   | { type: "starting"; id: number; source: string; state: string; layout?: string }
   /** The slots of `state`'s layout, in `format`, that wait for what their prompts say goes there. */
   | { type: "waiting"; id: number; state: string; format?: string }
+  /** The patch that fills `slot` of `state`'s layout, which waits for words, as a new slide in the
+   * layout fills it (PLAN 3.30). */
+  | { type: "filling"; id: number; source: string; state: string; slot: string }
   /** Text typed on the canvas (PLAN 2.32): `ops`, a `replace_text`, made by the user on the deck
    * the editor's `source` compiles to, validated but not linted; then the deck's source, shown
    * at slot `index` and linted as an edit of it is, and where a caret stands in `node`'s text in
@@ -1316,6 +1319,8 @@ export type FromWorker =
   /** The patch that starts a slide, and the slide's id. */
   | { type: "starting"; id: number; added: { id: string; patch: unknown[] } }
   | { type: "waiting"; id: number; waiting: Waiting[] }
+  /** The patch that fills a slot that waits for words, and the node's id. */
+  | { type: "filling"; id: number; filled: { id: string; patch: unknown[] } }
   /** The text is typed: the deck's source now, what the edit came to, and the text's carets. */
   | { type: "typed"; id: number; source: string; edited: Edited; carets: Carets | null }
   /** The bundle is saved `where`, and the session goes on from it: the files the save

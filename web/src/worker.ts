@@ -329,6 +329,9 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "waiting":
         layOut(data.format);
         return post({ type: "waiting", id: data.id, waiting: JSON.parse(player.waiting(data.state)) as Waiting[] });
+      case "filling":
+        current(data.source);
+        return post({ type: "filling", id: data.id, filled: JSON.parse(player.filling(data.state, data.slot)) as { id: string; patch: unknown[] } });
       case "deleting":
         current(data.source);
         return post({ type: "deleting", id: data.id, patch: JSON.parse(player.deleting(data.state, data.node, data.everywhere)) as unknown[] });

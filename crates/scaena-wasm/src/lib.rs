@@ -756,7 +756,7 @@ impl Player {
     }
 
     /// The slots of `state`'s layout, in the format shown, that wait for what their prompts say
-    /// goes there, nothing placed in them, as JSON: each `{ slot, rect, words, typed }` (PLAN
+    /// goes there, nothing placed in them, as JSON: each `{ slot, rect, words, typed, role? }` (PLAN
     /// 3.30), which the canvas outlines.
     pub fn waiting(&self, state: &str) -> Result<String, JsError> {
         serde_json::to_string(&self.0.waiting(state).map_err(js)?).map_err(js)
@@ -766,6 +766,12 @@ impl Player {
     /// the state shown, or a blank one with none, as JSON: `{ id, patch }` (PLAN 3.30).
     pub fn starting(&self, state: &str, layout: Option<String>) -> Result<String, JsError> {
         serde_json::to_string(&self.0.starting(state, layout.as_deref()).map_err(js)?).map_err(js)
+    }
+
+    /// The patch that fills `slot` of `state`'s layout, which waits for words, as a new slide in
+    /// the layout fills it, as JSON: `{ id, patch }` (PLAN 3.30).
+    pub fn filling(&self, state: &str, slot: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.filling(state, slot).map_err(js)?).map_err(js)
     }
 
     /// The slides a person may start after the slide of `state` (PLAN 3.30), each painted at rest

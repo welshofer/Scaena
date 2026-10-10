@@ -67,7 +67,8 @@ struct CanvasSelection: View {
     /// What was dropped on the canvas, and where, canvas units (PLAN 3.22): whether it is taken.
     let dropped: ([NSItemProvider], CGPoint) -> Bool
     /// Fill a slot of the layout that waits for what its words say (PLAN 3.30): words in its role,
-    /// typed in, or a picture asked for. A press on its words asks.
+    /// typed in, or a picture asked for. A press on its words asks. None on a slide the deck opened
+    /// with, whose empty slots are not outlined.
     var fill: ((WaitingSlot) -> Void)? = nil
     /// Make the patch a drag ended in: one step to undo.
     let make: ([JSONValue]) -> Void
@@ -403,8 +404,9 @@ struct CanvasSelection: View {
             // The text typed in, read again where something else changed it.
             typing.sync(shown: state)
         }
-        .task(id: "\(state)\u{1f}\(editor.revision)\u{1f}\(editor.format ?? "")") {
-            waits = (try? editor.session.waiting(state: state)) ?? []
+        .task(id: "\(state)\u{1f}\(editor.revision)\u{1f}\(editor.format ?? "")\u{1f}\(fill != nil)") {
+            // Only a slide made in this window, which the window says by offering to fill it.
+            waits = fill == nil ? [] : (try? editor.session.waiting(state: state)) ?? []
         }
         .task(id: "\(state)\u{1f}\(editor.revision)\u{1f}\(node ?? "")") {
             // The node selected's handles: a shape's outline, an image's framing (PLAN 3.16).
@@ -452,7 +454,7 @@ struct CanvasSelection: View {
             ForEach(waits) { slot in
                 let r = slot.rect.applying(fit.transform)
                 if r.width > 80, r.height > 24 {
-                    WaitingButton(slot: slot) { fill(slot) }
+                    WaitingButton(slot: slot, width: r.width) { fill(slot) }
                         .position(x: r.midX, y: r.midY)
                 }
             }

@@ -84,11 +84,25 @@ public struct WaitingSlot: Decodable, Sendable, Identifiable, Equatable {
     }
 }
 
+/// The node a patch puts in a slot that waits for words (PLAN 3.30): its id, and the patch, one
+/// `add_node`, then the `hide_node`s that keep it to its slide.
+public struct FilledSlot: Decodable, Sendable {
+    public let id: String
+    public let patch: [JSONValue]
+}
+
 extension ScaenaSession {
     /// The slots of `state`'s layout, in the format shown, with nothing placed in them, each
     /// waiting for what its prompt says goes there (PLAN 3.30).
     public func waiting(state: String) throws -> [WaitingSlot] {
         try call("waiting", ["state": .string(state)])
+    }
+
+    /// The patch that fills `slot` of `state`'s layout, which waits for words, as a new slide in
+    /// the layout fills it (PLAN 3.30): its prompt's words in the slot's role, or a list's items,
+    /// named after the slide and the slot (`bullets-header`) and kept to the slide.
+    public func filling(state: String, slot: String) throws -> FilledSlot {
+        try call("filling", ["state": .string(state), "slot": .string(slot)])
     }
 }
 

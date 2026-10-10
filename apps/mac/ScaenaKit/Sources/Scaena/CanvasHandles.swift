@@ -306,18 +306,25 @@ struct WaitingOverlay: View {
 /// words selected, or a picture asked for and put there.
 struct WaitingButton: View {
     let slot: WaitingSlot
+    /// How wide the slot is drawn, points: the words wrap to a second line within it, rather than
+    /// being cut off where a slot is narrow.
+    let width: CGFloat
     let fill: () -> Void
 
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
         Button(action: fill) {
             Label(slot.words, systemImage: slot.typed ? "text.cursor" : "photo.badge.plus")
                 .font(.caption)
-                .lineLimit(1)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
                 .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(.thinMaterial, in: Capsule())
+                .padding(.vertical, 4)
+                .background(.thinMaterial, in: shape)
                 .foregroundStyle(.secondary)
-                .contentShape(Capsule())
+                .contentShape(shape)
+                .frame(maxWidth: max(width - 16, 64))
+                .fixedSize(horizontal: false, vertical: true)
         }
         .buttonStyle(.plain)
         .help(slot.typed ? "Type here" : "Choose a picture to put here")

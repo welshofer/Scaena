@@ -2044,13 +2044,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   }
 
   /** An empty slot of the layout filled from a press on its words, as a presentation app's
-   * placeholder fills (PLAN 3.30): a text in the slot's role, inserted there; else a picture, or a
-   * sheet's data, chosen from a file and put there, as a drop there puts it. */
+   * placeholder fills (PLAN 3.30): its words put back, as a new slide in the layout puts them
+   * there; else a picture, or a sheet's data, chosen from a file and put there, as a drop there
+   * puts it. */
   function fill(w: Waiting) {
     const at: [number, number] = [w.rect[0] + w.rect[2] / 2, w.rect[1] + w.rect[3] / 2];
     pointed = at;
-    const n = w.role === undefined ? -1 : offered.findIndex((i) => i.node.type === "text" && i.id === w.role);
-    if (n >= 0) return void insert(n, offered[n].label);
+    if (w.typed) return void inTurn(() => filling(w));
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "image/png,image/jpeg,image/*,.csv,.json";
@@ -2059,6 +2059,19 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       if (file) void dropped(at, file);
     };
     input.click();
+  }
+
+  /** `w`'s words put back in its slot, in the slot's role, as a new slide in the layout puts them
+   * there: its prompt's words to type over, or a list's items (PLAN 3.30). One patch, selected. */
+  async function filling(w: Waiting) {
+    const shown = editor.shown();
+    if (!shown) return editor.say("the canvas waits for a source that compiles");
+    try {
+      const filled = await stage.filling(editor.source(), shown.state, w.slot);
+      await change(filled.patch, "filling…", `${filled.id} fills ${w.slot}, in ${shown.state}`, filled.id);
+    } catch (e) {
+      editor.say(`not filled: ${said(e)}`);
+    }
   }
 
   /** Arm the canvas to draw what `key` draws (PLAN 2.48); armed with it already, stop. */
