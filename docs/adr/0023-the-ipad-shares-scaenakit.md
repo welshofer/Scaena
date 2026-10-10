@@ -40,7 +40,7 @@ Three things differ on the iPad:
 3. **The iPad app is an Xcode project that XcodeGen makes from `apps/ipad/project.yml`.** The generated project is not kept in the repository.
    - A build phase builds `scaena-ffi` with cargo for the platform Xcode builds for: `aarch64-apple-ios` or `aarch64-apple-ios-sim`, in release for a Release build.
    - The app links the library by search path, as the Mac's app links its own.
-   - `just ipad` makes the project and opens it. A team, set once in `SCAENA_TEAM`, signs it for a device.
+   - `just ipad` makes the project and opens it. A team in `apps/ipad/Team.xcconfig`, kept out of the repository, signs it for a device. *(As built: the decision named an environment variable, `SCAENA_TEAM`, which nothing reads.)*
 4. **A touch is the Mac's gesture, never a new edit.**
    - Each touch maps to a Mac gesture:
      - a tap is a click;
