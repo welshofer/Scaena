@@ -121,11 +121,12 @@ impl Session {
 
     /// Files written back as an undo or a redo of a restore or a theme edit has them: each set to
     /// its text, or taken out where it has none. The deck is the source's, which the editor
-    /// compiles after.
+    /// compiles after. A theme from before a save names each font as it is now.
     pub fn write_files(&mut self, files: Vec<Written>) {
         for Written { path, text } in files {
             match text {
                 Some(text) => {
+                    let text = self.named_now(&path, text);
                     self.removed.remove(&path);
                     self.add_file(&path, text.into_bytes());
                 }
@@ -136,6 +137,25 @@ impl Session {
             }
         }
         self.forget();
+    }
+}
+
+impl Session {
+    /// `text`, the deck's theme file as an undo writes it back, naming each font a save the
+    /// session went on from renamed as it is named now, written as a save writes a theme;
+    /// any other file as it is.
+    fn named_now(&self, path: &str, text: String) -> String {
+        let theme = self.deck.theme.as_ref().and_then(serde_json::Value::as_str) == Some(path);
+        let parsed = (theme && !self.renamed.is_empty()).then(|| serde_json::from_str::<serde_json::Value>(&text).ok());
+        let Some(mut json) = parsed.flatten() else {
+            return text;
+        };
+        let before = json.clone();
+        scaena_ops::compile::rename_files(&mut json, &self.renamed);
+        if json == before {
+            return text;
+        }
+        serde_json::to_string_pretty(&json).map_or(text, |named| named + "\n")
     }
 }
 
