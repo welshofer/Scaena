@@ -613,7 +613,9 @@ struct DeckView: View {
                 } else {
                     grouped = false
                 }
-                elsewhere = shown.map { showsElsewhere(in: $0) } ?? false
+                // Not while a text is typed in: the Node menu is the text's then, and a key typed
+                // shows the node on no other slide.
+                if typing?.typing != true { elsewhere = shown.map { showsElsewhere(in: $0) } ?? false }
             }
             .task(id: said) {
                 // What the canvas says of an edit fades once read, as a presentation app's tips do.
