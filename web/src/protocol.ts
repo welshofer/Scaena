@@ -407,6 +407,8 @@ export interface Grid {
   columns: [number, number][];
   rows: [number, number][];
   baselines: number[];
+  /** What lies inside the safe area's strip, 3/8 inch in from each edge (PLAN 3.29). */
+  safe: Rect;
 }
 
 /** Where a node arranged with others lands (PLAN 2.42). */

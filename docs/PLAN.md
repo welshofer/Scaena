@@ -1529,6 +1529,15 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - **The walk.** `apps/mac/window.sh` opens the Document tab and types a color in the paper's field. It reads the field after Return, ⌘Z, and ⌘⇧Z (`frames.js value`), and the Edit menu's Undo and Redo, their titles and whether each is enabled, with the menu open; it keeps the screen after each. On CI's Mac the field read #2B1B3D, #101014, then #2B1B3D, and the slides took the paper's new color and gave it back, so the undo is the theme's and not only the field's.
     - **What waits.** A run on a Mac.
 
+- [ ] 3.29 A safe area, shown or hidden: a strip 3/8 inch in from each edge of the slide, a guide that holds nothing off it. *(Added on 2026-10-10: Jay asked for a toggle that shows a strip around the slide's edge, 3/8 inch for a start, that guides and does not prohibit. Built; waits on a run on a Mac.)*
+    - **Where it is.** The engine gives it with the theme's grid (`scaena_engine::guides::grid`'s `safe`): the canvas less `SAFE_INCHES`, 3/8, on each side, at `UNITS_PER_INCH`, 144 canvas units to the inch, the scale a PDF page is printed at, from which `scaena_export::pdf::POINTS_PER_UNIT` is now drawn. On a 1920 × 1080 canvas it lies 54 units in, [54, 54, 1812, 972], and on a 1080 × 1920 one [54, 54, 972, 1812]. A canvas narrower than its two strips has none. The ABI's and the page's `grid` carry it.
+    - **A guide.** It is shown, never enforced: lint flags nothing in the strip, a drag does not snap to it, and the deck does not change. Whether it shows is the window's, as the grid's is.
+    - **The Mac and the iPad.** View › Show Safe Area (⌥⌘'), and the View button's Safe Area, shade the strip amber over the canvas, a dashed line at its inner edge (`SafeAreaOverlay`), read from the session's grid (`GridLines.safe`) and drawn through the zoom.
+    - **The browser.** The canvas's Safe area button, ⌥⌘' (Ctrl+Alt+'), and the palette's Show the safe area draw the same strip on the overlay (`Board.shield`); the button is pressed while it shows.
+    - Tests: the engine's `guides` test (wide, tall, and a canvas too small), ScaenaKit's grid test, and `web/guides.mjs`, which shows it by its key, finds the strip and its edge where the engine says, and hides it by the button.
+    - **The walk.** `apps/mac/window.sh` shows it from the View menu, keeps the screen (`mac-safe-area`), and hides it.
+    - **What waits.** A run on a Mac.
+
 ### Exit criteria (gate 3)
 1. Same bundle, same frame, same pixels (within tolerance) as the web player.
 2. Open → first frame < 300 ms for a 40-state deck on an M-series Mac.

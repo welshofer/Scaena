@@ -264,14 +264,17 @@ private func same(_ a: [Double], _ b: [Double]) -> Bool {
 }
 
 /// The theme's grid in the format shown (PLAN 2.57), canvas units: the canvas, its column and row
-/// tracks, each from its start to its end, and the baseline grid's lines.
+/// tracks, each from its start to its end, the baseline grid's lines, and the safe area.
 public struct GridLines: Decodable, Sendable {
     public let canvas: CGSize
     public let columns: [ClosedRange<Double>]
     public let rows: [ClosedRange<Double>]
     public let baselines: [Double]
+    /// What lies inside the safe area's strip, 3/8 inch in from each edge (PLAN 3.29): a guide
+    /// that keeps nothing out.
+    public let safe: CGRect
 
-    private enum Keys: String, CodingKey { case canvas, columns, rows, baselines }
+    private enum Keys: String, CodingKey { case canvas, columns, rows, baselines, safe }
 
     public init(from decoder: any Decoder) throws {
         let fields = try decoder.container(keyedBy: Keys.self)
@@ -283,6 +286,8 @@ public struct GridLines: Decodable, Sendable {
         columns = try fields.decode([[Double]].self, forKey: .columns).compactMap(track)
         rows = try fields.decode([[Double]].self, forKey: .rows).compactMap(track)
         baselines = try fields.decodeIfPresent([Double].self, forKey: .baselines) ?? []
+        let safe = try fields.decodeIfPresent([Double].self, forKey: .safe) ?? []
+        self.safe = safe.count == 4 ? CGRect(x: safe[0], y: safe[1], width: safe[2], height: safe[3]) : .null
     }
 }
 

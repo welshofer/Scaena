@@ -8,6 +8,7 @@ struct WindowPanes {
     let timeline: Binding<Bool>
     let formats: Binding<Bool>
     let grid: Binding<Bool>
+    let safeArea: Binding<Bool>
     let issues: Binding<Bool>
     let source: Binding<Bool>
     let assistant: Binding<Bool>
@@ -34,10 +35,10 @@ extension FocusedValues {
 }
 
 /// The View menu's parts of the window and the Play menu (PLAN 3.18), as a presentation app's: the
-/// light table (⌥⌘L); the timeline, the other sizes, the grid (⌘'), the issues, and the source,
-/// each off until asked for; the assistant (⌥⌘A) and the inspector's tabs; then Play Slideshow
-/// (⌥⌘P) and Rehearse Slideshow (⌥⌘R); Remote…, which lets a remote play the deck, and on the
-/// iPad, Control a Presentation…, the remote itself (PLAN 4.10).
+/// light table (⌥⌘L); the timeline, the other sizes, the grid (⌘'), the safe area (⌥⌘', PLAN 3.29),
+/// the issues, and the source, each off until asked for; the assistant (⌥⌘A) and the inspector's
+/// tabs; then Play Slideshow (⌥⌘P) and Rehearse Slideshow (⌥⌘R); Remote…, which lets a remote play
+/// the deck, and on the iPad, Control a Presentation…, the remote itself (PLAN 4.10).
 struct WindowCommands: Commands {
     @FocusedValue(\.panes) private var panes
     @Environment(\.openWindow) private var openWindow
@@ -54,6 +55,9 @@ struct WindowCommands: Commands {
                 .disabled(panes == nil)
             Toggle("Show Grid", isOn: shows(\.grid))
                 .keyboardShortcut("'", modifiers: .command)
+                .disabled(panes == nil)
+            Toggle("Show Safe Area", isOn: shows(\.safeArea))
+                .keyboardShortcut("'", modifiers: [.option, .command])
                 .disabled(panes == nil)
             Toggle("Show Issues", isOn: shows(\.issues))
                 .disabled(panes == nil)

@@ -259,6 +259,42 @@ struct HandleHolding: View {
     }
 }
 
+/// The safe area over the canvas (PLAN 3.29, as the browser's): a strip 3/8 inch deep around the
+/// slide's edge, tinted, its inner edge dashed, through the part of the canvas shown. It shows a
+/// person where to keep what must not be cut off, keeping nothing out, and takes no press.
+struct SafeAreaOverlay: View {
+    let editor: DeckEditor
+    /// The part of the canvas shown, where it is zoomed in.
+    let shown: CGRect?
+    @State private var grid: GridLines?
+
+    var body: some View {
+        GeometryReader { geometry in
+            if let grid, grid.canvas.width > 0, !grid.safe.isNull {
+                strip(grid, fit: Fit(shown: shown, canvas: grid.canvas, width: geometry.size.width))
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .task(id: editor.revision) { grid = try? editor.session.grid() }
+    }
+
+    private func strip(_ grid: GridLines, fit: Fit) -> some View {
+        let amber = Color(red: 1, green: 0.62, blue: 0.12)
+        return ZStack(alignment: .topLeading) {
+            Path { path in
+                path.addRect(CGRect(origin: .zero, size: grid.canvas))
+                path.addRect(grid.safe)
+            }
+            .applying(fit.transform)
+            .fill(amber.opacity(0.16), style: FillStyle(eoFill: true))
+            Path(grid.safe)
+                .applying(fit.transform)
+                .stroke(amber.opacity(0.75), style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
+        }
+    }
+}
+
 /// The theme's grid in the format shown over the canvas (PLAN 3.16, as the browser's, PLAN 2.57):
 /// its columns and rows as bands, the gutters between them, the margins around them dashed, and the
 /// baseline grid's lines, through the part of the canvas shown. It takes no press.
