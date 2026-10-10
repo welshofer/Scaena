@@ -1587,7 +1587,7 @@ struct CanvasSelection: View {
 }
 
 /// ⌘K's question (PLAN 2.70, 3.10): where the characters selected in the text typed in link to,
-/// a web address or a state's id. Left empty, it takes their link away.
+/// a web address or a slide by its number. Left empty, it takes their link away.
 private struct LinkQuestion: ViewModifier {
     let typing: Typing
     @State private var to = ""
@@ -1595,11 +1595,11 @@ private struct LinkQuestion: ViewModifier {
     func body(content: Content) -> some View {
         content
             .alert("Link", isPresented: asking, presenting: typing.asking) { _ in
-                TextField("https://… or a state's id", text: $to)
+                TextField("https://… or a slide's number", text: $to)
                 Button("Link") { typing.link(to: to) }
                 Button("Cancel", role: .cancel) { typing.link(to: nil) }
             } message: { words in
-                Text("Where “\(words)” links to: a web address, or a state's id. Left empty, its link is taken away.")
+                Text("Where “\(words)” links to: a web address, or a slide by its number. Left empty, its link is taken away.")
             }
             .onChange(of: typing.asking) { _, now in
                 if now != nil { to = "" }

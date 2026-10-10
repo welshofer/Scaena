@@ -664,7 +664,7 @@ struct DeckView: View {
                 try? await Task.sleep(for: .milliseconds(250))
                 offeredThemes = (try? editor.session.shippedThemes()) ?? []
             }
-            .alert("Not made", isPresented: failing, presenting: failure) { _ in
+            .alert("Couldn’t Make That Change", isPresented: failing, presenting: failure) { _ in
                 Button("OK") { failure = nil }
             } message: { said in
                 Text(said)

@@ -18,11 +18,12 @@ struct DataPanel: View {
         VStack(alignment: .leading, spacing: 8) {
             if sources.isEmpty {
                 ContentUnavailableView(
-                    "No data", systemImage: "tablecells", description: Text("The deck declares no data source."))
+                    "No Data", systemImage: "tablecells",
+                    description: Text("Paste cells from a spreadsheet, or drop a CSV or JSON file on a slide."))
             } else {
                 Picker("Source", selection: $chosen) {
                     ForEach(sources) { source in
-                        Text("\(source.name) · \(source.file ?? "inline")").tag(Optional(source.name))
+                        Text("\(source.name) · \(kept(source))").tag(Optional(source.name))
                     }
                 }
                 .padding(.horizontal, 8)
@@ -40,6 +41,12 @@ struct DataPanel: View {
             }
         }
         .task(id: "\(editor.revision)\u{1f}\(chosen ?? "")") { read() }
+    }
+
+    /// Where a source's rows are kept, as the picker says it: its file, by name, or the deck itself.
+    private func kept(_ source: DataSource) -> String {
+        guard let file = source.file else { return "in the deck" }
+        return String(file.split(separator: "/").last ?? Substring(file))
     }
 
     /// The sheet as a grid: its columns and their types, then each row's cells, each a field.

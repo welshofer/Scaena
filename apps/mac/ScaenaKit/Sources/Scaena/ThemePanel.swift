@@ -20,6 +20,8 @@ struct ThemePanel: View {
     @State private var themes: Themes?
     @State private var shipped: [ShippedTheme] = []
     @State private var photos: [String] = []
+    /// The type roles in the order the theme writes them, as Insert › Text lists them.
+    @State private var roleOrder: [String] = []
 
     private var theme: JSONValue? { text?.json }
 
@@ -39,7 +41,7 @@ struct ThemePanel: View {
                         }
                     }
                 }
-                .help("Put the deck in another theme, refused with why where it would not validate in it")
+                .help("Put the deck in another theme; one it can’t take says why")
             }
             Section("Colors") {
                 ForEach(entries(theme?["tokens"]?["color"])) { entry in
@@ -51,7 +53,7 @@ struct ThemePanel: View {
                 }
             }
             Section("Type") {
-                ForEach(entries(theme?["type"]?["roles"])) { role in
+                ForEach(inOrder(entries(theme?["type"]?["roles"]))) { role in
                     RoleRow(key: role.key, role: role.value) { field, value in
                         let path = "/type/roles/\(escaped(role.key))/\(field.key)"
                         let name = "\(Words.phrase(role.key)) \(field.label)"
@@ -97,6 +99,7 @@ struct ThemePanel: View {
             file.type == "image" && ["png", "jpg", "jpeg"].contains((file.path as NSString).pathExtension.lowercased())
         }
         photos = images.filter(photo).map(\.path)
+        roleOrder = ((try? session.inserts()) ?? []).filter { $0.kind == "Text" }.map(\.name)
     }
 
     /// The theme the deck names, or another chosen: one that ships by `ships:` and its name.
@@ -160,6 +163,15 @@ struct ThemePanel: View {
     /// An object's entries, by key, sorted; none for anything else.
     private func entries(_ value: JSONValue?) -> [ThemeEntry] {
         (value?.object ?? [:]).sorted { $0.key < $1.key }.map { ThemeEntry(key: $0.key, value: $0.value) }
+    }
+
+    /// Type roles in the order the theme writes them, as Insert › Text lists them, and one it does
+    /// not list after them, by name: an order an edit leaves where it was.
+    private func inOrder(_ roles: [ThemeEntry]) -> [ThemeEntry] {
+        let at = { (role: ThemeEntry) in roleOrder.firstIndex(of: role.key) ?? roleOrder.count }
+        return roles.enumerated().sorted { a, b in
+            at(a.element) != at(b.element) ? at(a.element) < at(b.element) : a.offset < b.offset
+        }.map(\.element)
     }
 }
 
