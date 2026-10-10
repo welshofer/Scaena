@@ -136,6 +136,29 @@ private func playing(_ editor: DeckEditor) -> [String] {
     #expect(try b1Editor.session.cue(state: "goal").bars.map(\.id) == ["transition", "title exit"])
 }
 
+/// The canvas and the cue select together, as the browser's: the bars of what the canvas selects
+/// stand out, and those of what a group holds; a node with no motion here, none.
+@Test func theBarsOfWhatTheCanvasSelectsStandOut() throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: torture))
+    let session = editor.session
+    let boxes = try session.boxes(state: "morph")
+    let cue = try session.cue(state: "morph")
+    #expect(cue.chosen(["mf-badge"], boxes: boxes) == ["mf-badge emphasis"])
+    #expect(cue.chosen(["mf-arrow", "mf-badge"], boxes: boxes) == ["mf-arrow enter", "mf-badge emphasis"])
+    #expect(cue.chosen(["mf-title"], boxes: boxes).isEmpty, "no motion of its own here")
+    #expect(cue.chosen([], boxes: boxes).isEmpty)
+
+    // A member of a group given an emphasis: the group selected, the member's bar stands out.
+    let offers = try session.motionOffers(state: "morph", node: "mf-pair-a")
+    let emphasis = try #require(offers.first { $0.motion == "emphasis" })
+    try editor.make(try #require(emphasis.applying("pulse", in: "morph", states: editor.slots.map(\.state))))
+    let grouped = try session.cue(state: "morph")
+    let held = try session.boxes(state: "morph")
+    #expect(grouped.chosen(["mf-pair"], boxes: held) == ["mf-pair-a emphasis"])
+    #expect(grouped.chosen(["mf-pair-b"], boxes: held).isEmpty, "a member does not hold its sibling")
+    #expect(grouped.bars.first { $0.node == "mf-pair-a" }?.split == nil)
+}
+
 /// A new deck opens on a title slide (PLAN 3.30): its one blank state made a slide in the theme's
 /// `title` layout, its words in their slots and its picture's place waiting; a deck with something
 /// on it is left as it is.

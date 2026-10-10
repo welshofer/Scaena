@@ -4,6 +4,9 @@
 //   node web/cue.mjs     (after `just web`; from the repository's root)
 //
 // - `intro`'s cue: the transition, then the title's words and the subtitle's rise, each a bar.
+// - The canvas and the cue select together: the subtitle selected, its bar stands out and the
+//   title's steps back; a press on the title's name, or on the subtitle's bar, or Enter on it,
+//   selects its node on the canvas.
 // - The subtitle's bar, moved by a key, then dragged: its delay is the choreography item's, one
 //   patch and one undo each; its end dragged sets its duration.
 // - `revenue`: the transition's end, by a key, sets the state's transition; the chart's grow is
@@ -89,6 +92,36 @@ try {
   check(JSON.stringify(keys) === JSON.stringify(["transition", "title enter", "subtitle enter"]), `intro's cue, a bar each: ${keys}`);
   const rise = await bar("subtitle enter");
   check(rise.delay === 240 && rise.from === 240, `the subtitle's rise waits 240 ms: ${JSON.stringify(rise)}`);
+
+  // The canvas and the cue select together.
+  const chosen = () => page.evaluate(() => window.scaena.cue.chosen().join());
+  const selected = () => page.evaluate(() => window.scaena.canvas.selected());
+  await page.evaluate(() => window.scaena.canvas.select("subtitle"));
+  check((await chosen()) === "subtitle enter", "the subtitle selected on the canvas, its bar stands out");
+  check(
+    await page.evaluate(
+      () =>
+        document.querySelector("#cue .lanes").classList.contains("choosing") &&
+        document.querySelectorAll("#cue .track.chosen").length === 1 &&
+        document.querySelector('#cue .track.chosen [data-key="subtitle enter/delay"]') !== null &&
+        document.querySelector('#cue .label.chosen[data-node="subtitle"]') !== null,
+    ),
+    "and the title's steps back",
+  );
+  await page.locator('#cue .label[data-node="title"]').click();
+  check((await selected()) === "title" && (await chosen()) === "title enter", `a press on the title's name selects it on the canvas: ${await selected()}`);
+  await page.locator('#cue [data-key="subtitle enter/delay"]').click();
+  check((await selected()) === "subtitle" && (await chosen()) === "subtitle enter", `a press on the subtitle's bar selects it: ${await selected()}`);
+  check((await bar("subtitle enter"))?.delay === 240 && (await source()) === original, "and moves nothing");
+  await page.evaluate(() => window.scaena.canvas.select("title"));
+  await page.locator('#cue [data-key="subtitle enter/delay"]').focus();
+  await page.keyboard.press("Enter");
+  check((await selected()) === "subtitle", `Enter on the subtitle's bar selects it: ${await selected()}`);
+  await page.evaluate(() => window.scaena.canvas.select(undefined));
+  check(
+    (await chosen()) === "" && (await page.evaluate(() => !document.querySelector("#cue .lanes").classList.contains("choosing"))),
+    "with nothing selected, every bar stands as it was",
+  );
 
   // A key moves it: 10 ms a press.
   let n = await trips();

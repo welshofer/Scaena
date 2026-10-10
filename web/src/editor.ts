@@ -536,6 +536,18 @@ async function edit(source: Source) {
       for (const row of inspector.querySelectorAll("tr[data-node]")) row.setAttribute("aria-selected", String(all.includes(row.getAttribute("data-node") ?? "")));
       void look.show(node, also);
       void cueing?.offer();
+      // The cue's bars of what is selected stand out, and of what a group or a container holds.
+      const boxes = board.boxes() ?? [];
+      const held = new Set(all);
+      for (let more = true; more; ) {
+        more = false;
+        for (const b of boxes) {
+          if (b.parent === null || !held.has(b.parent) || held.has(b.node)) continue;
+          held.add(b.node);
+          more = true;
+        }
+      }
+      cueing?.selected([...held]);
       layering.selected(all);
     },
     // Characters selected in a text typed in: the inspector gives them a look (PLAN 2.38), and

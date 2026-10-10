@@ -191,6 +191,17 @@ enum Words {
         return stem.replacingOccurrences(of: "-", with: " ")
     }
 
+    /// What a motion does, as a person says it: `enter` as Enters, and one split by words as Enters
+    /// Word by Word.
+    static func motion(_ kind: String?, split: String? = nil) -> String {
+        let does = ["enter": "Enters", "exit": "Leaves", "emphasis": "Emphasis", "anim": "Moves"][kind ?? ""] ?? phrase(kind ?? "")
+        let by = [
+            "lines": "Line by Line", "words": "Word by Word", "glyphs": "Letter by Letter", "children": "One by One",
+            "marks": "Mark by Mark",
+        ][split ?? ""]
+        return by.map { "\(does) \($0)" } ?? does
+    }
+
     /// Milliseconds said in seconds: `5.5 s`, `0.18 s`.
     static func seconds(_ ms: Double) -> String {
         "\(number(ms / 1000)) s"

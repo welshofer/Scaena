@@ -10,7 +10,10 @@
 //   move.
 // - Add a motion: one of the theme's presets for the node the canvas selects, as it enters or
 //   for emphasis, or for a node that leaves, as it leaves (`apply_preset`; an exit is written in
-//   the state the node leaves). A press on a bar selects its node.
+//   the state the node leaves).
+// - The canvas and the cue select together: the bars of what the canvas selects, and of what it
+//   holds, stand out, the other motions' step back, and a press on a bar or its name selects its
+//   node.
 // - A press on the ruler or a track, or a drag along it, shows the cue at that time. Play plays
 //   the cue from there, and the preview comes to rest at its end; the canvas shows the state at
 //   rest again when it is pressed, and an edit shows it at rest.
@@ -46,6 +49,7 @@ const snap = (ms: number) => Math.round(ms / STEP) * STEP;
 export const cueKeys = (): Key[] => [
   { keys: "← →", label: `In the cue: move a motion's start, or its end, ${STEP} ms`, group: "The cue" },
   { keys: `${SHIFT}← ${SHIFT}→`, label: "Move it 100 ms", group: "The cue" },
+  { keys: "Enter", label: "On a motion's bar: select its node on the canvas", group: "The cue" },
 ];
 
 /** One bar: the transition, or a motion. */
@@ -111,6 +115,8 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
   let presets: string[] = [];
   /** The bar or end focused, to focus again once the lanes are drawn again. */
   let focused: string | undefined;
+  /** What the canvas selects, and what that holds: whose bars stand out. */
+  let picked = new Set<string>();
 
   const pct = (ms: number) => `${(Math.min(Math.max(ms, 0), scale) / scale) * 100}%`;
   const span = () => read?.timeline?.span ?? 0;
@@ -138,24 +144,39 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
       .map((b, i) => {
         const row = i + 2;
         const kind = b.motion?.motion ?? "transition";
-        const what = b.motion ? `${b.label}, ${Math.round(b.from)}–${Math.round(b.to)} ms` : `the transition, ${Math.round(b.duration)} ms`;
+        const what = b.motion
+          ? `${b.label}, ${Math.round(b.from)}–${Math.round(b.to)} ms: a press selects ${b.motion.node}, a drag moves when it starts`
+          : `the transition, ${Math.round(b.duration)} ms`;
         const body = b.motion
           ? `<div class="bar ${kind}" data-bar="${i}" data-part="delay" role="slider" tabindex="0" aria-label="${html(b.label)}: when it starts" aria-valuemin="0" aria-valuenow="${Math.round(b.delay)}" aria-valuetext="waits ${Math.round(b.delay)} ms, starts ${Math.round(b.from)} ms in" title="${html(what)}" style="left:${pct(b.from)};width:${pct(b.to - b.from)}"></div>`
           : `<div class="bar transition" data-bar="${i}" title="${html(what)}" style="left:0;width:${pct(b.to)}"></div>`;
         const end = b.sprung
           ? ""
           : `<div class="end" data-bar="${i}" data-part="duration" role="slider" tabindex="0" aria-label="${html(b.label)}: how long it lasts" aria-valuemin="0" aria-valuenow="${Math.round(b.duration)}" aria-valuetext="${Math.round(b.duration)} ms${b.motion && b.motion.units > 1 ? " each" : ""}" title="drag to change how long it lasts" style="left:${pct(b.to)}"></div>`;
-        const tip = b.sprung ? ' title="on a spring: it lasts as long as it takes to settle"' : "";
-        return `<span class="label" style="grid-row:${row}"${tip}>${html(b.label)}</span><div class="track" data-bar="${i}" style="grid-row:${row}">${body}${end}</div>`;
+        const tip = b.sprung ? "on a spring: it lasts as long as it takes to settle" : b.motion ? `a press selects ${b.motion.node}` : "";
+        const node = b.motion ? ` data-node="${html(b.motion.node)}"` : "";
+        return `<span class="label" data-bar="${i}"${node} style="grid-row:${row}"${tip ? ` title="${html(tip)}"` : ""}>${html(b.label)}</span><div class="track" data-bar="${i}"${node} style="grid-row:${row}">${body}${end}</div>`;
       })
       .join("");
     lanes.innerHTML = `<span class="label" style="grid-row:1"></span><div class="ruler" style="grid-row:1" title="press or drag to see the cue at a time">${ticks}</div>${rows}<div class="head" style="grid-row:1 / ${drawn.length + 2}" aria-hidden="true"><i></i></div>`;
     place();
+    mark();
     for (const el of lanes.querySelectorAll<HTMLElement>("[data-part]")) {
       const b = drawn[Number(el.dataset.bar)];
       el.dataset.key = `${b.key}/${el.dataset.part}`;
     }
     if (focused) lanes.querySelector<HTMLElement>(`[data-key="${CSS.escape(focused)}"]`)?.focus();
+  }
+
+  /** The bars of what the canvas selects stand out, and where any do, the other motions step back. */
+  function mark() {
+    let any = false;
+    for (const el of lanes.querySelectorAll<HTMLElement>(".label[data-node], .track[data-node]")) {
+      const chosen = picked.has(el.dataset.node!);
+      el.classList.toggle("chosen", chosen);
+      any ||= chosen;
+    }
+    lanes.classList.toggle("choosing", any);
   }
 
   /** The playhead and the clock where the preview is. */
@@ -321,6 +342,8 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
       const b = drawn[Number(part.dataset.bar)];
       return drag(e, part, b, part.dataset.part as "delay" | "duration");
     }
+    const named = target.closest<HTMLElement>(".label[data-node]");
+    if (named) return editor.select(named.dataset.node!);
     const along = target.closest<HTMLElement>(".ruler, .track");
     if (along) {
       e.preventDefault();
@@ -329,6 +352,12 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
   });
   lanes.addEventListener("keydown", (e) => {
     const part = (e.target as HTMLElement).closest<HTMLElement>("[data-part]");
+    // Enter on a bar selects its node, as a press does.
+    const motion = part && drawn[Number(part.dataset.bar)]?.motion;
+    if (e.key === "Enter" && motion) {
+      e.preventDefault();
+      return editor.select(motion.node);
+    }
     if (!part || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
     e.preventDefault();
     const by = (e.key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? 100 : STEP);
@@ -405,6 +434,13 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
     rest,
     seek,
     toggle,
+    /** The canvas selects `nodes` (and what they hold): their bars stand out. */
+    selected: (nodes: string[]) => {
+      picked = new Set(nodes);
+      mark();
+    },
+    /** The bars that stand out, for a test: each one's key. */
+    chosen: () => drawn.filter((b) => b.motion && picked.has(b.motion.node)).map((b) => b.key),
     /** The bars drawn, for a test: each one's key, when it starts and rests, its delay and duration. */
     bars: () => drawn.map(({ key, from, to, delay, duration, sprung }) => ({ key, from, to, delay, duration, sprung })),
     /** Where the preview is in the cue, for a test: `undefined` at rest. */
