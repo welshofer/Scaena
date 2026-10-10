@@ -1,14 +1,14 @@
 # Gate 4
 
-Phase 4's exit criteria (PLAN, "Exit criteria (gate 4)"), each with its evidence so far. Every task of Phase 4 has landed (4.1–4.10). What the gate still needs is a real iPad. CI's iPad is a simulator on a virtual Mac: its GPU lacks what vello needs, so it paints with the CPU painter, and its timings are a virtual machine's.
+Phase 4's exit criteria (PLAN, "Exit criteria (gate 4)"), each with its evidence so far. Every task of Phase 4 has landed (4.1–4.11). What the gate still needs is a real iPad. CI's iPad is a simulator on a virtual Mac: its GPU lacks what vello needs, so it paints with the CPU painter, and its timings are a virtual machine's.
 
 **Where it stands:**
 - **Criterion 1** (same pixels as the web player, on an iPad's GPU). The same frame is met on CI's simulator: the torture deck's display lists there are the goldens'. The same pixels on an iPad's GPU wait on an iPad, since vello never runs on the simulator.
 - **Criterion 2** (first frame under 300 ms on an M-series iPad) waits on an iPad. `just ipad-gate UDID` reads it there, in release, with one command.
 - **Criterion 3** (no text layout where a deck is drawn) is met, held by the test that holds gate 3's. The source pane's `UITextView` falls under gate 3's open call on TextKit in chrome.
-- **Criterion 4** (each edit by touch the Mac's patch, and one step of undo) is met in part:
+- **Criterion 4** (each edit by touch the Mac's patch, and one step of undo) is met for touch on the simulator:
   - Each gesture makes the Mac's patch through the Mac's ScaenaKit functions, and the iPad's UI tests make each edit by touch on B1.
-  - Undo is held step by step for keys and for the inspector's panels, but for no touch on the canvas.
+  - Each edit is one step of undo: by keys, in the inspector's panels, and by touch through the toolbar's Undo (PLAN 4.11).
   - The Pencil waits on an iPad.
 
 ## 1. Same bundle, same frame, same pixels (within tolerance) as the web player, painted on an iPad's GPU: the frame met, the pixels need an iPad
@@ -70,7 +70,7 @@ On the iPad it prints `gate 4, criterion 2: …`, and where the time went.
 - **Held by gate 3's test.** `crates/scaena-ffi/tests/chrome.rs` reads every Swift file of ScaenaKit and of the app, their iPad code included, and the iPad's own (`apps/ipad`). It fails on any API that lays text out, measures it, or draws it outside the engine: Core Text, TextKit, `UITextView`, `UITextField`, `UILabel`, and string measuring and drawing.
 - **The source pane** is a `UITextView` of the deck's `.scn`. That is TextKit in chrome, the iPad's side of Jay's open call on gate 3 (SPEC §9.3 against invariant 8, `docs/gate-3.md`). The test allows it in `SourcePane.swift` alone, as it allows the Mac's `NSTextView`.
 
-## 4. Each edit by touch or Pencil is the patch the Mac's pointer makes for it, and one step of undo: met in part
+## 4. Each edit by touch or Pencil is the patch the Mac's pointer makes for it, and one step of undo: met for touch, the Pencil needs an iPad
 
 - **The Mac's patch.** A touch is the Mac's gesture, never a new edit (ADR-0023). The canvas's press, drag, handles, typing, and menu go through the ScaenaKit functions the Mac's pointer goes through: `Targets.snap`, `Typing`, `CanvasOffer`, and the session's calls. Only the events that come in differ. ScaenaKit's tests of those functions run on the iPad simulator as on the Mac.
 - **By touch, on B1.** The iPad's `TouchTests` make each edit by touch:
@@ -80,12 +80,12 @@ On the iPad it prints `gate 4, criterion 2: …`, and where the time went.
   - a drag moves it;
   - a long press offers its menu, whose Duplicate copies it;
   - in the light table, a slide dragged onto another moves after it.
-- **One step of undo**, held for keys and the inspector's panels:
+- **One step of undo**, by touch, by keys, and in the inspector's panels:
+  - `TouchTests`: a drag's move and a long press's Duplicate are each taken back by one tap of the toolbar's Undo, and a long press on Undo offers Redo, which makes the copy again (PLAN 4.11);
   - `KeysTests`: eight nudges by the arrows, each taken back by one ⌘Z, and ⌘D's copy taken back by one ⌘Z;
   - `ThemeTests`: a theme value typed, and a stepper's tap, each one step (PLAN 3.28);
   - ScaenaKit's tests: a drag's patch keeps the source it replaced, for the window's undo, and a burst of typing is one step.
-- **Not yet held: undo after a touch on the canvas.** No test undoes a drag or a long press's Duplicate. Without a keyboard, someone on an iPad undoes by iPadOS's three-finger swipe or the menu bar's Edit menu. The window's toolbar has no Undo, as Keynote's on the iPad has.
-  - *Proposed:* Undo and Redo in the iPad's toolbar, which `TouchTests` then tap after each edit on the canvas.
+- **Undo by touch** came from writing this gate. An iPad without a keyboard had no Undo to touch: no ⌘Z, and the menu bar a swipe from the top away. So the toolbar has Undo beside View and Zoom, as Keynote's does on the iPad (PLAN 4.11).
 - **The Pencil.** Its hover outlines what a press would take, read from the boxes the pointer's hover reads (PLAN 4.5). On the simulator, a pointer stands in for it. The Pencil itself waits on an iPad, as do Scribble, the software keyboard, and dictation (PLAN 4.4).
 
 ## The run on an iPad
@@ -101,7 +101,7 @@ About half an hour, with an M-series iPad on iPadOS 26 and a Mac with Xcode and 
    - Pinch to zoom.
    - In the light table, drag a slide.
 
-   After each, undo with a three-finger swipe to the left, iPadOS's undo, and note whether the edit goes back in one step.
+   After each, undo with the toolbar's Undo: the edit goes back in one step. Try iPadOS's own three-finger swipe to the left too, and note whether it undoes.
 5. With the Pencil, hover over the canvas: what a press would take is outlined.
 6. With a keyboard:
    - Tab through the canvas, move a node with the arrows, and undo with ⌘Z.

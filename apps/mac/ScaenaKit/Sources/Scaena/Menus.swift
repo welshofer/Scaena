@@ -141,3 +141,57 @@ struct InsertMenu: View {
         .accessibilityIdentifier("insert-\(title)")
     }
 }
+
+#if !os(macOS)
+/// Undo on the iPad's toolbar, as a presentation app's there (PLAN 4.11): a tap takes back the last
+/// step, and a long press offers Redo. An iPad without a keyboard has no ⌘Z, and its menu bar is a
+/// swipe from the top away. It reads as the step it takes back, as the Edit menu would name it:
+/// Undo Body Size.
+struct UndoButton: View {
+    let undo: UndoManager?
+    /// What a tap takes back and what Redo makes again, as the window's undo names them.
+    @State private var steps = UndoSteps()
+
+    var body: some View {
+        Menu {
+            Button {
+                if undo?.canRedo == true { undo?.redo() }
+            } label: {
+                Label(steps.redo ?? "Redo", systemImage: "arrow.uturn.forward")
+            }
+            .disabled(steps.redo == nil)
+        } label: {
+            Label("Undo", systemImage: "arrow.uturn.backward")
+        } primaryAction: {
+            if undo?.canUndo == true { undo?.undo() }
+        }
+        .disabled(steps.undo == nil && steps.redo == nil)
+        .help(steps.undo ?? "Nothing to undo; its menu offers Redo")
+        .accessibilityLabel(steps.undo ?? "Undo")
+        .accessibilityIdentifier("undo")
+        .onAppear { steps = UndoSteps(undo) }
+        .onChange(of: undo) { _, now in steps = UndoSteps(now) }
+        .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidCloseUndoGroup), perform: read)
+        .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidUndoChange), perform: read)
+        .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidRedoChange), perform: read)
+    }
+
+    /// The steps read again when the window's undo makes, takes back, or makes again one.
+    private func read(_ note: Notification) {
+        guard let undo, (note.object as AnyObject?) === undo else { return }
+        steps = UndoSteps(undo)
+    }
+}
+
+/// What an undo manager would take back and make again, by the titles its menu items would have:
+/// none where there is nothing to.
+struct UndoSteps: Equatable {
+    var undo: String?
+    var redo: String?
+
+    init(_ manager: UndoManager? = nil) {
+        undo = manager?.canUndo == true ? manager?.undoMenuItemTitle : nil
+        redo = manager?.canRedo == true ? manager?.redoMenuItemTitle : nil
+    }
+}
+#endif
