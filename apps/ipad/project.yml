@@ -77,6 +77,54 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.scaena.ScaenaUITests
         TEST_TARGET_NAME: ScaenaApp
+  # What hosts gate 4's tests on an iPad, which runs no test bundle without an app (docs/gate-4.md):
+  # an app that does nothing, so that the tests time the engine alone.
+  GateHost:
+    type: application
+    platform: iOS
+    sources:
+      - path: GateHost
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.welshofer.Scaena.GateHost
+        CODE_SIGN_STYLE: Automatic
+  # Gate 4's tests of its first two criteria (`apps/ipad/gate.sh`, docs/gate-4.md), hosted by the
+  # app above. What they open goes in the bundle, since an iPad reaches none of the Mac's files: B1,
+  # the torture deck, and its goldens' digests. The simulator reads the same copies.
+  ScaenaGateTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: ../mac/ScaenaKit/Tests/ScaenaKitTests/GateTests.swift
+      - path: ../mac/ScaenaKit/Tests/ScaenaKitTests/Repository.swift
+      - path: ../../tests/bench/b1.scaena
+        type: folder
+        buildPhase: resources
+      - path: ../../tests/fixtures/torture.scaena
+        type: folder
+        buildPhase: resources
+      - path: ../../tests/golden/torture/raw.fnv1a
+        buildPhase: resources
+    dependencies:
+      - target: GateHost
+      - package: ScaenaKit
+        product: ScaenaKit
+    preBuildScripts:
+      - name: Engine
+        script: |
+          "$SRCROOT/engine.sh" "$([ "$PLATFORM_NAME" = iphoneos ] && echo device || echo sim)" "$([ "$CONFIGURATION" = Release ] && echo release || echo debug)"
+        basedOnDependencyAnalysis: false
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.welshofer.Scaena.GateTests
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/GateHost.app/GateHost
+        BUNDLE_LOADER: $(TEST_HOST)
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        CODE_SIGN_STYLE: Automatic
   # The Mac's tests of ScaenaKit, on the iPad: all but those of AppKit's views.
   ScaenaKitTests:
     type: bundle.unit-test
@@ -121,3 +169,11 @@ schemes:
     test:
       targets:
         - ScaenaKitTests
+  # Gate 4's readings (`apps/ipad/gate.sh`): its tests alone, in the configuration asked for.
+  ScaenaGate:
+    build:
+      targets:
+        ScaenaGateTests: [test]
+    test:
+      targets:
+        - ScaenaGateTests
