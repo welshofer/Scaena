@@ -278,8 +278,9 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
 
   # The cue and the canvas select together (PLAN 3.14): Funding's title, chart, and words each
   # enter in turn. With the timeline shown, a click on the chart's lane selects the chart, and its
-  # lane stands out while the others step back; a click in the middle of the slide selects what
-  # draws there, and its lanes stand out. Funding is ten slides down from the cover.
+  # lane stands out while the others step back; then, the canvas given the keys by a click on the
+  # chart, Shift+Tab selects the words before it, a stack, and its title's and words' lanes stand
+  # out. Funding is ten slides down from the cover.
   toggle Timeline
   read -r lx ly lw lh <<<"$(frames find state-cover)" || true
   if [[ "${lh:-}" =~ ^[0-9]+$ ]]; then
@@ -300,6 +301,8 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
       shot cue-lane
       read -r sx sy sw sh <<<"$(frames find canvas)" || true
       pointer click $((sx + sw / 2)) $((sy + sh / 2))
+      sleep 1
+      events 'key code 48 using shift down'
       sleep 2
       shot cue-canvas
       events 'key code 53'

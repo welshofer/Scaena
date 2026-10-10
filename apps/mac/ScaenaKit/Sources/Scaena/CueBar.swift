@@ -99,13 +99,14 @@ struct CueBar: View {
                 ? "Select a node on the canvas to add a motion to it" : "Add a motion: one of the theme's presets")
     }
 
-    /// A lane's name: its object and what the motion does, the transition by its kind. A click on
-    /// it selects the object, as a click on the lane does.
+    /// A lane's name: its object and what the motion does, the transition by its kind; how it splits
+    /// is the lane's to say, to the pointer and VoiceOver, so the object's name has the room. A click
+    /// on it selects the object, as a click on the lane does.
     private func label(_ bar: Cue.Bar, chosen: Bool) -> some View {
         HStack(spacing: 4) {
             if let node = bar.node {
                 Text(names[node] ?? Words.kind(nil)).lineLimit(1).truncationMode(.tail)
-                Text(Words.motion(bar.motion, split: bar.split)).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+                Text(Words.motion(bar.motion)).foregroundStyle(.secondary).lineLimit(1).fixedSize()
             } else {
                 Text("Transition").lineLimit(1)
             }
