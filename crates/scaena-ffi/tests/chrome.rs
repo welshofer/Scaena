@@ -35,6 +35,10 @@ const LAYOUT: &[&str] = &[
 /// The chrome allowed TextKit: the source pane, an editor of the deck's `.scn`.
 const SOURCE_PANE: &str = "SourcePane.swift";
 
+/// What a text view posts, named by its class: the canvas hears a field elsewhere stop taking the
+/// keys (`UITextField.textDidEndEditingNotification`, PLAN 3.28), and hearing it lays no text out.
+const HEARD: &[&str] = &["UITextField.textDid", "UITextView.textDid"];
+
 fn swift(dir: &Path, out: &mut Vec<PathBuf>) {
     for entry in std::fs::read_dir(dir).unwrap() {
         let path = entry.unwrap().path();
@@ -58,6 +62,7 @@ fn the_apps_swift_lays_no_text_out() {
         let text = std::fs::read_to_string(file).unwrap();
         for (i, line) in text.lines().enumerate() {
             let code = line.split("//").next().unwrap_or_default();
+            let code = HEARD.iter().fold(code.to_string(), |code, heard| code.replace(heard, ""));
             for what in LAYOUT {
                 if code.contains(what) && !(pane && (*what == "NSTextView" || *what == "UITextView")) {
                     found.push(format!("{}:{}: {what}", file.display(), i + 1));
