@@ -61,6 +61,11 @@ pub struct Field {
     /// `overrides`, lint W300's anywhere else.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub literal: bool,
+    /// What the theme gives a text's look where the deck sets none, which the state then shows:
+    /// its role's family, weight, size, italic, case, tracking, or color. What an inspector shows
+    /// in place of a blank. Absent for any other property.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub theme: Option<Value>,
 }
 
 /// Where a value a state shows lives.
@@ -279,9 +284,31 @@ pub fn choices(
         };
         let lives = value.map(|_| lives_at(deck, i, node, over, name, key));
         let literal = value.is_some_and(|v| literal(prop, v));
-        Some(Field { prop: prop.into(), takes, value: value.cloned(), lives, literal })
+        let role = shown.get("role").and_then(Value::as_str);
+        let theme = (node_type == NodeType::Text).then(|| role_gives(theme, role, prop)).flatten();
+        Some(Field { prop: prop.into(), takes, value: value.cloned(), lives, literal, theme })
     });
     Ok(Choices { node: node.into(), node_type, state: state.into(), fields: fields.collect() })
+}
+
+/// What the theme gives `prop` of a text set in `role` where nothing in the deck sets it: the
+/// role's own family, weight, size, italic, case, tracking, or color, as the theme cascade
+/// starts a text's look (SPEC §3.6). A role that names no color is set in `onSurface`, and none
+/// is upright, as typed, and untracked.
+fn role_gives(theme: &Theme, role: Option<&str>, prop: &str) -> Option<Value> {
+    let role = theme.typography.roles.get(role?)?;
+    Some(match prop {
+        "style/family" => Value::from(role.family.clone()),
+        "style/weight" => Value::from(role.weight),
+        "style/size" => Value::from(role.size),
+        "style/italic" => Value::from(role.italic.unwrap_or(false)),
+        "style/case" => {
+            role.case.as_ref().and_then(|c| serde_json::to_value(c).ok()).unwrap_or_else(|| Value::from("none"))
+        }
+        "style/tracking" => Value::from(role.tracking.unwrap_or(0.0)),
+        "style/color" => Value::from(role.color.clone().unwrap_or_else(|| "onSurface".into())),
+        _ => return None,
+    })
 }
 
 /// What an inspector edits on characters selected in a text (PLAN 2.38): a run's own, which
@@ -355,7 +382,12 @@ pub fn characters(
             None => r.get(prop),
         });
         let lives = value.map(|_| lives.clone());
-        Some(Field { prop: prop.into(), takes, value: value.cloned(), lives, literal: false })
+        // Where its run sets none, the characters show the text's own look, else what the
+        // theme gives the role they are set in: the run's, else the text's.
+        let own = prop.split_once('/').and_then(|(name, key)| shown.get(name)?.get(key)).cloned();
+        let role = run.and_then(|r| r.get("role")?.as_str()).or_else(|| shown.get("role").and_then(Value::as_str));
+        let theme = own.or_else(|| role_gives(theme, role, prop));
+        Some(Field { prop: prop.into(), takes, value: value.cloned(), lives, literal: false, theme })
     });
     Ok(Choices { node: node.into(), node_type: NodeType::Text, state: state.into(), fields: fields.collect() })
 }
@@ -426,7 +458,7 @@ pub fn state_choices(deck: &Deck, theme: &Theme, state: &str) -> Result<StateCho
                 (value, set)
             }
         };
-        Some(Field { prop: prop.into(), takes, value, lives, literal: false })
+        Some(Field { prop: prop.into(), takes, value, lives, literal: false, theme: None })
     });
     Ok(StateChoices { state: state.into(), fields: fields.collect() })
 }

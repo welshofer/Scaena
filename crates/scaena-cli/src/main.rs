@@ -1503,7 +1503,11 @@ fn print_choices(c: &scaena_core::choices::Choices) {
                 let written = if f.literal && *lives != Where::Overrides { ", written out (W300)" } else { "" };
                 format!("{v}, in {at}{written}")
             }
-            _ => "the theme's".to_string(),
+            // What the theme gives a text's look, where it says.
+            _ => match &f.theme {
+                Some(v) => format!("the theme's: {}", v.as_str().map_or_else(|| v.to_string(), String::from)),
+                None => "the theme's".to_string(),
+            },
         };
         println!("    {:<14} {shown} · {}", f.prop, takes(&f.takes));
     }

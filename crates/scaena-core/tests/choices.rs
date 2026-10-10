@@ -501,6 +501,9 @@ fn characters_offer_a_runs_look_and_show_the_first_ones() {
     assert_eq!(at("style/weight"), (Some(json!(700)), Some(Where::State("revenue".into()))));
     assert_eq!(at("style/color"), (Some(json!("accent")), Some(Where::State("revenue".into()))));
     assert_eq!(at("role"), (None, None), "the run takes the node's role");
+    // Where the run sets none, what shows is the text's look: here its role's, a headline's.
+    assert_eq!(field(&c, "style/weight").theme, Some(json!(550)), "under the run's own 700");
+    assert_eq!(field(&c, "style/family").theme, Some(json!("display")));
     assert!(
         matches!(&field(&c, "role").takes, Takes::Name { of: Vocabulary::TextRole, names, overrides: false } if names.contains(&"caption".to_string()))
     );
@@ -517,6 +520,28 @@ fn characters_offer_a_runs_look_and_show_the_first_ones() {
     assert!(e.contains("15 characters"), "{e}");
     assert!(characters(&deck(&doc), &theme, "revenue", "title", (3, 16)).is_err());
     assert!(characters(&deck(&doc), &theme, "revenue", "rev", (0, 1)).unwrap_err().contains("no text"));
+}
+
+/// Where the deck sets none of a text's look, each field says what the theme gives it, by the
+/// role the state shows the text in: what an inspector shows in place of a blank.
+#[test]
+fn a_texts_look_says_what_its_role_gives_where_the_deck_sets_none() {
+    let c = offered(&example(), "revenue", "title");
+    let gives = |prop: &str| field(&c, prop).theme.clone();
+    // The title is a headline in `revenue`, and Dusk's headline is its display face, 80 at 550.
+    assert_eq!(gives("style/family"), Some(json!("display")));
+    assert_eq!(gives("style/weight"), Some(json!(550)));
+    assert_eq!(gives("style/size"), Some(json!(80.0)));
+    assert_eq!(gives("style/italic"), Some(json!(false)), "upright where the role says nothing");
+    assert_eq!(gives("style/case"), Some(json!("none")), "as typed");
+    assert_eq!(gives("style/color"), Some(json!("onSurface")), "a role that names no color");
+    assert!(field(&c, "style/size").value.is_none(), "the deck sets none of it");
+    for prop in ["role", "align/x", "fit", "opacity", "alt"] {
+        assert_eq!(gives(prop), None, "{prop} is no part of a role's look");
+    }
+    // A chart's fields say nothing of the kind.
+    let chart = offered(&example(), "revenue", "rev");
+    assert!(chart.fields.iter().all(|f| f.theme.is_none()), "{:?}", chart.fields);
 }
 
 /// One keyword aligns both axes: an inspector shows it as the axis's own (PLAN 3.25).
