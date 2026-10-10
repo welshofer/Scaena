@@ -191,6 +191,21 @@ pub fn filling(deck: &Deck, theme: &Theme, state: &str, slot: &str) -> Result<Fi
     Ok(Filled { id, patch })
 }
 
+/// Whether `node`, as `state` shows it, still reads as the prompt of the slot it is placed in
+/// (PLAN 3.30): words a new slide in the layout put there, as they were put. An editor selects
+/// them whole as typing begins in them, so typing replaces them, as a placeholder's are.
+pub fn prompted(deck: &Deck, theme: &Theme, state: &str, node: &str) -> Result<bool, OpsError> {
+    let snaps = scaena_core::resolve_states(deck).context("tracking")?;
+    let snap =
+        snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+    let Some(props) = snap.nodes.get(node) else { return Ok(false) };
+    let slot = props.get("at").filter(|a| a.get("parent").is_none()).and_then(|a| a.get("in")?.as_str());
+    let prompt = (snap.layout.as_deref().and_then(|l| theme.layouts.get(l)))
+        .zip(slot)
+        .and_then(|(layout, slot)| layout.slots.get(slot)?.prompt.as_ref()?.text());
+    Ok(matches!((prompt, props.get("text").and_then(Value::as_str)), (Some((words, _)), Some(text)) if words == text))
+}
+
 /// A slot of the state's layout that waits for what its prompt says goes there (PLAN 3.30): an
 /// editor outlines it, with the prompt's words, until something is placed in it.
 #[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
@@ -409,6 +424,29 @@ mod tests {
         let pictured = patched(&starting(&deck, &theme, "revenue", Some("art-left")).unwrap().patch);
         let art = filling(&pictured, &theme, "art-left", "art").unwrap_err();
         assert!(art.to_string().contains("waits for no words"), "{art}");
+    }
+
+    /// A text still reads as its slot's prompt until its words change (PLAN 3.30): what an editor
+    /// selects whole as typing begins; a text the deck wrote reads as none.
+    #[test]
+    fn a_text_reads_as_its_slots_prompt_until_its_words_change() {
+        let deck = revenue();
+        let theme =
+            scaena_engine::theme::Theme::from_json(include_str!("../../../docs/examples/themes/dusk.theme.json"))
+                .unwrap();
+        let patched = |ops: &[Value]| {
+            let doc = scaena_core::patch::compile(&deck.to_value().unwrap(), ops, &NoFiles).unwrap().doc;
+            Deck::from_value(&doc).unwrap()
+        };
+        let started = starting(&deck, &theme, "revenue", Some("bullets")).unwrap();
+        let made = patched(&started.patch);
+        assert!(prompted(&made, &theme, "bullets", "bullets-header").unwrap());
+        assert!(prompted(&made, &theme, "bullets", "bullets-body").unwrap(), "a list's items too");
+        let mut ops = started.patch.clone();
+        ops.push(json!({ "op": "replace_text", "node": "bullets-header", "state": "bullets", "from": 0, "to": 4, "text": "Why" }));
+        assert!(!prompted(&patched(&ops), &theme, "bullets", "bullets-header").unwrap(), "words typed over");
+        assert!(!prompted(&deck, &theme, "intro", "title").unwrap(), "the deck's own words");
+        assert!(!prompted(&made, &theme, "bullets", "nowhere").unwrap());
     }
 
     /// No file: the patches here read none.

@@ -98,6 +98,12 @@ extension ScaenaSession {
         try call("waiting", ["state": .string(state)])
     }
 
+    /// Whether `node`, as `state` shows it, still reads as its slot's prompt (PLAN 3.30): words a
+    /// new slide in the layout put there, as they were put, which typing selects whole.
+    public func prompted(state: String, node: String) throws -> Bool {
+        try call("prompted", ["state": .string(state), "node": .string(node)])
+    }
+
     /// The patch that fills `slot` of `state`'s layout, which waits for words, as a new slide in
     /// the layout fills it (PLAN 3.30): its prompt's words in the slot's role, or a list's items,
     /// named after the slide and the slot (`bullets-header`) and kept to the slide.

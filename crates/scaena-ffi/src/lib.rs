@@ -384,7 +384,8 @@ pub unsafe extern "C" fn scaena_drop(
 /// the slide of `state`, `{id, patch}`; `waiting {state}`, the slots of its layout that wait
 /// for what their prompts say goes there, each `{slot, rect, words, typed, role?}`; and
 /// `filling {state, slot}`, the patch that fills one that waits for words as a new slide fills
-/// it, `{id, patch}`.
+/// it, `{id, patch}`; and `prompted {state, node}`, whether a text still reads as its slot's
+/// prompt, which typing selects whole.
 ///
 /// # Safety
 /// `session` is a live handle; `method` a NUL-terminated string; `args` one, or null.
@@ -1267,6 +1268,7 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         "starting" => value(serde_json::to_value(s.starting(arg("state")?, optional("layout")).map_err(said)?))?,
         "waiting" => value(serde_json::to_value(s.waiting(arg("state")?).map_err(said)?))?,
         "filling" => value(serde_json::to_value(s.filling(arg("state")?, arg("slot")?).map_err(said)?))?,
+        "prompted" => json!(s.prompted(arg("state")?, arg("node")?).map_err(said)?),
         "inserts" => value(serde_json::to_value(s.inserts()))?,
         // What Insert, ⌘D, and Delete make (PLAN 2.34, 3.11): `{id, cell, patch}`, or the ops.
         "inserting" => {

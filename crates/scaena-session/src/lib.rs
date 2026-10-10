@@ -1439,6 +1439,13 @@ impl Session {
         scaena_ops::states::starting(&self.deck, &self.theme, state, layout).map_err(|e| Error::Ops(e.to_string()))
     }
 
+    /// Whether `node`, as `state` shows it, still reads as its slot's prompt (PLAN 3.30): what an
+    /// editor selects whole as typing begins in it, so typing replaces it.
+    #[cfg(feature = "editor")]
+    pub fn prompted(&self, state: &str, node: &str) -> Result<bool, Error> {
+        scaena_ops::states::prompted(&self.deck, &self.theme, state, node).map_err(|e| Error::Ops(e.to_string()))
+    }
+
     /// The patch that fills `slot` of `state`'s layout, a slot that waits for words, as a new
     /// slide in the layout fills it (PLAN 3.30): what a press on an empty slot's words puts there.
     #[cfg(feature = "editor")]

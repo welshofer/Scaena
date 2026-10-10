@@ -163,5 +163,8 @@ private func playing(_ editor: DeckEditor) -> [String] {
     #expect(filled.id == "bullets-header" && filled.patch.first?["op"]?.string == "add_node")
     try editor.make(filled.patch)
     #expect(try session.waiting(state: started.id).allSatisfy { $0.slot != "header" })
+    // Its words still read as the slot's prompt: typing begins with them selected whole.
+    #expect(try session.prompted(state: started.id, node: "bullets-header"))
+    #expect(try !session.prompted(state: started.id, node: "nowhere"))
     #expect(throws: ScaenaError.self) { try session.filling(state: started.id, slot: "nowhere") }
 }

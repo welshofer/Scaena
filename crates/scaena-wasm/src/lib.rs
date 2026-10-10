@@ -768,6 +768,12 @@ impl Player {
         serde_json::to_string(&self.0.starting(state, layout.as_deref()).map_err(js)?).map_err(js)
     }
 
+    /// Whether `node`, as `state` shows it, still reads as its slot's prompt (PLAN 3.30): what the
+    /// canvas selects whole as typing begins in it.
+    pub fn prompted(&self, state: &str, node: &str) -> Result<bool, JsError> {
+        self.0.prompted(state, node).map_err(js)
+    }
+
     /// The patch that fills `slot` of `state`'s layout, which waits for words, as a new slide in
     /// the layout fills it, as JSON: `{ id, patch }` (PLAN 3.30).
     pub fn filling(&self, state: &str, slot: &str) -> Result<String, JsError> {

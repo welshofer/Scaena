@@ -231,6 +231,9 @@ export interface Carets {
   lines: CaretLine[];
   /** Its paragraphs as a list's items (ADR-0018, PLAN 2.69), by paragraph; none past the last. */
   items?: (ListMark | null)[];
+  /** Its words still as its slot's prompt put them (PLAN 3.30): typing begins with them all
+   * selected, so it replaces them. Asked as typing begins, not after each change. */
+  prompt?: boolean;
 }
 
 /** Where a link goes (PLAN 2.70): a web address, or a state of the deck. */

@@ -12,8 +12,9 @@
 //   thumbnail the same drawing, and it is shown. One undo takes it back.
 // - + Slide opens the gallery of Dusk's layouts (PLAN 3.30): a slide drawn for each of its 47, by
 //   its sections, then a blank one. Bullets starts a slide after `mix` with its headline and its
-//   points in their slots, one undo; its headline deleted, a press on the header's words puts a
-//   headline back in the slot. Photo starts one whose picture, edge to edge, the canvas outlines
+//   points in their slots, one undo; a double click on its headline selects its words whole, so
+//   typing replaces them; its headline deleted, a press on the header's words puts a headline back
+//   in the slot. Photo starts one whose picture, edge to edge, the canvas outlines
 //   with its words, and a press on them asks for a picture, which goes in that slot, one undo;
 //   where it outlines nothing on `intro`, a title slide the deck opened with no picture and no
 //   kicker. Blank adds an empty slide after `mix`. Alt with an arrow key moves it, and so
@@ -194,6 +195,32 @@ try {
   check(started.includes("state bullets mode:absolute layout:bullets"), "absolute, in its layout");
   check(started.includes('"What this slide says"') && started.includes("The first point"), "its headline and its points in their slots");
   check(await shows(3), "and shows it");
+  // A double click on its headline types in it with its words selected whole, as a placeholder's
+  // are: typing replaces them. One undo takes the typing back.
+  const header0 = await page
+    .waitForFunction(() => window.scaena.canvas.boxes()?.find((b) => b.node === "bullets-header")?.rect, null, { timeout: 30000 })
+    .then((h) => h.jsonValue(), () => undefined);
+  if (header0) {
+    const [hx, hy] = await page.evaluate(([x, y, w, h]) => {
+      const r = document.querySelector("#overlay").getBoundingClientRect();
+      const [cw, ch] = window.scaena.canvas.size();
+      return [r.left + ((x + w / 2) / cw) * r.width, r.top + ((y + h / 2) / ch) * r.height];
+    }, header0);
+    await page.mouse.dblclick(hx, hy);
+    await page.waitForFunction(() => window.scaena.canvas.typing() === "bullets-header", null, { timeout: 30000 }).catch(() => {});
+    const selected = await page.evaluate(() => {
+      const a = document.activeElement;
+      return a instanceof HTMLTextAreaElement ? [a.selectionStart, a.selectionEnd, a.value.length] : undefined;
+    });
+    check(selected?.[0] === 0 && selected[1] === selected[2] && selected[2] > 0, `a double click on its headline selects its words whole: ${JSON.stringify(selected)}`);
+    await page.keyboard.type("Why it matters");
+    await page.waitForFunction(() => window.scaena.source().includes('"Why it matters"') && !window.scaena.canvas.typed()?.sending, null, { timeout: 30000 }).catch(() => {});
+    await page.keyboard.press("Escape");
+    const retyped = await source();
+    check(retyped.includes('"Why it matters"') && !retyped.includes('"What this slide says"'), "typing replaces them");
+    await undo();
+    check(await back(started), "one undo takes the typing back");
+  }
   // Its headline deleted, the header's slot waits with its words; a press on them puts a text in
   // the slot's role back there, as a placeholder fills.
   await page.evaluate(() => window.scaena.canvas.select("bullets-header"));

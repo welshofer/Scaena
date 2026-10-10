@@ -341,7 +341,10 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         const behind = !player.compiledFrom(data.source);
         if (behind) saveable(data.source);
         layOut(data.format, behind);
-        return post({ type: "carets", id: data.id, carets: JSON.parse(player.carets(data.state, data.node)) as Carets | null });
+        const carets = JSON.parse(player.carets(data.state, data.node)) as Carets | null;
+        // Words still as their slot's prompt put them, which typing replaces whole (PLAN 3.30).
+        if (carets && player.prompted(data.state, data.node)) carets.prompt = true;
+        return post({ type: "carets", id: data.id, carets });
       }
       case "themes":
         return post({ type: "themes", id: data.id, themes: JSON.parse(player.themes()) as Themes });

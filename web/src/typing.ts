@@ -318,10 +318,11 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     area.value = found.text;
     area.setAttribute("aria-label", `The text of ${node}, typed where it stands`);
     area.focus({ preventScroll: true });
-    if (point) {
+    // A slot's prompt, still as it was put, is selected whole, so typing replaces it (PLAN 3.30).
+    if (point && !found.prompt) {
       const [at, line] = caretNear(found, back(around.map(node), point));
       put(at, at, line);
-    } else put(all ? 0 : found.text.length, found.text.length);
+    } else put(all || found.prompt ? 0 : found.text.length, found.text.length);
     void tellWhere();
     return true;
   }
