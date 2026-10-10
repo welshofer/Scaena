@@ -213,6 +213,10 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: brew install xcodegen && xcodegen --version && xcodebuild -version
       - run: apps/ipad/test.sh
+      # Gate 4's command (docs/gate-4.md), on the simulator, so that it keeps working on an iPad:
+      # its readings here, in debug and painted by the CPU painter, are not the gate's.
+      - if: ${{ !cancelled() }}
+        run: apps/ipad/gate.sh
       # The app as someone opens it (PLAN 4.2), whether or not ScaenaKit's tests passed.
       - if: ${{ !cancelled() }}
         run: apps/ipad/app-test.sh
