@@ -41,6 +41,8 @@ final class ScaenaDocument: ReferenceFileDocument {
         }
         _ = try? session.call("keepHistory") as JSONValue
         editor = DeckEditor(session: session)
+        // It opens on a title slide, its words to type over, as a presentation app's does (PLAN 3.30).
+        editor.startOnTitleSlide()
         startsNew = true
     }
 

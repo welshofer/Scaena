@@ -136,6 +136,18 @@ private func playing(_ editor: DeckEditor) -> [String] {
     #expect(try b1Editor.session.cue(state: "goal").bars.map(\.id) == ["transition", "title exit"])
 }
 
+/// A new deck opens on a title slide (PLAN 3.30): its one blank state made a slide in the theme's
+/// `title` layout, its words in their slots and its picture's place waiting; a deck with something
+/// on it is left as it is.
+@Test func aNewDeckOpensOnATitleSlide() throws {
+    let editor = DeckEditor(session: try ScaenaSession.create(theme: "Dusk", title: "Untitled"))
+    #expect(editor.startOnTitleSlide() == "title")
+    #expect(editor.slots.map(\.state) == ["title"])
+    #expect(try editor.session.waiting(state: "title").map(\.slot) == ["art"])
+    #expect(try editor.session.boxes(state: "title").count >= 3, "the kicker, the title, and the subtitle")
+    #expect(editor.startOnTitleSlide() == nil, "a title slide stays as it is")
+}
+
 /// An empty slot filled from a press on its words (PLAN 3.30): on a slide started in Bullets, its
 /// headline deleted, the header waits in its role, and filling it puts back what the slide was
 /// started with, one patch; a slot the layout lacks is refused.

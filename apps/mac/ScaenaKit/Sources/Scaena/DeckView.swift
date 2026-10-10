@@ -659,6 +659,8 @@ struct DeckView: View {
             .task {
                 guard document.startsNew else { return }
                 document.startsNew = false
+                // Its title slide's empty places outlined, as on a slide made here.
+                fresh.formUnion(editor.slots.map(\.state))
                 try? await Task.sleep(for: .milliseconds(250))
                 offeredThemes = (try? editor.session.shippedThemes()) ?? []
             }
