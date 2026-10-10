@@ -245,6 +245,15 @@ struct ThemeLook {
         return Self.hex(hex)
     }
 
+    /// A color as the theme writes it, by its name or by the role that names one, lowercased: two
+    /// names that give one color give the same words.
+    func written(_ name: String) -> String? {
+        guard let colors = theme["tokens"]?["color"] else { return nil }
+        if let value = colors[name]?.string { return value.lowercased() }
+        guard let named = theme["tokens"]?["roles"]?[name]?.string else { return nil }
+        return colors[named]?.string?.lowercased()
+    }
+
     /// Each role the theme gives a color, by its name, and the name of the color it gives it.
     var roles: [String: String] {
         (theme["tokens"]?["roles"]?.object ?? [:]).compactMapValues(\.string)

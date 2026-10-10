@@ -40,6 +40,26 @@ try {
   const page = await context.newPage();
   page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
   page.on("console", (m) => m.type() === "error" && failures.push(`console: ${m.text()}`));
+  // Each file picker the page opens. Playwright intercepts pickers once a listener is added, but
+  // turns that on without waiting: a press made at once can open its picker first, and headless
+  // Chromium cancels a picker no one intercepts. Heard from the start, none is missed.
+  const choosers = [];
+  page.on("filechooser", (c) => choosers.push(c));
+  /** The picker the page opens after the `n`th, within `ms`. */
+  const chooserAfter = async (n, ms = 10000) => {
+    for (const end = Date.now() + ms; choosers.length <= n && Date.now() < end; ) await page.waitForTimeout(50);
+    return choosers[n];
+  };
+  /** Where `part`, drawn in the overlay, stands on the page. The overlay draws its parts anew each
+   * time it draws, so the part found can be gone before its box is read: it is asked again. */
+  const boxOf = async (part) => {
+    for (let i = 0; i < 100; i++) {
+      const box = await part.boundingBox({ timeout: 1000 }).catch(() => null);
+      if (box) return box;
+      await page.waitForTimeout(50);
+    }
+    return null;
+  };
   await page.goto(url("/docs/examples/revenue.deck.json"));
   await page.waitForFunction(() => window.scaena?.last() || document.querySelector("#status")?.textContent.startsWith("error"), null, {
     timeout: 120000,
@@ -231,8 +251,8 @@ try {
     .then((h) => h.jsonValue(), () => undefined);
   check(header?.typed === true && header?.role === "headline" && header?.words === "What this slide says", `its headline deleted, the header's slot waits with its words: ${JSON.stringify(header)}`);
   if (header) {
-    const at = await page.locator("#overlay [data-wait]").filter({ hasText: header.words }).boundingBox();
-    await page.mouse.click(at.x + at.width / 2, at.y + at.height / 2);
+    const at = await boxOf(page.locator("#overlay [data-wait]").filter({ hasText: header.words }));
+    if (at) await page.mouse.click(at.x + at.width / 2, at.y + at.height / 2);
     check(await says("bullets-header fills header"), `a press on them puts its headline back: ${await status()}`);
     check((await source()).includes('"What this slide says"'), "its words, as the slide was started with them");
     const id = "bullets-header";
@@ -268,11 +288,10 @@ try {
   check((await page.locator("#overlay .waiting-words").textContent()) === "A picture, edge to edge", "with its words");
   // A press on the words asks for a picture, which goes in the slot, as a placeholder fills.
   const photoSlide = await source();
-  const words = await page.locator("#overlay .waiting-words").boundingBox();
-  const chooser = await Promise.all([
-    page.waitForEvent("filechooser", { timeout: 10000 }),
-    page.mouse.click(words.x + words.width / 2, words.y + words.height / 2),
-  ]).then(([c]) => c, () => undefined);
+  const words = await boxOf(page.locator("#overlay .waiting-words"));
+  const asked = choosers.length;
+  if (words) await page.mouse.click(words.x + words.width / 2, words.y + words.height / 2);
+  const chooser = await chooserAfter(asked);
   check(Boolean(chooser), "a press on its words asks for a picture");
   if (chooser) {
     await chooser.setFiles({ name: "card.png", mimeType: "image/png", buffer: await readFile("tests/fixtures/torture.scaena/assets/test-card.png") });

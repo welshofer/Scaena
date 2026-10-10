@@ -62,8 +62,9 @@ pub struct Field {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub literal: bool,
     /// What the theme gives a text's look where the deck sets none, which the state then shows:
-    /// its role's family, weight, size, italic, case, tracking, or color. What an inspector shows
-    /// in place of a blank. Absent for any other property.
+    /// its role's family, weight, size, italic, case, tracking, or color; and for characters
+    /// selected, the text's own look where their run sets none, its role and emphasis too. What
+    /// an inspector shows in place of a blank. Absent for any other property.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub theme: Option<Value>,
 }
@@ -382,9 +383,13 @@ pub fn characters(
             None => r.get(prop),
         });
         let lives = value.map(|_| lives.clone());
-        // Where its run sets none, the characters show the text's own look, else what the
-        // theme gives the role they are set in: the run's, else the text's.
-        let own = prop.split_once('/').and_then(|(name, key)| shown.get(name)?.get(key)).cloned();
+        // Where its run sets none, the characters show the text's own look (its role and its
+        // emphasis too, which a run sets of its own), else what the theme gives the role they
+        // are set in: the run's, else the text's.
+        let own = match prop.split_once('/') {
+            Some((name, key)) => shown.get(name).and_then(|look| look.get(key)).cloned(),
+            None => shown.get(prop).cloned(),
+        };
         let role = run.and_then(|r| r.get("role")?.as_str()).or_else(|| shown.get("role").and_then(Value::as_str));
         let theme = own.or_else(|| role_gives(theme, role, prop));
         Some(Field { prop: prop.into(), takes, value: value.cloned(), lives, literal: false, theme })

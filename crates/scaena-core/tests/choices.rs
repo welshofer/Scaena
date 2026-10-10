@@ -504,6 +504,7 @@ fn characters_offer_a_runs_look_and_show_the_first_ones() {
     // Where the run sets none, what shows is the text's look: here its role's, a headline's.
     assert_eq!(field(&c, "style/weight").theme, Some(json!(550)), "under the run's own 700");
     assert_eq!(field(&c, "style/family").theme, Some(json!("display")));
+    assert_eq!(field(&c, "role").theme, Some(json!("headline")), "the text's own role, which the run takes");
     assert!(
         matches!(&field(&c, "role").takes, Takes::Name { of: Vocabulary::TextRole, names, overrides: false } if names.contains(&"caption".to_string()))
     );

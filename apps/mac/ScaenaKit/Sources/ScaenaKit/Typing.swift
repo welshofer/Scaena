@@ -512,9 +512,9 @@ public final class Typing {
     }
 
     /// Link the characters asked about to `words`: a web address (`https://`, `http://`,
-    /// `mailto:`), or a state's id, `#` before it or not; nothing takes their link away; none, the
-    /// question dismissed, makes none. One `style_text` of `link`, one step to undo. Whether it
-    /// was made.
+    /// `mailto:`); a slide by its number, as the slide list numbers it ("3", "Slide 3, step 2"); or
+    /// a state's id, `#` before it or not. Nothing takes their link away; none, the question
+    /// dismissed, makes none. One `style_text` of `link`, one step to undo. Whether it was made.
     @discardableResult
     public func link(to words: String?) -> Bool {
         guard asking != nil else { return false }
@@ -529,12 +529,21 @@ public final class Typing {
         if to.range(of: #"^(https?://|mailto:)\S+$"#, options: .regularExpression) != nil {
             return give(["link": ["href": .string(to)]], said: "Linked to \(to)")
         }
+        if let state = editor.slots.state(numbered: to) {
+            return give(["link": ["state": .string(state)]], said: "Linked to \(Self.capitalized(to))")
+        }
         let state = to.hasPrefix("#") ? String(to.dropFirst()) : to
         if state.range(of: #"^[a-z][a-z0-9_-]{0,63}$"#, options: .regularExpression) != nil {
             return give(["link": ["state": .string(state)]], said: "Linked to another slide")
         }
-        say("“\(to)” isn't a link: type a web address (https://…, mailto:…)")
+        say("“\(to)” isn't a link: type a web address (https://…) or a slide's number")
         return false
+    }
+
+    /// A slide's number as the status says it: "Slide 3", where "3" or "slide 3" was typed.
+    private static func capitalized(_ number: String) -> String {
+        let said = number.prefix(1).uppercased() + number.dropFirst()
+        return said.first?.isNumber == true ? "Slide \(said)" : said
     }
 
     // MARK: Lists (ADR-0018, PLAN 2.69)
@@ -653,19 +662,26 @@ public final class Typing {
         ]
         if fork { op["fork"] = true }
         let states = (try? editor.session.reach([.object(op)])) ?? [state]
-        _ = states.count
         // Said as a person says it (PLAN 3.18): where the change shows beyond this slide, and how
         // to keep it here.
         let others = states.filter { $0 != state }.count
         if fork {
-            whereTold = "Editing on this slide only · Escape stops"
+            whereTold = "Editing on this slide only · \(Self.stops)"
         } else if others > 0 {
             whereTold = "Editing · it changes on \(others) other slide\(others == 1 ? "" : "s") too · ⌥ with a double click keeps it to this one"
         } else {
-            whereTold = "Editing · Escape stops"
+            whereTold = "Editing · \(Self.stops)"
         }
         told = whereTold
     }
+
+    /// How typing stops, as the hint says it: Escape on the Mac; a tap off the text on an iPad,
+    /// whose keyboard on the screen has no Escape key.
+    #if os(macOS)
+    private static let stops = "Escape stops"
+    #else
+    private static let stops = "tap outside it to stop"
+    #endif
 }
 
 extension ScaenaSession {

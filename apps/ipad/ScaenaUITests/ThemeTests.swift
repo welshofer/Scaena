@@ -47,6 +47,18 @@ final class ThemeTests: XCTestCase {
         let size = app.textFields.matching(NSPredicate(format: "identifier == 'theme-body-size'")).firstMatch
         try XCTContext.runActivity(named: "The body role opened: its size in a field") { _ in
             let body = any.matching(NSPredicate(format: "label BEGINSWITH 'Body'")).firstMatch
+            // The type roles come in the order the theme writes them, and Display, Headline, and
+            // Title, before Body, reach the window's foot: a form makes no row it does not show.
+            // So the panel is scrolled to Body as a person scrolls it, dragged up from the first
+            // role shown and held still before it is let go, so it stops where it was dragged.
+            let role = app.buttons.matching(NSPredicate(format: "label MATCHES %@", ".+, [0-9]+ pt")).firstMatch
+            for _ in 0..<3 {
+                if body.waitForExistence(timeout: 3) || !role.exists { break }
+                let from = role.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                from.press(
+                    forDuration: 0.1, thenDragTo: from.withOffset(CGVector(dx: 0, dy: -400)), withVelocity: .slow,
+                    thenHoldForDuration: 0.5)
+            }
             guard body.waitForExistence(timeout: 10), says(32).exists else {
                 keep(app, as: "no-body-role")
                 throw Unseen(description: "the theme shows no body role at 32 pt: \(app.debugDescription)")

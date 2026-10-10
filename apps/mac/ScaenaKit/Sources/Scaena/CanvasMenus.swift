@@ -30,13 +30,12 @@ enum CanvasOffer {
             offers.append(.action("Duplicate", symbol: "plus.square.on.square", run: duplicate))
         }
         if let delete = deck.delete {
-            offers.append(
-                .menu(
-                    "Delete", symbol: "trash",
-                    [
-                        .action("Delete from This Slide On", symbol: "trash", destructive: true, run: { delete(false) }),
-                        .action("Delete from All Slides", symbol: "trash", destructive: true, run: { delete(true) }),
-                    ]))
+            // Delete as the Delete key does; the deck's other slides only where it shows on them.
+            offers.append(.action("Delete", symbol: "trash", destructive: true, run: { delete(false) }))
+            if deck.deletesElsewhere {
+                offers.append(
+                    .action("Delete from All Slides", symbol: "trash", destructive: true, run: { delete(true) }))
+            }
         }
         var arranging: [CanvasOffer] = []
         if let order = deck.order {

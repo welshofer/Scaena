@@ -222,6 +222,20 @@ private func carets(_ json: String) throws -> Carets {
 }
 #endif
 
+/// A slide's number as a person types it names the state the slide list numbers so, which ⌘K
+/// links words to (PLAN 2.70): a slide's first state, or its step.
+@MainActor
+@Test func aSlidesNumberNamesItsState() throws {
+    let slots = DeckEditor(session: try ScaenaSession(directory: b1)).slots
+    #expect(slots.state(numbered: "1") == "cover")
+    #expect(slots.state(numbered: "Slide 2") == "goal")
+    #expect(slots.state(numbered: "slide 2, step 3") == "goal-bar")
+    #expect(slots.state(numbered: " 3 step 2 ") == "belief-1-why")
+    for none in ["0", "Slide 2, step 9", "step 2", "goal", "2a", "999", ""] {
+        #expect(slots.state(numbered: none) == nil, "\(none)")
+    }
+}
+
 /// A text's characters (PLAN 3.10): what the inspector offers for them, a role chosen there as
 /// one `style_text`, and ⌘K's link, found where the engine draws it, as a click in Play follows it.
 @MainActor
@@ -250,6 +264,11 @@ private func carets(_ json: String) throws -> Carets {
     #expect(typing.link(to: "#goal"))
     #expect(try editor.session.link(state: "cover", at: middle()) == .state("goal"))
     #expect(try editor.session.link(state: "cover", at: CGPoint(x: 10, y: 10)) == nil)
+    // A slide by its number, as the slide list numbers it: B1's second slide's third step.
+    typing.askLink()
+    #expect(typing.link(to: "Slide 2, step 3"))
+    #expect(typing.told == "Linked to Slide 2, step 3", "\(typing.told ?? "")")
+    #expect(try editor.session.link(state: "cover", at: middle()) == .state("goal-bar"))
     typing.askLink()
     #expect(typing.link(to: "https://example.com/scaena"))
     #expect(try editor.session.link(state: "cover", at: middle()) == .href("https://example.com/scaena"))

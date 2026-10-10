@@ -636,12 +636,30 @@ private struct SwatchRow: View {
         .padding(.vertical, 2)
     }
 
-    /// What the swatches offer: each name the theme gives a role, then each color no role names.
+    /// What the swatches offer: each name the theme gives a role, then each color no role names. A
+    /// color two names give (Background and Text on Accent, say) is one swatch: the first name's,
+    /// or the one picked.
     private var shown: [String] {
         guard let look else { return names }
         let roles = look.roles
         let named = Set(roles.values)
-        return names.filter { roles[$0] != nil } + names.filter { roles[$0] == nil && !named.contains($0) }
+        let offered = names.filter { roles[$0] != nil } + names.filter { roles[$0] == nil && !named.contains($0) }
+        let picked = current ?? shows
+        var kept: [String] = []
+        var swatchOf: [String: Int] = [:]
+        for name in offered {
+            guard let color = look.written(name) else {
+                kept.append(name)
+                continue
+            }
+            if let i = swatchOf[color] {
+                if name == picked { kept[i] = name }
+            } else {
+                swatchOf[color] = kept.count
+                kept.append(name)
+            }
+        }
+        return kept
     }
 
     private func said(_ name: String?) -> String {
@@ -675,15 +693,21 @@ private struct SwatchRow: View {
         .accessibilityAddTraits(picked ? .isSelected : [])
     }
 
-    /// Any color: the value written out, where it is one; a color picked, once the picker rests.
+    /// The color the slide shows: the one set, or the theme's where none is.
+    private var inEffect: Color? {
+        guard let name = current ?? shows else { return nil }
+        return look?.color(name) ?? ThemeLook.hex(name)
+    }
+
+    /// Any color: the well shows the color in effect, not a well with none in it; a color picked,
+    /// once the picker rests, is written out, and the one shown already changes nothing.
     private var other: Binding<Color> {
         Binding(
-            get: {
-                guard let current else { return .clear }
-                return look?.color(current) ?? ThemeLook.hex(current) ?? .clear
-            },
+            get: { inEffect ?? .clear },
             set: { picked in
-                guard let hex = ThemeLook.hex(picked), hex.lowercased() != current?.lowercased() else { return }
+                guard let hex = ThemeLook.hex(picked), hex != inEffect.flatMap({ ThemeLook.hex($0) }),
+                    hex.lowercased() != current?.lowercased()
+                else { return }
                 settling?.cancel()
                 settling = Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(400))

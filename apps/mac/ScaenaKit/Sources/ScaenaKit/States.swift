@@ -287,3 +287,33 @@ public struct Rehearsed: Equatable, Sendable {
     public let hold: Double
     public let keeps: Double?
 }
+
+extension Array where Element == ScaenaSession.Slot {
+    /// The state a slide's number names as a person types it, the window's own numbers: "3" or
+    /// "Slide 3" its first state, "Slide 3, step 2" its second; none where the deck has no such
+    /// slide or step, or the words are no number. What ⌘K links words to (PLAN 2.70).
+    public func state(numbered words: String) -> String? {
+        var said = words.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        if said.hasPrefix("slide") { said.removeFirst("slide".count) }
+        let parts = said.components(separatedBy: "step")
+        let trimmed = CharacterSet.whitespaces.union(CharacterSet(charactersIn: ","))
+        guard (1...2).contains(parts.count), let number = Int(parts[0].trimmingCharacters(in: trimmed)),
+            let step = parts.count == 2 ? Int(parts[1].trimmingCharacters(in: trimmed)) : 1, number >= 1, step >= 1
+        else { return nil }
+        // Numbered as the slide list numbers them: a slide's steps follow it.
+        var slide: String?
+        var counted = 0
+        var stepped = 0
+        for slot in self {
+            if slot.slide != slide {
+                slide = slot.slide
+                counted += 1
+                stepped = 0
+            }
+            stepped += 1
+            if counted == number, stepped == step { return slot.state }
+            if counted > number { break }
+        }
+        return nil
+    }
+}
