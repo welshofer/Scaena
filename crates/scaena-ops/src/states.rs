@@ -7,7 +7,7 @@
 use crate::{Context, OpsError};
 use scaena_core::Deck;
 use scaena_core::inserts::slug;
-use scaena_core::model::theme::{Prompt, Theme};
+use scaena_core::model::theme::{Prompt, Slot, Theme};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -105,33 +105,9 @@ pub fn starting(deck: &Deck, theme: &Theme, shown: &str, layout: Option<&str>) -
     let mut patch = vec![added(deck, after, state.clone())];
     let mut ids: Vec<String> = Vec::new();
     for (slot, s) in template.into_iter().flat_map(|t| &t.slots) {
-        let Some(prompt) = &s.prompt else { continue };
-        let node = match (prompt, prompt.text(), &s.role) {
-            (_, Some((text, list)), Some(role)) => {
-                let mut node = json!({ "type": "text", "role": role, "text": text, "at": { "in": slot } });
-                if let Some(kind) = list {
-                    node["list"] = json!(vec![json!({ "kind": kind }); text.split('\n').count()]);
-                }
-                node
-            }
-            // A card or a rule, under the words in the slots over it, which a reader passes over.
-            (Prompt::Shape(shape), _, _) => {
-                let mut node = json!({ "type": "shape", "kind": shape.shape, "at": { "in": slot }, "z": -1 });
-                if let Some(fill) = &shape.fill {
-                    node["fill"] = json!(fill);
-                }
-                node["semantic"] = json!("decoration");
-                node
-            }
-            // Words that say what goes in a slot with no role, a picture or a figure: it waits.
-            _ => continue,
-        };
-        let base = format!("{id}-{}", slug(slot, "slot"));
-        let taken = |n: &str| deck.nodes.contains_key(n) || ids.iter().any(|i| i == n);
-        let node_id = (1..)
-            .map(|n| if n == 1 { base.clone() } else { format!("{base}-{n}") })
-            .find(|n| !taken(n))
-            .expect("some number is free");
+        // Words that say what goes in a slot with no role, a picture or a figure: it waits.
+        let Some(node) = slot_node(slot, s) else { continue };
+        let node_id = named(deck, &format!("{id}-{}", slug(slot, "slot")), &ids);
         patch.push(json!({ "op": "add_node", "id": node_id, "node": node, "state": id }));
         ids.push(node_id);
     }
@@ -142,6 +118,92 @@ pub fn starting(deck: &Deck, theme: &Theme, shown: &str, layout: Option<&str>) -
         patch.push(serde_json::to_value(op).context("a patch")?);
     }
     Ok(AddedState { id, patch })
+}
+
+/// What a new slide puts in `slot`, as its prompt says (PLAN 3.30): words to type over in the
+/// slot's role, a list's items each a paragraph; or a card or a rule, under the words in the
+/// slots over it (`z` −1), which a reader passes over. None for a slot that waits for a picture or
+/// a figure, or says nothing of what goes there.
+fn slot_node(slot: &str, s: &Slot) -> Option<Value> {
+    let prompt = s.prompt.as_ref()?;
+    match (prompt, prompt.text(), &s.role) {
+        (_, Some((text, list)), Some(role)) => {
+            let mut node = json!({ "type": "text", "role": role, "text": text, "at": { "in": slot } });
+            if let Some(kind) = list {
+                node["list"] = json!(vec![json!({ "kind": kind }); text.split('\n').count()]);
+            }
+            Some(node)
+        }
+        (Prompt::Shape(shape), _, _) => {
+            let mut node = json!({ "type": "shape", "kind": shape.shape, "at": { "in": slot }, "z": -1 });
+            if let Some(fill) = &shape.fill {
+                node["fill"] = json!(fill);
+            }
+            node["semantic"] = json!("decoration");
+            Some(node)
+        }
+        _ => None,
+    }
+}
+
+/// The first of `base`, `base-2`, `base-3`, … that names no node of `deck` nor any of `ids`.
+fn named(deck: &Deck, base: &str, ids: &[String]) -> String {
+    let taken = |n: &str| deck.nodes.contains_key(n) || ids.iter().any(|i| i == n);
+    (1..)
+        .map(|n| if n == 1 { base.to_string() } else { format!("{base}-{n}") })
+        .find(|n| !taken(n))
+        .expect("some number is free")
+}
+
+/// A node a patch adds: its id, and the patch.
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct Filled {
+    pub id: String,
+    /// One `add_node`, then the `hide_node`s that keep it to its slide.
+    pub patch: Vec<Value>,
+}
+
+/// The patch that fills `slot`, a slot of `state`'s layout that waits for words (PLAN 3.30), as
+/// a new slide in the layout fills it: a text in the slot's role with its prompt's words, a
+/// list's items each a paragraph, placed in the slot and named after the slide and the slot
+/// (`bullets-header`). It enters in `state` and stays on its slide (PLAN 3.24). What a press on
+/// an empty slot's words puts there, as a presentation app's placeholder fills.
+pub fn filling(deck: &Deck, theme: &Theme, state: &str, slot: &str) -> Result<Filled, OpsError> {
+    let snaps = scaena_core::resolve_states(deck).context("tracking")?;
+    let snap =
+        snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+    let layout = snap.layout.as_deref().ok_or_else(|| OpsError::new(format!("`{state}` is in no layout")))?;
+    let s = theme
+        .layouts
+        .get(layout)
+        .and_then(|l| l.slots.get(slot))
+        .ok_or_else(|| OpsError::new(format!("the layout `{layout}` has no slot `{slot}`")))?;
+    let node = slot_node(slot, s).filter(|n| n["type"] == "text").ok_or_else(|| {
+        OpsError::new(format!("the slot `{slot}` waits for no words: a picture or a figure goes there"))
+    })?;
+    let i = deck.state_index(state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+    let slide = deck.slide_of(&deck.states[i]);
+    let id = named(deck, &format!("{slide}-{}", slug(slot, "slot")), &[]);
+    let mut patch = vec![json!({ "op": "add_node", "id": id, "node": node, "state": state })];
+    for op in crate::inspect::leaving(deck, state, std::slice::from_ref(&id)) {
+        patch.push(serde_json::to_value(op).context("a patch")?);
+    }
+    Ok(Filled { id, patch })
+}
+
+/// Whether `node`, as `state` shows it, still reads as the prompt of the slot it is placed in
+/// (PLAN 3.30): words a new slide in the layout put there, as they were put. An editor selects
+/// them whole as typing begins in them, so typing replaces them, as a placeholder's are.
+pub fn prompted(deck: &Deck, theme: &Theme, state: &str, node: &str) -> Result<bool, OpsError> {
+    let snaps = scaena_core::resolve_states(deck).context("tracking")?;
+    let snap =
+        snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+    let Some(props) = snap.nodes.get(node) else { return Ok(false) };
+    let slot = props.get("at").filter(|a| a.get("parent").is_none()).and_then(|a| a.get("in")?.as_str());
+    let prompt = (snap.layout.as_deref().and_then(|l| theme.layouts.get(l)))
+        .zip(slot)
+        .and_then(|(layout, slot)| layout.slots.get(slot)?.prompt.as_ref()?.text());
+    Ok(matches!((prompt, props.get("text").and_then(Value::as_str)), (Some((words, _)), Some(text)) if words == text))
 }
 
 /// A slot of the state's layout that waits for what its prompt says goes there (PLAN 3.30): an
@@ -155,6 +217,10 @@ pub struct Waiting {
     pub words: String,
     /// Whether words go there, typed in the slot's role; else a picture or a figure.
     pub typed: bool,
+    /// The slot's text role, where words go there: what a text put in it is set in, which an
+    /// editor inserts when the outline is pressed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
 }
 
 /// The slots of `state`'s layout, in `format`, that say what goes in them in words and that
@@ -187,7 +253,7 @@ pub fn waiting(
             continue;
         }
         let words = text.lines().next().unwrap_or_default().to_string();
-        out.push(Waiting { slot: b.name, rect: b.rect, words, typed: slot.role.is_some() });
+        out.push(Waiting { slot: b.name, rect: b.rect, words, typed: slot.role.is_some(), role: slot.role.clone() });
     }
     Ok(out)
 }
@@ -307,11 +373,80 @@ mod tests {
         let mut ops = started.patch.clone();
         ops.push(json!({ "op": "remove_node", "id": "art-left-header" }));
         let without = patched(&ops);
-        let slots: Vec<String> =
-            waiting(&without, &theme, "art-left", None).unwrap().into_iter().map(|w| w.slot).collect();
-        assert_eq!(slots, ["header", "art"], "in the order the theme writes them");
+        let slots: Vec<(String, Option<String>)> =
+            waiting(&without, &theme, "art-left", None).unwrap().into_iter().map(|w| (w.slot, w.role)).collect();
+        assert_eq!(
+            slots,
+            [("header".into(), Some("headline".into())), ("art".into(), None)],
+            "in the order the theme writes them, words in the slot's role"
+        );
         let blank = patched(&starting(&deck, &theme, "revenue", None).unwrap().patch);
         assert!(waiting(&blank, &theme, "slide", None).unwrap().is_empty());
+    }
+
+    /// A slot whose words were taken out is filled as a new slide fills it (PLAN 3.30): the
+    /// header's words in its role, the points as their list, each named after the slide and the
+    /// slot and kept to it; and no words fill a picture's slot.
+    #[test]
+    fn an_empty_slot_is_filled_as_a_new_slide_fills_it() {
+        let deck = revenue();
+        let theme =
+            scaena_engine::theme::Theme::from_json(include_str!("../../../docs/examples/themes/dusk.theme.json"))
+                .unwrap();
+        let patched = |ops: &[Value]| {
+            let doc = scaena_core::patch::compile(&deck.to_value().unwrap(), ops, &NoFiles).unwrap().doc;
+            Deck::from_value(&doc).unwrap()
+        };
+        let started = starting(&deck, &theme, "revenue", Some("bullets")).unwrap();
+        let mut ops = started.patch.clone();
+        ops.push(json!({ "op": "remove_node", "id": "bullets-header" }));
+        ops.push(json!({ "op": "remove_node", "id": "bullets-body" }));
+        let emptied = patched(&ops);
+        let header = filling(&emptied, &theme, "bullets", "header").unwrap();
+        assert_eq!(header.id, "bullets-header");
+        assert_eq!(
+            header.patch,
+            [
+                json!({ "op": "add_node", "id": "bullets-header", "state": "bullets", "node":
+                    { "type": "text", "role": "headline", "text": "What this slide says", "at": { "in": "header" } } }),
+                json!({ "op": "hide_node", "node": "bullets-header", "state": "close" }),
+            ],
+            "what starting put there, kept to the slide"
+        );
+        let body = filling(&emptied, &theme, "bullets", "body").unwrap();
+        assert_eq!(body.patch[0]["node"]["text"], "The first point\nThe second point\nThe third point");
+        assert_eq!(
+            body.patch[0]["node"]["list"],
+            json!([{ "kind": "bullet" }, { "kind": "bullet" }, { "kind": "bullet" }])
+        );
+        let filled = patched(&[ops, header.patch, body.patch].concat());
+        assert!(waiting(&filled, &theme, "bullets", None).unwrap().is_empty(), "nothing waits once both are filled");
+        let pictured = patched(&starting(&deck, &theme, "revenue", Some("art-left")).unwrap().patch);
+        let art = filling(&pictured, &theme, "art-left", "art").unwrap_err();
+        assert!(art.to_string().contains("waits for no words"), "{art}");
+    }
+
+    /// A text still reads as its slot's prompt until its words change (PLAN 3.30): what an editor
+    /// selects whole as typing begins; a text the deck wrote reads as none.
+    #[test]
+    fn a_text_reads_as_its_slots_prompt_until_its_words_change() {
+        let deck = revenue();
+        let theme =
+            scaena_engine::theme::Theme::from_json(include_str!("../../../docs/examples/themes/dusk.theme.json"))
+                .unwrap();
+        let patched = |ops: &[Value]| {
+            let doc = scaena_core::patch::compile(&deck.to_value().unwrap(), ops, &NoFiles).unwrap().doc;
+            Deck::from_value(&doc).unwrap()
+        };
+        let started = starting(&deck, &theme, "revenue", Some("bullets")).unwrap();
+        let made = patched(&started.patch);
+        assert!(prompted(&made, &theme, "bullets", "bullets-header").unwrap());
+        assert!(prompted(&made, &theme, "bullets", "bullets-body").unwrap(), "a list's items too");
+        let mut ops = started.patch.clone();
+        ops.push(json!({ "op": "replace_text", "node": "bullets-header", "state": "bullets", "from": 0, "to": 4, "text": "Why" }));
+        assert!(!prompted(&patched(&ops), &theme, "bullets", "bullets-header").unwrap(), "words typed over");
+        assert!(!prompted(&deck, &theme, "intro", "title").unwrap(), "the deck's own words");
+        assert!(!prompted(&made, &theme, "bullets", "nowhere").unwrap());
     }
 
     /// No file: the patches here read none.

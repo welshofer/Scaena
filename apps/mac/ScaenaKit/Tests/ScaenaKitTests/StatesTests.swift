@@ -135,3 +135,36 @@ private func playing(_ editor: DeckEditor) -> [String] {
     try b1Editor.make(exit)
     #expect(try b1Editor.session.cue(state: "goal").bars.map(\.id) == ["transition", "title exit"])
 }
+
+/// A new deck opens on a title slide (PLAN 3.30): its one blank state made a slide in the theme's
+/// `title` layout, its words in their slots and its picture's place waiting; a deck with something
+/// on it is left as it is.
+@Test func aNewDeckOpensOnATitleSlide() throws {
+    let editor = DeckEditor(session: try ScaenaSession.create(theme: "Dusk", title: "Untitled"))
+    #expect(editor.startOnTitleSlide() == "title")
+    #expect(editor.slots.map(\.state) == ["title"])
+    #expect(try editor.session.waiting(state: "title").map(\.slot) == ["art"])
+    #expect(try editor.session.boxes(state: "title").count >= 3, "the kicker, the title, and the subtitle")
+    #expect(editor.startOnTitleSlide() == nil, "a title slide stays as it is")
+}
+
+/// An empty slot filled from a press on its words (PLAN 3.30): on a slide started in Bullets, its
+/// headline deleted, the header waits in its role, and filling it puts back what the slide was
+/// started with, one patch; a slot the layout lacks is refused.
+@Test func anEmptySlotIsFilledAsTheSlideWasStarted() throws {
+    let editor = DeckEditor(session: try ScaenaSession.create(theme: "Dusk", title: "Placeholders"))
+    let session = editor.session
+    let started = try session.starting(after: "start", layout: "bullets")
+    try editor.make(started.patch)
+    try editor.make([["op": "remove_node", "id": "bullets-header"]])
+    let header = try session.waiting(state: started.id).first { $0.slot == "header" }
+    #expect(header?.typed == true && header?.role == "headline" && header?.words == "What this slide says")
+    let filled = try session.filling(state: started.id, slot: "header")
+    #expect(filled.id == "bullets-header" && filled.patch.first?["op"]?.string == "add_node")
+    try editor.make(filled.patch)
+    #expect(try session.waiting(state: started.id).allSatisfy { $0.slot != "header" })
+    // Its words still read as the slot's prompt: typing begins with them selected whole.
+    #expect(try session.prompted(state: started.id, node: "bullets-header"))
+    #expect(try !session.prompted(state: started.id, node: "nowhere"))
+    #expect(throws: ScaenaError.self) { try session.filling(state: started.id, slot: "nowhere") }
+}

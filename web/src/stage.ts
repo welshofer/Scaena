@@ -141,6 +141,7 @@ type Reply = Extract<
       | "starters"
       | "starting"
       | "waiting"
+      | "filling"
       | "layoutSuggestions";
   }
 >;
@@ -725,6 +726,13 @@ export class Stage {
     return this.request<"starting">({ type: "starting", id: ++this.asked, source, state, layout }).then(({ added }) => added);
   }
 
+  /** The patch that fills `slot` of `state`'s layout, which waits for words, as a new slide in the
+   * layout fills it, on the deck `source` compiles to (PLAN 3.30): the slot's prompt's words in its
+   * role, or a list's items. */
+  filling(source: string, state: string, slot: string): Promise<{ id: string; patch: unknown[] }> {
+    return this.request<"filling">({ type: "filling", id: ++this.asked, source, state, slot }).then(({ filled }) => filled);
+  }
+
   /** The slots of `state`'s layout, in `format`, with nothing placed in them, each waiting for
    * what its prompt says goes there (PLAN 3.30). */
   waits(state: string, format?: string): Promise<Waiting[]> {
@@ -941,6 +949,7 @@ export class Stage {
       case "starters":
       case "starting":
       case "waiting":
+      case "filling":
       case "layoutSuggestions":
       case "sheet":
       case "dataEdited":

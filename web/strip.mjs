@@ -12,14 +12,18 @@
 //   thumbnail the same drawing, and it is shown. One undo takes it back.
 // - + Slide opens the gallery of Dusk's layouts (PLAN 3.30): a slide drawn for each of its 47, by
 //   its sections, then a blank one. Bullets starts a slide after `mix` with its headline and its
-//   points in their slots, one undo; Photo one whose picture, edge to edge, the canvas outlines
-//   with its words, where it outlines nothing on `intro`, a title slide the deck opened with no
-//   picture and no kicker. Blank adds an empty slide after `mix`. Alt with an arrow key moves it, and so
+//   points in their slots, one undo; a double click on its headline selects its words whole, so
+//   typing replaces them; its headline deleted, a press on the header's words puts a headline back
+//   in the slot. Photo starts one whose picture, edge to edge, the canvas outlines
+//   with its words, and a press on them asks for a picture, which goes in that slot, one undo;
+//   where it outlines nothing on `intro`, a title slide the deck opened with no picture and no
+//   kicker. Blank adds an empty slide after `mix`. Alt with an arrow key moves it, and so
 //   does a drag; Delete removes it, and the source is as it was.
 // - F2 renames a state; a state another builds on is not removed, and the status says why.
 // - The state shown, renamed and taken away, leaves no error on the page, and ⌘Z and ⇧⌘Z with the
 //   strip focused undo and redo (PLAN 2.77).
 // Exits 1 on any failure.
+import { readFile } from "node:fs/promises";
 import { launch, serve } from "./serve.mjs";
 
 const server = await serve();
@@ -191,6 +195,58 @@ try {
   check(started.includes("state bullets mode:absolute layout:bullets"), "absolute, in its layout");
   check(started.includes('"What this slide says"') && started.includes("The first point"), "its headline and its points in their slots");
   check(await shows(3), "and shows it");
+  // A double click on its headline types in it with its words selected whole, as a placeholder's
+  // are: typing replaces them. One undo takes the typing back.
+  const header0 = await page
+    .waitForFunction(() => window.scaena.canvas.boxes()?.find((b) => b.node === "bullets-header")?.rect, null, { timeout: 30000 })
+    .then((h) => h.jsonValue(), () => undefined);
+  if (header0) {
+    const [hx, hy] = await page.evaluate(([x, y, w, h]) => {
+      const r = document.querySelector("#overlay").getBoundingClientRect();
+      const [cw, ch] = window.scaena.canvas.size();
+      return [r.left + ((x + w / 2) / cw) * r.width, r.top + ((y + h / 2) / ch) * r.height];
+    }, header0);
+    await page.mouse.dblclick(hx, hy);
+    await page.waitForFunction(() => window.scaena.canvas.typing() === "bullets-header", null, { timeout: 30000 }).catch(() => {});
+    const selected = await page.evaluate(() => {
+      const a = document.activeElement;
+      return a instanceof HTMLTextAreaElement ? [a.selectionStart, a.selectionEnd, a.value.length] : undefined;
+    });
+    check(selected?.[0] === 0 && selected[1] === selected[2] && selected[2] > 0, `a double click on its headline selects its words whole: ${JSON.stringify(selected)}`);
+    await page.keyboard.type("Why it matters");
+    await page.waitForFunction(() => window.scaena.source().includes('"Why it matters"') && !window.scaena.canvas.typed()?.sending, null, { timeout: 30000 }).catch(() => {});
+    await page.keyboard.press("Escape");
+    const retyped = await source();
+    check(retyped.includes('"Why it matters"') && !retyped.includes('"What this slide says"'), "typing replaces them");
+    await undo();
+    check(await back(started), "one undo takes the typing back");
+  }
+  // Its headline deleted, the header's slot waits with its words; a press on them puts a text in
+  // the slot's role back there, as a placeholder fills.
+  await page.evaluate(() => window.scaena.canvas.select("bullets-header"));
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Delete");
+  const header = await page
+    .waitForFunction(() => window.scaena.canvas.waiting().find((w) => w.slot === "header"), null, { timeout: 30000 })
+    .then((h) => h.jsonValue(), () => undefined);
+  check(header?.typed === true && header?.role === "headline" && header?.words === "What this slide says", `its headline deleted, the header's slot waits with its words: ${JSON.stringify(header)}`);
+  if (header) {
+    const at = await page.locator("#overlay [data-wait]").filter({ hasText: header.words }).boundingBox();
+    await page.mouse.click(at.x + at.width / 2, at.y + at.height / 2);
+    check(await says("bullets-header fills header"), `a press on them puts its headline back: ${await status()}`);
+    check((await source()).includes('"What this slide says"'), "its words, as the slide was started with them");
+    const id = "bullets-header";
+    const put = await page
+      .waitForFunction((n) => {
+        const b = window.scaena.canvas.boxes()?.find((x) => x.node === n);
+        return b && !window.scaena.canvas.waiting().some((w) => w.slot === "header") ? b.rect : undefined;
+      }, id, { timeout: 30000 })
+      .then((h) => h.jsonValue(), () => undefined);
+    check(Boolean(put) && Math.abs(put[0] - header.rect[0]) < 1 && Math.abs(put[1] - header.rect[1]) < 1, `in the header's slot: ${JSON.stringify(put)}, the slot ${JSON.stringify(header.rect)}`);
+    await undo();
+    await undo();
+    check(await back(started), "two undos take the headline and the Delete back");
+  }
   await undo();
   check(await back(original), "one undo takes it back");
 
@@ -210,6 +266,28 @@ try {
     `the canvas outlines its picture's slot, edge to edge: ${JSON.stringify(waits)}`,
   );
   check((await page.locator("#overlay .waiting-words").textContent()) === "A picture, edge to edge", "with its words");
+  // A press on the words asks for a picture, which goes in the slot, as a placeholder fills.
+  const photoSlide = await source();
+  const words = await page.locator("#overlay .waiting-words").boundingBox();
+  const chooser = await Promise.all([
+    page.waitForEvent("filechooser", { timeout: 10000 }),
+    page.mouse.click(words.x + words.width / 2, words.y + words.height / 2),
+  ]).then(([c]) => c, () => undefined);
+  check(Boolean(chooser), "a press on its words asks for a picture");
+  if (chooser) {
+    await chooser.setFiles({ name: "card.png", mimeType: "image/png", buffer: await readFile("tests/fixtures/torture.scaena/assets/test-card.png") });
+    check(await says("card.png inserted as"), `the picture goes in: ${await status()}`);
+    const id = /inserted as ([\w-]+)/.exec(await status())?.[1];
+    const filled = await page
+      .waitForFunction((n) => {
+        const b = window.scaena.canvas.boxes()?.find((x) => x.node === n);
+        return b && !window.scaena.canvas.waiting().length ? { node: b.node, rect: b.rect } : undefined;
+      }, id, { timeout: 30000 })
+      .then((h) => h.jsonValue(), () => undefined);
+    check(filled?.rect?.join() === "0,0,1920,1080", `in the slot, edge to edge, outlined no more: ${JSON.stringify(filled)}`);
+    await undo();
+    check(await back(photoSlide), "one undo takes the picture back");
+  }
   await undo();
   check(await back(original), "one undo takes it back");
   // intro, a title slide the deck opened with no picture and no kicker, outlines neither: only a

@@ -174,8 +174,11 @@ char *scaena_drop(struct ScaenaSession *session,
 // `startersPainted {state, height}`, one in each of the theme's layouts, then a blank one, each
 // `{layout, description, width, height}`, painted `height` pixels high, which
 // [`scaena_starter_pixels`] takes; `starting {state, layout?}`, the patch that starts one after
-// the slide of `state`, `{id, patch}`; and `waiting {state}`, the slots of its layout that wait
-// for what their prompts say goes there, each `{slot, rect, words, typed}`.
+// the slide of `state`, `{id, patch}`; `waiting {state}`, the slots of its layout that wait
+// for what their prompts say goes there, each `{slot, rect, words, typed, role?}`; and
+// `filling {state, slot}`, the patch that fills one that waits for words as a new slide fills
+// it, `{id, patch}`; and `prompted {state, node}`, whether a text still reads as its slot's
+// prompt, which typing selects whole.
 //
 // # Safety
 // `session` is a live handle; `method` a NUL-terminated string; `args` one, or null.

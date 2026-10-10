@@ -1439,6 +1439,20 @@ impl Session {
         scaena_ops::states::starting(&self.deck, &self.theme, state, layout).map_err(|e| Error::Ops(e.to_string()))
     }
 
+    /// Whether `node`, as `state` shows it, still reads as its slot's prompt (PLAN 3.30): what an
+    /// editor selects whole as typing begins in it, so typing replaces it.
+    #[cfg(feature = "editor")]
+    pub fn prompted(&self, state: &str, node: &str) -> Result<bool, Error> {
+        scaena_ops::states::prompted(&self.deck, &self.theme, state, node).map_err(|e| Error::Ops(e.to_string()))
+    }
+
+    /// The patch that fills `slot` of `state`'s layout, a slot that waits for words, as a new
+    /// slide in the layout fills it (PLAN 3.30): what a press on an empty slot's words puts there.
+    #[cfg(feature = "editor")]
+    pub fn filling(&self, state: &str, slot: &str) -> Result<scaena_ops::states::Filled, Error> {
+        scaena_ops::states::filling(&self.deck, &self.theme, state, slot).map_err(|e| Error::Ops(e.to_string()))
+    }
+
     /// Text typed on the canvas (ADR-0013, PLAN 2.32): `ops` (a `replace_text`, or the
     /// `style_text` that gives characters selected there a look, PLAN 2.38) made by `user`
     /// at `at` (seconds since the epoch), validated and refused as a patch is but not

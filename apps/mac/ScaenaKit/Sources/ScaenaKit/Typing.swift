@@ -99,6 +99,10 @@ public final class Typing {
         } else {
             put(found.length)
         }
+        // A slot's prompt, still as it was put, is selected whole, so typing replaces it (PLAN 3.30).
+        if (try? editor.session.prompted(state: state, node: node)) == true {
+            selectAll()
+        }
         tellWhere()
         focus?()
         return true

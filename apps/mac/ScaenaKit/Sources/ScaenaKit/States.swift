@@ -66,10 +66,12 @@ public struct WaitingSlot: Decodable, Sendable, Identifiable, Equatable {
     public let words: String
     /// Whether words go there; else a picture or a figure.
     public let typed: Bool
+    /// The text role words there are set in, which Insert offers a text of.
+    public let role: String?
 
     public var id: String { slot }
 
-    private enum Keys: String, CodingKey { case slot, rect, words, typed }
+    private enum Keys: String, CodingKey { case slot, rect, words, typed, role }
 
     public init(from decoder: any Decoder) throws {
         let fields = try decoder.container(keyedBy: Keys.self)
@@ -78,7 +80,15 @@ public struct WaitingSlot: Decodable, Sendable, Identifiable, Equatable {
         rect = r.count == 4 ? CGRect(x: r[0], y: r[1], width: r[2], height: r[3]) : .null
         words = try fields.decode(String.self, forKey: .words)
         typed = try fields.decode(Bool.self, forKey: .typed)
+        role = try fields.decodeIfPresent(String.self, forKey: .role)
     }
+}
+
+/// The node a patch puts in a slot that waits for words (PLAN 3.30): its id, and the patch, one
+/// `add_node`, then the `hide_node`s that keep it to its slide.
+public struct FilledSlot: Decodable, Sendable {
+    public let id: String
+    public let patch: [JSONValue]
 }
 
 extension ScaenaSession {
@@ -86,6 +96,19 @@ extension ScaenaSession {
     /// waiting for what its prompt says goes there (PLAN 3.30).
     public func waiting(state: String) throws -> [WaitingSlot] {
         try call("waiting", ["state": .string(state)])
+    }
+
+    /// Whether `node`, as `state` shows it, still reads as its slot's prompt (PLAN 3.30): words a
+    /// new slide in the layout put there, as they were put, which typing selects whole.
+    public func prompted(state: String, node: String) throws -> Bool {
+        try call("prompted", ["state": .string(state), "node": .string(node)])
+    }
+
+    /// The patch that fills `slot` of `state`'s layout, which waits for words, as a new slide in
+    /// the layout fills it (PLAN 3.30): its prompt's words in the slot's role, or a list's items,
+    /// named after the slide and the slot (`bullets-header`) and kept to the slide.
+    public func filling(state: String, slot: String) throws -> FilledSlot {
+        try call("filling", ["state": .string(state), "slot": .string(slot)])
     }
 }
 

@@ -535,6 +535,34 @@ struct DeckView: View {
         rehearsal = Rehearsal(slots: editor.slots)
     }
 
+    /// What a press on an empty slot's words does on `state` (PLAN 3.30): fills it, on a slide made
+    /// in this window; a slide the deck opened with outlines no slot, and offers none to fill.
+    private func filling(_ state: String) -> ((WaitingSlot) -> Void)? {
+        guard fresh.contains(state) else { return nil }
+        return { slot in fill(slot, in: state) }
+    }
+
+    /// A slot of the layout of `state` that waits, filled as a press on its words asks (PLAN 3.30):
+    /// its words put back as a new slide in the layout puts them there, in the slot's role, typed in
+    /// with their words selected, so typing replaces them; else a picture, or a sheet's data, asked
+    /// for and put there.
+    private func fill(_ slot: WaitingSlot, in state: String) {
+        pointed = CGPoint(x: slot.rect.midX, y: slot.rect.midY)
+        guard slot.typed else {
+            choosingPicture = true
+            return
+        }
+        perform {
+            let filled = try editor.session.filling(state: state, slot: slot.slot)
+            try document.make(filled.patch, undo: undo)
+            node = filled.id
+            also = []
+            if let typing, typing.enter(filled.id, in: state, at: nil) {
+                typing.selectAll()
+            }
+        }
+    }
+
     /// Insert what the deck offers `n`th in the slide shown.
     private func insertHere(_ n: Int) {
         if let shown { insert(n, in: shown) }
@@ -631,6 +659,8 @@ struct DeckView: View {
             .task {
                 guard document.startsNew else { return }
                 document.startsNew = false
+                // Its title slide's empty places outlined, as on a slide made here.
+                fresh.formUnion(editor.slots.map(\.state))
                 try? await Task.sleep(for: .milliseconds(250))
                 offeredThemes = (try? editor.session.shippedThemes()) ?? []
             }
@@ -713,7 +743,8 @@ struct DeckView: View {
                             typing: typing, pointed: $pointed, said: $said, delete: delete, clip: clip,
                             finding: { searching = true }, actions: actions,
                             fix: { finding in perform { try document.fix(finding, undo: undo) } },
-                            dropped: { items, at in drop(items, in: shown, at: at) }
+                            dropped: { items, at in drop(items, in: shown, at: at) },
+                            fill: filling(shown)
                         ) { ops in
                             perform { try document.make(ops, undo: undo) }
                         }

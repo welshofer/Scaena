@@ -260,8 +260,9 @@ struct HandleHolding: View {
 }
 
 /// The layout's empty slots over the canvas (PLAN 3.30, as the browser's): each outlined, dashed,
-/// with its prompt's words, where a picture, a figure, or words go, through the part of the canvas
-/// shown. A press there and Insert, or a picture dropped there, fills it; it takes no press itself.
+/// where a picture, a figure, or words go, through the part of the canvas shown; the canvas puts
+/// the prompt's words on it, which a press fills it from (`WaitingButton`). A press there and
+/// Insert, or a picture dropped there, fills it too; it takes no press itself.
 struct WaitingOverlay: View {
     let editor: DeckEditor
     /// The state shown.
@@ -295,18 +296,41 @@ struct WaitingOverlay: View {
                 RoundedRectangle(cornerRadius: 4)
                     .strokeBorder(tint.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
             }
-            .overlay {
-                Label(slot.words, systemImage: slot.typed ? "text.cursor" : "photo")
-                    .font(.caption)
-                    .lineLimit(1)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(.thinMaterial, in: Capsule())
-                    .foregroundStyle(.secondary)
-                    .opacity(r.width > 80 && r.height > 24 ? 1 : 0)
-            }
             .frame(width: max(r.width, 0), height: max(r.height, 0))
             .position(x: r.midX, y: r.midY)
+    }
+}
+
+/// An empty slot's words in the middle of its outline, which a press fills it from, as a
+/// presentation app's placeholder does (PLAN 3.30): words in the slot's role, typed in with their
+/// words selected, or a picture asked for and put there.
+struct WaitingButton: View {
+    let slot: WaitingSlot
+    /// How wide the slot is drawn, points: the words wrap to a second line within it, rather than
+    /// being cut off where a slot is narrow.
+    let width: CGFloat
+    let fill: () -> Void
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+        Button(action: fill) {
+            Label(slot.words, systemImage: slot.typed ? "text.cursor" : "photo.badge.plus")
+                .font(.caption)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(.thinMaterial, in: shape)
+                .foregroundStyle(.secondary)
+                .contentShape(shape)
+                .frame(maxWidth: max(width - 16, 64))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .buttonStyle(.plain)
+        .help(slot.typed ? "Type here" : "Choose a picture to put here")
+        .accessibilityLabel(slot.words)
+        .accessibilityHint(slot.typed ? "Puts words here to type over" : "Chooses a picture to put here")
+        .accessibilityIdentifier("waiting-\(slot.slot)")
     }
 }
 

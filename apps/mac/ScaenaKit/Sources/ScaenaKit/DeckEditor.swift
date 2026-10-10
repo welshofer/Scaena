@@ -80,6 +80,20 @@ public final class DeckEditor {
         return before
     }
 
+    /// A new deck's one blank state made a title slide in the theme's `title` layout, its words to
+    /// type over and its picture's place waiting, as a presentation app's new deck opens (PLAN
+    /// 3.30): the slide's id. None where the deck is not one state with nothing on it, or the theme
+    /// has no such layout. Made as the deck is made, before anything is undone to.
+    @discardableResult
+    public func startOnTitleSlide() -> String? {
+        guard slots.count == 1, let blank = slots.first?.state,
+            (try? session.boxes(state: blank))?.isEmpty == true,
+            let started = try? session.starting(after: blank, layout: "title"),
+            (try? make(started.patch + [["op": "remove_state", "id": .string(blank)]])) != nil
+        else { return nil }
+        return started.id
+    }
+
     /// Make `ops`, text typed in place on the canvas (PLAN 3.9), as the user at `date`:
     /// `replace_text`, `style_text`, or `list` ops, validated as a patch is but not linted, as the
     /// browser's typing is: the findings shown stay until edits stop and `lintEvery` runs. The
