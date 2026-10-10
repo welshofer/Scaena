@@ -163,6 +163,15 @@ enum Words {
         return "Slide"
     }
 
+    /// A theme file as a person names its theme: `themes/dusk.theme.json` as `Dusk`.
+    static func theme(_ file: String) -> String {
+        var name = (file as NSString).lastPathComponent
+        for suffix in [".json", ".theme"] where name.hasSuffix(suffix) {
+            name.removeLast(suffix.count)
+        }
+        return phrase(name)
+    }
+
     /// Milliseconds said in seconds: `5.5 s`, `0.18 s`.
     static func seconds(_ ms: Double) -> String {
         "\(number(ms / 1000)) s"

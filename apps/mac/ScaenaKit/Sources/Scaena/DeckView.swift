@@ -78,6 +78,8 @@ struct DeckView: View {
     @SceneStorage("grid") private var showsGrid = false
     /// Whether Add Slide's gallery of layouts is open (PLAN 3.30).
     @State private var choosingSlide = false
+    /// Whether Choose Picture… asks for a file.
+    @State private var choosingPicture = false
     /// Whether the state shown is drawn in each of the deck's formats under the canvas (PLAN 3.16).
     @SceneStorage("formats") private var showsFormats = false
     /// How close the canvas is shown, and the part of it shown (PLAN 3.16).
@@ -116,6 +118,30 @@ struct DeckView: View {
         #else
         .toolbar { toolbar }
         #endif
+        // A picture, or a sheet's data, chosen from a file lands as it lands dropped: where the
+        // pointer last pressed, or in the middle of the slide.
+        .fileImporter(
+            isPresented: $choosingPicture, allowedContentTypes: [.image, .commaSeparatedText, .json]
+        ) { result in
+            switch result {
+            case .success(let url): choose(url)
+            case .failure(let error): failure = error.localizedDescription
+            }
+        }
+    }
+
+    /// The file at `url`, chosen, landed on the slide shown as a drop lands it.
+    private func choose(_ url: URL) {
+        guard let shown else { return }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard let data = try? Data(contentsOf: url) else {
+            failure = "\(url.lastPathComponent) could not be read"
+            return
+        }
+        let size = (try? editor.session.canvasSize()) ?? CGSize(width: 1920, height: 1080)
+        let at = pointed ?? CGPoint(x: size.width / 2, y: size.height / 2)
+        land(data, named: url.lastPathComponent, in: shown, at: at)
     }
 
     /// The canvas and the panes beside it, and the inspector. On the Mac the inspector is a column
@@ -307,10 +333,12 @@ struct DeckView: View {
             InsertMenu(title: "Text", symbol: "textbox", kinds: ["Text"], first: "body", inserts: inserts, insert: insertHere)
         case .shape:
             InsertMenu(
-                title: "Shape", symbol: "square.on.circle", kinds: ["Shape", "Shader"], first: "rect", inserts: inserts,
+                title: "Shape", symbol: "square.on.circle", kinds: ["Shape", "Shader"], first: nil, inserts: inserts,
                 insert: insertHere)
         case .image:
-            InsertMenu(title: "Image", symbol: "photo", kinds: ["Image"], first: nil, inserts: inserts, insert: insertHere)
+            InsertMenu(
+                title: "Image", symbol: "photo", kinds: ["Image"], first: nil, inserts: inserts, insert: insertHere,
+                choose: shown == nil ? nil : (title: "Choose Picture…", action: { choosingPicture = true }))
         case .chart:
             InsertMenu(title: "Chart", symbol: "chart.bar", kinds: ["Chart"], first: nil, inserts: inserts, insert: insertHere)
         case .table:
@@ -367,8 +395,13 @@ struct DeckView: View {
             Button("Zoom Out") { zoom.step(-1) }
                 .disabled(zoom.level <= 1 + 1e-9)
         } label: {
-            Label(zoomed, systemImage: "plus.magnifyingglass")
+            // How close, in words: a presentation app's zoom says its percentage.
+            Text(zoomed)
+                .monospacedDigit()
+                .frame(minWidth: 40)
         }
+        .accessibilityLabel("Zoom")
+        .accessibilityValue(zoomed)
         .help("How close the slide is shown (⌘=, ⌘−, ⌘0)")
         .disabled(shown == nil || showsSlides)
     }
@@ -461,6 +494,8 @@ struct DeckView: View {
     private func watched(_ view: some View) -> some View {
         view
             .onChange(of: shown, initial: true) { _, now in
+                // The slide shown is the one the list selects: the deck's first, as it opens.
+                if chosen != now { chosen = now }
                 // A state chosen plays its cue, as it does in the browser.
                 editor.shown = now
                 node = arriving
@@ -468,6 +503,12 @@ struct DeckView: View {
                 arriving = nil
                 playhead = Playhead()
                 typing?.sync(shown: now)
+            }
+            .task(id: said) {
+                // What the canvas says of an edit, a moment over the slide, then gone.
+                guard said != nil else { return }
+                try? await Task.sleep(for: .seconds(6))
+                if !Task.isCancelled { said = nil }
             }
             .onChange(of: undo, initial: true) { _, now in
                 // The assistant's edits are each one step of this window's undo.
@@ -737,6 +778,7 @@ struct DeckView: View {
             group: selection.count > 1 ? { group(in: shown) } : nil,
             ungroup: one && grouped ? { ungroup(in: shown) } : nil,
             order: some ? { how in order(how, in: shown) } : nil)
+        made.choosePicture = { choosingPicture = true }
         // In another of the deck's formats, a node given a layout of its own there (PLAN 2.85).
         if one, let node, let format = editor.format {
             made.placeAnew = { placeAnew(node, in: format, state: shown) }

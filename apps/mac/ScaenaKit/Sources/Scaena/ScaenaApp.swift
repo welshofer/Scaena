@@ -59,10 +59,13 @@ struct ScaenaApp: App {
             #endif
         }
         #if os(macOS)
-        // The assistant's keys, kept in the Keychain (PLAN 3.6); on the iPad, a sheet of the
-        // assistant's (PLAN 4.2).
+        // The assistant's keys, kept in the Keychain (PLAN 3.6), under a tab of their own, as a
+        // Mac app's settings are; on the iPad, a sheet of the assistant's (PLAN 4.2).
         Settings {
-            KeysSettings()
+            TabView {
+                KeysSettings()
+                    .tabItem { Label("Assistant", systemImage: "sparkles") }
+            }
         }
         #else
         // The remote, on the iPad: it plays a show a Mac or another iPad presents (PLAN 4.10).

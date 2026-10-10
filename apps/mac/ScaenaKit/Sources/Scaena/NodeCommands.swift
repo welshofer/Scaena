@@ -29,6 +29,8 @@ struct DeckActions {
     /// In another of the deck's formats, give the node selected a layout of its own there, where
     /// it stands (PLAN 2.85, 3.16).
     var placeAnew: (() -> Void)? = nil
+    /// Ask for a picture, or a sheet's data, from a file, to put on the slide shown.
+    var choosePicture: (() -> Void)? = nil
 }
 
 private struct DeckActionsKey: FocusedValueKey {
@@ -67,6 +69,9 @@ struct NodeCommands: Commands {
                 Button("Nothing to Insert") {}
                     .disabled(true)
             }
+            Divider()
+            Button("Choose Picture…") { deck?.choosePicture?() }
+                .disabled(deck?.choosePicture == nil)
         }
         CommandGroup(after: .pasteboard) {
             Divider()

@@ -97,20 +97,23 @@ struct WindowCommands: Commands {
     }
 }
 
-/// A kind of thing to insert, as the toolbar offers it (PLAN 3.18): a click inserts the one the
-/// kind starts with (`first`, else what the deck offers first), and its menu lists each the deck
-/// offers of its kinds, in the order it offers them, landing where the pointer last pressed on the
-/// canvas.
+/// The toolbar's button that inserts a kind of thing, as a presentation app's (PLAN 3.18): a text
+/// at a click, in the theme's body style, the others each offered in its menu, a click away; a
+/// divider between each kind it lists. No chevron widens it, so the toolbar keeps every button in
+/// view (PLAN 3.27). The Insert menu offers the same, each text style among them.
 struct InsertMenu: View {
     let title: String
     let symbol: String
     /// The kinds it lists, as `Insert.kind` names them: a divider between each.
     let kinds: [String]
-    /// The name of the one a click inserts.
+    /// The name of the one a click inserts; none where a click opens the menu.
     let first: String?
     let inserts: [Insert]
     /// Insert what the deck offers `n`th.
     let insert: (Int) -> Void
+    /// Choose a file to insert, by what the menu calls it, offered last; none where there is no
+    /// slide to put it on.
+    var choose: (title: String, action: () -> Void)? = nil
 
     /// One thing offered, by its place in what the deck offers.
     private struct Offered: Identifiable {
@@ -124,21 +127,49 @@ struct InsertMenu: View {
 
     var body: some View {
         let all = kinds.flatMap(offered)
-        Menu {
-            ForEach(kinds.indices, id: \.self) { k in
-                if k > 0, !offered(kinds[k]).isEmpty { Divider() }
-                ForEach(offered(kinds[k])) { item in
-                    Button(Words.insertion(item.insert, among: inserts)) { insert(item.id) }
-                }
+        menu(all)
+            .menuIndicator(.hidden)
+            .disabled(all.isEmpty && choose == nil)
+            .help(help(all))
+            .accessibilityIdentifier("insert-\(title)")
+    }
+
+    /// What it offers: each thing of its kinds, then Choose….
+    @ViewBuilder private func items() -> some View {
+        ForEach(kinds.indices, id: \.self) { k in
+            if k > 0, !offered(kinds[k]).isEmpty { Divider() }
+            ForEach(offered(kinds[k])) { item in
+                Button(Words.insertion(item.insert, among: inserts)) { insert(item.id) }
             }
-        } label: {
-            Label(title, systemImage: symbol)
-        } primaryAction: {
-            if let one = all.first(where: { $0.insert.name == first }) ?? all.first { insert(one.id) }
         }
-        .disabled(all.isEmpty)
-        .help(all.isEmpty ? "Nothing of this kind to insert" : "Insert \(title.lowercased()); its menu offers each kind")
-        .accessibilityIdentifier("insert-\(title)")
+        if let choose {
+            if !kinds.flatMap(offered).isEmpty { Divider() }
+            Button(choose.title, action: choose.action)
+        }
+    }
+
+    /// A menu a click opens, or, with a first, one a click inserts it from and a press holds open.
+    @ViewBuilder private func menu(_ all: [Offered]) -> some View {
+        if let first {
+            Menu {
+                items()
+            } label: {
+                Label(title, systemImage: symbol)
+            } primaryAction: {
+                if let one = all.first(where: { $0.insert.name == first }) ?? all.first { insert(one.id) }
+            }
+        } else {
+            Menu {
+                items()
+            } label: {
+                Label(title, systemImage: symbol)
+            }
+        }
+    }
+
+    private func help(_ all: [Offered]) -> String {
+        if all.isEmpty, choose == nil { return "Nothing of this kind to insert" }
+        return first == nil ? "Insert \(title.lowercased())" : "Insert \(title.lowercased()); hold for each style"
     }
 }
 

@@ -49,20 +49,24 @@ struct StateList: View {
     @ViewBuilder private func menu(_ slot: ScaenaSession.Slot) -> some View {
         let states = editor.slots.map(\.state)
         let steps = editor.slots.filter { $0.slide == slot.slide }.count
-        Button("New Slide") { add(slot.state, .slide) }
-        Button("New Step on This Slide") { add(slot.state, .step) }
+        Button("New Slide", systemImage: "plus.rectangle.on.rectangle") { add(slot.state, .slide) }
+        Button("New Step on This Slide", systemImage: "plus.square.dashed") { add(slot.state, .step) }
         Divider()
-        Button("Duplicate Slide") { make(Restaging.duplicateSlides([slot.slide]), nil) }
-        Button("Move Up") { step(slot.state, by: -1) }
+        Button("Duplicate Slide", systemImage: "plus.square.on.square") {
+            make(Restaging.duplicateSlides([slot.slide]), nil)
+        }
+        Button("Move Up", systemImage: "arrow.up") { step(slot.state, by: -1) }
             .disabled(states.first == slot.state)
-        Button("Move Down") { step(slot.state, by: 1) }
+        Button("Move Down", systemImage: "arrow.down") { step(slot.state, by: 1) }
             .disabled(states.last == slot.state)
         Divider()
         if steps > 1 {
-            Button("Delete Step", role: .destructive) { remove(slot.state) }
+            Button("Delete Step", systemImage: "minus.square", role: .destructive) { remove(slot.state) }
         }
-        Button("Delete Slide", role: .destructive) { make(Restaging.removeSlides([slot.slide]), nil) }
-            .disabled(Slide.of(editor.slots).count < 2)
+        Button("Delete Slide", systemImage: "trash", role: .destructive) {
+            make(Restaging.removeSlides([slot.slide]), nil)
+        }
+        .disabled(Slide.of(editor.slots).count < 2)
     }
 
     /// A state dragged to `to`, a place in the list as it was: just before the state there, or

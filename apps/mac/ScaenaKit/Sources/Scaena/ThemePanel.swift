@@ -26,12 +26,17 @@ struct ThemePanel: View {
     var body: some View {
         Form {
             Section("Theme") {
+                // Each theme by its name: those the deck holds, then those that come with Scaena.
                 Picker("Theme", selection: chosen) {
-                    ForEach(shipped) { ships in
-                        Text("\(ships.name.capitalized) (ships)").tag("ships:\(ships.name)")
+                    Section("In This Deck") {
+                        ForEach(themes?.files ?? [], id: \.self) { file in
+                            Text(Words.theme(file)).tag(file)
+                        }
                     }
-                    ForEach(themes?.files ?? [], id: \.self) { file in
-                        Text(file).tag(file)
+                    Section("Built In") {
+                        ForEach(shipped) { ships in
+                            Text(Words.phrase(ships.name)).tag("ships:\(ships.name)")
+                        }
                     }
                 }
                 .help("Put the deck in another theme, refused with why where it would not validate in it")
