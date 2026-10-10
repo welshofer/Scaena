@@ -155,6 +155,10 @@ pub struct Waiting {
     pub words: String,
     /// Whether words go there, typed in the slot's role; else a picture or a figure.
     pub typed: bool,
+    /// The slot's text role, where words go there: what a text put in it is set in, which an
+    /// editor inserts when the outline is pressed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
 }
 
 /// The slots of `state`'s layout, in `format`, that say what goes in them in words and that
@@ -187,7 +191,7 @@ pub fn waiting(
             continue;
         }
         let words = text.lines().next().unwrap_or_default().to_string();
-        out.push(Waiting { slot: b.name, rect: b.rect, words, typed: slot.role.is_some() });
+        out.push(Waiting { slot: b.name, rect: b.rect, words, typed: slot.role.is_some(), role: slot.role.clone() });
     }
     Ok(out)
 }
@@ -307,9 +311,13 @@ mod tests {
         let mut ops = started.patch.clone();
         ops.push(json!({ "op": "remove_node", "id": "art-left-header" }));
         let without = patched(&ops);
-        let slots: Vec<String> =
-            waiting(&without, &theme, "art-left", None).unwrap().into_iter().map(|w| w.slot).collect();
-        assert_eq!(slots, ["header", "art"], "in the order the theme writes them");
+        let slots: Vec<(String, Option<String>)> =
+            waiting(&without, &theme, "art-left", None).unwrap().into_iter().map(|w| (w.slot, w.role)).collect();
+        assert_eq!(
+            slots,
+            [("header".into(), Some("headline".into())), ("art".into(), None)],
+            "in the order the theme writes them, words in the slot's role"
+        );
         let blank = patched(&starting(&deck, &theme, "revenue", None).unwrap().patch);
         assert!(waiting(&blank, &theme, "slide", None).unwrap().is_empty());
     }

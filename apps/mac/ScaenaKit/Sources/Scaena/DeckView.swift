@@ -532,6 +532,18 @@ struct DeckView: View {
         rehearsal = Rehearsal(slots: editor.slots)
     }
 
+    /// A slot of the layout of `state` that waits, filled as a press on its words asks (PLAN 3.30):
+    /// words in its role, inserted there and typed in, their words selected; else a picture, or a
+    /// sheet's data, asked for and put there.
+    private func fill(_ slot: WaitingSlot, in state: String) {
+        pointed = CGPoint(x: slot.rect.midX, y: slot.rect.midY)
+        if let role = slot.role, let n = inserts.firstIndex(where: { $0.kind == "Text" && $0.name == role }) {
+            insert(n, in: state)
+        } else {
+            choosingPicture = true
+        }
+    }
+
     /// Insert what the deck offers `n`th in the slide shown.
     private func insertHere(_ n: Int) {
         if let shown { insert(n, in: shown) }
@@ -708,7 +720,8 @@ struct DeckView: View {
                             typing: typing, pointed: $pointed, said: $said, delete: delete, clip: clip,
                             finding: { searching = true }, actions: actions,
                             fix: { finding in perform { try document.fix(finding, undo: undo) } },
-                            dropped: { items, at in drop(items, in: shown, at: at) }
+                            dropped: { items, at in drop(items, in: shown, at: at) },
+                            fill: { slot in fill(slot, in: shown) }
                         ) { ops in
                             perform { try document.make(ops, undo: undo) }
                         }

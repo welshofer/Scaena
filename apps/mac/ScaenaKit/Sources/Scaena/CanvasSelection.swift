@@ -66,9 +66,15 @@ struct CanvasSelection: View {
     let fix: (Finding) -> Void
     /// What was dropped on the canvas, and where, canvas units (PLAN 3.22): whether it is taken.
     let dropped: ([NSItemProvider], CGPoint) -> Bool
+    /// Fill a slot of the layout that waits for what its words say (PLAN 3.30): words in its role,
+    /// typed in, or a picture asked for. A press on its words asks.
+    var fill: ((WaitingSlot) -> Void)? = nil
     /// Make the patch a drag ended in: one step to undo.
     let make: ([JSONValue]) -> Void
     @State private var boxes: [NodeBox] = []
+    /// The layout's slots with nothing in them, in the format shown, which a press on the words
+    /// in each fills (PLAN 3.30).
+    @State private var waits: [WaitingSlot] = []
     /// Where each node the state shows is placed.
     @State private var placements: [String: JSONValue] = [:]
     @State private var press: Press?
@@ -367,6 +373,11 @@ struct CanvasSelection: View {
                             .position(fit.view(mark.at))
                     }
                 }
+                // Each empty slot's words, which a press fills it from (PLAN 3.30); not while a drag,
+                // a handle, or typing goes on.
+                if drag == nil, holding == nil, !typing.typing {
+                    waitingButtons(fit)
+                }
                 // What the canvas says, at the foot of the slide, clear of a title at its head.
                 if let words = told ?? typing.told ?? said {
                     Text(words)
@@ -391,6 +402,9 @@ struct CanvasSelection: View {
             reads = (try? editor.session.reads(state: state)) ?? []
             // The text typed in, read again where something else changed it.
             typing.sync(shown: state)
+        }
+        .task(id: "\(state)\u{1f}\(editor.revision)\u{1f}\(editor.format ?? "")") {
+            waits = (try? editor.session.waiting(state: state)) ?? []
         }
         .task(id: "\(state)\u{1f}\(editor.revision)\u{1f}\(node ?? "")") {
             // The node selected's handles: a shape's outline, an image's framing (PLAN 3.16).
@@ -429,6 +443,20 @@ struct CanvasSelection: View {
             keyed = nil
         }
         .modifier(LinkQuestion(typing: typing))
+    }
+
+    /// Each empty slot's words, in the middle of it, which a press fills it from (PLAN 3.30); none
+    /// where the slot is shown too small to read them.
+    @ViewBuilder private func waitingButtons(_ fit: Fit) -> some View {
+        if let fill {
+            ForEach(waits) { slot in
+                let r = slot.rect.applying(fit.transform)
+                if r.width > 80, r.height > 24 {
+                    WaitingButton(slot: slot) { fill(slot) }
+                        .position(x: r.midX, y: r.midY)
+                }
+            }
+        }
     }
 
     /// Where a drag lands now: each box dashed, with the guides it meets.
