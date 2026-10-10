@@ -23,6 +23,9 @@ final class ThemeTests: XCTestCase {
         let says = { (size: Int) in
             any.matching(NSPredicate(format: "label MATCHES %@", "(.*[^0-9])?\(size) pt.*")).firstMatch
         }
+        // The cover's title, which Tab selects where the canvas has the keys and nothing is selected.
+        let title = any.matching(NSPredicate(format: "identifier == 'canvas'")).firstMatch
+            .descendants(matching: .any).matching(NSPredicate(format: "label == 'Scaena'")).firstMatch
 
         try XCTContext.runActivity(named: "The Document tab shows the theme") { _ in
             if !tab("Document").waitForExistence(timeout: 5) {
@@ -59,10 +62,12 @@ final class ThemeTests: XCTestCase {
 
         try XCTContext.runActivity(named: "A size typed is set on Return: ⌘Z takes it back, ⌘⇧Z makes it again") { _ in
             // Tapped as a person taps it, left of the number: the field selects its value, so what
-            // is typed takes its place. Return as the simulator's keyboard sends it: a newline.
+            // is typed takes its place. Typed key by key, as the keyboard ⌘Z is pressed on types
+            // it: after text the simulator's own keyboard typed (`typeText`), no key reached the
+            // canvas. Return as that keyboard sends it: a newline.
             size.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).tap()
             settle(1)
-            size.typeText("37\n")
+            for key in ["3", "7", "\n"] { app.typeKey(key, modifierFlags: []) }
             guard says(37).waitForExistence(timeout: 10) else {
                 keep(app, as: "size-not-set")
                 throw Unseen(description: "the body role does not say 37 pt: \(app.debugDescription)")
@@ -70,7 +75,16 @@ final class ThemeTests: XCTestCase {
             XCTAssertEqual(size.value as? String, "37")
             keep(app, as: "size-typed")
             app.typeKey("z", modifierFlags: .command)
-            XCTAssertTrue(says(32).waitForExistence(timeout: 10), "⌘Z did not take the size back")
+            guard says(32).waitForExistence(timeout: 10) else {
+                keep(app, as: "size-not-undone")
+                // Whether any key reaches the canvas now: with nothing selected, Tab selects the
+                // cover's title.
+                app.typeKey(XCUIKeyboardKey.tab, modifierFlags: [])
+                let tab =
+                    wait(5) { title.isSelected }
+                    ? "selected the title: the canvas has the keys" : "selected nothing: no key reached the canvas"
+                throw Unseen(description: "⌘Z did not take the size back; Tab \(tab): \(app.debugDescription)")
+            }
             XCTAssertTrue(wait(5) { size.value as? String == "32" }, "the field shows \(size.value ?? "nothing"), not 32")
             keep(app, as: "size-undone")
             app.typeKey("z", modifierFlags: [.command, .shift])

@@ -991,7 +991,9 @@ public final class CanvasPresses: UIView {
             return
         }
         let became = becomeFirstResponder()
-        keysLog.debug("take back: \(became)")
+        // And what the focus system has focused then, if anything, beside it.
+        let focused = UIFocusSystem.focusSystem(for: self)?.focusedItem.map { String(describing: type(of: $0)) }
+        keysLog.debug("take back: \(became); focused: \(focused ?? "nothing", privacy: .public)")
     }
 
     /// Whether a sheet, a popover, or an alert shows over the canvas.
