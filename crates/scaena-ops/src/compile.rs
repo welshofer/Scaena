@@ -6,6 +6,7 @@ use scaena_core::dsl::{self, DslError, SourceMap};
 use scaena_core::validate::BundleFiles;
 use scaena_core::{Deck, Finding, Severity};
 use serde_json::Value;
+use std::collections::BTreeMap;
 
 /// A source compiled: the deck it says, where each part of it came from, and what
 /// `validate` finds in it.
@@ -22,10 +23,44 @@ pub struct Compiled {
 /// `source` compiled and validated in the bundle whose files are `files`. A source that
 /// does not parse is a [`DslError`], placed in it.
 pub fn compile(source: &str, files: &dyn BundleFiles) -> Result<Compiled, DslError> {
-    let (json, map) = dsl::compile_json(source)?;
+    compile_renamed(source, files, &BTreeMap::new())
+}
+
+/// `source` compiled and validated as [`compile`] does, each file it names by a name a save
+/// gave up (`renamed`: that name, and the one the file has now) named as it is now: a source
+/// from before the save, which an undo makes the deck again, opens in the bundle the save
+/// wrote (PLAN 1.4).
+pub fn compile_renamed(
+    source: &str,
+    files: &dyn BundleFiles,
+    renamed: &BTreeMap<String, String>,
+) -> Result<Compiled, DslError> {
+    let (mut json, map) = dsl::compile_json(source)?;
+    rename_files(&mut json, renamed);
     let text = serde_json::to_string(&json).expect("a compiled deck is JSON");
     let findings = scaena_core::validate::validate_bundle(&text, files).expect("a compiled deck parses");
     Ok(Compiled { json, map, findings })
+}
+
+/// Each file `json`, a deck or a theme, names by a name `renamed` maps, named by the name it
+/// maps to, wherever a save names a file anew: a font's `file`, an image's `src`, and a beat's
+/// `evidence`.
+pub fn rename_files(json: &mut Value, renamed: &BTreeMap<String, String>) {
+    fn walk(value: &mut Value, key: Option<&str>, renamed: &BTreeMap<String, String>) {
+        match value {
+            Value::String(name) if matches!(key, Some("file" | "src" | "evidence")) => {
+                if let Some(now) = renamed.get(name.as_str()) {
+                    now.clone_into(name);
+                }
+            }
+            Value::Array(items) => items.iter_mut().for_each(|item| walk(item, key, renamed)),
+            Value::Object(fields) => fields.iter_mut().for_each(|(key, field)| walk(field, Some(key), renamed)),
+            _ => {}
+        }
+    }
+    if !renamed.is_empty() {
+        walk(json, None, renamed);
+    }
 }
 
 impl Compiled {

@@ -12,7 +12,7 @@ use scaena_core::model::Format;
 use scaena_core::validate::BundleFiles;
 use scaena_core::{Deck, Finding, Severity, resolve_states};
 use scaena_engine::FrameRequest;
-use scaena_ops::compile::{Compiled, compile, line_col};
+use scaena_ops::compile::{Compiled, compile_renamed, line_col};
 use scaena_ops::inspect::{Inspected, Views, inspect_deck};
 use scaena_ops::lint::{layout_rules, lint_with};
 use serde::Serialize;
@@ -178,7 +178,7 @@ impl Session {
     /// Compile `source` and validate it against the files handed over. A deck that
     /// validates becomes the session's: timelines and frames show it from now on.
     pub fn compile(&mut self, source: &str) -> Compiling {
-        let compiled = match compile(source, &Handed(&self.files)) {
+        let compiled = match compile_renamed(source, &Handed(&self.files), &self.renamed) {
             Ok(compiled) => compiled,
             Err(e) => {
                 let finding = Finding::new("E106", Severity::Error, e.message.clone());

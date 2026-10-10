@@ -277,7 +277,9 @@ impl Session {
     /// Go on from `saved`: its files are the bundle's from now on, and its deck, which names
     /// files by their content, is shown. What a page does once it has written a save where
     /// it keeps the bundle. The editor's source is the saved deck's from now on: a page
-    /// takes [`Session::source`] again.
+    /// takes [`Session::source`] again. A source from before the save, which an undo makes the
+    /// deck again, names files by the names the save gave up: compiled, it names each as the
+    /// save named it.
     pub fn adopt(&mut self, saved: &Saving) -> Result<(), Error> {
         // The theme names the fonts by their new names too.
         let mut next = Session::open(saved.files.clone())?;
@@ -290,6 +292,17 @@ impl Session {
         // goes on undoing what it did.
         next.done = std::mem::take(&mut self.done);
         next.undone = std::mem::take(&mut self.undone);
+        // A source from before this save, or one before it, names files by the names they gave
+        // up: the editor's undo makes it the deck again, naming each as it is now.
+        let now = scaena_core::sort::map(saved.saved.renamed.iter().cloned());
+        let mut renamed = std::mem::take(&mut self.renamed);
+        for name in renamed.values_mut() {
+            if let Some(newer) = now.get(name.as_str()) {
+                newer.clone_into(name);
+            }
+        }
+        renamed.extend(now);
+        next.renamed = renamed;
         *self = next;
         Ok(())
     }
@@ -551,6 +564,45 @@ pub(crate) mod tests {
         assert!(s.source().contains("Revenue more than doubled") && !s.source().contains("Inter-VF.ttf"));
         assert_eq!(drawn(&mut s, &saved.saved.renamed), before, "a save changes no frame");
         assert!(s.lint(None).is_ok());
+    }
+
+    /// A save the Mac goes on from subsets the fonts and names them by their content, and the
+    /// source from before it, which an undo makes the deck again, still opens: compiled, it
+    /// names each font as the save named it, and draws as it did. So does a theme from before
+    /// the save, written back as an undo writes it, and a source from before two saves.
+    #[test]
+    fn a_source_from_before_a_save_the_session_went_on_from_still_opens() {
+        let mut s = Session::open(files("../../tests/bench/b1.scaena")).unwrap();
+        let before = s.source();
+        assert!(s.compile(&before).valid);
+        let drew = drawn(&mut s, &[]);
+        let theme = String::from_utf8(s.file("theme.json").unwrap().to_vec()).unwrap();
+        subset_all(&mut s);
+        let saved = s.save(NOW, true, None).unwrap();
+        let renamed = saved.saved.renamed.clone();
+        assert!(renamed.iter().any(|(old, _)| old == "fonts/Fraunces-VF.ttf"), "{renamed:?}");
+        s.adopt(&saved).unwrap();
+        let after = s.source();
+        assert!(!after.contains("-VF.ttf"), "the deck names its fonts by their content: {after}");
+
+        // Undone: the deck is the source's again, its fonts named as the save named them.
+        let undone = s.compile(&before);
+        assert!(undone.valid && undone.error.is_none(), "{:?}", undone.findings);
+        assert_eq!(s.source(), after);
+        assert_eq!(drawn(&mut s, &renamed), drew, "drawn as it was");
+        // A theme from before the save, written back, names its fonts as they are now.
+        s.write_files(vec![crate::versions::Written { path: "theme.json".into(), text: Some(theme) }]);
+        let written = String::from_utf8(s.file("theme.json").unwrap().to_vec()).unwrap();
+        assert!(!written.contains("-VF.ttf") && written.contains("fonts/Fraunces-"), "{written}");
+        assert!(s.compile(&before).valid, "the theme written back opens with the deck");
+        // Saved again, the fonts keep the names the first save gave them, and the source from
+        // before both saves still opens.
+        subset_all(&mut s);
+        let again = s.save(NOW, true, None).unwrap();
+        assert!(again.saved.renamed.is_empty(), "{:?}", again.saved.renamed);
+        s.adopt(&again).unwrap();
+        assert!(s.compile(&before).valid);
+        assert_eq!(s.source(), after);
     }
 
     #[test]

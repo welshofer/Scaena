@@ -165,6 +165,11 @@ pub struct Session {
     /// `scaena save --history` begins one.
     #[cfg(feature = "editor")]
     begins: bool,
+    /// The names of files that saves the session went on from gave up (PLAN 1.4), each with the
+    /// name its file has now: a source from before a save names them, and when an undo makes it
+    /// the deck again, it is compiled naming each file as it is now.
+    #[cfg(feature = "editor")]
+    renamed: BTreeMap<String, String>,
     /// A version from the bundle's history, shown read-only (PLAN 2.60): a session of its own.
     #[cfg(feature = "editor")]
     viewing: Option<Box<Session>>,
@@ -302,6 +307,8 @@ impl Session {
             removed: Default::default(),
             #[cfg(feature = "editor")]
             begins: false,
+            #[cfg(feature = "editor")]
+            renamed: BTreeMap::new(),
             #[cfg(feature = "editor")]
             viewing: None,
         })
