@@ -852,6 +852,7 @@ async function edit(source: Source) {
     },
     apply: made,
     say,
+    started: (state) => board.freshen(state),
   });
   /** The light table (PLAN 2.97): every slide in a grid, in place of the preview, to move, copy,
    * and take out across the deck. */

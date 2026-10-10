@@ -39,6 +39,9 @@ export interface StripEditor {
   /** Take `source`, a patch's, as one change: one step to undo. */
   apply(source: string, edited: Edited): void;
   say(text: string): void;
+  /** A slide made here, from the gallery or after the slide shown: the canvas outlines its
+   * layout's empty slots (PLAN 3.30). */
+  started?(state: string): void;
 }
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -190,6 +193,7 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
       .addingState(editor.source(), shown.state, what)
       .then((added) => {
         const after = (added.patch[0] as { after?: string }).after;
+        if (what === "slide") editor.started?.(added.id);
         const said = `${added.id} added after ${what === "step" ? shown.state : `${shown.state}'s slide`}`;
         return make(added.patch, `adding a ${what}…`, said, (all) => all.findIndex((s) => s.state === after) + 1);
       })
@@ -247,6 +251,7 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
       .starting(editor.source(), shown.state, layout)
       .then((added) => {
         const after = (added.patch[0] as { after?: string }).after;
+        editor.started?.(added.id);
         return make(added.patch, "adding a slide…", `${added.id} added after ${shown.state}'s slide`, (all) => all.findIndex((s) => s.state === after) + 1);
       })
       .catch((e) => editor.say(`not added: ${said(e)}`));
