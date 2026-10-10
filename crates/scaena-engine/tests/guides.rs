@@ -54,6 +54,12 @@ fn guides_draw_the_grid_each_format_lays_out() {
     assert_eq!(tall.baselines.len(), 217);
     assert!(near(*tall.baselines.last().unwrap(), 1824.0));
 
+    // The safe area (PLAN 3.29): 3/8 inch, 54 cu, in from each edge of the canvas the format
+    // lays out, whatever its grid.
+    assert_eq!(wide.safe, [54.0, 54.0, 1812.0, 972.0]);
+    assert_eq!(tall.safe, [54.0, 54.0, 972.0, 1812.0]);
+    assert_eq!(guides::safe([100.0, 60.0]), [50.0, 30.0, 0.0, 0.0], "a canvas too small keeps none");
+
     // A format the deck does not list is an error that says so.
     let err = guides::grid(&deck, &theme, Some("1:1")).unwrap_err().to_string();
     assert!(err.contains("not one of the deck's formats"), "{err}");

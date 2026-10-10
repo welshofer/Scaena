@@ -198,6 +198,12 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   events 'key code 53'
   sleep 1
 
+  # The safe area (PLAN 3.29): View › Show Safe Area shades a strip 3/8 inch in from each edge of
+  # the slide, a guide that holds nothing off it; the item then reads Hide and takes it away.
+  toggle "Safe Area"
+  shot safe-area
+  toggle "Safe Area"
+
   # The Document tab's Theme (PLAN 3.28): each value a field that reads as one. A color typed in
   # the paper's field is set on Return, and the Edit menu names the step; ⌘Z takes it back and
   # ⌘⇧Z makes it again, the slide drawn in each; then ⌘Z leaves the deck as it was.

@@ -4,6 +4,8 @@
 //
 //   node web/guides.mjs     (after `just web`; from the repository's root)
 //
+// - The safe area is drawn over the canvas on request (PLAN 3.29): ⌥⌘' (Ctrl+Alt+') or the Safe area
+//   button, a strip 3/8 inch, 54 cu, deep around the canvas's edge, its inner edge dashed.
 // - The theme's grid is drawn over the canvas on request: ⌘' (Ctrl+'), the Grid button, and the
 //   command each draw it or take it away. Drawn, it is the engine's: each column and row, the
 //   margin around them, and every line of the baseline grid. In another format, that format's.
@@ -91,6 +93,24 @@ try {
 
   await into("containers");
   const original = await source();
+
+  // The safe area (PLAN 3.29): off until asked for; ⌥⌘' (Ctrl+Alt+') draws a strip 3/8 inch, 54 cu,
+  // deep around the canvas's edge, and the button takes it away.
+  const shielded = () => page.evaluate(() => document.querySelector("#safe").getAttribute("aria-pressed"));
+  check((await drawn("safe-strip")) === 0 && (await shielded()) === "false", "the safe area is not drawn until asked for");
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Control+Alt+Quote");
+  await page.waitForFunction(() => document.querySelectorAll("#overlay .safe-strip").length > 0, null, { timeout: 30000 }).catch(() => {});
+  const safe = await page.evaluate(() => window.scaena.canvas.safe());
+  check(
+    JSON.stringify(safe) === "[54,54,1812,972]" && (await drawn("safe-strip")) === 1 && (await drawn("safe-edge")) === 1,
+    `⌥⌘' draws the safe area, 54 cu in from each edge: ${JSON.stringify(safe)}`,
+  );
+  check((await shielded()) === "true" && (await status()).includes("the safe area"), `the button and the status say so: ${await status()}`);
+  check((await drawn("grid-track")) === 0, "the safe area draws no grid");
+  await page.locator("#safe").click();
+  await page.waitForFunction(() => !document.querySelector("#overlay .safe-strip"), null, { timeout: 10000 }).catch(() => {});
+  check((await drawn("safe-strip")) === 0 && (await shielded()) === "false", "the Safe area button takes it away");
 
   // The grid: off until asked for.
   check((await drawn("grid-track")) === 0 && (await pressed()) === "false", "the grid is not drawn until asked for");

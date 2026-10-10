@@ -76,6 +76,8 @@ struct DeckView: View {
     @SceneStorage("timeline") private var showsTimeline = false
     /// Whether the theme's grid is drawn over the canvas (PLAN 3.16).
     @SceneStorage("grid") private var showsGrid = false
+    /// Whether the safe area's strip is drawn around the slide's edge (PLAN 3.29).
+    @SceneStorage("safeArea") private var showsSafeArea = false
     /// Whether the state shown is drawn in each of the deck's formats under the canvas (PLAN 3.16).
     @SceneStorage("formats") private var showsFormats = false
     /// How close the canvas is shown, and the part of it shown (PLAN 3.16).
@@ -333,7 +335,8 @@ struct DeckView: View {
     }
 
     /// What the window shows: the slide, or every slide on the light table; and, off until asked
-    /// for, the slide's timeline, its other sizes, the grid, what lint found, and the source.
+    /// for, the slide's timeline, its other sizes, the grid, the safe area, what lint found, and
+    /// the source.
     private var viewing: some View {
         Menu {
             Toggle("Light Table", isOn: $showsSlides)
@@ -342,6 +345,7 @@ struct DeckView: View {
             Toggle("Timeline", isOn: $showsTimeline)
             Toggle("Other Sizes", isOn: $showsFormats)
             Toggle("Grid", isOn: $showsGrid)
+            Toggle("Safe Area", isOn: $showsSafeArea)
             Divider()
             Toggle("Issues", isOn: $showsFindings)
             Toggle("Source", isOn: $showsSource)
@@ -426,7 +430,8 @@ struct DeckView: View {
     private var panes: WindowPanes {
         WindowPanes(
             slides: $showsSlides, timeline: $showsTimeline, formats: $showsFormats, grid: $showsGrid,
-            issues: $showsFindings, source: $showsSource, assistant: $showsAssistant, inspector: $showsInspector,
+            safeArea: $showsSafeArea, issues: $showsFindings, source: $showsSource, assistant: $showsAssistant,
+            inspector: $showsInspector,
             tab: $tab,
             play: editor.slots.isEmpty ? nil : { Presenting.play(editor, from: shown) },
             rehearse: editor.slots.isEmpty || rehearsal != nil || !editor.valid ? nil : { rehearse() },
@@ -554,6 +559,9 @@ struct DeckView: View {
                 )
                 .overlay {
                     if showsGrid { GridOverlay(editor: editor, shown: zoom.view) }
+                }
+                .overlay {
+                    if showsSafeArea { SafeAreaOverlay(editor: editor, shown: zoom.view) }
                 }
                 .overlay {
                     if let typing {

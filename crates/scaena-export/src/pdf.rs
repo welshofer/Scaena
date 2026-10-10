@@ -59,8 +59,9 @@ use std::num::NonZeroU16;
 use std::ops::Range;
 use std::sync::Arc;
 
-/// Points to a canvas unit: a page is its canvas at 2 units to the point.
-pub const POINTS_PER_UNIT: f32 = 0.5;
+/// Points to a canvas unit: a page is its canvas at 2 units to the point, the engine's 144 to the
+/// inch, which the safe area is measured in (PLAN 3.29).
+pub const POINTS_PER_UNIT: f32 = 72.0 / scaena_engine::guides::UNITS_PER_INCH;
 
 /// A page: the state it draws, and its frame.
 #[derive(Debug, Clone)]

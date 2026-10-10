@@ -553,6 +553,7 @@ async function edit(source: Source) {
       $("#zoom output").textContent = `${Math.round(zoom * 100)}%`;
     },
     ruled: (on) => $("#grid").setAttribute("aria-pressed", String(on)),
+    safe: (on) => $("#safe").setAttribute("aria-pressed", String(on)),
     themeEdit: async (ops, what) => {
       const r = await themeEdit(ops, what);
       return Boolean(r && !r.refused);
@@ -805,6 +806,7 @@ async function edit(source: Source) {
   };
   // The theme's grid over the canvas (PLAN 2.57), as ⌘' draws it.
   $("#grid").onclick = () => void board.rule();
+  $("#safe").onclick = () => void board.shield();
   $("#layout-edit").onclick = () => void board.layoutMode();
   /** The cue of the state shown (PLAN 2.44): a bar for its transition and each motion, which a
    * drag or a key times, each a patch; a press on its ruler shows the cue at that time. */
@@ -1605,6 +1607,13 @@ async function edit(source: Source) {
       { label: "Zoom out", keys: `${MOD}−`, group: "See", where: ["canvas"], applies: () => board.zoomed() > 1, run: () => board.zoom("out") },
       { label: "Zoom to fit", keys: `${MOD}0`, group: "See", where: ["canvas"], applies: () => board.zoomed() > 1, run: () => board.zoom("fit") },
       { label: board.ruled() ? "Hide the grid" : "Show the grid", keys: `${MOD}'`, group: "See", where: ["canvas"], run: () => board.rule() },
+      {
+        label: board.shielded() ? "Hide the safe area" : "Show the safe area",
+        keys: `${MOD_ALT}'`,
+        group: "See",
+        where: ["canvas"],
+        run: () => board.shield(),
+      },
     ];
   }
 
