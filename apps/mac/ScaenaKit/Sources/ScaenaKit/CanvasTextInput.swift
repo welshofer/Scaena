@@ -903,6 +903,15 @@ public final class CanvasPresses: UIView {
                     keysLog.debug("\(which, privacy: .public) \(what, privacy: .public)")
                 })
         }
+        // A field elsewhere in the window that stops taking the keys, as Return in the inspector's
+        // does, gives them back to the canvas where nothing else has them: on the iPad nothing
+        // holds the keyboard after it, and ⌘Z and the canvas's keys would go nowhere (PLAN 3.28).
+        for ended in [UITextField.textDidEndEditingNotification, UITextView.textDidEndEditingNotification] {
+            watching.append(
+                center.addObserver(forName: ended, object: nil, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.takeBackSoon() }
+                })
+        }
         // Each key as the keyboard itself reports it, below UIKit's presses and key commands: what
         // reached the app at all; from a keyboard here now, or one that connects.
         Self.hearKeyboard()
@@ -959,6 +968,13 @@ public final class CanvasPresses: UIView {
         return resigned
     }
 
+    /// The keyboard taken back once the event that let it go has run (`takeBack`): a field
+    /// elsewhere stopped taking it.
+    private func takeBackSoon() {
+        keysLog.debug("a field stopped taking the keys")
+        Task { @MainActor [weak self] in self?.takeBack() }
+    }
+
     /// The keyboard taken back, once what took it has run, where nothing else has it.
     private func takeBack() {
         let (hasWindow, key, first, over) = (window != nil, window?.isKeyWindow == true, isFirstResponder, covered)
@@ -975,7 +991,9 @@ public final class CanvasPresses: UIView {
             return
         }
         let became = becomeFirstResponder()
-        keysLog.debug("take back: \(became)")
+        // And what the focus system has focused then, if anything, beside it.
+        let focused = UIFocusSystem.focusSystem(for: self)?.focusedItem.map { String(describing: type(of: $0)) }
+        keysLog.debug("take back: \(became); focused: \(focused ?? "nothing", privacy: .public)")
     }
 
     /// Whether a sheet, a popover, or an alert shows over the canvas.

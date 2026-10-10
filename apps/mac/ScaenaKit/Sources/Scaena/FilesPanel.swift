@@ -48,7 +48,7 @@ struct FilesPanel: View {
     }
 
     private func remove(_ path: String) {
-        edits.data { try editor.session.removeFile(path) }
+        edits.data("Remove File") { try editor.session.removeFile(path) }
     }
 
     /// What a file is: its size, and how much of the deck uses it (PLAN 3.18).

@@ -109,12 +109,12 @@ struct DataPanel: View {
         }
         problem = nil
         if file == nil {
-            edits.beside {
+            edits.beside("Data Change") {
                 try made()
                 return []
             }
         } else {
-            edits.data(made)
+            edits.data("Data Change", made)
         }
     }
 }
