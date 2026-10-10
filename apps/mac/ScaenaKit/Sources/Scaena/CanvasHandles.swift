@@ -306,28 +306,38 @@ struct WaitingOverlay: View {
 /// words selected, or a picture asked for and put there.
 struct WaitingButton: View {
     let slot: WaitingSlot
-    /// How wide the slot is drawn, points: the words wrap to a second line within it, rather than
-    /// being cut off where a slot is narrow.
+    /// How wide the slot is drawn, points: the words wrap to a second line within it, and a slot
+    /// too narrow for them shows the icon alone, its words in its help.
     let width: CGFloat
     let fill: () -> Void
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+        let icon = slot.typed ? "text.cursor" : "photo.badge.plus"
         Button(action: fill) {
-            Label(slot.words, systemImage: slot.typed ? "text.cursor" : "photo.badge.plus")
-                .font(.caption)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(.thinMaterial, in: shape)
-                .foregroundStyle(.secondary)
-                .contentShape(shape)
-                .frame(maxWidth: max(width - 16, 64))
-                .fixedSize(horizontal: false, vertical: true)
+            if width < 150 {
+                Image(systemName: icon)
+                    .font(.body)
+                    .padding(7)
+                    .background(.thinMaterial, in: Circle())
+                    .foregroundStyle(.secondary)
+                    .contentShape(Circle())
+            } else {
+                let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+                Label(slot.words, systemImage: icon)
+                    .font(.caption)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.thinMaterial, in: shape)
+                    .foregroundStyle(.secondary)
+                    .contentShape(shape)
+                    .frame(maxWidth: width - 16)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .buttonStyle(.plain)
-        .help(slot.typed ? "Type here" : "Choose a picture to put here")
+        .help(slot.typed ? "Type here: \(slot.words)" : "\(slot.words): choose a picture to put here")
         .accessibilityLabel(slot.words)
         .accessibilityHint(slot.typed ? "Puts words here to type over" : "Chooses a picture to put here")
         .accessibilityIdentifier("waiting-\(slot.slot)")
