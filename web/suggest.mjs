@@ -181,22 +181,27 @@ try {
   await page.waitForFunction((s) => window.scaena.source() === s, original, { timeout: 30000 }).catch(() => {});
   check((await source()) === original, "and one undo takes it back");
 
-  // Nothing drawn to choose between: `stat` alone holds hours' number, claim, and detail, and
-  // change's cards stand on the grid, in no slot.
-  for (const [state, why] of [
-    ["hours", "one layout alone holds it"],
-    ["change", "it places no node in a slot"],
+  // Nothing drawn to choose between: `stat` alone holds hours' number, claim, and detail, so its
+  // layout field offers that one alone, and change's cards stand on the grid, in no slot.
+  for (const [state, why, offers] of [
+    ["hours", "one layout alone holds it", (n) => n === 1],
+    ["change", "it places no node in a slot", (n) => n > 1],
   ]) {
     await showState(state);
+    // Judged, where the inspector offers layouts to choose between: their section is there.
     await page
-      .waitForFunction((s) => (window.scaena.look.suggested()?.length ?? 2) < 2 && window.scaena.look.offered()?.state === s, state, { timeout: 60000 })
+      .waitForFunction(
+        (s) => window.scaena.look.offered()?.state === s && (!document.querySelector("#look .layouts") || window.scaena.look.suggested() !== undefined),
+        state,
+        { timeout: 60000 },
+      )
       .catch(() => {});
     const none = await page.evaluate(() => ({
-      count: window.scaena.look.suggested()?.length,
+      count: window.scaena.look.suggested()?.length ?? 0,
       hidden: document.querySelector("#look .layouts")?.hidden ?? true,
       offered: [...document.querySelectorAll("#look-layout option")].length - 1,
     }));
-    check(none.hidden && none.count < 2 && none.offered > 1, `${state}: nothing drawn, as ${why} (${none.count} suggested, ${none.offered} in its layout field)`);
+    check(none.hidden && none.count < 2 && offers(none.offered), `${state}: nothing drawn, as ${why} (${none.count} suggested, ${none.offered} in its layout field)`);
   }
   check(await page.evaluate(() => window.scaena.last().valid), "the source still compiles and validates");
 } finally {
