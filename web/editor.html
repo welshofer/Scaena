@@ -187,6 +187,11 @@
       #cue .end { position: absolute; top: 0; bottom: 0; width: 7px; margin-left: -4px; cursor: ew-resize; touch-action: none; border-radius: 2px; }
       #cue .end::after { content: ""; position: absolute; top: 3px; bottom: 3px; left: 3px; width: 2px; background: var(--ink); opacity: 0.6; }
       #cue .bar:focus-visible, #cue .end:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+      #cue .label[data-node] { cursor: pointer; }
+      #cue .label.chosen { color: var(--ink); font-weight: 600; }
+      #cue .track.chosen { background: rgb(255 255 255 / 0.08); }
+      #cue .track.chosen .bar { opacity: 1; box-shadow: 0 0 0 1px var(--ink); }
+      #cue .lanes.choosing .track:not(.chosen) .bar:not(.transition) { opacity: 0.35; }
       #cue .head { grid-column: 2; position: relative; pointer-events: none; }
       #cue .head i { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--error); }
       /* The state strip (PLAN 2.35): each state at rest, small, with its cue's length. */

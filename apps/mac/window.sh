@@ -276,6 +276,42 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   echo "⌘Z, the canvas shows: $(reads "$before" same)"
   shot slide-menu-undone
 
+  # The cue and the canvas select together (PLAN 3.14): Funding's title, chart, and words each
+  # enter in turn. With the timeline shown, a click on the chart's lane selects the chart, and its
+  # lane stands out while the others step back; a click in the middle of the slide selects what
+  # draws there, and its lanes stand out. Funding is ten slides down from the cover.
+  toggle Timeline
+  read -r lx ly lw lh <<<"$(frames find state-cover)" || true
+  if [[ "${lh:-}" =~ ^[0-9]+$ ]]; then
+    pointer click $((lx + lw / 2)) $((ly + lh / 2))
+    sleep 1
+    for _ in $(seq 1 10); do
+      events 'key code 125'
+      sleep 0.5
+    done
+    sleep 2
+    echo "ten slides down, the canvas shows: $(frames value canvas)"
+    read -r gx gy gw gh <<<"$(frames find 'cue-funding-chart enter')" || true
+    if [[ "${gh:-}" =~ ^[0-9]+$ ]]; then
+      echo "the chart's lane: $gx $gy $gw $gh"
+      # Its far end, past where its bar comes to rest: the lane, not the bar.
+      pointer click $((gx + gw - 6)) $((gy + gh / 2))
+      sleep 2
+      shot cue-lane
+      read -r sx sy sw sh <<<"$(frames find canvas)" || true
+      pointer click $((sx + sw / 2)) $((sy + sh / 2))
+      sleep 2
+      shot cue-canvas
+      events 'key code 53'
+      sleep 1
+    else
+      echo "no lane for the chart: $gx $gy $gw $gh"
+    fi
+  else
+    echo "no cover in the slides: $lx $ly $lw $lh"
+  fi
+  toggle Timeline
+
   # The Document tab's Theme (PLAN 3.28): each value a field that reads as one. A color typed in
   # the paper's field is set on Return, and the Edit menu names the step; ⌘Z takes it back and
   # ⌘⇧Z makes it again, the slide drawn in each; then ⌘Z leaves the deck as it was.

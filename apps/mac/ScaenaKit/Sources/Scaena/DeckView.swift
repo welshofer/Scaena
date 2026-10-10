@@ -250,7 +250,7 @@ struct DeckView: View {
                 if showsTimeline, let shown {
                     Divider()
                     CueBar(
-                        editor: editor, state: shown, node: node, playhead: $playhead, make: timing
+                        editor: editor, state: shown, selection: selection, playhead: $playhead, make: timing
                     ) { picked in
                         node = picked
                         also = []

@@ -12,6 +12,8 @@ extension Cue {
         /// The motion's node and kind; none for the transition.
         public let node: String?
         public let motion: String?
+        /// What it moves one at a time: lines, words, glyphs, children, or marks.
+        public let split: String?
         public let units: Int
         /// When it starts to change and when it rests, ms into the cue.
         public let from: Double
@@ -76,13 +78,28 @@ extension Cue {
             let anim = max(0, to - from - Double(m.units - 1) * m.stagger)
             return Bar(
                 id: n == 1 ? name : "\(name) \(n)", label: "\(m.node) · \(m.motion)\(split)\(units)", node: m.node,
-                motion: m.motion, units: m.units, from: from, to: to, delay: m.delay,
+                motion: m.motion, split: m.split, units: m.units, from: from, to: to, delay: m.delay,
                 duration: m.motion == "anim" ? anim : m.duration, sprung: m.sprung)
         }
         let into = Bar(
-            id: "transition", label: "transition", node: nil, motion: nil, units: 1, from: 0, to: transition.duration,
-            delay: 0, duration: transition.duration, sprung: transition.sprung)
+            id: "transition", label: "transition", node: nil, motion: nil, split: nil, units: 1, from: 0,
+            to: transition.duration, delay: 0, duration: transition.duration, sprung: transition.sprung)
         return [into] + each
+    }
+
+    /// The bars that stand out while the canvas selects `nodes`, as the browser's cue marks them:
+    /// their motions', and those of what they hold, by `boxes`' parents. By id.
+    public func chosen(_ nodes: [String], boxes: [NodeBox]) -> Set<String> {
+        var held = Set(nodes)
+        var more = true
+        while more {
+            more = false
+            for box in boxes where !held.contains(box.node) && box.parent.map(held.contains) == true {
+                held.insert(box.node)
+                more = true
+            }
+        }
+        return Set(bars.filter { $0.node.map(held.contains) == true }.map(\.id))
     }
 }
 
