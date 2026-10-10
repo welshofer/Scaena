@@ -510,12 +510,14 @@ impl Player {
 
     /// The theme's grid in the format shown, as the editor's guides draw it (PLAN 2.57), as
     /// JSON: `{ "canvas": [w, h], "columns": [[start, end]], "rows": [[start, end]],
-    /// "baselines": [y] }`, canvas units: the gutters between the tracks, the margins around
-    /// them, and a line every pitch of the baseline grid from the top margin.
+    /// "baselines": [y], "safe": [x, y, w, h] }`, canvas units: the gutters between the tracks,
+    /// the margins around them, a line every pitch of the baseline grid from the top margin, and
+    /// what lies inside the safe area's strip (PLAN 3.29).
     pub fn grid(&self) -> Result<String, JsError> {
         let g = self.0.grid().map_err(js)?;
-        let out =
-            serde_json::json!({ "canvas": g.canvas, "columns": g.columns, "rows": g.rows, "baselines": g.baselines });
+        let out = serde_json::json!({
+            "canvas": g.canvas, "columns": g.columns, "rows": g.rows, "baselines": g.baselines, "safe": g.safe,
+        });
         serde_json::to_string(&out).map_err(js)
     }
 

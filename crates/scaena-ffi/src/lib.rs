@@ -1356,7 +1356,7 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         }
         "grid" => {
             let g = s.grid().map_err(said)?;
-            json!({ "canvas": g.canvas, "columns": g.columns, "rows": g.rows, "baselines": g.baselines })
+            json!({ "canvas": g.canvas, "columns": g.columns, "rows": g.rows, "baselines": g.baselines, "safe": g.safe })
         }
         "setView" => {
             let view = match args.get("view").and_then(Value::as_array) {

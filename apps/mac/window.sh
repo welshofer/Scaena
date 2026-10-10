@@ -198,6 +198,12 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   events 'key code 53'
   sleep 1
 
+  # The safe area (PLAN 3.29): View › Show Safe Area shades a strip 3/8 inch in from each edge of
+  # the slide, a guide that holds nothing off it; the item then reads Hide and takes it away.
+  toggle "Safe Area"
+  shot safe-area
+  toggle "Safe Area"
+
   # Add Slide's gallery (PLAN 3.30): the theme's layouts in its sections, each drawn as a slide
   # started in it. A click on the first, a title slide, starts it after the slide shown, and ⌘Z
   # takes it back. The gallery draws a tile only once it is scrolled to: the first is in view.
