@@ -82,6 +82,29 @@ import Testing
     #expect(editor.whole)
 }
 
+/// An edit undone after the window saved the deck, as it saves one by itself (PLAN 3.3): the save
+/// names B1's fonts by their content and the session goes on from it, while the source the edit
+/// replaced names them as they were. It still opens: the undo makes it the deck again, and the
+/// redo the edit.
+@Test func anEditIsUndoneAfterTheDeckIsSaved() throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let original = editor.source
+    let typed: JSONValue = [
+        "op": "replace_text", "state": "cover", "node": "title", "from": 0, "to": 0, "text": "Saved. ",
+    ]
+    #expect(try editor.make([typed]) == original)
+    let edited = editor.source
+    try editor.session.adopt(try editor.session.save(subset: true))
+    #expect(try !editor.session.source().contains("-VF.ttf"), "the save names the fonts by their content")
+
+    let revision = editor.revision
+    #expect(editor.restore(original) == edited, "the source from before the save opens")
+    #expect(editor.valid && editor.revision > revision)
+    #expect(try !editor.session.source().contains("Saved. "))
+    #expect(editor.restore(edited) == original)
+    #expect(try editor.session.source().contains("Saved. "))
+}
+
 /// A source typed is compiled as it stands (PLAN 2.3): one that does not compile says why, and
 /// the deck stays what it was; one that does is the deck.
 @Test func aSourceTypedIsCompiledAsItStands() throws {
