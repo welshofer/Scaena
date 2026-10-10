@@ -201,10 +201,13 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   # The Document tab's Theme (PLAN 3.28): each value a field that reads as one. A color typed in
   # the paper's field is set on Return, and the Edit menu names the step; ⌘Z takes it back and
   # ⌘⇧Z makes it again, the slide drawn in each; then ⌘Z leaves the deck as it was.
+  # The Edit menu's Undo and Redo as a person reads them, and whether each is enabled: opened, so
+  # their titles are brought up to date, its screen kept as `$1`, then closed.
   undoing() {
     app 'click menu bar item "Edit" of menu bar 1' >/dev/null
     sleep 1
-    app 'get name of menu items 1 thru 2 of menu 1 of menu bar item "Edit" of menu bar 1'
+    shot "$1"
+    app 'get {name, enabled} of menu items 1 thru 2 of menu 1 of menu bar item "Edit" of menu bar 1'
     events 'key code 53' >/dev/null
     sleep 1
   }
@@ -220,11 +223,11 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
     events 'keystroke "#2B1B3D"'
     events 'key code 36'
     sleep 3
-    echo "typed and Return: $(frames value theme-color-paper); the Edit menu: $(undoing)"
+    echo "typed and Return: $(frames value theme-color-paper); the Edit menu: $(undoing theme-edit-menu)"
     shot theme-typed
     events 'keystroke "z" using command down'
     sleep 3
-    echo "⌘Z: $(frames value theme-color-paper); the Edit menu: $(undoing)"
+    echo "⌘Z: $(frames value theme-color-paper); the Edit menu: $(undoing theme-edit-menu-undone)"
     shot theme-undone
     events 'keystroke "z" using {shift down, command down}'
     sleep 3
