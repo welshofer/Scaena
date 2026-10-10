@@ -686,7 +686,7 @@
             "type": "boolean"
           },
           "theme": {
-            "description": "What the theme gives a text's look where the deck sets none, which the state then shows:\nits role's family, weight, size, italic, case, tracking, or color. What an inspector shows\nin place of a blank. Absent for any other property."
+            "description": "What the theme gives a text's look where the deck sets none, which the state then shows:\nits role's family, weight, size, italic, case, tracking, or color; and for characters\nselected, the text's own look where their run sets none, its role and emphasis too. What\nan inspector shows in place of a blank. Absent for any other property."
           }
         },
         "required": ["prop", "takes"]
