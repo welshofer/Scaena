@@ -259,6 +259,57 @@ struct HandleHolding: View {
     }
 }
 
+/// The layout's empty slots over the canvas (PLAN 3.30, as the browser's): each outlined, dashed,
+/// with its prompt's words, where a picture, a figure, or words go, through the part of the canvas
+/// shown. A press there and Insert, or a picture dropped there, fills it; it takes no press itself.
+struct WaitingOverlay: View {
+    let editor: DeckEditor
+    /// The state shown.
+    let state: String
+    /// The part of the canvas shown, where it is zoomed in.
+    let shown: CGRect?
+    @State private var waits: [WaitingSlot] = []
+    @State private var canvas: CGSize = .zero
+
+    var body: some View {
+        GeometryReader { geometry in
+            if canvas.width > 0 {
+                let fit = Fit(shown: shown, canvas: canvas, width: geometry.size.width)
+                ForEach(waits) { slot in outline(slot, fit: fit) }
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .task(id: "\(state)\u{1f}\(editor.revision)\u{1f}\(editor.format ?? "")") {
+            canvas = (try? editor.session.grid().canvas) ?? .zero
+            waits = (try? editor.session.waiting(state: state)) ?? []
+        }
+    }
+
+    private func outline(_ slot: WaitingSlot, fit: Fit) -> some View {
+        let r = slot.rect.applying(fit.transform)
+        let tint = Color.accentColor
+        return RoundedRectangle(cornerRadius: 4)
+            .fill(tint.opacity(0.05))
+            .overlay {
+                RoundedRectangle(cornerRadius: 4)
+                    .strokeBorder(tint.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+            }
+            .overlay {
+                Label(slot.words, systemImage: slot.typed ? "text.cursor" : "photo")
+                    .font(.caption)
+                    .lineLimit(1)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(.thinMaterial, in: Capsule())
+                    .foregroundStyle(.secondary)
+                    .opacity(r.width > 80 && r.height > 24 ? 1 : 0)
+            }
+            .frame(width: max(r.width, 0), height: max(r.height, 0))
+            .position(x: r.midX, y: r.midY)
+    }
+}
+
 /// The safe area over the canvas (PLAN 3.29, as the browser's): a strip 3/8 inch deep around the
 /// slide's edge, tinted, its inner edge dashed, through the part of the canvas shown. It shows a
 /// person where to keep what must not be cut off, keeping nothing out, and takes no press.

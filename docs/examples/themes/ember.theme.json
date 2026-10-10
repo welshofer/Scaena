@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.10",
+  "scaena-theme": "0.11",
   "name": "Ember",
   "description": "Near-black surface, warm white ink, one signal orange. Serif claims and figures over a neutral sans; data in quiet grays with the orange spent on the point.",
   "tokens": {
@@ -246,6 +246,18 @@
         "numeric": "proportional-lining",
         "color": "accent"
       },
+      "hero": {
+        "family": "display",
+        "size": 400,
+        "weight": 540,
+        "leading": 0.88,
+        "tracking": -0.045,
+        "opsz": 144,
+        "wrap": "greedy",
+        "box": "cap",
+        "numeric": "proportional-lining",
+        "color": "accent"
+      },
       "title": {
         "family": "body",
         "size": 36,
@@ -370,6 +382,7 @@
   "layouts": {
     "title": {
       "description": "The opening: kicker, title, subtitle, and the art beside them.",
+      "group": "Titles",
       "slots": {
         "kicker": {
           "col": [
@@ -377,7 +390,8 @@
             8
           ],
           "row": 1,
-          "role": "kicker"
+          "role": "kicker",
+          "prompt": "Your name · the date"
         },
         "title": {
           "col": [
@@ -388,7 +402,8 @@
             3,
             8
           ],
-          "role": "display"
+          "role": "display",
+          "prompt": "The talk's title"
         },
         "subtitle": {
           "col": [
@@ -399,7 +414,8 @@
             10,
             12
           ],
-          "role": "lede"
+          "role": "lede",
+          "prompt": "What it's about, in a line"
         },
         "art": {
           "col": [
@@ -409,12 +425,14 @@
           "row": [
             3,
             9
-          ]
+          ],
+          "prompt": "A picture, or a backdrop"
         }
       }
     },
     "statement": {
       "description": "One sentence, set large, and what supports it.",
+      "group": "Words",
       "slots": {
         "kicker": {
           "col": [
@@ -433,7 +451,8 @@
             3,
             8
           ],
-          "role": "display"
+          "role": "display",
+          "prompt": "One sentence, set large"
         },
         "support": {
           "col": [
@@ -444,12 +463,14 @@
             10,
             12
           ],
-          "role": "lede"
+          "role": "lede",
+          "prompt": "What supports it"
         }
       }
     },
     "poster": {
       "description": "A statement beside its art: a section's hinge or the close.",
+      "group": "Words",
       "slots": {
         "kicker": {
           "col": [
@@ -468,7 +489,8 @@
             3,
             8
           ],
-          "role": "display"
+          "role": "display",
+          "prompt": "A statement"
         },
         "support": {
           "col": [
@@ -479,7 +501,8 @@
             9,
             11
           ],
-          "role": "lede"
+          "role": "lede",
+          "prompt": "What supports it"
         },
         "note": {
           "col": [
@@ -487,7 +510,8 @@
             7
           ],
           "row": 12,
-          "role": "caption"
+          "role": "caption",
+          "prompt": "A note on it"
         },
         "art": {
           "col": [
@@ -497,12 +521,14 @@
           "row": [
             3,
             11
-          ]
+          ],
+          "prompt": "A picture"
         }
       }
     },
     "full": {
       "description": "A claim over the figure that shows it, across the grid.",
+      "group": "Pictures",
       "slots": {
         "kicker": {
           "col": [
@@ -521,7 +547,8 @@
             2,
             3
           ],
-          "role": "headline"
+          "role": "headline",
+          "prompt": "What this shows"
         },
         "main": {
           "col": [
@@ -531,7 +558,8 @@
           "row": [
             4,
             12
-          ]
+          ],
+          "prompt": "A picture, a chart, or a table"
         },
         "note": {
           "col": [
@@ -539,12 +567,14 @@
             12
           ],
           "row": 12,
-          "role": "caption"
+          "role": "caption",
+          "prompt": "A note on it, or its source"
         }
       }
     },
     "figure": {
       "description": "A claim, its figure, and a note on it beside it: the facts behind it, or its source.",
+      "group": "Charts",
       "slots": {
         "kicker": {
           "col": [
@@ -563,7 +593,8 @@
             2,
             3
           ],
-          "role": "headline"
+          "role": "headline",
+          "prompt": "What the figure shows"
         },
         "main": {
           "col": [
@@ -573,7 +604,8 @@
           "row": [
             4,
             12
-          ]
+          ],
+          "prompt": "A chart or a table"
         },
         "note": {
           "col": [
@@ -583,12 +615,15 @@
           "row": [
             4,
             12
-          ]
+          ],
+          "role": "caption",
+          "prompt": "Its source, or a note on it"
         }
       }
     },
     "narrow-figure": {
       "description": "As `figure`, for a figure of two or three bars.",
+      "group": "Charts",
       "slots": {
         "kicker": {
           "col": [
@@ -607,7 +642,8 @@
             2,
             3
           ],
-          "role": "headline"
+          "role": "headline",
+          "prompt": "What the figure shows"
         },
         "main": {
           "col": [
@@ -617,7 +653,8 @@
           "row": [
             4,
             12
-          ]
+          ],
+          "prompt": "A chart of two or three bars"
         },
         "note": {
           "col": [
@@ -627,12 +664,15 @@
           "row": [
             4,
             12
-          ]
+          ],
+          "role": "caption",
+          "prompt": "Its source, or a note on it"
         }
       }
     },
     "stat": {
       "description": "One number, what it means, and what stands behind it.",
+      "group": "Numbers",
       "slots": {
         "kicker": {
           "col": [
@@ -651,7 +691,8 @@
             3,
             9
           ],
-          "role": "numeral"
+          "role": "numeral",
+          "prompt": "42%"
         },
         "claim": {
           "col": [
@@ -662,7 +703,8 @@
             3,
             6
           ],
-          "role": "headline"
+          "role": "headline",
+          "prompt": "What the number means"
         },
         "detail": {
           "col": [
@@ -672,7 +714,9 @@
           "row": [
             7,
             12
-          ]
+          ],
+          "role": "body",
+          "prompt": "What stands behind it, in a sentence or two."
         },
         "under": {
           "col": [
@@ -682,12 +726,15 @@
           "row": [
             7,
             8
-          ]
+          ],
+          "role": "caption",
+          "prompt": "Its source"
         }
       }
     },
     "art-left": {
       "description": "The art, then the claim's case beside it.",
+      "group": "Pictures",
       "slots": {
         "kicker": {
           "col": [
@@ -706,7 +753,8 @@
             2,
             3
           ],
-          "role": "headline"
+          "role": "headline",
+          "prompt": "What this slide says"
         },
         "art": {
           "col": [
@@ -716,7 +764,8 @@
           "row": [
             4,
             12
-          ]
+          ],
+          "prompt": "A picture"
         },
         "body": {
           "col": [
@@ -726,12 +775,15 @@
           "row": [
             4,
             12
-          ]
+          ],
+          "role": "body",
+          "prompt": "Words beside the picture, a sentence or two."
         }
       }
     },
     "art-right": {
       "description": "The claim's case, then the art beside it.",
+      "group": "Pictures",
       "slots": {
         "kicker": {
           "col": [
@@ -750,7 +802,8 @@
             2,
             3
           ],
-          "role": "headline"
+          "role": "headline",
+          "prompt": "What this slide says"
         },
         "body": {
           "col": [
@@ -760,7 +813,9 @@
           "row": [
             4,
             12
-          ]
+          ],
+          "role": "body",
+          "prompt": "Words beside the picture, a sentence or two."
         },
         "art": {
           "col": [
@@ -770,12 +825,14 @@
           "row": [
             4,
             12
-          ]
+          ],
+          "prompt": "A picture"
         }
       }
     },
     "split": {
       "description": "Text, and the figure beside it. A chart or table here reads on the plain surface.",
+      "group": "Charts",
       "slots": {
         "body": {
           "col": [
@@ -785,7 +842,9 @@
           "row": [
             1,
             12
-          ]
+          ],
+          "role": "body",
+          "prompt": "Words beside the figure, a sentence or two."
         },
         "main": {
           "col": [
@@ -795,12 +854,14 @@
           "row": [
             1,
             12
-          ]
+          ],
+          "prompt": "A chart or a table"
         }
       }
     },
     "quote": {
       "description": "A quotation with attribution.",
+      "group": "Words",
       "slots": {
         "quote": {
           "col": [
@@ -815,7 +876,8 @@
           "align": {
             "x": "start",
             "y": "cap"
-          }
+          },
+          "prompt": "“The words someone said, as they said them.”"
         },
         "who": {
           "col": [
@@ -826,7 +888,3036 @@
             10,
             11
           ],
-          "role": "caption"
+          "role": "caption",
+          "prompt": "Who said it"
+        }
+      }
+    },
+    "section": {
+      "description": "A section's opening: its number, its name, and what it covers.",
+      "group": "Titles",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "number": {
+          "col": [
+            1,
+            4
+          ],
+          "row": [
+            2,
+            6
+          ],
+          "role": "numeral",
+          "prompt": "01"
+        },
+        "title": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            7,
+            10
+          ],
+          "role": "display",
+          "prompt": "Section title"
+        },
+        "support": {
+          "col": [
+            1,
+            8
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "lede",
+          "prompt": "What this part covers"
+        }
+      }
+    },
+    "photo-title": {
+      "description": "A picture across the whole slide, the title over its foot.",
+      "group": "Titles",
+      "slots": {
+        "art": {
+          "col": [
+            1,
+            12
+          ],
+          "row": [
+            1,
+            12
+          ],
+          "bleed": true,
+          "prompt": "A picture, edge to edge"
+        },
+        "title": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            8,
+            10
+          ],
+          "role": "display",
+          "prompt": "The talk's title"
+        },
+        "subtitle": {
+          "col": [
+            1,
+            8
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "lede",
+          "prompt": "What it's about, in a line"
+        }
+      }
+    },
+    "closing": {
+      "description": "The last word, centered: thanks, or what to do next, and where to find you.",
+      "group": "Titles",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "statement": {
+          "col": [
+            1,
+            12
+          ],
+          "row": [
+            4,
+            7
+          ],
+          "role": "display",
+          "align": {
+            "x": "center"
+          },
+          "prompt": "Thank you"
+        },
+        "support": {
+          "col": [
+            3,
+            10
+          ],
+          "row": [
+            9,
+            10
+          ],
+          "role": "lede",
+          "align": {
+            "x": "center"
+          },
+          "prompt": "Your name · where to reach you"
+        }
+      }
+    },
+    "title-only": {
+      "description": "A headline alone: the rest of the slide is free for what you place on it.",
+      "group": "Titles",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "header": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            2,
+            3
+          ],
+          "role": "headline",
+          "prompt": "What this slide says"
+        }
+      }
+    },
+    "bullets": {
+      "description": "A headline, and the points that make its case.",
+      "group": "Words",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "header": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            2,
+            3
+          ],
+          "role": "headline",
+          "prompt": "What this slide says"
+        },
+        "body": {
+          "col": [
+            1,
+            9
+          ],
+          "row": [
+            4,
+            12
+          ],
+          "role": "body",
+          "prompt": {
+            "bullet": [
+              "The first point",
+              "The second point",
+              "The third point"
+            ]
+          }
+        }
+      }
+    },
+    "numbered": {
+      "description": "A headline, and steps or reasons in order, numbered.",
+      "group": "Words",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "header": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            2,
+            3
+          ],
+          "role": "headline",
+          "prompt": "What this slide says"
+        },
+        "body": {
+          "col": [
+            1,
+            9
+          ],
+          "row": [
+            4,
+            12
+          ],
+          "role": "body",
+          "prompt": {
+            "number": [
+              "The first step",
+              "The second step",
+              "The third step"
+            ]
+          }
+        }
+      }
+    },
+    "agenda": {
+      "description": "What the talk covers, in order: a heading beside the topics, numbered.",
+      "group": "Words",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "header": {
+          "col": [
+            1,
+            4
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "headline",
+          "prompt": "Agenda"
+        },
+        "body": {
+          "col": [
+            6,
+            12
+          ],
+          "row": [
+            4,
+            12
+          ],
+          "role": "body",
+          "prompt": {
+            "number": [
+              "The first topic",
+              "The second topic",
+              "The third topic",
+              "The fourth topic"
+            ]
+          }
+        }
+      }
+    },
+    "two-columns": {
+      "description": "A headline over two columns of words.",
+      "group": "Words",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "header": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            2,
+            3
+          ],
+          "role": "headline",
+          "prompt": "What this slide says"
+        },
+        "first": {
+          "col": [
+            1,
+            6
+          ],
+          "row": [
+            4,
+            12
+          ],
+          "role": "body",
+          "prompt": "Words for the first column, a sentence or two."
+        },
+        "second": {
+          "col": [
+            7,
+            12
+          ],
+          "row": [
+            4,
+            12
+          ],
+          "role": "body",
+          "prompt": "Words for the second column, a sentence or two."
+        }
+      }
+    },
+    "comparison": {
+      "description": "Two things side by side, each under its heading: before and after, this and that.",
+      "group": "Words",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "header": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            2,
+            3
+          ],
+          "role": "headline",
+          "prompt": "What this slide says"
+        },
+        "first-title": {
+          "col": [
+            1,
+            6
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "title",
+          "prompt": "Before"
+        },
+        "first": {
+          "col": [
+            1,
+            6
+          ],
+          "row": [
+            6,
+            12
+          ],
+          "role": "body",
+          "prompt": "How it was"
+        },
+        "second-title": {
+          "col": [
+            7,
+            12
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "title",
+          "prompt": "After"
+        },
+        "second": {
+          "col": [
+            7,
+            12
+          ],
+          "row": [
+            6,
+            12
+          ],
+          "role": "body",
+          "prompt": "How it is now"
+        }
+      }
+    },
+    "pros-cons": {
+      "description": "For and against, side by side, each a list.",
+      "group": "Words",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "header": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            2,
+            3
+          ],
+          "role": "headline",
+          "prompt": "What this slide says"
+        },
+        "first-title": {
+          "col": [
+            1,
+            6
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "title",
+          "prompt": "Pros"
+        },
+        "first": {
+          "col": [
+            1,
+            6
+          ],
+          "row": [
+            6,
+            12
+          ],
+          "role": "body",
+          "prompt": {
+            "bullet": [
+              "One in favor",
+              "Another in favor"
+            ]
+          }
+        },
+        "second-title": {
+          "col": [
+            7,
+            12
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "title",
+          "prompt": "Cons"
+        },
+        "second": {
+          "col": [
+            7,
+            12
+          ],
+          "row": [
+            6,
+            12
+          ],
+          "role": "body",
+          "prompt": {
+            "bullet": [
+              "One against",
+              "Another against"
+            ]
+          }
+        }
+      }
+    },
+    "three-columns": {
+      "description": "Three things side by side, each under its heading: options, parts, or people.",
+      "group": "Words",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "header": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            2,
+            3
+          ],
+          "role": "headline",
+          "prompt": "What this slide says"
+        },
+        "first-title": {
+          "col": [
+            1,
+            4
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "title",
+          "prompt": "First"
+        },
+        "second-title": {
+          "col": [
+            5,
+            8
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "title",
+          "prompt": "Second"
+        },
+        "third-title": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "title",
+          "prompt": "Third"
+        },
+        "first": {
+          "col": [
+            1,
+            4
+          ],
+          "row": [
+            6,
+            12
+          ],
+          "role": "body",
+          "prompt": "What it is, in a sentence or two."
+        },
+        "second": {
+          "col": [
+            5,
+            8
+          ],
+          "row": [
+            6,
+            12
+          ],
+          "role": "body",
+          "prompt": "What it is, in a sentence or two."
+        },
+        "third": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            6,
+            12
+          ],
+          "role": "body",
+          "prompt": "What it is, in a sentence or two."
+        }
+      }
+    },
+    "cards": {
+      "description": "Three cards side by side, each with its heading and a few words: plans, options, or parts.",
+      "group": "Words",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "header": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            2,
+            3
+          ],
+          "role": "headline",
+          "prompt": "What this slide says"
+        },
+        "first-card": {
+          "col": [
+            1,
+            4
+          ],
+          "row": [
+            4,
+            12
+          ],
+          "prompt": {
+            "shape": "rect",
+            "fill": "surface-2"
+          }
+        },
+        "second-card": {
+          "col": [
+            5,
+            8
+          ],
+          "row": [
+            4,
+            12
+          ],
+          "prompt": {
+            "shape": "rect",
+            "fill": "surface-2"
+          }
+        },
+        "third-card": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            4,
+            12
+          ],
+          "prompt": {
+            "shape": "rect",
+            "fill": "surface-2"
+          }
+        },
+        "first-title": {
+          "col": [
+            1,
+            4
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "title",
+          "inset": 32,
+          "prompt": "First"
+        },
+        "second-title": {
+          "col": [
+            5,
+            8
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "title",
+          "inset": 32,
+          "prompt": "Second"
+        },
+        "third-title": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "title",
+          "inset": 32,
+          "prompt": "Third"
+        },
+        "first": {
+          "col": [
+            1,
+            4
+          ],
+          "row": [
+            6,
+            12
+          ],
+          "role": "body",
+          "inset": 32,
+          "prompt": "What it is, in a sentence or two."
+        },
+        "second": {
+          "col": [
+            5,
+            8
+          ],
+          "row": [
+            6,
+            12
+          ],
+          "role": "body",
+          "inset": 32,
+          "prompt": "What it is, in a sentence or two."
+        },
+        "third": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            6,
+            12
+          ],
+          "role": "body",
+          "inset": 32,
+          "prompt": "What it is, in a sentence or two."
+        }
+      }
+    },
+    "roadmap": {
+      "description": "Now, next, and later, each a list.",
+      "group": "Words",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "header": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            2,
+            3
+          ],
+          "role": "headline",
+          "prompt": "What this slide says"
+        },
+        "first-title": {
+          "col": [
+            1,
+            4
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "title",
+          "prompt": "Now"
+        },
+        "second-title": {
+          "col": [
+            5,
+            8
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "title",
+          "prompt": "Next"
+        },
+        "third-title": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "title",
+          "prompt": "Later"
+        },
+        "first": {
+          "col": [
+            1,
+            4
+          ],
+          "row": [
+            6,
+            12
+          ],
+          "role": "body",
+          "prompt": {
+            "bullet": [
+              "What happens",
+              "And what else"
+            ]
+          }
+        },
+        "second": {
+          "col": [
+            5,
+            8
+          ],
+          "row": [
+            6,
+            12
+          ],
+          "role": "body",
+          "prompt": {
+            "bullet": [
+              "What happens",
+              "And what else"
+            ]
+          }
+        },
+        "third": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            6,
+            12
+          ],
+          "role": "body",
+          "prompt": {
+            "bullet": [
+              "What happens",
+              "And what else"
+            ]
+          }
+        }
+      }
+    },
+    "steps": {
+      "description": "A process in four steps, left to right, each under its heading.",
+      "group": "Words",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "header": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            2,
+            3
+          ],
+          "role": "headline",
+          "prompt": "What this slide says"
+        },
+        "first-title": {
+          "col": [
+            1,
+            3
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "title",
+          "prompt": "Step one"
+        },
+        "second-title": {
+          "col": [
+            4,
+            6
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "title",
+          "prompt": "Step two"
+        },
+        "third-title": {
+          "col": [
+            7,
+            9
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "title",
+          "prompt": "Step three"
+        },
+        "fourth-title": {
+          "col": [
+            10,
+            12
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "title",
+          "prompt": "Step four"
+        },
+        "first": {
+          "col": [
+            1,
+            3
+          ],
+          "row": [
+            6,
+            12
+          ],
+          "role": "body",
+          "prompt": "What happens first"
+        },
+        "second": {
+          "col": [
+            4,
+            6
+          ],
+          "row": [
+            6,
+            12
+          ],
+          "role": "body",
+          "prompt": "What happens next"
+        },
+        "third": {
+          "col": [
+            7,
+            9
+          ],
+          "row": [
+            6,
+            12
+          ],
+          "role": "body",
+          "prompt": "What follows"
+        },
+        "fourth": {
+          "col": [
+            10,
+            12
+          ],
+          "row": [
+            6,
+            12
+          ],
+          "role": "body",
+          "prompt": "Where it ends"
+        }
+      }
+    },
+    "timeline": {
+      "description": "Four moments in order along a rule, each with its date and what happened.",
+      "group": "Words",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "header": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            2,
+            3
+          ],
+          "role": "headline",
+          "prompt": "What this slide says"
+        },
+        "first-title": {
+          "col": [
+            1,
+            3
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "figure",
+          "prompt": "2023"
+        },
+        "second-title": {
+          "col": [
+            4,
+            6
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "figure",
+          "prompt": "2024"
+        },
+        "third-title": {
+          "col": [
+            7,
+            9
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "figure",
+          "prompt": "2025"
+        },
+        "fourth-title": {
+          "col": [
+            10,
+            12
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "figure",
+          "prompt": "2026"
+        },
+        "rule": {
+          "col": [
+            1,
+            12
+          ],
+          "row": [
+            6,
+            6
+          ],
+          "prompt": {
+            "shape": "line"
+          }
+        },
+        "first": {
+          "col": [
+            1,
+            3
+          ],
+          "row": [
+            7,
+            12
+          ],
+          "role": "body",
+          "prompt": "What happened"
+        },
+        "second": {
+          "col": [
+            4,
+            6
+          ],
+          "row": [
+            7,
+            12
+          ],
+          "role": "body",
+          "prompt": "What happened"
+        },
+        "third": {
+          "col": [
+            7,
+            9
+          ],
+          "row": [
+            7,
+            12
+          ],
+          "role": "body",
+          "prompt": "What happened"
+        },
+        "fourth": {
+          "col": [
+            10,
+            12
+          ],
+          "row": [
+            7,
+            12
+          ],
+          "role": "body",
+          "prompt": "What happened"
+        }
+      }
+    },
+    "quadrants": {
+      "description": "Four things in a grid of two by two, each under its heading.",
+      "group": "Words",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "header": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            2,
+            3
+          ],
+          "role": "headline",
+          "prompt": "What this slide says"
+        },
+        "first-title": {
+          "col": [
+            1,
+            6
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "title",
+          "prompt": "First"
+        },
+        "second-title": {
+          "col": [
+            7,
+            12
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "title",
+          "prompt": "Second"
+        },
+        "third-title": {
+          "col": [
+            1,
+            6
+          ],
+          "row": [
+            9,
+            10
+          ],
+          "role": "title",
+          "prompt": "Third"
+        },
+        "fourth-title": {
+          "col": [
+            7,
+            12
+          ],
+          "row": [
+            9,
+            10
+          ],
+          "role": "title",
+          "prompt": "Fourth"
+        },
+        "first": {
+          "col": [
+            1,
+            6
+          ],
+          "row": [
+            6,
+            7
+          ],
+          "role": "body",
+          "prompt": "What it is, in a sentence."
+        },
+        "second": {
+          "col": [
+            7,
+            12
+          ],
+          "row": [
+            6,
+            7
+          ],
+          "role": "body",
+          "prompt": "What it is, in a sentence."
+        },
+        "third": {
+          "col": [
+            1,
+            6
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "body",
+          "prompt": "What it is, in a sentence."
+        },
+        "fourth": {
+          "col": [
+            7,
+            12
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "body",
+          "prompt": "What it is, in a sentence."
+        }
+      }
+    },
+    "three-rows": {
+      "description": "Three things down the slide, each its heading beside its words: questions and answers, terms, or milestones.",
+      "group": "Words",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "header": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            2,
+            3
+          ],
+          "role": "headline",
+          "prompt": "What this slide says"
+        },
+        "first-title": {
+          "col": [
+            1,
+            4
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "title",
+          "prompt": "First"
+        },
+        "second-title": {
+          "col": [
+            1,
+            4
+          ],
+          "row": [
+            7,
+            8
+          ],
+          "role": "title",
+          "prompt": "Second"
+        },
+        "third-title": {
+          "col": [
+            1,
+            4
+          ],
+          "row": [
+            10,
+            11
+          ],
+          "role": "title",
+          "prompt": "Third"
+        },
+        "first": {
+          "col": [
+            5,
+            12
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "body",
+          "prompt": "What it is, in a sentence or two."
+        },
+        "second": {
+          "col": [
+            5,
+            12
+          ],
+          "row": [
+            7,
+            8
+          ],
+          "role": "body",
+          "prompt": "What it is, in a sentence or two."
+        },
+        "third": {
+          "col": [
+            5,
+            12
+          ],
+          "row": [
+            10,
+            11
+          ],
+          "role": "body",
+          "prompt": "What it is, in a sentence or two."
+        }
+      }
+    },
+    "definition": {
+      "description": "A word, what it means, and an example of it.",
+      "group": "Words",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "term": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            4,
+            6
+          ],
+          "role": "display",
+          "prompt": "A word"
+        },
+        "meaning": {
+          "col": [
+            1,
+            9
+          ],
+          "row": [
+            7,
+            9
+          ],
+          "role": "lede",
+          "prompt": "What it means, in a sentence."
+        },
+        "example": {
+          "col": [
+            1,
+            8
+          ],
+          "row": [
+            10,
+            12
+          ],
+          "role": "body",
+          "prompt": "An example of it in use."
+        }
+      }
+    },
+    "testimonials": {
+      "description": "Three people's words side by side, each on its card, with who said them.",
+      "group": "Words",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "header": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            2,
+            3
+          ],
+          "role": "headline",
+          "prompt": "What this slide says"
+        },
+        "first-card": {
+          "col": [
+            1,
+            4
+          ],
+          "row": [
+            4,
+            12
+          ],
+          "prompt": {
+            "shape": "rect",
+            "fill": "surface-2"
+          }
+        },
+        "second-card": {
+          "col": [
+            5,
+            8
+          ],
+          "row": [
+            4,
+            12
+          ],
+          "prompt": {
+            "shape": "rect",
+            "fill": "surface-2"
+          }
+        },
+        "third-card": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            4,
+            12
+          ],
+          "prompt": {
+            "shape": "rect",
+            "fill": "surface-2"
+          }
+        },
+        "first": {
+          "col": [
+            1,
+            4
+          ],
+          "row": [
+            4,
+            10
+          ],
+          "role": "body",
+          "inset": 32,
+          "prompt": "“What they said, in their words.”"
+        },
+        "second": {
+          "col": [
+            5,
+            8
+          ],
+          "row": [
+            4,
+            10
+          ],
+          "role": "body",
+          "inset": 32,
+          "prompt": "“What they said, in their words.”"
+        },
+        "third": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            4,
+            10
+          ],
+          "role": "body",
+          "inset": 32,
+          "prompt": "“What they said, in their words.”"
+        },
+        "first-note": {
+          "col": [
+            1,
+            4
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "caption",
+          "inset": 32,
+          "prompt": "Who said it"
+        },
+        "second-note": {
+          "col": [
+            5,
+            8
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "caption",
+          "inset": 32,
+          "prompt": "Who said it"
+        },
+        "third-note": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "caption",
+          "inset": 32,
+          "prompt": "Who said it"
+        }
+      }
+    },
+    "quote-portrait": {
+      "description": "A quotation beside a picture of who said it.",
+      "group": "Words",
+      "slots": {
+        "art": {
+          "col": [
+            1,
+            5
+          ],
+          "row": [
+            1,
+            12
+          ],
+          "bleed": true,
+          "prompt": "A picture of who said it"
+        },
+        "quote": {
+          "col": [
+            7,
+            12
+          ],
+          "row": [
+            3,
+            8
+          ],
+          "role": "quote",
+          "prompt": "“The words someone said, as they said them.”"
+        },
+        "who": {
+          "col": [
+            7,
+            12
+          ],
+          "row": [
+            10,
+            11
+          ],
+          "role": "caption",
+          "prompt": "Who said it"
+        }
+      }
+    },
+    "funnel": {
+      "description": "Four bands, each narrower than the one above: what narrows, stage by stage.",
+      "group": "Words",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "header": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            2,
+            3
+          ],
+          "role": "headline",
+          "prompt": "What this slide says"
+        },
+        "first-card": {
+          "col": [
+            1,
+            12
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "prompt": {
+            "shape": "rect",
+            "fill": "surface-2"
+          }
+        },
+        "second-card": {
+          "col": [
+            2,
+            11
+          ],
+          "row": [
+            6,
+            7
+          ],
+          "prompt": {
+            "shape": "rect",
+            "fill": "surface-2"
+          }
+        },
+        "third-card": {
+          "col": [
+            3,
+            10
+          ],
+          "row": [
+            8,
+            9
+          ],
+          "prompt": {
+            "shape": "rect",
+            "fill": "surface-2"
+          }
+        },
+        "fourth-card": {
+          "col": [
+            4,
+            9
+          ],
+          "row": [
+            10,
+            11
+          ],
+          "prompt": {
+            "shape": "rect",
+            "fill": "surface-2"
+          }
+        },
+        "first": {
+          "col": [
+            1,
+            12
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "title",
+          "align": {
+            "x": "center"
+          },
+          "inset": 24,
+          "prompt": "The most"
+        },
+        "second": {
+          "col": [
+            2,
+            11
+          ],
+          "row": [
+            6,
+            7
+          ],
+          "role": "title",
+          "align": {
+            "x": "center"
+          },
+          "inset": 24,
+          "prompt": "Fewer"
+        },
+        "third": {
+          "col": [
+            3,
+            10
+          ],
+          "row": [
+            8,
+            9
+          ],
+          "role": "title",
+          "align": {
+            "x": "center"
+          },
+          "inset": 24,
+          "prompt": "Fewer still"
+        },
+        "fourth": {
+          "col": [
+            4,
+            9
+          ],
+          "row": [
+            10,
+            11
+          ],
+          "role": "title",
+          "align": {
+            "x": "center"
+          },
+          "inset": 24,
+          "prompt": "The fewest"
+        }
+      }
+    },
+    "pyramid": {
+      "description": "Four bands, each wider than the one above: what rests on what, from the top down.",
+      "group": "Words",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "header": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            2,
+            3
+          ],
+          "role": "headline",
+          "prompt": "What this slide says"
+        },
+        "first-card": {
+          "col": [
+            4,
+            9
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "prompt": {
+            "shape": "rect",
+            "fill": "surface-2"
+          }
+        },
+        "second-card": {
+          "col": [
+            3,
+            10
+          ],
+          "row": [
+            6,
+            7
+          ],
+          "prompt": {
+            "shape": "rect",
+            "fill": "surface-2"
+          }
+        },
+        "third-card": {
+          "col": [
+            2,
+            11
+          ],
+          "row": [
+            8,
+            9
+          ],
+          "prompt": {
+            "shape": "rect",
+            "fill": "surface-2"
+          }
+        },
+        "fourth-card": {
+          "col": [
+            1,
+            12
+          ],
+          "row": [
+            10,
+            11
+          ],
+          "prompt": {
+            "shape": "rect",
+            "fill": "surface-2"
+          }
+        },
+        "first": {
+          "col": [
+            4,
+            9
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "title",
+          "align": {
+            "x": "center"
+          },
+          "inset": 24,
+          "prompt": "The top"
+        },
+        "second": {
+          "col": [
+            3,
+            10
+          ],
+          "row": [
+            6,
+            7
+          ],
+          "role": "title",
+          "align": {
+            "x": "center"
+          },
+          "inset": 24,
+          "prompt": "What holds it"
+        },
+        "third": {
+          "col": [
+            2,
+            11
+          ],
+          "row": [
+            8,
+            9
+          ],
+          "role": "title",
+          "align": {
+            "x": "center"
+          },
+          "inset": 24,
+          "prompt": "What holds that"
+        },
+        "fourth": {
+          "col": [
+            1,
+            12
+          ],
+          "row": [
+            10,
+            11
+          ],
+          "role": "title",
+          "align": {
+            "x": "center"
+          },
+          "inset": 24,
+          "prompt": "The base"
+        }
+      }
+    },
+    "photo": {
+      "description": "A picture across the whole slide, edge to edge.",
+      "group": "Pictures",
+      "slots": {
+        "art": {
+          "col": [
+            1,
+            12
+          ],
+          "row": [
+            1,
+            12
+          ],
+          "bleed": true,
+          "prompt": "A picture, edge to edge"
+        }
+      }
+    },
+    "photo-caption": {
+      "description": "A picture across the whole slide, and a line on it.",
+      "group": "Pictures",
+      "slots": {
+        "art": {
+          "col": [
+            1,
+            12
+          ],
+          "row": [
+            1,
+            12
+          ],
+          "bleed": true,
+          "prompt": "A picture, edge to edge"
+        },
+        "note": {
+          "col": [
+            1,
+            6
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "caption",
+          "prompt": "What it shows"
+        }
+      }
+    },
+    "photo-left": {
+      "description": "A picture off the left edge, its headline and words beside it.",
+      "group": "Pictures",
+      "slots": {
+        "art": {
+          "col": [
+            1,
+            6
+          ],
+          "row": [
+            1,
+            12
+          ],
+          "bleed": true,
+          "prompt": "A picture"
+        },
+        "header": {
+          "col": [
+            8,
+            12
+          ],
+          "row": [
+            2,
+            4
+          ],
+          "role": "headline",
+          "prompt": "What this slide says"
+        },
+        "body": {
+          "col": [
+            8,
+            12
+          ],
+          "row": [
+            5,
+            11
+          ],
+          "role": "body",
+          "prompt": "Words beside the picture, a sentence or two."
+        }
+      }
+    },
+    "photo-right": {
+      "description": "A picture off the right edge, its headline and words beside it.",
+      "group": "Pictures",
+      "slots": {
+        "header": {
+          "col": [
+            1,
+            5
+          ],
+          "row": [
+            2,
+            4
+          ],
+          "role": "headline",
+          "prompt": "What this slide says"
+        },
+        "body": {
+          "col": [
+            1,
+            5
+          ],
+          "row": [
+            5,
+            11
+          ],
+          "role": "body",
+          "prompt": "Words beside the picture, a sentence or two."
+        },
+        "art": {
+          "col": [
+            7,
+            12
+          ],
+          "row": [
+            1,
+            12
+          ],
+          "bleed": true,
+          "prompt": "A picture"
+        }
+      }
+    },
+    "two-up": {
+      "description": "Two pictures side by side under a headline, each with its caption.",
+      "group": "Pictures",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "header": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            2,
+            3
+          ],
+          "role": "headline",
+          "prompt": "What this slide says"
+        },
+        "first-art": {
+          "col": [
+            1,
+            6
+          ],
+          "row": [
+            4,
+            10
+          ],
+          "prompt": "A picture"
+        },
+        "second-art": {
+          "col": [
+            7,
+            12
+          ],
+          "row": [
+            4,
+            10
+          ],
+          "prompt": "A picture"
+        },
+        "first": {
+          "col": [
+            1,
+            6
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "caption",
+          "prompt": "What it shows"
+        },
+        "second": {
+          "col": [
+            7,
+            12
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "caption",
+          "prompt": "What it shows"
+        }
+      }
+    },
+    "three-up": {
+      "description": "Three pictures side by side under a headline, each with its caption.",
+      "group": "Pictures",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "header": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            2,
+            3
+          ],
+          "role": "headline",
+          "prompt": "What this slide says"
+        },
+        "first-art": {
+          "col": [
+            1,
+            4
+          ],
+          "row": [
+            4,
+            10
+          ],
+          "prompt": "A picture"
+        },
+        "second-art": {
+          "col": [
+            5,
+            8
+          ],
+          "row": [
+            4,
+            10
+          ],
+          "prompt": "A picture"
+        },
+        "third-art": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            4,
+            10
+          ],
+          "prompt": "A picture"
+        },
+        "first": {
+          "col": [
+            1,
+            4
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "caption",
+          "prompt": "What it shows"
+        },
+        "second": {
+          "col": [
+            5,
+            8
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "caption",
+          "prompt": "What it shows"
+        },
+        "third": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "caption",
+          "prompt": "What it shows"
+        }
+      }
+    },
+    "four-up": {
+      "description": "Four pictures in a grid of two by two, under a headline.",
+      "group": "Pictures",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "header": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            2,
+            3
+          ],
+          "role": "headline",
+          "prompt": "What this slide says"
+        },
+        "first-art": {
+          "col": [
+            1,
+            6
+          ],
+          "row": [
+            4,
+            7
+          ],
+          "prompt": "A picture"
+        },
+        "second-art": {
+          "col": [
+            7,
+            12
+          ],
+          "row": [
+            4,
+            7
+          ],
+          "prompt": "A picture"
+        },
+        "third-art": {
+          "col": [
+            1,
+            6
+          ],
+          "row": [
+            9,
+            12
+          ],
+          "prompt": "A picture"
+        },
+        "fourth-art": {
+          "col": [
+            7,
+            12
+          ],
+          "row": [
+            9,
+            12
+          ],
+          "prompt": "A picture"
+        }
+      }
+    },
+    "mosaic": {
+      "description": "Three pictures to the edges: one large, two beside it.",
+      "group": "Pictures",
+      "slots": {
+        "first-art": {
+          "col": [
+            1,
+            7
+          ],
+          "row": [
+            1,
+            12
+          ],
+          "bleed": true,
+          "prompt": "A picture"
+        },
+        "second-art": {
+          "col": [
+            8,
+            12
+          ],
+          "row": [
+            1,
+            6
+          ],
+          "bleed": true,
+          "prompt": "A picture"
+        },
+        "third-art": {
+          "col": [
+            8,
+            12
+          ],
+          "row": [
+            7,
+            12
+          ],
+          "bleed": true,
+          "prompt": "A picture"
+        }
+      }
+    },
+    "team": {
+      "description": "Three people side by side, each with a picture, a name, and what they do.",
+      "group": "Pictures",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "header": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            2,
+            3
+          ],
+          "role": "headline",
+          "prompt": "What this slide says"
+        },
+        "first-art": {
+          "col": [
+            1,
+            4
+          ],
+          "row": [
+            4,
+            8
+          ],
+          "prompt": "A picture of them"
+        },
+        "second-art": {
+          "col": [
+            5,
+            8
+          ],
+          "row": [
+            4,
+            8
+          ],
+          "prompt": "A picture of them"
+        },
+        "third-art": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            4,
+            8
+          ],
+          "prompt": "A picture of them"
+        },
+        "first-title": {
+          "col": [
+            1,
+            4
+          ],
+          "row": [
+            9,
+            10
+          ],
+          "role": "title",
+          "prompt": "A name"
+        },
+        "second-title": {
+          "col": [
+            5,
+            8
+          ],
+          "row": [
+            9,
+            10
+          ],
+          "role": "title",
+          "prompt": "A name"
+        },
+        "third-title": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            9,
+            10
+          ],
+          "role": "title",
+          "prompt": "A name"
+        },
+        "first": {
+          "col": [
+            1,
+            4
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "caption",
+          "prompt": "What they do"
+        },
+        "second": {
+          "col": [
+            5,
+            8
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "caption",
+          "prompt": "What they do"
+        },
+        "third": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "caption",
+          "prompt": "What they do"
+        }
+      }
+    },
+    "figure-numbers": {
+      "description": "A chart, and beside it the numbers that matter.",
+      "group": "Charts",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "header": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            2,
+            3
+          ],
+          "role": "headline",
+          "prompt": "What this slide says"
+        },
+        "main": {
+          "col": [
+            1,
+            8
+          ],
+          "row": [
+            4,
+            12
+          ],
+          "prompt": "A chart or a table"
+        },
+        "first-title": {
+          "col": [
+            10,
+            12
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "figure",
+          "prompt": "42%"
+        },
+        "first": {
+          "col": [
+            10,
+            12
+          ],
+          "row": [
+            6,
+            7
+          ],
+          "role": "caption",
+          "prompt": "What the number counts"
+        },
+        "second-title": {
+          "col": [
+            10,
+            12
+          ],
+          "row": [
+            8,
+            9
+          ],
+          "role": "figure",
+          "prompt": "12"
+        },
+        "second": {
+          "col": [
+            10,
+            12
+          ],
+          "row": [
+            10,
+            11
+          ],
+          "role": "caption",
+          "prompt": "What the number counts"
+        }
+      }
+    },
+    "big-number": {
+      "description": "One number, as large as the slide takes, and what it means.",
+      "group": "Numbers",
+      "slots": {
+        "number": {
+          "col": [
+            1,
+            12
+          ],
+          "row": [
+            1,
+            7
+          ],
+          "role": "hero",
+          "align": {
+            "x": "center",
+            "y": "end"
+          },
+          "prompt": "42%"
+        },
+        "claim": {
+          "col": [
+            2,
+            11
+          ],
+          "row": [
+            9,
+            10
+          ],
+          "role": "title",
+          "align": {
+            "x": "center"
+          },
+          "prompt": "What the number means"
+        },
+        "under": {
+          "col": [
+            3,
+            10
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "caption",
+          "align": {
+            "x": "center"
+          },
+          "prompt": "Its source"
+        }
+      }
+    },
+    "two-numbers": {
+      "description": "Two numbers side by side, each large, with what it means.",
+      "group": "Numbers",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "first-title": {
+          "col": [
+            1,
+            6
+          ],
+          "row": [
+            2,
+            6
+          ],
+          "role": "hero",
+          "align": {
+            "x": "start",
+            "y": "end"
+          },
+          "prompt": "42%"
+        },
+        "second-title": {
+          "col": [
+            7,
+            12
+          ],
+          "row": [
+            2,
+            6
+          ],
+          "role": "hero",
+          "align": {
+            "x": "start",
+            "y": "end"
+          },
+          "prompt": "3×"
+        },
+        "first": {
+          "col": [
+            1,
+            6
+          ],
+          "row": [
+            8,
+            10
+          ],
+          "role": "title",
+          "prompt": "What the number means"
+        },
+        "second": {
+          "col": [
+            7,
+            12
+          ],
+          "row": [
+            8,
+            10
+          ],
+          "role": "title",
+          "prompt": "What the number means"
+        }
+      }
+    },
+    "numbers": {
+      "description": "Three numbers side by side, each on its card with what it counts.",
+      "group": "Numbers",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "header": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            2,
+            3
+          ],
+          "role": "headline",
+          "prompt": "What this slide says"
+        },
+        "first-card": {
+          "col": [
+            1,
+            4
+          ],
+          "row": [
+            5,
+            10
+          ],
+          "prompt": {
+            "shape": "rect",
+            "fill": "surface-2"
+          }
+        },
+        "second-card": {
+          "col": [
+            5,
+            8
+          ],
+          "row": [
+            5,
+            10
+          ],
+          "prompt": {
+            "shape": "rect",
+            "fill": "surface-2"
+          }
+        },
+        "third-card": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            5,
+            10
+          ],
+          "prompt": {
+            "shape": "rect",
+            "fill": "surface-2"
+          }
+        },
+        "first-title": {
+          "col": [
+            1,
+            4
+          ],
+          "row": [
+            5,
+            7
+          ],
+          "role": "figure",
+          "inset": 32,
+          "prompt": "42%"
+        },
+        "second-title": {
+          "col": [
+            5,
+            8
+          ],
+          "row": [
+            5,
+            7
+          ],
+          "role": "figure",
+          "inset": 32,
+          "prompt": "12"
+        },
+        "third-title": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            5,
+            7
+          ],
+          "role": "figure",
+          "inset": 32,
+          "prompt": "3×"
+        },
+        "first": {
+          "col": [
+            1,
+            4
+          ],
+          "row": [
+            8,
+            10
+          ],
+          "role": "caption",
+          "inset": 32,
+          "prompt": "What the number counts"
+        },
+        "second": {
+          "col": [
+            5,
+            8
+          ],
+          "row": [
+            8,
+            10
+          ],
+          "role": "caption",
+          "inset": 32,
+          "prompt": "What the number counts"
+        },
+        "third": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            8,
+            10
+          ],
+          "role": "caption",
+          "inset": 32,
+          "prompt": "What the number counts"
+        }
+      }
+    },
+    "number-grid": {
+      "description": "Six numbers in a grid, each on its card with what it counts.",
+      "group": "Numbers",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "header": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            2,
+            3
+          ],
+          "role": "headline",
+          "prompt": "What this slide says"
+        },
+        "first-card": {
+          "col": [
+            1,
+            4
+          ],
+          "row": [
+            4,
+            7
+          ],
+          "prompt": {
+            "shape": "rect",
+            "fill": "surface-2"
+          }
+        },
+        "second-card": {
+          "col": [
+            5,
+            8
+          ],
+          "row": [
+            4,
+            7
+          ],
+          "prompt": {
+            "shape": "rect",
+            "fill": "surface-2"
+          }
+        },
+        "third-card": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            4,
+            7
+          ],
+          "prompt": {
+            "shape": "rect",
+            "fill": "surface-2"
+          }
+        },
+        "fourth-card": {
+          "col": [
+            1,
+            4
+          ],
+          "row": [
+            9,
+            12
+          ],
+          "prompt": {
+            "shape": "rect",
+            "fill": "surface-2"
+          }
+        },
+        "fifth-card": {
+          "col": [
+            5,
+            8
+          ],
+          "row": [
+            9,
+            12
+          ],
+          "prompt": {
+            "shape": "rect",
+            "fill": "surface-2"
+          }
+        },
+        "sixth-card": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            9,
+            12
+          ],
+          "prompt": {
+            "shape": "rect",
+            "fill": "surface-2"
+          }
+        },
+        "first-title": {
+          "col": [
+            1,
+            4
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "figure",
+          "inset": 24,
+          "prompt": "42%"
+        },
+        "second-title": {
+          "col": [
+            5,
+            8
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "figure",
+          "inset": 24,
+          "prompt": "12"
+        },
+        "third-title": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            4,
+            5
+          ],
+          "role": "figure",
+          "inset": 24,
+          "prompt": "3×"
+        },
+        "fourth-title": {
+          "col": [
+            1,
+            4
+          ],
+          "row": [
+            9,
+            10
+          ],
+          "role": "figure",
+          "inset": 24,
+          "prompt": "$1.2M"
+        },
+        "fifth-title": {
+          "col": [
+            5,
+            8
+          ],
+          "row": [
+            9,
+            10
+          ],
+          "role": "figure",
+          "inset": 24,
+          "prompt": "98"
+        },
+        "sixth-title": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            9,
+            10
+          ],
+          "role": "figure",
+          "inset": 24,
+          "prompt": "7 days"
+        },
+        "first": {
+          "col": [
+            1,
+            4
+          ],
+          "row": [
+            6,
+            7
+          ],
+          "role": "caption",
+          "inset": 24,
+          "prompt": "What it counts"
+        },
+        "second": {
+          "col": [
+            5,
+            8
+          ],
+          "row": [
+            6,
+            7
+          ],
+          "role": "caption",
+          "inset": 24,
+          "prompt": "What it counts"
+        },
+        "third": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            6,
+            7
+          ],
+          "role": "caption",
+          "inset": 24,
+          "prompt": "What it counts"
+        },
+        "fourth": {
+          "col": [
+            1,
+            4
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "caption",
+          "inset": 24,
+          "prompt": "What it counts"
+        },
+        "fifth": {
+          "col": [
+            5,
+            8
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "caption",
+          "inset": 24,
+          "prompt": "What it counts"
+        },
+        "sixth": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "caption",
+          "inset": 24,
+          "prompt": "What it counts"
         }
       }
     }

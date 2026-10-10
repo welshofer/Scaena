@@ -56,6 +56,7 @@ import type {
   Arrange,
   Arranged,
   Source,
+  Starter,
   StateChoices,
   Themed,
   ThemeEdited,
@@ -63,6 +64,7 @@ import type {
   Themes,
   ToHelper,
   ToWorker,
+  Waiting,
   Where,
 } from "./protocol";
 
@@ -87,6 +89,8 @@ let format: string | undefined;
 let slots: Slot[] = [];
 /** Counts the requests that paint: a run stops when a newer one comes. */
 let latest = 0;
+/** The round of layouts being judged (PLAN 2.92): one asked for while another is judged ends it. */
+let judging = 0;
 /** The states a single-file export plays, in its order; every state without it. */
 let only: string[] | undefined;
 
@@ -241,10 +245,13 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "layoutSuggestions": {
         layOut(data.format);
         // A layout at a time, each a lint of the state in every format and a frame: what else the
-        // page asks is answered between them. An edit meanwhile ends the round, an error.
+        // page asks is answered between them. An edit meanwhile ends the round, an error, and so
+        // does a round asked for after it, which is the one judged.
+        const round = ++judging;
         player.layoutsBegin(data.state);
         do {
           await new Promise((next) => setTimeout(next));
+          if (round !== judging) throw new Error("the layouts are judged again, as asked since");
         } while (player.layoutsStep());
         const listed = JSON.parse(player.layoutSuggestions(data.height)) as Omit<LayoutSuggestion, "pixels">[];
         const suggestions = listed.map((s, i) => ({ ...s, pixels: player.layoutPixels(i).buffer as ArrayBuffer }));
@@ -309,6 +316,19 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "addingState":
         current(data.source);
         return post({ type: "addingState", id: data.id, added: JSON.parse(player.addingState(data.state, data.what)) as { id: string; patch: unknown[] } });
+      case "starters": {
+        current(data.source);
+        layOut(data.format);
+        const listed = JSON.parse(player.startersPainted(data.state, data.height)) as Omit<Starter, "pixels">[];
+        const starters = listed.map((s, i) => ({ ...s, pixels: player.starterPixels(i).buffer as ArrayBuffer }));
+        return post({ type: "starters", id: data.id, starters }, starters.map((s) => s.pixels));
+      }
+      case "starting":
+        current(data.source);
+        return post({ type: "starting", id: data.id, added: JSON.parse(player.starting(data.state, data.layout)) as { id: string; patch: unknown[] } });
+      case "waiting":
+        layOut(data.format);
+        return post({ type: "waiting", id: data.id, waiting: JSON.parse(player.waiting(data.state)) as Waiting[] });
       case "deleting":
         current(data.source);
         return post({ type: "deleting", id: data.id, patch: JSON.parse(player.deleting(data.state, data.node, data.everywhere)) as unknown[] });

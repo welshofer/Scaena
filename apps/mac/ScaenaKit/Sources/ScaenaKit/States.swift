@@ -1,3 +1,5 @@
+import CScaena
+import CoreGraphics
 import Foundation
 
 /// A state a patch adds (PLAN 2.35): its id, and the patch, one `add_state`.
@@ -20,6 +22,87 @@ extension ScaenaSession {
     public func addingState(after state: String, as what: StateAdding) throws -> AddedState {
         try call("addingState", ["state": .string(state), "what": .string(what.rawValue)])
     }
+
+    /// The patch that starts a slide in `layout`, one of the theme's, after the slide of `state`,
+    /// or a blank one with none (PLAN 3.30): named after the layout (`bullets`, `bullets-2`, …),
+    /// with a text in each slot that says what goes there, its words to type over.
+    public func starting(after state: String, layout: String?) throws -> AddedState {
+        var args: [String: JSONValue] = ["state": .string(state)]
+        if let layout { args["layout"] = .string(layout) }
+        return try call("starting", .object(args))
+    }
+
+    /// The slides a person may start after the slide of `state` (PLAN 3.30): one in each of the
+    /// theme's layouts, in its order, then a blank one, each painted at rest `height` pixels high.
+    /// `starterPicture(i)` takes the `i`th one's picture.
+    public func starters(after state: String, height: Int) throws -> [Starter] {
+        try call("startersPainted", ["state": .string(state), "height": .number(Double(max(height, 1)))])
+    }
+
+    /// The `i`th picture `starters` painted last, taken: a second call throws.
+    public func starterPicture(_ i: Int) throws -> Pixels {
+        var error: UnsafeMutablePointer<CChar>?
+        let painted = scaena_starter_pixels(handle, i, &error)
+        let rgba = try Self.take(painted.bytes, error)
+        return Pixels(rgba: rgba, width: Int(painted.width), height: Int(painted.height))
+    }
+
+    /// The slides a person may start after the slide of `state`, each with its picture `height`
+    /// pixels high. One whose picture cannot be made is left out.
+    public func startersDrawn(after state: String, height: Int) throws -> [(starter: Starter, image: CGImage)] {
+        try starters(after: state, height: height).enumerated().compactMap { i, starter in
+            (try starterPicture(i)).image.map { (starter: starter, image: $0) }
+        }
+    }
+}
+
+/// A slot of the state's layout with nothing placed in it (PLAN 3.30): where the layout says a
+/// picture, a figure, or words go, which the canvas outlines with its prompt's words.
+public struct WaitingSlot: Decodable, Sendable, Identifiable, Equatable {
+    public let slot: String
+    /// Its box in the format shown, canvas units.
+    public let rect: CGRect
+    /// What goes there, as the theme's prompt says it.
+    public let words: String
+    /// Whether words go there; else a picture or a figure.
+    public let typed: Bool
+
+    public var id: String { slot }
+
+    private enum Keys: String, CodingKey { case slot, rect, words, typed }
+
+    public init(from decoder: any Decoder) throws {
+        let fields = try decoder.container(keyedBy: Keys.self)
+        slot = try fields.decode(String.self, forKey: .slot)
+        let r = try fields.decode([Double].self, forKey: .rect)
+        rect = r.count == 4 ? CGRect(x: r[0], y: r[1], width: r[2], height: r[3]) : .null
+        words = try fields.decode(String.self, forKey: .words)
+        typed = try fields.decode(Bool.self, forKey: .typed)
+    }
+}
+
+extension ScaenaSession {
+    /// The slots of `state`'s layout, in the format shown, with nothing placed in them, each
+    /// waiting for what its prompt says goes there (PLAN 3.30).
+    public func waiting(state: String) throws -> [WaitingSlot] {
+        try call("waiting", ["state": .string(state)])
+    }
+}
+
+/// A slide a person may start (PLAN 3.30): one in a layout of the theme, a text in each slot that
+/// says what goes there, or a blank one; and its picture's size, pixels.
+public struct Starter: Decodable, Sendable, Identifiable, Equatable {
+    /// The theme's layout it is in; none for the blank slide.
+    public let layout: String?
+    /// What the theme says the layout is for.
+    public let description: String?
+    /// The gallery's section it is offered under (`Titles`, `Words`, `Pictures`); none for the
+    /// blank slide, which comes last.
+    public let group: String?
+    public let width: Int
+    public let height: Int
+
+    public var id: String { layout ?? "" }
 }
 
 /// A slide as the light table shows it (PLAN 2.97): its id, and its states as the timeline plays

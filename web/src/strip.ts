@@ -3,8 +3,9 @@
 //
 // - A click on a state, or the arrow keys, Home, and End among them, shows it.
 // - New step adds a state after the state shown that tracks from it, in its slide: it shows what
-//   that state shows until it is changed. New slide adds an empty slide, in the shown state's
-//   layout, after the last step of its slide.
+//   that state shows until it is changed. New slide opens the gallery of the theme's layouts
+//   (PLAN 3.30): each drawn as a slide started in it, its words in its slots, by the theme's
+//   sections, then a blank slide; a click starts that slide after the last step of the slide shown.
 // - A state dragged to another place, or moved with Alt and an arrow key, moves there
 //   (`move_state`). F2, or a double click, renames it (`rename_state`), and Delete removes it
 //   (`remove_state`).
@@ -15,7 +16,7 @@
 //   2.49).
 import { ALT, type Key } from "./commands";
 import { counted, worst } from "./marks";
-import type { Edited, Finding, Slot, Thumb } from "./protocol";
+import type { Edited, Finding, Slot, Starter, Thumb } from "./protocol";
 import type { Stage } from "./stage";
 
 /** What a state in the strip answers, focused (PLAN 2.65), as the keys sheet lists it. */
@@ -38,10 +39,20 @@ export interface StripEditor {
   /** Take `source`, a patch's, as one change: one step to undo. */
   apply(source: string, edited: Edited): void;
   say(text: string): void;
+  /** A slide made here, from the gallery or after the slide shown: the canvas outlines its
+   * layout's empty slots (PLAN 3.30). */
+  started?(state: string): void;
 }
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const html = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+/** How high a slide to start is drawn in the gallery, CSS pixels (PLAN 3.30). */
+const TILE = 84;
+/** A layout's name as a person reads it: `two-columns` as Two columns. */
+const phrase = (name: string) => {
+  const words = name.replace(/-/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
 /** A cue's length, as the strip says it. */
 const seconds = (ms: number) => `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)} s`;
 
@@ -182,8 +193,66 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
       .addingState(editor.source(), shown.state, what)
       .then((added) => {
         const after = (added.patch[0] as { after?: string }).after;
+        if (what === "slide") editor.started?.(added.id);
         const said = `${added.id} added after ${what === "step" ? shown.state : `${shown.state}'s slide`}`;
         return make(added.patch, `adding a ${what}…`, said, (all) => all.findIndex((s) => s.state === after) + 1);
+      })
+      .catch((e) => editor.say(`not added: ${said(e)}`));
+  }
+
+  /** The gallery of slides to start (PLAN 3.30): the theme's layouts, each drawn as a slide
+   * started in it, under the theme's sections in the order it first names them, then a blank
+   * slide. A click starts that slide after the slide shown. */
+  async function gallery() {
+    const shown = editor.shown();
+    if (!shown) return editor.say("the strip waits for a source that compiles");
+    const dialog = document.querySelector<HTMLDialogElement>("#starting")!;
+    const box = dialog.querySelector<HTMLElement>(".starters")!;
+    box.innerHTML = `<p class="note">Drawing the theme's layouts…</p>`;
+    if (!dialog.open) dialog.showModal();
+    const ratio = Math.min(2, window.devicePixelRatio || 1);
+    let got: Starter[];
+    try {
+      got = await stage.starters(editor.source(), shown.state, Math.round(TILE * ratio), editor.format());
+    } catch (e) {
+      box.innerHTML = `<p class="note">not drawn: ${html(said(e))}</p>`;
+      return;
+    }
+    if (!dialog.open) return;
+    const groups: string[] = [];
+    for (const one of got) if (one.group && !groups.includes(one.group)) groups.push(one.group);
+    const tile = (one: Starter, i: number) => {
+      const name = one.layout ? phrase(one.layout) : "Blank";
+      return `<button type="button" data-start="${i}" title="${html(one.description ?? name)}"><canvas aria-hidden="true" width="${one.width}" height="${one.height}"></canvas><span>${html(name)}</span></button>`;
+    };
+    const section = (title: string, ones: [Starter, number][]) =>
+      ones.length ? `<h3>${html(title)}</h3><div class="group">${ones.map(([one, i]) => tile(one, i)).join("")}</div>` : "";
+    const indexed = got.map((one, i): [Starter, number] => [one, i]);
+    box.innerHTML =
+      groups.map((g) => section(g, indexed.filter(([one]) => one.group === g))).join("") +
+      section(groups.length ? "Other" : "Layouts", indexed.filter(([one]) => one.layout && !one.group)) +
+      section("Blank", indexed.filter(([one]) => !one.layout));
+    box.querySelectorAll<HTMLButtonElement>("button[data-start]").forEach((button) => {
+      const one = got[Number(button.dataset.start)];
+      button.querySelector("canvas")?.getContext("2d")?.putImageData(new ImageData(new Uint8ClampedArray(one.pixels), one.width, one.height), 0, 0);
+      button.onclick = () => {
+        dialog.close();
+        void start(one.layout ?? undefined);
+      };
+    });
+    box.querySelector<HTMLButtonElement>("button[data-start]")?.focus();
+  }
+
+  /** A slide started in `layout`, or a blank one with none, after the slide shown (PLAN 3.30). */
+  function start(layout: string | undefined) {
+    const shown = editor.shown();
+    if (!shown) return editor.say("the strip waits for a source that compiles");
+    return stage
+      .starting(editor.source(), shown.state, layout)
+      .then((added) => {
+        const after = (added.patch[0] as { after?: string }).after;
+        editor.started?.(added.id);
+        return make(added.patch, "adding a slide…", `${added.id} added after ${shown.state}'s slide`, (all) => all.findIndex((s) => s.state === after) + 1);
       })
       .catch((e) => editor.say(`not added: ${said(e)}`));
   }
@@ -304,7 +373,7 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
     unmark();
   };
   into.querySelector<HTMLButtonElement>("[data-add=step]")!.onclick = () => void add("step");
-  into.querySelector<HTMLButtonElement>("[data-add=slide]")!.onclick = () => void add("slide");
+  into.querySelector<HTMLButtonElement>("[data-add=slide]")!.onclick = () => void gallery();
 
   return {
     states,
@@ -314,6 +383,8 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
     reformat,
     found,
     add,
+    gallery,
+    start,
     move,
     remove,
     rename,

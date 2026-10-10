@@ -13,7 +13,8 @@
 //   osascript -l JavaScript apps/mac/frames.js splits
 function run(argv) {
   const [what, arg] = argv;
-  const window = Application("System Events").processes.byName("Scaena").windows[0];
+  const process = Application("System Events").processes.byName("Scaena");
+  const window = process.windows[0];
   // An attribute an element may not have: none where it has not.
   const read = (f) => {
     try {
@@ -31,10 +32,10 @@ function run(argv) {
   const children = (e) => read(() => e.uiElements()) ?? [];
 
   const name = (e) => read(() => e.title()) || read(() => e.description()) || "";
-  // The first element identified as `tag`: breadth first, as far as a window's chrome goes and no
-  // further.
-  const found = (tag) => {
-    let level = [window];
+  // The first element under `roots` identified as `tag`: breadth first, as far as a window's
+  // chrome goes and no further; none where there is none.
+  const search = (tag, roots) => {
+    let level = roots;
     for (let depth = 0, seen = 0; depth < 16 && level.length && seen < 4000; depth++) {
       const next = [];
       for (const e of level) {
@@ -44,7 +45,16 @@ function run(argv) {
       }
       level = next;
     }
-    throw new Error(`nothing is identified as ${tag}`);
+    return null;
+  };
+  // The first element identified as `tag` in the window; else in the app's other windows, then in
+  // what else it shows but its menu bar, where a popover may be one of its own.
+  const found = (tag) => {
+    const others = (read(() => process.windows()) ?? []).slice(1);
+    const shown = (read(() => process.uiElements()) ?? []).filter((e) => read(() => e.role()) !== "AXMenuBar");
+    const e = search(tag, [window]) ?? search(tag, others) ?? search(tag, shown);
+    if (!e) throw new Error(`nothing is identified as ${tag}`);
+    return e;
   };
   if (what === "find") return frame(found(arg)).join(" ");
   if (what === "value") {

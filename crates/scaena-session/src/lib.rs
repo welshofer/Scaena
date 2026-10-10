@@ -138,6 +138,10 @@ pub struct Session {
     /// (PLAN 2.92, 3.26).
     #[cfg(feature = "editor")]
     suggested: Vec<scaena_paint::Raster>,
+    /// The pictures `startersPainted` painted last, each until `starterPixels` takes it (PLAN
+    /// 3.30).
+    #[cfg(feature = "editor")]
+    started: Vec<scaena_paint::Raster>,
     /// What the next save records in the bundle's history, if it keeps one, besides the save:
     /// each edit an operation made since the bundle was opened or saved, after the deck
     /// before it (PLAN 2.9).
@@ -289,6 +293,8 @@ impl Session {
             suggesting: None,
             #[cfg(feature = "editor")]
             suggested: Vec::new(),
+            #[cfg(feature = "editor")]
+            started: Vec::new(),
             #[cfg(feature = "editor")]
             recorded: Vec::new(),
             #[cfg(feature = "editor")]
@@ -1415,6 +1421,22 @@ impl Session {
         what: scaena_ops::states::Adding,
     ) -> Result<scaena_ops::states::AddedState, Error> {
         scaena_ops::states::adding(&self.deck, state, what).map_err(|e| Error::Ops(e.to_string()))
+    }
+
+    /// The slots of `state`'s layout, in the format shown, that wait for what their prompts say
+    /// goes there, nothing placed in them (PLAN 3.30): what an editor outlines with its words.
+    #[cfg(feature = "editor")]
+    pub fn waiting(&self, state: &str) -> Result<Vec<scaena_ops::states::Waiting>, Error> {
+        scaena_ops::states::waiting(&self.deck, &self.theme, state, self.format.as_deref())
+            .map_err(|e| Error::Ops(e.to_string()))
+    }
+
+    /// The patch that starts a slide in `layout`, one of the theme's, after the slide of `state`,
+    /// the state shown, or a blank one with none (PLAN 3.30): a text in each slot that says what
+    /// goes in it, in the slot's role, its words to type over.
+    #[cfg(feature = "editor")]
+    pub fn starting(&self, state: &str, layout: Option<&str>) -> Result<scaena_ops::states::AddedState, Error> {
+        scaena_ops::states::starting(&self.deck, &self.theme, state, layout).map_err(|e| Error::Ops(e.to_string()))
     }
 
     /// Text typed on the canvas (ADR-0013, PLAN 2.32): `ops` (a `replace_text`, or the

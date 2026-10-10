@@ -277,7 +277,7 @@ try {
   );
   const onState = await menu();
   check(
-    ["Add a step", "Add a slide", "Rename the state", "Delete the state"].every((l) => onState.includes(l)),
+    ["Add a step", "Add a slide…", "Rename the state", "Delete the state"].every((l) => onState.includes(l)),
     `it offers what is done to a state: ${onState.join(", ")}`,
   );
   await choose("Add a step");
