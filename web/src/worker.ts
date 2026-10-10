@@ -733,10 +733,25 @@ async function shipped(theme: string): Promise<{ file: string; text: string; fon
 }
 
 /** A new deck titled `title` (PLAN 2.12), as `deck_create` makes one: the theme that ships as
- * `theme` and the fonts it names, and one state with nothing on it. */
+ * `theme` and the fonts it names. Its one state, with nothing on it, is made a title slide in
+ * the theme's `title` layout, its words to type over and its picture's place waiting, as a
+ * presentation app's new deck opens and the Mac's does (PLAN 3.30): made before the page reads
+ * the deck, so no undo goes back to the empty state. A theme with no such layout leaves it. */
 async function made(theme: string, title: string): Promise<Player> {
   const { file, text, fonts } = await shipped(theme);
-  return Player.create(file, text, title, fonts);
+  const created = Player.create(file, text, title, fonts);
+  const [blank, ...more] = created.states();
+  if (blank === undefined || more.length) return created;
+  let started: { id: string; patch: unknown[] };
+  try {
+    started = JSON.parse(created.starting(blank, "title")) as { id: string; patch: unknown[] };
+  } catch {
+    return created;
+  }
+  const ops = [...started.patch, { op: "remove_state", id: blank }];
+  const titled = created.tool("deck_patch", JSON.stringify({ ops }), "user", new Date().toISOString());
+  titled.free();
+  return created;
 }
 
 /** The deck `source` compiles to, in another theme, by the user (PLAN 2.39), as `theme --apply`

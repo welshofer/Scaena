@@ -108,7 +108,7 @@ The editor's bar starts, opens, and keeps bundles (PLAN 2.4, 2.12, SPEC §9.2):
 
 | | |
 |---|---|
-| New… | a deck from a title and a theme that ships (Dusk, Daybreak, Ember), as `deck_create` makes one: the theme, the fonts it names, and one state with nothing on it (`Player.create`). The build carries the themes and fonts beside the pages (`src/themes.ts`), and the worker fetches them only to make a deck. Kept nowhere, named for its title, until its first save puts it in the browser's storage under that name. |
+| New… | a deck from a title and a theme that ships (Dusk, Daybreak, Ember), as `deck_create` makes one: the theme, the fonts it names, and one state with nothing on it (`Player.create`), made a title slide in the theme's `title` layout, its words to type over (PLAN 3.30). The build carries the themes and fonts beside the pages (`src/themes.ts`), and the worker fetches them only to make a deck. Kept nowhere, named for its title, until its first save puts it in the browser's storage under that name. |
 | Open folder… | a bundle's folder on disk, where File System Access is (Chromium). The page writes there when it saves, and keeps the folder by name across reloads (`?bundle=folder:NAME`), asking again for leave to write. |
 | Open .scaena… | a `.scaena` file, copied into the browser's storage and kept there. |
 | Kept in this browser… | the bundles the browser keeps, in its origin-private file system under `bundles/`. |
