@@ -1,6 +1,6 @@
 # Gate 3
 
-Phase 3's exit criteria (PLAN, "Exit criteria (gate 3)"), each with its evidence so far. Every task of Phase 3 has landed: the app (3.1–3.8), then the editor as the browser's (3.9–3.17). What the gate still needs is a real Mac: CI's macOS runner is a virtual machine with a paravirtual GPU, which compiles and tests the Swift but cannot read the gate's bars.
+Phase 3's exit criteria (PLAN, "Exit criteria (gate 3)"), each with its evidence so far. Every task of Phase 3 has landed: the app (3.1–3.8), the editor as the browser's (3.9–3.17), and the window as a presentation app's, with what came after it (3.18–3.30). What the gate still needs is a real Mac: CI's macOS runner is a virtual machine with a paravirtual GPU, which compiles and tests the Swift but cannot read the gate's bars.
 
 **Where it stands:**
 - **Criterion 1** (same pixels as the web player) is met on CI's Mac, through the goldens both clients are held to. A real M-series Mac's GPU reads it again in the run below.
@@ -85,19 +85,34 @@ The test allows `NSTextView` in `SourcePane.swift` alone, so either decision is 
 
 ## The run on a real Mac
 
-About half an hour on an M-series Mac with macOS 15 or later, Rust, and Xcode's Swift; or with the `mac-app` workflow's `Scaena.app` and a release checkout for criterion 2.
-1. `just mac`, then open `tests/fixtures/torture.scaena`, and the same deck in the web player (`just web-dev`). Look at a few states side by side: one with text, `hanging`; one with a chart, `chart`; one with a shader, `mesh`.
+About an hour on an M-series Mac with macOS 15 or later, Rust, and Xcode's Swift; or with the `mac-app` workflow's `Scaena.app` and a release checkout for criterion 2. The window numbers its slides and names no state, so a step names a slide by its number, the state's id from the deck's source in brackets.
+1. `just mac`, then open `tests/fixtures/torture.scaena`, and the same deck in the web player (`just web-dev`). Look at a few slides side by side: one with text, 11 (`hanging`); one with a chart, 22 (`chart`); one with a shader, 23 (`mesh`).
 2. Open `tests/bench/b1.scaena`. Play it (⌥⌘P), with a second display if there is one.
 3. Run criterion 2's command three times. Log the median.
-4. Drag the cover's title off its slot with Shift, then undo. Double-click the title and type a few words, with an input method that composes too (Japanese, say), then undo once: the words go together. Ask the assistant something with a key from Settings. Export the PDF, and share it.
+4. Drag the cover's title elsewhere on the slide, then undo. Double-click the title and type a few words, with an input method that composes too (Japanese, say), then undo once: the words go together. Ask the assistant something with a key from Settings. Export the PDF, and share it.
 5. The editor, as the browser's (PLAN 3.10–3.17), on a copy of the torture deck (`cp -R tests/fixtures/torture.scaena /tmp`). Each edit undoes with one ⌘Z:
-   - In `links`, select a few words, give them a color in the inspector, and link them to another state with ⌘K. In `lists`, make a point a numbered step with ⌘⇧7, and indent it with Tab.
-   - From the Node menu, insert a text, copy it with ⌘D, lock it with ⇧⌘L, and try to drag it.
-   - Copy the chart in `chart` with ⌘C, and paste it in `shapes`. Copy a picture in Preview and paste it on the canvas, then a few cells from Numbers.
-   - In `containers`, Shift-click `stat-a` and `stat-b`, align them in the inspector, and group them with ⌘G.
-   - Add a slide in the state list. Open Slides (⌥⌘L) and drag one elsewhere. Rehearse (⌥⌘R) a few states, and keep the times.
-   - In the inspector's panels, change a color of the theme and a cell of `bars`. Save, edit, save again, and restore the first version.
-   - Turn a node by the handle above it, and crop an image in `images`. Show the grid (⌘'), zoom with a pinch, open Formats and click 9:16, and replace a word with Find in Deck (⇧⌘F).
+   - On slide 47 (`links`), select a few words, give them a color in the Format tab, and link them to another slide with ⌘K, by its number. On slide 46 (`lists`), make a point a numbered step with ⌘⇧7, and indent it with Tab.
+   - From the Insert menu, insert a text, duplicate it with ⌘D, lock it with ⇧⌘L, and try to drag it.
+   - Copy the chart on slide 22 (`chart`) with ⌘C, and paste it on slide 24 (`shapes`). Copy a picture in Preview and paste it on the canvas, then a few cells from Numbers.
+   - On slide 26 (`containers`), Shift-click the 42% and the 2.4x stats, align them in the Format tab, and group them with ⌘G.
+   - Add a slide with Slide › New Slide. Open the light table (⌥⌘L) and drag a slide elsewhere. Rehearse (⌥⌘R) a few slides, and keep the times.
+   - In the Document tab, change a color of the theme, and a cell of `bars` in its data. Save, edit, save again, and restore the first version.
+   - Turn a node by the handle above it, and crop the picture on slide 25 (`images`). Show the grid (⌘'), zoom with a pinch, show View › Show Other Sizes and click 9:16, and replace a word with Find in Deck (⇧⌘F).
    - Tab through the canvas, Return into a container, move a node with the arrows, and turn it with `]`. With VoiceOver on (⌘F5), move through the canvas.
+6. The window as a presentation app's, and what came after it (PLAN 3.18–3.30), on a copy of B1 (`cp -R tests/bench/b1.scaena /tmp`), and on the trails example where a step names it (`just cli save docs/examples/trails.deck.json --to /tmp/trails.scaena`). Each edit undoes with one ⌘Z:
+   - **In a person's words (3.18).** Slides are numbered, a step set in under its slide, and an object is called by its first words. A property and its value read as a presentation app's do: a color by what it is for, with its swatch; a duration in seconds; a hold as On Click or After 5.5 s. No id, property path, lint code, source line, or millisecond shows anywhere, nor in what an edit says it did. The toolbar holds View, Zoom, Add Slide, Play, Text, Shape, Image, Chart, Table, Share, the assistant, and Format, Animate, and Document; the timeline, the other sizes, the issues, and the source start hidden. A click on Shape inserts the deck's first shape, and a press held on it offers the rest.
+   - **A drag lands where it is let go (3.19).** Drag the title, "Scaena", across the slide and let go: it stays there. Near a grid track, the slide's edge or middle, or the subtitle's edge, it is drawn in, a guide where they meet; with ⌘ held, nothing draws it in. With Shift held, it snaps into a slot or onto the grid's cells, as before. Nothing is outlined in orange.
+   - **Issues where they are (3.20).** Drag the subtitle over the title: a red mark at the top right of one of them, and a click on it says "It overlaps another object." Undo. Type over the title until it no longer fits: its mark says "The text doesn't fit its box." and offers Shrink to Fit; take it, then undo twice. View › Show Issues lists the rest.
+   - **A text inserted is typed in (3.21).** Click an empty part of the slide, then the toolbar's Text: a text goes in there with its words selected, and what is typed takes their place. Escape stops the typing and leaves the text selected.
+   - **A file dropped (3.22).** From the Finder, drop a photo on an empty part of the slide: it goes in where it is let go. Drop another onto it: it takes its place. Drop `docs/examples/data/hed-tenure.csv` on the slide: a chart of it lands there, and the Document tab's data lists it.
+   - **A right click (3.23).** Right-click the title, or Control-click it: it is selected, and the menu offers Cut, Copy, and Paste, Duplicate, Delete, Arrange, Copy Style and Paste Style, Lock, and Insert, which puts what is chosen where the click was. Double-click the title to type in it, then right-click: the menu is the text's own.
+   - **What is inserted stays on its slide (3.24).** On slide 2 (`goal`), insert a text, then duplicate it, and copy and paste it: each shows on the slide's later steps, and on slide 3 none of them does.
+   - **Alignment (3.25).** Select the subtitle, and in the Format tab click Center, then Right, then Left: its lines move with each, and it stays where it stood up and down.
+   - **A slide's layouts (3.26).** On the trails example's cover, with nothing selected, the Format tab draws its layouts small, best first, the one it takes outlined: Title and Photo Title. The pointer over Photo Title shows the slide in it on the canvas, nothing made; a click takes it. A slide with one layout to take names it in a menu.
+   - **The window fits (3.27).** Opened on a laptop's screen, the window fits within it. Dragged narrower, it goes to about 890 points before it stops, and what the toolbar cannot hold goes into its » menu. Insert › Text from the menu bar inserts a text.
+   - **Fields (3.28).** In the Document tab's Theme, type another hex in a color's field and press Return: the slides take it. Edit › Undo takes it back, and ⌘⇧Z makes it again. Type a size in Body's field and press Escape: it is put back. Click Body's size stepper a few times quickly: one ⌘Z takes them all back.
+   - **The safe area (3.29).** View › Show Safe Area (⌥⌘') shades a strip 3/8 inch in from each edge of the slide, amber, dashed at its inner edge. Drag the subtitle into it: nothing stops it, and nothing is marked. ⌥⌘' hides it.
+   - **The layout library (3.30).** Add Slide opens a gallery of 47 layouts in sections, Titles, Words, Pictures, Charts, and Numbers, and Blank. Bullets adds a slide after the one shown, its words to type over: a double click on its headline selects them whole, and typing replaces them. Photo outlines where its picture goes; a press on those words asks for a picture, which lands there. File › New, in a theme, opens a deck on a title slide.
+   - **The timeline (3.14).** On the trails example's slide 11 (`funding`), View › Show Timeline puts the cue under the slide, which keeps its size. A click on the chart makes its lane stand out and the others step back; a click on another lane selects its object. A bar's end dragged makes its motion longer.
 
-What the run finds is logged here and in PLAN's gate log, and each of PLAN 3.2–3.17 it shows working is ticked there.
+What the run finds is logged here and in PLAN's gate log, and each of PLAN 3.2–3.30 it shows working is ticked there.

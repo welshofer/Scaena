@@ -1,6 +1,6 @@
 # ADR-0004: Text and rendering stack — parley/harfrust/fontique, taffy, vello, krilla
 
-**Status:** proposed (becomes accepted at gate 0) · **Date:** 2026-10-01 · **Amended:** 2026-10-01 (PLAN 0.1: stack pinned; `swash` replaced by `harfrust` + `skrifa`, which is what `parley` actually uses) · 2026-10-01 (PLAN 0.6: CPU painter findings measured) · 2026-10-01 (PLAN 0.7: GPU painter findings) · 2026-10-01 (hanging quotes: finding 8) · 2026-10-02 (PLAN 0.11: finding 9) · 2026-10-02 (PLAN 1.4: subsetting, finding 10) · 2026-10-02 (PLAN 1.10: gradient ramps, finding 12) · 2026-10-03 (PLAN 1.21: SVG and video, finding 14) · 2026-10-05 (finding 11: the patterns as data, ADR-0015)
+**Status:** accepted (gate 0, 2026-10-02) · **Date:** 2026-10-01 · **Amended:** 2026-10-01 (PLAN 0.1: stack pinned; `swash` replaced by `harfrust` + `skrifa`, which is what `parley` actually uses) · 2026-10-01 (PLAN 0.6: CPU painter findings measured) · 2026-10-01 (PLAN 0.7: GPU painter findings) · 2026-10-01 (hanging quotes: finding 8) · 2026-10-02 (PLAN 0.11: finding 9) · 2026-10-02 (PLAN 1.4: subsetting, finding 10) · 2026-10-02 (PLAN 1.10: gradient ramps, finding 12) · 2026-10-03 (PLAN 1.21: SVG and video, finding 14) · 2026-10-05 (finding 11: the patterns as data, ADR-0015)
 
 ## Context
 
