@@ -12,7 +12,8 @@
 //   selection; an input method's composition goes in as it is composed.
 // - The note reads its own text in `revenue` and `mix`: typing there says "in 2 states"; with Alt,
 //   it is kept to `revenue`, and the node keeps its text.
-// - Escape stops typing, the node still selected.
+// - Escape stops typing, the node still selected; keys typed straight before it all go in, one
+//   step to undo.
 // On the torture deck: up, down, home, and end go by the engine's lines in the `pretty` case's
 // paragraph; and in the `mixed` case, a text set by runs keeps them as it is typed in.
 // Exits 1 on any failure.
@@ -192,6 +193,18 @@ try {
   await page.locator("#overlay").focus();
   await page.keyboard.press("Control+z");
   check(await back(page, original), "one undo takes back the replacement and what was composed after it");
+
+  // Keys typed straight before Escape all go in, though the change before them is still being
+  // made: leaving typing loses none of them, and one undo takes the burst back.
+  check((await typeIn(page, "title")) === "title", "a double click types in the title again");
+  await page.keyboard.press("End");
+  await page.keyboard.type(" and then some");
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => window.scaena.source().includes('"Revenue doubled and then some"'), null, { timeout: 30000 }).catch(() => {});
+  check((await source(page)).includes('"Revenue doubled and then some"'), "keys typed straight before Escape all go in");
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Control+z");
+  check(await back(page, original), "one undo takes the burst back");
 
   // The note reads its own text in `revenue` and in `mix`, which tracks it.
   check((await typeIn(page, "note")) === "note", "a double click on the note types in it");
