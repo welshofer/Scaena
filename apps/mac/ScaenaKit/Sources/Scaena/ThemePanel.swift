@@ -26,12 +26,17 @@ struct ThemePanel: View {
     var body: some View {
         Form {
             Section("Theme") {
+                // Each theme by its name: those the deck holds, then those that come with Scaena.
                 Picker("Theme", selection: chosen) {
-                    ForEach(shipped) { ships in
-                        Text("\(ships.name.capitalized) (ships)").tag("ships:\(ships.name)")
+                    Section("In This Deck") {
+                        ForEach(themes?.files ?? [], id: \.self) { file in
+                            Text(Words.theme(file)).tag(file)
+                        }
                     }
-                    ForEach(themes?.files ?? [], id: \.self) { file in
-                        Text(file).tag(file)
+                    Section("Built In") {
+                        ForEach(shipped) { ships in
+                            Text(Words.phrase(ships.name)).tag("ships:\(ships.name)")
+                        }
                     }
                 }
                 .help("Put the deck in another theme, refused with why where it would not validate in it")
@@ -72,8 +77,8 @@ struct ThemePanel: View {
                 if photos.isEmpty {
                     Text("The bundle holds no PNG or JPEG photo.").foregroundStyle(.secondary)
                 }
-                ForEach(photos, id: \.self) { photo in
-                    Button(photo) { fromPhoto(photo) }
+                ForEach(Array(photos.enumerated()), id: \.element) { n, photo in
+                    Button(Words.file(photo, type: "image") ?? "Photo \(n + 1)") { fromPhoto(photo) }
                         .help("Give the theme this photo's colors, each color text is set in kept where it reads")
                 }
             }

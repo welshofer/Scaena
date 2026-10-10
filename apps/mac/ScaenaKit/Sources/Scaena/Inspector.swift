@@ -181,8 +181,14 @@ struct Inspector: View {
                 LayoutsRow(editor: editor, state: state, look: look, make: make) {
                     named(field, label: label, choose: choose)
                 }
-            case "notes", "alt":
-                TextRow(label: label, value: field.value?.string ?? "", long: true, choose: choose)
+            case "notes":
+                TextRow(
+                    label: label, value: field.value?.string ?? "", long: true,
+                    prompt: "Notes you see as you present", choose: choose)
+            case "alt":
+                TextRow(
+                    label: label, value: field.value?.string ?? "", long: true,
+                    prompt: "Describe it for someone who can’t see it", choose: choose)
             default:
                 switch field.takes {
                 case .name(let of, let names, let overrides) where of == "color":
@@ -1065,6 +1071,8 @@ private struct TextRow: View {
     let value: String
     /// Several lines, shown under the label: notes, a description.
     let long: Bool
+    /// What an empty field of several lines says goes in it; its label where none is given.
+    var prompt: String? = nil
     let choose: (JSONValue) -> Void
     @State private var text = ""
     @FocusState private var focused: Bool
@@ -1072,7 +1080,7 @@ private struct TextRow: View {
     var body: some View {
         Group {
             if long {
-                TextField(label, text: $text, prompt: Text(label), axis: .vertical)
+                TextField(label, text: $text, prompt: Text(prompt ?? label), axis: .vertical)
                     .labelsHidden()
                     .lineLimit(3...12)
             } else {

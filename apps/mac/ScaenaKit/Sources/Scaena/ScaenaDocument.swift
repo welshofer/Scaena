@@ -26,6 +26,9 @@ final class ScaenaDocument: ReferenceFileDocument {
 
     let editor: DeckEditor
     var session: ScaenaSession { editor.session }
+    /// Whether the deck was made here by New, not opened: its window offers the themes that ship
+    /// before anything is on it, as the browser's New does (PLAN 2.12), once.
+    var startsNew = false
 
     /// A new deck, as New starts one in the browser: Dusk, one state with nothing on it.
     init() {
@@ -38,6 +41,7 @@ final class ScaenaDocument: ReferenceFileDocument {
         }
         _ = try? session.call("keepHistory") as JSONValue
         editor = DeckEditor(session: session)
+        startsNew = true
     }
 
     init(configuration: ReadConfiguration) throws {

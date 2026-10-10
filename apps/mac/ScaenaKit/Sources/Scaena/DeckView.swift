@@ -80,6 +80,10 @@ struct DeckView: View {
     @SceneStorage("safeArea") private var showsSafeArea = false
     /// Whether Add Slide's gallery of layouts is open (PLAN 3.30).
     @State private var choosingSlide = false
+    /// Whether Choose Picture… asks for a file.
+    @State private var choosingPicture = false
+    /// The themes that ship, offered as a deck made by New opens (PLAN 3.3); none once one is chosen.
+    @State private var offeredThemes: [ShippedTheme] = []
     /// The slides made in this window, from the gallery or after the slide shown (PLAN 3.30):
     /// only theirs show their layout's empty slots, so a deck opened shows none it never filled.
     @State private var fresh: Set<String> = []
@@ -121,6 +125,30 @@ struct DeckView: View {
         #else
         .toolbar { toolbar }
         #endif
+        // A picture, or a sheet's data, chosen from a file lands as it lands dropped: where the
+        // pointer last pressed, or in the middle of the slide.
+        .fileImporter(
+            isPresented: $choosingPicture, allowedContentTypes: [.image, .commaSeparatedText, .json]
+        ) { result in
+            switch result {
+            case .success(let url): choose(url)
+            case .failure(let error): failure = error.localizedDescription
+            }
+        }
+    }
+
+    /// The file at `url`, chosen, landed on the slide shown as a drop lands it.
+    private func choose(_ url: URL) {
+        guard let shown else { return }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard let data = try? Data(contentsOf: url) else {
+            failure = "\(url.lastPathComponent) could not be read"
+            return
+        }
+        let size = (try? editor.session.canvasSize()) ?? CGSize(width: 1920, height: 1080)
+        let at = pointed ?? CGPoint(x: size.width / 2, y: size.height / 2)
+        land(data, named: url.lastPathComponent, in: shown, at: at)
     }
 
     /// The canvas and the panes beside it, and the inspector. On the Mac the inspector is a column
@@ -312,10 +340,12 @@ struct DeckView: View {
             InsertMenu(title: "Text", symbol: "textbox", kinds: ["Text"], first: "body", inserts: inserts, insert: insertHere)
         case .shape:
             InsertMenu(
-                title: "Shape", symbol: "square.on.circle", kinds: ["Shape", "Shader"], first: "rect", inserts: inserts,
+                title: "Shape", symbol: "square.on.circle", kinds: ["Shape", "Shader"], first: nil, inserts: inserts,
                 insert: insertHere)
         case .image:
-            InsertMenu(title: "Image", symbol: "photo", kinds: ["Image"], first: nil, inserts: inserts, insert: insertHere)
+            InsertMenu(
+                title: "Image", symbol: "photo", kinds: ["Image"], first: nil, inserts: inserts, insert: insertHere,
+                choose: shown == nil ? nil : (title: "Choose Picture…", action: { choosingPicture = true }))
         case .chart:
             InsertMenu(title: "Chart", symbol: "chart.bar", kinds: ["Chart"], first: nil, inserts: inserts, insert: insertHere)
         case .table:
@@ -357,6 +387,8 @@ struct DeckView: View {
         } label: {
             Label("View", systemImage: "rectangle.on.rectangle")
         }
+        // Read by its name, not its symbol's: VoiceOver would say Screen Sharing.
+        .accessibilityLabel("View")
         .help("The light table, and what the window shows beside the slide")
     }
 
@@ -374,8 +406,13 @@ struct DeckView: View {
             Button("Zoom Out") { zoom.step(-1) }
                 .disabled(zoom.level <= 1 + 1e-9)
         } label: {
-            Label(zoomed, systemImage: "plus.magnifyingglass")
+            // How close, in words: a presentation app's zoom says its percentage.
+            Text(zoomed)
+                .monospacedDigit()
+                .frame(minWidth: 40)
         }
+        .accessibilityLabel("Zoom")
+        .accessibilityValue(zoomed)
         .help("How close the slide is shown (⌘=, ⌘−, ⌘0)")
         .disabled(shown == nil || showsSlides)
     }
@@ -423,6 +460,7 @@ struct DeckView: View {
         } label: {
             Label("Share", systemImage: "square.and.arrow.up")
         }
+        .accessibilityLabel("Share")
         .help("The deck as a PDF, or this slide as a picture")
         .disabled(editor.slots.isEmpty)
     }
@@ -441,9 +479,9 @@ struct DeckView: View {
             })
     }
 
-    /// What the View and Play menus do in this window (PLAN 3.18).
+    /// What the View, Slide, and Play menus do in this window (PLAN 3.18).
     private var panes: WindowPanes {
-        WindowPanes(
+        var made = WindowPanes(
             slides: $showsSlides, timeline: $showsTimeline, formats: $showsFormats, grid: $showsGrid,
             safeArea: $showsSafeArea, issues: $showsFindings, source: $showsSource, assistant: $showsAssistant,
             inspector: $showsInspector,
@@ -451,6 +489,44 @@ struct DeckView: View {
             play: editor.slots.isEmpty ? nil : { Presenting.play(editor, from: shown) },
             rehearse: editor.slots.isEmpty || rehearsal != nil || !editor.valid ? nil : { rehearse() },
             remote: { remoting = true })
+        // The Slide menu acts on the slide shown, as the slide list's menu acts on its slide.
+        if let shown, rehearsal == nil, let slide = editor.slots.first(where: { $0.state == shown })?.slide {
+            made.newSlide = { addState(after: shown, as: .slide) }
+            made.newStep = { addState(after: shown, as: .step) }
+            made.duplicateSlide = { duplicateSlide(slide) }
+            if Slide.of(editor.slots).count > 1 { made.deleteSlide = { deleteSlide(slide) } }
+        }
+        return made
+    }
+
+    /// A copy of `slide` just after it, shown (PLAN 3.14): one step to undo.
+    private func duplicateSlide(_ slide: String) {
+        perform {
+            try document.make(Restaging.duplicateSlides([slide]), undo: undo)
+            undo?.setActionName("Duplicate Slide")
+            // The copy is the slide just after the one it copies.
+            let slides = Slide.of(editor.slots)
+            if let i = slides.firstIndex(where: { $0.id == slide }), i + 1 < slides.count,
+                let first = slides[i + 1].states.first
+            {
+                chosen = first
+            }
+            said = "Slide duplicated"
+        }
+    }
+
+    /// `slide` taken out, with its steps, and the slide after it shown, or, past the last, the one
+    /// before (PLAN 3.14): one step to undo.
+    private func deleteSlide(_ slide: String) {
+        let slides = Slide.of(editor.slots)
+        guard slides.count > 1, let i = slides.firstIndex(where: { $0.id == slide }) else { return }
+        let next = i + 1 < slides.count ? slides[i + 1] : slides[i - 1]
+        perform {
+            try document.make(Restaging.removeSlides([slide]), undo: undo)
+            undo?.setActionName("Delete Slide")
+            chosen = next.states.first
+            said = "Slide deleted"
+        }
     }
 
     /// The deck played here, as presented, keeping the time each slide takes (PLAN 3.14).
@@ -469,6 +545,8 @@ struct DeckView: View {
     private func watched(_ view: some View) -> some View {
         view
             .onChange(of: shown, initial: true) { _, now in
+                // The slide shown is the one the list selects: the deck's first, as it opens.
+                if chosen != now { chosen = now }
                 // A state chosen plays its cue, as it does in the browser.
                 editor.shown = now
                 node = arriving
@@ -476,6 +554,12 @@ struct DeckView: View {
                 arriving = nil
                 playhead = Playhead()
                 typing?.sync(shown: now)
+            }
+            .task(id: said) {
+                // What the canvas says of an edit, a moment over the slide, then gone.
+                guard said != nil else { return }
+                try? await Task.sleep(for: .seconds(6))
+                if !Task.isCancelled { said = nil }
             }
             .onChange(of: undo, initial: true) { _, now in
                 // The assistant's edits are each one step of this window's undo.
@@ -537,6 +621,19 @@ struct DeckView: View {
                     perform { try document.make(ops, undo: undo) }
                 }
             }
+            .sheet(isPresented: choosingTheme) {
+                ThemeChooser(themes: offeredThemes) { name in
+                    offeredThemes = []
+                    if let name { begin(in: name) }
+                }
+            }
+            // A deck New made: the themes that ship offered first, once its window is up.
+            .task {
+                guard document.startsNew else { return }
+                document.startsNew = false
+                try? await Task.sleep(for: .milliseconds(250))
+                offeredThemes = (try? editor.session.shippedThemes()) ?? []
+            }
             .alert("Not made", isPresented: failing, presenting: failure) { _ in
                 Button("OK") { failure = nil }
             } message: { said in
@@ -547,6 +644,31 @@ struct DeckView: View {
     /// Whether an export waits to be saved.
     private var exporting: Binding<Bool> {
         Binding(get: { saving != nil }, set: { if !$0 { saving = nil } })
+    }
+
+    /// Whether the themes that ship are offered.
+    private var choosingTheme: Binding<Bool> {
+        Binding(get: { !offeredThemes.isEmpty }, set: { if !$0 { offeredThemes = [] } })
+    }
+
+    /// A deck New made put in the theme that ships named `name`, before anything is on it (PLAN
+    /// 3.3): no step to undo. What only the theme it leaves named, its file and its fonts, goes
+    /// with it, so the bundle holds the one theme.
+    private func begin(in name: String) {
+        perform {
+            let session = editor.session
+            let ships = try session.shippedThemes().first { $0.name == name }
+            let current = try session.themes().current.map { ($0 as NSString).lastPathComponent }
+            guard let ships, current != ships.file else { return }
+            let themed = try session.retheme(ships: name)
+            guard themed.applied else {
+                throw Refused(description: "not re-themed: \(themed.why.first ?? "the deck would not validate in it")")
+            }
+            for file in try session.bundleFiles() where file.named.isEmpty {
+                try session.removeFile(file.path)
+            }
+            editor.reread()
+        }
     }
 
     /// Whether what a rehearsal kept is shown.
@@ -751,6 +873,7 @@ struct DeckView: View {
             group: selection.count > 1 ? { group(in: shown) } : nil,
             ungroup: one && grouped ? { ungroup(in: shown) } : nil,
             order: some ? { how in order(how, in: shown) } : nil)
+        made.choosePicture = { choosingPicture = true }
         // In another of the deck's formats, a node given a layout of its own there (PLAN 2.85).
         if one, let node, let format = editor.format {
             made.placeAnew = { placeAnew(node, in: format, state: shown) }
