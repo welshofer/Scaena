@@ -199,13 +199,14 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   sleep 1
 
   # Add Slide's gallery (PLAN 3.30): the theme's layouts in its sections, each drawn as a slide
-  # started in it. A click starts a big number after the slide shown, and ⌘Z takes it back.
+  # started in it. A click on the first, a title slide, starts it after the slide shown, and ⌘Z
+  # takes it back. The gallery draws a tile only once it is scrolled to: the first is in view.
   read -r ax ay aw ah <<<"$(frames find add-slide)" || true
   if [[ "${ah:-}" =~ ^[0-9]+$ ]]; then
     pointer click $((ax + aw / 2)) $((ay + ah / 2))
     drawn="not within 30 s"
     for waited in $(seq 0 30); do
-      read -r bx by bw bh <<<"$(frames find start-big-number)" || true
+      read -r bx by bw bh <<<"$(frames find start-title)" || true
       if [[ "${bh:-}" =~ ^[0-9]+$ ]]; then
         drawn="within $waited s"
         break
