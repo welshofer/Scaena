@@ -6,7 +6,8 @@ import SwiftUI
 /// the browser's strip is (PLAN 2.35, 3.14); a slide's steps under it, set in. A slide or a step is
 /// added after one, moved by a drag or a step up or down, and removed; a slide copied or taken out.
 /// Each is one patch, one step to undo. On the Mac, Delete takes out the slide chosen, with its
-/// steps, or the step chosen, as a presentation app's navigator does, and the one after it shows.
+/// steps, or the step chosen, as a presentation app's navigator does, and the one after it shows;
+/// Return adds a slide after it.
 struct StateList: View {
     let editor: DeckEditor
     @Binding var chosen: String?
@@ -46,9 +47,18 @@ struct StateList: View {
         }
         #if os(macOS)
         list.onDeleteCommand(perform: deleteChosen)
+            .onKeyPress(.return, action: newSlide)
         #else
-        list
+        list.onKeyPress(.return, action: newSlide)
         #endif
+    }
+
+    /// Return adds a slide after the slide chosen and shows it, as a presentation app's navigator
+    /// does.
+    private func newSlide() -> KeyPress.Result {
+        guard let chosen else { return .ignored }
+        add(chosen, .slide)
+        return .handled
     }
 
     /// The row chosen taken out: its slide, with its steps, where it is a slide's first state;
