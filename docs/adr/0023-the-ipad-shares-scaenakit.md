@@ -1,6 +1,6 @@
 # ADR-0023: The iPad client shares the Mac's ScaenaKit, and Xcode builds it
 
-**Status:** proposed · **Date:** 2026-10-09
+**Status:** accepted (Jay, 2026-10-11) · **Date:** 2026-10-09
 
 ## Context
 
@@ -36,7 +36,7 @@ Three things differ on the iPad:
 2. **The app's sources are the Mac's.** The iPad's app target compiles the Mac app's SwiftUI (`apps/mac/ScaenaKit/Sources/Scaena`) as it is: the window, the state list, the light table, the inspector and its panels, the cue's bar, and the findings.
    - Each AppKit piece sits behind `#if os(macOS)`, with a UIKit twin beside it, as in ScaenaKit.
    - What only the iPad has lives in `apps/ipad/Sources`.
-   - The source pane is a text view on each platform; Jay's call on TextKit in chrome (gate 3, criterion 3) covers both.
+   - The source pane is a text view on each platform: TextKit in chrome, which Jay's call of 2026-10-11 allows on both (invariant 8, SPEC §9.3).
 3. **The iPad app is an Xcode project that XcodeGen makes from `apps/ipad/project.yml`.** The generated project is not kept in the repository.
    - A build phase builds `scaena-ffi` with cargo for the platform Xcode builds for: `aarch64-apple-ios` or `aarch64-apple-ios-sim`, in release for a Release build.
    - The app links the library by search path, as the Mac's app links its own.

@@ -5,7 +5,7 @@ Phase 4's exit criteria (PLAN, "Exit criteria (gate 4)"), each with its evidence
 **Where it stands:**
 - **Criterion 1** (same pixels as the web player, on an iPad's GPU). The same frame is met on CI's simulator: the torture deck's display lists there are the goldens'. The same pixels on an iPad's GPU wait on an iPad, since vello never runs on the simulator.
 - **Criterion 2** (first frame under 300 ms on an M-series iPad) waits on an iPad. `just ipad-gate UDID` reads it there, in release, with one command.
-- **Criterion 3** (no text layout where a deck is drawn) is met, held by the test that holds gate 3's. The source pane's `UITextView` falls under gate 3's open call on TextKit in chrome.
+- **Criterion 3** (no text layout where a deck is drawn) is met, held by the test that holds gate 3's. The source pane's `UITextView` is TextKit in chrome, on Jay's call for gate 3.
 - **Criterion 4** (each edit by touch the Mac's patch, and one step of undo) is met for touch on the simulator:
   - Each gesture makes the Mac's patch through the Mac's ScaenaKit functions, and the iPad's UI tests make each edit by touch on B1.
   - Each edit is one step of undo: by keys, in the inspector's panels, and by touch through the toolbar's Undo (PLAN 4.11).
@@ -33,7 +33,7 @@ Phase 4's exit criteria (PLAN, "Exit criteria (gate 4)"), each with its evidence
 - the Metal surface made;
 - the first state's first frame presented on a layer.
 
-On the iPad it prints `gate 4, criterion 2: …`, and where the time went.
+On the iPad it prints `gate 4, criterion 2: …`, and where the time went. As on the Mac, the gate reads the open with the app running, and the cold launch is logged beside it (Jay's call, 2026-10-11).
 
 - **An iPad reaches none of the Mac's files, and runs no test bundle without an app.** So gate 4's tests are a target of their own, `ScaenaGateTests`, hosted by an app that does nothing (`GateHost`), so that the tests time the engine alone. Its bundle carries B1, the torture deck, and the goldens' digests (`apps/ipad/project.yml`). CI runs the same target on the simulator, reading the same copies.
 - **CI's readings are not the gate's.** CI's `ipad` job runs the test on the simulator under three conditions that are not the gate's:
@@ -68,7 +68,7 @@ On the iPad it prints `gate 4, criterion 2: …`, and where the time went.
 
   SwiftUI draws chrome: lists, the inspector, the findings, the assistant's conversation.
 - **Held by gate 3's test.** `crates/scaena-ffi/tests/chrome.rs` reads every Swift file of ScaenaKit and of the app, their iPad code included, and the iPad's own (`apps/ipad`). It fails on any API that lays text out, measures it, or draws it outside the engine: Core Text, TextKit, `UITextView`, `UITextField`, `UILabel`, and string measuring and drawing.
-- **The source pane** is a `UITextView` of the deck's `.scn`. That is TextKit in chrome, the iPad's side of Jay's open call on gate 3 (SPEC §9.3 against invariant 8, `docs/gate-3.md`). The test allows it in `SourcePane.swift` alone, as it allows the Mac's `NSTextView`.
+- **The source pane** is a `UITextView` of the deck's `.scn`. That is TextKit in chrome, which Jay's call for gate 3 allows on both platforms (SPEC §9.3, invariant 8, `docs/gate-3.md`). The test allows it in `SourcePane.swift` alone, as it allows the Mac's `NSTextView`.
 
 ## 4. Each edit by touch or Pencil is the patch the Mac's pointer makes for it, and one step of undo: met for touch, the Pencil needs an iPad
 

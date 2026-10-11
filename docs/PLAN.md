@@ -1552,7 +1552,7 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 
 ### Exit criteria (gate 3)
 1. Same bundle, same frame, same pixels (within tolerance) as the web player.
-2. Open → first frame < 300 ms for a 40-state deck on an M-series Mac.
+2. Open → first frame < 300 ms for a 40-state deck on an M-series Mac, with the app running; the cold launch is logged beside it (Jay's call, 2026-10-11).
 3. SwiftUI code contains zero text layout; all geometry comes from the engine.
 
 ---
@@ -1584,7 +1584,7 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
       - the panes, stacked where the Mac's split views divide them;
       - Play, presented full screen;
       - Export, through the share sheet;
-      - the source pane, a `UITextView` (gate 3's open call on TextKit in chrome covers it);
+      - the source pane, a `UITextView`: TextKit in chrome, as the Mac's `NSTextView` is (invariant 8, SPEC §9.3);
       - the assistant's keys, a sheet, since the iPad has no Settings window.
     - **The window.** The Mac's `NavigationSplitView`, its state list folding away in a narrow window, with an inspector that becomes a sheet there.
     - **Tested by XCUITest.** `apps/ipad/app-test.sh` (`just ipad-test`, and CI's `ipad` job) builds the app and its UI tests for the simulator, installs the app, puts B1 in its Documents folder, and runs the tests (`apps/ipad/ScaenaUITests`):
@@ -1650,7 +1650,7 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 
 ### Exit criteria (gate 4)
 1. Same bundle, same frame, same pixels (within tolerance) as the web player, painted on an iPad's GPU.
-2. Open → first frame < 300 ms for a 40-state deck on an M-series iPad.
+2. Open → first frame < 300 ms for a 40-state deck on an M-series iPad, with the app running; the cold launch is logged beside it, as on the Mac.
 3. Neither SwiftUI nor UIKit lays out text where a deck is drawn; all geometry comes from the engine.
 4. Each edit by touch or Pencil is the patch the Mac's pointer makes for it, and one step of undo.
 
@@ -1685,7 +1685,7 @@ Not before Jay schedules it: until then Scaena's focus is editing and rendering.
 4. **Schema is law.** `deck.json` changes are made in the typed model (`scaena-core::model`), which regenerates the schema (`just bless`), with example updates and a format version bump (minor for additive, major for breaking; before 1.0 a breaking change takes the minor, ADR-0007). A breaking change also raises the oldest format a build reads, since every one from it on opens as the current one (SPEC §3.1).
 5. **Lint rules come with fixtures.** One deck that triggers, one that doesn't.
 6. **PPTX/Keynote never touch the model or the engine.** No import filter, no shared abstraction, no "just a quick converter" in `crates/`. A lossy external projection is permitted in principle, like PDF export, and is not planned.
-7. **No HTML/CSS layout in the engine, no TextKit in the Mac app.** The engine lays out; clients paint.
+7. **No HTML/CSS layout in the engine, no TextKit where a deck is drawn.** The engine lays out; clients paint. The source pane's editor is chrome (SPEC §9.3).
 
 ---
 
@@ -1712,5 +1712,5 @@ Not before Jay schedules it: until then Scaena's focus is editing and rendering.
 | 0 | 2026-10-02 | met: go | All seven exit criteria met; evidence, timings, and what did not match in `docs/spike-report.md`. Phase 1 starts at 1.1. |
 | 1 | 2026-10-03 | met | All five exit criteria met. The evidence per criterion is in `docs/gate-1.md`, and the agent runs are in `docs/examples/agent-run.md`. Phase 2 may start at 2.1. Of Phase 1's open tasks, 1.9 and 1.32 wait on Jay's review, 1.28–1.31 on his scheduling, and 1.33–1.36 come from the runs. |
 | 2 | — | open | Criteria 2 and 3 are met in headless Chromium, and criterion 4 by Jay's run with his own key on 2026-10-07 (Anthropic, `claude-haiku-5-5`). Criterion 1 needs a real machine's browsers, read with the player's frame meter (`?fps`). The evidence and the steps are in `docs/gate-2.md`. On 2026-10-08 Jay started Phase 3 with criterion 1 open, not waived: the gate is logged met when his browsers read the bar. |
-| 3 | — | open | Every task of Phase 3 has landed: the app (3.1–3.8), then the editor as the browser's (3.9–3.17), each waiting on a run on a Mac. Criterion 1 is met on CI's Mac through the goldens the web player is held to; criterion 3 is met for everything that draws a deck, held by `crates/scaena-ffi/tests/chrome.rs`, with Jay's call open on the source pane's TextKit (invariant 8 against SPEC §9.3). Criterion 2 needs the release build on an M-series Mac. On CI's virtual Mac, the release build opens B1 to its first frame in 32–35 ms warm and 161 ms cold, once the GPU the app makes as it starts is made (0.66 s); before every layer shared that GPU, it took 0.62 s. That is not the gate's reading. The evidence and the steps are in `docs/gate-3.md`. On 2026-10-09 Jay started Phase 4, the iPad client, with gate 3 open, not waived: the gate is logged met when his Mac's run meets it. |
-| 4 | — | open | Every task of Phase 4 has landed (4.1–4.11). Criterion 3 is met, held by `crates/scaena-ffi/tests/chrome.rs` as gate 3's is; the source pane's `UITextView` falls under gate 3's open call. Criterion 1's same frame is met on CI's iPad simulator, the torture deck's display lists there the goldens'; its pixels on an iPad's GPU need an iPad, since the simulator's GPU runs no vello. Criterion 2 needs the release build on an M-series iPad. `just ipad-gate UDID` reads criteria 1 and 2 there in one command: gate 4's tests are a target of their own, hosted by an app that does nothing, whose bundle carries B1 and the torture deck. CI's `ipad` job runs the same command on the simulator. Criterion 4 is met for touch on the simulator: each gesture's patch is the Mac's, through the same ScaenaKit functions, and each edit is one step of undo, by keys, in the inspector's panels, and by touch through the toolbar's Undo (4.11); the Pencil waits on an iPad. The evidence and the steps are in `docs/gate-4.md`. |
+| 3 | — | open | Every task of Phase 3 has landed: the app (3.1–3.8), then the editor as the browser's (3.9–3.17), each waiting on a run on a Mac. Criterion 1 is met on CI's Mac through the goldens the web player is held to; criterion 3 is met, held by `crates/scaena-ffi/tests/chrome.rs`: on Jay's call (2026-10-11) the source pane's TextKit is chrome, and invariant 8 says so, as SPEC §9.3 does. Criterion 2 needs the release build on an M-series Mac, read with the app running, the cold launch logged beside it (Jay's call, 2026-10-11). On CI's virtual Mac, the release build opens B1 to its first frame in 32–35 ms warm and 161 ms cold, once the GPU the app makes as it starts is made (0.66 s); before every layer shared that GPU, it took 0.62 s. That is not the gate's reading. The evidence and the steps are in `docs/gate-3.md`. On 2026-10-09 Jay started Phase 4, the iPad client, with gate 3 open, not waived: the gate is logged met when his Mac's run meets it. |
+| 4 | — | open | Every task of Phase 4 has landed (4.1–4.11). Criterion 3 is met, held by `crates/scaena-ffi/tests/chrome.rs` as gate 3's is; the source pane's `UITextView` is chrome on the same call. Criterion 1's same frame is met on CI's iPad simulator, the torture deck's display lists there the goldens'; its pixels on an iPad's GPU need an iPad, since the simulator's GPU runs no vello. Criterion 2 needs the release build on an M-series iPad. `just ipad-gate UDID` reads criteria 1 and 2 there in one command: gate 4's tests are a target of their own, hosted by an app that does nothing, whose bundle carries B1 and the torture deck. CI's `ipad` job runs the same command on the simulator. Criterion 4 is met for touch on the simulator: each gesture's patch is the Mac's, through the same ScaenaKit functions, and each edit is one step of undo, by keys, in the inspector's panels, and by touch through the toolbar's Undo (4.11); the Pencil waits on an iPad. The evidence and the steps are in `docs/gate-4.md`. |
