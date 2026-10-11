@@ -16,6 +16,8 @@ mkdir -p "$app/Contents/MacOS" "$out/shots"
 # What it says goes with the screenshots too.
 exec > >(tee "$out/shots/window.txt") 2>&1
 cp "$bin/Scaena" "$app/Contents/MacOS/Scaena"
+# What the canvas holds as VoiceOver hears it, read by the accessibility API (holds.swift).
+swiftc -O -o "$out/holds" "$root/apps/mac/holds.swift" || echo "holds.swift: not built"
 cp "$root/apps/mac/Scaena/Info.plist" "$app/Contents/Info.plist"
 codesign --force --sign - "$app"
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app"
@@ -26,6 +28,7 @@ open -a "$app" "$out/trails.scaena"
 # The window, its states drawn small, and the canvas painted.
 sleep 15
 screencapture -x "$out/shots/mac-trails.png"
+echo "the canvas as VoiceOver hears it: $("$out/holds" "$(pgrep -n -x Scaena)" canvas 2>&1 | head -3 | tr '\n' ';')"
 
 # A walk of the window, as a person's first minute in it, each step's screen kept and where the
 # window stands said. The pointer is the mouse's own events (`pointer.js`), which the canvas's
@@ -36,6 +39,10 @@ app() { events "tell process \"Scaena\" to $1"; }
 window() { app "get {position, size} of window 1" | tr -d ','; }
 pointer() { osascript -l JavaScript "$root/apps/mac/pointer.js" "$@" 2>&1 || true; }
 frames() { osascript -l JavaScript "$root/apps/mac/frames.js" "$@" 2>&1 || true; }
+# What the objects an element holds read as to VoiceOver, one to a line: by the accessibility API,
+# which reads the attributed description SwiftUI keeps a label in; else by System Events, which
+# reads none of them.
+holds() { "$out/holds" "$(pgrep -n -x Scaena)" "$1" 2>/dev/null || frames holds "$1"; }
 # A menu's item chosen; again a moment later while the app is too busy to be asked, as it may be
 # just after an edit, up to five times.
 menu() {
@@ -62,6 +69,20 @@ reads() {
   echo "still ${now:-nothing} after 20 s"
 }
 shot() { screencapture -x "$out/shots/mac-$1.png"; }
+# How long until what `READER IDENTIFIER` reads (`holds canvas`) is no longer BEFORE, and holds
+# WORDS where they are given, up to 20 seconds.
+changed() {
+  local reader=$1 tag=$2 before=$3 words=${4:-} start=$SECONDS now
+  while ((SECONDS - start <= 20)); do
+    now=$("$reader" "$tag")
+    if [[ "$now" != "$before" && "$now" == *"$words"* ]]; then
+      echo "within $((SECONDS - start)) s"
+      return
+    fi
+    sleep 1
+  done
+  echo "not within 20 s"
+}
 # The screen, and the part of it a window may take: width, height, then the part's left, top,
 # width, and height, in points.
 screen=$(osascript -l JavaScript -e 'ObjC.import("AppKit");
@@ -154,9 +175,12 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
     pointer click "$cx" "$cy"
     sleep 2
     shot clicked
-    # Dragged a little right and down, it lands where it is let go (PLAN 3.19); then undone.
+    # Dragged a little right and down, it lands where it is let go (PLAN 3.19); then undone. The
+    # drop has landed once the objects the canvas holds stand otherwise: on CI's virtual Mac the
+    # drag's guides were still drawn two seconds after it was let go.
+    before=$(holds canvas)
     pointer drag "$cx" "$cy" $((cx + 90)) $((cy + 40))
-    sleep 2
+    echo "the drop landed: $(changed holds canvas "$before")"
     shot dragged
     events 'keystroke "z" using command down'
     sleep 2
@@ -193,8 +217,9 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
     done
     echo "the text inserted, typed in: $typing"
     shot inserted
+    before=$(holds canvas)
     events 'keystroke "Seen on a Mac"'
-    sleep 2
+    echo "the words typed, shown: $(changed holds canvas "$before" "Seen on a Mac")"
     shot typed
     events 'key code 53'
     sleep 1
@@ -203,7 +228,7 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   fi
   # The same from the Insert menu, opened as a person opens it.
   echo "the slide holds, before:"
-  frames holds canvas
+  holds canvas
   app 'click menu bar item "Insert" of menu bar 1' >/dev/null
   sleep 1
   app 'click menu item "Text" of menu 1 of menu bar item "Insert" of menu bar 1' >/dev/null
@@ -214,7 +239,7 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   sleep 2
   shot inserted-menu
   echo "the slide holds, after:"
-  frames holds canvas
+  holds canvas
   events 'key code 53'
   sleep 1
 
@@ -268,12 +293,12 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
       pointer click $((bx + bw / 2)) $((by + bh / 2))
       sleep 2
       echo "the slide started holds:"
-      frames holds canvas
+      holds canvas
       shot started
       events 'keystroke "z" using command down'
       sleep 2
       echo "⌘Z, the slide shown holds:"
-      frames holds canvas
+      holds canvas
       shot started-undone
     else
       events 'key code 53'
