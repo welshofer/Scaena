@@ -1310,7 +1310,8 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
       - The window's Assistant (⌥⌘A):
         - lists the provider's models from its key;
         - begins each question with the state shown and the node selected;
-        - shows what each call came to and the frame it drew;
+        - shows what each call came to and the frame it drew, each call named in a person's words, never by its tool's name (`ToolWords`, PLAN 3.18);
+        - says what it is doing while it works ("Thinking…", or the call running, as "Editing the deck…"), a light sweeping across the words, held still where Reduce Motion is on; the browser's panel says "Working…" the same way, still where motion is less;
         - Stop answers the calls not yet run as stopped.
     - **On this Mac.** With Apple's Foundation Models (macOS 26, Apple Intelligence):
       - Explain, beside a finding, says what it means for the deck;
@@ -1322,7 +1323,7 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
       - scaena-chat's `exchanges`: the three adapters' requests and reads, models, and failures, and the page's prompt, against the record; a question run through two rounds; frames named past the newest two.
       - scaena-chat's unit tests: every MCP tool known; a summary for each kind of call.
       - The `ffi` suite's `the_assistant_asks_with_the_users_key_and_runs_each_call_on_the_bundle` (on B1: the request; three calls run, the frame a PNG; an edit by the agent; a model switched; a stop; a refusal) and `an_assistants_theme_edit_is_written_back_by_an_undo`.
-      - ScaenaKit's `ChatTests` on CI's macOS runner: the conversation through the C ABI; a key's models; the loop, with a stand-in for the network, making the model's edit the window's own; and the Keychain, where the runner lets a test write it.
+      - ScaenaKit's `ChatTests` on CI's macOS runner: the conversation through the C ABI; a key's models; the loop, with a stand-in for the network, making the model's edit the window's own; the Keychain, where the runner lets a test write it; and `everyToolIsNamedInAPersonsWords`, every tool in `docs/schema/mcp` given words of its own.
     - **What waits.** A question asked in the app with a real key, and the on-device tasks on a Mac with Apple Intelligence.
 - [ ] 3.7 Direct manipulation v1: move/resize within template slots emits patches; off-template drags create explicit overrides (visibly flagged). *(Built; waits on a run on a Mac.)*
     - **As the browser's canvas** (PLAN 2.29–2.31, ADR-0013). A drag of a node, or a press on a node not selected, which selects it, moves it; a handle of the box selected, a corner or an edge's middle, resizes it.
