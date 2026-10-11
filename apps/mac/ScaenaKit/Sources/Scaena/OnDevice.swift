@@ -7,14 +7,14 @@ import FoundationModels
 #endif
 
 /// The on-device model's three tasks (PLAN 3.6, ADR-0022): a finding explained, a state's notes
-/// drafted, and a text's words tightened. Apple's Foundation Models answer on this Mac, and
-/// nothing leaves it. None edits on its own: each answer is offered, and the user takes it as one
-/// patch, or leaves it. Where the Mac has no model ready (before macOS 26, or without Apple
-/// Intelligence), none is offered.
+/// drafted, and a text's words tightened. Apple's Foundation Models answer on this Mac or iPad,
+/// and nothing leaves it. None edits on its own: each answer is offered, and the user takes it as
+/// one patch, or leaves it. Where the device has no model ready (before macOS or iPadOS 26, or
+/// without Apple Intelligence), none is offered.
 enum OnDevice {
     /// Why no answer came.
     struct Unavailable: LocalizedError {
-        var errorDescription: String? { "The on-device model is not available on this Mac." }
+        var errorDescription: String? { "The on-device model is not available on this \(Words.device)." }
     }
 
     /// Whether the on-device model is ready to answer.
@@ -123,9 +123,9 @@ struct OfferSheet: View {
             } else if let failure {
                 Text(failure).foregroundStyle(.secondary)
             } else {
-                ProgressView("Thinking on this Mac…")
+                ProgressView("Thinking on this \(Words.device)…")
             }
-            Text("Answered on this Mac: nothing was sent anywhere.").font(.caption).foregroundStyle(.secondary)
+            Text("Answered on this \(Words.device): nothing was sent anywhere.").font(.caption).foregroundStyle(.secondary)
             HStack {
                 Spacer()
                 if let take, let answer {
