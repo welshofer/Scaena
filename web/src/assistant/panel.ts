@@ -73,6 +73,7 @@ export function panel(stage: Stage, editor: Editor): Panel {
   const askButton = $<HTMLButtonElement>("#ask");
   const stop = $<HTMLButtonElement>("#stop");
   const usageLine = $("#usage");
+  const thinking = $("#thinking");
   const settings = keys.settings();
   const used = { input: 0, output: 0 };
   let working = false;
@@ -282,6 +283,7 @@ export function panel(stage: Stage, editor: Editor): Panel {
     // What the editor shows as it is asked: the source locks below, and shows nothing then.
     const seeing = editor.seeing();
     working = true;
+    thinking.hidden = false;
     editor.lock(true);
     askButton.disabled = true;
     stop.hidden = false;
@@ -301,6 +303,7 @@ export function panel(stage: Stage, editor: Editor): Panel {
       return failure(e instanceof Error ? e.message : String(e));
     } finally {
       working = false;
+      thinking.hidden = true;
       editor.lock(false);
       askButton.disabled = false;
       stop.hidden = true;

@@ -162,3 +162,21 @@ private func keychainWritable() -> Bool {
     #expect(keychain.key(for: .openai) == nil)
     #expect(keychain.providers.isEmpty)
 }
+
+/// Each tool the MCP server serves (`docs/schema/mcp`) has a person's words for the window (PLAN
+/// 3.18): what the assistant is doing while it runs, and what it did. So no tool's name reaches the
+/// window, and a tool added without words fails here.
+@Test func everyToolIsNamedInAPersonsWords() throws {
+    let folder = repository.appending(path: "docs/schema/mcp")
+    let tools = try FileManager.default.contentsOfDirectory(atPath: folder.path(percentEncoded: false))
+        .filter { $0.hasSuffix(".json") }
+        .map { String($0.dropLast(".json".count)) }
+    #expect(tools.count >= 16)
+    for tool in tools {
+        #expect(ToolWords.knows(tool), "\(tool) has no words of its own")
+        #expect(!ToolWords.doing(tool).contains("_") && !ToolWords.done(tool).contains("_"), "\(tool)")
+    }
+    #expect(ToolWords.doing("deck_patch") == "Editing the deck…")
+    #expect(ToolWords.done("deck_patch") == "Edited the deck")
+    #expect(ToolWords.doing("a_tool_to_come") == "Working…")
+}
