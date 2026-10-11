@@ -1,8 +1,8 @@
 // What the Mac app's window holds, as its accessibility tree says (PLAN 3.27): each element's role,
 // identifier, name, and frame in screen points from the top left, to a depth; the frame of the
 // first element with an identifier, as "x y width height"; what that element holds, each by its
-// role and what VoiceOver says it is, one to a line: the canvas's objects as a reader hears them;
-// each split view in the window with the frame of each pane in it: how the window's width is
+// role and its title or description, one to a line (a label SwiftUI keeps as an attributed
+// description reads as none here: the walk reads those with holds.swift); each split view in the window with the frame of each pane in it: how the window's width is
 // shared out; or the value of the first element with an identifier, else what VoiceOver says it
 // is, as a field shows what it holds (PLAN 3.28), the hint over the canvas says what it does, and
 // the canvas names the slide it shows.
@@ -11,7 +11,6 @@
 //   osascript -l JavaScript apps/mac/frames.js find IDENTIFIER
 //   osascript -l JavaScript apps/mac/frames.js value IDENTIFIER
 //   osascript -l JavaScript apps/mac/frames.js holds IDENTIFIER
-//   osascript -l JavaScript apps/mac/frames.js attributes IDENTIFIER
 //   osascript -l JavaScript apps/mac/frames.js splits
 function run(argv) {
   const [what, arg] = argv;
@@ -33,9 +32,11 @@ function run(argv) {
   };
   const children = (e) => read(() => e.uiElements()) ?? [];
 
-  // What VoiceOver says an element is: its title, else its description (AXDescription, where a
-  // SwiftUI label goes); none where it has neither. System Events' own `description` falls back to
-  // the element's role ("group", "heading"), which says nothing of what it holds.
+  // What VoiceOver says an element is: its title, else its description (AXDescription, where an
+  // AppKit control's label goes); none where it has neither. System Events cannot read the
+  // attributed description SwiftUI keeps a label of its own in (holds.swift reads it), and its own
+  // `description` falls back to the element's role ("group", "heading"), which says nothing of what
+  // it holds.
   const label = (e) => read(() => e.title()) || read(() => e.attributes.byName("AXDescription").value()) || "";
   const name = (e) => label(e) || read(() => e.description()) || "";
   // The first element under `roots` identified as `tag`: breadth first, as far as a window's
@@ -66,20 +67,6 @@ function run(argv) {
   if (what === "value") {
     const e = read(() => found(arg));
     return e ? String(read(() => e.value()) || label(e) || "") : "";
-  }
-  // Each attribute of the first objects an element holds, with its value, one to a line: where
-  // the app keeps what VoiceOver says of them. A value read as text where it reads so at all: one
-  // that is an element, or a list of them, does not.
-  if (what === "attributes") {
-    const held = children(found(arg)).slice(0, 2);
-    if (!held.length) return "it holds nothing";
-    return held
-      .map((e, i) => {
-        const names = read(() => e.attributes.name()) ?? [];
-        const said = names.map((n) => `  ${n} = ${read(() => String(e.attributes.byName(n).value())) ?? "(not as text)"}`);
-        return [`object ${i + 1}, ${read(() => e.role()) ?? "?"}:`, ...said].join("\n");
-      })
-      .join("\n");
   }
   if (what === "holds") {
     return children(found(arg))
