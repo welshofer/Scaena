@@ -91,7 +91,7 @@ struct Inspector: View {
                         Button("Draft Presenter Notes", systemImage: "sparkles") { draft(state) }
                     }
                 } footer: {
-                    Text("Runs on this Mac").font(.caption).foregroundStyle(.secondary)
+                    Text("Runs on this \(Words.device)").font(.caption).foregroundStyle(.secondary)
                 }
             }
         }

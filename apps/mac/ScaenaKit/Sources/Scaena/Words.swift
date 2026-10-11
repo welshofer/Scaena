@@ -6,6 +6,16 @@ import SwiftUI
 /// a presentation app calls it; a value is said, a time in seconds. No id, path, code, or
 /// millisecond reaches the window through here.
 enum Words {
+    /// The device the window is on, as a person calls it: what the on-device model answers on
+    /// (PLAN 3.6, 4.9).
+    static var device: String {
+        #if os(macOS)
+        "Mac"
+        #else
+        "iPad"
+        #endif
+    }
+
     /// A property of a node, of characters, or of the state, as the inspector labels it.
     static func label(_ prop: String) -> String {
         labels[prop] ?? phrase(prop.split(separator: "/").last.map(String.init) ?? prop)
