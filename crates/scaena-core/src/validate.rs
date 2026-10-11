@@ -18,8 +18,10 @@ use crate::transform;
 use crate::version;
 use serde::de::{DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Value, json};
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
+use std::sync::Arc;
 
 /// Validate `deck` and return every problem as an E-finding.
 pub fn validate(deck: &Deck) -> Vec<Finding> {
@@ -378,7 +380,7 @@ fn child(path: &str, token: &str) -> String {
 
 /// The theme, checked against its schema, with its typed view when it has one.
 struct LoadedTheme {
-    theme: Theme,
+    theme: Arc<Theme>,
     /// The bundle file it came from; `None` when it is inline in the deck.
     file: Option<String>,
     /// Where its paths start: `/theme` inline, the file's root otherwise.
@@ -580,20 +582,9 @@ fn load_theme(doc: &Value, files: &dyn BundleFiles, out: &mut Vec<Finding>) -> O
                 out.push(Finding::new("E102", Severity::Error, message).at("/theme"));
                 return None;
             };
-            let mut value: Value = match serde_json::from_str(&text) {
-                Ok(value) => value,
-                Err(e) => {
-                    out.push(Finding::new("E106", Severity::Error, format!("not JSON: {e}")).at("").file(path.clone()));
-                    return None;
-                }
-            };
-            version::THEME.as_read(&mut value, "scaena-theme");
-            for at in repeated_keys(&text).unwrap_or_default() {
-                out.push(repeated(&at).file(path.clone()));
-            }
-            out.extend(Checker::theme().check(&value).into_iter().map(|v| schema_finding(v).file(path.clone())));
-            let theme = Theme::from_json(&text).ok()?;
-            Some(LoadedTheme { theme, file: Some(path.clone()), root: "" })
+            let (findings, theme) = theme_file(path, text);
+            out.extend(findings);
+            Some(LoadedTheme { theme: theme?, file: Some(path.clone()), root: "" })
         }
         inline @ Value::Object(_) => {
             for v in Checker::theme().check(inline) {
@@ -601,10 +592,55 @@ fn load_theme(doc: &Value, files: &dyn BundleFiles, out: &mut Vec<Finding>) -> O
                 out.push(schema_finding(Violation { path, ..v }));
             }
             let theme = Theme::from_value(inline).ok()?;
-            Some(LoadedTheme { theme, file: None, root: "/theme" })
+            Some(LoadedTheme { theme: Arc::new(theme), file: None, root: "/theme" })
         }
         _ => None,
     }
+}
+
+/// The theme file last checked on this thread: its path and text, what checking it found, and
+/// the theme it reads as.
+struct Checked {
+    path: String,
+    text: String,
+    findings: Vec<Finding>,
+    theme: Option<Arc<Theme>>,
+}
+
+thread_local! {
+    static CHECKED: RefCell<Option<Checked>> = const { RefCell::new(None) };
+}
+
+/// What checking the theme file at `path`, whose text is `text`, finds by itself, against its
+/// schema and for keys written twice, and the theme it reads as, if it reads as one. A deck is
+/// checked again at each change, a keystroke at a time where it is typed, and its theme, the
+/// largest file a bundle holds, is the same file each time: what the file last checked found
+/// is kept, and found again only where its text is not the same (PLAN 3.31).
+fn theme_file(path: &str, text: String) -> (Vec<Finding>, Option<Arc<Theme>>) {
+    CHECKED.with_borrow_mut(|kept| {
+        if let Some(kept) = kept.as_ref().filter(|kept| kept.path == path && kept.text == text) {
+            return (kept.findings.clone(), kept.theme.clone());
+        }
+        let (findings, theme) = check_theme_file(path, &text);
+        *kept = Some(Checked { path: path.into(), text, findings: findings.clone(), theme: theme.clone() });
+        (findings, theme)
+    })
+}
+
+/// [`theme_file`], found anew.
+fn check_theme_file(path: &str, text: &str) -> (Vec<Finding>, Option<Arc<Theme>>) {
+    let mut value: Value = match serde_json::from_str(text) {
+        Ok(value) => value,
+        Err(e) => {
+            let finding = Finding::new("E106", Severity::Error, format!("not JSON: {e}")).at("").file(path);
+            return (vec![finding], None);
+        }
+    };
+    version::THEME.as_read(&mut value, "scaena-theme");
+    let mut out: Vec<Finding> =
+        repeated_keys(text).unwrap_or_default().iter().map(|at| repeated(at).file(path)).collect();
+    out.extend(Checker::theme().check(&value).into_iter().map(|v| schema_finding(v).file(path)));
+    (out, Theme::from_json(text).ok().map(Arc::new))
 }
 
 /// E104: a node's type never changes, and its lock is its own in every state (PLAN 2.95), so
@@ -1452,7 +1488,7 @@ fn grid_cells(deck: &Deck, snapshots: &[Snapshot], theme: Option<&LoadedTheme>) 
     // not the deck's (a format of the deck's own shape lays out the same).
     let own = [deck.canvas.width, deck.canvas.height];
     let mut grids: Vec<(Option<Format>, &Grid)> = Vec::new();
-    if let Some(t) = theme.map(|t| &t.theme) {
+    if let Some(t) = theme.map(|t| &*t.theme) {
         grids.push((None, &t.grid));
         for format in deck.formats.iter().filter_map(|f| Format::parse(f)).filter(|f| f.canvas(own) != own) {
             let there = t.formats.as_ref().and_then(|f| f.get(&format)).and_then(|f| f.grid.as_ref());

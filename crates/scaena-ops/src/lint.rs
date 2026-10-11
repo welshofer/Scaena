@@ -122,11 +122,13 @@ pub fn lint_with(
     layout: impl FnOnce(&Theme) -> Result<Vec<Finding>, OpsError>,
 ) -> Result<Linted, OpsError> {
     let mut found = scaena_core::validate::validate_bundle(&deck.to_json()?, files)?;
-    let model = theme.and_then(|t| scaena_core::model::theme::Theme::from_json(t).ok());
-    found.extend(scaena_core::lint::check(deck, model.as_ref()));
+    // Read once, for the document rules and the layout rules both.
+    let read = theme.map(Theme::from_json);
+    let model = read.as_ref().and_then(|t| t.as_ref().ok()).map(|t| &**t);
+    found.extend(scaena_core::lint::check(deck, model));
     let laid = theme.is_some() && !found.iter().any(|f| f.severity == Severity::Error);
-    if let (true, Some(text)) = (laid, theme) {
-        found.extend(layout(&Theme::from_json(text)?)?);
+    if let (true, Some(read)) = (laid, read) {
+        found.extend(layout(&read?)?);
     }
     scaena_core::lint::sort(&mut found);
     Ok(Linted { findings: found, laid })
