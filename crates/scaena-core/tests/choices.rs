@@ -549,6 +549,20 @@ fn a_texts_look_says_what_its_role_gives_where_the_deck_sets_none() {
     assert!(chart.fields.iter().all(|f| f.theme.is_none()), "{:?}", chart.fields);
 }
 
+/// A text in a slot that shrinks what is set in it says so where the deck sets no fit (theme
+/// format 0.13): a Stat's number shrinks to fit, as the engine sets it.
+#[test]
+fn a_text_in_a_slot_that_shrinks_says_it_shrinks() {
+    let mut doc = example();
+    doc["states"][1]["layout"] = json!("stat");
+    doc["states"][1]["props"]["title"]["at"] = json!({ "in": "number" });
+    let c = offered(&doc, "revenue", "title");
+    assert_eq!(field(&c, "fit").theme, Some(json!("shrink")));
+    assert!(field(&c, "fit").value.is_none(), "the deck sets none of it");
+    // Its role is the deck's own, so the slot gives it none.
+    assert_eq!(field(&c, "role").theme, None);
+}
+
 /// One keyword aligns both axes: an inspector shows it as the axis's own (PLAN 3.25).
 #[test]
 fn one_keyword_shows_as_each_axis() {

@@ -76,6 +76,29 @@ fn shrink_stops_at_the_minimum_size_and_reports_the_overflow() {
     assert!(p.overflow, "still too tall at its minimum: W203");
 }
 
+/// A text placed in a slot that shrinks what is set in it (theme format 0.13), as a number too
+/// wide for a Stat's slot is, shrinks as one whose own `fit` says so; a text that says how it
+/// fits keeps its own.
+#[test]
+fn a_slot_that_shrinks_what_is_set_in_it_shrinks_a_text_that_does_not_say() {
+    let mut t: Value = serde_json::from_slice(&read("theme.json")).unwrap();
+    t["layouts"]["specimen"]["slots"]["narrow"] = json!({ "col": [1, 4], "row": 2, "fit": "shrink" });
+    let theme = Theme::from_json(&t.to_string()).unwrap();
+    let at = |d: &Deck, node: &str| {
+        let data = DataFiles::new();
+        let req = FrameRequest { deck: d, theme: &theme, data: &data, state: "t", t_ms: f64::INFINITY, format: None };
+        engine(d).text_layout(&req, node).unwrap()
+    };
+    let d = deck(json!({
+        "n": { "type": "text", "role": "body", "text": LONG, "at": { "in": "narrow" } },
+        "w": { "type": "text", "role": "body", "fit": "wrap", "text": LONG, "at": { "in": "narrow" } },
+    }));
+    let shrunk = at(&d, "n");
+    assert!(shrunk.scale < 1.0 && !shrunk.overflow, "{} {}", shrunk.scale, shrunk.overflow);
+    let own = at(&d, "w");
+    assert!(own.scale == 1.0 && own.overflow, "its own `wrap` wins: {} {}", own.scale, own.overflow);
+}
+
 #[test]
 fn shrink_also_holds_the_text_to_max_lines() {
     let text = "Three short lines of body text";

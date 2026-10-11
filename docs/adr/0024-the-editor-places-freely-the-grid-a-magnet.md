@@ -1,6 +1,6 @@
 # ADR-0024: The Mac and iPad editors place freely; the grid is a magnet
 
-**Status:** proposed · **Date:** 2026-10-09
+**Status:** accepted (Jay, 2026-10-11) · **Date:** 2026-10-09
 
 ## Context
 

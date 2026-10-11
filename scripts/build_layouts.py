@@ -63,7 +63,7 @@ def chart(kind):
 # Slots, on Dusk's grid.
 
 
-def slot(col, row, role=None, prompt=None, align=None, inset=None, bleed=None, example=None):
+def slot(col, row, role=None, prompt=None, align=None, inset=None, bleed=None, example=None, fit=None):
     """A slot: its columns and rows, each a pair of tracks, first to last."""
     s = {"col": list(col), "row": list(row)}
     if align:
@@ -78,6 +78,8 @@ def slot(col, row, role=None, prompt=None, align=None, inset=None, bleed=None, e
         s["bleed"] = True
     if example:
         s["example"] = example
+    if fit:
+        s["fit"] = fit
     return s
 
 
@@ -512,7 +514,7 @@ layout("Numbers", "progress", "Three goals, each with a bar that shows how far i
 
 layout("Numbers", "number-photo", "One number, large, what it means, and a picture off the right edge beside it.", {
     "art": picture((8, 12), (1, 12), "A picture, off the edge", bleed=True),
-    "number": slot((1, 6), (2, 6), "hero", "42%", align={"y": "end"}),
+    "number": slot((1, 6), (2, 6), "hero", "42%", align={"y": "end"}, fit="shrink"),
     "claim": slot((1, 6), (8, 9), "title", "What the number means"),
     "under": slot((1, 6), (10, 10), "caption", "Its source"),
 }, ember={"number": ((1, 6), (2, 7)), "claim": ((1, 6), (9, 10)), "under": ((1, 6), (11, 12))})
@@ -520,7 +522,7 @@ layout("Numbers", "number-photo", "One number, large, what it means, and a pictu
 layout("Numbers", "metric-trend", "One number and the line that led to it: where it stands, and how it got there.", {
     "kicker": KICKER,
     "header": header(),
-    "number": slot((1, 5), (3, 7), "numeral", "42%", align={"y": "end"}),
+    "number": slot((1, 5), (3, 6), "hero", "42%", align={"y": "end"}, fit="shrink"),
     "claim": slot((1, 5), (8, 9), "title", "What the number means"),
     "main": slot((7, 12), (3, 8), prompt="A chart of how it got there", example=chart("line")),
     "note": slot((7, 12), (9, 10), "caption", "Six months, by month"),
@@ -814,6 +816,23 @@ OLD = {
     "Closing": ["closing"],
 }
 
+# What changes in the layouts the themes had, slot by slot: each key set here in place of the
+# slot's own. A number is set as Big Number sets it, and shrinks to fit its slot where it is too
+# wide for it (Jay's call, 2026-10-11).
+OLD_SLOTS = {
+    "stat": {"number": {"role": "hero", "fit": "shrink"}},
+    "big-number": {"number": {"fit": "shrink"}},
+    "two-numbers": {"first-title": {"fit": "shrink"}, "second-title": {"fit": "shrink"}},
+}
+
+# And in one theme alone. Where Stat's claim sits under its number, as in Dusk and Daybreak, the
+# number ends a row higher, as Big Number's does: a number in `hero` reaches below its baseline,
+# and a row left empty keeps it off the claim.
+OLD_SLOTS_IN = {
+    "dusk": {"stat": {"number": {"row": [3, 7]}}},
+    "daybreak": {"stat": {"number": {"row": [3, 7]}}},
+}
+
 OLD_EXAMPLES = {
     "title": {"art": PICTURE},
     "poster": {"art": PICTURE},
@@ -1014,6 +1033,10 @@ def library(theme, old):
                 layout.update({k: v for k, v in had.items() if k not in layout})
                 for key, example in OLD_EXAMPLES.get(name, {}).items():
                     layout["slots"][key]["example"] = example
+                for key, changes in OLD_SLOTS.get(name, {}).items():
+                    layout["slots"][key].update(changes)
+                for key, changes in OLD_SLOTS_IN.get(theme, {}).get(name, {}).items():
+                    layout["slots"][key].update(changes)
             checked(theme, name, layout["slots"], name in NEW)
             out[name] = layout
     missing = set(old) - set(out)
