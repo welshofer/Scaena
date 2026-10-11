@@ -67,13 +67,18 @@ function run(argv) {
     const e = read(() => found(arg));
     return e ? String(read(() => e.value()) || label(e) || "") : "";
   }
-  // Each attribute of the first object an element holds, with its value, one to a line: where
-  // the app keeps what VoiceOver says of it.
+  // Each attribute of the first objects an element holds, with its value, one to a line: where
+  // the app keeps what VoiceOver says of them. A value read as text where it reads so at all: one
+  // that is an element, or a list of them, does not.
   if (what === "attributes") {
-    const first = children(found(arg))[0];
-    if (!first) return "it holds nothing";
-    return (read(() => first.attributes()) ?? [])
-      .map((a) => `${read(() => a.name()) ?? "?"} = ${String(read(() => a.value()))}`)
+    const held = children(found(arg)).slice(0, 2);
+    if (!held.length) return "it holds nothing";
+    return held
+      .map((e, i) => {
+        const names = read(() => e.attributes.name()) ?? [];
+        const said = names.map((n) => `  ${n} = ${read(() => String(e.attributes.byName(n).value())) ?? "(not as text)"}`);
+        return [`object ${i + 1}, ${read(() => e.role()) ?? "?"}:`, ...said].join("\n");
+      })
       .join("\n");
   }
   if (what === "holds") {
