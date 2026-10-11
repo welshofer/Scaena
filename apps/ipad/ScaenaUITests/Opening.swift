@@ -92,10 +92,13 @@ extension XCTestCase {
         _ = XCTWaiter.wait(for: [XCTestExpectation(description: "painted")], timeout: seconds)
     }
 
-    /// A screenshot of `app`, kept with the run's results as `name`.
+    /// A screenshot of the screen `app` shows, kept with the run's results as `name`: the whole
+    /// screen, its orientation kept with it, so it reads upright as the iPad is held. The app's own
+    /// screenshot, held landscape, cut the screen's portrait buffer to a landscape frame: a quarter
+    /// of the window gone, and as much of the picture black.
     @MainActor
     func keep(_ app: XCUIApplication, as name: String) {
-        let shot = XCTAttachment(screenshot: app.screenshot())
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         shot.name = name
         shot.lifetime = .keepAlways
         add(shot)

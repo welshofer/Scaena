@@ -62,6 +62,20 @@ reads() {
   echo "still ${now:-nothing} after 20 s"
 }
 shot() { screencapture -x "$out/shots/mac-$1.png"; }
+# How long until what `frames HOW IDENTIFIER` reads is no longer BEFORE, and holds WORDS where they
+# are given, up to 20 seconds.
+changed() {
+  local how=$1 tag=$2 before=$3 words=${4:-} start=$SECONDS now
+  while ((SECONDS - start <= 20)); do
+    now=$(frames "$how" "$tag")
+    if [[ "$now" != "$before" && "$now" == *"$words"* ]]; then
+      echo "within $((SECONDS - start)) s"
+      return
+    fi
+    sleep 1
+  done
+  echo "not within 20 s"
+}
 # The screen, and the part of it a window may take: width, height, then the part's left, top,
 # width, and height, in points.
 screen=$(osascript -l JavaScript -e 'ObjC.import("AppKit");
@@ -154,9 +168,12 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
     pointer click "$cx" "$cy"
     sleep 2
     shot clicked
-    # Dragged a little right and down, it lands where it is let go (PLAN 3.19); then undone.
+    # Dragged a little right and down, it lands where it is let go (PLAN 3.19); then undone. The
+    # drop has landed once the objects the canvas holds stand otherwise: on CI's virtual Mac the
+    # drag's guides were still drawn two seconds after it was let go.
+    before=$(frames holds canvas)
     pointer drag "$cx" "$cy" $((cx + 90)) $((cy + 40))
-    sleep 2
+    echo "the drop landed: $(changed holds canvas "$before")"
     shot dragged
     events 'keystroke "z" using command down'
     sleep 2
@@ -193,8 +210,9 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
     done
     echo "the text inserted, typed in: $typing"
     shot inserted
+    before=$(frames holds canvas)
     events 'keystroke "Seen on a Mac"'
-    sleep 2
+    echo "the words typed, shown: $(changed holds canvas "$before" "Seen on a Mac")"
     shot typed
     events 'key code 53'
     sleep 1
