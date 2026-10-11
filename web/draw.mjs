@@ -150,6 +150,8 @@ try {
   await drag([300, 200], [700, 520], true);
   check(await reads("ellipse shape"), "O draws an ellipse");
   check(/at:rect\(300(\.0)?, 200(\.0)?, 400(\.0)?, 320(\.0)?\)/.test(await declared("ellipse")), `with Shift, where the drag went: ${await declared("ellipse")}`);
+  // Once the canvas has the state's boxes again, which a busy machine takes longer to give.
+  await page.waitForFunction(() => window.scaena.canvas.boxes().some((b) => b.node === "ellipse"), null, { timeout: 30000 }).catch(() => {});
   check(JSON.stringify(await box("ellipse")) === JSON.stringify([300, 200, 400, 320]), `and it stands there: ${await box("ellipse")}`);
 
   // T draws a text that takes the caret, its words selected: what is typed takes their place.

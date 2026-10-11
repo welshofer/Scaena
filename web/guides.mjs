@@ -41,6 +41,14 @@ try {
   const settled = (before) =>
     page.waitForFunction((n) => window.scaena.trips().length > n && !window.scaena.canvas.busy(), before, { timeout: 60000, polling: 50 });
   const box = (node) => page.evaluate((n) => window.scaena.canvas.boxes().find((b) => b.node === n)?.rect, node);
+  /** Where the canvas draws the handle at `edge` of the node selected, canvas units: on its frame,
+   * clear of its box. */
+  const handle = (edge) =>
+    page.evaluate((e) => {
+      const r = document.querySelector(`#overlay rect.handle[data-edge="${e}"]`);
+      const at = (name) => Number(r?.getAttribute(name) ?? NaN);
+      return [at("x") + at("width") / 2, at("y") + at("height") / 2];
+    }, edge);
   const center = ([x, y, w, h]) => [x + w / 2, y + h / 2];
   /** A point in canvas units, on the page. */
   const client = ([x, y]) =>
@@ -237,8 +245,10 @@ try {
   await page.evaluate(() => window.scaena.canvas.select("card"));
   await page.waitForFunction(() => document.querySelectorAll("#overlay rect.handle").length === 8, null, { timeout: 30000 }).catch(() => {});
   n = await trips();
-  const edge = [card[0] + card[2], card[1] + card[3] / 2];
-  const wide = await drag(edge, [1920 - 4, edge[1]], ["Shift"], { says: "rect" });
+  // Pressed where the canvas draws the handle, on the card's frame, and moved as far as takes the
+  // card's edge to 4 units short of the canvas's.
+  const edge = await handle("e");
+  const wide = await drag(edge, [edge[0] + (1920 - 4) - (card[0] + card[2]), edge[1]], ["Shift"], { says: "rect" });
   await settled(n);
   check(wide.said.includes(`rect ${card[0]}, ${card[1]}, ${1920 - card[0]} × `), `a handle with Shift takes the edge onto the canvas's: ${wide.said}`);
   await undo();

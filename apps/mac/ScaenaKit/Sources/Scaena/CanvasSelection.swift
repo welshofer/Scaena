@@ -118,6 +118,10 @@ struct CanvasSelection: View {
     /// How near, in points, an edge a drag moves goes onto another's, or a track of the grid's
     /// (PLAN 2.57, 3.19).
     private static let reach = 8.0
+    /// How far, in points, the outline of what is selected and its handles stand outside its box:
+    /// clear of a small text's first letter, as a presentation app's text box keeps its words in
+    /// from its frame (as the browser's canvas draws it).
+    private static let clear = 5.0
     #if os(macOS)
     /// How near a handle, in points, a press takes it: a pointer's reach.
     private static let grab = 6.0
@@ -288,7 +292,7 @@ struct CanvasSelection: View {
                 // What a press would take under the pointer or the Pencil: a node outlined dashed, as
                 // the browser's canvas outlines it, or a handle ringed (PLAN 4.5).
                 if press == nil, let over = hovered?.node, let b = boxes.first(where: { $0.node == over }) {
-                    outline(b.corners, fit: fit)
+                    outline(framed(b, scale: fit.scale), fit: fit)
                         .stroke(Color.accentColor.opacity(0.7), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
                         .allowsHitTesting(false)
                 }
@@ -302,17 +306,17 @@ struct CanvasSelection: View {
                 // The others selected with the first, each outlined, moved as the drag moves.
                 ForEach(boxes.filter { also.contains($0.node) }, id: \.node) { other in
                     let by = drag?.edge == nil ? (drag?.by ?? .zero) : .zero
-                    outline(other.corners.map { CGPoint(x: $0.x + by.dx, y: $0.y + by.dy) }, fit: fit)
+                    outline(framed(other, scale: fit.scale).map { CGPoint(x: $0.x + by.dx, y: $0.y + by.dy) }, fit: fit)
                         .stroke(Color.accentColor.opacity(0.8), lineWidth: 1.5)
                         .allowsHitTesting(false)
                 }
                 if let selected = boxes.first(where: { $0.node == node }) {
                     let by = drag?.edge == nil ? (drag?.by ?? .zero) : .zero
-                    outline(selected.corners.map { CGPoint(x: $0.x + by.dx, y: $0.y + by.dy) }, fit: fit)
+                    outline(framed(selected, scale: fit.scale).map { CGPoint(x: $0.x + by.dx, y: $0.y + by.dy) }, fit: fit)
                         .stroke(Color.accentColor, lineWidth: 1.5)
                         .allowsHitTesting(false)
                     if drag == nil, holding == nil, also.isEmpty, !typing.typing, selected.locked == nil,
-                        let r = box(selected)
+                        let r = frameBox(selected, scale: fit.scale)
                     {
                         ForEach(Edge.allCases, id: \.self) { edge in
                             let p = selected.onCanvas(edge.point(r))
@@ -796,7 +800,8 @@ struct CanvasSelection: View {
     }
 
     /// A node as VoiceOver hears it (PLAN 3.17), where it is drawn: a heading, a picture, a table,
-    /// or words, as the reader hears it; selected by its action. Its frame is the part of it `view`
+    /// or words, as the reader hears it, never a button; selected by its action, on the Mac the
+    /// one named Select (VO-⌘-Space), on the iPad a double tap. Its frame is the part of it `view`
     /// shows, and a node zoomed out of view is not read, so nothing the canvas holds reaches past
     /// it: VoiceOver outlines what is shown, and a pinch's fingers land on the canvas (PLAN 4.3).
     @ViewBuilder private func readable(_ part: ReadPart, order: Int, fit: Fit, in view: CGRect) -> some View {
@@ -811,13 +816,23 @@ struct CanvasSelection: View {
                 .accessibilityLabel(Text(part.text.isEmpty ? name(part.node, starting: true) : part.text))
                 .accessibilityAddTraits(Self.traits(part))
                 .accessibilityAddTraits(selection.contains(part.node) ? .isSelected : [])
+                .accessibilityRemoveTraits(.isButton)
                 .accessibilityHeading(part.level == 1 ? .h1 : part.level == 2 ? .h2 : .unspecified)
-                .accessibilityHint("Selects it")
                 .accessibilitySortPriority(Double(order))
+                #if os(macOS)
+                // Selected by a named action: on the Mac, an element whose default action selects
+                // it is a button to VoiceOver, and words on a slide are words, not a control.
+                .accessibilityAction(named: "Select") {
+                    node = part.node
+                    also = []
+                }
+                #else
+                .accessibilityHint("Selects it")
                 .accessibilityAction {
                     node = part.node
                     also = []
                 }
+                #endif
         }
     }
 
@@ -1346,9 +1361,11 @@ struct CanvasSelection: View {
     /// move of what draws there, selected.
     private func begin(at point: CGPoint, scale: CGFloat) {
         var held: (node: String, edge: Edge?)?
-        if let selected = boxes.first(where: { $0.node == node }), selected.locked == nil, let r = box(selected) {
+        if let selected = boxes.first(where: { $0.node == node }), selected.locked == nil,
+            let r = frameBox(selected, scale: scale)
+        {
             let near = grabbing(selected, scale: scale)
-            // Each handle where the box is drawn, turned or scaled as it is.
+            // Each handle where its frame is drawn, turned or scaled as it is.
             let spot = { (edge: Edge) in selected.onCanvas(edge.point(r)) }
             if let edge = Edge.allCases.first(where: { hypot(spot($0).x - point.x, spot($0).y - point.y) <= near }) {
                 held = (selected.node, edge)
@@ -1505,7 +1522,7 @@ struct CanvasSelection: View {
         {
             return arm
         }
-        guard let r = box(selected) else { return nil }
+        guard let r = frameBox(selected, scale: fit.scale) else { return nil }
         return Edge.allCases.map { selected.onCanvas($0.point(r)) }.first(where: close)
     }
 
@@ -1545,6 +1562,30 @@ struct CanvasSelection: View {
     private func box(_ selected: NodeBox) -> CGRect? {
         guard selected.rect.count == 4 else { return nil }
         return CGRect(x: selected.rect[0], y: selected.rect[1], width: selected.rect[2], height: selected.rect[3])
+    }
+
+    /// `b`'s frame at rest, canvas units, where its outline and handles stand at `scale`: `clear`
+    /// points outside its box, never past the canvas's edge, where what bleeds keeps its handles
+    /// on the canvas.
+    private func frameBox(_ b: NodeBox, scale: CGFloat) -> CGRect? {
+        guard let r = box(b) else { return nil }
+        let c = Self.clear / Double(max(scale, 0.01))
+        let (left, top) = (min(c, max(0, Double(r.minX))), min(c, max(0, Double(r.minY))))
+        let right = min(c, max(0, Double(size.width - r.maxX)))
+        let bottom = min(c, max(0, Double(size.height - r.maxY)))
+        return CGRect(
+            x: Double(r.minX) - left, y: Double(r.minY) - top, width: Double(r.width) + left + right,
+            height: Double(r.height) + top + bottom)
+    }
+
+    /// The corners of `b`'s frame where it is drawn, clockwise from the top left, canvas units.
+    private func framed(_ b: NodeBox, scale: CGFloat) -> [CGPoint] {
+        guard let r = frameBox(b, scale: scale) else { return b.corners }
+        let corners = [
+            CGPoint(x: r.minX, y: r.minY), CGPoint(x: r.maxX, y: r.minY), CGPoint(x: r.maxX, y: r.maxY),
+            CGPoint(x: r.minX, y: r.maxY),
+        ]
+        return corners.map { b.onCanvas($0) }
     }
 
     /// `cell` with the edges `edge` holds moved `by`, never below a unit across.
