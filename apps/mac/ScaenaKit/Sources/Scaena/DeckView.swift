@@ -426,8 +426,8 @@ struct DeckView: View {
         zoom.level > 1 + 1e-9 ? "\(Int((zoom.level * 100).rounded()))%" : "Fit"
     }
 
-    /// A slide added after the one shown, then shown, from the gallery of the theme's layouts
-    /// (PLAN 3.30); or a step of it.
+    /// A slide added after the one shown, then shown, from the theme's layouts by their sections
+    /// (PLAN 3.30, 3.31); or a blank one, or a step of it.
     private var adding: some View {
         Button {
             choosingSlide = true
@@ -439,7 +439,7 @@ struct DeckView: View {
         .accessibilityIdentifier("add-slide")
         .popover(isPresented: $choosingSlide, arrowEdge: .bottom) {
             if let shown {
-                SlideGallery(editor: editor, state: shown) { layout in
+                LayoutPicker(editor: editor, state: shown, purpose: .start) { layout in
                     choosingSlide = false
                     startSlide(after: shown, layout: layout)
                 } step: {

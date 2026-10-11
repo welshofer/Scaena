@@ -66,6 +66,7 @@ import { keptNames } from "./folders";
 import { formatsRow } from "./formats";
 import { layerKeys, layers } from "./layers";
 import { looks } from "./look";
+import { layoutPicker } from "./picker";
 import type {
   Arrange,
   DataMark,
@@ -481,6 +482,9 @@ async function edit(source: Source) {
   };
   /** The node selected, its look chosen from the theme in the inspector (PLAN 2.33): each choice a
    * patch, as each gesture on the canvas is. */
+  /** The theme's layouts by their sections, each drawn (PLAN 3.31): + Slide's, and the inspector's
+   * Layout. */
+  const picking = layoutPicker(stage, $<HTMLDialogElement>("#starting"));
   const look = looks(stage, $("#look"), {
     shown: showing,
     format,
@@ -493,6 +497,11 @@ async function edit(source: Source) {
     ungroup: () => board.ungroup(),
     pick: () => board.pick(),
     select: (node) => board.select(node),
+    pickLayout: (names, current) => {
+      const now = showing();
+      if (!now) return Promise.resolve(undefined);
+      return picking.pick({ purpose: { names, current }, source: view.state.doc.toString(), state: now.state, format: format() });
+    },
   });
 
   /** The cue of the state shown (PLAN 2.44), under the preview: once the canvas is there. */
@@ -867,6 +876,7 @@ async function edit(source: Source) {
     apply: made,
     say,
     started: (state) => board.freshen(state),
+    pick: (picked) => picking.pick(picked),
   });
   /** The light table (PLAN 2.97): every slide in a grid, in place of the preview, to move, copy,
    * and take out across the deck. */

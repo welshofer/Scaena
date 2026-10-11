@@ -96,6 +96,12 @@ try {
   const inClose = fixed.indexOf("state close") + "state ".length;
   await page.evaluate((at) => window.scaena.cursor(at), inClose);
   await page.waitForFunction(() => window.scaena.at().index === 3, null, { timeout: 15000 }).catch(() => {});
+  // The canvas shows `close` once it holds its boxes, a frame after the worker paints it: the worker
+  // can still be judging the last state's layouts when the cursor moves.
+  await page
+    .waitForFunction(() => window.scaena.canvas.boxed() === "close" && window.scaena.canvas.boxes().length > 0, null, { timeout: 30000 })
+    .catch(() => {});
+  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
   const shownBefore = await canvas(page);
   const broken = fixed.replace("state close layout:title", "state close layout:");
   last = await type(page, broken);

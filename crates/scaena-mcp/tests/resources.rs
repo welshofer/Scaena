@@ -65,8 +65,12 @@ async fn every_resource_arrives_whole() {
     let listed = serde_json::to_string(&list).unwrap().len();
     assert!(listed <= scaena_mcp::LIMIT, "resources/list weighs {listed} bytes");
     let mut all: Vec<String> = list.resources.iter().map(|r| r.uri.clone()).collect();
-    // The subsections SPEC's index names, listed or not.
+    // The subsections SPEC's index names, listed or not, and the sections each theme's layouts
+    // name.
     all.extend(uris(&read(&client, "scaena://spec").await));
+    for theme in THEMES {
+        all.extend(sections(&client, theme).await.into_values());
+    }
     all.sort();
     all.dedup();
     let mut heavy = vec![];
@@ -79,6 +83,59 @@ async fn every_resource_arrives_whole() {
     }
     assert!(heavy.is_empty(), "over {} bytes as read: {heavy:#?}", scaena_mcp::LIMIT);
     assert!(all.len() > 60, "{all:?}");
+    client.cancel().await.unwrap();
+}
+
+/// The shipped themes, as the server serves each, and the file each is.
+const THEMES: [(&str, &str); 3] = [
+    ("scaena://examples/dusk.theme.json", "../../docs/examples/themes/dusk.theme.json"),
+    ("scaena://examples/daybreak.theme.json", "../../docs/examples/authorability/themes/daybreak.theme.json"),
+    ("scaena://examples/ember.theme.json", "../../docs/examples/themes/ember.theme.json"),
+];
+
+/// Each layout of a theme as its layouts' index names it, and the uri of the part that holds it.
+async fn sections(client: &Client, (uri, _): (&str, &str)) -> BTreeMap<String, String> {
+    let index: Map<String, Value> = serde_json::from_str(&read(client, &format!("{uri}/layouts")).await).unwrap();
+    let mut out = BTreeMap::new();
+    for (name, said) in index {
+        let at = said["$ref"].as_str().unwrap();
+        let (part, pointer) = at.split_once('#').unwrap();
+        assert_eq!(pointer, format!("/{name}"), "{uri}: {name} points at itself");
+        out.insert(name, part.to_string());
+    }
+    out
+}
+
+/// A theme served in parts is its file (PLAN 3.31): the theme, its layouts' index, which says each
+/// one's name, description, and section, and each section's layouts whole, in the file's order.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_theme_is_its_parts() {
+    let client = connect().await;
+    for (uri, path) in THEMES {
+        let file: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let mut theme: Value = serde_json::from_str(&read(&client, uri).await).unwrap();
+        assert_eq!(theme["layouts"], serde_json::json!({ "$ref": format!("{uri}/layouts") }));
+        let index: Map<String, Value> = serde_json::from_str(&read(&client, &format!("{uri}/layouts")).await).unwrap();
+        let mut parts: BTreeMap<String, Map<String, Value>> = BTreeMap::new();
+        let mut layouts = Map::new();
+        for (name, said) in &index {
+            let held = &file["layouts"][name];
+            for key in ["name", "description", "group"] {
+                assert_eq!(said[key], held[key], "{uri}: {name}'s {key}");
+            }
+            let part = said["$ref"].as_str().unwrap().split_once('#').unwrap().0.to_string();
+            if !parts.contains_key(&part) {
+                let read = read(&client, &part).await;
+                parts.insert(part.clone(), serde_json::from_str(&read).unwrap());
+            }
+            layouts.insert(name.clone(), parts[&part][name].clone());
+        }
+        assert_eq!(parts.len(), 13, "{uri}: a part for each section");
+        let listed: Vec<String> = client.list_all_resources().await.unwrap().iter().map(|r| r.uri.clone()).collect();
+        assert!(parts.keys().all(|p| !listed.contains(p)), "{uri}: read by the index, not listed");
+        theme["layouts"] = Value::Object(layouts);
+        assert_eq!(theme, file, "{uri}: the parts make the file");
+    }
     client.cancel().await.unwrap();
 }
 

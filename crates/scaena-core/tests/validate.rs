@@ -344,6 +344,36 @@ fn a_theme_file_is_checked_against_its_schema() {
     assert_eq!(placed(&files), [("E106".to_string(), Some("theme.json".to_string()), at)]);
 }
 
+/// The fixtures' theme as `wrong` edits it, at `other.json`.
+struct Moved(fn(String) -> String);
+
+impl BundleFiles for Moved {
+    fn exists(&self, path: &str) -> bool {
+        path == "other.json" || Fixtures.exists(path)
+    }
+
+    fn read_text(&self, path: &str) -> Option<String> {
+        (path == "other.json").then(|| Fixtures.read_text("theme.json").map(self.0)).flatten()
+    }
+}
+
+/// What checking a theme file finds is kept while the file stays as it was, so a deck checked
+/// a keystroke at a time checks its theme once (PLAN 3.31): a theme changed between two checks,
+/// or the same one at another path, is checked again.
+#[test]
+fn a_theme_changed_between_two_checks_is_checked_again() {
+    let edit = |t: String| t.replace(r#""row": 1 }, "subtitle""#, r#""row": 1, "align": "sideways" }, "subtitle""#);
+    let at = "/layouts/title/slots/title/align".to_string();
+    for _ in 0..2 {
+        assert!(placed(&Fixtures).is_empty());
+        assert_eq!(placed(&EditedTheme(edit)), [("E106".to_string(), Some("theme.json".to_string()), at.clone())]);
+    }
+    let deck = fixture!("E102", "clean").replace(r#""theme": "theme.json""#, r#""theme": "other.json""#);
+    let found = validate_bundle(&deck, &Moved(edit)).unwrap();
+    let found: Vec<_> = found.into_iter().map(|f| (f.code, f.file, f.path.unwrap_or_default())).collect();
+    assert_eq!(found, [("E106".to_string(), Some("other.json".to_string()), at)]);
+}
+
 #[test]
 fn a_theme_name_the_theme_does_not_define_is_e102_in_the_theme_file() {
     let files = EditedTheme(|t| t.replace(r#""family": "display", "size": 128"#, r#""family": "serif", "size": 128"#));

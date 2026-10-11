@@ -171,8 +171,11 @@ char *scaena_drop(struct ScaenaSession *session,
 // next judged, and whether any is left; and `layoutSuggestions {height}`, those judged, best
 // first, each with the `set_state` that gives it and its picture's size, painted `height`
 // pixels high, which [`scaena_layout_pixels`] takes. The slides a person may start (PLAN 3.30):
-// `startersPainted {state, height}`, one in each of the theme's layouts, then a blank one, each
-// `{layout, description, width, height}`, painted `height` pixels high, which
+// `starters`, the slides a person may start as a picker lists them before any is drawn, each
+// `{layout, name, description, group}`, then a blank one; `startersPainted {state, height,
+// layouts?}`, one in each of the theme's layouts, then a blank
+// one, or those `layouts` names, a null the blank one, each `{layout, name, description, group,
+// width, height}`, painted `height` pixels high, which
 // [`scaena_starter_pixels`] takes; `starting {state, layout?}`, the patch that starts one after
 // the slide of `state`, `{id, patch}`; `waiting {state}`, the slots of its layout that wait
 // for what their prompts say goes there, each `{slot, rect, words, typed, role?}`; and

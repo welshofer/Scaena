@@ -13,21 +13,30 @@ const TRAILS: &str = "../../docs/examples/trails.deck.json";
 #[test]
 fn a_state_is_offered_each_layout_that_draws_it_otherwise_judged_by_lint_best_first() {
     let b = scaena_ops::open(Path::new(TRAILS)).unwrap();
-    // The budget slide places its note in a slot, which five of the theme's layouts have: four
-    // set it at the slide's foot, where it reads alike, and narrow-figure over the table and the
-    // aside, where they collide (E101).
+    // The budget slide places its note in a slot, which a dozen of the theme's layouts have: five
+    // set it at the slide's foot, where it reads alike; the rest elsewhere, where lint finds the
+    // table and the note colliding (E101), fewest first: narrow-figure sets the note over the table
+    // and the aside.
     let suggested = suggest(&b, "budget", None).unwrap();
     let names: Vec<&str> = suggested.iter().map(|s| s.layout.as_str()).collect();
-    assert_eq!(names, ["figure", "narrow-figure"], "{suggested:#?}");
+    assert_eq!(
+        names,
+        ["figure", "venn", "bar-chart", "line-chart", "metric-trend", "panorama", "narrow-figure"],
+        "{suggested:#?}"
+    );
     // The layout it takes now first, with nothing to patch, and those it draws alike beside it.
     let now = &suggested[0];
     assert!(now.current && now.patch.is_empty() && now.reach.is_empty(), "{now:?}");
-    assert_eq!(now.alike, ["poster", "full", "photo-caption"]);
-    // The other is one `set_state`, changes this state alone, and makes the slide's errors.
-    let other = &suggested[1];
-    assert!(!other.current && other.alike.is_empty() && other.errors > 0, "{other:?}");
-    assert_eq!(other.patch, [json!({ "op": "set_state", "id": "budget", "prop": "layout", "value": "narrow-figure" })]);
-    assert_eq!(other.reach, ["budget"]);
+    assert_eq!(now.alike, ["poster", "table", "full", "photo-caption"]);
+    // Each other is one `set_state`, changes this state alone, and makes the slide's errors.
+    for other in &suggested[1..] {
+        assert!(!other.current && other.alike.is_empty() && other.errors > 0, "{other:?}");
+        assert_eq!(
+            other.patch,
+            [json!({ "op": "set_state", "id": "budget", "prop": "layout", "value": other.layout })]
+        );
+        assert_eq!(other.reach, ["budget"]);
+    }
     // Each count is what lint finds in the state with the patch made, the folded ones' too.
     let files = View::of(&b);
     let counted = |layout: &str| {
@@ -50,30 +59,54 @@ fn a_state_is_offered_each_layout_that_draws_it_otherwise_judged_by_lint_best_fi
 #[test]
 fn a_clean_layout_that_draws_the_state_otherwise_is_suggested() {
     let b = scaena_ops::open(Path::new(TRAILS)).unwrap();
-    // The storm slide's caption is its one node in a slot: four layouts set it at the foot of the
-    // photo, alike, and narrow-figure higher up and to the right, where lint finds nothing.
+    // The storm slide's caption is its one node in a slot: five layouts set it at the foot of the
+    // photo, alike, and the rest elsewhere: three where lint finds nothing, narrow-figure among
+    // them, higher up and to the right, then those it finds something in.
     let suggested = suggest(&b, "storm", None).unwrap();
     let judged: Vec<_> = suggested.iter().map(|s| (s.layout.as_str(), s.current, s.errors, s.warnings)).collect();
-    assert_eq!(judged, [("full", true, 0, 0), ("narrow-figure", false, 0, 0)], "{suggested:#?}");
-    assert_eq!(suggested[0].alike, ["poster", "figure", "photo-caption"]);
+    assert_eq!(
+        judged,
+        [
+            ("full", true, 0, 0),
+            ("metric-trend", false, 0, 0),
+            ("narrow-figure", false, 0, 0),
+            ("panorama", false, 0, 0),
+            ("venn", false, 0, 1),
+            ("bar-chart", false, 1, 0),
+            ("line-chart", false, 1, 0)
+        ],
+        "{suggested:#?}"
+    );
+    assert_eq!(suggested[0].alike, ["poster", "figure", "table", "photo-caption"]);
 }
 
 #[test]
 fn the_layouts_that_draw_a_state_alike_fold_into_the_one_it_takes() {
     let b = scaena_ops::open(Path::new(TRAILS)).unwrap();
     // The agenda's header is the one node in a slot. Most layouts put it in the same place, folded
-    // into the one the agenda takes; three put it elsewhere: beside a picture off either edge,
-    // and beside an agenda's topics (PLAN 3.30).
+    // into the one the agenda takes; four put it elsewhere: beside a picture off either edge, as
+    // `photo-grid-text` does `photo-left`'s, and beside an agenda's topics, with a picture or
+    // without (PLAN 3.30, 3.31).
     let suggested = suggest(&b, "agenda", None).unwrap();
     let names: Vec<&str> = suggested.iter().map(|s| s.layout.as_str()).collect();
-    assert_eq!(names, ["full", "photo-left", "photo-right", "agenda"], "{suggested:#?}");
-    assert!(suggested[0].current && suggested[1..].iter().all(|s| !s.current && s.alike.is_empty()));
-    assert_eq!(suggested[0].alike[..4], ["figure", "narrow-figure", "art-left", "art-right"]);
-    assert!(["bullets", "cards", "three-up", "number-grid"].iter().all(|l| suggested[0].alike.iter().any(|a| a == l)));
-    // The cover's title and subtitle: in `title`, and over a picture in `photo-title`.
+    assert_eq!(names, ["full", "agenda-photo", "photo-left", "photo-right", "agenda"], "{suggested:#?}");
+    assert!(suggested[0].current && suggested[1..].iter().all(|s| !s.current));
+    assert_eq!(suggested[2].alike, ["photo-grid-text"]);
+    assert_eq!(suggested[0].alike[..4], ["title-only", "manifesto", "bullets", "numbered"]);
+    assert!(
+        ["cards", "three-up", "number-grid", "swot", "org-chart"]
+            .iter()
+            .all(|l| suggested[0].alike.iter().any(|a| a == l))
+    );
+    // The cover's title and subtitle: in `title`, over a picture in `photo-title`, centered in
+    // `title-center`, and beside a picture in `title-split`.
     let cover = suggest(&b, "cover", None).unwrap();
     let names: Vec<(&str, bool)> = cover.iter().map(|s| (s.layout.as_str(), s.current)).collect();
-    assert_eq!(names, [("title", true), ("photo-title", false)], "{cover:#?}");
+    assert_eq!(
+        names,
+        [("title", true), ("photo-title", false), ("title-center", false), ("title-split", false)],
+        "{cover:#?}"
+    );
     assert!(cover.iter().all(|s| s.alike.is_empty()));
 }
 
@@ -91,5 +124,5 @@ fn inspect_names_the_state_it_suggests_layouts_for() {
     let err = scaena_ops::inspect::inspect(&b, None, views.clone()).unwrap_err();
     assert!(err.message.contains("name the state"), "{}", err.message);
     let inspected = scaena_ops::inspect::inspect(&b, Some("budget"), views).unwrap();
-    assert_eq!(inspected[0].layouts.as_ref().map(Vec::len), Some(2));
+    assert_eq!(inspected[0].layouts.as_ref().map(Vec::len), Some(7));
 }

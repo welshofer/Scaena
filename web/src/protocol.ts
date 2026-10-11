@@ -299,19 +299,19 @@ export interface StateChoices {
   fields: Field[];
 }
 
-/** A layout the state shown may take (PLAN 2.92), as `scaena inspect --layouts` judges it: what
- * lint finds in the state laid out in it, the states the change reaches, and the `set_state` that
- * makes it (none for the layout it takes now), with its picture at rest, `width` × `height` pixels
- * of straight-alpha RGBA. */
 /** A slide a person may start (PLAN 3.30): one in a layout of the theme, a text in each slot that
  * says what goes there, or a blank one; and its picture. */
 export interface Starter {
   /** The theme's layout it is in; none for the blank slide. */
   layout: string | null;
+  /** What a person calls the layout, as the theme names it (theme format 0.12); none for the
+   * blank slide, or a layout the theme names none for. */
+  name: string | null;
   /** What the theme says the layout is for. */
   description: string | null;
   /** The gallery's section it is offered under; none for the blank slide. */
   group: string | null;
+  /** Its picture, straight-alpha RGBA: none, 0 × 0, for one listed before it is drawn. */
   width: number;
   height: number;
   pixels: ArrayBuffer;
@@ -331,6 +331,10 @@ export interface Waiting {
   role?: string;
 }
 
+/** A layout the state shown may take (PLAN 2.92), as `scaena inspect --layouts` judges it: what
+ * lint finds in the state laid out in it, the states the change reaches, and the `set_state` that
+ * makes it (none for the layout it takes now), with its picture at rest, `width` × `height` pixels
+ * of straight-alpha RGBA. */
 export interface LayoutSuggestion {
   layout: string;
   current?: boolean;
@@ -807,7 +811,18 @@ export type ToWorker =
   /** The slides a person may start after `state`'s slide, on the deck the editor's `source`
    * compiles to (PLAN 3.30): one in each of the theme's layouts, then a blank one, each painted at
    * rest `height` pixels high in `format`. */
-  | { type: "starters"; id: number; source: string; state: string; height: number; format?: string }
+  | {
+      type: "starters";
+      id: number;
+      source: string;
+      state: string;
+      height: number;
+      format?: string;
+      /** Only these layouts, a null the blank slide, as a picker draws a few at a time (PLAN 3.31). */
+      layouts?: (string | null)[];
+      /** Listed, none drawn: what a picker offers before it draws any. */
+      listed?: boolean;
+    }
   /** The patch that starts a slide in `layout`, or a blank one with none, after `state`'s slide. */
   | { type: "starting"; id: number; source: string; state: string; layout?: string }
   /** The slots of `state`'s layout, in `format`, that wait for what their prompts say goes there. */

@@ -16,7 +16,8 @@
 //   2.49).
 import { ALT, type Key } from "./commands";
 import { counted, worst } from "./marks";
-import type { Edited, Finding, Slot, Starter, Thumb } from "./protocol";
+import type { Edited, Finding, Slot, Thumb } from "./protocol";
+import type { Picking } from "./picker";
 import type { Stage } from "./stage";
 
 /** What a state in the strip answers, focused (PLAN 2.65), as the keys sheet lists it. */
@@ -42,17 +43,13 @@ export interface StripEditor {
   /** A slide made here, from the gallery or after the slide shown: the canvas outlines its
    * layout's empty slots (PLAN 3.30). */
   started?(state: string): void;
+  /** A layout chosen from the theme's by their sections (PLAN 3.31): null a blank slide, undefined
+   * none. */
+  pick(picking: Picking): Promise<string | null | undefined>;
 }
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const html = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
-/** How high a slide to start is drawn in the gallery, CSS pixels (PLAN 3.30). */
-const TILE = 84;
-/** A layout's name as a person reads it: `two-columns` as Two columns. */
-const phrase = (name: string) => {
-  const words = name.replace(/-/g, " ");
-  return words.charAt(0).toUpperCase() + words.slice(1);
-};
 /** A cue's length, as the strip says it. */
 const seconds = (ms: number) => `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)} s`;
 
@@ -200,47 +197,13 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
       .catch((e) => editor.say(`not added: ${said(e)}`));
   }
 
-  /** The gallery of slides to start (PLAN 3.30): the theme's layouts, each drawn as a slide
-   * started in it, under the theme's sections in the order it first names them, then a blank
-   * slide. A click starts that slide after the slide shown. */
+  /** The slides to start (PLAN 3.30, 3.31): the theme's layouts by their sections, each drawn as
+   * a slide started in it, or a blank one. One chosen starts after the slide shown. */
   async function gallery() {
     const shown = editor.shown();
     if (!shown) return editor.say("the strip waits for a source that compiles");
-    const dialog = document.querySelector<HTMLDialogElement>("#starting")!;
-    const box = dialog.querySelector<HTMLElement>(".starters")!;
-    box.innerHTML = `<p class="note">Drawing the theme's layouts…</p>`;
-    if (!dialog.open) dialog.showModal();
-    const ratio = Math.min(2, window.devicePixelRatio || 1);
-    let got: Starter[];
-    try {
-      got = await stage.starters(editor.source(), shown.state, Math.round(TILE * ratio), editor.format());
-    } catch (e) {
-      box.innerHTML = `<p class="note">not drawn: ${html(said(e))}</p>`;
-      return;
-    }
-    if (!dialog.open) return;
-    const groups: string[] = [];
-    for (const one of got) if (one.group && !groups.includes(one.group)) groups.push(one.group);
-    const tile = (one: Starter, i: number) => {
-      const name = one.layout ? phrase(one.layout) : "Blank";
-      return `<button type="button" data-start="${i}" title="${html(one.description ?? name)}"><canvas aria-hidden="true" width="${one.width}" height="${one.height}"></canvas><span>${html(name)}</span></button>`;
-    };
-    const section = (title: string, ones: [Starter, number][]) =>
-      ones.length ? `<h3>${html(title)}</h3><div class="group">${ones.map(([one, i]) => tile(one, i)).join("")}</div>` : "";
-    const indexed = got.map((one, i): [Starter, number] => [one, i]);
-    box.innerHTML =
-      groups.map((g) => section(g, indexed.filter(([one]) => one.group === g))).join("") +
-      section(groups.length ? "Other" : "Layouts", indexed.filter(([one]) => one.layout && !one.group)) +
-      section("Blank", indexed.filter(([one]) => !one.layout));
-    box.querySelectorAll<HTMLButtonElement>("button[data-start]").forEach((button) => {
-      const one = got[Number(button.dataset.start)];
-      button.querySelector("canvas")?.getContext("2d")?.putImageData(new ImageData(new Uint8ClampedArray(one.pixels), one.width, one.height), 0, 0);
-      button.onclick = () => {
-        dialog.close();
-        void start(one.layout ?? undefined);
-      };
-    });
-    box.querySelector<HTMLButtonElement>("button[data-start]")?.focus();
+    const picked = await editor.pick({ purpose: "start", source: editor.source(), state: shown.state, format: editor.format() });
+    if (picked !== undefined) await start(picked ?? undefined);
   }
 
   /** A slide started in `layout`, or a blank one with none, after the slide shown (PLAN 3.30). */

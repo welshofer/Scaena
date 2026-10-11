@@ -53,6 +53,9 @@ public final class DeckEditor {
     @ObservationIgnored private var made = ""
     /// Each state drawn small, by the digest of its drawing at rest and the width asked.
     @ObservationIgnored private var drawings: [String: (digest: String, width: Int, image: CGImage)] = [:]
+    /// Each slide to start as its layout's picture shows it (PLAN 3.31), by its layout, `""` the
+    /// blank slide: for the theme, the format, and the height they were drawn in, the `key`.
+    @ObservationIgnored private var started: (key: String, drawn: [String: (starter: Starter, image: CGImage)]) = ("", [:])
 
     public init(session: ScaenaSession) {
         self.session = session
@@ -203,6 +206,38 @@ public final class DeckEditor {
         guard let image = try? session.pixels(state, width: width).image else { return nil }
         drawings[state] = (digest, width, image)
         return image
+    }
+
+    /// The slides `layouts` start after the slide of `state`, a nil among them the blank one, each
+    /// drawn as its layout's picture shows it, `height` pixels high (PLAN 3.31): those drawn before
+    /// in this theme and format kept, the rest drawn now. A slide started draws the same after any
+    /// slide, so what is kept stands until the theme, the format, or the height changes. In the
+    /// order asked; a name the theme lacks, or a picture that cannot be made, is left out. A picker
+    /// asks for a few at a time, answering a person between them.
+    public func starters(_ layouts: [String?], after state: String, height: Int) -> [(starter: Starter, image: CGImage)] {
+        let key = startersKey(height: height)
+        if started.key != key { started = (key, [:]) }
+        var asked = Set<String>()
+        let missing = layouts.filter { started.drawn[$0 ?? ""] == nil && asked.insert($0 ?? "").inserted }
+        if !missing.isEmpty {
+            for one in (try? session.startersDrawn(after: state, height: height, only: missing)) ?? [] {
+                started.drawn[one.starter.layout ?? ""] = one
+            }
+        }
+        return layouts.compactMap { started.drawn[$0 ?? ""] }
+    }
+
+    /// The slides to start drawn so far for `layouts`, a nil among them the blank one, as
+    /// `starters` drew them in this theme and format: what a picker shows at once.
+    public func startersKept(_ layouts: [String?], height: Int) -> [(starter: Starter, image: CGImage)] {
+        guard started.key == startersKey(height: height) else { return [] }
+        return layouts.compactMap { started.drawn[$0 ?? ""] }
+    }
+
+    /// What slides to start are drawn in: the theme, the format, and the height.
+    private func startersKey(height: Int) -> String {
+        let theme = (try? session.themeText())?.text ?? ""
+        return "\(theme.hashValue)\u{1f}\(format ?? "")\u{1f}\(height)"
     }
 
     /// Compile `next` as the source: the source the deck had, where `next` became the deck. With

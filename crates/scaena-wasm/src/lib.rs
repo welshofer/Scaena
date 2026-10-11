@@ -780,13 +780,26 @@ impl Player {
         serde_json::to_string(&self.0.filling(state, slot).map_err(js)?).map_err(js)
     }
 
-    /// The slides a person may start after the slide of `state` (PLAN 3.30), each painted at rest
-    /// `height` pixels high in the format shown: JSON, an array of `{ layout, description, group,
-    /// width, height }`, one in each of the theme's layouts, then a blank one. `starterPixels(i)`
-    /// takes the `i`th picture's pixels, as `pixels` gives a frame's.
+    /// The slides a person may start (PLAN 3.31), as a picker lists them before it draws any, as
+    /// JSON: each of the theme's layouts, its `layout`, `name`, `description`, and `group`, then a
+    /// blank one.
+    pub fn starters(&self) -> String {
+        serde_json::Value::Array(self.0.starters()).to_string()
+    }
+
+    /// The slides a person may start after the slide of `state` (PLAN 3.30), each as its layout's
+    /// picture shows it (PLAN 3.31), painted at rest `height` pixels high in the format shown:
+    /// JSON, an array of `{ layout, name, description, group, width, height }`, one in each of the
+    /// theme's layouts, then a blank one; or, with `layouts` a JSON array of names, those, a null
+    /// the blank one. `starterPixels(i)` takes the `i`th picture's pixels, as `pixels` gives a
+    /// frame's.
     #[wasm_bindgen(js_name = startersPainted)]
-    pub fn starters_painted(&mut self, state: &str, height: u32) -> Result<String, JsError> {
-        serde_json::to_string(&self.0.starters_painted(state, height).map_err(js)?).map_err(js)
+    pub fn starters_painted(&mut self, state: &str, height: u32, layouts: Option<String>) -> Result<String, JsError> {
+        let only: Option<Vec<Option<String>>> = match layouts {
+            Some(text) => Some(serde_json::from_str(&text).map_err(js)?),
+            None => None,
+        };
+        serde_json::to_string(&self.0.starters_painted(state, height, only.as_deref()).map_err(js)?).map_err(js)
     }
 
     /// The pixels of the `i`th picture `startersPainted` painted last, taken: a second call gives

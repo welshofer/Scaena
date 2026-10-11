@@ -437,14 +437,25 @@
       dialog { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 16px; width: min(26em, 90vw); }
       dialog::backdrop { background: rgb(0 0 0 / 0.5); }
       /* Add Slide's gallery (PLAN 3.30): the theme's layouts, each a slide started in it, by section. */
-      #starting { width: min(880px, 94vw); }
-      #starting .starters { max-height: 70vh; overflow-y: auto; padding: 2px; }
-      #starting h3 { font-size: 12px; font-weight: 600; color: var(--muted); margin: 14px 0 6px; }
-      #starting h3:first-child { margin-top: 0; }
+      #starting { width: min(1000px, 96vw); }
+      #starting .picker-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      #starting .picker-head h2 { margin: 0; }
+      #starting .find { width: min(280px, 50%); }
+      #starting .picker { display: grid; grid-template-columns: 170px 1fr; gap: 12px; margin-top: 10px; height: min(560px, 68vh); }
+      #starting .sections { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; padding-right: 8px; border-right: 1px solid var(--line); }
+      #starting .sections button { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 5px 8px; border: 0; border-radius: 5px; background: transparent; color: var(--ink); font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+      #starting .sections button:hover { background: rgb(156 196 228 / 0.1); }
+      #starting .sections button[aria-selected="true"] { background: rgb(156 196 228 / 0.22); }
+      #starting .sections button:focus-visible { outline: 2px solid var(--info); outline-offset: -2px; }
+      #starting .sections .count { color: var(--muted); font-variant-numeric: tabular-nums; }
+      #starting .starters { overflow-y: auto; padding: 2px; }
       #starting .group { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
       #starting .group button { display: flex; flex-direction: column; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); color: var(--ink); font: inherit; font-size: 11px; text-align: left; cursor: pointer; }
       #starting .group button:hover, #starting .group button:focus-visible { border-color: var(--info); outline: none; }
-      #starting canvas { display: block; width: 100%; height: auto; border-radius: 3px; background: #000; }
+      #starting .group button[aria-current="true"] { border-color: var(--info); box-shadow: 0 0 0 1px var(--info); }
+      #starting canvas { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; border-radius: 3px; background: rgb(255 255 255 / 0.04); }
+      #starting .group button.drawn canvas { aspect-ratio: auto; background: #000; }
+      #starting menu .blank { margin-right: auto; }
       dialog h2 { font-size: 15px; margin: 0 0 12px; }
       dialog form { display: flex; flex-direction: column; gap: 10px; }
       dialog label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
@@ -679,9 +690,16 @@
     </dialog>
     <dialog id="starting" aria-labelledby="starting-title">
       <form method="dialog">
-        <h2 id="starting-title">Add a slide</h2>
-        <div class="starters" aria-live="polite"></div>
+        <div class="picker-head">
+          <h2 id="starting-title">Add a slide</h2>
+          <input type="search" class="find" placeholder="Find a layout" aria-label="Find a layout" autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="picker">
+          <div class="sections" role="tablist" aria-orientation="vertical" aria-label="Sections"></div>
+          <div class="starters" id="starting-panel" role="tabpanel"></div>
+        </div>
         <menu>
+          <button type="button" class="blank" title="A slide in no layout, with nothing on it">Blank</button>
           <button value="cancel" formnovalidate>Cancel</button>
         </menu>
       </form>

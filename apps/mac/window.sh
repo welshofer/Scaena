@@ -249,9 +249,10 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   shot safe-area
   toggle "Safe Area"
 
-  # Add Slide's gallery (PLAN 3.30): the theme's layouts in its sections, each drawn as a slide
-  # started in it. A click on the first, a title slide, starts it after the slide shown, and ⌘Z
-  # takes it back. The gallery draws a tile only once it is scrolled to: the first is in view.
+  # Add Slide's picker (PLAN 3.30, 3.31): the theme's layouts by their sections down the side,
+  # each drawn as a slide started in it, Titles first. Frameworks shows its own, SWOT and the rest;
+  # then a click on Titles' first, a title slide, starts it after the slide shown, and ⌘Z takes it
+  # back.
   read -r ax ay aw ah <<<"$(frames find add-slide)" || true
   if [[ "${ah:-}" =~ ^[0-9]+$ ]]; then
     pointer click $((ax + aw / 2)) $((ay + ah / 2))
@@ -266,6 +267,28 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
     done
     echo "the gallery drawn: $drawn"
     shot gallery
+    read -r fx fy fw fh <<<"$(frames find section-frameworks)" || true
+    if [[ "${fh:-}" =~ ^[0-9]+$ ]]; then
+      pointer click $((fx + fw / 2)) $((fy + fh / 2))
+      shown="not within 20 s"
+      for waited in $(seq 0 20); do
+        read -r _ _ _ wh <<<"$(frames find start-swot)" || true
+        if [[ "${wh:-}" =~ ^[0-9]+$ ]]; then
+          shown="within $waited s"
+          break
+        fi
+        sleep 1
+      done
+      echo "Frameworks shown: $shown"
+      sleep 2
+      shot gallery-frameworks
+      read -r tx ty tw th <<<"$(frames find section-titles)" || true
+      [[ "${th:-}" =~ ^[0-9]+$ ]] && pointer click $((tx + tw / 2)) $((ty + th / 2))
+      sleep 1
+      read -r bx by bw bh <<<"$(frames find start-title)" || true
+    else
+      echo "no sections in the picker: $fx $fy $fw $fh"
+    fi
     if [[ "${bh:-}" =~ ^[0-9]+$ ]]; then
       pointer click $((bx + bw / 2)) $((by + bh / 2))
       sleep 2

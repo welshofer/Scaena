@@ -368,32 +368,66 @@ impl Session {
         Some(std::mem::replace(kept, scaena_paint::Raster { width: 0, height: 0, rgba: Vec::new() }))
     }
 
-    /// The slides a person may start after the slide of `state`, the state shown (PLAN 3.30): one
-    /// in each of the theme's layouts, in its order, then a blank one, each as
-    /// [`Session::starting`] makes it, laid out in the format shown and painted at rest `height`
-    /// pixels high by a CPU painter of its own, a box of the theme's second surface (`surface-2`)
-    /// in each slot that waits for a picture or a figure. Each as JSON: its `layout` (none for the
-    /// blank one), the layout's `description` and `group`, and its picture's `width` and `height`,
-    /// the pictures kept until [`Session::starter_picture`] takes each. Nothing is made.
-    pub fn starters_painted(&mut self, state: &str, height: u32) -> Result<Vec<Value>, Error> {
+    /// The slides a person may start (PLAN 3.30, 3.31), as a picker lists them before it draws any:
+    /// one in each of the theme's layouts, in its order, each its `layout`, `name`, `description`,
+    /// and `group`, then a blank one, its `layout` null. Nothing is laid out.
+    pub fn starters(&self) -> Vec<Value> {
+        let listed = self.theme.layouts.iter().map(|(layout, l)| {
+            serde_json::json!({ "layout": layout, "name": l.name, "description": l.description, "group": l.group })
+        });
+        let blank = serde_json::json!({ "layout": null, "name": null, "description": null, "group": null });
+        listed.chain([blank]).collect()
+    }
+
+    /// The slides a person may start after the slide of `state`, the state shown (PLAN 3.30), as
+    /// each layout's picture shows it (PLAN 3.31): one in each of the theme's layouts, in its
+    /// order, then a blank one; or those `only` names, in its order, a null among them the blank
+    /// one. Each is the slide [`scaena_ops::states::example`] makes, its words to type over and an
+    /// example in each slot that gives one, laid out in the format shown and painted at rest
+    /// `height` pixels high by a CPU painter of its own, a box of the theme's second surface
+    /// (`surface-2`) in each other slot that waits for a picture or a figure. Each as JSON: its
+    /// `layout` (none for the blank one), the layout's `name`, `description`, and `group`, and its
+    /// picture's `width` and `height`, the pictures kept until [`Session::starter_picture`] takes
+    /// each. Nothing is made.
+    pub fn starters_painted(
+        &mut self,
+        state: &str,
+        height: u32,
+        only: Option<&[Option<String>]>,
+    ) -> Result<Vec<Value>, Error> {
         use scaena_paint::Painter;
         self.build()?;
         let base = self.deck.to_value().map_err(|e| Error::Ops(e.to_string()))?;
         let fill = ["surface-2", "line"].into_iter().find(|c| self.theme.tokens.roles.contains_key(*c));
-        let mut layouts: Vec<Option<String>> = self.theme.layouts.keys().cloned().map(Some).collect();
-        layouts.push(None);
+        let layouts: Vec<Option<String>> = match only {
+            Some(only) => only
+                .iter()
+                .filter(|name| name.as_ref().is_none_or(|n| self.theme.layouts.contains_key(n)))
+                .cloned()
+                .collect(),
+            None => self.theme.layouts.keys().cloned().map(Some).chain([None]).collect(),
+        };
         let mut painter = scaena_paint::cpu::CpuPainter::default();
         let (mut listed, mut painted) = (Vec::with_capacity(layouts.len()), Vec::with_capacity(layouts.len()));
         for layout in layouts {
-            let started = scaena_ops::states::starting(&self.deck, &self.theme, state, layout.as_deref())
-                .map_err(|e| Error::Ops(e.message))?;
+            let started = match layout.as_deref() {
+                Some(name) => scaena_ops::states::example(&self.deck, &self.theme, state, name),
+                None => scaena_ops::states::starting(&self.deck, &self.theme, state, None),
+            }
+            .map_err(|e| Error::Ops(e.message))?;
             let mut patch = started.patch;
-            // A box where a picture or a figure goes, drawn under the words: in the picture only.
+            // A box where a picture or a figure goes and no example is given, drawn under the
+            // words: in the picture only.
             let template = layout.as_deref().and_then(|name| self.theme.layouts.get(name));
-            let (description, group) =
-                (template.and_then(|t| t.description.clone()), template.and_then(|t| t.group.clone()));
+            let (name, description, group) = (
+                template.and_then(|t| t.name.clone()),
+                template.and_then(|t| t.description.clone()),
+                template.and_then(|t| t.group.clone()),
+            );
             let waits = |s: &scaena_core::model::theme::Slot| {
-                s.role.is_none() && matches!(s.prompt, Some(scaena_core::model::theme::Prompt::Words(_)))
+                s.role.is_none()
+                    && s.example.is_none()
+                    && matches!(s.prompt, Some(scaena_core::model::theme::Prompt::Words(_)))
             };
             let waiting = template.into_iter().flat_map(|t| &t.slots).filter(|(_, s)| waits(s));
             for (n, (slot, _)) in waiting.enumerate() {
@@ -421,6 +455,7 @@ impl Session {
             let picture = painter.paint(&list, store, height as f32 / list.viewport[1])?;
             listed.push(serde_json::json!({
                 "layout": layout,
+                "name": name,
                 "description": description,
                 "group": group,
                 "width": picture.width,
@@ -538,7 +573,7 @@ mod tests {
         let judged: Vec<(&str, bool, usize)> =
             suggested.iter().map(|(x, _)| (x.layout.as_str(), x.current, x.errors)).collect();
         assert_eq!(judged[0], ("figure", true, 0), "{judged:?}");
-        assert_eq!(judged.len(), 3, "{judged:?}");
+        assert_eq!(judged.len(), 6, "{judged:?}");
         assert!(judged[1..].iter().all(|&(_, current, errors)| !current && errors > 0), "{judged:?}");
         // As the bundle's lint judges them, the CLI's.
         let b = scaena_ops::open(std::path::Path::new("../../docs/examples/revenue.deck.json")).unwrap();
@@ -558,19 +593,24 @@ mod tests {
     }
 
     /// The slides a person may start (PLAN 3.30): one in each of the theme's layouts, in its
-    /// order, then a blank one, each painted small and none alike, with nothing made.
+    /// order, then a blank one, each painted small as its layout's picture shows it (PLAN 3.31)
+    /// and none alike, with nothing made; or those asked for, a section at a time.
     #[test]
     fn the_slides_to_start_come_painted_one_for_each_layout_then_a_blank_one() {
         let mut s = revenue();
         let before = s.pixels("revenue", f64::INFINITY, 160).unwrap();
-        let listed = s.starters_painted("revenue", 90).unwrap();
+        let listed = s.starters_painted("revenue", 90, None).unwrap();
         let layouts: Vec<&str> = listed.iter().map(|one| one["layout"].as_str().unwrap_or("blank")).collect();
-        assert_eq!(layouts.len(), 48, "Dusk's 47 layouts, then a blank slide: {layouts:?}");
-        assert_eq!((layouts[0], layouts[47]), ("title", "blank"));
+        assert_eq!(layouts.len(), 123, "Dusk's 122 layouts, then a blank slide: {layouts:?}");
+        assert_eq!((layouts[0], layouts[122]), ("title", "blank"));
         let bullets = &listed[layouts.iter().position(|l| *l == "bullets").unwrap()];
         assert_eq!(bullets["description"], "A headline, and the points that make its case.");
-        assert_eq!(bullets["group"], "Words");
-        assert!(listed[47]["description"].is_null() && listed[47]["group"].is_null());
+        assert_eq!((bullets["name"].as_str(), bullets["group"].as_str()), (Some("Bullets"), Some("Lists")));
+        let swot = &listed[layouts.iter().position(|l| *l == "swot").unwrap()];
+        assert_eq!(swot["name"], "SWOT", "named as a person calls it");
+        assert!(
+            listed[122]["name"].is_null() && listed[122]["description"].is_null() && listed[122]["group"].is_null()
+        );
         let mut pictures: Vec<scaena_paint::Raster> = Vec::new();
         for (i, one) in listed.iter().enumerate() {
             let picture = s.starter_picture(i).unwrap();
@@ -585,6 +625,24 @@ mod tests {
         let started = s.starting("revenue", Some("bullets")).unwrap();
         assert_eq!((started.id.as_str(), started.patch.len()), ("bullets", 5));
         assert!(s.states().iter().all(|id| id != "bullets"));
+        // Those asked for, in the theme's order as asked, a null the blank one, a name it lacks
+        // passed over: what a picker draws, a section at a time.
+        // Listed before any is drawn, as the pictures list them.
+        let offered = s.starters();
+        assert_eq!(offered.len(), listed.len());
+        for (a, b) in offered.iter().zip(&listed) {
+            for key in ["layout", "name", "description", "group"] {
+                assert_eq!(a[key], b[key], "{key} of {}", b["layout"]);
+            }
+        }
+        let asked = [Some("two-up".to_string()), Some("nowhere".to_string()), None];
+        let some = s.starters_painted("revenue", 90, Some(&asked)).unwrap();
+        let names: Vec<Option<&str>> = some.iter().map(|one| one["layout"].as_str()).collect();
+        assert_eq!(names, [Some("two-up"), None]);
+        assert_eq!(
+            s.starter_picture(0).unwrap().rgba,
+            pictures[layouts.iter().position(|l| *l == "two-up").unwrap()].rgba
+        );
     }
 
     #[test]

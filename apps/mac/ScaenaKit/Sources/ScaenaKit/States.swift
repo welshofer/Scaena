@@ -32,11 +32,21 @@ extension ScaenaSession {
         return try call("starting", .object(args))
     }
 
+    /// The slides a person may start (PLAN 3.31), as a picker lists them before it draws any: one
+    /// in each of the theme's layouts, in its order, then a blank one, each with no picture.
+    public func starters() throws -> [Starter] {
+        try call("starters")
+    }
+
     /// The slides a person may start after the slide of `state` (PLAN 3.30): one in each of the
-    /// theme's layouts, in its order, then a blank one, each painted at rest `height` pixels high.
-    /// `starterPicture(i)` takes the `i`th one's picture.
-    public func starters(after state: String, height: Int) throws -> [Starter] {
-        try call("startersPainted", ["state": .string(state), "height": .number(Double(max(height, 1)))])
+    /// theme's layouts, in its order, then a blank one; or those `only` names, in that order, a nil
+    /// among them the blank one, as a picker draws a section at a time (PLAN 3.31). Each is drawn
+    /// as its layout's picture shows it, painted at rest `height` pixels high; `starterPicture(i)`
+    /// takes the `i`th one's picture. A name the theme lacks is passed over.
+    public func starters(after state: String, height: Int, only: [String?]? = nil) throws -> [Starter] {
+        var args: [String: JSONValue] = ["state": .string(state), "height": .number(Double(max(height, 1)))]
+        if let only { args["layouts"] = .array(only.map { $0.map(JSONValue.string) ?? .null }) }
+        return try call("startersPainted", .object(args))
     }
 
     /// The `i`th picture `starters` painted last, taken: a second call throws.
@@ -47,10 +57,12 @@ extension ScaenaSession {
         return Pixels(rgba: rgba, width: Int(painted.width), height: Int(painted.height))
     }
 
-    /// The slides a person may start after the slide of `state`, each with its picture `height`
-    /// pixels high. One whose picture cannot be made is left out.
-    public func startersDrawn(after state: String, height: Int) throws -> [(starter: Starter, image: CGImage)] {
-        try starters(after: state, height: height).enumerated().compactMap { i, starter in
+    /// The slides a person may start after the slide of `state`, or those `only` names, each with
+    /// its picture `height` pixels high. One whose picture cannot be made is left out.
+    public func startersDrawn(
+        after state: String, height: Int, only: [String?]? = nil
+    ) throws -> [(starter: Starter, image: CGImage)] {
+        try starters(after: state, height: height, only: only).enumerated().compactMap { i, starter in
             (try starterPicture(i)).image.map { (starter: starter, image: $0) }
         }
     }
@@ -117,15 +129,38 @@ extension ScaenaSession {
 public struct Starter: Decodable, Sendable, Identifiable, Equatable {
     /// The theme's layout it is in; none for the blank slide.
     public let layout: String?
+    /// What a person calls the layout, as the theme names it (theme format 0.12): `SWOT`, `Q&A`;
+    /// none for the blank slide, or a layout the theme names none for.
+    public let name: String?
     /// What the theme says the layout is for.
     public let description: String?
-    /// The gallery's section it is offered under (`Titles`, `Words`, `Pictures`); none for the
+    /// The gallery's section it is offered under (`Titles`, `Lists`, `Pictures`); none for the
     /// blank slide, which comes last.
     public let group: String?
+    /// Its picture's size, pixels: none for one listed before it is drawn.
     public let width: Int
     public let height: Int
 
     public var id: String { layout ?? "" }
+
+    private enum Keys: String, CodingKey { case layout, name, description, group, width, height }
+
+    public init(from decoder: any Decoder) throws {
+        let fields = try decoder.container(keyedBy: Keys.self)
+        layout = try fields.decodeIfPresent(String.self, forKey: .layout)
+        name = try fields.decodeIfPresent(String.self, forKey: .name)
+        description = try fields.decodeIfPresent(String.self, forKey: .description)
+        group = try fields.decodeIfPresent(String.self, forKey: .group)
+        width = try fields.decodeIfPresent(Int.self, forKey: .width) ?? 0
+        height = try fields.decodeIfPresent(Int.self, forKey: .height) ?? 0
+    }
+
+    /// Whether it is found by what a person typed (PLAN 3.31): each word of `words`, in any case,
+    /// in its name, what it is for, its section, or its key, as a deck's source names it.
+    public func matches(_ words: String) -> Bool {
+        let said = [name ?? "Blank", description ?? "", group ?? "", layout ?? ""].joined(separator: " ")
+        return words.split(whereSeparator: \.isWhitespace).allSatisfy { said.localizedStandardContains($0) }
+    }
 }
 
 /// A slide as the light table shows it (PLAN 2.97): its id, and its states as the timeline plays

@@ -378,8 +378,11 @@ pub unsafe extern "C" fn scaena_drop(
 /// next judged, and whether any is left; and `layoutSuggestions {height}`, those judged, best
 /// first, each with the `set_state` that gives it and its picture's size, painted `height`
 /// pixels high, which [`scaena_layout_pixels`] takes. The slides a person may start (PLAN 3.30):
-/// `startersPainted {state, height}`, one in each of the theme's layouts, then a blank one, each
-/// `{layout, description, width, height}`, painted `height` pixels high, which
+/// `starters`, the slides a person may start as a picker lists them before any is drawn, each
+/// `{layout, name, description, group}`, then a blank one; `startersPainted {state, height,
+/// layouts?}`, one in each of the theme's layouts, then a blank
+/// one, or those `layouts` names, a null the blank one, each `{layout, name, description, group,
+/// width, height}`, painted `height` pixels high, which
 /// [`scaena_starter_pixels`] takes; `starting {state, layout?}`, the patch that starts one after
 /// the slide of `state`, `{id, patch}`; `waiting {state}`, the slots of its layout that wait
 /// for what their prompts say goes there, each `{slot, rect, words, typed, role?}`; and
@@ -1261,9 +1264,17 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         "layoutsBegin" => json!(s.layouts_begin(arg("state")?).map_err(said)?),
         "layoutsStep" => json!(s.layouts_step().map_err(said)?),
         "layoutSuggestions" => json!(s.layouts_painted(number("height")?.max(1.0) as u32).map_err(said)?),
-        // The slides a person may start after the slide shown, painted, and one started (PLAN 3.30).
+        // The slides a person may start after the slide shown, each as its layout's picture shows
+        // it, painted: every layout's, or those `layouts` names, a null the blank one (PLAN 3.30,
+        // 3.31); and one started.
+        "starters" => json!(s.starters()),
         "startersPainted" => {
-            json!(s.starters_painted(arg("state")?, number("height")?.max(1.0) as u32).map_err(said)?)
+            let only: Option<Vec<Option<String>>> = match args.get("layouts") {
+                Some(Value::Null) | None => None,
+                Some(v) => Some(serde_json::from_value(v.clone()).map_err(|e| said(format!("`layouts`: {e}")))?),
+            };
+            let height = number("height")?.max(1.0) as u32;
+            json!(s.starters_painted(arg("state")?, height, only.as_deref()).map_err(said)?)
         }
         "starting" => value(serde_json::to_value(s.starting(arg("state")?, optional("layout")).map_err(said)?))?,
         "waiting" => value(serde_json::to_value(s.waiting(arg("state")?).map_err(said)?))?,

@@ -353,57 +353,132 @@ What the props mean is in SPEC §3: the objects in §3.3, layout in §3.4, type 
 
 The shipped themes, Dusk, Daybreak, and Ember, share these names, so a deck moves between them with no other change (`scaena theme --apply`). A name the theme does not have is E102. A test holds this section to the themes.
 
-Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type over, a picture, a chart, or a card or a rule. Add Slide in the editor offers every layout as a slide started in it, by the gallery's sections, and a new slide in one has the words in its slots and its cards and rules (PLAN 3.30). A slot that `bleed`s reaches the canvas's edge: `photo` is a picture edge to edge, and `photo-left` one off the left edge.
+Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type over, a picture, a chart, or a card, a rule, an arrow, or a chevron. Add Slide in the editor offers every layout by the gallery's sections, Titles, Statements, Lists, Comparison, Frameworks, Process, Time, Numbers, Charts, Pictures, People, Editorial, and Closing, each under its name and drawn as its picture: the slide it starts, a picture in each picture's place and a chart or a table in each figure's, as its slots' `example`s say (PLAN 3.30, 3.31). A new slide in one has the words in its slots and its cards and rules; its pictures and figures wait for you. A slot that `bleed`s reaches the canvas's edge: `photo` is a picture edge to edge, and `photo-left` one off the left edge. `scripts/build_layouts.py` writes the library into each theme.
 
 | Layout | Its slots | In the gallery |
 |---|---|---|
-| `title` | `kicker`, `title`, `subtitle`, `art` | Titles |
-| `statement` | `kicker`, `statement`, `support` | Words |
-| `poster` | `kicker`, `statement`, `support`, `note`, `art` | Words |
-| `full` | `kicker`, `header`, `main`, `note` | Pictures |
-| `figure` | `kicker`, `header`, `main`, `note` | Charts |
-| `narrow-figure` | `kicker`, `header`, `main`, `note` | Charts |
-| `stat` | `kicker`, `number`, `claim`, `detail`, `under` | Numbers |
-| `split` | `body`, `main` | Charts |
-| `art-left` | `kicker`, `header`, `art`, `body` | Pictures |
-| `art-right` | `kicker`, `header`, `body`, `art` | Pictures |
-| `quote` | `quote`, `who` | Words |
-| `section` | `kicker`, `number`, `title`, `support` | Titles |
-| `photo-title` | `art`, `title`, `subtitle` | Titles |
-| `closing` | `kicker`, `statement`, `support` | Titles |
-| `title-only` | `kicker`, `header` | Titles |
-| `bullets` | `kicker`, `header`, `body` | Words |
-| `numbered` | `kicker`, `header`, `body` | Words |
-| `agenda` | `kicker`, `header`, `body` | Words |
-| `two-columns` | `kicker`, `header`, `first`, `second` | Words |
-| `comparison` | `kicker`, `header`, `first-title`, `first`, `second-title`, `second` | Words |
-| `pros-cons` | `kicker`, `header`, `first-title`, `first`, `second-title`, `second` | Words |
-| `three-columns` | `kicker`, `header`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Words |
-| `cards` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Words |
-| `roadmap` | `kicker`, `header`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Words |
-| `steps` | `kicker`, `header`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Words |
-| `timeline` | `kicker`, `header`, `first-title`, `second-title`, `third-title`, `fourth-title`, `rule`, `first`, `second`, `third`, `fourth` | Words |
-| `quadrants` | `kicker`, `header`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Words |
-| `three-rows` | `kicker`, `header`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Words |
-| `definition` | `kicker`, `term`, `meaning`, `example` | Words |
-| `testimonials` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `first`, `second`, `third`, `first-note`, `second-note`, `third-note` | Words |
-| `quote-portrait` | `art`, `quote`, `who` | Words |
-| `funnel` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `fourth-card`, `first`, `second`, `third`, `fourth` | Words |
-| `pyramid` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `fourth-card`, `first`, `second`, `third`, `fourth` | Words |
-| `photo` | `art` | Pictures |
-| `photo-caption` | `art`, `note` | Pictures |
-| `photo-left` | `art`, `header`, `body` | Pictures |
-| `photo-right` | `header`, `body`, `art` | Pictures |
-| `two-up` | `kicker`, `header`, `first-art`, `second-art`, `first`, `second` | Pictures |
-| `three-up` | `kicker`, `header`, `first-art`, `second-art`, `third-art`, `first`, `second`, `third` | Pictures |
-| `four-up` | `kicker`, `header`, `first-art`, `second-art`, `third-art`, `fourth-art` | Pictures |
-| `mosaic` | `first-art`, `second-art`, `third-art` | Pictures |
-| `team` | `kicker`, `header`, `first-art`, `second-art`, `third-art`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Pictures |
-| `figure-numbers` | `kicker`, `header`, `main`, `first-title`, `first`, `second-title`, `second` | Charts |
-| `big-number` | `number`, `claim`, `under` | Numbers |
-| `two-numbers` | `kicker`, `first-title`, `second-title`, `first`, `second` | Numbers |
-| `numbers` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Numbers |
-| `number-grid` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `fourth-card`, `fifth-card`, `sixth-card`, `first-title`, `second-title`, `third-title`, `fourth-title`, `fifth-title`, `sixth-title`, `first`, `second`, `third`, `fourth`, `fifth`, `sixth` | Numbers |
+| `title` | `kicker`, `title`, `subtitle`, `art` | Title, in Titles |
+| `section` | `kicker`, `number`, `title`, `support` | Section, in Titles |
+| `photo-title` | `art`, `title`, `subtitle` | Title over Photo, in Titles |
+| `title-only` | `kicker`, `header` | Title Only, in Titles |
+| `title-center` | `kicker`, `title`, `subtitle` | Centered Title, in Titles |
+| `title-split` | `art`, `title`, `subtitle`, `kicker` | Title beside Photo, in Titles |
+| `section-photo` | `art`, `number`, `title`, `support` | Section and Photo, in Titles |
+| `section-number` | `kicker`, `number`, `title`, `support` | Section Number, in Titles |
+| `statement` | `kicker`, `statement`, `support` | Statement, in Statements |
+| `poster` | `kicker`, `statement`, `support`, `note`, `art` | Poster, in Statements |
+| `quote` | `quote`, `who` | Quote, in Statements |
+| `thesis` | `kicker`, `claim`, `support` | Thesis, in Statements |
+| `big-question` | `kicker`, `question`, `support` | Big Question, in Statements |
+| `manifesto` | `kicker`, `header`, `body` | Manifesto, in Statements |
+| `key-point` | `kicker`, `card`, `point`, `follow` | Key Point, in Statements |
+| `bullets` | `kicker`, `header`, `body` | Bullets, in Lists |
+| `numbered` | `kicker`, `header`, `body` | Numbered List, in Lists |
+| `agenda` | `kicker`, `header`, `body` | Agenda, in Lists |
+| `three-rows` | `kicker`, `header`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Three Rows, in Lists |
+| `bullets-photo` | `art`, `header`, `body` | Bullets and Photo, in Lists |
+| `checklist` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `fourth-card`, `first`, `second`, `third`, `fourth`, `first-state`, `second-state`, `third-state`, `fourth-state` | Checklist, in Lists |
+| `agenda-photo` | `art`, `header`, `body`, `kicker` | Agenda and Photo, in Lists |
+| `four-points` | `kicker`, `header`, `first-number`, `second-number`, `third-number`, `fourth-number`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Four Points, in Lists |
+| `numbered-cards` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `fourth-card`, `first-number`, `second-number`, `third-number`, `fourth-number`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Numbered Cards, in Lists |
+| `two-columns` | `kicker`, `header`, `first`, `second` | Two Columns, in Comparison |
+| `comparison` | `kicker`, `header`, `first-title`, `first`, `second-title`, `second` | Comparison, in Comparison |
+| `pros-cons` | `kicker`, `header`, `first-title`, `first`, `second-title`, `second` | Pros and Cons, in Comparison |
+| `three-columns` | `kicker`, `header`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Three Columns, in Comparison |
+| `cards` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Cards, in Comparison |
+| `before-after` | `kicker`, `header`, `first-art`, `arrow`, `second-art`, `first`, `second` | Before and After, in Comparison |
+| `head-to-head` | `kicker`, `header`, `middle-card`, `first-title`, `second-title`, `first-criterion`, `second-criterion`, `third-criterion`, `first-left`, `second-left`, `third-left`, `first-right`, `second-right`, `third-right` | Head to Head, in Comparison |
+| `scenarios` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `first-title`, `second-title`, `third-title`, `first-figure`, `second-figure`, `third-figure`, `first`, `second`, `third` | Scenarios, in Comparison |
+| `myth-fact` | `kicker`, `header`, `first-card`, `second-card`, `first-title`, `second-title`, `first`, `second` | Myth and Fact, in Comparison |
+| `pricing` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `mark`, `first-title`, `second-title`, `third-title`, `first-price`, `second-price`, `third-price`, `first`, `second`, `third` | Pricing, in Comparison |
+| `quadrants` | `kicker`, `header`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Quadrants, in Frameworks |
+| `funnel` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `fourth-card`, `first`, `second`, `third`, `fourth` | Funnel, in Frameworks |
+| `pyramid` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `fourth-card`, `first`, `second`, `third`, `fourth` | Pyramid, in Frameworks |
+| `matrix` | `header`, `first-card`, `second-card`, `third-card`, `fourth-card`, `y-high`, `y-low`, `first`, `second`, `third`, `fourth`, `x-low`, `x-high` | Two-by-Two Matrix, in Frameworks |
+| `swot` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `fourth-card`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | SWOT, in Frameworks |
+| `okrs` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `fourth-card`, `first`, `second`, `third`, `fourth`, `first-target`, `second-target`, `third-target`, `fourth-target` | OKRs, in Frameworks |
+| `raci` | `kicker`, `header`, `first-card`, `third-card`, `first-role`, `second-role`, `third-role`, `first-task`, `second-task`, `third-task`, `first-lead`, `first-team`, `first-sponsor`, `second-lead`, `second-team`, `second-sponsor`, `third-lead`, `third-team`, `third-sponsor` | RACI, in Frameworks |
+| `three-horizons` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Three Horizons, in Frameworks |
+| `venn` | `kicker`, `header`, `first-circle`, `second-circle`, `third-circle`, `first`, `second`, `third`, `note` | Venn Diagram, in Frameworks |
+| `cycle` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `fourth-card`, `first-arrow`, `second-arrow`, `third-arrow`, `fourth-arrow`, `first`, `second`, `third`, `fourth` | Cycle, in Frameworks |
+| `nine-box` | `header`, `first-card`, `second-card`, `third-card`, `fourth-card`, `fifth-card`, `sixth-card`, `seventh-card`, `eighth-card`, `ninth-card`, `first`, `second`, `third`, `fourth`, `fifth`, `sixth`, `seventh`, `eighth`, `ninth` | Nine-Box Grid, in Frameworks |
+| `stack` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `fourth-card`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Stack, in Frameworks |
+| `hub-spoke` | `kicker`, `header`, `hub-circle`, `first-spoke`, `second-spoke`, `third-spoke`, `fourth-spoke`, `hub`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Hub and Spoke, in Frameworks |
+| `steps` | `kicker`, `header`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Steps, in Process |
+| `process` | `kicker`, `header`, `first-chevron`, `second-chevron`, `third-chevron`, `fourth-chevron`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Process, in Process |
+| `how-it-works` | `kicker`, `header`, `first-number`, `second-number`, `third-number`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | How It Works, in Process |
+| `pipeline` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `fourth-card`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first-figure`, `second-figure`, `third-figure`, `fourth-figure`, `first`, `second`, `third`, `fourth` | Pipeline, in Process |
+| `journey` | `kicker`, `header`, `second-lane`, `first-phase`, `second-phase`, `third-phase`, `first-lane`, `third-lane`, `does-first`, `does-second`, `does-third`, `thinks-first`, `thinks-second`, `thinks-third`, `feels-first`, `feels-second`, `feels-third` | Journey, in Process |
+| `recipe` | `kicker`, `header`, `needs-title`, `needs`, `method-title`, `method` | Recipe, in Process |
+| `roadmap` | `kicker`, `header`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Roadmap, in Time |
+| `timeline` | `kicker`, `header`, `first-title`, `second-title`, `third-title`, `fourth-title`, `rule`, `first`, `second`, `third`, `fourth` | Timeline, in Time |
+| `milestones` | `kicker`, `header`, `rule`, `first-date`, `second-date`, `third-date`, `fourth-date`, `first`, `second`, `third`, `fourth` | Milestones, in Time |
+| `quarters` | `kicker`, `header`, `first-title`, `second-title`, `third-title`, `fourth-title`, `rule`, `first`, `second`, `third`, `fourth` | Quarters, in Time |
+| `gantt` | `kicker`, `header`, `first-month`, `second-month`, `third-month`, `first-bar`, `second-bar`, `third-bar`, `fourth-bar`, `first`, `second`, `third`, `fourth` | Gantt Chart, in Time |
+| `year` | `kicker`, `header`, `month-1`, `month-2`, `month-3`, `month-4`, `month-5`, `month-6`, `month-7`, `month-8`, `month-9`, `month-10`, `month-11`, `month-12`, `first-card`, `second-card`, `third-card`, `fourth-card`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Year at a Glance, in Time |
+| `timeline-photos` | `kicker`, `header`, `first-art`, `second-art`, `third-art`, `fourth-art`, `first-date`, `second-date`, `third-date`, `fourth-date`, `first`, `second`, `third`, `fourth` | Timeline with Photos, in Time |
+| `stat` | `kicker`, `number`, `claim`, `detail`, `under` | Stat, in Numbers |
+| `big-number` | `number`, `claim`, `under` | Big Number, in Numbers |
+| `two-numbers` | `kicker`, `first-title`, `second-title`, `first`, `second` | Two Numbers, in Numbers |
+| `numbers` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Three Numbers, in Numbers |
+| `number-grid` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `fourth-card`, `fifth-card`, `sixth-card`, `first-title`, `second-title`, `third-title`, `fourth-title`, `fifth-title`, `sixth-title`, `first`, `second`, `third`, `fourth`, `fifth`, `sixth` | Six Numbers, in Numbers |
+| `scorecard` | `kicker`, `header`, `rule`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first-figure`, `second-figure`, `third-figure`, `fourth-figure`, `first`, `second`, `third`, `fourth` | Scorecard, in Numbers |
+| `ranking` | `kicker`, `header`, `first-card`, `third-card`, `first-rank`, `second-rank`, `third-rank`, `fourth-rank`, `first`, `second`, `third`, `fourth`, `first-figure`, `second-figure`, `third-figure`, `fourth-figure` | Ranking, in Numbers |
+| `progress` | `kicker`, `header`, `first-track`, `second-track`, `third-track`, `first-bar`, `second-bar`, `third-bar`, `first`, `second`, `third`, `first-figure`, `second-figure`, `third-figure` | Progress, in Numbers |
+| `number-photo` | `art`, `number`, `claim`, `under` | Number and Photo, in Numbers |
+| `metric-trend` | `kicker`, `header`, `number`, `claim`, `main`, `note` | Number and Trend, in Numbers |
+| `figure` | `kicker`, `header`, `main`, `note` | Chart, in Charts |
+| `narrow-figure` | `kicker`, `header`, `main`, `note` | Narrow Chart, in Charts |
+| `split` | `body`, `main` | Chart and Words, in Charts |
+| `figure-numbers` | `kicker`, `header`, `main`, `first-title`, `first`, `second-title`, `second` | Chart and Numbers, in Charts |
+| `bar-chart` | `kicker`, `header`, `main`, `takeaway`, `note` | Bar Chart, in Charts |
+| `line-chart` | `kicker`, `header`, `main`, `callout`, `note` | Line Chart, in Charts |
+| `donut-chart` | `kicker`, `header`, `main`, `first-title`, `first`, `second-title`, `second` | Donut Chart, in Charts |
+| `table` | `kicker`, `header`, `main`, `note` | Table, in Charts |
+| `chart-bullets` | `kicker`, `header`, `main`, `body` | Chart and Bullets, in Charts |
+| `two-charts` | `kicker`, `header`, `first-title`, `second-title`, `first-chart`, `second-chart` | Two Charts, in Charts |
+| `full` | `kicker`, `header`, `main`, `note` | Full Bleed, in Pictures |
+| `art-left` | `kicker`, `header`, `art`, `body` | Art Left, in Pictures |
+| `art-right` | `kicker`, `header`, `body`, `art` | Art Right, in Pictures |
+| `photo` | `art` | Photo, in Pictures |
+| `photo-caption` | `art`, `note` | Photo and Caption, in Pictures |
+| `photo-left` | `art`, `header`, `body` | Photo Left, in Pictures |
+| `photo-right` | `header`, `body`, `art` | Photo Right, in Pictures |
+| `two-up` | `kicker`, `header`, `first-art`, `second-art`, `first`, `second` | Two Up, in Pictures |
+| `three-up` | `kicker`, `header`, `first-art`, `second-art`, `third-art`, `first`, `second`, `third` | Three Up, in Pictures |
+| `four-up` | `kicker`, `header`, `first-art`, `second-art`, `third-art`, `fourth-art` | Four Up, in Pictures |
+| `mosaic` | `first-art`, `second-art`, `third-art` | Mosaic, in Pictures |
+| `six-up` | `kicker`, `header`, `first-art`, `second-art`, `third-art`, `fourth-art`, `fifth-art`, `sixth-art` | Six Up, in Pictures |
+| `panorama` | `kicker`, `header`, `art`, `note` | Panorama, in Pictures |
+| `photo-quote` | `art`, `quote`, `who` | Quote over Photo, in Pictures |
+| `four-in-a-row` | `kicker`, `header`, `first-art`, `second-art`, `third-art`, `fourth-art`, `first`, `second`, `third`, `fourth` | Four in a Row, in Pictures |
+| `callout` | `kicker`, `header`, `art`, `first-line`, `second-line`, `third-line`, `fourth-line`, `first`, `second`, `third`, `fourth` | Callouts, in Pictures |
+| `photo-grid-text` | `first-art`, `second-art`, `third-art`, `fourth-art`, `header`, `body` | Photo Grid and Words, in Pictures |
+| `team` | `kicker`, `header`, `first-art`, `second-art`, `third-art`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Team, in People |
+| `testimonials` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `first`, `second`, `third`, `first-note`, `second-note`, `third-note` | Testimonials, in People |
+| `quote-portrait` | `art`, `quote`, `who` | Quote and Portrait, in People |
+| `bio` | `kicker`, `art`, `name`, `role`, `story` | Bio, in People |
+| `team-four` | `kicker`, `header`, `first-art`, `second-art`, `third-art`, `fourth-art`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Team of Four, in People |
+| `team-six` | `kicker`, `header`, `first-art`, `second-art`, `third-art`, `fourth-art`, `fifth-art`, `sixth-art`, `first-title`, `second-title`, `third-title`, `fourth-title`, `fifth-title`, `sixth-title`, `first`, `second`, `third`, `fourth`, `fifth`, `sixth` | Team of Six, in People |
+| `org-chart` | `kicker`, `header`, `top-card`, `first-card`, `second-card`, `third-card`, `trunk`, `branch`, `first-drop`, `second-drop`, `third-drop`, `top`, `first`, `second`, `third` | Org Chart, in People |
+| `speaker` | `art`, `name`, `role`, `talk` | Speaker, in People |
+| `two-quotes` | `kicker`, `header`, `first-card`, `second-card`, `first`, `second`, `first-note`, `second-note` | Two Quotes, in People |
+| `definition` | `kicker`, `term`, `meaning`, `example` | Definition, in Editorial |
+| `letter` | `kicker`, `from`, `date`, `to`, `body`, `sign` | Letter, in Editorial |
+| `memo` | `kicker`, `header`, `to-label`, `from-label`, `about-label`, `date-label`, `to`, `from`, `about`, `date`, `rule`, `body` | Memo, in Editorial |
+| `receipt` | `kicker`, `slip`, `title`, `first-item`, `second-item`, `third-item`, `fourth-item`, `first-amount`, `second-amount`, `third-amount`, `fourth-amount`, `rule`, `total-label`, `total` | Receipt, in Editorial |
+| `chyron` | `art`, `band`, `tag`, `story` | Lower Third, in Editorial |
+| `headline` | `tag`, `headline`, `dek`, `byline`, `art` | Front Page, in Editorial |
+| `faq` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `fourth-card`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | FAQ, in Editorial |
+| `glossary` | `kicker`, `header`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Glossary, in Editorial |
+| `magazine` | `kicker`, `header`, `first`, `pull`, `second` | Magazine Spread, in Editorial |
+| `closing` | `kicker`, `statement`, `support` | Closing, in Closing |
+| `next-steps` | `kicker`, `header`, `action-label`, `owner-label`, `when-label`, `first-card`, `second-card`, `first`, `second`, `third`, `first-owner`, `second-owner`, `third-owner`, `first-when`, `second-when`, `third-when` | Next Steps, in Closing |
+| `the-ask` | `kicker`, `ask`, `first`, `second`, `third` | The Ask, in Closing |
+| `qa` | `kicker`, `question`, `support` | Q&A, in Closing |
+| `contact` | `art`, `thanks`, `name`, `details` | Contact, in Closing |
+| `takeaways` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `first-number`, `second-number`, `third-number`, `first`, `second`, `third` | Takeaways, in Closing |
+| `call-to-action` | `kicker`, `statement`, `button-card`, `button` | Call to Action, in Closing |
 
 Every layout also has `in(canvas)`, the whole canvas, and `in(grid)`, the margins' box. `at:col(1-6) row(2-8)` places by the theme's 12 × 12 grid instead.
 

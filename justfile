@@ -88,6 +88,7 @@ schema:
     python3 scripts/build_bundle_fonts.py --check
     python3 scripts/build_lint_fonts.py --check
     python3 scripts/build_bench_decks.py --check
+    python3 scripts/build_layouts.py --check
 
 # The scripts' own tests: the bench gate's judgment (PLAN 1.24); and the browser's assistant, held to
 # the exchanges scaena-chat's tests hold the Mac's to (ADR-0022).
