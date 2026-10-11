@@ -107,8 +107,9 @@ struct AssistantPanel: View {
                     ForEach(assistant.entries) { entry in
                         EntryRow(entry: entry).id(entry.id)
                     }
-                    if assistant.working {
-                        ProgressView().controlSize(.small)
+                    // What it is doing while it works: the call running says so itself.
+                    if assistant.working, !calling {
+                        Text("Thinking…").font(.callout).foregroundStyle(.secondary).modifier(Sweep())
                     }
                 }
                 .padding(10)
@@ -118,6 +119,12 @@ struct AssistantPanel: View {
                 if let last = assistant.entries.last { scroll.scrollTo(last.id, anchor: .bottom) }
             }
         }
+    }
+
+    /// Whether a call the model made is running, which says what it is doing itself.
+    private var calling: Bool {
+        if case .call(_, _, .none) = assistant.entries.last?.kind { return true }
+        return false
     }
 
     private var introduction: String {
@@ -200,6 +207,33 @@ struct AssistantPanel: View {
     }
 }
 
+/// A light that sweeps across words while the assistant works on them, as a model's status line
+/// does; held still where Reduce Motion is on. It draws over the words, which stay as they are set.
+private struct Sweep: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var still
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if still {
+            content
+        } else {
+            TimelineView(.animation) { context in
+                // Once across every 1.8 s, from before the words' start to past their end.
+                let head = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.8) / 1.8 * 1.6 - 0.3
+                content.overlay {
+                    LinearGradient(
+                        colors: [.clear, Color.primary.opacity(0.6), .clear],
+                        startPoint: UnitPoint(x: head - 0.25, y: 0.5),
+                        endPoint: UnitPoint(x: head + 0.25, y: 0.5)
+                    )
+                    .mask { content }
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                }
+            }
+        }
+    }
+}
+
 /// One entry of the conversation.
 private struct EntryRow: View {
     let entry: Assistant.Entry
@@ -219,7 +253,12 @@ private struct EntryRow: View {
                 HStack(spacing: 6) {
                     Image(systemName: ran == nil ? "gearshape" : ran?.error == true ? "xmark.circle" : "checkmark.circle")
                         .foregroundStyle(ran?.error == true ? Color.red : Color.secondary)
-                    Text(name).font(.callout.monospaced())
+                    // What the call does, in a person's words: no tool's name reaches the window.
+                    if ran == nil {
+                        Text(ToolWords.doing(name)).font(.callout).modifier(Sweep())
+                    } else {
+                        Text(ToolWords.done(name)).font(.callout)
+                    }
                     if let summary = ran?.summary {
                         Text(summary).font(.callout).foregroundStyle(.secondary).lineLimit(2)
                     }

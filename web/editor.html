@@ -427,6 +427,10 @@
       #transcript .change .name { color: var(--ink); }
       #transcript .changed .more { font-size: 11px; }
       #transcript .end { color: var(--muted); font-size: 12px; }
+      /* While a question is answered: a light sweeps across the words, still where motion is less. */
+      #thinking { margin: 0; font-size: 12px; color: var(--muted); background: linear-gradient(90deg, var(--muted) 40%, var(--ink) 50%, var(--muted) 60%) 0 0 / 300% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; animation: thinking-sweep 1.8s linear infinite; }
+      @keyframes thinking-sweep { from { background-position: 100% 0; } to { background-position: 0 0; } }
+      @media (prefers-reduced-motion: reduce) { #thinking { animation: none; background: none; -webkit-text-fill-color: currentColor; } }
       #asking { display: flex; gap: 6px; flex-wrap: wrap; align-items: flex-end; }
       #question { flex: 1 1 100%; resize: vertical; }
       #usage { color: var(--muted); font-size: 12px; margin-left: auto; }
@@ -650,6 +654,7 @@
           </div>
           <p class="note" id="keynote"></p>
           <ol id="transcript" aria-label="Conversation" aria-live="polite"></ol>
+          <p id="thinking" hidden>Working…</p>
           <form id="asking">
             <textarea id="question" rows="3" placeholder="Ask about the deck, or for a change to it (Enter to ask, Shift+Enter for a new line)" aria-label="Question"></textarea>
             <button id="ask" type="submit">Ask</button>

@@ -166,3 +166,38 @@ public final class Assistant {
         return entries.count - 1
     }
 }
+
+/// What a call to each of the assistant's tools does, in a person's words (PLAN 3.18): what the
+/// assistant is doing while the call runs, and what it did once it has. No tool's name reaches the
+/// window.
+public enum ToolWords {
+    /// Each tool's words, as the MCP server names the tools (`docs/schema/mcp`): while it runs,
+    /// then once it has.
+    private static let words: [String: (doing: String, done: String)] = [
+        "data_attach": ("Adding data…", "Added data"),
+        "data_edit": ("Changing the data…", "Changed the data"),
+        "deck_create": ("Making a deck…", "Made a deck"),
+        "deck_diff": ("Comparing versions…", "Compared versions"),
+        "deck_export": ("Exporting the deck…", "Exported the deck"),
+        "deck_find": ("Searching the deck…", "Searched the deck"),
+        "deck_history": ("Reading the history…", "Looked at the history"),
+        "deck_inspect": ("Looking over the deck…", "Looked over the deck"),
+        "deck_lint": ("Checking the deck…", "Checked the deck"),
+        "deck_patch": ("Editing the deck…", "Edited the deck"),
+        "deck_read": ("Reading the deck…", "Went through the deck"),
+        "deck_render": ("Looking at a slide…", "Looked at a slide"),
+        "spine_read": ("Reading the outline…", "Went through the outline"),
+        "spine_update": ("Changing the outline…", "Changed the outline"),
+        "theme_apply": ("Changing the theme…", "Changed the theme"),
+        "theme_edit": ("Editing the theme…", "Edited the theme"),
+    ]
+
+    /// What the assistant is doing while a call to `tool` runs.
+    public static func doing(_ tool: String) -> String { words[tool]?.doing ?? "Working…" }
+
+    /// What a call to `tool` did, once it ran.
+    public static func done(_ tool: String) -> String { words[tool]?.done ?? "Used a tool" }
+
+    /// Whether `tool` has words of its own, not the ones any tool falls back on.
+    public static func knows(_ tool: String) -> Bool { words[tool] != nil }
+}
