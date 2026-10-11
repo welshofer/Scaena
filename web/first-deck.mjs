@@ -216,7 +216,11 @@ try {
   await step("insert-list", async () => {
     await page.keyboard.press("Escape");
     const before = await mark();
-    await page.selectOption("#look-layout", "full");
+    // The slide's layout, from the theme's by their sections, found by its key (PLAN 3.31).
+    await page.click("#look-layout");
+    await page.waitForSelector("#starting[open] [role=tab]", { timeout: 60000 });
+    await page.fill("#starting .find", "full");
+    await page.click('#starting button[data-start="full"]');
     await changed(before);
     const nodes = await shownNodes();
     await page.selectOption("#insert", { label: "body" });

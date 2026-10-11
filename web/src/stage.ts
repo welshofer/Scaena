@@ -715,9 +715,16 @@ export class Stage {
   }
 
   /** The slides a person may start after `state`'s slide, on the deck `source` compiles to (PLAN
-   * 3.30): one in each of the theme's layouts, then a blank one, painted `height` pixels high. */
-  starters(source: string, state: string, height: number, format?: string): Promise<Starter[]> {
-    return this.request<"starters">({ type: "starters", id: ++this.asked, source, state, height, format }).then(({ starters }) => starters);
+   * 3.30): one in each of the theme's layouts, then a blank one, or those `layouts` names, a null
+   * the blank one (PLAN 3.31), each as its layout's picture shows it, painted `height` pixels high. */
+  starters(source: string, state: string, height: number, format?: string, layouts?: (string | null)[]): Promise<Starter[]> {
+    return this.request<"starters">({ type: "starters", id: ++this.asked, source, state, height, format, layouts }).then(({ starters }) => starters);
+  }
+
+  /** The slides a person may start, on the deck `source` compiles to, as a picker lists them before
+   * it draws any (PLAN 3.31): each of the theme's layouts, in its order, then a blank one. */
+  startersListed(source: string): Promise<Starter[]> {
+    return this.request<"starters">({ type: "starters", id: ++this.asked, source, state: "", height: 0, listed: true }).then(({ starters }) => starters);
   }
 
   /** The patch that starts a slide in `layout`, or a blank one with none, after `state`'s slide, on

@@ -163,8 +163,9 @@ static ALL: LazyLock<Vec<Served>> = LazyLock::new(|| {
         let text = if mime == JSON { compact(text) } else { text.to_string() };
         out.push(listed(&format!("scaena://examples/{name}"), about, mime, &text));
     }
-    // The shipped themes, each in two parts (PLAN 3.30): the theme, its `layouts` a `$ref` to the
-    // part that holds them, each slot with what goes in it.
+    // The shipped themes, each in parts (PLAN 3.30, 3.31): the theme, its `layouts` a `$ref` to
+    // their index, which gives each layout's name, what it is for, and its section, and a `$ref`
+    // to the part that holds its section's layouts whole, each slot with what goes in it.
     for (name, about, text) in [
         ("dusk.theme.json", "A theme: Dusk, dark", include_str!("../../../docs/examples/themes/dusk.theme.json")),
         (
@@ -184,11 +185,47 @@ static ALL: LazyLock<Vec<Served>> = LazyLock::new(|| {
         theme["layouts"] = serde_json::json!({ "$ref": format!("{uri}/layouts") });
         let part = |v: &Value| serde_json::to_string(v).expect("JSON prints");
         out.push(listed(&uri, about, JSON, &part(&theme)));
-        let layouts_about = format!("{about}: its layouts, each slot with what goes in it");
-        out.push(listed(&format!("{uri}/layouts"), &layouts_about, JSON, &part(&layouts)));
+        let mut index = Map::new();
+        let mut sections: Vec<(String, Map<String, Value>)> = Vec::new();
+        for (name, layout) in layouts.as_object().into_iter().flatten() {
+            let group = layout["group"].as_str().unwrap_or("Other");
+            let at = match sections.iter().position(|(g, _)| g == group) {
+                Some(at) => at,
+                None => {
+                    sections.push((group.to_string(), Map::new()));
+                    sections.len() - 1
+                }
+            };
+            sections[at].1.insert(name.clone(), layout.clone());
+            let mut said = Map::new();
+            for key in ["name", "description", "group"] {
+                if let Some(v) = layout.get(key) {
+                    said.insert(key.into(), v.clone());
+                }
+            }
+            said.insert("$ref".into(), json!(format!("{uri}/layouts/{}#/{name}", section(group))));
+            index.insert(name.clone(), Value::Object(said));
+        }
+        let layouts_about = format!("{about}: its layouts, each by its name and section");
+        out.push(listed(&format!("{uri}/layouts"), &layouts_about, JSON, &part(&Value::Object(index))));
+        for (group, held) in sections {
+            let mut served = listed(
+                &format!("{uri}/layouts/{}", section(&group)),
+                &format!("{about}: its layouts in {group}, each slot with what goes in it"),
+                JSON,
+                &part(&Value::Object(held)),
+            );
+            served.listed = false;
+            out.push(served);
+        }
     }
     out
 });
+
+/// The part of a theme's uri that holds a section's layouts: `Titles` as `titles`.
+fn section(group: &str) -> String {
+    group.to_lowercase().replace(|c: char| !c.is_ascii_alphanumeric(), "-")
+}
 
 /// A JSON example without its whitespace, as the schemas are served: the same document in
 /// fewer tokens. Printed as its file is, the trails deck would not arrive whole.

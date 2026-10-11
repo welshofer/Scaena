@@ -59,6 +59,9 @@ export interface Around {
   pick(): void;
   /** Select `node` on the canvas, as a click on it does: a part of the reading (PLAN 2.56). */
   select(node: string): void;
+  /** One of `names` chosen from the theme's layouts by their sections, `current` outlined (PLAN
+   * 3.31): undefined where none is. */
+  pickLayout(names: string[], current?: string): Promise<string | null | undefined>;
 }
 
 /** What several nodes offer alike: each field all of them have with the same choices, its value
@@ -230,6 +233,11 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     const none = `<option value=""${value === undefined ? " selected" : ""}>${value === undefined || gives ? html(unset) : "—"}</option>`;
     const options = (all: string[]) => all.map((o) => `<option${o === value ? " selected" : ""}>${html(o)}</option>`).join("");
     const t = f.takes;
+    // The state's layout opens the theme's layouts by their sections, each drawn (PLAN 3.31).
+    if (f.prop === "layout" && t.kind === "name") {
+      const now = typeof value === "string" ? value : "none";
+      return `<button type="button" id="${id}" ${prop} data-pick-layout title="The theme's layouts by their sections, each drawn as it is used">${html(now)} ▾</button>`;
+    }
     switch (t.kind) {
       case "name": {
         // A value written out (an override) shows as it is written, beside the theme's names.
@@ -510,6 +518,17 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     }
   }
 
+  /** The state's layout chosen from the theme's layouts by their sections (PLAN 3.31), of those
+   * it may take, as the layout field chooses one. */
+  async function pickLayout() {
+    const field = offered && !("node" in offered) ? offered.fields.find((f) => f.prop === "layout") : undefined;
+    if (!field || field.takes.kind !== "name") return;
+    const current = typeof field.value === "string" ? field.value : undefined;
+    const picked = await around.pickLayout(field.takes.names, current);
+    into.querySelector<HTMLElement>("[data-pick-layout]")?.focus();
+    if (picked && picked !== current) await choose("layout", picked).then(suggestSoon);
+  }
+
   /** Choose `value` for the node shown's `prop`, or the state's with none shown; `null` takes it
    * away where it lives. */
   function choose(prop: string, value: unknown): Promise<unknown> {
@@ -584,6 +603,7 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     if ((e.target as Element).closest("[data-group]")) void around.group();
     if ((e.target as Element).closest("[data-ungroup]")) void around.ungroup();
     if ((e.target as Element).closest("[data-pick]")) around.pick();
+    if ((e.target as Element).closest("[data-pick-layout]")) void pickLayout();
     const reading = (e.target as Element).closest<HTMLElement>("[data-read]");
     if (reading?.dataset.read) around.select(reading.dataset.read);
     // A layout suggested is chosen as the layout field chooses it (PLAN 2.92), and the layouts are

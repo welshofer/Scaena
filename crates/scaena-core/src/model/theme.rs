@@ -390,6 +390,10 @@ pub enum Margin {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Layout {
+    /// What a person calls it in an editor (theme format 0.12, PLAN 3.31): `SWOT`, `Two by two`,
+    /// `Q&A`. An editor without one makes a name of its key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// Where an editor's gallery of slides to start offers it (theme format 0.11, PLAN 3.30): a
@@ -449,6 +453,26 @@ pub struct Slot {
     /// (theme format 0.11, PLAN 3.30): a picture that bleeds, off the page or one side of it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bleed: Option<bool>,
+    /// What the layout's picture shows in a slot that waits for a picture or a figure (theme
+    /// format 0.12, PLAN 3.31): a picture, drawn by one of the theme's shader presets; or a chart
+    /// of a kind, or a table, drawn from a few rows of their own. An editor draws each layout with
+    /// these in its slots, so its picture shows what the slot is for. A new slide in the layout
+    /// leaves the slot waiting all the same.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub example: Option<Example>,
+}
+
+/// What a layout's picture shows in a slot that waits (PLAN 3.31): `{ "picture": "backdrop" }`,
+/// `{ "chart": "bar" }`, or `{ "table": 3 }`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "lowercase")]
+pub enum Example {
+    /// A picture, drawn by the theme's shader preset of this name.
+    Picture(#[schemars(length(min = 1))] String),
+    /// A chart of this kind, of a few rows made up for it.
+    Chart(super::nodes::ChartKind),
+    /// A table of this many columns, of a few rows made up for it.
+    Table(#[schemars(range(min = 2, max = 6))] u32),
 }
 
 /// What goes in a slot (PLAN 3.30): words, a paragraph to each line; a list's items; or a shape.
@@ -460,18 +484,28 @@ pub enum Prompt {
     Shape(PromptShape),
 }
 
-/// A shape a new slide puts in a slot (PLAN 3.30): a card behind words, or a rule between them.
+/// A shape a new slide puts in a slot (PLAN 3.30): a card behind words, a rule between them, or
+/// an arrow from one to the next.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PromptShape {
     pub shape: PromptShapeKind,
-    /// What fills a rectangle or an ellipse: a color token or role. A line and an arrow take the
-    /// theme's rule.
+    /// What fills a rectangle, an ellipse, or a polygon: a color token or role. A line and an
+    /// arrow take the theme's rule.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fill: Option<String>,
+    /// What strokes its outline, a color token or role, in the theme's thin rule (theme format
+    /// 0.12, PLAN 3.31): a ring, or circles that overlap and leave what is under them seen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stroke: Option<String>,
+    /// Its points, as fractions of the slot: `[0, 0]` its top left, `[1, 1]` its bottom right
+    /// (theme format 0.12, PLAN 3.31). A line or an arrow with none crosses the slot's middle,
+    /// left to right; one down the slot, or back, gives them. A polygon gives three or more.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub points: Option<Vec<super::values::Point>>,
 }
 
-/// The shapes a slot's prompt makes: those that need no points.
+/// The shapes a slot's prompt makes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum PromptShapeKind {
@@ -479,6 +513,8 @@ pub enum PromptShapeKind {
     Ellipse,
     Line,
     Arrow,
+    /// Theme format 0.12: a chevron, a triangle, or any outline its `points` give.
+    Polygon,
 }
 
 /// A list's items, as a slot's prompt gives them: `{ "bullet": [...] }` or `{ "number": [...] }`.

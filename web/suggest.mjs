@@ -5,8 +5,8 @@
 //
 // On the trails example, with nothing selected:
 // - `budget` is drawn in each layout it may take, best first by what lint finds there: `figure`,
-//   the one it takes now, which `poster`, `full`, and `photo-caption` draw alike, then
-//   `narrow-figure`, which sets its note over the table.
+//   the one it takes now, which `poster`, `table`, `full`, and `photo-caption` draw alike, then
+//   six that each find something, last `narrow-figure`, which sets its note over the table.
 // - `storm`: a pointer over `narrow-figure` shows the state laid out in it on the canvas, nothing
 //   made, and the canvas is as it was once the pointer leaves. A click gives the state that
 //   layout: one `set_state` by the user, written where the layout lives, one step to undo; the
@@ -96,11 +96,15 @@ try {
   await showState("budget");
   await suggestedFor("budget", "figure");
   const shown = await buttons();
-  check(shown.map((b) => b.layout).join() === "figure,narrow-figure", `best first: ${shown.map((b) => b.layout).join(", ")}`);
-  check(shown[0]?.pressed === "true" && shown[1]?.pressed === "false", "the layout it takes now is pressed");
-  check(shown[0]?.says === "figure · nothing found · also poster, full, photo-caption", `poster, full, and photo-caption draw it as figure does: ${shown[0]?.says}`);
+  const best = "figure,venn,bar-chart,line-chart,metric-trend,panorama,narrow-figure";
+  check(shown.map((b) => b.layout).join() === best, `best first: ${shown.map((b) => b.layout).join(", ")}`);
+  check(shown[0]?.pressed === "true" && shown.slice(1).every((b) => b.pressed === "false"), "the layout it takes now is pressed");
+  check(
+    shown[0]?.says === "figure · nothing found · also poster, table, full, photo-caption",
+    `poster, table, full, and photo-caption draw it as figure does: ${shown[0]?.says}`,
+  );
   const last = (await suggested()).at(-1);
-  check(last?.errors === 3 && shown[1]?.says === "narrow-figure · 3 errors", `narrow-figure says its errors: ${shown[1]?.says}`);
+  check(last?.errors === 3 && shown.at(-1)?.says === "narrow-figure · 3 errors", `narrow-figure says its errors: ${shown.at(-1)?.says}`);
   check(
     last?.patch.length === 1 && last.patch[0].op === "set_state" && last.patch[0].value === "narrow-figure" && last.reach.join() === "budget",
     "it is one set_state that changes budget alone",
@@ -113,15 +117,17 @@ try {
       return { width: c.width, height: c.height, css: c.getBoundingClientRect().height, lit, sum: data.reduce((a, b) => (a * 31 + b) % 1000000007, 0) };
     }),
   );
-  check(drawn.length === 2 && drawn.every((d) => d.height === 72 && d.width === 128 && d.css === 72), `each is drawn 72 pixels high: ${JSON.stringify(drawn.map((d) => [d.width, d.height]))}`);
-  check(drawn.every((d) => d.lit > 200) && drawn[0].sum !== drawn[1].sum, `each draws the slide its own way: ${drawn.map((d) => d.lit).join(", ")} pixels lit`);
+  check(drawn.length === 7 && drawn.every((d) => d.height === 72 && d.width === 128 && d.css === 72), `each is drawn 72 pixels high: ${JSON.stringify(drawn.map((d) => [d.width, d.height]))}`);
+  const sums = new Set(drawn.map((d) => d.sum));
+  check(drawn.every((d) => d.lit > 200) && sums.size === drawn.length, `each draws the slide its own way: ${drawn.map((d) => d.lit).join(", ")} pixels lit`);
 
   // storm: a pointer over narrow-figure shows it on the canvas, nothing made; leaving lets it go.
   await showState("storm");
   await suggestedFor("storm", "full");
   const storm = await buttons();
   check(
-    storm.map((b) => b.says).join(" | ") === "full · nothing found · also poster, figure, photo-caption | narrow-figure · nothing found",
+    storm.map((b) => b.says).join(" | ") ===
+      "full · nothing found · also poster, figure, table, photo-caption | metric-trend · nothing found | narrow-figure · nothing found | panorama · nothing found | venn · 1 warning | bar-chart · 1 error | line-chart · 1 error",
     `storm: ${storm.map((b) => b.says).join(" | ")}`,
   );
   const before = await shot();
@@ -170,7 +176,7 @@ try {
   check(kept === "narrow-figure", `the focus stays on it, drawn again: ${kept}`);
   // The other drawing is named for the first in the theme's order of the layouts that draw it.
   const other = (await buttons()).find((b) => b.pressed === "false")?.layout;
-  check(other === "poster", `the other is poster, which full, figure, and photo-caption draw alike: ${other}`);
+  check(other === "poster", `the best of the others is poster, which full, figure, table, and photo-caption draw alike: ${other}`);
   await page.focus(`#look .layouts [data-layout="${other}"]`);
   await previewing(other);
   check((await previewed()) === other, `the focus on ${other} previews it`);
@@ -199,7 +205,7 @@ try {
     const none = await page.evaluate(() => ({
       count: window.scaena.look.suggested()?.length ?? 0,
       hidden: document.querySelector("#look .layouts")?.hidden ?? true,
-      offered: [...document.querySelectorAll("#look-layout option")].length - 1,
+      offered: window.scaena.look.offered()?.fields.find((f) => f.prop === "layout")?.takes.names.length ?? -1,
     }));
     check(none.hidden && none.count < 2 && offers(none.offered), `${state}: nothing drawn, as ${why} (${none.count} suggested, ${none.offered} in its layout field)`);
   }

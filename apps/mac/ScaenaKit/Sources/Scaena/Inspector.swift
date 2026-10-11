@@ -182,7 +182,11 @@ struct Inspector: View {
                 AlignmentRow(value: field.value?.string, choose: choose)
             case "layout" where choices?.node == nil:
                 LayoutsRow(editor: editor, state: state, look: look, make: make) {
-                    named(field, label: label, choose: choose)
+                    if case .name(_, let names, _) = field.takes {
+                        LayoutField(
+                            editor: editor, state: state, label: label, value: field.value?.string, names: names,
+                            look: look, choose: choose)
+                    }
                 }
             case "notes":
                 TextRow(
@@ -824,8 +828,8 @@ private struct AlignmentRow: View {
 /// each drawn small, best first by what lint finds in the slide laid out in it, in every size the
 /// deck comes in, the one it takes now outlined and any with something to put right marked. The
 /// pointer over one shows the slide laid out in it on the canvas, nothing made; a click gives the
-/// slide that layout, one step to undo (PLAN 2.92). Until they are drawn, and where there is no
-/// other to take, the layout is picked by name.
+/// slide that layout, one step to undo (PLAN 2.92). Above them, the layout it takes, named, opens
+/// the theme's layouts by their sections (PLAN 3.31).
 private struct LayoutsRow<Named: View>: View {
     let editor: DeckEditor
     let state: String
@@ -850,15 +854,14 @@ private struct LayoutsRow<Named: View>: View {
     private static var painted: Int { 150 }
 
     var body: some View {
-        Group {
-            if drawn.count < 2 {
-                named()
-            } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Layout")
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 8)], spacing: 10) {
-                        ForEach(drawn) { one in tile(one) }
-                    }
+        VStack(alignment: .leading, spacing: 6) {
+            named()
+            if drawn.count >= 2 {
+                Text("Suggested for This Slide")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 8)], spacing: 10) {
+                    ForEach(drawn) { one in tile(one) }
                 }
             }
         }
@@ -961,6 +964,48 @@ private struct LayoutsRow<Named: View>: View {
         }
         if s.reach.count > 1 { parts.append("Changes \(s.reach.count) slides and steps") }
         return parts.joined(separator: ". ")
+    }
+}
+
+/// The slide's layout, named, as a button that opens the theme's layouts by their sections, each
+/// drawn as it is used, those the slide may take offered and the one it takes outlined (PLAN 3.31):
+/// one chosen is the slide's, written where its layout lives.
+private struct LayoutField: View {
+    let editor: DeckEditor
+    let state: String
+    let label: String
+    /// The layout the slide takes now.
+    let value: String?
+    /// The layouts it may take: each with a slot for each object placed in one.
+    let names: [String]
+    let look: ThemeLook?
+    let choose: (JSONValue) -> Void
+    @State private var picking = false
+
+    var body: some View {
+        LabeledContent(label) {
+            Button {
+                picking = true
+            } label: {
+                HStack(spacing: 4) {
+                    Text(value.map { Words.name($0, of: "layout", theme: look) } ?? "None")
+                        .lineLimit(1)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .imageScale(.small)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .help("Choose the slide's layout from the theme's, by their sections")
+            .accessibilityLabel(label)
+            .accessibilityValue(value.map { Words.name($0, of: "layout", theme: look) } ?? "None")
+            .accessibilityIdentifier("layout-choose")
+            .popover(isPresented: $picking, arrowEdge: .leading) {
+                LayoutPicker(editor: editor, state: state, purpose: .change(names: names, current: value)) { picked in
+                    picking = false
+                    if let picked, picked != value { choose(.string(picked)) }
+                }
+            }
+        }
     }
 }
 

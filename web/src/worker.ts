@@ -318,8 +318,13 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return post({ type: "addingState", id: data.id, added: JSON.parse(player.addingState(data.state, data.what)) as { id: string; patch: unknown[] } });
       case "starters": {
         current(data.source);
+        if (data.listed) {
+          const offered = JSON.parse(player.starters()) as Omit<Starter, "pixels" | "width" | "height">[];
+          return post({ type: "starters", id: data.id, starters: offered.map((s) => ({ ...s, width: 0, height: 0, pixels: new ArrayBuffer(0) })) });
+        }
         layOut(data.format);
-        const listed = JSON.parse(player.startersPainted(data.state, data.height)) as Omit<Starter, "pixels">[];
+        const only = data.layouts ? JSON.stringify(data.layouts) : undefined;
+        const listed = JSON.parse(player.startersPainted(data.state, data.height, only)) as Omit<Starter, "pixels">[];
         const starters = listed.map((s, i) => ({ ...s, pixels: player.starterPixels(i).buffer as ArrayBuffer }));
         return post({ type: "starters", id: data.id, starters }, starters.map((s) => s.pixels));
       }

@@ -120,6 +120,170 @@ pub fn starting(deck: &Deck, theme: &Theme, shown: &str, layout: Option<&str>) -
     Ok(AddedState { id, patch })
 }
 
+/// The patch that draws `layout`'s picture after `shown`'s slide (PLAN 3.31): the slide
+/// [`starting`] makes, and in each slot that waits with an `example`, what it says: a picture
+/// drawn by the theme's shader preset, under the cards and the words over it, each picture on the
+/// slide with a seed of its own; or a chart or a table of a few rows made up for it, written
+/// inline. An editor draws it, so a
+/// layout's picture shows what each slot is for, and never saves it.
+pub fn example(deck: &Deck, theme: &Theme, shown: &str, layout: &str) -> Result<AddedState, OpsError> {
+    use scaena_core::model::theme::Example;
+    let mut started = starting(deck, theme, shown, Some(layout))?;
+    let template =
+        theme.layouts.get(layout).ok_or_else(|| OpsError::new(format!("the theme has no layout `{layout}`")))?;
+    let presets = theme.shaders.as_ref().and_then(|s| s.presets.as_ref());
+    let mut ids: Vec<String> = Vec::new();
+    let mut sources = serde_json::Map::new();
+    let mut seed = 0u64;
+    for (slot, s) in &template.slots {
+        let Some(shown_as) = &s.example else { continue };
+        let id = named(deck, &format!("{}-{}", started.id, slug(slot, "slot")), &ids);
+        let node = match shown_as {
+            Example::Picture(preset) => {
+                let Some(p) = presets.and_then(|p| p.get(preset)) else {
+                    return Err(OpsError::new(format!("the theme has no shader preset `{preset}`")));
+                };
+                seed += 1;
+                // Under the cards (`z` −1) and the words over it, as a picture placed there lies.
+                json!({ "type": "shader", "kind": p.kind, "preset": preset, "seed": seed, "at": { "in": slot }, "z": -2 })
+            }
+            Example::Chart(kind) => {
+                let (rows, schema, mut node) = example_chart(*kind);
+                sources.insert(id.clone(), json!({ "source": { "inline": rows }, "schema": schema }));
+                node["data"] = json!(format!("@{id}"));
+                node["at"] = json!({ "in": slot });
+                node
+            }
+            Example::Table(columns) => {
+                let rows = example_table(*columns);
+                let schema: serde_json::Map<String, Value> = rows
+                    .first()
+                    .and_then(Value::as_object)
+                    .into_iter()
+                    .flatten()
+                    .map(|(k, _)| (k.clone(), json!("string")))
+                    .collect();
+                sources.insert(id.clone(), json!({ "source": { "inline": rows }, "schema": schema }));
+                json!({ "type": "table", "data": format!("@{id}"), "at": { "in": slot } })
+            }
+        };
+        started.patch.push(json!({ "op": "add_node", "id": id, "node": node, "state": started.id }));
+        ids.push(id);
+    }
+    if !sources.is_empty() {
+        // The rows first, so the nodes that read them find them.
+        let at = started.patch.iter().position(|op| op["op"] == "add_node").unwrap_or(started.patch.len());
+        let ops: Vec<Value> = if deck.data.is_empty() {
+            vec![json!({ "op": "add", "path": "/data", "value": sources })]
+        } else {
+            sources
+                .into_iter()
+                .map(|(name, v)| json!({ "op": "add", "path": format!("/data/{name}"), "value": v }))
+                .collect()
+        };
+        started.patch.splice(at..at, ops);
+    }
+    Ok(started)
+}
+
+/// A few rows made up for a chart of `kind` (PLAN 3.31), their schema, and the chart that reads
+/// them, its data not yet named: six months for a bar, a dot, a line, or an area; three kinds of
+/// work a quarter for a stack; four slices of a donut; a scatter's dozen points; two years of four
+/// teams for a slope or a range.
+fn example_chart(kind: scaena_core::model::nodes::ChartKind) -> (Vec<Value>, Value, Value) {
+    use scaena_core::model::nodes::ChartKind;
+    let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
+    let ordinal = |field: &str| json!({ "field": field, "type": "ordinal" });
+    let quantity = |field: &str| json!({ "field": field, "type": "quantitative" });
+    let nominal = |field: &str| json!({ "field": field, "type": "nominal" });
+    match kind {
+        ChartKind::Bar | ChartKind::Dot | ChartKind::Line | ChartKind::Area => {
+            let values = [42.0, 58.0, 51.0, 73.0, 88.0, 95.0];
+            let rows = months.iter().zip(values).map(|(m, v)| json!({ "month": m, "value": v })).collect();
+            let schema = json!({ "month": "string", "value": "number" });
+            (rows, schema, json!({ "type": "chart", "kind": kind, "x": ordinal("month"), "y": quantity("value") }))
+        }
+        ChartKind::StackedBar => {
+            let mut rows = Vec::new();
+            for (q, values) in ["Q1", "Q2", "Q3", "Q4"].iter().zip([
+                [30.0, 20.0, 10.0],
+                [36.0, 22.0, 14.0],
+                [40.0, 26.0, 18.0],
+                [48.0, 30.0, 20.0],
+            ]) {
+                for (kind, v) in ["Build", "Repair", "Survey"].iter().zip(values) {
+                    rows.push(json!({ "quarter": q, "kind": kind, "hours": v }));
+                }
+            }
+            let node = json!({ "type": "chart", "kind": kind, "x": ordinal("quarter"), "y": quantity("hours"), "series": nominal("kind") });
+            (rows, json!({ "quarter": "string", "kind": "string", "hours": "number" }), node)
+        }
+        ChartKind::Donut => {
+            let rows = [("Grants", 184.0), ("Members", 124.0), ("Partners", 60.0), ("Events", 32.0)]
+                .iter()
+                .map(|(s, v)| json!({ "source": s, "amount": v }))
+                .collect();
+            let schema = json!({ "source": "string", "amount": "number" });
+            (rows, schema, json!({ "type": "chart", "kind": kind, "x": nominal("source"), "y": quantity("amount") }))
+        }
+        ChartKind::Scatter => {
+            let points = [
+                (2.0, 1.1),
+                (3.0, 1.4),
+                (4.0, 1.2),
+                (5.0, 2.1),
+                (6.0, 2.4),
+                (7.0, 2.2),
+                (8.0, 3.0),
+                (9.0, 3.4),
+                (10.0, 3.1),
+                (11.0, 4.0),
+                (12.0, 4.3),
+                (13.0, 4.8),
+            ];
+            let rows = points.iter().map(|(x, y)| json!({ "grade": x, "loss": y })).collect();
+            let schema = json!({ "grade": "number", "loss": "number" });
+            (rows, schema, json!({ "type": "chart", "kind": kind, "x": quantity("grade"), "y": quantity("loss") }))
+        }
+        ChartKind::Slope | ChartKind::Range => {
+            let mut rows = Vec::new();
+            for (team, (a, b)) in
+                ["North", "South", "East", "West"].iter().zip([(42.0, 68.0), (55.0, 61.0), (38.0, 72.0), (60.0, 49.0)])
+            {
+                rows.push(json!({ "year": "2025", "team": team, "score": a }));
+                rows.push(json!({ "year": "2026", "team": team, "score": b }));
+            }
+            let node = match kind {
+                ChartKind::Slope => {
+                    json!({ "type": "chart", "kind": kind, "x": ordinal("year"), "y": quantity("score"), "series": nominal("team") })
+                }
+                _ => {
+                    json!({ "type": "chart", "kind": kind, "x": ordinal("team"), "y": quantity("score"), "series": nominal("year") })
+                }
+            };
+            (rows, json!({ "year": "string", "team": "string", "score": "number" }), node)
+        }
+    }
+}
+
+/// A few rows made up for a table of `columns` columns (PLAN 3.31): a plan and how it went.
+fn example_table(columns: u32) -> Vec<Value> {
+    let rows = [
+        ("Trail crews", "$48,000", "$51,200", "On track", "Q2", "Ana"),
+        ("Bridges", "$32,000", "$29,400", "Done", "Q1", "Ben"),
+        ("Signs", "$9,500", "$11,000", "Over", "Q3", "Cai"),
+        ("Surveys", "$6,000", "$5,100", "Done", "Q2", "Dee"),
+    ];
+    let names = ["Item", "Planned", "Spent", "Status", "When", "Lead"];
+    let n = columns.clamp(2, 6) as usize;
+    rows.iter()
+        .map(|r| {
+            let cells = [r.0, r.1, r.2, r.3, r.4, r.5];
+            Value::Object(names.iter().zip(cells).take(n).map(|(k, v)| (k.to_string(), json!(v))).collect())
+        })
+        .collect()
+}
+
 /// What a new slide puts in `slot`, as its prompt says (PLAN 3.30): words to type over in the
 /// slot's role, a list's items each a paragraph; or a card or a rule, under the words in the
 /// slots over it (`z` −1), which a reader passes over. None for a slot that waits for a picture or
@@ -138,6 +302,12 @@ fn slot_node(slot: &str, s: &Slot) -> Option<Value> {
             let mut node = json!({ "type": "shape", "kind": shape.shape, "at": { "in": slot }, "z": -1 });
             if let Some(fill) = &shape.fill {
                 node["fill"] = json!(fill);
+            }
+            if let Some(stroke) = &shape.stroke {
+                node["stroke"] = json!({ "paint": stroke, "width": "thin" });
+            }
+            if let Some(points) = &shape.points {
+                node["points"] = json!(points);
             }
             node["semantic"] = json!("decoration");
             Some(node)

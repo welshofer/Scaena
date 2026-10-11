@@ -10,8 +10,10 @@
 //   just after an edit on the canvas stays shown once the editor lints the source.
 // - + Step adds `revenue-2` after `revenue`, in its slide: it shows what `revenue` shows, its
 //   thumbnail the same drawing, and it is shown. One undo takes it back.
-// - + Slide opens the gallery of Dusk's layouts (PLAN 3.30): a slide drawn for each of its 47, by
-//   its sections, then a blank one. Bullets starts a slide after `mix` with its headline and its
+// - + Slide opens Dusk's layouts by their sections (PLAN 3.30, 3.31): the 13 down the side as tabs,
+//   122 layouts in all, Titles first, each drawn as it is used and named as a person calls it; a
+//   tab clicked or the down arrow shows another, and the field finds a layout in any section.
+//   Bullets starts a slide after `mix` with its headline and its
 //   points in their slots, one undo; a double click on its headline selects its words whole, so
 //   typing replaces them; its headline deleted, a press on the header's words puts a headline back
 //   in the slot. Photo starts one whose picture, edge to edge, the canvas outlines
@@ -190,25 +192,53 @@ try {
   check(await back(original), "one undo takes it back");
   check(await holds(["intro", "revenue", "mix", "close"]), "and the strip with it");
 
-  // + Slide opens the gallery of the theme's layouts, each a slide started in it (PLAN 3.30).
+  // + Slide opens the theme's layouts by their sections, each a slide started in it (PLAN 3.30,
+  // 3.31): a section's tiles drawn as they are shown, a few at a time.
   const gallery = async () => {
     await page.click("#strip [data-add=slide]");
     await page.waitForSelector("#starting[open] button[data-start]", { timeout: 60000 });
   };
   const tile = (name) => page.locator("#starting").getByRole("button", { name, exact: true });
+  const tab = (name) => page.locator("#starting").getByRole("tab", { name, exact: true });
+  /** The names of the tiles shown, once every one is drawn: none where they are not. */
+  const drawn = () =>
+    page
+      .waitForFunction(
+        () => {
+          const all = [...document.querySelectorAll("#starting .starters button[data-start]")];
+          return all.length > 0 && all.every((b) => b.classList.contains("drawn")) && all.map((b) => b.querySelector("span").textContent);
+        },
+        null,
+        { timeout: 60000 },
+      )
+      .then((h) => h.jsonValue(), () => []);
   await item("revenue").click();
   await shows(1);
   await gallery();
   const offered = await page.evaluate(() => ({
-    tiles: document.querySelectorAll("#starting button[data-start]").length,
-    sections: [...document.querySelectorAll("#starting h3")].map((h) => h.textContent),
-    names: [...document.querySelectorAll("#starting button[data-start] span")].map((s) => s.textContent),
-    drawn: [...document.querySelectorAll("#starting canvas")].filter((c) => c.width === 0 || c.height === 0).length,
+    sections: [...document.querySelectorAll("#starting [role=tab]")].map((t) => t.dataset.section),
+    counted: [...document.querySelectorAll("#starting [role=tab] .count")].reduce((n, c) => n + Number(c.textContent), 0),
+    selected: document.querySelector("#starting [role=tab][aria-selected=true]")?.dataset.section,
   }));
-  check(offered.tiles === 48 && offered.drawn === 0, `a slide drawn for each of Dusk's 47 layouts and a blank one: ${offered.tiles}`);
-  check(offered.sections.join() === "Titles,Words,Pictures,Charts,Numbers,Blank", `by its sections: ${offered.sections.join(", ")}`);
-  const wanted = ["Big number", "Photo", "Two up", "Three up", "Four up", "Cards", "Funnel"];
-  check(wanted.every((n) => offered.names.includes(n)), `among them ${wanted.join(", ")}`);
+  const sections = "Titles,Statements,Lists,Comparison,Frameworks,Process,Time,Numbers,Charts,Pictures,People,Editorial,Closing";
+  check(offered.sections.join() === sections, `the sections down the side: ${offered.sections.join(", ")}`);
+  check(offered.counted === 122 && offered.selected === "Titles", `122 layouts, Titles shown first: ${offered.counted}, ${offered.selected}`);
+  const titles = await drawn();
+  const want = "Title,Section,Title over Photo,Title Only,Centered Title,Title beside Photo,Section and Photo,Section Number";
+  check(titles.join() === want, `each drawn, by its name: ${titles.join(", ")}`);
+  await tab("Frameworks").click();
+  const frameworks = await drawn();
+  check(["SWOT", "OKRs", "RACI", "Venn Diagram", "Two-by-Two Matrix"].every((n) => frameworks.includes(n)), `Frameworks: ${frameworks.join(", ")}`);
+  await page.keyboard.press("ArrowDown");
+  const process = await drawn();
+  const now = await page.evaluate(() => document.querySelector("#starting [role=tab][aria-selected=true]")?.dataset.section);
+  check(now === "Process" && process.includes("How It Works"), `the down arrow shows the next: ${now}, ${process.join(", ")}`);
+  await page.fill("#starting .find", "questions");
+  const found = await drawn();
+  check(found.includes("Q&A") && found.includes("FAQ"), `the field finds them in any section: ${found.join(", ")}`);
+  await page.fill("#starting .find", "");
+  await tab("Lists").click();
+  await drawn();
   await tile("Bullets").click();
   check(await holds(["intro", "revenue", "mix", "bullets", "close"]), `Bullets starts a slide after mix: ${await order()}`);
   const started = await source();
@@ -274,6 +304,8 @@ try {
   await item("revenue").click();
   await shows(1);
   await gallery();
+  await tab("Pictures").click();
+  await drawn();
   await tile("Photo").click();
   check(await holds(["intro", "revenue", "mix", "photo", "close"]), `Photo starts a slide after mix: ${await order()}`);
   await shows(3);

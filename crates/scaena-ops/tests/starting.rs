@@ -24,6 +24,8 @@ fn made(name: &str, theme: &str) -> PathBuf {
 
 #[test]
 fn every_shipped_layout_starts_a_slide_that_lint_finds_nothing_in() {
+    // Every layout's findings in every theme, said at once.
+    let mut wrong: Vec<String> = Vec::new();
     for (name, theme) in SHIPPED {
         let b = scaena_ops::open(&made(name, theme)).unwrap();
         let t = scaena_ops::theme(&b).unwrap();
@@ -49,8 +51,66 @@ fn every_shipped_layout_starts_a_slide_that_lint_finds_nothing_in() {
             assert_eq!(shown.props.len(), filled, "{name}'s {layout}: {:?}", shown.props.keys());
             assert!(template.slots.values().any(|s| s.prompt.is_some()), "{name}'s {layout} says what goes in it");
             let found = lint_state_in(&deck, &files, &started.id).unwrap().findings;
-            let here: Vec<_> = found.iter().filter(|f| f.state.as_deref() == Some(started.id.as_str())).collect();
-            assert!(here.is_empty(), "{name}'s {layout}: {here:#?}");
+            for f in found.iter().filter(|f| f.state.as_deref() == Some(started.id.as_str())) {
+                wrong.push(format!("{name}'s {layout}: {} {}", f.code, f.message));
+            }
         }
     }
+    assert!(wrong.is_empty(), "lint finds {} things:\n{}", wrong.len(), wrong.join("\n"));
+}
+
+/// What each layout's picture shows (PLAN 3.31): every layout of every shipped theme draws as the
+/// slide it starts, with what each waiting slot's `example` says there: a shader in a picture's
+/// place, under the cards and the words, each with a seed of its own; a chart or a table of rows
+/// made up for it, written inline. It compiles on a new deck, as an editor draws it, and the deck it
+/// draws on keeps none of it.
+#[test]
+fn every_shipped_layout_draws_its_example_in_each_slot_that_waits() {
+    use scaena_core::model::theme::Example;
+    let mut drawn = 0;
+    for (name, theme) in SHIPPED {
+        let b = scaena_ops::open(&made(&format!("{name}-examples"), theme)).unwrap();
+        let t = scaena_ops::theme(&b).unwrap();
+        let files = View::of(&b);
+        let first = b.deck.states[0].id.clone();
+        for (layout, template) in &t.layouts {
+            let shown = scaena_ops::states::example(&b.deck, &t, &first, layout).unwrap();
+            let doc = scaena_core::patch::compile(&b.deck.to_value().unwrap(), &shown.patch, &files)
+                .unwrap_or_else(|e| panic!("{name}'s {layout}: {e:?}"))
+                .doc;
+            let deck = scaena_core::Deck::from_value(&doc).unwrap();
+            let mut seeds = Vec::new();
+            for (slot, s) in &template.slots {
+                let Some(example) = &s.example else { continue };
+                let node = deck
+                    .nodes
+                    .values()
+                    .map(|n| serde_json::to_value(n).unwrap())
+                    .find(|n| {
+                        n["at"]["in"] == *slot && ["shader", "chart", "table"].contains(&n["type"].as_str().unwrap())
+                    })
+                    .unwrap_or_else(|| panic!("{name}'s {layout}: nothing in `{slot}`"));
+                match example {
+                    Example::Picture(preset) => {
+                        assert_eq!(
+                            (node["type"].as_str(), node["preset"].as_str()),
+                            (Some("shader"), Some(preset.as_str()))
+                        );
+                        assert_eq!(node["z"], -2, "{name}'s {layout}: `{slot}` lies under the cards and the words");
+                        seeds.push(node["seed"].as_u64().unwrap());
+                    }
+                    Example::Chart(kind) => {
+                        assert_eq!(node["type"], "chart");
+                        assert_eq!(node["kind"], serde_json::to_value(kind).unwrap());
+                    }
+                    Example::Table(_) => assert_eq!(node["type"], "table"),
+                }
+                drawn += 1;
+            }
+            let distinct: std::collections::BTreeSet<_> = seeds.iter().collect();
+            assert_eq!(distinct.len(), seeds.len(), "{name}'s {layout}: each picture its own seed");
+        }
+        assert!(b.deck.data.is_empty(), "{name}'s deck keeps none of the rows made up for a picture");
+    }
+    assert!(drawn > 150, "examples drawn: {drawn}");
 }

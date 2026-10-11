@@ -85,6 +85,8 @@ enum Words {
         case "radius", "space":
             guard let size = theme?.step(name) else { return phrase(name) }
             return size == 0 ? "None" : "\(number(size)) pt"
+        case "layout":
+            return theme?.layout(name) ?? phrase(name)
         default:
             return phrase(name)
         }
@@ -268,6 +270,11 @@ struct ThemeLook {
     /// Each role the theme gives a color, by its name, and the name of the color it gives it.
     var roles: [String: String] {
         (theme["tokens"]?["roles"]?.object ?? [:]).compactMapValues(\.string)
+    }
+
+    /// A layout by what a person calls it, as the theme names it: `swot` as `SWOT`.
+    func layout(_ name: String) -> String? {
+        theme["layouts"]?[name]?["name"]?.string
     }
 
     /// A font by its name in the theme: `display` as `Fraunces`.

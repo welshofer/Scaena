@@ -1205,7 +1205,7 @@ fn a_states_layouts_are_judged_a_step_at_a_time_and_drawn_small() {
         .map(|x| (x["layout"].as_str().unwrap_or(""), x["current"] == true, x["errors"].as_u64().unwrap_or(0)))
         .collect();
     // As the session judges them on its own: the layout it takes now first, the others with errors.
-    assert_eq!(judged.len(), 3, "{suggested}");
+    assert_eq!(judged.len(), 6, "{suggested}");
     assert_eq!(judged[0], ("figure", true, 0), "{suggested}");
     assert!(judged[1..].iter().all(|&(_, current, errors)| !current && errors > 0), "{suggested}");
     for (i, x) in list.iter().enumerate() {

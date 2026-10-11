@@ -166,6 +166,13 @@ try {
     await page.locator("#overlay").focus();
     await page.keyboard.press("Control+z");
   };
+  /** `layout` chosen as the inspector's Layout chooses one: from the theme's layouts, found by its key. */
+  const chooseLayout = async (layout) => {
+    await page.click("#look-layout");
+    await page.waitForSelector("#starting[open] [role=tab]", { timeout: 60000 });
+    await page.fill("#starting .find", layout);
+    await page.click(`#starting button[data-start="${layout}"]`);
+  };
   await page.evaluate((offset) => window.scaena.cursor(offset), (await source()).indexOf("state mix") + "state ".length);
   await page.waitForFunction(() => window.scaena.shown() === 2 && window.scaena.at().index === 2, null, { timeout: 30000 });
   await page.evaluate(() => window.scaena.canvas.select(undefined));
@@ -174,14 +181,30 @@ try {
   });
   const titled = await page.evaluate(() => document.querySelector("#look h2")?.textContent);
   check(titled === "mix · state", `with nothing selected, the inspector shows the state: ${titled}`);
-  const layouts = await page.evaluate(() => [...document.querySelectorAll("#look-layout option")].slice(1).map((o) => o.textContent));
-  check(layouts.join() === "full,figure,narrow-figure", `its layout takes the theme's layouts with a slot for each node: ${layouts}`);
-  check((await page.inputValue("#look-layout")) === "figure", "it shows the layout `mix` takes");
+  const layouts = await page.evaluate(() => window.scaena.look.offered()?.fields.find((f) => f.prop === "layout")?.takes.names ?? []);
+  const may = "metric-trend,figure,narrow-figure,bar-chart,line-chart,table,full";
+  check(layouts.join() === may, `its layout takes the theme's layouts with a slot for each node: ${layouts}`);
+  check((await page.textContent("#look-layout"))?.startsWith("figure"), "it shows the layout `mix` takes");
+  // Its button opens those layouts by their sections, each drawn, the one it takes outlined (PLAN 3.31).
+  await page.click("#look-layout");
+  await page.waitForSelector("#starting[open] [role=tab]", { timeout: 60000 });
+  const picker = await page.evaluate(() => ({
+    title: document.querySelector("#starting h2")?.textContent,
+    counted: [...document.querySelectorAll("#starting [role=tab] .count")].reduce((n, c) => n + Number(c.textContent), 0),
+    selected: document.querySelector("#starting [role=tab][aria-selected=true]")?.dataset.section,
+    current: document.querySelector("#starting [aria-current=true]")?.dataset.start,
+    blank: document.querySelector("#starting button.blank")?.hidden,
+  }));
+  check(
+    picker.title === "Layout" && picker.counted === 7 && picker.selected === "Charts" && picker.current === "figure" && picker.blank,
+    `the Layout button opens the seven by their sections, at figure's: ${JSON.stringify(picker)}`,
+  );
+  await page.keyboard.press("Escape");
   const from = await page.evaluate(() => document.querySelector("#look-layout")?.closest(".control")?.nextElementSibling?.textContent);
   check(from?.includes("set in revenue"), `from revenue, which sets it: ${from}`);
 
   // A layout chosen is written where it lives, and reaches the states that take it from there.
-  await page.selectOption("#look-layout", "full");
+  await chooseLayout("full");
   check(await reads("state revenue layout:full"), "a layout chosen in mix is written in revenue, where it lives");
   const told = await status();
   check(told.includes("mix's layout: full") && told.includes("in 2 states"), `the status says what changed and where: ${told}`);
@@ -189,7 +212,7 @@ try {
   check(await back(original), "one undo takes it back");
   // Kept to `mix`, it is its own.
   await page.check("#look [data-keep]");
-  await page.selectOption("#look-layout", "narrow-figure");
+  await chooseLayout("narrow-figure");
   await page.evaluate(() => window.scaena.look.settled());
   await page.waitForFunction(() => window.scaena.source().includes("layout:narrow-figure"), null, { timeout: 30000 }).catch(() => {});
   check((await mixLine()).includes("layout:narrow-figure") && (await source()).includes("state revenue layout:figure"), `layout only in mix: ${await mixLine()}`);

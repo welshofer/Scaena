@@ -1826,7 +1826,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const theme = text && JSON.parse(text.text);
     if (!theme?.layouts?.[from]) return editor.say(`the theme has no layout ${from}`);
     if (theme.layouts[name]) return editor.say(`the theme has a layout ${name} already`);
-    const done = await editor.themeEdit?.([{ op: "add", path: pointer("layouts", name), value: theme.layouts[from] }], `layout ${name} added, a copy of ${from}`);
+    // The copy is called by its own key, not by the name of the layout it copies.
+    const copied = { ...theme.layouts[from] };
+    delete copied.name;
+    const done = await editor.themeEdit?.([{ op: "add", path: pointer("layouts", name), value: copied }], `layout ${name} added, a copy of ${from}`);
     if (!done) return;
     await change([{ op: "set_state", id: shown.state, prop: "layout", value: name, fork: true }], "choosing it…", `layout ${name} added, a copy of ${from}; ${shown.state} uses it`, null);
     await relayout();
