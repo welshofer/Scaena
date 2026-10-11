@@ -62,9 +62,10 @@ pub struct Field {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub literal: bool,
     /// What the theme gives a text's look where the deck sets none, which the state then shows:
-    /// its role's family, weight, size, italic, case, tracking, or color; and for characters
-    /// selected, the text's own look where their run sets none, its role and emphasis too. What
-    /// an inspector shows in place of a blank. Absent for any other property.
+    /// its role's family, weight, size, italic, case, tracking, or color; how its slot fits it
+    /// (theme format 0.13); and for characters selected, the text's own look where their run
+    /// sets none, its role and emphasis too. What an inspector shows in place of a blank. Absent
+    /// for any other property.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub theme: Option<Value>,
 }
@@ -286,7 +287,9 @@ pub fn choices(
         let lives = value.map(|_| lives_at(deck, i, node, over, name, key));
         let literal = value.is_some_and(|v| literal(prop, v));
         let role = shown.get("role").and_then(Value::as_str);
-        let theme = (node_type == NodeType::Text).then(|| role_gives(theme, role, prop)).flatten();
+        let layout = snapshots[i].layout.as_deref();
+        let gives = || role_gives(theme, role, prop).or_else(|| slot_gives(theme, layout, shown.get("at"), prop));
+        let theme = (node_type == NodeType::Text).then(gives).flatten();
         Some(Field { prop: prop.into(), takes, value: value.cloned(), lives, literal, theme })
     });
     Ok(Choices { node: node.into(), node_type, state: state.into(), fields: fields.collect() })
@@ -310,6 +313,16 @@ fn role_gives(theme: &Theme, role: Option<&str>, prop: &str) -> Option<Value> {
         "style/color" => Value::from(role.color.clone().unwrap_or_else(|| "onSurface".into())),
         _ => return None,
     })
+}
+
+/// What the state's `layout` gives `prop` of a text placed at `at` in one of its slots where
+/// nothing in the deck sets it: how the slot fits it (theme format 0.13), as the engine sets it.
+fn slot_gives(theme: &Theme, layout: Option<&str>, at: Option<&Value>, prop: &str) -> Option<Value> {
+    if prop != "fit" {
+        return None;
+    }
+    let slot = at?.get("in")?.as_str()?;
+    serde_json::to_value(theme.layouts.get(layout?)?.slots.get(slot)?.fit?).ok()
 }
 
 /// What an inspector edits on characters selected in a text (PLAN 2.38): a run's own, which

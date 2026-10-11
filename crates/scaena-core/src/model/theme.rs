@@ -460,6 +460,11 @@ pub struct Slot {
     /// leaves the slot waiting all the same.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub example: Option<Example>,
+    /// How a text placed in the slot fits it where the text does not say (theme format 0.13):
+    /// `shrink` sets a number too wide for its slot smaller, down to its role's `minSize`, as a
+    /// presentation app's placeholder shrinks what is typed in it to fit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fit: Option<super::nodes::TextFit>,
 }
 
 /// What a layout's picture shows in a slot that waits (PLAN 3.31): `{ "picture": "backdrop" }`,

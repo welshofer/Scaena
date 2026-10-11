@@ -467,7 +467,9 @@ impl Engine {
             Some(trim) => trim,
             None => spec.role.text_box,
         };
-        let fit = typed_prop::<TextFit>(props, "fit")?.unwrap_or(TextFit::Wrap);
+        // The text's own fit, else its slot's (theme format 0.13), else it wraps.
+        let slot_fit = || Grid::slot(theme, template, props.get("at")).and_then(|slot| slot.fit);
+        let fit = typed_prop::<TextFit>(props, "fit")?.or_else(slot_fit).unwrap_or(TextFit::Wrap);
         let number = |key: &str| props.get(key).and_then(Value::as_f64).map(|v| v as f32);
         let max_lines = props
             .get("maxLines")
