@@ -227,7 +227,11 @@ try {
   check((await slot()).span < slow, `the cue is shorter: ${(await slot()).span} ms, from ${slow}`);
   await page.selectOption("#look-transition-ease", "out");
   check(await reads("ease: out"), `an ease makes the transition an object: ${await mixLine()}`);
-  check((await stated("transition/ease"))?.lives?.state === "mix", "set in mix");
+  // The inspector offers what the deck holds once the worker has answered for it.
+  await page
+    .waitForFunction(() => window.scaena.look.offered()?.fields.find((f) => f.prop === "transition/ease")?.lives?.state === "mix", null, { timeout: 30000 })
+    .catch(() => {});
+  check((await stated("transition/ease"))?.lives?.state === "mix", `set in mix: ${JSON.stringify((await stated("transition/ease"))?.lives)}`);
   await page.click('#look [data-away="transition/ease"]');
   await page.evaluate(() => window.scaena.look.settled());
   await page.click('#look [data-away="transition/duration"]');

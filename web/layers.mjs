@@ -173,6 +173,9 @@ try {
   await undo();
   await undo();
   check(await back(original), "two undos take both back");
+  // The layers are listed again once the deck undone is shown: a key pressed before then moves
+  // the note as it was listed.
+  await lists(all);
   await row("note").locator("[data-pick]").focus();
   await page.keyboard.press("Alt+ArrowUp");
   check(await says("note is first among what holds it"), `the topmost goes no higher: ${await status()}`);
