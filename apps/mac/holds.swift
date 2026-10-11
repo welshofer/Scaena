@@ -33,10 +33,16 @@ func children(_ element: AXUIElement) -> [AXUIElement] {
 }
 
 /// What VoiceOver says an element is: the words of its attributed description, else its
-/// description, else its title; none where it has none of them.
+/// description, else its title, else its value, where a static text keeps its words, as an
+/// AppKit label does; none where each is missing or empty.
 func label(_ element: AXUIElement) -> String {
-    if let said = value(element, "AXAttributedDescription") as? NSAttributedString { return said.string }
-    return (value(element, kAXDescriptionAttribute) as? String) ?? (value(element, kAXTitleAttribute) as? String) ?? ""
+    let said: [String?] = [
+        (value(element, "AXAttributedDescription") as? NSAttributedString)?.string,
+        value(element, kAXDescriptionAttribute) as? String,
+        value(element, kAXTitleAttribute) as? String,
+        value(element, kAXValueAttribute) as? String,
+    ]
+    return said.compactMap { $0 }.first { !$0.isEmpty } ?? ""
 }
 
 /// Its frame, rounded to points: x, y, width, height.
@@ -72,7 +78,7 @@ if arguments.count == 4 {
     let said = label(held)
     guard !said.isEmpty else { fail("\(arguments[2]) reads as nothing") }
     let now = (value(held, kAXValueAttribute) as? String) ?? ""
-    print(now.isEmpty ? said : "\(said), \(now)")
+    print(now.isEmpty || now == said ? said : "\(said), \(now)")
     exit(0)
 }
 for element in children(held) {
