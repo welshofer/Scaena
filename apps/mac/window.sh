@@ -171,6 +171,8 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
     # Dragged a little right and down, it lands where it is let go (PLAN 3.19); then undone. The
     # drop has landed once the objects the canvas holds stand otherwise: on CI's virtual Mac the
     # drag's guides were still drawn two seconds after it was let go.
+    echo "the first object on the canvas, attribute by attribute:"
+    frames attributes canvas
     before=$(frames holds canvas)
     pointer drag "$cx" "$cy" $((cx + 90)) $((cy + 40))
     echo "the drop landed: $(changed holds canvas "$before")"

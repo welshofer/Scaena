@@ -11,6 +11,7 @@
 //   osascript -l JavaScript apps/mac/frames.js find IDENTIFIER
 //   osascript -l JavaScript apps/mac/frames.js value IDENTIFIER
 //   osascript -l JavaScript apps/mac/frames.js holds IDENTIFIER
+//   osascript -l JavaScript apps/mac/frames.js attributes IDENTIFIER
 //   osascript -l JavaScript apps/mac/frames.js splits
 function run(argv) {
   const [what, arg] = argv;
@@ -65,6 +66,15 @@ function run(argv) {
   if (what === "value") {
     const e = read(() => found(arg));
     return e ? String(read(() => e.value()) || label(e) || "") : "";
+  }
+  // Each attribute of the first object an element holds, with its value, one to a line: where
+  // the app keeps what VoiceOver says of it.
+  if (what === "attributes") {
+    const first = children(found(arg))[0];
+    if (!first) return "it holds nothing";
+    return (read(() => first.attributes()) ?? [])
+      .map((a) => `${read(() => a.name()) ?? "?"} = ${String(read(() => a.value()))}`)
+      .join("\n");
   }
   if (what === "holds") {
     return children(found(arg))
