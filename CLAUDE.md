@@ -47,7 +47,7 @@ apps/ipad/             the iPad app: the Mac app's sources in an Xcode project X
 5. **Tracking semantics are in `scaena-core::tracking`** and nowhere else. `anim` never tracks. `layout` does.
 6. **Nothing render-derived enters the CRDT.** Snapshots, layouts, display lists, lint results are recomputable. (SPEC §8.3)
 7. **No server assumptions in v1.** Local-first; BYOK; keys never in bundles. (ADR-0006)
-8. **PPTX/Keynote never touch the model or the engine. No HTML/CSS layout in the engine. No TextKit in the Mac app.** (MANIFESTO)
+8. **PPTX/Keynote never touch the model or the engine. No HTML/CSS layout in the engine. No TextKit where a deck is drawn.** (MANIFESTO) The source pane's editor is chrome, as the browser's CodeMirror is (SPEC §9.3; Jay's call, 2026-10-11).
 9. **Shader nodes have a CPU reference implementation first**, WGSL second, parity test third. No arbitrary shader source. (SPEC §3.8)
 10. **Authority:** the logical document is the truth; `deck.json` is its canonical interchange form; the CRDT holds persistence authority while editing; `.scn` is an authoring projection. DSL round-trip is semantic (`compile(decompile(doc)) == doc`), never source-preserving. (SPEC §3.1, §4)
 
@@ -132,8 +132,8 @@ Direct, rigorous, no filler. State the decision, the evidence, and the trade. If
 
 Gate 3 is open. Every task of Phase 3 has landed, and `docs/gate-3.md` holds the evidence:
 - Criterion 1, the web player's pixels, is met on CI's Mac: the session's display lists digest as the goldens, and vello on Metal paints every torture state within SPEC §13.5 of them, as the web player's painters do.
-- Criterion 3, no text layout in SwiftUI, is met for everything that draws a deck, and `crates/scaena-ffi/tests/chrome.rs` holds every Swift file to it. Jay's call is open on the source pane's `NSTextView`: TextKit in chrome, which SPEC §9.3 allows and invariant 8 as written does not.
-- Criterion 2, B1's first frame within 300 ms of opening, waits on the release build on an M-series Mac; the steps are in the doc. The `mac-app` workflow reads it the same way on CI's virtual Mac: 32–35 ms, once the GPU the app makes as it starts is made, which is not the gate's reading.
+- Criterion 3, no text layout in SwiftUI, is met, and `crates/scaena-ffi/tests/chrome.rs` holds every Swift file to it. The source pane's `NSTextView` is TextKit in chrome, which SPEC §9.3 allows, and on Jay's call (2026-10-11) invariant 8 says the same.
+- Criterion 2, B1's first frame within 300 ms of opening, waits on the release build on an M-series Mac; the steps are in the doc. On Jay's call (2026-10-11) the gate reads it with the app running, as SPEC §15 reads its budgets, and the cold launch is logged beside it. The `mac-app` workflow reads it the same way on CI's virtual Mac: 32–35 ms, once the GPU the app makes as it starts is made, which is not the gate's reading.
 
 ## Phase 4
 

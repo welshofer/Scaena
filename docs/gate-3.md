@@ -5,7 +5,7 @@ Phase 3's exit criteria (PLAN, "Exit criteria (gate 3)"), each with its evidence
 **Where it stands:**
 - **Criterion 1** (same pixels as the web player) is met on CI's Mac, through the goldens both clients are held to. A real M-series Mac's GPU reads it again in the run below.
 - **Criterion 2** (first frame under 300 ms) waits on that run. On CI's virtual Mac, the release build opens B1 to its first frame in 32–35 ms warm and 161 ms cold, once the GPU the app makes as it starts is made. That is not the gate's reading.
-- **Criterion 3** (no text layout in SwiftUI) is met for everything that draws a deck, and held there by a test. The source pane is TextKit in chrome, which is Jay's call (below).
+- **Criterion 3** (no text layout in SwiftUI) is met, and held there by a test. The source pane is TextKit in chrome, on Jay's call (below).
 
 ## 1. Same bundle, same frame, same pixels (within tolerance) as the web player: met on CI's Mac
 
@@ -42,7 +42,7 @@ It prints the time, and where it went.
   | cold | 161 ms | 39 ms | 3 ms | 24 ms | 97 ms | 2.5 s | 2.7 s |
 
   A second surface, made right after the first frame, took 72–121 ms. That is most likely the first frame's work still finishing on the virtual GPU: wgpu waits for all of the device's work before it configures a layer. A real Mac reads it again.
-- **The reading is open → first frame with the app running**, as SPEC §15 reads its budgets: warm unless noted. The cold reading, an app launched by opening the deck, is printed beside it. Whether the gate means that one is Jay's call.
+- **The reading is open → first frame with the app running**, as SPEC §15 reads its budgets: warm unless noted. The cold reading, an app launched by opening the deck, is printed beside it. On Jay's call (2026-10-11) the gate reads the first, and the cold reading is logged beside it.
 - **CI's readings are not the gate's.** CI's macOS job runs the test on every pull request under three conditions that are not the gate's:
   - the engine linked unoptimized (the debug library);
   - every test at once;
@@ -62,7 +62,7 @@ It prints the time, and where it went.
 
   CI's `mac-app` workflow runs the same command three times on its virtual Mac, beside the app it builds, and puts the readings in the run's summary. They show the command works and how near the release build comes, and are not the gate's.
 
-## 3. SwiftUI code contains zero text layout; all geometry comes from the engine: met for what draws a deck
+## 3. SwiftUI code contains zero text layout; all geometry comes from the engine: met
 
 - **What draws a deck is the engine's.** Every frame, glyph, and box comes from the engine:
   - the canvas, the stage, and the presenter's view: vello on Metal;
@@ -73,15 +73,7 @@ It prints the time, and where it went.
   SwiftUI draws chrome: lists, the inspector, the findings, the assistant's conversation.
 - **Held by a test.** `crates/scaena-ffi/tests/chrome.rs` reads every Swift file of the app, and fails on any API that lays text out, measures it, or draws it outside the engine. It names Core Text, TextKit's layout managers and containers, `NSTextField`, string measuring, and string drawing.
 
-**Jay's call: the source pane.** The source pane is an `NSTextView` of the deck's `.scn`: TextKit, in chrome, as the browser's source pane is CodeMirror. The two documents disagree about it:
-- SPEC §9.3 bars TextKit and Core Text from the render path.
-- CLAUDE.md's invariant 8 says "No TextKit in the Mac app."
-
-The recommendation is to read invariant 8 as SPEC does: the deck is never laid out by TextKit; its source is text in an editor. If invariant 8 holds as written, the source pane needs an editor that is not TextKit, and the options are:
-- the engine draws the `.scn` itself, with its own carets: a text editor in the engine, weeks of work;
-- the browser's CodeMirror in a web view: HTML in chrome.
-
-The test allows `NSTextView` in `SourcePane.swift` alone, so either decision is one line.
+**The source pane, on Jay's call (2026-10-11).** The source pane is an `NSTextView` of the deck's `.scn`: TextKit, in chrome, as the browser's source pane is CodeMirror. SPEC §9.3 bars TextKit and Core Text from the render path, and CLAUDE.md's invariant 8 now says the same: no TextKit where a deck is drawn. It had said "No TextKit in the Mac app", which would have meant an editor the engine draws, weeks of work that helps no deck, or CodeMirror in a web view, HTML in chrome. The test allows `NSTextView` in `SourcePane.swift` alone.
 
 ## The run on a real Mac
 
