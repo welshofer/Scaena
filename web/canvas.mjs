@@ -16,7 +16,8 @@
 // On the torture deck's `containers` case:
 // - The arrow keys move a node a track, Shift with an arrow resizes it a track, and an arrow moves
 //   a stack's child a place along it.
-// - A handle resizes a grid container by tracks, and a pause shows it laid out before the drop.
+// - A handle, which stands clear of the box it resizes, resizes a grid container by tracks, and a
+//   pause shows it laid out before the drop.
 // Exits 1 on any failure.
 import { launch, serve } from "./serve.mjs";
 
@@ -55,6 +56,14 @@ try {
   const source = (page) => page.evaluate(() => window.scaena.source());
   const status = (page) => page.evaluate(() => document.querySelector("#status").textContent);
   const box = (page, node) => page.evaluate((n) => window.scaena.canvas.boxes().find((b) => b.node === n)?.rect, node);
+  /** Where the canvas draws the handle at `edge` of the node selected, canvas units: on its frame,
+   * clear of its box. */
+  const handle = (page, edge) =>
+    page.evaluate((e) => {
+      const r = document.querySelector(`#overlay rect.handle[data-edge="${e}"]`);
+      const at = (name) => Number(r?.getAttribute(name) ?? NaN);
+      return [at("x") + at("width") / 2, at("y") + at("height") / 2];
+    }, edge);
   const center = ([x, y, w, h]) => [x + w / 2, y + h / 2];
   /** A point in canvas units, on the page. */
   const client = (page, [x, y]) =>
@@ -272,9 +281,11 @@ try {
   const board = await torture.evaluate(() => window.scaena.canvas.targets("board"));
   const pitch = board.columns[1][0] - board.columns[0][0];
   const [bx, by, bw, bh] = await box(torture, "board");
+  const [ex, ey] = await handle(torture, "e");
+  check(ex > bx + bw && Math.abs(ey - (by + bh / 2)) < 0.01, `the handle at its right edge stands clear of its box: ${ex} past ${bx + bw}`);
   const still = await shot(torture);
   n = await trips(torture);
-  const narrower = await drag(torture, [bx + bw, by + bh / 2], [bx + bw - pitch, by + bh / 2], [], { hold: true, says: "col 1–7" });
+  const narrower = await drag(torture, [ex, ey], [ex - pitch, ey], [], { hold: true, says: "col 1–7" });
   // Paused, the preview shows it laid out as the patch would make it: once the engine has laid it
   // out and painted it, which a busy machine takes longer to do than an idle one.
   await torture.waitForTimeout(900);

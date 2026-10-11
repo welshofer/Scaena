@@ -42,7 +42,19 @@ frames() { osascript -l JavaScript "$root/apps/mac/frames.js" "$@" 2>&1 || true;
 # What the objects an element holds read as to VoiceOver, one to a line: by the accessibility API,
 # which reads the attributed description SwiftUI keeps a label in; else by System Events, which
 # reads none of them.
-holds() { "$out/holds" "$(pgrep -n -x Scaena)" "$1" 2>/dev/null || frames holds "$1"; }
+# Asked again a moment later while the app is too busy to answer, as it may be just after an edit,
+# up to three times.
+holds() {
+  local said
+  for _ in 1 2 3; do
+    said=$("$out/holds" "$(pgrep -n -x Scaena)" "$1" 2>/dev/null) && { echo "$said"; return; }
+    sleep 1
+  done
+  frames holds "$1"
+}
+# What the element identified as `$1` reads as itself to VoiceOver, by the accessibility API, as
+# `holds` reads what it holds; else its value, by System Events.
+named() { "$out/holds" "$(pgrep -n -x Scaena)" "$1" self 2>/dev/null || frames value "$1"; }
 # A menu's item chosen; again a moment later while the app is too busy to be asked, as it may be
 # just after an edit, up to five times.
 menu() {
@@ -59,7 +71,7 @@ menu() {
 reads() {
   local now waited
   for waited in $(seq 0 20); do
-    now=$(frames value canvas)
+    now=$(named canvas)
     if [[ -n "$now" && "$now" != *rror* ]] && { [[ "${2:-}" == same && "$now" == "$1" ]] || [[ "${2:-}" != same && "$now" != "$1" ]]; }; then
       echo "$now, within $waited s"
       return
@@ -316,7 +328,7 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   echo "the Slide menu: $(app 'get {name, enabled} of every menu item of menu 1 of menu bar item "Slide" of menu bar 1')"
   events 'key code 53'
   sleep 1
-  before=$(frames value canvas)
+  before=$(named canvas)
   menu Slide "New Slide"
   echo "New Slide, the canvas shows: $(reads "$before")"
   shot slide-menu-new
@@ -343,7 +355,7 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
       sleep 0.5
     done
     sleep 2
-    echo "ten slides down, the canvas shows: $(frames value canvas)"
+    echo "ten slides down, the canvas shows: $(named canvas)"
     read -r gx gy gw gh <<<"$(frames find 'cue-funding-chart enter')" || true
     if [[ "${gh:-}" =~ ^[0-9]+$ ]]; then
       echo "the chart's lane: $gx $gy $gw $gh"

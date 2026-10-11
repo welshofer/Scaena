@@ -350,6 +350,10 @@ const AGAIN = 450;
 const PAUSE = 300;
 /** How near, CSS pixels, an edge or a middle moved off the grid goes onto another's (PLAN 2.57). */
 const REACH = 6;
+/** How far, CSS pixels, the outline of what is selected and its handles stand outside its box:
+ * clear of a small text's first letter, as a presentation app's text box keeps its words in from
+ * its frame. */
+const CLEAR = 5;
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -925,6 +929,14 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       `<rect class="${cls}" x="${x}" y="${y}" width="${Math.max(0, w)}" height="${Math.max(0, h)}"${extra}/>`;
     const line = (x1: number, y1: number, x2: number, y2: number, cls: string) =>
       `<line class="${cls}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
+    // A box's frame, where its outline and handles are drawn: CLEAR pixels outside it, never past
+    // the canvas's edge, where what bleeds keeps its handles on the canvas.
+    const frame = ([x, y, w, h]: Rect): Rect => {
+      const c = CLEAR * u;
+      const [left, top] = [Math.min(c, Math.max(0, x)), Math.min(c, Math.max(0, y))];
+      const [right, bottom] = [Math.min(c, Math.max(0, size[0] - x - w)), Math.min(c, Math.max(0, size[1] - y - h))];
+      return [x - left, y - top, w + left + right, h + top + bottom];
+    };
     // The theme's grid (PLAN 2.57), under all else: the columns and rows as bands, the gutters
     // between them, the margins around them, and the baseline grid's lines.
     if (ruled && grid && grid.canvas[0] === size[0] && grid.canvas[1] === size[1]) {
@@ -978,12 +990,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     }
     const typed = text.node() !== undefined;
     const by: [number, number] = drag?.kind === "move" ? [drag.at[0] - drag.from[0], drag.at[1] - drag.from[1]] : [0, 0];
-    // A box drawn where its transform draws it (PLAN 2.51), moved `shift` on the canvas.
+    // A box's frame drawn where its transform draws it (PLAN 2.51), moved `shift` on the canvas.
     const shape = (b: NodeBox, shift: Point, cls: string, turn = 0) => {
-      if (!b.transform && turn === 0) return rect(moved(b.rect, shift), cls);
+      if (!b.transform && turn === 0) return rect(moved(frame(b.rect), shift), cls);
       const [sin, cos] = [Math.sin((turn * Math.PI) / 180), Math.cos((turn * Math.PI) / 180)];
       const [px, py] = turning?.pivot ?? [0, 0];
-      const points = outline(b).map(([x, y]) => {
+      const points = outline({ ...b, rect: frame(b.rect) }).map(([x, y]) => {
         const [dx, dy] = [x - px, y - py];
         const [tx, ty] = turn === 0 ? [x, y] : [px + dx * cos - dy * sin, py + dx * sin + dy * cos];
         return `${tx + shift[0]},${ty + shift[1]}`;
@@ -1004,7 +1016,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         const [x, y] = first.transform ? apply(first.transform, p) : p;
         return [x + by[0], y + by[1]];
       };
-      const [x, y, w, h] = first.rect;
+      // Its handles stand on its frame, clear of what it draws.
+      const [x, y, w, h] = frame(first.rect);
       const still = !drag && !typed && !turning && !reshaping && !cropping && also.length === 0 && !first.locked;
       if (still && aim && snapOf(aim, editor.at(first.node), true, false)) {
         const s = 8 * u;

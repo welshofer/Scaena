@@ -1,11 +1,13 @@
 // What the objects an element of the Mac app's window holds read as to VoiceOver (PLAN 3.17): each
 // by its role, what VoiceOver says it is, and its frame in screen points from the top left, one to a
-// line. SwiftUI keeps an object's label as an attributed description (AXAttributedDescription), which
-// System Events cannot read as text (`frames.js holds` reads none), so this asks the accessibility
-// API itself. The walk builds it and reads the canvas with it (apps/mac/window.sh).
+// line; or, with `self`, what the element reads as itself: what VoiceOver says it is, and its value
+// after a comma where it has one. SwiftUI keeps a label as an attributed description
+// (AXAttributedDescription), which System Events cannot read as text (`frames.js holds` reads none),
+// so this asks the accessibility API itself. The walk builds it and reads the canvas with it
+// (apps/mac/window.sh).
 //
 //   swiftc -O -o holds apps/mac/holds.swift
-//   holds PID IDENTIFIER
+//   holds PID IDENTIFIER [self]
 import ApplicationServices
 import Foundation
 
@@ -15,7 +17,9 @@ func fail(_ said: String) -> Never {
 }
 
 let arguments = CommandLine.arguments
-guard arguments.count == 3, let pid = pid_t(arguments[1]) else { fail("usage: holds PID IDENTIFIER") }
+guard arguments.count == 3 || (arguments.count == 4 && arguments[3] == "self"), let pid = pid_t(arguments[1]) else {
+    fail("usage: holds PID IDENTIFIER [self]")
+}
 guard AXIsProcessTrusted() else { fail("not trusted to read another app's accessibility") }
 
 /// The value of the attribute `name` of `element`; none where it has none or does not answer.
@@ -29,10 +33,16 @@ func children(_ element: AXUIElement) -> [AXUIElement] {
 }
 
 /// What VoiceOver says an element is: the words of its attributed description, else its
-/// description, else its title; none where it has none of them.
+/// description, else its title, else its value, where a static text keeps its words, as an
+/// AppKit label does; none where each is missing or empty.
 func label(_ element: AXUIElement) -> String {
-    if let said = value(element, "AXAttributedDescription") as? NSAttributedString { return said.string }
-    return (value(element, kAXDescriptionAttribute) as? String) ?? (value(element, kAXTitleAttribute) as? String) ?? ""
+    let said: [String?] = [
+        (value(element, "AXAttributedDescription") as? NSAttributedString)?.string,
+        value(element, kAXDescriptionAttribute) as? String,
+        value(element, kAXTitleAttribute) as? String,
+        value(element, kAXValueAttribute) as? String,
+    ]
+    return said.compactMap { $0 }.first { !$0.isEmpty } ?? ""
 }
 
 /// Its frame, rounded to points: x, y, width, height.
@@ -64,6 +74,13 @@ search: while !level.isEmpty, seen < 8000 {
     level = next
 }
 guard let held = found else { fail("nothing is identified as \(arguments[2])") }
+if arguments.count == 4 {
+    let said = label(held)
+    guard !said.isEmpty else { fail("\(arguments[2]) reads as nothing") }
+    let now = (value(held, kAXValueAttribute) as? String) ?? ""
+    print(now.isEmpty || now == said ? said : "\(said), \(now)")
+    exit(0)
+}
 for element in children(held) {
     let role = (value(element, kAXRoleAttribute) as? String) ?? "?"
     print("\(role) \"\(label(element))\" \(frame(element).map { String($0) }.joined(separator: " "))")
