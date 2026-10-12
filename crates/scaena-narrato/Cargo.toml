@@ -1,0 +1,16 @@
+[package]
+name = "scaena-narrato"
+description = "Vzestup's Narrato, ported (ADR-0026, PLAN G.1): the arcs and personas, the prompts as Narrato writes them, the beat plan, each provider's structured request and its answer read back. No HTTP: the client makes each call."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+# The variety pass's content signals: ASCII `\b` and `\d`, as JavaScript's regexes without `u` read them.
+regex-lite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

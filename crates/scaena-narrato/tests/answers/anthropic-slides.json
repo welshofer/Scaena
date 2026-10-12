@@ -1,0 +1,20 @@
+{
+ "id": "msg_1",
+ "type": "message",
+ "role": "assistant",
+ "content": [
+  {
+   "type": "thinking",
+   "thinking": "..."
+  },
+  {
+   "type": "text",
+   "text": "{\"executiveSummary\": \"Carbon-negative cargo works in pilots and is ready to scale with a $12M Series A.\", \"slides\": [{\"slideTitle\": \"Carbon-negative cargo is ready to scale\", \"subtitle\": \"Series A · 2026\", \"layoutSuggestion\": \"Title\", \"keyBullets\": [], \"visualDescription\": \"A container ship at dawn, its wake a clean green line\", \"speakerNotes\": \"- We open with the mission\\n- We name the round\", \"beatIndex\": 0, \"beatName\": \"Problem: Define core challenge and stakes\", \"purpose\": \"Opens the deck and names the round.\", \"intent\": \"Make them curious about the wedge.\", \"expectedIntensity\": 0.3, \"expectedValence\": 0.2}, {\"slideTitle\": \"Shipping emits three percent of global carbon\", \"subtitle\": \"\", \"layoutSuggestion\": \"Big Number\", \"keyBullets\": [\"3%\", \"of global carbon comes from shipping\"], \"visualDescription\": \"A smokestack against a grey sky\", \"speakerNotes\": \"- We frame the problem\", \"supportingFacts\": \"IMO Fourth GHG Study, 2020\", \"beatIndex\": 0, \"beatName\": \"Problem: Define core challenge and stakes\", \"purpose\": \"Frames the stakes with one figure.\", \"intent\": \"Make them feel the scale.\", \"expectedIntensity\": 0.5, \"expectedValence\": -0.5}, {\"slideTitle\": \"Fines and lost contracts are compounding fast\", \"subtitle\": \"\", \"layoutSuggestion\": \"Scorecard\", \"keyBullets\": [\"$12M: fines this year\", \"$28M: contracts lost\", \"30%: insurance up\"], \"visualDescription\": \"\", \"speakerNotes\": \"- Cost of inaction\", \"beatIndex\": 1, \"beatName\": \"Impact: Quantify cost of inaction\", \"purpose\": \"Quantifies the cost of waiting.\", \"intent\": \"Urgency.\", \"expectedIntensity\": 0.7, \"expectedValence\": -0.7}, {\"slideTitle\": \"Emissions per lane fell 41 percent in pilots\", \"subtitle\": \"\", \"layoutSuggestion\": \"Bar Chart\", \"keyBullets\": [\"Down 41% in two years\"], \"visualDescription\": \"Bars falling year over year\", \"speakerNotes\": \"- Proof\", \"chartData\": {\"categories\": [\"2023\", \"2024\", \"2025\"], \"series\": [{\"name\": \"kt CO2\", \"values\": [100, 80, 59]}], \"unit\": \"kt\", \"sourceId\": \"pilot report\"}, \"beatIndex\": 4, \"beatName\": \"Proof: Case studies, data, demos\", \"purpose\": \"Proves it works.\", \"intent\": \"Belief.\", \"expectedIntensity\": 0.9, \"expectedValence\": 0.8}, {\"slideTitle\": \"Join us in the twelve million dollar round\", \"subtitle\": \"Closing June 30\", \"layoutSuggestion\": \"Closing\", \"keyBullets\": [], \"visualDescription\": \"A harbor at night, every ship lit green\", \"speakerNotes\": \"- The ask\", \"beatIndex\": 5, \"beatName\": \"Call to Action: Next steps\", \"purpose\": \"Lands the ask.\", \"intent\": \"Commit.\", \"expectedIntensity\": 0.8, \"expectedValence\": 0.7}]}"
+  }
+ ],
+ "stop_reason": "end_turn",
+ "usage": {
+  "input_tokens": 9000,
+  "output_tokens": 2500
+ }
+}

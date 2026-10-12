@@ -1,0 +1,1211 @@
+[
+ {
+  "id": "executives",
+  "name": "Executives",
+  "description": "Senior leadership and board members focused on strategic impact, ROI, governance, and high-level outcomes. Time-constrained with preference for concise, action-oriented content.",
+  "icon": "👔",
+  "category": "business",
+  "vocabulary": {
+   "complexity": "moderate",
+   "jargonTolerance": 0.6,
+   "preferredTerms": [
+    "ROI",
+    "strategic",
+    "bottom-line",
+    "growth",
+    "market share",
+    "competitive advantage",
+    "governance",
+    "risk mitigation",
+    "shareholder value"
+   ],
+   "avoidTerms": [
+    "technical details",
+    "implementation specifics",
+    "code",
+    "algorithm",
+    "operational details"
+   ]
+  },
+  "domainKnowledge": {
+   "level": "proficient",
+   "assumedConcepts": [
+    "P&L",
+    "market dynamics",
+    "organizational structure",
+    "stakeholder management",
+    "corporate governance",
+    "regulatory requirements",
+    "risk frameworks"
+   ],
+   "needsExplanation": [
+    "technical architecture",
+    "implementation details",
+    "specific methodologies",
+    "operational processes"
+   ]
+  },
+  "attention": {
+   "averageSpan": 8,
+   "preferredSlideCount": 12,
+   "breakFrequency": 4,
+   "visualPreference": "balanced"
+  },
+  "goalProfiles": {
+   "Inform": {
+    "directive": "Deliver an executive briefing with clear takeaways. Lead with conclusions, support with data. Respect their time - every slide must earn its place. Include governance and risk considerations where relevant.",
+    "persuasionApproach": "data-driven",
+    "evidencePreference": "statistics",
+    "expectedScores": {
+     "emotionality": {
+      "min": 0.12,
+      "max": 0.3,
+      "ideal": 0.2
+     },
+     "evidenceOrientation": {
+      "min": 0.75,
+      "max": 0.95,
+      "ideal": 0.87
+     },
+     "complexity": {
+      "min": 0.32,
+      "max": 0.52,
+      "ideal": 0.42
+     }
+    },
+    "vocabularyEmphasis": [
+     "update",
+     "status",
+     "metrics",
+     "performance",
+     "benchmark",
+     "trend",
+     "oversight"
+    ],
+    "intensityGuidance": {
+     "allowExtremes": false,
+     "peakIntensity": 0.45,
+     "preferredDynamics": "steady"
+    }
+   },
+   "Persuade": {
+    "directive": "Build a compelling business case with clear ROI. Address risk, competitive pressure, and fiduciary considerations. Create urgency without alarm. Drive to a decision or formal approval.",
+    "persuasionApproach": "data-driven",
+    "evidencePreference": "statistics",
+    "expectedScores": {
+     "emotionality": {
+      "min": 0.25,
+      "max": 0.45,
+      "ideal": 0.35
+     },
+     "evidenceOrientation": {
+      "min": 0.65,
+      "max": 0.88,
+      "ideal": 0.77
+     },
+     "complexity": {
+      "min": 0.32,
+      "max": 0.55,
+      "ideal": 0.45
+     }
+    },
+    "vocabularyEmphasis": [
+     "recommend",
+     "investment",
+     "returns",
+     "competitive advantage",
+     "risk mitigation",
+     "opportunity cost",
+     "resolution"
+    ],
+    "intensityGuidance": {
+     "allowExtremes": true,
+     "peakIntensity": 0.68,
+     "preferredDynamics": "gradual-build"
+    }
+   },
+   "Inspire": {
+    "directive": "Paint a vision of transformed future. Connect to legacy, leadership opportunity, and long-term organizational vision. Use stories of industry transformation. End with a rallying call to lead change.",
+    "persuasionApproach": "story-driven",
+    "evidencePreference": "case-studies",
+    "expectedScores": {
+     "emotionality": {
+      "min": 0.38,
+      "max": 0.62,
+      "ideal": 0.48
+     },
+     "evidenceOrientation": {
+      "min": 0.45,
+      "max": 0.7,
+      "ideal": 0.55
+     },
+     "complexity": {
+      "min": 0.27,
+      "max": 0.47,
+      "ideal": 0.37
+     }
+    },
+    "vocabularyEmphasis": [
+     "vision",
+     "leadership",
+     "legacy",
+     "transformation",
+     "opportunity",
+     "future",
+     "stewardship"
+    ],
+    "intensityGuidance": {
+     "allowExtremes": true,
+     "peakIntensity": 0.75,
+     "preferredDynamics": "dramatic-arc"
+    }
+   }
+  },
+  "contentHints": [
+   "Lead with business impact and outcomes",
+   "Include ROI projections where applicable",
+   "Keep slides concise - one key message per slide",
+   "Use executive summary format",
+   "Provide clear recommendations and next steps",
+   "Address governance and risk implications"
+  ],
+  "arcPreferences": {
+   "Problem-Solution": 0.9,
+   "Data Storytelling": 0.88,
+   "PARL (Problem, Action, Result, Learning)": 0.82,
+   "Roadmap / Future-State": 0.75,
+   "Three-Act Structure": 0.55
+  },
+  "isBuiltIn": true
+ },
+ {
+  "id": "investors",
+  "name": "Investors",
+  "description": "Investment-focused audience evaluating market opportunity, team capability, traction, and return potential. Includes VCs, angels, and institutional investors.",
+  "icon": "💰",
+  "category": "business",
+  "vocabulary": {
+   "complexity": "moderate",
+   "jargonTolerance": 0.7,
+   "preferredTerms": [
+    "TAM",
+    "MRR",
+    "ARR",
+    "runway",
+    "unit economics",
+    "CAC",
+    "LTV",
+    "moat",
+    "traction",
+    "scalability"
+   ],
+   "avoidTerms": [
+    "guaranteed",
+    "risk-free",
+    "can't fail",
+    "technical implementation details"
+   ]
+  },
+  "domainKnowledge": {
+   "level": "proficient",
+   "assumedConcepts": [
+    "startup metrics",
+    "funding stages",
+    "valuation methods",
+    "due diligence",
+    "market sizing",
+    "competitive analysis"
+   ],
+   "needsExplanation": [
+    "technical architecture",
+    "implementation details",
+    "operational processes"
+   ]
+  },
+  "attention": {
+   "averageSpan": 7,
+   "preferredSlideCount": 12,
+   "breakFrequency": 3,
+   "visualPreference": "balanced"
+  },
+  "goalProfiles": {
+   "Inform": {
+    "directive": "Present clear business update with key metrics and milestones. Lead with traction data. Be transparent about challenges and path forward.",
+    "persuasionApproach": "data-driven",
+    "evidencePreference": "statistics",
+    "expectedScores": {
+     "emotionality": {
+      "min": 0.25,
+      "max": 0.45,
+      "ideal": 0.35
+     },
+     "evidenceOrientation": {
+      "min": 0.7,
+      "max": 0.9,
+      "ideal": 0.8
+     },
+     "complexity": {
+      "min": 0.3,
+      "max": 0.5,
+      "ideal": 0.4
+     }
+    },
+    "vocabularyEmphasis": [
+     "metrics",
+     "growth",
+     "runway",
+     "milestone",
+     "traction",
+     "update"
+    ],
+    "intensityGuidance": {
+     "allowExtremes": false,
+     "peakIntensity": 0.55,
+     "preferredDynamics": "steady"
+    }
+   },
+   "Persuade": {
+    "directive": "Build investment case with clear market opportunity and unfair advantages. Show traction and trajectory. Create urgency through competitive dynamics and market timing.",
+    "persuasionApproach": "data-driven",
+    "evidencePreference": "statistics",
+    "expectedScores": {
+     "emotionality": {
+      "min": 0.4,
+      "max": 0.65,
+      "ideal": 0.52
+     },
+     "evidenceOrientation": {
+      "min": 0.65,
+      "max": 0.85,
+      "ideal": 0.75
+     },
+     "complexity": {
+      "min": 0.3,
+      "max": 0.5,
+      "ideal": 0.4
+     }
+    },
+    "vocabularyEmphasis": [
+     "opportunity",
+     "moat",
+     "traction",
+     "returns",
+     "scale",
+     "market",
+     "invest"
+    ],
+    "intensityGuidance": {
+     "allowExtremes": true,
+     "peakIntensity": 0.75,
+     "preferredDynamics": "gradual-build"
+    }
+   },
+   "Inspire": {
+    "directive": "Paint vision of category-defining company. Connect to transformative market shifts. Show the team that can make it happen. Create FOMO through compelling narrative.",
+    "persuasionApproach": "story-driven",
+    "evidencePreference": "case-studies",
+    "expectedScores": {
+     "emotionality": {
+      "min": 0.5,
+      "max": 0.75,
+      "ideal": 0.62
+     },
+     "evidenceOrientation": {
+      "min": 0.5,
+      "max": 0.72,
+      "ideal": 0.6
+     },
+     "complexity": {
+      "min": 0.28,
+      "max": 0.48,
+      "ideal": 0.38
+     }
+    },
+    "vocabularyEmphasis": [
+     "vision",
+     "transform",
+     "category",
+     "once-in-generation",
+     "opportunity",
+     "future"
+    ],
+    "intensityGuidance": {
+     "allowExtremes": true,
+     "peakIntensity": 0.82,
+     "preferredDynamics": "dramatic-arc"
+    }
+   }
+  },
+  "contentHints": [
+   "Lead with market opportunity and traction",
+   "Show clear path to profitability or growth",
+   "Highlight competitive moat and differentiation",
+   "Include team credentials and track record",
+   "Be specific about use of funds and milestones",
+   "Address risks proactively with mitigation strategies"
+  ],
+  "arcPreferences": {
+   "Problem-Solution": 0.9,
+   "Hero's Journey": 0.8,
+   "Three-Act Structure": 0.75,
+   "What Is → What Could Be": 0.7,
+   "Data Storytelling": 0.85
+  },
+  "isBuiltIn": true
+ },
+ {
+  "id": "government",
+  "name": "Government",
+  "description": "Government officials, regulators, and policy makers focused on public interest, compliance, accountability, and policy implications. Values transparency and evidence-based decision making.",
+  "icon": "🏛️",
+  "category": "business",
+  "vocabulary": {
+   "complexity": "moderate",
+   "jargonTolerance": 0.5,
+   "preferredTerms": [
+    "compliance",
+    "regulation",
+    "public interest",
+    "accountability",
+    "transparency",
+    "policy",
+    "stakeholder",
+    "impact assessment"
+   ],
+   "avoidTerms": [
+    "disrupt",
+    "move fast",
+    "hack",
+    "proprietary",
+    "competitive advantage"
+   ]
+  },
+  "domainKnowledge": {
+   "level": "proficient",
+   "assumedConcepts": [
+    "regulatory frameworks",
+    "policy development",
+    "public administration",
+    "stakeholder engagement",
+    "compliance requirements"
+   ],
+   "needsExplanation": [
+    "technical implementation",
+    "proprietary methods",
+    "industry-specific jargon"
+   ]
+  },
+  "attention": {
+   "averageSpan": 10,
+   "preferredSlideCount": 15,
+   "breakFrequency": 5,
+   "visualPreference": "balanced"
+  },
+  "goalProfiles": {
+   "Inform": {
+    "directive": "Present information with clarity and transparency. Lead with public interest implications and compliance status. Provide evidence-based analysis with clear documentation trail.",
+    "persuasionApproach": "data-driven",
+    "evidencePreference": "statistics",
+    "expectedScores": {
+     "emotionality": {
+      "min": 0.1,
+      "max": 0.28,
+      "ideal": 0.18
+     },
+     "evidenceOrientation": {
+      "min": 0.78,
+      "max": 0.95,
+      "ideal": 0.88
+     },
+     "complexity": {
+      "min": 0.4,
+      "max": 0.6,
+      "ideal": 0.5
+     }
+    },
+    "vocabularyEmphasis": [
+     "compliance",
+     "assessment",
+     "findings",
+     "requirements",
+     "standards",
+     "accountability"
+    ],
+    "intensityGuidance": {
+     "allowExtremes": false,
+     "peakIntensity": 0.4,
+     "preferredDynamics": "steady"
+    }
+   },
+   "Persuade": {
+    "directive": "Build case through public benefit and regulatory alignment. Emphasize compliance, safety, and accountability. Address concerns with evidence and precedent. Seek formal endorsement or approval.",
+    "persuasionApproach": "authority-driven",
+    "evidencePreference": "expert-quotes",
+    "expectedScores": {
+     "emotionality": {
+      "min": 0.18,
+      "max": 0.38,
+      "ideal": 0.28
+     },
+     "evidenceOrientation": {
+      "min": 0.72,
+      "max": 0.92,
+      "ideal": 0.82
+     },
+     "complexity": {
+      "min": 0.4,
+      "max": 0.6,
+      "ideal": 0.5
+     }
+    },
+    "vocabularyEmphasis": [
+     "recommend",
+     "compliance",
+     "public benefit",
+     "precedent",
+     "framework",
+     "approval"
+    ],
+    "intensityGuidance": {
+     "allowExtremes": false,
+     "peakIntensity": 0.55,
+     "preferredDynamics": "gradual-build"
+    }
+   },
+   "Inspire": {
+    "directive": "Connect to public service mission and societal impact. Show how this advances public good and serves constituents. Use examples of successful public-private collaboration. Appeal to legacy of positive change.",
+    "persuasionApproach": "story-driven",
+    "evidencePreference": "case-studies",
+    "expectedScores": {
+     "emotionality": {
+      "min": 0.3,
+      "max": 0.52,
+      "ideal": 0.4
+     },
+     "evidenceOrientation": {
+      "min": 0.55,
+      "max": 0.78,
+      "ideal": 0.65
+     },
+     "complexity": {
+      "min": 0.35,
+      "max": 0.55,
+      "ideal": 0.45
+     }
+    },
+    "vocabularyEmphasis": [
+     "public good",
+     "citizens",
+     "community",
+     "progress",
+     "service",
+     "legacy",
+     "impact"
+    ],
+    "intensityGuidance": {
+     "allowExtremes": true,
+     "peakIntensity": 0.65,
+     "preferredDynamics": "gradual-build"
+    }
+   }
+  },
+  "contentHints": [
+   "Lead with public interest and compliance considerations",
+   "Provide clear evidence and documentation",
+   "Address regulatory requirements explicitly",
+   "Include stakeholder impact analysis",
+   "Use precedent and established frameworks",
+   "Be transparent about limitations and risks"
+  ],
+  "arcPreferences": {
+   "Data Storytelling": 0.9,
+   "PARL (Problem, Action, Result, Learning)": 0.85,
+   "Problem-Solution": 0.8,
+   "Roadmap / Future-State": 0.7,
+   "Case Study": 0.75
+  },
+  "isBuiltIn": true
+ },
+ {
+  "id": "customers",
+  "name": "Customers",
+  "description": "Product users and potential buyers focused on benefits, ease of use, support, and value for their specific needs. Wants to understand what they get and why it matters to them.",
+  "icon": "🛒",
+  "category": "general",
+  "vocabulary": {
+   "complexity": "simple",
+   "jargonTolerance": 0.2,
+   "preferredTerms": [
+    "benefit",
+    "easy",
+    "save time",
+    "support",
+    "help",
+    "value",
+    "results"
+   ],
+   "avoidTerms": [
+    "backend",
+    "architecture",
+    "infrastructure",
+    "technical debt",
+    "implementation"
+   ]
+  },
+  "domainKnowledge": {
+   "level": "novice",
+   "assumedConcepts": [
+    "their own pain points",
+    "current solutions they use",
+    "basic product categories"
+   ],
+   "needsExplanation": [
+    "how the product works",
+    "setup process",
+    "feature capabilities",
+    "technical requirements"
+   ]
+  },
+  "attention": {
+   "averageSpan": 5,
+   "preferredSlideCount": 8,
+   "breakFrequency": 2,
+   "visualPreference": "visual-heavy"
+  },
+  "goalProfiles": {
+   "Inform": {
+    "directive": "Explain product clearly focusing on benefits, not features. Show how it works without technical details. Make it easy to understand what they get and how it helps them.",
+    "persuasionApproach": "story-driven",
+    "evidencePreference": "testimonials",
+    "expectedScores": {
+     "emotionality": {
+      "min": 0.45,
+      "max": 0.68,
+      "ideal": 0.55
+     },
+     "evidenceOrientation": {
+      "min": 0.35,
+      "max": 0.6,
+      "ideal": 0.48
+     },
+     "complexity": {
+      "min": 0.08,
+      "max": 0.25,
+      "ideal": 0.15
+     }
+    },
+    "vocabularyEmphasis": [
+     "easy",
+     "simple",
+     "works",
+     "benefit",
+     "get",
+     "helps"
+    ],
+    "intensityGuidance": {
+     "allowExtremes": true,
+     "peakIntensity": 0.65,
+     "preferredDynamics": "gradual-build"
+    }
+   },
+   "Persuade": {
+    "directive": "Build desire through transformation stories. Show before/after results. Use social proof and testimonials heavily. Make the value proposition irresistible and the next step obvious.",
+    "persuasionApproach": "emotion-driven",
+    "evidencePreference": "testimonials",
+    "expectedScores": {
+     "emotionality": {
+      "min": 0.6,
+      "max": 0.85,
+      "ideal": 0.72
+     },
+     "evidenceOrientation": {
+      "min": 0.32,
+      "max": 0.58,
+      "ideal": 0.45
+     },
+     "complexity": {
+      "min": 0.08,
+      "max": 0.25,
+      "ideal": 0.15
+     }
+    },
+    "vocabularyEmphasis": [
+     "love",
+     "amazing",
+     "changed",
+     "finally",
+     "easy",
+     "works",
+     "best"
+    ],
+    "intensityGuidance": {
+     "allowExtremes": true,
+     "peakIntensity": 0.85,
+     "preferredDynamics": "dramatic-arc"
+    }
+   },
+   "Inspire": {
+    "directive": "Connect product to life transformation and aspirational outcomes. Show what becomes possible. Create emotional resonance with customer success stories that feel achievable.",
+    "persuasionApproach": "emotion-driven",
+    "evidencePreference": "testimonials",
+    "expectedScores": {
+     "emotionality": {
+      "min": 0.7,
+      "max": 0.92,
+      "ideal": 0.8
+     },
+     "evidenceOrientation": {
+      "min": 0.25,
+      "max": 0.5,
+      "ideal": 0.38
+     },
+     "complexity": {
+      "min": 0.05,
+      "max": 0.2,
+      "ideal": 0.12
+     }
+    },
+    "vocabularyEmphasis": [
+     "transform",
+     "life",
+     "dream",
+     "possible",
+     "imagine",
+     "freedom"
+    ],
+    "intensityGuidance": {
+     "allowExtremes": true,
+     "peakIntensity": 0.92,
+     "preferredDynamics": "dramatic-arc"
+    }
+   }
+  },
+  "contentHints": [
+   "Focus on benefits, not features",
+   "Use customer testimonials and success stories",
+   "Show the product in action",
+   "Address common concerns proactively",
+   "Make next steps crystal clear",
+   "Keep language simple and jargon-free"
+  ],
+  "arcPreferences": {
+   "Hero's Journey": 0.9,
+   "Three-Act Structure": 0.85,
+   "Problem-Solution": 0.8,
+   "What Is → What Could Be": 0.75,
+   "The Reveal": 0.7
+  },
+  "isBuiltIn": true
+ },
+ {
+  "id": "colleagues",
+  "name": "Colleagues",
+  "description": "Internal team members and cross-functional partners with varying technical backgrounds. Familiar with company context but need clarity on specifics. Values efficiency and actionable information.",
+  "icon": "🤝",
+  "category": "business",
+  "vocabulary": {
+   "complexity": "moderate",
+   "jargonTolerance": 0.6,
+   "preferredTerms": [
+    "team",
+    "project",
+    "timeline",
+    "deliverable",
+    "collaboration",
+    "update",
+    "action item"
+   ],
+   "avoidTerms": [
+    "as you know",
+    "obviously",
+    "basic"
+   ]
+  },
+  "domainKnowledge": {
+   "level": "familiar",
+   "assumedConcepts": [
+    "company context",
+    "organizational structure",
+    "common tools and processes",
+    "project basics"
+   ],
+   "needsExplanation": [
+    "specialized technical details",
+    "cross-departmental processes",
+    "new initiatives"
+   ]
+  },
+  "attention": {
+   "averageSpan": 10,
+   "preferredSlideCount": 15,
+   "breakFrequency": 4,
+   "visualPreference": "balanced"
+  },
+  "goalProfiles": {
+   "Inform": {
+    "directive": "Deliver clear, actionable update with relevant context. Focus on what colleagues need to know and do. Be efficient but thorough. Include clear owners and timelines.",
+    "persuasionApproach": "data-driven",
+    "evidencePreference": "case-studies",
+    "expectedScores": {
+     "emotionality": {
+      "min": 0.25,
+      "max": 0.45,
+      "ideal": 0.35
+     },
+     "evidenceOrientation": {
+      "min": 0.55,
+      "max": 0.78,
+      "ideal": 0.65
+     },
+     "complexity": {
+      "min": 0.35,
+      "max": 0.55,
+      "ideal": 0.45
+     }
+    },
+    "vocabularyEmphasis": [
+     "update",
+     "status",
+     "action",
+     "timeline",
+     "owner",
+     "next steps"
+    ],
+    "intensityGuidance": {
+     "allowExtremes": false,
+     "peakIntensity": 0.5,
+     "preferredDynamics": "steady"
+    }
+   },
+   "Persuade": {
+    "directive": "Build case through shared goals and team benefit. Show how this helps everyone succeed. Address concerns directly and offer solutions. Create buy-in through collaboration.",
+    "persuasionApproach": "data-driven",
+    "evidencePreference": "case-studies",
+    "expectedScores": {
+     "emotionality": {
+      "min": 0.35,
+      "max": 0.55,
+      "ideal": 0.45
+     },
+     "evidenceOrientation": {
+      "min": 0.5,
+      "max": 0.72,
+      "ideal": 0.6
+     },
+     "complexity": {
+      "min": 0.35,
+      "max": 0.55,
+      "ideal": 0.45
+     }
+    },
+    "vocabularyEmphasis": [
+     "together",
+     "benefit",
+     "efficiency",
+     "solution",
+     "support",
+     "collaborate"
+    ],
+    "intensityGuidance": {
+     "allowExtremes": false,
+     "peakIntensity": 0.6,
+     "preferredDynamics": "gradual-build"
+    }
+   },
+   "Inspire": {
+    "directive": "Connect to team mission and shared purpose. Celebrate wins and progress. Show what's possible when we work together. Build pride in the team and excitement for what's ahead.",
+    "persuasionApproach": "story-driven",
+    "evidencePreference": "testimonials",
+    "expectedScores": {
+     "emotionality": {
+      "min": 0.5,
+      "max": 0.72,
+      "ideal": 0.6
+     },
+     "evidenceOrientation": {
+      "min": 0.38,
+      "max": 0.6,
+      "ideal": 0.48
+     },
+     "complexity": {
+      "min": 0.28,
+      "max": 0.48,
+      "ideal": 0.38
+     }
+    },
+    "vocabularyEmphasis": [
+     "team",
+     "together",
+     "achieve",
+     "proud",
+     "mission",
+     "impact",
+     "we"
+    ],
+    "intensityGuidance": {
+     "allowExtremes": true,
+     "peakIntensity": 0.72,
+     "preferredDynamics": "gradual-build"
+    }
+   }
+  },
+  "contentHints": [
+   "Be clear about action items and owners",
+   "Provide context but respect their time",
+   "Include relevant background for cross-functional partners",
+   "Highlight dependencies and collaboration points",
+   "End with clear next steps and timelines",
+   "Acknowledge team contributions"
+  ],
+  "arcPreferences": {
+   "PARL (Problem, Action, Result, Learning)": 0.9,
+   "Problem-Solution": 0.85,
+   "Roadmap / Future-State": 0.8,
+   "Data Storytelling": 0.75,
+   "Three-Act Structure": 0.65
+  },
+  "isBuiltIn": true
+ },
+ {
+  "id": "students-educators",
+  "name": "Students & Educators",
+  "description": "Learning-focused audience ranging from students (high school through graduate) to teachers and professors. Values clarity, engagement, relevance to learning goals, and practical application.",
+  "icon": "🎓",
+  "category": "education",
+  "vocabulary": {
+   "complexity": "moderate",
+   "jargonTolerance": 0.5,
+   "preferredTerms": [
+    "learning",
+    "example",
+    "application",
+    "concept",
+    "practice",
+    "understand",
+    "explore"
+   ],
+   "avoidTerms": [
+    "synergy",
+    "leverage",
+    "pursuant to",
+    "heretofore",
+    "corporate speak"
+   ]
+  },
+  "domainKnowledge": {
+   "level": "familiar",
+   "assumedConcepts": [
+    "basic academic subjects",
+    "learning frameworks",
+    "research basics",
+    "educational context"
+   ],
+   "needsExplanation": [
+    "advanced specialized concepts",
+    "industry-specific practices",
+    "cutting-edge developments"
+   ]
+  },
+  "attention": {
+   "averageSpan": 10,
+   "preferredSlideCount": 18,
+   "breakFrequency": 4,
+   "visualPreference": "balanced"
+  },
+  "goalProfiles": {
+   "Inform": {
+    "directive": "Teach concepts with clarity and engaging examples. Connect to broader frameworks and real-world applications. Provide pathways for deeper learning. Balance rigor with accessibility.",
+    "persuasionApproach": "authority-driven",
+    "evidencePreference": "case-studies",
+    "expectedScores": {
+     "emotionality": {
+      "min": 0.3,
+      "max": 0.5,
+      "ideal": 0.4
+     },
+     "evidenceOrientation": {
+      "min": 0.55,
+      "max": 0.78,
+      "ideal": 0.65
+     },
+     "complexity": {
+      "min": 0.4,
+      "max": 0.62,
+      "ideal": 0.5
+     }
+    },
+    "vocabularyEmphasis": [
+     "concept",
+     "example",
+     "application",
+     "framework",
+     "understand",
+     "explore"
+    ],
+    "intensityGuidance": {
+     "allowExtremes": false,
+     "peakIntensity": 0.55,
+     "preferredDynamics": "gradual-build"
+    }
+   },
+   "Persuade": {
+    "directive": "Build case through intellectual merit and real-world relevance. Show why this matters for learning and future application. Connect to career paths and personal growth.",
+    "persuasionApproach": "data-driven",
+    "evidencePreference": "case-studies",
+    "expectedScores": {
+     "emotionality": {
+      "min": 0.38,
+      "max": 0.58,
+      "ideal": 0.48
+     },
+     "evidenceOrientation": {
+      "min": 0.5,
+      "max": 0.72,
+      "ideal": 0.6
+     },
+     "complexity": {
+      "min": 0.38,
+      "max": 0.58,
+      "ideal": 0.48
+     }
+    },
+    "vocabularyEmphasis": [
+     "relevant",
+     "career",
+     "skills",
+     "opportunity",
+     "future",
+     "impact"
+    ],
+    "intensityGuidance": {
+     "allowExtremes": true,
+     "peakIntensity": 0.65,
+     "preferredDynamics": "gradual-build"
+    }
+   },
+   "Inspire": {
+    "directive": "Ignite intellectual curiosity and passion for learning. Show exciting frontiers and possibilities. Connect to personal growth, discovery, and making a difference. Create sense of possibility.",
+    "persuasionApproach": "story-driven",
+    "evidencePreference": "testimonials",
+    "expectedScores": {
+     "emotionality": {
+      "min": 0.52,
+      "max": 0.75,
+      "ideal": 0.62
+     },
+     "evidenceOrientation": {
+      "min": 0.4,
+      "max": 0.62,
+      "ideal": 0.5
+     },
+     "complexity": {
+      "min": 0.32,
+      "max": 0.52,
+      "ideal": 0.42
+     }
+    },
+    "vocabularyEmphasis": [
+     "discover",
+     "passion",
+     "future",
+     "change",
+     "possible",
+     "curiosity",
+     "dream"
+    ],
+    "intensityGuidance": {
+     "allowExtremes": true,
+     "peakIntensity": 0.78,
+     "preferredDynamics": "dramatic-arc"
+    }
+   }
+  },
+  "contentHints": [
+   "Use clear, engaging examples",
+   "Connect concepts to real-world applications",
+   "Provide resources for deeper exploration",
+   "Include interactive elements where possible",
+   "Balance challenge with accessibility",
+   "Respect diverse learning levels in the audience"
+  ],
+  "arcPreferences": {
+   "Learning Journey": 0.95,
+   "Hero's Journey": 0.85,
+   "Three-Act Structure": 0.8,
+   "What Is → What Could Be": 0.75,
+   "Problem-Solution": 0.7
+  },
+  "isBuiltIn": true
+ },
+ {
+  "id": "conference-public",
+  "name": "Conference / Public",
+  "description": "Diverse audience at conferences, public talks, or general presentations. Varying backgrounds and expertise levels. Requires accessible language, engaging delivery, memorable takeaways, and broad appeal.",
+  "icon": "🌍",
+  "category": "general",
+  "vocabulary": {
+   "complexity": "simple",
+   "jargonTolerance": 0.15,
+   "preferredTerms": [
+    "story",
+    "example",
+    "imagine",
+    "together",
+    "discover",
+    "simple",
+    "clear"
+   ],
+   "avoidTerms": [
+    "technical jargon",
+    "acronyms",
+    "industry-specific terms",
+    "insider language"
+   ]
+  },
+  "domainKnowledge": {
+   "level": "novice",
+   "assumedConcepts": [
+    "common sense",
+    "everyday experiences",
+    "general news awareness"
+   ],
+   "needsExplanation": [
+    "all technical concepts",
+    "industry context",
+    "specialized terminology",
+    "assumed knowledge"
+   ]
+  },
+  "attention": {
+   "averageSpan": 6,
+   "preferredSlideCount": 12,
+   "breakFrequency": 3,
+   "visualPreference": "visual-heavy"
+  },
+  "goalProfiles": {
+   "Inform": {
+    "directive": "Explain clearly using everyday language and relatable examples. Break down complex ideas into simple, memorable concepts. Use stories and analogies from daily life. Make it stick.",
+    "persuasionApproach": "story-driven",
+    "evidencePreference": "analogies",
+    "expectedScores": {
+     "emotionality": {
+      "min": 0.42,
+      "max": 0.65,
+      "ideal": 0.52
+     },
+     "evidenceOrientation": {
+      "min": 0.35,
+      "max": 0.58,
+      "ideal": 0.45
+     },
+     "complexity": {
+      "min": 0.08,
+      "max": 0.25,
+      "ideal": 0.15
+     }
+    },
+    "vocabularyEmphasis": [
+     "simple",
+     "means",
+     "like",
+     "example",
+     "story",
+     "imagine"
+    ],
+    "intensityGuidance": {
+     "allowExtremes": true,
+     "peakIntensity": 0.65,
+     "preferredDynamics": "gradual-build"
+    }
+   },
+   "Persuade": {
+    "directive": "Connect to universal human experiences and emotions. Use powerful stories and social proof. Make the value personally relevant. Build to a clear, compelling call to action.",
+    "persuasionApproach": "emotion-driven",
+    "evidencePreference": "testimonials",
+    "expectedScores": {
+     "emotionality": {
+      "min": 0.55,
+      "max": 0.8,
+      "ideal": 0.68
+     },
+     "evidenceOrientation": {
+      "min": 0.3,
+      "max": 0.55,
+      "ideal": 0.42
+     },
+     "complexity": {
+      "min": 0.08,
+      "max": 0.25,
+      "ideal": 0.15
+     }
+    },
+    "vocabularyEmphasis": [
+     "you",
+     "we",
+     "together",
+     "imagine",
+     "change",
+     "possible"
+    ],
+    "intensityGuidance": {
+     "allowExtremes": true,
+     "peakIntensity": 0.82,
+     "preferredDynamics": "dramatic-arc"
+    }
+   },
+   "Inspire": {
+    "directive": "Connect to universal human aspirations and shared hopes. Use powerful, memorable stories. Create emotional resonance that transcends backgrounds. End with a vision that unites and uplifts.",
+    "persuasionApproach": "emotion-driven",
+    "evidencePreference": "testimonials",
+    "expectedScores": {
+     "emotionality": {
+      "min": 0.68,
+      "max": 0.92,
+      "ideal": 0.8
+     },
+     "evidenceOrientation": {
+      "min": 0.25,
+      "max": 0.48,
+      "ideal": 0.35
+     },
+     "complexity": {
+      "min": 0.05,
+      "max": 0.2,
+      "ideal": 0.12
+     }
+    },
+    "vocabularyEmphasis": [
+     "dream",
+     "together",
+     "change",
+     "believe",
+     "possible",
+     "hope",
+     "future",
+     "we"
+    ],
+    "intensityGuidance": {
+     "allowExtremes": true,
+     "peakIntensity": 0.92,
+     "preferredDynamics": "dramatic-arc"
+    }
+   }
+  },
+  "contentHints": [
+   "Lead with a compelling story or hook",
+   "Use everyday analogies and examples",
+   "Avoid jargon - explain any necessary terms simply",
+   "Keep slides visual with minimal text",
+   "Build to memorable, quotable takeaways",
+   "End with a clear call to action or inspiring vision"
+  ],
+  "arcPreferences": {
+   "Hero's Journey": 0.92,
+   "Three-Act Structure": 0.88,
+   "What Is → What Could Be": 0.82,
+   "The Reveal": 0.78,
+   "Problem-Solution": 0.7
+  },
+  "isBuiltIn": true
+ }
+]

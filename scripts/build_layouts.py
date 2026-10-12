@@ -407,7 +407,8 @@ layout("Process", "process", "Four stages left to right, each pointing to the ne
 layout("Process", "how-it-works", "Three steps, each under its large number: how it works, start to finish.", {
     "kicker": KICKER,
     "header": header(),
-    **{f"{o}-number": slot(c, (3, 5), "numeral", str(i + 1)) for i, (o, c) in enumerate(zip(ORDINALS, THIRDS))},
+    # A row clear of the headline, so a headline of two lines stands clear of the numbers.
+    **{f"{o}-number": slot(c, (4, 5), "numeral", str(i + 1)) for i, (o, c) in enumerate(zip(ORDINALS, THIRDS))},
     **{f"{o}-title": slot(c, (6, 7), "title", w) for o, c, w in zip(ORDINALS, THIRDS, ["Sign up", "Set it up", "Go"])},
     **{o: slot(c, (8, 10), "body", "What happens, in a line") for o, c in zip(ORDINALS, THIRDS)},
 }, ember={**{f"{o}-number": (c, (4, 8)) for o, c in zip(ORDINALS, THIRDS)}, **{f"{o}-title": (c, (9, 10)) for o, c in zip(ORDINALS, THIRDS)}, **{o: (c, (11, 12)) for o, c in zip(ORDINALS, THIRDS)}})

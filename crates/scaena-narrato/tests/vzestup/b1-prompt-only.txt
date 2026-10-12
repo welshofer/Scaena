@@ -1,0 +1,200 @@
+Act as a world-class Storyteller and Presentation Architect.
+
+**Assignment**: Create a presentation about "Pitch a Series A round for our carbon-negative cargo platform.".
+
+
+
+
+
+
+**🎯 AUDIENCE TAILORING (CRITICAL) 🎯**
+Create a "Persuade" presentation for: Investors
+- Attention span: 7 minutes
+- Preferred slide count: ~12
+- Visual preference: balanced
+
+
+**CRITICAL REQUIREMENT - SLIDE COUNT**: You MUST generate AT LEAST 13 slides. This is non-negotiable.
+
+**Narrative Framework**: Problem–Solution
+"Establish stakes, then make your answer the inevitable resolution."
+
+**Arc-Specific Guidance**:
+- Make the problem relatable and quantified
+- Position solution as logical resolution
+- Use credible third-party validation
+- End with a specific, achievable CTA
+
+**Enhanced Hints**:
+- This arc peaks very late (85-98% position) - the solution introduction IS the climax, not the problem
+- Early slides (1-30%) should be measurably calmer than crisis slides (60-85%) to create dramatic arc
+- The transition from crisis (85%) to solution (86%) should be marked by a tonal shift while maintaining high intensity
+- Use speaker notes to build narrative bridges explaining why intensity is rising through the problem phase
+- Include concrete data and facts at peak crisis (60-85%) to substantiate urgency, not just emotional language
+- Vocabulary choice directly impacts measured intensity - use crisis words (critical, urgent, must) heavily in positions 60-85
+- Solution phase (86-100) should maintain high intensity through confident, active language about capability and action
+- Call-to-action slides should hit maximum intensity (0.97-0.98) through urgent but positive action-oriented language
+
+**Structure**:
+Distribute the narrative across ALL 13 slides through these stages:
+1. Problem: Define core challenge and stakes
+2. Impact: Quantify cost of inaction
+3. Existing Approaches: Why they fall short
+4. Solution: Introduce your answer
+5. Proof: Case studies, data, demos
+6. Call to Action: Next steps
+- COMPRESS early setup beats; get to the core message quickly
+
+**Beat Plan (required; do not skip or reorder beats)**:
+  Beat 1 "Problem: Define core challenge and stakes" → slides 1–2
+  Beat 2 "Impact: Quantify cost of inaction" → slides 3–4
+  Beat 3 "Existing Approaches: Why they fall short" → slides 5–6
+  Beat 4 "Solution: Introduce your answer" → slides 7–8
+  Beat 5 "Proof: Case studies, data, demos" → slides 9–10
+  Beat 6 "Call to Action: Next steps" → slides 11–13
+
+**Per-Slide Narrative Metadata — MANDATORY for every slide**:
+Each slide must include these five fields so downstream tools (audit,
+drift detection, arc-fidelity scoring, "behind-the-scenes" UI) can
+reason about the deck's narrative shape:
+- `beatIndex` — 0-based index into the beat list above. Slides 1–N go
+  into the first beat, the next batch into the second, etc — match the
+  Beat Plan exactly.
+- `beatName` — the human label of that beat from the arc (e.g. "Hook",
+  "Conflict", "Resolution"). Echo verbatim from the arc beat list.
+- `purpose` — one sentence (≤ 18 words). What this slide DOES for the
+  arc — its job. Not what it says, but what it accomplishes
+  ("Crystallises the cost of inaction with a concrete dollar figure").
+- `intent` — one sentence (≤ 18 words). What you want the AUDIENCE to
+  feel, believe, or do after this slide ("Make them feel that staying
+  the course is itself a costly decision").
+- `expectedIntensity` — a number from 0.00 to 1.00 representing the
+  emotional/dramatic intensity of this slide. The opening title and
+  setup should be lower (0.2–0.4); the climax/conflict peak should be
+  highest (0.8–1.0); the closing synthesis should drop back to medium
+  (0.5–0.7). The full sequence should resemble the arc's natural
+  emotional curve.
+- `expectedValence` — a number from -1.00 to +1.00 representing the
+  slide's TONE, ORTHOGONAL to intensity: negative = grave/somber/
+  threatening (a problem or crisis beat), 0 = neutral/procedural (a
+  status or agenda slide), positive = hopeful/celebratory (a solution
+  or a win). A slide can be high-intensity AND negative (a crisis) or
+  high-intensity AND positive (a triumphant call to action).
+
+**Constraints**:
+- Audience: Investors
+- Goal: Persuade
+- Desired outcomes (user's exact words): Walk away convinced our wedge is real.
+- Modality: Keynote — One-to-many live delivery, often with limited audience interaction on a stage. Common for launches, conferences, executive updates, and public events.
+
+**Layout Catalog** — pick the layout that best serves each beat's narrative + emotional intent. Echo the layout name EXACTLY in `layoutSuggestion`:
+  • **Title** — Cover. Establishes deck identity. Use for slide 1.
+  • **Section Header** — Divider between MAJOR narrative movements only. Use SPARINGLY — at most 2-3 per deck, and only where the arc genuinely turns (e.g. ending the problem section, opening the solution section). NEVER use as decoration, padding, or to introduce normal beat-to-beat transitions.
+  • **Agenda** — Numbered preview of upcoming sections. Builds anticipation; orients early in long decks.
+  • **Closing** — Final emotional landing — thank-you / takeaway / call-to-action. Use for the last slide.
+  • **Bullet List** — Workhorse for parallel facts or features. Lowest emotional charge — use sparingly.
+  • **Numbered** — Ordered steps where sequence carries meaning. Builds momentum toward an outcome.
+  • **Quote** — Borrowed authority or human voice. High emotional charge — anchors a value or pain.
+  • **Statement** — Single hero sentence. Punctuation mark. Use for thesis, vision, or the line you want remembered.
+  • **Definition** — Term + meaning + example. Establishes shared language before going deeper.
+  • **Big Number** — ONE dominant metric. Maximum impact for traction, growth, or shock value.
+  • **Scorecard** — 3–4 KPIs side-by-side with deltas. Dashboard moment. Rational, evidence-stage.
+  • **Bar Chart** — Compare magnitudes across categories. For 'X is N× the rest'.
+  • **Line Chart** — Trend over time. For 'this is moving' — momentum, decline, inflection.
+  • **Two-Column** — Side-by-side parallel content. For 'on one hand / on the other'.
+  • **Before / After** — Two states with arrow + delta. Demonstrates transformation — outcome stage.
+  • **Pros / Cons** — Decision aid. Acknowledges tension; honest, considered tone.
+  • **Quadrant** — 2×2 with two axes. Strategic positioning, taxonomy, where-do-you-fit.
+  • **Steps** — Linear flow of 3–5 stages. Methodology, how-it-works. Reassuring, mechanical.
+  • **Timeline** — Dated milestones. History, roadmap, evolution — temporal narrative.
+  • **Journey** — Persona + phases + emotion curve. Empathetic — lets the audience feel a story.
+  • **Full Image** — Edge-to-edge visual with caption. Atmosphere, scene-setting, emotional anchor.
+  • **Image + Text** — 50/50 split: visual + text block. Concrete + explanatory. Balanced energy.
+  • **Gallery** — 3–4 small visuals with captions. Examples, case studies, breadth-of-evidence.
+  • **Framework** — Pyramid / funnel / Venn / radial. Mental model — gives audience a lens to think with.
+  • **Callout** — Single object with leader-line annotations. Anatomy, deconstruction, 'here's how it works'.
+  • **Roadmap** — Phased or quarterly rollout plan — workstreams and milestones across Q1..Q4 / Phase 1..N. PREFER over Timeline or Bullet List whenever content is phase-structured.
+  • **2×2 Matrix** — Items POSITIONED along two named axes (effort/impact, risk/reward). PREFER over Quadrant when placement on the axes carries the argument, not just the four bins.
+  • **OKRs** — One objective with 2-4 measurable key results. PREFER over Bullet List whenever content pairs a goal with metric targets.
+  • **RACI Matrix** — Roles × workstreams ownership grid (Responsible / Accountable / Consulted / Informed). Use for who-does-what, governance, and ownership clarity.
+  • **SWOT** — Strengths / Weaknesses / Opportunities / Threats in a labeled 2×2. PREFER over Scorecard or Bullet List when content is exactly those four groups.
+  • **Thesis** — The central claim stated boldly WITH its one-line support strip. PREFER over Statement when the claim carries its justification.
+  • **Letter** — A formal letter — date, salutation, short paragraphs, sign-off. ONLY when content is literally addressed to someone (creative device — at most one novelty format per deck).
+  • **Memo** — Internal-memo framing — To/From/Date/Re header and a short body. ONLY when the beat explicitly reads as an internal communication (creative device — at most one novelty format per deck).
+  • **Receipt** — An itemized bill as a rhetorical device — line items with amounts, subtotal, TOTAL. ONLY when content itemizes costs (creative device — at most one novelty format per deck).
+  • **Next Steps** — Concrete immediate actions, ideally with owners and dates — the deck's landing. Use near the close; PREFER over Bullet List for action commitments.
+  • **Milestones** — Dated achievements — traction recaps, anniversaries, history. One station per dated milestone; temporal but achievement-centered (vs Timeline's evolution narrative).
+  • **Three Horizons** — Now / next / later strategic horizons (H1/H2/H3) with a focus per horizon. Use for staged strategy or investment framing across timeframes.
+  • **Funnel** — Staged narrowing — pipeline conversion, sales funnel, filtering, qualification. Use whenever volumes shrink stage over stage.
+  • **Scenarios** — 2-4 named futures (best/base/worst, bull/bear) each with its assumptions and outcome. PREFER over Bullet List when the content forks into alternative futures.
+  • **VS** — Head-to-head of exactly TWO named options, rivals, or approaches. PREFER over Two-Column when the two sides compete for a decision.
+  • **KPI Grid** — 4-8 metric tiles at a glance — dashboards, quarterly numbers. PREFER over Scorecard when there are more than 4 KPIs.
+  • **Ranking** — An ordered top-N where RANK carries the meaning — leaders, priorities, biggest movers. PREFER over Numbered when position itself is the story.
+  • **Headline** — A single dramatic announcement, newspaper front-page style. ONLY for the deck's one big reveal (creative device — at most one novelty format per deck).
+  • **Manifesto** — 3-5 short declarative belief lines of equal weight. ONLY when the content IS a set of principles (creative device — at most one novelty format per deck).
+  • **Team** — The people — a grid of members with name, role, and a one-line credit. Use for team, founders, or leadership introductions.
+  • **Bio** — ONE person in depth — name, title, and credential bullets. PREFER over Team when a single person is the subject.
+  • **Testimonials** — 2-3 short quotes from customers or stakeholders with attributions. PREFER over Quote when there are MULTIPLE voices.
+  • **How It Works** — Mechanism explained: 3-4 numbered steps, each with a one-line annotation of what happens and why. PREFER over Steps when each stage needs its explanation.
+  • **Pipeline** — A sequential workflow whose stages carry NUMBERS — deal counts, volumes, values. PREFER over Steps when throughput per stage matters.
+  • **Stack** — A layered system — components stacked from the application layer down to the foundation, one label and one-liner per layer.
+  • **FAQ** — 3-5 question→answer pairs — objection handling or common questions, often near the close.
+  • **Glossary** — 4-8 term→definition rows to establish shared language. PREFER over Definition when there are MULTIPLE terms.
+  • **Checklist** — A completion or readiness list where done-ness matters. PREFER over Bullet List when items are checked off or gating a decision.
+  • **The Ask** — THE money slide — the explicit request (funding, decision, approval, resources) with its specifics (amount, terms, date) and a clear CTA. Use near the close whenever the deck builds to a request.
+  • **Q&A** — Questions-and-discussion invitation, usually the penultimate slide — a big Questions? treatment with 2-3 seeded prompts.
+  • **Playbook** — A reusable how-to: what you need (ingredients) plus numbered method steps. PREFER when the beat hands the audience a repeatable recipe.
+
+**Layout-by-Narrative-Purpose** (use as a guide, not a rule — pick the layout that serves THIS beat's emotional intent):
+- *Hook / opening tension* → Statement, Thesis, Headline, Quote, Big Number, Full Image
+- *Setup / context / definition* → Definition, Glossary, Two-Column, Bullet List
+- *Conflict / problem / pain* → Quote, Before/After (the "before"), Statement, Full Image
+- *Evidence / data / proof* → Big Number, Scorecard, KPI Grid, Ranking, Bar Chart, Line Chart, Gallery
+- *Mechanism / methodology* → Steps, How It Works, Pipeline, Playbook, Numbered, Funnel, Stack, Callout, Framework
+- *Comparison / decision* → Two-Column, VS, Pros/Cons, Quadrant, 2×2 Matrix, SWOT, Scenarios, Bar Chart
+- *Transformation / outcome* → Before/After, Line Chart, Big Number, Milestones, Statement
+- *Story / human moment* → Journey, Quote, Testimonials, Team, Full Image
+- *Synthesis / vision / call-to-action* → Statement, The Ask, Closing, Framework, Roadmap, OKRs, Next Steps, FAQ, Q&A
+
+**Section Header rules (hard limit)**:
+- Use Section Header AT MOST 2–3 times in the entire deck, and only at genuine narrative turns (problem→solution, evidence→implications, present→future).
+- A 6-slide deck typically needs ZERO section dividers; a 30-slide deck typically needs 2.
+- NEVER use Section Header as filler, decoration, padding, or "to introduce the next slide". The next slide can introduce itself.
+- NEVER produce slides whose title is "Part 2", "Part 02", "Section II", "Chapter 3" or any similar numbered placeholder. If you cannot name what the section IS in concrete terms, you don't need a divider there.
+
+Do not over-use Bullet List either — when a beat could be served by a more specific layout (Scorecard for KPIs, Steps for sequence, Quote for a human voice), prefer that. Vary cadence: avoid 3 consecutive slides of the same layout.
+
+**Creative-device formats (hard limit)**: Memo, Letter, Receipt, Headline, and Manifesto are novelty framings. Use AT MOST ONE of these five in the entire deck, and only when the beat explicitly frames itself that way (an internal memo, an open letter, an itemized bill, a front-page announcement, a credo). When in doubt, use a standard layout instead.
+
+**Deck bookends (required)**: ALWAYS open the deck with a Title slide (layout "title") as slide 1 and end it with a Closing slide (layout "closing") as the final slide — never open cold on a content slide, and never end without a closer.
+
+**🎯 DESIRED OUTCOMES — TREAT AS GROUND TRUTH 🎯**
+The user explicitly stated what they want this deck to achieve:
+"Walk away convinced our wedge is real."
+
+Every slide must serve at least one of these stated outcomes. The closing slides in particular must drive directly toward what the user said they want the audience to walk away believing, doing, or feeling. If specific objections, concerns, or topics are called out above, address them head-on rather than dancing around them.
+
+
+**🎬 MODALITY GUIDANCE — TUNE THE NARRATIVE TO THE DELIVERY FORMAT 🎬**
+The deck will be delivered as: Keynote — One-to-many live delivery, often with limited audience interaction on a stage. Common for launches, conferences, executive updates, and public events.
+
+Adjust accordingly:
+- ASYNCHRONOUS / RECORDED: speakerNotes must be self-contained (no live context to fall back on); each slide should make its point unaided; expect skim-readers, so headlines must carry the takeaway alone.
+- WEBINAR: structure for screen-share legibility (denser bullets OK, but high-contrast layouts); leave room for chat/Q&A beats every ~5 slides; assume the audience may multi-task.
+- KEYNOTE: prioritise drama over density (sparse slides, big numbers, hero visuals); speakerNotes should sound spoken, not written; build to one or two memorable moments.
+- IN-PERSON: pace for live energy (room reads, pauses); speakerNotes can reference physical artefacts ("hold up the prototype"); allow longer beats since attention is captive.
+- HYBRID LIVE: design for the worst-served viewer (the remote one) — text-readable from a small screen, no in-room-only references, explicit verbal cues for graphics ("on the right of the screen, you'll see...").
+- VIRTUAL LIVE: assume video-call context (some cameras off, some attention drift); shorter beats, clear transitions, more frequent recap moments.
+
+
+
+**Output Requirements**:
+Return ONLY valid JSON. Each slide object MUST have these EXACT field names:
+- "slideTitle": (REQUIRED) 6-12 words, sentence case, takeaway-focused
+- "subtitle": Optional subtitle
+- "layoutSuggestion": Choose the best layout name (from the allowed list)
+- "visualDescription": Vivid, cinematic primary visual concept
+- "speakerNotes": Presenter's talking-point guide. DEFAULT FORM: 4-7 bullet points, each prefixed with "- " on its own line, conversational first-person plural ("we", "our"), each bullet ≤ 25 words, ≤ ~120 words total. Use a GitHub-flavored markdown table (`| h1 | h2 |\n| --- | --- |\n| a | b |`) when the slide content is genuinely grid-shaped (comparison, pros/cons, schedule, criteria-by-option). Use one short prose paragraph only when the slide is a quote / story beat / transcript that bullets would chop into rubble. Never use a table for two items — that's a bullet list. Inside the JSON string, separate bullets with literal "\n".
+- "keyBullets": 3-6 punchy bullets
+- "supportingFacts": One concrete data point if applicable
+- "chartData": Bar Chart / Line Chart slides ONLY. A structured object of the EXACT figures the chart plots: { "categories": string[] (x-axis labels, in order), "series": [{ "name"?: string, "values": number[] (one number per category, same order) }], "unit"?: string (e.g. "%", "$M"), "sourceId"?: string (the source title/reference the numbers came from) }. Only include chartData when the topic supplies concrete, real figures; if you have no exact numbers, OMIT chartData entirely rather than fabricating plausible-looking values. Omit chartData for every non-chart layout.

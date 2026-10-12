@@ -3130,6 +3130,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "scaena-narrato"
+version = "0.1.0"
+dependencies = [
+ "regex-lite",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "scaena-ops"
 version = "0.1.0"
 dependencies = [
@@ -3140,6 +3150,7 @@ dependencies = [
  "scaena-core",
  "scaena-engine",
  "scaena-export",
+ "scaena-narrato",
  "scaena-paint",
  "scaena-store",
  "schemars",
