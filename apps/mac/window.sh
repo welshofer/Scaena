@@ -445,9 +445,11 @@ if [[ "${ph:-}" =~ ^[0-9]+$ ]]; then
   sleep 2
   shot oversized
   echo "a picture too large, pasted, asked about: $(app 'get value of every static text of sheet 1 of window 1' | tr '\n' ' ')"
-  taken=$(app 'click button "Use a Smaller Copy" of sheet 1 of window 1')
-  [[ "$taken" == *rror* ]] && taken=$(app 'click button "Use a Smaller Copy" of window 1')
-  echo "Use a Smaller Copy: ${taken:-pressed}; the copy went in: $(changed holds canvas "$before")"
+  # The alert's buttons stand in a group of their own under the sheet, so the button is found
+  # where it is; else Return presses it, the alert's default button.
+  taken=$(frames press "Use a Smaller Copy")
+  [[ "$taken" == *rror* ]] && { events 'key code 36' >/dev/null; taken="Return ($taken)"; }
+  echo "Use a Smaller Copy: $taken; the copy went in: $(changed holds canvas "$before")"
   sleep 1
   shot oversized-taken
 else
