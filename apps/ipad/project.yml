@@ -151,11 +151,15 @@ schemes:
     build:
       targets:
         ScaenaApp: all
-        # The remote, built with the app, so that CI compiles it (PLAN 4.10).
-        RemoteApp: all
+        # The remote, built with the app's tests, so that CI compiles it (PLAN 4.10); not built to
+        # run, profile, or archive the app.
+        RemoteApp: [test]
         ScaenaUITests: [test]
     run:
       config: Debug
+      # Run launches the app. Without this, XcodeGen runs the first app the scheme builds, by name,
+      # and that was the remote.
+      executable: ScaenaApp
     test:
       config: Debug
       targets:
