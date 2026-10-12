@@ -7,7 +7,9 @@ enum PromptWindow {
     static let id = "prompt"
 }
 
-/// File › New from a Prompt… (⌥⌘N), beside New: on the Mac's menu bar and the iPad's.
+/// File › New from a Prompt… (⌥⌘N), beside New, on the Mac's menu bar. On the iPad it is a
+/// button of the document browser, beside New Deck (`ScaenaApp`), since a document there is made
+/// by the browser.
 struct PromptCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 
@@ -23,11 +25,19 @@ struct PromptCommands: Commands {
 /// grounded in the files and links they give, by the provider and model they choose with the key
 /// the Keychain keeps, its pictures made by their image model, as the browser's From a prompt… and
 /// `scaena generate` make one. The engine reads each source, builds each request, and makes the
-/// deck a bundle (`Generator`); each request is made here by `URLSession`. The deck opens in a
-/// window of its own, kept nowhere until it is saved.
+/// deck a bundle (`Generator`); each request is made here by `URLSession`. On the Mac the deck
+/// opens in a window of its own, kept nowhere until it is saved; on the iPad it is handed to the
+/// document browser as a new document (`creation`).
 struct PromptView: View {
+    #if os(macOS)
     @Environment(\.newDocument) private var newDocument
     @Environment(\.dismissWindow) private var dismissWindow
+    #else
+    /// The document browser's new document, waiting on the deck made: resumed with the bundle
+    /// written where the browser takes it from, or with why there is none.
+    @Binding var creation: CheckedContinuation<URL?, any Error>?
+    @Environment(\.dismiss) private var dismiss
+    #endif
     /// Whether the window is the one in front: the keys are read again as it comes back from
     /// Settings, where they are kept on the Mac.
     @Environment(\.appearsActive) private var appearsActive
@@ -72,6 +82,13 @@ struct PromptView: View {
     #endif
     @State private var steps: [Line] = []
     @State private var running: Task<Void, Never>?
+
+    #if !os(macOS)
+    /// New from a Prompt over the document browser, its deck the new document `creation` waits on.
+    init(creation: Binding<CheckedContinuation<URL?, any Error>?>) {
+        _creation = creation
+    }
+    #endif
 
     /// What a brief may ask, read once.
     private static let offered = try? Generator.choices()
@@ -244,7 +261,7 @@ struct PromptView: View {
                 Button("Cancel") {
                     running?.cancel()
                     running = nil
-                    dismissWindow(id: PromptWindow.id)
+                    close()
                 }
                 .keyboardShortcut(.cancelAction)
                 Button(running == nil ? "Generate" : "Generating…", action: generate)
@@ -340,6 +357,35 @@ struct PromptView: View {
         steps.append(Line(words: words, failed: failed))
     }
 
+    /// The deck made, opened: on the Mac, in a window of its own; on the iPad, written as a
+    /// bundle named for `topic` where the document browser takes it from as a new document.
+    private func open(_ document: ScaenaDocument, named topic: String) throws {
+        #if os(macOS)
+        newDocument(document)
+        dismissWindow(id: PromptWindow.id)
+        #else
+        let name = topic.replacingOccurrences(of: "/", with: "-").prefix(80)
+        let url = FileManager.default.temporaryDirectory.appending(path: "\(name.isEmpty ? "Untitled" : name).scaena")
+        try? FileManager.default.removeItem(at: url)
+        let files = try document.snapshot(contentType: .scaenaDeck)
+        try ScaenaDocument.wrapper(files).write(to: url, options: .atomic, originalContentsURL: nil)
+        creation?.resume(returning: url)
+        creation = nil
+        dismiss()
+        #endif
+    }
+
+    /// The window put away with no deck made; on the iPad, the browser told there is none.
+    private func close() {
+        #if os(macOS)
+        dismissWindow(id: PromptWindow.id)
+        #else
+        creation?.resume(throwing: CancellationError())
+        creation = nil
+        dismiss()
+        #endif
+    }
+
     private func generate() {
         guard ready, let key = keychain.key(for: provider) else { return }
         steps = []
@@ -386,8 +432,7 @@ struct PromptView: View {
                     theme: theme, painter: paint
                 ) { say($0.words) }
                 try Task.checkCancellation()
-                newDocument(ScaenaDocument(generated: session, said: made.words))
-                dismissWindow(id: PromptWindow.id)
+                try open(ScaenaDocument(generated: session, said: made.words), named: brief.topic)
             } catch is CancellationError {
             } catch {
                 say(error.localizedDescription, failed: true)

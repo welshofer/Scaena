@@ -14,6 +14,13 @@ let openingLog = Logger(subsystem: "com.welshofer.Scaena", category: "opening")
 /// chrome; every frame, glyph, and layout comes from the engine.
 @main
 struct ScaenaApp: App {
+    #if !os(macOS)
+    /// New from a Prompt shown over the document browser (PLAN G.6), and the new document it
+    /// makes, which the browser waits on.
+    @State private var prompting = false
+    @State private var creation: CheckedContinuation<URL?, any Error>?
+    #endif
+
     init() {
         // The GPU every canvas paints with, made as the app starts rather than when the first deck
         // shows (gate 3); on a queue of its own, since making it blocks. A failure here is said
@@ -39,6 +46,22 @@ struct ScaenaApp: App {
     #endif
 
     var body: some Scene {
+        #if !os(macOS)
+        // The iPad's document browser makes a new deck, or one written from a prompt: the deck is
+        // made in New from a Prompt, written as a bundle, and the browser opens it (PLAN G.6).
+        DocumentGroupLaunchScene("Scaena") {
+            NewDocumentButton("New Deck", contentType: .scaenaDeck)
+            NewDocumentButton("New from a Prompt…", contentType: .scaenaDeck) {
+                try await withCheckedThrowingContinuation { continuation in
+                    creation = continuation
+                    prompting = true
+                }
+            }
+            .fullScreenCover(isPresented: $prompting) {
+                PromptView(creation: $creation)
+            }
+        }
+        #endif
         DocumentGroup(newDocument: { ScaenaDocument() }) { file in
             DeckView(document: file.document)
         }
@@ -48,7 +71,9 @@ struct ScaenaApp: App {
         .defaultPosition(.center)
         #endif
         .commands {
+            #if os(macOS)
             PromptCommands()
+            #endif
             NodeCommands()
             ViewCommands()
             WindowCommands()
@@ -59,11 +84,11 @@ struct ScaenaApp: App {
             SidebarCommands()
             #endif
         }
+        #if os(macOS)
         // New from a Prompt (PLAN G.6): a deck written by Narrato, in a window of its own.
         WindowGroup("New from a Prompt", id: PromptWindow.id) {
             PromptView()
         }
-        #if os(macOS)
         .defaultSize(width: 640, height: 780)
         .restorationBehavior(.disabled)
         .commandsRemoved()
