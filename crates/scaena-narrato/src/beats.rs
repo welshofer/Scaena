@@ -1,6 +1,6 @@
 //! How a deck's slides spread over its arc's beats (Narrato's beat allocator, v2): the plan the
 //! generation prompt asks the model to follow, and the beat a slide at a place in the deck
-//! belongs to.
+//! belongs to, by it or by the legacy allocator before it.
 
 use crate::arcs::{NarrativeArc, Persona};
 
@@ -45,6 +45,24 @@ pub fn beat_of(index: usize, count: usize, beats: usize) -> usize {
         }
     }
     beats - 1
+}
+
+/// The beat the slide at `index` (from 0) of `count` belongs to under Narrato's allocator of
+/// `version` (`beatIndexForPosition`): from 2, as [`allocate`] spreads them ([`beat_of`]); before,
+/// the legacy allocator's ⌊N/B⌋ each, the rest in the last beat, which decks made before they
+/// were stamped with their allocator are read by.
+pub fn beat_for(index: usize, count: usize, beats: usize, version: u32) -> usize {
+    if version >= 2 {
+        return beat_of(index, count, beats);
+    }
+    if beats == 0 || count == 0 {
+        return 0;
+    }
+    match count / beats {
+        // More beats than slides: one slide a beat at most.
+        0 => index.min(beats - 1),
+        base => (index / base).min(beats - 1),
+    }
 }
 
 /// Each beat's slides, numbered from 1: `(beat, first, last)`, `last` below `first` where a
@@ -130,5 +148,54 @@ mod tests {
         assert!(text.ends_with("  Beat 6 \"Call to Action: Next steps\" \u{2192} slides 11\u{2013}13"));
         let short = format_plan(arc, &plan(arc, 3));
         assert!(short.ends_with("\"Call to Action: Next steps\" \u{2192} (no slides at this length)"));
+    }
+
+    /// Vzestup's `beatAllocation.test.ts`.
+    #[test]
+    fn each_allocator_puts_a_slide_in_the_beat_vzestups_does() {
+        let vectors: [(usize, usize, &[usize]); 11] = [
+            (13, 7, &[1, 2, 2, 2, 2, 2, 2]),
+            (20, 6, &[3, 3, 3, 3, 4, 4]),
+            (8, 8, &[1, 1, 1, 1, 1, 1, 1, 1]),
+            (5, 7, &[1, 1, 1, 1, 1, 0, 0]),
+            (6, 3, &[2, 2, 2]),
+            (9, 3, &[3, 3, 3]),
+            (7, 3, &[2, 2, 3]),
+            (31, 5, &[6, 6, 6, 6, 7]),
+            (1, 1, &[1]),
+            (10, 1, &[10]),
+            (0, 3, &[0, 0, 0]),
+        ];
+        for (n, b, want) in vectors {
+            assert_eq!(allocate(n, b), want, "N={n} B={b}");
+        }
+        assert!(allocate(10, 0).is_empty());
+        for (n, b) in [(13, 7), (20, 6), (8, 8), (100, 7), (31, 5), (3, 3), (2, 2), (49, 11)] {
+            let counts = allocate(n, b);
+            assert_eq!((counts.len(), counts.iter().sum::<usize>()), (b, n));
+            assert!(counts.iter().max().unwrap() - counts.iter().min().unwrap() <= 1);
+            assert!(counts.windows(2).all(|w| w[1] >= w[0]), "N={n} B={b}");
+        }
+        // The legacy allocator, as drift read it before allocators were stamped.
+        let legacy = |i: usize, n: usize, b: usize| match n / b {
+            0 => i.min(b - 1),
+            base => (i / base).min(b - 1),
+        };
+        for (n, b) in [(6, 3), (5, 2), (2, 4), (13, 7), (20, 6), (1, 1), (10, 3), (7, 5), (40, 7)] {
+            for i in 0..n {
+                assert_eq!(beat_for(i, n, b, 1), legacy(i, n, b), "i={i} N={n} B={b}");
+            }
+        }
+        // The current allocator's beats read back as it spread them; the legacy's differ.
+        for (n, b) in [(13, 7), (20, 6), (8, 8), (5, 7), (6, 3), (31, 5)] {
+            let stamped: Vec<usize> =
+                (allocate(n, b).into_iter().enumerate()).flat_map(|(beat, k)| vec![beat; k]).collect();
+            assert_eq!(stamped.len(), n);
+            assert!((0..n).all(|i| beat_for(i, n, b, 2) == stamped[i]), "N={n} B={b}");
+        }
+        let stamped: Vec<usize> =
+            (allocate(13, 7).into_iter().enumerate()).flat_map(|(beat, k)| vec![beat; k]).collect();
+        assert!((0..13).any(|i| beat_for(i, 13, 7, 1) != stamped[i]));
+        assert_eq!((beat_for(3, 0, 4, 1), beat_for(3, 5, 0, 1), beat_for(3, 0, 4, 2)), (0, 0, 0));
     }
 }

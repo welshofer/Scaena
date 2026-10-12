@@ -19,6 +19,8 @@ pub mod data;
 pub mod export;
 pub mod files;
 pub mod find;
+#[cfg(feature = "narrato")]
+pub mod health;
 pub mod history;
 pub mod inspect;
 pub mod layouts;

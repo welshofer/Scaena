@@ -15,7 +15,8 @@ gpu = ["scaena-ops/gpu"]
 [dependencies]
 scaena-core.workspace = true
 # The themes that ship, by name, for `deck_create` (PLAN 2.13).
-scaena-ops = { workspace = true, features = ["shipped"] }
+# Narrative health (PLAN G.9), whose measures are Narrato's.
+scaena-ops = { workspace = true, features = ["shipped", "narrato"] }
 scaena-resources.workspace = true
 rmcp.workspace = true
 tokio.workspace = true

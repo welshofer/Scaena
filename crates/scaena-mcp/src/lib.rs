@@ -868,6 +868,21 @@ impl Scaena {
         blocking(move || Ok(scaena_ops::read::spine(&open(&a.bundle)?))).await.map(Json)
     }
 
+    #[tool(description = "The deck's narrative health (PLAN G.9): Vzestup's measures of a talk, over its slides as \
+        its spine tells them, each 0\u{2013}100 with what it says: pacing against the length its brief asked, the points \
+        each slide makes and what its notes give the speaker, how each slide follows from the one before (by their words, \
+        and so unscored), how the intensity each declares follows the curve of the arc it was written to, and whether its \
+        words carry the intensity and the tone it declares. Each slide as read: where its arc's curve stands, what it declares, and what its words \
+        read. Findings slide by slide, each with what to ask about it and, where one is safe, a patch for `deck_patch`: \
+        a slide's declared intensity or tone set to what its words read, or a moved slide made part of the beat it now \
+        stands in.")]
+    async fn deck_health(
+        &self,
+        Parameters(a): Parameters<BundleArg>,
+    ) -> Result<Json<scaena_ops::health::Health>, String> {
+        blocking(move || scaena_ops::health::health(&open(&a.bundle)?.deck)).await.map(Json)
+    }
+
     #[tool(description = "Replace the deck's spine, as a patch: checked, refused if it makes the deck invalid, \
         with what lint finds differently.")]
     async fn spine_update(
