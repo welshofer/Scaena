@@ -334,7 +334,7 @@ impl Provider {
     }
 }
 
-fn anthropic_headers(key: &str, browser: bool) -> BTreeMap<String, String> {
+pub(crate) fn anthropic_headers(key: &str, browser: bool) -> BTreeMap<String, String> {
     let mut out =
         BTreeMap::from([("x-api-key".to_string(), key.to_string()), ("anthropic-version".into(), "2023-06-01".into())]);
     if browser {
@@ -345,13 +345,13 @@ fn anthropic_headers(key: &str, browser: bool) -> BTreeMap<String, String> {
     out
 }
 
-fn with_json(mut headers: BTreeMap<String, String>) -> BTreeMap<String, String> {
+pub(crate) fn with_json(mut headers: BTreeMap<String, String>) -> BTreeMap<String, String> {
     headers.insert("content-type".into(), "application/json".into());
     headers
 }
 
 /// `body` as JSON, or the provider's error, said as the provider says it.
-fn read(status: u16, status_text: &str, text: &str) -> Result<Value, String> {
+pub(crate) fn read(status: u16, status_text: &str, text: &str) -> Result<Value, String> {
     let body: Option<Value> = if text.is_empty() { Some(json!({})) } else { serde_json::from_str(text).ok() };
     if !(200..300).contains(&status) {
         let said = (body.as_ref())
@@ -363,7 +363,7 @@ fn read(status: u16, status_text: &str, text: &str) -> Result<Value, String> {
     body.ok_or_else(|| format!("not JSON: {}", crate::js::first_units(text, 300)))
 }
 
-fn at(base: Option<&str>, fallback: &str, path: &str) -> String {
+pub(crate) fn at(base: Option<&str>, fallback: &str, path: &str) -> String {
     let base = base.filter(|b| !b.is_empty()).unwrap_or(fallback);
     format!("{}{path}", base.trim_end_matches('/'))
 }

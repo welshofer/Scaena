@@ -46,6 +46,8 @@ pub enum Kind {
     Sec,
     /// A GitHub repository's README, documentation, and manifests.
     GitHub,
+    /// A report deep research wrote, its sources listed.
+    Research,
 }
 
 impl Kind {
@@ -64,6 +66,7 @@ impl Kind {
             Kind::Pdf => "pdf",
             Kind::Sec => "sec filings",
             Kind::GitHub => "github repository",
+            Kind::Research => "deep research",
         }
     }
 }

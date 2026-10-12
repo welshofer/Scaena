@@ -304,3 +304,67 @@ fn a_source_with_a_models_control_markers_is_refused() {
     assert!(message.contains("notes.md") && message.contains("Llama"), "{message}");
     assert!(!dir.exists());
 }
+
+/// Narrato's answers, deep research's first: a report its web search cites.
+fn researched(method: &str, path: &str, body: &str) -> Answer {
+    if method == "POST" && body.contains("\"web_search\"") {
+        let report = serde_json::json!({ "stop_reason": "end_turn", "content": [
+            { "type": "server_tool_use", "id": "s1", "name": "web_search", "input": { "query": "freight emissions" } },
+            { "type": "web_search_tool_result", "tool_use_id": "s1", "content": [
+                { "type": "web_search_result", "url": "https://example.org/freight", "title": "Freight report" }
+            ] },
+            { "type": "text", "text": "# Freight\nShipping emits about 3% of CO2.", "citations": [
+                { "type": "web_search_result_location", "url": "https://example.org/freight", "title": "Freight report", "cited_text": "3%" }
+            ] }
+        ] });
+        return (200, "application/json", report.to_string().into_bytes());
+    }
+    narrato(method, path, body)
+}
+
+#[test]
+fn deep_research_grounds_the_slides_in_its_report() {
+    let (base, asked) = serve(researched);
+    let dir = place("researched");
+    let mut c = Command::new(env!("CARGO_BIN_EXE_scaena"));
+    for k in KEYS.into_iter().chain(PROXIES) {
+        c.env_remove(k);
+    }
+    let out = c
+        .env("ANTHROPIC_API_KEY", "sk-test")
+        .args(["--json", "generate", dir.to_str().unwrap(), "Tidewater's Series A", "--research"])
+        .args(["--provider", "anthropic", "--model", "a-model", "--base", &base])
+        .output()
+        .unwrap();
+    let said = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert_eq!(out.status.code(), Some(0), "{said}");
+    let made = json(&out);
+    assert_eq!(made["sources"][0]["name"], "Deep Research: Tidewater's Series A");
+    assert_eq!(made["sources"][0]["kind"], "deep research");
+    let asked = asked.lock().unwrap();
+    let posts: Vec<&Asked> = asked.iter().filter(|a| a.method == "POST").collect();
+    assert_eq!(posts.len(), 3, "the research, the arc, and the slides");
+    let research: Value = serde_json::from_str(&posts[0].body).unwrap();
+    assert_eq!(research["tools"][0]["type"], "web_search_20260209");
+    let slides: Value = serde_json::from_str(&posts[2].body).unwrap();
+    let content = slides["messages"][0]["content"].as_array().unwrap();
+    let prompt = content.last().unwrap()["text"].as_str().unwrap();
+    for part in [
+        "=== SOURCE: Deep Research: Tidewater's Series A ===",
+        "Shipping emits about 3% of CO2.",
+        "## Sources\n\n1. Freight report \u{2014} https://example.org/freight",
+    ] {
+        assert!(prompt.contains(part), "{part}: {prompt}");
+    }
+    // Slides written elsewhere make no call, so ask for no research.
+    let out = json(&scaena(&[
+        "--json",
+        "generate",
+        place("researched-2").to_str().unwrap(),
+        "x",
+        "--slides",
+        &catalog(),
+        "--research",
+    ]));
+    assert!(out["error"]["message"].as_str().unwrap().contains("--slides makes no call"), "{out:#}");
+}
