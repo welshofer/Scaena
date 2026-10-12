@@ -446,7 +446,7 @@ layout("Time", "milestones", "What was reached when, down the slide: the dates o
     "kicker": KICKER,
     "header": header(),
     "rule": rule((3, 3), (3, 10), points=[[0.5, 0], [0.5, 1]]),
-    **{f"{o}-date": slot((1, 2), r, "figure", w, align={"x": "end"}) for o, r, w in zip(ORDINALS, [(3, 4), (5, 6), (7, 8), (9, 10)], ["2023", "2024", "2025", "2026"])},
+    **{f"{o}-date": slot((1, 2), r, "figure", w, align={"x": "end", "y": "center"}) for o, r, w in zip(ORDINALS, [(3, 4), (5, 6), (7, 8), (9, 10)], ["2023", "2024", "2025", "2026"])},
     **{o: slot((4, 12), r, "body", "What was reached", align={"y": "center"}) for o, r in zip(ORDINALS, [(3, 4), (5, 6), (7, 8), (9, 10)])},
 })
 
@@ -491,6 +491,14 @@ layout("Numbers", "two-figures", "Two figures side by side under the headline, e
     **{f"{o}-figure": slot(c, (3, 6), "hero", w, align={"y": "end"}, fit="shrink") for o, c, w in zip(ORDINALS, [(1, 5), (7, 11)], ["$2.0T", "$1.1T"])},
     **{o: slot(c, (8, 9), "title", w) for o, c, w in zip(ORDINALS, [(1, 5), (7, 11)], ["What the first counts", "What the second counts"])},
     "note": slot((1, 8), (10, 10), "caption", "Its source"),
+})
+
+layout("Numbers", "four-numbers", "Four numbers in a square, each as large as its quarter of the slide takes, with what it counts and how it moved.", {
+    "kicker": KICKER,
+    "header": header(),
+    **{f"{o}-figure": slot(c, r, "figure", w, align={"y": "end"}) for o, c, r, w in zip(ORDINALS, HALVES * 2, [(3, 4), (3, 4), (7, 8), (7, 8)], ["$4.2M", "38%", "12k", "2.1%"])},
+    **{f"{o}-title": slot(c, (r, r), "body", w) for o, c, r, w in zip(ORDINALS, HALVES * 2, [5, 5, 9, 9], ["Revenue", "Margin", "Users", "Churn"])},
+    **{o: slot(c, (r, r), "caption", "Up on last year") for o, c, r in zip(ORDINALS, HALVES * 2, [6, 6, 10, 10])},
 })
 
 layout("Numbers", "scorecard", "Four measures in a row, each its number and how it moved.", {
@@ -908,7 +916,7 @@ NAMES = {
     "gantt": "Gantt Chart", "year": "Year at a Glance", "timeline-photos": "Timeline with Photos",
     # Numbers
     "stat": "Stat", "big-number": "Big Number", "two-numbers": "Two Numbers", "numbers": "Three Numbers",
-    "number-grid": "Six Numbers", "two-figures": "Two Figures", "scorecard": "Scorecard", "ranking": "Ranking", "progress": "Progress",
+    "number-grid": "Six Numbers", "two-figures": "Two Figures", "four-numbers": "Four Numbers", "scorecard": "Scorecard", "ranking": "Ranking", "progress": "Progress",
     "number-photo": "Number and Photo", "metric-trend": "Number and Trend",
     # Charts
     "figure": "Chart", "narrow-figure": "Narrow Chart", "split": "Chart and Words",
