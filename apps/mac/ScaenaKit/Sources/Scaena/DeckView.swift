@@ -1451,7 +1451,7 @@ private struct Oversized: Identifiable {
     let id = UUID()
     let data: Data
     let name: String
-    let picture: Picture
+    let picture: PictureSize
     let take: (Data) -> Void
 
     /// What the offer says, in a person's words.

@@ -47,7 +47,7 @@ private func read(_ data: Data, at x: Int, _ y: Int) throws -> (kind: String?, p
 @Test func aPictureTooLargeGoesInAsASmallerCopy() throws {
     let png = try picture(9000, 40, as: .png)
     let large = try ScaenaSession.picture(png)
-    #expect(large == Picture(width: 9000, height: 40, largest: 8192))
+    #expect(large == PictureSize(width: 9000, height: 40, largest: 8192))
     #expect(!large.fits)
     #expect(large.fitted.width == 8192 && large.fitted.height == 36)
 

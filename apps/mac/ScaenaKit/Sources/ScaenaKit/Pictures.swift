@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 /// A picture as the engine reads it before it joins the bundle (SPEC §3.3): its size as it is
 /// seen, a JPEG's turned by its EXIF orientation, and the longest side an image may have. One too
 /// large is offered as a smaller copy, never refused (`Pasteboard.smaller`).
-public struct Picture: Decodable, Equatable, Sendable {
+public struct PictureSize: Decodable, Equatable, Sendable {
     public let width: Int
     public let height: Int
     /// The longest side an image may have, in pixels.
@@ -36,11 +36,11 @@ public struct Picture: Decodable, Equatable, Sendable {
 extension ScaenaSession {
     /// What `data`, a PNG or a JPEG, is as a picture, read as the engine reads it; thrown where
     /// it is no picture an image shows.
-    public static func picture(_ data: Data) throws -> Picture {
+    public static func picture(_ data: Data) throws -> PictureSize {
         let answer = data.withUnsafeBytes { raw in
             scaena_picture(raw.baseAddress?.assumingMemoryBound(to: UInt8.self), raw.count)
         }
-        return try decode(answer, as: Picture.self)
+        return try decode(answer, as: PictureSize.self)
     }
 }
 

@@ -303,6 +303,9 @@ impl Session {
         }
         renamed.extend(now);
         next.renamed = renamed;
+        // A frame held for its shaders' rows goes on to be painted, with the files it was drawn
+        // with: a save changes no frame.
+        next.shading = self.shading.take();
         *self = next;
         Ok(())
     }
@@ -564,6 +567,29 @@ pub(crate) mod tests {
         assert!(s.source().contains("Revenue more than doubled") && !s.source().contains("Inter-VF.ttf"));
         assert_eq!(drawn(&mut s, &saved.saved.renamed), before, "a save changes no frame");
         assert!(s.lint(None).is_ok());
+    }
+
+    /// A frame held for its shaders' rows when the page saves is painted after it, as it was
+    /// drawn (PLAN 2.28), with the fonts it was drawn with, renamed since: a save changes no
+    /// frame.
+    #[test]
+    fn a_frame_held_through_a_save_is_painted_as_it_was_drawn() {
+        let mut s = Session::open(revenue()).unwrap();
+        let state = (s.states().into_iter())
+            .find(|state| s.shading(state, f64::INFINITY, 640).unwrap() > 0)
+            .expect("a state that draws a shader");
+        let want = s.pixels(&state, f64::INFINITY, 640).unwrap();
+        let count = s.shading(&state, f64::INFINITY, 640).unwrap();
+        // As a page saves: the fonts kept whole, named by their content.
+        let saved = s.save(NOW, false, None).unwrap();
+        assert!(!saved.saved.renamed.is_empty());
+        s.adopt(&saved).unwrap();
+        for i in 0..count {
+            for [first, rows] in s.shader_bands(i, 1).unwrap() {
+                s.shade(i, first, rows).unwrap();
+            }
+        }
+        assert!(s.shaded().unwrap() == want, "the frame held is painted as it was drawn");
     }
 
     /// A save the Mac goes on from subsets the fonts and names them by their content, and the

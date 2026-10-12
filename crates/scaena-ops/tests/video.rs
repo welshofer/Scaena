@@ -210,8 +210,10 @@ fn a_video_says_what_it_needs() {
     assert!(ask(fast).contains("1 to 240"));
     let silent = Request { audio: Some(scratch("no-such.wav")), ..mp4(Some(scratch("silent.mp4"))) };
     assert!(ask(silent).contains("no such file"));
-    let png = Request { format: "png".into(), audio: Some(scratch("tone.wav")), ..mp4(Some(scratch("pngs"))) };
-    assert!(ask(png).contains("--audio"));
+    // A file of its own: `scratch` takes away what it names, and the sound track's test, run
+    // beside this one, plays `tone.wav`.
+    let png = Request { format: "png".into(), audio: Some(scratch("png.wav")), ..mp4(Some(scratch("pngs"))) };
+    assert!(ask(png).contains("--audio sets a video's sound track"));
     // A deck with no hold and no motion has nothing to play.
     let still = scaena_ops::open(Path::new("../../tests/fixtures/torture.scaena")).unwrap();
     let req = Request { states: Some(vec!["liga".into()]), ..mp4(Some(scratch("still.mp4"))) };

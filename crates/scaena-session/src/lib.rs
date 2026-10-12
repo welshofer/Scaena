@@ -108,8 +108,9 @@ pub struct Session {
     /// What each format painted beside the canvas laid out, by the format (PLAN 2.62).
     #[cfg(feature = "editor")]
     besides: BTreeMap<Option<String>, formats::Beside>,
-    /// The fonts and images the engine was built from, as painters read them.
-    store: Assets,
+    /// The fonts and images the engine was built from, as painters read them: shared with a
+    /// frame held for its shaders, which is painted with the files it was drawn from.
+    store: Arc<Assets>,
     /// The frame held while its shaders' rows are worked out (PLAN 2.28).
     #[cfg(feature = "cpu")]
     shading: Option<Shading>,
@@ -184,12 +185,15 @@ pub struct Grouping {
 }
 
 /// A frame held to be painted once its shaders' pixels are in (PLAN 2.28): its display
-/// list, its scale, and each shader it draws.
+/// list, its scale, each shader it draws, and the fonts and images it was drawn with. A page's
+/// worker answers what else it is asked while the rows are worked out, and an edit meanwhile
+/// may build the engine again from other files: the frame is painted with its own.
 #[cfg(feature = "cpu")]
 struct Shading {
     dl: DisplayList,
     scale: f32,
     shaders: Vec<Shader>,
+    assets: Arc<Assets>,
 }
 
 /// A shader a held frame draws: the spec its job is made from, the job, and its pixels,
@@ -276,7 +280,7 @@ impl Session {
             format: None,
             #[cfg(feature = "editor")]
             besides: BTreeMap::new(),
-            store: Assets::new(),
+            store: Arc::default(),
             #[cfg(feature = "cpu")]
             shading: None,
             #[cfg(feature = "cpu")]
@@ -459,7 +463,7 @@ impl Session {
             }
             fonts.check_theme(&self.theme)?;
             self.engine = Some(Engine::new(fonts).with_images(images));
-            self.store = store;
+            self.store = Arc::new(store);
             self.forget();
         }
         Ok(self.engine.as_mut().expect("built above"))
@@ -1572,7 +1576,7 @@ impl Session {
             }
         }
         let count = shaders.len();
-        self.shading = Some(Shading { dl, scale, shaders });
+        self.shading = Some(Shading { dl, scale, shaders, assets: self.store.clone() });
         Ok(count)
     }
 
@@ -1629,10 +1633,10 @@ impl Session {
     /// the frame is let go.
     #[cfg(feature = "cpu")]
     pub fn shaded(&mut self) -> Result<scaena_paint::Raster, Error> {
-        let Shading { dl, scale, shaders } =
+        let Shading { dl, scale, shaders, assets } =
             self.shading.take().ok_or_else(|| Error::Shading("no frame is held for its shaders".into()))?;
         let pixels = shaders.into_iter().map(|shader| shader.pixels).collect();
-        Ok(self.painter.paint_shaded(&dl, &self.store, scale, pixels)?)
+        Ok(self.painter.paint_shaded(&dl, &assets, scale, pixels)?)
     }
 }
 
@@ -1845,6 +1849,22 @@ mod tests {
         let spec = s.shader_spec(0).unwrap();
         assert!(matches!(shader_rows(&spec, first + rows, 1), Err(Error::Shading(_))));
         assert!(matches!(shader_rows(&spec[..spec.len() / 2], 0, 1), Err(Error::Paint(PaintError::Shader(_)))));
+    }
+
+    /// A frame held for its shaders' rows is painted with the files it was drawn with (PLAN
+    /// 2.28): a page's worker answers what else it is asked while helpers work the rows out, and
+    /// an edit meanwhile that builds the engine again from other pictures changes no frame held.
+    #[cfg(feature = "cpu")]
+    #[test]
+    fn a_frame_held_is_painted_with_the_files_it_was_drawn_with() {
+        let mut s = torture();
+        let want = s.pixels("images", f64::INFINITY, 640).unwrap();
+        assert_eq!(s.shading("images", f64::INFINITY, 640).unwrap(), 0);
+        // Meanwhile, a photo goes where the test card was: the engine is built again without it.
+        let json = s.deck.to_json().unwrap().replace("assets/test-card.png", "assets/baseline-420.jpg");
+        s.set_deck(Deck::from_json(&json).unwrap());
+        assert!(s.pixels("images", f64::INFINITY, 640).unwrap() != want);
+        assert!(s.shaded().unwrap() == want, "the frame held is painted as it was drawn");
     }
 
     /// What stands where comes from the state at rest in the format shown, laid out once and
