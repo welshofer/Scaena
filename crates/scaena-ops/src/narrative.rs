@@ -2405,10 +2405,9 @@ impl Builder {
                             node["maxLines"] = json!(if text.split_whitespace().count() <= 3 { 1 } else { 2 });
                         }
                     }
-                    // A scorecard's label stands on its figure; a side's statement stands in the middle
-                    // of its card; the running head stands on the slide's foot, as a footer does.
+                    // A side's statement stands in the middle of its card; the running head stands on
+                    // the slide's foot, as a footer does.
                     match (s.layout, ordinal(name)) {
-                        ("scorecard", Some((_, "title"))) => node["align"] = json!({ "y": "end" }),
                         ("myth-fact", Some((_, ""))) => node["align"] = json!({ "y": "center" }),
                         _ if name == "kicker" && s.foot(slot) => node["align"] = json!({ "y": "end" }),
                         _ => {}
@@ -2517,6 +2516,81 @@ fn source(chart: &ChartData) -> Value {
     json!({ "source": { "inline": rows }, "schema": schema })
 }
 
+/// Whether `categories` have an order of their own: a figure in one (a year, a quarter, a range,
+/// an age), a month or a day, or a word of a scale.
+fn ordered(categories: &[String]) -> bool {
+    const ORDERED: [&str; 63] = [
+        "low",
+        "medium",
+        "mid",
+        "high",
+        "small",
+        "large",
+        "poor",
+        "fair",
+        "good",
+        "excellent",
+        "never",
+        "rarely",
+        "sometimes",
+        "often",
+        "always",
+        "before",
+        "during",
+        "after",
+        "first",
+        "last",
+        "early",
+        "late",
+        "beginner",
+        "intermediate",
+        "advanced",
+        "january",
+        "february",
+        "march",
+        "april",
+        "may",
+        "june",
+        "july",
+        "august",
+        "september",
+        "october",
+        "november",
+        "december",
+        "jan",
+        "feb",
+        "mar",
+        "apr",
+        "jun",
+        "jul",
+        "aug",
+        "sep",
+        "sept",
+        "oct",
+        "nov",
+        "dec",
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+        "mon",
+        "tue",
+        "wed",
+        "thu",
+        "fri",
+        "sat",
+        "sun",
+    ];
+    categories.iter().any(|c| {
+        let lower = c.to_lowercase();
+        lower.chars().any(|ch| ch.is_ascii_digit())
+            || lower.split(|ch: char| !ch.is_alphanumeric()).any(|w| ORDERED.contains(&w))
+    })
+}
+
 /// The chart that plots `chart`'s source, `data`, in a layout's chart slot.
 fn chart_node(chart: &ChartData, data: &str, layout: &str, title: &str, takeaway: Option<&str>, at: Value) -> Value {
     let kind = if layout == "line-chart" { "line" } else { "bar" };
@@ -2551,6 +2625,11 @@ fn chart_node(chart: &ChartData, data: &str, layout: &str, title: &str, takeaway
         node["series"] = json!({ "field": "series", "type": "nominal" });
         node["color"] = json!({ "field": "series", "type": "nominal", "scale": "categorical" });
         node["legend"] = json!("top");
+    }
+    // Bars of names with no order of their own run longest first, as a designer sorts them;
+    // years, quarters, ranges, months, and the words of a scale keep the order they were written in.
+    if kind == "bar" && !several && chart.categories.len() >= 4 && !ordered(&chart.categories) {
+        node["dataTransform"] = json!([{ "sort": "-value" }]);
     }
     // Names too long to stand under their bars run down the side, the bars across.
     let longest = chart.categories.iter().map(|c| c.chars().count()).max().unwrap_or(0);
@@ -2864,11 +2943,22 @@ mod tests {
             "{steps:?}"
         );
         // A scorecard's figures, each on its one line, alike, held under where the widest filled its
-        // place, the numeral's at most; each label standing on its figure.
+        // place, the numeral's at most; they stand on a rule, each named under it (G.14).
         let figures: Vec<Value> = ordinals.iter().map(|o| node(6, &format!("{o}-figure"))).collect();
         assert!(figures.iter().all(|f| f["maxLines"] == 1 && f["maxSize"] == figures[0]["maxSize"]), "{figures:#?}");
         assert!(most(&figures[0]) > size("figure") && most(&figures[0]) < size("numeral"), "{figures:#?}");
-        assert_eq!(node(6, "first-title")["align"], json!({ "y": "end" }));
+        let card = &theme.layouts["scorecard"].slots;
+        let rows = |slot: &str| match &card[slot].row {
+            Some(Range::Span([from, to])) => (*from, *to),
+            Some(Range::Index(row)) => (*row, *row),
+            None => (0, 0),
+        };
+        assert!(rows("first-figure").1 < rows("rule").0 && rows("rule").1 < rows("first-title").0);
+        assert!(node(6, "first-title")["align"].is_null());
+        // Bars of names with no order of their own run longest first; years, and two bars, keep
+        // theirs.
+        assert_eq!(node(8, "main")["dataTransform"], json!([{ "sort": "-value" }]));
+        assert!(node(16, "main")["dataTransform"].is_null() && node(18, "main")["dataTransform"].is_null());
         // Two sides said in a line each: a card each, the statements set large as titles.
         assert_eq!(made.layouts[20], "myth-fact");
         assert_eq!(node(20, "first")["role"], "title");
