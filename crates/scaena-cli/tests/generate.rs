@@ -65,6 +65,65 @@ fn slides_written_elsewhere_make_a_bundle_with_no_call() {
     assert!(again["error"]["message"].as_str().unwrap().contains("not an empty directory"));
 }
 
+/// A deck in a language the theme's fonts cannot draw is refused before any call, and before a
+/// place is made for it: it would be blank where its words stand (PLAN G.21). One in Ukrainian
+/// is written in Ukrainian, and one with a talk's symbols keeps them.
+#[test]
+fn a_deck_is_written_only_in_letters_its_theme_draws() {
+    let dir = place("japanese");
+    let out = json(&scaena(&[
+        "--json",
+        "generate",
+        dir.to_str().unwrap(),
+        "気候変動",
+        "--slides",
+        &catalog(),
+        "--language",
+        "Japanese",
+    ]));
+    assert_eq!(out["error"]["exit"], 3, "{out:#}");
+    assert_eq!(out["error"]["plan"], "G.22", "{out:#}");
+    assert!(
+        out["error"]["message"].as_str().unwrap().starts_with("a deck in Japanese cannot be made in Dusk"),
+        "{out:#}"
+    );
+    assert!(!dir.exists());
+    let slides = place("ukrainian-slides");
+    std::fs::create_dir_all(&slides).unwrap();
+    let slide = |title: &str, layout: &str, bullets: &[&str]| serde_json::json!({ "slideTitle": title, "layoutSuggestion": layout, "keyBullets": bullets, "speakerNotes": title });
+    let written = serde_json::json!({
+        "executiveSummary": "Що кажуть дані",
+        "slides": [
+            slide("Зміна клімату", "title", &[]),
+            slide("Що відбувається", "bullets", &["Викиди CO₂ зростають", "Рівень моря: +4,5 мм/рік", "Мета: −13% до 2030 → діяти"]),
+            slide("Що працює", "bullets", &["Сонце дешевшає", "Вітер росте", "Мережі ростуть"]),
+            slide("Що робити", "bullets", &["Рахувати викиди", "Ставити цілі", "Звітувати щороку"]),
+            slide("Дякую", "closing", &[]),
+        ],
+    });
+    let path = slides.join("uk.json");
+    std::fs::write(&path, written.to_string()).unwrap();
+    let dir = place("ukrainian");
+    let out = scaena(&[
+        "--json",
+        "generate",
+        dir.to_str().unwrap(),
+        "Зміна клімату",
+        "--slides",
+        path.to_str().unwrap(),
+        "--language",
+        "Ukrainian",
+        "--length",
+        "5-10 slides",
+    ]);
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stdout));
+    let deck: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap();
+    let said: Vec<&str> = deck["nodes"].as_object().unwrap().values().filter_map(|n| n["text"].as_str()).collect();
+    for words in ["Зміна клімату", "Викиди CO₂ зростають", "−13%", "→"] {
+        assert!(said.iter().any(|s| s.contains(words)), "{words:?} in {said:?}");
+    }
+}
+
 #[test]
 fn with_no_key_it_says_which_to_set_before_any_call() {
     let dir = place("no-key");

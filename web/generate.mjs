@@ -168,6 +168,18 @@ try {
   check(closed.includes("could not be read from this page"), `a site that lets no other page read it says so: ${closed}`);
   await removeAll();
 
+  // A deck in letters the theme's fonts cannot draw is refused before anything is asked, in a
+  // person's words (PLAN G.21).
+  requests.length = 0;
+  await page.click("#prompting details > summary");
+  await page.fill("#prompting-language", "Japanese");
+  await page.click("#prompting-go");
+  const unwritten = await failed();
+  check(/a deck in Japanese cannot be made in \w+ yet: its fonts have no glyphs for/.test(unwritten) && !unwritten.includes("PLAN"), `a language its fonts cannot draw is refused first: ${unwritten}`);
+  check(requests.length === 0, `nothing is asked of the provider: ${requests.length}`);
+  await page.fill("#prompting-language", "");
+  await page.click("#prompting details > summary");
+
   // A provider that refuses the key says so, and Generate is there to try again.
   state.fail = true;
   await page.click("#prompting-go");

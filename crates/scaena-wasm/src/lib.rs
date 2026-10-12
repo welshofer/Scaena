@@ -1286,6 +1286,31 @@ impl SavedBundle {
     }
 }
 
+/// Whether the fonts of the theme whose text is `theme`, each in `fonts` by the path the theme
+/// names it at, draw the letters of `language` (PLAN G.21): asked before a file is read or any
+/// call is paid for, so a deck in letters its fonts cannot draw is refused, saying why, and not
+/// made with nothing where its words stand. The page's themes are those that ship.
+#[cfg(feature = "generate")]
+#[wasm_bindgen]
+pub fn writable(language: Option<String>, theme: &str, fonts: &js_sys::Map) -> Result<(), JsError> {
+    let mut given = std::collections::BTreeMap::new();
+    fonts.for_each(&mut |bytes, path| {
+        if let Some(path) = path.as_string() {
+            given.insert(path, js_sys::Uint8Array::new(&bytes).to_vec());
+        }
+    });
+    let font = |file: &str| {
+        let bytes = given.get(file).cloned();
+        bytes.ok_or_else(|| {
+            scaena_ops::OpsError::new(format!("the theme names `{file}`, which the page does not carry"))
+        })
+    };
+    let language = language.filter(|l| !l.is_empty());
+    // Said to a person: the task it waits on is the repository's business.
+    (scaena_ops::narrative::writable(language.as_deref(), theme, true, &font))
+        .map_err(|e| JsError::new(e.message.trim_end_matches(" (PLAN G.22)")))
+}
+
 /// A deck made from a prompt, made a bundle (PLAN G.5, ADR-0026): the deck the generator's
 /// module (`scaena-generator`) built from Narrato's narrative, made as `scaena generate` makes
 /// it ([`scaena_session::making`]). This module carries none of Narrato.

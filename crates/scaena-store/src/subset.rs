@@ -9,9 +9,18 @@ use write_fonts::read::collections::IntSet;
 use write_fonts::read::types::{GlyphId, NameId, Tag};
 
 /// Characters every subset keeps besides the deck's own, so an edit in a Latin script
-/// does not need the original font back: ASCII, Latin-1, Latin Extended-A, general
-/// punctuation, and the euro sign. The same ranges the repository's font scripts keep.
-pub const BASE_RANGES: [(u32, u32); 4] = [(0x20, 0x7E), (0xA0, 0x17F), (0x2010, 0x203A), (0x20AC, 0x20AC)];
+/// does not need the original font back: ASCII, Latin-1, Latin Extended-A, the letters
+/// Romanian writes (ș, ț), and U+2000–27BF, what a talk writes beside its words:
+/// punctuation, super- and subscripts (CO₂), currency, letterlike symbols, number forms,
+/// arrows, mathematical operators (−, ≈, ≤), technical symbols, enclosed alphanumerics,
+/// shapes, symbols, and dingbats (PLAN G.21). The ranges the shipped themes' fonts keep
+/// (`scripts/build_bundle_fonts.py`).
+pub const BASE_RANGES: [(u32, u32); 4] = [(0x20, 0x7E), (0xA0, 0x17F), (0x218, 0x21B), (0x2000, 0x27BF)];
+
+/// Scripts a subset keeps whole where the deck writes in them, so an edit in them does not
+/// need the original font back either: Greek and Cyrillic, which the shipped themes' fonts
+/// carry whole (PLAN G.21).
+pub const SCRIPT_RANGES: [(u32, u32); 2] = [(0x370, 0x3FF), (0x400, 0x4FF)];
 
 /// Tables hb-subset drops by default that shaping can still read: legacy kerning and AAT
 /// layout. A font that has them keeps them.
@@ -25,12 +34,14 @@ pub enum SubsetError {
     Subset(String),
 }
 
-/// `font` with the glyphs for `chars` (and [`BASE_RANGES`]), at their old glyph ids.
+/// `font` with the glyphs for `chars` (and [`BASE_RANGES`], and each of [`SCRIPT_RANGES`]
+/// that `chars` writes in), at their old glyph ids.
 pub fn subset(font: &[u8], chars: &BTreeSet<char>) -> Result<Vec<u8>, SubsetError> {
     let font = FontRef::new(font).map_err(|e| SubsetError::Read(e.to_string()))?;
     let mut unicodes = IntSet::<u32>::empty();
     unicodes.extend(chars.iter().map(|&c| u32::from(c)));
-    for (lo, hi) in BASE_RANGES {
+    let written = |&(lo, hi): &(u32, u32)| chars.iter().any(|&c| (lo..=hi).contains(&u32::from(c)));
+    for (lo, hi) in BASE_RANGES.into_iter().chain(SCRIPT_RANGES.into_iter().filter(written)) {
         unicodes.insert_range(lo..=hi);
     }
     let flags = SubsetFlags::SUBSET_FLAGS_RETAIN_GIDS
@@ -88,6 +99,26 @@ mod tests {
         let chars: BTreeSet<char> = "Office".chars().collect();
         let error = subset(&font, &chars).expect_err("no subset of a damaged font").to_string();
         assert!(error.contains("the subsetter stopped on it") && error.contains("damaged"), "{error}");
+    }
+
+    /// A save keeps what a talk writes beside its words, so a deck saved can still be given
+    /// a CO₂, a minus, or an arrow; and Greek or Cyrillic whole where the deck writes in it,
+    /// so a deck in Ukrainian can be edited in Ukrainian (PLAN G.21).
+    #[test]
+    fn a_subset_keeps_a_talks_symbols_and_the_scripts_its_deck_writes_in() {
+        let inter = std::fs::read("../../docs/examples/fonts/Inter-VF.ttf").unwrap();
+        let has = |font: &[u8], c: char| FontRef::new(font).unwrap().cmap().unwrap().map_codepoint(c).is_some();
+        let english = subset(&inter, &"Climate".chars().collect()).unwrap();
+        for c in ['\u{2082}', '\u{2212}', '\u{2192}', '\u{2248}', '\u{2264}', '\u{2153}', '\u{2122}', '\u{20b9}', 'ș']
+        {
+            assert!(has(&inter, c) && has(&english, c), "U+{:04X}", c as u32);
+        }
+        assert!(!has(&english, 'ї') && !has(&english, 'λ'), "a deck in English keeps no Cyrillic or Greek");
+        let ukrainian = subset(&inter, &"Клімат".chars().collect()).unwrap();
+        assert!(has(&ukrainian, 'ї') && has(&ukrainian, 'Ґ') && has(&ukrainian, 'є'), "Cyrillic kept whole");
+        assert!(!has(&ukrainian, 'λ'), "and not Greek");
+        let greek = subset(&inter, &"Δ".chars().collect()).unwrap();
+        assert!(has(&greek, 'λ') && has(&greek, 'Ω') && !has(&greek, 'ї'));
     }
 
     #[test]

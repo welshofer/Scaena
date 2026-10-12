@@ -159,6 +159,22 @@ impl Generating {
                     }
                 }
             }
+            "writable" => {
+                // Whether the theme's fonts draw the brief's language, asked before any call is
+                // paid for: a deck in letters its fonts cannot draw would be blank (PLAN G.21).
+                let shipped = shipped(arg("theme")?)?;
+                let font = |file: &str| {
+                    let bytes = scaena_ops::shipped::font(file);
+                    bytes.map(<[u8]>::to_vec).ok_or_else(|| {
+                        scaena_ops::OpsError::new(format!("{} names `{file}`, which does not ship", shipped.name))
+                    })
+                };
+                let language = args.get("language").and_then(Value::as_str).filter(|l| !l.is_empty());
+                // Said to a person: the task it waits on is the repository's business.
+                (scaena_ops::narrative::writable(language, shipped.text, true, &font))
+                    .map_err(|e| said(e.message.trim_end_matches(" (PLAN G.22)")))?;
+                json!({})
+            }
             "begin" => {
                 let mut brief = brief(args)?;
                 let (provider, model, base) = asked(args)?;
