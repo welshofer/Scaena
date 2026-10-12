@@ -2,11 +2,16 @@
 //! deck names, as `scaena theme --edit` makes them, written into the session. The source does not
 //! change, so the editor keeps each edit in its source's history as the theme's text before and
 //! after, which its undo writes back (`Session::write_files`).
+//!
+//! And the layout library of a theme that ships, brought into an older copy of it as a deck opens
+//! (PLAN 3.31).
 
 use crate::assistant::Caller;
 use crate::versions::Rewritten;
 use crate::{Error, Session};
-use scaena_ops::theme::{ThemeEdit, ThemeEdited, theme_editing};
+use scaena_ops::lint::{Why, Write};
+use scaena_ops::theme::{Library, ThemeEdit, ThemeEdited, theme_editing};
+use serde_json::Value;
 
 impl Session {
     /// Edit the theme the deck names by `edit`, as `by`: refused, as `scaena theme --edit` refuses
@@ -26,6 +31,31 @@ impl Session {
         let rewritten = self.rewritten(&w.files);
         self.write(Some(w), by)?;
         Ok((edited, rewritten))
+    }
+
+    /// The layout library of `shipped`, the JSON of a theme that ships, brought into the theme the
+    /// deck names where that is an older copy of it (PLAN 3.31, SPEC §3.6): what an editor does as
+    /// it opens a deck, so Add Slide offers every layout the theme ships, by section, each drawn as
+    /// it is used. Written into the session as a theme edit by `by` is, for the next save to keep
+    /// and record, and frames are drawn in it from now on, every slide as it was
+    /// (`scaena_ops::theme::library`). What it brought; none where the deck sets its theme inline,
+    /// or names another theme, or one with the library already.
+    pub fn library(&mut self, shipped: &str, by: Caller) -> Result<Option<Library>, Error> {
+        let Some(path) = self.deck().theme.as_ref().and_then(Value::as_str).map(str::to_string) else {
+            return Ok(None);
+        };
+        let Some(bytes) = self.file(&path) else { return Ok(None) };
+        let theme: Value = serde_json::from_slice(bytes).map_err(|e| Error::Ops(format!("{path}: {e}")))?;
+        let shipped: Value =
+            serde_json::from_str(shipped).map_err(|e| Error::Ops(format!("the theme that ships: {e}")))?;
+        let Some((theme, brought)) = scaena_ops::theme::library(&theme, &shipped) else { return Ok(None) };
+        let text = serde_json::to_string_pretty(&theme).map_err(|e| Error::Ops(e.to_string()))? + "\n";
+        // Frames are drawn in it from now on: it reads as a theme, or nothing is written.
+        scaena_engine::theme::Theme::from_json(&text).map_err(|e| Error::Ops(format!("{path}: {e}")))?;
+        let mut w = Write::new(self.deck().clone(), Why::new(format!("library: the layouts {} ships", brought.theme)));
+        w.files.insert(path, text.into_bytes());
+        self.write(Some(w), by)?;
+        Ok(Some(brought))
     }
 }
 
@@ -111,6 +141,53 @@ mod tests {
         let none = ThemeEdit { ops: Vec::new(), photo: Some("assets/none.png".into()) };
         let e = s.theme_edit(&none, false, user()).unwrap_err().to_string();
         assert!(e.contains("assets/none.png"), "{e}");
+    }
+
+    /// Dusk as a bundle took it on 2026-10-06, before the library grew, and Dusk as it ships.
+    const OLDER: &str = include_str!("../../../tests/themes/older/dusk-0.10.theme.json");
+    const DUSK: &str = include_str!("../../../docs/examples/themes/dusk.theme.json");
+
+    /// A deck whose bundle took Dusk before its library grew (PLAN 3.31): it takes every layout
+    /// Dusk ships, each in its section, and draws every slide as it did; taken once, the library
+    /// brings nothing more; and the save keeps the theme with the library, recorded by its author.
+    #[test]
+    fn an_older_dusk_takes_the_library_and_draws_as_it_did() {
+        let (mut files, _) = crate::store::tests::begun();
+        // Saved, as the bundle was, with the fonts it holds, named by their content.
+        let held: Value = serde_json::from_slice(&files[THEME]).unwrap();
+        let mut older: Value = serde_json::from_str(OLDER).unwrap();
+        older["type"]["families"] = held["type"]["families"].clone();
+        files.insert(THEME.into(), serde_json::to_vec_pretty(&older).unwrap());
+        let mut s = Session::open(files).unwrap();
+        let sections = |s: &Session| {
+            let starters = s.starters();
+            let grouped = starters.iter().filter_map(|l| l["group"].as_str().map(String::from));
+            scaena_core::sort::set(grouped)
+        };
+        assert_eq!(s.starters().len(), 11 + 1, "the older Dusk's layouts, and a blank slide");
+        assert!(sections(&s).is_empty(), "none of them in a section");
+        let states: Vec<String> = s.deck().states.iter().map(|state| state.id.clone()).collect();
+        let before: Vec<Vec<u8>> = states.iter().map(|state| s.png(state, 320).unwrap()).collect();
+
+        let brought = s.library(DUSK, user()).unwrap().expect("it takes the library");
+        assert_eq!((brought.theme.as_str(), brought.roles.clone()), ("Dusk", vec!["hero".to_string()]));
+        let shipped: Value = serde_json::from_str(DUSK).unwrap();
+        let layouts = shipped["layouts"].as_object().unwrap().len();
+        assert_eq!(s.starters().len(), layouts + 1, "every layout Dusk ships, and a blank slide");
+        assert_eq!(sections(&s).len(), 13, "{:?}", sections(&s));
+        let after: Vec<Vec<u8>> = states.iter().map(|state| s.png(state, 320).unwrap()).collect();
+        assert!(before == after, "every slide draws as it did");
+        assert!(s.library(DUSK, user()).unwrap().is_none(), "taken once, it brings nothing more");
+
+        let saved = s.save("2026-10-12T12:00:00Z", false, Some(&crate::store::tests::recorder)).unwrap();
+        let kept: Value = serde_json::from_slice(&saved.files[THEME]).unwrap();
+        assert_eq!(kept["layouts"].as_object().unwrap().len(), layouts, "the save keeps the theme with the library");
+        assert_eq!(kept["scaena-theme"], shipped["scaena-theme"]);
+        let doc = scaena_store::crdt::DeckDoc::load(&saved.files[scaena_store::HISTORY]).unwrap();
+        let said: Vec<(String, String)> = (doc.changes().into_iter())
+            .map(|c| (c.author.unwrap_or_default(), c.message.unwrap_or_default()))
+            .collect();
+        assert!(said.contains(&("user".into(), "library: the layouts Dusk ships".into())), "{said:?}");
     }
 
     /// The save records the edit by its author, with the theme's text as the save writes it, and

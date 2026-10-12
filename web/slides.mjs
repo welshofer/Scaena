@@ -12,6 +12,7 @@
 //   what it copies.
 // - Delete takes `revenue` out, its step too; `close` reads as it read.
 // - Enter shows a slide's first state in the canvas, and the preview back; Escape closes it.
+// - The slider at its foot makes the slides larger, fewer to a row, each painted larger.
 // - axe-core finds nothing against WCAG 2.1 AA in the light table.
 // Exits 1 on any failure.
 import { createRequire } from "node:module";
@@ -119,6 +120,23 @@ try {
   const kept = await readsAsItRead();
   check(kept.length === 0, `close reads as it read: ${kept.join(", ") || "all"}`);
   check(await undo(original), "⌘Z puts it back");
+
+  // The slider at its foot, at its end: the slides larger, fewer to a row, each painted larger.
+  const across = () =>
+    page.evaluate(() => {
+      const tiles = [...document.querySelectorAll("#slides li")];
+      return tiles.filter((t) => t.offsetTop === tiles[0]?.offsetTop).length;
+    });
+  const painted = () => page.evaluate(() => document.querySelector("#slides li canvas")?.height ?? 0);
+  const [wide, high] = [await across(), await painted()];
+  await page.evaluate(() => {
+    const size = document.querySelector("#slides input[data-size]");
+    size.value = size.max;
+    size.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await page.waitForFunction((h) => (document.querySelector("#slides li canvas")?.height ?? 0) > h, high, { timeout: 30000 }).catch(() => {});
+  const [fewer, larger] = [await across(), await painted()];
+  check(fewer < wide && larger > high, `the slider makes them larger, fewer to a row: ${wide} → ${fewer} across, painted ${high} → ${larger} high`);
 
   // Nothing against WCAG 2.1 AA in the light table.
   await page.addScriptTag({ path: axe });

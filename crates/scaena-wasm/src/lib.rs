@@ -1141,6 +1141,16 @@ impl Player {
         serde_json::to_string(&serde_json::json!({ "edited": edited, "files": files })).map_err(js)
     }
 
+    /// The layout library of `shipped`, the JSON of a theme that ships, as the page carries it,
+    /// brought into the theme the deck names where that is an older copy of it (PLAN 3.31), by
+    /// the user at `at`: what the worker does as it opens a deck. JSON of what it brought, `{
+    /// theme, added, roles, named }`, or `null` where it brought nothing.
+    pub fn library(&mut self, shipped: &str, at: Option<String>) -> Result<String, JsError> {
+        let by = assistant::Caller { author: "user", at: at.as_deref().and_then(store::seconds) };
+        let brought = self.0.library(shipped, by).map_err(js)?;
+        serde_json::to_string(&brought).map_err(js)
+    }
+
     /// Files written back, as an undo or a redo of a restore or a theme edit has them: JSON
     /// `[{ path, text }]`, `text` null for a file to take out.
     #[wasm_bindgen(js_name = writeFiles)]

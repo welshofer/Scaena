@@ -1,14 +1,17 @@
 import ScaenaKit
 import SwiftUI
 
-/// The light table (PLAN 2.97, 3.14), in place of the canvas: every slide of the deck, each drawn
-/// at its last state at rest, as the PDF draws it, to reorder, copy, and take out across a large
-/// deck. A click selects a slide, Shift+click every slide from the one last clicked, ⌘-click adds
-/// one or takes it away; ← and → select the slide before or after, Home and End the first and the
-/// last. The slides selected, dragged onto another, go before it where they come after it and after
-/// it where they come before; ⌥← and ⌥→ move them a place; ⌘D (the Node menu's Duplicate) copies
-/// them, each just after itself; Delete takes them out. Return, or a double click, shows a slide's
-/// first state on the canvas. Each is one patch, and every other state shows what it showed.
+/// The light table (PLAN 2.97, 3.14), in place of the canvas and the slides down the side, as a
+/// presentation app's: every slide of the deck in a grid that fills the window, each drawn at its
+/// last state at rest, as the PDF draws it, to reorder, copy, and take out across a large deck. The
+/// slider under the grid, or a pinch, makes the slides larger or smaller, as many to a row as fit,
+/// and the size is kept for the next time. A click selects a slide, Shift+click every slide from the
+/// one last clicked, ⌘-click adds one or takes it away; ← and → select the slide before or after,
+/// Home and End the first and the last. The slides selected, dragged onto another, go before it
+/// where they come after it and after it where they come before; ⌥← and ⌥→ move them a place; ⌘D
+/// (the Node menu's Duplicate) copies them, each just after itself; Delete takes them out. Return,
+/// or a double click, shows a slide's first state on the canvas. Each is one patch, and every
+/// other state shows what it showed.
 struct LightTable: View {
     let editor: DeckEditor
     /// The slides selected.
@@ -20,24 +23,58 @@ struct LightTable: View {
     /// The slide last clicked: where Shift+click selects from.
     @State private var anchor: String?
     @FocusState private var focused: Bool
+    /// How wide each slide is drawn, in points: the slider's, kept between windows and launches.
+    @AppStorage("lightTableSlideWidth") private var slideWidth = LightTable.ideal
+    /// The slide width a pinch began from, while one goes on.
+    @State private var pinchedFrom: Double?
+
+    /// The narrowest a slide is drawn, the widest, and how wide at first, in points.
+    static let least = 120.0
+    static let most = 520.0
+    static let ideal = 240.0
+    /// The room between slides, and around them, in points.
+    private static let spacing: CGFloat = 20
+    private static let margin: CGFloat = 24
 
     var body: some View {
         let slides = Slide.of(editor.slots)
-        ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 200, maximum: 320), spacing: 16)], spacing: 16) {
-                ForEach(Array(slides.enumerated()), id: \.element.id) { n, slide in
-                    SlideCell(
-                        editor: editor, slide: slide, number: n + 1, picked: picked.contains(slide.id),
-                        revision: editor.revision
-                    )
-                    .onTapGesture(count: 2) { show(slide.states.first ?? slide.id) }
-                    .onTapGesture { click(slide.id, in: slides) }
-                    .draggable(slide.id)
-                    .dropDestination(for: String.self) { dropped, _ in drop(dropped, on: slide.id, in: slides) }
+        VStack(spacing: 0) {
+            // The grid takes all the room the window gives it, as many slides to a row as fit.
+            GeometryReader { room in
+                let columns = Self.columns(across: room.size.width, slide: slideWidth)
+                let cell = Self.cellWidth(across: room.size.width, columns: columns)
+                ScrollView {
+                    LazyVGrid(
+                        columns: Array(repeating: GridItem(.flexible(), spacing: Self.spacing, alignment: .top), count: columns),
+                        spacing: Self.spacing
+                    ) {
+                        ForEach(Array(slides.enumerated()), id: \.element.id) { n, slide in
+                            SlideCell(
+                                editor: editor, slide: slide, number: n + 1, picked: picked.contains(slide.id),
+                                revision: editor.revision, width: cell
+                            )
+                            .onTapGesture(count: 2) { show(slide.states.first ?? slide.id) }
+                            .onTapGesture { click(slide.id, in: slides) }
+                            .draggable(slide.id)
+                            .dropDestination(for: String.self) { dropped, _ in drop(dropped, on: slide.id, in: slides) }
+                        }
+                    }
+                    .padding(Self.margin)
                 }
             }
-            .padding()
+            .simultaneousGesture(
+                MagnifyGesture()
+                    .onChanged { pinch in
+                        let from = pinchedFrom ?? slideWidth
+                        pinchedFrom = from
+                        slideWidth = min(max(from * Double(pinch.magnification), Self.least), Self.most)
+                    }
+                    .onEnded { _ in pinchedFrom = nil }
+            )
+            Divider()
+            sizing
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .focusable()
         .focused($focused)
         .focusEffectDisabled()
@@ -63,6 +100,36 @@ struct LightTable: View {
             return .handled
         }
         .onAppear { focused = true }
+    }
+
+    /// The slider that sizes the slides, from a small slide to a large one, at the foot of the
+    /// table, as a presentation app's light table has it.
+    private var sizing: some View {
+        HStack(spacing: 8) {
+            Spacer()
+            Image(systemName: "rectangle").imageScale(.small).foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            Slider(value: $slideWidth, in: Self.least...Self.most)
+                .frame(width: 180)
+                .accessibilityLabel("Slide Size")
+                .accessibilityIdentifier("light-table-size")
+            Image(systemName: "rectangle").imageScale(.large).foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+        }
+        .controlSize(.small)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+        .background(.bar)
+    }
+
+    /// How many slides fit across `width` points, each at least `slide` wide: one at least.
+    static func columns(across width: CGFloat, slide: Double) -> Int {
+        max(1, Int(Double(width - 2 * margin + spacing) / (slide + Double(spacing))))
+    }
+
+    /// How wide each of `columns` slides is across `width` points: the row filled.
+    static func cellWidth(across width: CGFloat, columns: Int) -> CGFloat {
+        max((width - 2 * margin - CGFloat(columns - 1) * spacing) / CGFloat(columns), 1)
     }
 
     private func click(_ id: String, in slides: [Slide]) {
@@ -129,15 +196,23 @@ struct LightTable: View {
     }
 }
 
-/// A slide drawn at its last state, its number, and how many steps it has.
+/// A slide drawn at its last state, under it its number and how many steps it has.
 private struct SlideCell: View {
     let editor: DeckEditor
     let slide: Slide
     let number: Int
     let picked: Bool
     let revision: Int
+    /// How wide it stands, in points.
+    let width: CGFloat
     @State private var drawing: CGImage?
     @Environment(\.displayScale) private var scale
+
+    /// How wide it is drawn, in pixels: its width, rounded up to the next 160 points, so a slider
+    /// dragged draws the slides again only now and then, the drawing scaled between.
+    private var drawn: Int {
+        Int((width / 160).rounded(.up) * 160 * scale)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -153,22 +228,24 @@ private struct SlideCell: View {
                 RoundedRectangle(cornerRadius: 4)
                     .strokeBorder(picked ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: picked ? 3 : 1)
             }
+            // Its number under it, as a presentation app's light table has it, and its steps.
             HStack(spacing: 6) {
-                Text("\(number)").monospacedDigit().foregroundStyle(.secondary)
-                Spacer(minLength: 0)
+                Text("\(number)").monospacedDigit()
                 if slide.states.count > 1 {
-                    Text("\(slide.states.count) steps").foregroundStyle(.secondary)
+                    Text("· \(slide.states.count) steps")
                 }
             }
             .font(.caption)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(slide.states.count > 1 ? "Slide \(number), \(slide.states.count) steps" : "Slide \(number)")
         .accessibilityIdentifier("slide-\(slide.id)")
         .accessibilityAddTraits(picked ? .isSelected : [])
-        .task(id: "\(slide.last)\u{1f}\(revision)") {
-            drawing = editor.drawing(slide.last, width: Int(320 * scale))
+        .task(id: "\(slide.last)\u{1f}\(revision)\u{1f}\(drawn)") {
+            drawing = editor.drawing(slide.last, width: drawn)
         }
     }
 }

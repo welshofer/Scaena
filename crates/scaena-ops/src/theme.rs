@@ -366,3 +366,166 @@ pub fn theme_editing(b: &Bundle, edit: &ThemeEdit) -> Result<(ThemeEdited, Optio
         _ => Err(OpsError::new("the deck names no theme to edit: `theme --apply` gives it one")),
     }
 }
+
+/// What bringing a theme's layout library into an older copy of it did (PLAN 3.31).
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct Library {
+    /// The theme's name: that of the theme that ships, which the copy shares.
+    pub theme: String,
+    /// The layouts added, by their keys, in the library's order.
+    pub added: Vec<String>,
+    /// The roles added, by their names: those the layouts added set words in.
+    pub roles: Vec<String>,
+    /// The layouts the copy had that were given a name, a section, a prompt, or an example.
+    pub named: Vec<String>,
+}
+
+/// `theme`, a bundle's copy of the theme that ships as `shipped`, with the layout library that
+/// theme ships now brought in (PLAN 3.31, SPEC §3.6): what an editor opens a deck in where its
+/// theme was copied into its bundle before the library grew, so Add Slide offers every layout, by
+/// section, each drawn as it is used. Added: each layout the copy lacks, as the theme ships it,
+/// and each role those set words in that the copy lacks; and to each layout it has, the name,
+/// section, and description the library gives it, and to each of its slots the prompt and the
+/// example, where the copy has none. No slot of a layout it has moves, and no role, token, or
+/// other part of it changes, so every slide draws as it did. A layout that sets words in a role
+/// the copy lacks and cannot take, that role's family or color not being the copy's, is left out,
+/// and an example drawn by a shader preset the copy lacks is left off. The layouts go in the
+/// library's order, then the copy's own, so the gallery's sections come as in a deck started in
+/// the theme, and the theme is written in the library's format. None where `theme` is not a copy
+/// of `shipped`, another name or another grid, or has every layout and name it would bring.
+pub fn library(theme: &Value, shipped: &Value) -> Option<(Value, Library)> {
+    let name = shipped.get("name")?.as_str()?;
+    if theme.get("name")?.as_str()? != name {
+        return None;
+    }
+    let tracks = |t: &Value| (t.pointer("/grid/columns").cloned(), t.pointer("/grid/rows").cloned());
+    if tracks(theme) != tracks(shipped) {
+        return None;
+    }
+    let ours = theme.get("layouts").and_then(Value::as_object).cloned().unwrap_or_default();
+    let theirs = shipped.get("layouts")?.as_object()?;
+    let roles = theme.pointer("/type/roles").and_then(Value::as_object).cloned().unwrap_or_default();
+    let families = theme.pointer("/type/families").and_then(Value::as_object);
+    let colors = theme.pointer("/tokens/color").and_then(Value::as_object);
+    let presets = theme.pointer("/shaders/presets").and_then(Value::as_object);
+    // A role the copy lacks that it can take from the library: one in a family and a color the
+    // copy has.
+    let takes = |role: &str| -> Option<Value> {
+        let r = shipped.get("type")?.get("roles")?.get(role)?;
+        let family =
+            r.get("family").and_then(Value::as_str).is_none_or(|f| families.is_some_and(|fs| fs.contains_key(f)));
+        let color = (r.get("color").and_then(Value::as_str))
+            .is_none_or(|c| c.starts_with('#') || colors.is_some_and(|cs| cs.contains_key(c)));
+        (family && color).then(|| r.clone())
+    };
+    let mut brought = Library { theme: name.to_string(), ..Library::default() };
+    let mut taken = serde_json::Map::new();
+    let mut layouts = serde_json::Map::new();
+    for (key, layout) in theirs {
+        if let Some(own) = ours.get(key) {
+            let (own, named) = given(own, layout, presets);
+            if named {
+                brought.named.push(key.clone());
+            }
+            layouts.insert(key.clone(), own);
+            continue;
+        }
+        // Each role it sets words in that the copy lacks, taken; or, one it cannot take, not it.
+        let missing = set_in(layout).into_iter().filter(|r| !roles.contains_key(r) && !taken.contains_key(r));
+        let Some(wanted) = missing.map(|r| takes(&r).map(|v| (r, v))).collect::<Option<Vec<_>>>() else { continue };
+        for (role, r) in wanted {
+            brought.roles.push(role.clone());
+            taken.insert(role, r);
+        }
+        brought.added.push(key.clone());
+        layouts.insert(key.clone(), drawable(layout, presets));
+    }
+    if brought.added.is_empty() && brought.named.is_empty() {
+        return None;
+    }
+    for (key, own) in ours {
+        layouts.entry(key).or_insert(own);
+    }
+    let mut theme = theme.clone();
+    theme["layouts"] = Value::Object(layouts);
+    if !taken.is_empty() {
+        if theme.pointer("/type/roles").is_none() {
+            theme["type"]["roles"] = Value::Object(serde_json::Map::new());
+        }
+        let roles = theme.pointer_mut("/type/roles")?.as_object_mut()?;
+        roles.extend(taken);
+    }
+    if let Some(version) = shipped.get("scaena-theme") {
+        theme["scaena-theme"] = version.clone();
+    }
+    Some((theme, brought))
+}
+
+/// The roles a layout sets words in: its slots', and those of its slots in each format.
+fn set_in(layout: &Value) -> Vec<String> {
+    let mut slots: Vec<&Value> =
+        layout.get("slots").and_then(Value::as_object).into_iter().flat_map(|s| s.values()).collect();
+    for format in layout.get("formats").and_then(Value::as_object).into_iter().flat_map(|f| f.values()) {
+        slots.extend(format.get("slots").and_then(Value::as_object).into_iter().flat_map(|s| s.values()));
+    }
+    let mut roles: Vec<String> = Vec::new();
+    for role in slots.iter().filter_map(|s| s.get("role").and_then(Value::as_str)) {
+        if !roles.iter().any(|r| r == role) {
+            roles.push(role.to_string());
+        }
+    }
+    roles
+}
+
+/// Whether the copy can draw `example`, a slot's: a picture by a shader preset it has, or a chart
+/// or a table.
+fn draws(example: &Value, presets: Option<&serde_json::Map<String, Value>>) -> bool {
+    example.get("picture").and_then(Value::as_str).is_none_or(|p| presets.is_some_and(|ps| ps.contains_key(p)))
+}
+
+/// `layout`, the library's, with each example the copy cannot draw left off.
+fn drawable(layout: &Value, presets: Option<&serde_json::Map<String, Value>>) -> Value {
+    let mut out = layout.clone();
+    for slot in out.get_mut("slots").and_then(Value::as_object_mut).into_iter().flat_map(|s| s.values_mut()) {
+        if let Some(s) = slot.as_object_mut()
+            && s.get("example").is_some_and(|e| !draws(e, presets))
+        {
+            s.remove("example");
+        }
+    }
+    out
+}
+
+/// `own`, a layout the copy has, given what the library's `theirs` says of it where it says
+/// nothing: its name, section, and description, and each slot's prompt and example, where that
+/// slot takes words as the library's does or a picture as it does. Whether it was given any.
+fn given(own: &Value, theirs: &Value, presets: Option<&serde_json::Map<String, Value>>) -> (Value, bool) {
+    let mut out = own.clone();
+    let mut named = false;
+    let Some(layout) = out.as_object_mut() else { return (out, false) };
+    for key in ["name", "group", "description"] {
+        if !layout.contains_key(key)
+            && let Some(v) = theirs.get(key)
+        {
+            layout.insert(key.to_string(), v.clone());
+            named = true;
+        }
+    }
+    let their_slots = theirs.get("slots").and_then(Value::as_object);
+    for (key, slot) in layout.get_mut("slots").and_then(Value::as_object_mut).into_iter().flatten() {
+        let (Some(s), Some(t)) = (slot.as_object_mut(), their_slots.and_then(|ts| ts.get(key))) else { continue };
+        if s.contains_key("role") != t.get("role").is_some() {
+            continue;
+        }
+        for field in ["prompt", "example"] {
+            if !s.contains_key(field)
+                && let Some(v) = t.get(field)
+                && (field != "example" || draws(v, presets))
+            {
+                s.insert(field.to_string(), v.clone());
+                named = true;
+            }
+        }
+    }
+    (out, named)
+}

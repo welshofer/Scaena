@@ -54,6 +54,11 @@ struct DeckView: View {
     @State private var asked: Asked?
     /// The light table shown in place of the canvas, and the slides selected on it (PLAN 3.14).
     @State private var showsSlides = false
+    /// Which of the window's columns show: the slides down the side fold away while the light
+    /// table shows every slide, as a presentation app's does, and come back after it.
+    @State private var columns = NavigationSplitViewVisibility.automatic
+    /// The columns as they were before the light table folded the side away.
+    @State private var beforeTable: NavigationSplitViewVisibility?
     @State private var slidesPicked: Set<String> = []
     /// A rehearsal running in place of the canvas, and one over, what it kept shown in a sheet.
     @State private var rehearsal: Rehearsal?
@@ -116,11 +121,22 @@ struct DeckView: View {
 
     /// The states down the side; beside them the canvas and the rest; and the toolbar.
     private var window: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columns) {
             StateList(editor: editor, chosen: $chosen, make: restage, add: addState)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 320)
         } detail: {
             detail
+        }
+        .onChange(of: showsSlides) { _, shows in
+            if shows {
+                beforeTable = columns
+                columns = .detailOnly
+            } else if let before = beforeTable {
+                // `.automatic` leaves a side folded away folded, so the side comes back shown,
+                // unless it was folded away before the light table.
+                columns = before == .detailOnly ? .detailOnly : .all
+                beforeTable = nil
+            }
         }
         #if os(macOS)
         .toolbar(id: "deck") { customizable }

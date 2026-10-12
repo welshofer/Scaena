@@ -189,9 +189,21 @@ pub unsafe extern "C" fn scaena_files_free(files: *mut ScaenaFiles) {
     }
 }
 
+/// `session`, a bundle just opened, its theme given the layout library of the theme that ships by
+/// its name where it is an older copy of it (PLAN 3.31): by the user, for the next save to keep,
+/// so Add Slide offers every layout the theme ships, by section, and every slide draws as it did.
+/// A theme the library cannot be brought into opens as it is.
+fn library(mut session: Session) -> Session {
+    if let Some(shipped) = scaena_ops::shipped::theme(&session.theme().name) {
+        let _ = session.library(shipped.text, Caller { author: "user", at: None });
+    }
+    session
+}
+
 /// Open the bundle `files` hold, as a page opens one from a folder: its `deck.json`, the theme
-/// it names, and every other file by its path. Takes `files`, opened or not. Null where the
-/// bundle cannot be opened, `*error` then saying why (JSON `{"message"}`; free it).
+/// it names, and every other file by its path; an older copy of a theme that ships takes its
+/// layout library (PLAN 3.31). Takes `files`, opened or not. Null where the bundle cannot be
+/// opened, `*error` then saying why (JSON `{"message"}`; free it).
 ///
 /// # Safety
 /// `files` is a live handle from [`scaena_files_new`]; `error` is null or writable.
@@ -203,7 +215,7 @@ pub unsafe extern "C" fn scaena_open(files: *mut ScaenaFiles, error: *mut *mut c
         }
         // SAFETY: the caller gives a handle this library made, which it takes.
         let files = unsafe { Box::from_raw(files) };
-        Session::open(files.0).map_err(said)
+        Session::open(files.0).map(library).map_err(said)
     });
     match opened {
         Ok(session) => Box::into_raw(Box::new(ScaenaSession(session))),
@@ -214,14 +226,14 @@ pub unsafe extern "C" fn scaena_open(files: *mut ScaenaFiles, error: *mut *mut c
     }
 }
 
-/// Open a `.scaena` zip, its `len` bytes. Null where it cannot be opened, `*error` then saying
-/// why.
+/// Open a `.scaena` zip, its `len` bytes, as [`scaena_open`] opens a folder. Null where it cannot
+/// be opened, `*error` then saying why.
 ///
 /// # Safety
 /// `bytes` is `len` readable bytes; `error` is null or writable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn scaena_open_zip(bytes: *const u8, len: usize, error: *mut *mut c_char) -> *mut ScaenaSession {
-    match guarded(|| Session::from_zip(unsafe { self::bytes(bytes, len, "bytes") }?).map_err(said)) {
+    match guarded(|| Session::from_zip(unsafe { self::bytes(bytes, len, "bytes") }?).map(library).map_err(said)) {
         Ok(session) => Box::into_raw(Box::new(ScaenaSession(session))),
         Err(failure) => {
             unsafe { report(error, failure) };

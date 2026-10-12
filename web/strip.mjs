@@ -21,6 +21,8 @@
 //   where it outlines nothing on `intro`, a title slide the deck opened with no picture and no
 //   kicker. Blank adds an empty slide after `mix`. Alt with an arrow key moves it, and so
 //   does a drag; Delete removes it, and the source is as it was.
+// - A deck whose bundle took Dusk before its library grew, 11 layouts in no section, opens with the
+//   library Dusk ships now (PLAN 3.31): + Slide offers the 13 sections and 122 layouts.
 // - F2 renames a state; a state another builds on is not removed, and the status says why.
 // - The state shown, renamed and taken away, leaves no error on the page, and ⌘Z and ⇧⌘Z with the
 //   strip focused undo and redo (PLAN 2.77).
@@ -386,6 +388,31 @@ try {
   check(await says("not made"), `revenue, which mix builds on, stays: ${await status()}`);
   check(await holds(["intro", "revenue", "mix", "close"]), "the strip as it was");
   check(await page.evaluate(() => window.scaena.last().valid), "the source still compiles and validates");
+
+  // The same deck, its bundle holding Dusk as it was on 2026-10-06, before the library grew: the
+  // worker brings in the library Dusk ships now, and + Slide offers all of it, by section.
+  {
+    const fresh = await browser.newContext({ viewport: { width: 1920, height: 1200 }, deviceScaleFactor: 1 });
+    const held = await readFile("tests/themes/older/dusk-0.10.theme.json", "utf8");
+    let served = 0;
+    await fresh.route("**/docs/examples/themes/dusk.theme.json", (route) => {
+      served++;
+      return route.fulfill({ contentType: "application/json", body: held });
+    });
+    const older = await fresh.newPage();
+    older.on("pageerror", (e) => failures.push(`older Dusk: ${e.message}`));
+    await older.goto(url("/docs/examples/revenue.deck.json"));
+    await older.waitForFunction(() => window.scaena?.last() || document.querySelector("#status")?.textContent.startsWith("error"), null, { timeout: 120000 });
+    await older.click("#strip [data-add=slide]");
+    await older.waitForSelector("#starting[open] button[data-start]", { timeout: 60000 });
+    const brought = await older.evaluate(() => ({
+      sections: [...document.querySelectorAll("#starting [role=tab]")].map((t) => t.dataset.section),
+      counted: [...document.querySelectorAll("#starting [role=tab] .count")].reduce((n, c) => n + Number(c.textContent), 0),
+    }));
+    check(served > 0, `the bundle's theme is the older Dusk, served ${served} time(s)`);
+    check(brought.sections.join() === sections && brought.counted === 122, `an older Dusk opens with its library: ${brought.sections.length} sections, ${brought.counted} layouts`);
+    await fresh.close();
+  }
 
   // The state shown, renamed then taken away, from the strip: what the canvas was asking of it
   // lets go, with no error on the page; and ⌘Z with the strip focused undoes each (PLAN 2.77).
