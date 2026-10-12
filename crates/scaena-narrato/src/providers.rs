@@ -96,6 +96,8 @@ pub struct Request {
 pub enum Shape {
     Arc,
     Slides,
+    /// Texts that run past their place, rewritten to fit (Scaena's own call, [`crate::fit`]).
+    Fit,
 }
 
 /// A document the model reads beside the prompt: a PDF, sent as itself (ADR-0026).
@@ -166,10 +168,12 @@ impl Provider {
         let contract = match call.shape {
             Shape::Arc => schema::arc_gemini(),
             Shape::Slides => schema::slides_gemini(),
+            Shape::Fit => crate::fit::schema_gemini(),
         };
         let name = match call.shape {
             Shape::Arc => "arc",
             Shape::Slides => "deck",
+            Shape::Fit => "fit",
         };
         match self {
             Provider::Anthropic => {

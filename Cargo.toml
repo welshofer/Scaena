@@ -136,6 +136,8 @@ base64 = "0.23"
 flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
 # `scaena serve` (PLAN 2.11, ADR-0012): HTTP/1.1 on the tokio the MCP server already runs on.
 hyper          = { version = "1.11", default-features = false, features = ["server", "http1"] }
+# The CLI's calls to the user's own model (PLAN G.2): blocking, rustls, the system's certificates.
+ureq           = { version = "3.4", default-features = false, features = ["rustls", "platform-verifier"] }
 hyper-util     = { version = "0.1.21", default-features = false, features = ["tokio"] }
 http-body-util = "0.1.5"
 bytes          = "1.12"

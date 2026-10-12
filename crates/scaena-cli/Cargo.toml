@@ -28,6 +28,8 @@ scaena-store.workspace = true
 scaena-ops = { workspace = true, features = ["shipped", "narrato"] }
 scaena-mcp.workspace = true
 scaena-serve.workspace = true
+scaena-narrato.workspace = true
+ureq.workspace = true
 clap.workspace = true
 miette.workspace = true
 serde_json.workspace = true

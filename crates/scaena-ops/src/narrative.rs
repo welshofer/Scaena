@@ -14,8 +14,9 @@ use crate::{Context, OpsError};
 use scaena_core::inserts::slug;
 use scaena_core::model::theme::{Example, Prompt, PromptItems, Slot, Theme};
 use scaena_core::{Deck, Finding};
+use scaena_narrato::fit::Long;
 use scaena_narrato::layouts::{self, Varied};
-use scaena_narrato::{ChartData, Narrative, Slide};
+use scaena_narrato::{ChartData, Document, Generation, Narrative, Request, Slide, Step};
 use serde_json::{Map, Value, json};
 use std::path::{Path, PathBuf};
 
@@ -30,13 +31,174 @@ pub struct Made {
     pub layouts: Vec<String>,
 }
 
-/// A deck generated: the bundle made, as `deck_create` reports one, each slide's layout, and
-/// the findings whose fixes were applied, each checked by laying its state out again.
-#[derive(Debug, Clone)]
+/// A deck generated: the bundle made, as `deck_create` reports one; the arc it follows, and why
+/// the heuristic chose it where the model's choice did not come back; each slide's layout; the
+/// findings whose fixes were applied, each checked by laying its state out again; and the texts
+/// the model rewrote to fit their places, or why it did not.
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct Generated {
     pub created: Created,
+    pub arc: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
     pub layouts: Vec<String>,
     pub fixed: Vec<Finding>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub fitted: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unfitted: Option<String>,
+}
+
+/// What a request a generation asks its client to make answered: its status, 0 where it never
+/// came back; its status line's words, or why it did not come back; and its body.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Reply {
+    pub status: u16,
+    pub status_text: String,
+    pub body: String,
+}
+
+/// How far a generation has come, for its client to say as it goes.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Progress {
+    /// Arc selection is asked.
+    Choosing,
+    /// The arc is chosen: by the model, or by the heuristic where the model's choice did not
+    /// come back, saying why.
+    Chose { arc: String, fallback: Option<String> },
+    /// The slides are asked, at least this many.
+    Writing { slides: usize },
+    /// The slides came back, cut short or whole.
+    Wrote { slides: usize, truncated: bool },
+    /// Texts that run past their place are asked to be rewritten.
+    Fitting { texts: usize },
+    /// The rewrites came back, these many kept.
+    Fitted { texts: usize },
+}
+
+/// A deck generated from start to end (PLAN G.2): each request `generation` asks for made by
+/// `send`, the client's own transport, and its answer read; then the bundle [`generating`] makes
+/// in the theme; then, with a key, each text that still runs past its place rewritten by the
+/// model to the length the engine measured for it ([`overflowing`]), and lint's fixes applied
+/// again. A rewrite that fails leaves the deck as it was, saying why. `say` hears how far it has
+/// come. Nothing is written.
+#[allow(clippy::too_many_arguments)]
+pub fn generate(
+    mut generation: Generation,
+    key: Option<&str>,
+    documents: &[Document],
+    theme_file: &Path,
+    theme: String,
+    font: &dyn Fn(&str) -> Result<Vec<u8>, OpsError>,
+    send: &mut dyn FnMut(&Request) -> Reply,
+    say: &mut dyn FnMut(Progress),
+) -> Result<(Generated, Option<Write>), OpsError> {
+    while let Some(request) = key.and_then(|key| generation.request(key, documents)) {
+        let step = generation.step();
+        say(if step == Step::Arc { Progress::Choosing } else { Progress::Writing { slides: generation.target() } });
+        let reply = send(&request);
+        generation.answer(reply.status, &reply.status_text, &reply.body).map_err(|e| OpsError::new(e.to_string()))?;
+        if step == Step::Arc {
+            let arc = generation.arc().map(|a| a.selection.clone()).unwrap_or_default();
+            say(Progress::Chose { arc, fallback: generation.fallback().map(str::to_string) });
+        }
+    }
+    let narrative = (generation.narrative().cloned())
+        .ok_or_else(|| OpsError::new("the narrative is not written: a key asks the model for it"))?;
+    say(Progress::Wrote { slides: narrative.slides.len(), truncated: narrative.truncated });
+    let (mut made, write) = generating(&narrative, theme_file, theme, font)?;
+    made.fallback = generation.fallback().map(str::to_string);
+    let Some(mut write) = write else { return Ok((made, None)) };
+    let longs = overflowing(&write.deck, &made.created.findings)?;
+    let (Some(key), false) = (key, longs.is_empty()) else { return Ok((made, Some(write))) };
+    let Some(request) = generation.fit_request(key, &longs) else { return Ok((made, Some(write))) };
+    say(Progress::Fitting { texts: longs.len() });
+    let reply = send(&request);
+    let rewrites = match generation.fit_answer(reply.status, &reply.status_text, &reply.body, &longs) {
+        Ok(rewrites) => rewrites,
+        Err(why) => {
+            made.unfitted = Some(why.to_string());
+            return Ok((made, Some(write)));
+        }
+    };
+    say(Progress::Fitted { texts: rewrites.len() });
+    if rewrites.is_empty() {
+        return Ok((made, Some(write)));
+    }
+    let mut doc = write.deck.to_value()?;
+    for (id, text) in &rewrites {
+        doc["nodes"][id]["text"] = json!(text);
+    }
+    let nothing = scaena_store::Files::Zip(Default::default());
+    let view = View { base: &nothing, pending: write.files.clone() };
+    let deck = Deck::from_json(&doc.to_string()).context("the deck rewritten to fit")?;
+    let found = lint_in(&deck, &view)?.findings;
+    let settled = settle(doc, found, &view)?;
+    made.fixed.extend(settled.fixed);
+    made.fitted = rewrites.into_iter().map(|(id, _)| id).collect();
+    made.created.errors = errors(&settled.findings);
+    made.created.findings = settled.findings;
+    write.deck = settled.deck;
+    Ok((made, Some(write)))
+}
+
+/// The texts of `deck` that run past their place, as `findings` (lint's, after its fixes) say:
+/// each text node lint finds too long for its box at its smallest size (E100, W203) or longer
+/// than its lines (W202), with the most characters that would fit, by how far it runs over.
+pub fn overflowing(deck: &Deck, findings: &[Finding]) -> Result<Vec<Long>, OpsError> {
+    let doc = deck.to_value()?;
+    let mut out: Vec<Long> = Vec::new();
+    for f in findings {
+        let (Some(id), Some(m)) = (f.node.as_deref(), f.measure.as_ref()) else { continue };
+        let ratio = match f.code.as_str() {
+            "E100" | "W203" => match (m["box"][1].as_f64(), m["height"].as_f64()) {
+                (Some(room), Some(height)) if height > 0.0 => room / height,
+                _ => continue,
+            },
+            "W202" => match (m["maxLines"].as_f64(), m["lines"].as_f64()) {
+                (Some(most), Some(lines)) if lines > 0.0 => most / lines,
+                _ => continue,
+            },
+            _ => continue,
+        };
+        let node = &doc["nodes"][id];
+        let (true, Some(text)) = (node["type"] == "text", node["text"].as_str()) else { continue };
+        let n = text.chars().count();
+        // A little under the measure, so a line that wraps otherwise still fits.
+        let most = ((n as f64 * ratio.min(1.0) * 0.9).floor() as usize).max(8).min(n.saturating_sub(1));
+        match out.iter_mut().find(|l| l.id == id) {
+            Some(l) => l.most = l.most.min(most),
+            None => out.push(Long { id: id.to_string(), text: text.to_string(), most }),
+        }
+    }
+    Ok(out)
+}
+
+/// How many of `findings` are errors.
+fn errors(findings: &[Finding]) -> usize {
+    findings.iter().filter(|f| f.severity == scaena_core::Severity::Error).count()
+}
+
+/// A deck with lint's fixes applied: the findings fixed, the deck, and what lint finds in it then.
+struct Settled {
+    fixed: Vec<Finding>,
+    deck: Deck,
+    findings: Vec<Finding>,
+}
+
+/// `doc` with each fix `found` offers applied, each once, as `lint --fix` applies them.
+fn settle(mut doc: Value, found: Vec<Finding>, view: &View) -> Result<Settled, OpsError> {
+    let mut fixed = Vec::new();
+    for f in found.iter().filter(|f| f.fix.is_some()) {
+        let mut next = doc.clone();
+        if scaena_core::patch::apply(&mut next, f.fix.as_deref().unwrap_or_default()).is_ok() {
+            doc = next;
+            fixed.push(f.clone());
+        }
+    }
+    let deck = Deck::from_json(&doc.to_string()).context("the fixed deck")?;
+    let findings = if fixed.is_empty() { found } else { lint_in(&deck, view)?.findings };
+    Ok(Settled { fixed, deck, findings })
 }
 
 /// The bundle `narrative` makes in the theme whose file is `theme_file` and whose JSON is
@@ -57,39 +219,36 @@ pub fn generating(
         Err(OpsError::new(format!("a generated deck reads no file: {}", path.display())))
     };
     let (mut created, write) = creating(&req, theme, font, &none)?;
-    let Some(mut write) = write else {
-        return Ok((Generated { created, layouts: made.layouts, fixed: Vec::new() }, None));
+    let mut made = Generated {
+        created: created.clone(),
+        arc: narrative.arc.clone(),
+        fallback: None,
+        layouts: made.layouts,
+        fixed: Vec::new(),
+        fitted: Vec::new(),
+        unfitted: None,
     };
+    let Some(mut write) = write else { return Ok((made, None)) };
     let nothing = scaena_store::Files::Zip(Default::default());
     let view = View { base: &nothing, pending: write.files.clone() };
     let mut doc = write.deck.to_value()?;
-    let mut fixed = Vec::new();
     // Characters the theme's fonts have no glyph for, as plain text writes them: CO₂ as CO2.
     let unset: Vec<Finding> = created.findings.iter().filter(|f| f.code == "E120").cloned().collect();
     if !unset.is_empty() {
         for f in &unset {
             plainer(&mut doc, f);
         }
-        fixed.extend(unset);
+        made.fixed.extend(unset);
         let deck = Deck::from_json(&doc.to_string()).context("the deck in plain characters")?;
         created.findings = lint_in(&deck, &view)?.findings;
     }
     // Then each fix lint offers, each checked by laying its state out again with it.
-    let offered: Vec<Finding> = created.findings.iter().filter(|f| f.fix.is_some()).cloned().collect();
-    for f in offered {
-        let mut next = doc.clone();
-        if scaena_core::patch::apply(&mut next, f.fix.as_deref().unwrap_or_default()).is_ok() {
-            doc = next;
-            fixed.push(f);
-        }
-    }
-    if !fixed.is_empty() {
-        let deck = Deck::from_json(&doc.to_string()).context("the fixed deck")?;
-        created.findings = lint_in(&deck, &view)?.findings;
-        created.errors = created.findings.iter().filter(|f| f.severity == scaena_core::Severity::Error).count();
-        write.deck = deck;
-    }
-    Ok((Generated { created, layouts: made.layouts, fixed }, Some(write)))
+    let settled = settle(doc, created.findings, &view)?;
+    made.fixed.extend(settled.fixed);
+    made.created.errors = errors(&settled.findings);
+    made.created.findings = settled.findings;
+    write.deck = settled.deck;
+    Ok((made, Some(write)))
 }
 
 /// `doc` with the characters an E120 finding names written as plain text writes them, where the
@@ -1530,6 +1689,98 @@ mod tests {
         assert_eq!(beats.len(), n.slides.len());
         assert_eq!(beats[0].claim, n.slides[0].slide_title);
         assert!(beats.iter().any(|b| b.evidence.iter().any(|e| e.starts_with('@'))));
+    }
+
+    /// An Anthropic answer whose text is `text`.
+    fn anthropic(text: &str) -> String {
+        json!({ "content": [{ "type": "text", "text": text }], "stop_reason": "end_turn" }).to_string()
+    }
+
+    /// The rewrites a model would give for the texts a fit request asks about: each cut to its
+    /// most characters, at a word.
+    fn shortened(prompt: &str) -> String {
+        let mut texts = Vec::new();
+        for block in prompt.split("id: ").skip(1) {
+            let (id, rest) = block.split_once('\n').unwrap();
+            let most: usize =
+                rest.split_once(" characters").unwrap().0.trim_start_matches("at most: ").parse().unwrap();
+            let words = rest.split_once("text:\n").unwrap().1.trim();
+            let mut cut = String::new();
+            for word in words.split(' ') {
+                if cut.chars().count() + word.chars().count() + 1 > most {
+                    break;
+                }
+                cut = if cut.is_empty() { word.to_string() } else { format!("{cut} {word}") };
+            }
+            texts.push(json!({ "id": id, "text": cut }));
+        }
+        json!({ "texts": texts }).to_string()
+    }
+
+    #[test]
+    fn a_generation_runs_on_the_clients_transport_and_fits_what_runs_over() {
+        use scaena_narrato::{Provider, Settings};
+        let (summary, slides) = catalog();
+        // The agenda's headline stands in a narrow column: this title runs past it at any size.
+        let mut agenda = slides[1].clone();
+        agenda.slide_title = "What we will cover today across the whole Gulf Coast and every port beyond it".into();
+        let picked = [slides[0].clone(), agenda, slides[4].clone(), slides[54].clone(), slides[55].clone()];
+        let written = json!({ "executiveSummary": summary, "slides": picked }).to_string();
+        let arc =
+            std::fs::read_to_string(root().join("crates/scaena-narrato/tests/answers/anthropic-arc.json")).unwrap();
+        let mut asked: Vec<String> = Vec::new();
+        let mut send = |r: &Request| {
+            let body = r.body.as_ref().unwrap();
+            let content = body["messages"][0]["content"].as_array().unwrap();
+            let prompt = content.last().unwrap()["text"].as_str().unwrap().to_string();
+            let reply = if prompt.contains("=== CATALOG ===") {
+                arc.clone()
+            } else if prompt.contains("runs past its place") {
+                anthropic(&shortened(&prompt))
+            } else {
+                anthropic(&written)
+            };
+            asked.push(prompt);
+            Reply { status: 200, status_text: "OK".into(), body: reply }
+        };
+        let mut heard = Vec::new();
+        let mut say = |p: Progress| heard.push(p);
+        let settings = Settings { provider: Provider::Anthropic, model: "a-model".into(), base: None, browser: false };
+        let g = Generation::new(narrative("", Vec::new()).brief, settings).unwrap();
+        let (made, write) =
+            generate(g, Some("sk-test"), &[], Path::new("dusk.theme.json"), dusk(), &font, &mut send, &mut say)
+                .unwrap();
+        assert_eq!(asked.len(), 3, "arc, slides, and the rewrite");
+        assert_eq!(made.arc, "Problem\u{2013}Solution");
+        assert!(made.created.created && made.created.errors == 0, "{:#?}", made.created.findings);
+        let header = made.fitted.first().expect("the agenda's title rewritten").clone();
+        assert!(header.ends_with("-header"), "{header}");
+        let deck = write.unwrap().deck.to_value().unwrap();
+        // The model's shorter words, which now fit where they stand.
+        let text = deck["nodes"][&header]["text"].as_str().unwrap();
+        assert!(text.starts_with("What we will cover") && text.len() < 40, "{text}");
+        let over = ["E100", "W202", "W203"];
+        assert!(
+            !made
+                .created
+                .findings
+                .iter()
+                .any(|f| over.contains(&f.code.as_str()) && f.node.as_deref() == Some(&header)),
+            "{:#?}",
+            made.created.findings
+        );
+        // The beat keeps the claim whole; the slide sets it shorter.
+        let claims: Vec<&str> = deck["spine"]["sections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|s| s["beats"].as_array().unwrap())
+            .filter_map(|b| b["claim"].as_str())
+            .collect();
+        assert!(claims.contains(&"What we will cover today across the whole Gulf Coast and every port beyond it"));
+        assert!(matches!(heard[0], Progress::Choosing));
+        assert!(heard.iter().any(|p| matches!(p, Progress::Fitting { texts: 1 })));
+        assert!(heard.iter().any(|p| matches!(p, Progress::Fitted { texts: 1 })));
     }
 
     #[test]
