@@ -12,7 +12,7 @@ authors.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["gpu", "cpu", "editor"]
+default = ["gpu", "cpu", "editor", "generate"]
 # Paint with vello on WebGPU (PLAN 0.8), into a canvas or a worker's OffscreenCanvas (PLAN 2.1).
 # Without it or `cpu`, the module is the engine alone: `frame()` returns display lists, and
 # the page paints them some other way.
@@ -31,6 +31,10 @@ hyphenation = ["scaena-engine/hyphenation"]
 # (PLAN 2.4), and starts new ones from a theme and its fonts, which the page hands over as a
 # `Map` (PLAN 2.12).
 editor = ["scaena-session/editor", "dep:scaena-ops", "dep:scaena-store", "dep:serde", "dep:indexmap", "dep:js-sys", "cpu"]
+# A deck made from a prompt (PLAN G.5): the deck the generator's own module built from Narrato's
+# narrative, made a bundle here as `scaena generate` makes one (`scaena-session`'s `generate`).
+# Narrato's prompts and arcs stay in that module, which the page loads the first time.
+generate = ["editor", "scaena-session/generate", "scaena-ops/narrato", "dep:scaena-sources"]
 
 [dependencies]
 # The session a page edits (ADR-0021); which painters and editing it carries is this crate's features.
@@ -41,6 +45,7 @@ scaena-engine.workspace = true
 scaena-paint = { path = "../scaena-paint", default-features = false }
 scaena-ops = { workspace = true, optional = true }
 scaena-store = { workspace = true, optional = true }
+scaena-sources = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 indexmap = { workspace = true, optional = true }
 serde_json.workspace = true

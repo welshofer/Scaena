@@ -20,6 +20,9 @@ const PER_DOC_CAP: usize = 60_000;
 const README_CAP: usize = 80_000;
 const MANIFEST_RESERVE: usize = 12_000;
 const LIST_LIMIT: usize = 40;
+/// The most files a browser reads one by one: more than the pack takes before its budget runs
+/// out.
+pub const MOST_READ: usize = 30;
 
 /// A repository as a user names it: `owner/repo`, `github.com/owner/repo`, or a URL to a
 /// branch, a directory, or a file in it.
@@ -75,6 +78,84 @@ pub fn archive_url(r: &RepoRef) -> String {
         Some(reference) => format!("https://api.github.com/repos/{}/{}/tarball/{reference}", r.owner, r.repo),
         None => format!("https://api.github.com/repos/{}/{}/tarball", r.owner, r.repo),
     }
+}
+
+/// The URL of a repository's tree at `reference`, every path in it: what a browser reads in
+/// place of the archive, whose host lets no other page read it.
+pub fn tree_url(r: &RepoRef, reference: &str) -> String {
+    format!("https://api.github.com/repos/{}/{}/git/trees/{}?recursive=1", r.owner, r.repo, encoded(reference))
+}
+
+/// The URL a browser reads a public repository's file at, as it is.
+pub fn raw_url(r: &RepoRef, reference: &str, path: &str) -> String {
+    format!("https://raw.githubusercontent.com/{}/{}/{}/{}", r.owner, r.repo, encoded(reference), encoded(path))
+}
+
+/// The URL of a file through the API, which a token reaches in a private repository.
+pub fn contents_url(r: &RepoRef, reference: &str, path: &str) -> String {
+    format!("https://api.github.com/repos/{}/{}/contents/{}?ref={}", r.owner, r.repo, encoded(path), encoded(reference))
+}
+
+/// `path` with each byte a URL's path does not take as it is escaped, its slashes kept.
+fn encoded(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    for b in path.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~' | b'/') {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+/// Each file a repository's tree lists, by its path and size, none read yet.
+pub fn tree(json: &Value) -> Vec<File> {
+    (json["tree"].as_array().into_iter().flatten())
+        .filter(|e| e["type"] == "blob")
+        .filter_map(|e| Some(File { path: e["path"].as_str()?.to_string(), size: e["size"].as_u64()?, data: None }))
+        .collect()
+}
+
+/// The files of a tree a browser reads, by their places in `files`, in the order read: the
+/// README of the scope the address names, then the documents [`compose`] would quote, best
+/// ranked first, as many as [`MOST_READ`] and [`MAX_KEPT`] bytes allow.
+pub fn wanted(files: &[File], r: &RepoRef) -> Vec<usize> {
+    let scoped = |f: &File| -> Option<String> {
+        match &r.sub_path {
+            Some(sub) if f.path == *sub => Some(base(&f.path).to_string()),
+            Some(sub) => f.path.strip_prefix(&format!("{sub}/")).map(str::to_string),
+            None => Some(f.path.clone()),
+        }
+    };
+    let inv = inventory(files);
+    let design =
+        inv.design.as_deref().map(|d| r.sub_path.as_ref().and_then(|s| d.strip_prefix(&format!("{s}/"))).unwrap_or(d));
+    let mut ranked: Vec<(f64, usize)> = (files.iter().enumerate())
+        .filter(|(_, f)| keep(&f.path, f.size) && f.size <= MAX_FILE)
+        .filter_map(|(i, f)| {
+            let path = scoped(f)?;
+            if root_doc(&path) == Some("readme") {
+                return Some((f64::INFINITY, i));
+            }
+            let quoted = DOC_EXTS.contains(&ext(&path).as_str()) && !never(&path);
+            quoted.then(|| (rank(&path, f.size, design), i))
+        })
+        .collect();
+    ranked.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
+    let mut kept = 0;
+    let mut out = Vec::new();
+    for (_, i) in ranked {
+        let size = files[i].size as usize;
+        if out.len() == MOST_READ {
+            break;
+        }
+        if kept + size <= MAX_KEPT {
+            kept += size;
+            out.push(i);
+        }
+    }
+    out
 }
 
 /// The headers a request to GitHub carries: a token of the user's own where one is given, for

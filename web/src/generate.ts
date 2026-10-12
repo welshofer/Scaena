@@ -1,0 +1,207 @@
+// A deck made from a prompt, in an engine's worker of its own (PLAN G.5, ADR-0026): what
+// `scaena generate` does, with `fetch`. The generator's own module (`scaena-generator`, loaded
+// the first time) builds each request and reads each answer, reads the files and plans each
+// link's GETs, and builds the deck the narrative makes in the theme; the engine's module makes it
+// a bundle (`Making`), as the CLI makes one: the characters the fonts lack written plainly, lint's
+// fixes applied, the texts that still run past their place rewritten by the model, and each sheet
+// given kept as a data source. The user's key goes to the provider it is for, and a GitHub token
+// to GitHub, and nowhere else.
+import { Making } from "@scaena/wasm";
+import type { Choices, Generate, Generated, GeneratingEvent } from "./protocol";
+
+type Generator = typeof import("@scaena/generator");
+
+let loaded: Promise<Generator> | undefined;
+
+/** The generator's module, loaded and started the first time. */
+function generator(): Promise<Generator> {
+  loaded ??= import("@scaena/generator").then(async (module) => {
+    await module.default();
+    return module;
+  });
+  return loaded;
+}
+
+const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/** What a brief may ask, as Narrato knows it. */
+export async function choices(): Promise<Choices> {
+  return JSON.parse((await generator()).choices()) as Choices;
+}
+
+/** A request a generation asks the client to make (`scaena_narrato::Request`). */
+interface Request {
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+  body?: unknown;
+}
+
+/** `request` made: its status, its status line's words, and its body; status 0 where it never
+ * came back, saying why, as the CLI reads a request that failed. */
+async function send(request: Request): Promise<{ status: number; statusText: string; body: string }> {
+  try {
+    const body = request.body == null ? undefined : JSON.stringify(request.body);
+    const response = await fetch(request.url, { method: request.method, headers: request.headers, body });
+    return { status: response.status, statusText: response.statusText, body: await response.text() };
+  } catch (e) {
+    return { status: 0, statusText: said(e), body: "" };
+  }
+}
+
+/** A GET a link's plan asks for: its status, its content type, and its body. A host that lets
+ * no other page read it (CORS) fails as a network does, and says so. */
+async function get(asked: { url: string; headers: Record<string, string>; most: number }) {
+  let response: Response;
+  try {
+    response = await fetch(asked.url, { headers: asked.headers });
+  } catch {
+    const host = new URL(asked.url).host;
+    throw new Error(
+      `${host} could not be read from this page: it is out of reach, or it lets no other page read it. Download what it serves and add the file, or give it to \`scaena generate\` or the Mac app`,
+    );
+  }
+  const body = new Uint8Array(await response.arrayBuffer());
+  if (body.length > asked.most) throw new Error(`${asked.url} answered with more than ${asked.most >> 20} MB`);
+  return { status: response.status, kind: response.headers.get("content-type") ?? "", body };
+}
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** The theme a deck is made in: its file's name, its text, and the fonts it names. */
+export interface Theme {
+  file: string;
+  text: string;
+  fonts: Map<string, Uint8Array>;
+}
+
+/** The deck `job` asks for, made in `theme`: the bundle's files by their paths, what it came
+ * to, and its title. `hear` hears how far it has come. */
+export async function generate(
+  job: Generate,
+  theme: Theme,
+  hear: (event: GeneratingEvent) => void,
+): Promise<{ files: Map<string, Uint8Array>; made: Generated; title: string }> {
+  const g = await generator();
+  const sources = new g.Sources();
+  const asking = JSON.stringify({ provider: job.provider, model: job.model, base: job.base });
+  const brief = JSON.stringify(job.brief);
+  try {
+    for (const file of job.files) {
+      hear({ kind: "reading", name: file.name });
+      const read = JSON.parse(sources.add(file.name, new Uint8Array(file.bytes))) as { name: string; kind: string };
+      hear({ kind: "read", name: read.name, what: read.kind });
+    }
+    for (const link of job.links) {
+      hear({ kind: "reading", name: link });
+      const fetching = g.Sources.fetching(link, job.github);
+      if (!fetching) throw new Error(`${link}: a file is added as a file, not as a link`);
+      for (let asked = fetching.request(); asked; asked = fetching.request()) {
+        const got = await get(JSON.parse(asked));
+        fetching.answer(got.status, got.kind, got.body);
+      }
+      const read = JSON.parse(sources.take(fetching)) as { name: string; kind: string };
+      hear({ kind: "read", name: read.name, what: read.kind });
+    }
+    if (job.research) await research(g, brief, asking, job, sources, hear);
+    const generation = new g.Generation(brief, asking, sources);
+    try {
+      if (job.arc) generation.chooseArc(job.arc);
+      for (let asked = generation.request(job.key); asked; asked = generation.request(job.key)) {
+        const step = generation.step();
+        hear(step === "arc" ? { kind: "choosing" } : { kind: "writing", slides: generation.target() });
+        const reply = await send(JSON.parse(asked));
+        const at = JSON.parse(generation.answer(reply.status, reply.statusText, reply.body)) as {
+          arc?: string;
+          fallback?: string | null;
+          written?: number | null;
+          truncated?: boolean | null;
+        };
+        if (step === "arc") hear({ kind: "chose", arc: at.arc ?? "", fallback: at.fallback ?? undefined });
+        else hear({ kind: "wrote", slides: at.written ?? 0, truncated: at.truncated ?? false });
+      }
+      hear({ kind: "making" });
+      const making = new Making(generation.deck(theme.text), theme.file, theme.text, theme.fonts);
+      try {
+        await fit(generation, making, job.key, hear);
+        making.keep(sources.tables());
+        const made = { ...JSON.parse(making.report()), sources: JSON.parse(generation.given()) } as Generated;
+        const files = making.files();
+        if (!files) {
+          const errors = made.created.findings.filter((f) => f.severity === "error").map((f) => `${f.code} ${f.message}`);
+          throw new Error(`the deck made would not validate: ${errors.join("; ")}`);
+        }
+        const deck = JSON.parse(new TextDecoder().decode(files.get("deck.json"))) as { meta?: { title?: string } };
+        return { files, made, title: deck.meta?.title || job.brief.topic };
+      } finally {
+        making.free();
+      }
+    } finally {
+      generation.free();
+    }
+  } finally {
+    sources.free();
+  }
+}
+
+/** Deep research on the brief's topic (PLAN G.8), its report kept among `sources`: Gemini's agent
+ * polled as the generator says, or Anthropic's search resumed, each wait kept here. */
+async function research(
+  g: Generator,
+  brief: string,
+  asking: string,
+  job: Generate,
+  sources: InstanceType<Generator["Sources"]>,
+  hear: (event: GeneratingEvent) => void,
+) {
+  const researching = new g.Research(brief, asking);
+  try {
+    hear({ kind: "researching", topic: job.brief.topic });
+    let asked = JSON.parse(researching.start(job.key)) as Request;
+    let doing: string | undefined;
+    for (;;) {
+      const reply = await send(asked);
+      const next = JSON.parse(researching.answer(job.key, reply.status, reply.statusText, reply.body)) as {
+        send?: Request;
+        wait?: number;
+        done?: { sources: number; cut: boolean };
+        progress?: string | null;
+      };
+      if (next.progress && next.progress !== doing) hear({ kind: "researchingNow", doing: (doing = next.progress) });
+      if (next.done) {
+        hear({ kind: "researched", ...next.done });
+        break;
+      }
+      if (next.wait) await wait(next.wait);
+      asked = next.send!;
+    }
+    sources.research(researching);
+  } finally {
+    researching.free();
+  }
+}
+
+/** Each text that still runs past its place, rewritten by the model to the length the engine
+ * measured for it; a rewrite that fails leaves the deck as it was, saying why. */
+async function fit(
+  generation: InstanceType<Generator["Generation"]>,
+  making: Making,
+  key: string,
+  hear: (event: GeneratingEvent) => void,
+) {
+  const longs = making.longs();
+  const texts = (JSON.parse(longs) as unknown[]).length;
+  if (!texts) return;
+  const asked = generation.fitRequest(key, longs);
+  if (!asked) return;
+  hear({ kind: "fitting", texts });
+  const reply = await send(JSON.parse(asked));
+  try {
+    const rewrites = generation.fitAnswer(reply.status, reply.statusText, reply.body, longs);
+    making.fitted(rewrites);
+    hear({ kind: "fitted", texts: (JSON.parse(rewrites) as unknown[]).length });
+  } catch (e) {
+    making.unfitted(said(e));
+    hear({ kind: "unfitted", why: said(e) });
+  }
+}

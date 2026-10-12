@@ -1,0 +1,24 @@
+[package]
+name = "scaena-generator"
+description = "Decks made from a prompt in the browser (PLAN G.5): Narrato's requests and answers, deep research's, the sources read and fetched, and the deck a narrative builds, as a WASM module of its own, which the editor loads the first time it makes a deck from a prompt."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+scaena-core.workspace = true
+scaena-narrato.workspace = true
+scaena-sources.workspace = true
+# The deck a narrative builds (`scaena_ops::narrative::deck`), which reads the theme alone; the
+# editor's module makes it a bundle (`Making`), so neither carries the other's half.
+scaena-ops = { workspace = true, features = ["narrato"] }
+base64.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+wasm-bindgen.workspace = true

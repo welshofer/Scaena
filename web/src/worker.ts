@@ -32,6 +32,7 @@ import type {
   Finding,
   FromHelper,
   FromWorker,
+  Generate,
   Insert,
   Layer,
   LayoutSuggestion,
@@ -101,6 +102,13 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
     switch (data.type) {
       case "open":
         return await open(data.source, data.painter, data.canvas, data.engine);
+      case "briefing": {
+        await init(data.engine && { module_or_path: data.engine });
+        const { choices } = await import("@scaena/generate");
+        return post({ type: "briefing", choices: await choices() });
+      }
+      case "generate":
+        return await generating(data.generate, data.engine);
       case "reload": {
         if (!("url" in from)) throw new Error("only a bundle read from a URL is read again");
         latest++;
@@ -760,6 +768,21 @@ async function shipped(theme: string): Promise<{ file: string; text: string; fon
     given.set(file, new Uint8Array(await (await fetched(fonts[file])).arrayBuffer()));
   }
   return { file: chosen.file, text, fonts: given };
+}
+
+/** The deck `job` asks for, made from a prompt (PLAN G.5) in this worker, which holds no deck: in
+ * the theme that ships as `job.theme`, saying how far it has come, then its files, its name, and
+ * what it came to. The page opens it as it opens any bundle's files. */
+async function generating(job: Generate, engine?: WebAssembly.Module) {
+  await init(engine && { module_or_path: engine });
+  // Lint lays the deck's texts out, which can hyphenate them.
+  setHyphenation(patterns);
+  const { generate } = await import("@scaena/generate");
+  const theme = await shipped(job.theme);
+  const { files, made, title } = await generate(job, theme, (event) => post({ type: "generating", event }));
+  const out: Record<string, ArrayBuffer> = {};
+  for (const [path, bytes] of files) out[path] = (bytes as Uint8Array).slice().buffer as ArrayBuffer;
+  post({ type: "generated", files: out, name: nameFor(title), made }, Object.values(out));
 }
 
 /** A new deck titled `title` (PLAN 2.12), as `deck_create` makes one: the theme that ships as

@@ -299,6 +299,7 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
     let reach = scaena_sources::fetch::Reach {
         contact: a.sec_contact.clone().or_else(|| env(&["SCAENA_SEC_CONTACT"])),
         token: env(&["GITHUB_TOKEN", "GH_TOKEN"]),
+        browser: false,
     };
     let mut read = Vec::new();
     for spec in &a.source {
@@ -344,7 +345,7 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
     let mut kept = Vec::new();
     if let Some(write) = write {
         // Each sheet given, a data source of the deck's, which a chart can plot.
-        let (write, sheets) = scaena_ops::narrative::keeping(write, &read)?;
+        let (write, sheets) = scaena_ops::narrative::keeping(write, &scaena_sources::tables(&read))?;
         kept = sheets;
         scaena_ops::create::make(dir, write)?;
     }

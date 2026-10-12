@@ -1002,6 +1002,11 @@ export class Stage {
         return this.onBesides(data.state, data.t);
       case "ready":
         return;
+      // What a worker that makes a deck from a prompt says (PLAN G.5): a stage's never does.
+      case "briefing":
+      case "generating":
+      case "generated":
+        return;
       default: {
         // A reply the switch does not name would leave its request waiting: the compiler says so.
         const unheard: never = data;

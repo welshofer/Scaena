@@ -76,9 +76,12 @@ pub mod limits {
     pub const LANGUAGE: usize = 80;
 }
 
-const DEFAULT_AUDIENCE: &str = "Colleagues";
-const DEFAULT_GOAL: &str = "Inform";
-const DEFAULT_LENGTH: &str = "5-10 slides";
+/// Who a brief that names no audience is for.
+pub const DEFAULT_AUDIENCE: &str = "Colleagues";
+/// What a brief that names no goal is for.
+pub const DEFAULT_GOAL: &str = "Inform";
+/// How long a deck is whose brief says not.
+pub const DEFAULT_LENGTH: &str = "5-10 slides";
 
 /// A deck as asked for.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

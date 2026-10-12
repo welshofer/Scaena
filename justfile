@@ -76,7 +76,7 @@ ipad-gate UDID="":
 # with every feature, and as the player's engine alone, without the hyphenation patterns the
 # editor's module leaves out (ADR-0015).
 wasm-check:
-    cargo clippy -p scaena-engine -p scaena-paint -p scaena-session -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf --all-features --target wasm32-unknown-unknown --locked -- -D warnings
+    cargo clippy -p scaena-engine -p scaena-paint -p scaena-session -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf -p scaena-generator --all-features --target wasm32-unknown-unknown --locked -- -D warnings
     cargo clippy -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --locked -- -D warnings
 
 # Validate examples and fixture bundles against docs/schema, and check torture-deck font coverage
@@ -152,12 +152,13 @@ spike: wasm-smoke
 # release's, with what runs as a deck is read or edited, not each frame, built for size (SPEC §15).
 # Needs `cargo install wasm-bindgen-cli --version 0.2.129` (the version in Cargo.lock).
 wasm:
-    cargo build -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf --target wasm32-unknown-unknown --profile wasm --locked
+    cargo build -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf -p scaena-generator --target wasm32-unknown-unknown --profile wasm --locked
     wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/wasm/scaena_wasm.wasm
     wasm-bindgen --target web --out-dir crates/scaena-subset/pkg target/wasm32-unknown-unknown/wasm/scaena_subset.wasm
     wasm-bindgen --target web --out-dir crates/scaena-history/pkg target/wasm32-unknown-unknown/wasm/scaena_history.wasm
     wasm-bindgen --target web --out-dir crates/scaena-resources/pkg target/wasm32-unknown-unknown/wasm/scaena_resources.wasm
     wasm-bindgen --target web --out-dir crates/scaena-pdf/pkg target/wasm32-unknown-unknown/wasm/scaena_pdf.wasm
+    wasm-bindgen --target web --out-dir crates/scaena-generator/pkg target/wasm32-unknown-unknown/wasm/scaena_generator.wasm
     cargo build -p scaena-wasm --no-default-features --features gpu,cpu,hyphenation --target wasm32-unknown-unknown --profile wasm --locked
     wasm-bindgen --target web --out-dir crates/scaena-wasm/player target/wasm32-unknown-unknown/wasm/scaena_wasm.wasm
 
@@ -258,6 +259,7 @@ web-smoke: site
     node web/history.mjs
     node web/live.mjs
     node web/new.mjs
+    node web/generate.mjs
     node web/first-deck.mjs
     node web/edit-deck.mjs
     node web/present-deck.mjs

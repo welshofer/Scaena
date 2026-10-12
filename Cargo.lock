@@ -3276,6 +3276,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "scaena-generator"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "scaena-core",
+ "scaena-narrato",
+ "scaena-ops",
+ "scaena-sources",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "scaena-history"
 version = "0.1.0"
 dependencies = [
@@ -3403,8 +3417,10 @@ dependencies = [
  "scaena-core",
  "scaena-engine",
  "scaena-history",
+ "scaena-narrato",
  "scaena-ops",
  "scaena-paint",
+ "scaena-sources",
  "scaena-store",
  "serde",
  "serde_json",
@@ -3417,6 +3433,7 @@ version = "0.1.0"
 dependencies = [
  "csv",
  "flate2",
+ "serde",
  "serde_json",
  "thiserror 2.0.21",
  "zip",
@@ -3458,6 +3475,7 @@ dependencies = [
  "scaena-ops",
  "scaena-paint",
  "scaena-session",
+ "scaena-sources",
  "scaena-store",
  "serde",
  "serde_json",

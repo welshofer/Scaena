@@ -1,0 +1,194 @@
+// PLAN G.5 check: New from a prompt in the editor, in headless Chromium (serve.mjs), Anthropic
+// played by a scripted server that answers as the recorded answers do
+// (crates/scaena-narrato/tests/answers): the arc, then the slides, then the texts asked for
+// shorter, each cut to the length asked.
+//
+//   node web/generate.mjs     (after `just web`; from the repository's root)
+//
+// - The dialog offers Narrato's goals, lengths, and arcs, read from the generator's module as it
+//   opens, and says who writes the deck: the assistant's provider and model, with the user's key.
+// - What a browser cannot read says so, and where it is read: an SEC filing, and a page whose
+//   site lets no other page read it. A provider that refuses the key says so in the dialog,
+//   which stays open to try again.
+// - Cancel stops the worker making the deck, and the deck open stays open.
+// - A deck grounded in a Markdown file, a CSV, and a web page: what each gave is in the slides'
+//   prompt, the key went in Anthropic's header with its opt-in for a browser, and the deck opens
+//   in the editor kept nowhere, its slides the recorded answer's, the CSV a data source of it,
+//   and no error lint finds.
+// Exits 1 on any failure.
+import { readFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import { launch, serve } from "./serve.mjs";
+
+const failures = [];
+const check = (ok, what) => {
+  console.log(`${ok ? "ok  " : "FAIL"} ${what}`);
+  if (!ok) failures.push(what);
+};
+
+const answers = "crates/scaena-narrato/tests/answers";
+const ARC = await readFile(`${answers}/anthropic-arc.json`, "utf8");
+const SLIDES = await readFile(`${answers}/anthropic-slides.json`, "utf8");
+const NOTES = "# Tidewater field notes\n\nPort calls doubled in Q3, and every berth ran on shore power.";
+const PAGE = "<h1>Tidewater in the press</h1><p>The Gulf's first carbon-negative cargo line opened its third route.</p>";
+
+/** Anthropic, scripted: what each request asks, and the state the walk sets (`slow`, `fail`). */
+const requests = [];
+const state = { slow: 0, fail: false };
+const provider = createServer(async (req, res) => {
+  const cors = {
+    "access-control-allow-origin": req.headers.origin ?? "*",
+    "access-control-allow-headers": req.headers["access-control-request-headers"] ?? "*",
+    "access-control-allow-methods": "GET, POST, OPTIONS",
+  };
+  const path = new URL(req.url, "http://x").pathname;
+  // A page whose site lets no other page read it: no CORS header.
+  if (path === "/closed.html") return res.writeHead(200, { "content-type": "text/html" }).end(PAGE);
+  if (req.method === "OPTIONS") return res.writeHead(204, cors).end();
+  if (path === "/press.html") return res.writeHead(200, { ...cors, "content-type": "text/html; charset=utf-8" }).end(PAGE);
+  const reply = (status, body) =>
+    res.writeHead(status, { ...cors, "content-type": "application/json" }).end(typeof body === "string" ? body : JSON.stringify(body));
+  if (req.method !== "POST" || path !== "/v1/messages") return reply(404, { error: { message: `no ${req.method} ${path}` } });
+  let text = "";
+  for await (const chunk of req) text += chunk;
+  const body = JSON.parse(text);
+  const prompt = body.messages[0].content.find((c) => c.type === "text")?.text ?? "";
+  const system = (body.system ?? []).map((s) => s.text).join("\n");
+  const asked = system.includes("tightening the words") ? "fit" : prompt.includes("=== CATALOG ===") ? "arc" : "slides";
+  requests.push({ headers: req.headers, body, prompt, asked });
+  if (state.slow) await new Promise((ok) => setTimeout(ok, state.slow));
+  if (state.fail) return reply(401, { type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } });
+  if (asked === "arc") return reply(200, ARC);
+  if (asked === "slides") return reply(200, SLIDES);
+  // Each text asked for shorter, cut to the most characters it may have.
+  const texts = [...prompt.matchAll(/id: (.+)\nat most: (\d+) characters\ntext:\n([^\n]*)/g)].map(([, id, most, said]) => ({
+    id,
+    text: said.slice(0, Math.max(1, Number(most) - 1)).trim(),
+  }));
+  reply(200, { content: [{ type: "text", text: JSON.stringify({ texts }) }], stop_reason: "end_turn" });
+}).listen(0, "127.0.0.1");
+await new Promise((ok) => provider.once("listening", ok));
+const origin = `http://127.0.0.1:${provider.address().port}`;
+
+const site = await serve();
+const browser = await launch();
+try {
+  const page = await browser.newPage({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
+  page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
+  page.on("console", (m) => m.type() === "error" && !/Failed to (load resource|fetch)|CORS/.test(m.text()) && failures.push(`console: ${m.text()}`));
+  page.on("dialog", (d) => d.accept());
+  await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&bundle=/docs/examples/revenue.deck.json`);
+  await page.waitForFunction(() => window.scaena?.last() && window.scaena.where().name === "revenue", null, { timeout: 120000 });
+  // The assistant's settings, as its tab keeps them: Anthropic at the scripted server, a model,
+  // and a key for this tab.
+  await page.evaluate((origin) => {
+    localStorage.setItem("scaena.assistant", JSON.stringify({ provider: "anthropic", models: { anthropic: "scripted" }, bases: { anthropic: origin } }));
+    sessionStorage.setItem("scaena.key.anthropic", "sk-walk");
+  }, origin);
+
+  /** The dialog, open, with Narrato's choices in it. */
+  const opened = async () => {
+    await page.click("#new-prompt");
+    await page.waitForFunction(() => document.querySelector("#prompting-goal").options.length > 0, null, { timeout: 60000 });
+  };
+  /** The progress lines the dialog shows. */
+  const lines = () => page.locator("#prompting-progress li").allTextContents();
+  /** Once the dialog has said it failed, its last line. */
+  const failed = async () => {
+    await page.waitForSelector("#prompting-progress li.failed", { timeout: 60000 });
+    return page.locator("#prompting-progress li.failed").last().textContent();
+  };
+  const link = async (l) => {
+    await page.fill("#prompting-link", l);
+    await page.click("#prompting-add-link");
+  };
+  const removeAll = async () => {
+    while (await page.locator("#prompting-sources button").count()) await page.locator("#prompting-sources button").first().click();
+  };
+
+  await opened();
+  const goals = await page.locator("#prompting-goal option").allTextContents();
+  check(goals.join() === "Inform,Persuade,Inspire,Sell,Educate,Update Status", `the goals are Narrato's: ${goals}`);
+  check((await page.$eval("#prompting-length", (s) => s.value)) === "5-10 slides", "the length is Narrato's default");
+  const arcs = await page.locator("#prompting-arc option").allTextContents();
+  check(arcs[0] === "The model's choice" && arcs.includes("Problem–Solution"), `the arcs are offered, the model's choice first: ${arcs.length}`);
+  const who = await page.textContent("#prompting-who");
+  check(who.includes("Anthropic's scripted") && who.includes("your key"), `it says who writes the deck: ${who}`);
+  await page.fill("#prompting-topic", "Pitch a Series A round for our carbon-negative cargo platform.");
+  await page.fill("#prompting-audience", "Investors");
+  await page.selectOption("#prompting-goal", "Persuade");
+
+  // What a browser cannot read says where it is read.
+  await link("sec:AAPL");
+  await page.click("#prompting-go");
+  const sec = await failed();
+  check(sec.includes("--source sec:TICKER") && sec.includes("Mac"), `SEC says the Mac and the CLI read it: ${sec}`);
+  check(await page.locator("#prompting").evaluate((d) => d.open), "the dialog stays open");
+  await removeAll();
+  await link(`${origin}/closed.html`);
+  await page.click("#prompting-go");
+  const closed = await failed();
+  check(closed.includes("could not be read from this page"), `a site that lets no other page read it says so: ${closed}`);
+  await removeAll();
+
+  // A provider that refuses the key says so, and Generate is there to try again.
+  state.fail = true;
+  await page.click("#prompting-go");
+  const refused = await failed();
+  check(refused.includes("invalid x-api-key"), `the provider's refusal in its words: ${refused}`);
+  await page.waitForFunction(() => !document.querySelector("#prompting-go").disabled, null, { timeout: 30000 });
+  check(true, "Generate can be pressed again");
+  state.fail = false;
+
+  // Cancel stops it; the deck open stays open.
+  state.slow = 4000;
+  await page.click("#prompting-go");
+  await page.waitForFunction(() => [...document.querySelectorAll("#prompting-progress li")].some((l) => l.textContent.startsWith("Choosing the arc")), null, { timeout: 60000 });
+  await page.click("#prompting-cancel");
+  check(!(await page.locator("#prompting").evaluate((d) => d.open)), "Cancel closes the dialog");
+  await page.waitForTimeout(5000);
+  check((await page.evaluate(() => window.scaena.where().name)) === "revenue", "the deck open stays open");
+  state.slow = 0;
+
+  // Grounded in a Markdown file, a CSV, and a web page.
+  requests.length = 0;
+  await opened();
+  await page.setInputFiles("#prompting-files", [
+    { name: "notes.md", mimeType: "text/markdown", buffer: Buffer.from(NOTES) },
+    { name: "q3.csv", mimeType: "text/csv", buffer: Buffer.from("region,revenue\nGulf,4.1\nAtlantic,2.2\n") },
+  ]);
+  await link(`${origin}/press.html`);
+  const listed = await page.locator("#prompting-sources li").allTextContents();
+  check(listed.length === 3, `the sources are listed: ${listed.map((l) => l.replace(/\s*Remove$/, "")).join(", ")}`);
+  await page.click("#prompting-go");
+  await page.waitForFunction(() => window.scaena.where().name !== "revenue" && window.scaena.last(), null, { timeout: 180000 });
+  const made = await page.evaluate(() => window.scaena.where());
+  check(made.where === undefined, `the deck made is kept nowhere until it is saved: ${JSON.stringify(made)}`);
+  const status = await page.textContent("#status");
+  check(/made: 5 slides on the arc Problem–Solution/.test(status), `the status says what was made: ${status}`);
+  const arc = requests.find((r) => r.asked === "arc");
+  check(arc?.headers["x-api-key"] === "sk-walk" && arc.headers["anthropic-dangerous-direct-browser-access"] === "true", "the key goes in Anthropic's header, with its opt-in for a browser");
+  const slides = requests.find((r) => r.asked === "slides");
+  check(
+    slides?.prompt.includes("=== SOURCE: notes.md ===") && slides.prompt.includes("Port calls doubled in Q3"),
+    "the Markdown file is in the slides' prompt",
+  );
+  check(slides?.prompt.includes(`=== SOURCE: ${origin}/press.html ===`) && slides.prompt.includes("third route"), "the web page is in the slides' prompt");
+  check(slides?.prompt.includes("=== SOURCE: q3.csv ==="), "the CSV is in the slides' prompt");
+  const source = await page.evaluate(() => window.scaena.source());
+  const states = (source.match(/^state /gm) ?? []).length;
+  check(states === 5, `the deck has the recorded answer's five slides: ${states}`);
+  check(source.includes("data/q3.csv"), "the CSV is a data source of the deck's");
+  const last = await page.evaluate(() => window.scaena.last());
+  const errors = last.findings.filter((f) => f.severity === "error").map((f) => f.code);
+  check(last.valid && errors.length === 0, `it lints with no error: ${errors}`);
+  check(await page.locator("#play").isHidden(), "Play waits for a save");
+} catch (e) {
+  failures.push(String(e?.stack ?? e));
+} finally {
+  await browser.close();
+  site.close();
+  provider.close();
+}
+console.log(failures.length ? `${failures.length} failure(s):\n${failures.join("\n")}` : "New from a prompt makes a deck in the editor");
+process.exit(failures.length ? 1 : 0);

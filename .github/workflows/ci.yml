@@ -187,7 +187,7 @@ jobs:
           if-no-files-found: ignore
       # The engine, both painters, and the WASM bindings (whose WebGPU half exists only on wasm32)
       # must keep compiling for the browser (PLAN 0.1, 0.8).
-      - run: cargo clippy -p scaena-engine -p scaena-paint -p scaena-session -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf --all-features --target wasm32-unknown-unknown --locked -- -D warnings
+      - run: cargo clippy -p scaena-engine -p scaena-paint -p scaena-session -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf -p scaena-generator --all-features --target wasm32-unknown-unknown --locked -- -D warnings
       # The player's engine alone, as a single-file export carries it (PLAN 2.5), and the engine
       # without its hyphenation patterns, as the editor's module leaves them out (ADR-0015).
       - run: cargo clippy -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --locked -- -D warnings
@@ -266,7 +266,7 @@ jobs:
         with:
           node-version: 22
       - run: npm install --no-save playwright@1.56.1 && npx playwright install --with-deps chromium
-      - run: cargo build -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf --target wasm32-unknown-unknown --profile wasm --locked
+      - run: cargo build -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf -p scaena-generator --target wasm32-unknown-unknown --profile wasm --locked
       - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/wasm/scaena_wasm.wasm
       - run: wasm-bindgen --target web --out-dir crates/scaena-subset/pkg target/wasm32-unknown-unknown/wasm/scaena_subset.wasm
       # The CRDT, which the editor loads to save a bundle that keeps a history (PLAN 2.9).
@@ -275,6 +275,8 @@ jobs:
       - run: wasm-bindgen --target web --out-dir crates/scaena-resources/pkg target/wasm32-unknown-unknown/wasm/scaena_resources.wasm
       # The PDF painter, which the editor loads the first time it exports a PDF (PLAN 2.54).
       - run: wasm-bindgen --target web --out-dir crates/scaena-pdf/pkg target/wasm32-unknown-unknown/wasm/scaena_pdf.wasm
+      # The generator, which a worker of its own loads to make a deck from a prompt (PLAN G.5).
+      - run: wasm-bindgen --target web --out-dir crates/scaena-generator/pkg target/wasm32-unknown-unknown/wasm/scaena_generator.wasm
       # The player's engine alone, which a single-file export carries (PLAN 2.5), with every
       # language's hyphenation patterns, since its page plays offline (ADR-0015).
       - run: cargo build -p scaena-wasm --no-default-features --features gpu,cpu,hyphenation --target wasm32-unknown-unknown --profile wasm --locked
@@ -296,6 +298,8 @@ jobs:
           echo "What the assistant reads: $(wc -c < "$read") bytes, $(gzip -9 -c "$read" | wc -c) gzipped, loaded to ask" | tee -a "$GITHUB_STEP_SUMMARY"
           pdf=crates/scaena-pdf/pkg/scaena_pdf_bg.wasm
           echo "The PDF painter: $(wc -c < "$pdf") bytes, $(gzip -9 -c "$pdf" | wc -c) gzipped, loaded to export a PDF" | tee -a "$GITHUB_STEP_SUMMARY"
+          generator=crates/scaena-generator/pkg/scaena_generator_bg.wasm
+          echo "The generator: $(wc -c < "$generator") bytes, $(gzip -9 -c "$generator" | wc -c) gzipped, loaded to make a deck from a prompt" | tee -a "$GITHUB_STEP_SUMMARY"
           test "$gz" -le 3000000
       - run: node crates/scaena-wasm/www/smoke.mjs
       # SPEC §15's cold start, recorded: B1's first frame after navigation, WebGPU on SwiftShader.
@@ -429,6 +433,9 @@ jobs:
       - run: node web/live.mjs
       # The editor starts a deck from a theme that ships, and saves it somewhere new (PLAN 2.12).
       - run: node web/new.mjs
+      # A deck made from a prompt, grounded in files and a page, Narrato played by a scripted
+      # server: the generator's own module, and the deck opened in the editor (PLAN G.5).
+      - run: node web/generate.mjs
       # A first deck as a person makes one, from New to a deck that plays, exports, and opens
       # again, by the editor's buttons, menus, keys, and drops alone (PLAN 2.76).
       - run: node web/first-deck.mjs

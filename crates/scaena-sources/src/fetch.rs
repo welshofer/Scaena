@@ -2,6 +2,12 @@
 //! company's latest filings on SEC's EDGAR, a GitHub repository, and a web page. Each step is a
 //! GET the client makes and hands the answer back to; the client chooses nothing but how to make
 //! a request, so the CLI, the browser, and the Mac read a source alike.
+//!
+//! A browser reads only what a host lets another page read (CORS, PLAN G.5): a repository there
+//! is read from its tree and its files one by one (GitHub's API and raw.githubusercontent.com
+//! allow it; the host of its archive does not), and SEC, whose requests must name who makes them
+//! in a header a browser cannot set, and Google, which lets no other page read its exports, are
+//! refused with the way round.
 
 use crate::{Kind, Source, SourceError, github, html, sec};
 
@@ -145,11 +151,13 @@ pub enum Step {
 }
 
 /// What reaching a source takes from the user: the contact SEC asks every request to carry, and
-/// a GitHub token of their own, for a private repository or more requests an hour.
+/// a GitHub token of their own, for a private repository or more requests an hour; and whether
+/// the client is a browser, which reaches only what a host lets another page read.
 #[derive(Debug, Clone, Default)]
 pub struct Reach {
     pub contact: Option<String>,
     pub token: Option<String>,
+    pub browser: bool,
 }
 
 /// A source being fetched.
@@ -157,6 +165,8 @@ pub struct Reach {
 pub struct Fetch {
     state: State,
     headers: Vec<(String, String)>,
+    browser: bool,
+    token: bool,
 }
 
 #[derive(Debug)]
@@ -182,6 +192,16 @@ enum State {
     Google(Google),
     Metadata(github::RepoRef),
     Archive(github::RepoRef, Option<github::Metadata>),
+    /// A browser's: the repository's tree, then each file chosen, one by one.
+    Tree(github::RepoRef, Option<github::Metadata>, String),
+    Files {
+        repo: github::RepoRef,
+        meta: Option<github::Metadata>,
+        reference: String,
+        files: Vec<github::File>,
+        /// The files still to read, by their place in `files`, the next last.
+        wanted: Vec<usize>,
+    },
     Page(String),
     Done,
 }
@@ -194,6 +214,22 @@ impl Fetch {
     /// The plan that reads `remote`, and the first request it makes. SEC asks each request to
     /// say who makes it: without the user's contact, nothing is asked of it.
     pub fn new(remote: Remote, reach: &Reach) -> Result<(Fetch, Get), SourceError> {
+        if reach.browser {
+            match &remote {
+                Remote::Sec { .. } => {
+                    return Err(SourceError::Unreadable(
+                        "SEC asks each request to name who makes it, in a header a browser cannot set: ground a deck in filings with the Mac app or `scaena generate --source sec:TICKER`".into(),
+                    ));
+                }
+                Remote::Google { kind, .. } => {
+                    return Err(SourceError::Unreadable(format!(
+                        "Google lets no other page read a {}: download it and add the file",
+                        kind.named()
+                    )));
+                }
+                _ => {}
+            }
+        }
         let (state, headers, url) = match remote {
             Remote::Sec { query, forms } => {
                 let contact = reach.contact.as_deref().filter(|c| !c.trim().is_empty()).ok_or_else(|| {
@@ -212,8 +248,15 @@ impl Fetch {
             }
             Remote::Web(url) => (State::Page(url.clone()), vec![("user-agent".to_string(), "Scaena".to_string())], url),
         };
+        // A browser sets its own User-Agent: one set by a page is a header a site must give leave
+        // for first (CORS), which most do not.
+        let mut headers = headers;
+        if reach.browser {
+            headers.retain(|(k, _)| k != "user-agent");
+        }
         let most = MOST;
-        let fetch = Fetch { state, headers: headers.clone() };
+        let token = reach.token.as_deref().is_some_and(|t| !t.is_empty());
+        let fetch = Fetch { state, headers: headers.clone(), browser: reach.browser, token };
         Ok((fetch, Get { url, headers, most }))
     }
 
@@ -290,9 +333,32 @@ impl Fetch {
                     }
                     _ => None,
                 };
+                if self.browser {
+                    let reference = (r.reference.clone())
+                        .or_else(|| meta.as_ref().and_then(|m| m.default_branch.clone()))
+                        .unwrap_or_else(|| "HEAD".into());
+                    let url = github::tree_url(&r, &reference);
+                    self.state = State::Tree(r, meta, reference);
+                    return Ok(self.get(url, MOST));
+                }
                 let url = github::archive_url(&r);
                 self.state = State::Archive(r, meta);
                 Ok(self.get(url, MOST_ARCHIVE))
+            }
+            State::Tree(repo, meta, reference) => {
+                let what = format!("GitHub's tree of {}/{}", repo.owner, repo.repo);
+                let files = github::tree(&json(&what)?);
+                let mut wanted = github::wanted(&files, &repo);
+                wanted.reverse();
+                self.next_file(repo, meta, reference, files, wanted)
+            }
+            State::Files { repo, meta, reference, mut files, mut wanted } => {
+                let at = wanted.pop().expect("a file asked for");
+                // A file that does not come is left out, as one past the budget is.
+                if status == 200 {
+                    files[at].data = Some(body.to_vec());
+                }
+                self.next_file(repo, meta, reference, files, wanted)
             }
             State::Archive(r, meta) => {
                 if status != 200 {
@@ -331,6 +397,47 @@ impl Fetch {
                 Ok(Step::Done(page(&url, kind, body)?))
             }
             State::Done => Err(SourceError::Unreadable("the source is read already".into())),
+        }
+    }
+
+    /// The next file of a repository asked for, or the source its files make.
+    fn next_file(
+        &mut self,
+        repo: github::RepoRef,
+        meta: Option<github::Metadata>,
+        reference: String,
+        files: Vec<github::File>,
+        wanted: Vec<usize>,
+    ) -> Result<Step, SourceError> {
+        match wanted.last() {
+            Some(&next) => {
+                let path = files[next].path.clone();
+                let step = match self.token {
+                    // A private repository's files come through the API, as they are.
+                    true => {
+                        let mut headers = self.headers.clone();
+                        headers.retain(|(k, _)| k != "accept");
+                        headers.push(("accept".into(), "application/vnd.github.raw+json".into()));
+                        Step::Get(Get {
+                            url: github::contents_url(&repo, &reference, &path),
+                            headers,
+                            most: github::MAX_FILE,
+                        })
+                    }
+                    false => Step::Get(Get {
+                        url: github::raw_url(&repo, &reference, &path),
+                        headers: Vec::new(),
+                        most: github::MAX_FILE,
+                    }),
+                };
+                self.state = State::Files { repo, meta, reference, files, wanted };
+                Ok(step)
+            }
+            None => {
+                let (name, text) = github::compose(&repo, meta.as_ref(), &files)
+                    .map_err(|e| SourceError::Unreadable(e.to_string()))?;
+                Ok(Step::Done(Source { name, kind: Kind::GitHub, text, sheets: Vec::new(), pdf: None }))
+            }
         }
     }
 
@@ -410,7 +517,7 @@ mod tests {
     fn sec_is_asked_with_the_users_contact_for_the_latest_of_each_form() {
         let remote = Remote::Sec { query: "AAPL".into(), forms: vec!["10-K".into(), "10-Q".into()] };
         assert!(Fetch::new(remote.clone(), &Reach::default()).is_err(), "no contact, no request");
-        let reach = Reach { contact: Some("jay@example.com".into()), token: None };
+        let reach = Reach { contact: Some("jay@example.com".into()), ..Reach::default() };
         let (mut f, first) = Fetch::new(remote, &reach).unwrap();
         assert_eq!(first.url, sec::TICKERS_URL);
         assert!(first.headers.contains(&("user-agent".into(), "Scaena jay@example.com".into())));
@@ -444,6 +551,13 @@ mod tests {
     }
 
     #[test]
+    fn a_browser_asks_a_page_with_no_header_a_site_must_allow() {
+        let browser = Reach { browser: true, ..Reach::default() };
+        let (_, first) = Fetch::new(Remote::Web("https://example.com/about".into()), &browser).unwrap();
+        assert!(first.headers.is_empty(), "{:?}", first.headers);
+    }
+
+    #[test]
     fn a_page_reads_as_its_words_and_a_pdf_as_itself() {
         let (mut f, first) = Fetch::new(Remote::Web("https://example.com/about".into()), &Reach::default()).unwrap();
         assert_eq!(first.url, "https://example.com/about");
@@ -470,6 +584,64 @@ mod tests {
         let (mut f, _) = Fetch::new(remote, &Reach::default()).unwrap();
         let Step::Done(s) = f.answer(200, "application/octet-stream", b"%PDF-1.7").unwrap() else { panic!() };
         assert_eq!((s.name.as_str(), s.kind), ("Drive file.pdf", Kind::Pdf));
+    }
+
+    #[test]
+    fn a_browser_reads_a_repository_from_its_tree_file_by_file() {
+        let browser = Reach { browser: true, ..Reach::default() };
+        let r = github::parse("https://github.com/a/b").unwrap();
+        let (mut f, first) = Fetch::new(Remote::GitHub(r), &browser).unwrap();
+        assert!(first.headers.iter().all(|(k, _)| k != "user-agent"), "a browser sets its own");
+        let meta = json!({ "description": "Ships freight", "default_branch": "main", "language": "Rust" });
+        let Step::Get(tree) = f.answer(200, "application/json", meta.to_string().as_bytes()).unwrap() else { panic!() };
+        assert_eq!(tree.url, "https://api.github.com/repos/a/b/git/trees/main?recursive=1");
+        let readme = "# Tidewater\n\nCarbon-negative freight across the Gulf Coast, port to port.".repeat(4);
+        let guide = "How a shipment moves, from booking to berth, and what it emits on the way.".repeat(5);
+        let listed = json!({ "tree": [
+            { "path": "README.md", "type": "blob", "size": readme.len() },
+            { "path": "docs", "type": "tree" },
+            { "path": "docs/guide.md", "type": "blob", "size": guide.len() },
+            { "path": "src/main.rs", "type": "blob", "size": 4000 },
+            { "path": "node_modules/x/README.md", "type": "blob", "size": 100 }
+        ] });
+        let Step::Get(first_file) = f.answer(200, "application/json", listed.to_string().as_bytes()).unwrap() else {
+            panic!()
+        };
+        assert_eq!(first_file.url, "https://raw.githubusercontent.com/a/b/main/README.md");
+        assert!(first_file.headers.is_empty(), "a plain GET, which no host asks leave for");
+        let Step::Get(second) = f.answer(200, "text/plain", readme.as_bytes()).unwrap() else { panic!() };
+        assert_eq!(second.url, "https://raw.githubusercontent.com/a/b/main/docs/guide.md");
+        let Step::Done(s) = f.answer(200, "text/plain", guide.as_bytes()).unwrap() else { panic!() };
+        assert_eq!((s.name.as_str(), s.kind), ("GitHub: a/b (Rust)", Kind::GitHub));
+        assert!(s.text.contains("Carbon-negative freight") && s.text.contains("from booking to berth"));
+        assert!(s.text.contains("1 source files"), "the code counted, not read");
+    }
+
+    #[test]
+    fn a_token_reads_a_private_repositorys_files_through_the_api() {
+        let reach = Reach { browser: true, token: Some("t".into()), ..Reach::default() };
+        let r = github::parse("github:a/b/tree/dev/docs").unwrap();
+        let (mut f, _) = Fetch::new(Remote::GitHub(r), &reach).unwrap();
+        let Step::Get(tree) = f.answer(200, "application/json", b"{}").unwrap() else { panic!() };
+        assert_eq!(tree.url, "https://api.github.com/repos/a/b/git/trees/dev?recursive=1");
+        let listed = json!({ "tree": [{ "path": "docs/read me.md", "type": "blob", "size": 900 }] });
+        let Step::Get(file) = f.answer(200, "application/json", listed.to_string().as_bytes()).unwrap() else {
+            panic!()
+        };
+        assert_eq!(file.url, "https://api.github.com/repos/a/b/contents/docs/read%20me.md?ref=dev");
+        assert!(file.headers.contains(&("accept".into(), "application/vnd.github.raw+json".into())));
+        assert!(file.headers.contains(&("authorization".into(), "Bearer t".into())));
+    }
+
+    #[test]
+    fn a_browser_is_told_where_sec_and_google_are_read() {
+        let browser = Reach { browser: true, contact: Some("someone@example.com".into()), ..Reach::default() };
+        let sec = Remote::Sec { query: "AAPL".into(), forms: vec!["10-K".into()] };
+        let e = Fetch::new(sec, &browser).unwrap_err();
+        assert!(e.to_string().contains("--source sec:TICKER"), "{e}");
+        let google = Remote::Google { kind: Google::Presentation, id: "1AbC_dEf-GhIjKlMnOp".into() };
+        let e = Fetch::new(google, &browser).unwrap_err();
+        assert!(e.to_string().contains("download it and add the file"), "{e}");
     }
 
     #[test]
