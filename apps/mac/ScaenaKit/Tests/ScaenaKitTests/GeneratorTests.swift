@@ -26,8 +26,9 @@ private func anthropic(_ text: String) -> Data {
 
 /// A deck made from a prompt (PLAN G.6), as New from a Prompt makes one: a file read, the arc and
 /// the slides written on Anthropic's recorded answers, and the slides' pictures made by a stand-in
-/// for OpenAI's images API (PLAN G.10). It opens with a state for each slide and each picture among
-/// its files, and each key went to its own provider alone.
+/// for OpenAI's images API (PLAN G.10). The model is shown each slide as it is drawn and tightens
+/// the cover's title (PLAN G.13). It opens with a state for each slide and each picture among its
+/// files, and each key went to its own provider alone.
 @MainActor
 @Test func aDeckIsMadeFromAPromptWithItsPictures() async throws {
     let arc = try Data(contentsOf: answers.appending(path: "anthropic-arc.json"))
@@ -49,6 +50,10 @@ private func anthropic(_ text: String) -> Data {
             if body.contains("=== CATALOG ===") { return GeneratorReply(status: 200, body: arc) }
             if body.contains("runs past its place") {
                 return GeneratorReply(status: 200, body: anthropic(#"{"texts": []}"#))
+            }
+            if body.contains("art director") {
+                let look = #"{"slides": [{"slide": 1, "layout": "", "title": "Carbon-negative cargo, ready to scale", "subtitle": "", "bullets": [], "why": "One idea, one line."}]}"#
+                return GeneratorReply(status: 200, body: anthropic(look))
             }
             return GeneratorReply(status: 200, body: slides)
         }
@@ -81,6 +86,12 @@ private func anthropic(_ text: String) -> Data {
     #expect(heard.contains(.painting(pictures: pictures, model: "gpt-image-1")))
     #expect(heard.contains(.painted(pictures: pictures, unmade: [])))
     #expect(heard.contains(.making))
+    #expect(heard.contains(.looking(slides: made.layouts.count)))
+    #expect(heard.contains(.looked(slides: 1)))
+    #expect(made.looked?.first?.slide == 1)
+    let looked = await asked.requests.filter { ($0.body ?? "").contains("art director") }
+    #expect(looked.count == 1)
+    #expect((looked.first?.body ?? "").components(separatedBy: "image/jpeg").count - 1 == made.layouts.count)
     #expect(made.words.contains("\(pictures) picture"))
 
     let requests = await asked.requests

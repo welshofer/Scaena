@@ -764,7 +764,7 @@ fn turned(o: u8, w: f32, h: f32) -> Transform {
 
 /// `rgba`, `w` × `h` pixels, as a JPEG at `quality`, if every pixel is opaque: JPEG has
 /// no alpha, and a shader drawn translucent keeps what is under it.
-fn jpeg(rgba: &[u8], w: u32, h: u32, quality: u8) -> Option<Vec<u8>> {
+pub fn jpeg(rgba: &[u8], w: u32, h: u32, quality: u8) -> Option<Vec<u8>> {
     let pixels = rgba.as_chunks::<4>().0;
     if pixels.iter().any(|p| p[3] != 255) {
         return None;

@@ -127,6 +127,7 @@ export async function generate(
       const making = new Making(built, theme.file, theme.text, theme.fonts, painted?.bytes ?? new Map());
       try {
         if (painted) making.painted(painted.made, JSON.stringify(painted.unmade));
+        if (job.look !== false) await look(generation, making, job.key, theme, painted?.placed ?? "{}", hear);
         await fit(generation, making, job.key, hear);
         making.keep(sources.tables());
         const made = { ...JSON.parse(making.report()), sources: JSON.parse(generation.given()) } as Generated;
@@ -236,6 +237,75 @@ async function research(
   } finally {
     researching.free();
   }
+}
+
+/** How wide each slide is drawn for the model to see, in pixels (`scaena_ops::narrative::LOOK_WIDTH`). */
+const LOOK_WIDTH = 1024;
+
+/** The deck shown to the model as it is drawn (PLAN G.13): each slide drawn by the editor's
+ * module, a JPEG made of it here, and what the model asks to change (another of a slide's
+ * layouts, its words tightened) built again by the generator and kept where lint finds no slide
+ * worse for it; where it finds some, the deck is built once more without theirs. A look that
+ * fails leaves the deck as it was, saying why. */
+async function look(
+  generation: InstanceType<Generator["Generation"]>,
+  making: Making,
+  key: string,
+  theme: Theme,
+  placed: string,
+  hear: (event: GeneratingEvent) => void,
+) {
+  const layouts = JSON.stringify((JSON.parse(making.report()) as { layouts: string[] }).layouts);
+  const seen = generation.seeing(theme.text, placed, layouts);
+  const drawn = [];
+  for (let i = 0; i < making.count; i++) drawn.push(await jpeg(making.pixels(i, LOOK_WIDTH)));
+  const asked = generation.lookRequest(key, seen, JSON.stringify(drawn));
+  if (!asked) return;
+  hear({ kind: "looking", slides: drawn.length });
+  const reply = await send(JSON.parse(asked));
+  try {
+    const changes = JSON.parse(generation.lookAnswer(reply.status, reply.statusText, reply.body, seen)) as {
+      slide: number;
+    }[];
+    if (!changes.length) return hear({ kind: "looked", slides: 0 });
+    const tried = JSON.parse(
+      making.relook(generation.deckChanged(theme.text, placed, JSON.stringify(changes)), JSON.stringify(changes), "[]"),
+    ) as "kept" | { worse: number[] };
+    if (tried === "kept") return hear({ kind: "looked", slides: changes.length });
+    const kept = changes.filter((c) => !tried.worse.includes(c.slide - 1));
+    if (!tried.worse.length || !kept.length) {
+      const why = tried.worse.length
+        ? `lint found the slides the model changed worse for it`
+        : "the deck the model asked for would not validate";
+      making.unlooked(why);
+      return hear({ kind: "unlooked", why });
+    }
+    const again = JSON.parse(
+      making.relook(
+        generation.deckChanged(theme.text, placed, JSON.stringify(kept)),
+        JSON.stringify(kept),
+        JSON.stringify(tried.worse),
+      ),
+    ) as "kept" | { worse: number[] };
+    if (again === "kept") return hear({ kind: "looked", slides: kept.length });
+    making.unlooked("lint found a slide the model changed worse for it");
+    hear({ kind: "unlooked", why: "lint found a slide the model changed worse for it" });
+  } catch (e) {
+    making.unlooked(said(e));
+    hear({ kind: "unlooked", why: said(e) });
+  }
+}
+
+/** `pixels`, a slide drawn, as a JPEG the model is shown: its media type and its bytes in
+ * base64. */
+async function jpeg(pixels: ImageData): Promise<{ mediaType: string; data: string }> {
+  const canvas = new OffscreenCanvas(pixels.width, pixels.height);
+  canvas.getContext("2d")!.putImageData(pixels, 0, 0);
+  const blob = await canvas.convertToBlob({ type: "image/jpeg", quality: 0.82 });
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return { mediaType: "image/jpeg", data: btoa(binary) };
 }
 
 /** Each text that still runs past its place, rewritten by the model to the length the engine

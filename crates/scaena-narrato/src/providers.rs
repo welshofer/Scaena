@@ -107,6 +107,8 @@ pub enum Shape {
     Slides,
     /// Texts that run past their place, rewritten to fit (Scaena's own call, [`crate::fit`]).
     Fit,
+    /// The deck seen as it is drawn, and what to change on it (Scaena's own call, [`crate::look`]).
+    Look,
 }
 
 /// A document the model reads beside the prompt: a PDF, sent as itself (ADR-0026).
@@ -116,6 +118,19 @@ pub struct Document {
     /// Its name, as the user knows it.
     pub name: String,
     /// `application/pdf`.
+    pub media_type: String,
+    /// Its bytes, in base64.
+    pub data: String,
+}
+
+/// A picture the model looks at beside the prompt, after the words that say what it is: a slide
+/// as it is drawn (PLAN G.13).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Picture {
+    /// What is said of it, before it.
+    pub caption: String,
+    /// `image/jpeg` or `image/png`.
     pub media_type: String,
     /// Its bytes, in base64.
     pub data: String,
@@ -142,6 +157,8 @@ pub struct Call<'a> {
     /// Gemini's temperature; the others keep their own.
     pub temperature: Option<f64>,
     pub documents: &'a [Document],
+    /// Pictures after the documents, each after its caption, and before the prompt.
+    pub pictures: &'a [Picture],
 }
 
 /// Why a model stopped.
@@ -178,11 +195,13 @@ impl Provider {
             Shape::Arc => schema::arc_gemini(),
             Shape::Slides => schema::slides_gemini(),
             Shape::Fit => crate::fit::schema_gemini(),
+            Shape::Look => crate::look::schema_gemini(),
         };
         let name = match call.shape {
             Shape::Arc => "arc",
             Shape::Slides => "deck",
             Shape::Fit => "fit",
+            Shape::Look => "look",
         };
         match self {
             Provider::Anthropic => {
@@ -195,6 +214,13 @@ impl Provider {
                         })
                     })
                     .collect();
+                for p in call.pictures {
+                    content.push(json!({ "type": "text", "text": p.caption }));
+                    content.push(json!({
+                        "type": "image",
+                        "source": { "type": "base64", "media_type": p.media_type, "data": p.data },
+                    }));
+                }
                 content.push(json!({ "type": "text", "text": call.prompt }));
                 let mut body = json!({
                     "model": call.model,
@@ -222,6 +248,13 @@ impl Provider {
                         })
                     })
                     .collect();
+                for p in call.pictures {
+                    content.push(json!({ "type": "text", "text": p.caption }));
+                    content.push(json!({
+                        "type": "image_url",
+                        "image_url": { "url": format!("data:{};base64,{}", p.media_type, p.data), "detail": "high" },
+                    }));
+                }
                 content.push(json!({ "type": "text", "text": call.prompt }));
                 let body = json!({
                     "model": call.model,
@@ -246,6 +279,10 @@ impl Provider {
                 let mut parts: Vec<Value> = (call.documents.iter())
                     .map(|d| json!({ "inline_data": { "mime_type": d.media_type, "data": d.data } }))
                     .collect();
+                for p in call.pictures {
+                    parts.push(json!({ "text": p.caption }));
+                    parts.push(json!({ "inline_data": { "mime_type": p.media_type, "data": p.data } }));
+                }
                 parts.push(json!({ "text": call.prompt }));
                 let mut config = json!({
                     "responseMimeType": "application/json",
@@ -398,6 +435,7 @@ mod tests {
             max_tokens: 1000,
             temperature: Some(0.7),
             documents,
+            pictures: &[],
         }
     }
 
@@ -427,6 +465,25 @@ mod tests {
         assert_eq!(body["generationConfig"]["temperature"], 0.7);
         assert_eq!(body["contents"][0]["parts"][0]["inline_data"]["mime_type"], "application/pdf");
         assert!(body.get("systemInstruction").is_none());
+    }
+
+    #[test]
+    fn a_slide_drawn_goes_to_each_provider_as_its_picture_after_what_is_said_of_it() {
+        let drawn = [Picture { caption: "Slide 1 of 2".into(), media_type: "image/jpeg".into(), data: "/9j/".into() }];
+        let look = Call { pictures: &drawn, ..call(Shape::Look, &[]) };
+        let a = Provider::Anthropic.structured(&look).body.unwrap();
+        let content = &a["messages"][0]["content"];
+        assert_eq!(content[0], json!({ "type": "text", "text": "Slide 1 of 2" }));
+        assert_eq!(content[1]["source"], json!({ "type": "base64", "media_type": "image/jpeg", "data": "/9j/" }));
+        assert_eq!(content[2], json!({ "type": "text", "text": "prompt" }));
+        let o = Provider::Openai.structured(&look).body.unwrap();
+        assert_eq!(o["messages"][1]["content"][1]["image_url"]["url"], "data:image/jpeg;base64,/9j/");
+        assert_eq!(o["response_format"]["json_schema"]["name"], "look");
+        let g = Provider::Gemini.structured(&look).body.unwrap();
+        let parts = &g["contents"][0]["parts"];
+        assert_eq!(parts[0], json!({ "text": "Slide 1 of 2" }));
+        assert_eq!(parts[1]["inline_data"], json!({ "mime_type": "image/jpeg", "data": "/9j/" }));
+        assert_eq!(g["generationConfig"]["responseSchema"]["properties"]["slides"]["type"], "ARRAY");
     }
 
     #[test]

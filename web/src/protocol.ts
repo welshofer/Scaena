@@ -981,6 +981,9 @@ export interface Generate {
   /** Who makes the slides' pictures (PLAN G.10): an image model the key lists, best first,
    * made as illustrations in the theme's colors or as photographs; none where it is not given. */
   pictures?: { provider: "openai" | "gemini"; key: string; base?: string; look: "illustration" | "photo" };
+  /** Whether the model is shown each slide as it is drawn, and may give one another of its
+   * layouts and tighten its words (PLAN G.13); yes where it is not given. */
+  look?: boolean;
 }
 
 /** Narrato's brief (`scaena_narrato::Brief`): what the deck is about, in the user's words, and
@@ -1021,6 +1024,9 @@ export type GeneratingEvent =
   | { kind: "painting"; pictures: number; model: string }
   | { kind: "painted"; pictures: number; unmade: string[] }
   | { kind: "making" }
+  | { kind: "looking"; slides: number }
+  | { kind: "looked"; slides: number }
+  | { kind: "unlooked"; why: string }
   | { kind: "fitting"; texts: number }
   | { kind: "fitted"; texts: number }
   | { kind: "unfitted"; why: string };
@@ -1037,6 +1043,9 @@ export interface Generated {
   /** How many pictures were made for its slides, and why each other asked for was not. */
   pictures?: number;
   unpictured?: string[];
+  /** What the model changed on the deck it saw drawn, slide by slide (PLAN G.13), or why not. */
+  looked?: { slide: number; layout?: string; title?: string; subtitle?: string; bullets?: string[]; why: string }[];
+  unlooked?: string;
   /** Each sheet given, kept as a data source, or why not. */
   data: { sheet: string; id?: string; rows?: number; why?: string }[];
   /** What each source gave the prompt, and whether it was cut short to fit. */

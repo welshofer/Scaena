@@ -168,7 +168,7 @@ fn anthropic(text: &str) -> Vec<u8> {
 }
 
 /// Narrato's answers, as Anthropic gives them: the arc recorded, five of the catalog's slides,
-/// and no rewrite; and a web page.
+/// nothing to change on them as drawn, and no rewrite; and a web page.
 fn narrato(method: &str, path: &str, body: &str) -> Answer {
     let answers = Path::new(env!("CARGO_MANIFEST_DIR")).join("../scaena-narrato/tests/answers");
     match (method, path) {
@@ -182,6 +182,9 @@ fn narrato(method: &str, path: &str, body: &str) -> Answer {
         }
         ("POST", "/v1/messages") if body.contains("runs past its place") => {
             (200, "application/json", anthropic(r#"{"texts":[]}"#))
+        }
+        ("POST", "/v1/messages") if body.contains("art director") => {
+            (200, "application/json", anthropic(r#"{"slides":[]}"#))
         }
         ("POST", "/v1/messages") => {
             let catalog: Value = serde_json::from_slice(&std::fs::read(answers.join("catalog.json")).unwrap()).unwrap();
@@ -225,7 +228,7 @@ fn sources_ground_the_slides_a_pdf_beside_them_and_a_sheet_kept_as_data() {
     let asked = asked.lock().unwrap();
     assert!(asked.iter().any(|a| a.method == "GET" && a.path == "/about.html"), "the page was fetched");
     let calls: Vec<&Asked> = asked.iter().filter(|a| a.method == "POST" && a.path == "/v1/messages").collect();
-    assert_eq!(calls.len(), 2, "the arc and the slides; nothing ran over");
+    assert_eq!(calls.len(), 3, "the arc, the slides, and the look at them drawn; nothing ran over");
     let arc: Value = serde_json::from_str(&calls[0].body).unwrap();
     assert!(!calls[0].body.contains("\"document\""), "{}", calls[0].body);
     assert_eq!(arc["model"], "a-model");
@@ -238,6 +241,11 @@ fn sources_ground_the_slides_a_pdf_beside_them_and_a_sheet_kept_as_data() {
         assert!(prompt.contains(part), "{part}: {prompt}");
     }
     assert!(prompt.contains("</source_material>"), "the sources are held as data: {prompt}");
+    // Each of the five slides shown to the model as a JPEG, after what is said of it.
+    let look: Value = serde_json::from_str(&calls[2].body).unwrap();
+    let seen = look["messages"][0]["content"].as_array().unwrap();
+    assert_eq!(seen.iter().filter(|c| c["type"] == "image").count(), 5);
+    assert!(seen[0]["text"].as_str().unwrap().starts_with("Slide 1 of 5, drawn as"), "{}", seen[0]);
     // The CSV's rows are a data source of the deck, which a chart can plot.
     let deck: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap();
     assert_eq!(deck["data"]["q3"]["source"], "data/q3.csv", "{:#}", deck["data"]);
@@ -343,7 +351,7 @@ fn deep_research_grounds_the_slides_in_its_report() {
     assert_eq!(made["sources"][0]["kind"], "deep research");
     let asked = asked.lock().unwrap();
     let posts: Vec<&Asked> = asked.iter().filter(|a| a.method == "POST").collect();
-    assert_eq!(posts.len(), 3, "the research, the arc, and the slides");
+    assert_eq!(posts.len(), 4, "the research, the arc, the slides, and the look at them drawn");
     let research: Value = serde_json::from_str(&posts[0].body).unwrap();
     assert_eq!(research["tools"][0]["type"], "web_search_20260209");
     let slides: Value = serde_json::from_str(&posts[2].body).unwrap();

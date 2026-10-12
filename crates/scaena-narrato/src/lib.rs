@@ -19,6 +19,7 @@ pub mod fit;
 pub mod heuristic;
 mod js;
 pub mod layouts;
+pub mod look;
 pub mod pictures;
 pub mod prompt;
 pub mod providers;
@@ -28,7 +29,7 @@ pub mod schema;
 pub use answer::{ChartData, Series, Slide};
 pub use brief::{Brief, BriefError};
 pub use heuristic::{ArcChoice, Candidate};
-pub use providers::{Answer, Document, Provider, Request, Stop, Usage};
+pub use providers::{Answer, Document, Picture, Provider, Request, Stop, Usage};
 
 use serde::{Deserialize, Serialize};
 
@@ -41,6 +42,8 @@ pub const SLIDES_MAX_TOKENS: u32 = 64_000;
 pub const GEMINI_MAX_TOKENS: u32 = 65_536;
 /// Room for the rewrites of texts that run past their place, thinking included.
 pub const FIT_MAX_TOKENS: u32 = 16_000;
+/// Room for what the model would change on the deck it sees, thinking included.
+pub const LOOK_MAX_TOKENS: u32 = 16_000;
 
 /// Who writes the deck: a provider, the model the user picked from those their key lists, and
 /// where its API is.
@@ -219,6 +222,7 @@ impl Generation {
             max_tokens,
             temperature: Some(temperature),
             documents,
+            pictures: &[],
         }))
     }
 
@@ -241,7 +245,57 @@ impl Generation {
             max_tokens,
             temperature: Some(0.2),
             documents: &[],
+            pictures: &[],
         }))
+    }
+
+    /// The request that shows the model the deck as it is drawn, `slides` each with what it may
+    /// take ([`look::Seen`]) and `drawn` its picture, in their order, and asks what it would
+    /// change ([`look`]): Scaena's own call, made once the narrative is written; none before, or
+    /// for no slide.
+    pub fn look_request(&self, key: &str, slides: &[look::Seen], drawn: &[Picture]) -> Option<Request> {
+        let narrative = self.narrative.as_ref()?;
+        if slides.is_empty() || slides.len() != drawn.len() {
+            return None;
+        }
+        let s = &self.settings;
+        let count = narrative.slides.len();
+        let pictures: Vec<Picture> = (slides.iter().zip(drawn))
+            .map(|(seen, d)| Picture { caption: look::caption(seen, count), ..d.clone() })
+            .collect();
+        let brief = &narrative.brief;
+        let prompt = look::prompt(&brief.topic, &brief.audience, count, brief.language.as_deref());
+        let max_tokens = if s.provider == Provider::Gemini { GEMINI_MAX_TOKENS } else { LOOK_MAX_TOKENS };
+        Some(s.provider.structured(&providers::Call {
+            model: &s.model,
+            key,
+            base: s.base.as_deref(),
+            browser: s.browser,
+            system: look::LOOK_SYSTEM,
+            prompt: &prompt,
+            shape: providers::Shape::Look,
+            anthropic_schema: true,
+            max_tokens,
+            temperature: Some(0.3),
+            documents: &[],
+            pictures: &pictures,
+        }))
+    }
+
+    /// The changes the response to [`Generation::look_request`] asks for, each one `slides`
+    /// may take.
+    pub fn look_answer(
+        &self,
+        status: u16,
+        status_text: &str,
+        body: &str,
+        slides: &[look::Seen],
+    ) -> Result<Vec<look::Change>, NarratoError> {
+        if status == 0 {
+            return Err(NarratoError::Provider(format!("the request did not complete: {status_text}")));
+        }
+        let read = self.settings.provider.read_answer(status, status_text, body).map_err(NarratoError::Provider)?;
+        look::read(&read.text, slides).map_err(NarratoError::Answer)
     }
 
     /// The rewrites the response to [`Generation::fit_request`] gives: each a text asked about,

@@ -226,6 +226,14 @@ impl Research {
 /// A deck's narrative being written (`scaena_narrato::Generation`): the arc, then the slides;
 /// then the deck it builds in a theme; then, once the editor's module has made it a bundle, the
 /// rewrite of what still runs past its place.
+/// A slide drawn, as a page hands it over: its media type and its bytes in base64.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Drawn {
+    media_type: String,
+    data: String,
+}
+
 #[wasm_bindgen]
 pub struct Generation {
     inner: scaena_narrato::Generation,
@@ -342,6 +350,62 @@ impl Generation {
         if let Some(why) = self.inner.fallback() {
             out["fallback"] = json!(why);
         }
+        Ok(out.to_string())
+    }
+
+    /// What the model is shown of the deck the narrative made in `theme` (the theme's JSON) with
+    /// `pictures` (as `deck` takes them), each slide in the layout `layouts` (JSON `[id]`, as
+    /// `Making.report` says them) gives it (PLAN G.13): JSON `[{ slide, layout, options, title,
+    /// subtitle, bullets }]`, which `lookRequest` and `lookAnswer` take.
+    pub fn seeing(&self, theme: &str, pictures: &str, layouts: &str) -> Result<String, JsError> {
+        let narrative = self.inner.narrative().ok_or_else(|| error("the narrative is not written yet"))?;
+        let model: scaena_core::model::theme::Theme =
+            serde_json::from_str(theme).map_err(|e| error(format!("the theme: {e}")))?;
+        let pictures: scaena_ops::narrative::Pictures =
+            serde_json::from_str(pictures).map_err(|e| error(format!("the pictures: {e}")))?;
+        let layouts: Vec<String> = serde_json::from_str(layouts).map_err(|e| error(format!("the layouts: {e}")))?;
+        let seen = scaena_ops::narrative::seeing(narrative, &model, &pictures, &layouts);
+        Ok(serde_json::to_string(&seen).expect("what the model sees is JSON"))
+    }
+
+    /// The request that shows the model `seen` (as `seeing` gives it), each slide drawn as
+    /// `drawn` holds it (JSON `[{ mediaType, data }]`, its bytes in base64), and asks what it
+    /// would change (PLAN G.13); none before the narrative is written.
+    #[wasm_bindgen(js_name = lookRequest)]
+    pub fn look_request(&self, key: &str, seen: &str, drawn: &str) -> Result<Option<String>, JsError> {
+        let seen: Vec<scaena_narrato::look::Seen> = serde_json::from_str(seen).map_err(error)?;
+        let drawn: Vec<Drawn> = serde_json::from_str(drawn).map_err(error)?;
+        let pictures: Vec<scaena_narrato::Picture> = (drawn.into_iter())
+            .map(|d| scaena_narrato::Picture { caption: String::new(), media_type: d.media_type, data: d.data })
+            .collect();
+        let request = self.inner.look_request(key, &seen, &pictures);
+        Ok(request.map(|r| serde_json::to_string(&r).expect("a request is JSON")))
+    }
+
+    /// The changes an answer to `lookRequest` asks for, each one its slide may take: JSON
+    /// `[{ slide, layout?, title?, subtitle?, bullets?, why }]`.
+    #[wasm_bindgen(js_name = lookAnswer)]
+    pub fn look_answer(&self, status: u16, status_text: &str, body: &str, seen: &str) -> Result<String, JsError> {
+        let seen: Vec<scaena_narrato::look::Seen> = serde_json::from_str(seen).map_err(error)?;
+        let changes = self.inner.look_answer(status, status_text, body, &seen).map_err(error)?;
+        Ok(serde_json::to_string(&changes).expect("changes are JSON"))
+    }
+
+    /// The deck `deck` builds, built again with `changes` (as `lookAnswer` gives them, PLAN
+    /// G.13): their words in the narrative, each slide in the layout one asks for. What
+    /// `Making.relook` takes.
+    #[wasm_bindgen(js_name = deckChanged)]
+    pub fn deck_changed(&self, theme: &str, pictures: &str, changes: &str) -> Result<String, JsError> {
+        let narrative = self.inner.narrative().ok_or_else(|| error("the narrative is not written yet"))?;
+        let model: scaena_core::model::theme::Theme =
+            serde_json::from_str(theme).map_err(|e| error(format!("the theme: {e}")))?;
+        let pictures: scaena_ops::narrative::Pictures =
+            serde_json::from_str(pictures).map_err(|e| error(format!("the pictures: {e}")))?;
+        let changes: Vec<scaena_narrato::look::Change> = serde_json::from_str(changes).map_err(error)?;
+        let (changed, layouts) = scaena_ops::narrative::changed(narrative, &changes);
+        let made = scaena_ops::narrative::deck_as(&changed, &model, &pictures, &layouts).map_err(error)?;
+        let mut out = serde_json::to_value(&made).map_err(error)?;
+        out["arc"] = json!(narrative.arc);
         Ok(out.to_string())
     }
 

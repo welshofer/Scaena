@@ -3,26 +3,54 @@
 //! the sources, and the deck a narrative builds are the generator's (`scaena-generator` in the
 //! browser), so the editor's module carries none of Narrato; this takes the deck it built and
 //! makes the bundle as the CLI does: in the theme with its fonts, the characters the fonts lack
-//! written plainly, and lint's fixes applied; then the texts that still run past their place
-//! rewritten by the model, which the client asks, and each sheet given kept as a data source.
+//! written plainly, and lint's fixes applied; then the deck seen as it is drawn, each slide's
+//! change the model asks kept where lint finds the slide no worse (PLAN G.13); then the texts
+//! that still run past their place rewritten by the model, which the client asks, and each sheet
+//! given kept as a data source.
 
 use crate::Error;
+use scaena_narrato::Picture;
+use scaena_narrato::look::Change;
 use scaena_ops::OpsError;
 use scaena_ops::lint::Write;
-use scaena_ops::narrative::{Generated, Kept, Made, fitted, keeping, making, overflowing};
+use scaena_ops::narrative::{
+    Generated, Kept, Made, Shown, adopt, fitted, keeping, kept, looked, making, overflowing, unkept, worse,
+};
 use scaena_sources::Table;
 use std::collections::BTreeMap;
 use std::path::Path;
 
-/// A bundle being made from a deck a narrative built.
+/// A bundle being made from a deck a narrative built: what it came to, its files, the sheets
+/// kept, and what it is made in, to make it again with what the model asked (PLAN G.13).
 pub struct Making {
     made: Generated,
     write: Option<Write>,
     kept: Vec<Kept>,
+    arc: String,
+    file: String,
+    theme: String,
+    fonts: BTreeMap<String, Vec<u8>>,
+}
+
+/// What making a deck again with the model's changes came to (PLAN G.13).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Relooked {
+    /// The changes were kept.
+    Kept,
+    /// Lint found these slides, by index, worse for them: nothing was kept.
+    Worse(Vec<usize>),
 }
 
 fn ops(e: OpsError) -> Error {
     Error::Ops(e.to_string())
+}
+
+/// Each font `fonts` holds, by the path the theme gives it.
+fn font(fonts: &BTreeMap<String, Vec<u8>>) -> impl Fn(&str) -> Result<Vec<u8>, OpsError> + '_ {
+    |path: &str| {
+        fonts.get(path).cloned().ok_or_else(|| OpsError::new(format!("the theme's font `{path}` was not handed over")))
+    }
 }
 
 impl Making {
@@ -38,15 +66,94 @@ impl Making {
         theme: &str,
         fonts: &BTreeMap<String, Vec<u8>>,
     ) -> Result<Making, Error> {
-        let font = |path: &str| -> Result<Vec<u8>, OpsError> {
-            fonts
-                .get(path)
-                .cloned()
-                .ok_or_else(|| OpsError::new(format!("the theme's font `{path}` was not handed over")))
-        };
-        let (mut made, write) = making(built, arc, Path::new(file), theme.into(), &font).map_err(ops)?;
+        let (mut made, write) = making(built, arc, Path::new(file), theme.into(), &font(fonts)).map_err(ops)?;
         made.fallback = fallback;
-        Ok(Making { made, write, kept: Vec::new() })
+        Ok(Making {
+            made,
+            write,
+            kept: Vec::new(),
+            arc: arc.to_string(),
+            file: file.to_string(),
+            theme: theme.to_string(),
+            fonts: fonts.clone(),
+        })
+    }
+
+    /// The layout each slide took.
+    pub fn layouts(&self) -> &[String] {
+        &self.made.layouts
+    }
+
+    /// How many states the deck has; none where it would not validate.
+    pub fn count(&self) -> usize {
+        self.write.as_ref().map_or(0, |w| w.deck.states.len())
+    }
+
+    /// Each slide drawn `width` pixels wide, at rest, as a JPEG, for the model to see (PLAN
+    /// G.13); none where the deck would not validate.
+    pub fn drawn(&self, width: u32) -> Result<Vec<Picture>, Error> {
+        let Some(write) = &self.write else { return Ok(Vec::new()) };
+        scaena_ops::narrative::drawn(write, width).map_err(ops)
+    }
+
+    /// The `index`th state drawn `width` pixels wide, at rest, by the CPU painter: what a page
+    /// makes a JPEG of for the model to see (PLAN G.13).
+    #[cfg(feature = "cpu")]
+    pub fn pixels(&self, index: usize, width: u32) -> Result<scaena_paint::Raster, Error> {
+        let write = self.write.as_ref().ok_or_else(|| Error::Ops("the deck made would not validate".into()))?;
+        let state = write.deck.states.get(index).ok_or_else(|| Error::Ops(format!("the deck has no state {index}")))?;
+        scaena_ops::narrative::pixels(write, &state.id, width).map_err(ops)
+    }
+
+    /// The deck made again with the model's `changes`, as `shown` makes it (PLAN G.13): each
+    /// slide's change kept where lint finds the slide no worse for it, and what was kept, or why
+    /// nothing was, said in the report.
+    pub fn look(&mut self, shown: Shown, changes: Vec<Change>) -> Result<(), Error> {
+        let Some(write) = self.write.take() else { return Ok(()) };
+        let fonts = font(&self.fonts);
+        let before = (self.made.clone(), write);
+        let (made, write) = looked(shown, changes, before, Path::new(&self.file), &self.theme, &fonts).map_err(ops)?;
+        self.made = made;
+        self.write = Some(write);
+        Ok(())
+    }
+
+    /// `built`, the deck the generator built again with the model's `changes` (PLAN G.13),
+    /// made a bundle: kept where lint finds no slide worse for them; else the slides it finds
+    /// worse, by index, and nothing kept, for the generator to build it again without theirs.
+    /// `refused`, the slides a first try let go, is said in the report.
+    pub fn relook(&mut self, mut built: Made, changes: Vec<Change>, refused: &[usize]) -> Result<Relooked, Error> {
+        let Some(write) = &self.write else { return Ok(Relooked::Kept) };
+        // The pictures the deck shows, which the generator builds it again without: the bytes of
+        // the deck made.
+        for (path, bytes) in write.files.iter().filter(|(path, _)| path.starts_with("assets/")) {
+            built.assets.entry(path.clone()).or_insert_with(|| bytes.clone());
+        }
+        let fonts = font(&self.fonts);
+        let after = making(built, &self.arc, Path::new(&self.file), self.theme.clone(), &fonts).map_err(ops)?;
+        let (made, Some(after)) = after else {
+            self.made.unlooked = Some("the deck the model asked for would not validate".into());
+            return Ok(Relooked::Worse(Vec::new()));
+        };
+        let found = worse((&self.made, write), (&made, &after));
+        if !found.is_empty() {
+            return Ok(Relooked::Worse(found));
+        }
+        let before = std::mem::replace(&mut self.made, made.clone());
+        let (made, write) = adopt(before, (made, after), kept(changes, refused), refused);
+        self.made = made;
+        self.write = Some(write);
+        Ok(Relooked::Kept)
+    }
+
+    /// The look failed, or what it asked was not kept: why, which the report says.
+    pub fn unlooked(&mut self, why: String) {
+        self.made.unlooked = Some(why);
+    }
+
+    /// Why changes on `n` slides were not kept, as the report says it.
+    pub fn unkept(n: usize) -> String {
+        unkept(n)
     }
 
     /// The texts that still run past their place, which the model is asked to rewrite to fit
@@ -176,6 +283,38 @@ mod tests {
         assert!(files.keys().any(|f| f.starts_with("fonts/")), "{:?}", files.keys());
         // The bundle opens as a session.
         crate::Session::open(files).unwrap();
+    }
+
+    #[test]
+    fn a_deck_built_again_keeps_its_pictures_and_what_lint_finds_no_worse() {
+        let (theme, fonts) = dusk();
+        let jpeg = std::fs::read(root().join("tests/fixtures/jpeg/baseline-422.jpg")).unwrap();
+        let pictured = |title: &str| {
+            let mut made = built();
+            made.deck["nodes"]["cover-title"]["text"] = serde_json::json!(title);
+            made.deck["nodes"]["cover-art"] = serde_json::json!({
+                "type": "image", "src": "assets/picture-01.jpg", "alt": "A ship at dawn", "at": { "in": "art" }
+            });
+            made.deck["states"][0]["props"]["cover-art"] = serde_json::json!({});
+            made
+        };
+        let mut first = pictured("Tidewater Freight");
+        first.assets.insert("assets/picture-01.jpg".into(), jpeg);
+        let mut m = Making::new(first, "Problem-Solution", None, "dusk.theme.json", &theme, &fonts).unwrap();
+        // Built again by the generator's module, as JSON: its pictures' bytes are not in it.
+        let again: Made = serde_json::from_value(serde_json::to_value(pictured("Tidewater")).unwrap()).unwrap();
+        assert!(again.assets.is_empty());
+        let change = Change { slide: 1, title: Some("Tidewater".into()), why: "Shorter.".into(), ..Change::default() };
+        assert_eq!(m.relook(again, vec![change], &[]).unwrap(), Relooked::Kept);
+        assert_eq!(m.report()["looked"][0]["slide"], 1);
+        let files = m.files().unwrap().unwrap();
+        assert!(files.contains_key("assets/picture-01.jpg"), "{:?}", files.keys());
+        let deck: serde_json::Value = serde_json::from_slice(&files["deck.json"]).unwrap();
+        assert_eq!(deck["nodes"]["cover-title"]["text"], "Tidewater");
+        // Each state drawn for the model, as wide as asked.
+        assert_eq!(m.count(), 2);
+        let drawn = m.pixels(0, 320).unwrap();
+        assert_eq!((drawn.width, drawn.height), (320, 180));
     }
 
     #[test]

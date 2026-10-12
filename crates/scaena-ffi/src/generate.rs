@@ -11,6 +11,7 @@
 use crate::{Failure, said};
 use base64::Engine;
 use scaena_narrato::fit::Long;
+use scaena_narrato::look::Seen;
 use scaena_narrato::research::{Asked, Next, Report, Research, source_name};
 use scaena_narrato::{Brief, Document, Generation, Provider, Request, Settings, Step};
 use scaena_ops::narrative::{Asked as Wanted, Painting, Pictures, Reply};
@@ -34,6 +35,10 @@ pub struct Generating {
     /// The pictures made: where each slide's is kept, their bytes, and why each other was not.
     painted: Option<Painted>,
     making: Option<(Making, Vec<Long>)>,
+    /// What the model is shown of the deck made, while it is asked what it would change on it
+    /// (PLAN G.13), and the theme it is made in.
+    seen: Vec<Seen>,
+    theme: String,
 }
 
 /// The pictures made (`Painting::finish`): where each slide's is kept, their bytes by their paths
@@ -261,6 +266,7 @@ impl Generating {
             }
             "make" => {
                 let shipped = shipped(arg("theme")?)?;
+                self.theme = arg("theme")?.to_string();
                 let w = self.generation.as_mut().ok_or_else(|| said("no generation has begun: `begin` first"))?;
                 let narrative =
                     w.generation.narrative().ok_or_else(|| said("make: the narrative is not written yet"))?;
@@ -280,15 +286,49 @@ impl Generating {
                 if !placed.is_empty() || !unmade.is_empty() {
                     making.painted(placed.len(), unmade);
                 }
-                let longs = making.longs().map_err(said)?;
-                // With a key, the texts that still run past their place are asked for shorter.
-                let fit = match args.get("key").and_then(Value::as_str) {
-                    Some(key) if !longs.is_empty() => w.generation.fit_request(key, &longs).map(request),
-                    _ => None,
-                };
-                let texts = longs.len();
-                self.making = Some((making, longs));
-                json!({ "fit": fit.map(|r| json!({ "request": r, "texts": texts })) })
+                // With a key, the model is shown each slide as it is drawn (PLAN G.13), unless
+                // `look` says not; `looked` takes its answer, and then asks for the fit.
+                let key = args.get("key").and_then(Value::as_str);
+                let looking = key.filter(|_| args.get("look").and_then(Value::as_bool) != Some(false));
+                if let Some(key) = looking {
+                    let seen = scaena_ops::narrative::seeing(narrative, &model, &placed, making.layouts());
+                    let drawn = making.drawn(scaena_ops::narrative::LOOK_WIDTH).map_err(said)?;
+                    if let Some(asked) = w.generation.look_request(key, &seen, &drawn) {
+                        let slides = seen.len();
+                        self.seen = seen;
+                        self.making = Some((making, Vec::new()));
+                        return Ok(json!({ "look": { "request": request(asked), "slides": slides } }));
+                    }
+                }
+                let fit = self.fitting(making, key)?;
+                json!({ "fit": fit })
+            }
+            "looked" => {
+                // The model's answer to the look: each slide's change kept where lint finds the
+                // slide no worse, then the fit asked for, as `make` asks it: `{looked, fit}`.
+                let w = self.generation.as_ref().ok_or_else(|| said("looked: no narrative is written"))?;
+                let (mut making, _) = self.making.take().ok_or_else(|| said("looked: no deck is made"))?;
+                let narrative = w.generation.narrative().ok_or_else(|| said("looked: no narrative is written"))?;
+                let seen = std::mem::take(&mut self.seen);
+                match w.generation.look_answer(status(), &status_text(), arg("body")?, &seen) {
+                    Ok(changes) => {
+                        let shipped = shipped(&self.theme)?;
+                        let model: scaena_core::model::theme::Theme =
+                            serde_json::from_str(shipped.text).map_err(|e| said(format!("the theme: {e}")))?;
+                        let (placed, assets, _) = self.painted.clone().unwrap_or_default();
+                        let shown = scaena_ops::narrative::Shown {
+                            narrative,
+                            theme: &model,
+                            pictures: &placed,
+                            assets: &assets,
+                        };
+                        making.look(shown, changes).map_err(said)?;
+                    }
+                    Err(why) => making.unlooked(why.to_string()),
+                }
+                let report = making.report();
+                let fit = self.fitting(making, args.get("key").and_then(Value::as_str))?;
+                json!({ "looked": report["looked"].as_array().map_or(0, Vec::len), "unlooked": report["unlooked"], "fit": fit })
             }
             "fitted" => {
                 let w = self.generation.as_ref().ok_or_else(|| said("fitted: no narrative is written"))?;
@@ -329,6 +369,19 @@ impl Generating {
             said(format!("the deck made would not validate: {}", errors.join("; ")))
         })?;
         Session::open(files).map_err(said)
+    }
+
+    /// `making` kept, and with `key`, the request that asks for its texts that still run past
+    /// their place shorter: `{request, texts}`, or null.
+    fn fitting(&mut self, making: Making, key: Option<&str>) -> Result<Value, Failure> {
+        let longs = making.longs().map_err(said)?;
+        let fit = match (key, &self.generation) {
+            (Some(key), Some(w)) if !longs.is_empty() => w.generation.fit_request(key, &longs).map(request),
+            _ => None,
+        };
+        let texts = longs.len();
+        self.making = Some((making, longs));
+        Ok(fit.map_or(Value::Null, |r| json!({ "request": r, "texts": texts })))
     }
 
     fn written(&mut self) -> Result<&mut Written, Failure> {
