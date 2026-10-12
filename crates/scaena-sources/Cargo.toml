@@ -1,0 +1,16 @@
+[package]
+name = "scaena-sources"
+description = "What a generated deck is grounded in, read on the device: text, Markdown, RTF, CSV, Excel, Word, PowerPoint, web pages, and PDFs; SEC filings, GitHub repositories, and Google files by plans the client fetches (ADR-0026)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+csv.workspace = true
+flate2.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+zip.workspace = true

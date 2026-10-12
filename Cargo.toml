@@ -22,6 +22,7 @@ members = [
   "crates/scaena-ffi",
   "crates/scaena-chat",
   "crates/scaena-narrato",
+  "crates/scaena-sources",
 ]
 default-members = [
   "crates/scaena-core",
@@ -60,6 +61,7 @@ scaena-resources = { path = "crates/scaena-resources" }
 scaena-history = { path = "crates/scaena-history" }
 scaena-chat   = { path = "crates/scaena-chat" }
 scaena-narrato = { path = "crates/scaena-narrato" }
+scaena-sources = { path = "crates/scaena-sources" }
 
 # serialization / schema
 serde      = { version = "1.0", features = ["derive"] }

@@ -1,12 +1,12 @@
-//! `scaena generate` (PLAN G.2, ADR-0026): a deck made by Vzestup's Narrato model from a
-//! prompt, with the user's own key, read from the environment. `scaena-narrato` builds each
-//! request and reads each answer; the calls are made here, the CLI being the client.
+//! `scaena generate` (PLAN G.2–G.4, ADR-0026): a deck made by Vzestup's Narrato model from a
+//! prompt, with the user's own key, read from the environment, and grounded in the sources
+//! given (`crate::sources`). `scaena-narrato` builds each request and reads each answer; the
+//! calls are made here, the CLI being the client.
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::Args;
 use scaena_narrato::brief::MODALITIES;
 use scaena_narrato::{Brief, Generation, Provider, Request, Settings};
-use scaena_ops::OpsError;
 use scaena_ops::create::ThemeSource;
 use scaena_ops::narrative::{Progress, Reply};
 use std::path::{Path, PathBuf};
@@ -68,9 +68,16 @@ pub struct GenerateArgs {
     /// with no call to a model.
     #[arg(long)]
     slides: Option<PathBuf>,
-    /// A file the deck is grounded in (PLAN G.3).
+    /// What the deck is grounded in, given once for each: a file (Markdown, text, RTF, CSV,
+    /// Excel, Word, PowerPoint, HTML, JSON, or PDF); `sec:TICKER`, or `sec:TICKER:10-K,8-K`, a
+    /// company's latest filings and yearly figures on SEC's EDGAR; `github:OWNER/REPO`, a
+    /// repository's README, documentation, and manifests ($GITHUB_TOKEN for a private one); a
+    /// Google document, spreadsheet, or presentation shared by link; or a web address.
     #[arg(long)]
-    source: Vec<PathBuf>,
+    source: Vec<String>,
+    /// Your email, which SEC asks every request to carry; else $SCAENA_SEC_CONTACT.
+    #[arg(long)]
+    sec_contact: Option<String>,
 }
 
 /// The environment variables a provider's key is read from, in order.
@@ -150,6 +157,11 @@ fn said(p: &Progress) -> String {
     }
 }
 
+/// The first of `vars` the environment holds, not blank.
+fn env(vars: &[&str]) -> Option<String> {
+    vars.iter().find_map(|v| std::env::var(v).ok().filter(|k| !k.trim().is_empty()))
+}
+
 /// `scaena generate`: the models a key can use, or a deck made from a prompt, or from slides
 /// written elsewhere, into a new bundle. Exit 1 when the deck has errors, 2 when what was given
 /// is not what it takes or a call failed.
@@ -173,11 +185,8 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         return Ok(ExitCode::SUCCESS);
     }
     let dir = a.dir.as_deref().context("say where the bundle goes: scaena generate DIR \"what it is about\"")?;
-    // Before a call is paid for: the place, the sources, the theme.
+    // Before a call is paid for: the place, the theme, the brief, the key, then the sources.
     scaena_ops::create::vacant(dir)?;
-    if !a.source.is_empty() {
-        return Err(OpsError::not_built("grounding a deck in files", "G.3").into());
-    }
     let theme = ThemeSource::of(Path::new(&a.theme))?;
     if let Some(name) = &a.arc
         && !scaena_narrato::arcs::arcs().iter().any(|arc| arc.arc.eq_ignore_ascii_case(name))
@@ -203,7 +212,7 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         (None, Some(path)) => path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(),
         (None, None) => bail!("say what the deck is about: scaena generate DIR \"what it is about\""),
     };
-    let brief = Brief {
+    let mut brief = Brief {
         topic,
         audience: a.audience.clone().unwrap_or_default(),
         goal: a.goal.clone().unwrap_or_default(),
@@ -215,15 +224,8 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         voice: a.voice.clone(),
         ..Brief::default()
     };
-    let settings = Settings { provider, model: model.clone(), base: a.base.clone(), browser: false };
-    let mut generation = Generation::new(brief, settings).map_err(|e| anyhow!(e))?;
     let key = match &a.slides {
-        Some(path) => {
-            generation.choose_arc(a.arc.as_deref());
-            let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-            generation.written(&text, false).map_err(|e| anyhow!("{}: {e}", path.display()))?;
-            None
-        }
+        Some(_) => None,
         None => {
             let key = key(provider).ok_or_else(|| no_key(provider))?;
             if model.is_empty() {
@@ -232,13 +234,34 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
                     provider.name()
                 );
             }
-            if a.arc.is_some() {
-                generation.choose_arc(a.arc.as_deref());
-            }
             Some(key)
         }
     };
     let agent = agent();
+    let reach = scaena_sources::fetch::Reach {
+        contact: a.sec_contact.clone().or_else(|| env(&["SCAENA_SEC_CONTACT"])),
+        token: env(&["GITHUB_TOKEN", "GH_TOKEN"]),
+    };
+    let mut read = Vec::new();
+    for spec in &a.source {
+        if !json {
+            eprintln!("reading {spec}…");
+        }
+        read.push(crate::sources::read(spec, &agent, &reach).with_context(|| format!("--source {spec}"))?);
+    }
+    let grounding = scaena_ops::narrative::grounding(&read, provider)?;
+    brief.source_content = grounding.content.clone();
+    let settings = Settings { provider, model: model.clone(), base: a.base.clone(), browser: false };
+    let mut generation = Generation::new(brief, settings).map_err(|e| anyhow!(e))?;
+    match &a.slides {
+        Some(path) => {
+            generation.choose_arc(a.arc.as_deref());
+            let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+            generation.written(&text, false).map_err(|e| anyhow!("{}: {e}", path.display()))?;
+        }
+        None if a.arc.is_some() => generation.choose_arc(a.arc.as_deref()),
+        None => {}
+    }
     let mut send = |r: &Request| fetch(&agent, r);
     let mut say = |p: Progress| {
         if !json {
@@ -249,18 +272,25 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
     let (made, write) = scaena_ops::narrative::generate(
         generation,
         key.as_deref(),
-        &[],
+        &grounding.documents,
         &theme.file,
         theme.text.clone(),
         &font,
         &mut send,
         &mut say,
     )?;
+    let mut kept = Vec::new();
     if let Some(write) = write {
+        // Each sheet given, a data source of the deck's, which a chart can plot.
+        let (write, sheets) = scaena_ops::narrative::keeping(write, &read)?;
+        kept = sheets;
         scaena_ops::create::make(dir, write)?;
     }
     if json {
-        println!("{}", serde_json::to_string_pretty(&made)?);
+        let mut out = serde_json::to_value(&made)?;
+        out["sources"] = serde_json::to_value(&grounding.given)?;
+        out["data"] = serde_json::to_value(&kept)?;
+        println!("{}", serde_json::to_string_pretty(&out)?);
     } else if made.created.created {
         let d = dir.display();
         println!("made {d}: {} slides on the arc {}", made.layouts.len(), made.arc);
@@ -273,6 +303,17 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         }
         if let Some(why) = &made.unfitted {
             println!("  not rewritten to fit: {why}");
+        }
+        for g in &grounding.given {
+            let cut = if g.truncated { ", cut short to fit" } else { "" };
+            println!("  grounded in {} ({}, {} KB{cut})", g.name, g.kind, g.bytes.div_ceil(1024));
+        }
+        for k in &kept {
+            match (&k.id, &k.why) {
+                (Some(id), _) => println!("  data: @{id} from {}", k.sheet),
+                (None, Some(why)) => println!("  data: {} not kept: {why}", k.sheet),
+                (None, None) => {}
+            }
         }
         crate::report(&made.created.findings, false);
         println!("next: scaena serve {d}");

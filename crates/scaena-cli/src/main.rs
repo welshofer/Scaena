@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 mod generate;
+mod sources;
 
 #[derive(Parser)]
 #[command(
