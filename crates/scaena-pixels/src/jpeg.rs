@@ -57,8 +57,10 @@ pub struct Header {
 }
 
 impl Header {
-    /// The header of the JPEG `bytes`, read as far as its first scan. A JPEG this decoder cannot
-    /// read is refused here, saying why.
+    /// The header of the JPEG `bytes`, read as far as its first scan, nothing made for its
+    /// pixels. One too large to decode says its size all the same, so an editor can offer a
+    /// smaller copy of it ([`decode`] refuses it); any other JPEG this decoder cannot read is
+    /// refused here, saying why.
     pub fn read(bytes: &[u8]) -> Result<Header> {
         let mut decoder = Decoder::new(bytes)?;
         decoder.run(true)?;
@@ -468,6 +470,9 @@ struct Decoder<'a> {
     adobe: Option<u8>,
     orientation: u8,
     scans: usize,
+    /// Reading the header alone: a frame's size is read whatever it is, and nothing is made
+    /// for its pixels.
+    header: bool,
 }
 
 impl<'a> Decoder<'a> {
@@ -487,6 +492,7 @@ impl<'a> Decoder<'a> {
             adobe: None,
             orientation: 1,
             scans: 0,
+            header: false,
         })
     }
 
@@ -524,6 +530,7 @@ impl<'a> Decoder<'a> {
 
     /// Read the file to its end, or with `header`, to its first scan.
     fn run(&mut self, header: bool) -> Result<()> {
+        self.header = header;
         loop {
             let marker = match self.marker() {
                 Ok(m) => m,
@@ -617,8 +624,10 @@ impl<'a> Decoder<'a> {
         if width == 0 {
             return Err(JpegError::damaged("a frame no pixels wide"));
         }
+        // A header says the size of a picture too large to decode, so an editor can offer a
+        // smaller copy of it; decoding it is refused.
         let side = MAX_IMAGE_SIDE as usize;
-        if width > side || height > side {
+        if !self.header && (width > side || height > side) {
             return Err(JpegError(format!(
                 "{width} × {height} px; images are at most {MAX_IMAGE_SIDE} px a side (SPEC §3.3)"
             )));
@@ -673,6 +682,9 @@ impl<'a> Decoder<'a> {
             c.bh = mcuy * c.v;
             c.cw = (width * c.h).div_ceil(hmax).div_ceil(8);
             c.ch = (height * c.v).div_ceil(vmax).div_ceil(8);
+            if self.header {
+                continue;
+            }
             if progressive {
                 c.coefs = vec![0; c.bw * c.bh * 64];
             } else {
@@ -1343,7 +1355,8 @@ mod tests {
         let mut huge = file.clone();
         huge[sof + 7..sof + 9].copy_from_slice(&9000u16.to_be_bytes());
         assert!(refused(&huge).contains("at most 8192 px a side"));
-        assert!(Header::read(&huge).is_err(), "the header refuses it too");
+        // Its header says how large it is, which an editor offers a smaller copy of.
+        assert_eq!(Header::read(&huge).unwrap().width, 9000);
     }
 
     /// A damaged file is drawn as far as it goes or refused, never a panic or a hang: every

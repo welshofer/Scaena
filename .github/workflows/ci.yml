@@ -340,6 +340,8 @@ jobs:
       - run: node web/cue.mjs
       # An image from the inspector: its focal point picked on it, its crop and fit, an image file dropped on it (PLAN 2.45).
       - run: node web/image.mjs
+      # A picture too large for a slide: asked about, a smaller copy taken, a PNG as a PNG with its transparency (SPEC §3.3).
+      - run: node web/pictures.mjs
       # The preview zoomed and panned: painted at the size shown, every pointer read through the view (PLAN 2.46).
       - run: node web/zoom.mjs
       # Find and replace across the deck's texts: each match shown, marked, and replaced where its text lives (PLAN 2.47).

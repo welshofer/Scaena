@@ -822,6 +822,24 @@ fn the_clipboard_copies_and_pastes_as_the_browsers_does() {
         offered.as_array().unwrap().iter().any(|i| i["node"]["type"] == "image" && i["node"]["src"] == image);
     assert!(insertable, "Insert offers it as an image: {offered}");
 
+    // A picture too large: its size is read before it is dropped, so a smaller copy is offered;
+    // dropped as it is, it is refused and stays out of the bundle.
+    let mut large = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+    large.extend(11656u32.to_be_bytes());
+    large.extend(8742u32.to_be_bytes());
+    large.extend([8, 6, 0, 0, 0]);
+    let read: Value = serde_json::from_str(&took(unsafe { scaena_picture(large.as_ptr(), large.len()) })).unwrap();
+    assert_eq!(read["ok"], json!({ "width": 11656, "height": 8742, "largest": 8192 }), "{read}");
+    let not: Value = serde_json::from_str(&took(unsafe { scaena_picture(b"GIF89a".as_ptr(), 6) })).unwrap();
+    assert!(not["error"]["message"].as_str().is_some_and(|m| m.contains("neither a PNG nor a JPEG")), "{not}");
+    let files = call(s, "files", Value::Null);
+    let refused: Value =
+        serde_json::from_str(&took(unsafe { scaena_drop(s, c("Ridge.png").as_ptr(), large.as_ptr(), large.len()) }))
+            .unwrap();
+    let why = refused["error"]["message"].as_str().unwrap_or_default();
+    assert!(why.starts_with("Ridge.png is 11656 × 8742 pixels"), "{refused}");
+    assert_eq!(call(s, "files", Value::Null), files, "nothing left behind");
+
     // What is not a clip's, a look's, or a list of nodes: said.
     for (method, args) in [
         ("copying", json!({ "state": "cover", "nodes": "title" })),

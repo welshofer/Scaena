@@ -83,6 +83,7 @@ import type {
   Source,
   Where,
 } from "./protocol";
+import { fitting } from "./pictures";
 import { PICTURE } from "./protocol";
 import { rehearsal, rehearsalKeys } from "./rehearse";
 import { scn, scnHighlight } from "./scn";
@@ -1384,7 +1385,12 @@ async function edit(source: Source) {
     const zip = files.find((f) => f.name.endsWith(".scaena"));
     if (zip) return open({ zip: await zip.arrayBuffer(), name: zip.name.replace(/\.scaena$/, "") });
     const paths: string[] = [];
-    for (const file of files) paths.push(await stage.drop(file.name, await file.arrayBuffer()));
+    for (const file of files) {
+      // A picture too large goes in as a smaller copy, if the person wants one.
+      const taken = PICTURE.test(file.name) ? await fitting(stage, file, (words) => (status.textContent = words)) : file;
+      if (taken) paths.push(await stage.drop(taken.name, await taken.arrayBuffer()));
+    }
+    if (!paths.length) return paths;
     const insert = paths.map((p) => JSON.stringify(p)).join(" ");
     view.dispatch({ changes: { from: at, insert }, selection: { anchor: at + insert.length } });
     view.focus();

@@ -223,6 +223,7 @@ web-smoke: site
     node web/group.mjs
     node web/cue.mjs
     node web/image.mjs
+    node web/pictures.mjs
     node web/zoom.mjs
     node web/find.mjs
     node web/runs.mjs

@@ -39,6 +39,7 @@ import type {
   Opened,
   Painter,
   Pasted,
+  Picture,
   Look,
   Put,
   BundleFile,
@@ -416,9 +417,11 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "drop": {
         const bytes = new Uint8Array(data.bytes);
         const path = Player.place(data.name, bytes);
-        player.addFile(path, bytes);
+        player.dropping(data.name, path, bytes);
         return post({ type: "dropped", id: data.id, path });
       }
+      case "picture":
+        return post({ type: "pictured", id: data.id, picture: JSON.parse(Player.picture(new Uint8Array(data.bytes))) as Picture });
       case "attaching": {
         current(data.source);
         const bytes = new Uint8Array(data.bytes);
