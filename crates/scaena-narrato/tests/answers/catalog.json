@@ -1,0 +1,1049 @@
+{
+ "executiveSummary": "Tidewater runs carbon-negative freight lanes on the Gulf Coast: capture on board, storage ashore, and a removal certificate for every container. It has $4.1M in ARR and 38 shippers, and raises $18M to open two Atlantic lanes.",
+ "slides": [
+  {
+   "slideTitle": "Tidewater: Freight That Pulls Carbon Out of the Air",
+   "subtitle": "Series A · Carbon-negative cargo for the Gulf Coast",
+   "layoutSuggestion": "Title",
+   "keyBullets": [],
+   "visualDescription": "A container ship at dawn under a wide sky, its wake glowing",
+   "speakerNotes": "Open on the promise: freight that leaves the air cleaner than it found it.",
+   "beatIndex": 0,
+   "beatName": "Problem",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "What We'll Cover",
+   "subtitle": "",
+   "layoutSuggestion": "Agenda",
+   "keyBullets": [
+    "The problem: shipping's carbon bill",
+    "Our platform: carbon-negative lanes",
+    "Proof: pilots and revenue",
+    "The ask: $18M to cross the Atlantic"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: What We'll Cover.",
+   "beatIndex": 0,
+   "beatName": "Problem",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "The Problem",
+   "subtitle": "Shipping emits more than aviation, and shippers pay for it twice",
+   "layoutSuggestion": "Section Header",
+   "keyBullets": [],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: The Problem.",
+   "beatIndex": 0,
+   "beatName": "Problem",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Shipping's carbon bill keeps growing",
+   "subtitle": "",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "3%",
+    "of global CO₂ comes from shipping, more than all of aviation"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: Shipping's carbon bill keeps growing.",
+   "beatIndex": 0,
+   "beatName": "Problem",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.7,
+   "expectedValence": -0.5,
+   "supportingFacts": "International Maritime Organization, Fourth GHG Study"
+  },
+  {
+   "slideTitle": "Every container we move today makes the climate worse.",
+   "subtitle": "Shippers want to stop that, and they can't buy their way out",
+   "layoutSuggestion": "Statement",
+   "keyBullets": [],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: Every container we move today makes the climate worse..",
+   "beatIndex": 0,
+   "beatName": "Problem",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": -0.6
+  },
+  {
+   "slideTitle": "In their own words",
+   "subtitle": "",
+   "layoutSuggestion": "Quote",
+   "keyBullets": [
+    "We have net-zero targets and no way to ship a single box without emitting",
+    "Head of Logistics, a Fortune 500 retailer"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: In their own words.",
+   "beatIndex": 0,
+   "beatName": "Problem",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": -0.4
+  },
+  {
+   "slideTitle": "Offsets cost more each year, and buy less",
+   "subtitle": "",
+   "layoutSuggestion": "Bar Chart",
+   "keyBullets": [
+    "Offset prices tripled while verified removals stayed scarce"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: Offsets cost more each year, and buy less.",
+   "beatIndex": 1,
+   "beatName": "Impact",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0,
+   "chartData": {
+    "categories": [
+     "2022",
+     "2023",
+     "2024",
+     "2025"
+    ],
+    "series": [
+     {
+      "name": "Offset price",
+      "values": [
+       12,
+       19,
+       28,
+       37
+      ]
+     }
+    ],
+    "unit": "$ per tonne",
+    "sourceId": "Ecosystem Marketplace"
+   }
+  },
+  {
+   "slideTitle": "Freight emissions are still climbing",
+   "subtitle": "",
+   "layoutSuggestion": "Line Chart",
+   "keyBullets": [
+    "Up 41% since 2010, with no plateau in sight"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: Freight emissions are still climbing.",
+   "beatIndex": 1,
+   "beatName": "Impact",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0,
+   "chartData": {
+    "categories": [
+     "2010",
+     "2014",
+     "2018",
+     "2022",
+     "2026"
+    ],
+    "series": [
+     {
+      "name": "Freight emissions",
+      "values": [
+       100,
+       112,
+       124,
+       133,
+       141
+      ]
+     }
+    ],
+    "unit": "index, 2010 = 100",
+    "sourceId": "ITF Transport Outlook"
+   }
+  },
+  {
+   "slideTitle": "What the status quo costs a mid-size shipper",
+   "subtitle": "",
+   "layoutSuggestion": "Scorecard",
+   "keyBullets": [
+    "$2.4M: offsets bought each year, up 31%",
+    "18%: emissions verifiably removed, flat since 2022",
+    "6 weeks: to report each quarter, two analysts",
+    "0: carbon-negative lanes, none on offer"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: What the status quo costs a mid-size shipper.",
+   "beatIndex": 1,
+   "beatName": "Impact",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Q3 at a glance",
+   "subtitle": "",
+   "layoutSuggestion": "KPI Grid",
+   "keyBullets": [
+    "$4.1M: ARR, up 3× year on year",
+    "38: shippers under contract",
+    "212 kt: CO₂ removed to date",
+    "97%: on-time delivery",
+    "$41: removal cost per tonne, down 22%",
+    "4: Gulf ports live"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: Q3 at a glance.",
+   "beatIndex": 4,
+   "beatName": "Proof",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Two ways shippers try to go green today",
+   "subtitle": "",
+   "layoutSuggestion": "Two-Column",
+   "keyBullets": [
+    "Offsets: cheap to buy, impossible to verify",
+    "Slow steaming: real cuts, but 20% longer transit"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: Two ways shippers try to go green today.",
+   "beatIndex": 2,
+   "beatName": "Existing Approaches",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "What changes for a shipper on Tidewater",
+   "subtitle": "",
+   "layoutSuggestion": "Before / After",
+   "keyBullets": [
+    "Before: buy offsets, file reports, and hope",
+    "After: book a lane, get a certificate per container"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: What changes for a shipper on Tidewater.",
+   "beatIndex": 3,
+   "beatName": "Solution",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Biofuel retrofits: honest trade-offs",
+   "subtitle": "",
+   "layoutSuggestion": "Pros / Cons",
+   "keyBullets": [
+    "Pro: cuts tailpipe emissions 80%",
+    "Pro: works with today's ships",
+    "Con: feedstock is scarce and costly",
+    "Con: still carbon-positive overall"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: Biofuel retrofits: honest trade-offs.",
+   "beatIndex": 2,
+   "beatName": "Existing Approaches",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Where today's options fall short",
+   "subtitle": "",
+   "layoutSuggestion": "Quadrant",
+   "keyBullets": [
+    "Offsets: cheap, but unverifiable",
+    "Biofuels: real, but scarce",
+    "Electric short-sea: clean, but tiny range",
+    "Tidewater: negative and scalable"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: Where today's options fall short.",
+   "beatIndex": 2,
+   "beatName": "Existing Approaches",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "How a Tidewater lane works",
+   "subtitle": "",
+   "layoutSuggestion": "Steps",
+   "keyBullets": [
+    "Book: the shipper reserves a carbon-negative lane",
+    "Ship: cargo rides partner vessels on biofuel",
+    "Capture: onboard units pull CO₂ from exhaust",
+    "Store: captured carbon is mineralized ashore"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: How a Tidewater lane works.",
+   "beatIndex": 3,
+   "beatName": "Solution",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "From lab to Gulf in four years",
+   "subtitle": "",
+   "layoutSuggestion": "Timeline",
+   "keyBullets": [
+    "2023: Capture prototype proves 92% exhaust uptake",
+    "2024: First pilot voyage, Houston to Tampa",
+    "2025: Three shippers sign annual contracts",
+    "2026: Four ports and 38 shippers live"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: From lab to Gulf in four years.",
+   "beatIndex": 4,
+   "beatName": "Proof",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "A shipper's first quarter with us",
+   "subtitle": "",
+   "layoutSuggestion": "Journey",
+   "keyBullets": [
+    "Discover: hears from a peer / wonders if it's real / skeptical",
+    "Pilot: books one lane / watches the dashboard / cautiously impressed",
+    "Scale: moves 40% of volume / plans the next region / proud"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: A shipper's first quarter with us.",
+   "beatIndex": 3,
+   "beatName": "Solution",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "The Gulf corridor at night",
+   "subtitle": "Every light is a container moving without a carbon debt",
+   "layoutSuggestion": "Full Image",
+   "keyBullets": [],
+   "visualDescription": "Aerial night view of the Port of Houston: lit container stacks and ships at berth",
+   "speakerNotes": "Walk the room through: The Gulf corridor at night.",
+   "beatIndex": 3,
+   "beatName": "Solution",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.8,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "Capture happens on board",
+   "subtitle": "",
+   "layoutSuggestion": "Image + Text",
+   "keyBullets": [
+    "The retrofit fits in two 40-foot containers",
+    "It installs in a three-day port call",
+    "Nothing changes in the ship's engine room"
+   ],
+   "visualDescription": "Cutaway of a vessel's stern showing two capture units on deck",
+   "speakerNotes": "Walk the room through: Capture happens on board.",
+   "beatIndex": 3,
+   "beatName": "Solution",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Lanes running today",
+   "subtitle": "",
+   "layoutSuggestion": "Gallery",
+   "keyBullets": [
+    "Houston to Tampa",
+    "Mobile to Veracruz",
+    "New Orleans to Freeport"
+   ],
+   "visualDescription": "Three harbor scenes at golden hour",
+   "speakerNotes": "Walk the room through: Lanes running today.",
+   "beatIndex": 4,
+   "beatName": "Proof",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "The Tidewater flywheel",
+   "subtitle": "",
+   "layoutSuggestion": "Framework",
+   "keyBullets": [
+    "More shippers: steadier volume",
+    "Steadier volume: lower capture cost",
+    "Lower cost: cheaper removal",
+    "Cheaper removal: more shippers"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: The Tidewater flywheel.",
+   "beatIndex": 3,
+   "beatName": "Solution",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Inside a capture unit",
+   "subtitle": "",
+   "layoutSuggestion": "Callout",
+   "keyBullets": [
+    "Scrubber: pulls CO₂ from exhaust",
+    "Compressor: liquefies it on board",
+    "Tank: holds a voyage's worth",
+    "Port link: hands it off ashore"
+   ],
+   "visualDescription": "A capture unit drawn in section, its parts labelled",
+   "speakerNotes": "Walk the room through: Inside a capture unit.",
+   "beatIndex": 3,
+   "beatName": "Solution",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "The next eighteen months",
+   "subtitle": "",
+   "layoutSuggestion": "Roadmap",
+   "keyBullets": [
+    "H1 2027: Two Atlantic lanes; 60 shippers; second-generation unit",
+    "H2 2027: Rotterdam pilot; capture under $35 a tonne; SOC 2 audit",
+    "H1 2028: Ten ports; EU registry; Series B"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: The next eighteen months.",
+   "beatIndex": 5,
+   "beatName": "Call to Action",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "What we build next",
+   "subtitle": "",
+   "layoutSuggestion": "2×2 Matrix",
+   "keyBullets": [
+    "Port software: high value, low effort",
+    "Atlantic lanes: high value, high effort",
+    "Dashboards: low value, low effort",
+    "Own vessels: low value, high effort"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: What we build next.",
+   "beatIndex": 5,
+   "beatName": "Call to Action",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Q4 OKRs",
+   "subtitle": "Make the Gulf corridor the default for green freight",
+   "layoutSuggestion": "OKRs",
+   "keyBullets": [
+    "Shippers under contract: 50",
+    "Removal cost per tonne: $35",
+    "On-time delivery: 98%",
+    "Ports live: 5"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: Q4 OKRs.",
+   "beatIndex": 5,
+   "beatName": "Call to Action",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Who owns the Atlantic launch",
+   "subtitle": "",
+   "layoutSuggestion": "RACI Matrix",
+   "keyBullets": [
+    "Port deals: Ana Ruiz / Ports team / CEO",
+    "Capture retrofits: Ben Osei / Engineering / CTO",
+    "Shipper onboarding: Cai Lin / Sales / COO"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: Who owns the Atlantic launch.",
+   "beatIndex": 5,
+   "beatName": "Call to Action",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Where we stand",
+   "subtitle": "",
+   "layoutSuggestion": "SWOT",
+   "keyBullets": [
+    "Strengths: patented capture; four ports live; 97% on time",
+    "Weaknesses: one corridor; a small team",
+    "Opportunities: EU carbon rules; shippers' net-zero deadlines",
+    "Threats: cheap offsets; new entrants"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: Where we stand.",
+   "beatIndex": 4,
+   "beatName": "Proof",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Freight can be a carbon sink, not a source.",
+   "subtitle": "Capture at sea plus storage ashore removes more CO₂ than the voyage emits",
+   "layoutSuggestion": "Thesis",
+   "keyBullets": [],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: Freight can be a carbon sink, not a source..",
+   "beatIndex": 3,
+   "beatName": "Solution",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.8,
+   "expectedValence": 0.7
+  },
+  {
+   "slideTitle": "A note to our first shippers",
+   "subtitle": "Dear partners,",
+   "layoutSuggestion": "Letter",
+   "keyBullets": [
+    "You took a chance on a lane that didn't exist two years ago.",
+    "Together we have removed 212,000 tonnes of CO₂.",
+    "This round lets us carry your cargo across the Atlantic."
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: A note to our first shippers.",
+   "beatIndex": 5,
+   "beatName": "Call to Action",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Pricing changes for 2027",
+   "subtitle": "All shipper accounts",
+   "layoutSuggestion": "Memo",
+   "keyBullets": [
+    "Lane prices fall 8% on January 1 as capture costs drop.",
+    "Annual contracts lock today's rate for two years."
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: Pricing changes for 2027.",
+   "beatIndex": 4,
+   "beatName": "Proof",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "What a tonne of removal costs",
+   "subtitle": "",
+   "layoutSuggestion": "Receipt",
+   "keyBullets": [
+    "Capture: $18",
+    "Transport: $9",
+    "Mineral storage: $11",
+    "Verification: $3",
+    "TOTAL: $41"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: What a tonne of removal costs.",
+   "beatIndex": 4,
+   "beatName": "Proof",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "What happens after today",
+   "subtitle": "",
+   "layoutSuggestion": "Next Steps",
+   "keyBullets": [
+    "Term sheet review — Board — Oct 30",
+    "Diligence data room opens — CFO — Nov 6",
+    "Atlantic lane kickoff — COO — Jan 15"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: What happens after today.",
+   "beatIndex": 5,
+   "beatName": "Call to Action",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "What we've already done",
+   "subtitle": "",
+   "layoutSuggestion": "Milestones",
+   "keyBullets": [
+    "2023: Prototype captures 92% of exhaust CO₂",
+    "2024: First commercial voyage",
+    "2025: $1M in annual recurring revenue",
+    "2026: $4.1M in annual recurring revenue"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: What we've already done.",
+   "beatIndex": 4,
+   "beatName": "Proof",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Where growth comes from",
+   "subtitle": "",
+   "layoutSuggestion": "Three Horizons",
+   "keyBullets": [
+    "Gulf: fill four ports and 60 shippers",
+    "Atlantic: two transatlantic lanes by 2028",
+    "Global: license capture to other carriers"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: Where growth comes from.",
+   "beatIndex": 5,
+   "beatName": "Call to Action",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "How shippers find us",
+   "subtitle": "",
+   "layoutSuggestion": "Funnel",
+   "keyBullets": [
+    "Leads: 1,200 a year",
+    "Pilots: 140",
+    "Contracts: 38",
+    "Renewals: 36"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: How shippers find us.",
+   "beatIndex": 4,
+   "beatName": "Proof",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Three ways 2028 could go",
+   "subtitle": "",
+   "layoutSuggestion": "Scenarios",
+   "keyBullets": [
+    "Bear: $9M revenue, the Gulf only",
+    "Base: $22M revenue, two Atlantic lanes",
+    "Bull: $40M revenue, licensing deals signed"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: Three ways 2028 could go.",
+   "beatIndex": 5,
+   "beatName": "Call to Action",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Tidewater against offsets",
+   "subtitle": "",
+   "layoutSuggestion": "VS",
+   "keyBullets": [
+    "Tidewater: Offsets",
+    "Verification: per-container certificate | self-reported",
+    "Cost per tonne: $41 and falling | $37 and rising",
+    "Permanence: mineral storage, centuries | forests, decades"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: Tidewater against offsets.",
+   "beatIndex": 3,
+   "beatName": "Solution",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Our biggest lanes",
+   "subtitle": "",
+   "layoutSuggestion": "Ranking",
+   "keyBullets": [
+    "41%: Houston to Tampa",
+    "27%: Mobile to Veracruz",
+    "19%: New Orleans to Freeport",
+    "13%: Corpus Christi to Tampico"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: Our biggest lanes.",
+   "beatIndex": 4,
+   "beatName": "Proof",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Tidewater removes its 200,000th tonne",
+   "subtitle": "The first freight network to remove more carbon than it emits",
+   "layoutSuggestion": "Headline",
+   "keyBullets": [],
+   "visualDescription": "A newspaper front page over a harbor at sunrise",
+   "speakerNotes": "Walk the room through: Tidewater removes its 200,000th tonne.",
+   "beatIndex": 4,
+   "beatName": "Proof",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.9,
+   "expectedValence": 0.8
+  },
+  {
+   "slideTitle": "What we believe",
+   "subtitle": "",
+   "layoutSuggestion": "Manifesto",
+   "keyBullets": [
+    "Removal beats promises.",
+    "Every container should leave the air cleaner.",
+    "Proof is per shipment, not per year.",
+    "Shippers shouldn't pay twice."
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: What we believe.",
+   "beatIndex": 3,
+   "beatName": "Solution",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "The crew",
+   "subtitle": "",
+   "layoutSuggestion": "Team",
+   "keyBullets": [
+    "Maya Chen, CEO: ran Gulf operations at a top-three carrier",
+    "Ade Okafor, CTO: built direct air capture at scale",
+    "Luis Ortega, COO: scaled ports across three continents",
+    "Sara Kim, CFO: took two logistics firms public"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: The crew.",
+   "beatIndex": 4,
+   "beatName": "Proof",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Maya Chen",
+   "subtitle": "Founder and CEO",
+   "layoutSuggestion": "Bio",
+   "keyBullets": [
+    "Fifteen years running Gulf shipping operations.",
+    "Led her carrier's first biofuel voyage."
+   ],
+   "visualDescription": "Portrait of the founder on a container terminal",
+   "speakerNotes": "Walk the room through: Maya Chen.",
+   "beatIndex": 4,
+   "beatName": "Proof",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "What shippers say",
+   "subtitle": "",
+   "layoutSuggestion": "Testimonials",
+   "keyBullets": [
+    "We cut our freight emissions below zero in one quarter — VP Supply Chain, national grocer",
+    "A certificate per container ended our audit fights — Sustainability lead, auto parts maker",
+    "It costs less than the offsets we used to buy — CFO, furniture importer"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: What shippers say.",
+   "beatIndex": 4,
+   "beatName": "Proof",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "Three steps to a carbon-negative lane",
+   "subtitle": "",
+   "layoutSuggestion": "How It Works",
+   "keyBullets": [
+    "Book: choose a lane online",
+    "Ship: we carry and capture",
+    "Prove: get a removal certificate"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: Three steps to a carbon-negative lane.",
+   "beatIndex": 3,
+   "beatName": "Solution",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Deals in flight",
+   "subtitle": "",
+   "layoutSuggestion": "Pipeline",
+   "keyBullets": [
+    "1,200: leads this year, 12% go on",
+    "140: pilots run, 27% convert",
+    "38: annual contracts, 95% renew",
+    "$9.6M: contracted revenue, two years"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: Deals in flight.",
+   "beatIndex": 4,
+   "beatName": "Proof",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "What the platform is made of",
+   "subtitle": "",
+   "layoutSuggestion": "Stack",
+   "keyBullets": [
+    "Booking: lanes, prices, and contracts",
+    "Voyage: routing and capture control",
+    "Ledger: a removal record per container",
+    "Registry: certificates buyers can verify"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: What the platform is made of.",
+   "beatIndex": 3,
+   "beatName": "Solution",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Questions investors ask",
+   "subtitle": "",
+   "layoutSuggestion": "FAQ",
+   "keyBullets": [
+    "Is the removal permanent?: Yes, mineralized carbon stays put for centuries",
+    "What if fuel prices spike?: Lanes are priced on a fuel index",
+    "Who verifies it?: An accredited auditor checks every voyage",
+    "Can others copy it?: Our capture design holds four patents"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: Questions investors ask.",
+   "beatIndex": 4,
+   "beatName": "Proof",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Words we use",
+   "subtitle": "",
+   "layoutSuggestion": "Glossary",
+   "keyBullets": [
+    "Removal: CO₂ taken out of the air for good",
+    "Offset: a promise to avoid emissions elsewhere",
+    "Lane: a regular route between two ports",
+    "Certificate: proof of removal for one container"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: Words we use.",
+   "beatIndex": 2,
+   "beatName": "Existing Approaches",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Ready for the Atlantic",
+   "subtitle": "",
+   "layoutSuggestion": "Checklist",
+   "keyBullets": [
+    "Done: capture units certified for open ocean",
+    "Done: Rotterdam port agreement signed",
+    "In progress: two vessels retrofitted",
+    "Next: the first Atlantic voyage"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: Ready for the Atlantic.",
+   "beatIndex": 5,
+   "beatName": "Call to Action",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "We're raising $18M to cross the Atlantic",
+   "subtitle": "",
+   "layoutSuggestion": "The Ask",
+   "keyBullets": [
+    "$9M: two Atlantic lanes and ten retrofits",
+    "$6M: capture below $35 a tonne",
+    "$3M: sales for 60 new shippers"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: We're raising $18M to cross the Atlantic.",
+   "beatIndex": 5,
+   "beatName": "Call to Action",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.9,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "Questions?",
+   "subtitle": "",
+   "layoutSuggestion": "Q&A",
+   "keyBullets": [
+    "How fast can you add a lane?",
+    "What does a shipper pay per container?"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: Questions?.",
+   "beatIndex": 5,
+   "beatName": "Call to Action",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Launching a new lane",
+   "subtitle": "",
+   "layoutSuggestion": "Playbook",
+   "keyBullets": [
+    "You need: a partner port",
+    "You need: two retrofitted vessels",
+    "You need: ten anchor shippers",
+    "Sign the port and storage agreements",
+    "Retrofit the vessels in one port call",
+    "Run a pilot voyage with the anchor shippers"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: Launching a new lane.",
+   "beatIndex": 5,
+   "beatName": "Call to Action",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Carbon removal",
+   "subtitle": "",
+   "layoutSuggestion": "Definition",
+   "keyBullets": [
+    "Taking CO₂ out of the air and storing it for centuries",
+    "We mineralize captured CO₂ into limestone ashore"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: Carbon removal.",
+   "beatIndex": 2,
+   "beatName": "Existing Approaches",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Why now",
+   "subtitle": "",
+   "layoutSuggestion": "Numbered",
+   "keyBullets": [
+    "EU shipping joins the carbon market in 2026",
+    "Big shippers' 2030 targets are four years out",
+    "Capture costs have fallen 60% since 2020"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: Why now.",
+   "beatIndex": 1,
+   "beatName": "Impact",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "What the round buys",
+   "subtitle": "",
+   "layoutSuggestion": "Bullet List",
+   "keyBullets": [
+    "Two Atlantic lanes",
+    "Ten more retrofits",
+    "A second-generation capture unit",
+    "A sales team for Europe"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: What the round buys.",
+   "beatIndex": 5,
+   "beatName": "Call to Action",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Cargo can clean the air.",
+   "subtitle": "Join us in making every lane carbon-negative",
+   "layoutSuggestion": "Closing",
+   "keyBullets": [],
+   "visualDescription": "",
+   "speakerNotes": "Walk the room through: Cargo can clean the air..",
+   "beatIndex": 5,
+   "beatName": "Call to Action",
+   "purpose": "Move the story forward.",
+   "intent": "inform",
+   "expectedIntensity": 0.9,
+   "expectedValence": 0.8
+  }
+ ]
+}

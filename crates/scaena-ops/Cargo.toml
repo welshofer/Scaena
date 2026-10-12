@@ -16,6 +16,9 @@ gpu = ["scaena-paint/gpu", "scaena-export/gpu"]
 # (PLAN 2.13). The CLI and the MCP server carry them; the browser's module does not, as the
 # web build carries them beside its pages.
 shipped = []
+# Decks made from a narrative Narrato writes (ADR-0026, PLAN G.1). Off in the browser's editor
+# module, which loads generation as a module of its own (PLAN G.5).
+narrato = ["dep:scaena-narrato"]
 
 [dependencies]
 scaena-core.workspace = true
@@ -23,6 +26,7 @@ scaena-engine.workspace = true
 scaena-paint.workspace = true
 scaena-export.workspace = true
 scaena-store.workspace = true
+scaena-narrato = { workspace = true, optional = true }
 base64.workspace = true
 indexmap.workspace = true
 schemars.workspace = true

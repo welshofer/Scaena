@@ -1673,9 +1673,21 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 - [ ] 5.2 Shared links with permissions; comments on states/beats.
 - [ ] 5.3 Hosted render for link previews (first server-side rendering — reuse the CLI).
 
-## Deck generation (unscheduled)
+## Deck generation — Narrato
 
-Not before Jay schedules it: until then Scaena's focus is editing and rendering. Its starting notes are kept privately, beside the roadmap. The spine stays the source of truth: generation writes nothing onto states that the spine does not hold.
+**Goal:** a deck made from a prompt alone, or grounded in what the user hands over (PDF, Word, Excel, PowerPoint, Markdown, Google Docs, Sheets, and Slides, SEC filings, a GitHub repository, a web page, deep research), by Vzestup's Narrato model, with the user's own key, in the CLI, the browser, the Mac, and the iPad (ADR-0026). *(Scheduled 2026-10-12, on Jay's call, with gates 2, 3, and 4 open.)*
+
+The spine stays the source of truth: generation writes nothing onto states that the spine does not hold. Each beat of the arc is a section, each slide a beat, and each beat's state is drawn from that beat's fields.
+
+- [ ] G.1 Narrato in Rust (`scaena-narrato`): the 13 arcs and 7 personas as data; the arc-selection and generation prompts, the slides' rider, and the 56 layout names byte for byte, with Scaena's slot-shapes block; the beat plan (allocator v2) and the heuristic; each provider's request with its structured output, and the answer read back; a failed arc selection falling back to the heuristic. `scaena_ops::narrative` makes the deck: the spine, then each slide in the theme layout its name and item count map to, its slots filled, pictures the theme's shader art, a chart's data a source of its own. Tests on recorded answers.
+- [ ] G.2 `scaena generate`: a prompt and a brief (audience, goal, length, modality, outcomes, language, theme) to a bundle, by the provider and model the user names, the key from the environment; `--models` lists what a key can use. The CLI makes the HTTP calls. A live run is tested where a key is set.
+- [ ] G.3 Grounding on files (`scaena-sources`): Markdown, text, and RTF; CSV and spreadsheets, each sheet also a data source; `.docx`; `.pptx` (words, notes, and charts' figures, as source text only); a PDF sent to the model as a document. The gate, the pack, the `<source_material>` container, and the control-marker scan, as Vzestup has them. `scaena generate --source FILE`.
+- [ ] G.4 SEC EDGAR, GitHub, and web pages: each a plan of fetches in Rust that the client makes; a filing as text and its XBRL facts as data; a repository's README, docs, and manifests, with what was left out said; a page as text. `--source sec:TICKER`, `--source github:OWNER/REPO`, `--source URL`.
+- [ ] G.5 The browser's New from a prompt: the brief, the sources (files dropped, GitHub, a page where CORS allows it, SEC said to need the Mac or the CLI), progress as the slides arrive, and the deck opened in the editor. The generator is a module of its own, loaded the first time, so the editor stays under SPEC §15's 3 MB. A walk on recorded answers.
+- [ ] G.6 The Mac's and the iPad's New from a Prompt: the C ABI's generator, ScaenaKit's over `URLSession` with the Keychain's key, and a sheet with the brief and the sources. Tests on recorded answers, and the Mac walk's shots.
+- [ ] G.7 Google Docs, Sheets, and Slides: Drive's export of each (a document as text, a sheet and a deck as the files G.3 reads), by an OAuth client the publisher registers (Jay's call), on the page and the Mac; with none, the file downloaded and dropped.
+- [ ] G.8 Deep research: a report on the topic, its sources listed, by the user's Gemini key (the Interactions API's research agent) or Anthropic key (web search), kept as a source like any other.
+- [ ] G.9 Narrative health: Narrato's metrics on the spine (pacing, balance, arc fidelity against the arc's curve, declared against detected intensity and tone, drift), shown as findings with fixes.
 
 ---
 

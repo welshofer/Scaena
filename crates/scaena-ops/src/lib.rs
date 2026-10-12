@@ -23,6 +23,8 @@ pub mod history;
 pub mod inspect;
 pub mod layouts;
 pub mod lint;
+#[cfg(feature = "narrato")]
+pub mod narrative;
 pub mod patch;
 pub mod read;
 pub mod render;

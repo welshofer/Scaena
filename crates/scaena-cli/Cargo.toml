@@ -23,8 +23,9 @@ scaena-engine = { workspace = true, features = ["hyphenation"] }
 scaena-paint.workspace = true
 scaena-export.workspace = true
 scaena-store.workspace = true
-# The themes that ship, by name, for `new` (PLAN 2.13).
-scaena-ops = { workspace = true, features = ["shipped"] }
+# The themes that ship, by name, for `new` (PLAN 2.13); decks a narrative makes, for `generate`
+# (PLAN G.2).
+scaena-ops = { workspace = true, features = ["shipped", "narrato"] }
 scaena-mcp.workspace = true
 scaena-serve.workspace = true
 clap.workspace = true

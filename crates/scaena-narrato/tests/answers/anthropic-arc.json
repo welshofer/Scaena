@@ -1,0 +1,9 @@
+{
+ "content": [
+  {
+   "type": "text",
+   "text": "{\"selection\": \"Problem–Solution\", \"reasoning\": \"An investor pitch persuades: stakes first, then the answer.\", \"candidates\": [{\"arc\": \"Problem–Solution\", \"score\": {\"overall\": 0.92}}, {\"arc\": \"Data Storytelling\", \"score\": {\"overall\": 0.8}}]}"
+  }
+ ],
+ "stop_reason": "end_turn"
+}
