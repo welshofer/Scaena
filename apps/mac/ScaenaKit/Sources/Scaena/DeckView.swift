@@ -185,10 +185,12 @@ struct DeckView: View {
             }
         }
         #else
+        // A column as wide as the Mac's, which no finger resizes: a slide zoomed past the desk
+        // runs to the inspector's edge, and a pinch there would take the edge with it (PLAN 3.16).
         divided
             .inspector(isPresented: $showsInspector) {
                 inspectorColumn
-                    .inspectorColumnWidth(min: 260, ideal: 300, max: 480)
+                    .inspectorColumnWidth(300)
             }
         #endif
     }
