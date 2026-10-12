@@ -64,6 +64,9 @@ public enum GeneratingStep: Equatable, Sendable {
     case painting(pictures: Int, model: String)
     case painted(pictures: Int, unmade: [String])
     case making
+    case looking(slides: Int)
+    case looked(slides: Int)
+    case unlooked(String)
     case fitting(texts: Int)
     case fitted(texts: Int)
     case unfitted(String)
@@ -85,6 +88,10 @@ public enum GeneratingStep: Equatable, Sendable {
         case .painted(let pictures, let unmade) where unmade.isEmpty: "\(pictures) pictures made"
         case .painted(let pictures, let unmade): "\(pictures) pictures made; not made: \(unmade.joined(separator: "; "))"
         case .making: "Making the deck in the theme…"
+        case .looking(let slides): "Showing the model the \(slides) slides as drawn…"
+        case .looked(let slides) where slides == 0: "The model saw nothing to change"
+        case .looked(let slides): "\(slides) \(slides == 1 ? "slide" : "slides") changed by what the model saw"
+        case .unlooked(let why): "Not changed by what the model saw: \(why)"
         case .fitting(let texts): "\(texts) \(texts == 1 ? "text runs" : "texts run") past their place: asking for them shorter…"
         case .fitted(let texts): "\(texts) rewritten to fit"
         case .unfitted(let why): "Not rewritten to fit: \(why)"
@@ -108,12 +115,23 @@ public struct Generated: Decodable, Sendable {
     /// How many pictures were made for its slides, and why each other asked for was not.
     public let pictures: Int?
     public let unpictured: [String]?
+    /// What the model changed on the deck it saw drawn (PLAN G.13), slide by slide, or why not.
+    public let looked: [Looked]?
+    public let unlooked: String?
+
+    /// A slide the model changed: its number, the layout it gave it, and why.
+    public struct Looked: Decodable, Sendable {
+        public let slide: Int
+        public let layout: String?
+        public let why: String
+    }
 
     /// What was made, in a line.
     public var words: String {
         let errors = created.errors == 0 ? "" : ", \(created.errors) \(created.errors == 1 ? "error" : "errors") to look at"
         let made = pictures.map { $0 == 0 ? "" : ", \($0) \($0 == 1 ? "picture" : "pictures")" } ?? ""
-        return "Made \(layouts.count) slides on the arc \(arc)\(made)\(errors)"
+        let seen = (looked?.count).map { $0 == 0 ? "" : ", \($0) changed by what the model saw" } ?? ""
+        return "Made \(layouts.count) slides on the arc \(arc)\(made)\(seen)\(errors)"
     }
 }
 
@@ -308,11 +326,23 @@ public final class Generator {
     }
 
     private struct Making: Decodable {
-        struct Fit: Decodable {
+        struct Look: Decodable {
             let request: GeneratorRequest
-            let texts: Int
+            let slides: Int
         }
 
+        let look: Look?
+        let fit: Fit?
+    }
+
+    private struct Fit: Decodable {
+        let request: GeneratorRequest
+        let texts: Int
+    }
+
+    private struct Looking: Decodable {
+        let looked: Int
+        let unlooked: String?
         let fit: Fit?
     }
 
@@ -420,11 +450,12 @@ public final class Generator {
 
     /// The deck `brief` asks for, grounded in the sources read, written by `provider`'s `model`
     /// with `key`, on `arc` where one is named, in the theme that ships as `theme`, its pictures
-    /// made by `painter` where one is given: the bundle made, opened, and what it came to. `hear`
-    /// hears how far it has come.
+    /// made by `painter` where one is given, and shown to the model as it is drawn unless `look`
+    /// says not (PLAN G.13): the bundle made, opened, and what it came to. `hear` hears how far it
+    /// has come.
     public func generate(
         brief: Brief, arc: String? = nil, provider: Provider, model: String, base: String? = nil, key: String,
-        theme: String, painter: Painter? = nil, hear: (GeneratingStep) -> Void
+        theme: String, painter: Painter? = nil, look: Bool = true, hear: (GeneratingStep) -> Void
     ) async throws -> (ScaenaSession, Generated) {
         var args = try asking(brief: brief, provider: provider, model: model, base: base)
         if let arc { args["arc"] = .string(arc) }
@@ -451,8 +482,25 @@ public final class Generator {
             try await paint(painter, theme: theme, hear: hear)
         }
         hear(.making)
-        let making: Making = try step("make", ["theme": .string(theme), "key": .string(key)])
-        if let fit = making.fit {
+        let making: Making = try step("make", ["theme": .string(theme), "key": .string(key), "look": .bool(look)])
+        var fit = making.fit
+        // The deck shown to the model as it is drawn (PLAN G.13), each slide's change kept where
+        // lint finds the slide no worse; then the fit, asked after it.
+        if let seeing = making.look {
+            hear(.looking(slides: seeing.slides))
+            let reply = await send(seeing.request)
+            let looking: Looking = try step(
+                "looked",
+                [
+                    "status": .number(Double(reply.status)),
+                    "statusText": .string(reply.status == 0 ? reply.text : HTTPURLResponse.localizedString(forStatusCode: reply.status)),
+                    "body": .string(reply.status == 0 ? "" : reply.text),
+                    "key": .string(key),
+                ])
+            if let why = looking.unlooked { hear(.unlooked(why)) } else { hear(.looked(slides: looking.looked)) }
+            fit = looking.fit
+        }
+        if let fit {
             hear(.fitting(texts: fit.texts))
             let reply = await send(fit.request)
             let fitting: Fitting = try step(

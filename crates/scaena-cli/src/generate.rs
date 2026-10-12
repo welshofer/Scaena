@@ -9,7 +9,7 @@ use scaena_narrato::brief::MODALITIES;
 use scaena_narrato::pictures::{self, Look, Quality};
 use scaena_narrato::{Brief, Generation, Provider, Request, Settings};
 use scaena_ops::create::ThemeSource;
-use scaena_ops::narrative::{Painter, Progress, Reply, Transport};
+use scaena_ops::narrative::{Looking, Painter, Progress, Reply, Transport};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
@@ -105,6 +105,15 @@ pub struct GenerateArgs {
     /// The image API's address, where it is not the provider's own.
     #[arg(long)]
     picture_base: Option<String>,
+    /// Make the deck without showing the model each slide as it is drawn (PLAN G.13). Shown
+    /// them, it may give a slide another of its layouts and tighten its words, each kept where
+    /// lint finds the slide no worse for it.
+    #[arg(long)]
+    no_look: bool,
+    /// What a model said it would change on the deck it saw drawn, written elsewhere, the JSON
+    /// the look is answered in: taken with no call, as `--slides` gives the slides.
+    #[arg(long)]
+    look_answer: Option<PathBuf>,
 }
 
 /// The environment variables a provider's key is read from, in order.
@@ -254,6 +263,8 @@ fn said(p: &Progress) -> String {
         Progress::Fitting { texts } => format!("{texts} texts run past their place: asking for them shorter…"),
         Progress::Fitted { texts } => format!("{texts} rewritten to fit"),
         Progress::Painting { pictures } => format!("making {pictures} pictures for the slides… (a minute or two)"),
+        Progress::Looking { slides } => format!("showing the model the {slides} slides as drawn…"),
+        Progress::Looked { slides } => format!("{slides} slides changed by what the model saw"),
         Progress::Painted { pictures, unmade } if unmade.is_empty() => format!("{pictures} pictures made"),
         Progress::Painted { pictures, unmade } => {
             format!("{pictures} pictures made; not made:\n  {}", unmade.join("\n  "))
@@ -464,11 +475,21 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         }
     };
     let font = |file: &str| theme.font(file);
+    let answered = match &a.look_answer {
+        Some(path) => Some(std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?),
+        None => None,
+    };
+    let looking = match (&answered, a.no_look) {
+        (Some(text), _) => Looking::Answered(text),
+        (None, true) => Looking::No,
+        (None, false) => Looking::Asked,
+    };
     let (made, write) = scaena_ops::narrative::generate(
         generation,
         key.as_deref(),
         &grounding.documents,
         painter.as_ref(),
+        looking,
         &theme.file,
         theme.text.clone(),
         &font,
@@ -499,6 +520,17 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         }
         if let Some(why) = &made.unfitted {
             println!("  not rewritten to fit: {why}");
+        }
+        for c in &made.looked {
+            let layout = c.layout.as_deref().map(|l| format!(" as {l}")).unwrap_or_default();
+            let words =
+                if c.title.is_some() || c.subtitle.is_some() || c.bullets.is_some() { ", words tightened" } else { "" };
+            println!("  slide {}{layout}{words}: {}", c.slide, c.why);
+        }
+        match (&made.unlooked, made.looked.is_empty()) {
+            (Some(why), true) => println!("  not changed by what the model saw: {why}"),
+            (Some(why), false) => println!("  {why}"),
+            (None, _) => {}
         }
         if made.pictures > 0 {
             println!("  pictures: {}", made.pictures);

@@ -18,6 +18,8 @@
 // - Its pictures (PLAN G.10) made by OpenAI's best image model the OpenAI key lists, played here
 //   too: two of five slides, the cover and the ending, each asked for with no word in it, the
 //   OpenAI key in OpenAI's header alone, and each shown in its slide's picture place.
+// - The deck shown to the model as it is drawn (PLAN G.13): each slide a JPEG after what is said
+//   of it, and the cover's title as the model tightened it.
 // Exits 1 on any failure.
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -69,12 +71,22 @@ const provider = createServer(async (req, res) => {
   const body = JSON.parse(text);
   const prompt = body.messages[0].content.find((c) => c.type === "text")?.text ?? "";
   const system = (body.system ?? []).map((s) => s.text).join("\n");
-  const asked = system.includes("tightening the words") ? "fit" : prompt.includes("=== CATALOG ===") ? "arc" : "slides";
+  const asked = system.includes("tightening the words")
+    ? "fit"
+    : system.includes("art director")
+      ? "look"
+      : prompt.includes("=== CATALOG ===")
+        ? "arc"
+        : "slides";
   requests.push({ headers: req.headers, body, prompt, asked });
   if (state.slow) await new Promise((ok) => setTimeout(ok, state.slow));
   if (state.fail) return reply(401, { type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } });
   if (asked === "arc") return reply(200, ARC);
   if (asked === "slides") return reply(200, SLIDES);
+  if (asked === "look") {
+    const look = { slides: [{ slide: 1, layout: "", title: "Carbon-negative cargo, ready to scale", subtitle: "", bullets: [], why: "One idea, one line." }] };
+    return reply(200, { content: [{ type: "text", text: JSON.stringify(look) }], stop_reason: "end_turn" });
+  }
   // Each text asked for shorter, cut to the most characters it may have.
   const texts = [...prompt.matchAll(/id: (.+)\nat most: (\d+) characters\ntext:\n([^\n]*)/g)].map(([, id, most, said]) => ({
     id,
@@ -205,10 +217,18 @@ try {
   );
   check(slides?.prompt.includes(`=== SOURCE: ${origin}/press.html ===`) && slides.prompt.includes("third route"), "the web page is in the slides' prompt");
   check(slides?.prompt.includes("=== SOURCE: q3.csv ==="), "the CSV is in the slides' prompt");
+  const look = requests.find((r) => r.asked === "look");
+  const drawn = look?.body.messages[0].content.filter((c) => c.type === "image") ?? [];
+  check(
+    drawn.length === 5 && drawn.every((d) => d.source.media_type === "image/jpeg" && d.source.data.startsWith("/9j/")),
+    `each slide shown to the model as a JPEG: ${drawn.length}`,
+  );
+  check(look?.prompt.startsWith("Slide 1 of 5, drawn as"), "each after what is said of it");
   const source = await page.evaluate(() => window.scaena.source());
   const states = (source.match(/^state /gm) ?? []).length;
   check(states === 5, `the deck has the recorded answer's five slides: ${states}`);
   check(source.includes("data/q3.csv"), "the CSV is a data source of the deck's");
+  check(source.includes("Carbon-negative cargo, ready to scale"), "the cover's title as the model tightened it");
   check(source.includes("assets/picture-01.jpg") && source.includes("assets/picture-05.jpg"), "the pictures are the cover's and the ending's");
   const last = await page.evaluate(() => window.scaena.last());
   const errors = last.findings.filter((f) => f.severity === "error").map((f) => f.code);

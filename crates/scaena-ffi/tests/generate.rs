@@ -115,9 +115,28 @@ fn a_deck_is_made_from_a_prompt_as_swift_makes_one_its_pictures_with_it() {
     let finished = step(g, "finish", json!({}), &[]);
     assert_eq!(finished, json!({ "pictures": wanted, "unmade": [] }));
 
-    // The deck made in Dusk, a text that runs past its place asked for shorter.
+    // The deck made in Dusk and shown to the model as it is drawn (PLAN G.13): each slide a JPEG
+    // after what is said of it.
     let making = step(g, "make", json!({ "theme": "dusk", "key": "sk-writer" }), &[]);
-    if let Some(fit) = making["fit"].as_object() {
+    let look = &making["look"];
+    assert_eq!(look["request"]["headers"]["x-api-key"], "sk-writer");
+    let body: Value = serde_json::from_str(look["request"]["body"].as_str().unwrap()).unwrap();
+    let content = body["messages"][0]["content"].as_array().unwrap();
+    let drawn: Vec<&Value> = content.iter().filter(|c| c["type"] == "image").collect();
+    assert_eq!(drawn.len() as u64, look["slides"].as_u64().unwrap());
+    assert!(drawn.iter().all(|d| d["source"]["media_type"] == "image/jpeg"));
+    assert!(content[0]["text"].as_str().unwrap().starts_with("Slide 1 of "), "{}", content[0]);
+    assert!(body["system"][0]["text"].as_str().unwrap().contains("art director"));
+    // The model tightens the cover's title; then a text that runs past its place is asked for
+    // shorter.
+    let tightened = anthropic(
+        &json!({ "slides": [{ "slide": 1, "layout": "", "title": "Carbon-negative cargo, ready to scale", "subtitle": "", "bullets": [], "why": "One idea, one line." }] })
+            .to_string(),
+    );
+    let looked =
+        step(g, "looked", json!({ "status": 200, "statusText": "OK", "body": tightened, "key": "sk-writer" }), &[]);
+    assert_eq!(looked["looked"], 1, "{looked}");
+    if let Some(fit) = looked["fit"].as_object() {
         assert_eq!(fit["request"]["headers"]["x-api-key"], "sk-writer");
         let none = anthropic(r#"{"texts": []}"#);
         step(g, "fitted", json!({ "status": 200, "statusText": "OK", "body": none }), &[]);
@@ -128,6 +147,7 @@ fn a_deck_is_made_from_a_prompt_as_swift_makes_one_its_pictures_with_it() {
     assert_eq!(report["pictures"].as_u64(), Some(wanted), "{report:#}");
     assert_eq!(report["arc"], "Problem–Solution");
     assert_eq!(report["sources"][0]["name"], "notes.md");
+    assert_eq!(report["looked"][0]["title"], "Carbon-negative cargo, ready to scale", "{report:#}");
 
     let mut error = null_mut();
     let session = unsafe { scaena_generator_open(g, &mut error) };

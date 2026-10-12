@@ -1376,6 +1376,39 @@ impl Making {
         self.0.report().to_string()
     }
 
+    /// How many states the deck made has; none where it would not validate.
+    #[wasm_bindgen(getter)]
+    pub fn count(&self) -> usize {
+        self.0.count()
+    }
+
+    /// The `index`th state at rest, drawn `width` pixels wide by the CPU painter, opaque: an
+    /// `ImageData`, which the page makes a JPEG of for the model to see (PLAN G.13).
+    pub fn pixels(&self, index: usize, width: u32) -> Result<web_sys::ImageData, JsError> {
+        let raster = self.0.pixels(index, width).map_err(js)?;
+        let clamped = wasm_bindgen::Clamped(raster.rgba.as_slice());
+        web_sys::ImageData::new_with_u8_clamped_array_and_sh(clamped, raster.width, raster.height)
+            .map_err(|e| JsError::new(&format!("{e:?}")))
+    }
+
+    /// `built`, the deck the generator built again with the model's `changes` (`Generation.
+    /// deckChanged` and `lookAnswer`, PLAN G.13), made a bundle and kept where lint finds no
+    /// slide worse for it: JSON `"kept"`, or `{ "worse": [index] }`, the slides it finds worse,
+    /// nothing kept. `refused`, JSON `[index]`, the slides a first try let go, which the report
+    /// says.
+    pub fn relook(&mut self, built: &str, changes: &str, refused: &str) -> Result<String, JsError> {
+        let built: scaena_ops::narrative::Made = serde_json::from_str(built).map_err(js)?;
+        let changes = serde_json::from_str(changes).map_err(js)?;
+        let refused: Vec<usize> = serde_json::from_str(refused).map_err(js)?;
+        let relooked = self.0.relook(built, changes, &refused).map_err(js)?;
+        serde_json::to_string(&relooked).map_err(js)
+    }
+
+    /// The look failed, or what it asked was not kept: why, which the report says.
+    pub fn unlooked(&mut self, why: String) {
+        self.0.unlooked(why);
+    }
+
     /// The bundle's files, by their paths in it, `deck.json` among them; none where the deck
     /// would not validate, which `report` says.
     pub fn files(&self) -> Result<Option<js_sys::Map>, JsError> {

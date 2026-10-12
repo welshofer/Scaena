@@ -39,6 +39,14 @@ export function said(event: GeneratingEvent): string {
         : `${event.pictures} pictures made`;
     case "making":
       return "Making the deck in the theme…";
+    case "looking":
+      return `Showing the model the ${event.slides} slides as drawn…`;
+    case "looked":
+      return event.slides
+        ? `${event.slides} ${event.slides === 1 ? "slide" : "slides"} changed by what the model saw`
+        : "The model saw nothing to change";
+    case "unlooked":
+      return `Not changed by what the model saw: ${event.why}`;
     case "fitting":
       return `${event.texts} ${event.texts === 1 ? "text runs" : "texts run"} past ${event.texts === 1 ? "its place" : "their places"}: asking for them shorter…`;
     case "fitted":
@@ -53,7 +61,8 @@ export function made(m: Generated): string {
   const fixed = m.fixed.length ? `, ${m.fixed.length} fixed by lint` : "";
   const errors = m.created.errors ? `, ${m.created.errors} ${m.created.errors === 1 ? "error" : "errors"} to look at` : "";
   const pictures = m.pictures ? `, ${m.pictures} ${m.pictures === 1 ? "picture" : "pictures"}` : "";
-  return `made: ${m.layouts.length} slides on the arc ${m.arc}${pictures}${fixed}${errors}`;
+  const looked = m.looked?.length ? `, ${m.looked.length} changed by what the model saw` : "";
+  return `made: ${m.layouts.length} slides on the arc ${m.arc}${pictures}${looked}${fixed}${errors}`;
 }
 
 /** A source given: a file, or a link. */
