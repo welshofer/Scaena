@@ -312,8 +312,9 @@ pub unsafe extern "C" fn scaena_add_file(
 /// A file dropped or pasted on the canvas (PLAN 2.45, 2.76, 2.96, 3.12), handed over where the
 /// browser's canvas keeps one: a data file (`.csv`, `.json`) under `data/` by its name, numbered
 /// where the bundle holds other bytes there; anything else, an image above all, under `assets/`,
-/// named by its SHA-256 as a save names it. `{"ok": path}` or `{"error": {"message"}}`, a
-/// string to free.
+/// named by its SHA-256 as a save names it. A picture an image could not show, one too large
+/// among them ([`scaena_picture`] says so first), is refused and kept out of the bundle.
+/// `{"ok": path}` or `{"error": {"message"}}`, a string to free.
 ///
 /// # Safety
 /// `session` is a live handle; `name` a NUL-terminated string; `bytes` `len` readable bytes.
@@ -333,8 +334,24 @@ pub unsafe extern "C" fn scaena_drop(
             Some("csv" | "json") => session.0.placing(name, &bytes),
             _ => scaena_store::place(name, &bytes),
         };
-        session.0.add_file(&path, bytes);
+        session.0.dropping(name, &path, bytes).map_err(said)?;
         Ok(json!(path))
+    }))
+}
+
+/// What the PNG or JPEG `bytes` are as a picture (SPEC §3.3): `{"ok": {"width", "height",
+/// "largest"}}`, its size as it is seen and the longest side an image may have, read before it
+/// is dropped so one too large is offered as a smaller copy; `{"error": {"message"}}` where it
+/// is no picture an image shows. A string to free.
+///
+/// # Safety
+/// `bytes` is `len` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_picture(bytes: *const u8, len: usize) -> *mut c_char {
+    envelope(guarded(|| {
+        let bytes = unsafe { self::bytes(bytes, len, "bytes") }?;
+        let picture = scaena_engine::images::Picture::read(bytes).map_err(said)?;
+        Ok(json!(picture))
     }))
 }
 

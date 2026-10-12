@@ -108,8 +108,9 @@ pub struct Session {
     /// What each format painted beside the canvas laid out, by the format (PLAN 2.62).
     #[cfg(feature = "editor")]
     besides: BTreeMap<Option<String>, formats::Beside>,
-    /// The fonts and images the engine was built from, as painters read them.
-    store: Assets,
+    /// The fonts and images the engine was built from, as painters read them: shared with a
+    /// frame held for its shaders, which is painted with the files it was drawn from.
+    store: Arc<Assets>,
     /// The frame held while its shaders' rows are worked out (PLAN 2.28).
     #[cfg(feature = "cpu")]
     shading: Option<Shading>,
@@ -184,12 +185,15 @@ pub struct Grouping {
 }
 
 /// A frame held to be painted once its shaders' pixels are in (PLAN 2.28): its display
-/// list, its scale, and each shader it draws.
+/// list, its scale, each shader it draws, and the fonts and images it was drawn with. A page's
+/// worker answers what else it is asked while the rows are worked out, and an edit meanwhile
+/// may build the engine again from other files: the frame is painted with its own.
 #[cfg(feature = "cpu")]
 struct Shading {
     dl: DisplayList,
     scale: f32,
     shaders: Vec<Shader>,
+    assets: Arc<Assets>,
 }
 
 /// A shader a held frame draws: the spec its job is made from, the job, and its pixels,
@@ -276,7 +280,7 @@ impl Session {
             format: None,
             #[cfg(feature = "editor")]
             besides: BTreeMap::new(),
-            store: Assets::new(),
+            store: Arc::default(),
             #[cfg(feature = "cpu")]
             shading: None,
             #[cfg(feature = "cpu")]
@@ -381,6 +385,29 @@ impl Session {
         }
     }
 
+    /// A file dropped or pasted on the canvas, `name` handed over at `path` (PLAN 2.96), as
+    /// [`Session::add_file`] hands one over; but a picture an image could not show stays out of
+    /// the bundle, refused saying why, so nothing is left there that Insert offers and the deck
+    /// refuses. One too large is the editor's to offer as a smaller copy before it is dropped
+    /// ([`scaena_engine::images::Picture`]).
+    pub fn dropping(&mut self, name: &str, path: &str, bytes: Vec<u8>) -> Result<(), Error> {
+        let lower = path.to_ascii_lowercase();
+        if [".png", ".jpg", ".jpeg"].iter().any(|e| lower.ends_with(e)) {
+            match scaena_engine::images::Picture::read(&bytes) {
+                Ok(p) if !p.fits() => {
+                    return Err(Error::Ops(format!(
+                        "{name} is {} × {} pixels: a picture on a slide is at most {} pixels on a side",
+                        p.width, p.height, p.largest
+                    )));
+                }
+                Ok(_) => {}
+                Err(why) => return Err(Error::Ops(format!("{name} is not a picture a slide can show: {why}"))),
+            }
+        }
+        self.add_file(path, bytes);
+        Ok(())
+    }
+
     /// The image files the deck names: each to hand over with [`Session::add_file`].
     pub fn image_files(&self) -> Vec<String> {
         self.deck.image_files()
@@ -436,7 +463,7 @@ impl Session {
             }
             fonts.check_theme(&self.theme)?;
             self.engine = Some(Engine::new(fonts).with_images(images));
-            self.store = store;
+            self.store = Arc::new(store);
             self.forget();
         }
         Ok(self.engine.as_mut().expect("built above"))
@@ -1549,7 +1576,7 @@ impl Session {
             }
         }
         let count = shaders.len();
-        self.shading = Some(Shading { dl, scale, shaders });
+        self.shading = Some(Shading { dl, scale, shaders, assets: self.store.clone() });
         Ok(count)
     }
 
@@ -1606,10 +1633,10 @@ impl Session {
     /// the frame is let go.
     #[cfg(feature = "cpu")]
     pub fn shaded(&mut self) -> Result<scaena_paint::Raster, Error> {
-        let Shading { dl, scale, shaders } =
+        let Shading { dl, scale, shaders, assets } =
             self.shading.take().ok_or_else(|| Error::Shading("no frame is held for its shaders".into()))?;
         let pixels = shaders.into_iter().map(|shader| shader.pixels).collect();
-        Ok(self.painter.paint_shaded(&dl, &self.store, scale, pixels)?)
+        Ok(self.painter.paint_shaded(&dl, &assets, scale, pixels)?)
     }
 }
 
@@ -1709,6 +1736,35 @@ mod tests {
         s
     }
 
+    /// A PNG header for a picture of `w` × `h`: all an image reads of one before it is drawn.
+    fn png(w: u32, h: u32) -> Vec<u8> {
+        let mut b = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+        b.extend(w.to_be_bytes());
+        b.extend(h.to_be_bytes());
+        b.extend([8, 6, 0, 0, 0]);
+        b
+    }
+
+    /// A picture dropped joins the bundle; one an image could not show, too large or not a
+    /// picture at all, is refused saying why and stays out of it, so Insert never offers what the
+    /// deck would refuse.
+    #[test]
+    fn a_picture_too_large_stays_out_of_the_bundle() {
+        let mut s = torture();
+        let files = s.files().len();
+        let why = s.dropping("Ridge.png", "assets/large.png", png(11656, 8742)).unwrap_err().to_string();
+        assert_eq!(why, "Ridge.png is 11656 × 8742 pixels: a picture on a slide is at most 8192 pixels on a side");
+        assert!(s.file("assets/large.png").is_none() && s.files().len() == files, "nothing left behind");
+        let gif = s.dropping("Ridge.png", "assets/ridge.png", b"GIF89a".to_vec()).unwrap_err().to_string();
+        assert!(gif.starts_with("Ridge.png is not a picture a slide can show: neither a PNG nor a JPEG"), "{gif}");
+        // The copy made smaller joins it, and so does a file that is no picture.
+        let fits = png(8192, 6144);
+        s.dropping("Ridge.png", "assets/smaller.png", fits.clone()).unwrap();
+        assert_eq!(s.file("assets/smaller.png"), Some(&fits[..]));
+        s.dropping("notes.txt", "assets/notes.txt", b"words".to_vec()).unwrap();
+        assert_eq!(s.files().len(), files + 2);
+    }
+
     /// Set `s` up for the golden frame `name`, and say which state it is and when: `state`
     /// at rest, or `state@fraction` of the transition into it, each in the deck's own canvas
     /// or, after `~`, in a format (`9x16` for `9:16`).
@@ -1793,6 +1849,22 @@ mod tests {
         let spec = s.shader_spec(0).unwrap();
         assert!(matches!(shader_rows(&spec, first + rows, 1), Err(Error::Shading(_))));
         assert!(matches!(shader_rows(&spec[..spec.len() / 2], 0, 1), Err(Error::Paint(PaintError::Shader(_)))));
+    }
+
+    /// A frame held for its shaders' rows is painted with the files it was drawn with (PLAN
+    /// 2.28): a page's worker answers what else it is asked while helpers work the rows out, and
+    /// an edit meanwhile that builds the engine again from other pictures changes no frame held.
+    #[cfg(feature = "cpu")]
+    #[test]
+    fn a_frame_held_is_painted_with_the_files_it_was_drawn_with() {
+        let mut s = torture();
+        let want = s.pixels("images", f64::INFINITY, 640).unwrap();
+        assert_eq!(s.shading("images", f64::INFINITY, 640).unwrap(), 0);
+        // Meanwhile, a photo goes where the test card was: the engine is built again without it.
+        let json = s.deck.to_json().unwrap().replace("assets/test-card.png", "assets/baseline-420.jpg");
+        s.set_deck(Deck::from_json(&json).unwrap());
+        assert!(s.pixels("images", f64::INFINITY, 640).unwrap() != want);
+        assert!(s.shaded().unwrap() == want, "the frame held is painted as it was drawn");
     }
 
     /// What stands where comes from the state at rest in the format shown, laid out once and

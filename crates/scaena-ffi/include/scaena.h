@@ -110,8 +110,9 @@ bool scaena_add_file(struct ScaenaSession *session,
 // A file dropped or pasted on the canvas (PLAN 2.45, 2.76, 2.96, 3.12), handed over where the
 // browser's canvas keeps one: a data file (`.csv`, `.json`) under `data/` by its name, numbered
 // where the bundle holds other bytes there; anything else, an image above all, under `assets/`,
-// named by its SHA-256 as a save names it. `{"ok": path}` or `{"error": {"message"}}`, a
-// string to free.
+// named by its SHA-256 as a save names it. A picture an image could not show, one too large
+// among them ([`scaena_picture`] says so first), is refused and kept out of the bundle.
+// `{"ok": path}` or `{"error": {"message"}}`, a string to free.
 //
 // # Safety
 // `session` is a live handle; `name` a NUL-terminated string; `bytes` `len` readable bytes.
@@ -119,6 +120,15 @@ char *scaena_drop(struct ScaenaSession *session,
                   const char *name,
                   const uint8_t *bytes,
                   size_t len);
+
+// What the PNG or JPEG `bytes` are as a picture (SPEC §3.3): `{"ok": {"width", "height",
+// "largest"}}`, its size as it is seen and the longest side an image may have, read before it
+// is dropped so one too large is offered as a smaller copy; `{"error": {"message"}}` where it
+// is no picture an image shows. A string to free.
+//
+// # Safety
+// `bytes` is `len` readable bytes.
+char *scaena_picture(const uint8_t *bytes, size_t len);
 
 // Answer `method` with `args` (a JSON object, or null for none), as a page's `Player` does:
 // `{"ok": value}` or `{"error": {"message"}}`, a string to free. The calls ([`call`]):

@@ -65,6 +65,7 @@
 //   dropped on, a `choose` of `src`; dropped anywhere else, it is inserted there, as Insert does.
 import { ALT, type Key, MOD, SHIFT } from "./commands";
 import { marks } from "./marks";
+import { fitting } from "./pictures";
 import { BUNDLE_PATH, CLIP, DATA, PICTURE } from "./protocol";
 import type { Added, Arrange, Cells, DataMark, Edited, Finding, Framing, Grid, Insert, LayoutSlots, Look, Map6, NodeBox, NoteMark, Outline, Rect, SlotBox, SnapMode, Snapped, Targets, Waiting } from "./protocol";
 import { pointer } from "./theme-panel";
@@ -2474,14 +2475,17 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const shown = editor.shown();
     if (!shown) return editor.say("the canvas waits for a source that compiles");
     if (DATA.test(file.name)) return attach(at, file);
-    const picture = PICTURE.test(file.name) ? file : await asPng(file);
+    const readable = PICTURE.test(file.name) ? file : await asPng(file);
     // An image shows a PNG or a JPEG: anything else stays out of the bundle.
-    if (!picture) return editor.say(`${file.name} is neither a picture (PNG, JPEG) nor data (CSV, JSON): nothing was added`);
+    if (!readable) return editor.say(`${file.name} is neither a picture (PNG, JPEG) nor data (CSV, JSON): nothing was added`);
+    // One too large goes in as a smaller copy, if the person wants one.
+    const picture = await fitting(stage, readable, (words) => editor.say(words));
+    if (!picture) return;
     const top = onto ? reached(await stage.hit(shown.state, at, editor.format()).catch(() => [])) : undefined;
     const choices = top && (await stage.choices(shown.state, top.node).catch(() => undefined));
     try {
       const path = await stage.drop(picture.name, await picture.arrayBuffer());
-      const kept = picture === file ? `kept as ${path}` : `kept as a PNG, ${path}`;
+      const kept = picture === file ? `kept as ${path}` : picture === readable ? `kept as a PNG, ${path}` : `kept as a smaller copy, ${path}`;
       if (top && choices?.type === "image") {
         const op = { op: "choose", node: top.node, prop: "src", value: path, state: shown.state };
         return void (await change([op], "replacing…", `${top.node} shows ${file.name}, ${kept}`, top.node));
