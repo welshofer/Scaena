@@ -466,6 +466,22 @@
       dialog label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
       dialog input, dialog select { font: inherit; font-size: 14px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; }
       dialog menu { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin: 4px 0 0; padding: 0; }
+      /* New from a prompt (PLAN G.5): the brief, what it is grounded in, and how far it has come. */
+      #prompting { width: min(42em, 94vw); max-height: 92vh; }
+      #prompting textarea { font: inherit; font-size: 14px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 6px; resize: vertical; }
+      #prompting .fields { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+      #prompting .fields > label { flex: 1 1 10em; }
+      #prompting .fields > input { flex: 1 1 14em; }
+      #prompting .fields > label.button { flex: none; flex-direction: row; color: var(--ink); font-size: 13px; }
+      #prompting fieldset { border: 1px solid var(--line); border-radius: 4px; display: flex; flex-direction: column; gap: 8px; }
+      #prompting label.check { flex-direction: row; align-items: center; gap: 6px; color: var(--ink); }
+      #prompting details > div { margin-top: 8px; }
+      #prompting-sources { margin: 0; padding-left: 1.2em; }
+      #prompting-sources:empty { display: none; }
+      #prompting-sources button { font-size: 12px; padding: 0 6px; }
+      #prompting-progress { margin: 0; padding-left: 1.4em; max-height: 9em; overflow: auto; font-size: 13px; }
+      #prompting-progress:empty { display: none; }
+      #prompting-progress .failed { color: var(--error); }
       #exporting fieldset { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px; }
       #exporting legend { color: var(--muted); font-size: 12px; padding: 0 4px; }
       #exporting fieldset label { flex-direction: row; align-items: center; gap: 8px; color: var(--ink); font-size: 13px; }
@@ -500,6 +516,7 @@
         <nav id="bundle" aria-label="Bundle">
           <button type="button" id="source-toggle" aria-controls="source" aria-pressed="false" title="The deck's source as .scn, beside the canvas (⌘\)">Source</button>
           <button id="new-deck" title="A new deck from a theme that ships">New…</button>
+          <button id="new-prompt" title="A new deck written from a prompt by Narrato, grounded in what you give it, with your own key" aria-haspopup="dialog">From a prompt…</button>
           <button id="open-folder" hidden>Open folder…</button>
           <label class="button">Open .scaena…<input id="open-file" type="file" accept=".scaena" hidden /></label>
           <select id="kept" aria-label="Kept in this browser"></select>
@@ -693,6 +710,47 @@
           <button value="create" id="making-create">Create</button>
         </menu>
       </form>
+    </dialog>
+    <dialog id="prompting" aria-labelledby="prompting-title">
+      <form method="dialog">
+        <h2 id="prompting-title">New deck from a prompt</h2>
+        <label>What it is about <textarea id="prompting-topic" name="topic" required rows="3" placeholder="Pitch a Series A round for our carbon-negative cargo platform"></textarea></label>
+        <div class="fields">
+          <label>Audience <input id="prompting-audience" name="audience" list="prompting-audiences" autocomplete="off" /></label>
+          <label>Goal <select id="prompting-goal" name="goal"></select></label>
+          <label>Length <select id="prompting-length" name="length"></select></label>
+          <label>Theme <select id="prompting-theme" name="theme"></select></label>
+        </div>
+        <fieldset>
+          <legend>Grounded in</legend>
+          <ul id="prompting-sources" aria-label="What it is grounded in"></ul>
+          <div class="fields">
+            <label class="button">Add files… <input id="prompting-files" type="file" multiple hidden /></label>
+            <input id="prompting-link" aria-label="A link to ground it in" placeholder="github:owner/repo, or a web address" autocomplete="off" />
+            <button type="button" id="prompting-add-link">Add link</button>
+          </div>
+          <p class="note">A PDF, Word, Excel, PowerPoint, Markdown, text, CSV, HTML, JSON, or RTF file, dropped here or added; a GitHub repository; or a web page whose site lets another page read it. SEC filings and Google files by their links are read by the Mac app and <code>scaena generate</code>: here, download a Google file and add it.</p>
+          <label class="check"><input id="prompting-research" type="checkbox" /> Deep research on the topic first, its report a source: minutes, with a Gemini or Anthropic key</label>
+        </fieldset>
+        <details>
+          <summary>More</summary>
+          <div class="fields">
+            <label>How it is delivered <select id="prompting-modality" name="modality"></select></label>
+            <label>Arc <select id="prompting-arc" name="arc"></select></label>
+            <label>What it should achieve <input id="prompting-outcome" name="outcome" autocomplete="off" /></label>
+            <label>Language <input id="prompting-language" name="language" placeholder="English" autocomplete="off" /></label>
+            <label>Voice <input id="prompting-voice" name="voice" placeholder="Plain, confident, no jargon" autocomplete="off" /></label>
+            <label>GitHub token, for a private repository <input id="prompting-github" type="password" autocomplete="off" /></label>
+          </div>
+        </details>
+        <p class="note" id="prompting-who"></p>
+        <ol id="prompting-progress" aria-live="polite" aria-label="How far it has come"></ol>
+        <menu>
+          <button type="button" id="prompting-cancel">Cancel</button>
+          <button value="generate" id="prompting-go">Generate</button>
+        </menu>
+      </form>
+      <datalist id="prompting-audiences"></datalist>
     </dialog>
     <dialog id="starting" aria-labelledby="starting-title">
       <form method="dialog">

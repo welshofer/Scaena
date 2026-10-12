@@ -85,6 +85,7 @@ import type {
 } from "./protocol";
 import { fitting } from "./pictures";
 import { PICTURE } from "./protocol";
+import { prompting } from "./prompt";
 import { rehearsal, rehearsalKeys } from "./rehearse";
 import { scn, scnHighlight } from "./scn";
 import { client, listen, served, status as onDisk } from "./served";
@@ -164,12 +165,14 @@ function folders<T>(mode: IDBTransactionMode, act: (store: IDBObjectStore) => ID
   });
 }
 
-/** What the editor has open, to close when it opens another bundle. */
-let current: { close: () => void; dirty: () => boolean } | undefined;
+/** What the editor has open, to close when it opens another bundle; `say` puts a line in its
+ * status that stays, before what lint finds, until the source is edited by hand. */
+let current: { close: () => void; dirty: () => boolean; say: (text: string) => void } | undefined;
 
-/** Open the bundle at `source`, closing what is open. */
-async function open(source: Source) {
-  if (current?.dirty() && !confirm("The bundle has changes not saved. Open another and lose them?")) return;
+/** Open the bundle at `source`, closing what is open; `asked` where changes not saved were asked
+ * about already. */
+async function open(source: Source, asked = false) {
+  if (!asked && current?.dirty() && !confirm("The bundle has changes not saved. Open another and lose them?")) return;
   current?.close();
   current = undefined;
   $("#status").textContent = "opening…";
@@ -228,6 +231,14 @@ async function controls() {
     if (making.returnValue !== "create") return;
     void open({ create: { theme: theme.value, title: title.value.trim() || "Untitled" } }).catch(failed);
   };
+  // From a prompt (PLAN G.5): a deck Narrato writes, made in a worker of its own.
+  prompting(
+    worker,
+    $("#new-prompt"),
+    () => current?.dirty() ?? false,
+    (source) => open(source, true),
+    (line) => current?.say(line),
+  );
 }
 
 /** The bundle `?bundle=` names. A folder kept from before asks again for leave to write,
@@ -323,7 +334,7 @@ async function edit(source: Source) {
     if (params.has("painter")) playing.set("painter", painter);
     play.href = `index.html?${playing}`;
     // Nor a new deck, until it is saved.
-    play.hidden = where?.kind === "folder" || (!where && "create" in source);
+    play.hidden = where?.kind === "folder" || (!where && ("create" in source || "files" in source));
     // A served bundle saves to its folder alone.
     $<HTMLButtonElement>("#save-as").hidden = where?.kind === "serve";
   };
@@ -465,8 +476,12 @@ async function edit(source: Source) {
   /** What the last gesture on the canvas or choice in the inspector said: it stays in the status,
    * what lint finds after it, until the source is edited by hand. */
   let told: string | undefined;
+  /** The source a line said of the deck as it opened was said of (`current.say`): it stays
+   * through that source's lint, until the source is edited. */
+  let toldOf: string | undefined;
   const say = (text: string) => {
     told = text;
+    toldOf = undefined;
     status.textContent = text;
   };
   /** The state shown, where a gesture on the canvas or a choice in the inspector makes a patch:
@@ -1008,7 +1023,7 @@ async function edit(source: Source) {
     // An edit's own result was asked for when the edit was made: a state shown since is a move.
     const asked = taken?.source === source ? taken.showings : showings;
     let edited: Edited;
-    if (taken?.source !== source) told = undefined;
+    if (taken?.source !== source && source !== toldOf) told = undefined;
     try {
       if (taken?.source === source) edited = taken.edited;
       else {
@@ -1691,6 +1706,7 @@ async function edit(source: Source) {
       { label: "Export the deck as one HTML file", applies: () => last?.valid === true, run: () => exportAs("html").catch(failed) },
       { label: "Play", applies: () => !play.hidden, run: () => play.click() },
       { label: "New deck…", run: () => $("#new-deck").click() },
+      { label: "New deck from a prompt…", run: () => $("#new-prompt").click() },
       { label: "Open a .scaena file…", run: () => $("#open-file").click() },
       { label: "Open a folder…", applies: () => !$("#open-folder").hidden, run: () => $("#open-folder").click() },
       { label: "Show the inspector", run: () => tab("inspector").focus() },
@@ -1910,6 +1926,10 @@ async function edit(source: Source) {
       stage.close();
     },
     dirty,
+    say: (text) => {
+      say(text);
+      toldOf = view.state.doc.toString();
+    },
   };
 
   statesPicker.onchange = () => {

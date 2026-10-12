@@ -18,6 +18,11 @@ cpu = ["scaena-paint/cpu"]
 # by `scaena-ops`' operations (ADR-0009); open and save bundles in memory with `scaena-store`
 # (PLAN 2.4), and start new ones from a theme and its fonts (PLAN 2.12).
 editor = ["dep:scaena-ops", "dep:scaena-store", "dep:serde", "dep:indexmap", "cpu"]
+# A deck made from a prompt (PLAN G.5, ADR-0026): the deck a narrative built, which the
+# generator's module or the C ABI hands over, made a bundle as `scaena generate` makes one.
+# Narrato's prompts and arcs stay in the generator: this reaches `scaena_ops::narrative`'s
+# making, which reads none of them.
+generate = ["editor", "scaena-ops/narrato", "dep:scaena-narrato", "dep:scaena-sources"]
 
 [dependencies]
 scaena-core.workspace = true
@@ -26,6 +31,8 @@ scaena-engine.workspace = true
 scaena-paint = { path = "../scaena-paint", default-features = false }
 scaena-ops = { workspace = true, optional = true }
 scaena-store = { workspace = true, optional = true }
+scaena-narrato = { workspace = true, optional = true }
+scaena-sources = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 indexmap = { workspace = true, optional = true }
 serde_json.workspace = true

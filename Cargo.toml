@@ -23,6 +23,7 @@ members = [
   "crates/scaena-chat",
   "crates/scaena-narrato",
   "crates/scaena-sources",
+  "crates/scaena-generator",
 ]
 default-members = [
   "crates/scaena-core",
@@ -219,6 +220,15 @@ opt-level = "z"
 [profile.wasm.package.fdeflate]
 opt-level = "z"
 [profile.wasm.package.regex-lite]
+opt-level = "z"
+# The generator's own module (PLAN G.5), which the editor loads to make a deck from a prompt: its
+# requests built, its answers and the files a deck is grounded in read, each once.
+[profile.wasm.package.scaena-generator]
+opt-level = "z"
+strip = true
+[profile.wasm.package.scaena-narrato]
+opt-level = "z"
+[profile.wasm.package.scaena-sources]
 opt-level = "z"
 
 [profile.dev.package."*"]

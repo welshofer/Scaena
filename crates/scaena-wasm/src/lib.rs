@@ -1286,6 +1286,89 @@ impl SavedBundle {
     }
 }
 
+/// A deck made from a prompt, made a bundle (PLAN G.5, ADR-0026): the deck the generator's
+/// module (`scaena-generator`) built from Narrato's narrative, made as `scaena generate` makes
+/// it ([`scaena_session::making`]). This module carries none of Narrato.
+#[cfg(feature = "generate")]
+#[wasm_bindgen]
+pub struct Making(scaena_session::making::Making);
+
+#[cfg(feature = "generate")]
+#[wasm_bindgen]
+impl Making {
+    /// The bundle `built` makes, as the generator's `Generation.deck` gives it, JSON `{ deck,
+    /// layouts, arc, fallback? }`: in the theme file named `file` (`dusk.theme.json`), whose text
+    /// is `theme`, each font it names in `fonts` by the path the theme gives it.
+    #[wasm_bindgen(constructor)]
+    pub fn new(built: &str, file: &str, theme: &str, fonts: &js_sys::Map) -> Result<Making, JsError> {
+        #[derive(serde::Deserialize)]
+        struct Built {
+            #[serde(flatten)]
+            made: scaena_ops::narrative::Made,
+            arc: String,
+            #[serde(default)]
+            fallback: Option<String>,
+        }
+        let built: Built = serde_json::from_str(built).map_err(js)?;
+        let mut given = std::collections::BTreeMap::new();
+        fonts.for_each(&mut |bytes, path| {
+            if let Some(path) = path.as_string() {
+                given.insert(path, js_sys::Uint8Array::new(&bytes).to_vec());
+            }
+        });
+        let making = scaena_session::making::Making::new(built.made, &built.arc, built.fallback, file, theme, &given);
+        making.map(Making).map_err(js)
+    }
+
+    /// The texts that still run past their place, as JSON `[{ id, text, most }]`: what the
+    /// generator's `Generation.fitRequest` asks the model to rewrite.
+    pub fn longs(&self) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.longs().map_err(js)?).map_err(js)
+    }
+
+    /// The model's rewrites, JSON `[[id, text]]` as `Generation.fitAnswer` reads them, set in
+    /// their places, and lint's fixes applied again.
+    pub fn fitted(&mut self, rewrites: &str) -> Result<(), JsError> {
+        self.0.fitted(serde_json::from_str(rewrites).map_err(js)?).map_err(js)
+    }
+
+    /// The rewrite failed: why, which the report says.
+    pub fn unfitted(&mut self, why: String) {
+        self.0.unfitted(why);
+    }
+
+    /// Each sheet given, JSON `[{ named, hint, csv? }]` as the generator's `Sources.tables` gives
+    /// them, kept as a data source of the deck's.
+    pub fn keep(&mut self, tables: &str) -> Result<(), JsError> {
+        let given: Vec<serde_json::Value> = serde_json::from_str(tables).map_err(js)?;
+        let field = |t: &serde_json::Value, k: &str| t[k].as_str().unwrap_or_default().to_string();
+        let tables: Vec<scaena_sources::Table> = (given.iter())
+            .map(|t| scaena_sources::Table {
+                named: field(t, "named"),
+                hint: field(t, "hint"),
+                csv: t["csv"].as_str().map(|c| c.as_bytes().to_vec()),
+            })
+            .collect();
+        self.0.keep(&tables).map_err(js)
+    }
+
+    /// What was made, as JSON, as `scaena generate --json` says it.
+    pub fn report(&self) -> String {
+        self.0.report().to_string()
+    }
+
+    /// The bundle's files, by their paths in it, `deck.json` among them; none where the deck
+    /// would not validate, which `report` says.
+    pub fn files(&self) -> Result<Option<js_sys::Map>, JsError> {
+        let Some(files) = self.0.files().map_err(js)? else { return Ok(None) };
+        let map = js_sys::Map::new();
+        for (path, bytes) in files {
+            map.set(&path.into(), &js_sys::Uint8Array::from(bytes.as_slice()).into());
+        }
+        Ok(Some(map))
+    }
+}
+
 #[cfg(all(feature = "gpu", target_arch = "wasm32"))]
 pub use web::Canvas;
 

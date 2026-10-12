@@ -12,6 +12,8 @@
 //!   engine, applies a finding's fix, and inspects a state (PLAN 2.3, [`editor`]). It says what
 //!   stands where and where a node may go, makes each gesture's patch, opens a bundle from its
 //!   files or a `.scaena` zip, and saves it as `scaena save` does (PLAN 2.4, `store`).
+//! - With the `generate` feature, it makes the deck a narrative built a bundle, as `scaena
+//!   generate` makes one ([`making`], PLAN G.5).
 //!
 //! The browser's module wraps it for JavaScript (`scaena-wasm`'s `Player`), and the Mac
 //! client's C ABI wraps it for Swift (`scaena-ffi`, PLAN 3.1): each turns arguments and
@@ -39,6 +41,8 @@ mod data;
 pub mod editor;
 #[cfg(feature = "editor")]
 mod formats;
+#[cfg(feature = "generate")]
+pub mod making;
 #[cfg(feature = "editor")]
 pub mod store;
 #[cfg(feature = "editor")]

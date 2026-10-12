@@ -655,6 +655,12 @@ export type ToWorker =
    * module `engine`, compiled, if the page carries it (PLAN 2.5); the worker loads its own
    * without it. */
   | { type: "open"; source: Source; painter: Painter; canvas: OffscreenCanvas; engine?: WebAssembly.Module }
+  /** Be the worker a deck is made from a prompt in (PLAN G.5), which holds no deck: say what a
+   * brief may ask (`briefing`), loading the generator's module, then make the deck `generate`
+   * asks for, saying how far it has come (`generating`) and handing back its files
+   * (`generated`). Stopping the worker stops it. */
+  | { type: "briefing"; engine?: WebAssembly.Module }
+  | { type: "generate"; generate: Generate; engine?: WebAssembly.Module }
   /** Paint `state` `t` ms into its cue, or at rest without `t`. */
   | { type: "show"; id: number; state: string; t?: number; format?: string }
   /** The deck's timeline. */
@@ -950,6 +956,84 @@ export type FromHelper =
   | { type: "rows"; id: number; bytes: ArrayBuffer }
   /** Request `id` failed, or, without one, the helper could not start. */
   | { type: "error"; id?: number; message: string };
+
+/** A deck made from a prompt (PLAN G.5, ADR-0026), as `scaena generate` makes one: Narrato's
+ * brief, an arc of its by name or the model's choice, a theme that ships, who writes it with the
+ * user's own key, and what it is grounded in. */
+export interface Generate {
+  brief: Brief;
+  arc?: string;
+  theme: string;
+  provider: ProviderId;
+  model: string;
+  key: string;
+  base?: string;
+  /** Files, each by its name: Markdown, text, RTF, HTML, JSON, CSV, Excel, Word, PowerPoint, or
+   * a PDF, which the model reads as itself. */
+  files: { name: string; bytes: ArrayBuffer }[];
+  /** Links: `github:OWNER/REPO` or a GitHub address, read from its tree file by file, or a web
+   * page whose host lets another page read it. */
+  links: string[];
+  /** A GitHub token of the user's own, for a private repository; sent to GitHub alone. */
+  github?: string;
+  /** Deep research on the topic first, its report a source (PLAN G.8). */
+  research: boolean;
+}
+
+/** Narrato's brief (`scaena_narrato::Brief`): what the deck is about, in the user's words, and
+ * what they say of it; a field left out takes Narrato's default. */
+export interface Brief {
+  topic: string;
+  audience?: string;
+  goal?: string;
+  length?: string;
+  modality?: string;
+  desiredOutcomes?: string;
+  language?: string;
+  voice?: string;
+}
+
+/** What a brief may ask, as Narrato knows it: its goals, lengths, and ways a deck is delivered,
+ * the audiences its personas name, its arcs, and the defaults. */
+export interface Choices {
+  goals: string[];
+  lengths: string[];
+  modalities: { id: string; label: string }[];
+  audiences: string[];
+  arcs: string[];
+  defaults: { audience: string; goal: string; length: string };
+}
+
+/** How far a deck being made from a prompt has come, as `scaena generate` says it. */
+export type GeneratingEvent =
+  | { kind: "reading"; name: string }
+  | { kind: "read"; name: string; what: string }
+  | { kind: "researching"; topic: string }
+  | { kind: "researchingNow"; doing: string }
+  | { kind: "researched"; sources: number; cut: boolean }
+  | { kind: "choosing" }
+  | { kind: "chose"; arc: string; fallback?: string }
+  | { kind: "writing"; slides: number }
+  | { kind: "wrote"; slides: number; truncated: boolean }
+  | { kind: "making" }
+  | { kind: "fitting"; texts: number }
+  | { kind: "fitted"; texts: number }
+  | { kind: "unfitted"; why: string };
+
+/** What a deck made from a prompt came to, as `scaena generate --json` says it. */
+export interface Generated {
+  created: { created: boolean; errors: number; findings: Finding[] };
+  arc: string;
+  fallback?: string;
+  layouts: string[];
+  fixed: Finding[];
+  fitted?: string[];
+  unfitted?: string;
+  /** Each sheet given, kept as a data source, or why not. */
+  data: { sheet: string; id?: string; rows?: number; why?: string }[];
+  /** What each source gave the prompt, and whether it was cut short to fit. */
+  sources: { name: string; kind: string; bytes: number; truncated: boolean }[];
+}
 
 /** Who answers the assistant's questions: Anthropic, OpenAI (or a server that speaks its Chat
  * Completions), or Gemini, with the user's own key (SPEC §11). */
@@ -1276,6 +1360,13 @@ export interface Motion {
 /** The worker to the page. */
 export type FromWorker =
   | ({ type: "ready" } & Opened)
+  /** What a brief may ask, as Narrato knows it (PLAN G.5). */
+  | { type: "briefing"; choices: Choices }
+  /** How far the deck being made from a prompt has come. */
+  | { type: "generating"; event: GeneratingEvent }
+  /** The deck made from a prompt: the bundle's files by their paths, its name, and what it came
+   * to. Kept nowhere until it is saved. */
+  | { type: "generated"; files: Record<string, ArrayBuffer>; name: string; made: Generated }
   /** The bundle as `reload` read it again. */
   | ({ type: "reloaded"; id: number } & Opened)
   /** The frame request `id` asked for is on the canvas, `size` pixels, painted in `ms`. */

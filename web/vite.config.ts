@@ -150,7 +150,8 @@ export default defineConfig({
   // only to save a bundle that keeps one (PLAN 2.9); and the assistant, with what it reads,
   // which the worker loads the first time it is asked something (PLAN 2.6); the themes a new
   // deck starts from, with their fonts, which it loads only to make one (PLAN 2.12); the
-  // PDF painter, which it loads the first time a PDF is exported (PLAN 2.54); and the
+  // PDF painter, which it loads the first time a PDF is exported (PLAN 2.54); the generator,
+  // which a worker of its own loads to make a deck from a prompt (PLAN G.5); and the
   // hyphenation patterns the engine's module leaves out, each fetched the first time a text
   // hyphenates in its language (ADR-0015).
   resolve: {
@@ -160,6 +161,8 @@ export default defineConfig({
       "@scaena/history": join(repo, "crates/scaena-history/pkg/scaena_history.js"),
       "@scaena/resources": join(repo, "crates/scaena-resources/pkg/scaena_resources.js"),
       "@scaena/pdf": join(repo, "crates/scaena-pdf/pkg/scaena_pdf.js"),
+      "@scaena/generator": join(repo, "crates/scaena-generator/pkg/scaena_generator.js"),
+      "@scaena/generate": join(web, "src/generate.ts"),
       "@scaena/assistant": join(web, "src/assistant/index.ts"),
       "@scaena/themes": join(web, "src/themes.ts"),
       "@scaena/hyphenation": join(web, "src/hyphenation.ts"),

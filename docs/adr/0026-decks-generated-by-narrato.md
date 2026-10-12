@@ -61,7 +61,7 @@ Scaena's constraints bear on all of it:
      - CSV and spreadsheets, each sheet also a data source a chart can plot;
      - Word's `.docx`, and PowerPoint's `.pptx` (its slides' words, notes, and charts' figures).
 
-     The browser loads the crate as a module of its own, as it loads the subsetter.
+     The browser loads the crate as a module of its own, as it loads the subsetter: with Narrato and the deck a narrative builds, in one module (`scaena-generator`). The engine's module makes that deck a bundle, as the CLI does after it, and carries none of Narrato: 13 KB gzipped (PLAN G.5).
    - **A `.pptx` is only text in a prompt.** Its words become source material for the model and nothing else: no slide, node, or layout of it enters the deck. The deck the model writes goes through the same operations as any other agent's. Invariant 8 holds: no import filter.
    - **A PDF goes to the model as a document:** Anthropic's document block, Gemini's inline data, or OpenAI's file input. Vzestup's transcription by a model, and its output ceiling, are not ported.
 5. **Sources from the network are planned in Rust and fetched by the client.**
