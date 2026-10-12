@@ -19,6 +19,7 @@ pub mod fit;
 pub mod heuristic;
 mod js;
 pub mod layouts;
+pub mod pictures;
 pub mod prompt;
 pub mod providers;
 pub mod research;

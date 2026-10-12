@@ -29,6 +29,8 @@ final class ScaenaDocument: ReferenceFileDocument {
     /// Whether the deck was made here by New, not opened: its window offers the themes that ship
     /// before anything is on it, as the browser's New does (PLAN 2.12), once.
     var startsNew = false
+    /// What its window says as it opens, once: what a deck made from a prompt came to (PLAN G.6).
+    var opening: String?
 
     /// A new deck, as New starts one in the browser: Dusk, one state with nothing on it.
     init() {
@@ -44,6 +46,14 @@ final class ScaenaDocument: ReferenceFileDocument {
         // It opens on a title slide, its words to type over, as a presentation app's does (PLAN 3.30).
         editor.startOnTitleSlide()
         startsNew = true
+    }
+
+    /// A deck made from a prompt (PLAN G.6): the session the generator opened, kept nowhere until
+    /// it is saved, its window saying `said`, what it came to, as it opens.
+    init(generated session: ScaenaSession, said: String) {
+        _ = try? session.call("keepHistory") as JSONValue
+        editor = DeckEditor(session: session)
+        opening = said
     }
 
     init(configuration: ReadConfiguration) throws {

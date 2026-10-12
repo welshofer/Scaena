@@ -978,6 +978,9 @@ export interface Generate {
   github?: string;
   /** Deep research on the topic first, its report a source (PLAN G.8). */
   research: boolean;
+  /** Who makes the slides' pictures (PLAN G.10): an image model the key lists, best first,
+   * made as illustrations in the theme's colors or as photographs; none where it is not given. */
+  pictures?: { provider: "openai" | "gemini"; key: string; base?: string; look: "illustration" | "photo" };
 }
 
 /** Narrato's brief (`scaena_narrato::Brief`): what the deck is about, in the user's words, and
@@ -1015,6 +1018,8 @@ export type GeneratingEvent =
   | { kind: "chose"; arc: string; fallback?: string }
   | { kind: "writing"; slides: number }
   | { kind: "wrote"; slides: number; truncated: boolean }
+  | { kind: "painting"; pictures: number; model: string }
+  | { kind: "painted"; pictures: number; unmade: string[] }
   | { kind: "making" }
   | { kind: "fitting"; texts: number }
   | { kind: "fitted"; texts: number }
@@ -1029,6 +1034,9 @@ export interface Generated {
   fixed: Finding[];
   fitted?: string[];
   unfitted?: string;
+  /** How many pictures were made for its slides, and why each other asked for was not. */
+  pictures?: number;
+  unpictured?: string[];
   /** Each sheet given, kept as a data source, or why not. */
   data: { sheet: string; id?: string; rows?: number; why?: string }[];
   /** What each source gave the prompt, and whether it was cut short to fit. */

@@ -1,0 +1,548 @@
+{
+ "executiveSummary": "The planet has warmed about 1.3°C since pre-industrial times, driven by fossil-fuel CO2. The impacts are already measurable and costly, but clean energy is now the cheapest option for most of the world. The gap between pledges and the 1.5°C path is where our choices matter.",
+ "slides": [
+  {
+   "slideTitle": "Climate Change: Where We Stand",
+   "subtitle": "What the data says, what it costs, and what is working",
+   "layoutSuggestion": "title",
+   "keyBullets": [],
+   "visualDescription": "Satellite view of Earth at night with glowing city lights and a thin blue atmosphere",
+   "speakerNotes": "Thanks for making time. This is a 25-minute tour of the evidence, the stakes, and the response.",
+   "beatIndex": 0,
+   "beatName": "Context",
+   "purpose": "Open",
+   "intent": "orient",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Today's Agenda",
+   "subtitle": "",
+   "layoutSuggestion": "agenda",
+   "keyBullets": [
+    "The signal: what we measure",
+    "The cause: where emissions come from",
+    "The stakes: impacts already here",
+    "The response: what is working",
+    "What we can do"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Five parts. I'll keep the numbers tight and leave time for questions.",
+   "beatIndex": 0,
+   "beatName": "Context",
+   "purpose": "Orient",
+   "intent": "orient",
+   "expectedIntensity": 0.2,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "The Signal",
+   "subtitle": "What the instruments tell us",
+   "layoutSuggestion": "section",
+   "keyBullets": [],
+   "visualDescription": "Weather balloon rising over Antarctic ice",
+   "speakerNotes": "Start with measurement, not models.",
+   "beatIndex": 1,
+   "beatName": "Data",
+   "purpose": "Transition",
+   "intent": "transition",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "2024 Was the Hottest Year on Record",
+   "subtitle": "Global average temperature above the 1850–1900 baseline",
+   "layoutSuggestion": "metric",
+   "keyBullets": [
+    "1.55°C: above pre-industrial, the first calendar year past 1.5°C",
+    "Each of the last ten years ranks among the ten warmest"
+   ],
+   "visualDescription": "Heat map of the globe in deep reds",
+   "speakerNotes": "WMO consolidated six datasets. One year above 1.5 is not the Paris breach, which is a 20-year average, but it is a warning.",
+   "supportingFacts": "WMO State of the Global Climate 2024",
+   "beatIndex": 1,
+   "beatName": "Data",
+   "purpose": "Evidence",
+   "intent": "shock",
+   "expectedIntensity": 0.8,
+   "expectedValence": -0.6
+  },
+  {
+   "slideTitle": "Warming Has Accelerated Since 1980",
+   "subtitle": "Global temperature anomaly, °C vs 1850–1900",
+   "layoutSuggestion": "line-chart",
+   "keyBullets": [
+    "Warming since 1980 runs at about 0.2°C per decade"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Flat for a century, then a steady climb. The slope is the story.",
+   "chartData": {
+    "categories": [
+     "1880",
+     "1900",
+     "1920",
+     "1940",
+     "1960",
+     "1980",
+     "2000",
+     "2010",
+     "2020",
+     "2024"
+    ],
+    "series": [
+     {
+      "name": "Anomaly",
+      "values": [
+       -0.1,
+       -0.05,
+       0.0,
+       0.15,
+       0.05,
+       0.3,
+       0.65,
+       0.85,
+       1.25,
+       1.55
+      ]
+     }
+    ],
+    "unit": "°C"
+   },
+   "beatIndex": 1,
+   "beatName": "Data",
+   "purpose": "Evidence",
+   "intent": "explain",
+   "expectedIntensity": 0.6,
+   "expectedValence": -0.4
+  },
+  {
+   "slideTitle": "CO2 Is Higher Than at Any Time in 800,000 Years",
+   "subtitle": "Atmospheric CO2, parts per million",
+   "layoutSuggestion": "line-chart",
+   "keyBullets": [
+    "From 280 ppm before industry to 424 ppm in 2024"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Ice cores give us 800,000 years of record; the range was 180 to 300. We are at 424.",
+   "chartData": {
+    "categories": [
+     "1750",
+     "1900",
+     "1960",
+     "1980",
+     "2000",
+     "2010",
+     "2020",
+     "2024"
+    ],
+    "series": [
+     {
+      "name": "CO2",
+      "values": [
+       280,
+       296,
+       317,
+       339,
+       370,
+       390,
+       414,
+       424
+      ]
+     }
+    ],
+    "unit": "ppm"
+   },
+   "beatIndex": 1,
+   "beatName": "Data",
+   "purpose": "Evidence",
+   "intent": "explain",
+   "expectedIntensity": 0.6,
+   "expectedValence": -0.4
+  },
+  {
+   "slideTitle": "Every Vital Sign Points the Same Way",
+   "subtitle": "",
+   "layoutSuggestion": "scorecard",
+   "keyBullets": [
+    "4.5 mm/yr: sea level rise, double the 1990s rate",
+    "−13%: Arctic summer ice per decade",
+    "270 Gt: ice Greenland loses each year",
+    "90%: of the excess heat absorbed by the ocean"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Independent instruments, independent teams, one direction.",
+   "beatIndex": 1,
+   "beatName": "Data",
+   "purpose": "Evidence",
+   "intent": "convince",
+   "expectedIntensity": 0.7,
+   "expectedValence": -0.5
+  },
+  {
+   "slideTitle": "The Cause",
+   "subtitle": "Where the emissions come from",
+   "layoutSuggestion": "section",
+   "keyBullets": [],
+   "visualDescription": "Smokestacks at dusk",
+   "speakerNotes": "Now the why.",
+   "beatIndex": 2,
+   "beatName": "Insight",
+   "purpose": "Transition",
+   "intent": "transition",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Energy Is Three-Quarters of Emissions",
+   "subtitle": "Share of global greenhouse gas emissions by sector",
+   "layoutSuggestion": "bar-chart",
+   "keyBullets": [
+    "Power, transport, buildings, and industry together make up 73%"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Agriculture and land use are real, but energy is the lever.",
+   "chartData": {
+    "categories": [
+     "Energy in industry",
+     "Buildings",
+     "Transport",
+     "Agriculture & land",
+     "Fugitive & other energy",
+     "Industrial processes",
+     "Waste"
+    ],
+    "series": [
+     {
+      "name": "Share",
+      "values": [
+       24.2,
+       17.5,
+       16.2,
+       18.4,
+       15.0,
+       5.2,
+       3.2
+      ]
+     }
+    ],
+    "unit": "%"
+   },
+   "beatIndex": 2,
+   "beatName": "Insight",
+   "purpose": "Explain",
+   "intent": "explain",
+   "expectedIntensity": 0.5,
+   "expectedValence": -0.2
+  },
+  {
+   "slideTitle": "Who Emits: History Versus Today",
+   "subtitle": "",
+   "layoutSuggestion": "two-column",
+   "keyBullets": [
+    "Historical: the US and Europe emitted nearly half of all CO2 since 1850",
+    "Today: China emits about 31%, the US 13%, India 8%, the EU 7%"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Responsibility and leverage are different maps.",
+   "beatIndex": 2,
+   "beatName": "Insight",
+   "purpose": "Explain",
+   "intent": "nuance",
+   "expectedIntensity": 0.5,
+   "expectedValence": -0.1
+  },
+  {
+   "slideTitle": "We Are on a Highway to Climate Hell",
+   "subtitle": "",
+   "layoutSuggestion": "quote",
+   "keyBullets": [
+    "\"We are on a highway to climate hell with our foot still on the accelerator.\"",
+    "António Guterres, UN Secretary-General, COP27, 2022"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Strong words from a careful diplomat.",
+   "beatIndex": 2,
+   "beatName": "Insight",
+   "purpose": "Emphasis",
+   "intent": "provoke",
+   "expectedIntensity": 0.8,
+   "expectedValence": -0.6
+  },
+  {
+   "slideTitle": "The Stakes",
+   "subtitle": "Impacts already here",
+   "layoutSuggestion": "section",
+   "keyBullets": [],
+   "visualDescription": "Cracked dry riverbed",
+   "speakerNotes": "This is not a future problem.",
+   "beatIndex": 3,
+   "beatName": "Implication",
+   "purpose": "Transition",
+   "intent": "transition",
+   "expectedIntensity": 0.4,
+   "expectedValence": -0.3
+  },
+  {
+   "slideTitle": "Half a Degree Matters",
+   "subtitle": "1.5°C versus 2°C of warming",
+   "layoutSuggestion": "vs",
+   "keyBullets": [
+    "1.5°C versus 2°C",
+    "Extreme heat: 14% of people exposed every five years, versus 37%",
+    "Coral reefs: 70–90% lost, versus more than 99%",
+    "Arctic ice-free summers: once a century, versus once a decade"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "IPCC SR1.5. Every tenth of a degree is measured in lives and ecosystems.",
+   "beatIndex": 3,
+   "beatName": "Implication",
+   "purpose": "Compare",
+   "intent": "convince",
+   "expectedIntensity": 0.8,
+   "expectedValence": -0.6
+  },
+  {
+   "slideTitle": "Four Years of Records",
+   "subtitle": "",
+   "layoutSuggestion": "timeline",
+   "keyBullets": [
+    "2021: Pacific Northwest heat dome, 49.6°C in Canada",
+    "2022: Pakistan floods, a third of the country under water",
+    "2023: Canada's wildfires burn 18 million hectares",
+    "2024: Hottest year on record, 1.55°C"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Each of these was called unprecedented. Then the next one came.",
+   "beatIndex": 3,
+   "beatName": "Implication",
+   "purpose": "Evidence",
+   "intent": "shock",
+   "expectedIntensity": 0.9,
+   "expectedValence": -0.7
+  },
+  {
+   "slideTitle": "3.5 Billion People Live in Highly Vulnerable Places",
+   "subtitle": "",
+   "layoutSuggestion": "metric",
+   "keyBullets": [
+    "3.5B: people in contexts highly vulnerable to climate change",
+    "Nearly half of humanity, per the IPCC's 2022 assessment"
+   ],
+   "visualDescription": "Aerial photo of a flooded village",
+   "speakerNotes": "IPCC AR6 WGII. This is where adaptation money has to go.",
+   "beatIndex": 3,
+   "beatName": "Implication",
+   "purpose": "Emphasis",
+   "intent": "empathize",
+   "expectedIntensity": 0.8,
+   "expectedValence": -0.6
+  },
+  {
+   "slideTitle": "The Response",
+   "subtitle": "What is working",
+   "layoutSuggestion": "section",
+   "keyBullets": [],
+   "visualDescription": "Wind turbines over the sea at sunrise",
+   "speakerNotes": "Now the turn.",
+   "beatIndex": 4,
+   "beatName": "Action",
+   "purpose": "Transition",
+   "intent": "transition",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.4
+  },
+  {
+   "slideTitle": "Solar Power Got 90% Cheaper in a Decade",
+   "subtitle": "Utility-scale solar, levelized cost, $/MWh",
+   "layoutSuggestion": "bar-chart",
+   "keyBullets": [
+    "Solar is now the cheapest electricity in history"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "IRENA. The economics have flipped.",
+   "chartData": {
+    "categories": [
+     "2010",
+     "2012",
+     "2014",
+     "2016",
+     "2018",
+     "2020",
+     "2023"
+    ],
+    "series": [
+     {
+      "name": "Cost",
+      "values": [
+       460,
+       250,
+       170,
+       110,
+       85,
+       57,
+       44
+      ]
+     }
+    ],
+    "unit": "$/MWh"
+   },
+   "beatIndex": 4,
+   "beatName": "Action",
+   "purpose": "Evidence",
+   "intent": "hope",
+   "expectedIntensity": 0.7,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "30% of the World's Electricity Is Now Renewable",
+   "subtitle": "",
+   "layoutSuggestion": "metric",
+   "keyBullets": [
+    "30%: of global electricity from renewables in 2023",
+    "Up from 19% in 2000, driven by solar and wind"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Ember Global Electricity Review 2024.",
+   "beatIndex": 4,
+   "beatName": "Action",
+   "purpose": "Evidence",
+   "intent": "hope",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "Clean Energy Investment Now Doubles Fossil",
+   "subtitle": "Global energy investment in 2024, trillions of dollars",
+   "layoutSuggestion": "bar-chart",
+   "keyBullets": [
+    "$2 trillion went to clean energy, against $1.1 trillion to fossil fuels"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "IEA World Energy Investment 2024.",
+   "chartData": {
+    "categories": [
+     "Clean energy",
+     "Fossil fuels"
+    ],
+    "series": [
+     {
+      "name": "Investment",
+      "values": [
+       2.0,
+       1.1
+      ]
+     }
+    ],
+    "unit": "$T"
+   },
+   "beatIndex": 4,
+   "beatName": "Action",
+   "purpose": "Evidence",
+   "intent": "hope",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "The Path to Net Zero",
+   "subtitle": "",
+   "layoutSuggestion": "steps",
+   "keyBullets": [
+    "Clean the grid: triple renewables by 2030",
+    "Electrify: vehicles, heat pumps, industrial heat",
+    "Cut methane: 75% from fossil fuel operations",
+    "Remove the rest: forests, soils, and direct capture"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "IEA's net-zero roadmap in four moves.",
+   "beatIndex": 4,
+   "beatName": "Action",
+   "purpose": "Plan",
+   "intent": "guide",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Pledges Versus the 1.5°C Path",
+   "subtitle": "",
+   "layoutSuggestion": "before-after",
+   "keyBullets": [
+    "Current policies: about 2.7°C of warming by 2100",
+    "Paris-aligned path: 1.5°C, with emissions halved by 2030"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Climate Action Tracker. The gap is the work.",
+   "beatIndex": 4,
+   "beatName": "Action",
+   "purpose": "Compare",
+   "intent": "motivate",
+   "expectedIntensity": 0.7,
+   "expectedValence": 0.1
+  },
+  {
+   "slideTitle": "What We Can Do",
+   "subtitle": "In our work and our lives",
+   "layoutSuggestion": "section",
+   "keyBullets": [],
+   "visualDescription": "Hands planting a seedling",
+   "speakerNotes": "Bring it home.",
+   "beatIndex": 4,
+   "beatName": "Action",
+   "purpose": "Transition",
+   "intent": "transition",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Next Steps for Our Team",
+   "subtitle": "",
+   "layoutSuggestion": "next-steps",
+   "keyBullets": [
+    "Measure: baseline our travel and cloud emissions this quarter",
+    "Choose: default to rail and video where they work",
+    "Buy: green tariffs for our offices",
+    "Share: report progress at each all-hands"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Four concrete moves we can own.",
+   "beatIndex": 4,
+   "beatName": "Action",
+   "purpose": "Call to action",
+   "intent": "mobilize",
+   "expectedIntensity": 0.7,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "Questions",
+   "subtitle": "",
+   "layoutSuggestion": "qa",
+   "keyBullets": [
+    "What surprised you most?",
+    "Where can our team move fastest?"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Open the floor.",
+   "beatIndex": 4,
+   "beatName": "Action",
+   "purpose": "Discussion",
+   "intent": "engage",
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.4
+  },
+  {
+   "slideTitle": "The Next Decade Decides",
+   "subtitle": "Thank you",
+   "layoutSuggestion": "closing",
+   "keyBullets": [
+    "The tools exist and they are cheap; the choice is ours"
+   ],
+   "visualDescription": "Sunrise over a green valley with solar panels",
+   "speakerNotes": "Close on agency.",
+   "beatIndex": 4,
+   "beatName": "Action",
+   "purpose": "Close",
+   "intent": "inspire",
+   "expectedIntensity": 0.7,
+   "expectedValence": 0.7
+  }
+ ]
+}

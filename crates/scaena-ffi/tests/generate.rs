@@ -1,0 +1,185 @@
+//! A deck made from a prompt through the C ABI, step by step as ScaenaKit's `Generator` makes one
+//! (PLAN G.6): each request answered here with what Anthropic recorded, the slides' pictures made
+//! by a stand-in for OpenAI's images API (PLAN G.10), and the bundle opened as a session with a
+//! state for each slide and each picture among its files. Each key goes in its own provider's
+//! header, and nowhere else.
+
+use base64::Engine;
+use scaena_ffi::*;
+use serde_json::{Value, json};
+use std::ffi::{CStr, CString, c_char};
+use std::ptr::{null, null_mut};
+
+const ANSWERS: &str = "../scaena-narrato/tests/answers";
+
+fn c(s: &str) -> CString {
+    CString::new(s).unwrap()
+}
+
+/// A string the library returned, taken and freed.
+fn took(p: *mut c_char) -> String {
+    assert!(!p.is_null(), "a string was returned");
+    let s = unsafe { CStr::from_ptr(p) }.to_str().unwrap().to_string();
+    unsafe { scaena_string_free(p) };
+    s
+}
+
+/// One step of the generation as it answers: `{"ok"}` or `{"error"}`.
+fn answered(g: *mut ScaenaGenerator, method: &str, args: &Value, bytes: &[u8]) -> Value {
+    let (method, args) = (c(method), c(&args.to_string()));
+    let at = if bytes.is_empty() { null() } else { bytes.as_ptr() };
+    let answer = took(unsafe { scaena_generator_call(g, method.as_ptr(), args.as_ptr(), at, bytes.len()) });
+    serde_json::from_str(&answer).unwrap()
+}
+
+/// One step answered: its `ok`, or a panic with its error.
+fn step(g: *mut ScaenaGenerator, method: &str, args: Value, bytes: &[u8]) -> Value {
+    let answer = answered(g, method, &args, bytes);
+    answer.get("ok").cloned().unwrap_or_else(|| panic!("{method}: {answer}"))
+}
+
+/// A session's call answered: its `ok`, or a panic with its error.
+fn call(s: *mut ScaenaSession, method: &str) -> Value {
+    let (method, args) = (c(method), c("{}"));
+    let answer: Value = serde_json::from_str(&took(unsafe { scaena_call(s, method.as_ptr(), args.as_ptr()) })).unwrap();
+    answer.get("ok").cloned().unwrap_or_else(|| panic!("{answer}"))
+}
+
+/// An Anthropic answer whose text is `text`.
+fn anthropic(text: &str) -> String {
+    json!({ "content": [{ "type": "text", "text": text }], "stop_reason": "end_turn" }).to_string()
+}
+
+#[test]
+fn a_deck_is_made_from_a_prompt_as_swift_makes_one_its_pictures_with_it() {
+    let arc = std::fs::read_to_string(format!("{ANSWERS}/anthropic-arc.json")).unwrap();
+    let slides = std::fs::read_to_string(format!("{ANSWERS}/anthropic-slides.json")).unwrap();
+    let jpeg = std::fs::read("../../tests/fixtures/jpeg/baseline-422.jpg").unwrap();
+    let image = json!({ "data": [{ "b64_json": base64::engine::general_purpose::STANDARD.encode(&jpeg) }] });
+    let image = image.to_string();
+    let g = scaena_generator_new();
+
+    // A source read from its bytes, as Swift hands a file over: more than Narrato's 100
+    // characters, so that it grounds the slides.
+    let notes = "# Pilots\n\nThree lanes ran carbon-negative for a quarter. Fuel cost rose 4%, and every shipper renewed its contract for the next season.\n";
+    let read = step(g, "add", json!({ "name": "notes.md" }), notes.as_bytes());
+    assert_eq!(read, json!({ "name": "notes.md", "kind": "markdown" }));
+
+    // The brief as Swift encodes `Brief`: what is left empty is left out.
+    let brief = json!({ "topic": "Carbon-negative cargo is ready to scale", "audience": "Investors" });
+    step(g, "begin", json!({ "brief": brief, "provider": "anthropic", "model": "a-model" }), &[]);
+    let mut asked = Vec::new();
+    loop {
+        let standing = step(g, "request", json!({ "key": "sk-writer" }), &[]);
+        let Some(request) = standing.get("request").cloned() else { break };
+        let body = request["body"].as_str().unwrap();
+        let answer = if body.contains("=== CATALOG ===") { &arc } else { &slides };
+        step(g, "answer", json!({ "status": 200, "statusText": "OK", "body": answer }), &[]);
+        asked.push(request);
+    }
+    assert_eq!(asked.len(), 2, "the arc, then the slides");
+    let written = asked[1]["body"].as_str().unwrap();
+    assert!(written.contains("every shipper renewed its contract"), "the source grounds the slides");
+
+    // The pictures: the key's image models listed, the best first, every picture asked at once.
+    let listing = step(g, "imageModels", json!({ "provider": "openai", "key": "sk-pictures" }), &[]);
+    assert_eq!(listing["request"]["url"], "https://api.openai.com/v1/models");
+    let listed = json!({ "data": [{ "id": "gpt-4o" }, { "id": "dall-e-3" }, { "id": "gpt-image-1" }] }).to_string();
+    let models = step(g, "imageModelsRead", json!({ "provider": "openai", "status": 200, "body": listed }), &[]);
+    assert_eq!(models["models"][0], "gpt-image-1");
+    let pictures = json!({ "theme": "dusk", "look": "illustration", "provider": "openai", "model": "gpt-image-1" });
+    let wanted = step(g, "pictures", pictures, &[])["pictures"].as_u64().unwrap();
+    assert!(wanted > 0, "the slides ask for pictures");
+    let mut painted = Vec::new();
+    loop {
+        let round = step(g, "paint", json!({ "key": "sk-pictures" }), &[]);
+        let requests = round["requests"].as_array().unwrap().clone();
+        if requests.is_empty() {
+            break;
+        }
+        for request in requests {
+            // Each answer handed over as its bytes, as `URLSession` reads them.
+            step(g, "painted", json!({ "status": 200, "statusText": "OK" }), image.as_bytes());
+            painted.push(request);
+        }
+        assert_eq!(step(g, "round", json!({}), &[])["wait"], 0.0);
+    }
+    assert_eq!(painted.len() as u64, wanted, "each picture asked for once");
+    for request in &painted {
+        assert_eq!(request["url"], "https://api.openai.com/v1/images/generations");
+        assert_eq!(request["headers"]["authorization"], "Bearer sk-pictures");
+        let body: Value = serde_json::from_str(request["body"].as_str().unwrap()).unwrap();
+        assert_eq!(body["model"], "gpt-image-1");
+        assert!(body["prompt"].as_str().unwrap().contains("NO text"), "{body}");
+    }
+    let finished = step(g, "finish", json!({}), &[]);
+    assert_eq!(finished, json!({ "pictures": wanted, "unmade": [] }));
+
+    // The deck made in Dusk, a text that runs past its place asked for shorter.
+    let making = step(g, "make", json!({ "theme": "dusk", "key": "sk-writer" }), &[]);
+    if let Some(fit) = making["fit"].as_object() {
+        assert_eq!(fit["request"]["headers"]["x-api-key"], "sk-writer");
+        let none = anthropic(r#"{"texts": []}"#);
+        step(g, "fitted", json!({ "status": 200, "statusText": "OK", "body": none }), &[]);
+    }
+    let report = step(g, "report", json!({}), &[]);
+    assert_eq!(report["created"]["created"], true, "{report:#}");
+    assert_eq!(report["created"]["errors"], 0, "{report:#}");
+    assert_eq!(report["pictures"].as_u64(), Some(wanted), "{report:#}");
+    assert_eq!(report["arc"], "Problem–Solution");
+    assert_eq!(report["sources"][0]["name"], "notes.md");
+
+    let mut error = null_mut();
+    let session = unsafe { scaena_generator_open(g, &mut error) };
+    assert!(!session.is_null(), "the deck opens: {}", took(error));
+    let states = call(session, "states");
+    assert_eq!(states.as_array().unwrap().len(), report["layouts"].as_array().unwrap().len());
+    let files = call(session, "bundleFiles");
+    let kept: Vec<&str> = (files.as_array().unwrap().iter())
+        .filter_map(|f| f["path"].as_str())
+        .filter(|p| p.starts_with("assets/picture-"))
+        .collect();
+    assert_eq!(kept.len() as u64, wanted, "{files:#}");
+    assert!(kept.iter().all(|p| p.ends_with(".jpg")), "a JPEG stays a JPEG: {kept:?}");
+
+    // Each key went to its own provider alone.
+    for request in &asked {
+        assert_eq!(request["headers"]["x-api-key"], "sk-writer");
+        assert!(
+            !["sk-writer", "sk-pictures"].iter().any(|k| request["body"].as_str().unwrap().contains(k)),
+            "no key in a body"
+        );
+    }
+    for request in &painted {
+        assert!(request["headers"].get("x-api-key").is_none());
+        assert!(
+            !["sk-writer", "sk-pictures"].iter().any(|k| request["body"].as_str().unwrap().contains(k)),
+            "no key in a body"
+        );
+    }
+    unsafe {
+        scaena_session_free(session);
+        scaena_generator_free(g);
+    }
+}
+
+#[test]
+fn a_step_out_of_order_is_an_error_that_says_why() {
+    let g = scaena_generator_new();
+    for (method, args) in [
+        ("request", json!({ "key": "k" })),
+        ("paint", json!({ "key": "k" })),
+        ("round", json!({})),
+        ("finish", json!({})),
+        ("make", json!({ "theme": "dusk" })),
+        ("report", json!({})),
+        ("no such step", json!({})),
+    ] {
+        let answer = answered(g, method, &args, &[]);
+        assert!(answer["error"]["message"].as_str().is_some_and(|m| !m.is_empty()), "{method}: {answer}");
+    }
+    let mut error = null_mut();
+    assert!(unsafe { scaena_generator_open(g, &mut error) }.is_null());
+    assert!(took(error).contains("no deck is made"));
+    unsafe { scaena_generator_free(g) };
+}

@@ -31,6 +31,7 @@
 //! error that says so: nothing unwinds into Swift.
 
 mod chat;
+mod generate;
 
 use scaena_session::Session;
 use scaena_session::assistant::{Caller, failure};
@@ -1089,6 +1090,112 @@ pub unsafe extern "C" fn scaena_chat_free(chat: *mut ScaenaChat) {
     if !chat.is_null() {
         // SAFETY: the caller gives a handle this library made and has not freed.
         drop(unsafe { Box::from_raw(chat) });
+    }
+}
+
+/// A deck being made from a prompt (PLAN G.6, ADR-0026), a step at a time: Swift makes each
+/// request and hands each answer back. Free with [`scaena_generator_free`].
+pub struct ScaenaGenerator(generate::Generating);
+
+/// A new generation, with no source read yet.
+#[unsafe(no_mangle)]
+pub extern "C" fn scaena_generator_new() -> *mut ScaenaGenerator {
+    Box::into_raw(Box::new(ScaenaGenerator(generate::Generating::default())))
+}
+
+/// What a brief may ask, as `{"ok": value}`: Narrato's goals, lengths, and ways a deck is
+/// delivered (`{id, label}`), the audiences its personas name, its arcs, and the defaults.
+#[unsafe(no_mangle)]
+pub extern "C" fn scaena_generator_choices() -> *mut c_char {
+    envelope(guarded(|| Ok(generate::choices())))
+}
+
+/// One step of the generation `generator`, as `{"ok": value}` or `{"error": {"message"}}`, with
+/// `bytes` where the step reads some. Each request a step gives is `{method, url, headers, body?,
+/// most?}`, the body the text to send:
+///
+/// - `add {name}` with the file's bytes: read by its extension, `{name, kind}`.
+/// - `fetch {spec, contact?, token?}`: what a link names, planned as GETs, `{get}`: SEC's
+///   filings with the user's `contact`, a GitHub repository with their `token` where it is
+///   private, a Google file shared by link, or a page. `fetched {status, kind}` with the answer's
+///   bytes: `{get}`, the next, or `{read: {name, kind}}`.
+/// - `research {brief, provider, model, base?, key}`: deep research on the brief's topic,
+///   `{send}`; `researched {key, status, statusText?, body}`: `{send}`, `{wait, send}` (milliseconds
+///   to wait first), or `{done: {sources, cut}}`, the report then a source; each with `progress`.
+/// - `begin {brief, provider, model, base?, arc?}`: the sources packed for the brief, `{given}`.
+/// - `request {key}`: `{step, slides, request}`, or `{step: "done"}`; `answer {status,
+///   statusText?, body}`: `{step, slides, arc?, fallback?, written?, truncated?}`. `written
+///   {text}`: slides written elsewhere, with no call.
+/// - `imageModels {provider, key, base?}`: the request that lists the models a key can use,
+///   `{request}`; `imageModelsRead {provider, status, statusText?, body}`: the image models it
+///   lists, best first, `{models}` (PLAN G.10).
+/// - `pictures {theme, look, provider, model, base?, quality?}`: the pictures the slides ask for
+///   in the theme that ships as `theme`, as `illustration` or `photo`, by that image model,
+///   `{pictures}`. Then each round: `paint {key}`, `{requests}`, every picture not yet made, none
+///   once each is made or given up; `painted {status, statusText?, after?}` with each answer's
+///   body as its bytes, in order; and `round`, `{wait}`, the seconds to wait before the next.
+///   `finish`: `{pictures, unmade}`, the pictures kept for `make`.
+/// - `make {theme, key?}`: the deck built in the theme that ships as `theme`, each slide with a
+///   picture made shown with it, and made a bundle, `{fit}`: with a key, the request that asks
+///   for each text that runs past its place shorter (`{request, texts}`), or null; `fitted
+///   {status, statusText?, body}`: `{fitted}` or `{unfitted}`.
+/// - `report`: what was made, as `scaena generate --json` says it.
+///
+/// # Safety
+/// `generator` is a live handle; `method` a NUL-terminated string; `args` one, or null; `bytes`
+/// `len` readable bytes, or null with `len` 0.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_generator_call(
+    generator: *mut ScaenaGenerator,
+    method: *const c_char,
+    args: *const c_char,
+    bytes: *const u8,
+    len: usize,
+) -> *mut c_char {
+    envelope(guarded(|| {
+        let generator = unsafe { handle(generator, "generator") }?;
+        let method = unsafe { text(method, "method") }?;
+        let args = match unsafe { maybe_text(args, "args") }? {
+            None => json!({}),
+            Some(a) => {
+                serde_json::from_str(a).map_err(|e| said(format!("{method}: the arguments are not JSON: {e}")))?
+            }
+        };
+        let bytes = unsafe { self::bytes(bytes, len, "bytes") }?;
+        generator.0.call(method, &args, bytes)
+    }))
+}
+
+/// The bundle the generation made, each sheet given kept as a data source, opened as a session:
+/// kept nowhere until it is saved. Null where it would not validate, or nothing is made yet,
+/// `*error` then saying why.
+///
+/// # Safety
+/// `generator` is a live handle; `error` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_generator_open(
+    generator: *mut ScaenaGenerator,
+    error: *mut *mut c_char,
+) -> *mut ScaenaSession {
+    let opened = guarded(|| unsafe { handle(generator, "generator") }?.0.open());
+    match opened {
+        Ok(session) => Box::into_raw(Box::new(ScaenaSession(session))),
+        Err(failure) => {
+            unsafe { report(error, failure) };
+            std::ptr::null_mut()
+        }
+    }
+}
+
+/// Free a generation.
+///
+/// # Safety
+/// `generator` is a handle this library made and has not freed, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_generator_free(generator: *mut ScaenaGenerator) {
+    if !generator.is_null() {
+        // SAFETY: the caller gives a handle this library made and has not freed.
+        drop(unsafe { Box::from_raw(generator) });
     }
 }
 

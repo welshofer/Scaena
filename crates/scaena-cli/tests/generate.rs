@@ -368,3 +368,81 @@ fn deep_research_grounds_the_slides_in_its_report() {
     ]));
     assert!(out["error"]["message"].as_str().unwrap().contains("--slides makes no call"), "{out:#}");
 }
+
+/// An image API on this machine: OpenAI's model list, and a picture for each generation, a
+/// JPEG from the decoder's fixtures; but the cover's, refused as unsafe.
+fn painted(method: &str, path: &str, body: &str) -> Answer {
+    let jpeg = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/jpeg/baseline-422.jpg");
+    match (method, path) {
+        ("GET", "/v1/models") => {
+            let listed =
+                serde_json::json!({ "data": [{ "id": "gpt-4o" }, { "id": "dall-e-3" }, { "id": "gpt-image-1" }] });
+            (200, "application/json", listed.to_string().into_bytes())
+        }
+        ("POST", "/v1/images/generations") if body.contains("SUBJECT: A container ship at dawn") => {
+            let refused = r#"{"error":{"message":"Your request was rejected by the safety system.","code":"moderation_blocked"}}"#;
+            (400, "application/json", refused.as_bytes().to_vec())
+        }
+        ("POST", "/v1/images/generations") => {
+            use base64::Engine;
+            let b64 = base64::engine::general_purpose::STANDARD.encode(std::fs::read(jpeg).unwrap());
+            (200, "application/json", serde_json::json!({ "data": [{ "b64_json": b64 }] }).to_string().into_bytes())
+        }
+        _ => (404, "text/plain", b"not here".to_vec()),
+    }
+}
+
+#[test]
+fn pictures_are_made_by_the_users_image_model_and_kept_in_the_bundle() {
+    let (base, asked) = serve(painted);
+    let dir = place("pictures");
+    let bundle = dir.to_str().unwrap();
+    // Five slides of the catalog's: its cover, agenda, a big number, a chart, and its ending.
+    let slides = place("pictures-slides").with_extension("json");
+    let catalog: Value = serde_json::from_str(&std::fs::read_to_string(catalog()).unwrap()).unwrap();
+    let picked: Vec<Value> = [0, 1, 3, 4, 55].iter().map(|i| catalog["slides"][i].clone()).collect();
+    let written = serde_json::json!({ "executiveSummary": catalog["executiveSummary"], "slides": picked });
+    std::fs::write(&slides, written.to_string()).unwrap();
+    let mut c = Command::new(env!("CARGO_BIN_EXE_scaena"));
+    for k in KEYS.into_iter().chain(PROXIES).chain(["SCAENA_MODEL"]) {
+        c.env_remove(k);
+    }
+    let out = c
+        .env("OPENAI_API_KEY", "sk-test")
+        .args(["--json", "generate", bundle, "Tidewater's Series A", "--slides", slides.to_str().unwrap()])
+        .args(["--pictures", "openai", "--picture-base", &base, "--picture-look", "photo"])
+        .output()
+        .unwrap();
+    let said = String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(0), "{said}");
+    let made = json(&out);
+    // Two in five slides want one: the cover and the ending. The cover's, refused, leaves it a
+    // cover that waits for no picture, and says why.
+    assert_eq!(made["pictures"], 1, "{said}");
+    let layouts: Vec<&str> = made["layouts"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+    assert_eq!((layouts[0], layouts[4]), ("title-center", "title-split"), "{layouts:?}");
+    let unpictured = made["unpictured"][0].as_str().unwrap_or_default();
+    assert!(unpictured.starts_with("slide 1:") && unpictured.contains("safety system"), "{unpictured}");
+    let asked = asked.lock().unwrap();
+    // The best model the key lists, each picture asked for as a photograph with no word in it,
+    // the key in its header only.
+    let generations: Vec<&Asked> = asked.iter().filter(|a| a.path == "/v1/images/generations").collect();
+    assert_eq!(generations.len(), 2);
+    for g in &generations {
+        let body: Value = serde_json::from_str(&g.body).unwrap();
+        assert_eq!((body["model"].as_str(), body["output_format"].as_str()), (Some("gpt-image-1"), Some("jpeg")));
+        let prompt = body["prompt"].as_str().unwrap();
+        assert!(prompt.contains("NO text in the image") && prompt.contains("Editorial photography"), "{prompt}");
+        assert!(!g.body.contains("sk-test"));
+    }
+    // Kept in the bundle, each shown in its slide's picture place with what it shows.
+    let deck: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap();
+    let images: Vec<&Value> = deck["nodes"].as_object().unwrap().values().filter(|n| n["type"] == "image").collect();
+    assert_eq!(images.len(), 1);
+    for image in images {
+        let src = image["src"].as_str().unwrap();
+        assert!(dir.join(src).is_file(), "{src}");
+        assert!(image["alt"].as_str().is_some_and(|a| !a.is_empty()));
+    }
+    assert_eq!(scaena(&["validate", bundle]).status.code(), Some(0));
+}

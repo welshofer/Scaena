@@ -12,7 +12,12 @@ authors.workspace = true
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
-scaena-session.workspace = true
+# With the bundle a deck made from a prompt becomes (PLAN G.6).
+scaena-session = { workspace = true, features = ["generate"] }
+# Narrato's requests and answers, the sources read, and the theme a deck is made in (PLAN G.6).
+scaena-narrato.workspace = true
+scaena-sources.workspace = true
+scaena-core.workspace = true
 # The CRDT a save records the history in, and the subsetter a save shrinks fonts with: what the
 # browser loads as modules of their own (scaena-history, scaena-subset), linked in here.
 scaena-store.workspace = true
@@ -22,7 +27,7 @@ serde_json.workspace = true
 # A frame's pixels, as the painters give them.
 scaena-paint.workspace = true
 # The themes that ship and their fonts, which a new deck starts from (PLAN 2.12, 3.3).
-scaena-ops = { workspace = true, features = ["shipped"] }
+scaena-ops = { workspace = true, features = ["shipped", "narrato"] }
 # The assistant's conversation (PLAN 3.6, ADR-0022), what its model reads, and a frame it drew
 # sent as a PNG in base64.
 scaena-chat.workspace = true
@@ -38,5 +43,3 @@ scaena-paint = { workspace = true, features = ["gpu"] }
 [dev-dependencies]
 # Writes `include/scaena.h` from this crate's code, which the `header` test holds it to.
 cbindgen.workspace = true
-# Reads back a frame's display list, as a Swift painter will.
-scaena-core.workspace = true

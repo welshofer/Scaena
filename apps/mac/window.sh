@@ -474,5 +474,16 @@ sleep 2
 echo "the light table put away, the slides down the side: $(frames find state-cover)"
 shot light-table-closed
 
+# New from a Prompt (PLAN G.6): File › New from a Prompt… opens its window, the brief's fields and
+# Narrato's choices in it. CI's Mac keeps no key, so it offers to keep one and Generate waits for
+# one; Escape is Cancel, which closes it.
+menu File "New from a Prompt…"
+sleep 3
+shot prompt
+echo "New from a Prompt: the windows $(app 'get name of every window' | tr '\n' ' '); the topic $(frames find prompt-topic), Generate $(frames find prompt-generate)"
+app 'key code 53' >/dev/null
+sleep 2
+echo "Escape: the windows $(app 'get name of every window' | tr '\n' ' ')"
+
 # The deck is edited now: no saving it, so no asking.
 pkill -x Scaena || true

@@ -732,6 +732,18 @@
           <p class="note">A PDF, Word, Excel, PowerPoint, Markdown, text, CSV, HTML, JSON, or RTF file, dropped here or added; a GitHub repository; or a web page whose site lets another page read it. SEC filings and Google files by their links are read by the Mac app and <code>scaena generate</code>: here, download a Google file and add it.</p>
           <label class="check"><input id="prompting-research" type="checkbox" /> Deep research on the topic first, its report a source: minutes, with a Gemini or Anthropic key</label>
         </fieldset>
+        <div class="fields">
+          <label>Pictures <select id="prompting-pictures" name="pictures">
+            <option value="openai">By OpenAI</option>
+            <option value="gemini">By Gemini</option>
+            <option value="">None</option>
+          </select></label>
+          <label>As <select id="prompting-look" name="look">
+            <option value="illustration">Illustrations in the theme's colors</option>
+            <option value="photo">Photographs</option>
+          </select></label>
+        </div>
+        <p class="note" id="prompting-painter"></p>
         <details>
           <summary>More</summary>
           <div class="fields">

@@ -569,6 +569,7 @@ impl Scaena {
             scn: a.scn,
             title: a.title,
             data: a.data,
+            ..Default::default()
         };
         blocking(move || scaena_ops::create::create(Path::new(&a.bundle), &req)).await.map(Json)
     }

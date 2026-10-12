@@ -6,9 +6,10 @@
 use anyhow::{Context, Result, anyhow, bail};
 use clap::Args;
 use scaena_narrato::brief::MODALITIES;
+use scaena_narrato::pictures::{self, Look, Quality};
 use scaena_narrato::{Brief, Generation, Provider, Request, Settings};
 use scaena_ops::create::ThemeSource;
-use scaena_ops::narrative::{Progress, Reply};
+use scaena_ops::narrative::{Painter, Progress, Reply, Transport};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
@@ -82,6 +83,28 @@ pub struct GenerateArgs {
     /// agent, or Anthropic's model with web search. It takes minutes; its report is a source.
     #[arg(long)]
     research: bool,
+    /// Who makes the slides' pictures (PLAN G.10): `openai` or `gemini`, with its key from the
+    /// environment, or `none`; else the first of those whose key the environment holds. Two in
+    /// five slides get one, ten at most: the cover, the dividers, the ending, and the rest by
+    /// how much each wants one.
+    #[arg(long)]
+    pictures: Option<String>,
+    /// The image model, one of those `--picture-models` lists; else the best the key can use.
+    #[arg(long)]
+    picture_model: Option<String>,
+    /// What the pictures are made as: `illustration` (in the theme's colors, the default) or
+    /// `photo`.
+    #[arg(long, default_value = "illustration")]
+    picture_look: String,
+    /// How much care each picture is made with, and what it costs: `low`, `medium`, or `high`.
+    #[arg(long, default_value = "medium")]
+    picture_quality: String,
+    /// List the image models the picture provider's key can use, best first, and make nothing.
+    #[arg(long)]
+    picture_models: bool,
+    /// The image API's address, where it is not the provider's own.
+    #[arg(long)]
+    picture_base: Option<String>,
 }
 
 /// The environment variables a provider's key is read from, in order.
@@ -133,18 +156,90 @@ fn fetch(agent: &ureq::Agent, request: &Request) -> Reply {
     match sent {
         Ok(mut response) => {
             let status = response.status();
+            let after = response.headers().get("retry-after").and_then(|v| v.to_str().ok()).map(str::to_string);
             let body = response.body_mut().with_config().limit(64 << 20).read_to_string();
             match body {
                 Ok(body) => Reply {
                     status: status.as_u16(),
                     status_text: status.canonical_reason().unwrap_or_default().into(),
                     body,
+                    after,
                 },
-                Err(e) => Reply { status: 0, status_text: format!("reading the answer: {e}"), body: String::new() },
+                Err(e) => Reply { status: 0, status_text: format!("reading the answer: {e}"), ..Reply::default() },
             }
         }
-        Err(e) => Reply { status: 0, status_text: e.to_string(), body: String::new() },
+        Err(e) => Reply { status: 0, status_text: e.to_string(), ..Reply::default() },
     }
+}
+
+/// The CLI's transport: each request made by `fetch`, several at once each on a thread of its
+/// own, and a wait slept.
+struct Client<'a> {
+    agent: &'a ureq::Agent,
+}
+
+impl Transport for Client<'_> {
+    fn send(&mut self, request: &Request) -> Reply {
+        fetch(self.agent, request)
+    }
+
+    fn send_all(&mut self, requests: &[Request]) -> Vec<Reply> {
+        let agent = self.agent;
+        std::thread::scope(|scope| {
+            let made: Vec<_> = requests.iter().map(|r| scope.spawn(move || fetch(agent, r))).collect();
+            made.into_iter()
+                .map(|t| {
+                    t.join().unwrap_or_else(|_| Reply {
+                        status: 0,
+                        status_text: "the call failed".into(),
+                        ..Reply::default()
+                    })
+                })
+                .collect()
+        })
+    }
+
+    fn pause(&mut self, seconds: f64) {
+        std::thread::sleep(Duration::from_secs_f64(seconds.clamp(0.0, 120.0)));
+    }
+}
+
+/// Who makes the pictures, as the arguments and the environment say: a provider whose key it
+/// holds, and the model named or the best its key can use; none where `--pictures none`, or no
+/// key for one is held.
+fn painter(a: &GenerateArgs, agent: &ureq::Agent) -> Result<Option<(pictures::Settings, String, Look)>> {
+    let provider = match a.pictures.as_deref().map(str::trim) {
+        Some(none) if none.eq_ignore_ascii_case("none") => return Ok(None),
+        Some(name) => {
+            let p = Provider::named(name).filter(|p| *p != Provider::Anthropic);
+            let p = p.ok_or_else(|| anyhow!("`{name}` makes no pictures: openai, gemini, or none"))?;
+            if key(p).is_none() {
+                return Err(no_key(p));
+            }
+            p
+        }
+        None => match [Provider::Openai, Provider::Gemini].into_iter().find(|p| key(*p).is_some()) {
+            Some(p) => p,
+            None => return Ok(None),
+        },
+    };
+    let key = key(provider).ok_or_else(|| no_key(provider))?;
+    let look = Look::named(&a.picture_look)
+        .ok_or_else(|| anyhow!("`{}` is no look: illustration or photo", a.picture_look))?;
+    let quality = Quality::named(&a.picture_quality)
+        .ok_or_else(|| anyhow!("`{}` is no quality: low, medium, or high", a.picture_quality))?;
+    let model = match &a.picture_model {
+        Some(m) => m.clone(),
+        None => {
+            let reply = fetch(agent, &provider.models(&key, a.picture_base.as_deref(), false));
+            let listed =
+                pictures::models(provider, reply.status, &reply.status_text, &reply.body).map_err(|e| anyhow!(e))?;
+            listed.into_iter().next().ok_or_else(|| {
+                anyhow!("your {} key lists no image model: --pictures none makes the deck without", provider.name())
+            })?
+        }
+    };
+    Ok(Some((pictures::Settings { provider, model, base: a.picture_base.clone(), quality }, key, look)))
 }
 
 /// How far a generation has come, in words.
@@ -158,6 +253,11 @@ fn said(p: &Progress) -> String {
         Progress::Wrote { slides, truncated: true } => format!("{slides} slides written, the answer cut short"),
         Progress::Fitting { texts } => format!("{texts} texts run past their place: asking for them shorter…"),
         Progress::Fitted { texts } => format!("{texts} rewritten to fit"),
+        Progress::Painting { pictures } => format!("making {pictures} pictures for the slides… (a minute or two)"),
+        Progress::Painted { pictures, unmade } if unmade.is_empty() => format!("{pictures} pictures made"),
+        Progress::Painted { pictures, unmade } => {
+            format!("{pictures} pictures made; not made:\n  {}", unmade.join("\n  "))
+        }
     }
 }
 
@@ -231,6 +331,24 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         None => Provider::ALL.into_iter().find(|p| key(*p).is_some()).unwrap_or(Provider::Anthropic),
     };
     let model = a.model.clone().or_else(|| std::env::var("SCAENA_MODEL").ok()).unwrap_or_default();
+    if a.picture_models {
+        let provider = match a.pictures.as_deref() {
+            Some(name) => Provider::named(name).ok_or_else(|| anyhow!("`{name}` is no provider: openai or gemini"))?,
+            None => {
+                [Provider::Openai, Provider::Gemini].into_iter().find(|p| key(*p).is_some()).unwrap_or(Provider::Openai)
+            }
+        };
+        let key = key(provider).ok_or_else(|| no_key(provider))?;
+        let reply = fetch(&agent(), &provider.models(&key, a.picture_base.as_deref(), false));
+        let models =
+            pictures::models(provider, reply.status, &reply.status_text, &reply.body).map_err(|e| anyhow!(e))?;
+        if json {
+            println!("{}", serde_json::json!({ "provider": provider.name(), "models": models }));
+        } else {
+            models.iter().for_each(|m| println!("{m}"));
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
     if a.models {
         let key = key(provider).ok_or_else(|| no_key(provider))?;
         let reply = fetch(&agent(), &provider.models(&key, a.base.as_deref(), false));
@@ -325,7 +443,21 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         None if a.arc.is_some() => generation.choose_arc(a.arc.as_deref()),
         None => {}
     }
-    let mut send = |r: &Request| fetch(&agent, r);
+    let painting = painter(&a, &agent)?;
+    let painter =
+        painting.as_ref().map(|(settings, key, look)| Painter { settings: settings.clone(), key, look: *look });
+    if !json && let Some(p) = &painter {
+        eprintln!(
+            "pictures by {}'s {}, made as {}s",
+            p.settings.provider.name(),
+            p.settings.model,
+            match p.look {
+                Look::Illustration => "illustration",
+                Look::Photo => "photo",
+            }
+        );
+    }
+    let mut client = Client { agent: &agent };
     let mut say = |p: Progress| {
         if !json {
             eprintln!("{}", said(&p));
@@ -336,10 +468,11 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         generation,
         key.as_deref(),
         &grounding.documents,
+        painter.as_ref(),
         &theme.file,
         theme.text.clone(),
         &font,
-        &mut send,
+        &mut client,
         &mut say,
     )?;
     let mut kept = Vec::new();
@@ -366,6 +499,9 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         }
         if let Some(why) = &made.unfitted {
             println!("  not rewritten to fit: {why}");
+        }
+        if made.pictures > 0 {
+            println!("  pictures: {}", made.pictures);
         }
         for g in &grounding.given {
             let cut = if g.truncated { ", cut short to fit" } else { "" };

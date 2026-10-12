@@ -83,6 +83,26 @@ pub const DEFAULT_GOAL: &str = "Inform";
 /// How long a deck is whose brief says not.
 pub const DEFAULT_LENGTH: &str = "5-10 slides";
 
+/// What a brief may ask, as every client offers it: Narrato's goals, lengths, and ways a deck is
+/// delivered (`{ id, label }`), the audiences its personas name, its arcs by name, and the
+/// defaults a field left empty takes.
+pub fn choices() -> serde_json::Value {
+    let modalities: Vec<serde_json::Value> = MODALITIES
+        .iter()
+        .map(|(id, said)| serde_json::json!({ "id": id, "label": said.split(" \u{2014} ").next().unwrap_or(said) }))
+        .collect();
+    let audiences: Vec<&str> = crate::arcs::personas().iter().map(|p| p.name.as_str()).collect();
+    let arcs: Vec<&str> = crate::arcs::arcs().iter().map(|a| a.arc.as_str()).collect();
+    serde_json::json!({
+        "goals": GOALS,
+        "lengths": LENGTHS,
+        "modalities": modalities,
+        "audiences": audiences,
+        "arcs": arcs,
+        "defaults": { "audience": DEFAULT_AUDIENCE, "goal": DEFAULT_GOAL, "length": DEFAULT_LENGTH },
+    })
+}
+
 /// A deck as asked for.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]

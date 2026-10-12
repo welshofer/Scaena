@@ -73,6 +73,7 @@ Scaena's constraints bear on all of it:
      - not SEC, which serves no browser, so the editor says to use the Mac or the CLI.
    - **SEC's User-Agent** carries the user's own contact, a setting, never a name baked in.
 6. **Deep research is a source like any other.** Its report is grounding, written by the user's own Gemini or Anthropic key.
+7. **Pictures are made by the user's own image model, never with words in them** (PLAN G.10, Jay's call, 2026-10-12). Vzestup draws each slide whole as a picture; Scaena sets a slide's words itself, so it takes Vzestup's supporting images: which slides get one, the prompt (the slide's visual concept, a composition by its layout, an art direction from the theme's palette, and the rule of no text), OpenAI's Images API or Gemini's. A picture is an ordinary image in the bundle, its visual concept its description. A slide no picture is made for takes a layout that waits for none: no theme art stands in for a picture.
 
 ## Consequences
 

@@ -680,8 +680,13 @@ struct DeckView: View {
                     if let name { begin(in: name) }
                 }
             }
-            // A deck New made: the themes that ship offered first, once its window is up.
+            // A deck New made: the themes that ship offered first, once its window is up. A deck
+            // made from a prompt says what it came to.
             .task {
+                if let opening = document.opening {
+                    document.opening = nil
+                    said = opening
+                }
                 guard document.startsNew else { return }
                 document.startsNew = false
                 // Its title slide's empty places outlined, as on a slide made here.
