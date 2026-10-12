@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
-# parley, patched (vendor/parley/SCAENA.md): a dependency, not a member.
-exclude = ["vendor/parley"]
+# parley and skera, patched (vendor/*/SCAENA.md): dependencies, not members.
+exclude = ["vendor/parley", "vendor/skera"]
 members = [
   "crates/scaena-core",
   "crates/scaena-pixels",
@@ -242,6 +242,9 @@ opt-level = 2
 
 # parley 0.11.1 with one change, until it is upstream: a change of letter or word spacing does
 # not split a run of text into runs shaped apart, so kerning holds across it (ADR-0004 finding
-# 21, vendor/parley/SCAENA.md).
+# 21, vendor/parley/SCAENA.md). skera 0.7.0 with one change, until it is upstream: its repacker
+# weighs a 32-bit offset in 64 bits on every target, so the browser's subsetter resolves what the
+# CLI's does (ADR-0004 finding 24, vendor/skera/SCAENA.md).
 [patch.crates-io]
 parley = { path = "vendor/parley" }
+skera = { path = "vendor/skera" }

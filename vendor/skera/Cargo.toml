@@ -1,0 +1,42 @@
+# skera 0.7.0 as crates.io publishes it (its normalized manifest), patched for Scaena: see
+# SCAENA.md. Left out: the `cli` binary and its `clap`, and the tests and benches, whose fonts
+# the published crate does not carry.
+
+[package]
+edition = "2021"
+name = "skera"
+version = "0.7.0"
+build = false
+exclude = ["/test-data"]
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+description = "Subsetting a font file according to provided input."
+readme = "README.md"
+categories = ["text-processing"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/googlefonts/fontations"
+
+[lib]
+name = "skera"
+path = "src/lib.rs"
+
+[dependencies.hashbrown]
+version = "0.17.0"
+features = ["inline-more"]
+default-features = false
+
+[dependencies.skrifa]
+version = "0.47.0"
+features = ["std"]
+default-features = false
+
+[dependencies.thiserror]
+version = "2.0"
+
+[dependencies.write-fonts]
+version = "0.53.0"
+features = ["read"]
+default-features = false
