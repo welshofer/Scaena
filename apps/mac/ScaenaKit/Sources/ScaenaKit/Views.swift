@@ -1,58 +1,103 @@
 import CoreGraphics
 import Foundation
 
-// The canvas's views (PLAN 3.16), as the browser's preview keeps them: how close it is and what
-// part of the canvas it shows (PLAN 2.46), the format it is laid out in (PLAN 2.62, 2.85), and the
+// The canvas's views (PLAN 3.16), as the browser's preview keeps them: how close the slide is and
+// what part of it shows (PLAN 2.46), the format it is laid out in (PLAN 2.62, 2.85), and the
 // matches a find steps through (PLAN 2.47). Nothing here lays out or paints: the session paints
 // through the part shown, and lays each format out once.
 
-/// How close the canvas is shown (PLAN 2.46), as the browser's preview zooms: the part of it shown,
-/// from the whole canvas to eight times as close, kept on the canvas.
+/// How close the slide is shown on the desk the window gives it (PLAN 3.16): fitted to the desk at
+/// first, then as much as eight times as large, about a point that stays where it is. The slide
+/// grows on the desk, as a presentation app's does, and nothing on it is drawn larger than the
+/// slide it is on: what of the slide fits on the desk shows, the desk about it, and the rest is a
+/// pan away, kept on the desk to a margin past its edges. The canvas's view is the part of the
+/// slide the desk shows, which the session paints through (PLAN 2.46).
 public struct Zoom: Equatable, Sendable {
     /// The steps a step closer or farther goes by.
     public static let steps: [Double] = [1, 1.5, 2, 3, 4, 6, 8]
     /// The closest it goes.
     public static let most = 8.0
+    /// The desk kept about the slide fitted, and past an edge it is panned to, points.
+    public static let margin: CGFloat = 28
+    /// The coordinate space a point on the desk is read in: the desk's own.
+    public static let space = "desk"
 
     /// The canvas, canvas units.
     public private(set) var canvas: CGSize
-    /// The part of the canvas shown, canvas units.
-    public private(set) var shown: CGRect
+    /// The desk the slide is shown on, points: the room the window gives the canvas.
+    public private(set) var desk: CGSize
+    /// How close: 1 shows the slide fitted to the desk.
+    public private(set) var level: Double = 1
+    /// The slide's top left corner on the desk, points.
+    private var corner: CGPoint = .zero
 
-    public init(canvas: CGSize) {
+    public init(canvas: CGSize, desk: CGSize = .zero) {
         self.canvas = canvas
-        shown = CGRect(origin: .zero, size: canvas)
+        self.desk = desk
+        settle()
     }
 
-    /// How close: 1 shows the whole canvas.
-    public var level: Double { shown.width > 0 ? Double(canvas.width / shown.width) : 1 }
-
-    /// What the session paints through: none where the whole canvas shows.
-    public var view: CGRect? { level > 1 + 1e-9 ? shown : nil }
-
-    /// `next` shown, as close as it asks, from the whole canvas to eight times as close, kept on
-    /// the canvas.
-    public mutating func look(_ next: CGRect) {
-        guard canvas.width > 0, canvas.height > 0 else { return }
-        let z = min(Self.most, max(1, Double(canvas.width) / max(Double(next.width), 1e-9)))
-        let (w, h) = (Double(canvas.width) / z, Double(canvas.height) / z)
-        let x = min(max(Double(next.minX), 0), Double(canvas.width) - w)
-        let y = min(max(Double(next.minY), 0), Double(canvas.height) - h)
-        shown = CGRect(x: x, y: y, width: w, height: h)
+    /// How large the slide is fitted to the desk, within its margin: its size at `level` 1.
+    public var fitted: CGSize {
+        let (w, h) = (max(desk.width - 2 * Self.margin, 1), max(desk.height - 2 * Self.margin, 1))
+        let shape = canvas.width / max(canvas.height, 1)
+        return w / h > shape ? CGSize(width: h * shape, height: h) : CGSize(width: w, height: w / shape)
     }
 
-    /// As close as `z`, canvas point `about` staying where it is on the screen: the pointer's, or
-    /// the middle of what is shown.
+    /// Points on the desk to a canvas unit.
+    public var scale: CGFloat { fitted.width * CGFloat(level) / max(canvas.width, 1) }
+
+    /// The slide on the desk, points: the whole of it, whether it all shows or not.
+    public var slide: CGRect {
+        CGRect(origin: corner, size: CGSize(width: canvas.width * scale, height: canvas.height * scale))
+    }
+
+    /// The part of the slide the desk shows, points: where the canvas's view stands on the desk.
+    public var visible: CGRect {
+        let part = slide.intersection(CGRect(origin: .zero, size: desk))
+        return part.isNull ? .zero : part
+    }
+
+    /// The part of the canvas shown, canvas units.
+    public var shown: CGRect {
+        let (s, v) = (max(scale, 1e-9), visible)
+        return CGRect(x: (v.minX - corner.x) / s, y: (v.minY - corner.y) / s, width: v.width / s, height: v.height / s)
+    }
+
+    /// What the session paints through: none where the whole slide shows.
+    public var view: CGRect? {
+        let v = visible
+        guard v.width > 0, v.height > 0, v != slide else { return nil }
+        return shown
+    }
+
+    /// Whether the slide and its margin are larger than the desk, so that a pan moves it.
+    public var pans: Bool {
+        let s = slide.size
+        return s.width + 2 * Self.margin > desk.width + 0.5 || s.height + 2 * Self.margin > desk.height + 0.5
+    }
+
+    /// The same zoom on a desk `room` large: what the window lays the slide out by before the desk
+    /// is told its size.
+    public func placed(on room: CGSize) -> Zoom {
+        var placed = self
+        placed.place(on: room)
+        return placed
+    }
+
+    /// As close as `z`, from the slide fitted to eight times as large, point `about` on the desk
+    /// staying where it is: the pointer's, the fingers', or the middle of what shows.
     public mutating func zoom(to z: Double, about: CGPoint? = nil) {
-        guard z > 0, shown.width > 0, shown.height > 0 else { return }
-        let a = about ?? CGPoint(x: shown.midX, y: shown.midY)
-        let fx = Double((a.x - shown.minX) / shown.width)
-        let fy = Double((a.y - shown.minY) / shown.height)
-        let (w, h) = (Double(canvas.width) / z, Double(canvas.height) / z)
-        look(CGRect(x: Double(a.x) - fx * w, y: Double(a.y) - fy * h, width: w, height: h))
+        guard z > 0, canvas.width > 0, canvas.height > 0 else { return }
+        let a = about ?? CGPoint(x: visible.midX, y: visible.midY)
+        let before = max(scale, 1e-9)
+        let at = CGPoint(x: (a.x - corner.x) / before, y: (a.y - corner.y) / before)
+        level = min(Self.most, max(1, z))
+        corner = CGPoint(x: a.x - at.x * scale, y: a.y - at.y * scale)
+        settle()
     }
 
-    /// A step closer (`1`) or farther (`-1`), about `about`.
+    /// A step closer (`1`) or farther (`-1`), about `about` on the desk.
     public mutating func step(_ by: Int, about: CGPoint? = nil) {
         let z = level
         let next =
@@ -62,22 +107,55 @@ public struct Zoom: Equatable, Sendable {
         zoom(to: next, about: about)
     }
 
-    /// What is shown moved `by`, canvas units, kept on the canvas.
-    public mutating func pan(by: CGVector) {
-        look(shown.offsetBy(dx: by.dx, dy: by.dy))
+    /// What shows moved `by` on the desk, points, the slide kept on it: whether it could move,
+    /// which it cannot where the whole slide shows.
+    @discardableResult
+    public mutating func pan(by: CGVector) -> Bool {
+        guard pans else { return false }
+        corner = CGPoint(x: corner.x - by.dx, y: corner.y - by.dy)
+        settle()
+        return true
     }
 
-    /// The whole canvas again.
+    /// The slide fitted to the desk again, in its middle.
     public mutating func fit() {
-        shown = CGRect(origin: .zero, size: canvas)
+        level = 1
+        settle()
     }
 
-    /// The canvas, another size (another format shown, or the deck's canvas changed): the whole of
-    /// it shown. The same size changes nothing.
+    /// The canvas, another size (another format shown, or the deck's canvas changed): fitted to
+    /// the desk. The same size changes nothing.
     public mutating func resize(to size: CGSize) {
         guard size != canvas else { return }
         canvas = size
         fit()
+    }
+
+    /// The desk, another size (the window resized, a pane shown or hidden): as close as it was,
+    /// what showed in the middle in the middle still. The same size changes nothing.
+    public mutating func place(on room: CGSize) {
+        guard room != desk else { return }
+        let (s, v) = (max(scale, 1e-9), visible)
+        let middle =
+            v.width > 0 && v.height > 0
+            ? CGPoint(x: (v.midX - corner.x) / s, y: (v.midY - corner.y) / s)
+            : CGPoint(x: canvas.width / 2, y: canvas.height / 2)
+        desk = room
+        corner = CGPoint(x: desk.width / 2 - middle.x * scale, y: desk.height / 2 - middle.y * scale)
+        settle()
+    }
+
+    /// The slide kept on the desk: in its middle along a side where it fits with its margin, else
+    /// panned no farther than the margin past its edge.
+    private mutating func settle() {
+        let size = slide.size
+        corner = CGPoint(
+            x: Self.kept(corner.x, size.width, on: desk.width), y: Self.kept(corner.y, size.height, on: desk.height))
+    }
+
+    private static func kept(_ at: CGFloat, _ length: CGFloat, on room: CGFloat) -> CGFloat {
+        if length + 2 * margin <= room + 0.5 { return (room - length) / 2 }
+        return min(margin, max(room - margin - length, at))
     }
 }
 

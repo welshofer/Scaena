@@ -743,52 +743,76 @@ struct DeckView: View {
     @ViewBuilder private var stage: some View {
         if let shown {
             let size = (try? editor.session.canvasSize()) ?? CGSize(width: 1920, height: 1080)
-            // The slide fitted to the room the window gives it, which it does not ask the window
-            // for: the window opens at its own size, within the screen, whatever the slide's shape.
+            // The slide on the desk the window gives it, which it does not ask the window for: the
+            // window opens at its own size, within the screen, whatever the slide's shape. Zoomed, the
+            // slide grows on the desk, as a presentation app's does, and the canvas is the part of it
+            // the desk shows (PLAN 3.16).
             GeometryReader { room in
-                let fitted = Self.fitted(size, in: room.size, margin: 28)
-                // Drawn again after each edit, and as a drag moves a node or shows its patch (PLAN 3.7).
-                ScaenaCanvas(
-                    session: editor.session, state: shown, revision: editor.revision &+ editor.drawn,
-                    playhead: $playhead
-                )
-                .overlay {
-                    if showsGrid { GridOverlay(editor: editor, shown: zoom.view) }
-                }
-                .overlay {
-                    // The guides that hold nothing off the slide, and the layout's empty slots.
-                    ZStack {
-                        if showsSafeArea { SafeAreaOverlay(editor: editor, shown: zoom.view) }
-                        if !showsSlides, fresh.contains(shown) {
-                            WaitingOverlay(editor: editor, state: shown, shown: zoom.view)
-                        }
-                    }
-                }
-                .overlay {
-                    if let typing {
-                        CanvasSelection(
-                            editor: editor, state: shown, size: size, zoom: $zoom, node: $node, also: $also,
-                            typing: typing, pointed: $pointed, said: $said, delete: delete, clip: clip,
-                            finding: { searching = true }, actions: actions,
-                            fix: { finding in perform { try document.fix(finding, undo: undo) } },
-                            dropped: { items, at in drop(items, in: shown, at: at) },
-                            fill: filling(shown)
-                        ) { ops in
-                            perform { try document.make(ops, undo: undo) }
-                        }
-                    }
-                }
-                // The whole canvas shown again once it is another size: another format shown, say.
-                .onChange(of: size, initial: true) { _, now in zoom.resize(to: now) }
-                .onChange(of: zoom) { _, now in editor.look(through: now.view) }
-                .frame(width: fitted.width, height: fitted.height)
-                // The slide on the gray a slide sits on, lifted off it a little (PLAN 3.18).
-                .background {
+                let placed = zoom.placed(on: room.size)
+                let slide = placed.slide
+                let visible = placed.visible
+                ZStack {
+                    // The slide on the gray a slide sits on, lifted off it a little (PLAN 3.18): the
+                    // whole of it, where only part of it shows.
                     Rectangle()
                         .fill(.background)
                         .shadow(color: .black.opacity(0.2), radius: 10, y: 3)
+                        .frame(width: slide.width, height: slide.height)
+                        .position(x: slide.midX, y: slide.midY)
+                    // Drawn again after each edit, and as a drag moves a node or shows its patch (PLAN 3.7).
+                    ScaenaCanvas(
+                        session: editor.session, state: shown, revision: editor.revision &+ editor.drawn,
+                        playhead: $playhead
+                    )
+                    .overlay {
+                        if showsGrid { GridOverlay(editor: editor, shown: placed.view) }
+                    }
+                    .overlay {
+                        // The guides that hold nothing off the slide, and the layout's empty slots.
+                        ZStack {
+                            if showsSafeArea { SafeAreaOverlay(editor: editor, shown: placed.view) }
+                            if !showsSlides, fresh.contains(shown) {
+                                WaitingOverlay(editor: editor, state: shown, shown: placed.view)
+                            }
+                        }
+                    }
+                    .overlay {
+                        if let typing {
+                            CanvasSelection(
+                                editor: editor, state: shown, size: size, zoom: $zoom, node: $node, also: $also,
+                                typing: typing, pointed: $pointed, said: $said, delete: delete, clip: clip,
+                                finding: { searching = true }, actions: actions,
+                                fix: { finding in perform { try document.fix(finding, undo: undo) } },
+                                dropped: { items, at in drop(items, in: shown, at: at) },
+                                fill: filling(shown)
+                            ) { ops in
+                                perform { try document.make(ops, undo: undo) }
+                            }
+                        }
+                    }
+                    .frame(width: visible.width, height: visible.height)
+                    .position(x: visible.midX, y: visible.midY)
                 }
-                .position(x: room.size.width / 2, y: room.size.height / 2)
+                .frame(width: room.size.width, height: room.size.height)
+                .clipped()
+                #if os(macOS)
+                // The wheel and a pinch anywhere on the desk, as the browser's preview takes them
+                // (PLAN 2.46): a pinch, or the wheel with ⌘, zooms about the pointer, and the wheel
+                // alone pans a slide larger than the desk shows.
+                .overlay {
+                    CanvasWheel(
+                        zoom: { factor, at in zoom.zoom(to: zoom.level * factor, about: at) },
+                        pan: { by in zoom.pan(by: by) }
+                    )
+                    .allowsHitTesting(false)
+                }
+                #endif
+                // Where a pinch's fingers are read, on the iPad (PLAN 4.3).
+                .coordinateSpace(.named(Zoom.space))
+                .onChange(of: room.size, initial: true) { _, now in zoom.place(on: now) }
+                // The slide fitted again once the canvas is another size: another format shown, say.
+                .onChange(of: size, initial: true) { _, now in zoom.resize(to: now) }
+                .onChange(of: zoom.view) { _, now in editor.look(through: now) }
             }
             .frame(minWidth: 320, minHeight: 200)
             .background(Desk.color)
@@ -805,13 +829,6 @@ struct DeckView: View {
         } else {
             ContentUnavailableView("No Slides", systemImage: "rectangle.stack")
         }
-    }
-
-    /// The largest box of `canvas`'s shape in `room`, `margin` points in from each of its edges.
-    private static func fitted(_ canvas: CGSize, in room: CGSize, margin: CGFloat) -> CGSize {
-        let (w, h) = (max(room.width - 2 * margin, 1), max(room.height - 2 * margin, 1))
-        let shape = canvas.width / max(canvas.height, 1)
-        return w / h > shape ? CGSize(width: h * shape, height: h) : CGSize(width: w, height: w / shape)
     }
 
     /// Show a match the find bar found (PLAN 3.16): its state, and its node selected.

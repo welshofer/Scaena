@@ -4,14 +4,15 @@ import SwiftUI
 import UIKit
 import UIKit.UIGestureRecognizerSubclass
 
-/// A pinch on the canvas (PLAN 4.3), as the Mac's trackpad pinch (PLAN 3.16): it zooms about where
-/// the fingers are, as close as they have spread from the level it began at. A second finger
-/// touching down stops the first finger's press at once, before the pinch is anything: a long press
-/// is one finger's, and what two fingers do edits nothing.
+/// A pinch on the canvas (PLAN 4.3), as the Mac's trackpad pinch (PLAN 3.16): the slide grows on
+/// the desk about where the fingers are, as close as they have spread from the level it began at.
+/// The fingers are read on the desk, which stays where it is as the canvas's view grows over it.
+/// A second finger touching down stops the first finger's press at once, before the pinch is
+/// anything: a long press is one finger's, and what two fingers do edits nothing.
 struct CanvasPinch: UIGestureRecognizerRepresentable {
-    /// How close the canvas is now: 1, the whole canvas.
+    /// How close the slide is now: 1, fitted to the desk.
     let level: () -> Double
-    /// Zoom to a level about a point on the view, points.
+    /// Zoom to a level about a point on the desk, points.
     let zoom: (Double, CGPoint) -> Void
     /// Two fingers down, or `false`, let go.
     let fingers: (Bool) -> Void
@@ -35,9 +36,9 @@ struct CanvasPinch: UIGestureRecognizerRepresentable {
         case .began:
             held.level = level()
             fingers(true)
-            zoom(held.level * Double(pinch.scale), context.converter.localLocation)
+            zoom(held.level * Double(pinch.scale), context.converter.location(in: .named(Zoom.space)))
         case .changed:
-            zoom(held.level * Double(pinch.scale), context.converter.localLocation)
+            zoom(held.level * Double(pinch.scale), context.converter.location(in: .named(Zoom.space)))
         case .ended, .cancelled, .failed:
             fingers(false)
         default:
@@ -88,7 +89,7 @@ final class Pinching: UIPinchGestureRecognizer {
 /// moves with them; a trackpad's two fingers on an iPad do the same. The first finger's press
 /// stops being one as it begins.
 struct CanvasPan: UIGestureRecognizerRepresentable {
-    /// What is shown moved by a move on the view, points, as the fingers moved.
+    /// The fingers moved on the desk, points.
     let pan: (CGVector) -> Void
     /// Two fingers began, or `false`, let go.
     let fingers: (Bool) -> Void
