@@ -485,6 +485,14 @@ layout("Time", "timeline-photos", "Four moments in order, each with a picture, i
 
 # Numbers ---------------------------------------------------------------------------------------
 
+layout("Numbers", "two-figures", "Two figures side by side under the headline, each as large as the slide takes, with what it counts.", {
+    "kicker": KICKER,
+    "header": header(),
+    **{f"{o}-figure": slot(c, (3, 6), "hero", w, align={"y": "end"}, fit="shrink") for o, c, w in zip(ORDINALS, [(1, 5), (7, 11)], ["$2.0T", "$1.1T"])},
+    **{o: slot(c, (8, 9), "title", w) for o, c, w in zip(ORDINALS, [(1, 5), (7, 11)], ["What the first counts", "What the second counts"])},
+    "note": slot((1, 8), (10, 10), "caption", "Its source"),
+})
+
 layout("Numbers", "scorecard", "Four measures in a row, each its number and how it moved.", {
     "kicker": KICKER,
     "header": header(),
@@ -900,7 +908,7 @@ NAMES = {
     "gantt": "Gantt Chart", "year": "Year at a Glance", "timeline-photos": "Timeline with Photos",
     # Numbers
     "stat": "Stat", "big-number": "Big Number", "two-numbers": "Two Numbers", "numbers": "Three Numbers",
-    "number-grid": "Six Numbers", "scorecard": "Scorecard", "ranking": "Ranking", "progress": "Progress",
+    "number-grid": "Six Numbers", "two-figures": "Two Figures", "scorecard": "Scorecard", "ranking": "Ranking", "progress": "Progress",
     "number-photo": "Number and Photo", "metric-trend": "Number and Trend",
     # Charts
     "figure": "Chart", "narrow-figure": "Narrow Chart", "split": "Chart and Words",

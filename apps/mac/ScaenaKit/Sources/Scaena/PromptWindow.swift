@@ -143,7 +143,7 @@ struct PromptView: View {
                         ForEach(Provider.allCases) { Text($0.name).tag($0) }
                     }
                     if !keyed {
-                        Button("Add a \(provider.name) Key…", action: openKeys)
+                        Button("Add \(article(provider.name)) Key…", action: openKeys)
                     } else {
                         Picker("Model", selection: model) {
                             if !models.contains(model.wrappedValue) {
@@ -278,7 +278,7 @@ struct PromptView: View {
     /// Who writes the deck, with whose key.
     private var who: String {
         guard keyed, !model.wrappedValue.isEmpty else {
-            return "Narrato writes the deck with your own key: keep a \(provider.name) key and choose a model first."
+            return "Narrato writes the deck with your own key: keep \(article(provider.name)) key and choose a model first."
         }
         return "Written by \(provider.name)’s \(model.wrappedValue), with your key, which goes to \(provider.name) alone."
     }
@@ -287,9 +287,14 @@ struct PromptView: View {
     private var paintedBy: String {
         guard let made = Provider(rawValue: pictures) else { return "" }
         guard painter != nil else {
-            return "Keep a \(made.name) key to have the slides’ pictures made, or choose None."
+            return "Keep \(article(made.name)) key to have the slides’ pictures made, or choose None."
         }
         return "Made by \(made.name)’s best image model your key lists, two in five slides, ten at most. Your key goes to \(made.name) alone."
+    }
+
+    /// `name` after its article: "an Anthropic", "an OpenAI", "a Gemini".
+    private func article(_ name: String) -> String {
+        "AEIOU".contains(name.first ?? "x") ? "an \(name)" : "a \(name)"
     }
 
     /// Where the keys are kept: Settings (PLAN 3.6).

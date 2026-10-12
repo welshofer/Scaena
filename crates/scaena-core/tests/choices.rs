@@ -477,7 +477,7 @@ fn a_state_offers_its_layout_transition_hold_and_notes() {
     let blank = state(&doc, "blank");
     assert_eq!(shown(own(&blank, "layout")), (None, None));
     let Takes::Name { names, .. } = &own(&blank, "layout").takes else { panic!() };
-    assert_eq!(names.len(), 122, "with nothing placed in a slot, every layout fits: {names:?}");
+    assert_eq!(names.len(), 123, "with nothing placed in a slot, every layout fits: {names:?}");
     let deck: Deck = serde_json::from_value(example()).unwrap();
     assert!(state_choices(&deck, &Theme::from_json(DUSK).unwrap(), "nowhere").is_err());
 }
