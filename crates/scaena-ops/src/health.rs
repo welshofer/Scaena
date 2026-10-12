@@ -594,22 +594,21 @@ pub fn health(deck: &Deck) -> Result<Health, OpsError> {
         let Some(&i) = place.get(g.slide_id.as_str()) else { continue };
         let k = i + 1;
         let (declared, detected) = (level(g.declared), level(g.detected));
+        // In a person's words; the figures are for the assistant, which reads the deck's.
         let (says, ask) = match g.gap > 0.0 {
             true => (
-                format!(
-                    "Slide {k} declares an intensity of {declared}, but its words read {detected}: flatter than its place in the story needs."
-                ),
+                format!("Slide {k} reads flatter than it was written to be."),
                 format!(
                     "Make slide {k}'s words carry the intensity its place in the story needs ({declared}): sharper verbs, a figure that lands."
                 ),
             ),
             false => (
-                format!("Slide {k}'s words read {detected}, hotter than the {declared} it declares."),
-                format!("Calm slide {k}'s words to the intensity it declares ({declared})."),
+                format!("Slide {k} reads hotter than it was written to be."),
+                format!("Calm slide {k}'s words to the intensity it declares ({declared}); they read {detected}."),
             ),
         };
         let fix = at(&g.slide_id, "intensity").map(|path| Fix {
-            says: format!("Declare {detected}, as its words read"),
+            says: "Plan its intensity as it reads".into(),
             patch: vec![json!({ "op": "replace", "path": path, "value": places(g.detected) })],
         });
         find(&g.slide_id, Severity::Warning, Kind::Intensity, says, ask, fix);
@@ -622,24 +621,24 @@ pub fn health(deck: &Deck) -> Result<Health, OpsError> {
         let neutral = g.detected.abs() < 0.05;
         let (says, ask) = match (g.gap > 0.0, neutral) {
             (true, true) => (
-                format!("Slide {k} declares a tone of {declared}, but its words read neutral ({detected})."),
-                format!("Warm slide {k}'s words toward the tone it declares ({declared})."),
+                format!("Slide {k} reads neutral, where it was written to sound hopeful."),
+                format!("Warm slide {k}'s words toward the tone it declares ({declared}); they read {detected}."),
             ),
             (true, false) => (
-                format!("Slide {k} declares a tone of {declared}, but its words read graver ({detected})."),
-                format!("Warm slide {k}'s words toward the tone it declares ({declared})."),
+                format!("Slide {k} reads graver than it was written to be."),
+                format!("Warm slide {k}'s words toward the tone it declares ({declared}); they read {detected}."),
             ),
             (false, true) => (
-                format!("Slide {k}'s words read neutral ({detected}), lighter than the tone it declares ({declared})."),
-                format!("Ground slide {k}'s words in the tone it declares ({declared})."),
+                format!("Slide {k} reads neutral, where it was written to sound grave."),
+                format!("Ground slide {k}'s words in the tone it declares ({declared}); they read {detected}."),
             ),
             (false, false) => (
-                format!("Slide {k}'s words read more hopeful ({detected}) than the tone it declares ({declared})."),
-                format!("Ground slide {k}'s words in the tone it declares ({declared})."),
+                format!("Slide {k} reads more hopeful than it was written to be."),
+                format!("Ground slide {k}'s words in the tone it declares ({declared}); they read {detected}."),
             ),
         };
         let fix = at(&g.slide_id, "valence").map(|path| Fix {
-            says: format!("Declare {detected}, as its words read"),
+            says: "Plan its tone as it reads".into(),
             patch: vec![json!({ "op": "replace", "path": path, "value": places(g.detected) })],
         });
         find(&g.slide_id, Severity::Warning, Kind::Tone, says, ask, fix);
@@ -777,18 +776,16 @@ mod tests {
         let h = of(&deck);
         let finding = h.findings.iter().find(|f| f.state == agenda && f.kind == Kind::Intensity).expect("a gap");
         assert_eq!(finding.slide, 2);
-        assert!(
-            finding.says.starts_with("Slide 2 declares an intensity of 1.00, but its words read"),
-            "{}",
-            finding.says
-        );
+        // In a person's words, the figures in the question for the assistant.
+        assert_eq!(finding.says, "Slide 2 reads flatter than it was written to be.");
+        assert!(finding.ask.contains("(1.00)"), "{}", finding.ask);
         let read = h.slides[1].read.expect("its words read");
         let fix = finding.fix.as_ref().expect("a fix");
         assert_eq!(
             fix.patch,
             vec![json!({ "op": "replace", "path": format!("{beat}/media/narrato/intensity"), "value": places(read) })]
         );
-        assert_eq!(fix.says, format!("Declare {}, as its words read", level(read)));
+        assert_eq!(fix.says, "Plan its intensity as it reads");
         // Applied, the deck declares what its words read, and the gap is gone.
         let mut fixed = deck.clone();
         *fixed.pointer_mut(&format!("{beat}/media/narrato/intensity")).unwrap() = json!(places(read));

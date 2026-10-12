@@ -649,6 +649,56 @@ export type Named =
   | { by: "theme"; family: string }
   | { by: "source"; source: string };
 
+/** One of the deck's narrative health's measures (SPEC §7.7): 0–100, or none where it is not
+ * scored (coherence read by words alone), and what it says. */
+export interface Measure {
+  score: number | null;
+  says: string;
+}
+
+/** A slide as narrative health reads it: its first state, its beat, its headline, the arc's curve
+ * at its place, the intensity and tone it declares and that its words read, how like its words are
+ * to the slide's before it, and how it stands in its arc. */
+export interface HealthRead {
+  state: string;
+  beat?: string;
+  title: string;
+  curve: number;
+  declared?: number;
+  read?: number;
+  tone?: number;
+  toneRead?: number;
+  after?: number;
+  standing: "ok" | "bends" | "drifted";
+}
+
+/** Something narrative health asks a person to look at, on one slide: what it says, the question
+ * for the assistant, and a fix where one is safe, a patch the user makes. */
+export interface HealthFinding {
+  state: string;
+  slide: number;
+  severity: "error" | "warning" | "info";
+  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift";
+  says: string;
+  ask: string;
+  fix?: { says: string; patch: unknown[] };
+}
+
+/** The deck's narrative health (PLAN G.9), as `scaena health --json` gives it. */
+export interface Health {
+  score: number;
+  arc?: string;
+  beats: string[];
+  pacing: Measure;
+  balance: Measure;
+  coherence: Measure;
+  fidelity: Measure;
+  intensity: Measure;
+  tone: Measure;
+  slides: HealthRead[];
+  findings: HealthFinding[];
+}
+
 /** The page to the worker. */
 export type ToWorker =
   /** Open the bundle at `source`, and paint into `canvas` by `painter`, with the engine's
@@ -892,6 +942,9 @@ export type ToWorker =
   /** The bundle's images, fonts, and data, and what uses each, in the deck `source` compiles to
    * (PLAN 2.59). */
   | { type: "bundleFiles"; id: number; source: string }
+  /** The narrative health of the deck `source` compiles to (PLAN G.9), read by the generator's
+   * module. */
+  | { type: "health"; id: number; source: string }
   /** `path` taken out of the bundle, by the user: one nothing names (PLAN 2.59). */
   | { type: "removeFile"; id: number; source: string; path: string; index: number; format?: string }
   /** The bundle's versions (PLAN 2.60), read from its history by the history's own module: none
@@ -1482,6 +1535,7 @@ export type FromWorker =
   /** The deck's data sources, and source `name` as a sheet, or why it does not read as one. */
   | { type: "sheet"; id: number; sources: DataSource[]; name?: string; sheet?: Sheet; file?: string; why?: string }
   | { type: "bundleFiles"; id: number; files: BundleFile[] }
+  | { type: "health"; id: number; health: Health }
   /** A file taken out: what the deck came to, shown and linted as an edit is. */
   | { type: "removed"; id: number; edited: Edited }
   /** The bundle's versions, oldest first; none where it keeps no history. */

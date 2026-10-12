@@ -7,7 +7,7 @@
 // given kept as a data source. The user's key goes to the provider it is for, and a GitHub token
 // to GitHub, and nowhere else.
 import { Making } from "@scaena/wasm";
-import type { Choices, Generate, Generated, GeneratingEvent } from "./protocol";
+import type { Choices, Generate, Generated, GeneratingEvent, Health } from "./protocol";
 
 type Generator = typeof import("@scaena/generator");
 
@@ -23,6 +23,11 @@ function generator(): Promise<Generator> {
 }
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/** The narrative health of `deck`, as `deck.json` holds it (PLAN G.9, SPEC §7.7). */
+export async function health(deck: string): Promise<Health> {
+  return JSON.parse((await generator()).health(deck)) as Health;
+}
 
 /** What a brief may ask, as Narrato knows it. */
 export async function choices(): Promise<Choices> {

@@ -450,6 +450,13 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "bundleFiles":
         current(data.source);
         return post({ type: "bundleFiles", id: data.id, files: JSON.parse(player.bundleFiles()) as BundleFile[] });
+      case "health": {
+        current(data.source);
+        const deck = deckRead();
+        if (!deck) throw new Error("the deck does not read");
+        const { health } = await import("@scaena/generate");
+        return post({ type: "health", id: data.id, health: await health(JSON.stringify(deck)) });
+      }
       case "removeFile": {
         compiles(data.source);
         player.removeFile(data.path);

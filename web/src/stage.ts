@@ -20,6 +20,7 @@ import type {
   FromWorker,
   Grid,
   Grouped,
+  Health,
   Hit,
   Insert,
   Inspected,
@@ -116,6 +117,7 @@ type Reply = Extract<
       | "look"
       | "put"
       | "bundleFiles"
+      | "health"
       | "removed"
       | "versions"
       | "version"
@@ -472,6 +474,13 @@ export class Stage {
 
   /** The bundle's images, fonts, and data, in the deck `source` compiles to (PLAN 2.59): each with
    * what names it, and the nodes drawn from it in the states that show them so. */
+  /** The narrative health of the deck `source` compiles to (PLAN G.9): its scores, each slide as
+   * read, and what to look at, read by the generator's module, which the worker loads the first
+   * time. */
+  health(source: string): Promise<Health> {
+    return this.request<"health">({ type: "health", id: ++this.asked, source }).then(({ health }) => health);
+  }
+
   bundleFiles(source: string): Promise<BundleFile[]> {
     return this.request<"bundleFiles">({ type: "bundleFiles", id: ++this.asked, source }).then(({ files }) => files);
   }
@@ -940,6 +949,7 @@ export class Stage {
       case "look":
       case "put":
       case "bundleFiles":
+      case "health":
       case "removed":
       case "versions":
       case "version":

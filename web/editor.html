@@ -367,6 +367,40 @@
       #theming [data-photos] li { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; padding: 2px 0; font-size: 12px; }
       #theming [data-photos] button { font: inherit; font-size: 12px; overflow-wrap: anywhere; text-align: left; }
       #theming [data-photos] .uses, #theming [data-photos] .none { color: var(--muted); font-size: 11px; }
+      /* The story (PLAN G.9): the deck's narrative health, its arc, and what to look at. */
+      #story { padding: 6px 12px; font-size: 12px; }
+      #story p { padding: 0; display: block; }
+      #story [data-score] { margin: 0 0 6px; color: var(--muted); }
+      #story [data-score] b { font-size: 22px; margin-right: 6px; }
+      #story .good { color: var(--info); }
+      #story .fair { color: var(--warning); }
+      #story .poor { color: var(--error); }
+      #story dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 8px; margin: 0 0 8px; }
+      #story dt { color: var(--muted); }
+      #story dd { margin: 0; }
+      #story dd b { display: inline-block; min-width: 2.2em; }
+      #story [data-arc] svg { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 4px; }
+      #story .curve { fill: none; stroke: var(--muted); stroke-dasharray: 3 3; }
+      #story .declared { fill: none; stroke: var(--info); stroke-width: 1.5; }
+      #story .mark { fill: var(--info); }
+      #story [data-standing="bends"] .mark { fill: var(--warning); }
+      #story [data-standing="drifted"] .mark { fill: var(--error); }
+      #story .read { fill: none; stroke: var(--ink); }
+      #story .hit { fill: transparent; cursor: pointer; }
+      #story [data-legend] { margin: 4px 0 0; color: var(--muted); }
+      #story [data-legend] i { display: inline-block; vertical-align: middle; margin: 0 4px 0 6px; }
+      #story [data-legend] i:first-child { margin-left: 0; }
+      #story [data-legend] .declared { width: 14px; border-top: 1.5px solid var(--info); }
+      #story [data-legend] .read { width: 5px; height: 5px; border: 1px solid var(--ink); border-radius: 50%; }
+      #story [data-legend] .curve { width: 14px; border-top: 1px dashed var(--muted); }
+      #story [data-legend] .bends { width: 7px; height: 7px; border-radius: 50%; background: var(--warning); }
+      #story ol { list-style: none; margin: 8px 0 0; padding: 0; }
+      #story li { padding: 6px 0; border-top: 1px solid var(--line); }
+      #story li .headline { margin-left: 6px; color: var(--muted); }
+      #story li p { margin: 4px 0 0; }
+      #story li[data-severity="error"] [data-show] { color: var(--error); }
+      #story li[data-severity="warning"] [data-show] { color: var(--warning); }
+      #story li .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
       /* The versions (PLAN 2.60): the history's changes, the newest first; one shown as it was. */
       #versions { padding: 6px 12px; }
       #versions [data-summary] { color: var(--muted); font-size: 12px; margin: 0 0 6px; }
@@ -609,6 +643,7 @@
           <button role="tab" id="tab-theming" aria-selected="false" aria-controls="theming">Theme</button>
           <button role="tab" id="tab-files" aria-selected="false" aria-controls="files">Files</button>
           <button role="tab" id="tab-versions" aria-selected="false" aria-controls="versions">Versions</button>
+          <button role="tab" id="tab-story" aria-selected="false" aria-controls="story">Story</button>
           <button role="tab" id="tab-assistant" aria-selected="false" aria-controls="assistant">Assistant</button>
         </nav>
         <div id="inspector" role="tabpanel" aria-labelledby="tab-inspector">
@@ -672,6 +707,13 @@
             <p data-why hidden></p>
             <ul data-changes aria-label="What changed"></ul>
           </div>
+        </section>
+        <section id="story" role="tabpanel" aria-labelledby="tab-story" hidden>
+          <p data-score aria-live="polite"></p>
+          <dl data-measures></dl>
+          <div data-arc></div>
+          <p data-legend><i class="declared"></i>as written <i class="read"></i>as its words read <i class="curve"></i>the arc's curve <i class="bends"></i>off it; higher is more intense</p>
+          <ol data-findings aria-label="What to look at, slide by slide"></ol>
         </section>
         <section id="assistant" role="tabpanel" aria-labelledby="tab-assistant" hidden>
           <div id="who">
