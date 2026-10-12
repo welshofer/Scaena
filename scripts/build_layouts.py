@@ -231,9 +231,9 @@ layout("Lists", "numbered-cards", "Four reasons, each on its card under its numb
     "kicker": KICKER,
     "header": header(),
     **{f"{o}-card": card(c, (3, 10)) for o, c in zip(ORDINALS, QUARTERS)},
-    **{f"{o}-number": slot(c, (3, 4), "figure", f"0{i + 1}", inset=24) for i, (o, c) in enumerate(zip(ORDINALS, QUARTERS))},
-    **{f"{o}-title": slot(c, (5, 6), "title", "A reason", inset=24) for o, c in zip(ORDINALS, QUARTERS)},
-    **{o: slot(c, (7, 10), "body", "Why it counts, in a line", inset=24) for o, c in zip(ORDINALS, QUARTERS)},
+    **{f"{o}-number": slot(c, (3, 5), "figure", f"0{i + 1}", inset=24, fit="grow") for i, (o, c) in enumerate(zip(ORDINALS, QUARTERS))},
+    **{f"{o}-title": slot(c, (6, 7), "title", "A reason", inset=24, align={"y": "end"}) for o, c in zip(ORDINALS, QUARTERS)},
+    **{o: slot(c, (8, 10), "body", "Why it counts, in a line", inset=24) for o, c in zip(ORDINALS, QUARTERS)},
 })
 
 # Comparison ------------------------------------------------------------------------------------
@@ -252,11 +252,11 @@ layout("Comparison", "head-to-head", "Two options weighed point by point: each c
     "kicker": KICKER,
     "header": header(),
     "middle-card": card((5, 8), (3, 10)),
-    "first-title": slot((1, 4), (3, 4), "title", "This one", align={"x": "center"}),
-    "second-title": slot((9, 12), (3, 4), "title", "That one", align={"x": "center"}),
+    "first-title": slot((1, 4), (3, 4), "figure", "This one", align={"x": "center"}),
+    "second-title": slot((9, 12), (3, 4), "figure", "That one", align={"x": "center"}),
     **{f"{o}-criterion": slot((5, 8), r, "label", w, align={"x": "center", "y": "center"}) for o, r, w in zip(ORDINALS, [(5, 6), (7, 8), (9, 10)], ["Cost", "Speed", "Risk"])},
-    **{f"{o}-left": slot((1, 4), r, "body", w, align={"x": "center"}) for o, r, w in zip(ORDINALS, [(5, 6), (7, 8), (9, 10)], ["Lower", "Slower", "Known"])},
-    **{f"{o}-right": slot((9, 12), r, "body", w, align={"x": "center"}) for o, r, w in zip(ORDINALS, [(5, 6), (7, 8), (9, 10)], ["Higher", "Faster", "New"])},
+    **{f"{o}-left": slot((1, 4), r, "body", w, align={"x": "center", "y": "center"}) for o, r, w in zip(ORDINALS, [(5, 6), (7, 8), (9, 10)], ["Lower", "Slower", "Known"])},
+    **{f"{o}-right": slot((9, 12), r, "body", w, align={"x": "center", "y": "center"}) for o, r, w in zip(ORDINALS, [(5, 6), (7, 8), (9, 10)], ["Higher", "Faster", "New"])},
 })
 
 layout("Comparison", "scenarios", "Three ways it could go, side by side: the best case, the one expected, and the worst.", {
@@ -488,10 +488,10 @@ layout("Time", "timeline-photos", "Four moments in order, each with a picture, i
 layout("Numbers", "scorecard", "Four measures in a row, each its number and how it moved.", {
     "kicker": KICKER,
     "header": header(),
-    "rule": rule((1, 12), (10, 10)),
-    **{f"{o}-title": slot(c, (3, 4), "label", w) for o, c, w in zip(ORDINALS, QUARTERS, ["Revenue", "Margin", "Users", "Churn"])},
-    **{f"{o}-figure": slot(c, (5, 7), "figure", w, align={"y": "end"}) for o, c, w in zip(ORDINALS, QUARTERS, ["$4.2M", "38%", "12k", "2.1%"])},
-    **{o: slot(c, (8, 9), "caption", "Up on last year") for o, c in zip(ORDINALS, QUARTERS)},
+    "rule": rule((1, 12), (6, 6)),
+    **{f"{o}-figure": slot(c, (3, 5), "figure", w, align={"y": "end"}) for o, c, w in zip(ORDINALS, QUARTERS, ["$4.2M", "38%", "12k", "2.1%"])},
+    **{f"{o}-title": slot(c, (7, 8), "label", w) for o, c, w in zip(ORDINALS, QUARTERS, ["Revenue", "Margin", "Users", "Churn"])},
+    **{o: slot(c, (9, 10), "caption", "Up on last year") for o, c in zip(ORDINALS, QUARTERS)},
 })
 
 layout("Numbers", "ranking", "The top four, in order, each with its number.", {
@@ -828,10 +828,20 @@ OLD_SLOTS = {
 
 # And in one theme alone. Where Stat's claim sits under its number, as in Dusk and Daybreak, the
 # number ends a row higher, as Big Number's does: a number in `hero` reaches below its baseline,
-# and a row left empty keeps it off the claim.
+# and a row left empty keeps it off the claim. A timeline's dates stand on its rule across the
+# middle of what the slide holds, from the row `top`, and what happened hangs under it to `last`.
+
+
+def timeline_rows(top, last=10):
+    dates = {f"{o}-title": {"row": [top, top + 2], "align": {"y": "end"}} for o in ORDINALS[:4]}
+    happened = {o: {"row": [top + 4, last]} for o in ORDINALS[:4]}
+    return {**dates, "rule": {"row": [top + 3, top + 3]}, **happened}
+
+
 OLD_SLOTS_IN = {
-    "dusk": {"stat": {"number": {"row": [3, 7]}}},
-    "daybreak": {"stat": {"number": {"row": [3, 7]}}},
+    "dusk": {"stat": {"number": {"row": [3, 7]}}, "timeline": timeline_rows(3)},
+    "daybreak": {"stat": {"number": {"row": [3, 7]}}, "timeline": timeline_rows(3)},
+    "ember": {"timeline": timeline_rows(4, last=12)},
 }
 
 OLD_EXAMPLES = {
