@@ -261,6 +261,18 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   shot safe-area
   toggle "Safe Area"
 
+  # Zoom (PLAN 3.16): ⌘= twice grows the slide on the desk, as a presentation app's does, the
+  # canvas the part of it the desk shows; ⌘0 fits it again.
+  echo "fitted, the canvas: $(frames find canvas || true)"
+  events 'keystroke "=" using command down'
+  events 'keystroke "=" using command down'
+  sleep 2
+  shot zoomed
+  echo "zoomed twice, the canvas: $(frames find canvas || true)"
+  events 'keystroke "0" using command down'
+  sleep 2
+  echo "fitted again, the canvas: $(frames find canvas || true)"
+
   # Add Slide's picker (PLAN 3.30, 3.31): the theme's layouts by their sections down the side,
   # each drawn as a slide started in it, Titles first. Frameworks shows its own, SWOT and the rest;
   # then a click on Titles' first, a title slide, starts it after the slide shown, and ⌘Z takes it

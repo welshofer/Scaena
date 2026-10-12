@@ -105,8 +105,8 @@ extension FocusedValues {
 }
 
 /// The View menu's canvas commands (PLAN 3.16), as the browser's (PLAN 2.46, 2.47): Zoom In (⌘=),
-/// Zoom Out (⌘−), the Whole Canvas (⌘0), and Find in Deck (⇧⌘F), which ⌘F on the canvas opens
-/// too.
+/// Zoom Out (⌘−), Fit Slide (⌘0), as the toolbar's Zoom names it, and Find in Deck (⇧⌘F), which ⌘F
+/// on the canvas opens too.
 struct ViewCommands: Commands {
     @FocusedValue(\.canvasActions) private var canvas
 
@@ -119,7 +119,7 @@ struct ViewCommands: Commands {
             Button("Zoom Out") { canvas?.zoom(-1) }
                 .keyboardShortcut("-", modifiers: .command)
                 .disabled(canvas?.zoomed != true)
-            Button("Whole Canvas") { canvas?.fit() }
+            Button("Fit Slide") { canvas?.fit() }
                 .keyboardShortcut("0", modifiers: .command)
                 .disabled(canvas?.zoomed != true)
             Divider()
