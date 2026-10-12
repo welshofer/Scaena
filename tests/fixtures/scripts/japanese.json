@@ -1,0 +1,62 @@
+{
+ "executiveSummary": "データが示すこと、そして今できること。",
+ "slides": [
+  {
+   "slideTitle": "気候変動：私たちの現在地",
+   "subtitle": "データが示すこと、そして今できること",
+   "layoutSuggestion": "title",
+   "keyBullets": [],
+   "speakerNotes": "気候変動：私たちの現在地",
+   "beatIndex": 0,
+   "beatName": "Problem"
+  },
+  {
+   "slideTitle": "何が起きているか",
+   "subtitle": "",
+   "layoutSuggestion": "bullets",
+   "keyBullets": [
+    "世界の平均気温は産業革命前より1.2℃上昇した",
+    "海面は年間4.5mmのペースで上昇している",
+    "CO₂排出量の4分の3はエネルギー部門から出ている"
+   ],
+   "speakerNotes": "何が起きているか",
+   "beatIndex": 1,
+   "beatName": "Impact"
+  },
+  {
+   "slideTitle": "解決策はすでに機能している",
+   "subtitle": "",
+   "layoutSuggestion": "bullets",
+   "keyBullets": [
+    "太陽光発電のコストは10年で90%低下した",
+    "風力発電は世界の電力の8%を供給している",
+    "電気自動車の販売台数は毎年増え続けている"
+   ],
+   "speakerNotes": "解決策はすでに機能している",
+   "beatIndex": 3,
+   "beatName": "Solution"
+  },
+  {
+   "slideTitle": "私たちにできること",
+   "subtitle": "",
+   "layoutSuggestion": "bullets",
+   "keyBullets": [
+    "排出量を測定する",
+    "科学に基づく目標を設定する",
+    "毎年、進捗を報告する"
+   ],
+   "speakerNotes": "私たちにできること",
+   "beatIndex": 5,
+   "beatName": "Call to Action"
+  },
+  {
+   "slideTitle": "ありがとうございました",
+   "subtitle": "質問をお待ちしています",
+   "layoutSuggestion": "closing",
+   "keyBullets": [],
+   "speakerNotes": "ありがとうございました",
+   "beatIndex": 5,
+   "beatName": "Call to Action"
+  }
+ ]
+}

@@ -441,7 +441,9 @@ fn strings(value: &Value, chars: &mut BTreeSet<char>) {
     }
 }
 
-fn sha256(bytes: &[u8]) -> String {
+/// The SHA-256 of `bytes`, in lowercase hex: what a save names a file by, and what a font a
+/// deck takes for its script is checked against (PLAN G.22).
+pub fn sha256(bytes: &[u8]) -> String {
     Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
 }
 

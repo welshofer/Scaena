@@ -966,6 +966,13 @@ fn style_props(
         Some(lang) => Some(Language::parse(lang).map_err(|e| EngineError::Theme(format!("lang `{lang}`: {e}")))?),
         None => None,
     };
+    // Korean breaks a line between words, at its spaces, as its typography does (CSS
+    // `word-break: keep-all`): UAX #14 alone breaks it between any two syllables, a word cut in
+    // two (PLAN G.22).
+    let word_break = match locale.as_ref().map(Language::language) {
+        Some("ko") => WordBreak::KeepAll,
+        _ => WordBreak::Normal,
+    };
 
     Ok(vec![
         StyleProperty::FontFamily(family),
@@ -980,7 +987,7 @@ fn style_props(
         StyleProperty::Locale(locale),
         // Break only at UAX #14 opportunities: no emergency breaks inside words.
         StyleProperty::OverflowWrap(OverflowWrap::Normal),
-        StyleProperty::WordBreak(WordBreak::Normal),
+        StyleProperty::WordBreak(word_break),
     ])
 }
 
@@ -1142,8 +1149,9 @@ fn greedy_parley(layout: &mut Layout<Ink>, text: &str, max_width: f32, rtl: bool
 
 /// Narrowest width at which greedy breaking keeps the line count it has at `max_width`,
 /// the last line then held to `min_words` words. Where that ends a line at the hyphen inside
-/// a word ("Three-" over "Quarters"), which reads as a word broken in two, the lines are set
-/// as [`whole`] sets them instead: as many, none ending so, the widest as narrow as it can be.
+/// a word ("Three-" over "Quarters"), or inside a run of Chinese or Japanese letters (see
+/// [`cuts`]), which reads as a word broken in two, the lines are set as [`whole`] sets them
+/// instead: as many, none ending so, the widest as narrow as it can be.
 fn balance(layout: &mut Layout<Ink>, b: Breaking, max_width: f32) -> Option<&'static str> {
     // Holding the last line never changes the line count, so the search skips it.
     let probe = Breaking { min_words: 0, ..b };
@@ -1164,7 +1172,7 @@ fn balance(layout: &mut Layout<Ink>, b: Breaking, max_width: f32) -> Option<&'st
     }
     let fallback = greedy(layout, b, hi);
     let Some(plan) = plan_of(layout, b.segments) else { return fallback };
-    let broken = |line: &Range<usize>| joins(b.text, &b.segments[line.end - 1]);
+    let broken = |line: &Range<usize>| breaks_word(b.text, &b.segments[line.end - 1]);
     if !plan[..plan.len() - 1].iter().any(broken) {
         return fallback;
     }
@@ -1177,6 +1185,30 @@ fn balance(layout: &mut Layout<Ink>, b: Breaking, max_width: f32) -> Option<&'st
     }
 }
 
+/// Whether a line ending with `segment` would break a word in two: at the hyphen inside it
+/// ([`joins`]), or inside a run of Chinese or Japanese letters ([`cuts`]).
+fn breaks_word(text: &str, segment: &Segment) -> bool {
+    joins(text, segment) || cuts(text, segment)
+}
+
+/// Whether `segment` ends inside a run of Chinese or Japanese letters, Han or kana, with one
+/// on either side: UAX #14 breaks between any two, and nothing here knows their words, so a
+/// break there may cut one (我 over 们). A headline breaks after its punctuation instead, or
+/// where kana gives way to Han or katakana, as a phrase ends at its particle (の over 現在地):
+/// neither is a cut (PLAN G.22).
+fn cuts(text: &str, segment: &Segment) -> bool {
+    let han = |c: char| matches!(u32::from(c), 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF | 0x20000..=0x3FFFF);
+    let hiragana = |c: char| matches!(u32::from(c), 0x3041..=0x309F);
+    let katakana = |c: char| matches!(u32::from(c), 0x30A0..=0x30FF | 0x31F0..=0x31FF);
+    let letter = |c: char| han(c) || hiragana(c) || katakana(c);
+    let (Some(before), Some(after)) =
+        (text[..segment.text.end].chars().next_back(), text[segment.text.end..].chars().next())
+    else {
+        return false;
+    };
+    letter(before) && letter(after) && !(hiragana(before) && (han(after) || katakana(after)))
+}
+
 /// Whether `segment` ends at the hyphen inside a word, the word going on in the next: a
 /// hyphen or a hyphen (U+2010) between two letters or figures.
 fn joins(text: &str, segment: &Segment) -> bool {
@@ -1187,9 +1219,9 @@ fn joins(text: &str, segment: &Segment) -> bool {
         && after.chars().next().is_some_and(char::is_alphanumeric)
 }
 
-/// `count` lines over `b.segments`, none but the last ending at the hyphen inside a word (see
-/// [`joins`]), the widest as narrow as it can be, each fitting the measure, and the last line
-/// starting at least `min_words` words where the paragraph has that many. `None` where no
+/// `count` lines over `b.segments`, none but the last breaking a word in two (see
+/// [`breaks_word`]), the widest as narrow as it can be, each fitting the measure, and the last
+/// line starting at least `min_words` words where the paragraph has that many. `None` where no
 /// plan sets the text so.
 fn whole(b: Breaking, max_width: f32, count: usize, min_words: usize) -> Option<Vec<Range<usize>>> {
     let segments = b.segments;
@@ -1206,7 +1238,7 @@ fn whole(b: Breaking, max_width: f32, count: usize, min_words: usize) -> Option<
     widest[0][0] = 0.0;
     for k in 1..=count {
         for j in k..=n {
-            if j < n && (joins(b.text, &segments[j - 1]) || segments[j - 1].hard) {
+            if j < n && (breaks_word(b.text, &segments[j - 1]) || segments[j - 1].hard) {
                 continue;
             }
             for i in (k - 1..j).rev() {

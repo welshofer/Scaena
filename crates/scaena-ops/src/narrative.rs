@@ -1040,8 +1040,17 @@ fn plainer(doc: &mut Value, finding: &Finding) {
         .flatten()
         .filter_map(|c| c.as_str()?.chars().next())
         .collect();
+    // What plain text has no other way to write is dropped only where it is a symbol: a letter
+    // or a mark no font draws stays, lint's E120 saying so where it stands, so a word is never
+    // quietly taken out of what the deck says (PLAN G.22).
     let swap = |text: &str| -> String {
-        text.chars().map(|c| if missing.contains(&c) { plain(c).to_string() } else { c.to_string() }).collect()
+        (text.chars())
+            .map(|c| match plain(c) {
+                _ if !missing.contains(&c) => c.to_string(),
+                "" if !symbol(c) => c.to_string(),
+                written => written.to_string(),
+            })
+            .collect()
     };
     let Some(n) = doc.pointer_mut(&format!("/nodes/{node}")) else { return };
     if let Some(text) = n["text"].as_str() {
@@ -1059,6 +1068,12 @@ fn plainer(doc: &mut Value, finding: &Finding) {
             *cell = json!(swap(text));
         }
     }
+}
+
+/// Whether `c` is a symbol, an emoji, or for private use: what a deck can lose where no font
+/// draws it without losing a word.
+fn symbol(c: char) -> bool {
+    matches!(u32::from(c), 0x2000..=0x2BFF | 0xE000..=0xF8FF | 0xFE00..=0xFE0F | 0x1F000..=0x1FBFF)
 }
 
 /// A character as plain text writes it: a subscript or a superscript digit as the digit, a
@@ -1122,8 +1137,9 @@ pub const LETTERS: [(&str, &str); 15] = [
 /// (PLAN G.21): a deck written in letters its fonts cannot draw would be made with nothing
 /// where its words stand. The family of every role but code's is asked, with its fallbacks;
 /// `font` reads a font by the path the theme names it at. `shipped` says the theme ships, so
-/// that a script none of the themes that ship draw yet is said to wait on PLAN G.22. A
-/// language Narrato does not name is not asked about here: the brief says so.
+/// that a language written in a script none of its fonts draw is said to need the script's
+/// font, which [`crate::scripts`] says how to take (PLAN G.22). A language Narrato does not
+/// name is not asked about here: the brief says so.
 pub fn writable(
     language: Option<&str>,
     theme: &str,
@@ -1153,15 +1169,13 @@ pub fn writable(
             continue;
         }
         let some = missing.iter().take(6).map(char::to_string).collect::<Vec<_>>().join(", ");
-        return Err(if shipped {
-            OpsError::not_built(
-                format!(
-                    "a deck in {language} cannot be made in {} yet: its fonts have no glyphs for {some}, and a deck \
-                     in {language} waits on the font for its script (PLAN G.22)",
-                    model.name
-                ),
-                "G.22",
-            )
+        let script = crate::scripts::SCRIPTS.iter().find(|s| s.language == *language);
+        return Err(if let (true, Some(script)) = (shipped, script) {
+            OpsError::new(format!(
+                "a deck in {language} cannot be made in {} without {}, the font its letters are set in: its \
+                 own fonts have no glyphs for {some}",
+                model.name, script.family
+            ))
         } else {
             OpsError::new(format!(
                 "a deck in {language} cannot be made in {}: the fonts of its `{key}` family and their fallbacks \
@@ -3055,7 +3069,7 @@ mod tests {
 
     /// A theme is asked whether its fonts draw a language before any call is paid for (PLAN
     /// G.21). The themes that ship draw each language Narrato writes in a Latin or a Cyrillic
-    /// script, and say that the rest wait on their scripts' fonts (PLAN G.22); a theme of the
+    /// script, and name the script's font the rest are set in (PLAN G.22); a theme of the
     /// user's says what to add.
     #[test]
     fn a_theme_is_asked_whether_its_fonts_draw_the_language() {
@@ -3069,9 +3083,12 @@ mod tests {
                 let asked = writable(Some(language), &theme, true, &font);
                 match language {
                     "Japanese" | "Chinese (Simplified)" | "Korean" | "Arabic" | "Hindi" => {
+                        // The script's font, which the deck takes (PLAN G.22), named.
                         let e = asked.expect_err(language);
-                        assert_eq!(e.plan.as_deref(), Some("G.22"), "{e}");
+                        let script = crate::scripts::SCRIPTS.iter().find(|s| s.language == language).unwrap();
+                        assert_eq!(e.plan, None, "{e}");
                         assert!(e.message.starts_with(&format!("a deck in {language} cannot be made in ")), "{e}");
+                        assert!(e.message.contains(&format!("without {},", script.family)), "{e}");
                     }
                     _ => asked.unwrap_or_else(|e| panic!("{language}: {e}")),
                 }

@@ -1,0 +1,62 @@
+{
+ "executiveSummary": "आंकड़े क्या कहते हैं, और हम आज क्या कर सकते हैं।",
+ "slides": [
+  {
+   "slideTitle": "जलवायु परिवर्तन: हम कहाँ खड़े हैं",
+   "subtitle": "आंकड़े क्या कहते हैं",
+   "layoutSuggestion": "title",
+   "keyBullets": [],
+   "speakerNotes": "जलवायु परिवर्तन: हम कहाँ खड़े हैं",
+   "beatIndex": 0,
+   "beatName": "Problem"
+  },
+  {
+   "slideTitle": "क्या हो रहा है",
+   "subtitle": "",
+   "layoutSuggestion": "bullets",
+   "keyBullets": [
+    "वैश्विक तापमान 1.2°C बढ़ गया है",
+    "समुद्र का स्तर हर साल 4.5 मिमी बढ़ रहा है",
+    "CO₂ उत्सर्जन का तीन-चौथाई ऊर्जा से आता है"
+   ],
+   "speakerNotes": "क्या हो रहा है",
+   "beatIndex": 1,
+   "beatName": "Impact"
+  },
+  {
+   "slideTitle": "समाधान काम कर रहे हैं",
+   "subtitle": "",
+   "layoutSuggestion": "bullets",
+   "keyBullets": [
+    "सौर ऊर्जा दस वर्षों में 90% सस्ती हुई",
+    "पवन ऊर्जा दुनिया की 8% बिजली देती है",
+    "इलेक्ट्रिक वाहनों की बिक्री हर साल बढ़ रही है"
+   ],
+   "speakerNotes": "समाधान काम कर रहे हैं",
+   "beatIndex": 3,
+   "beatName": "Solution"
+  },
+  {
+   "slideTitle": "हम क्या कर सकते हैं",
+   "subtitle": "",
+   "layoutSuggestion": "bullets",
+   "keyBullets": [
+    "उत्सर्जन को मापें",
+    "विज्ञान आधारित लक्ष्य तय करें",
+    "हर साल प्रगति बताएं"
+   ],
+   "speakerNotes": "हम क्या कर सकते हैं",
+   "beatIndex": 5,
+   "beatName": "Call to Action"
+  },
+  {
+   "slideTitle": "धन्यवाद",
+   "subtitle": "आपके प्रश्नों का स्वागत है",
+   "layoutSuggestion": "closing",
+   "keyBullets": [],
+   "speakerNotes": "धन्यवाद",
+   "beatIndex": 5,
+   "beatName": "Call to Action"
+  }
+ ]
+}

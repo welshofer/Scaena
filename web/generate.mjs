@@ -11,6 +11,9 @@
 //   site lets no other page read it. A provider that refuses the key says so in the dialog,
 //   which stays open to try again.
 // - Cancel stops the worker making the deck, and the deck open stays open.
+// - A deck in a script the theme's fonts do not draw takes the script's font (PLAN G.22), before
+//   the provider is asked anything: Japanese's, which cannot be fetched here, says so; Hindi's is
+//   fetched from where google/fonts serves it, once, and kept by the browser for the next deck.
 // - A deck grounded in a Markdown file, a CSV, and a web page: what each gave is in the slides'
 //   prompt, the key went in Anthropic's header with its opt-in for a browser, and the deck opens
 //   in the editor kept nowhere, its slides the recorded answer's, the CSV a data source of it,
@@ -41,6 +44,8 @@ const SLIDES = await readFile(`${answers}/anthropic-slides.json`, "utf8");
 const NOTES = "# Tidewater field notes\n\nPort calls doubled in Q3, and every berth ran on shore power.";
 /** A picture, as OpenAI's Images API gives one: a JPEG from the decoder's fixtures. */
 const PICTURE = (await readFile("tests/fixtures/jpeg/baseline-422.jpg")).toString("base64");
+/** The font a deck in Hindi is set in, as google/fonts serves it (PLAN G.22). */
+const DEVANAGARI = await readFile("tests/fixtures/scripts/NotoSansDevanagari-VF.ttf");
 /** What the image API was asked. */
 const painted = [];
 const PAGE = "<h1>Tidewater in the press</h1><p>The Gulf's first carbon-negative cargo line opened its third route.</p>";
@@ -168,15 +173,43 @@ try {
   check(closed.includes("could not be read from this page"), `a site that lets no other page read it says so: ${closed}`);
   await removeAll();
 
-  // A deck in letters the theme's fonts cannot draw is refused before anything is asked, in a
-  // person's words (PLAN G.21).
+  // A deck in a script the theme's fonts do not draw takes the script's font, fetched from
+  // google/fonts by the worker and kept by the browser, before anything is asked of the
+  // provider; a font that cannot be fetched says so, in a person's words (PLAN G.22).
+  const fetched = [];
+  await page.route("https://raw.githubusercontent.com/google/fonts/**", (route) => {
+    const url = route.request().url();
+    fetched.push(url);
+    const headers = { "access-control-allow-origin": "*" };
+    if (url.includes("NotoSansDevanagari")) return route.fulfill({ status: 200, body: DEVANAGARI, headers: { ...headers, "content-type": "font/ttf" } });
+    return route.fulfill({ status: 404, body: "404: Not Found", headers });
+  });
   requests.length = 0;
   await page.click("#prompting details > summary");
   await page.fill("#prompting-language", "Japanese");
   await page.click("#prompting-go");
-  const unwritten = await failed();
-  check(/a deck in Japanese cannot be made in \w+ yet: its fonts have no glyphs for/.test(unwritten) && !unwritten.includes("PLAN"), `a language its fonts cannot draw is refused first: ${unwritten}`);
+  const unfetched = await failed();
+  check(
+    unfetched.startsWith("a deck in Japanese is set in Noto Sans JP, which could not be fetched from https://raw.githubusercontent.com/google/fonts/") && !unfetched.includes("PLAN"),
+    `a script's font that cannot be fetched stops the deck first: ${unfetched}`,
+  );
   check(requests.length === 0, `nothing is asked of the provider: ${requests.length}`);
+  // Hindi's is fetched and checked, then the provider is asked, which refuses the key here.
+  state.fail = true;
+  await page.fill("#prompting-language", "Hindi");
+  await page.click("#prompting-go");
+  const hindi = await failed();
+  const fetching = (await lines()).find((l) => l.startsWith("Fetching"));
+  check(fetching === "Fetching Noto Sans Devanagari, the font a deck in Hindi is set in (0.6 MB)…", `the progress says the font is fetched, and how large: ${fetching}`);
+  check(hindi.includes("invalid x-api-key") && requests.length > 0, `then the provider is asked: ${hindi}`);
+  const devanagari = () => fetched.filter((u) => u.includes("NotoSansDevanagari")).length;
+  check(devanagari() === 1, `the font is fetched once: ${devanagari()}`);
+  // Kept by the browser: the next deck in Hindi fetches nothing.
+  await page.waitForFunction(() => !document.querySelector("#prompting-go").disabled, null, { timeout: 30000 });
+  await page.click("#prompting-go");
+  await failed();
+  check(devanagari() === 1 && !(await lines()).some((l) => l.startsWith("Fetching")), "kept, it is not fetched for the next deck");
+  state.fail = false;
   await page.fill("#prompting-language", "");
   await page.click("#prompting details > summary");
 

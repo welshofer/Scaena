@@ -5,8 +5,10 @@
 // a bundle (`Making`), as the CLI makes one: the characters the fonts lack written plainly, lint's
 // fixes applied, the texts that still run past their place rewritten by the model, and each sheet
 // given kept as a data source. The user's key goes to the provider it is for, and a GitHub token
-// to GitHub, and nowhere else.
-import { Making, writable } from "@scaena/wasm";
+// to GitHub, and nowhere else. A deck in a script the theme's fonts do not draw takes the script's
+// font, fetched from google/fonts at the commit the shipped fonts come from, held to its digest,
+// and kept in the browser's cache for the next deck (PLAN G.22, ADR-0027).
+import { Making, scriptChecked, scriptFor, scriptTaken, writable } from "@scaena/wasm";
 import type { Choices, Generate, Generated, GeneratingEvent, Health } from "./protocol";
 
 type Generator = typeof import("@scaena/generator");
@@ -81,15 +83,72 @@ export interface Theme {
   fonts: Map<string, Uint8Array>;
 }
 
-/** The deck `job` asks for, made in `theme`: the bundle's files by their paths, what it came
+/** A script's font, as `scriptFor` names it. */
+interface Script {
+  key: string;
+  family: string;
+  language: string;
+  file: string;
+  url: string;
+  bytes: number;
+}
+
+/** Where the scripts' fonts are kept, by where they come from. */
+const KEPT = "scaena-fonts";
+
+/** `theme`, ready for a deck in `language`: where its fonts do not draw the language's letters,
+ * with the script's font, kept here or else fetched, named last in its text families'
+ * fallbacks (PLAN G.22). Asked before a file is read or a call is paid for. */
+async function scripted(language: string | undefined, theme: Theme, hear: (event: GeneratingEvent) => void): Promise<Theme> {
+  const named = scriptFor(language, theme.text, theme.fonts);
+  if (!named) return theme;
+  const script = JSON.parse(named) as Script;
+  const bytes = await scriptFont(script, hear);
+  const fonts = new Map(theme.fonts).set(script.file, bytes);
+  return { file: theme.file, text: scriptTaken(theme.text, script.key), fonts };
+}
+
+/** `script`'s font: the one this browser keeps where it is still the font pinned, else fetched,
+ * held to its digest, and kept. A browser that keeps nothing fetches it each time. */
+async function scriptFont(script: Script, hear: (event: GeneratingEvent) => void): Promise<Uint8Array> {
+  const cache = typeof caches === "undefined" ? undefined : await caches.open(KEPT).catch(() => undefined);
+  const kept = await cache?.match(script.url).catch(() => undefined);
+  if (kept) {
+    const bytes = new Uint8Array(await kept.arrayBuffer());
+    try {
+      scriptChecked(script.key, bytes);
+      return bytes;
+    } catch {
+      await cache?.delete(script.url).catch(() => false);
+    }
+  }
+  hear({ kind: "fetchingFont", family: script.family, language: script.language, megabytes: script.bytes / 1e6 });
+  const unfetched = (why: string) =>
+    new Error(`a deck in ${script.language} is set in ${script.family}, which could not be fetched from ${script.url}: ${why}`);
+  let response: Response;
+  try {
+    response = await fetch(script.url);
+  } catch (e) {
+    throw unfetched(said(e));
+  }
+  if (!response.ok) throw unfetched(`${response.status} ${response.statusText}`.trim());
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  scriptChecked(script.key, bytes);
+  await cache?.put(script.url, new Response(bytes)).catch(() => undefined);
+  return bytes;
+}
+
+/** The deck `job` asks for, made in `given`: the bundle's files by their paths, what it came
  * to, and its title. `hear` hears how far it has come. */
 export async function generate(
   job: Generate,
-  theme: Theme,
+  given: Theme,
   hear: (event: GeneratingEvent) => void,
 ): Promise<{ files: Map<string, Uint8Array>; made: Generated; title: string }> {
-  // Before a file is read or a call is paid for: a deck in letters the theme's fonts cannot
-  // draw would be blank where its words stand (PLAN G.21).
+  // Before a file is read or a call is paid for: the script's font where the theme's fonts do
+  // not draw the language (PLAN G.22), and a deck in letters they still cannot draw refused, as
+  // it would be blank where its words stand (PLAN G.21).
+  const theme = await scripted(job.brief.language || undefined, given, hear);
   writable(job.brief.language || undefined, theme.text, theme.fonts);
   const g = await generator();
   const sources = new g.Sources();

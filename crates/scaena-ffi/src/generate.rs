@@ -15,6 +15,7 @@ use scaena_narrato::look::Seen;
 use scaena_narrato::research::{Asked, Next, Report, Research, source_name};
 use scaena_narrato::{Brief, Document, Generation, Provider, Request, Settings, Step};
 use scaena_ops::narrative::{Asked as Wanted, Painting, Pictures, Reply};
+use scaena_ops::scripts::Script;
 use scaena_session::Session;
 use scaena_session::making::Making;
 use scaena_sources::fetch::{Fetch, Get, Reach, Step as Fetched};
@@ -39,6 +40,9 @@ pub struct Generating {
     /// (PLAN G.13), and the theme it is made in.
     seen: Vec<Seen>,
     theme: String,
+    /// The font for the script the deck is written in, where the theme's fonts do not draw it,
+    /// once Swift has fetched it and its digest is the one pinned (PLAN G.22).
+    script: Option<(&'static Script, Vec<u8>)>,
 }
 
 /// The pictures made (`Painting::finish`): where each slide's is kept, their bytes by their paths
@@ -93,8 +97,26 @@ fn read(source: &Source) -> Value {
 }
 
 impl Generating {
-    /// One step, by its name, with `bytes` where a step reads some: `add` (a file's) and
-    /// `fetched` (a GET's answer's).
+    /// The JSON of the theme that ships as `shipped`, with the family of the script's font where
+    /// one was given (PLAN G.22).
+    fn theme_text(&self, shipped: &scaena_ops::shipped::Shipped) -> Result<String, Failure> {
+        match &self.script {
+            Some((script, _)) => scaena_ops::scripts::taken(shipped.text, script).map_err(said),
+            None => Ok(shipped.text.to_string()),
+        }
+    }
+
+    /// A font the theme names, by its path: the script's, where one was given, else one that
+    /// ships.
+    fn font(&self, shipped: &scaena_ops::shipped::Shipped, file: &str) -> Result<Vec<u8>, scaena_ops::OpsError> {
+        match &self.script {
+            Some((script, bytes)) if script.file == file => Ok(bytes.clone()),
+            _ => shipped_font(shipped, file),
+        }
+    }
+
+    /// One step, by its name, with `bytes` where a step reads some: `add` (a file's),
+    /// `fetched` (a GET's answer's), and `scriptFont` (the script's font's).
     pub fn call(&mut self, method: &str, args: &Value, bytes: &[u8]) -> Result<Value, Failure> {
         let arg = |key: &str| {
             args.get(key).and_then(Value::as_str).ok_or_else(|| said(format!("{method}: `{key}` is a string it needs")))
@@ -159,20 +181,37 @@ impl Generating {
                     }
                 }
             }
-            "writable" => {
-                // Whether the theme's fonts draw the brief's language, asked before any call is
-                // paid for: a deck in letters its fonts cannot draw would be blank (PLAN G.21).
+            "script" => {
+                // The script whose font a deck in the brief's language takes beside the theme's
+                // (PLAN G.22): where Swift fetches it, and the digest it must have; or none.
                 let shipped = shipped(arg("theme")?)?;
-                let font = |file: &str| {
-                    let bytes = scaena_ops::shipped::font(file);
-                    bytes.map(<[u8]>::to_vec).ok_or_else(|| {
-                        scaena_ops::OpsError::new(format!("{} names `{file}`, which does not ship", shipped.name))
-                    })
-                };
                 let language = args.get("language").and_then(Value::as_str).filter(|l| !l.is_empty());
-                // Said to a person: the task it waits on is the repository's business.
-                (scaena_ops::narrative::writable(language, shipped.text, true, &font))
-                    .map_err(|e| said(e.message.trim_end_matches(" (PLAN G.22)")))?;
+                let script =
+                    scaena_ops::scripts::needed(language, "", shipped.text, &|file| shipped_font(&shipped, file))
+                        .map_err(said)?;
+                let base = args.get("base").and_then(Value::as_str).filter(|b| !b.is_empty());
+                json!({ "script": script.map(|s| json!({
+                    "key": s.key, "family": s.family, "language": s.language, "url": s.url(base),
+                    "sha256": s.sha256, "bytes": s.bytes,
+                })) })
+            }
+            "scriptFont" => {
+                // The font Swift fetched for the script `key` names, kept once it is the one pinned.
+                let key = arg("key")?;
+                let script = Script::keyed(key).ok_or_else(|| said(format!("`{key}` is no script's")))?;
+                script.check(bytes).map_err(said)?;
+                self.script = Some((script, bytes.to_vec()));
+                json!({})
+            }
+            "writable" => {
+                // Whether the theme's fonts, with the script's where one was given, draw the brief's
+                // language, asked before any call is paid for: a deck in letters its fonts cannot
+                // draw would be blank (PLAN G.21, G.22).
+                let shipped = shipped(arg("theme")?)?;
+                let theme = self.theme_text(&shipped)?;
+                let language = args.get("language").and_then(Value::as_str).filter(|l| !l.is_empty());
+                (scaena_ops::narrative::writable(language, &theme, true, &|file| self.font(&shipped, file)))
+                    .map_err(said)?;
                 json!({})
             }
             "begin" => {
@@ -295,10 +334,16 @@ impl Generating {
                 for (path, bytes) in scaena_ops::shipped::fonts() {
                     fonts.insert(path.to_string(), bytes.to_vec());
                 }
+                let theme = match &self.script {
+                    Some((script, bytes)) => {
+                        fonts.insert(script.file.to_string(), bytes.clone());
+                        scaena_ops::scripts::taken(shipped.text, script).map_err(said)?
+                    }
+                    None => shipped.text.to_string(),
+                };
                 let fallback = w.generation.fallback().map(str::to_string);
                 let arc = narrative.arc.clone();
-                let mut making =
-                    Making::new(built, &arc, fallback, shipped.file, shipped.text, &fonts).map_err(said)?;
+                let mut making = Making::new(built, &arc, fallback, shipped.file, &theme, &fonts).map_err(said)?;
                 if !placed.is_empty() || !unmade.is_empty() {
                     making.painted(placed.len(), unmade);
                 }
@@ -412,6 +457,12 @@ impl Generating {
         self.sources.push(source);
         Ok(said)
     }
+}
+
+/// A font a theme that ships names, by its path.
+fn shipped_font(shipped: &scaena_ops::shipped::Shipped, file: &str) -> Result<Vec<u8>, scaena_ops::OpsError> {
+    let bytes = scaena_ops::shipped::font(file).map(<[u8]>::to_vec);
+    bytes.ok_or_else(|| scaena_ops::OpsError::new(format!("{} names `{file}`, which does not ship", shipped.name)))
 }
 
 /// The theme that ships as `name`.

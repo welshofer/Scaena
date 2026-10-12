@@ -486,6 +486,9 @@ jobs:
       - run: python3 scripts/build_torture_images.py --check
       # Every character in the benchmark decks maps in its role's own family (PLAN 0.14).
       - run: python3 scripts/build_bundle_fonts.py --check
+      # What a save keeps of a CJK font, and the tests' script fonts, are what their generator
+      # writes and fetches (PLAN G.22).
+      - run: python3 scripts/build_scripts.py --check
       # The lint fixtures' font is what its generator writes, its license bits and all (W230).
       - run: python3 scripts/build_lint_fonts.py --check
       # B2 and B3 are what their generator writes (PLAN 1.24).

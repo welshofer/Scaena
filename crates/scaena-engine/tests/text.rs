@@ -517,6 +517,48 @@ fn a_runs_own_features_and_axes_come_after_the_nodes() {
 }
 
 #[test]
+fn a_balanced_headline_in_chinese_japanese_or_korean_keeps_its_words_whole() {
+    // UAX #14 breaks between any two Han or kana letters, and any two Hangul syllables, so a
+    // headline balanced alone may cut a word in two (我 over 们). It breaks after its
+    // punctuation instead, or where kana gives way to Han, and Korean between its words
+    // (PLAN G.22). The torture deck's fonts draw none of these letters; each is a box of one
+    // width, which is all a break needs.
+    let lines = |l: &TextLayout| -> Vec<String> {
+        l.lines.iter().map(|line| l.text[line.text.clone()].trim_end().to_string()).collect()
+    };
+    for (text, lang, expected) in [
+        ("气候变化：我们身在何处", "zh-Hans", ["气候变化：", "我们身在何处"]),
+        ("気候変動：私たちの現在地", "ja", ["気候変動：", "私たちの現在地"]),
+    ] {
+        let wide = set("specimen", text, 10_000.0, |s| s.lang = Some(lang.into())).width;
+        let width = wide * 0.75;
+        let balanced = set("specimen", text, width, |s| {
+            s.wrap = Some(Wrap::Balance);
+            s.lang = Some(lang.into());
+        });
+        assert_eq!(lines(&balanced), expected, "{lang}");
+        assert!(balanced.lines.iter().all(|l| l.width <= width + 1e-3), "{lang}: {:?}", balanced.lines);
+        // Running text still breaks between any two letters, as it is set.
+        let greedy = set("specimen", text, width, |s| {
+            s.wrap = Some(Wrap::Greedy);
+            s.lang = Some(lang.into());
+        });
+        assert_ne!(lines(&greedy), expected, "{lang}");
+    }
+    // Korean breaks between its words alone, balanced or not.
+    let text = "기후 변화: 우리는 어디에 있는가";
+    let wide = set("specimen", text, 10_000.0, |s| s.lang = Some("ko".into())).width;
+    for wrap in [Wrap::Balance, Wrap::Greedy] {
+        let set = set("specimen", text, wide * 0.6, |s| {
+            s.wrap = Some(wrap);
+            s.lang = Some("ko".into());
+        });
+        assert!(set.lines.len() >= 2, "{:?}", set.lines);
+        assert_eq!(lines(&set).join(" "), text, "{wrap:?}: no word cut");
+    }
+}
+
+#[test]
 fn a_balanced_text_keeps_a_hyphenated_word_whole_across_its_lines() {
     // Balanced alone, the narrowest two lines break inside "Three-Quarters", at its hyphen,
     // which reads as a word broken in two. A headline keeps the word whole, on as many lines.

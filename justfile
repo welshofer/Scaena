@@ -86,6 +86,7 @@ schema:
     python3 scripts/build_torture_fonts.py --check
     python3 scripts/build_torture_images.py --check
     python3 scripts/build_bundle_fonts.py --check
+    python3 scripts/build_scripts.py --check
     python3 scripts/build_lint_fonts.py --check
     python3 scripts/build_bench_decks.py --check
     python3 scripts/build_layouts.py --check

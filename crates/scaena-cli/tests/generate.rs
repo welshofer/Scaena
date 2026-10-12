@@ -65,29 +65,10 @@ fn slides_written_elsewhere_make_a_bundle_with_no_call() {
     assert!(again["error"]["message"].as_str().unwrap().contains("not an empty directory"));
 }
 
-/// A deck in a language the theme's fonts cannot draw is refused before any call, and before a
-/// place is made for it: it would be blank where its words stand (PLAN G.21). One in Ukrainian
-/// is written in Ukrainian, and one with a talk's symbols keeps them.
+/// A deck in Ukrainian is written in Ukrainian, which the shipped fonts draw, and one with a
+/// talk's symbols keeps them (PLAN G.21).
 #[test]
 fn a_deck_is_written_only_in_letters_its_theme_draws() {
-    let dir = place("japanese");
-    let out = json(&scaena(&[
-        "--json",
-        "generate",
-        dir.to_str().unwrap(),
-        "気候変動",
-        "--slides",
-        &catalog(),
-        "--language",
-        "Japanese",
-    ]));
-    assert_eq!(out["error"]["exit"], 3, "{out:#}");
-    assert_eq!(out["error"]["plan"], "G.22", "{out:#}");
-    assert!(
-        out["error"]["message"].as_str().unwrap().starts_with("a deck in Japanese cannot be made in Dusk"),
-        "{out:#}"
-    );
-    assert!(!dir.exists());
     let slides = place("ukrainian-slides");
     std::fs::create_dir_all(&slides).unwrap();
     let slide = |title: &str, layout: &str, bullets: &[&str]| serde_json::json!({ "slideTitle": title, "layoutSuggestion": layout, "keyBullets": bullets, "speakerNotes": title });
@@ -122,6 +103,76 @@ fn a_deck_is_written_only_in_letters_its_theme_draws() {
     for words in ["Зміна клімату", "Викиди CO₂ зростають", "−13%", "→"] {
         assert!(said.iter().any(|s| s.contains(words)), "{words:?} in {said:?}");
     }
+}
+
+/// A deck in a script the theme's fonts do not draw takes the script's font (PLAN G.22): fetched
+/// from where `$SCAENA_FONTS_BASE` says (here this machine, serving the very font google/fonts
+/// serves), checked against its digest, kept in the user's cache, and carried in the bundle. A
+/// font that is not the one it names, or that cannot be fetched, stops the deck before a place is
+/// made for it.
+#[test]
+fn a_deck_in_another_script_takes_its_scripts_font() {
+    fn fonts(_: &str, path: &str, _: &str) -> Answer {
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/scripts");
+        match path {
+            "/ofl/notosansdevanagari/NotoSansDevanagari%5Bwdth%2Cwght%5D.ttf" => {
+                (200, "font/ttf", std::fs::read(fixtures.join("NotoSansDevanagari-VF.ttf")).unwrap())
+            }
+            "/ofl/notosansjp/NotoSansJP%5Bwght%5D.ttf" => (200, "font/ttf", b"not the font".to_vec()),
+            _ => (404, "text/plain", b"not here".to_vec()),
+        }
+    }
+    let (base, asked) = serve(fonts);
+    let cache = place("fonts-cache");
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/scripts");
+    let run = |dir: &Path, language: &str, slides: &str| {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_scaena"));
+        for k in KEYS.into_iter().chain(["SCAENA_MODEL"]).chain(PROXIES) {
+            c.env_remove(k);
+        }
+        c.env("XDG_CACHE_HOME", &cache).env("SCAENA_FONTS_BASE", &base);
+        let dir = dir.to_str().unwrap();
+        c.args(["--json", "generate", dir, "x", "--slides", slides, "--language", language, "--length", "5-10 slides"]);
+        c.output().unwrap()
+    };
+    let hindi = fixtures.join("hindi.json");
+    let dir = place("hindi");
+    let out = run(&dir, "Hindi", hindi.to_str().unwrap());
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let deck: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap();
+    let said: Vec<&str> = deck["nodes"].as_object().unwrap().values().filter_map(|n| n["text"].as_str()).collect();
+    assert!(said.iter().any(|s| s.contains("जलवायु परिवर्तन")), "{said:?}");
+    assert_eq!(deck["meta"]["lang"], "hi");
+    assert!(dir.join("fonts/NotoSansDevanagari-VF.ttf").is_file());
+    let theme: Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("themes/dusk.theme.json")).unwrap()).unwrap();
+    assert_eq!(theme["type"]["families"]["devanagari"]["family"], "Noto Sans Devanagari");
+    assert_eq!(scaena(&["validate", dir.to_str().unwrap()]).status.code(), Some(0));
+    let fetched =
+        |asked: &Arc<Mutex<Vec<Asked>>>| asked.lock().unwrap().iter().filter(|a| a.path.contains("Devanagari")).count();
+    assert_eq!(fetched(&asked), 1);
+    // The next deck in Hindi takes the font this user keeps, and fetches nothing.
+    let again = place("hindi-again");
+    assert_eq!(run(&again, "Hindi", hindi.to_str().unwrap()).status.code(), Some(0));
+    assert_eq!(fetched(&asked), 1, "kept, not fetched again");
+    // What is not the font it names, and a font that is not there, stop the deck first.
+    let catalog = catalog();
+    let japanese = place("japanese");
+    let out = json(&run(&japanese, "Japanese", &catalog));
+    assert_eq!(out["error"]["exit"], 2, "{out:#}");
+    assert!(out["error"]["message"].as_str().unwrap().contains("is not the font it names"), "{out:#}");
+    assert!(!japanese.exists());
+    let korean = place("korean");
+    let out = json(&run(&korean, "Korean", &catalog));
+    let message = out["error"]["message"].as_str().unwrap();
+    assert!(message.contains("a deck in Korean is set in Noto Sans KR, which could not be fetched"), "{message}");
+    assert!(!korean.exists());
 }
 
 #[test]
