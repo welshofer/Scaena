@@ -29,6 +29,7 @@ crates/scaena-history  the CRDT as its own WASM module, loaded to save a bundle 
 crates/scaena-pdf      the PDF writer as its own WASM module, loaded to export a PDF                    (PLAN 2.54)
 crates/scaena-ffi      C ABI for Swift: the session for the Mac, and the assistant's conversation      (PLAN 3.1, 3.6)
 crates/scaena-chat     the assistant's conversation for the Mac: requests built, answers read, no HTTP  (ADR-0022)
+crates/scaena-narrato  Vzestup's Narrato: a deck's narrative from a brief, requests built, answers read, no HTTP  (ADR-0026)
 vendor/parley          parley 0.11.1, patched: a change of spacing keeps a run shaped whole (ADR-0004 finding 21)
 docs/                  SPEC, PLAN, MANIFESTO, adr/, schema/, examples/
 skills/                agent skills (SKILL.md) that drive the CLI/MCP
@@ -54,7 +55,7 @@ apps/ipad/             the iPad app: the Mac app's sources in an Xcode project X
 ## Conventions
 
 - Rust 2024 edition, stable toolchain. `cargo clippy --all-targets -- -D warnings` is clean. `cargo fmt` (rustfmt.toml: 120 cols).
-- Crates depend downward only: `cli`/`mcp`/`serve → ops → export/paint/engine/store → core → pixels`, and `wasm`/`ffi → session → ops`. `core` has no heavy dependencies, and `pixels` none but `thiserror` and `libm`. An operation lives in `scaena-ops` and returns a typed result; the CLI and the MCP server only parse, call, and print or return it (ADR-0009).
+- Crates depend downward only: `cli`/`mcp`/`serve → ops → export/paint/engine/store → core → pixels`, `ops → narrato` behind `ops`' `narrato` feature, and `wasm`/`ffi → session → ops`. `core` has no heavy dependencies, and `pixels` none but `thiserror` and `libm`. An operation lives in `scaena-ops` and returns a typed result; the CLI and the MCP server only parse, call, and print or return it (ADR-0009).
 - Stable sorts in the crates the browser's modules carry (core, engine, ops, session, store, wasm) go through `scaena_core::sort`: `slice::sort_by` compiles a whole sort for each call site, some 10 KB of WASM, and the editor's module is held to SPEC §15's 3 MB. `crates/scaena-wasm/tests/sorts.rs` holds them to it. A map or a set built from an iterator goes through `sort::map`, `sort::try_map`, or `sort::set`: `collect` into a `BTreeMap` sorts first, and compiles that sort for each type and caller (PLAN 2.91). The same test finds a `collect` typed as one.
 - Errors: `thiserror` in libraries, `anyhow` only in `scaena-cli`. Unimplemented paths return `NotImplemented("… — PLAN x.y")`, never `todo!()`, so the CLI exits 3 with a pointer instead of panicking.
 - A deck, theme, bundle file, or tool call the engine cannot serve is an error that says why, never a panic or a hang: in the browser either stops the editor's worker. `crates/scaena-session/tests/edits.rs` makes random edits to sources, decks, patches, and themes, and random calls to the assistant's tools, in `just check`. A damaged font's glyphs are checked before a painter sees them, and a raster holds at most `scaena_paint::MAX_PIXELS` (PLAN 2.23–2.26).
@@ -165,6 +166,10 @@ The assistant (PLAN 4.9) is the Mac's on the iPad. Its keys are kept in the iPad
 The remote (PLAN 4.10, SPEC §9.5, ADR-0025). `ScaenaRemote` is a library of the ScaenaKit package with no engine in it. Remote… in the Play menu offers the deck by Bonjour (`RemoteServer`, `RemoteHost`), and its sheet shows a code of four digits in the editor; TLS's pre-shared key is derived from the code. A remote finds the presenter (`RemoteBrowser`) and joins with the code (`RemoteClient`). Then the presenter sends each place: a state, its time into its cue or at rest, its notes, and it and the next as PNGs. The remote sends play, on, back, first, last, or end. `RemoteView` is the iPhone's Remote app (`apps/ipad/Remote`, `RemoteApp`), and the iPad's Control a Presentation… window. ScaenaKit's `RemoteTests` join over the loopback.
 
 Undo by touch (PLAN 4.11): the iPad's toolbar has Undo beside View and Zoom (`UndoButton`), as a presentation app's does there, since an iPad without a keyboard has no ⌘Z. A tap takes back the last step, and a long press offers Redo. It reads as the step it takes back, as the Edit menu names it (`UndoSteps`), and the iPad's `TouchTests` undo a drag and a Duplicate with it.
+
+## Deck generation
+
+Scheduled on Jay's call (2026-10-12, ADR-0026, PLAN G.1–G.9): a deck made from a prompt alone or grounded in what the user hands over, by Vzestup's Narrato model, with the user's own key. `scaena-narrato` is Narrato in Rust (G.1): its arcs and personas, its two prompts byte for byte with Scaena's slot-shapes block after them, each provider's request and answer, and the heuristic. A `Generation` gives the client each request to make and reads the answer handed back. `scaena_ops::narrative` makes the deck: the spine first, a section for each run of slides in one beat of the arc and a beat for each slide, then each slide an absolute state in the theme layout its Narrato layout comes to, each slot taking its part of an item. `generating` makes the bundle as `deck_create` does, characters the theme's fonts lack written plainly, lint's fixes applied. `scaena generate` is G.2.
 
 ## Gate 4
 

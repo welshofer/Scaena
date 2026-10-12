@@ -509,8 +509,17 @@ fn layout_for(identity: &str, slide: &Slide, items: &[Item], index: usize, theme
     };
     // A layout with no place for some of the items gives way to a list of them all.
     let sequential = [
-        "steps", "timeline", "milestones", "how-it-works", "pipeline", "funnel", "roadmap", "agenda", "numbered",
-        "ranking", "manifesto",
+        "steps",
+        "timeline",
+        "milestones",
+        "how-it-works",
+        "pipeline",
+        "funnel",
+        "roadmap",
+        "agenda",
+        "numbered",
+        "ranking",
+        "manifesto",
     ];
     let wanted = match holds(theme, wanted, n) {
         true => wanted,
@@ -657,7 +666,6 @@ fn after_figure(text: &str) -> Option<String> {
     }
     [", ", "; ", " \u{2014} ", " \u{2013} "].iter().find_map(|sep| rest.strip_prefix(sep)).map(|r| r.trim().to_string())
 }
-
 
 impl Slots<'_> {
     fn title(&self) -> Option<String> {
