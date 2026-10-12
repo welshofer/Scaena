@@ -1503,6 +1503,8 @@ fn layout_for(identity: &str, slide: &Slide, items: &[Item], index: usize, theme
             4 => "scorecard",
             _ => "number-grid",
         },
+        // Two bars of one series are two figures, each as large as the slide takes.
+        "bar-chart" if two(slide) && theme.layouts.contains_key("two-figures") => "two-figures",
         "bar-chart" if chart => "bar-chart",
         "line-chart" if chart => "line-chart",
         "bar-chart" | "line-chart" => "bullets",
@@ -1624,7 +1626,7 @@ fn holds(theme: &Theme, layout: &str, n: usize) -> bool {
     let Some(l) = theme.layouts.get(layout) else { return true };
     match layout {
         // A pros-and-cons slide sorts its items onto two lists.
-        "title" | "section" | "bar-chart" | "line-chart" | "pros-cons" => return true,
+        "title" | "section" | "bar-chart" | "line-chart" | "pros-cons" | "two-figures" => return true,
         "statement" | "closing" | "thesis" | "headline" => return n <= 1,
         "quote" | "big-number" | "number-photo" | "definition" => return n <= 2,
         _ => {}
@@ -1916,6 +1918,8 @@ impl Slots<'_> {
             // What a figure or a row is, named in a label, as large as words read from the room.
             (Some((_, "title" | "criterion")), "label") => at_least("body"),
             (Some((_, "figure")), "figure") => at_least("numeral"),
+            // Two figures, as large as the slide takes: up to the hero's size.
+            (Some((_, "figure")), "hero") if self.layout == "two-figures" => size("hero"),
             (Some(_), "figure") if !dated => at_least("headline"),
             (Some(_), _) => None,
             (None, "headline") if name == "title" && (section || self.layout == "title-split") => at_least("display"),
@@ -2078,6 +2082,20 @@ impl Slots<'_> {
         match (layout, name, ord) {
             // What the number means, beside it; else the slide's title. Under it, its source, or
             // what a figure-led first item leaves over: the second.
+            // Two figures: each bar's value in its unit, what it counts under it, and under them
+            // what was counted, or the source.
+            ("two-figures", _, Some((k, part))) => {
+                let chart = self.slide.chart_data.as_ref()?;
+                let value = chart.series.first().and_then(|s| s.values.get(k).copied());
+                match part {
+                    "figure" => text(value.map(|v| at_places(v, decimals(chart), chart.unit.as_deref()))),
+                    "" => text(chart.categories.get(k).cloned()),
+                    _ => Some(None),
+                }
+            }
+            ("two-figures", "note", _) => text(self.subtitle().or_else(|| {
+                (self.slide.chart_data.as_ref()).and_then(|c| c.source_id.clone()).map(|s| format!("Source: {s}"))
+            })),
             ("big-number" | "number-photo", "claim", _) => text(meaning(self.items).or_else(|| self.title())),
             ("big-number" | "number-photo", "under", _) => text(self.fact().or_else(|| {
                 self.item(0)
@@ -2388,6 +2406,10 @@ impl Builder {
                     // rather than the muted lede's.
                     let role = match (s.layout, ordinal(name)) {
                         ("myth-fact", Some((_, ""))) if s.theme.typography.roles.contains_key("title") => "title",
+                        // Two figures grow together, to one size, toward the hero's.
+                        ("two-figures", Some((_, "figure"))) if s.theme.typography.roles.contains_key("figure") => {
+                            "figure"
+                        }
                         _ => role.as_str(),
                     };
                     let mut node = json!({ "type": "text", "role": role, "text": text, "at": at });
@@ -2409,6 +2431,16 @@ impl Builder {
                     // the slide's foot, as a footer does.
                     match (s.layout, ordinal(name)) {
                         ("myth-fact", Some((_, ""))) => node["align"] = json!({ "y": "center" }),
+                        // Of two figures, the one the slide is not about stands back.
+                        ("two-figures", Some((k, "figure")))
+                            if s.slide
+                                .chart_data
+                                .as_ref()
+                                .and_then(|c| signal(c, s.item(0).map(|i| i.whole.as_str())))
+                                != Some(k) =>
+                        {
+                            node["style"] = json!({ "color": "onSurfaceMuted" })
+                        }
                         _ if name == "kicker" && s.foot(slot) => node["align"] = json!({ "y": "end" }),
                         _ => {}
                     }
@@ -2591,13 +2623,58 @@ fn ordered(categories: &[String]) -> bool {
     })
 }
 
+/// Whether `slide` charts two bars of one series.
+fn two(slide: &Slide) -> bool {
+    slide
+        .chart_data
+        .as_ref()
+        .is_some_and(|c| c.categories.len() == 2 && c.series.len() == 1 && c.series[0].values.len() == 2)
+}
+
+/// The decimals of the most precise of `chart`'s values, two at most: 2.0 beside 1.1.
+fn decimals(chart: &ChartData) -> usize {
+    let places = |v: f64| (0..=2usize).find(|d| (v * 10f64.powi(*d as i32)).fract().abs() < 1e-9).unwrap_or(2);
+    chart.series.iter().flat_map(|s| &s.values).map(|v| places(*v)).max().unwrap_or(0)
+}
+
+/// `value` with `places` decimals, written with `unit`: "$2.0T" beside "$1.1T".
+fn at_places(value: f64, places: usize, unit: Option<&str>) -> String {
+    if places == 0 {
+        return in_unit(value, unit);
+    }
+    let n = format!("{value:.places$}");
+    match unit.map(str::trim).filter(|u| !u.is_empty()) {
+        None => n,
+        Some(u) if u.starts_with(['$', '\u{20ac}', '\u{a3}', '\u{a5}']) => {
+            let sign = u.chars().next().expect("not empty");
+            format!("{sign}{n}{}", &u[sign.len_utf8()..])
+        }
+        Some(u) if u.starts_with(['%', '\u{b0}', '/', '\u{d7}']) => format!("{n}{u}"),
+        Some(u) => format!("{n} {u}"),
+    }
+}
+
+/// Which of a single series' categories the slide is about, by index: the one its takeaway
+/// names; else, where the categories are years, the latest; else the largest.
+fn signal(chart: &ChartData, takeaway: Option<&str>) -> Option<usize> {
+    let named: Vec<usize> = (0..chart.categories.len())
+        .filter(|i| takeaway.is_some_and(|t| t.to_lowercase().contains(&chart.categories[*i].to_lowercase())))
+        .collect();
+    let years = chart.categories.iter().all(|c| c.len() == 4 && c.chars().all(|d| d.is_ascii_digit()));
+    let values = chart.series.first().map(|s| s.values.as_slice()).unwrap_or_default();
+    match named.as_slice() {
+        [one] => Some(*one),
+        _ if years => chart.categories.len().checked_sub(1),
+        _ => (values.iter().enumerate()).max_by(|a, b| a.1.total_cmp(b.1)).map(|(i, _)| i),
+    }
+}
+
 /// The chart that plots `chart`'s source, `data`, in a layout's chart slot.
 fn chart_node(chart: &ChartData, data: &str, layout: &str, title: &str, takeaway: Option<&str>, at: Value) -> Value {
     let kind = if layout == "line-chart" { "line" } else { "bar" };
     let several = chart.series.len() > 1;
     // Every value with the decimals of the most precise of them, two at most: 2.0 beside 1.1.
-    let places = |v: f64| (0..=2).find(|d| (v * 10f64.powi(*d)).fract().abs() < 1e-9).unwrap_or(2);
-    let decimals = chart.series.iter().flat_map(|s| &s.values).map(|v| places(*v)).max().unwrap_or(0);
+    let decimals = decimals(chart);
     let y_title = match (chart.series.first().and_then(|s| s.name.as_deref()), chart.unit.as_deref()) {
         (Some(name), Some(unit)) if !several && !name.contains(unit) => Some(format!("{name} ({unit})")),
         (Some(name), _) if !several => Some(name.to_string()),
@@ -2638,22 +2715,11 @@ fn chart_node(chart: &ChartData, data: &str, layout: &str, title: &str, takeaway
     }
     // The theme's one signal color on what the slide is about: the one category its takeaway
     // names; else, where the categories are years, the latest; else the largest bar.
-    if kind == "bar" && !several {
-        let named: Vec<&String> = (chart.categories.iter())
-            .filter(|c| takeaway.is_some_and(|t| t.to_lowercase().contains(&c.to_lowercase())))
-            .collect();
-        let years = chart.categories.iter().all(|c| c.len() == 4 && c.chars().all(|d| d.is_ascii_digit()));
-        let values = chart.series.first().map(|s| s.values.as_slice()).unwrap_or_default();
-        let largest =
-            (values.iter().enumerate()).max_by(|a, b| a.1.total_cmp(b.1)).and_then(|(i, _)| chart.categories.get(i));
-        let picked = match named.as_slice() {
-            [one] => Some(*one),
-            _ if years => chart.categories.last(),
-            _ => largest,
-        };
-        if let Some(x) = picked {
-            node["annotations"] = json!([{ "kind": "highlight", "at": { "x": x } }]);
-        }
+    if kind == "bar"
+        && !several
+        && let Some(x) = signal(chart, takeaway).and_then(|i| chart.categories.get(i))
+    {
+        node["annotations"] = json!([{ "kind": "highlight", "at": { "x": x } }]);
     }
     node
 }
@@ -2955,10 +3021,13 @@ mod tests {
         };
         assert!(rows("first-figure").1 < rows("rule").0 && rows("rule").1 < rows("first-title").0);
         assert!(node(6, "first-title")["align"].is_null());
-        // Bars of names with no order of their own run longest first; years, and two bars, keep
-        // theirs.
+        // Bars of names with no order of their own run longest first; years keep theirs.
         assert_eq!(node(8, "main")["dataTransform"], json!([{ "sort": "-value" }]));
-        assert!(node(16, "main")["dataTransform"].is_null() && node(18, "main")["dataTransform"].is_null());
+        assert!(node(16, "main")["dataTransform"].is_null());
+        // Two bars are two figures, grown together to one size, past a figure's (G.15).
+        assert_eq!(made.layouts[18], "two-figures");
+        assert_eq!(node(18, "first-figure")["maxSize"], node(18, "second-figure")["maxSize"]);
+        assert!(most(&node(18, "first-figure")) > size("figure"), "{:#?}", node(18, "first-figure"));
         // Two sides said in a line each: a card each, the statements set large as titles.
         assert_eq!(made.layouts[20], "myth-fact");
         assert_eq!(node(20, "first")["role"], "title");
@@ -3050,12 +3119,18 @@ mod tests {
         let energy = placed(&made.deck, 8, "main");
         assert_eq!(energy["orient"], "horizontal");
         assert_eq!(energy["y"]["format"], ",.1f");
-        // The bar the slide is about takes the signal color: the larger of the two, the year
-        // last, or the one category the takeaway names.
-        let invest = placed(&made.deck, 18, "main");
-        assert_eq!(invest["annotations"][0], json!({ "kind": "highlight", "at": { "x": "Clean energy" } }));
-        assert!(invest.get("orient").is_none());
+        // The bar the slide is about takes the signal color: the year last, or the one category
+        // the takeaway names. Two bars are two figures (G.15), each in the unit at one precision,
+        // the one the slide is not about standing back.
         assert_eq!(placed(&made.deck, 16, "main")["annotations"][0]["at"]["x"], "2023");
+        assert_eq!(made.layouts[18], "two-figures");
+        let invest = said(18);
+        has(&invest, "first-figure", "$2.0T");
+        has(&invest, "second-figure", "$1.1T");
+        has(&invest, "first", "Clean energy");
+        has(&invest, "note", "Global energy investment in 2024, trillions of dollars");
+        assert!(placed(&made.deck, 18, "first-figure").get("style").is_none());
+        assert_eq!(placed(&made.deck, 18, "second-figure")["style"], json!({ "color": "onSurfaceMuted" }));
         // With no picture made, a slide waits for none: no theme art stands in for one.
         assert!(
             made.deck["nodes"].as_object().unwrap().values().all(|n| n["type"] != "shader" && n["type"] != "image")

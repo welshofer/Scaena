@@ -48,7 +48,7 @@ private func revenueExample() throws -> [String: Data] {
 @Test @MainActor func theLayoutsAreListedThenDrawnAFewAtATimeAndKept() throws {
     let session = try ScaenaSession(files: revenueExample())
     let listed = try session.starters()
-    #expect(listed.count == 123 && listed.last?.layout == nil, "Dusk's 122, then a blank slide")
+    #expect(listed.count == 124 && listed.last?.layout == nil, "Dusk's 123, then a blank slide")
     #expect(listed.allSatisfy { $0.width == 0 && $0.height == 0 }, "listed, none drawn")
     let swot = listed.first { $0.layout == "swot" }
     #expect(swot?.name == "SWOT" && swot?.group == "Frameworks")

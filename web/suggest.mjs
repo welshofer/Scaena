@@ -96,7 +96,7 @@ try {
   await showState("budget");
   await suggestedFor("budget", "figure");
   const shown = await buttons();
-  const best = "figure,venn,bar-chart,line-chart,metric-trend,panorama,narrow-figure";
+  const best = "figure,venn,two-figures,bar-chart,line-chart,metric-trend,panorama,narrow-figure";
   check(shown.map((b) => b.layout).join() === best, `best first: ${shown.map((b) => b.layout).join(", ")}`);
   check(shown[0]?.pressed === "true" && shown.slice(1).every((b) => b.pressed === "false"), "the layout it takes now is pressed");
   check(
@@ -117,7 +117,7 @@ try {
       return { width: c.width, height: c.height, css: c.getBoundingClientRect().height, lit, sum: data.reduce((a, b) => (a * 31 + b) % 1000000007, 0) };
     }),
   );
-  check(drawn.length === 7 && drawn.every((d) => d.height === 72 && d.width === 128 && d.css === 72), `each is drawn 72 pixels high: ${JSON.stringify(drawn.map((d) => [d.width, d.height]))}`);
+  check(drawn.length === 8 && drawn.every((d) => d.height === 72 && d.width === 128 && d.css === 72), `each is drawn 72 pixels high: ${JSON.stringify(drawn.map((d) => [d.width, d.height]))}`);
   const sums = new Set(drawn.map((d) => d.sum));
   check(drawn.every((d) => d.lit > 200) && sums.size === drawn.length, `each draws the slide its own way: ${drawn.map((d) => d.lit).join(", ")} pixels lit`);
 
@@ -127,7 +127,7 @@ try {
   const storm = await buttons();
   check(
     storm.map((b) => b.says).join(" | ") ===
-      "full · nothing found · also poster, figure, table, photo-caption | metric-trend · nothing found | narrow-figure · nothing found | panorama · nothing found | venn · 1 warning | bar-chart · 1 error | line-chart · 1 error",
+      "full · nothing found · also poster, figure, table, photo-caption | two-figures · nothing found | metric-trend · nothing found | narrow-figure · nothing found | panorama · nothing found | venn · 1 warning | bar-chart · 1 error | line-chart · 1 error",
     `storm: ${storm.map((b) => b.says).join(" | ")}`,
   );
   const before = await shot();

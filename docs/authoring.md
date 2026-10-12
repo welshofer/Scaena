@@ -422,6 +422,7 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `two-numbers` | `kicker`, `first-title`, `second-title`, `first`, `second` | Two Numbers, in Numbers |
 | `numbers` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Three Numbers, in Numbers |
 | `number-grid` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `fourth-card`, `fifth-card`, `sixth-card`, `first-title`, `second-title`, `third-title`, `fourth-title`, `fifth-title`, `sixth-title`, `first`, `second`, `third`, `fourth`, `fifth`, `sixth` | Six Numbers, in Numbers |
+| `two-figures` | `kicker`, `header`, `first-figure`, `second-figure`, `first`, `second`, `note` | Two Figures, in Numbers |
 | `scorecard` | `kicker`, `header`, `rule`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first-figure`, `second-figure`, `third-figure`, `fourth-figure`, `first`, `second`, `third`, `fourth` | Scorecard, in Numbers |
 | `ranking` | `kicker`, `header`, `first-card`, `third-card`, `first-rank`, `second-rank`, `third-rank`, `fourth-rank`, `first`, `second`, `third`, `fourth`, `first-figure`, `second-figure`, `third-figure`, `fourth-figure` | Ranking, in Numbers |
 | `progress` | `kicker`, `header`, `first-track`, `second-track`, `third-track`, `first-bar`, `second-bar`, `third-bar`, `first`, `second`, `third`, `first-figure`, `second-figure`, `third-figure` | Progress, in Numbers |

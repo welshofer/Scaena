@@ -21,7 +21,7 @@ fn a_state_is_offered_each_layout_that_draws_it_otherwise_judged_by_lint_best_fi
     let names: Vec<&str> = suggested.iter().map(|s| s.layout.as_str()).collect();
     assert_eq!(
         names,
-        ["figure", "venn", "bar-chart", "line-chart", "metric-trend", "panorama", "narrow-figure"],
+        ["figure", "venn", "two-figures", "bar-chart", "line-chart", "metric-trend", "panorama", "narrow-figure"],
         "{suggested:#?}"
     );
     // The layout it takes now first, with nothing to patch, and those it draws alike beside it.
@@ -60,14 +60,16 @@ fn a_state_is_offered_each_layout_that_draws_it_otherwise_judged_by_lint_best_fi
 fn a_clean_layout_that_draws_the_state_otherwise_is_suggested() {
     let b = scaena_ops::open(Path::new(TRAILS)).unwrap();
     // The storm slide's caption is its one node in a slot: five layouts set it at the foot of the
-    // photo, alike, and the rest elsewhere: three where lint finds nothing, narrow-figure among
-    // them, higher up and to the right, then those it finds something in.
+    // photo, alike, and the rest elsewhere: four where lint finds nothing, two-figures under its
+    // figures and narrow-figure higher up and to the right among them, then those it finds
+    // something in.
     let suggested = suggest(&b, "storm", None).unwrap();
     let judged: Vec<_> = suggested.iter().map(|s| (s.layout.as_str(), s.current, s.errors, s.warnings)).collect();
     assert_eq!(
         judged,
         [
             ("full", true, 0, 0),
+            ("two-figures", false, 0, 0),
             ("metric-trend", false, 0, 0),
             ("narrow-figure", false, 0, 0),
             ("panorama", false, 0, 0),
@@ -124,5 +126,5 @@ fn inspect_names_the_state_it_suggests_layouts_for() {
     let err = scaena_ops::inspect::inspect(&b, None, views.clone()).unwrap_err();
     assert!(err.message.contains("name the state"), "{}", err.message);
     let inspected = scaena_ops::inspect::inspect(&b, Some("budget"), views).unwrap();
-    assert_eq!(inspected[0].layouts.as_ref().map(Vec::len), Some(7));
+    assert_eq!(inspected[0].layouts.as_ref().map(Vec::len), Some(8));
 }
