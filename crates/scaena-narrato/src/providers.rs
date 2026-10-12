@@ -38,6 +38,15 @@ impl Provider {
         }
     }
 
+    /// The most bytes of PDFs one request may carry, before base64 makes them a third larger:
+    /// Gemini takes 20 MB a request inline, Anthropic and OpenAI 32 MB, room left for the prompt.
+    pub fn document_bytes(self) -> usize {
+        match self {
+            Provider::Gemini => 14 << 20,
+            Provider::Anthropic | Provider::Openai => 22 << 20,
+        }
+    }
+
     /// The provider `name` names, as the settings write it (`anthropic`, `openai`, `gemini`).
     pub fn named(name: &str) -> Option<Provider> {
         Provider::ALL.into_iter().find(|p| p.name().eq_ignore_ascii_case(name))

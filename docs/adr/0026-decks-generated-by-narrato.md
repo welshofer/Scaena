@@ -65,7 +65,7 @@ Scaena's constraints bear on all of it:
    - **A `.pptx` is only text in a prompt.** Its words become source material for the model and nothing else: no slide, node, or layout of it enters the deck. The deck the model writes goes through the same operations as any other agent's. Invariant 8 holds: no import filter.
    - **A PDF goes to the model as a document:** Anthropic's document block, Gemini's inline data, or OpenAI's file input. Vzestup's transcription by a model, and its output ceiling, are not ported.
 5. **Sources from the network are planned in Rust and fetched by the client.**
-   - **What is planned:** SEC EDGAR (a ticker, its filings, the filing as text, and XBRL facts as data), GitHub (a repository's README, docs, and manifests, with a manifest of what was left out), and a web page as text.
+   - **What is planned:** SEC EDGAR (a ticker, its filings, the filing as text, and XBRL facts as data), GitHub (a repository's README, docs, and manifests, with a manifest of what was left out), a Google file shared by link (exported as an Office file, which needs no OAuth client), and a web page as text. Each is a plan of GETs (`scaena_sources::fetch`) that the client carries out, a request at a time.
    - **Who fetches:** the CLI, the Mac, and the iPad fetch natively.
    - **The browser** fetches only where CORS allows:
      - GitHub through its REST API and raw files;
