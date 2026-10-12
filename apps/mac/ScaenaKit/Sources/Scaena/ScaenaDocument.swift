@@ -108,11 +108,6 @@ final class ScaenaDocument: ReferenceFileDocument {
     }
 
     func fileWrapper(snapshot: [String: Data], configuration: WriteConfiguration) throws -> FileWrapper {
-        Self.wrapper(snapshot)
-    }
-
-    /// A bundle's files, by their paths in it, as the folder that holds them.
-    static func wrapper(_ snapshot: [String: Data]) -> FileWrapper {
         let root = FileWrapper(directoryWithFileWrappers: [:])
         for (path, data) in snapshot.sorted(by: { $0.key < $1.key }) {
             var folder = root

@@ -1,3 +1,6 @@
+#if os(macOS)
+// New from a Prompt is the Mac's (PLAN G.6): iPadOS makes a new document only from its document
+// browser, whose launch screen left an open deck's window without its toolbar.
 import ScaenaKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -7,9 +10,7 @@ enum PromptWindow {
     static let id = "prompt"
 }
 
-/// File › New from a Prompt… (⌥⌘N), beside New, on the Mac's menu bar. On the iPad it is a
-/// button of the document browser, beside New Deck (`ScaenaApp`), since a document there is made
-/// by the browser.
+/// File › New from a Prompt… (⌥⌘N), beside New on the Mac's menu bar.
 struct PromptCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 
@@ -25,25 +26,15 @@ struct PromptCommands: Commands {
 /// grounded in the files and links they give, by the provider and model they choose with the key
 /// the Keychain keeps, its pictures made by their image model, as the browser's From a prompt… and
 /// `scaena generate` make one. The engine reads each source, builds each request, and makes the
-/// deck a bundle (`Generator`); each request is made here by `URLSession`. On the Mac the deck
-/// opens in a window of its own, kept nowhere until it is saved; on the iPad it is handed to the
-/// document browser as a new document (`creation`).
+/// deck a bundle (`Generator`); each request is made here by `URLSession`. The deck opens in a
+/// window of its own, kept nowhere until it is saved.
 struct PromptView: View {
-    #if os(macOS)
     @Environment(\.newDocument) private var newDocument
     @Environment(\.dismissWindow) private var dismissWindow
-    #else
-    /// The document browser's new document, waiting on the deck made: resumed with the bundle
-    /// written where the browser takes it from, or with why there is none.
-    @Binding var creation: CheckedContinuation<URL?, any Error>?
-    @Environment(\.dismiss) private var dismiss
-    #endif
     /// Whether the window is the one in front: the keys are read again as it comes back from
     /// Settings, where they are kept on the Mac.
     @Environment(\.appearsActive) private var appearsActive
-    #if os(macOS)
     @Environment(\.openSettings) private var openSettings
-    #endif
     @AppStorage("assistant.provider") private var provider = Provider.anthropic
     @AppStorage("assistant.model.anthropic") private var anthropicModel = ""
     @AppStorage("assistant.model.openai") private var openaiModel = ""
@@ -74,21 +65,8 @@ struct PromptView: View {
     @State private var listing: String?
     /// The providers whose keys the Keychain keeps.
     @State private var kept: Set<Provider> = []
-    /// Bumped as the keys sheet closes, so that the keys are read again.
-    @State private var keysChanged = 0
-    #if !os(macOS)
-    /// The keys, on the iPad in a sheet: it has no Settings window (PLAN 4.2).
-    @State private var keying = false
-    #endif
     @State private var steps: [Line] = []
     @State private var running: Task<Void, Never>?
-
-    #if !os(macOS)
-    /// New from a Prompt over the document browser, its deck the new document `creation` waits on.
-    init(creation: Binding<CheckedContinuation<URL?, any Error>?>) {
-        _creation = creation
-    }
-    #endif
 
     /// What a brief may ask, read once.
     private static let offered = try? Generator.choices()
@@ -261,7 +239,7 @@ struct PromptView: View {
                 Button("Cancel") {
                     running?.cancel()
                     running = nil
-                    close()
+                    dismissWindow(id: PromptWindow.id)
                 }
                 .keyboardShortcut(.cancelAction)
                 Button(running == nil ? "Generate" : "Generating…", action: generate)
@@ -280,7 +258,7 @@ struct PromptView: View {
         ) { picked in
             if case .success(let urls) = picked { given += urls.map(Given.file) }
         }
-        .task(id: "\(appearsActive)\u{1f}\(keysChanged)") {
+        .task(id: appearsActive) {
             kept = Set(Provider.allCases.filter { keychain.key(for: $0) != nil })
         }
         .task(id: "\(provider.rawValue)\u{1f}\(keyed)") { await list() }
@@ -289,14 +267,6 @@ struct PromptView: View {
             if length.isEmpty { length = choices?.defaults.length ?? "" }
             if modality.isEmpty { modality = choices?.modalities.first?.id ?? "" }
         }
-        #if !os(macOS)
-        .sheet(isPresented: $keying, onDismiss: { keysChanged += 1 }) {
-            NavigationStack {
-                KeysSettings()
-                    .toolbar { Button("Done") { keying = false } }
-            }
-        }
-        #endif
     }
 
     /// Whether Generate can be pressed: a topic, a key, a model, and nothing under way.
@@ -322,13 +292,9 @@ struct PromptView: View {
         return "Made by \(made.name)’s best image model your key lists, two in five slides, ten at most. Your key goes to \(made.name) alone."
     }
 
-    /// Where the keys are kept: Settings on the Mac, a sheet on the iPad (PLAN 4.9).
+    /// Where the keys are kept: Settings (PLAN 3.6).
     private func openKeys() {
-        #if os(macOS)
         openSettings()
-        #else
-        keying = true
-        #endif
     }
 
     /// The models the provider's key can use, the one kept chosen, else the first.
@@ -355,35 +321,6 @@ struct PromptView: View {
 
     private func say(_ words: String, failed: Bool = false) {
         steps.append(Line(words: words, failed: failed))
-    }
-
-    /// The deck made, opened: on the Mac, in a window of its own; on the iPad, written as a
-    /// bundle named for `topic` where the document browser takes it from as a new document.
-    private func open(_ document: ScaenaDocument, named topic: String) throws {
-        #if os(macOS)
-        newDocument(document)
-        dismissWindow(id: PromptWindow.id)
-        #else
-        let name = topic.replacingOccurrences(of: "/", with: "-").prefix(80)
-        let url = FileManager.default.temporaryDirectory.appending(path: "\(name.isEmpty ? "Untitled" : name).scaena")
-        try? FileManager.default.removeItem(at: url)
-        let files = try document.snapshot(contentType: .scaenaDeck)
-        try ScaenaDocument.wrapper(files).write(to: url, options: .atomic, originalContentsURL: nil)
-        creation?.resume(returning: url)
-        creation = nil
-        dismiss()
-        #endif
-    }
-
-    /// The window put away with no deck made; on the iPad, the browser told there is none.
-    private func close() {
-        #if os(macOS)
-        dismissWindow(id: PromptWindow.id)
-        #else
-        creation?.resume(throwing: CancellationError())
-        creation = nil
-        dismiss()
-        #endif
     }
 
     private func generate() {
@@ -432,7 +369,9 @@ struct PromptView: View {
                     theme: theme, painter: paint
                 ) { say($0.words) }
                 try Task.checkCancellation()
-                try open(ScaenaDocument(generated: session, said: made.words), named: brief.topic)
+                // A reference document is made by a closure, not an autoclosure.
+                newDocument { ScaenaDocument(generated: session, said: made.words) }
+                dismissWindow(id: PromptWindow.id)
             } catch is CancellationError {
             } catch {
                 say(error.localizedDescription, failed: true)
@@ -440,3 +379,4 @@ struct PromptView: View {
         }
     }
 }
+#endif
