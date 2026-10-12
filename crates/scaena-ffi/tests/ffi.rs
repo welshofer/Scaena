@@ -279,6 +279,45 @@ fn a_new_deck_starts_from_a_theme_that_ships() {
     assert!(said.contains("not a theme that ships") && said.contains("dusk"), "{said}");
 }
 
+/// A deck whose bundle took Daybreak before its layout library grew (PLAN 3.31): opened as the Mac
+/// opens it, Add Slide offers every layout Daybreak ships, each in its section.
+#[test]
+fn an_older_theme_that_ships_opens_with_its_library() {
+    // A Daybreak deck, saved, and its theme Daybreak as a bundle took it on 2026-10-06, with the
+    // fonts the save named.
+    let mut error = null_mut();
+    let made = unsafe { scaena_create(c("Daybreak").as_ptr(), c("An older deck").as_ptr(), &mut error) };
+    assert!(!made.is_null(), "made: {}", took(error));
+    let saved = unsafe { scaena_save(made, c("2026-10-06T12:00:00Z").as_ptr(), false, &mut error) };
+    assert!(!saved.is_null(), "saved: {}", took(error));
+    let listed: Value = serde_json::from_str(&took(unsafe { scaena_saved_list(saved) })).unwrap();
+    let read = |path: &str| -> Value { serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap() };
+    let files = scaena_files_new();
+    for path in listed["ok"]["files"].as_array().unwrap().iter().filter_map(Value::as_str) {
+        let bytes = unsafe { scaena_saved_file(saved, c(path).as_ptr()) };
+        let mut held = unsafe { std::slice::from_raw_parts(bytes.data, bytes.len) }.to_vec();
+        unsafe { scaena_bytes_free(bytes) };
+        if path == "themes/daybreak.theme.json" {
+            let mut older = read("../../tests/themes/older/daybreak-0.10.theme.json");
+            older["type"]["families"] = serde_json::from_slice::<Value>(&held).unwrap()["type"]["families"].clone();
+            held = serde_json::to_vec_pretty(&older).unwrap();
+        }
+        assert!(unsafe { scaena_files_add(files, c(path).as_ptr(), held.as_ptr(), held.len()) });
+    }
+    unsafe { scaena_saved_free(saved) };
+    unsafe { scaena_session_free(made) };
+
+    let s = unsafe { scaena_open(files, &mut error) };
+    assert!(!s.is_null(), "opens: {}", took(error));
+    let starters = call(s, "starters", Value::Null);
+    let starters = starters.as_array().unwrap();
+    let shipped = read("../../docs/examples/authorability/themes/daybreak.theme.json");
+    assert_eq!(starters.len(), shipped["layouts"].as_object().unwrap().len() + 1, "every layout, and a blank slide");
+    let sections: std::collections::BTreeSet<&str> = starters.iter().filter_map(|l| l["group"].as_str()).collect();
+    assert_eq!(sections.len(), 13, "{sections:?}");
+    unsafe { scaena_session_free(s) };
+}
+
 #[test]
 fn every_misuse_is_an_error_never_a_crash() {
     let s = open(B1);

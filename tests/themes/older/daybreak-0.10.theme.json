@@ -1,0 +1,1144 @@
+{
+  "scaena-theme": "0.10",
+  "name": "Daybreak",
+  "description": "Warm paper surface, near-black ink, one deep teal accent. Same families, roles, layouts, and presets as Dusk: a deck moves between them by swapping the file.",
+  "tokens": {
+    "color": {
+      "ink": "#16140F",
+      "paper": "#FBFAF6",
+      "paper-2": "#F1EEE6",
+      "accent": "#0F766E",
+      "accent-2": "#C2410C",
+      "muted": "#6B675E",
+      "line": "#DAD5C9"
+    },
+    "roles": {
+      "surface": "paper",
+      "surface-2": "paper-2",
+      "onSurface": "ink",
+      "onSurfaceMuted": "muted",
+      "accent": "accent",
+      "onAccent": "paper",
+      "line": "line"
+    },
+    "data": {
+      "categorical": [
+        "#2E2B27",
+        "#66625A",
+        "#4A463F",
+        "#57534C"
+      ],
+      "sequential": [
+        "#F1EEE6",
+        "#C9E3DF",
+        "#7FBFB6",
+        "#2E8F84",
+        "#0F766E"
+      ],
+      "diverging": [
+        "#C2410C",
+        "#F1EEE6",
+        "#0F766E"
+      ]
+    },
+    "space": {
+      "unit": 8,
+      "scale": [
+        0,
+        4,
+        8,
+        16,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128,
+        192
+      ]
+    },
+    "radius": {
+      "scale": [
+        0,
+        4,
+        8,
+        16,
+        32
+      ]
+    },
+    "stroke": {
+      "hairline": 1,
+      "thin": 2,
+      "regular": 3,
+      "thick": 4
+    }
+  },
+  "type": {
+    "families": {
+      "display": {
+        "family": "Fraunces",
+        "file": "fonts/Fraunces-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            900
+          ],
+          "opsz": [
+            9,
+            144
+          ],
+          "SOFT": [
+            0,
+            100
+          ],
+          "WONK": [
+            0,
+            1
+          ]
+        },
+        "italic": {
+          "file": "fonts/Fraunces-Italic-VF.ttf",
+          "axes": {
+            "wght": [
+              100,
+              900
+            ],
+            "opsz": [
+              9,
+              144
+            ],
+            "SOFT": [
+              0,
+              100
+            ],
+            "WONK": [
+              0,
+              1
+            ]
+          }
+        },
+        "fallback": [
+          "body"
+        ]
+      },
+      "body": {
+        "family": "Inter",
+        "file": "fonts/Inter-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            900
+          ],
+          "opsz": [
+            14,
+            32
+          ]
+        },
+        "italic": {
+          "file": "fonts/Inter-Italic-VF.ttf",
+          "axes": {
+            "wght": [
+              100,
+              900
+            ],
+            "opsz": [
+              14,
+              32
+            ]
+          }
+        },
+        "features": {
+          "cv11": true,
+          "ss01": false
+        }
+      },
+      "mono": {
+        "family": "JetBrains Mono",
+        "file": "fonts/JetBrainsMono-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            800
+          ]
+        },
+        "italic": {
+          "file": "fonts/JetBrainsMono-Italic-VF.ttf",
+          "axes": {
+            "wght": [
+              100,
+              800
+            ]
+          }
+        }
+      }
+    },
+    "scale": {
+      "ratio": 1.25,
+      "base": 32
+    },
+    "roles": {
+      "display": {
+        "family": "display",
+        "size": 144,
+        "weight": 600,
+        "leading": 0.92,
+        "tracking": -0.025,
+        "opsz": 144,
+        "wrap": "balance",
+        "box": "cap",
+        "snap": "cap",
+        "measure": 16,
+        "maxLines": 3,
+        "minSize": 80,
+        "opticalMargins": true,
+        "hangingPunctuation": true,
+        "minLastLineWords": 1
+      },
+      "headline": {
+        "family": "display",
+        "size": 80,
+        "weight": 550,
+        "leading": 1.0,
+        "tracking": -0.015,
+        "opsz": 72,
+        "wrap": "balance",
+        "box": "cap",
+        "snap": "cap",
+        "measure": 24,
+        "maxLines": 3,
+        "minSize": 56,
+        "opticalMargins": true,
+        "hangingPunctuation": true
+      },
+      "title": {
+        "family": "body",
+        "size": 48,
+        "weight": 600,
+        "leading": 1.1,
+        "tracking": -0.01,
+        "opsz": 32,
+        "wrap": "balance",
+        "box": "cap",
+        "snap": "cap",
+        "measure": 32,
+        "maxLines": 2
+      },
+      "body": {
+        "family": "body",
+        "size": 32,
+        "weight": 400,
+        "leading": 1.25,
+        "tracking": 0,
+        "opsz": 32,
+        "wrap": "pretty",
+        "box": "line",
+        "snap": "baseline",
+        "measure": 58,
+        "minLastLineWords": 2,
+        "hyphenate": false
+      },
+      "caption": {
+        "family": "body",
+        "size": 22,
+        "weight": 450,
+        "leading": 1.4545,
+        "tracking": 0.005,
+        "opsz": 20,
+        "wrap": "pretty",
+        "box": "line",
+        "snap": "baseline",
+        "measure": 64,
+        "color": "onSurfaceMuted"
+      },
+      "label": {
+        "family": "body",
+        "size": 20,
+        "weight": 500,
+        "leading": 1.2,
+        "tracking": 0.02,
+        "opsz": 18,
+        "wrap": "greedy",
+        "box": "cap",
+        "case": "upper",
+        "numeric": "tabular-lining",
+        "color": "onSurfaceMuted"
+      },
+      "axis": {
+        "family": "body",
+        "size": 24,
+        "weight": 450,
+        "leading": 1.2,
+        "tracking": 0,
+        "opsz": 24,
+        "wrap": "greedy",
+        "box": "cap",
+        "numeric": "tabular-lining",
+        "color": "onSurfaceMuted"
+      },
+      "value": {
+        "family": "body",
+        "size": 26,
+        "weight": 500,
+        "leading": 1.2,
+        "tracking": 0,
+        "opsz": 26,
+        "wrap": "greedy",
+        "box": "cap",
+        "numeric": "tabular-lining",
+        "color": "onSurface"
+      },
+      "lede": {
+        "family": "body",
+        "size": 40,
+        "weight": 400,
+        "leading": 1.2,
+        "tracking": -0.005,
+        "opsz": 32,
+        "wrap": "pretty",
+        "box": "line",
+        "snap": "baseline",
+        "measure": 44,
+        "minLastLineWords": 2,
+        "color": "onSurfaceMuted"
+      },
+      "kicker": {
+        "family": "body",
+        "size": 20,
+        "weight": 650,
+        "leading": 1.2,
+        "tracking": 0.14,
+        "opsz": 18,
+        "wrap": "greedy",
+        "box": "cap",
+        "case": "upper",
+        "color": "accent"
+      },
+      "figure": {
+        "family": "display",
+        "size": 56,
+        "weight": 560,
+        "leading": 1.0,
+        "tracking": -0.02,
+        "opsz": 72,
+        "wrap": "greedy",
+        "box": "cap",
+        "snap": "cap",
+        "numeric": "proportional-lining",
+        "color": "accent"
+      },
+      "quote": {
+        "family": "display",
+        "size": 64,
+        "weight": 450,
+        "leading": 1.125,
+        "tracking": -0.01,
+        "opsz": 72,
+        "wrap": "balance",
+        "box": "cap",
+        "snap": "cap",
+        "measure": 30,
+        "maxLines": 4,
+        "opticalMargins": true,
+        "hangingPunctuation": true
+      },
+      "numeral": {
+        "family": "display",
+        "size": 112,
+        "weight": 500,
+        "leading": 1.0,
+        "tracking": -0.03,
+        "opsz": 144,
+        "wrap": "greedy",
+        "box": "cap",
+        "snap": "cap",
+        "numeric": "tabular-lining"
+      },
+      "code": {
+        "family": "mono",
+        "size": 26,
+        "weight": 400,
+        "leading": 1.4,
+        "tracking": 0,
+        "wrap": "greedy",
+        "box": "line",
+        "measure": 72
+      }
+    }
+  },
+  "grid": {
+    "columns": 12,
+    "rows": 12,
+    "gutter": 24,
+    "margin": [
+      96,
+      120
+    ],
+    "baseline": 8
+  },
+  "layouts": {
+    "title": {
+      "description": "Opening or section title, and the place for a shader backdrop such as `backdrop`. Dusk's kicker runs in the bottom corner of every layout.",
+      "slots": {
+        "kicker": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "kicker",
+          "align": {
+            "x": "end"
+          }
+        },
+        "title": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            3,
+            8
+          ],
+          "align": {
+            "x": "start",
+            "y": "cap"
+          },
+          "role": "display"
+        },
+        "subtitle": {
+          "col": [
+            1,
+            8
+          ],
+          "row": [
+            9,
+            10
+          ],
+          "role": "title"
+        },
+        "art": {
+          "col": [
+            10,
+            12
+          ],
+          "row": [
+            3,
+            10
+          ]
+        }
+      }
+    },
+    "statement": {
+      "description": "One sentence, set large, and what supports it.",
+      "slots": {
+        "kicker": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "kicker",
+          "align": {
+            "x": "end"
+          }
+        },
+        "statement": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            3,
+            8
+          ],
+          "align": {
+            "x": "start",
+            "y": "cap"
+          },
+          "role": "display"
+        },
+        "support": {
+          "col": [
+            1,
+            8
+          ],
+          "row": [
+            9,
+            10
+          ],
+          "role": "lede"
+        }
+      }
+    },
+    "poster": {
+      "description": "A statement beside its art: a section's hinge or the close.",
+      "slots": {
+        "kicker": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "kicker",
+          "align": {
+            "x": "end"
+          }
+        },
+        "statement": {
+          "col": [
+            1,
+            7
+          ],
+          "row": [
+            3,
+            8
+          ],
+          "align": {
+            "x": "start",
+            "y": "cap"
+          },
+          "role": "display"
+        },
+        "support": {
+          "col": [
+            1,
+            6
+          ],
+          "row": [
+            9,
+            10
+          ],
+          "role": "lede"
+        },
+        "note": {
+          "col": [
+            1,
+            7
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "caption"
+        },
+        "art": {
+          "col": [
+            8,
+            12
+          ],
+          "row": [
+            1,
+            10
+          ]
+        }
+      }
+    },
+    "full": {
+      "description": "One thing, full bleed to the grid.",
+      "slots": {
+        "kicker": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "kicker",
+          "align": {
+            "x": "end"
+          }
+        },
+        "header": {
+          "col": [
+            1,
+            8
+          ],
+          "row": [
+            1,
+            2
+          ],
+          "role": "headline"
+        },
+        "main": {
+          "col": [
+            1,
+            12
+          ],
+          "row": [
+            1,
+            12
+          ]
+        },
+        "note": {
+          "col": [
+            1,
+            8
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "caption"
+        }
+      }
+    },
+    "figure": {
+      "description": "A headline, the figure that shows it, and a note on it, each in its own rows. Data reads on the plain surface: no shader behind it (W311).",
+      "slots": {
+        "kicker": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "kicker",
+          "align": {
+            "x": "end"
+          }
+        },
+        "header": {
+          "col": [
+            1,
+            8
+          ],
+          "row": [
+            1,
+            2
+          ],
+          "role": "headline"
+        },
+        "main": {
+          "col": [
+            1,
+            12
+          ],
+          "row": [
+            3,
+            10
+          ]
+        },
+        "note": {
+          "col": [
+            1,
+            8
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "caption"
+        }
+      }
+    },
+    "narrow-figure": {
+      "description": "As `figure`, for a figure of two or three bars, with its note beside it.",
+      "slots": {
+        "kicker": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "kicker",
+          "align": {
+            "x": "end"
+          }
+        },
+        "header": {
+          "col": [
+            1,
+            8
+          ],
+          "row": [
+            1,
+            2
+          ],
+          "role": "headline"
+        },
+        "main": {
+          "col": [
+            1,
+            5
+          ],
+          "row": [
+            3,
+            12
+          ]
+        },
+        "note": {
+          "col": [
+            7,
+            11
+          ],
+          "row": [
+            3,
+            10
+          ],
+          "role": "caption"
+        }
+      }
+    },
+    "stat": {
+      "description": "A single number, what it means, and what stands behind it.",
+      "slots": {
+        "kicker": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "kicker",
+          "align": {
+            "x": "end"
+          }
+        },
+        "number": {
+          "col": [
+            1,
+            7
+          ],
+          "row": [
+            3,
+            8
+          ],
+          "role": "numeral",
+          "align": {
+            "x": "start",
+            "y": "baseline"
+          }
+        },
+        "claim": {
+          "col": [
+            1,
+            7
+          ],
+          "row": [
+            9,
+            10
+          ],
+          "role": "title"
+        },
+        "detail": {
+          "col": [
+            8,
+            12
+          ],
+          "row": [
+            3,
+            10
+          ],
+          "role": "body"
+        },
+        "under": {
+          "col": [
+            1,
+            7
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "caption"
+        }
+      }
+    },
+    "split": {
+      "description": "Text, and the figure beside it. A chart or table here reads on the plain surface: no shader behind it (W311).",
+      "slots": {
+        "body": {
+          "col": [
+            1,
+            5
+          ],
+          "row": [
+            1,
+            12
+          ]
+        },
+        "main": {
+          "col": [
+            6,
+            12
+          ],
+          "row": [
+            1,
+            12
+          ]
+        }
+      },
+      "formats": {
+        "9:16": {
+          "slots": {
+            "body": {
+              "col": [
+                1,
+                12
+              ],
+              "row": [
+                1,
+                4
+              ]
+            },
+            "main": {
+              "col": [
+                1,
+                12
+              ],
+              "row": [
+                5,
+                12
+              ]
+            }
+          }
+        }
+      }
+    },
+    "art-left": {
+      "description": "The art, then the claim's case beside it.",
+      "slots": {
+        "kicker": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "kicker",
+          "align": {
+            "x": "end"
+          }
+        },
+        "header": {
+          "col": [
+            1,
+            8
+          ],
+          "row": [
+            1,
+            2
+          ],
+          "role": "headline"
+        },
+        "art": {
+          "col": [
+            1,
+            5
+          ],
+          "row": [
+            3,
+            12
+          ]
+        },
+        "body": {
+          "col": [
+            7,
+            12
+          ],
+          "row": [
+            3,
+            10
+          ]
+        }
+      }
+    },
+    "art-right": {
+      "description": "The claim's case, then the art beside it.",
+      "slots": {
+        "kicker": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            11,
+            12
+          ],
+          "role": "kicker",
+          "align": {
+            "x": "end"
+          }
+        },
+        "header": {
+          "col": [
+            1,
+            8
+          ],
+          "row": [
+            1,
+            2
+          ],
+          "role": "headline"
+        },
+        "body": {
+          "col": [
+            1,
+            6
+          ],
+          "row": [
+            3,
+            10
+          ]
+        },
+        "art": {
+          "col": [
+            8,
+            12
+          ],
+          "row": [
+            3,
+            10
+          ]
+        }
+      }
+    },
+    "quote": {
+      "description": "A quotation with attribution.",
+      "slots": {
+        "quote": {
+          "col": [
+            2,
+            11
+          ],
+          "row": [
+            3,
+            8
+          ],
+          "role": "quote",
+          "align": {
+            "x": "start",
+            "y": "cap"
+          }
+        },
+        "who": {
+          "col": [
+            2,
+            11
+          ],
+          "row": [
+            9,
+            10
+          ],
+          "role": "caption"
+        }
+      }
+    }
+  },
+  "motion": {
+    "durations": {
+      "fast": 180,
+      "standard": 420,
+      "slow": 800
+    },
+    "easings": {
+      "standard": [
+        0.2,
+        0,
+        0,
+        1
+      ],
+      "in": [
+        0.4,
+        0,
+        1,
+        1
+      ],
+      "out": [
+        0,
+        0,
+        0.2,
+        1
+      ],
+      "linear": [
+        0,
+        0,
+        1,
+        1
+      ]
+    },
+    "springs": {
+      "snappy": {
+        "stiffness": 420,
+        "damping": 34,
+        "mass": 1
+      },
+      "gentle": {
+        "stiffness": 170,
+        "damping": 26,
+        "mass": 1
+      },
+      "heavy": {
+        "stiffness": 120,
+        "damping": 30,
+        "mass": 1.6
+      }
+    },
+    "presets": {
+      "fade": {
+        "from": {
+          "opacity": 0
+        },
+        "duration": "standard",
+        "ease": "out",
+        "description": "Opacity only."
+      },
+      "rise": {
+        "from": {
+          "opacity": 0,
+          "transform": {
+            "translate": [
+              0,
+              24
+            ]
+          }
+        },
+        "duration": "standard",
+        "ease": "out",
+        "description": "Fade up from 24cu below."
+      },
+      "grow": {
+        "from": {
+          "transform": {
+            "scale": [
+              1,
+              0
+            ],
+            "anchor": [
+              0.5,
+              1
+            ]
+          }
+        },
+        "spring": "snappy",
+        "split": "marks",
+        "stagger": 40,
+        "description": "Bars grow from their baseline."
+      },
+      "draw": {
+        "from": {
+          "params": {
+            "progress": 0
+          }
+        },
+        "duration": "slow",
+        "ease": "standard",
+        "description": "A shape's outline draws on from where it starts."
+      },
+      "words": {
+        "from": {
+          "opacity": 0,
+          "transform": {
+            "translate": [
+              0,
+              12
+            ]
+          }
+        },
+        "split": "words",
+        "stagger": 28,
+        "ease": "out",
+        "duration": "fast",
+        "description": "Word-by-word rise."
+      },
+      "pulse": {
+        "to": {
+          "transform": {
+            "scale": 1.04
+          }
+        },
+        "spring": "gentle",
+        "description": "Emphasis: a single soft pulse."
+      }
+    },
+    "maxConcurrent": 12,
+    "maxBuild": 2500
+  },
+  "shaders": {
+    "palettes": {
+      "ambient": [
+        "#F6EFE2",
+        "#E8D9C4",
+        "#C9E3DF",
+        "#7FBFB6"
+      ],
+      "texture": [
+        "#FBFAF6",
+        "#F1E3D3",
+        "#E6B9A0",
+        "#C2410C"
+      ]
+    },
+    "presets": {
+      "backdrop": {
+        "kind": "mesh",
+        "palette": "ambient",
+        "params": {
+          "points": 5,
+          "drift": 0.12,
+          "softness": 0.85,
+          "grain": 0.035
+        }
+      },
+      "texture": {
+        "kind": "noise",
+        "palette": "texture",
+        "params": {
+          "octaves": 4,
+          "scale": 0.0015,
+          "speed": 0.05,
+          "contrast": 0.6
+        }
+      }
+    }
+  },
+  "charts": {
+    "signal": "accent",
+    "axis": {
+      "role": "axis",
+      "stroke": "hairline",
+      "color": "line"
+    },
+    "gridlines": {
+      "stroke": "hairline",
+      "color": "line",
+      "opacity": 0.6
+    },
+    "label": {
+      "role": "value"
+    },
+    "legend": {
+      "role": "value"
+    },
+    "strokeWidth": "regular",
+    "maxTicks": 5
+  },
+  "tables": {
+    "header": {
+      "role": "axis"
+    }
+  },
+  "density": {
+    "maxWordsPerState": 40
+  }
+}

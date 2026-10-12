@@ -421,5 +421,25 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
     echo "no field for the theme's paper: $px $py $pw $ph"
   fi
 fi
+
+# The light table (PLAN 3.14), as a presentation app's: every slide in a grid that fills the
+# window, the slides down the side folded away, and a slider at its foot that makes the slides
+# larger, fewer to a row. Where the first slides stand says how many fit across.
+menu View "Light Table"
+sleep 3
+echo "the light table: cover $(frames find slide-cover), agenda $(frames find slide-agenda), promise $(frames find slide-promise), the slider $(frames find light-table-size)"
+shot light-table
+read -r lx ly lw lh <<<"$(frames find light-table-size)" || true
+if [[ "${lh:-}" =~ ^[0-9]+$ ]]; then
+  # At its far end, the largest the slides are drawn.
+  pointer click $((lx + lw - 2)) $((ly + lh / 2))
+  sleep 3
+  echo "the slider at its end: cover $(frames find slide-cover), agenda $(frames find slide-agenda)"
+  shot light-table-large
+fi
+menu View "Light Table"
+sleep 2
+echo "the light table put away, the slides down the side: $(frames find state-cover)"
+
 # The deck is edited now: no saving it, so no asking.
 pkill -x Scaena || true

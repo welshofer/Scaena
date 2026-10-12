@@ -237,7 +237,12 @@
       /* The light table (PLAN 2.97): the deck's slides in a grid, in place of the preview. */
       #slides { flex: none; padding: 12px; }
       #work.tabled #preview, #work.tabled #formats, #work.tabled #cue { display: none !important; }
-      #slides ol { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; margin: 0; padding: 4px; list-style: none; }
+      #slides ol { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--slide, 240px), 1fr)); gap: 14px; margin: 0; padding: 4px; list-style: none; }
+      /* The slider at its foot that makes the slides larger or smaller, as many to a row as fit. */
+      #slides .sizing { position: sticky; bottom: 0; display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin: 8px 0 0; padding: 6px 4px; background: var(--surface); color: var(--muted); }
+      #slides .sizing input { width: 180px; }
+      #slides .sizing .small { font-size: 10px; }
+      #slides .sizing .large { font-size: 20px; }
       #slides li { position: relative; display: grid; grid-template-columns: auto 1fr auto; align-items: baseline; gap: 2px 8px; padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); cursor: pointer; font-size: 12px; }
       #slides canvas { grid-column: 1 / -1; display: block; width: 100%; height: auto; aspect-ratio: auto 16 / 9; background: #000; border-radius: 3px; }
       #slides .n { color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -536,6 +541,7 @@
         </div>
         <section id="slides" aria-label="The light table: the deck's slides" hidden>
           <ol role="listbox" aria-label="Slides" aria-multiselectable="true"></ol>
+          <p class="sizing"><span class="small" aria-hidden="true">▭</span><input type="range" min="120" max="520" step="10" value="240" data-size aria-label="Slide size" /><span class="large" aria-hidden="true">▭</span></p>
         </section>
         <div id="formats" role="group" aria-label="The state shown in each format: a click edits the deck in it" hidden></div>
         <section id="cue" aria-label="The cue of the state shown" hidden>

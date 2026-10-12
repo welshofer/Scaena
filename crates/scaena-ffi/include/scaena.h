@@ -66,15 +66,16 @@ bool scaena_files_add(struct ScaenaFiles *files,
 void scaena_files_free(struct ScaenaFiles *files);
 
 // Open the bundle `files` hold, as a page opens one from a folder: its `deck.json`, the theme
-// it names, and every other file by its path. Takes `files`, opened or not. Null where the
-// bundle cannot be opened, `*error` then saying why (JSON `{"message"}`; free it).
+// it names, and every other file by its path; an older copy of a theme that ships takes its
+// layout library (PLAN 3.31). Takes `files`, opened or not. Null where the bundle cannot be
+// opened, `*error` then saying why (JSON `{"message"}`; free it).
 //
 // # Safety
 // `files` is a live handle from [`scaena_files_new`]; `error` is null or writable.
 struct ScaenaSession *scaena_open(struct ScaenaFiles *files, char **error);
 
-// Open a `.scaena` zip, its `len` bytes. Null where it cannot be opened, `*error` then saying
-// why.
+// Open a `.scaena` zip, its `len` bytes, as [`scaena_open`] opens a folder. Null where it cannot
+// be opened, `*error` then saying why.
 //
 // # Safety
 // `bytes` is `len` readable bytes; `error` is null or writable.

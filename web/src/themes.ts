@@ -1,7 +1,8 @@
 // What the editor starts a new deck from (PLAN 2.12): the three themes that ship, which share
 // one vocabulary on one grid (SPEC §3.6), and the fonts they name. The build copies each file
-// beside the pages, and the worker fetches them only to make a deck. A single-file export's
-// worker is built with `no-themes.ts`: its page plays a bundle, and never makes one.
+// beside the pages, and the worker fetches them to make a deck, and a theme to bring its layout
+// library into a bundle's older copy of it (PLAN 3.31). A single-file export's worker is built
+// with `no-themes.ts`: its page plays a bundle, and never makes one.
 import daybreak from "../../docs/examples/authorability/themes/daybreak.theme.json?url";
 import frauncesItalic from "../../docs/examples/fonts/Fraunces-Italic-VF.ttf?url";
 import fraunces from "../../docs/examples/fonts/Fraunces-VF.ttf?url";

@@ -55,10 +55,8 @@ interface Slide {
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const html = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 
-/** How high a slide is painted, CSS pixels. */
-const HIGH = 126;
-/** How many pixels high a slide is painted: `HIGH` at the display's density, at most twice. */
-const high = () => Math.round(HIGH * Math.min(2, window.devicePixelRatio || 1));
+/** Where this browser keeps how wide the light table's slides are, CSS pixels. */
+const SIZE = "scaena.slides.width";
 
 /** The slides `slots` hold, in order: the states each builds on, together. */
 export function slidesOf(slots: Slot[]): Slide[] {
@@ -75,6 +73,21 @@ export function slidesOf(slots: Slot[]): Slide[] {
 /** The light table in `into` (its `ol` the slides), over `stage`; `button` opens and closes it. */
 export function slides(stage: Stage, into: HTMLElement, button: HTMLButtonElement, editor: SlidesEditor) {
   const list = into.querySelector<HTMLOListElement>("ol")!;
+  /** The slider at the table's foot: how wide each slide is at least, as many to a row as fit,
+   * kept in this browser for the next time. */
+  const size = into.querySelector<HTMLInputElement>("input[data-size]")!;
+  try {
+    const kept = Number(localStorage.getItem(SIZE));
+    if (kept >= Number(size.min) && kept <= Number(size.max)) size.value = String(kept);
+  } catch {
+    // A browser that keeps nothing starts at the slider's own width.
+  }
+  /** How many pixels high a slide is painted: as high as the slider makes it, rounded up to the
+   * next 160 pixels across so a slider dragged paints the slides again only now and then, at the
+   * display's density, at most twice. */
+  const high = () => Math.round(((Math.ceil(Number(size.value) / 160) * 160 * 9) / 16) * Math.min(2, window.devicePixelRatio || 1));
+  /** How high the pictures held were painted. */
+  let painted = high();
   let all: Slide[] = [];
   /** The slides selected, by id, and the one a Shift+click selects from. */
   let chosen = new Set<string>();
@@ -141,6 +154,11 @@ export function slides(stage: Stage, into: HTMLElement, button: HTMLButtonElemen
    * them. Nothing while the light table is closed. */
   async function paint() {
     if (!open() || !all.length) return;
+    // Painted at another size, each picture is painted again.
+    if (high() !== painted) {
+      painted = high();
+      pictures.clear();
+    }
     const asked = ++painting;
     const known = Object.fromEntries([...pictures].map(([id, p]) => [id, p.digest]));
     try {
@@ -436,6 +454,16 @@ export function slides(stage: Stage, into: HTMLElement, button: HTMLButtonElemen
     unmark();
   };
   button.onclick = () => toggle();
+  size.oninput = () => {
+    into.style.setProperty("--slide", `${size.value}px`);
+    try {
+      localStorage.setItem(SIZE, size.value);
+    } catch {
+      // Kept for this page only.
+    }
+    void paint();
+  };
+  into.style.setProperty("--slide", `${size.value}px`);
 
   return {
     states,

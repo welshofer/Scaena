@@ -105,6 +105,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         latest++;
         const was = player;
         player = await fetched(from.url);
+        await library();
         // A frame in flight finishes on the engine it began with.
         await painting;
         was.free();
@@ -597,10 +598,31 @@ async function open(source: Source, painter: Painter, target: OffscreenCanvas, e
   }
   from = source;
   await load(source);
+  // A deck made from a theme the page carries has its library already.
+  if (!("create" in source)) await library();
   slots = opening();
   [canvas.width, canvas.height] = size();
   gpu?.resize(canvas.width, canvas.height);
   post({ type: "ready", ...opened() });
+}
+
+/** The layout library the theme ships now, brought into the bundle's older copy of it (PLAN 3.31):
+ * a deck whose bundle took a theme that ships before its library grew opens with every layout, by
+ * section, each drawn as it is used, and every slide as it was. A page with no themes beside it,
+ * as a single file has, opens the deck as it is, and so does one that cannot fetch the theme. */
+async function library() {
+  const { themes } = await import("@scaena/themes");
+  if (!Object.keys(themes).length) return;
+  try {
+    const text = player.themeText();
+    const name = text ? (JSON.parse((JSON.parse(text) as ThemeText).text) as { name?: unknown }).name : undefined;
+    const shipped = typeof name === "string" ? themes[name] : undefined;
+    if (!shipped) return;
+    const response = await fetch(shipped.url);
+    if (response.ok) player.library(await response.text(), new Date().toISOString());
+  } catch {
+    // The deck opens in the theme it has.
+  }
 }
 
 /** The open bundle, as the page hears of it. */
