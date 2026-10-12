@@ -6,7 +6,7 @@
 // fixes applied, the texts that still run past their place rewritten by the model, and each sheet
 // given kept as a data source. The user's key goes to the provider it is for, and a GitHub token
 // to GitHub, and nowhere else.
-import { Making } from "@scaena/wasm";
+import { Making, writable } from "@scaena/wasm";
 import type { Choices, Generate, Generated, GeneratingEvent, Health } from "./protocol";
 
 type Generator = typeof import("@scaena/generator");
@@ -88,6 +88,9 @@ export async function generate(
   theme: Theme,
   hear: (event: GeneratingEvent) => void,
 ): Promise<{ files: Map<string, Uint8Array>; made: Generated; title: string }> {
+  // Before a file is read or a call is paid for: a deck in letters the theme's fonts cannot
+  // draw would be blank where its words stand (PLAN G.21).
+  writable(job.brief.language || undefined, theme.text, theme.fonts);
   const g = await generator();
   const sources = new g.Sources();
   const asking = JSON.stringify({ provider: job.provider, model: job.model, base: job.base });

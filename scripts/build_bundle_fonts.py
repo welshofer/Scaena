@@ -63,6 +63,16 @@ JETBRAINS_MONO_ITALIC = (
     "85ae2a5cd3f56baf1ce1c21a851322c58e3d8fbe8e8ad4a4d090a820dd7fe558",
     "mono, italic",
 )
+# What every subset keeps besides its decks' characters: what `scaena save` keeps of a font
+# (scaena-store's `BASE_RANGES`, SPEC §3.1). The torture deck's ranges, the letters Romanian
+# writes (ș, ț), and U+2000–27BF: punctuation, super- and subscripts (CO₂), currency, letterlike
+# symbols, number forms, arrows, mathematical operators (−, ≈, ≤), technical symbols, enclosed
+# alphanumerics, shapes, symbols, and dingbats (PLAN G.21).
+BASE_RANGES = [*torture.EXTRA_RANGES, (0x218, 0x21B), (0x2000, 0x27BF)]
+# The scripts the shipped families draw beside Latin, which Narrato writes in: Greek and Cyrillic
+# (Ukrainian). The themes that ship carry them whole, as a save keeps them where a deck writes in
+# them, so a deck can be written and edited in them (PLAN G.21).
+SCRIPT_RANGES = [(0x370, 0x3FF), (0x400, 0x4FF)]
 ROMANS = {"Fraunces-VF.ttf": FRAUNCES, "Inter-VF.ttf": INTER, "JetBrainsMono-VF.ttf": JETBRAINS_MONO}
 # The example decks' themes (Dusk, Daybreak, Ember) set display, body, and mono in these three,
 # each with its italic.
@@ -106,8 +116,11 @@ BUNDLES = {
         }
         for name in ["b2", "b3"]
     },
+    # The fonts the themes that ship carry (`scaena-ops`' `shipped`, the pages, the Mac): every
+    # character a deck in them may be written in, not only the examples'.
     "revenue": {
         "title": "Example decks'",
+        "ranges": [*BASE_RANGES, *SCRIPT_RANGES],
         "bundle": ROOT / "docs/examples",
         "deck": "revenue.deck.json",
         # Decks beside it that share its fonts: the subset covers them all, and each is checked.
@@ -139,7 +152,7 @@ def build(name: str, decks: list[dict], cache: Path | None) -> None:
     cfg = BUNDLES[name]
     fonts = cfg["bundle"] / "fonts"
     unicodes = {ord(c) for deck in decks for s in torture.deck_strings(deck) for c in s}
-    for lo, hi in torture.EXTRA_RANGES:
+    for lo, hi in cfg.get("ranges", torture.EXTRA_RANGES):
         unicodes.update(range(lo, hi + 1))
     fonts.mkdir(parents=True, exist_ok=True)
     rows = []
@@ -161,7 +174,9 @@ def build(name: str, decks: list[dict], cache: Path | None) -> None:
         rows.append((file, path, pinned, torture.sha256(out.getvalue()), len(data), len(out.getvalue()), family))
     for file, (path, pinned) in cfg["licenses"].items():
         (fonts / file).write_bytes(torture.fetch(path, pinned, cache))
-    ranges = " ∪ ".join(f"U+{lo:04X}–{hi:04X}" if lo != hi else f"U+{lo:04X}" for lo, hi in torture.EXTRA_RANGES)
+    ranges = " ∪ ".join(
+        f"U+{lo:04X}–{hi:04X}" if lo != hi else f"U+{lo:04X}" for lo, hi in merged(cfg.get("ranges", torture.EXTRA_RANGES))
+    )
     lines = [
         f"# {cfg['title']} fonts: provenance",
         "",
@@ -185,6 +200,17 @@ def build(name: str, decks: list[dict], cache: Path | None) -> None:
     ]
     (fonts / "SOURCES.md").write_text("\n".join(lines), encoding="utf-8")
     print(f"built {len(rows)} fonts into {fonts.relative_to(ROOT)}")
+
+
+def merged(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """`ranges` in order, those that overlap or touch made one."""
+    out: list[tuple[int, int]] = []
+    for lo, hi in sorted(ranges):
+        if out and lo <= out[-1][1] + 1:
+            out[-1] = (out[-1][0], max(out[-1][1], hi))
+        else:
+            out.append((lo, hi))
+    return out
 
 
 def check(name: str, deck: dict, theme: dict, label: str) -> bool:
@@ -230,13 +256,29 @@ def strings(props: dict):
         yield run["text"], run.get("role")
 
 
+def held_to_the_save() -> bool:
+    """Whether the ranges here are the ones a save keeps (scaena-store's `BASE_RANGES` and
+    `SCRIPT_RANGES`): a shipped font without them would lose glyphs a save expects to keep."""
+    import re
+
+    rust = (ROOT / "crates/scaena-store/src/subset.rs").read_text(encoding="utf-8")
+    ok = True
+    for name, ours in [("BASE_RANGES", BASE_RANGES), ("SCRIPT_RANGES", SCRIPT_RANGES)]:
+        found = re.search(rf"pub const {name}: \[\(u32, u32\); \d+\] = \[(.*?)\];", rust, re.S)
+        theirs = [(int(lo, 16), int(hi, 16)) for lo, hi in re.findall(r"\(0x([0-9A-Fa-f]+), 0x([0-9A-Fa-f]+)\)", found[1])] if found else []
+        if merged(theirs) != merged(ours):
+            ok = False
+            print(f"error: scaena-store's {name} is {theirs}, and this script's {merged(ours)}")
+    return ok
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--check", action="store_true", help="check coverage only; no network, no writes")
     ap.add_argument("--cache", type=Path, help="directory of upstream files keyed by sha256 (read, then filled)")
     ap.add_argument("--only", action="append", choices=list(BUNDLES), help="build only this bundle (repeatable); all are checked")
     args = ap.parse_args()
-    ok = True
+    ok = held_to_the_save()
     for name, cfg in BUNDLES.items():
         files = [cfg["deck"], *cfg.get("also", [])]
         decks = [json.loads((cfg["bundle"] / f).read_text(encoding="utf-8")) for f in files]

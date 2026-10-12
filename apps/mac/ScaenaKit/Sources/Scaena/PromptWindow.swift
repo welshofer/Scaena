@@ -348,6 +348,9 @@ struct PromptView: View {
             defer { running = nil }
             let generator = Generator()
             do {
+                // Before a file is read or a call is paid for: a deck in letters the theme's
+                // fonts cannot draw would be blank where its words stand (PLAN G.21).
+                try generator.writable(language: brief.language, theme: theme)
                 for source in given {
                     switch source {
                     case .file(let url):

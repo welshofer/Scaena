@@ -222,6 +222,23 @@ impl BundleFonts {
     }
 }
 
+/// The characters of `text` that none of `fonts` maps to a glyph, in the order they come,
+/// each once; spaces and controls left out. A font that does not read maps nothing. What a
+/// theme is asked before a deck is written in a language: whether its fonts draw it at all
+/// (PLAN G.21).
+pub fn unmapped(fonts: &[&[u8]], text: &str) -> Vec<char> {
+    use skrifa::MetadataProvider;
+    let faces: Vec<skrifa::FontRef> = fonts.iter().filter_map(|bytes| skrifa::FontRef::new(bytes).ok()).collect();
+    let maps: Vec<_> = faces.iter().map(|face| face.charmap()).collect();
+    let mut out: Vec<char> = Vec::new();
+    for c in text.chars().filter(|c| !c.is_whitespace() && !c.is_control()) {
+        if !out.contains(&c) && maps.iter().all(|map| map.map(c).is_none()) {
+            out.push(c);
+        }
+    }
+    out
+}
+
 /// Whether glyph `id`'s outline draws at `location`, unhinted, as the painters draw it. A
 /// glyph with no outline draws nothing, which is no error.
 fn draws(
@@ -357,6 +374,15 @@ mod tests {
         let at = u32::from_be_bytes(bytes[record + 8..record + 12].try_into().unwrap()) as usize + 8;
         bytes[at..at + 2].copy_from_slice(&bits.to_be_bytes());
         bytes
+    }
+
+    #[test]
+    fn unmapped_says_what_no_font_draws() {
+        let hebrew = std::fs::read("../../tests/fixtures/torture.scaena/fonts/NotoSansHebrew-VF.ttf").unwrap();
+        let garamond = std::fs::read("../../tests/fixtures/torture.scaena/fonts/EBGaramond-VF.ttf").unwrap();
+        assert_eq!(unmapped(&[&garamond], "שלום world"), vec!['ש', 'ל', 'ו', 'ם']);
+        assert_eq!(unmapped(&[&garamond, &hebrew], "שלום world"), Vec::<char>::new());
+        assert_eq!(unmapped(&[&hebrew, b"not a font"], "שלום 日本 日"), vec!['日', '本']);
     }
 
     #[test]

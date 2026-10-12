@@ -137,6 +137,27 @@ private func anthropic(_ text: String) -> Data {
     #expect(refused?.message.contains("invalid x-api-key") == true, "\(String(describing: refused))")
 }
 
+/// A deck in letters the theme's fonts cannot draw is refused before any call, in a person's
+/// words, and no provider is asked anything (PLAN G.21); one in Ukrainian is not refused.
+@MainActor
+@Test func aLanguageTheThemesFontsCannotDrawIsRefusedFirst() async throws {
+    let asked = Asked()
+    let generator = Generator { request in
+        await asked.add(request)
+        return GeneratorReply(status: 500, body: Data())
+    }
+    let refused = await #expect(throws: ScaenaError.self) {
+        _ = try await generator.generate(
+            brief: Brief(topic: "気候変動", language: "Japanese"), provider: .anthropic, model: "a-model", key: "sk-writer",
+            theme: "dusk"
+        ) { _ in }
+    }
+    #expect(refused?.message.hasPrefix("a deck in Japanese cannot be made in Dusk yet") == true, "\(String(describing: refused))")
+    #expect(refused?.message.contains("PLAN") == false)
+    #expect(await asked.requests.isEmpty)
+    try generator.writable(language: "Ukrainian", theme: "ember")
+}
+
 /// What a brief may ask is Narrato's: its goals, lengths, arcs, and defaults.
 @Test func whatABriefMayAskIsNarratos() throws {
     let choices = try Generator.choices()

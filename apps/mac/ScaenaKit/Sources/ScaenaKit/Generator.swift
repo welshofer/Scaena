@@ -235,6 +235,15 @@ public final class Generator {
         let kind: String
     }
 
+    /// Whether the fonts of the theme that ships as `theme` draw the letters of `language`, asked
+    /// before any call is paid for (PLAN G.21): a deck in letters its fonts cannot draw is refused,
+    /// saying why, not made with nothing where its words stand.
+    public func writable(language: String?, theme: String) throws {
+        var args: [String: JSONValue] = ["theme": .string(theme)]
+        if let language { args["language"] = .string(language) }
+        let _: JSONValue = try step("writable", args)
+    }
+
     /// The file `name`, whose bytes are `data`, read by its extension: Markdown, text, RTF, HTML,
     /// JSON, CSV, Excel, Word, PowerPoint as words alone, or a PDF, which the model reads as itself.
     @discardableResult
@@ -457,6 +466,7 @@ public final class Generator {
         brief: Brief, arc: String? = nil, provider: Provider, model: String, base: String? = nil, key: String,
         theme: String, painter: Painter? = nil, look: Bool = true, hear: (GeneratingStep) -> Void
     ) async throws -> (ScaenaSession, Generated) {
+        try writable(language: brief.language, theme: theme)
         var args = try asking(brief: brief, provider: provider, model: model, base: base)
         if let arc { args["arc"] = .string(arc) }
         let _: JSONValue = try step("begin", args)

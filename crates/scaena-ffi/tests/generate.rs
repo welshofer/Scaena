@@ -206,6 +206,25 @@ fn a_deck_is_made_from_a_prompt_as_swift_makes_one_its_pictures_with_it() {
     }
 }
 
+/// A deck in letters the theme's fonts cannot draw is refused before anything is read or any
+/// call paid for, in a person's words, as the Mac's window asks first (PLAN G.21); one in a
+/// language they draw is not.
+#[test]
+fn a_language_the_themes_fonts_cannot_draw_is_refused_first() {
+    let g = scaena_generator_new();
+    let answer = answered(g, "writable", &json!({ "theme": "dusk", "language": "Japanese" }), &[]);
+    let message = answer["error"]["message"].as_str().unwrap_or_default();
+    assert!(message.starts_with("a deck in Japanese cannot be made in Dusk yet"), "{answer}");
+    assert!(!message.contains("PLAN"), "{message}");
+    for language in ["Ukrainian", "Czech", "English", ""] {
+        step(g, "writable", json!({ "theme": "ember", "language": language }), &[]);
+    }
+    step(g, "writable", json!({ "theme": "daybreak" }), &[]);
+    let answer = answered(g, "writable", &json!({ "theme": "no such theme", "language": "German" }), &[]);
+    assert!(answer["error"]["message"].as_str().is_some_and(|m| m.contains("not a theme that ships")), "{answer}");
+    unsafe { scaena_generator_free(g) };
+}
+
 #[test]
 fn a_step_out_of_order_is_an_error_that_says_why() {
     let g = scaena_generator_new();

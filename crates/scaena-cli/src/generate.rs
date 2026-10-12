@@ -375,6 +375,8 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
     // Before a call is paid for: the place, the theme, the brief, the key, then the sources.
     scaena_ops::create::vacant(dir)?;
     let theme = ThemeSource::of(Path::new(&a.theme))?;
+    // A deck in letters the theme's fonts cannot draw would be blank where its words stand.
+    scaena_ops::narrative::writable(a.language.as_deref(), &theme.text, theme.shipped, &|file| theme.font(file))?;
     if let Some(name) = &a.arc
         && !scaena_narrato::arcs::arcs().iter().any(|arc| arc.arc.eq_ignore_ascii_case(name))
     {

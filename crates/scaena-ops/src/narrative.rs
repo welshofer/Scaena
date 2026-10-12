@@ -1098,6 +1098,82 @@ fn plain(c: char) -> &'static str {
     }
 }
 
+/// The letters each language Narrato writes in sets beside ASCII's (`scaena_narrato::brief::
+/// LANGUAGES`): what a theme's fonts must draw for a deck in it to be read (PLAN G.21).
+pub const LETTERS: [(&str, &str); 15] = [
+    ("English", ""),
+    ("Spanish", "áéíóúñü¿¡"),
+    ("French", "àâçéèêëîïôûùüÿœæ«»"),
+    ("German", "äöüßÄÖÜ"),
+    ("Portuguese", "áâãàçéêíóôõú"),
+    ("Italian", "àèéìòù"),
+    ("Dutch", "éëïóöü"),
+    ("Czech", "áčďéěíňóřšťúůýž"),
+    ("Polish", "ąćęłńóśźż"),
+    ("Ukrainian", "абвгґдеєжзиіїйклмнопрстуфхцчшщьюя"),
+    ("Japanese", "日本語のひらがなカタカナ"),
+    ("Chinese (Simplified)", "简体中文汉字的"),
+    ("Korean", "한국어글"),
+    ("Arabic", "العربية"),
+    ("Hindi", "हिन्दी"),
+];
+
+/// Whether `theme`'s fonts draw the letters of `language`, asked before any call is paid for
+/// (PLAN G.21): a deck written in letters its fonts cannot draw would be made with nothing
+/// where its words stand. The family of every role but code's is asked, with its fallbacks;
+/// `font` reads a font by the path the theme names it at. `shipped` says the theme ships, so
+/// that a script none of the themes that ship draw yet is said to wait on PLAN G.22. A
+/// language Narrato does not name is not asked about here: the brief says so.
+pub fn writable(
+    language: Option<&str>,
+    theme: &str,
+    shipped: bool,
+    font: &dyn Fn(&str) -> Result<Vec<u8>, OpsError>,
+) -> Result<(), OpsError> {
+    let Some((language, letters)) =
+        language.and_then(|l| LETTERS.iter().find(|(name, _)| name.eq_ignore_ascii_case(l.trim())))
+    else {
+        return Ok(());
+    };
+    let model: Theme = serde_json::from_str(theme).context("the theme")?;
+    let families = &model.typography.families;
+    let mut keys: Vec<&str> = Vec::new();
+    for (role, r) in &model.typography.roles {
+        if role != "code" && !keys.contains(&r.family.as_str()) {
+            keys.push(&r.family);
+        }
+    }
+    for key in keys {
+        let Some(family) = families.get(key) else { continue };
+        let stack = std::iter::once(key).chain(family.fallback.iter().flatten().map(String::as_str));
+        let fonts = stack.filter_map(|k| families.get(k)).map(|f| font(&f.file)).collect::<Result<Vec<_>, _>>()?;
+        let read: Vec<&[u8]> = fonts.iter().map(Vec::as_slice).collect();
+        let missing = scaena_engine::fonts::unmapped(&read, letters);
+        if missing.is_empty() {
+            continue;
+        }
+        let some = missing.iter().take(6).map(char::to_string).collect::<Vec<_>>().join(", ");
+        return Err(if shipped {
+            OpsError::not_built(
+                format!(
+                    "a deck in {language} cannot be made in {} yet: its fonts have no glyphs for {some}, and a deck \
+                     in {language} waits on the font for its script (PLAN G.22)",
+                    model.name
+                ),
+                "G.22",
+            )
+        } else {
+            OpsError::new(format!(
+                "a deck in {language} cannot be made in {}: the fonts of its `{key}` family and their fallbacks \
+                 have no glyphs for {some}. Add a family that draws them to that family's `fallback`, its file \
+                 beside the theme",
+                model.name
+            ))
+        });
+    }
+    Ok(())
+}
+
 /// The deck `narrative` makes in `theme`, each slide that `pictures` holds a picture for drawn
 /// in a layout that shows it.
 pub fn deck(narrative: &Narrative, theme: &Theme, pictures: &Pictures) -> Result<Made, OpsError> {
@@ -2975,6 +3051,85 @@ mod tests {
             out.push((slot, said));
         }
         out
+    }
+
+    /// A theme is asked whether its fonts draw a language before any call is paid for (PLAN
+    /// G.21). The themes that ship draw each language Narrato writes in a Latin or a Cyrillic
+    /// script, and say that the rest wait on their scripts' fonts (PLAN G.22); a theme of the
+    /// user's says what to add.
+    #[test]
+    fn a_theme_is_asked_whether_its_fonts_draw_the_language() {
+        assert_eq!(LETTERS.map(|(language, _)| language), scaena_narrato::brief::LANGUAGES);
+        let themes = ["docs/examples/themes/dusk.theme.json", "docs/examples/themes/ember.theme.json"]
+            .into_iter()
+            .chain(["docs/examples/authorability/themes/daybreak.theme.json"])
+            .map(|path| std::fs::read_to_string(root().join(path)).unwrap());
+        for theme in themes {
+            for (language, _) in LETTERS {
+                let asked = writable(Some(language), &theme, true, &font);
+                match language {
+                    "Japanese" | "Chinese (Simplified)" | "Korean" | "Arabic" | "Hindi" => {
+                        let e = asked.expect_err(language);
+                        assert_eq!(e.plan.as_deref(), Some("G.22"), "{e}");
+                        assert!(e.message.starts_with(&format!("a deck in {language} cannot be made in ")), "{e}");
+                    }
+                    _ => asked.unwrap_or_else(|e| panic!("{language}: {e}")),
+                }
+            }
+        }
+        // No language, or one the brief will refuse, is not asked about.
+        writable(None, &dusk(), true, &font).unwrap();
+        writable(Some("Klingon"), &dusk(), true, &font).unwrap();
+        // A theme of the user's, whose display family falls back on nothing: what to add.
+        let mut mine: Value = serde_json::from_str(&dusk()).unwrap();
+        mine["type"]["families"]["display"].as_object_mut().unwrap().remove("fallback");
+        let e = writable(Some("Ukrainian"), &mine.to_string(), false, &font).unwrap_err();
+        assert_eq!(e.plan, None);
+        assert!(e.message.contains("the fonts of its `display` family") && e.message.contains("`fallback`"), "{e}");
+        // A font the theme names that is not there stops it, saying which.
+        let none = |file: &str| -> Result<Vec<u8>, OpsError> { Err(OpsError::new(format!("no {file}"))) };
+        assert!(writable(Some("German"), &dusk(), true, &none).unwrap_err().message.contains("no fonts/"));
+    }
+
+    /// A deck in the shipped themes keeps what a talk writes beside its words: CO₂, a minus, an
+    /// arrow, an approximation, written as they were, and none written plainly (PLAN G.21).
+    #[test]
+    fn a_talks_symbols_are_drawn_as_written() {
+        let slide = |title: &str, bullets: &[&str]| Slide {
+            slide_title: title.into(),
+            layout_suggestion: "bullets".into(),
+            key_bullets: bullets.iter().map(|b| b.to_string()).collect(),
+            ..Slide::default()
+        };
+        let made = deck(
+            &narrative(
+                "Emissions, and what is working.",
+                vec![
+                    Slide { layout_suggestion: "title".into(), ..slide("Climate Change Now", &[]) },
+                    slide(
+                        "What Is Happening",
+                        &[
+                            "CO\u{2082} emissions keep rising: \u{2212}13% is the goal",
+                            "Seas rise 4.5 mm/yr \u{2248} double the 1990s rate",
+                            "Solutions work \u{2192} act now, \u{00bd} of it by 2030",
+                        ],
+                    ),
+                ],
+            ),
+            &serde_json::from_str(&dusk()).unwrap(),
+            &Pictures::default(),
+        )
+        .unwrap();
+        let (made, write) =
+            making(made, "Problem\u{2013}Solution", Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let write = write.expect("a deck that validates");
+        assert!(!made.fixed.iter().any(|f| f.code == "E120"), "{:#?}", made.fixed);
+        assert!(!made.created.findings.iter().any(|f| f.code == "E120"), "{:#?}", made.created.findings);
+        let deck = write.deck.to_value().unwrap();
+        let said: String = deck["nodes"].as_object().unwrap().values().filter_map(|n| n["text"].as_str()).collect();
+        for written in ["CO\u{2082}", "\u{2212}13%", "\u{2248}", "\u{2192}", "\u{00bd}"] {
+            assert!(said.contains(written), "{written:?} in {said:?}");
+        }
     }
 
     #[test]
