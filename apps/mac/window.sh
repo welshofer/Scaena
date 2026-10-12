@@ -422,9 +422,9 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   fi
 fi
 
-# A picture too large for a slide (SPEC §3.3), pasted on the canvas: the window asks whether a
-# smaller copy goes in, the original left as it is, and takes it, a PNG as a PNG with its
-# transparency. A PNG 9000 × 40 made here, its left half clear and its right half red.
+# A picture too large for a slide (SPEC §3.3), pasted on the canvas: a smaller copy goes in with
+# nothing asked, the original left as it is, a PNG as a PNG with its transparency. A PNG 9000 × 40
+# made here, its left half clear and its right half red.
 python3 - "$out/wide.png" <<'PY'
 import struct, sys, zlib
 w, h = 9000, 40
@@ -442,14 +442,9 @@ if [[ "${ph:-}" =~ ^[0-9]+$ ]]; then
   sleep 1
   before=$(holds canvas)
   menu Edit "Paste"
-  sleep 2
+  sleep 3
   shot oversized
-  echo "a picture too large, pasted, asked about: $(app 'get value of every static text of sheet 1 of window 1' | tr '\n' ' ')"
-  taken=$(app 'click button "Use a Smaller Copy" of sheet 1 of window 1')
-  [[ "$taken" == *rror* ]] && taken=$(app 'click button "Use a Smaller Copy" of window 1')
-  echo "Use a Smaller Copy: ${taken:-pressed}; the copy went in: $(changed holds canvas "$before")"
-  sleep 1
-  shot oversized-taken
+  echo "a picture too large, pasted: no alert: $(app 'count of sheets of window 1' 2>&1); the copy went in: $(changed holds canvas "$before")"
 else
   echo "no canvas to paste on: $px $py $pw $ph"
 fi

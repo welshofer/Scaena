@@ -5,13 +5,16 @@
 // description reads as none here: the walk reads those with holds.swift); each split view in the window with the frame of each pane in it: how the window's width is
 // shared out; or the value of the first element with an identifier, else what VoiceOver says it
 // is, as a field shows what it holds (PLAN 3.28), the hint over the canvas says what it does, and
-// the canvas names the slide it shows.
+// the canvas names the slide it shows; or the button titled TITLE pressed, wherever the window, a
+// sheet over it, or another window of the app holds it, as an alert's buttons may stand in a group
+// of their own.
 //
 //   osascript -l JavaScript apps/mac/frames.js tree DEPTH
 //   osascript -l JavaScript apps/mac/frames.js find IDENTIFIER
 //   osascript -l JavaScript apps/mac/frames.js value IDENTIFIER
 //   osascript -l JavaScript apps/mac/frames.js holds IDENTIFIER
 //   osascript -l JavaScript apps/mac/frames.js splits
+//   osascript -l JavaScript apps/mac/frames.js press TITLE
 function run(argv) {
   const [what, arg] = argv;
   const process = Application("System Events").processes.byName("Scaena");
@@ -39,15 +42,15 @@ function run(argv) {
   // it holds.
   const label = (e) => read(() => e.title()) || read(() => e.attributes.byName("AXDescription").value()) || "";
   const name = (e) => label(e) || read(() => e.description()) || "";
-  // The first element under `roots` identified as `tag`: breadth first, as far as a window's
-  // chrome goes and no further; none where there is none.
-  const search = (tag, roots) => {
+  // The first element under `roots` that `matches`: breadth first, as far as a window's chrome
+  // goes and no further; none where there is none.
+  const search = (matches, roots) => {
     let level = roots;
     for (let depth = 0, seen = 0; depth < 16 && level.length && seen < 4000; depth++) {
       const next = [];
       for (const e of level) {
         seen++;
-        if (id(e) === tag) return e;
+        if (matches(e)) return e;
         next.push(...children(e));
       }
       level = next;
@@ -59,10 +62,19 @@ function run(argv) {
   const found = (tag) => {
     const others = (read(() => process.windows()) ?? []).slice(1);
     const shown = (read(() => process.uiElements()) ?? []).filter((e) => read(() => e.role()) !== "AXMenuBar");
-    const e = search(tag, [window]) ?? search(tag, others) ?? search(tag, shown);
+    const is = (e) => id(e) === tag;
+    const e = search(is, [window]) ?? search(is, others) ?? search(is, shown);
     if (!e) throw new Error(`nothing is identified as ${tag}`);
     return e;
   };
+  if (what === "press") {
+    const titled = (e) => read(() => e.role()) === "AXButton" && label(e) === arg;
+    const others = (read(() => process.windows()) ?? []).slice(1);
+    const e = search(titled, [window]) ?? search(titled, others);
+    if (!e) throw new Error(`no button is titled ${arg}`);
+    e.actions.byName("AXPress").perform();
+    return "pressed";
+  }
   if (what === "find") return frame(found(arg)).join(" ");
   if (what === "value") {
     const e = read(() => found(arg));
