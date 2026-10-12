@@ -3,12 +3,11 @@
 //
 //   node web/pictures.mjs     (after `just web`; from the repository's root)
 //
-// - A picture longer than 8192 pixels on a side is asked about, not refused: the question says how
-//   large it is and how large the copy would be.
-// - Declined, nothing goes in: the deck is as it was, and the bundle holds no new file.
-// - Taken, a smaller copy goes in, named by its SHA-256 as any picture dropped is. A PNG stays a
-//   PNG, its transparency kept: saved into the browser's storage and read back, the copy is 8192
-//   pixels long, its clear half clear and its red half red. A JPEG stays a JPEG.
+// - A picture longer than 8192 pixels on a side goes in as a smaller copy with nothing asked: no
+//   dialog opens, and the status says how large it was and how large the copy is.
+// - The copy is named by its SHA-256 as any picture dropped is. A PNG stays a PNG, its
+//   transparency kept: saved into the browser's storage and read back, the copy is 8192 pixels
+//   long, its clear half clear and its red half red. A JPEG stays a JPEG.
 // Exits 1 on any failure.
 import { launch, serve } from "./serve.mjs";
 
@@ -38,10 +37,6 @@ try {
       () => true,
       () => false,
     );
-  const files = async () => {
-    await page.evaluate(() => window.scaena.files.refresh());
-    return page.evaluate(() => window.scaena.files.listed().map((f) => f.path));
-  };
   /** A picture 9000 × 40 made in the page as `type`: its left half clear, its right half red. */
   const made = (type) =>
     page.evaluate(async (t) => {
@@ -64,33 +59,29 @@ try {
     const r = await page.locator("#overlay").boundingBox();
     await page.dispatchEvent("#overlay", "drop", { dataTransfer: transfer, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 });
   };
-  /** What the person is asked when `name` is dropped as `bytes`, answered `yes` or not. */
-  const asked = async (name, bytes, yes) => {
-    const question = new Promise((resolve) =>
-      page.once("dialog", (d) => {
-        resolve(d.message());
-        void (yes ? d.accept() : d.dismiss());
-      }),
-    );
-    await drop(name, bytes);
-    return Promise.race([question, new Promise((resolve) => setTimeout(() => resolve(""), 30000))]);
-  };
+  // Nothing is asked: a dialog that opens is a failure, dismissed so the walk goes on.
+  const dialogs = [];
+  page.on("dialog", (d) => {
+    dialogs.push(d.message());
+    void d.dismiss();
+  });
+  const making = [];
+  await page.exposeFunction("heard", (words) => making.push(words));
+  await page.evaluate(() =>
+    new MutationObserver(() => window.heard(document.querySelector("#status").textContent)).observe(document.querySelector("#status"), {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    }),
+  );
 
-  const original = await source();
-  const before = await files();
-  const png = await made("image/png");
-
-  // Declined, nothing goes in.
-  const question = await asked("wide.png", png, false);
-  check(question.includes("9,000 × 40 pixels") && question.includes("8,192 on a side") && question.includes("8,192 × 36"), `a picture too large is asked about: ${question}`);
-  check(await says("wide.png not added"), `declined, nothing is added: ${await status()}`);
-  check((await source()) === original, "the deck is as it was");
-  check(JSON.stringify(await files()) === JSON.stringify(before), "and the bundle holds no new file");
-
-  // Taken, a smaller copy goes in: a PNG still.
+  // A PNG too large goes straight in as a smaller copy: a PNG still.
   let n = await trips();
-  await asked("wide.png", png, true);
-  check(await says("kept as a smaller copy, assets/"), `taken, a smaller copy goes in: ${await status()}`);
+  await drop("wide.png", await made("image/png"));
+  check(await says("kept as a smaller copy, assets/"), `a smaller copy goes in: ${await status()}`);
+  check(dialogs.length === 0, `nothing is asked: ${dialogs.join(" | ") || "no dialog"}`);
+  const told = making.find((w) => w.includes("wide.png is")) ?? "";
+  check(told.includes("9,000 × 40 pixels") && told.includes("8,192 × 36"), `the status says how large it was and the copy is: ${told}`);
   await settled(n);
   const path = (await status()).match(/assets\/[0-9a-f]{64}\.png/)?.[0] ?? "";
   check(path !== "" && (await source()).includes(`"${path}"`), `a PNG still, named by its SHA-256: ${path}`);
@@ -124,11 +115,12 @@ try {
 
   // A JPEG stays a JPEG.
   n = await trips();
-  await asked("wide.jpg", await made("image/jpeg"), true);
+  await drop("wide.jpg", await made("image/jpeg"));
   check(await says("kept as a smaller copy, assets/"), `a JPEG too large goes in as a smaller copy too: ${await status()}`);
   await settled(n);
   const photo = (await status()).match(/assets\/[0-9a-f]{64}\.(png|jpg)/)?.[0] ?? "";
   check(photo.endsWith(".jpg") && (await source()).includes(`"${photo}"`), `a JPEG still: ${photo}`);
+  check(dialogs.length === 0, `and nothing was asked: ${dialogs.join(" | ") || "no dialog"}`);
 } catch (e) {
   failures.push(`error: ${e.message}`);
 } finally {
@@ -139,4 +131,4 @@ if (failures.length) {
   console.log(`\n${failures.length} failed:\n${failures.map((f) => `  ${f}`).join("\n")}`);
   process.exit(1);
 }
-console.log("a picture too large goes in as a smaller copy, a PNG as a PNG with its transparency, if the person wants one");
+console.log("a picture too large goes in as a smaller copy with nothing asked, a PNG as a PNG with its transparency");

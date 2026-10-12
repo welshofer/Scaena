@@ -1,8 +1,9 @@
-// A picture too large for a slide, offered as a smaller copy, not refused (SPEC §3.3): what a
-// drop, a paste, or Insert takes into the bundle on the canvas and in the source. The engine
-// reads its size as it is seen (`Stage.picture`); the browser makes the copy, upright, a PNG as a
-// PNG with its transparency and a JPEG as a JPEG, and the file itself is left as it was. The Mac
-// and the iPad offer the same with ImageIO (ScaenaKit's `Pasteboard.smaller`).
+// A picture too large for a slide goes in as a smaller copy, made as it is taken, with nothing
+// asked (SPEC §3.3): what a drop, a paste, or Insert takes into the bundle on the canvas and in
+// the source. The engine reads its size as it is seen (`Stage.picture`); the browser makes the
+// copy, upright, its longer side the longest an image may have, a PNG as a PNG with its
+// transparency and a JPEG as a JPEG, and the file itself is left as it was. The Mac and the iPad
+// do the same with ImageIO (ScaenaKit's `Pasteboard.smaller`).
 import type { Picture } from "./protocol";
 import type { Stage } from "./stage";
 
@@ -18,9 +19,9 @@ export function fitted({ width, height, largest }: Picture): [number, number] {
 }
 
 /** `file`, a PNG or a JPEG, as it goes into the bundle: as it is where an image shows it so; where
- * it is too large, a smaller copy, if the person wants one when asked. `undefined` where they want
- * none or none could be made, which `say` says. What the engine does not read as a picture goes on
- * as it is, for the drop to refuse with why. */
+ * it is too large, a smaller copy, which `say` says was made. `undefined` where none could be made,
+ * which `say` says. What the engine does not read as a picture goes on as it is, for the drop to
+ * refuse with why. */
 export async function fitting(stage: Stage, file: File, say: (words: string) => void): Promise<File | undefined> {
   const bytes = await file.arrayBuffer();
   let picture: Picture;
@@ -32,14 +33,7 @@ export async function fitting(stage: Stage, file: File, say: (words: string) => 
   const [w, h] = fitted(picture);
   if (w === picture.width && h === picture.height) return file;
   const n = (v: number) => v.toLocaleString();
-  const asked =
-    `${file.name} is ${n(picture.width)} × ${n(picture.height)} pixels, and a picture on a slide can be up to ` +
-    `${n(picture.largest)} on a side. Add a copy ${n(w)} × ${n(h)} pixels in its place? The file itself isn’t changed.`;
-  if (!confirm(asked)) {
-    say(`${file.name} not added: ${n(picture.width)} × ${n(picture.height)} pixels is past ${n(picture.largest)} on a side`);
-    return undefined;
-  }
-  say(`making a copy of ${file.name}, ${n(w)} × ${n(h)} pixels…`);
+  say(`${file.name} is ${n(picture.width)} × ${n(picture.height)} pixels: making a copy ${n(w)} × ${n(h)}…`);
   try {
     return await smaller(file, isPng(bytes), w, h);
   } catch (e) {

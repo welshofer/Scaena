@@ -803,7 +803,7 @@ export class Stage {
   }
 
   /** What the PNG or JPEG `bytes` are as a picture, read as the engine reads it before it is
-   * dropped, so one too large is offered as a smaller copy; refused where it is no picture an
+   * dropped, so one too large goes in as a smaller copy; refused where it is no picture an
    * image shows. */
   picture(bytes: ArrayBuffer): Promise<Picture> {
     return this.request<"pictured">({ type: "picture", id: ++this.asked, bytes }).then(({ picture }) => picture);

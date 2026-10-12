@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 
 /// A picture as the engine reads it before it joins the bundle (SPEC §3.3): its size as it is
 /// seen, a JPEG's turned by its EXIF orientation, and the longest side an image may have. One too
-/// large is offered as a smaller copy, never refused (`Pasteboard.smaller`).
+/// large goes in as a smaller copy, with nothing asked and never refused (`Pasteboard.smaller`).
 public struct PictureSize: Decodable, Equatable, Sendable {
     public let width: Int
     public let height: Int
