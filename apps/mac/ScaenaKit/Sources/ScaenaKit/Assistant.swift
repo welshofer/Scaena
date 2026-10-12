@@ -180,6 +180,7 @@ public enum ToolWords {
         "deck_diff": ("Comparing versions…", "Compared versions"),
         "deck_export": ("Exporting the deck…", "Exported the deck"),
         "deck_find": ("Searching the deck…", "Searched the deck"),
+        "deck_health": ("Reading the deck's story…", "Read the deck's story"),
         "deck_history": ("Reading the history…", "Looked at the history"),
         "deck_inspect": ("Looking over the deck…", "Looked over the deck"),
         "deck_lint": ("Checking the deck…", "Checked the deck"),
