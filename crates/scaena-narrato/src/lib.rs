@@ -21,6 +21,7 @@ mod js;
 pub mod layouts;
 pub mod prompt;
 pub mod providers;
+pub mod research;
 pub mod schema;
 
 pub use answer::{ChartData, Series, Slide};

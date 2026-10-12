@@ -78,6 +78,10 @@ pub struct GenerateArgs {
     /// Your email, which SEC asks every request to carry; else $SCAENA_SEC_CONTACT.
     #[arg(long)]
     sec_contact: Option<String>,
+    /// Ground the deck in deep research on its topic first, by your key: Gemini's research
+    /// agent, or Anthropic's model with web search. It takes minutes; its report is a source.
+    #[arg(long)]
+    research: bool,
 }
 
 /// The environment variables a provider's key is read from, in order.
@@ -155,6 +159,60 @@ fn said(p: &Progress) -> String {
         Progress::Fitting { texts } => format!("{texts} texts run past their place: asking for them shorter…"),
         Progress::Fitted { texts } => format!("{texts} rewritten to fit"),
     }
+}
+
+/// The deep research the brief asks for (PLAN G.8), as a source: the report and its sources,
+/// polled or resumed as `scaena_narrato::research` asks, each wait kept here.
+fn research(
+    brief: &Brief,
+    provider: Provider,
+    model: &str,
+    base: Option<&str>,
+    key: &str,
+    agent: &ureq::Agent,
+    json: bool,
+) -> Result<scaena_sources::Source> {
+    use scaena_narrato::research::{Asked, Next, Research, source_name};
+    // Researched for the brief as Narrato reads it, its defaults filled.
+    let filled = brief.clone().validated().map_err(|e| anyhow!(e))?;
+    let asked = Asked { topic: filled.topic, audience: filled.audience, goal: filled.goal, length: filled.length };
+    let mut research = Research::new(&asked, provider, model, base, false).map_err(|e| anyhow!(e))?;
+    if !json {
+        eprintln!("researching {}… (minutes)", asked.topic);
+    }
+    let mut request = research.start(key);
+    let mut said: Option<String> = None;
+    let report = loop {
+        let reply = fetch(agent, &request);
+        match research
+            .answer(key, reply.status, &reply.status_text, &reply.body)
+            .map_err(|e| anyhow!("deep research: {e}"))?
+        {
+            Next::Send(next) => request = next,
+            Next::Wait { ms, then } => {
+                if !json && research.progress != said {
+                    said.clone_from(&research.progress);
+                    if let Some(progress) = &said {
+                        eprintln!("  {progress}");
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(ms));
+                request = then;
+            }
+            Next::Done(report) => break report,
+        }
+    };
+    if !json {
+        let cut = if report.cut { ", cut short" } else { "" };
+        eprintln!("researched: {} sources{cut}", report.sources.len());
+    }
+    Ok(scaena_sources::Source {
+        name: source_name(&asked.topic),
+        kind: scaena_sources::Kind::Research,
+        text: report.source_text(),
+        sheets: Vec::new(),
+        pdf: None,
+    })
 }
 
 /// The first of `vars` the environment holds, not blank.
@@ -248,6 +306,10 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
             eprintln!("reading {spec}…");
         }
         read.push(crate::sources::read(spec, &agent, &reach).with_context(|| format!("--source {spec}"))?);
+    }
+    if a.research {
+        let key = key.as_deref().context("deep research asks a model: --slides makes no call")?;
+        read.push(research(&brief, provider, &model, a.base.as_deref(), key, &agent, json)?);
     }
     let grounding = scaena_ops::narrative::grounding(&read, provider)?;
     brief.source_content = grounding.content.clone();
