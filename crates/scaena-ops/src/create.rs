@@ -195,12 +195,7 @@ pub struct Created {
 /// Make a bundle at `path`, a directory not there yet or empty: the theme and its fonts,
 /// the data files, and the deck, pointed at them. Written only if it validates.
 pub fn create(path: &Path, req: &Create) -> Result<Created, OpsError> {
-    if path.exists() && std::fs::read_dir(path).map_or(true, |mut d| d.next().is_some()) {
-        return Err(OpsError::new(format!(
-            "`{}` is there and is not an empty directory: a new bundle needs a place of its own",
-            path.display()
-        )));
-    }
+    vacant(path)?;
     let data = |file: &Path| -> Result<Vec<u8>, OpsError> {
         std::fs::read(file).with_context(|| format!("reading {}", file.display()))
     };
@@ -221,6 +216,13 @@ pub fn create(path: &Path, req: &Create) -> Result<Created, OpsError> {
         }
     };
     let Some(made) = made else { return Ok(created) };
+    make(path, made)?;
+    Ok(created)
+}
+
+/// Write `made`, a bundle an operation made in memory, as a new bundle at `path`: its deck and
+/// every file beside it, by `user`.
+pub fn make(path: &Path, made: Write) -> Result<(), OpsError> {
     std::fs::create_dir_all(path).with_context(|| format!("making {}", path.display()))?;
     let b = Bundle {
         root: path.to_path_buf(),
@@ -230,8 +232,59 @@ pub fn create(path: &Path, req: &Create) -> Result<Created, OpsError> {
         files: scaena_store::Files::Dir(path.to_path_buf()),
         author: "user".into(),
     };
-    write(&b, made)?;
-    Ok(created)
+    write(&b, made)
+}
+
+/// Whether `path` may take a new bundle: not there yet, or an empty directory.
+pub fn vacant(path: &Path) -> Result<(), OpsError> {
+    if path.exists() && std::fs::read_dir(path).map_or(true, |mut d| d.next().is_some()) {
+        return Err(OpsError::new(format!(
+            "`{}` is there and is not an empty directory: a new bundle needs a place of its own",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
+/// A theme a bundle is made with, as [`create`] takes one: the file of that name, its fonts
+/// beside it or above it; else the theme that ships by that name, with its fonts.
+pub struct ThemeSource {
+    /// The theme file's path, whose name it takes in `themes/`.
+    pub file: PathBuf,
+    /// Its JSON.
+    pub text: String,
+    /// Whether it ships, its fonts in the binary with it.
+    pub shipped: bool,
+}
+
+impl ThemeSource {
+    /// `theme`, a file or the name of a theme that ships.
+    pub fn of(theme: &Path) -> Result<ThemeSource, OpsError> {
+        #[cfg(feature = "shipped")]
+        if !theme.exists()
+            && let Some(t) = theme.to_str().and_then(crate::shipped::theme)
+        {
+            return Ok(ThemeSource { file: t.file.into(), text: t.text.to_string(), shipped: true });
+        }
+        let text =
+            std::fs::read_to_string(theme).with_context(|| format!("reading {}{}", theme.display(), or_shipped()))?;
+        Ok(ThemeSource { file: theme.to_path_buf(), text, shipped: false })
+    }
+
+    /// A font the theme names, by the path it gives it.
+    pub fn font(&self, file: &str) -> Result<Vec<u8>, OpsError> {
+        #[cfg(feature = "shipped")]
+        if self.shipped {
+            let bytes =
+                crate::shipped::font(file).with_context(|| format!("the theme names `{file}`, which does not ship"))?;
+            return Ok(bytes.to_vec());
+        }
+        let found =
+            self.file.ancestors().skip(1).map(|dir| dir.join(file)).find(|p| p.is_file()).with_context(|| {
+                format!("the theme's font `{file}` is not beside {} or above it", self.file.display())
+            })?;
+        Ok(std::fs::read(&found)?)
+    }
 }
 
 /// What [`create`] makes from the theme that ships as `req.theme`, where no file of that name

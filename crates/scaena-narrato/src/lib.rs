@@ -15,6 +15,7 @@ pub mod beats;
 pub mod brief;
 pub mod containment;
 pub mod duration;
+pub mod fit;
 pub mod heuristic;
 mod js;
 pub mod layouts;
@@ -36,6 +37,8 @@ pub const ARC_MAX_TOKENS: u32 = 16_000;
 pub const SLIDES_MAX_TOKENS: u32 = 64_000;
 /// Room for Gemini's answers, either: the most it writes (Vzestup's `maxOutputTokens`).
 pub const GEMINI_MAX_TOKENS: u32 = 65_536;
+/// Room for the rewrites of texts that run past their place, thinking included.
+pub const FIT_MAX_TOKENS: u32 = 16_000;
 
 /// Who writes the deck: a provider, the model the user picked from those their key lists, and
 /// where its API is.
@@ -217,6 +220,44 @@ impl Generation {
         }))
     }
 
+    /// The request that has `longs`, texts the deck set that run past their place, rewritten to
+    /// fit ([`fit`]): Scaena's own call, made once the narrative is written; none before.
+    pub fn fit_request(&self, key: &str, longs: &[fit::Long]) -> Option<Request> {
+        let narrative = self.narrative.as_ref()?;
+        let s = &self.settings;
+        let prompt = fit::prompt(longs, narrative.brief.language.as_deref());
+        let max_tokens = if s.provider == Provider::Gemini { GEMINI_MAX_TOKENS } else { FIT_MAX_TOKENS };
+        Some(s.provider.structured(&providers::Call {
+            model: &s.model,
+            key,
+            base: s.base.as_deref(),
+            browser: s.browser,
+            system: fit::FIT_SYSTEM,
+            prompt: &prompt,
+            shape: providers::Shape::Fit,
+            anthropic_schema: true,
+            max_tokens,
+            temperature: Some(0.2),
+            documents: &[],
+        }))
+    }
+
+    /// The rewrites the response to [`Generation::fit_request`] gives: each a text asked about,
+    /// shorter than it was.
+    pub fn fit_answer(
+        &self,
+        status: u16,
+        status_text: &str,
+        body: &str,
+        longs: &[fit::Long],
+    ) -> Result<Vec<(String, String)>, NarratoError> {
+        if status == 0 {
+            return Err(NarratoError::Provider(format!("the request did not complete: {status_text}")));
+        }
+        let read = self.settings.provider.read_answer(status, status_text, body).map_err(NarratoError::Provider)?;
+        fit::read(&read.text, longs).map_err(NarratoError::Answer)
+    }
+
     /// Read the response to [`Generation::request`]: `status` 0 where it never came back. Arc
     /// selection that fails in any way falls back to the heuristic, saying why; the slides that
     /// fail are an error, and the step stands to be asked again.
@@ -245,26 +286,37 @@ impl Generation {
                 }
                 let read =
                     self.settings.provider.read_answer(status, status_text, body).map_err(NarratoError::Provider)?;
-                let written = answer::slides(&read.text).map_err(NarratoError::Answer)?;
-                let truncated = written.recovered || read.stop == Stop::Length;
-                if let Some(minimum) = brief::minimum_slides(&self.brief.length)
-                    && written.slides.len() < minimum
-                {
-                    return Err(NarratoError::Incomplete { delivered: written.slides.len(), minimum });
-                }
-                let arc = self.arc.clone().expect("chosen before the slides");
-                self.narrative = Some(Narrative {
-                    arc: arc.selection,
-                    arc_reasoning: arc.reasoning,
-                    executive_summary: written.executive_summary,
-                    slides: written.slides,
-                    truncated,
-                    brief: Brief { source_content: None, ..self.brief.clone() },
-                });
-                self.step = Step::Done;
-                Ok(self.step)
+                self.written(&read.text, read.stop == Stop::Length)
             }
             Step::Done => Err(NarratoError::Done),
         }
+    }
+
+    /// The slides as the model wrote them, `text`, the JSON the slides' request asks for, cut
+    /// short where `stopped` says the model ran out of room: what [`Generation::answer`] reads
+    /// from an answer, handed over by a client that read the answer itself, or written elsewhere.
+    /// The arc is chosen first; too few slides for the length asked are refused.
+    pub fn written(&mut self, text: &str, stopped: bool) -> Result<Step, NarratoError> {
+        let arc = match (self.step, &self.arc) {
+            (Step::Slides, Some(arc)) => arc.clone(),
+            (Step::Done, _) => return Err(NarratoError::Done),
+            _ => return Err(NarratoError::Answer("the arc is chosen before the slides are written".into())),
+        };
+        let written = answer::slides(text).map_err(NarratoError::Answer)?;
+        if let Some(minimum) = brief::minimum_slides(&self.brief.length)
+            && written.slides.len() < minimum
+        {
+            return Err(NarratoError::Incomplete { delivered: written.slides.len(), minimum });
+        }
+        self.narrative = Some(Narrative {
+            arc: arc.selection,
+            arc_reasoning: arc.reasoning,
+            executive_summary: written.executive_summary,
+            slides: written.slides,
+            truncated: written.recovered || stopped,
+            brief: Brief { source_content: None, ..self.brief.clone() },
+        });
+        self.step = Step::Done;
+        Ok(self.step)
     }
 }
