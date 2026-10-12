@@ -497,6 +497,85 @@ pub fn overflowing(deck: &Deck, findings: &[Finding]) -> Result<Vec<Long>, OpsEr
     Ok(out)
 }
 
+/// The texts of `doc` that grow (`fit: grow`, as [`Slots::grown`] marks them) held to one size
+/// in each set, so that each set reads as one: a set is the parts a slide's layout sets side by
+/// side (the words under each step, the figures of a scorecard), or the deck's section titles.
+/// Each grows as far as its place allows, laid out by the engine, then all of its set are held to
+/// the size the one with the least room reached. Whether any size changed.
+fn alike(doc: &mut Value, view: &View) -> Result<bool, OpsError> {
+    let deck = Deck::from_json(&doc.to_string()).context("the deck")?;
+    let Some(theme) = view.theme(&deck)? else { return Ok(false) };
+    let theme = scaena_engine::theme::Theme::from_json(&theme)?;
+    let mut engine = crate::lint::engine_in(&deck, view, &theme, None)?;
+    let data = crate::lint::data_in(&deck, view)?;
+    // Each growing text: its set, its state, its id, and its role's size.
+    let mut members: Vec<(String, String, String, f64)> = Vec::new();
+    for state in doc["states"].as_array().into_iter().flatten() {
+        let (Some(id), Some(shown)) = (state["id"].as_str(), state["props"].as_object()) else { continue };
+        let layout = state["layout"].as_str().unwrap_or_default();
+        for node in shown.keys() {
+            let n = &doc["nodes"][node];
+            let (Some("grow"), Some(slot), Some(role)) =
+                (n["fit"].as_str(), n["at"]["in"].as_str(), n["role"].as_str())
+            else {
+                continue;
+            };
+            let Some(size) = theme.typography.roles.get(role).map(|r| r.size) else { continue };
+            let set = match ordinal(slot) {
+                Some((_, part)) => format!("{id}\u{1f}{part}\u{1f}{role}"),
+                None if slot == "title" && layout.starts_with("section") => format!("\u{1f}{layout}\u{1f}{role}"),
+                None => continue,
+            };
+            members.push((set, id.to_string(), node.clone(), size));
+        }
+    }
+    // The size each reaches, its state laid out once.
+    let mut reached: BTreeMap<String, f64> = BTreeMap::new();
+    let mut states: Vec<&str> = members.iter().map(|m| m.1.as_str()).collect();
+    states.dedup();
+    for state in states {
+        let ids: Vec<&str> = members.iter().filter(|m| m.1 == state).map(|m| m.2.as_str()).collect();
+        let req = scaena_engine::FrameRequest {
+            deck: &deck,
+            theme: &theme,
+            data: &data,
+            state,
+            t_ms: f64::INFINITY,
+            format: None,
+        };
+        // A slide the engine cannot lay out keeps its sizes; lint says why.
+        let Ok(placed) = engine.text_layouts(&req, &ids) else { continue };
+        for (id, p) in ids.iter().zip(&placed) {
+            let size = members.iter().find(|m| m.2 == *id).map_or(0.0, |m| m.3);
+            reached.insert(id.to_string(), f64::from(p.scale) * size);
+        }
+    }
+    let mut least: BTreeMap<&str, f64> = BTreeMap::new();
+    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+    for (set, _, id, _) in &members {
+        let Some(size) = reached.get(id) else { continue };
+        let at = least.entry(set.as_str()).or_insert(f64::INFINITY);
+        *at = at.min(*size);
+        *counts.entry(set.as_str()).or_default() += 1;
+    }
+    let mut changed = false;
+    for (set, _, id, _) in &members {
+        let (Some(size), Some(2..)) = (least.get(set.as_str()), counts.get(set.as_str())) else { continue };
+        // Figures side by side keep the air between them: a tenth under the size the widest
+        // reached its place at.
+        let figures = doc["nodes"][id]["role"].as_str().is_some_and(figure_role);
+        let size = if figures { size * 0.9 } else { *size };
+        // A quarter of a unit under, so that every one of them fits at it.
+        let size = (size * 4.0).floor() / 4.0;
+        let node = &mut doc["nodes"][id];
+        if node["maxSize"].as_f64().is_none_or(|most| size < most) {
+            node["maxSize"] = json!(size);
+            changed = true;
+        }
+    }
+    Ok(changed)
+}
+
 /// How many of `findings` are errors.
 fn errors(findings: &[Finding]) -> usize {
     findings.iter().filter(|f| f.severity == scaena_core::Severity::Error).count()
@@ -579,6 +658,11 @@ pub fn making(
         }
         made.fixed.extend(unset);
         let deck = Deck::from_json(&doc.to_string()).context("the deck in plain characters")?;
+        created.findings = lint_in(&deck, &view)?.findings;
+    }
+    // Each set of texts a slide sets side by side, and every section's title, held to one size.
+    if alike(&mut doc, &view)? {
+        let deck = Deck::from_json(&doc.to_string()).context("the deck set alike")?;
         created.findings = lint_in(&deck, &view)?.findings;
     }
     // Then each fix lint offers, each checked by laying its state out again with it.
@@ -1018,6 +1102,8 @@ fn layout_for(identity: &str, slide: &Slide, items: &[Item], index: usize, theme
     let chart = slide.chart_data.is_some();
     let words = format!("{} {}", slide.slide_title, slide.subtitle).to_lowercase();
     let labelled = n > 0 && items.iter().all(|i| i.label.is_some());
+    // Each item said in a line or two.
+    let brief = items.iter().all(|i| i.detail.chars().count() <= 120);
     let side = |left: &'static str, right: &'static str| if index.is_multiple_of(2) { left } else { right };
     let wanted: &str = match identity {
         "title" if pictured => "title-split",
@@ -1047,6 +1133,8 @@ fn layout_for(identity: &str, slide: &Slide, items: &[Item], index: usize, theme
         "bar-chart" | "line-chart" => "bullets",
         "two-column" if n == 3 && labelled => "three-columns",
         "two-column" if n == 4 && labelled => "quadrants",
+        // Two sides said in a line each: each a card, its words set large.
+        "two-column" | "before-after" if n == 2 && labelled && brief => "myth-fact",
         "two-column" if labelled => "comparison",
         "two-column" => "two-columns",
         // A picture each side: with none, the two sides as two labelled columns.
@@ -1054,6 +1142,8 @@ fn layout_for(identity: &str, slide: &Slide, items: &[Item], index: usize, theme
         "pros-cons" => "pros-cons",
         "quadrant" => "quadrants",
         "steps" if n <= 3 => "how-it-works",
+        // Four steps, each in a card of its own under its number, as a deck's process is drawn.
+        "steps" if n == 4 => "numbered-cards",
         "steps" => "steps",
         "timeline" => "timeline",
         "journey" => "journey",
@@ -1092,6 +1182,7 @@ fn layout_for(identity: &str, slide: &Slide, items: &[Item], index: usize, theme
         "receipt" => "receipt",
         // "action — owner — when", each; else steps, each "label: detail".
         "next-steps" if n <= 3 && items.iter().all(|i| parts(&i.whole).len() >= 2) => "next-steps",
+        "next-steps" if labelled && n == 4 => "numbered-cards",
         "next-steps" if labelled && n <= 4 => "steps",
         "next-steps" => "numbered",
         "milestones" => "milestones",
@@ -1367,6 +1458,35 @@ impl Slots<'_> {
 
     fn template(&self) -> Option<&scaena_core::model::theme::Layout> {
         self.theme.layouts.get(self.layout)
+    }
+
+    /// How large the text in the slot `name`, set in `role`, may grow to fill its place (Jay's
+    /// review, 2026-10-12): a part of a set (`first`, `second-title`, …) to the theme's lede for
+    /// words, its body for a caption, its numeral for a scorecard's figure, and its headline for
+    /// another figure but a date; a section's title to the theme's display size, and what supports it to
+    /// the lede; a quote to half again its size. None where it keeps its role's size.
+    fn grown(&self, name: &str, role: &str) -> Option<f64> {
+        let size = |r: &str| self.theme.typography.roles.get(r).map(|r| r.size);
+        let at_least = |r: &str| size(r).filter(|most| size(role).is_some_and(|own| *most > own));
+        let section = matches!(self.layout, "section" | "section-photo" | "section-number");
+        let dated = matches!(self.layout, "timeline" | "milestones");
+        match (ordinal(name), role) {
+            // A card's or a step's own number keeps its size.
+            (Some((_, "number")), _) => None,
+            (Some(_), "body") => at_least("lede"),
+            // A card's statement, as large as three-quarters of the slide's headline.
+            (Some(_), "lede") => {
+                size("headline").map(|h| h * 0.75).filter(|most| size(role).is_some_and(|own| *most > own))
+            }
+            (Some(_), "caption") => at_least("body"),
+            (Some((_, "figure")), "figure") => at_least("numeral"),
+            (Some(_), "figure") if !dated => at_least("headline"),
+            (Some(_), _) => None,
+            (None, "headline") if name == "title" && section => at_least("display"),
+            (None, "body") if name == "support" && section => at_least("lede"),
+            (None, "quote") if name == "quote" => size("quote").map(|q| q * 1.5),
+            _ => None,
+        }
     }
 
     /// The role of the layout's slot of this name.
@@ -1817,7 +1937,27 @@ impl Builder {
             let mut node = match fill {
                 Fill::Text(text) => {
                     let Some(role) = &slot.role else { continue };
+                    // Two sides each said on a card read as statements, in the words' own color
+                    // rather than the muted lede's.
+                    let role = match (s.layout, ordinal(name)) {
+                        ("myth-fact", Some((_, ""))) if s.theme.typography.roles.contains_key("title") => "title",
+                        _ => role.as_str(),
+                    };
                     let mut node = json!({ "type": "text", "role": role, "text": text, "at": at });
+                    // Set as large as its place allows, up to its ceiling (`making` holds a set
+                    // of them to one size).
+                    if let Some(most) = s.grown(name, slot.role.as_deref().unwrap_or(role)) {
+                        node["fit"] = json!("grow");
+                        node["maxSize"] = json!(most);
+                        // A figure grows on its one line.
+                        if figure_role(role) {
+                            node["maxLines"] = json!(1);
+                        }
+                    }
+                    // A scorecard's label stands on its figure.
+                    if s.layout == "scorecard" && ordinal(name).is_some_and(|(_, part)| part == "title") {
+                        node["align"] = json!({ "y": "end" });
+                    }
                     match s.semantic(name, &text) {
                         Some("claim") if claimed => {}
                         Some(semantic) => {
@@ -1838,11 +1978,13 @@ impl Builder {
                         json!({ "type": "text", "role": role, "text": entries.join("\n"), "list": list, "at": at });
                     // A slide's one list, where it is short, set larger to fill its place: up to the
                     // size of the theme's lede, under its titles still.
+                    // An agenda's short lines up to the size of its titles.
+                    let most = if s.layout.starts_with("agenda") { "title" } else { "lede" };
                     if name == "body"
-                        && let Some(lede) = s.theme.typography.roles.get("lede").map(|r| r.size)
+                        && let Some(most) = s.theme.typography.roles.get(most).map(|r| r.size)
                     {
                         node["fit"] = json!("grow");
-                        node["maxSize"] = json!(lede);
+                        node["maxSize"] = json!(most);
                     }
                     node
                 }
@@ -2076,11 +2218,11 @@ mod tests {
             "line-chart",
             "scorecard",
             "number-grid",
-            "comparison",
-            "comparison",
+            "myth-fact",
+            "myth-fact",
             "pros-cons",
             "quadrants",
-            "steps",
+            "numbered-cards",
             "timeline",
             "journey",
             "statement",
@@ -2236,6 +2378,58 @@ mod tests {
     }
 
     #[test]
+    fn a_set_of_texts_side_by_side_is_set_alike_and_as_large_as_its_places_allow() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        // The climate talk with a picture on each of its dividers.
+        let pictures: Pictures = [2, 7, 11, 15, 21]
+            .into_iter()
+            .map(|i| (i, Placed { src: format!("assets/picture-{i}.jpg"), alt: "A picture".into() }))
+            .collect();
+        let mut built = deck(&climate(), &theme, &pictures).unwrap();
+        let jpeg = std::fs::read(root().join("tests/fixtures/jpeg/baseline-422.jpg")).unwrap();
+        for p in pictures.values() {
+            built.assets.insert(p.src.clone(), jpeg.clone());
+        }
+        let (made, write) = making(built, "Data Storytelling", Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        assert!(made.created.created && made.created.errors == 0, "{:#?}", made.created.findings);
+        let deck = write.unwrap().deck.to_value().unwrap();
+        let size = |role: &str| theme.typography.roles[role].size;
+        let node = |state: usize, slot: &str| {
+            let id = deck["states"][state]["id"].as_str().unwrap();
+            deck["nodes"][format!("{id}-{slot}")].clone()
+        };
+        let most = |n: &Value| n["maxSize"].as_f64().unwrap();
+        let ordinals = ["first", "second", "third", "fourth"];
+        // Four steps, each on a card under its number, their words at one size: larger than the
+        // body's, the lede's at most.
+        assert_eq!(made.layouts[19], "numbered-cards");
+        let steps: Vec<f64> = ordinals.iter().map(|o| most(&node(19, o))).collect();
+        assert!(
+            steps.iter().all(|s| *s == steps[0]) && steps[0] > size("body") && steps[0] <= size("lede"),
+            "{steps:?}"
+        );
+        // A scorecard's figures, each on its one line, alike, held under where the widest filled its
+        // place, the numeral's at most; each label standing on its figure.
+        let figures: Vec<Value> = ordinals.iter().map(|o| node(6, &format!("{o}-figure"))).collect();
+        assert!(figures.iter().all(|f| f["maxLines"] == 1 && f["maxSize"] == figures[0]["maxSize"]), "{figures:#?}");
+        assert!(most(&figures[0]) > size("figure") && most(&figures[0]) < size("numeral"), "{figures:#?}");
+        assert_eq!(node(6, "first-title")["align"], json!({ "y": "end" }));
+        // Two sides said in a line each: a card each, the statements set large as titles.
+        assert_eq!(made.layouts[20], "myth-fact");
+        assert_eq!(node(20, "first")["role"], "title");
+        assert_eq!(node(20, "first")["maxSize"], node(20, "second")["maxSize"]);
+        assert!(most(&node(20, "first")) > size("title"));
+        // Every divider's title at one size, past the headline's and the display's at most.
+        let titles: Vec<f64> = pictures.keys().map(|i| most(&node(*i, "title"))).collect();
+        assert!(pictures.keys().all(|i| made.layouts[*i] == "section-photo"), "{:?}", made.layouts);
+        assert!(titles.iter().all(|t| *t == titles[0]), "{titles:?}");
+        assert!(titles[0] > size("headline") && titles[0] <= size("display"), "{titles:?}");
+        // A quote grows past its size, to half again at most.
+        let quote = most(&node(10, "quote"));
+        assert!(quote > size("quote") && quote <= size("quote") * 1.5, "{quote}");
+    }
+
+    #[test]
     fn a_talk_on_climate_change_reads_as_it_was_written() {
         let theme: Theme = serde_json::from_str(&dusk()).unwrap();
         let made = deck(&climate(), &theme, &Pictures::new()).unwrap();
@@ -2285,9 +2479,10 @@ mod tests {
         assert!(
             made.deck["nodes"].as_object().unwrap().values().all(|n| n["type"] != "shader" && n["type"] != "image")
         );
-        assert_eq!((made.layouts[0].as_str(), made.layouts[20].as_str()), ("title-center", "comparison"));
-        // Next steps written as labelled items are steps; a Q&A stays one.
-        assert_eq!((made.layouts[22].as_str(), made.layouts[23].as_str()), ("steps", "qa"));
+        assert_eq!((made.layouts[0].as_str(), made.layouts[20].as_str()), ("title-center", "myth-fact"));
+        // Four next steps written as labelled items are numbered cards; a Q&A stays one.
+        assert_eq!((made.layouts[22].as_str(), made.layouts[23].as_str()), ("numbered-cards", "qa"));
+        assert_eq!(made.layouts[19], "numbered-cards");
     }
 
     #[test]

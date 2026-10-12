@@ -393,16 +393,26 @@ impl Engine {
     /// One text node of a state, laid out and placed: what `frame` draws, and what
     /// layout-level lints (E100 overflow, W200 widows) read.
     pub fn text_layout(&mut self, req: &FrameRequest, node: &str) -> Result<PlacedText, EngineError> {
+        Ok(self.text_layouts(req, &[node])?.remove(0))
+    }
+
+    /// Text nodes of a state, each laid out and placed as [`Engine::text_layout`] places one,
+    /// the state resolved and placed once: what sets several texts alike reads.
+    pub fn text_layouts(&mut self, req: &FrameRequest, nodes: &[&str]) -> Result<Vec<PlacedText>, EngineError> {
         let (deck, theme) = project(req.deck, req.theme, req.format)?;
         let (deck, theme) = (deck.as_ref(), theme.as_ref());
         let snapshots = scaena_core::resolve_states(deck)?;
         let snap = &cascade::with_overrides(deck, &snapshots[state_index(&snapshots, req.state)?]);
-        if !snap.nodes.contains_key(node) {
+        if let Some(node) = nodes.iter().find(|n| !snap.nodes.contains_key(**n)) {
             return Err(EngineError::Layout(format!("node `{node}` is not visible in state `{}`", req.state)));
         }
         let grid = Grid::from_theme(theme, canvas(deck))?;
         let placement = self.place(deck, theme, req.data, &grid, snap)?;
-        self.layout_text_node(deck, theme, grid.baseline, snap, node, placement.boxes[node])
+        let mut placed = Vec::with_capacity(nodes.len());
+        for node in nodes {
+            placed.push(self.layout_text_node(deck, theme, grid.baseline, snap, node, placement.boxes[*node])?);
+        }
+        Ok(placed)
     }
 
     /// Every node's box in `snap` (overrides merged), its container, and paint order:
