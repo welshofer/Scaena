@@ -137,25 +137,40 @@ private func anthropic(_ text: String) -> Data {
     #expect(refused?.message.contains("invalid x-api-key") == true, "\(String(describing: refused))")
 }
 
-/// A deck in letters the theme's fonts cannot draw is refused before any call, in a person's
-/// words, and no provider is asked anything (PLAN G.21); one in Ukrainian is not refused.
+/// A deck in a script the theme's fonts do not draw takes the script's font, fetched, held to its
+/// digest, and kept before any provider is asked anything (PLAN G.22). Kept, it is not fetched for
+/// the next deck. A font that cannot be fetched stops the deck there, in a person's words, and a
+/// deck in Ukrainian needs none.
 @MainActor
-@Test func aLanguageTheThemesFontsCannotDrawIsRefusedFirst() async throws {
+@Test func aDeckInAnotherScriptTakesItsFontFirst() async throws {
+    let devanagari = try Data(contentsOf: repository.appending(path: "tests/fixtures/scripts/NotoSansDevanagari-VF.ttf"))
+    let kept = FileManager.default.temporaryDirectory.appending(path: "scaena-fonts-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: kept) }
     let asked = Asked()
-    let generator = Generator { request in
+    let fonts: Generator.Send = { request in
         await asked.add(request)
-        return GeneratorReply(status: 500, body: Data())
+        if request.url.contains("NotoSansDevanagari") { return GeneratorReply(status: 200, body: devanagari) }
+        return GeneratorReply(status: 404, body: Data())
     }
+    var heard: [String] = []
+    try await Generator(send: fonts, fonts: kept).prepare(language: "Hindi", theme: "dusk") { heard.append($0.words) }
+    #expect(heard == ["Fetching Noto Sans Devanagari, the font a deck in Hindi is set in (0.6 MB)…"])
+    #expect(await asked.requests.map(\.method) == ["GET"])
+    #expect(await asked.requests.first?.url.hasPrefix("https://raw.githubusercontent.com/google/fonts/") == true)
+
+    heard = []
+    try await Generator(send: fonts, fonts: kept).prepare(language: "Hindi", theme: "ember") { heard.append($0.words) }
+    #expect(heard.isEmpty, "kept, it is not fetched again")
+    #expect(await asked.requests.count == 1)
+
     let refused = await #expect(throws: ScaenaError.self) {
-        _ = try await generator.generate(
-            brief: Brief(topic: "気候変動", language: "Japanese"), provider: .anthropic, model: "a-model", key: "sk-writer",
-            theme: "dusk"
-        ) { _ in }
+        try await Generator(send: fonts, fonts: kept).prepare(language: "Japanese", theme: "dusk")
     }
-    #expect(refused?.message.hasPrefix("a deck in Japanese cannot be made in Dusk yet") == true, "\(String(describing: refused))")
+    #expect(refused?.message.hasPrefix("a deck in Japanese is set in Noto Sans JP, which could not be fetched") == true, "\(String(describing: refused))")
     #expect(refused?.message.contains("PLAN") == false)
-    #expect(await asked.requests.isEmpty)
-    try generator.writable(language: "Ukrainian", theme: "ember")
+
+    try await Generator(send: fonts, fonts: kept).prepare(language: "Ukrainian", theme: "ember")
+    #expect(await asked.requests.count == 2, "Ukrainian fetches nothing")
 }
 
 /// What a brief may ask is Narrato's: its goals, lengths, arcs, and defaults.

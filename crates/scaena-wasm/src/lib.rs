@@ -1293,22 +1293,68 @@ impl SavedBundle {
 #[cfg(feature = "generate")]
 #[wasm_bindgen]
 pub fn writable(language: Option<String>, theme: &str, fonts: &js_sys::Map) -> Result<(), JsError> {
+    let given = carried(fonts);
+    let language = language.filter(|l| !l.is_empty());
+    (scaena_ops::narrative::writable(language.as_deref(), theme, true, &|file: &str| font(&given, file)))
+        .map_err(|e| JsError::new(&e.message))
+}
+
+/// Each font in `fonts`, by the path the theme names it at.
+#[cfg(feature = "generate")]
+fn carried(fonts: &js_sys::Map) -> std::collections::BTreeMap<String, Vec<u8>> {
     let mut given = std::collections::BTreeMap::new();
     fonts.for_each(&mut |bytes, path| {
         if let Some(path) = path.as_string() {
             given.insert(path, js_sys::Uint8Array::new(&bytes).to_vec());
         }
     });
-    let font = |file: &str| {
-        let bytes = given.get(file).cloned();
-        bytes.ok_or_else(|| {
-            scaena_ops::OpsError::new(format!("the theme names `{file}`, which the page does not carry"))
-        })
-    };
-    let language = language.filter(|l| !l.is_empty());
-    // Said to a person: the task it waits on is the repository's business.
-    (scaena_ops::narrative::writable(language.as_deref(), theme, true, &font))
-        .map_err(|e| JsError::new(e.message.trim_end_matches(" (PLAN G.22)")))
+    given
+}
+
+/// The font at `file` among those `given`.
+#[cfg(feature = "generate")]
+fn font(given: &std::collections::BTreeMap<String, Vec<u8>>, file: &str) -> Result<Vec<u8>, scaena_ops::OpsError> {
+    let bytes = given.get(file).cloned();
+    bytes.ok_or_else(|| scaena_ops::OpsError::new(format!("the theme names `{file}`, which the page does not carry")))
+}
+
+/// The script whose font a deck in `language` is set in beside the fonts of the theme whose
+/// text is `theme`, each in `fonts` by the path the theme names it at (PLAN G.22, ADR-0027), as
+/// JSON `{ key, family, language, file, url, sha256, bytes }`: where google/fonts serves it, at
+/// the commit the shipped fonts come from, and its digest. None where the theme's fonts draw the
+/// language, or where it names none.
+#[cfg(feature = "generate")]
+#[wasm_bindgen(js_name = scriptFor)]
+pub fn script_for(language: Option<String>, theme: &str, fonts: &js_sys::Map) -> Result<Option<String>, JsError> {
+    let given = carried(fonts);
+    let Some(language) = language.filter(|l| !l.trim().is_empty()) else { return Ok(None) };
+    let needed = scaena_ops::scripts::needed(Some(&language), "", theme, &|file: &str| font(&given, file));
+    let script = needed.map_err(|e| JsError::new(&e.message))?;
+    Ok(script.map(|s| {
+        let mut said = serde_json::to_value(s).unwrap_or_default();
+        said["url"] = s.url(None).into();
+        said.to_string()
+    }))
+}
+
+/// Nothing, if `bytes` are the font of the script keyed `key`, held to its pinned digest; else
+/// why not, in a person's words (PLAN G.22).
+#[cfg(feature = "generate")]
+#[wasm_bindgen(js_name = scriptChecked)]
+pub fn script_checked(key: &str, bytes: &[u8]) -> Result<(), JsError> {
+    let script =
+        scaena_ops::scripts::Script::keyed(key).ok_or_else(|| JsError::new(&format!("no script is keyed {key}")))?;
+    script.check(bytes).map_err(|e| JsError::new(&e.message))
+}
+
+/// The text of the theme `theme` with the font of the script keyed `key` named last in the
+/// fallbacks of its text families, its lines opened as its marks need (PLAN G.22).
+#[cfg(feature = "generate")]
+#[wasm_bindgen(js_name = scriptTaken)]
+pub fn script_taken(theme: &str, key: &str) -> Result<String, JsError> {
+    let script =
+        scaena_ops::scripts::Script::keyed(key).ok_or_else(|| JsError::new(&format!("no script is keyed {key}")))?;
+    scaena_ops::scripts::taken(theme, script).map_err(|e| JsError::new(&e.message))
 }
 
 /// A deck made from a prompt, made a bundle (PLAN G.5, ADR-0026): the deck the generator's

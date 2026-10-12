@@ -84,7 +84,8 @@ pub fn theme_apply(b: &Bundle, theme: &Path, dry_run: bool, force: bool) -> Resu
 /// bundle lacks, and of whose family and style it holds no font, is set in the one offered.
 /// What to write comes back beside what it does: the deck naming the theme, or, refused, the
 /// deck as it is, with the theme to copy in all the same. `applied` says whether the write
-/// names the theme.
+/// names the theme. The family the deck's theme took for a script's font, the new theme takes
+/// too, and is written with it (PLAN G.22).
 pub fn theming(
     b: &Bundle,
     rel: &str,
@@ -93,6 +94,10 @@ pub fn theming(
     copy: bool,
     force: bool,
 ) -> Result<(Themed, Write), OpsError> {
+    // A deck in a script the theme's own fonts do not draw keeps the script's font (PLAN G.22).
+    let carried = crate::scripts::carried(b.theme_json.as_deref(), text)?;
+    let scripted = carried != text;
+    let text = carried.as_str();
     let mut parsed: serde_json::Value = serde_json::from_str(text).with_context(|| format!("{rel} is not JSON"))?;
     let mut mapped = Vec::new();
     let mut added = BTreeMap::new();
@@ -146,7 +151,7 @@ pub fn theming(
     let Delta { added: worse, removed: better } = delta(&before, &states, &after, &states, &[]);
     let (worse, better) = (worse.into_iter().cloned().collect(), better.into_iter().cloned().collect());
     let mut files = added;
-    if copy || !mapped.is_empty() {
+    if copy || scripted || !mapped.is_empty() {
         files.insert(rel.to_string(), text.into_bytes());
     }
     let themed = Themed {

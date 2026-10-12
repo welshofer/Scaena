@@ -21,11 +21,12 @@
 //! a set of files ([`Bundle::saving`]) the caller writes where it keeps them, or zips
 //! ([`zip`]).
 
+pub mod common;
 pub mod crdt;
 mod save;
 pub mod subset;
 
-pub use save::{SaveOptions, Saved, Saving, place, zip};
+pub use save::{SaveOptions, Saved, Saving, place, sha256, zip};
 
 use crdt::{CrdtError, DeckDoc, Edit};
 use scaena_core::Deck;

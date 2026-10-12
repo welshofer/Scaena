@@ -147,6 +147,52 @@ fn agent() -> ureq::Agent {
         .new_agent()
 }
 
+/// The font a deck in `script` takes (PLAN G.22, ADR-0027): kept by its digest in this user's
+/// cache (`$XDG_CACHE_HOME/scaena/fonts`, else `~/.cache/scaena/fonts`), else fetched from
+/// google/fonts (or `$SCAENA_FONTS_BASE`, where a test serves it), checked against the digest
+/// `scaena_ops::scripts` pins, and kept.
+fn script_font(agent: &ureq::Agent, script: &scaena_ops::scripts::Script, json: bool) -> Result<Vec<u8>> {
+    let cache = (std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from))
+        .or_else(|| std::env::var_os("HOME").map(|home| Path::new(&home).join(".cache")))
+        .map(|cache| cache.join("scaena/fonts").join(script.sha256));
+    if let Some(bytes) = cache.as_ref().and_then(|kept| std::fs::read(kept).ok())
+        && script.check(&bytes).is_ok()
+    {
+        return Ok(bytes);
+    }
+    let url = script.url(env(&["SCAENA_FONTS_BASE"]).as_deref());
+    if !json {
+        eprintln!(
+            "fetching {}, the font a deck in {} is set in ({:.1} MB)…",
+            script.family,
+            script.language,
+            script.bytes as f64 / 1e6
+        );
+    }
+    let unfetched = |why: String| {
+        anyhow!(
+            "a deck in {} is set in {}, which could not be fetched from {url}: {why}",
+            script.language,
+            script.family
+        )
+    };
+    let mut response = agent.get(&url).call().map_err(|e| unfetched(e.to_string()))?;
+    if !response.status().is_success() {
+        return Err(unfetched(response.status().to_string()));
+    }
+    let bytes =
+        (response.body_mut().with_config().limit(32 << 20).read_to_vec()).map_err(|e| unfetched(e.to_string()))?;
+    script.check(&bytes)?;
+    if let Some(kept) = &cache
+        && let Some(dir) = kept.parent()
+        && std::fs::create_dir_all(dir).is_ok()
+    {
+        // A cache that cannot be written only means the next deck fetches it again.
+        let _ = std::fs::write(kept, &bytes);
+    }
+    Ok(bytes)
+}
+
 /// `request` made: its status, its reason, and its body; status 0 where it never came back.
 fn fetch(agent: &ureq::Agent, request: &Request) -> Reply {
     let sent = if request.method == "GET" {
@@ -375,8 +421,33 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
     // Before a call is paid for: the place, the theme, the brief, the key, then the sources.
     scaena_ops::create::vacant(dir)?;
     let theme = ThemeSource::of(Path::new(&a.theme))?;
+    let agent = agent();
+    // A deck in a script the theme's fonts do not draw takes the script's font, fetched once and
+    // kept (PLAN G.22): by the brief's language, or by what slides written elsewhere are in.
+    let written = match &a.slides {
+        Some(path) => Some(std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?),
+        None => None,
+    };
+    let needed = scaena_ops::scripts::needed(
+        a.language.as_deref(),
+        written.as_deref().unwrap_or_default(),
+        &theme.text,
+        &|file| theme.font(file),
+    )?;
+    let script = match needed {
+        Some(script) => Some((script, script_font(&agent, script, json)?)),
+        None => None,
+    };
+    let theme_text = match script {
+        Some((script, _)) => scaena_ops::scripts::taken(&theme.text, script)?,
+        None => theme.text.clone(),
+    };
+    let font = |file: &str| match &script {
+        Some((script, bytes)) if script.file == file => Ok(bytes.clone()),
+        _ => theme.font(file),
+    };
     // A deck in letters the theme's fonts cannot draw would be blank where its words stand.
-    scaena_ops::narrative::writable(a.language.as_deref(), &theme.text, theme.shipped, &|file| theme.font(file))?;
+    scaena_ops::narrative::writable(a.language.as_deref(), &theme_text, theme.shipped, &font)?;
     if let Some(name) = &a.arc
         && !scaena_narrato::arcs::arcs().iter().any(|arc| arc.arc.eq_ignore_ascii_case(name))
     {
@@ -426,7 +497,6 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
             Some(key)
         }
     };
-    let agent = agent();
     let reach = scaena_sources::fetch::Reach {
         contact: a.sec_contact.clone().or_else(|| env(&["SCAENA_SEC_CONTACT"])),
         token: env(&["GITHUB_TOKEN", "GH_TOKEN"]),
@@ -450,8 +520,8 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
     match &a.slides {
         Some(path) => {
             generation.choose_arc(a.arc.as_deref());
-            let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-            generation.written(&text, false).map_err(|e| anyhow!("{}: {e}", path.display()))?;
+            let text = written.as_deref().unwrap_or_default();
+            generation.written(text, false).map_err(|e| anyhow!("{}: {e}", path.display()))?;
         }
         None if a.arc.is_some() => generation.choose_arc(a.arc.as_deref()),
         None => {}
@@ -476,7 +546,6 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
             eprintln!("{}", said(&p));
         }
     };
-    let font = |file: &str| theme.font(file);
     let answered = match &a.look_answer {
         Some(path) => Some(std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?),
         None => None,
@@ -493,7 +562,7 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         painter.as_ref(),
         looking,
         &theme.file,
-        theme.text.clone(),
+        theme_text.clone(),
         &font,
         &mut client,
         &mut say,

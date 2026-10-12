@@ -1065,6 +1065,7 @@ export interface Choices {
 
 /** How far a deck being made from a prompt has come, as `scaena generate` says it. */
 export type GeneratingEvent =
+  | { kind: "fetchingFont"; family: string; language: string; megabytes: number }
   | { kind: "reading"; name: string }
   | { kind: "read"; name: string; what: string }
   | { kind: "researching"; topic: string }

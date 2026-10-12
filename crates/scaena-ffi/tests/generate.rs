@@ -206,21 +206,32 @@ fn a_deck_is_made_from_a_prompt_as_swift_makes_one_its_pictures_with_it() {
     }
 }
 
-/// A deck in letters the theme's fonts cannot draw is refused before anything is read or any
-/// call paid for, in a person's words, as the Mac's window asks first (PLAN G.21); one in a
-/// language they draw is not.
+/// A deck in a script the theme's fonts do not draw takes the script's font, which Swift fetches
+/// where `script` says and hands over as `scriptFont`, held to its pinned digest (PLAN G.22). The
+/// theme is asked before anything is read or any call paid for, and refuses the language until
+/// the font is given, in a person's words.
 #[test]
-fn a_language_the_themes_fonts_cannot_draw_is_refused_first() {
+fn a_deck_in_another_script_takes_the_font_swift_fetches() {
     let g = scaena_generator_new();
-    let answer = answered(g, "writable", &json!({ "theme": "dusk", "language": "Japanese" }), &[]);
-    let message = answer["error"]["message"].as_str().unwrap_or_default();
-    assert!(message.starts_with("a deck in Japanese cannot be made in Dusk yet"), "{answer}");
-    assert!(!message.contains("PLAN"), "{message}");
+    let asked = step(g, "script", json!({ "theme": "dusk", "language": "Hindi" }), &[]);
+    let script = &asked["script"];
+    assert_eq!(script["family"], "Noto Sans Devanagari");
+    assert!(script["url"].as_str().unwrap().starts_with("https://raw.githubusercontent.com/google/fonts/"));
+    let here = step(g, "script", json!({ "theme": "dusk", "language": "Hindi", "base": "http://127.0.0.1:9" }), &[]);
+    assert!(here["script"]["url"].as_str().unwrap().starts_with("http://127.0.0.1:9/ofl/"));
     for language in ["Ukrainian", "Czech", "English", ""] {
-        step(g, "writable", json!({ "theme": "ember", "language": language }), &[]);
+        assert_eq!(step(g, "script", json!({ "theme": "ember", "language": language }), &[])["script"], Value::Null);
     }
-    step(g, "writable", json!({ "theme": "daybreak" }), &[]);
-    let answer = answered(g, "writable", &json!({ "theme": "no such theme", "language": "German" }), &[]);
+    let answer = answered(g, "writable", &json!({ "theme": "dusk", "language": "Hindi" }), &[]);
+    let message = answer["error"]["message"].as_str().unwrap_or_default();
+    assert!(message.starts_with("a deck in Hindi cannot be made in Dusk without Noto Sans Devanagari"), "{answer}");
+    assert!(!message.contains("PLAN"), "{message}");
+    let answer = answered(g, "scriptFont", &json!({ "key": "devanagari" }), b"not the font");
+    assert!(answer["error"]["message"].as_str().is_some_and(|m| m.contains("is not the font it names")), "{answer}");
+    let font = std::fs::read("../../tests/fixtures/scripts/NotoSansDevanagari-VF.ttf").unwrap();
+    step(g, "scriptFont", json!({ "key": "devanagari" }), &font);
+    step(g, "writable", json!({ "theme": "dusk", "language": "Hindi" }), &[]);
+    let answer = answered(g, "script", &json!({ "theme": "no such theme", "language": "German" }), &[]);
     assert!(answer["error"]["message"].as_str().is_some_and(|m| m.contains("not a theme that ships")), "{answer}");
     unsafe { scaena_generator_free(g) };
 }

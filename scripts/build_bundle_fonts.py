@@ -257,18 +257,27 @@ def strings(props: dict):
 
 
 def held_to_the_save() -> bool:
-    """Whether the ranges here are the ones a save keeps (scaena-store's `BASE_RANGES` and
-    `SCRIPT_RANGES`): a shipped font without them would lose glyphs a save expects to keep."""
+    """Whether the ranges here are the ones a save keeps (scaena-store's `BASE_RANGES`, and
+    among its `SCRIPT_RANGES`): a shipped font without them would lose glyphs a save expects to
+    keep, and a save that kept fewer would cut what the shipped fonts carry for editing."""
     import re
 
     rust = (ROOT / "crates/scaena-store/src/subset.rs").read_text(encoding="utf-8")
+
+    def ranges(name: str) -> list[tuple[int, int]]:
+        found = re.search(rf"pub const {name}: \[\(u32, u32\); \d+\] =\s*\[(.*?)\];", rust, re.S)
+        pairs = re.findall(r"\(0x([0-9A-Fa-f]+), 0x([0-9A-Fa-f]+)\)", found[1]) if found else []
+        return [(int(lo, 16), int(hi, 16)) for lo, hi in pairs]
+
     ok = True
-    for name, ours in [("BASE_RANGES", BASE_RANGES), ("SCRIPT_RANGES", SCRIPT_RANGES)]:
-        found = re.search(rf"pub const {name}: \[\(u32, u32\); \d+\] = \[(.*?)\];", rust, re.S)
-        theirs = [(int(lo, 16), int(hi, 16)) for lo, hi in re.findall(r"\(0x([0-9A-Fa-f]+), 0x([0-9A-Fa-f]+)\)", found[1])] if found else []
-        if merged(theirs) != merged(ours):
+    if merged(ranges("BASE_RANGES")) != merged(BASE_RANGES):
+        ok = False
+        print(f"error: scaena-store's BASE_RANGES is {ranges('BASE_RANGES')}, and this script's {merged(BASE_RANGES)}")
+    saved = ranges("SCRIPT_RANGES")
+    for script in SCRIPT_RANGES:
+        if script not in saved:
             ok = False
-            print(f"error: scaena-store's {name} is {theirs}, and this script's {merged(ours)}")
+            print(f"error: scaena-store's SCRIPT_RANGES {saved} keep no {script}, which the shipped fonts carry")
     return ok
 
 

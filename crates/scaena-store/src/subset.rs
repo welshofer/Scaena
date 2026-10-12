@@ -19,8 +19,41 @@ pub const BASE_RANGES: [(u32, u32); 4] = [(0x20, 0x7E), (0xA0, 0x17F), (0x218, 0
 
 /// Scripts a subset keeps whole where the deck writes in them, so an edit in them does not
 /// need the original font back either: Greek and Cyrillic, which the shipped themes' fonts
-/// carry whole (PLAN G.21).
-pub const SCRIPT_RANGES: [(u32, u32); 2] = [(0x370, 0x3FF), (0x400, 0x4FF)];
+/// carry whole (PLAN G.21); and Arabic and Devanagari, which a deck in Arabic or Hindi takes
+/// a font for (PLAN G.22).
+pub const SCRIPT_RANGES: [(u32, u32); 6] =
+    [(0x370, 0x3FF), (0x400, 0x4FF), (0x600, 0x6FF), (0x750, 0x77F), (0x900, 0x97F), (0xA8E0, 0xA8FF)];
+
+/// What a subset keeps of a font for a script the deck writes in, beside the deck's own
+/// characters.
+#[derive(Debug, Clone, Copy)]
+pub struct ScriptSet {
+    /// The code points that say the deck writes in the script.
+    pub says: &'static [(u32, u32)],
+    /// The ranges kept whole.
+    pub whole: &'static [(u32, u32)],
+    /// The characters kept, those of them the font has.
+    pub chars: &'static [&'static str],
+}
+
+/// What a subset keeps of a CJK font where the deck writes in its script: the script's
+/// punctuation, kana, and full-width forms whole, and the characters its national standard
+/// puts first ([`crate::common`]), so a deck in Japanese, Chinese, or Korean can be edited in
+/// it without the original font (PLAN G.22, ADR-0027).
+pub const SCRIPT_SETS: [ScriptSet; 2] = [
+    // Han and kana: Japanese or Chinese, whose first levels a font keeps those of it has.
+    ScriptSet {
+        says: &[(0x3040, 0x30FF), (0x3400, 0x4DBF), (0x4E00, 0x9FFF)],
+        whole: &[(0x3000, 0x30FF), (0x31F0, 0x31FF), (0xFF00, 0xFFEF)],
+        chars: &[crate::common::KANJI, crate::common::HANZI],
+    },
+    // Hangul.
+    ScriptSet {
+        says: &[(0x1100, 0x11FF), (0x3130, 0x318F), (0xAC00, 0xD7A3)],
+        whole: &[(0x3000, 0x303F), (0x3130, 0x318F), (0xFF00, 0xFFEF)],
+        chars: &[crate::common::HANGUL],
+    },
+];
 
 /// Tables hb-subset drops by default that shaping can still read: legacy kerning and AAT
 /// layout. A font that has them keeps them.
@@ -34,16 +67,29 @@ pub enum SubsetError {
     Subset(String),
 }
 
-/// `font` with the glyphs for `chars` (and [`BASE_RANGES`], and each of [`SCRIPT_RANGES`]
-/// that `chars` writes in), at their old glyph ids.
-pub fn subset(font: &[u8], chars: &BTreeSet<char>) -> Result<Vec<u8>, SubsetError> {
-    let font = FontRef::new(font).map_err(|e| SubsetError::Read(e.to_string()))?;
+/// The code points a subset for a deck that draws `chars` keeps: `chars`, [`BASE_RANGES`],
+/// each of [`SCRIPT_RANGES`] that `chars` writes in, and what [`SCRIPT_SETS`] keeps for each
+/// script it writes in.
+pub fn kept(chars: &BTreeSet<char>) -> IntSet<u32> {
     let mut unicodes = IntSet::<u32>::empty();
     unicodes.extend(chars.iter().map(|&c| u32::from(c)));
     let written = |&(lo, hi): &(u32, u32)| chars.iter().any(|&c| (lo..=hi).contains(&u32::from(c)));
     for (lo, hi) in BASE_RANGES.into_iter().chain(SCRIPT_RANGES.into_iter().filter(written)) {
         unicodes.insert_range(lo..=hi);
     }
+    for set in SCRIPT_SETS {
+        if set.says.iter().any(written) {
+            set.whole.iter().for_each(|&(lo, hi)| unicodes.insert_range(lo..=hi));
+            unicodes.extend(set.chars.iter().flat_map(|chars| chars.chars()).map(u32::from));
+        }
+    }
+    unicodes
+}
+
+/// `font` with the glyphs for what [`kept`] keeps for `chars`, at their old glyph ids.
+pub fn subset(font: &[u8], chars: &BTreeSet<char>) -> Result<Vec<u8>, SubsetError> {
+    let font = FontRef::new(font).map_err(|e| SubsetError::Read(e.to_string()))?;
+    let unicodes = kept(chars);
     let flags = SubsetFlags::SUBSET_FLAGS_RETAIN_GIDS
         | SubsetFlags::SUBSET_FLAGS_NOTDEF_OUTLINE
         | SubsetFlags::SUBSET_FLAGS_GLYPH_NAMES
@@ -119,6 +165,28 @@ mod tests {
         assert!(!has(&ukrainian, 'λ'), "and not Greek");
         let greek = subset(&inter, &"Δ".chars().collect()).unwrap();
         assert!(has(&greek, 'λ') && has(&greek, 'Ω') && !has(&greek, 'ї'));
+    }
+
+    /// A deck in Japanese, Chinese, or Korean keeps its script's punctuation, kana, and the
+    /// characters its standard puts first, and one in Arabic or Hindi its script whole; a deck
+    /// in English keeps none of them (PLAN G.22).
+    #[test]
+    fn a_subset_keeps_the_characters_a_deck_in_its_script_writes_most() {
+        let keeps = |text: &str, c: char| kept(&text.chars().collect()).contains(u32::from(c));
+        let japanese = "気候変動の現状";
+        for c in ['の', 'ア', '、', '「', '一', '働', 'Ａ'] {
+            assert!(keeps(japanese, c), "{c} for a deck in Japanese");
+        }
+        assert!(keeps("气候变化", '们') && keeps("气候变化", '这'), "hanzi for a deck in Chinese");
+        assert!(keeps("기후 변화", '한') && keeps("기후 변화", '국') && keeps("기후 변화", 'ㄱ'));
+        assert!(!keeps("기후 변화", '一'), "a deck in Korean keeps no kanji");
+        assert!(keeps("تغير المناخ", 'ي') && keeps("तापमान", 'ह'), "Arabic and Devanagari whole");
+        for c in ['の', '一', '한', 'ي', 'ह', 'λ', 'ї'] {
+            assert!(!keeps("Climate", c), "{c} for a deck in English");
+        }
+        assert_eq!(crate::common::KANJI.chars().count(), 2965);
+        assert_eq!(crate::common::HANZI.chars().count(), 3755);
+        assert_eq!(crate::common::HANGUL.chars().count(), 2350);
     }
 
     #[test]

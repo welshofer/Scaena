@@ -52,6 +52,7 @@ public struct Brief: Encodable, Sendable {
 
 /// How far a deck being made from a prompt has come, as `scaena generate` says it.
 public enum GeneratingStep: Equatable, Sendable {
+    case fetchingFont(family: String, language: String, megabytes: Double)
     case reading(String)
     case read(name: String, kind: String)
     case researching(String)
@@ -74,6 +75,8 @@ public enum GeneratingStep: Equatable, Sendable {
     /// What it says, in a person's words.
     public var words: String {
         switch self {
+        case .fetchingFont(let family, let language, let megabytes):
+            "Fetching \(family), the font a deck in \(language) is set in (\(String(format: "%.1f", megabytes)) MB)…"
         case .reading(let name): "Reading \(name)…"
         case .read(let name, let kind): "Read \(name) (\(kind))"
         case .researching(let topic): "Researching \(topic)… (minutes)"
@@ -199,9 +202,20 @@ public final class Generator {
     private let made = Made()
     private var handle: OpaquePointer { made.pointer }
     private let send: Send
+    /// Where a script's font is kept once fetched, by its digest (PLAN G.22).
+    private let fonts: URL?
+    /// The script whose font the engine was given, so that it is not handed over twice.
+    private var scripted: String?
 
-    public init(send: @escaping Send = { await GeneratorReply.made($0) }) {
+    public init(send: @escaping Send = { await GeneratorReply.made($0) }, fonts: URL? = Generator.fontsKept) {
         self.send = send
+        self.fonts = fonts
+    }
+
+    /// Where this app keeps the scripts' fonts it fetched: Application Support.
+    nonisolated public static var fontsKept: URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appending(path: "Scaena/Fonts")
     }
 
     /// The engine's generation, freed with it.
@@ -235,13 +249,61 @@ public final class Generator {
         let kind: String
     }
 
-    /// Whether the fonts of the theme that ships as `theme` draw the letters of `language`, asked
-    /// before any call is paid for (PLAN G.21): a deck in letters its fonts cannot draw is refused,
-    /// saying why, not made with nothing where its words stand.
-    public func writable(language: String?, theme: String) throws {
+    private struct ScriptAsked: Decodable {
+        struct Script: Decodable {
+            let key: String
+            let family: String
+            let language: String
+            let url: String
+            let sha256: String
+            let bytes: Int
+        }
+
+        let script: Script?
+    }
+
+    /// Ready to write a deck in `language` in the theme that ships as `theme`, before a file is
+    /// read or any call is paid for (PLAN G.21, G.22): where the theme's fonts do not draw the
+    /// language's letters, the script's font kept here, else fetched where the engine says, is
+    /// handed to the engine, which holds it to its pinned digest; then the theme is asked whether
+    /// its fonts draw the language, and a deck its fonts cannot draw is refused, saying why.
+    public func prepare(language: String?, theme: String, hear: (GeneratingStep) -> Void = { _ in }) async throws {
         var args: [String: JSONValue] = ["theme": .string(theme)]
         if let language { args["language"] = .string(language) }
+        let asked: ScriptAsked = try step("script", args)
+        if let script = asked.script, script.key != scripted {
+            try await give(script, hear: hear)
+            scripted = script.key
+        }
         let _: JSONValue = try step("writable", args)
+    }
+
+    /// `script`'s font handed to the engine: the one kept here where it is still the font pinned,
+    /// else fetched, then kept.
+    private func give(_ script: ScriptAsked.Script, hear: (GeneratingStep) -> Void) async throws {
+        let keyed: [String: JSONValue] = ["key": .string(script.key)]
+        let kept = fonts?.appending(path: script.sha256)
+        if let kept, let data = try? Data(contentsOf: kept) {
+            do {
+                let _: JSONValue = try step("scriptFont", keyed, bytes: data)
+                return
+            } catch {
+                // Not the font pinned: fetched again below.
+            }
+        }
+        hear(.fetchingFont(family: script.family, language: script.language, megabytes: Double(script.bytes) / 1e6))
+        let reply = await send(GeneratorRequest(method: "GET", url: script.url, headers: [:], body: nil, most: nil))
+        guard reply.status == 200 else {
+            let why = reply.status == 0 ? reply.text : HTTPURLResponse.localizedString(forStatusCode: reply.status)
+            throw ScaenaError(
+                message: "a deck in \(script.language) is set in \(script.family), which could not be fetched from \(script.url): \(why)")
+        }
+        let _: JSONValue = try step("scriptFont", keyed, bytes: reply.body)
+        if let kept {
+            // A font that cannot be kept is fetched again for the next deck.
+            try? FileManager.default.createDirectory(at: kept.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? reply.body.write(to: kept, options: .atomic)
+        }
     }
 
     /// The file `name`, whose bytes are `data`, read by its extension: Markdown, text, RTF, HTML,
@@ -466,7 +528,7 @@ public final class Generator {
         brief: Brief, arc: String? = nil, provider: Provider, model: String, base: String? = nil, key: String,
         theme: String, painter: Painter? = nil, look: Bool = true, hear: (GeneratingStep) -> Void
     ) async throws -> (ScaenaSession, Generated) {
-        try writable(language: brief.language, theme: theme)
+        try await prepare(language: brief.language, theme: theme, hear: hear)
         var args = try asking(brief: brief, provider: provider, model: model, base: base)
         if let arc { args["arc"] = .string(arc) }
         let _: JSONValue = try step("begin", args)

@@ -13,6 +13,8 @@ const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>
 /** How far the deck has come, in words, as `scaena generate` says it. */
 export function said(event: GeneratingEvent): string {
   switch (event.kind) {
+    case "fetchingFont":
+      return `Fetching ${event.family}, the font a deck in ${event.language} is set in (${event.megabytes.toFixed(1)} MB)…`;
     case "reading":
       return `Reading ${event.name}…`;
     case "read":
