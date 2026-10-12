@@ -1924,9 +1924,12 @@ impl Slots<'_> {
             // A card's or a step's own number keeps its size.
             (Some((_, "number")), _) => None,
             (Some(_), "body") => at_least("lede"),
-            // A card's statement, as large as three-quarters of the slide's headline.
+            // A card's statement, as large as three-quarters of the slide's headline; one of two
+            // cards side by side, nine-tenths of it, so each fills its card and the slide's own
+            // headline still leads (G.20).
             (Some(_), "lede") => {
-                size("headline").map(|h| h * 0.75).filter(|most| size(role).is_some_and(|own| *most > own))
+                let most = if self.layout == "myth-fact" { 0.9 } else { 0.75 };
+                size("headline").map(|h| h * most).filter(|most| size(role).is_some_and(|own| *most > own))
             }
             (Some(_), "caption") => at_least("body"),
             // What a figure or a row is, named in a label, as large as words read from the room.
@@ -2449,10 +2452,14 @@ impl Builder {
                             node["maxLines"] = json!(if text.split_whitespace().count() <= 3 { 1 } else { 2 });
                         }
                     }
-                    // A side's statement stands in the middle of its card; the running head stands on
-                    // the slide's foot, as a footer does.
+                    // A side's statement stands in the middle of its card, on as many as three lines
+                    // as it grows to fill the card (G.20); the running head stands on the slide's
+                    // foot, as a footer does.
                     match (s.layout, ordinal(name)) {
-                        ("myth-fact", Some((_, ""))) => node["align"] = json!({ "y": "center" }),
+                        ("myth-fact", Some((_, ""))) => {
+                            node["align"] = json!({ "y": "center" });
+                            node["maxLines"] = json!(3);
+                        }
                         // Of two figures, the one the slide is not about stands back.
                         ("two-figures", Some((k, "figure")))
                             if s.slide
@@ -3333,8 +3340,20 @@ mod tests {
         assert_eq!(made.layouts[13], "milestones");
         assert_eq!(node(13, "third-date")["text"], "2023");
         assert_eq!(node(13, "third")["text"], "Canada\u{2019}s wildfires burn 18 million hectares");
-        // A side's statement stands in the middle of its card.
+        // A side's statement stands in the middle of its card, on as many as three lines, past
+        // three-quarters of the slide's headline and under its size, so that each fills its card
+        // and the headline still leads: the history's long one too (G.20).
         assert_eq!(node(20, "first")["align"], json!({ "y": "center" }));
+        assert_eq!(made.layouts[9], "myth-fact");
+        for side in [node(9, "first"), node(20, "first")] {
+            assert_eq!(side["maxLines"], 3);
+            assert!(most(&side) > size("headline") * 0.75 && most(&side) < size("headline"), "{side:#?}");
+        }
+        // A divider's title stands on what supports it, however many lines it takes (G.20).
+        let layouts: Value = serde_json::from_str(&dusk()).unwrap();
+        for divider in ["section", "section-photo"] {
+            assert_eq!(layouts["layouts"][divider]["slots"]["title"]["align"]["y"], "end", "{divider}");
+        }
         // A head-to-head's sides as figures, what they count said with the row's criterion.
         assert_eq!(made.layouts[12], "head-to-head");
         assert_eq!(node(12, "first-criterion")["text"], "Extreme heat: people exposed every five years");

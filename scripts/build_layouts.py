@@ -158,7 +158,7 @@ layout("Titles", "title-split", "A picture off the left half of the slide, the t
 layout("Titles", "section-photo", "A section's opening beside a picture: its number, its name, and what it covers.", {
     "art": picture((8, 12), (1, 12), "A picture, off the edge", bleed=True),
     "number": slot((1, 4), (3, 4), "numeral", "02"),
-    "title": slot((1, 6), (5, 8), "headline", "Section title"),
+    "title": slot((1, 6), (5, 8), "headline", "Section title", align={"y": "end"}),
     "support": slot((1, 6), (9, 10), "body", "What this part covers"),
 }, ember={"number": ((1, 4), (2, 6)), "title": ((1, 6), (7, 10)), "support": ((1, 6), (11, 12))})
 
@@ -837,6 +837,9 @@ OLD = {
 # slot's own. A number is set as Big Number sets it, and shrinks to fit its slot where it is too
 # wide for it (Jay's call, 2026-10-11).
 OLD_SLOTS = {
+    # A section's title stands on what supports it, as a cover's does, however many lines it takes
+    # (Jay's review of the climate deck, 2026-10-12).
+    "section": {"title": {"align": {"x": "start", "y": "end"}}},
     "stat": {"number": {"role": "hero", "fit": "shrink"}},
     "big-number": {"number": {"fit": "shrink"}},
     "two-numbers": {"first-title": {"fit": "shrink"}, "second-title": {"fit": "shrink"}},
