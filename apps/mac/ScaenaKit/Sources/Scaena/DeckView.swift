@@ -30,6 +30,8 @@ struct DeckView: View {
     @State private var arriving: String?
     @State private var playhead = Playhead()
     @State private var failure: String?
+    /// A picture too large for a slide, waiting on whether a smaller copy of it goes in instead.
+    @State private var oversized: Oversized?
     /// The assistant: the conversation this window keeps.
     @State private var assistant: Assistant?
     /// Text typed in place on the canvas.
@@ -692,6 +694,13 @@ struct DeckView: View {
             } message: { said in
                 Text(said)
             }
+            // A picture too large for a slide: a smaller copy offered, the original left as it is.
+            .alert("This Picture Is Too Large", isPresented: offering, presenting: oversized) { offered in
+                Button("Use a Smaller Copy") { shrink(offered) }
+                Button("Cancel", role: .cancel) { said = "Nothing was added" }
+            } message: { offered in
+                Text(offered.offer)
+            }
     }
 
     /// Whether an export waits to be saved.
@@ -732,6 +741,11 @@ struct DeckView: View {
     /// Whether an alert says why an edit was not made.
     private var failing: Binding<Bool> {
         Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })
+    }
+
+    /// Whether a smaller copy of a picture too large is offered.
+    private var offering: Binding<Bool> {
+        Binding(get: { oversized != nil }, set: { if !$0 { oversized = nil } })
     }
 
     /// The canvas: the state shown on Metal, with what is selected on it.
@@ -983,9 +997,10 @@ struct DeckView: View {
             if ext == "csv" || ext == "json" {
                 attach(data, named: name, cells: nil, in: shown, at: at)
             } else if ["png", "jpg", "jpeg"].contains(ext) {
-                picture(data, named: name, in: shown, at: at)
+                fitting(data, named: name) { picture($0, named: name, in: shown, at: at) }
             } else if let png = Pasteboard.png(data) {
-                picture(png, named: "\((name as NSString).deletingPathExtension).png", in: shown, at: at)
+                let named = "\((name as NSString).deletingPathExtension).png"
+                fitting(png, named: named) { picture($0, named: named, in: shown, at: at) }
             } else {
                 said = "\(name) is neither a picture (PNG, JPEG) nor data (CSV, JSON): nothing was added"
             }
@@ -1013,6 +1028,38 @@ struct DeckView: View {
             also = pasted.also
             let done: String = verb.prefix(1).uppercased() + verb.dropFirst()
             said = ([done] + pasted.lacked).joined(separator: "; ")
+        }
+    }
+
+    /// `data`, a picture, handed to `take` as it is where an image shows it so; where it is too
+    /// large (SPEC §3.3), a smaller copy of it is offered first, and taken if the person wants
+    /// it. What the engine cannot read as a picture at all goes on as it is, to be refused with
+    /// why.
+    private func fitting(_ data: Data, named name: String, _ take: @escaping (Data) -> Void) {
+        guard let picture = try? ScaenaSession.picture(data), !picture.fits else { return take(data) }
+        // One offer at a time: a second picture too large, dropped with the first, waits for the
+        // person to bring it again.
+        guard oversized == nil else {
+            said = "\(name) wasn’t added: it’s too large too, so add it again once the first is in"
+            return
+        }
+        oversized = Oversized(data: data, name: name, picture: picture, take: take)
+    }
+
+    /// The smaller copy offered made, away from the window, and taken: a PNG stays a PNG, its
+    /// transparency kept, and a JPEG a JPEG.
+    private func shrink(_ offered: Oversized) {
+        said = "Making a smaller copy of \(offered.name)…"
+        let (data, longest) = (offered.data, offered.picture.largest)
+        Task { @MainActor in
+            let copy = await Task.detached(priority: .userInitiated) {
+                Pasteboard.smaller(data, longest: longest)
+            }.value
+            guard let copy else {
+                failure = "A smaller copy of \(offered.name) couldn’t be made."
+                return
+            }
+            offered.take(copy)
         }
     }
 
@@ -1088,12 +1135,23 @@ struct DeckView: View {
     }
 
     /// A file dropped at `point`: data as a source with a chart of it; a picture on the image there,
-    /// or inserted.
+    /// or inserted. A picture of a kind an image does not show goes in as a PNG of it, as a paste
+    /// takes one (PLAN 2.96), and one too large as a smaller copy, if the person wants one.
     private func land(_ data: Data, named name: String, in state: String, at point: CGPoint) {
         let ext = (name as NSString).pathExtension.lowercased()
         if ext == "csv" || ext == "json" {
             return attach(data, named: name, cells: nil, in: state, at: point, verb: "added")
         }
+        if !["png", "jpg", "jpeg"].contains(ext), let png = Pasteboard.png(data) {
+            let named = "\((name as NSString).deletingPathExtension).png"
+            return fitting(png, named: named) { landPicture($0, named: named, in: state, at: point) }
+        }
+        fitting(data, named: name) { landPicture($0, named: name, in: state, at: point) }
+    }
+
+    /// A picture let go at `point`: on the image there, it takes that image's place; anywhere
+    /// else it is inserted there.
+    private func landPicture(_ data: Data, named name: String, in state: String, at point: CGPoint) {
         let hit = ((try? editor.session.hits(state: state, at: point)) ?? []).first { $0.locked == nil }
         guard let onto = hit?.node, (try? editor.session.choices(state: state, node: onto))?.type == "image" else {
             return picture(data, named: name, in: state, at: point, verb: "added")
@@ -1384,5 +1442,23 @@ struct DeckView: View {
         } catch {
             failure = "\(error)"
         }
+    }
+}
+
+/// A picture too large for a slide (SPEC §3.3), offered as a smaller copy: the picture, its name,
+/// what the engine read of it, and what takes the copy once it is made.
+private struct Oversized: Identifiable {
+    let id = UUID()
+    let data: Data
+    let name: String
+    let picture: Picture
+    let take: (Data) -> Void
+
+    /// What the offer says, in a person's words.
+    var offer: String {
+        let fitted = picture.fitted
+        return "“\(name)” is \(picture.width.formatted()) × \(picture.height.formatted()) pixels, and a picture on a "
+            + "slide can be up to \(picture.largest.formatted()) on a side. A copy \(fitted.width.formatted()) × "
+            + "\(fitted.height.formatted()) pixels can go in its place. The original file isn’t changed."
     }
 }

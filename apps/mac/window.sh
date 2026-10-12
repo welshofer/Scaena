@@ -422,6 +422,38 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   fi
 fi
 
+# A picture too large for a slide (SPEC §3.3), pasted on the canvas: the window asks whether a
+# smaller copy goes in, the original left as it is, and takes it, a PNG as a PNG with its
+# transparency. A PNG 9000 × 40 made here, its left half clear and its right half red.
+python3 - "$out/wide.png" <<'PY'
+import struct, sys, zlib
+w, h = 9000, 40
+row = b"\0" + bytes([0, 0, 0, 0]) * (w // 2) + bytes([255, 0, 0, 255]) * (w - w // 2)
+chunk = lambda kind, data: struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+open(sys.argv[1], "wb").write(
+    b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0))
+    + chunk(b"IDAT", zlib.compress(row * h, 9)) + chunk(b"IEND", b""))
+PY
+osascript -e "set the clipboard to (read (POSIX file \"$out/wide.png\") as «class PNGf»)" 2>&1 || true
+read -r px py pw ph <<<"$(frames find canvas)" || true
+if [[ "${ph:-}" =~ ^[0-9]+$ ]]; then
+  # A press on the slide gives the canvas the keyboard, and the paste lands about it.
+  pointer click $((px + pw * 9 / 10)) $((py + ph * 17 / 20))
+  sleep 1
+  before=$(holds canvas)
+  menu Edit "Paste"
+  sleep 2
+  shot oversized
+  echo "a picture too large, pasted, asked about: $(app 'get value of every static text of sheet 1 of window 1' | tr '\n' ' ')"
+  taken=$(app 'click button "Use a Smaller Copy" of sheet 1 of window 1')
+  [[ "$taken" == *rror* ]] && taken=$(app 'click button "Use a Smaller Copy" of window 1')
+  echo "Use a Smaller Copy: ${taken:-pressed}; the copy went in: $(changed holds canvas "$before")"
+  sleep 1
+  shot oversized-taken
+else
+  echo "no canvas to paste on: $px $py $pw $ph"
+fi
+
 # The light table (PLAN 3.14), as a presentation app's: every slide in a grid that fills the
 # window, the slides down the side folded away, and a slider at its foot that makes the slides
 # larger, fewer to a row. Where the first slides stand says how many fit across.

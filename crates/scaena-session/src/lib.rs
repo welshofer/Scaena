@@ -381,6 +381,29 @@ impl Session {
         }
     }
 
+    /// A file dropped or pasted on the canvas, `name` handed over at `path` (PLAN 2.96), as
+    /// [`Session::add_file`] hands one over; but a picture an image could not show stays out of
+    /// the bundle, refused saying why, so nothing is left there that Insert offers and the deck
+    /// refuses. One too large is the editor's to offer as a smaller copy before it is dropped
+    /// ([`scaena_engine::images::Picture`]).
+    pub fn dropping(&mut self, name: &str, path: &str, bytes: Vec<u8>) -> Result<(), Error> {
+        let lower = path.to_ascii_lowercase();
+        if [".png", ".jpg", ".jpeg"].iter().any(|e| lower.ends_with(e)) {
+            match scaena_engine::images::Picture::read(&bytes) {
+                Ok(p) if !p.fits() => {
+                    return Err(Error::Ops(format!(
+                        "{name} is {} × {} pixels: a picture on a slide is at most {} pixels on a side",
+                        p.width, p.height, p.largest
+                    )));
+                }
+                Ok(_) => {}
+                Err(why) => return Err(Error::Ops(format!("{name} is not a picture a slide can show: {why}"))),
+            }
+        }
+        self.add_file(path, bytes);
+        Ok(())
+    }
+
     /// The image files the deck names: each to hand over with [`Session::add_file`].
     pub fn image_files(&self) -> Vec<String> {
         self.deck.image_files()
@@ -1707,6 +1730,35 @@ mod tests {
             s.add_file(&path, std::fs::read(format!("{BUNDLE}/{path}")).unwrap());
         }
         s
+    }
+
+    /// A PNG header for a picture of `w` × `h`: all an image reads of one before it is drawn.
+    fn png(w: u32, h: u32) -> Vec<u8> {
+        let mut b = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+        b.extend(w.to_be_bytes());
+        b.extend(h.to_be_bytes());
+        b.extend([8, 6, 0, 0, 0]);
+        b
+    }
+
+    /// A picture dropped joins the bundle; one an image could not show, too large or not a
+    /// picture at all, is refused saying why and stays out of it, so Insert never offers what the
+    /// deck would refuse.
+    #[test]
+    fn a_picture_too_large_stays_out_of_the_bundle() {
+        let mut s = torture();
+        let files = s.files().len();
+        let why = s.dropping("Ridge.png", "assets/large.png", png(11656, 8742)).unwrap_err().to_string();
+        assert_eq!(why, "Ridge.png is 11656 × 8742 pixels: a picture on a slide is at most 8192 pixels on a side");
+        assert!(s.file("assets/large.png").is_none() && s.files().len() == files, "nothing left behind");
+        let gif = s.dropping("Ridge.png", "assets/ridge.png", b"GIF89a".to_vec()).unwrap_err().to_string();
+        assert!(gif.starts_with("Ridge.png is not a picture a slide can show: neither a PNG nor a JPEG"), "{gif}");
+        // The copy made smaller joins it, and so does a file that is no picture.
+        let fits = png(8192, 6144);
+        s.dropping("Ridge.png", "assets/smaller.png", fits.clone()).unwrap();
+        assert_eq!(s.file("assets/smaller.png"), Some(&fits[..]));
+        s.dropping("notes.txt", "assets/notes.txt", b"words".to_vec()).unwrap();
+        assert_eq!(s.files().len(), files + 2);
     }
 
     /// Set `s` up for the golden frame `name`, and say which state it is and when: `state`

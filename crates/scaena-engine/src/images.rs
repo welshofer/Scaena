@@ -35,6 +35,31 @@ pub struct ImageInfo {
 impl ImageInfo {
     /// A PNG's or a JPEG's id and size, from its header; the pixels are the painters' to decode.
     pub fn read(bytes: &[u8]) -> Result<ImageInfo, String> {
+        let Picture { width, height, largest } = Picture::read(bytes)?;
+        if width.max(height) > largest {
+            return Err(format!("{width} × {height} px; images are at most {largest} px a side (SPEC §3.3)"));
+        }
+        let hex: String = Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect();
+        Ok(ImageInfo { id: format!("sha256:{hex}"), width, height })
+    }
+}
+
+/// What an editor reads of a picture before it joins the bundle (SPEC §3.3): its size as it is
+/// seen, and the longest side an image may have, so one too large is offered as a smaller copy
+/// rather than refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub struct Picture {
+    pub width: u32,
+    pub height: u32,
+    /// The longest side an image may have, in pixels ([`MAX_IMAGE_SIDE`]).
+    pub largest: u32,
+}
+
+impl Picture {
+    /// The size of the PNG or JPEG `bytes` as it is seen, from its header: a JPEG's turned by its
+    /// EXIF orientation. One of any size is read; what is neither, or a JPEG this engine cannot
+    /// decode, is refused, saying why.
+    pub fn read(bytes: &[u8]) -> Result<Picture, String> {
         const SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
         let (width, height) = if bytes.starts_with(SIGNATURE) {
             // The first chunk is IHDR: length, type, then width and height, big-endian.
@@ -49,11 +74,12 @@ impl ImageInfo {
         if width == 0 || height == 0 {
             return Err("an image with no pixels".into());
         }
-        if width.max(height) > MAX_IMAGE_SIDE {
-            return Err(format!("{width} × {height} px; images are at most {MAX_IMAGE_SIDE} px a side (SPEC §3.3)"));
-        }
-        let hex: String = Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect();
-        Ok(ImageInfo { id: format!("sha256:{hex}"), width, height })
+        Ok(Picture { width, height, largest: MAX_IMAGE_SIDE })
+    }
+
+    /// Whether an image shows it as it is: no side longer than [`Picture::largest`].
+    pub fn fits(&self) -> bool {
+        self.width.max(self.height) <= self.largest
     }
 }
 
@@ -272,6 +298,26 @@ mod tests {
         assert!(ImageInfo::read(&png(8192, 1)).is_ok());
         assert!(ImageInfo::read(&png(8193, 1)).unwrap_err().contains("at most 8192 px a side"));
         assert!(ImageInfo::read(&png(0, 1)).unwrap_err().contains("no pixels"));
+    }
+
+    /// A picture of any size says how large it is, as it is seen, and whether an image shows it as
+    /// it is: what an editor offers a smaller copy of.
+    #[test]
+    fn a_picture_says_its_size_whatever_it_is() {
+        let fits = Picture::read(&png(8192, 6144)).unwrap();
+        assert_eq!(fits, Picture { width: 8192, height: 6144, largest: 8192 });
+        assert!(fits.fits());
+        let large = Picture::read(&png(11656, 8742)).unwrap();
+        assert_eq!((large.width, large.height), (11656, 8742));
+        assert!(!large.fits());
+        // A JPEG too large to decode, as it is seen: stored 9000 × 45, turned a quarter.
+        let mut turned = include_bytes!("../../../tests/fixtures/jpeg/orientation-6.jpg").to_vec();
+        let sof = turned.windows(2).position(|w| w == [0xFF, 0xC0]).unwrap();
+        turned[sof + 7..sof + 9].copy_from_slice(&9000u16.to_be_bytes());
+        let seen = Picture::read(&turned).unwrap();
+        assert_eq!((seen.width, seen.height, seen.fits()), (45, 9000, false));
+        assert!(ImageInfo::read(&turned).unwrap_err().contains("45 × 9000 px"));
+        assert!(Picture::read(b"GIF89a").unwrap_err().contains("neither a PNG nor a JPEG"));
     }
 
     /// The point under the pointer is the point of the image drawn there, in fractions of

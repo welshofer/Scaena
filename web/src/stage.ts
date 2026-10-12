@@ -35,6 +35,7 @@ import type {
   Outline,
   Painter,
   Pasted,
+  Picture,
   ProviderId,
   Query,
   Rect,
@@ -85,6 +86,7 @@ type Reply = Extract<
       | "dataEdited"
       | "dataUndone"
       | "dropped"
+      | "pictured"
       | "attached"
       | "cells"
       | "models"
@@ -794,9 +796,17 @@ export class Stage {
     return this.request<"exported">({ type: "export", id: ++this.asked, source, as }).then(({ bytes }) => bytes);
   }
 
-  /** Add a file dropped on the page to the bundle; resolves to its path there. */
+  /** Add a file dropped on the page to the bundle; resolves to its path there. A picture an image
+   * could not show, one too large among them, is refused and kept out of the bundle. */
   drop(name: string, bytes: ArrayBuffer): Promise<string> {
     return this.request<"dropped">({ type: "drop", id: ++this.asked, name, bytes }).then(({ path }) => path);
+  }
+
+  /** What the PNG or JPEG `bytes` are as a picture, read as the engine reads it before it is
+   * dropped, so one too large is offered as a smaller copy; refused where it is no picture an
+   * image shows. */
+  picture(bytes: ArrayBuffer): Promise<Picture> {
+    return this.request<"pictured">({ type: "picture", id: ++this.asked, bytes }).then(({ picture }) => picture);
   }
 
   /** A data file dropped on the canvas, into the bundle at `path`, as the source `data` of the
@@ -900,6 +910,7 @@ export class Stage {
       case "zipped":
       case "exported":
       case "dropped":
+      case "pictured":
       case "attached":
       case "cells":
       case "models":

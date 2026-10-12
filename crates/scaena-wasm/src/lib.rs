@@ -51,6 +51,22 @@ impl Player {
         self.0.add_file(path, bytes);
     }
 
+    /// A file dropped or pasted on the canvas, `name` handed over at `path`, as `addFile` hands
+    /// one over; a picture an image could not show, one too large among them, is refused and kept
+    /// out of the bundle (`picture` says so first).
+    pub fn dropping(&mut self, name: &str, path: &str, bytes: Vec<u8>) -> Result<(), JsError> {
+        self.0.dropping(name, path, bytes).map_err(js)
+    }
+
+    /// What the PNG or JPEG `bytes` are as a picture (SPEC §3.3): JSON `{ width, height, largest
+    /// }`, its size as it is seen and the longest side an image may have, read before it is
+    /// dropped so one too large is offered as a smaller copy. An error where it is no picture an
+    /// image shows.
+    pub fn picture(bytes: &[u8]) -> Result<String, JsError> {
+        let picture = scaena_engine::images::Picture::read(bytes).map_err(|e| JsError::new(&e))?;
+        serde_json::to_string(&picture).map_err(js)
+    }
+
     /// The image files the deck names, each to hand over with `addFile`.
     #[wasm_bindgen(js_name = imageFiles)]
     pub fn image_files(&self) -> Vec<String> {
