@@ -48,7 +48,9 @@ struct ScaenaApp: App {
         .defaultPosition(.center)
         #endif
         .commands {
+            #if os(macOS)
             PromptCommands()
+            #endif
             NodeCommands()
             ViewCommands()
             WindowCommands()
@@ -59,11 +61,11 @@ struct ScaenaApp: App {
             SidebarCommands()
             #endif
         }
+        #if os(macOS)
         // New from a Prompt (PLAN G.6): a deck written by Narrato, in a window of its own.
         WindowGroup("New from a Prompt", id: PromptWindow.id) {
             PromptView()
         }
-        #if os(macOS)
         .defaultSize(width: 640, height: 780)
         .restorationBehavior(.disabled)
         .commandsRemoved()

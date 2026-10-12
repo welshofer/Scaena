@@ -1,3 +1,6 @@
+#if os(macOS)
+// New from a Prompt is the Mac's (PLAN G.6): iPadOS makes a new document only from its document
+// browser, whose launch screen left an open deck's window without its toolbar.
 import ScaenaKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -7,7 +10,7 @@ enum PromptWindow {
     static let id = "prompt"
 }
 
-/// File › New from a Prompt… (⌥⌘N), beside New: on the Mac's menu bar and the iPad's.
+/// File › New from a Prompt… (⌥⌘N), beside New on the Mac's menu bar.
 struct PromptCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 
@@ -31,9 +34,7 @@ struct PromptView: View {
     /// Whether the window is the one in front: the keys are read again as it comes back from
     /// Settings, where they are kept on the Mac.
     @Environment(\.appearsActive) private var appearsActive
-    #if os(macOS)
     @Environment(\.openSettings) private var openSettings
-    #endif
     @AppStorage("assistant.provider") private var provider = Provider.anthropic
     @AppStorage("assistant.model.anthropic") private var anthropicModel = ""
     @AppStorage("assistant.model.openai") private var openaiModel = ""
@@ -64,12 +65,6 @@ struct PromptView: View {
     @State private var listing: String?
     /// The providers whose keys the Keychain keeps.
     @State private var kept: Set<Provider> = []
-    /// Bumped as the keys sheet closes, so that the keys are read again.
-    @State private var keysChanged = 0
-    #if !os(macOS)
-    /// The keys, on the iPad in a sheet: it has no Settings window (PLAN 4.2).
-    @State private var keying = false
-    #endif
     @State private var steps: [Line] = []
     @State private var running: Task<Void, Never>?
 
@@ -263,7 +258,7 @@ struct PromptView: View {
         ) { picked in
             if case .success(let urls) = picked { given += urls.map(Given.file) }
         }
-        .task(id: "\(appearsActive)\u{1f}\(keysChanged)") {
+        .task(id: appearsActive) {
             kept = Set(Provider.allCases.filter { keychain.key(for: $0) != nil })
         }
         .task(id: "\(provider.rawValue)\u{1f}\(keyed)") { await list() }
@@ -272,14 +267,6 @@ struct PromptView: View {
             if length.isEmpty { length = choices?.defaults.length ?? "" }
             if modality.isEmpty { modality = choices?.modalities.first?.id ?? "" }
         }
-        #if !os(macOS)
-        .sheet(isPresented: $keying, onDismiss: { keysChanged += 1 }) {
-            NavigationStack {
-                KeysSettings()
-                    .toolbar { Button("Done") { keying = false } }
-            }
-        }
-        #endif
     }
 
     /// Whether Generate can be pressed: a topic, a key, a model, and nothing under way.
@@ -305,13 +292,9 @@ struct PromptView: View {
         return "Made by \(made.name)’s best image model your key lists, two in five slides, ten at most. Your key goes to \(made.name) alone."
     }
 
-    /// Where the keys are kept: Settings on the Mac, a sheet on the iPad (PLAN 4.9).
+    /// Where the keys are kept: Settings (PLAN 3.6).
     private func openKeys() {
-        #if os(macOS)
         openSettings()
-        #else
-        keying = true
-        #endif
     }
 
     /// The models the provider's key can use, the one kept chosen, else the first.
@@ -386,7 +369,8 @@ struct PromptView: View {
                     theme: theme, painter: paint
                 ) { say($0.words) }
                 try Task.checkCancellation()
-                newDocument(ScaenaDocument(generated: session, said: made.words))
+                // A reference document is made by a closure, not an autoclosure.
+                newDocument { ScaenaDocument(generated: session, said: made.words) }
                 dismissWindow(id: PromptWindow.id)
             } catch is CancellationError {
             } catch {
@@ -395,3 +379,4 @@ struct PromptView: View {
         }
     }
 }
+#endif
