@@ -42,6 +42,9 @@ public final class Assistant {
     public private(set) var working = false
     /// Tokens in and out since the conversation began.
     public private(set) var usage = Usage(input: 0, output: 0)
+    /// A question another panel drafted for the user to send (the story's, PLAN G.9): the
+    /// assistant's panel takes it into its box, and it is gone from here.
+    public var drafted: String?
     /// Hears each change the assistant makes to the deck: the source it replaced and the files it
     /// wrote beside the deck, for an undo.
     @ObservationIgnored public var edited: (_ before: String, _ files: [Rewritten]) -> Void = { _, _ in }

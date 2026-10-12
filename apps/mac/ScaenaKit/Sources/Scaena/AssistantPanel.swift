@@ -47,6 +47,12 @@ struct AssistantPanel: View {
             asking
         }
         .task(id: "\(provider.rawValue)\u{1f}\(keysChanged)") { await list() }
+        .onChange(of: assistant.drafted, initial: true) { _, drafted in
+            // A question drafted elsewhere, put in the box to send or change.
+            guard let drafted else { return }
+            question = drafted
+            assistant.drafted = nil
+        }
         #if !os(macOS)
         .sheet(isPresented: $keying, onDismiss: { keysChanged += 1 }) {
             NavigationStack {

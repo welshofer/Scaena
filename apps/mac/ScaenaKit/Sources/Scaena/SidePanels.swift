@@ -34,10 +34,10 @@ enum InspectorTab: String, CaseIterable, Identifiable {
     }
 }
 
-/// What the Document tab shows (PLAN 3.15, 3.18): the theme, a data source as a table, the
-/// bundle's pictures, fonts, and data files, and the versions its history keeps.
+/// What the Document tab shows (PLAN 3.15, 3.18, G.9): the theme, a data source as a table, the
+/// bundle's pictures, fonts, and data files, the versions its history keeps, and the deck's story.
 enum DocumentPanel: String, CaseIterable, Identifiable {
-    case theme, data, media, history
+    case theme, data, media, history, story
 
     var id: String { rawValue }
 
@@ -47,6 +47,7 @@ enum DocumentPanel: String, CaseIterable, Identifiable {
         case .data: "Data"
         case .media: "Media"
         case .history: "History"
+        case .story: "Story"
         }
     }
 }
@@ -62,6 +63,12 @@ struct PanelEdits {
     /// A data file written, or a file taken out: the deck read again, its undo the session's.
     /// Whether it was made.
     let dataMade: (_ name: String, _ edit: () throws -> Void) -> Bool
+    /// A patch made by the user, as a gesture's is (the story's fix, PLAN G.9). Whether it was.
+    let patchMade: (_ name: String, _ ops: [JSONValue]) -> Bool
+    /// Show the state, as a click on it in the slides does.
+    let go: (_ state: String) -> Void
+    /// Put a question to the assistant: its panel shown, the question in its box to send.
+    let ask: (_ question: String) -> Void
 
     /// `edit` made beside the source, one step to undo named `name`: whether it was.
     @discardableResult
@@ -70,6 +77,10 @@ struct PanelEdits {
     /// `edit` of a file, one step to undo named `name`: whether it was made.
     @discardableResult
     func data(_ name: String, _ edit: () throws -> Void) -> Bool { dataMade(name, edit) }
+
+    /// `ops` made by the user, one step to undo named `name`: whether it was made.
+    @discardableResult
+    func patch(_ name: String, _ ops: [JSONValue]) -> Bool { patchMade(name, ops) }
 }
 
 /// An edit the deck refused, and why: thrown, nothing made, the window says why.
@@ -109,7 +120,8 @@ struct InspectorColumn<Formatting: View, Animating: View>: View {
         }
     }
 
-    /// The deck as a whole: its theme, its data, its media, and its history, one at a time.
+    /// The deck as a whole: its theme, its data, its media, its history, and its story, one at a
+    /// time.
     private var documentTab: some View {
         VStack(spacing: 0) {
             Picker("Document", selection: $document) {
@@ -126,6 +138,7 @@ struct InspectorColumn<Formatting: View, Animating: View>: View {
             case .data: DataPanel(editor: editor, edits: edits)
             case .media: FilesPanel(editor: editor, edits: edits)
             case .history: VersionsPanel(editor: editor, edits: edits)
+            case .story: StoryPanel(editor: editor, edits: edits)
             }
         }
     }
