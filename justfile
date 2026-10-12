@@ -53,7 +53,8 @@ mac:
 
 # The iPad app's Xcode project (PLAN 4.2): the engine built for the simulator, the project XcodeGen
 # makes from apps/ipad/project.yml, opened in Xcode, which builds the engine again for whatever it
-# builds; on a Mac with Xcode and XcodeGen (`brew install xcodegen`). An iPad needs your team in
+# builds; on a Mac with Xcode and XcodeGen (`brew install xcodegen`). Run (⌘R) on the ScaenaApp
+# scheme launches the app on the iPad or simulator chosen. An iPad needs your team in
 # apps/ipad/Team.xcconfig: `DEVELOPMENT_TEAM = <your team's ID>`.
 ipad:
     apps/ipad/engine.sh sim debug
