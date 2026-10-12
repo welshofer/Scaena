@@ -434,6 +434,7 @@ fn layout_for(identity: &str, slide: &Slide, items: &[Item], index: usize, theme
         "line-chart" if chart => "line-chart",
         "bar-chart" | "line-chart" => "bullets",
         "two-column" if n == 3 && labelled => "three-columns",
+        "two-column" if n == 4 && labelled => "quadrants",
         "two-column" if labelled => "comparison",
         "two-column" => "two-columns",
         "before-after" => "before-after",
@@ -506,6 +507,16 @@ fn layout_for(identity: &str, slide: &Slide, items: &[Item], index: usize, theme
         "recipe-card" => "recipe",
         _ => "bullets",
     };
+    // A layout with no place for some of the items gives way to a list of them all.
+    let sequential = [
+        "steps", "timeline", "milestones", "how-it-works", "pipeline", "funnel", "roadmap", "agenda", "numbered",
+        "ranking", "manifesto",
+    ];
+    let wanted = match holds(theme, wanted, n) {
+        true => wanted,
+        false if sequential.contains(&identity) => "numbered",
+        false => "bullets",
+    };
     // A theme with none of the library's names draws it in its first layout.
     [wanted, "bullets", "statement"]
         .into_iter()
@@ -513,6 +524,43 @@ fn layout_for(identity: &str, slide: &Slide, items: &[Item], index: usize, theme
         .or_else(|| theme.layouts.keys().next().map(String::as_str))
         .unwrap_or("bullets")
         .to_string()
+}
+
+/// Whether `layout` has a place for each of `n` items: a list or a body holds any number; a
+/// layout of places, one item for each ordinal; a line with its support, one; a quote, a number,
+/// or a definition, the two it sets beside it. A chart takes its takeaway alone, its figures in
+/// its data.
+fn holds(theme: &Theme, layout: &str, n: usize) -> bool {
+    let Some(l) = theme.layouts.get(layout) else { return true };
+    match layout {
+        // A pros-and-cons slide sorts its items onto two lists.
+        "title" | "section" | "bar-chart" | "line-chart" | "pros-cons" => return true,
+        "statement" | "closing" | "thesis" | "headline" => return n <= 1,
+        "quote" | "big-number" | "definition" => return n <= 2,
+        _ => {}
+    }
+    let lists = l.slots.iter().any(|(name, s)| {
+        ordinal(name).is_none()
+            && (matches!(s.prompt, Some(Prompt::Items(_))) || matches!(name.as_str(), "body" | "story" | "details"))
+    });
+    let places = l.slots.keys().filter_map(|name| ordinal(name).map(|(k, _)| k + 1)).max().unwrap_or(0);
+    // A head-to-head's first item names the two sides; a receipt's last is its total.
+    let extra = usize::from(matches!(layout, "head-to-head" | "receipt"));
+    lists || places == 0 || n <= places + extra
+}
+
+/// `text` as a sentence begins: its first word capitalized where it is all lower case, as the
+/// detail after a label begins ("cuts emissions 80%"); a word that has a capital of its own
+/// ("iPhone") left as it is.
+fn sentence(text: &str) -> String {
+    let word = text.split_whitespace().next().unwrap_or_default();
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) if first.is_lowercase() && word.chars().all(|c| !c.is_uppercase()) => {
+            first.to_uppercase().chain(chars).collect()
+        }
+        _ => text.to_string(),
+    }
 }
 
 /// What a slide's slots are filled from.
@@ -610,13 +658,6 @@ fn after_figure(text: &str) -> Option<String> {
     [", ", "; ", " \u{2014} ", " \u{2013} "].iter().find_map(|sep| rest.strip_prefix(sep)).map(|r| r.trim().to_string())
 }
 
-/// Words a card holds: the item's whole where it is short, else what it names.
-fn short(item: &Item) -> String {
-    match &item.label {
-        Some(label) if item.whole.chars().count() > 36 => label.clone(),
-        _ => item.whole.clone(),
-    }
-}
 
 impl Slots<'_> {
     fn title(&self) -> Option<String> {
@@ -640,6 +681,16 @@ impl Slots<'_> {
 
     fn wholes(&self) -> Vec<String> {
         self.items.iter().map(|i| i.whole.clone()).collect()
+    }
+
+    /// Words a card holds: each item whole where every item is short, else what each names, so
+    /// the cards of one slide read alike.
+    fn short(&self, item: &Item) -> String {
+        let long = self.items.iter().any(|i| i.label.is_some() && i.whole.chars().count() > 36);
+        match &item.label {
+            Some(label) if long => label.clone(),
+            _ => item.whole.clone(),
+        }
     }
 
     /// Whether the layout has a slot of this name.
@@ -697,7 +748,7 @@ impl Slots<'_> {
             if part.is_empty()
                 && let Some(kind) = list_kind
             {
-                return Some(Fill::List(listed(&item.detail), kind));
+                return Some(Fill::List(listed(&item.detail).iter().map(|p| sentence(p)).collect(), kind));
             }
             let role = slot.role.as_deref().unwrap_or_default();
             return text(self.part(k, item, part, role));
@@ -753,7 +804,8 @@ impl Slots<'_> {
         match part {
             "title" if figure_role(role) && dated => item.label.clone().or_else(|| figure(&item.whole)),
             "title" if figure_role(role) => item.figure().or_else(|| item.label.clone()),
-            "title" if item.figure_first() && !sibling("") => Some(item.detail.clone()),
+            "title" if item.figure_first() && !sibling("") => Some(sentence(&item.detail)),
+            "title" | "item" | "task" if item.figure_first() => item.name().map(|n| sentence(&n)),
             "title" | "item" | "task" => item.name(),
             "date" => item.label.clone(),
             "figure" | "target" | "price" | "amount" => {
@@ -761,12 +813,12 @@ impl Slots<'_> {
             }
             "note" => said(item).1,
             "" => Some(match (&item.label, figure_apart, name_apart) {
-                // "$4.1M: Q3 revenue, up 12%" with its figure and its name apart: "up 12%".
-                (Some(_), true, true) if item.figure_first() => head(&item.detail).1,
-                (Some(_), true, _) if item.figure_first() => item.detail.clone(),
+                // "$4.1M: Q3 revenue, up 12%" with its figure and its name apart: "Up 12%".
+                (Some(_), true, true) if item.figure_first() => sentence(&head(&item.detail).1),
+                (Some(_), true, _) if item.figure_first() => sentence(&item.detail),
                 // "Leads: 1,200, 28% go on" with its figure apart: "28% go on".
-                (Some(_), true, true) => after_figure(&item.detail).unwrap_or_else(|| item.detail.clone()),
-                (Some(_), _, true) => item.detail.clone(),
+                (Some(_), true, true) => sentence(&after_figure(&item.detail).unwrap_or_else(|| item.detail.clone())),
+                (Some(_), _, true) => sentence(&item.detail),
                 // Its figure apart, its name here: "Houston: 41% of volume" → "Houston";
                 // "Revenue: $4.1M, up 12%" → "Revenue, up 12%".
                 (Some(label), true, false) => match after_figure(&item.detail) {
@@ -774,7 +826,7 @@ impl Slots<'_> {
                     _ => label.clone(),
                 },
                 _ if figure_role(role) => item.figure().unwrap_or_else(|| item.whole.clone()),
-                _ if matches!(role, "title" | "headline" | "display") => short(item),
+                _ if matches!(role, "title" | "headline" | "display") => self.short(item),
                 _ => item.whole.clone(),
             })
             .filter(|t| !t.is_empty()),
@@ -805,15 +857,16 @@ impl Slots<'_> {
                 let sides = parts(&item.detail.replace(" vs. ", " | ").replace(" vs ", " | "));
                 match part {
                     "criterion" => text(item.label.clone()),
-                    "left" => text(sides.first().cloned()),
-                    "right" => text(sides.get(1).cloned()),
+                    "left" => text(sides.first().map(|s| sentence(s))),
+                    "right" => text(sides.get(1).map(|s| sentence(s))),
                     _ => None,
                 }
             }
             // "Strengths: a; b" — each a quadrant's list; a roadmap's phase likewise.
             ("swot" | "roadmap", _, Some((k, ""))) => {
                 let item = self.item(k)?;
-                Some(Some(Fill::List(listed(&item.detail), list_kind.unwrap_or("bullet"))))
+                let points = listed(&item.detail).iter().map(|p| sentence(p)).collect();
+                Some(Some(Fill::List(points, list_kind.unwrap_or("bullet"))))
             }
             // "Pro: …" on one side, "Con: …" on the other.
             ("pros-cons", "first-title", _) => text(Some("Pros".into())),
@@ -855,7 +908,7 @@ impl Slots<'_> {
                     "" => {
                         let detail = item.label.as_ref().map(|_| item.detail.clone()).filter(|d| !d.is_empty());
                         match (role, detail) {
-                            (Some(r), Some(d)) => Some(format!("{r}. {d}")),
+                            (Some(r), Some(d)) => Some(format!("{r} \u{b7} {}", sentence(&d))),
                             (r, d) => r.or(d),
                         }
                     }
@@ -905,7 +958,7 @@ impl Slots<'_> {
                 let item = self.item(k)?;
                 let p: Vec<String> = item.detail.split(" / ").map(|s| s.trim().to_string()).collect();
                 let at = ["does", "thinks", "feels"].iter().position(|l| *l == lane)?;
-                text(p.get(at).cloned().filter(|s| !s.is_empty()))
+                text(p.get(at).filter(|s| !s.is_empty()).map(|s| sentence(s)))
             }
             // "key result: target", the objective the header.
             ("okrs", _, Some((k, part))) => {
@@ -922,12 +975,14 @@ impl Slots<'_> {
                 let status = item.label.as_deref().filter(|l| l.split_whitespace().count() <= 2);
                 text(match part {
                     "state" => status.map(str::to_string),
-                    "" => Some(if status.is_some() { item.detail.clone() } else { item.whole.clone() }),
+                    "" => Some(if status.is_some() { sentence(&item.detail) } else { item.whole.clone() }),
                     _ => None,
                 })
             }
             // Each a quadrant's title, placed on the axes.
-            ("matrix", _, Some((k, ""))) => text(self.item(k).map(short)),
+            ("matrix", _, Some((k, ""))) => text(self.item(k).map(|i| self.short(i))),
+            // A picture's caption under it: the state, and what it is.
+            ("before-after", _, Some((k, ""))) => text(self.item(k).map(|i| i.whole.clone())),
             // What you need, then the method's steps.
             ("recipe", "needs" | "method", _) => {
                 let needed = |i: &Item| {
@@ -938,8 +993,8 @@ impl Slots<'_> {
                 };
                 let (needs, method): (Vec<String>, Vec<String>) = if self.items.iter().any(needed) {
                     (
-                        self.items.iter().filter(|i| needed(i)).map(|i| i.detail.clone()).collect(),
-                        self.items.iter().filter(|i| !needed(i)).map(|i| i.detail.clone()).collect(),
+                        self.items.iter().filter(|i| needed(i)).map(|i| sentence(&i.detail)).collect(),
+                        self.items.iter().filter(|i| !needed(i)).map(|i| sentence(&i.detail)).collect(),
                     )
                 } else {
                     let half = self.items.len().div_ceil(2);
@@ -969,7 +1024,8 @@ impl Slots<'_> {
         let labelled = self.items.iter().all(|i| i.label.is_some());
         if labelled && self.items.iter().any(is_pro) {
             let (a, b): (Vec<&Item>, Vec<&Item>) = self.items.iter().partition(|i| is_pro(i));
-            return (a.iter().map(|i| i.detail.clone()).collect(), b.iter().map(|i| i.detail.clone()).collect());
+            let details = |side: Vec<&Item>| side.iter().map(|i| sentence(&i.detail)).collect();
+            return (details(a), details(b));
         }
         let half = self.items.len().div_ceil(2);
         (self.wholes()[..half].to_vec(), self.wholes()[half..].to_vec())
@@ -1376,12 +1432,12 @@ mod tests {
         };
         let scorecard = made("Scorecard");
         has(&scorecard, "first-figure", "$2.4M");
-        has(&scorecard, "first-title", "offsets bought each year");
-        has(&scorecard, "first", "up 31%");
+        has(&scorecard, "first-title", "Offsets bought each year");
+        has(&scorecard, "first", "Up 31%");
         has(&scorecard, "third-figure", "6 weeks");
         let pipeline = made("Pipeline");
         has(&pipeline, "first-figure", "1,200");
-        has(&pipeline, "first-title", "leads this year");
+        has(&pipeline, "first-title", "Leads this year");
         has(&pipeline, "first", "12% go on");
         let ranking = made("Ranking");
         has(&ranking, "first-rank", "1");
@@ -1394,8 +1450,8 @@ mod tests {
         has(&vs, "first-title", "Tidewater");
         has(&vs, "second-title", "Offsets");
         has(&vs, "first-criterion", "Verification");
-        has(&vs, "first-left", "per-container certificate");
-        has(&vs, "first-right", "self-reported");
+        has(&vs, "first-left", "Per-container certificate");
+        has(&vs, "first-right", "Self-reported");
         let okrs = made("OKRs");
         has(&okrs, "header", "Make the Gulf corridor the default for green freight");
         has(&okrs, "kicker", "Q4 OKRs");
@@ -1407,18 +1463,65 @@ mod tests {
         has(&number, "under", "International Maritime Organization, Fourth GHG Study");
         let journey = made("Journey");
         has(&journey, "first-phase", "Discover");
-        has(&journey, "feels-second", "cautiously impressed");
+        has(&journey, "feels-second", "Cautiously impressed");
         let checklist = made("Checklist");
         has(&checklist, "third-state", "In progress");
-        has(&checklist, "third", "two vessels retrofitted");
+        has(&checklist, "third", "Two vessels retrofitted");
         let receipt = made("Receipt");
         has(&receipt, "fourth-item", "Verification");
         has(&receipt, "total", "$41");
         let team = made("Team");
         has(&team, "second-title", "Ade Okafor");
-        has(&team, "second", "CTO. built direct air capture at scale");
+        has(&team, "second", "CTO \u{b7} Built direct air capture at scale");
+        let before = made("Before / After");
+        has(&before, "first", "Before: buy offsets, file reports, and hope");
+        let matrix = made("2\u{d7}2 Matrix");
+        has(&matrix, "third", "Dashboards");
+        let steps = made("Steps");
+        has(&steps, "first", "The shipper reserves a carbon-negative lane");
         let section = made("Section Header");
         has(&section, "number", "01");
+        assert_eq!(sentence("iPhone sales"), "iPhone sales");
+        assert_eq!(sentence("cuts emissions 80%"), "Cuts emissions 80%");
+    }
+
+    #[test]
+    fn a_layout_with_no_place_for_an_item_gives_way_to_a_list() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        assert!(holds(&theme, "statement", 1) && !holds(&theme, "statement", 4));
+        assert!(holds(&theme, "steps", 4) && !holds(&theme, "steps", 6));
+        assert!(holds(&theme, "pros-cons", 7) && holds(&theme, "bullets", 12) && holds(&theme, "bar-chart", 3));
+        // A head-to-head's first item names the sides; a receipt's last is its total.
+        assert!(holds(&theme, "head-to-head", 4) && !holds(&theme, "head-to-head", 5));
+        assert!(holds(&theme, "receipt", 5) && !holds(&theme, "receipt", 6));
+        let (summary, slides) = catalog();
+        let mut steps = slides.iter().find(|s| s.layout_suggestion == "Steps").unwrap().clone();
+        steps.key_bullets.extend(["Report: certificates reach the buyer".into(), "Renew: the lane books again".into()]);
+        let made = deck(&narrative(&summary, vec![slides[0].clone(), steps, slides[55].clone()]), &theme).unwrap();
+        assert_eq!(made.layouts[1], "numbered");
+    }
+
+    #[test]
+    fn a_recorded_answer_makes_a_deck_that_validates() {
+        use scaena_narrato::{Generation, Provider, Settings, Step};
+        let answer = |name: &str| {
+            std::fs::read_to_string(root().join(format!("crates/scaena-narrato/tests/answers/{name}.json"))).unwrap()
+        };
+        let settings = Settings { provider: Provider::Anthropic, model: "a-model".into(), base: None, browser: false };
+        let mut g = Generation::new(narrative("", Vec::new()).brief, settings).unwrap();
+        assert_eq!(g.answer(200, "OK", &answer("anthropic-arc")).unwrap(), Step::Slides);
+        assert_eq!(g.answer(200, "OK", &answer("anthropic-slides")).unwrap(), Step::Done);
+        let n = g.into_narrative().unwrap();
+        let (made, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        assert!(made.created.created && made.created.errors == 0, "{:#?}", made.created.findings);
+        let deck = write.unwrap().deck;
+        assert_eq!(deck.states.len(), n.slides.len());
+        assert_eq!(deck.meta.as_ref().and_then(|m| m.description.as_deref()), Some(n.executive_summary.as_str()));
+        // Each slide a beat, its title the claim, the chart's figures its evidence.
+        let beats: Vec<_> = deck.spine.iter().flat_map(|s| &s.sections).flat_map(|s| &s.beats).collect();
+        assert_eq!(beats.len(), n.slides.len());
+        assert_eq!(beats[0].claim, n.slides[0].slide_title);
+        assert!(beats.iter().any(|b| b.evidence.iter().any(|e| e.starts_with('@'))));
     }
 
     #[test]

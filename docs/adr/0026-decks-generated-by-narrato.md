@@ -36,7 +36,7 @@ Scaena's constraints bear on all of it:
 
    Scaena adds one block, marked as its own. It tells the model how each layout's bullets are written ("a label, a colon, its detail"; a number first in a scorecard) so they fill the slide's slots.
 2. **No HTTP in Rust; the client makes each call.** A `Generation` gives the client each request and reads the answer handed back, as `scaena-chat` does for the assistant (ADR-0022).
-   - **Providers:** the requests are built for Anthropic, OpenAI, and Gemini, each with its own structured output: `output_config.format`, `response_format`, or `responseJsonSchema`.
+   - **Providers:** the requests are built for Anthropic, OpenAI, and Gemini, each with its own structured output: `output_config.format`, `response_format`, or `responseSchema`.
    - **Fallback:** a failed arc selection falls back to the heuristic, as in Vzestup.
    - **Keys:** a key builds one request's headers and is gone with them.
    - **Models:** the model is the one the user picked from those their key lists, as the assistant's is; no model is named in Scaena's code.
