@@ -2409,6 +2409,10 @@ impl Builder {
         let mut props = Map::new();
         let mut made = SlideMade { data: None };
         let mut claimed = false;
+        // What builds once the transition ends (G.17): each item's nodes, by its place's ordinal
+        // (`first-…`, `second-…`), and each chart.
+        let mut built: Vec<(usize, Vec<String>)> = Vec::new();
+        let mut charts: Vec<String> = Vec::new();
         for (name, slot) in &template.slots {
             let Some(fill) = s.fill(name, slot) else { continue };
             let id = self.unique(&format!("{}-{}", s.state, slug(name, "slot")), Taken::Node);
@@ -2529,6 +2533,15 @@ impl Builder {
                 node["semantic"] = json!("claim");
                 claimed = true;
             }
+            if let Some((k, _)) = ordinal(name) {
+                match built.iter_mut().find(|(i, _)| *i == k) {
+                    Some((_, ids)) => ids.push(id.clone()),
+                    None => built.push((k, vec![id.clone()])),
+                }
+            }
+            if node["type"] == "chart" {
+                charts.push(id.clone());
+            }
             self.nodes.insert(id.clone(), node);
             props.insert(id, json!({}));
         }
@@ -2536,9 +2549,37 @@ impl Builder {
         if after {
             state["transition"] = json!({ "duration": "standard", "ease": "standard" });
         }
+        if let Some(choreography) = builds(s.theme, built, &charts) {
+            state["choreography"] = choreography;
+        }
         self.states.push(state);
         Ok(made)
     }
+}
+
+/// How a slide builds once its transition ends (G.17): each of its items rising after the one
+/// before it, as the theme's `rise` has it, the gap between them more than half the theme's
+/// `standard` duration, so that no more than two move at once; and each chart growing from its
+/// baseline, a mark at a time, as the theme's `grow` has it. Two to six items build, within the
+/// theme's `maxBuild` (lint W321); one item, or more, comes in with the slide.
+fn builds(theme: &Theme, mut built: Vec<(usize, Vec<String>)>, charts: &[String]) -> Option<Value> {
+    let mut items = Vec::new();
+    let standard = theme.motion.durations.get("standard").map_or(420.0, |d| d.0);
+    let gap = (standard * 0.6).round();
+    // The transition, the gaps, and the last item's own rise.
+    let span = |n: usize| 2.0 * standard + gap * n.saturating_sub(1) as f64;
+    if (2..=6).contains(&built.len()) && span(built.len()) <= theme.motion.max_build.unwrap_or(2500.0) {
+        scaena_core::sort::by_key(&mut built, |(k, _)| *k);
+        for (i, (_, ids)) in built.iter().enumerate() {
+            let mut item = json!({ "target": ids, "enter": "rise" });
+            if i > 0 {
+                item["delay"] = json!(gap * i as f64);
+            }
+            items.push(item);
+        }
+    }
+    items.extend(charts.iter().map(|id| json!({ "target": id, "enter": "grow" })));
+    (!items.is_empty()).then(|| json!(items))
 }
 
 /// A chart's figures as a data source, written inline: a row for each category and series.
@@ -3160,6 +3201,20 @@ mod tests {
         assert!(rows("first-figure").1 < rows("first-title").0 && rows("first-title").1 < rows("first").0);
         assert!(rows("first").1 < rows("third-figure").0);
         assert!(node(6, "first-title")["align"].is_null());
+        // Each slide builds once its transition ends (G.17): its four cards rise one after another,
+        // a quarter second and more apart, each card's number, title, and words together; its
+        // bars grow from their baseline; and the cover comes in whole. Lint finds no more moving
+        // at once than the theme allows, nor a build longer than its limit.
+        let cards = deck["states"][19]["choreography"].as_array().unwrap();
+        let delays: Vec<f64> = cards.iter().map(|c| c["delay"].as_f64().unwrap_or(0.0)).collect();
+        assert_eq!(delays, [0.0, 252.0, 504.0, 756.0]);
+        assert!(cards.iter().all(|c| c["enter"] == "rise"), "{cards:#?}");
+        let first: Vec<&str> = cards[0]["target"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+        assert!(first.len() >= 3 && first.iter().all(|t| t.contains("-first")), "{first:?}");
+        let bars = deck["states"][8]["id"].as_str().unwrap();
+        assert_eq!(deck["states"][8]["choreography"], json!([{ "target": format!("{bars}-main"), "enter": "grow" }]));
+        assert!(deck["states"][0].get("choreography").is_none());
+        assert!(!made.created.findings.iter().any(|f| f.code.starts_with("W32")), "{:#?}", made.created.findings);
         // Bars of names with no order of their own run longest first; years keep theirs.
         assert_eq!(node(8, "main")["dataTransform"], json!([{ "sort": "-value" }]));
         assert!(node(16, "main")["dataTransform"].is_null());
