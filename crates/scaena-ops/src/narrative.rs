@@ -2522,7 +2522,7 @@ impl Builder {
                 Fill::Chart => {
                     let Some(chart) = &s.slide.chart_data else { continue };
                     let data = self.unique(&format!("{}-data", s.state), Taken::Data);
-                    self.data.insert(data.clone(), source(chart));
+                    self.data.insert(data.clone(), source(chart, s.layout == "line-chart" && years(chart)));
                     made.data = Some(data.clone());
                     let takeaway = s.item(0).map(|i| i.whole.as_str());
                     chart_node(chart, &data, s.layout, &s.slide.slide_title, takeaway, at)
@@ -2583,7 +2583,7 @@ fn builds(theme: &Theme, mut built: Vec<(usize, Vec<String>)>, charts: &[String]
 }
 
 /// A chart's figures as a data source, written inline: a row for each category and series.
-fn source(chart: &ChartData) -> Value {
+fn source(chart: &ChartData, dated: bool) -> Value {
     let several = chart.series.len() > 1;
     let mut rows = Vec::new();
     for (c, category) in chart.categories.iter().enumerate() {
@@ -2596,7 +2596,8 @@ fn source(chart: &ChartData) -> Value {
             rows.push(row);
         }
     }
-    let mut schema = json!({ "category": "string", "value": "number" });
+    // Years a line runs along are dates, so the line runs on time (G.18).
+    let mut schema = json!({ "category": if dated { "date" } else { "string" }, "value": "number" });
     if several {
         schema["series"] = json!("string");
     }
@@ -2765,6 +2766,16 @@ fn chained(chars: &[char], at: usize) -> bool {
     before || after
 }
 
+/// Whether `chart`'s categories are years, two or more of them: a line along them runs on time,
+/// each the distance from the last that its years are (G.18), not one step apart.
+fn years(chart: &ChartData) -> bool {
+    chart.categories.len() >= 2
+        && chart
+            .categories
+            .iter()
+            .all(|c| c.len() == 4 && c.bytes().all(|b| b.is_ascii_digit()) && c.as_str() >= "1000")
+}
+
 /// Whether `slide` charts two bars of one series.
 fn two(slide: &Slide) -> bool {
     slide
@@ -2834,7 +2845,7 @@ fn chart_node(chart: &ChartData, data: &str, layout: &str, title: &str, takeaway
         "type": "chart",
         "kind": kind,
         "data": format!("@{data}"),
-        "x": { "field": "category", "type": "ordinal" },
+        "x": { "field": "category", "type": if kind == "line" && years(chart) { "temporal" } else { "ordinal" } },
         "y": y,
         "alt": title,
         "semantic": "evidence",
@@ -3305,6 +3316,13 @@ mod tests {
         has(&co2, "callout", "424 ppm");
         has(&co2, "note", "From 280 ppm before industry to 424 ppm in 2024");
         has(&said(4), "callout", "1.55\u{b0}C");
+        // A line along years runs on time, 2010 to 2024 as long as fourteen years are (G.18); bars
+        // of years stay a step apart.
+        let warming = placed(&made.deck, 4, "main");
+        assert_eq!(warming["x"], json!({ "field": "category", "type": "temporal" }));
+        let source = warming["data"].as_str().unwrap().trim_start_matches('@');
+        assert_eq!(made.deck["data"][source]["schema"]["category"], "date");
+        assert_eq!(placed(&made.deck, 16, "main")["x"]["type"], "ordinal");
         // A head-to-head reads "A versus B", and each side's answer: where one side is a bare
         // figure, the other's is too, and what both count goes with the criterion.
         let half = said(12);
