@@ -535,7 +535,7 @@ export interface Grouped {
 
 /** A picture as the engine reads it before it joins the bundle (SPEC §3.3): its size as it is
  * seen, a JPEG's turned by its EXIF orientation, and the longest side an image may have. One too
- * large is offered as a smaller copy (`web/src/pictures.ts`). */
+ * large goes in as a smaller copy, with nothing asked (`web/src/pictures.ts`). */
 export interface Picture {
   width: number;
   height: number;

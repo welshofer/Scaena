@@ -2478,7 +2478,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const readable = PICTURE.test(file.name) ? file : await asPng(file);
     // An image shows a PNG or a JPEG: anything else stays out of the bundle.
     if (!readable) return editor.say(`${file.name} is neither a picture (PNG, JPEG) nor data (CSV, JSON): nothing was added`);
-    // One too large goes in as a smaller copy, if the person wants one.
+    // One too large goes in as a smaller copy, made with nothing asked.
     const picture = await fitting(stage, readable, (words) => editor.say(words));
     if (!picture) return;
     const top = onto ? reached(await stage.hit(shown.state, at, editor.format()).catch(() => [])) : undefined;
