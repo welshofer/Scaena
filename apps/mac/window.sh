@@ -440,6 +440,7 @@ fi
 menu View "Light Table"
 sleep 2
 echo "the light table put away, the slides down the side: $(frames find state-cover)"
+shot light-table-closed
 
 # The deck is edited now: no saving it, so no asking.
 pkill -x Scaena || true

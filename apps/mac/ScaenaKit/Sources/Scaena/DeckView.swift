@@ -132,7 +132,9 @@ struct DeckView: View {
                 beforeTable = columns
                 columns = .detailOnly
             } else if let before = beforeTable {
-                columns = before
+                // `.automatic` leaves a side folded away folded, so the side comes back shown,
+                // unless it was folded away before the light table.
+                columns = before == .detailOnly ? .detailOnly : .all
                 beforeTable = nil
             }
         }
