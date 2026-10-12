@@ -1,10 +1,14 @@
-#if os(macOS)
-// New from a Prompt is the Mac's (PLAN G.6): iPadOS makes a new document only from its document
-// browser, whose launch screen left an open deck's window without its toolbar.
+// New from a Prompt (PLAN G.6): on the Mac, a window File › New from a Prompt… opens; on the iPad,
+// the brief shown over the document browser, from its launch screen, since iPadOS makes a new
+// document only there.
 import ScaenaKit
 import SwiftUI
 import UniformTypeIdentifiers
+#if !os(macOS)
+import UIKit
+#endif
 
+#if os(macOS)
 /// The window File › New from a Prompt… opens (PLAN G.6).
 enum PromptWindow {
     static let id = "prompt"
@@ -21,20 +25,96 @@ struct PromptCommands: Commands {
         }
     }
 }
+#else
+/// New from a Prompt on the iPad (PLAN G.6): the document browser's launch screen offers it beside
+/// New Deck (`ScaenaApp`). The brief shows over the browser, and the deck made is handed to the
+/// browser as a bundle, which it keeps where it stands and opens as a new document.
+@MainActor
+enum Prompting {
+    /// The bundle of the deck made from the brief shown in front of the window that is key, written
+    /// where the browser takes it from; none where the brief was put away first.
+    static func deck() async -> URL? {
+        guard let below = front() else { return nil }
+        return await withCheckedContinuation { continuation in
+            // Cancel and a deck made as it is cancelled both finish: the first is taken.
+            var finished = false
+            let brief = UIHostingController(rootView: NavigationStack {
+                PromptView { made in
+                    guard !finished else { return }
+                    finished = true
+                    below.dismiss(animated: true)
+                    continuation.resume(returning: made)
+                }
+            })
+            brief.modalPresentationStyle = .formSheet
+            brief.preferredContentSize = CGSize(width: 640, height: 780)
+            // Put away by Cancel alone, which tells the browser no deck was made.
+            brief.isModalInPresentation = true
+            below.present(brief, animated: true)
+        }
+    }
+
+    /// `document` written as a bundle named for what it is about, in a folder of its own among the
+    /// app's temporary files, where the browser takes it from; the deck to say `said` as it opens.
+    static func written(_ document: ScaenaDocument, about topic: String, said: String) throws -> URL {
+        let name = fileName(topic)
+        let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let bundle = folder.appending(path: "\(name).scaena", directoryHint: .isDirectory)
+        let files = try document.snapshot(contentType: .scaenaDeck)
+        try ScaenaDocument.wrapper(files).write(to: bundle, options: .atomic, originalContentsURL: nil)
+        ScaenaDocument.handing(said, as: name)
+        return bundle
+    }
+
+    /// A deck's file name from what it is about: its first line, without a slash or a colon, at
+    /// most 60 characters; Untitled where that leaves nothing.
+    static func fileName(_ topic: String) -> String {
+        var name = (topic.split(whereSeparator: \.isNewline).first.map(String.init) ?? "")
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+            .trimmingCharacters(in: .whitespaces)
+        while name.hasPrefix(".") { name.removeFirst() }
+        name = String(name.prefix(60)).trimmingCharacters(in: .whitespaces)
+        return name.isEmpty ? "Untitled" : name
+    }
+
+    /// The view controller in front in the window that is key: the launch screen, or what it shows.
+    private static func front() -> UIViewController? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let window = scenes.flatMap(\.windows).first(where: \.isKeyWindow) ?? scenes.first?.keyWindow
+        var front = window?.rootViewController
+        while let shown = front?.presentedViewController, !shown.isBeingDismissed {
+            front = shown
+        }
+        return front
+    }
+}
+#endif
 
 /// New from a Prompt (PLAN G.6, ADR-0026): a deck written by Narrato from what the user asks,
 /// grounded in the files and links they give, by the provider and model they choose with the key
 /// the Keychain keeps, its pictures made by their image model, as the browser's From a prompt… and
 /// `scaena generate` make one. The engine reads each source, builds each request, and makes the
-/// deck a bundle (`Generator`); each request is made here by `URLSession`. The deck opens in a
-/// window of its own, kept nowhere until it is saved.
+/// deck a bundle (`Generator`); each request is made here by `URLSession`. On the Mac the deck
+/// opens in a window of its own, kept nowhere until it is saved; on the iPad it is handed to the
+/// document browser, which keeps it and opens it (`Prompting`).
 struct PromptView: View {
+    #if os(macOS)
     @Environment(\.newDocument) private var newDocument
     @Environment(\.dismissWindow) private var dismissWindow
     /// Whether the window is the one in front: the keys are read again as it comes back from
     /// Settings, where they are kept on the Mac.
     @Environment(\.appearsActive) private var appearsActive
     @Environment(\.openSettings) private var openSettings
+    #else
+    /// What becomes of the deck: its bundle handed to the document browser, or none.
+    private let finish: (URL?) -> Void
+    /// The keys, on the iPad in a sheet, as the assistant's are (PLAN 4.9).
+    @State private var keying = false
+    /// Bumped as the keys sheet closes, so that the keys are read again.
+    @State private var keysChanged = 0
+    #endif
     @AppStorage("assistant.provider") private var provider = Provider.anthropic
     @AppStorage("assistant.model.anthropic") private var anthropicModel = ""
     @AppStorage("assistant.model.openai") private var openaiModel = ""
@@ -72,6 +152,15 @@ struct PromptView: View {
     private static let offered = try? Generator.choices()
     private var choices: BriefChoices? { Self.offered }
     private let keychain = Keychain()
+
+    #if os(macOS)
+    init() {}
+    #else
+    /// The brief over the document browser: `finish` takes the bundle of the deck made, or none.
+    init(finish: @escaping (URL?) -> Void) {
+        self.finish = finish
+    }
+    #endif
 
     /// A source given: a file, or a link.
     enum Given: Hashable, Identifiable {
@@ -239,9 +328,14 @@ struct PromptView: View {
                 Button("Cancel") {
                     running?.cancel()
                     running = nil
+                    #if os(macOS)
                     dismissWindow(id: PromptWindow.id)
+                    #else
+                    finish(nil)
+                    #endif
                 }
                 .keyboardShortcut(.cancelAction)
+                .accessibilityIdentifier("prompt-cancel")
                 Button(running == nil ? "Generate" : "Generating…", action: generate)
                     .keyboardShortcut(.defaultAction)
                     .disabled(!ready)
@@ -249,7 +343,9 @@ struct PromptView: View {
             }
             .padding([.horizontal, .bottom])
         }
+        #if os(macOS)
         .frame(minWidth: 520, idealWidth: 600, minHeight: 560, idealHeight: 720)
+        #endif
         .navigationTitle("New from a Prompt")
         .fileImporter(
             isPresented: $importing,
@@ -258,9 +354,17 @@ struct PromptView: View {
         ) { picked in
             if case .success(let urls) = picked { given += urls.map(Given.file) }
         }
-        .task(id: appearsActive) {
-            kept = Set(Provider.allCases.filter { keychain.key(for: $0) != nil })
+        #if os(macOS)
+        .task(id: appearsActive) { readKeys() }
+        #else
+        .task(id: keysChanged) { readKeys() }
+        .sheet(isPresented: $keying, onDismiss: { keysChanged += 1 }) {
+            NavigationStack {
+                KeysSettings()
+                    .toolbar { Button("Done") { keying = false } }
+            }
         }
+        #endif
         .task(id: "\(provider.rawValue)\u{1f}\(keyed)") { await list() }
         .onAppear {
             if goal.isEmpty { goal = choices?.defaults.goal ?? "" }
@@ -297,9 +401,18 @@ struct PromptView: View {
         "AEIOU".contains(name.first ?? "x") ? "an \(name)" : "a \(name)"
     }
 
-    /// Where the keys are kept: Settings (PLAN 3.6).
+    /// Where the keys are kept: Settings on the Mac (PLAN 3.6), a sheet on the iPad (PLAN 4.9).
     private func openKeys() {
+        #if os(macOS)
         openSettings()
+        #else
+        keying = true
+        #endif
+    }
+
+    /// The providers whose keys the Keychain keeps, read again.
+    private func readKeys() {
+        kept = Set(Provider.allCases.filter { keychain.key(for: $0) != nil })
     }
 
     /// The models the provider's key can use, the one kept chosen, else the first.
@@ -378,9 +491,14 @@ struct PromptView: View {
                     theme: theme, painter: paint
                 ) { say($0.words) }
                 try Task.checkCancellation()
+                #if os(macOS)
                 // A reference document is made by a closure, not an autoclosure.
                 newDocument { ScaenaDocument(generated: session, said: made.words) }
                 dismissWindow(id: PromptWindow.id)
+                #else
+                let document = ScaenaDocument(generated: session, said: made.words)
+                finish(try Prompting.written(document, about: brief.topic, said: made.words))
+                #endif
             } catch is CancellationError {
             } catch {
                 say(error.localizedDescription, failed: true)
@@ -388,4 +506,3 @@ struct PromptView: View {
         }
     }
 }
-#endif

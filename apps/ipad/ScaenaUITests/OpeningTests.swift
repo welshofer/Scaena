@@ -18,6 +18,31 @@ final class OpeningTests: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground, "the app did not stay up")
     }
 
+    /// The launch screen offers a new deck, or one written from a prompt (PLAN G.6): New from a
+    /// Prompt… shows the brief over the document browser, Generate held until the deck has
+    /// something to be about, and Cancel puts it away with no deck made.
+    @MainActor
+    func testNewFromAPromptShowsTheBriefOverTheBrowser() {
+        let app = launched()
+        let prompting = app.buttons["New from a Prompt…"]
+        XCTAssertTrue(
+            prompting.waitForExistence(timeout: 30), "the launch screen offers no New from a Prompt…: \(app.debugDescription)")
+        XCTAssertTrue(app.buttons["New Deck"].exists, "the launch screen offers no New Deck: \(app.debugDescription)")
+        prompting.tap()
+        let topic = app.descendants(matching: .any).matching(identifier: "prompt-topic").firstMatch
+        XCTAssertTrue(topic.waitForExistence(timeout: 10), "New from a Prompt… shows no brief: \(app.debugDescription)")
+        let generate = app.buttons["prompt-generate"]
+        XCTAssertTrue(generate.exists, "the brief has no Generate: \(app.debugDescription)")
+        XCTAssertFalse(generate.isEnabled, "Generate is offered with nothing to write about")
+        settle()
+        keep(app, as: "prompt")
+        app.buttons["prompt-cancel"].tap()
+        XCTAssertTrue(wait(10) { !topic.exists }, "Cancel left the brief up: \(app.debugDescription)")
+        XCTAssertTrue(prompting.waitForExistence(timeout: 10), "Cancel went elsewhere than the launch screen: \(app.debugDescription)")
+        let canvas = app.descendants(matching: .any).matching(identifier: "canvas").firstMatch
+        XCTAssertFalse(canvas.exists, "Cancel opened a deck: \(app.debugDescription)")
+    }
+
     /// B1 in its window: its forty states down the side, the first shown, and Play.
     @MainActor
     func testB1OpensInItsWindow() throws {

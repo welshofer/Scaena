@@ -70,8 +70,34 @@ final class ScaenaDocument: ReferenceFileDocument {
         // Each save records the edits since in the bundle's history, which the first begins.
         _ = try? session.call("keepHistory") as JSONValue
         editor = DeckEditor(session: session)
+        #if !os(macOS)
+        if let file = configuration.file.filename {
+            opening = Self.handed.withLock { handed -> String? in
+                guard let given = handed, file.hasPrefix(given.name) else { return nil }
+                handed = nil
+                return given.said
+            }
+        }
+        #endif
         openingLog.debug("\(name, privacy: .public) opened in \(Date().timeIntervalSince(began)) s")
     }
+
+    #if !os(macOS)
+    /// A deck New from a Prompt handed the iPad's document browser (PLAN G.6): the name it was
+    /// written under, and what it says as it opens. The browser opens it as a new document under
+    /// that name, or that name numbered where the folder holds one already.
+    private struct Handed: Sendable {
+        let name: String
+        let said: String
+    }
+
+    private static let handed = OSAllocatedUnfairLock<Handed?>(initialState: nil)
+
+    /// The deck written as `name` is to say `said` as it opens.
+    static func handing(_ said: String, as name: String) {
+        handed.withLock { $0 = Handed(name: name, said: said) }
+    }
+    #endif
 
     /// The bundle `file` holds: a folder's files by their paths in it, or a zip.
     static func open(_ file: FileWrapper) throws -> ScaenaSession {
@@ -108,6 +134,11 @@ final class ScaenaDocument: ReferenceFileDocument {
     }
 
     func fileWrapper(snapshot: [String: Data], configuration: WriteConfiguration) throws -> FileWrapper {
+        Self.wrapper(snapshot)
+    }
+
+    /// A bundle's files, by their paths in it, as the folder that holds them.
+    static func wrapper(_ snapshot: [String: Data]) -> FileWrapper {
         let root = FileWrapper(directoryWithFileWrappers: [:])
         for (path, data) in snapshot.sorted(by: { $0.key < $1.key }) {
             var folder = root
