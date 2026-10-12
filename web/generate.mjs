@@ -20,6 +20,10 @@
 //   OpenAI key in OpenAI's header alone, and each shown in its slide's picture place.
 // - The deck shown to the model as it is drawn (PLAN G.13): each slide a JPEG after what is said
 //   of it, and the cover's title as the model tightened it.
+// - Its story (PLAN G.9): the Story tab reads it as Vzestup measures a talk, by the generator's
+//   module: its score and the arc it was written to, the six measures, coherence by words
+//   unscored, a mark on the arc for each slide. A finding's slide is shown at a press; its fix is
+//   one change, which ⌘Z takes back; and its question goes into the assistant's box.
 // Exits 1 on any failure.
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -234,6 +238,62 @@ try {
   const errors = last.findings.filter((f) => f.severity === "error").map((f) => f.code);
   check(last.valid && errors.length === 0, `it lints with no error: ${errors}`);
   check(await page.locator("#play").isHidden(), "Play waits for a save");
+
+  // Its story.
+  await page.click("#tab-story");
+  await page.waitForFunction(() => document.querySelector("#story [data-score] b"), null, { timeout: 60000 });
+  const scored = (await page.textContent("#story [data-score]")).trim();
+  check(/^\d+ of 100, written to the Problem–Solution arc$/.test(scored), `its score, and the arc it was written to: ${scored}`);
+  const named = await page.locator("#story [data-measures] dt").allTextContents();
+  check(named.join() === "Pacing,Balance,Coherence,Arc,Intensity,Tone", `the six measures: ${named}`);
+  const coherence = await page.locator("#story [data-measures] dd").nth(2).textContent();
+  check(coherence.startsWith("—"), `coherence by words, unscored: ${coherence}`);
+  const marks = await page.locator("#story [data-arc] [data-slide]").count();
+  check(marks === 5, `a mark on the arc for each slide: ${marks}`);
+  const said = await page.locator("#story [data-findings] li").allTextContents();
+  const rows = await page.evaluate(() => [...document.querySelectorAll("#story [data-findings] li")].map((li) => li.dataset.slide));
+  const looked = await page.evaluate(() => [...new Set(window.scaena.story.health().findings.map((f) => String(f.slide)))]);
+  check(rows.join() === looked.join(), `a row for each slide with something to look at, in order: ${rows}`);
+  check(!said.some((s) => /\d\.\d\d/.test(s)), `in a person's words, no figure: ${said.join(" | ")}`);
+  const fixable = page.locator("#story [data-findings] li:has([data-fix])").first();
+  check((await fixable.count()) === 1, `a finding offers its fix: ${said.join(" | ")}`);
+  const slide = Number((await fixable.locator("[data-show]").textContent()).replace("Slide ", ""));
+  await fixable.locator("[data-show]").click();
+  await page.waitForFunction((n) => window.scaena.shown() === n - 1, slide, { timeout: 30000 }).catch(() => {});
+  check((await page.evaluate(() => window.scaena.shown())) === slide - 1, `its slide is shown: slide ${slide}`);
+  const kind = await fixable.locator("[data-fix]").first().getAttribute("data-kind");
+  const unfixed = await page.evaluate(() => window.scaena.source());
+  await fixable.locator("[data-fix]").first().click();
+  await page.waitForFunction((was) => window.scaena.source() !== was, unfixed, { timeout: 30000 }).catch(() => {});
+  check((await page.evaluate(() => window.scaena.source())) !== unfixed, `slide ${slide}'s fix is made`);
+  await page.waitForFunction(
+    ([n, k]) => !window.scaena.story.health()?.findings.some((f) => f.slide === n && f.kind === k),
+    [slide, kind],
+    { timeout: 30000 },
+  ).catch(() => {});
+  const after = await page.evaluate(() => window.scaena.story.health()?.findings.map((f) => `${f.slide} ${f.kind}`));
+  check(!after.includes(`${slide} ${kind}`), `the finding is gone: ${after}`);
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Control+z");
+  await page.waitForFunction((was) => window.scaena.source() === was, unfixed, { timeout: 30000 }).catch(() => {});
+  check((await page.evaluate(() => window.scaena.source())) === unfixed, "⌘Z takes the fix back");
+  // Read again after the undo, the finding is back.
+  await page.waitForFunction(
+    ([n, k]) => window.scaena.story.health()?.findings.some((f) => f.slide === n && f.kind === k),
+    [slide, kind],
+    { timeout: 30000 },
+  ).catch(() => {});
+  const back = await page.evaluate(() => window.scaena.story.health()?.findings.map((f) => `${f.slide} ${f.kind}`));
+  check(back.includes(`${slide} ${kind}`), `undone, the finding is back: ${back}`);
+  // A row's questions are asked together.
+  const asked = page.locator("#story [data-findings] li [data-ask]").first();
+  const question = await page.evaluate(() => {
+    const { findings } = window.scaena.story.health();
+    return findings.filter((f) => f.slide === findings[0].slide).map((f) => f.ask).join(" ");
+  });
+  await asked.click();
+  check((await page.getAttribute("#tab-assistant", "aria-selected")) === "true", "a question opens the assistant's tab");
+  check((await page.inputValue("#question")) === question, `the question is in its box: ${question}`);
 } catch (e) {
   failures.push(String(e?.stack ?? e));
 } finally {

@@ -515,3 +515,25 @@ fn a_runs_own_features_and_axes_come_after_the_nodes() {
     assert!(width(&wide) > width(&narrow) + 1.0, "{} against {}", width(&wide), width(&narrow));
     assert!(glyph_x(&wide, 5) - glyph_x(&wide, 4) < glyph_x(&plain, 5) - glyph_x(&plain, 4), "` words` stays narrow");
 }
+
+#[test]
+fn a_balanced_text_keeps_a_hyphenated_word_whole_across_its_lines() {
+    // Balanced alone, the narrowest two lines break inside "Three-Quarters", at its hyphen,
+    // which reads as a word broken in two. A headline keeps the word whole, on as many lines.
+    let text = "Energy Is Three-Quarters of Emissions";
+    let wide = set("specimen", text, 10_000.0, |_| {}).width;
+    let width = wide * 0.8;
+    let greedy = set("specimen", text, width, |s| s.wrap = Some(Wrap::Greedy));
+    let balanced = set("specimen", text, width, |s| s.wrap = Some(Wrap::Balance));
+    assert_eq!((balanced.wrap, balanced.lines.len()), (Wrap::Balance, greedy.lines.len()), "{:?}", balanced.lines);
+    let lines: Vec<&str> = balanced.lines.iter().map(|l| balanced.text[l.text.clone()].trim_end()).collect();
+    assert!(lines.iter().all(|l| !l.ends_with('-')), "{lines:?}");
+    assert!(lines.iter().any(|l| l.contains("Three-Quarters")), "{lines:?}");
+    assert!(balanced.lines.iter().all(|l| l.width <= width + 1e-3), "{:?}", balanced.lines);
+    // A text whose only lines as many as greedy's break at the hyphen keeps that break: here
+    // the word alone outruns half the measure.
+    let narrow = set("specimen", "Self-Evident", set("specimen", "Self-", 10_000.0, |_| {}).width + 1.0, |s| {
+        s.wrap = Some(Wrap::Balance);
+    });
+    assert_eq!(narrow.lines.len(), 2, "{:?}", narrow.lines);
+}

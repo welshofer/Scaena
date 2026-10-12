@@ -1924,9 +1924,12 @@ impl Slots<'_> {
             // A card's or a step's own number keeps its size.
             (Some((_, "number")), _) => None,
             (Some(_), "body") => at_least("lede"),
-            // A card's statement, as large as three-quarters of the slide's headline.
+            // A card's statement, as large as three-quarters of the slide's headline; one of two
+            // cards side by side, nine-tenths of it, so each fills its card and the slide's own
+            // headline still leads (G.20).
             (Some(_), "lede") => {
-                size("headline").map(|h| h * 0.75).filter(|most| size(role).is_some_and(|own| *most > own))
+                let most = if self.layout == "myth-fact" { 0.9 } else { 0.75 };
+                size("headline").map(|h| h * most).filter(|most| size(role).is_some_and(|own| *most > own))
             }
             (Some(_), "caption") => at_least("body"),
             // What a figure or a row is, named in a label, as large as words read from the room.
@@ -1939,6 +1942,10 @@ impl Slots<'_> {
             (None, "headline") if name == "title" && (section || self.layout == "title-split") => at_least("display"),
             (None, "body") if name == "support" && section => at_least("lede"),
             (None, "quote") if name == "quote" => size("quote").map(|q| q * 1.5),
+            // A line's figure, as large as its column takes, up to a scorecard's; what it says
+            // under it, as words read from the room (G.19).
+            (None, "figure") if name == "callout" && self.layout == "line-chart" => at_least("numeral"),
+            (None, "caption") if name == "note" && self.layout == "line-chart" => at_least("body"),
             _ => None,
         }
     }
@@ -2445,10 +2452,14 @@ impl Builder {
                             node["maxLines"] = json!(if text.split_whitespace().count() <= 3 { 1 } else { 2 });
                         }
                     }
-                    // A side's statement stands in the middle of its card; the running head stands on
-                    // the slide's foot, as a footer does.
+                    // A side's statement stands in the middle of its card, on as many as three lines
+                    // as it grows to fill the card (G.20); the running head stands on the slide's
+                    // foot, as a footer does.
                     match (s.layout, ordinal(name)) {
-                        ("myth-fact", Some((_, ""))) => node["align"] = json!({ "y": "center" }),
+                        ("myth-fact", Some((_, ""))) => {
+                            node["align"] = json!({ "y": "center" });
+                            node["maxLines"] = json!(3);
+                        }
                         // Of two figures, the one the slide is not about stands back.
                         ("two-figures", Some((k, "figure")))
                             if s.slide
@@ -2522,7 +2533,7 @@ impl Builder {
                 Fill::Chart => {
                     let Some(chart) = &s.slide.chart_data else { continue };
                     let data = self.unique(&format!("{}-data", s.state), Taken::Data);
-                    self.data.insert(data.clone(), source(chart));
+                    self.data.insert(data.clone(), source(chart, s.layout == "line-chart" && years(chart)));
                     made.data = Some(data.clone());
                     let takeaway = s.item(0).map(|i| i.whole.as_str());
                     chart_node(chart, &data, s.layout, &s.slide.slide_title, takeaway, at)
@@ -2583,7 +2594,7 @@ fn builds(theme: &Theme, mut built: Vec<(usize, Vec<String>)>, charts: &[String]
 }
 
 /// A chart's figures as a data source, written inline: a row for each category and series.
-fn source(chart: &ChartData) -> Value {
+fn source(chart: &ChartData, dated: bool) -> Value {
     let several = chart.series.len() > 1;
     let mut rows = Vec::new();
     for (c, category) in chart.categories.iter().enumerate() {
@@ -2596,7 +2607,8 @@ fn source(chart: &ChartData) -> Value {
             rows.push(row);
         }
     }
-    let mut schema = json!({ "category": "string", "value": "number" });
+    // Years a line runs along are dates, so the line runs on time (G.18).
+    let mut schema = json!({ "category": if dated { "date" } else { "string" }, "value": "number" });
     if several {
         schema["series"] = json!("string");
     }
@@ -2765,6 +2777,16 @@ fn chained(chars: &[char], at: usize) -> bool {
     before || after
 }
 
+/// Whether `chart`'s categories are years, two or more of them: a line along them runs on time,
+/// each the distance from the last that its years are (G.18), not one step apart.
+fn years(chart: &ChartData) -> bool {
+    chart.categories.len() >= 2
+        && chart
+            .categories
+            .iter()
+            .all(|c| c.len() == 4 && c.bytes().all(|b| b.is_ascii_digit()) && c.as_str() >= "1000")
+}
+
 /// Whether `slide` charts two bars of one series.
 fn two(slide: &Slide) -> bool {
     slide
@@ -2834,7 +2856,7 @@ fn chart_node(chart: &ChartData, data: &str, layout: &str, title: &str, takeaway
         "type": "chart",
         "kind": kind,
         "data": format!("@{data}"),
-        "x": { "field": "category", "type": "ordinal" },
+        "x": { "field": "category", "type": if kind == "line" && years(chart) { "temporal" } else { "ordinal" } },
         "y": y,
         "alt": title,
         "semantic": "evidence",
@@ -2863,7 +2885,39 @@ fn chart_node(chart: &ChartData, data: &str, layout: &str, title: &str, takeaway
     {
         node["annotations"] = json!([{ "kind": "highlight", "at": { "x": x } }]);
     }
+    // A line of one series is what its slide is about, drawn in the signal color, and the year
+    // its headline names is marked on it (G.19).
+    if kind == "line" && !several {
+        let mut notes = vec![json!({ "kind": "highlight", "at": { "x": chart.categories } })];
+        notes.extend(period(chart, [Some(title), takeaway]));
+        node["annotations"] = json!(notes);
+    }
     node
+}
+
+/// The mark a line of years makes for the first year its headline, or else its takeaway, names
+/// inside its span (G.19): where the words run on from it ("since 1980", "after", "from"), a
+/// band from it to the last year, saying so; else a rule at it, saying the year.
+fn period(chart: &ChartData, said: [Option<&str>; 2]) -> Option<Value> {
+    if !years(chart) {
+        return None;
+    }
+    let (first, last) = (chart.categories.iter().min()?.as_str(), chart.categories.iter().max()?.as_str());
+    said.into_iter().flatten().find_map(|text| {
+        let words: Vec<&str> = text.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect();
+        let at = words
+            .iter()
+            .position(|w| w.len() == 4 && w.bytes().all(|b| b.is_ascii_digit()) && first < *w && *w < last)?;
+        let year = words[at];
+        let before = at.checked_sub(1).map(|i| words[i].to_lowercase());
+        Some(match before.as_deref() {
+            Some(word @ ("since" | "after" | "from")) => {
+                let word = format!("{}{}", word[..1].to_uppercase(), &word[1..]);
+                json!({ "kind": "band", "at": { "x": [year, last] }, "text": format!("{word} {year}") })
+            }
+            _ => json!({ "kind": "rule", "at": { "x": year }, "text": year }),
+        })
+    })
 }
 
 #[cfg(test)]
@@ -2921,6 +2975,38 @@ mod tests {
             out.push((slot, said));
         }
         out
+    }
+
+    #[test]
+    fn a_line_of_years_marks_the_year_its_headline_names() {
+        let line = |years: &[&str]| ChartData {
+            categories: years.iter().map(|y| y.to_string()).collect(),
+            series: vec![answer::Series { name: None, values: vec![1.0; years.len()] }],
+            ..Default::default()
+        };
+        let span = line(&["1880", "1950", "2024"]);
+        let mark = |title: &str| period(&span, [Some(title), None]);
+        // Words that run on from a year: a band from it to the last.
+        assert_eq!(
+            mark("Warming has accelerated since 1980"),
+            Some(json!({ "kind": "band", "at": { "x": ["1980", "2024"] }, "text": "Since 1980" }))
+        );
+        assert_eq!(
+            mark("After 1990, the rise"),
+            Some(json!({ "kind": "band", "at": { "x": ["1990", "2024"] }, "text": "After 1990" }))
+        );
+        // A year named bare: a rule at it.
+        assert_eq!(mark("The 1970 turn"), Some(json!({ "kind": "rule", "at": { "x": "1970" }, "text": "1970" })));
+        // The takeaway's year where the headline names none.
+        assert_eq!(
+            period(&span, [Some("A long rise"), Some("It doubled from 1960")]).map(|m| m["kind"].clone()),
+            Some(json!("band"))
+        );
+        // No mark for a year at either end, outside the span, or a figure that is no year.
+        for title in ["Hottest in 2024", "Since 1880", "By 2050", "A rise of 1500 tonnes since 990", "Up 12%"] {
+            assert_eq!(mark(title), None, "{title}");
+        }
+        assert_eq!(period(&line(&["Q1", "Q2", "Q3"]), [Some("Since 1980"), None]), None);
     }
 
     #[test]
@@ -3254,8 +3340,20 @@ mod tests {
         assert_eq!(made.layouts[13], "milestones");
         assert_eq!(node(13, "third-date")["text"], "2023");
         assert_eq!(node(13, "third")["text"], "Canada\u{2019}s wildfires burn 18 million hectares");
-        // A side's statement stands in the middle of its card.
+        // A side's statement stands in the middle of its card, on as many as three lines, past
+        // three-quarters of the slide's headline and under its size, so that each fills its card
+        // and the headline still leads: the history's long one too (G.20).
         assert_eq!(node(20, "first")["align"], json!({ "y": "center" }));
+        assert_eq!(made.layouts[9], "myth-fact");
+        for side in [node(9, "first"), node(20, "first")] {
+            assert_eq!(side["maxLines"], 3);
+            assert!(most(&side) > size("headline") * 0.75 && most(&side) < size("headline"), "{side:#?}");
+        }
+        // A divider's title stands on what supports it, however many lines it takes (G.20).
+        let layouts: Value = serde_json::from_str(&dusk()).unwrap();
+        for divider in ["section", "section-photo"] {
+            assert_eq!(layouts["layouts"][divider]["slots"]["title"]["align"]["y"], "end", "{divider}");
+        }
         // A head-to-head's sides as figures, what they count said with the row's criterion.
         assert_eq!(made.layouts[12], "head-to-head");
         assert_eq!(node(12, "first-criterion")["text"], "Extreme heat: people exposed every five years");
@@ -3305,6 +3403,39 @@ mod tests {
         has(&co2, "callout", "424 ppm");
         has(&co2, "note", "From 280 ppm before industry to 424 ppm in 2024");
         has(&said(4), "callout", "1.55\u{b0}C");
+        // A line along years runs on time, 2010 to 2024 as long as fourteen years are (G.18); bars
+        // of years stay a step apart.
+        let warming = placed(&made.deck, 4, "main");
+        assert_eq!(warming["x"], json!({ "field": "category", "type": "temporal" }));
+        let source = warming["data"].as_str().unwrap().trim_start_matches('@');
+        assert_eq!(made.deck["data"][source]["schema"]["category"], "date");
+        assert_eq!(placed(&made.deck, 16, "main")["x"]["type"], "ordinal");
+        // A line of one series is drawn in the signal color, the year its headline names marked:
+        // "Since 1980", a band from it to the last year. Its figure grows as large as its column
+        // takes, to a scorecard's, and the words under it to the body's (G.19).
+        let years: Vec<Value> = made.deck["data"][source]["source"]["inline"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["category"].clone())
+            .collect();
+        assert_eq!(
+            warming["annotations"],
+            json!([
+                { "kind": "highlight", "at": { "x": years } },
+                { "kind": "band", "at": { "x": ["1980", "2024"] }, "text": "Since 1980" },
+            ])
+        );
+        let carbon = placed(&made.deck, 5, "main")["annotations"].as_array().unwrap();
+        assert_eq!(carbon.len(), 1, "a headline that names no year in its span marks none: {carbon:?}");
+        assert_eq!(carbon[0]["kind"], "highlight");
+        let callout = placed(&made.deck, 4, "callout");
+        assert_eq!(
+            (&callout["fit"], &callout["maxSize"], &callout["maxLines"]),
+            (&json!("grow"), &json!(112.0), &json!(1))
+        );
+        let note = placed(&made.deck, 4, "note");
+        assert_eq!((&note["fit"], &note["maxSize"]), (&json!("grow"), &json!(32.0)));
         // A head-to-head reads "A versus B", and each side's answer: where one side is a bare
         // figure, the other's is too, and what both count goes with the criterion.
         let half = said(12);

@@ -15,6 +15,7 @@ const MCP: &[(&str, &str)] = &[
     ("deck_diff", include_str!("../../../docs/schema/mcp/deck_diff.json")),
     ("deck_export", include_str!("../../../docs/schema/mcp/deck_export.json")),
     ("deck_find", include_str!("../../../docs/schema/mcp/deck_find.json")),
+    ("deck_health", include_str!("../../../docs/schema/mcp/deck_health.json")),
     ("deck_history", include_str!("../../../docs/schema/mcp/deck_history.json")),
     ("deck_inspect", include_str!("../../../docs/schema/mcp/deck_inspect.json")),
     ("deck_lint", include_str!("../../../docs/schema/mcp/deck_lint.json")),

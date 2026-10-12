@@ -1141,7 +1141,9 @@ fn greedy_parley(layout: &mut Layout<Ink>, text: &str, max_width: f32, rtl: bool
 }
 
 /// Narrowest width at which greedy breaking keeps the line count it has at `max_width`,
-/// the last line then held to `min_words` words.
+/// the last line then held to `min_words` words. Where that ends a line at the hyphen inside
+/// a word ("Three-" over "Quarters"), which reads as a word broken in two, the lines are set
+/// as [`whole`] sets them instead: as many, none ending so, the widest as narrow as it can be.
 fn balance(layout: &mut Layout<Ink>, b: Breaking, max_width: f32) -> Option<&'static str> {
     // Holding the last line never changes the line count, so the search skips it.
     let probe = Breaking { min_words: 0, ..b };
@@ -1160,7 +1162,83 @@ fn balance(layout: &mut Layout<Ink>, b: Breaking, max_width: f32) -> Option<&'st
             lo = mid;
         }
     }
-    greedy(layout, b, hi)
+    let fallback = greedy(layout, b, hi);
+    let Some(plan) = plan_of(layout, b.segments) else { return fallback };
+    let broken = |line: &Range<usize>| joins(b.text, &b.segments[line.end - 1]);
+    if !plan[..plan.len() - 1].iter().any(broken) {
+        return fallback;
+    }
+    let whole = (0..=b.min_words).rev().find_map(|m| whole(b, max_width, plan.len(), m));
+    match whole {
+        Some(whole) if realize(layout, b.segments, &whole, max_width) => None,
+        // parley would not break there, or no plan keeps every word whole: as balanced.
+        Some(_) => greedy(layout, b, hi),
+        None => fallback,
+    }
+}
+
+/// Whether `segment` ends at the hyphen inside a word, the word going on in the next: a
+/// hyphen or a hyphen (U+2010) between two letters or figures.
+fn joins(text: &str, segment: &Segment) -> bool {
+    let (before, after) = (&text[segment.text.clone()], &text[segment.text.end..]);
+    let mut back = before.chars().rev();
+    matches!(back.next(), Some('-' | '\u{2010}'))
+        && back.next().is_some_and(char::is_alphanumeric)
+        && after.chars().next().is_some_and(char::is_alphanumeric)
+}
+
+/// `count` lines over `b.segments`, none but the last ending at the hyphen inside a word (see
+/// [`joins`]), the widest as narrow as it can be, each fitting the measure, and the last line
+/// starting at least `min_words` words where the paragraph has that many. `None` where no
+/// plan sets the text so.
+fn whole(b: Breaking, max_width: f32, count: usize, min_words: usize) -> Option<Vec<Range<usize>>> {
+    let segments = b.segments;
+    let n = segments.len();
+    // words[i]: how many words start in segments[i..].
+    let mut words = vec![0_usize; n + 1];
+    for k in (0..n).rev() {
+        words[k] = words[k + 1] + usize::from(segments[k].word);
+    }
+    // widest[k][j]: the narrowest widest line setting segments[..j] in k lines; start[k][j]:
+    // where its last line starts.
+    let mut widest = vec![vec![f32::INFINITY; n + 1]; count + 1];
+    let mut start = vec![vec![0_usize; n + 1]; count + 1];
+    widest[0][0] = 0.0;
+    for k in 1..=count {
+        for j in k..=n {
+            if j < n && (joins(b.text, &segments[j - 1]) || segments[j - 1].hard) {
+                continue;
+            }
+            for i in (k - 1..j).rev() {
+                let (width, room) = line_fit(segments, &(i..j), max_width);
+                if width > room && i < j - 1 {
+                    break; // more segments only widen the line
+                }
+                if !widest[k - 1][i].is_finite() {
+                    continue;
+                }
+                if j == n && words[i] < min_words && words[0] >= min_words {
+                    continue;
+                }
+                let most = widest[k - 1][i].max(width);
+                if most < widest[k][j] {
+                    widest[k][j] = most;
+                    start[k][j] = i;
+                }
+            }
+        }
+    }
+    if !widest[count][n].is_finite() {
+        return None;
+    }
+    let mut plan = Vec::with_capacity(count);
+    let mut j = n;
+    for k in (1..=count).rev() {
+        plan.push(start[k][j]..j);
+        j = start[k][j];
+    }
+    plan.reverse();
+    Some(plan)
 }
 
 /// What a line has room for besides the measure: the marks it hangs at an aligned edge,

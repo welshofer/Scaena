@@ -219,7 +219,9 @@ fn skills_name_only_what_exists() {
 fn every_skill_is_served_and_listed() {
     let spec = std::fs::read_to_string(format!("{ROOT}/docs/SPEC.md")).unwrap();
     let start = spec.find("### 7.6").unwrap();
-    let section = &spec[start..start + spec[start..].find("\n## ").unwrap()];
+    // To the next heading, of a section or of §7's next part.
+    let end = ["\n## ", "\n### "].iter().filter_map(|h| spec[start + 1..].find(h)).min().unwrap();
+    let section = &spec[start..start + 1 + end];
     let listed: BTreeSet<&str> = spans(section).into_iter().filter(|s| !s.contains(['/', '.'])).collect();
     let skills = skills();
     let names: BTreeSet<&str> = skills.iter().map(|(n, _)| n.as_str()).collect();

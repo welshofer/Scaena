@@ -265,7 +265,7 @@ Italic is a family's own italic face (PLAN 2.40). A role, or a text's `style` (a
 
 The engine MUST implement:
 - Shaping via `harfrust` (the HarfBuzz port) through `parley` (ligatures, kerning, contextual alternates, OpenType features, variable axes), with per-run `features` and `axes` overrides (§3.3). A run of text in one font is shaped whole across a change of tracking or color, so the font's kerning, ligatures, and contextual forms hold across it; a change of font, size, features, axes, or language shapes each side apart (parley, patched: ADR-0004 finding 21). Font tables and metrics are read with `skrifa` (ADR-0004).
-- Line breaking: `wrap: "greedy" | "pretty" | "balance"`. `pretty` minimizes raggedness and avoids short last lines (Knuth–Plass or equivalent); `balance` equalizes line lengths (titles).
+- Line breaking: `wrap: "greedy" | "pretty" | "balance"`. `pretty` minimizes raggedness and avoids short last lines (Knuth–Plass or equivalent); `balance` equalizes line lengths (titles); where its lines would end at the hyphen inside a word ("Three-" over "Quarters"), it sets as many lines that keep the word whole, the widest as narrow as it can be, if any fit.
 - Hyphenation by `lang`, where the node or its role sets `hyphenate` (off unless one does). Words break at the hyphenation points of the TeX patterns for the language of `lang` (its first subtag; the node's, else the deck's). The engine carries 17: English, German, French, Spanish, Italian, Portuguese, Dutch, Swedish, Danish, Finnish, Polish, Czech, Russian, Ukrainian, Turkish, Greek, and Catalan. Text in another language does not hyphenate.
   - The patterns are hyph-utf8's, compiled to tries by `hypher` 0.1.8. The engine walks them as `hypher` does (`scaena_engine::hyphen`, ADR-0015).
   - Native builds and the player's module have every trie compiled in. The editor's module is handed a language's the first time a text hyphenates in it (§9.2). A trie handed over is held to its SHA-256, so a frame is the same bytes either way. A language whose trie cannot be had is an error that says so, never text set without hyphens.
@@ -937,6 +937,7 @@ scaena patch     <bundle> --ops ops.json|- [--dry-run]  # JSON Patch (RFC 6902) 
 scaena find      <bundle> TEXT [--case] [--words] [--replace WITH [--dry-run]]   # the texts, descriptions, notes, and claims that hold TEXT, where each is written; every match replaced in one patch
 scaena data      <bundle> SOURCE [--edits edits.json|- [--dry-run]]   # a data source as a table, or edited in place (§3.10)
 scaena files     <bundle> [--remove PATHS [--dry-run]]   # the bundle's images, fonts, and data, and what uses each; those nothing names taken out
+scaena health    <bundle>                             # its narrative health (§7.7): scores, each slide as read, findings with fixes
 scaena history   <bundle> [--at VERSION [--scn] | --diff FROM[,TO] | --restore VERSION [--dry-run]]   # the versions its history keeps; one as it was, two compared, one made the deck again
 scaena diff      <bundle> --from ID --to ID           # what changes between two states (resolved)
 scaena save      <bundle> [--to DIR|FILE.scaena] [--keep-fonts] [--history]   # write the bundle as §3.1 lays it out
@@ -1171,6 +1172,7 @@ An editor puts a box about the pointer, snapped to the theme's grid as a dropped
 | `deck_render` | `scaena render`: `state`, `t`, `format`, `size`, `painter`, and `out`. | the PNG as image content, and `{ state, size, span_ms, digest, painter, out?, ms }` as text |
 | `deck_export` | `scaena export`: `format`, `states`, `out`, `size`, `fps`, `audio`, and `painter` (a video's: `gpu` in a server built with it). All but the spine needs `out`. An export still going after 40 s answers `running` (see **Long exports**). | `{ format, out?, spine?, pages?, files?, size?, frames?, fps?, duration_ms?, timeline?, chapters?, painter?, adapter?, bytes? }`, or `{ format, out, running }` |
 | `deck_diff` | `scaena diff`. | `{ changes }` |
+| `deck_health` | `scaena health`: the deck's narrative health (§7.7). | `{ score, arc?, beats, pacing, balance, coherence, fidelity, intensity, tone, slides, findings }` |
 | `deck_history` | `scaena history`: with nothing else, the versions; `at` (with `scn`), `compare` (one version or two), or `restore` (with `dry_run`), one at a time. | `{ versions }`, `{ seen }`, `{ compared }`, or `{ restored }` |
 | `theme_apply` | `scaena theme --apply`, `force` its `--force`. | `{ theme, was, applied, refused, mapped, listed, added, removed, errors }` |
 | `theme_edit` | `scaena theme --edit` or `--from-photo`: `ops`, RFC 6902 operations on the theme the deck names, or `photo`, an image the bundle holds whose colors the theme takes, and `dry_run` (§3.6). | `{ theme, paths, applied, refused, listed, added, removed, errors, photo? }`: `photo`, what the photo's colors are and what each of the theme's became |
@@ -1351,6 +1353,22 @@ Prompts and procedures for agents ship in-repo as skills (`skills/<name>/SKILL.m
 Skills are versioned with the format, and the MCP server serves each as `scaena://skills/<name>`. A test (`crates/scaena-cli/tests/skills.rs`) holds every skill to what exists: the commands and flags it shows, the MCP tools and resources it names, its lint codes, its files, and its SPEC sections.
 
 ---
+
+### 7.7 Narrative health
+
+How well a deck tells its story, measured as Vzestup measures a talk (PLAN G.9, ADR-0026; `scaena_narrato::health`, its numbers Vzestup's to the last bit), over the deck's slides as they stand (`scaena_ops::health`). `scaena health` and `deck_health` give it.
+
+- **A slide** is a run of states one slide holds (§2.2). Its headline is the claim of the beat that tells it, else its text that heads it. Its words are what its last state shows past the headline and the running head: each item of a layout's set (`first-…`, `second-…`) a point, its parts together, each item of a list a point, and each other text a line. Its notes are its beat's and its states'. What the narrative declared of it is its beat's `media.narrato`, which a generated deck carries: the arc's beat it was written for, and the intensity (0–1) and tone (−1 grave to +1 hopeful) it was written at.
+- **The measures**, each 0–100 with what it says:
+  - **pacing**: the slides against the range the brief asked (`meta.narrative.brief.length`), five off for each outside it; with none asked, against the 18 slides a talk of no length is paced for, as Vzestup paces one;
+  - **balance**: the points each slide makes, two to five reading as full, what its notes give the speaker, and how many slides say more than a few words;
+  - **coherence**: how each slide follows from the one before, read by their words alone, and so given no number, as Vzestup gives none without embeddings: only where the talk turns sharply;
+  - **fidelity**: how closely the intensity the slides declare follows the curve of the arc the deck was written to (`meta.narrative.arc`), else a talk's, warped onto it, the climax weighed most;
+  - **intensity** and **tone**: how closely the words carry what each slide declares, as a designed lexicon reads them: English only, and never in the score.
+- **The score** weighs pacing, balance, and fidelity as Vzestup does where coherence reads words.
+- **Each slide** as read: its first state, its beat, its headline, the arc's curve at its place (`meta.narrative.arc`), the intensity and tone it declares and that its words read, how like its words are to the slide's before it, and how it stands: `ok`, `bends` (its intensity strays from the curve), or `drifted` (it stands outside the longest run of slides whose beats keep the arc's order: written for one beat, it now stands among another's, which a deck as Narrato writes it never does).
+- **Findings**, slide by slide, each with what it says, the question to put to the assistant about it, and, where one is safe, a fix: a patch that declares the intensity or the tone its words read, or makes a moved slide part of the beat it now stands in. A slide with no headline is an error; one that says nothing past it and has no notes, a turn its words do not make, words far from what the slide declares, and a slide that drifted are warnings; a slide whose intensity bends the curve is information.
+- **The story panel.** The browser editor's Story tab shows it (`web/src/story.ts`), and so does the Story panel of the Mac's and the iPad's Document tab (`StoryPanel`, through the C ABI's `health`): the score and the arc the deck was written to, each measure with what it says, the arc's curve with the intensity each slide declares on it and what its words read (a press on a slide's mark shows the slide), and the findings, each with its slide, its fix where it has one, made by `user` as one step to undo, and its question, which goes into the assistant's box to send or change. It is read again as the deck changes while the tab is shown. The worker reads it by the generator's module (`health`, §9.2), loaded the first time, so the engine's module carries none of it (§15).
 
 ## 8. Storage, versioning, collaboration
 
@@ -1560,7 +1578,7 @@ Editor v1 (PLAN 2.3, `web/editor.html`): the deck as canonical `.scn` (§4) in C
 
 #### 9.2.5 The panels
 
-The inspector edits what the canvas selects, or the state shown when it selects nothing. Tabs beside the inspector show the state's layers, and what the deck is made of besides its nodes: its data, its theme, the bundle's files, and the versions its history keeps.
+The inspector edits what the canvas selects, or the state shown when it selects nothing. Tabs beside the inspector show the state's layers, and what the deck is made of besides its nodes: its data, its theme, the bundle's files, the versions its history keeps, and the deck's story (§7.7).
 
 - **The inspector's edits** (PLAN 2.33, ADR-0013). The node selected shows above the state's nodes with what the theme offers for it (`Player.choices`, as `inspect --choices`): each property, the value the state shows, and where that value lives.
   - **Choosing.** A role, a family, a color, a preset, a word, or a number chosen there is one `choose` patch (§7.3), by `user`, written where the value lives. It comes into the source as one change, one step to undo, and the status says which states it changes. "Only in" keeps it to the state shown (`fork`).

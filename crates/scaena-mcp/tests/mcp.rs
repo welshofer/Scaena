@@ -94,6 +94,7 @@ async fn the_tools_and_resources_are_listed() {
             "deck_diff",
             "deck_export",
             "deck_find",
+            "deck_health",
             "deck_history",
             "deck_inspect",
             "deck_lint",
@@ -219,6 +220,11 @@ async fn an_agent_builds_a_deck_with_the_tools_alone() {
     assert_eq!(spine["spine"]["sections"][0]["beats"][1]["id"], "doubled");
     let read = ok(&client, "deck_read", json!({ "bundle": bundle, "scn": true })).await;
     assert!(read["scn"].as_str().unwrap().contains("Revenue doubled"));
+    // Its story (PLAN G.9): two slides, each its beat's claim; coherence read by words, unscored.
+    let health = ok(&client, "deck_health", json!({ "bundle": bundle })).await;
+    let titles: Vec<&str> = health["slides"].as_array().unwrap().iter().filter_map(|s| s["title"].as_str()).collect();
+    assert_eq!(titles, ["Q3 in review.", "Revenue doubled."], "{health:#}");
+    assert!(health["coherence"]["score"].is_null() && health["score"].as_u64().is_some(), "{health:#}");
 
     // Found across the deck's words, and replaced where each is written (PLAN 2.47, 2.83): the
     // beat's claim in the spine, and the title in `revenue`'s delta.

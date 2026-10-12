@@ -94,6 +94,19 @@ private func anthropic(_ text: String) -> Data {
     #expect((looked.first?.body ?? "").components(separatedBy: "image/jpeg").count - 1 == made.layouts.count)
     #expect(made.words.contains("\(pictures) picture"))
 
+    // Its story (PLAN G.9), as the Story panel reads it: the arc it was written to, each slide what it
+    // declares, coherence by words unscored; a fix made, and the finding gone.
+    let health = try session.health()
+    #expect(health.arc == "Problem–Solution")
+    #expect(health.slides.count == made.layouts.count)
+    #expect(health.slides.allSatisfy { $0.declared != nil })
+    #expect(health.coherence.score == nil)
+    if let fixable = health.findings.first(where: { $0.fix != nil }), let fix = fixable.fix {
+        let applied = try session.tool("deck_patch", ["ops": .array(fix.patch)])
+        #expect(applied.edited)
+        #expect(try !session.health().findings.contains { $0.state == fixable.state && $0.kind == fixable.kind })
+    }
+
     let requests = await asked.requests
     #expect(requests.filter { $0.url == "https://api.openai.com/v1/images/generations" }.count == pictures)
     for request in requests {

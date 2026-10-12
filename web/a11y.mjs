@@ -227,6 +227,11 @@ try {
   await editor.waitForFunction(() => window.scaena.versions.listed() === null, null, { timeout: 60000 }).catch(() => {});
   await audit(editor, "the editor, its versions");
   await editor.keyboard.press("ArrowRight");
+  check(JSON.stringify(await tab("#story")) === JSON.stringify(["tab-story", "tab-story", false]), `→ again shows the deck's story: ${JSON.stringify(await tab("#story"))}`);
+  await editor.waitForFunction(() => window.scaena.story.health() !== undefined, null, { timeout: 60000 }).catch(() => {});
+  check(await editor.evaluate(() => window.scaena.story.health() !== undefined), "the deck's story is read");
+  await audit(editor, "the editor, its story");
+  await editor.keyboard.press("ArrowRight");
   check(JSON.stringify(await tab("#assistant")) === JSON.stringify(["tab-assistant", "tab-assistant", false]), `→ again shows the assistant: ${JSON.stringify(await tab("#assistant"))}`);
   await audit(editor, "the editor, its assistant");
   await editor.keyboard.press("ArrowRight");

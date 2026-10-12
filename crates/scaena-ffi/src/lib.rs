@@ -1466,6 +1466,8 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         // The bundle's files (PLAN 2.59): each with what names it and the nodes drawn from it; and
         // one nothing names taken out, which `dataUndo` puts back.
         "bundleFiles" => value(serde_json::to_value(s.bundle_files().map_err(said)?))?,
+        // The deck's narrative health (PLAN G.9), as `scaena health --json` gives it.
+        "health" => value(serde_json::to_value(scaena_ops::health::health(s.deck()).map_err(said)?))?,
         "removeFile" => {
             s.remove_file(arg("path")?).map_err(said)?;
             Value::Null

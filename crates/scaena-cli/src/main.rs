@@ -314,6 +314,13 @@ enum Cmd {
         #[arg(long, requires = "remove")]
         dry_run: bool,
     },
+    /// The deck's narrative health (PLAN G.9): Vzestup's measures of a talk, over its slides as
+    /// its spine tells them: pacing against the length its brief asked, the points each slide
+    /// makes and its notes, how each follows from the one before, how the intensity each
+    /// declares follows a talk's curve, whether its words carry the intensity and the tone it
+    /// declares, and the slides that now stand in another beat than they were written for. Each
+    /// finding says what to ask about it and, where one is safe, the patch that fixes it.
+    Health { bundle: PathBuf },
     /// Find text across the deck's words, in every state (PLAN 2.47, 2.83): its texts, each
     /// node's description (`alt`), each state's notes, and each beat's claim and notes, once for
     /// each place they are written, and the states that show them. With `--replace`, every match
@@ -679,6 +686,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Patch { bundle, ops, dry_run } => patch(&bundle, &ops, dry_run, cli.json),
         Cmd::Data { bundle, source, edits, dry_run } => data(&bundle, &source, edits.as_deref(), dry_run, cli.json),
         Cmd::Files { bundle, remove, dry_run } => files(&bundle, remove.as_deref(), dry_run, cli.json),
+        Cmd::Health { bundle } => health(&bundle, cli.json),
         Cmd::History { bundle, at, scn, diff, restore, dry_run } => {
             let ask = scaena_ops::history::Ask { at, scn, compare: diff.unwrap_or_default(), restore, dry_run };
             history(&bundle, &ask, cli.json)
@@ -1086,6 +1094,42 @@ fn data(bundle: &Path, source: &str, edits: Option<&Path>, dry_run: bool, json: 
 
 /// `scaena files` (PLAN 2.59): the bundle's images, fonts, and data, and what uses each; or,
 /// with `remove`, those taken out, all or none, which exits 1 where one cannot be.
+fn health(bundle: &Path, json: bool) -> Result<ExitCode> {
+    let h = scaena_ops::health::health(&open(bundle)?.deck)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&h)?);
+        return Ok(ExitCode::SUCCESS);
+    }
+    match &h.arc {
+        Some(arc) => println!("narrative health {}/100, written to {arc}", h.score),
+        None => println!("narrative health {}/100", h.score),
+    }
+    let measures = [
+        ("pacing", &h.pacing),
+        ("balance", &h.balance),
+        ("coherence", &h.coherence),
+        ("arc", &h.fidelity),
+        ("intensity", &h.intensity),
+        ("tone", &h.tone),
+    ];
+    for (name, m) in measures {
+        let score = m.score.map_or("\u{2014}".to_string(), |s| s.to_string());
+        println!("  {name:<10}{score:>4}  {}", m.says);
+    }
+    for f in &h.findings {
+        let sev = match f.severity {
+            Severity::Error => "error",
+            Severity::Warning => "warn ",
+            Severity::Info => "info ",
+        };
+        println!("{sev} {}: {}", f.state, f.says);
+        if let Some(fix) = &f.fix {
+            println!("  fix: {}: {}", fix.says, serde_json::to_string(&fix.patch)?);
+        }
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
 fn files(bundle: &Path, remove: Option<&[String]>, dry_run: bool, json: bool) -> Result<ExitCode> {
     use scaena_core::files::Kind;
     let b = open(bundle)?;

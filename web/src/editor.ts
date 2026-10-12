@@ -61,6 +61,7 @@ import { type Command, type Group, type Key, keyOf, MOD, MOD_ALT, menu, palette,
 import { cue, cueKeys } from "./cue";
 import { dataKeys, sheets } from "./data";
 import { filesPanel } from "./files";
+import { storyPanel } from "./story";
 import { finder, findKeys } from "./find";
 import { keptNames } from "./folders";
 import { formatsRow } from "./formats";
@@ -711,6 +712,32 @@ async function edit(source: Source) {
     },
     say,
   });
+  /** The deck's story (PLAN G.9): its narrative health, read by the generator's module, each finding
+   * a slide to show, a fix that is one change to undo, and a question for the assistant. */
+  const story = storyPanel(stage, $("#story"), {
+    source: () => view.state.doc.toString(),
+    show: async (state) => {
+      const index = last?.states.findIndex(([id]) => id === state) ?? -1;
+      const start = last?.states[index]?.[1];
+      if (start === undefined) return;
+      view.dispatch({ selection: { anchor: start }, scrollIntoView: true });
+      await show(index);
+    },
+    make: async (ops, done) => {
+      const now = showing();
+      if (!now) return;
+      const { source, edited } = await stage.make(view.state.doc.toString(), ops, now.index, format());
+      made(source, edited);
+      say(done);
+    },
+    ask: (question) => {
+      $<HTMLButtonElement>("#tab-assistant").click();
+      const box = $<HTMLTextAreaElement>("#question");
+      box.value = question;
+      box.focus();
+    },
+    say,
+  });
   /** The deck's versions (PLAN 2.60): what the bundle's history keeps, each shown as it was,
    * compared, and made the deck again as one change, which ⌘Z undoes with its data files. */
   const versioning = versionsPanel(stage, $("#versions"), {
@@ -1058,6 +1085,7 @@ async function edit(source: Source) {
       void layering.refresh();
       void data.refresh();
       void filing.refresh();
+      void story.refresh();
       void versioning.edited();
       void theming.edited();
       void board.refresh().then(() => select(source), failed);
@@ -1497,7 +1525,7 @@ async function edit(source: Source) {
   };
   const typeOf = (node: string) => layering.type(node, showing()?.state ?? "");
   /** Show the tab `id` under the preview, as a click on it does. */
-  const tab = (id: "inspector" | "layers" | "data" | "theming" | "files" | "versions" | "assistant") => {
+  const tab = (id: "inspector" | "layers" | "data" | "theming" | "files" | "versions" | "story" | "assistant") => {
     const button = $<HTMLButtonElement>(`#tab-${id}`);
     button.click();
     return button;
@@ -1722,6 +1750,7 @@ async function edit(source: Source) {
       { label: "New layout from this one…", applies: () => showing() !== undefined, run: () => void board.newLayout() },
       { label: "Show the bundle's files", run: () => tab("files").focus() },
       { label: "Show the versions", run: () => tab("versions").focus() },
+      { label: "Show the deck's story", run: () => tab("story").focus() },
       { label: "Show the assistant", run: () => (tab("assistant"), $("#question").focus()) },
       { label: "Show the keys", keys: "?", group: "The editor", run: () => keying.open() },
     ];
@@ -2002,6 +2031,8 @@ async function edit(source: Source) {
       data,
       /** The files panel (PLAN 2.59): the bundle's files as it lists them, and its changes. */
       files: filing,
+      /** The story panel (PLAN G.9): the deck's narrative health as it last read it. */
+      story,
       /** The versions panel (PLAN 2.60): the versions as it lists them, one shown, compared, and
        * restored. */
       versions: versioning,

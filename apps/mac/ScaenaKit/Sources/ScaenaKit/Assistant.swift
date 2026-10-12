@@ -42,6 +42,9 @@ public final class Assistant {
     public private(set) var working = false
     /// Tokens in and out since the conversation began.
     public private(set) var usage = Usage(input: 0, output: 0)
+    /// A question another panel drafted for the user to send (the story's, PLAN G.9): the
+    /// assistant's panel takes it into its box, and it is gone from here.
+    public var drafted: String?
     /// Hears each change the assistant makes to the deck: the source it replaced and the files it
     /// wrote beside the deck, for an undo.
     @ObservationIgnored public var edited: (_ before: String, _ files: [Rewritten]) -> Void = { _, _ in }
@@ -180,6 +183,7 @@ public enum ToolWords {
         "deck_diff": ("Comparing versions…", "Compared versions"),
         "deck_export": ("Exporting the deck…", "Exported the deck"),
         "deck_find": ("Searching the deck…", "Searched the deck"),
+        "deck_health": ("Reading the deck's story…", "Read the deck's story"),
         "deck_history": ("Reading the history…", "Looked at the history"),
         "deck_inspect": ("Looking over the deck…", "Looked over the deck"),
         "deck_lint": ("Checking the deck…", "Checked the deck"),

@@ -1,0 +1,166 @@
+{
+  "name": "deck_health",
+  "description": "The deck's narrative health (PLAN G.9): Vzestup's measures of a talk, over its slides as its spine tells them, each 0–100 with what it says: pacing against the length its brief asked, the points each slide makes and what its notes give the speaker, how each slide follows from the one before (by their words, and so unscored), how the intensity each declares follows the curve of the arc it was written to, and whether its words carry the intensity and the tone it declares. Each slide as read: where its arc's curve stands, what it declares, and what its words read. Findings slide by slide, each with what to ask about it and, where one is safe, a patch for `deck_patch`: a slide's declared intensity or tone set to what its words read, or a moved slide made part of the beat it now stands in.",
+  "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "required": ["bundle"],
+    "additionalProperties": false,
+    "type": "object",
+    "properties": {
+      "bundle": {
+        "description": "The bundle's path: a directory, a `.scaena` zip, or a `deck.json`.",
+        "type": "string"
+      }
+    }
+  },
+  "outputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$defs": {
+      "Measure": {
+        "description": "One measure: 0–100, and what it says.",
+        "type": "object",
+        "properties": {
+          "score": {
+            "description": "None where it is not scored: coherence read by words alone, which reads low on any deck,\nas Vzestup shows no number for it.",
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
+          "says": { "type": "string" }
+        },
+        "required": ["says"]
+      },
+      "Read": {
+        "description": "A slide as health reads it.",
+        "type": "object",
+        "properties": {
+          "state": { "description": "Its first state: where an editor goes to show it.", "type": "string" },
+          "beat": { "description": "The beat that tells it, where one does.", "type": ["string", "null"] },
+          "title": { "description": "Its headline.", "type": "string" },
+          "curve": {
+            "description": "Where the curve of the arc it was written to stands at its place, 0–1.",
+            "type": "number"
+          },
+          "declared": { "description": "The intensity it declares, 0–1.", "type": ["number", "null"] },
+          "read": {
+            "description": "The intensity its words read, 0–1; none where they are too few, or not English.",
+            "type": ["number", "null"]
+          },
+          "tone": { "description": "The tone it declares, −1 grave to +1 hopeful.", "type": ["number", "null"] },
+          "toneRead": { "description": "The tone its words read.", "type": ["number", "null"] },
+          "after": {
+            "description": "How like the slide before it its words are, 0–1; none for the first.",
+            "type": ["number", "null"]
+          },
+          "standing": { "$ref": "#/$defs/Standing" }
+        },
+        "required": ["state", "title", "curve", "standing"]
+      },
+      "Standing": {
+        "description": "How a slide stands in its arc.",
+        "oneOf": [
+          { "type": "string", "enum": ["ok"] },
+          { "description": "Its intensity strays from the curve at its place.", "type": "string", "const": "bends" },
+          {
+            "description": "It stands in another beat than the one it was written for.",
+            "type": "string",
+            "const": "drifted"
+          }
+        ]
+      },
+      "Finding": {
+        "description": "Something to look at on one slide: what it says, what to ask the assistant, and, where one\nis safe, a fix.",
+        "type": "object",
+        "properties": {
+          "state": { "description": "The slide's first state.", "type": "string" },
+          "slide": { "description": "The slide's number, from 1.", "type": "integer", "minimum": 0 },
+          "severity": { "$ref": "#/$defs/Severity" },
+          "kind": { "$ref": "#/$defs/Kind" },
+          "says": { "type": "string" },
+          "ask": { "description": "The question an editor puts to the assistant for it.", "type": "string" },
+          "fix": { "anyOf": [{ "$ref": "#/$defs/Fix" }, { "type": "null" }] }
+        },
+        "required": ["state", "slide", "severity", "kind", "says", "ask"]
+      },
+      "Severity": { "type": "string", "enum": ["info", "warning", "error"] },
+      "Kind": {
+        "description": "What a finding is about.",
+        "oneOf": [
+          { "description": "The slide has no headline.", "type": "string", "const": "title" },
+          { "description": "It says nothing past its headline, and has no notes.", "type": "string", "const": "empty" },
+          { "description": "Its words share little with the slide's before it.", "type": "string", "const": "turn" },
+          { "description": "Its intensity strays from the curve at its place.", "type": "string", "const": "arc" },
+          {
+            "description": "Its words read far from the intensity it declares.",
+            "type": "string",
+            "const": "intensity"
+          },
+          { "description": "Its words read in another tone than it declares.", "type": "string", "const": "tone" },
+          {
+            "description": "It stands in another beat than the one it was written for.",
+            "type": "string",
+            "const": "drift"
+          }
+        ]
+      },
+      "Fix": {
+        "description": "A fix: what it does, in a few words, and the patch that does it.",
+        "type": "object",
+        "properties": { "says": { "type": "string" }, "patch": { "type": "array", "items": true } },
+        "required": ["says", "patch"]
+      }
+    },
+    "required": [
+      "score",
+      "beats",
+      "pacing",
+      "balance",
+      "coherence",
+      "fidelity",
+      "intensity",
+      "tone",
+      "slides",
+      "findings"
+    ],
+    "type": "object",
+    "properties": {
+      "score": {
+        "description": "0–100, as Vzestup weighs it: pacing, balance, and arc fidelity. Coherence stays out of\nit, since the slides' words are compared, not their meanings.",
+        "type": "integer",
+        "minimum": 0
+      },
+      "arc": {
+        "description": "The arc the deck was written to (`meta.narrative.arc`), where it names one.",
+        "type": ["string", "null"]
+      },
+      "beats": {
+        "description": "The arc's beats, by name, in order; none for an arc the catalog does not name.",
+        "type": "array",
+        "items": { "type": "string" }
+      },
+      "pacing": { "description": "The slides against the count its brief asked for.", "$ref": "#/$defs/Measure" },
+      "balance": {
+        "description": "The points each slide makes, and what its notes give the speaker.",
+        "$ref": "#/$defs/Measure"
+      },
+      "coherence": {
+        "description": "How each slide follows from the one before: by their words, a guide only.",
+        "$ref": "#/$defs/Measure"
+      },
+      "fidelity": {
+        "description": "How closely the intensity the slides declare follows a talk's curve.",
+        "$ref": "#/$defs/Measure"
+      },
+      "intensity": {
+        "description": "How closely their words carry the intensity they declare.",
+        "$ref": "#/$defs/Measure"
+      },
+      "tone": { "description": "How closely their words carry the tone they declare.", "$ref": "#/$defs/Measure" },
+      "slides": { "description": "Each slide, in order.", "type": "array", "items": { "$ref": "#/$defs/Read" } },
+      "findings": {
+        "description": "What to look at, slide by slide.",
+        "type": "array",
+        "items": { "$ref": "#/$defs/Finding" }
+      }
+    }
+  }
+}

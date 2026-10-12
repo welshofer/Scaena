@@ -16,6 +16,7 @@ pub mod brief;
 pub mod containment;
 pub mod duration;
 pub mod fit;
+pub mod health;
 pub mod heuristic;
 mod js;
 pub mod layouts;

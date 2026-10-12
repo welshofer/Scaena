@@ -1340,7 +1340,13 @@ struct DeckView: View {
     private var panelEdits: PanelEdits {
         PanelEdits(
             besideMade: { name, edit in making(name) { try document.beside(edit, undo: undo) } },
-            dataMade: { name, edit in making(name) { try document.data(edit, undo: undo) } })
+            dataMade: { name, edit in making(name) { try document.data(edit, undo: undo) } },
+            patchMade: { name, ops in making(name) { try document.make(ops, undo: undo) } },
+            go: { state in chosen = state },
+            ask: { question in
+                assistant?.drafted = question
+                showsAssistant = true
+            })
     }
 
     /// `edit` made, its step to undo named `name` in the Edit menu: whether it was. Where it was

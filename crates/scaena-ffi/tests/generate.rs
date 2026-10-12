@@ -45,6 +45,13 @@ fn call(s: *mut ScaenaSession, method: &str) -> Value {
     answer.get("ok").cloned().unwrap_or_else(|| panic!("{answer}"))
 }
 
+/// An MCP operation run on a session by the user, as ScaenaKit's `tool` runs one.
+fn tool(s: *mut ScaenaSession, name: &str, args: Value) -> Value {
+    let (name, args, author) = (c(name), c(&args.to_string()), c("user"));
+    let called = unsafe { scaena_tool(s, name.as_ptr(), args.as_ptr(), author.as_ptr(), null()) };
+    serde_json::from_str(&took(called)).unwrap()
+}
+
 /// An Anthropic answer whose text is `text`.
 fn anthropic(text: &str) -> String {
     json!({ "content": [{ "type": "text", "text": text }], "stop_reason": "end_turn" }).to_string()
@@ -161,6 +168,22 @@ fn a_deck_is_made_from_a_prompt_as_swift_makes_one_its_pictures_with_it() {
         .collect();
     assert_eq!(kept.len() as u64, wanted, "{files:#}");
     assert!(kept.iter().all(|p| p.ends_with(".jpg")), "a JPEG stays a JPEG: {kept:?}");
+    // Its story, as the Mac's Story panel reads it (PLAN G.9): the arc it was written to, each slide
+    // read, coherence by words unscored, and each finding said in words; a fix made by the user, as
+    // the panel makes one, and its finding gone.
+    let health = call(session, "health");
+    assert_eq!(health["arc"], "Problem–Solution", "{health:#}");
+    assert_eq!(health["slides"].as_array().unwrap().len(), report["layouts"].as_array().unwrap().len());
+    assert!(health["coherence"]["score"].is_null(), "{health:#}");
+    assert!(health["slides"].as_array().unwrap().iter().all(|s| s["declared"].is_number()), "{health:#}");
+    let findings = health["findings"].as_array().unwrap();
+    assert!(findings.iter().all(|f| f["says"].as_str().is_some_and(|s| s.starts_with("Slide "))));
+    let fixable = findings.iter().find(|f| f["fix"].is_object()).expect("a finding with a fix");
+    let applied = tool(session, "deck_patch", json!({ "ops": fixable["fix"]["patch"] }));
+    assert_eq!(applied["edited"], true, "{applied}");
+    let after = call(session, "health");
+    let gone = |f: &Value| f["state"] == fixable["state"] && f["kind"] == fixable["kind"];
+    assert!(!after["findings"].as_array().unwrap().iter().any(gone), "{after:#}");
 
     // Each key went to its own provider alone.
     for request in &asked {

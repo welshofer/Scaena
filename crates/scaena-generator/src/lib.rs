@@ -60,6 +60,15 @@ pub fn choices() -> String {
     scaena_narrato::brief::choices().to_string()
 }
 
+/// A deck's narrative health (PLAN G.9, SPEC §7.7), as `scaena health --json` gives it: `deck`, as
+/// `deck.json` holds it, read as its slides and the beats that tell them.
+#[wasm_bindgen]
+pub fn health(deck: &str) -> Result<String, JsError> {
+    let deck = scaena_core::Deck::from_json(deck).map_err(error)?;
+    let health = scaena_ops::health::health(&deck).map_err(error)?;
+    serde_json::to_string(&health).map_err(error)
+}
+
 /// The sources a deck is grounded in (PLAN G.3, G.4, G.8): files read from their bytes, what a
 /// link names fetched by the worker as a [`Fetching`] plans it, and deep research's report.
 #[wasm_bindgen]
