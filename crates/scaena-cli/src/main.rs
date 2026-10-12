@@ -379,7 +379,7 @@ enum Cmd {
     /// ADR-0026), with your own key: the arc chosen, the slides written in the theme's layouts,
     /// and each text that runs past its place rewritten to fit. `--models` lists the models a
     /// key can use; `--slides` makes the deck from slides written elsewhere, with no call.
-    Generate(generate::GenerateArgs),
+    Generate(Box<generate::GenerateArgs>),
     /// MCP server on stdio (PLAN 1.17, SPEC §7.2): the operations above as tools, and the
     /// format's schemas, lint catalog, and examples as resources.
     Mcp,
@@ -694,7 +694,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             (None, None, None) => unreachable!("clap asks for --apply, --edit, or --from-photo"),
         },
         Cmd::Serve { bundle, port } => serve(&bundle, port, cli.json),
-        Cmd::Generate(args) => generate::run(args, cli.json),
+        Cmd::Generate(args) => generate::run(*args, cli.json),
         Cmd::Mcp => {
             scaena_mcp::stdio().context("serving MCP on stdio")?;
             Ok(ExitCode::SUCCESS)

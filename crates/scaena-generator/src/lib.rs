@@ -9,10 +9,10 @@
 //! none of it (SPEC §15).
 
 use base64::Engine;
-use scaena_narrato::brief::{DEFAULT_AUDIENCE, DEFAULT_GOAL, DEFAULT_LENGTH, GOALS, LENGTHS, MODALITIES};
 use scaena_narrato::fit::Long;
 use scaena_narrato::research::{Asked, Next, Report};
 use scaena_narrato::{Brief, Document, Provider, Settings};
+use scaena_ops::narrative::Reply;
 use scaena_sources::fetch::{Fetch, Get, Reach, Step as Fetched};
 use scaena_sources::{Given, Kind, Source};
 use serde::Deserialize;
@@ -57,21 +57,7 @@ fn brief(brief: &str) -> Result<Brief, JsError> {
 /// defaults a field left empty takes.
 #[wasm_bindgen]
 pub fn choices() -> String {
-    let modalities: Vec<Value> = MODALITIES
-        .iter()
-        .map(|(id, said)| json!({ "id": id, "label": said.split(" \u{2014} ").next().unwrap_or(said) }))
-        .collect();
-    let audiences: Vec<&str> = scaena_narrato::arcs::personas().iter().map(|p| p.name.as_str()).collect();
-    let arcs: Vec<&str> = scaena_narrato::arcs::arcs().iter().map(|a| a.arc.as_str()).collect();
-    json!({
-        "goals": GOALS,
-        "lengths": LENGTHS,
-        "modalities": modalities,
-        "audiences": audiences,
-        "arcs": arcs,
-        "defaults": { "audience": DEFAULT_AUDIENCE, "goal": DEFAULT_GOAL, "length": DEFAULT_LENGTH },
-    })
-    .to_string()
+    scaena_narrato::brief::choices().to_string()
 }
 
 /// The sources a deck is grounded in (PLAN G.3, G.4, G.8): files read from their bytes, what a
@@ -328,13 +314,29 @@ impl Generation {
         .to_string()
     }
 
-    /// The deck the narrative builds in `theme`, the theme's JSON (`scaena_ops::narrative::deck`):
-    /// JSON `{ deck, layouts, arc, fallback? }`, which the editor's `Making` makes a bundle.
-    pub fn deck(&self, theme: &str) -> Result<String, JsError> {
+    /// The pictures the narrative's slides ask for in `theme`, the theme's JSON, made as `look`
+    /// (`illustration` or `photo`; PLAN G.10): JSON `[{ slide, prompt, frame, alt }]`, which a
+    /// `Painting` makes.
+    pub fn pictures(&self, theme: &str, look: &str) -> Result<String, JsError> {
         let narrative = self.inner.narrative().ok_or_else(|| error("the narrative is not written yet"))?;
         let model: scaena_core::model::theme::Theme =
             serde_json::from_str(theme).map_err(|e| error(format!("the theme: {e}")))?;
-        let made = scaena_ops::narrative::deck(narrative, &model).map_err(error)?;
+        let look = scaena_narrato::pictures::Look::named(look).ok_or_else(|| error(format!("`{look}` is no look")))?;
+        Ok(serde_json::to_string(&scaena_ops::narrative::asking(narrative, &model, look))
+            .expect("pictures asked are JSON"))
+    }
+
+    /// The deck the narrative builds in `theme`, the theme's JSON (`scaena_ops::narrative::deck`),
+    /// each slide `pictures` (a `Painted`'s `placed`, JSON; `{}` for none) holds a picture for
+    /// shown with it: JSON `{ deck, layouts, arc, fallback? }`, which the editor's `Making`
+    /// makes a bundle with the pictures' bytes.
+    pub fn deck(&self, theme: &str, pictures: &str) -> Result<String, JsError> {
+        let narrative = self.inner.narrative().ok_or_else(|| error("the narrative is not written yet"))?;
+        let model: scaena_core::model::theme::Theme =
+            serde_json::from_str(theme).map_err(|e| error(format!("the theme: {e}")))?;
+        let pictures: scaena_ops::narrative::Pictures =
+            serde_json::from_str(pictures).map_err(|e| error(format!("the pictures: {e}")))?;
+        let made = scaena_ops::narrative::deck(narrative, &model, &pictures).map_err(error)?;
         let mut out = serde_json::to_value(&made).map_err(error)?;
         out["arc"] = json!(narrative.arc);
         if let Some(why) = self.inner.fallback() {
@@ -359,6 +361,99 @@ impl Generation {
         let longs: Vec<Long> = serde_json::from_str(longs).map_err(error)?;
         let rewrites = self.inner.fit_answer(status, status_text, body, &longs).map_err(error)?;
         Ok(serde_json::to_string(&rewrites).expect("rewrites are JSON"))
+    }
+}
+
+/// The request that lists the image models a key can use (PLAN G.10), JSON, for `provider`
+/// (`openai`, `gemini`) at `base`, the provider's own where none.
+#[wasm_bindgen(js_name = pictureModelsRequest)]
+pub fn picture_models_request(provider: &str, key: &str, base: Option<String>) -> Result<String, JsError> {
+    let provider = Provider::named(provider).ok_or_else(|| error(format!("`{provider}` is no provider")))?;
+    Ok(serde_json::to_string(&provider.models(key, base.as_deref(), true)).expect("a request is JSON"))
+}
+
+/// The image models an answer to `pictureModelsRequest` lists, best first, JSON `[id]`.
+#[wasm_bindgen(js_name = pictureModels)]
+pub fn picture_models(provider: &str, status: u16, status_text: &str, body: &str) -> Result<String, JsError> {
+    let provider = Provider::named(provider).ok_or_else(|| error(format!("`{provider}` is no provider")))?;
+    let models = scaena_narrato::pictures::models(provider, status, status_text, body).map_err(error)?;
+    Ok(serde_json::to_string(&models).expect("models are JSON"))
+}
+
+/// Pictures being made (`scaena_ops::narrative::Painting`, PLAN G.10), the page making the
+/// calls: each round's `requests`, each answer handed to `reply`, then `round` says how long to
+/// wait before the next; `finish` once `requests` gives none.
+#[wasm_bindgen]
+pub struct Painting {
+    inner: scaena_ops::narrative::Painting,
+    replies: Vec<Reply>,
+}
+
+#[wasm_bindgen]
+impl Painting {
+    /// The pictures `asked` for (`Generation.pictures`), by `settings` (JSON `{ provider, model,
+    /// base?, quality? }`).
+    #[wasm_bindgen(constructor)]
+    pub fn new(asked: &str, settings: &str) -> Result<Painting, JsError> {
+        let asked: Vec<scaena_ops::narrative::Asked> = serde_json::from_str(asked).map_err(error)?;
+        let settings: scaena_narrato::pictures::Settings = serde_json::from_str(settings).map_err(error)?;
+        Ok(Painting { inner: scaena_ops::narrative::Painting::new(asked, settings), replies: Vec::new() })
+    }
+
+    /// This round's requests, JSON `[{ method, url, headers, body }]`, the key in their
+    /// headers; none once each picture is made or given up.
+    pub fn requests(&mut self, key: &str) -> String {
+        self.replies.clear();
+        serde_json::to_string(&self.inner.requests(key)).expect("requests are JSON")
+    }
+
+    /// The answer to this round's `n`th request, in order: its status, status line, body, and
+    /// `Retry-After`.
+    pub fn reply(&mut self, status: u16, status_text: &str, body: &str, after: Option<String>) {
+        self.replies.push(Reply { status, status_text: status_text.into(), body: body.into(), after });
+    }
+
+    /// The round's answers read: how many seconds to wait before the next round.
+    pub fn round(&mut self) -> f64 {
+        self.inner.answer(std::mem::take(&mut self.replies))
+    }
+
+    /// The pictures made.
+    pub fn finish(self) -> Painted {
+        let (placed, assets, unmade) = self.inner.finish();
+        Painted { placed, assets, unmade }
+    }
+}
+
+/// Pictures made: where each slide's is kept and what it shows, its bytes, and why each picture
+/// not made was not.
+#[wasm_bindgen]
+pub struct Painted {
+    placed: scaena_ops::narrative::Pictures,
+    assets: std::collections::BTreeMap<String, Vec<u8>>,
+    unmade: Vec<String>,
+}
+
+#[wasm_bindgen]
+impl Painted {
+    /// What `Generation.deck` takes: JSON `{ slide: { src, alt } }`.
+    pub fn placed(&self) -> String {
+        serde_json::to_string(&self.placed).expect("pictures are JSON")
+    }
+
+    /// The paths the pictures are kept at in the bundle.
+    pub fn paths(&self) -> Vec<String> {
+        self.assets.keys().cloned().collect()
+    }
+
+    /// The bytes kept at `path`.
+    pub fn bytes(&self, path: &str) -> Option<Vec<u8>> {
+        self.assets.get(path).cloned()
+    }
+
+    /// Why each picture not made was not, JSON `[reason]`.
+    pub fn unmade(&self) -> String {
+        serde_json::to_string(&self.unmade).expect("reasons are JSON")
     }
 }
 
@@ -425,7 +520,7 @@ mod tests {
         assert!(g.request("sk-test").is_none());
 
         let dusk = std::fs::read_to_string(root().join("docs/examples/themes/dusk.theme.json")).unwrap();
-        let built: Value = serde_json::from_str(&g.deck(&dusk).unwrap()).unwrap();
+        let built: Value = serde_json::from_str(&g.deck(&dusk, "{}").unwrap()).unwrap();
         assert_eq!(built["arc"], "Problem\u{2013}Solution");
         assert_eq!(built["layouts"].as_array().unwrap().len(), 5);
         // What the editor's module makes of it: the bundle `scaena generate` makes.

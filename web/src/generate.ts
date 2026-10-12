@@ -37,13 +37,14 @@ interface Request {
   body?: unknown;
 }
 
-/** `request` made: its status, its status line's words, and its body; status 0 where it never
- * came back, saying why, as the CLI reads a request that failed. */
-async function send(request: Request): Promise<{ status: number; statusText: string; body: string }> {
+/** `request` made: its status, its status line's words, its body, and its `Retry-After`; status
+ * 0 where it never came back, saying why, as the CLI reads a request that failed. */
+async function send(request: Request): Promise<{ status: number; statusText: string; body: string; after?: string }> {
   try {
     const body = request.body == null ? undefined : JSON.stringify(request.body);
     const response = await fetch(request.url, { method: request.method, headers: request.headers, body });
-    return { status: response.status, statusText: response.statusText, body: await response.text() };
+    const after = response.headers.get("retry-after") ?? undefined;
+    return { status: response.status, statusText: response.statusText, body: await response.text(), after };
   } catch (e) {
     return { status: 0, statusText: said(e), body: "" };
   }
@@ -120,9 +121,12 @@ export async function generate(
         if (step === "arc") hear({ kind: "chose", arc: at.arc ?? "", fallback: at.fallback ?? undefined });
         else hear({ kind: "wrote", slides: at.written ?? 0, truncated: at.truncated ?? false });
       }
+      const painted = job.pictures ? await paint(g, generation, job.pictures, theme, hear) : undefined;
       hear({ kind: "making" });
-      const making = new Making(generation.deck(theme.text), theme.file, theme.text, theme.fonts);
+      const built = generation.deck(theme.text, painted?.placed ?? "{}");
+      const making = new Making(built, theme.file, theme.text, theme.fonts, painted?.bytes ?? new Map());
       try {
+        if (painted) making.painted(painted.made, JSON.stringify(painted.unmade));
         await fit(generation, making, job.key, hear);
         making.keep(sources.tables());
         const made = { ...JSON.parse(making.report()), sources: JSON.parse(generation.given()) } as Generated;
@@ -141,6 +145,59 @@ export async function generate(
     }
   } finally {
     sources.free();
+  }
+}
+
+/** The pictures the narrative's slides ask for (PLAN G.10), made by the user's image model, the
+ * best its key lists: every one at once, each round's answers read by the generator, which says
+ * how long to wait before asking a busy provider again. None where the key lists no image model,
+ * which the progress says. */
+async function paint(
+  g: Generator,
+  generation: InstanceType<Generator["Generation"]>,
+  pictures: NonNullable<Generate["pictures"]>,
+  theme: Theme,
+  hear: (event: GeneratingEvent) => void,
+): Promise<{ placed: string; bytes: Map<string, Uint8Array>; made: number; unmade: string[] } | undefined> {
+  const asked = generation.pictures(theme.text, pictures.look);
+  const wanted = (JSON.parse(asked) as unknown[]).length;
+  if (!wanted) return undefined;
+  const listed = await send(JSON.parse(g.pictureModelsRequest(pictures.provider, pictures.key, pictures.base)));
+  let model: string | undefined;
+  try {
+    model = (JSON.parse(g.pictureModels(pictures.provider, listed.status, listed.statusText, listed.body)) as string[])[0];
+  } catch (e) {
+    hear({ kind: "painted", pictures: 0, unmade: [`the image models could not be listed: ${said(e)}`] });
+    return undefined;
+  }
+  if (!model) {
+    hear({ kind: "painted", pictures: 0, unmade: ["the key lists no image model"] });
+    return undefined;
+  }
+  hear({ kind: "painting", pictures: wanted, model });
+  const settings = JSON.stringify({ provider: pictures.provider, model, base: pictures.base, quality: "medium" });
+  const painting = new g.Painting(asked, settings);
+  let finished: ReturnType<typeof painting.finish> | undefined;
+  try {
+    for (;;) {
+      const requests = JSON.parse(painting.requests(pictures.key)) as Request[];
+      if (!requests.length) break;
+      const replies = await Promise.all(requests.map(send));
+      for (const r of replies) painting.reply(r.status, r.statusText, r.body, r.after);
+      const pause = painting.round();
+      if (pause > 0) await wait(pause * 1000);
+    }
+    finished = painting.finish();
+    const bytes = new Map<string, Uint8Array>();
+    for (const path of finished.paths()) {
+      const b = finished.bytes(path);
+      if (b) bytes.set(path, b);
+    }
+    const unmade = JSON.parse(finished.unmade()) as string[];
+    hear({ kind: "painted", pictures: bytes.size, unmade });
+    return { placed: finished.placed(), bytes, made: bytes.size, unmade };
+  } finally {
+    finished?.free();
   }
 }
 

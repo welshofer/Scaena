@@ -31,6 +31,12 @@ export function said(event: GeneratingEvent): string {
       return `Writing the slides, at least ${event.slides}…`;
     case "wrote":
       return `${event.slides} slides written${event.truncated ? ", the answer cut short" : ""}`;
+    case "painting":
+      return `Making ${event.pictures} pictures with ${event.model}… (a minute or two)`;
+    case "painted":
+      return event.unmade.length
+        ? `${event.pictures} pictures made; not made: ${event.unmade.join("; ")}`
+        : `${event.pictures} pictures made`;
     case "making":
       return "Making the deck in the theme…";
     case "fitting":
@@ -46,7 +52,8 @@ export function said(event: GeneratingEvent): string {
 export function made(m: Generated): string {
   const fixed = m.fixed.length ? `, ${m.fixed.length} fixed by lint` : "";
   const errors = m.created.errors ? `, ${m.created.errors} ${m.created.errors === 1 ? "error" : "errors"} to look at` : "";
-  return `made: ${m.layouts.length} slides on the arc ${m.arc}${fixed}${errors}`;
+  const pictures = m.pictures ? `, ${m.pictures} ${m.pictures === 1 ? "picture" : "pictures"}` : "";
+  return `made: ${m.layouts.length} slides on the arc ${m.arc}${pictures}${fixed}${errors}`;
 }
 
 /** A source given: a file, or a link. */
@@ -76,6 +83,9 @@ export function prompting(
   const arc = $<HTMLSelectElement>("#prompting-arc");
   const github = $<HTMLInputElement>("#prompting-github");
   const research = $<HTMLInputElement>("#prompting-research");
+  const pictures = $<HTMLSelectElement>("#prompting-pictures");
+  const look = $<HTMLSelectElement>("#prompting-look");
+  const painter = $<HTMLParagraphElement>("#prompting-painter");
   const files = $<HTMLInputElement>("#prompting-files");
   const link = $<HTMLInputElement>("#prompting-link");
   const list = $<HTMLUListElement>("#prompting-sources");
@@ -89,6 +99,8 @@ export function prompting(
   let worker: Worker | undefined;
   let running = false;
   let asking: { provider: Generate["provider"]; model: string; base?: string; key?: string } | undefined;
+  /** The keys kept for the image providers, by provider. */
+  let painters: Partial<Record<"openai" | "gemini", { key: string; base?: string }>> = {};
 
   const shown = () => {
     list.replaceChildren(
@@ -121,9 +133,34 @@ export function prompting(
     $<HTMLDataListElement>("#prompting-audiences").replaceChildren(...choices.audiences.map((a) => new Option(a)));
   };
 
+  /** Who makes the pictures, as chosen: the provider, with the key kept for it; none where none is
+   * kept, which the dialog says. */
+  const whoPaints = () => {
+    const chosen = pictures.value as "openai" | "gemini" | "";
+    look.disabled = running || !chosen;
+    if (!chosen) {
+      painter.textContent = "No pictures: each slide is set in a layout that waits for none.";
+    } else if (!painters[chosen]) {
+      const name = chosen === "openai" ? "OpenAI" : "Gemini";
+      painter.textContent = `No ${name} key is kept: keep one in the Assistant tab for pictures, or choose None.`;
+    } else {
+      const name = chosen === "openai" ? "OpenAI" : "Gemini";
+      painter.textContent = `Pictures by ${name}'s best image model your key lists, two in five slides, ten at most; your key goes to ${name} alone.`;
+    }
+  };
+  pictures.onchange = whoPaints;
+
   /** Who writes the deck: the assistant's provider and model, with the key kept for it. */
   const whoWrites = async () => {
     const s = settings();
+    painters = {};
+    for (const p of ["openai", "gemini"] as const) {
+      const k = await load(p).catch(() => undefined);
+      if (k?.key) painters[p] = { key: k.key, base: s.bases[p] };
+    }
+    // Pictures by a provider whose key is kept: OpenAI's first.
+    if (pictures.value && !painters[pictures.value as "openai" | "gemini"]) pictures.value = painters.openai ? "openai" : painters.gemini ? "gemini" : "";
+    whoPaints();
     const kept = await load(s.provider).catch(() => undefined);
     asking = { provider: s.provider, model: s.models[s.provider] ?? "", base: s.bases[s.provider], key: kept?.key };
     const names = { anthropic: "Anthropic", openai: "OpenAI", gemini: "Gemini" };
@@ -240,6 +277,11 @@ export function prompting(
       links: given.flatMap((g) => ("link" in g ? [g.link] : [])),
       github: github.value.trim() || undefined,
       research: research.checked,
+      pictures: (() => {
+        const chosen = pictures.value as "openai" | "gemini" | "";
+        const kept = chosen ? painters[chosen] : undefined;
+        return chosen && kept ? { provider: chosen, key: kept.key, base: kept.base, look: look.value as "illustration" | "photo" } : undefined;
+      })(),
     };
     progress.replaceChildren();
     busy(true);

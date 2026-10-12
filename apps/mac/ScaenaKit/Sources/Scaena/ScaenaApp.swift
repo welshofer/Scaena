@@ -48,6 +48,9 @@ struct ScaenaApp: App {
         .defaultPosition(.center)
         #endif
         .commands {
+            #if os(macOS)
+            PromptCommands()
+            #endif
             NodeCommands()
             ViewCommands()
             WindowCommands()
@@ -58,6 +61,15 @@ struct ScaenaApp: App {
             SidebarCommands()
             #endif
         }
+        #if os(macOS)
+        // New from a Prompt (PLAN G.6): a deck written by Narrato, in a window of its own.
+        WindowGroup("New from a Prompt", id: PromptWindow.id) {
+            PromptView()
+        }
+        .defaultSize(width: 640, height: 780)
+        .restorationBehavior(.disabled)
+        .commandsRemoved()
+        #endif
         #if os(macOS)
         // The assistant's keys, kept in the Keychain (PLAN 3.6), under a tab of their own, as a
         // Mac app's settings are; on the iPad, a sheet of the assistant's (PLAN 4.2).

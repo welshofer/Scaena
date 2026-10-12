@@ -3181,6 +3181,7 @@ name = "scaena-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.23.1",
  "clap",
  "criterion",
  "miette",
@@ -3267,10 +3268,12 @@ dependencies = [
  "scaena-core",
  "scaena-engine",
  "scaena-export",
+ "scaena-narrato",
  "scaena-ops",
  "scaena-paint",
  "scaena-resources",
  "scaena-session",
+ "scaena-sources",
  "scaena-store",
  "serde_json",
 ]
@@ -3321,6 +3324,7 @@ dependencies = [
 name = "scaena-narrato"
 version = "0.1.0"
 dependencies = [
+ "base64 0.23.1",
  "regex-lite",
  "serde",
  "serde_json",

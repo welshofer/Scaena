@@ -177,6 +177,11 @@ pub struct Create {
     /// Data files to attach.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub data: Vec<Attach>,
+    /// Files the deck's nodes name, by their paths in the bundle: the pictures a generated deck
+    /// shows (PLAN G.10). Never a tool's argument.
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub assets: BTreeMap<String, Vec<u8>>,
 }
 
 /// A bundle made.
@@ -354,6 +359,7 @@ pub fn creating(
         }
     }
     files.insert(rel.clone(), theme.into_bytes());
+    files.extend(req.assets.iter().map(|(path, bytes)| (path.clone(), bytes.clone())));
     // The deck: given, compiled, or made here.
     let mut doc = match (&req.deck, &req.scn) {
         (Some(_), Some(_)) => return Err(OpsError::new("give the deck as `deck` or as `scn`, not both")),

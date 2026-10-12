@@ -1298,9 +1298,16 @@ pub struct Making(scaena_session::making::Making);
 impl Making {
     /// The bundle `built` makes, as the generator's `Generation.deck` gives it, JSON `{ deck,
     /// layouts, arc, fallback? }`: in the theme file named `file` (`dusk.theme.json`), whose text
-    /// is `theme`, each font it names in `fonts` by the path the theme gives it.
+    /// is `theme`, each font it names in `fonts` by the path the theme gives it, and each picture
+    /// the deck shows in `pictures` by the path the deck gives it (PLAN G.10).
     #[wasm_bindgen(constructor)]
-    pub fn new(built: &str, file: &str, theme: &str, fonts: &js_sys::Map) -> Result<Making, JsError> {
+    pub fn new(
+        built: &str,
+        file: &str,
+        theme: &str,
+        fonts: &js_sys::Map,
+        pictures: &js_sys::Map,
+    ) -> Result<Making, JsError> {
         #[derive(serde::Deserialize)]
         struct Built {
             #[serde(flatten)]
@@ -1309,11 +1316,16 @@ impl Making {
             #[serde(default)]
             fallback: Option<String>,
         }
-        let built: Built = serde_json::from_str(built).map_err(js)?;
+        let mut built: Built = serde_json::from_str(built).map_err(js)?;
         let mut given = std::collections::BTreeMap::new();
         fonts.for_each(&mut |bytes, path| {
             if let Some(path) = path.as_string() {
                 given.insert(path, js_sys::Uint8Array::new(&bytes).to_vec());
+            }
+        });
+        pictures.for_each(&mut |bytes, path| {
+            if let Some(path) = path.as_string() {
+                built.made.assets.insert(path, js_sys::Uint8Array::new(&bytes).to_vec());
             }
         });
         let making = scaena_session::making::Making::new(built.made, &built.arc, built.fallback, file, theme, &given);
@@ -1335,6 +1347,13 @@ impl Making {
     /// The rewrite failed: why, which the report says.
     pub fn unfitted(&mut self, why: String) {
         self.0.unfitted(why);
+    }
+
+    /// How many pictures were made for the deck's slides, and why each other asked for was not
+    /// (JSON `[reason]`), which the report says.
+    pub fn painted(&mut self, pictures: usize, unmade: &str) -> Result<(), JsError> {
+        self.0.painted(pictures, serde_json::from_str(unmade).map_err(js)?);
+        Ok(())
     }
 
     /// Each sheet given, JSON `[{ named, hint, csv? }]` as the generator's `Sources.tables` gives

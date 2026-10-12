@@ -15,6 +15,9 @@
 //   prompt, the key went in Anthropic's header with its opt-in for a browser, and the deck opens
 //   in the editor kept nowhere, its slides the recorded answer's, the CSV a data source of it,
 //   and no error lint finds.
+// - Its pictures (PLAN G.10) made by OpenAI's best image model the OpenAI key lists, played here
+//   too: two of five slides, the cover and the ending, each asked for with no word in it, the
+//   OpenAI key in OpenAI's header alone, and each shown in its slide's picture place.
 // Exits 1 on any failure.
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -30,6 +33,10 @@ const answers = "crates/scaena-narrato/tests/answers";
 const ARC = await readFile(`${answers}/anthropic-arc.json`, "utf8");
 const SLIDES = await readFile(`${answers}/anthropic-slides.json`, "utf8");
 const NOTES = "# Tidewater field notes\n\nPort calls doubled in Q3, and every berth ran on shore power.";
+/** A picture, as OpenAI's Images API gives one: a JPEG from the decoder's fixtures. */
+const PICTURE = (await readFile("tests/fixtures/jpeg/baseline-422.jpg")).toString("base64");
+/** What the image API was asked. */
+const painted = [];
 const PAGE = "<h1>Tidewater in the press</h1><p>The Gulf's first carbon-negative cargo line opened its third route.</p>";
 
 /** Anthropic, scripted: what each request asks, and the state the walk sets (`slow`, `fail`). */
@@ -48,6 +55,14 @@ const provider = createServer(async (req, res) => {
   if (path === "/press.html") return res.writeHead(200, { ...cors, "content-type": "text/html; charset=utf-8" }).end(PAGE);
   const reply = (status, body) =>
     res.writeHead(status, { ...cors, "content-type": "application/json" }).end(typeof body === "string" ? body : JSON.stringify(body));
+  // OpenAI's image models, and a picture for each one asked for.
+  if (req.method === "GET" && path === "/v1/models") return reply(200, { data: [{ id: "gpt-4o" }, { id: "dall-e-3" }, { id: "gpt-image-1" }] });
+  if (req.method === "POST" && path === "/v1/images/generations") {
+    let asked = "";
+    for await (const chunk of req) asked += chunk;
+    painted.push({ headers: req.headers, body: JSON.parse(asked) });
+    return reply(200, { data: [{ b64_json: PICTURE }] });
+  }
   if (req.method !== "POST" || path !== "/v1/messages") return reply(404, { error: { message: `no ${req.method} ${path}` } });
   let text = "";
   for await (const chunk of req) text += chunk;
@@ -82,8 +97,12 @@ try {
   // The assistant's settings, as its tab keeps them: Anthropic at the scripted server, a model,
   // and a key for this tab.
   await page.evaluate((origin) => {
-    localStorage.setItem("scaena.assistant", JSON.stringify({ provider: "anthropic", models: { anthropic: "scripted" }, bases: { anthropic: origin } }));
+    localStorage.setItem(
+      "scaena.assistant",
+      JSON.stringify({ provider: "anthropic", models: { anthropic: "scripted" }, bases: { anthropic: origin, openai: origin } }),
+    );
     sessionStorage.setItem("scaena.key.anthropic", "sk-walk");
+    sessionStorage.setItem("scaena.key.openai", "sk-pictures");
   }, origin);
 
   /** The dialog, open, with Narrato's choices in it. */
@@ -114,6 +133,8 @@ try {
   check(arcs[0] === "The model's choice" && arcs.includes("Problem–Solution"), `the arcs are offered, the model's choice first: ${arcs.length}`);
   const who = await page.textContent("#prompting-who");
   check(who.includes("Anthropic's scripted") && who.includes("your key"), `it says who writes the deck: ${who}`);
+  const paints = await page.textContent("#prompting-painter");
+  check((await page.$eval("#prompting-pictures", (s) => s.value)) === "openai" && paints.includes("OpenAI"), `pictures by OpenAI, whose key is kept: ${paints}`);
   await page.fill("#prompting-topic", "Pitch a Series A round for our carbon-negative cargo platform.");
   await page.fill("#prompting-audience", "Investors");
   await page.selectOption("#prompting-goal", "Persuade");
@@ -165,7 +186,16 @@ try {
   const made = await page.evaluate(() => window.scaena.where());
   check(made.where === undefined, `the deck made is kept nowhere until it is saved: ${JSON.stringify(made)}`);
   const status = await page.textContent("#status");
-  check(/made: 5 slides on the arc Problem–Solution/.test(status), `the status says what was made: ${status}`);
+  check(/made: 5 slides on the arc Problem–Solution, 2 pictures/.test(status), `the status says what was made: ${status}`);
+  // Two pictures, the cover's and the ending's, by the best image model the key lists.
+  check(painted.length === 2, `two pictures asked for: ${painted.length}`);
+  check(
+    painted.every((p) => p.headers.authorization === "Bearer sk-pictures" && p.body.model === "gpt-image-1"),
+    "each by gpt-image-1, the OpenAI key in OpenAI's header",
+  );
+  check(painted.every((p) => p.body.prompt.includes("NO text in the image") && p.body.prompt.includes("Tidewater") === false), "each asked for with no word in it");
+  check(painted.some((p) => p.body.prompt.includes("SUBJECT: A container ship at dawn")), "the cover's from its visual concept");
+  check(!requests.some((r) => JSON.stringify(r.headers).includes("sk-pictures")), "the OpenAI key went to OpenAI alone");
   const arc = requests.find((r) => r.asked === "arc");
   check(arc?.headers["x-api-key"] === "sk-walk" && arc.headers["anthropic-dangerous-direct-browser-access"] === "true", "the key goes in Anthropic's header, with its opt-in for a browser");
   const slides = requests.find((r) => r.asked === "slides");
@@ -179,6 +209,7 @@ try {
   const states = (source.match(/^state /gm) ?? []).length;
   check(states === 5, `the deck has the recorded answer's five slides: ${states}`);
   check(source.includes("data/q3.csv"), "the CSV is a data source of the deck's");
+  check(source.includes("assets/picture-01.jpg") && source.includes("assets/picture-05.jpg"), "the pictures are the cover's and the ending's");
   const last = await page.evaluate(() => window.scaena.last());
   const errors = last.findings.filter((f) => f.severity === "error").map((f) => f.code);
   check(last.valid && errors.length === 0, `it lints with no error: ${errors}`);

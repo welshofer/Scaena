@@ -69,6 +69,13 @@ impl Making {
         self.made.unfitted = Some(why);
     }
 
+    /// How many pictures were made for its slides, and why each other asked for was not
+    /// (PLAN G.10), which the deck made says.
+    pub fn painted(&mut self, pictures: usize, unmade: Vec<String>) {
+        self.made.pictures = pictures;
+        self.made.unpictured = unmade;
+    }
+
     /// Each sheet given kept as a data source of the deck's, as `data_attach` keeps a file.
     pub fn keep(&mut self, tables: &[Table]) -> Result<(), Error> {
         let Some(write) = self.write.take() else { return Ok(()) };
@@ -140,7 +147,7 @@ mod tests {
                 { "id": "close", "mode": "absolute", "layout": "title", "props": { "close-title": {} } }
             ]
         });
-        Made { deck, layouts: vec!["title".into(), "title".into()] }
+        Made { deck, layouts: vec!["title".into(), "title".into()], assets: Default::default() }
     }
 
     #[test]

@@ -68,7 +68,7 @@ public final class ScaenaSession {
         try self.init(files: files)
     }
 
-    private init(handle: OpaquePointer) {
+    init(handle: OpaquePointer) {
         self.handle = handle
     }
 

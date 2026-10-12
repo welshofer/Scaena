@@ -9,6 +9,8 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+# A picture's bytes, as an image model's answer carries them (PLAN G.10).
+base64.workspace = true
 # The variety pass's content signals: ASCII `\b` and `\d`, as JavaScript's regexes without `u` read them.
 regex-lite.workspace = true
 serde.workspace = true
