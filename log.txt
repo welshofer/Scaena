@@ -1,0 +1,134 @@
+getpwuid_r did not find a match for uid 501
+Filtering the log data using "subsystem == "com.welshofer.Scaena""
+Timestamp               Ty Process[PID:TID]
+2026-10-12 20:47:47.890 Db ScaenaApp[24920:127d0] [com.welshofer.Scaena:opening] the GPU made in 2.393860 s
+2026-10-12 20:48:07.687 Db ScaenaApp[24920:12d56] [com.welshofer.Scaena:opening] opening b1.scaena
+2026-10-12 20:48:07.890 Db ScaenaApp[24920:12d56] [com.welshofer.Scaena:opening] b1.scaena opened in 0.203478 s
+2026-10-12 20:48:12.868 Db ScaenaApp[24920:12537] [com.welshofer.Scaena:opening] a surface made in 0.001907 s
+2026-10-12 20:48:42.331 Db ScaenaApp[24920:12537] [com.welshofer.Scaena:keys] a field stopped taking the keys
+2026-10-12 20:48:43.305 Db ScaenaApp[24920:12537] [com.welshofer.Scaena:keys] take back: no; window true, key true, first false, covered true, typing false
+2026-10-12 20:49:07.346 Db ScaenaApp[28032:1450d] [com.welshofer.Scaena:opening] the GPU made in 0.331460 s
+2026-10-12 20:49:21.724 Db ScaenaApp[28032:1451a] [com.welshofer.Scaena:opening] opening b1.scaena
+2026-10-12 20:49:22.088 Db ScaenaApp[28032:1451a] [com.welshofer.Scaena:opening] b1.scaena opened in 0.363503 s
+2026-10-12 20:49:30.417 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:opening] a surface made in 0.001493 s
+2026-10-12 20:49:37.659 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] canvas keys became first responder: true
+2026-10-12 20:49:38.619 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 43 flags 0: taken
+2026-10-12 20:49:41.507 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 43 flags 0: taken
+2026-10-12 20:49:42.934 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 225 flags 131072: passed on
+2026-10-12 20:49:43.034 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 43 flags 131072: taken
+2026-10-12 20:49:51.451 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 227 flags 1048576: passed on
+2026-10-12 20:49:51.453 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 55 flags 0: passed on
+2026-10-12 20:49:51.455 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] command Escape flags 0: taken
+2026-10-12 20:49:52.401 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 43 flags 0: taken
+2026-10-12 20:49:54.083 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 79 flags 0: taken
+2026-10-12 20:49:55.564 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 79 flags 0: taken
+2026-10-12 20:49:57.340 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 79 flags 0: taken
+2026-10-12 20:49:59.794 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 79 flags 0: taken
+2026-10-12 20:50:02.073 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 79 flags 0: taken
+2026-10-12 20:50:04.415 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 79 flags 0: taken
+2026-10-12 20:50:07.098 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 79 flags 0: taken
+2026-10-12 20:50:09.962 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 79 flags 0: taken
+2026-10-12 20:50:14.025 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 227 flags 1048576: passed on
+2026-10-12 20:50:14.030 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 29 flags 1048576: passed on
+2026-10-12 20:50:14.091 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] NSUndoManager will undo
+2026-10-12 20:50:14.150 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] NSUndoManager did undo
+2026-10-12 20:50:15.936 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 227 flags 1048576: passed on
+2026-10-12 20:50:15.940 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 29 flags 1048576: passed on
+2026-10-12 20:50:15.941 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] NSUndoManager will undo
+2026-10-12 20:50:15.985 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] NSUndoManager did undo
+2026-10-12 20:50:17.590 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 227 flags 1048576: passed on
+2026-10-12 20:50:17.597 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 29 flags 1048576: passed on
+2026-10-12 20:50:17.599 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] NSUndoManager will undo
+2026-10-12 20:50:17.631 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] NSUndoManager did undo
+2026-10-12 20:50:19.662 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 227 flags 1048576: passed on
+2026-10-12 20:50:19.668 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 29 flags 1048576: passed on
+2026-10-12 20:50:19.670 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] NSUndoManager will undo
+2026-10-12 20:50:19.736 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] NSUndoManager did undo
+2026-10-12 20:50:22.499 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 227 flags 1048576: passed on
+2026-10-12 20:50:22.510 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 29 flags 1048576: passed on
+2026-10-12 20:50:22.513 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] NSUndoManager will undo
+2026-10-12 20:50:22.552 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] NSUndoManager did undo
+2026-10-12 20:50:24.684 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 227 flags 1048576: passed on
+2026-10-12 20:50:24.688 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 29 flags 1048576: passed on
+2026-10-12 20:50:24.690 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] NSUndoManager will undo
+2026-10-12 20:50:24.732 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] NSUndoManager did undo
+2026-10-12 20:50:26.806 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 227 flags 1048576: passed on
+2026-10-12 20:50:26.812 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 29 flags 1048576: passed on
+2026-10-12 20:50:26.814 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] NSUndoManager will undo
+2026-10-12 20:50:26.889 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] NSUndoManager did undo
+2026-10-12 20:50:29.656 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 227 flags 1048576: passed on
+2026-10-12 20:50:29.662 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 29 flags 1048576: passed on
+2026-10-12 20:50:29.665 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] NSUndoManager will undo
+2026-10-12 20:50:29.706 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] NSUndoManager did undo
+2026-10-12 20:50:38.936 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 227 flags 1048576: passed on
+2026-10-12 20:50:38.941 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 55 flags 0: passed on
+2026-10-12 20:50:38.944 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] command Escape flags 0: taken
+2026-10-12 20:50:41.035 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 43 flags 0: taken
+2026-10-12 20:50:42.473 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 40 flags 0: taken
+2026-10-12 20:50:42.810 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] canvas keys resigned: true, let go: false
+2026-10-12 20:50:43.541 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] take back: no; window true, key true, first false, covered false, typing true
+2026-10-12 20:50:56.717 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] text input resigned: true
+2026-10-12 20:50:56.793 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] canvas keys became first responder: true
+2026-10-12 20:51:01.163 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 43 flags 0: taken
+2026-10-12 20:51:02.667 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 225 flags 131072: passed on
+2026-10-12 20:51:02.669 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 43 flags 131072: taken
+2026-10-12 20:51:03.936 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 227 flags 1048576: passed on
+2026-10-12 20:51:04.467 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 7 flags 1048576: taken
+2026-10-12 20:51:09.990 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 227 flags 1048576: passed on
+2026-10-12 20:51:09.994 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 29 flags 1048576: passed on
+2026-10-12 20:51:09.995 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] NSUndoManager will undo
+2026-10-12 20:51:10.055 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] NSUndoManager did undo
+2026-10-12 20:51:20.387 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 227 flags 1048576: passed on
+2026-10-12 20:51:20.400 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] press 55 flags 0: passed on
+2026-10-12 20:51:20.401 Db ScaenaApp[28032:143f5] [com.welshofer.Scaena:keys] command Escape flags 0: taken
+2026-10-12 20:51:29.092 Db ScaenaApp[33961:17f4b] [com.welshofer.Scaena:opening] the GPU made in 0.148925 s
+2026-10-12 20:51:41.303 Db ScaenaApp[34548:1834f] [com.welshofer.Scaena:opening] the GPU made in 0.041084 s
+2026-10-12 20:51:51.173 Db ScaenaApp[34548:187c8] [com.welshofer.Scaena:opening] opening b1.scaena
+2026-10-12 20:51:51.410 Db ScaenaApp[34548:187c8] [com.welshofer.Scaena:opening] b1.scaena opened in 0.237013 s
+2026-10-12 20:51:55.517 Db ScaenaApp[34548:1833f] [com.welshofer.Scaena:opening] a surface made in 0.000970 s
+2026-10-12 20:52:09.191 Db ScaenaApp[35452:18d8a] [com.welshofer.Scaena:opening] the GPU made in 0.125823 s
+2026-10-12 20:52:19.836 Db ScaenaApp[35452:18d94] [com.welshofer.Scaena:opening] opening b1.scaena
+2026-10-12 20:52:20.224 Db ScaenaApp[35452:18d94] [com.welshofer.Scaena:opening] b1.scaena opened in 0.388334 s
+2026-10-12 20:52:27.600 Db ScaenaApp[35452:18cad] [com.welshofer.Scaena:opening] a surface made in 0.001323 s
+2026-10-12 20:52:37.312 Db ScaenaApp[36456:197fd] [com.welshofer.Scaena:opening] the GPU made in 0.102342 s
+2026-10-12 20:52:48.378 Db ScaenaApp[36456:1986f] [com.welshofer.Scaena:opening] opening b1.scaena
+2026-10-12 20:52:48.728 Db ScaenaApp[36456:1986f] [com.welshofer.Scaena:opening] b1.scaena opened in 0.350545 s
+2026-10-12 20:52:53.458 Db ScaenaApp[36456:196f0] [com.welshofer.Scaena:opening] a surface made in 0.000557 s
+2026-10-12 20:52:55.934 Db ScaenaApp[36456:196f0] [com.welshofer.Scaena:opening] a surface made in 0.001179 s
+2026-10-12 20:53:19.959 Db ScaenaApp[37874:1a66e] [com.welshofer.Scaena:opening] the GPU made in 0.105687 s
+2026-10-12 20:53:31.371 Db ScaenaApp[37874:1a66e] [com.welshofer.Scaena:opening] opening b1.scaena
+2026-10-12 20:53:31.717 Db ScaenaApp[37874:1a66e] [com.welshofer.Scaena:opening] b1.scaena opened in 0.345505 s
+2026-10-12 20:53:37.459 Db ScaenaApp[37874:1a51d] [com.welshofer.Scaena:opening] a surface made in 0.000834 s
+2026-10-12 20:54:22.108 Db ScaenaApp[37874:1a51d] [com.welshofer.Scaena:keys] a field stopped taking the keys
+2026-10-12 20:54:23.202 Db ScaenaApp[37874:1a51d] [com.welshofer.Scaena:keys] canvas keys became first responder: true
+2026-10-12 20:54:23.203 Db ScaenaApp[37874:1a51d] [com.welshofer.Scaena:keys] take back: true; focused: nothing
+2026-10-12 20:54:30.031 Db ScaenaApp[37874:1a51d] [com.welshofer.Scaena:keys] press 227 flags 1048576: passed on
+2026-10-12 20:54:30.050 Db ScaenaApp[37874:1a51d] [com.welshofer.Scaena:keys] press 29 flags 1048576: passed on
+2026-10-12 20:54:30.115 Db ScaenaApp[37874:1a51d] [com.welshofer.Scaena:keys] NSUndoManager will undo
+2026-10-12 20:54:30.200 Db ScaenaApp[37874:1a51d] [com.welshofer.Scaena:keys] NSUndoManager did undo
+2026-10-12 20:54:36.270 Db ScaenaApp[37874:1a51d] [com.welshofer.Scaena:keys] press 225 flags 131072: passed on
+2026-10-12 20:54:36.275 Db ScaenaApp[37874:1a51d] [com.welshofer.Scaena:keys] press 227 flags 1179648: passed on
+2026-10-12 20:54:36.279 Db ScaenaApp[37874:1a51d] [com.welshofer.Scaena:keys] press 29 flags 1179648: passed on
+2026-10-12 20:54:39.572 Db ScaenaApp[37874:1a51d] [com.welshofer.Scaena:keys] press 227 flags 1048576: passed on
+2026-10-12 20:54:39.578 Db ScaenaApp[37874:1a51d] [com.welshofer.Scaena:keys] press 29 flags 1048576: passed on
+2026-10-12 20:54:39.580 Db ScaenaApp[37874:1a51d] [com.welshofer.Scaena:keys] NSUndoManager will undo
+2026-10-12 20:54:39.648 Db ScaenaApp[37874:1a51d] [com.welshofer.Scaena:keys] NSUndoManager did undo
+2026-10-12 20:54:51.422 Db ScaenaApp[37874:1a51d] [com.welshofer.Scaena:keys] press 227 flags 1048576: passed on
+2026-10-12 20:54:51.434 Db ScaenaApp[37874:1a51d] [com.welshofer.Scaena:keys] press 29 flags 1048576: passed on
+2026-10-12 20:54:51.435 Db ScaenaApp[37874:1a51d] [com.welshofer.Scaena:keys] NSUndoManager will undo
+2026-10-12 20:54:51.482 Db ScaenaApp[37874:1a51d] [com.welshofer.Scaena:keys] NSUndoManager did undo
+2026-10-12 20:55:04.562 Db ScaenaApp[41669:1cb61] [com.welshofer.Scaena:opening] the GPU made in 0.160137 s
+2026-10-12 20:55:16.733 Db ScaenaApp[41669:1cb62] [com.welshofer.Scaena:opening] opening b1.scaena
+2026-10-12 20:55:17.003 Db ScaenaApp[41669:1cb62] [com.welshofer.Scaena:opening] b1.scaena opened in 0.270316 s
+2026-10-12 20:55:22.609 Db ScaenaApp[41669:1ca40] [com.welshofer.Scaena:opening] a surface made in 0.002027 s
+2026-10-12 20:55:29.667 Db ScaenaApp[41669:1ca40] [com.welshofer.Scaena:keys] canvas keys became first responder: true
+2026-10-12 20:55:41.731 Db ScaenaApp[41669:1ca40] [com.welshofer.Scaena:keys] canvas keys resigned: true, let go: false
+2026-10-12 20:55:42.471 Db ScaenaApp[41669:1ca40] [com.welshofer.Scaena:keys] take back: no; window true, key true, first false, covered false, typing true
+2026-10-12 20:55:50.617 Db ScaenaApp[41669:1ca40] [com.welshofer.Scaena:keys] text input resigned: true
+2026-10-12 20:55:50.693 Db ScaenaApp[41669:1ca40] [com.welshofer.Scaena:keys] canvas keys became first responder: true
+2026-10-12 20:55:58.519 Db ScaenaApp[41669:1ca40] [com.welshofer.Scaena:keys] NSUndoManager will undo
+2026-10-12 20:55:58.583 Db ScaenaApp[41669:1ca40] [com.welshofer.Scaena:keys] NSUndoManager did undo
+2026-10-12 20:56:10.986 Db ScaenaApp[41669:1ca40] [com.welshofer.Scaena:keys] NSUndoManager will undo
+2026-10-12 20:56:11.030 Db ScaenaApp[41669:1ca40] [com.welshofer.Scaena:keys] NSUndoManager did undo
+2026-10-12 20:56:25.867 Db ScaenaApp[41669:1ca40] [com.welshofer.Scaena:keys] canvas keys resigned: true, let go: false
+Child process terminated with signal 15: Terminated
