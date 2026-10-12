@@ -11,7 +11,7 @@
 // - + Step adds `revenue-2` after `revenue`, in its slide: it shows what `revenue` shows, its
 //   thumbnail the same drawing, and it is shown. One undo takes it back.
 // - + Slide opens Dusk's layouts by their sections (PLAN 3.30, 3.31): the 13 down the side as tabs,
-//   123 layouts in all, Titles first, each drawn as it is used and named as a person calls it; a
+//   124 layouts in all, Titles first, each drawn as it is used and named as a person calls it; a
 //   tab clicked or the down arrow shows another, and the field finds a layout in any section.
 //   Bullets starts a slide after `mix` with its headline and its
 //   points in their slots, one undo; a double click on its headline selects its words whole, so
@@ -22,7 +22,7 @@
 //   kicker. Blank adds an empty slide after `mix`. Alt with an arrow key moves it, and so
 //   does a drag; Delete removes it, and the source is as it was.
 // - A deck whose bundle took Dusk before its library grew, 11 layouts in no section, opens with the
-//   library Dusk ships now (PLAN 3.31): + Slide offers the 13 sections and 123 layouts.
+//   library Dusk ships now (PLAN 3.31): + Slide offers the 13 sections and 124 layouts.
 // - F2 renames a state; a state another builds on is not removed, and the status says why.
 // - The state shown, renamed and taken away, leaves no error on the page, and ⌘Z and ⇧⌘Z with the
 //   strip focused undo and redo (PLAN 2.77).
@@ -224,7 +224,7 @@ try {
   }));
   const sections = "Titles,Statements,Lists,Comparison,Frameworks,Process,Time,Numbers,Charts,Pictures,People,Editorial,Closing";
   check(offered.sections.join() === sections, `the sections down the side: ${offered.sections.join(", ")}`);
-  check(offered.counted === 123 && offered.selected === "Titles", `123 layouts, Titles shown first: ${offered.counted}, ${offered.selected}`);
+  check(offered.counted === 124 && offered.selected === "Titles", `124 layouts, Titles shown first: ${offered.counted}, ${offered.selected}`);
   const titles = await drawn();
   const want = "Title,Section,Title over Photo,Title Only,Centered Title,Title beside Photo,Section and Photo,Section Number";
   check(titles.join() === want, `each drawn, by its name: ${titles.join(", ")}`);
@@ -410,7 +410,7 @@ try {
       counted: [...document.querySelectorAll("#starting [role=tab] .count")].reduce((n, c) => n + Number(c.textContent), 0),
     }));
     check(served > 0, `the bundle's theme is the older Dusk, served ${served} time(s)`);
-    check(brought.sections.join() === sections && brought.counted === 123, `an older Dusk opens with its library: ${brought.sections.length} sections, ${brought.counted} layouts`);
+    check(brought.sections.join() === sections && brought.counted === 124, `an older Dusk opens with its library: ${brought.sections.length} sections, ${brought.counted} layouts`);
     await fresh.close();
   }
 

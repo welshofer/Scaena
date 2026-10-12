@@ -502,7 +502,7 @@ pub fn fitted(made: &mut Generated, mut write: Write, rewrites: Vec<(String, Str
     }
     let mut doc = write.deck.to_value()?;
     for (id, text) in &rewrites {
-        doc["nodes"][id]["text"] = json!(text);
+        doc["nodes"][id]["text"] = json!(typeset(text));
     }
     let nothing = scaena_store::Files::Zip(Default::default());
     let view = View { base: &nothing, pending: write.files.clone() };
@@ -1115,6 +1115,8 @@ pub fn deck_as(
     if narrative.slides.is_empty() {
         return Err(OpsError::new("a narrative with no slides makes no deck"));
     }
+    // Its words set as a typesetter sets them: "Canada\u{2019}s", "2021\u{2013}2024" (G.16).
+    let narrative = &typeset_all(narrative);
     let arc = narrative.narrative_arc();
     let names = arc.beat_names();
     let count = narrative.slides.len();
@@ -1393,7 +1395,14 @@ fn items(slide: &Slide, v: &Varied) -> Vec<Item> {
 }
 
 fn item(bullet: &str) -> Item {
-    let whole = bullet.trim().trim_start_matches(['\u{2022}', '-', '*', '\u{2013}']).trim().to_string();
+    let bullet = bullet.trim();
+    // The mark a model may lead an item with, but not a figure's minus: "-13%" keeps it.
+    let whole = match bullet.strip_prefix(['-', '\u{2013}']) {
+        Some(rest) if rest.starts_with(|c: char| c.is_ascii_digit()) => bullet,
+        _ => bullet.trim_start_matches(['\u{2022}', '-', '*', '\u{2013}']),
+    }
+    .trim()
+    .to_string();
     // A label is short, and ends at the first ": ", " — ", or " – ".
     let split = [": ", " \u{2014} ", " \u{2013} "]
         .iter()
@@ -1500,6 +1509,9 @@ fn layout_for(identity: &str, slide: &Slide, items: &[Item], index: usize, theme
         "scorecard" | "kpi-grid" => match n {
             0..=2 => "two-numbers",
             3 => "numbers",
+            // Four figures too wide for a quarter of the slide, or named at length: a square of
+            // them, each as large as its quarter takes (G.16).
+            4 if square(items) && theme.layouts.contains_key("four-numbers") => "four-numbers",
             4 => "scorecard",
             _ => "number-grid",
         },
@@ -1522,6 +1534,8 @@ fn layout_for(identity: &str, slide: &Slide, items: &[Item], index: usize, theme
         // Four steps, each in a card of its own under its number, as a deck's process is drawn.
         "steps" if n == 4 => "numbered-cards",
         "steps" => "steps",
+        // Moments each told in a sentence go down the slide, each beside its date (G.16).
+        "timeline" if n <= 4 && told(items) && theme.layouts.contains_key("milestones") => "milestones",
         "timeline" => "timeline",
         "journey" => "journey",
         "image" if pictured => "full",
@@ -2623,6 +2637,93 @@ fn ordered(categories: &[String]) -> bool {
     })
 }
 
+/// Whether four items' figures want a square of them, not a row (G.16): the widest longer than
+/// a quarter of the slide sets at a figure's size grown, "4.5 mm/yr", or one named at length.
+fn square(items: &[Item]) -> bool {
+    let widest = items.iter().filter_map(Item::figure).map(|f| f.chars().count()).max().unwrap_or(0);
+    let longest = items.iter().filter_map(Item::name).map(|n| n.chars().count()).max().unwrap_or(0);
+    widest > 7 || longest > 32
+}
+
+/// Whether a timeline's moments are told in sentences, more words than a quarter of the slide
+/// sets on a line or two (G.16).
+fn told(items: &[Item]) -> bool {
+    items.iter().any(|i| i.detail.split_whitespace().count() > 4)
+}
+
+/// `narrative` with the words each slide shows set as a typesetter sets them ([`typeset`]).
+fn typeset_all(narrative: &Narrative) -> Narrative {
+    fn set(s: &mut String) {
+        *s = typeset(s);
+    }
+    let mut out = narrative.clone();
+    set(&mut out.executive_summary);
+    for slide in &mut out.slides {
+        set(&mut slide.slide_title);
+        set(&mut slide.subtitle);
+        slide.key_bullets.iter_mut().for_each(set);
+        set(&mut slide.speaker_notes);
+        slide.supporting_facts.iter_mut().for_each(set);
+        slide.beat_name.iter_mut().for_each(set);
+        if let Some(chart) = slide.chart_data.as_mut() {
+            chart.categories.iter_mut().for_each(set);
+            chart.series.iter_mut().filter_map(|s| s.name.as_mut()).for_each(set);
+            chart.unit.iter_mut().for_each(set);
+        }
+    }
+    out
+}
+
+/// `text` set as a typesetter sets it (G.16): an apostrophe and quotation marks curled, a range
+/// of figures and a dash set apart by spaces each an en dash, and three dots an ellipsis. Words
+/// that read as code keep their marks, and a figure's minus and a date's hyphens stay.
+fn typeset(text: &str) -> String {
+    if text.contains(['`', '{', '}', '<', '>']) {
+        return text.to_string();
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let digit = |i: usize| chars.get(i).is_some_and(char::is_ascii_digit);
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < chars.len() {
+        let before = i.checked_sub(1).map(|b| chars[b]);
+        let after = chars.get(i + 1).copied();
+        // A quotation opens at the start, after a space, or after a bracket, a dash, or a mark
+        // that opens another.
+        let opens = before.is_none_or(|b| b.is_whitespace() || "([\u{2014}\u{2013}\u{201c}\u{2018}".contains(b));
+        match chars[i] {
+            // An apostrophe in a word or after it ("Canada's", "countries'") and one for a decade's
+            // first digits ("'90s") curl one way; a single quotation opening, the other.
+            '\'' if opens && !(digit(i + 1) && digit(i + 2)) => out.push('\u{2018}'),
+            '\'' => out.push('\u{2019}'),
+            '"' if opens => out.push('\u{201c}'),
+            '"' => out.push('\u{201d}'),
+            '.' if after == Some('.') && chars.get(i + 2) == Some(&'.') => {
+                out.push('\u{2026}');
+                i += 3;
+                continue;
+            }
+            '-' if (i > 0 && digit(i - 1) && digit(i + 1) && !chained(&chars, i))
+                || (before == Some(' ') && after == Some(' ')) =>
+            {
+                out.push('\u{2013}')
+            }
+            c => out.push(c),
+        }
+        i += 1;
+    }
+    out
+}
+
+/// Whether the hyphen at `at` joins one of several runs of digits, as a date's do: 2024-10-12.
+fn chained(chars: &[char], at: usize) -> bool {
+    let start = chars[..at].iter().rposition(|c| !c.is_ascii_digit()).map_or(0, |p| p + 1);
+    let end = chars[at + 1..].iter().position(|c| !c.is_ascii_digit()).map_or(chars.len(), |p| at + 1 + p);
+    let before = start >= 2 && chars[start - 1] == '-' && chars[start - 2].is_ascii_digit();
+    let after = chars.get(end) == Some(&'-') && chars.get(end + 1).is_some_and(char::is_ascii_digit);
+    before || after
+}
+
 /// Whether `slide` charts two bars of one series.
 fn two(slide: &Slide) -> bool {
     slide
@@ -2782,6 +2883,31 @@ mod tests {
     }
 
     #[test]
+    fn words_are_set_as_a_typesetter_sets_them() {
+        assert_eq!(typeset("Canada's wildfires"), "Canada\u{2019}s wildfires");
+        assert_eq!(typeset("the '90s, the countries' pledges"), "the \u{2019}90s, the countries\u{2019} pledges");
+        assert_eq!(
+            typeset("\"A highway to 'climate hell'\""),
+            "\u{201c}A highway to \u{2018}climate hell\u{2019}\u{201d}"
+        );
+        assert_eq!(
+            typeset("2021-2024, 70-90% lost, 1.5-2\u{b0}C"),
+            "2021\u{2013}2024, 70\u{2013}90% lost, 1.5\u{2013}2\u{b0}C"
+        );
+        assert_eq!(typeset("Climate - where we stand..."), "Climate \u{2013} where we stand\u{2026}");
+        // A figure's minus, a date's hyphens, and a name's keep theirs; code keeps its quotes.
+        assert_eq!(typeset("-13% by 2024-10-12, COVID-19"), "-13% by 2024-10-12, COVID-19");
+        assert_eq!(typeset("`let s = \"x\";`"), "`let s = \"x\";`");
+        // Set once, words stay as they are.
+        let once = typeset("Canada's \"record\" 2021-2024...");
+        assert_eq!(typeset(&once), once);
+        // A figure's minus is not a bullet's mark.
+        let i = item("-13%: Arctic summer ice per decade");
+        assert_eq!((i.label.as_deref(), i.figure().as_deref()), (Some("-13%"), Some("-13%")));
+        assert_eq!(item("- Measure our travel").whole, "Measure our travel");
+    }
+
+    #[test]
     fn an_item_reads_its_label_and_its_figure() {
         let i = item("\u{2022} $4.1M: Q3 revenue, up 12%");
         assert_eq!((i.label.as_deref(), i.detail.as_str()), (Some("$4.1M"), "Q3 revenue, up 12%"));
@@ -2823,7 +2949,7 @@ mod tests {
             "pros-cons",
             "quadrants",
             "numbered-cards",
-            "timeline",
+            "milestones",
             "journey",
             "statement",
             "bullets",
@@ -2918,9 +3044,18 @@ mod tests {
         has(&ranking, "first-rank", "1");
         has(&ranking, "first-figure", "41%");
         has(&ranking, "first", "Houston to Tampa");
+        // A timeline told in sentences goes down the slide, each moment beside its date (G.16).
         let timeline = made("Timeline");
-        has(&timeline, "first-title", "2023");
+        has(&timeline, "first-date", "2023");
         has(&timeline, "first", "Capture prototype proves 92% exhaust uptake");
+        // One of a few words a moment stays across the slide.
+        let mut short = slides.iter().find(|s| s.layout_suggestion == "Timeline").unwrap().clone();
+        short.key_bullets = ["2023: Prototype", "2024: Pilot voyage", "2025: Three contracts", "2026: Four ports live"]
+            .map(String::from)
+            .to_vec();
+        let across =
+            deck(&narrative(&summary, vec![slides[0].clone(), short, slides[55].clone()]), &theme, &Pictures::new());
+        assert_eq!(across.unwrap().layouts[1], "timeline");
         let vs = made("VS");
         has(&vs, "first-title", "Tidewater");
         has(&vs, "second-title", "Offsets");
@@ -3008,18 +3143,22 @@ mod tests {
             steps.iter().all(|s| *s == steps[0]) && steps[0] > size("body") && steps[0] <= size("lede"),
             "{steps:?}"
         );
-        // A scorecard's figures, each on its one line, alike, held under where the widest filled its
-        // place, the numeral's at most; they stand on a rule, each named under it (G.14).
+        // Four figures too wide for a quarter of the slide, "4.5 mm/yr" among them, in a square:
+        // each on its one line, alike, held under where the widest filled its half of the slide,
+        // the numeral's at most, each named under it and its note under that (G.16).
+        assert_eq!(made.layouts[6], "four-numbers");
         let figures: Vec<Value> = ordinals.iter().map(|o| node(6, &format!("{o}-figure"))).collect();
         assert!(figures.iter().all(|f| f["maxLines"] == 1 && f["maxSize"] == figures[0]["maxSize"]), "{figures:#?}");
-        assert!(most(&figures[0]) > size("figure") && most(&figures[0]) < size("numeral"), "{figures:#?}");
-        let card = &theme.layouts["scorecard"].slots;
-        let rows = |slot: &str| match &card[slot].row {
+        assert!(most(&figures[0]) > size("figure") * 1.5 && most(&figures[0]) < size("numeral"), "{figures:#?}");
+        let square = &theme.layouts["four-numbers"].slots;
+        let rows = |slot: &str| match &square[slot].row {
             Some(Range::Span([from, to])) => (*from, *to),
             Some(Range::Index(row)) => (*row, *row),
             None => (0, 0),
         };
-        assert!(rows("first-figure").1 < rows("rule").0 && rows("rule").1 < rows("first-title").0);
+        assert_eq!(rows("first-figure"), rows("second-figure"));
+        assert!(rows("first-figure").1 < rows("first-title").0 && rows("first-title").1 < rows("first").0);
+        assert!(rows("first").1 < rows("third-figure").0);
         assert!(node(6, "first-title")["align"].is_null());
         // Bars of names with no order of their own run longest first; years keep theirs.
         assert_eq!(node(8, "main")["dataTransform"], json!([{ "sort": "-value" }]));
@@ -3048,12 +3187,18 @@ mod tests {
         assert_eq!((node(2, "title")["maxLines"].as_u64(), node(21, "title")["maxLines"].as_u64()), (Some(1), Some(2)));
         assert_eq!(made.layouts[0], "title-split");
         assert!(most(&node(0, "title")) > size("headline") && most(&node(0, "title")) <= size("display"));
-        // What each figure counts, named in a label, alike and as large as the body's words at most.
+        // What each figure counts, said in words under it, alike, past the body's size and the
+        // lede's at most.
         let labels: Vec<f64> = ordinals.iter().map(|o| most(&node(6, &format!("{o}-title")))).collect();
         assert!(
-            labels.iter().all(|l| *l == labels[0]) && labels[0] > size("label") && labels[0] <= size("body"),
+            labels.iter().all(|l| *l == labels[0]) && labels[0] > size("body") && labels[0] <= size("lede"),
             "{labels:?}"
         );
+        // Four years of records, each told in a sentence, go down the slide, each beside its year,
+        // its words set as a typesetter sets them (G.16).
+        assert_eq!(made.layouts[13], "milestones");
+        assert_eq!(node(13, "third-date")["text"], "2023");
+        assert_eq!(node(13, "third")["text"], "Canada\u{2019}s wildfires burn 18 million hectares");
         // A side's statement stands in the middle of its card.
         assert_eq!(node(20, "first")["align"], json!({ "y": "center" }));
         // A head-to-head's sides as figures, what they count said with the row's criterion.
@@ -3314,8 +3459,8 @@ mod tests {
         let seen = seeing(&narrative, &theme, &pictures, &layouts);
         assert_eq!(seen.len(), 25);
         assert!(seen[0].options.is_empty() && seen[8].options.is_empty(), "{:?}", seen[8]);
-        assert_eq!(seen[13].layout.id, "timeline");
-        assert_eq!(seen[13].layout.name, "Timeline");
+        assert_eq!(seen[13].layout.id, "milestones");
+        assert_eq!(seen[13].layout.name, "Milestones");
         assert!(seen[13].options.iter().any(|o| o.id == "numbered-cards"), "{:?}", seen[13].options);
         assert!(seen[13].options.iter().all(|o| !o.draws.is_empty()));
         // Each slide drawn as a JPEG, as wide as asked.
