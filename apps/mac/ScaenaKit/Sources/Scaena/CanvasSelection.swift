@@ -35,15 +35,15 @@ import SwiftUI
 /// element VoiceOver reads as the reader hears it. On the iPad (PLAN 4.3), a finger makes each of
 /// these gestures' patches: a tap is a click and a double tap a double click; a handle is taken
 /// within 22 points; a long press offers what the Node menu and the clipboard do to what it
-/// pressed; and two fingers zoom and pan, a second finger stopping the first's press as it touches
-/// down. Every box and caret is the engine's, at rest; nothing here lays out.
+/// pressed; and two fingers zoom the slide on the desk and pan it, a second finger stopping the
+/// first's press as it touches down. Every box and caret is the engine's, at rest; nothing here lays out.
 struct CanvasSelection: View {
     let editor: DeckEditor
     let state: String
     /// The canvas, in canvas units.
     let size: CGSize
-    /// How close the canvas is shown, and the part of it shown (PLAN 3.16): a pinch, or the wheel
-    /// with ⌘, zooms about the pointer, and the wheel pans what is zoomed in.
+    /// How close the slide is shown on the desk, and the part of it the desk shows, which this view
+    /// is (PLAN 3.16): on the iPad, a pinch grows the slide about the fingers and two fingers pan it.
     @Binding var zoom: Zoom
     /// The node selected, and the others selected with it, children of the same container.
     @Binding var node: String?
@@ -236,17 +236,8 @@ struct CanvasSelection: View {
                     pressed: pressed, commanded: commanded, selectingAll: { selectAll() })
                 #endif
                 #if os(macOS)
-                // The wheel and a pinch over the canvas, read before any view takes them. On the
-                // iPad, two fingers do it (`CanvasPinch`, `CanvasPan`, PLAN 4.3).
-                CanvasWheel(
-                    zoom: { factor, at in zoom.zoom(to: zoom.level * factor, about: fit.canvas(at)) },
-                    pan: { by in
-                        guard zoom.level > 1 else { return false }
-                        zoom.pan(by: CGVector(dx: Double(by.dx) * fit.units, dy: Double(by.dy) * fit.units))
-                        return true
-                    }
-                )
-                .allowsHitTesting(false)
+                // The wheel and a pinch are the desk's, read anywhere on it (`CanvasWheel`, PLAN
+                // 3.16); on the iPad, two fingers do it (`CanvasPinch`, `CanvasPan`, PLAN 4.3).
                 // A right click, or a click with Control, offers what is done to what it clicked, as
                 // a long press does on the iPad (PLAN 3.23); in a text typed in, it is the text's.
                 CanvasRightClick { at in
@@ -269,17 +260,16 @@ struct CanvasSelection: View {
                     #if !os(macOS)
                     // A trackpad's or a mouse's right click offers what a long press offers (PLAN 4.5).
                     .gesture(CanvasRightClick { at in offer(at: fit.canvas(at), shown: at) })
-                    // Two fingers zoom and pan, as the Mac's pinch and wheel do (PLAN 4.3).
+                    // Two fingers zoom and pan, as the Mac's pinch and wheel do (PLAN 4.3): the slide
+                    // grows on the desk about the fingers, and moves with them where it is larger
+                    // than the desk shows.
                     .gesture(
                         CanvasPinch(
-                            level: { zoom.level }, zoom: { to, at in zoom.zoom(to: to, about: fit.canvas(at)) },
+                            level: { zoom.level }, zoom: { to, at in zoom.zoom(to: to, about: at) },
                             fingers: fingers))
                     .gesture(
                         CanvasPan(
-                            pan: { by in
-                                guard zoom.level > 1 else { return }
-                                zoom.pan(by: CGVector(dx: -Double(by.dx) * fit.units, dy: -Double(by.dy) * fit.units))
-                            }, fingers: fingers))
+                            pan: { by in _ = zoom.pan(by: CGVector(dx: -by.dx, dy: -by.dy)) }, fingers: fingers))
                     #endif
                     // A picture or a data file from another app, where it is let go (PLAN 3.22).
                     .onDrop(of: Pasteboard.droppable, isTargeted: $dropping) { items, at in

@@ -9,31 +9,66 @@ import Testing
 /// The torture deck (PLAN 0.2): laid out in 9:16 too, some nodes with layouts of their own there.
 private let torture = repository.appending(path: "tests/fixtures/torture.scaena")
 
-/// Zoom (PLAN 3.16, as the browser's preview, PLAN 2.46): a step closer about the middle of what
-/// shows, as close as asked about a point that stays put, from the whole canvas to eight times as
-/// close, kept on the canvas, and the whole canvas again, which the session paints through none.
-@Test func theCanvasZoomsAndPansAsTheBrowsersPreviewDoes() {
-    var zoom = Zoom(canvas: CGSize(width: 1920, height: 1080))
-    #expect(zoom.level == 1 && zoom.view == nil)
+/// Whether two rects are the same to a millionth of a point or a unit.
+private func alike(_ a: CGRect, _ b: CGRect) -> Bool {
+    abs(a.minX - b.minX) < 1e-6 && abs(a.minY - b.minY) < 1e-6 && abs(a.width - b.width) < 1e-6
+        && abs(a.height - b.height) < 1e-6
+}
+
+/// Zoom (PLAN 3.16): the slide grows on the desk, as a presentation app's does, not what is on it
+/// within the slide's place. Fitted at first, in the middle of the desk, it goes a step closer about
+/// the middle of what shows, as close as asked about a point that stays put, from fitted to eight
+/// times as large, panned no farther than the margin past its edges. What the desk shows is the
+/// canvas's view, which the session paints through; the whole slide where it all shows.
+@Test func theSlideGrowsOnTheDeskAsItIsZoomed() {
+    // A desk the slide fits on at half its size, the margin about it.
+    var zoom = Zoom(canvas: CGSize(width: 1920, height: 1080), desk: CGSize(width: 1016, height: 596))
+    #expect(zoom.level == 1 && zoom.view == nil && !zoom.pans)
+    #expect(alike(zoom.slide, CGRect(x: 28, y: 28, width: 960, height: 540)), "fitted, in the middle: \(zoom.slide)")
+    let still = zoom.pan(by: CGVector(dx: 100, dy: 0))
+    #expect(!still, "nothing to pan where the whole slide shows")
     zoom.step(1)
-    #expect(zoom.level == 1.5 && zoom.shown == CGRect(x: 320, y: 180, width: 1280, height: 720), "about the middle")
-    zoom.step(1)
-    #expect(zoom.shown == CGRect(x: 480, y: 270, width: 960, height: 540))
-    zoom.zoom(to: 4, about: CGPoint(x: 480, y: 270))
-    #expect(zoom.shown == CGRect(x: 480, y: 270, width: 480, height: 270), "the point asked about stays put")
-    zoom.pan(by: CGVector(dx: 10_000, dy: 0))
-    #expect(zoom.shown == CGRect(x: 1440, y: 270, width: 480, height: 270), "kept on the canvas")
+    #expect(zoom.level == 1.5 && alike(zoom.slide, CGRect(x: -212, y: -107, width: 1440, height: 810)), "the slide grows")
+    #expect(alike(zoom.visible, CGRect(x: 0, y: 0, width: 1016, height: 596)), "onto the desk about it: \(zoom.visible)")
+    zoom.zoom(to: 2)
+    #expect(alike(zoom.shown, CGRect(x: 452, y: 242, width: 1016, height: 596)), "about the middle: \(zoom.shown)")
+    #expect(zoom.view.map { alike($0, zoom.shown) } == true, "painted through what shows")
+    zoom.zoom(to: 4, about: .zero)
+    #expect(alike(zoom.shown, CGRect(x: 452, y: 242, width: 508, height: 298)), "the point asked about stays put")
+    let moved = zoom.pan(by: CGVector(dx: 10_000, dy: 0))
+    #expect(moved)
+    #expect(abs(zoom.slide.maxX - (1016 - Zoom.margin)) < 1e-6, "kept on the desk, its edge the margin in")
+    #expect(alike(zoom.visible, CGRect(x: 0, y: 0, width: 988, height: 596)) && abs(zoom.shown.maxX - 1920) < 1e-6)
     zoom.step(-1)
-    #expect(zoom.level == 3 && zoom.shown == CGRect(x: 1280, y: 225, width: 640, height: 360))
-    zoom.look(CGRect(x: 0, y: 0, width: 100, height: 50))
-    #expect(zoom.level == 8 && zoom.shown == CGRect(x: 0, y: 0, width: 240, height: 135), "eight times at most")
-    zoom.look(CGRect(x: 0, y: 0, width: 5000, height: 5000))
-    #expect(zoom.level == 1 && zoom.view == nil, "the whole canvas at least")
+    #expect(zoom.level == 3 && abs(zoom.shown.maxX - 1920) < 1e-6)
+    zoom.zoom(to: 100)
+    #expect(zoom.level == 8, "eight times at most")
+    zoom.zoom(to: 0.5)
+    #expect(zoom.level == 1 && zoom.view == nil, "fitted at least")
+    #expect(alike(zoom.slide, CGRect(x: 28, y: 28, width: 960, height: 540)), "in the middle again")
     zoom.step(1)
     zoom.resize(to: CGSize(width: 1920, height: 1080))
-    #expect(zoom.level == 1.5, "the same size changes nothing")
+    #expect(zoom.level == 1.5, "the same canvas changes nothing")
     zoom.resize(to: CGSize(width: 1080, height: 1920))
-    #expect(zoom.view == nil && zoom.shown == CGRect(x: 0, y: 0, width: 1080, height: 1920), "another size shows it whole")
+    #expect(zoom.level == 1 && zoom.view == nil, "another canvas is fitted")
+    #expect(alike(zoom.slide, CGRect(x: 356.125, y: 28, width: 303.75, height: 540)), "\(zoom.slide)")
+
+    // On a desk taller than the slide is wide, it grows down the desk to fill it before it pans
+    // that way: what fits shows whole, in the middle.
+    var tall = Zoom(canvas: CGSize(width: 1920, height: 1080), desk: CGSize(width: 1016, height: 1500))
+    #expect(alike(tall.slide, CGRect(x: 28, y: 480, width: 960, height: 540)))
+    tall.zoom(to: 2)
+    #expect(alike(tall.visible, CGRect(x: 0, y: 210, width: 1016, height: 1080)), "the slide's whole height shows")
+    #expect(alike(tall.shown, CGRect(x: 452, y: 0, width: 1016, height: 1080)))
+    tall.pan(by: CGVector(dx: 0, dy: 100))
+    #expect(alike(tall.slide, CGRect(x: -452, y: 210, width: 1920, height: 1080)), "it stays in the middle down the desk")
+
+    // The desk resized: as close as it was, what showed in the middle in the middle still.
+    var resized = Zoom(canvas: CGSize(width: 1920, height: 1080), desk: CGSize(width: 1016, height: 596))
+    resized.zoom(to: 2)
+    resized.place(on: CGSize(width: 1216, height: 696))
+    #expect(resized.level == 2 && abs(resized.shown.midX - 960) < 1e-6 && abs(resized.shown.midY - 540) < 1e-6)
+    #expect(resized.placed(on: CGSize(width: 1216, height: 696)) == resized, "the same desk changes nothing")
 }
 
 /// The formats side by side (PLAN 3.16, as the browser's, PLAN 2.62, 2.85): the canvas shown in
