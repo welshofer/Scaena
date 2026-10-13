@@ -21,6 +21,23 @@ private func carried(_ path: String) -> URL {
 /// What finds the test bundle.
 private final class Carried {}
 
+/// An example's bundle (`docs/examples`): the deck `name`, as `deck.json`, and the fonts, themes,
+/// data, and pictures beside it.
+func example(_ name: String) throws -> [String: Data] {
+    let examples = repository.appending(path: "docs/examples")
+    var files = ["deck.json": try Data(contentsOf: examples.appending(path: "\(name).deck.json"))]
+    for dir in ["fonts", "themes", "data", "assets"] {
+        let root = examples.appending(path: dir).resolvingSymlinksInPath()
+        guard let walk = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey])
+        else { continue }
+        for case let url as URL in walk where (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true {
+            let path = url.resolvingSymlinksInPath().pathComponents.dropFirst(root.pathComponents.count)
+            files["\(dir)/\(path.joined(separator: "/"))"] = try Data(contentsOf: url)
+        }
+    }
+    return files
+}
+
 /// B1 (SPEC §15): forty states over four families of type.
 let b1 = carried("tests/bench/b1.scaena")
 

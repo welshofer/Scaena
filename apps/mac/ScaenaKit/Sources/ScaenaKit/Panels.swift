@@ -43,8 +43,11 @@ public struct Themed: Decodable, Sendable {
     /// Refused: the deck would not validate in it, and keeps its own; `why` says how.
     public let refused: Bool
     public let why: [String]
+    /// How many texts the theme left too faint to read were set in its color that reads where
+    /// each stands (PLAN 2.82).
+    public let recolored: Int
 
-    private enum Keys: String, CodingKey { case theme, applied, refused, added }
+    private enum Keys: String, CodingKey { case theme, applied, refused, added, recolored }
 
     public init(from decoder: any Decoder) throws {
         let fields = try decoder.container(keyedBy: Keys.self)
@@ -52,6 +55,7 @@ public struct Themed: Decodable, Sendable {
         applied = try fields.decode(Bool.self, forKey: .applied)
         refused = try fields.decodeIfPresent(Bool.self, forKey: .refused) ?? false
         why = errors(in: try fields.decodeIfPresent([JSONValue].self, forKey: .added) ?? [])
+        recolored = try fields.decodeIfPresent([JSONValue].self, forKey: .recolored)?.count ?? 0
     }
 }
 

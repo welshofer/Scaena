@@ -1370,7 +1370,8 @@ struct DeckView: View {
             ask: { question in
                 assistant?.drafted = question
                 showsAssistant = true
-            })
+            },
+            say: { words in said = words })
     }
 
     /// `edit` made, its step to undo named `name` in the Edit menu: whether it was. Where it was

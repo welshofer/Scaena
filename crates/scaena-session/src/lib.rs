@@ -1137,7 +1137,7 @@ impl Session {
             return Err(Error::Ops(format!("the deck is in `{rel}` already")));
         }
         let copy = self.files.get(&rel).is_none_or(|bytes| bytes != text.as_bytes());
-        let (themed, write) = scaena_ops::theme::theming(&self.bundle(), &rel, &text, &fonts, copy, false)?;
+        let (themed, write) = scaena_ops::theme::theming(&self.bundle(), &rel, &text, &fonts, copy, false, true)?;
         if !themed.refused {
             self.write(Some(write), assistant::Caller { author: "user", at })?;
         }
@@ -2547,6 +2547,29 @@ mod tests {
         assert!(s.compile(&source).valid);
         assert_eq!(s.theme.name, "Daybreak");
         assert_eq!(s.frame("revenue", f64::INFINITY).unwrap(), day);
+    }
+
+    /// A theme chosen in the editor recolors each text it would leave too faint to read where it
+    /// stands (PLAN 2.82): on the trails example, Daybreak sets the storm slide's words dark on
+    /// its dark photo, so the re-theme sets each in Daybreak's color that reads there, in the
+    /// one write the page's undo takes back.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_theme_chosen_in_the_editor_recolors_what_it_would_leave_too_faint() {
+        let mut s = trails();
+        let before = s.deck.to_value().unwrap();
+        let daybreak = std::fs::read_to_string("../../docs/examples/authorability/themes/daybreak.theme.json").unwrap();
+        let themed = s.retheme("themes/daybreak.theme.json", Some(&daybreak), BTreeMap::new(), None).unwrap();
+        assert!(themed.applied && !themed.refused, "{themed:?}");
+        let recolored: Vec<_> = themed.recolored.iter().filter_map(|f| f.node.as_deref()).collect();
+        assert_eq!(recolored, ["storm-note", "storm-title"], "{:?}", themed.recolored);
+        assert!(themed.added.iter().all(|f| !matches!(f.code.as_str(), "E110" | "E111")), "{:?}", themed.added);
+        let after = s.deck.to_value().unwrap();
+        for node in recolored {
+            let color = after["nodes"][node]["style"]["color"].as_str();
+            assert!(color.is_some_and(|c| !c.starts_with('#')), "{node} takes a color of the theme: {color:?}");
+            assert_ne!(after["nodes"][node], before["nodes"][node]);
+        }
     }
 
     /// A page reads a caret from the deck its source says (PLAN 2.32): the session says

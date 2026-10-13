@@ -1243,6 +1243,9 @@ export interface Themed {
   added: Finding[];
   removed: Finding[];
   errors: number;
+  /** The contrast errors the theme brought, each fixed: a text set in its color that reads
+   * where it stands, one for each text (PLAN 2.82). */
+  recolored: Finding[];
 }
 
 /** A section of the spine, as a reader goes through it (PLAN 2.8). */

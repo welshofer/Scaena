@@ -335,7 +335,60 @@ fn every_example_deck_moves_between_the_shipped_themes() {
         let missing: Vec<&serde_json::Value> =
             t["added"].as_array().unwrap().iter().filter(|f| f["code"] == "E102").collect();
         assert!(missing.is_empty(), "{run}: {missing:#?}");
+        // A text the theme left too faint that a color of its own fixes was recolored (PLAN 2.82).
+        let faint: Vec<&serde_json::Value> = (t["added"].as_array().unwrap().iter())
+            .filter(|f| (f["code"] == "E110" || f["code"] == "E111") && !f["fix"].is_null())
+            .collect();
+        assert!(faint.is_empty(), "{run}: a contrast error with a fix stays: {faint:#?}");
     }
+}
+
+/// A text the theme leaves too faint to read where it stands is set in its color that reads there,
+/// as its contrast error's fix offers (PLAN 2.82): the trails deck onto Daybreak, whose storm slide
+/// sets its title and its note over a dark photo in the theme's dark ink, recolors both, writes
+/// each where its color lives, and leaves lint no error to find.
+#[test]
+fn a_text_the_theme_leaves_too_faint_is_set_in_its_color_that_reads() {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("theme-recolor");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    for sub in ["fonts", "themes", "data", "assets"] {
+        copy_dir(&Path::new("../../docs/examples").join(sub), &dir.join(sub));
+    }
+    std::fs::copy("../../docs/examples/trails.deck.json", dir.join("deck.json")).unwrap();
+    let before = deck(&dir);
+
+    // It says each text it recolored, and where.
+    let said = scaena(&["theme", dir.to_str().unwrap(), "--apply", DAYBREAK, "--dry-run"]);
+    let said = String::from_utf8(said.stdout).unwrap();
+    assert!(said.contains("recolored `storm-title` in `storm`: it reads on what lies behind it (E111)"), "{said}");
+    assert!(said.contains("recolored `storm-note` in `storm`"), "{said}");
+
+    let out = scaena(&["--json", "theme", dir.to_str().unwrap(), "--apply", DAYBREAK]);
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(out.status.code(), Some(0), "{stdout}{}", String::from_utf8_lossy(&out.stderr));
+    let t: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let recolored: Vec<&str> = t["recolored"].as_array().unwrap().iter().filter_map(|f| f["node"].as_str()).collect();
+    assert_eq!(recolored, ["storm-note", "storm-title"], "{t:#}");
+    assert_eq!(t["errors"], 0, "{t:#}");
+    let faint = |f: &&serde_json::Value| f["code"] == "E110" || f["code"] == "E111";
+    assert!(t["added"].as_array().unwrap().iter().filter(faint).count() == 0, "{t:#}");
+
+    // Each in a color of the theme, set on the node, where its color lives; the rest as it was.
+    let after = deck(&dir);
+    for node in ["storm-note", "storm-title"] {
+        let color = after["nodes"][node]["style"]["color"].as_str();
+        assert!(color.is_some_and(|c| !c.starts_with('#')), "{node} takes a color of the theme: {color:?}");
+    }
+    assert_eq!(after["theme"], "themes/daybreak.theme.json");
+    let mut rest = after.clone();
+    for node in ["storm-note", "storm-title"] {
+        rest["nodes"][node] = before["nodes"][node].clone();
+    }
+    rest["theme"] = before["theme"].clone();
+    rest["fonts"] = before["fonts"].clone();
+    let typed = |v: serde_json::Value| serde_json::from_value::<scaena_core::Deck>(v).unwrap().to_json().unwrap();
+    assert_eq!(typed(rest), typed(before), "nothing else changes");
 }
 
 /// `theme --from-photo` (PLAN 2.94): the theme's colors from an image the bundle holds, written as
