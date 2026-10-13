@@ -405,7 +405,7 @@ fn arrowhead(from: [f32; 2], to: [f32; 2], s: &Stroke, scale: f32) -> Path {
     ])
 }
 
-fn polyline(points: impl Iterator<Item = [f32; 2]>, closed: bool) -> Path {
+pub(crate) fn polyline(points: impl Iterator<Item = [f32; 2]>, closed: bool) -> Path {
     let mut els: Vec<PathEl> =
         points.enumerate().map(|(i, p)| if i == 0 { PathEl::MoveTo(p) } else { PathEl::LineTo(p) }).collect();
     if closed {
@@ -537,7 +537,7 @@ fn trimmed(path: &Path, progress: f32) -> Path {
 }
 
 /// A kurbo path in the display list's terms.
-fn path_of(bez: &kurbo::BezPath) -> Path {
+pub(crate) fn path_of(bez: &kurbo::BezPath) -> Path {
     let p = |q: kurbo::Point| [q.x as f32, q.y as f32];
     Path(
         bez.elements()

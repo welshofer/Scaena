@@ -7,7 +7,8 @@
 //! (`[0.5, 0.5]` by default): the box and the image line up at it, as CSS
 //! `object-position` does with percentages, so `cover` keeps it in view. `crop` cuts the
 //! image to `[x, y, w, h]`, fractions of it, before anything else, so a sharper file of
-//! the same picture keeps the crop. `radius` rounds the corners of what shows.
+//! the same picture keeps the crop. `radius` rounds the corners of what shows, and `mask` shows
+//! it only inside a shape, an oval or a polygon of the shape library (PLAN 2.113).
 //!
 //! Images are PNGs and JPEGs, each read by one decoder in Rust alone, the same pixels everywhere
 //! (SPEC §13): a JPEG by `scaena_core::jpeg`, in integers (ADR-0017). A JPEG's size is its size as
@@ -15,8 +16,9 @@
 
 use crate::EngineError;
 use crate::charts::{RoundRect, lerp};
+use crate::shapes::{path_of, polyline};
 use crate::theme::Theme;
-use scaena_core::displaylist::{Blend, IDENTITY, MAX_IMAGE_SIDE, Op, Quality, Rect};
+use scaena_core::displaylist::{Blend, IDENTITY, MAX_IMAGE_SIDE, Op, Path, Quality, Rect};
 use scaena_core::document::Props;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -123,6 +125,38 @@ pub struct ImageNode {
     /// Of the image, in fractions.
     crop: Rect,
     radius: f32,
+    mask: Option<Mask>,
+}
+
+/// The shape an image shows inside (PLAN 2.113).
+#[derive(Debug, Clone, PartialEq)]
+enum Mask {
+    Oval,
+    /// A polygon of the shape library: its points, fractions of what shows.
+    Polygon(Vec<[f32; 2]>),
+}
+
+impl Mask {
+    /// `name`, as a deck writes it: `ellipse`, or a polygon of the shape library.
+    fn named(name: &str) -> Option<Mask> {
+        if name == "ellipse" {
+            return Some(Mask::Oval);
+        }
+        let (_, points, _) = scaena_core::inserts::polygons().into_iter().find(|(n, _, _)| *n == name)?;
+        Some(Mask::Polygon(points.into_iter().map(|[x, y]| [x as f32, y as f32]).collect()))
+    }
+
+    /// Its outline over `[x, y, w, h]`, box-local.
+    fn outline(&self, [x, y, w, h]: Rect) -> Path {
+        match self {
+            Mask::Oval => {
+                let (rx, ry) = (f64::from(w) / 2.0, f64::from(h) / 2.0);
+                let oval = kurbo::Ellipse::new((f64::from(x) + rx, f64::from(y) + ry), (rx, ry), 0.0);
+                path_of(&kurbo::Shape::to_path(&oval, 0.1))
+            }
+            Mask::Polygon(points) => polyline(points.iter().map(|[px, py]| [x + px * w, y + py * h]), true),
+        }
+    }
 }
 
 impl ImageNode {
@@ -163,7 +197,13 @@ impl ImageNode {
             Some(r) => theme.length(r, rect[2].min(rect[3]))?.max(0.0),
             None => 0.0,
         };
-        Ok(ImageNode { rect, info, fit, focal, crop, radius })
+        let mask = match props.get("mask") {
+            None | Some(Value::Null) => None,
+            Some(v) => Some(v.as_str().and_then(Mask::named).ok_or_else(|| {
+                EngineError::Layout(format!("image `mask` {v}: `ellipse`, or a shape of the library by its name"))
+            })?),
+        };
+        Ok(ImageNode { rect, info, fit, focal, crop, radius, mask })
     }
 
     /// The same image in another box.
@@ -173,7 +213,8 @@ impl ImageNode {
 
     /// Whether `other` shows the same picture the same way, perhaps in another box.
     pub fn same_image(&self, other: &ImageNode) -> bool {
-        (&self.info, self.fit, self.focal, self.crop) == (&other.info, other.fit, other.focal, other.crop)
+        (&self.info, self.fit, self.focal, self.crop, &self.mask)
+            == (&other.info, other.fit, other.focal, other.crop, &other.mask)
     }
 
     /// `a` to `b`, `p` of the way: the box and the radius move.
@@ -238,17 +279,19 @@ impl ImageNode {
         (whole, [x, y, dst[2], dst[3]], self.crop, self.focal, fit, [self.info.width, self.info.height])
     }
 
-    /// What the image draws, box-local: the image, clipped to rounded corners if it has
-    /// them.
+    /// What the image draws, box-local: the image, clipped to its mask's shape if it has one
+    /// (PLAN 2.113), else to rounded corners if it has them.
     pub fn ops(&self) -> Vec<Op> {
         let (src, dst) = self.placement();
         let image = Op::Image { asset: self.info.id.clone(), src, dst, quality: Quality::High };
-        if self.radius <= 0.0 {
-            return vec![image];
-        }
-        let [x, y, w, h] = dst;
-        let r = self.radius.min(w.min(h) / 2.0);
-        let clip = RoundRect::rounded(x, y, w, h, r).path();
+        let clip = match &self.mask {
+            Some(mask) => mask.outline(dst),
+            None if self.radius > 0.0 => {
+                let [x, y, w, h] = dst;
+                RoundRect::rounded(x, y, w, h, self.radius.min(w.min(h) / 2.0)).path()
+            }
+            None => return vec![image],
+        };
         vec![Op::Layer {
             node: None,
             cell: None,
@@ -264,6 +307,7 @@ impl ImageNode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use scaena_core::displaylist::PathEl;
     use serde_json::json;
 
     /// A PNG header for an image of `w` × `h`: all the engine reads.
@@ -377,5 +421,39 @@ mod tests {
             node(json!({ "src": "assets/photo.png" }), [0.0, 0.0, 9.0, 9.0]).ops().as_slice(),
             [Op::Image { .. }]
         ));
+    }
+
+    /// A mask shows the image only inside its shape (PLAN 2.113), fitted to what shows, in place of
+    /// the radius: a star's ten points, an oval's curves; a name the library lacks says what it takes.
+    #[test]
+    fn a_mask_shows_the_image_inside_its_shape() {
+        let clip = |props: Value, rect: Rect| match node(props, rect).ops().as_slice() {
+            [Op::Layer { clip: Some(clip), ops, .. }] if matches!(ops.as_slice(), [Op::Image { .. }]) => clip.clone(),
+            other => panic!("{other:?}"),
+        };
+        let points = |el: &PathEl| match *el {
+            PathEl::MoveTo(p) | PathEl::LineTo(p) => vec![p],
+            PathEl::QuadTo(a, b) => vec![a, b],
+            PathEl::CurveTo(a, b, c) => vec![a, b, c],
+            PathEl::Close => vec![],
+        };
+        let star = clip(json!({ "src": "assets/photo.png", "mask": "star", "radius": 8 }), [0.0, 0.0, 100.0, 50.0]);
+        let corners: Vec<[f32; 2]> = star.0.iter().flat_map(points).collect();
+        assert_eq!(corners.len(), 10, "{star:?}");
+        assert!(corners.iter().all(|[x, y]| (0.0..=100.0).contains(x) && (0.0..=50.0).contains(y)));
+        assert_eq!(corners[0], [50.0, 0.0], "its first point at the top middle of what shows");
+        // Contained, the oval rounds the part the image fills, not the box.
+        let oval =
+            clip(json!({ "src": "assets/photo.png", "mask": "ellipse", "fit": "contain" }), [0.0, 0.0, 100.0, 100.0]);
+        assert!(oval.0.iter().any(|el| matches!(el, PathEl::CurveTo(..) | PathEl::QuadTo(..))), "{oval:?}");
+        let ys: Vec<f32> = oval.0.iter().flat_map(points).map(|[_, y]| y).collect();
+        let (top, bottom) = ys.iter().fold((f32::MAX, f32::MIN), |(lo, hi), y| (lo.min(*y), hi.max(*y)));
+        assert!((top - 25.0).abs() < 0.01 && (bottom - 75.0).abs() < 0.01, "a 2:1 picture in a square: {top} {bottom}");
+        let mut images = BundleImages::new();
+        images.register("assets/photo.png", &png(400, 200)).unwrap();
+        let theme = Theme::from_json(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();
+        let props = serde_json::from_value(json!({ "src": "assets/photo.png", "mask": "blob" })).unwrap();
+        let err = ImageNode::resolve(&props, &theme, &images, [0.0, 0.0, 9.0, 9.0]).unwrap_err().to_string();
+        assert!(err.contains("`ellipse`, or a shape of the library"), "{err}");
     }
 }

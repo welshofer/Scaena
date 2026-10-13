@@ -27,7 +27,7 @@ pub fn look_props(node_type: NodeType) -> &'static [&'static str] {
             &["role", "style/family", "style/weight", "style/italic", "style/size", "style/color", "style/case"]
         }
         NodeType::Shape => &["fill", "stroke/paint", "stroke/width", "radius"],
-        NodeType::Image => &["radius"],
+        NodeType::Image => &["radius", "mask"],
         NodeType::Shader => &["preset", "palette"],
         NodeType::Chart => &["labels/show", "labels/role"],
         NodeType::Stack | NodeType::Grid => &["gap"],

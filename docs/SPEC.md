@@ -124,7 +124,7 @@ Rules:
 
 ```jsonc
 {
-  "scaena": "0.23",
+  "scaena": "0.24",
   "meta":   { "title": "...", "author": "...", "created": "...", "lang": "en-US" },
   "canvas": { "width": 1920, "height": 1080, "unit": "cu" },   // canvas units; 1 cu = 1 px at 1080p
   "formats": ["16:9", "9:16"],                               // the formats it is laid out in too (§3.4)
@@ -157,7 +157,7 @@ Every node has a `type`, an id (its key in `nodes`), and the properties every ty
 |---|---|---|
 | `text` | typographic text | `role`, `text` or `runs`, `fit`, `wrap: greedy\|pretty\|balance`, `maxLines`, `minSize`, `maxSize`, `box`, `features`, `axes`, `lang`, `measure`, `hyphenate`, `opticalMargins`, `hangingPunctuation`, `numeric`, `minLastLineWords`, `split` |
 | `shape` | vector geometry | `path` (SVG path data) or `kind: rect\|ellipse\|line\|arrow\|polygon\|path`, `view`, `points`, `radius`; a line's or an arrow's `connect` (§3.4) |
-| `image` | raster/vector image | `src` (asset ref), `fit: cover\|contain\|fill`, `focal: [x,y]`, `crop`, `radius` |
+| `image` | raster/vector image | `src` (asset ref), `fit: cover\|contain\|fill`, `focal: [x,y]`, `crop`, `radius`, `mask` |
 | `chart` | data-bound visualization | §3.7 |
 | `table` | data-bound table | `data`, `dataTransform`, `columns` (`field`, `title`, `format`, `align`), `key`, `header` |
 | `shader` | GPU/CPU parametric background or fill | §3.8 |
@@ -191,8 +191,9 @@ How the image meets its box:
 - `fit: cover` (default) scales the crop to fill the box and cuts what overflows; `contain` scales it to fit inside the box, the rest of the box empty; `fill` stretches it to the box.
 - `focal: [x, y]`, fractions of the crop (default `[0.5, 0.5]`), lines the box and the image up at that point, as CSS `object-position` does with percentages: under `cover` the focal point stays in view, and under `contain` it places the image in the box's spare room.
 - `radius` rounds the corners of what shows: the box under `cover` and `fill`, the drawn image under `contain`.
+- `mask` shows the image only inside a shape, as a presentation app masks a picture with one (deck format 0.24, PLAN 2.113): `ellipse`, an oval, or a polygon of the shape library by its name (`triangle`, `right-triangle`, `diamond`, `parallelogram`, `trapezoid`, `pentagon`, `hexagon`, `octagon`, `star`, `chevron`, `right-arrow`, `left-arrow`, `up-arrow`, `down-arrow`, `plus`, `callout`), fitted to what shows as `radius` rounds it, in place of `radius`.
 
-Images are filtered bilinearly in every painter (vello's GPU path has no bicubic, so a finer CPU filter would only make the painters disagree), without mipmaps: an image drawn at under half its size aliases. Between two states an image's box and radius morph; a change of `src`, `fit`, `focal`, or `crop` is a new picture, which crossfades.
+Images are filtered bilinearly in every painter (vello's GPU path has no bicubic, so a finer CPU filter would only make the painters disagree), without mipmaps: an image drawn at under half its size aliases. Between two states an image's box and radius morph; a change of `src`, `fit`, `focal`, `crop`, or `mask` is a new picture, which crossfades.
 
 Common animatable properties: `opacity`, `transform` (`translate`, `rotate`, `scale`, `skew`, `anchor`), `fill`, `stroke`, `blur`, `clip`, `blend`, `shadow`, plus type-specific ones (text content/style, chart data/encodings, shader uniforms).
 
@@ -1080,7 +1081,7 @@ A node that lands where it stands is left out of the patch, so its placement sta
 - **The fields by type:**
   - a text: `role`, `style/family`, `style/weight`, `style/italic`, `style/size`, `style/color`, `style/case`, `align/x` (where its lines stand across its box: `start`, `center`, or `end`, PLAN 3.25), `fit`, `wrap`, and `maxLines`;
   - a shape: `fill`, `stroke/paint`, `stroke/width`, and `radius`;
-  - an image: `fit`, `focal`, `crop`, and `radius`;
+  - an image: `fit`, `focal`, `crop`, `radius`, and `mask` (PLAN 2.113);
   - a shader: `preset` and `palette`;
   - a chart: `data`, `kind`, `x/field`, `x/type`, `y/field`, `y/type`, `series/field`, `color/field`, `sizeEncoding/field`, `key`, `labels/show`, and `labels/role`;
   - a table: `data`, `key`, and `header`;
