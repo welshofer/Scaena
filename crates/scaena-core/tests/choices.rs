@@ -153,6 +153,32 @@ fn each_node_type_offers_what_its_theme_names() {
     assert!(e.contains("not on screen in `intro`"), "{e}");
 }
 
+/// A picture's border and its adjustments (PLAN 2.118, 2.117): its border the theme's colors and
+/// strokes, as a shape's outline is, and each adjustment a number from -1 to 1, as written.
+#[test]
+fn an_image_offers_its_border_and_its_adjustments() {
+    let mut doc = example();
+    doc["nodes"]["photo"] = json!({
+        "type": "image", "src": "assets/photo.jpg", "adjust": { "saturation": -1 }, "at": { "rect": [96, 96, 640, 360] }
+    });
+    doc["states"][0]["props"]["photo"] = json!({});
+    let c = offered(&doc, "intro", "photo");
+    let props: Vec<&str> = c.fields.iter().map(|f| f.prop.as_str()).collect();
+    for prop in
+        ["stroke/paint", "stroke/width", "adjust/exposure", "adjust/contrast", "adjust/saturation", "adjust/warmth"]
+    {
+        assert!(props.contains(&prop), "{prop}: {props:?}");
+    }
+    assert!(matches!(field(&c, "stroke/paint").takes, Takes::Name { of: Vocabulary::Color, .. }));
+    assert!(matches!(field(&c, "stroke/width").takes, Takes::Name { of: Vocabulary::Stroke, .. }));
+    assert_eq!(
+        field(&c, "adjust/warmth").takes,
+        Takes::Number { min: Some(-1.0), above: None, max: Some(1.0), whole: false, overrides: false }
+    );
+    let saturation = field(&c, "adjust/saturation");
+    assert_eq!((saturation.value.clone(), saturation.lives.clone()), (Some(json!(-1)), Some(Where::Node)));
+}
+
 /// What a chart reads, and how, from its data (PLAN 2.41): its source, from the deck's; each
 /// channel's field, from the columns of the table it reads that the channel can read; the
 /// type it reads it as; and its key.

@@ -363,7 +363,34 @@ node! {
         /// library. It takes the place of `radius`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub mask: Option<ImageMask>,
+        /// Its light and color adjusted (PLAN 2.117), as a presentation app's Adjust Image
+        /// adjusts a picture.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub adjust: Option<ImageAdjust>,
     }
+}
+
+/// How an image's light and color are adjusted (PLAN 2.117): each from -1 to 1, where 0, or
+/// none, leaves the picture as it is.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ImageAdjust {
+    /// Brighter or darker, as a camera's exposure: 1 is two stops brighter, -1 two darker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = -1, max = 1))]
+    pub exposure: Option<f64>,
+    /// The lights lighter and the darks darker, or both nearer the middle: -1 is a flat gray.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = -1, max = 1))]
+    pub contrast: Option<f64>,
+    /// More color, or less: -1 is black and white, 1 twice the color.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = -1, max = 1))]
+    pub saturation: Option<f64>,
+    /// Warmer, toward orange, or cooler, toward blue, as a camera's white balance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = -1, max = 1))]
+    pub warmth: Option<f64>,
 }
 
 /// The shape an image shows inside (PLAN 2.113): an oval, or a polygon of the shape library

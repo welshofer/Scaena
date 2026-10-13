@@ -169,6 +169,14 @@ W302 - shadows sh-oval /nodes/sh-oval/at/col
 W302 - shadows sh-photo /nodes/sh-photo/at/col
 W302 - shadows sh-photo-oval /nodes/sh-photo-oval/at/col
 W302 - shadows sh-frame /nodes/sh-frame/at/col
+W302 - adjust adj-plain /nodes/adj-plain/at/col
+W302 - adjust adj-mono /nodes/adj-mono/at/col
+W302 - adjust adj-warm /nodes/adj-warm/at/col
+W302 - adjust adj-cool /nodes/adj-cool/at/col
+W302 - adjust adj-bright /nodes/adj-bright/at/col
+W302 - adjust adj-dark /nodes/adj-dark/at/col
+W302 - adjust adj-card /nodes/adj-card/at/col
+W302 - adjust adj-vivid /nodes/adj-vivid/at/col
 W421 - chart-next - /states/23
 W421 - images - /states/26
 W421 - containers - /states/27
@@ -181,6 +189,8 @@ W421 - slopes-next - /states/57
 W421 - multiples-next - /states/59
 W421 - shadows - /states/60
 W421 - shadows-next - /states/61
+W421 - adjust - /states/62
+W421 - adjust-next - /states/63
 I402 - - marks-dot /overrides/marks-dot
 I402 - - gp-linear /overrides/gp-linear
 I402 - - gp-conic /overrides/gp-conic

@@ -22,10 +22,11 @@
 pub mod diff;
 
 use peniko::{Blob, FontData};
+use scaena_core::adjust::Adjust;
 use scaena_core::displaylist::{DL_VERSION, DisplayList, FontRef};
 use scaena_core::shader::{Job, ShaderError, Spec};
-use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::collections::{BTreeMap, VecDeque};
+use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -69,7 +70,18 @@ impl From<ShaderError> for PaintError {
 pub struct Assets {
     blobs: BTreeMap<String, Blob<u8>>,
     images: BTreeMap<String, Arc<Picture>>,
+    /// Images' pixels adjusted (PLAN 2.117), by the asset id a display list names them by, made
+    /// the first time one does and kept for the frames after: the latest few, since each step
+    /// of an adjustment names other pixels.
+    adjusted: Arc<Mutex<Adjusted>>,
 }
+
+/// Adjusted pictures by asset id, the latest last.
+type Adjusted = VecDeque<(String, Arc<Picture>)>;
+
+/// The most adjusted pictures [`Assets`] keeps, and the most pixels among them.
+const ADJUSTED_KEPT: usize = 8;
+const ADJUSTED_PIXELS: u64 = 64 << 20;
 
 /// A decoded image: straight (unpremultiplied) sRGB RGBA8, row-major, as it is seen.
 #[derive(Debug)]
@@ -117,9 +129,29 @@ impl Assets {
         Ok(FontData::new(blob.clone(), font.index))
     }
 
-    /// The decoded image a display list names by content id.
-    pub fn image(&self, id: &str) -> Result<&Arc<Picture>, PaintError> {
-        self.images.get(id).ok_or_else(|| PaintError::MissingImage(id.to_string()))
+    /// The decoded image a display list names: by its content id, or by that id with how its
+    /// pixels are adjusted after it (PLAN 2.117, [`Adjust::name`]), made from the image's own
+    /// the first time a frame names them.
+    pub fn image(&self, id: &str) -> Result<Arc<Picture>, PaintError> {
+        if let Some(picture) = self.images.get(id) {
+            return Ok(picture.clone());
+        }
+        let missing = || PaintError::MissingImage(id.to_string());
+        let (own, adjust) = Adjust::named(id).ok_or_else(missing)?;
+        let source = self.images.get(own).ok_or_else(missing)?;
+        let mut kept = self.adjusted.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some((_, picture)) = kept.iter().find(|(name, _)| name == id) {
+            return Ok(picture.clone());
+        }
+        let picture = Arc::new(source.adjusted(adjust));
+        let pixels = |p: &Picture| u64::from(p.width) * u64::from(p.height);
+        kept.push_back((id.to_string(), picture.clone()));
+        while kept.len() > 1
+            && (kept.len() > ADJUSTED_KEPT || kept.iter().map(|(_, p)| pixels(p)).sum::<u64>() > ADJUSTED_PIXELS)
+        {
+            kept.pop_front();
+        }
+        Ok(picture)
     }
 }
 
@@ -178,6 +210,21 @@ impl Picture {
             #[cfg(feature = "cpu")]
             pixmap: std::sync::OnceLock::new(),
         })
+    }
+
+    /// Its pixels adjusted (PLAN 2.117): a picture of its own, which an export carries as its
+    /// pixels, not as the image's file.
+    pub fn adjusted(&self, adjust: Adjust) -> Picture {
+        let mut rgba = self.rgba.data().to_vec();
+        adjust.apply(&mut rgba);
+        Picture {
+            width: self.width,
+            height: self.height,
+            rgba: Blob::new(Arc::new(rgba)),
+            jpeg: None,
+            #[cfg(feature = "cpu")]
+            pixmap: std::sync::OnceLock::new(),
+        }
     }
 
     /// Premultiplied, for `vello_cpu`, which knows whether it is opaque: an opaque image is
@@ -276,6 +323,33 @@ mod picture_tests {
         let Err(PaintError::Png(e)) = Picture::decode(&wide) else { panic!("decoded an 8200 px image") };
         assert!(e.contains("8200 × 1 px"), "{e}");
         assert!(matches!(Picture::decode(b"GIF89a"), Err(PaintError::Png(_))));
+    }
+
+    /// Adjustments (PLAN 2.117): an asset id with an adjustment after it is the image's pixels
+    /// adjusted, made once and kept, never the file; one of an image the store lacks, or an
+    /// adjustment it cannot read, is missing.
+    #[test]
+    fn an_adjusted_asset_is_the_images_pixels_adjusted() {
+        let mut assets = Assets::new();
+        let red = [200, 40, 30, 255];
+        assets.insert_image("sha256:ab", &png(png::ColorType::Rgba, png::BitDepth::Eight, 1, &red, None)).unwrap();
+        let mono = Adjust { saturation: -1000, ..Adjust::default() };
+        let id = mono.name("sha256:ab");
+        let picture = assets.image(&id).unwrap();
+        let [r, g, b, a]: [u8; 4] = picture.rgba.data()[..4].try_into().unwrap();
+        assert!(r.abs_diff(g) <= 1 && g.abs_diff(b) <= 1 && a == 255, "gray: {r} {g} {b} {a}");
+        assert!(picture.jpeg.is_none(), "an export carries its pixels, not the file");
+        assert!(Arc::ptr_eq(&picture, &assets.image(&id).unwrap()), "made once and kept");
+        assert_eq!(assets.image("sha256:ab").unwrap().rgba.data()[..4], red, "the image's own pixels as they were");
+        for missing in [mono.name("sha256:cd"), "sha256:ab+adjust(1,2,3)".to_string()] {
+            assert!(matches!(assets.image(&missing), Err(PaintError::MissingImage(_))), "{missing}");
+        }
+        // Only the latest few are kept.
+        for e in 1..=(ADJUSTED_KEPT as i16 + 1) {
+            assets.image(&Adjust { exposure: e, ..Adjust::default() }.name("sha256:ab")).unwrap();
+        }
+        assert_eq!(assets.adjusted.lock().unwrap().len(), ADJUSTED_KEPT);
+        assert!(!Arc::ptr_eq(&picture, &assets.image(&id).unwrap()), "made again once let go");
     }
 }
 

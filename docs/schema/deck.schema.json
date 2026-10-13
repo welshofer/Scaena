@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/deck-0.25.json",
+  "$id": "https://scaena.dev/schema/deck-0.26.json",
   "title": "Scaena deck document",
   "description": "Canonical deck.json. A deck is a scene graph (nodes) plus an ordered cue list (states) over a narrative spine, rendered against a theme. See docs/SPEC.md §3.",
   "type": "object",
@@ -10,7 +10,7 @@
     "scaena": {
       "description": "Format version (semver, major.minor[.patch]).",
       "type": "string",
-      "pattern": "^0\\.25(\\.[0-9]+)?$"
+      "pattern": "^0\\.26(\\.[0-9]+)?$"
     },
     "meta": { "$ref": "#/$defs/Meta" },
     "canvas": { "$ref": "#/$defs/Canvas" },
@@ -463,6 +463,10 @@
         "mask": {
           "description": "Shows the image only inside a shape (PLAN 2.113), fitted to what shows, as a presentation app masks a picture with a shape: an oval, or a polygon of the shape library. It takes the place of `radius`.",
           "$ref": "#/$defs/ImageMask"
+        },
+        "adjust": {
+          "description": "Its light and color adjusted (PLAN 2.117), as a presentation app's Adjust Image adjusts a picture.",
+          "$ref": "#/$defs/ImageAdjust"
         }
       }
     },
@@ -1125,6 +1129,37 @@
         "callout"
       ]
     },
+    "ImageAdjust": {
+      "description": "How an image's light and color are adjusted (PLAN 2.117): each from -1 to 1, where 0, or none, leaves the picture as it is.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "exposure": {
+          "description": "Brighter or darker, as a camera's exposure: 1 is two stops brighter, -1 two darker.",
+          "type": "number",
+          "minimum": -1,
+          "maximum": 1
+        },
+        "contrast": {
+          "description": "The lights lighter and the darks darker, or both nearer the middle: -1 is a flat gray.",
+          "type": "number",
+          "minimum": -1,
+          "maximum": 1
+        },
+        "saturation": {
+          "description": "More color, or less: -1 is black and white, 1 twice the color.",
+          "type": "number",
+          "minimum": -1,
+          "maximum": 1
+        },
+        "warmth": {
+          "description": "Warmer, toward orange, or cooler, toward blue, as a camera's white balance.",
+          "type": "number",
+          "minimum": -1,
+          "maximum": 1
+        }
+      }
+    },
     "ChartKind": {
       "description": "v1 chart kinds (SPEC §3.7); waffle and heatmap are deferred. A `slope` compares two states, a line a series from the first to the second, both ends labeled and the change said; a `range` spans the value axis at each category, a dumbbell between its series or each value with its `interval` (PLAN 1.30).",
       "type": "string",
@@ -1528,6 +1563,7 @@
         },
         "crop": { "anyOf": [{ "$ref": "#/$defs/Rect" }, { "type": "null" }] },
         "mask": { "anyOf": [{ "$ref": "#/$defs/ImageMask" }, { "type": "null" }] },
+        "adjust": { "anyOf": [{ "$ref": "#/$defs/ImageAdjustDelta" }, { "type": "null" }] },
         "orient": { "anyOf": [{ "$ref": "#/$defs/ChartOrient" }, { "type": "null" }] },
         "data": { "anyOf": [{ "pattern": "^@[a-z][a-z0-9_-]*$", "type": "string" }, { "type": "null" }] },
         "dataTransform": {
@@ -1734,6 +1770,17 @@
         "from": { "anyOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] },
         "to": { "anyOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] },
         "route": { "anyOf": [{ "$ref": "#/$defs/Route" }, { "type": "null" }] }
+      }
+    },
+    "ImageAdjustDelta": {
+      "description": "`ImageAdjust` in a state's delta: it merges one level into the tracked value, so every key is optional and null deletes one (SPEC §2.2).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "exposure": { "anyOf": [{ "maximum": 1, "type": "number", "minimum": -1 }, { "type": "null" }] },
+        "contrast": { "anyOf": [{ "maximum": 1, "type": "number", "minimum": -1 }, { "type": "null" }] },
+        "saturation": { "anyOf": [{ "maximum": 1, "type": "number", "minimum": -1 }, { "type": "null" }] },
+        "warmth": { "anyOf": [{ "maximum": 1, "type": "number", "minimum": -1 }, { "type": "null" }] }
       }
     },
     "EncodingDelta": {

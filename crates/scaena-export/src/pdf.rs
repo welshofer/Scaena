@@ -720,7 +720,7 @@ impl Cx<'_, '_> {
             }
             None => {
                 let image =
-                    Image::from_custom(Pixels::of_picture(asset, picture), filtered).map_err(ExportError::Pdf)?;
+                    Image::from_custom(Pixels::of_picture(asset, &picture), filtered).map_err(ExportError::Pdf)?;
                 (image, Size::from_wh(picture.width as f32, picture.height as f32), Transform::identity())
             }
         };

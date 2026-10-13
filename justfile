@@ -225,6 +225,7 @@ web-smoke: site
     node web/mask.mjs
     node web/pen.mjs
     node web/shadow.mjs
+    node web/adjust.mjs
     node web/draw.mjs
     node web/findings.mjs
     node web/layers.mjs
