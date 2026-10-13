@@ -56,6 +56,17 @@ try {
         lives: document.querySelector("#look-furniture")?.closest(".control")?.nextElementSibling?.textContent,
       };
     });
+  /** Whether the inspector comes to say the slide's number and footer are `word`, Shown or
+   * Hidden: it inspects again once the edit is applied and the source compiled, after the edit's
+   * own promise settles. */
+  const lives = (word) =>
+    page
+      .waitForFunction(
+        (w) => document.querySelector("#look-furniture")?.closest(".control")?.nextElementSibling?.textContent === w,
+        word,
+        { timeout: 15000, polling: 50 },
+      )
+      .then(() => true, () => false);
   /** Once the source satisfies `test`, the edit is made and the inspector shows the deck again. */
   const until = async (test, arg) => {
     await page.waitForFunction(test, arg, { timeout: 30000, polling: 50 }).catch(() => {});
@@ -117,6 +128,7 @@ try {
   await until(() => window.scaena.source().includes("furniture:{"));
   check(/furniture:\{number: true\}/.test(await header()), `the deck's header says it numbers its slides: ${await header()}`);
   check((await status()).startsWith("Slides numbered"), `the status says what changed: ${await status()}`);
+  await lives("Shown");
   seen = await shows();
   check(seen.number === "yes" && seen.lives === "Shown", `the inspector shows them shown: ${JSON.stringify(seen)}`);
   const numbered = await drawn();
@@ -143,6 +155,7 @@ try {
   check((await line("revenue")).includes("furniture:false"), `chosen from its step, it is written on the slide's first state: ${await line("revenue")}`);
   check(!(await line("mix")).includes("furniture"), `and not on the step: ${await line("mix")}`);
   check((await status()).startsWith("Slide 2: number and footer hidden"), `the status says so: ${await status()}`);
+  await lives("Hidden");
   seen = await shows();
   check(seen.slide === "no" && seen.lives === "Hidden", `the step shows them hidden with its slide: ${JSON.stringify(seen)}`);
   await show("revenue", 1);
@@ -159,7 +172,7 @@ try {
   await page.selectOption("#look-furniture", "yes");
   await until(() => /^state intro .*furniture:true/m.test(window.scaena.source()));
   check((await line("intro")).includes("furniture:true"), `asked for, they show on it: ${await line("intro")}`);
-  check((await shows()).lives === "Shown", `the inspector says so: ${(await shows()).lives}`);
+  check(await lives("Shown"), `the inspector says so: ${(await shows()).lives}`);
 
   // No words take the footer away: one `furnish` of `null`, the number as it was.
   await page.fill("#look-footer", "");
