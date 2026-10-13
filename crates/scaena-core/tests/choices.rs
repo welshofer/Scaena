@@ -63,6 +63,7 @@ fn a_text_offers_its_role_style_and_props_from_the_theme_and_the_schema() {
             "opacity",
             "transform/rotate",
             "enter",
+            "emphasis",
             "exit",
             "alt",
             "semantic"
@@ -99,8 +100,19 @@ fn a_text_offers_its_role_style_and_props_from_the_theme_and_the_schema() {
         field(&c, "opacity").takes,
         Takes::Number { min: Some(0.0), above: None, max: Some(1.0), whole: false, overrides: false }
     );
-    let Takes::Name { of: Vocabulary::MotionPreset, names, .. } = &field(&c, "enter").takes else { panic!() };
-    assert!(names.contains(&"rise".to_string()), "{names:?}");
+    // An entrance takes the presets that start from a look, and emphasis those that go to one and
+    // back (PLAN 2.116): Rise enters and Pulse emphasizes, never the other way round, and Pop does
+    // both.
+    let presets = |prop: &str| match &field(&c, prop).takes {
+        Takes::Name { of: Vocabulary::MotionPreset, names, overrides: false } => names.clone(),
+        takes => panic!("{prop}: {takes:?}"),
+    };
+    let (enter, emphasis, exit) = (presets("enter"), presets("emphasis"), presets("exit"));
+    let has = |names: &[String], name: &str| names.iter().any(|n| n == name);
+    assert!(has(&enter, "rise") && !has(&enter, "pulse"), "{enter:?}");
+    assert!(has(&emphasis, "pulse") && !has(&emphasis, "rise") && !has(&emphasis, "fade"), "{emphasis:?}");
+    assert!(has(&enter, "pop") && has(&emphasis, "pop"), "Pop does both");
+    assert_eq!(exit, enter, "an exit takes what an entrance takes, played back");
 
     // Where its lines stand across its box (PLAN 3.25): none stretches, and the slot's shows.
     let align = field(&c, "align/x");
@@ -168,6 +180,7 @@ fn a_chart_offers_what_it_reads_from_the_columns_it_has() {
             "opacity",
             "transform/rotate",
             "enter",
+            "emphasis",
             "exit",
             "alt",
             "semantic"

@@ -149,11 +149,14 @@ extension ScaenaSession {
         let inspected: Inspected = try call("inspect", ["state": .string(state)])
         guard let cue = inspected.timeline else { return [] }
         let shown = node.flatMap { inspected.nodes.contains($0) ? $0 : nil }
-        // The presets are the theme's: what any node's inspector offers as it enters.
+        // The presets are the theme's: what any node's inspector offers as it enters, and for
+        // emphasis (PLAN 2.116).
         let chosen = shown.flatMap { try? choices(state: state, node: $0) }
-        var presets = Self.presets(chosen)
+        var presets = Self.presets(chosen, "enter")
+        var emphases = Self.presets(chosen, "emphasis")
         for other in inspected.nodes where presets.isEmpty {
-            presets = Self.presets(try? choices(state: state, node: other))
+            let theirs = try? choices(state: state, node: other)
+            (presets, emphases) = (Self.presets(theirs, "enter"), Self.presets(theirs, "emphasis"))
         }
         guard !presets.isEmpty else { return [] }
         let has = { (n: String, kind: String) in cue.motions.contains { $0.node == n && $0.motion == kind } }
@@ -163,8 +166,8 @@ extension ScaenaSession {
             if enters && !has(shown, "enter") {
                 offers.append(MotionOffer(node: shown, motion: "enter", presets: presets))
             }
-            if !has(shown, "emphasis") {
-                offers.append(MotionOffer(node: shown, motion: "emphasis", presets: presets))
+            if !has(shown, "emphasis") && !emphases.isEmpty {
+                offers.append(MotionOffer(node: shown, motion: "emphasis", presets: emphases))
             }
         }
         for gone in inspected.exited where !has(gone, "exit") {
@@ -173,10 +176,11 @@ extension ScaenaSession {
         return offers
     }
 
-    /// The motion presets an inspector offers as a node enters: the theme's.
-    private static func presets(_ choices: Choices?) -> [String] {
-        let enter = choices?.fields.first { $0.prop == "enter" }
-        guard case .name(_, let names, _) = enter?.takes else { return [] }
+    /// The motion presets an inspector offers for `prop`, `enter` or `emphasis`: the theme's of
+    /// that kind (PLAN 2.116).
+    private static func presets(_ choices: Choices?, _ prop: String) -> [String] {
+        let field = choices?.fields.first { $0.prop == prop }
+        guard case .name(_, let names, _) = field?.takes else { return [] }
         return names
     }
 }

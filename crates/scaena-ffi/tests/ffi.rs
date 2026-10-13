@@ -1133,7 +1133,8 @@ fn states_and_slides_are_added_moved_and_timed_as_the_browsers_are() {
     patch(t, &json!([{ "op": "set_state", "id": "morph", "prop": "transition/duration", "value": 500 }]));
     let choices = call(t, "choices", json!({ "state": "morph", "node": "mf-title" }));
     let presets =
-        choices["fields"].as_array().unwrap().iter().find(|f| f["prop"] == "enter").unwrap()["takes"]["names"].clone();
+        choices["fields"].as_array().unwrap().iter().find(|f| f["prop"] == "emphasis").unwrap()["takes"]["names"]
+            .clone();
     assert!(presets.as_array().unwrap().contains(&json!("pulse")), "{presets}");
     patch(
         t,

@@ -148,7 +148,7 @@ struct Inspector: View {
             }
         }
         switch prop {
-        case "enter", "exit": return (.animate, .builds)
+        case "enter", "emphasis", "exit": return (.animate, .builds)
         case "alt": return (.format, .description)
         case "opacity", "transform/rotate": return (.format, .arrange)
         case "wrap", "maxLines": return (.format, .fitting)

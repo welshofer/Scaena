@@ -187,10 +187,11 @@ use Vocabulary as V;
 /// What an inspector edits on every node: how far it is turned is its `transform`'s
 /// `rotate`, in degrees, clockwise (PLAN 2.51); and what a reader hears of it (PLAN 2.56,
 /// SPEC §3.12), its description (`alt`) and its part in the story (`semantic`).
-const EVERY: [(&str, Source); 6] = [
+const EVERY: [(&str, Source); 7] = [
     ("opacity", Schema(false)),
     ("transform/rotate", Schema(false)),
     ("enter", Names(V::MotionPreset, false)),
+    ("emphasis", Names(V::MotionPreset, false)),
     ("exit", Names(V::MotionPreset, false)),
     ("alt", Schema(false)),
     ("semantic", Schema(false)),
@@ -315,6 +316,16 @@ pub fn choices(
                         presets
                             .and_then(|p| p.get(n))
                             .is_some_and(|p| serde_json::to_value(p.kind).ok().as_ref() == kind)
+                    });
+                }
+                // An entrance and an exit take the presets that start from a look, and emphasis
+                // those that go to one and back (PLAN 2.116): Fade enters, Pulse emphasizes, and
+                // Pop, Drop, and Swing do both.
+                if of == V::MotionPreset {
+                    let presets = &theme.motion.presets;
+                    let emphasis = prop == "emphasis";
+                    names.retain(|n| {
+                        presets.get(n).is_some_and(|p| if emphasis { p.to.is_some() } else { p.from.is_some() })
                     });
                 }
                 Takes::Name { of, names, overrides }

@@ -5,6 +5,9 @@
 //
 // - In `close`, the backdrop selected: the menu offers the shipped builds as a presentation app
 //   names them (Appear, Typewriter, Pop, Drop, Move In from Left, Spin, Flip, Blink, Jiggle).
+// - Each kind offers its own (PLAN 2.116): an entrance and an exit the builds that start from a
+//   look, emphasis those that go to one and back. Fade enters and Pulse emphasizes, never the other
+//   way round, and Pop does both.
 // - Pop chosen is one `apply_preset` patch: the backdrop enters on Pop, its bar in the cue, on the
 //   bouncy spring's time.
 // - Jiggle for emphasis is another, its own bar.
@@ -62,6 +65,25 @@ try {
     wanted.every((w) => offered.includes(w)),
     `the menu offers a presentation app's builds, in its words: ${wanted.filter((w) => !offered.includes(w)).join(", ") || "all of them"}`,
   );
+  const kinds = await page.evaluate(() => {
+    const by = { enter: [], emphasis: [], exit: [] };
+    for (const o of document.querySelectorAll("#cue [data-add] option")) {
+      if (!o.value.startsWith("[")) continue;
+      const [kind, , preset] = JSON.parse(o.value);
+      by[kind]?.push(preset);
+    }
+    return by;
+  });
+  const has = (kind, preset) => kinds[kind].includes(preset);
+  check(
+    has("enter", "fade") && !has("emphasis", "fade"),
+    `Fade enters but does not emphasize: ${kinds.emphasis.join(", ")}`,
+  );
+  check(
+    ["pulse", "blink", "jiggle"].every((p) => has("emphasis", p) && !has("enter", p) && !has("exit", p)),
+    `Pulse, Blink, and Jiggle emphasize, and neither enter nor leave: ${kinds.enter.join(", ")}`,
+  );
+  check(has("enter", "pop") && has("emphasis", "pop"), "and Pop does both");
 
   // Pop, as it enters.
   let n = await trips();
