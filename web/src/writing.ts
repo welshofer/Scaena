@@ -180,11 +180,22 @@ export function writer(stage: Stage, host: WritingHost) {
     }
   }
 
+  // An answer is being taken from the press of Use on: the dialog says it closed a task later,
+  // and what a test waits for is the answer taken, not the close.
+  let taken: (() => void) | undefined;
+  use.addEventListener("click", () => {
+    settled = new Promise<void>((done) => (taken = done));
+  });
   dialog.addEventListener("close", () => {
     // An answer still on its way is dropped.
     turn++;
-    if (dialog.returnValue === "use") settled = take();
-    else offered = undefined;
+    const done = taken;
+    taken = undefined;
+    if (dialog.returnValue === "use") settled = take().finally(() => done?.());
+    else {
+      offered = undefined;
+      done?.();
+    }
     dialog.returnValue = "";
   });
   key.onclick = () => {
