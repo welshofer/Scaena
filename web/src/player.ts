@@ -20,6 +20,7 @@ import type { At, Painter, Section, Slot, Source } from "./protocol";
 import { reader } from "./reading";
 import { line, listen, served } from "./served";
 import { type Engine, Stage } from "./stage";
+import { place } from "./words";
 
 /** How a page plays a bundle. */
 export interface Play {
@@ -136,20 +137,15 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
   };
   /** Say where the deck is: in the controls, to the presenter view, and to the page. */
   const report = (at: At) => {
-    const line = [
-      `${at.index + 1} / ${slots.length}`,
-      slots[at.index].state,
-      format(),
-      at.playing ? "playing" : "",
-      stage.opened.painter === "webgpu" ? "WebGPU" : "CPU painter",
-    ]
-      .filter(Boolean)
-      .join(" · ");
+    // Where the deck is, as a person counts its slides (PLAN 2.99); what paints it is said on a
+    // pointer over it.
+    const line = [place(slots, at.index), format(), at.playing ? "playing" : ""].filter(Boolean).join(" · ");
     // The status is a live region: it changes when the deck's place does, not every frame.
     if (status.textContent !== line) status.textContent = line;
+    status.title = stage.opened.painter === "webgpu" ? "Painted by WebGPU" : "Painted by the CPU";
     if (statesPicker.value !== String(at.index)) statesPicker.value = String(at.index);
     scrub.value = String(scrubbed(at));
-    scrub.setAttribute("aria-valuetext", `${at.index + 1} of ${slots.length}: ${slots[at.index].state}`);
+    scrub.setAttribute("aria-valuetext", slots[at.index].said ?? `${at.index + 1} of ${slots.length}`);
     channel.postMessage({ type: "at", ...at, format: format() } satisfies Follow);
     void read?.(slots[at.index].state, format());
   };
@@ -245,7 +241,7 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     const state = slots[stage.at.index]?.state;
     await stage.reload();
     const chosen = formatPicker.value;
-    formatPicker.replaceChildren(new Option("own canvas", ""), ...stage.opened.formats.map((id) => new Option(id, id)));
+    formatPicker.replaceChildren(new Option("Own size", ""), ...stage.opened.formats.map((id) => new Option(id, id)));
     formatPicker.value = stage.opened.formats.includes(chosen) ? chosen : "";
     slots = await stage.timeline(format());
     outline(statesPicker, slots, stage.opened.outline);
@@ -296,8 +292,10 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
  * states as they play. Each option's value is its slot. */
 function outline(picker: HTMLSelectElement, slots: Slot[], sections: Section[]) {
   const slotOf = new Map(slots.map((slot, i) => [slot.state, i]));
+  // Each as a person counts it (PLAN 2.99): Slide 3, Slide 3, step 2.
+  const said = (state: string) => slots[slotOf.get(state) ?? -1]?.said ?? state;
   const option = (state: string, claim?: string) =>
-    new Option(claim ? `${state} · ${claim}` : state, String(slotOf.get(state)));
+    new Option(claim ? `${said(state)} · ${claim}` : said(state), String(slotOf.get(state)));
   if (!sections.length) return void picker.replaceChildren(...slots.map((slot) => option(slot.state)));
   picker.replaceChildren(
     ...sections.map(({ title, states }) => {
@@ -330,6 +328,8 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
     Stage.open($("#upnext"), deck, how.painter, how.engine),
   ]);
   let { states, notes } = now.opened;
+  // Each state as a person counts it (PLAN 2.99).
+  let slots: Slot[] = await now.timeline();
   const steer = (message: Steer) => channel.postMessage(message);
   // The player's own keys, Home and End among them, steer it from here.
   keys({
@@ -361,12 +361,12 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
         const at: Follow = latest;
         latest = undefined;
         await now.show(states[at.index], at.t, at.format);
-        $("#where").textContent = `${at.index + 1} / ${states.length} · ${states[at.index]}`;
+        $("#where").textContent = place(slots, at.index);
         $("#notes").textContent = notes[at.index] || "No notes.";
         if (at.index !== next) {
           next = at.index;
           const coming = states[at.index + 1];
-          $("#nextName").textContent = coming ? `Next: ${coming}` : "The end of the deck.";
+          $("#nextName").textContent = coming ? `Next: ${slots[at.index + 1]?.said ?? coming}` : "The end of the deck.";
           if (coming) await upNext.show(coming, undefined, at.format);
         }
         status.textContent = "";
@@ -388,8 +388,9 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
     listen({
       changed: (paths) => {
         if (!paths.some((path) => path !== "deck.scn")) return;
-        void Promise.all([now.reload(), upNext.reload()]).then(() => {
+        void Promise.all([now.reload(), upNext.reload()]).then(async () => {
           ({ states, notes } = now.opened);
+          slots = await now.timeline();
           next = -1;
           steer({ type: "hello" });
         });

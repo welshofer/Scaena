@@ -73,19 +73,25 @@ try {
 
   // Selecting the title shows what the theme offers for it, and where its role lives.
   await select("title");
-  const heading = await page.evaluate(() => document.querySelector("#look h2")?.textContent);
-  check(heading === "title · text", `the inspector shows the title: ${heading}`);
+  // In a person's words (PLAN 2.99): the object by its kind and what it shows, each property by
+  // its label, each value said, and where it is set by the slide's number.
+  const heading = await page.evaluate(() => [document.querySelector("#look h2")?.textContent, document.querySelector("#look .named")?.textContent]);
+  check(heading[0] === "Text" && heading[1] === "Revenue doubled", `the inspector shows the title by its kind and its words: ${heading.join(" / ")}`);
+  const label = await page.evaluate(() => document.querySelector('label[for="look-role"]')?.textContent);
+  check(label === "Text Style", `its role is its Text Style: ${label}`);
   const roles = await page.evaluate(() => [...document.querySelectorAll("#look-role option")].map((o) => o.textContent));
-  check(["display", "headline", "title", "caption"].every((r) => roles.includes(r)), `the role takes the theme's roles: ${roles.join(", ")}`);
+  check(["Display", "Headline", "Title", "Caption"].every((r) => roles.includes(r)), `the role takes the theme's roles, said: ${roles.join(", ")}`);
   check((await page.inputValue("#look-role")) === "headline", "it shows the role `revenue` sets");
   const where = await page.evaluate(() => document.querySelector("#look-role")?.closest(".control")?.nextElementSibling?.textContent);
-  check(where?.includes("set in revenue"), `and says where it lives: ${where}`);
+  check(where?.includes("Set on this slide"), `and says where it lives: ${where}`);
+  const words = await page.evaluate(() => document.querySelector("#look")?.textContent ?? "");
+  check(!/style\/|transform\/|\bms\b|\brevenue\b/.test(words), `no property path, id, or millisecond in the inspector: ${words.replace(/\s+/g, " ").slice(0, 400)}`);
 
   // Choosing a role: one patch, written where the role lives, and the states it reaches.
   await page.selectOption("#look-role", "title");
   check(await reads('"Revenue doubled" role:title'), "choosing a role writes it where it lives, `revenue`'s delta");
   const said = await status();
-  check(said.includes("title's role: title") && said.includes("in 2 states"), `the status says what changed and where: ${said}`);
+  check(said.startsWith("Text Style: Title") && said.includes("on 2 steps of Slide 2"), `the status says what changed and where: ${said}`);
   check((await source()).includes('title text role:display "Q3 Review"'), "the node keeps its own role");
   check((await field("role"))?.value === "title", "the inspector shows the role chosen");
   await page.locator("#overlay").focus();
@@ -109,7 +115,7 @@ try {
   });
   await page.evaluate(() => window.scaena.look.settled());
   const refused = await status();
-  check(refused.startsWith("not chosen") && refused.includes("cannot be kept to `revenue`"), `kept to a state, a color written out is refused: ${refused}`);
+  check(refused.startsWith("Not changed") && refused.includes("cannot be kept to `revenue`"), `kept to a state, a color written out is refused: ${refused}`);
   await page.uncheck("#look [data-keep]");
   await page.locator("#overlay").focus();
   await page.keyboard.press("Control+z");
@@ -136,7 +142,7 @@ try {
     .waitForFunction(
       () =>
         window.scaena.look.offered()?.fields.find((f) => f.prop === "style/color")?.lives === "overrides" &&
-        document.querySelector("#look-style-color")?.closest(".control")?.nextElementSibling?.textContent.includes("override"),
+        document.querySelector("#look-style-color")?.closest(".control")?.nextElementSibling?.textContent.includes("every slide"),
       null,
       { timeout: 30000 },
     )
@@ -144,7 +150,7 @@ try {
   const red = await field("style/color");
   check(red?.value === "#ff3366" && red?.lives === "overrides", `the inspector shows it as an override: ${JSON.stringify(red)}`);
   const flagged = await page.evaluate(() => document.querySelector("#look-style-color")?.closest(".control")?.nextElementSibling?.textContent);
-  check(flagged?.includes("override"), `and flags it: ${flagged}`);
+  check(flagged?.includes("Set on this object, on every slide"), `and says it is set on the object on every slide: ${flagged}`);
   check(!(await page.evaluate(() => window.scaena.last().findings.some((f) => f.code === "W300"))), "in the overrides, no W300");
   // A theme color chosen now goes there too, since the overrides win in every state.
   await page.selectOption("#look-style-color", "accent");
@@ -180,11 +186,11 @@ try {
     timeout: 30000,
   });
   const titled = await page.evaluate(() => document.querySelector("#look h2")?.textContent);
-  check(titled === "mix · state", `with nothing selected, the inspector shows the state: ${titled}`);
+  check(titled === "Slide 2, step 2", `with nothing selected, the inspector shows the slide's step: ${titled}`);
   const layouts = await page.evaluate(() => window.scaena.look.offered()?.fields.find((f) => f.prop === "layout")?.takes.names ?? []);
   const may = "metric-trend,figure,narrow-figure,bar-chart,line-chart,table,full";
   check(layouts.join() === may, `its layout takes the theme's layouts with a slot for each node: ${layouts}`);
-  check((await page.textContent("#look-layout"))?.startsWith("figure"), "it shows the layout `mix` takes");
+  check((await page.textContent("#look-layout"))?.startsWith("Chart"), `it shows the layout \`mix\` takes, by the theme's name for it: ${await page.textContent("#look-layout")}`);
   // Its button opens those layouts by their sections, each drawn, the one it takes outlined (PLAN 3.31).
   await page.click("#look-layout");
   await page.waitForSelector("#starting[open] [role=tab]", { timeout: 60000 });
@@ -201,13 +207,13 @@ try {
   );
   await page.keyboard.press("Escape");
   const from = await page.evaluate(() => document.querySelector("#look-layout")?.closest(".control")?.nextElementSibling?.textContent);
-  check(from?.includes("set in revenue"), `from revenue, which sets it: ${from}`);
+  check(from?.includes("Set on Slide 2"), `from revenue, which sets it: ${from}`);
 
   // A layout chosen is written where it lives, and reaches the states that take it from there.
   await chooseLayout("full");
   check(await reads("state revenue layout:full"), "a layout chosen in mix is written in revenue, where it lives");
   const told = await status();
-  check(told.includes("mix's layout: full") && told.includes("in 2 states"), `the status says what changed and where: ${told}`);
+  check(told.startsWith("Layout: Full Bleed") && told.includes("on 2 steps of Slide 2"), `the status says what changed and where: ${told}`);
   await undo();
   check(await back(original), "one undo takes it back");
   // Kept to `mix`, it is its own.
@@ -243,7 +249,7 @@ try {
   await page.waitForFunction(() => window.scaena.last().slots.find((s) => s.state === "mix").span === 0, null, { timeout: 30000 }).catch(() => {});
   check((await slot()).span === 0, "its cue is a cut");
   const cut = await page.evaluate(() => document.querySelector("#look-transition-duration option")?.textContent);
-  check(cut === "cut", `the duration says so: ${cut}`);
+  check(cut === "None: it cuts in", `the duration says so: ${cut}`);
 
   // Its hold, in seconds, and its notes.
   await page.locator("#look-hold").evaluate((input) => {
@@ -253,7 +259,7 @@ try {
   await page.evaluate(() => window.scaena.look.settled());
   await page.waitForFunction(() => window.scaena.last().slots.find((s) => s.state === "mix").hold === 4500, null, { timeout: 30000 }).catch(() => {});
   check((await slot()).hold === 4500, `a hold in seconds holds the state: ${(await slot()).hold} ms`);
-  check((await status()).includes("mix's hold: 4.5 s"), `the status says it in seconds: ${await status()}`);
+  check((await status()).startsWith("Advance: after 4.5 s"), `the status says it in seconds: ${await status()}`);
   await page.fill("#look-notes", "Let the stack land.");
   await page.locator("#overlay").focus();
   check(await reads('notes "Let the stack land."'), "notes written in the inspector are the state's");

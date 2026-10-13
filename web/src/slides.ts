@@ -128,10 +128,11 @@ export function slides(stage: Stage, into: HTMLElement, button: HTMLButtonElemen
     if (!all.some((s) => s.id === focus)) focus = [...chosen][0] ?? all[0]?.id;
     list.innerHTML = all
       .map((s, i) => {
+        // A slide by its number, as a person counts it (PLAN 2.99).
         const steps = s.states.length > 1 ? `${s.states.length} steps` : "";
-        const label = `${i + 1}, ${s.id}${steps ? `, ${steps}` : ""}`;
+        const label = `Slide ${i + 1}${steps ? `, ${steps}` : ""}`;
         return `<li role="option" data-slide="${html(s.id)}" aria-selected="${chosen.has(s.id)}" aria-label="${html(label)}" tabindex="${s.id === focus ? 0 : -1}" draggable="true">
-          <canvas aria-hidden="true"></canvas><span class="n" aria-hidden="true">${i + 1}</span><span class="id" aria-hidden="true">${html(s.id)}</span>${
+          <canvas aria-hidden="true"></canvas><span class="n" aria-hidden="true">${i + 1}</span>${
             steps ? `<span class="steps" aria-hidden="true">${steps}</span>` : ""
           }${tally(s)}</li>`;
       })
@@ -230,6 +231,8 @@ export function slides(stage: Stage, into: HTMLElement, button: HTMLButtonElemen
 
   /** The slides selected, in the deck's order. */
   const picked = () => all.filter((s) => chosen.has(s.id));
+  /** Slide `id` as a person counts it: Slide 3 (PLAN 2.99). */
+  const numbered = (id: string) => `Slide ${all.findIndex((s) => s.id === id) + 1}`;
 
   /** Select `ids`, focusing `to`. */
   function choose(ids: string[], to: string) {
@@ -269,7 +272,7 @@ export function slides(stage: Stage, into: HTMLElement, button: HTMLButtonElemen
   function make(ops: unknown[], doing: string, done: string, keep: () => string[]) {
     const run = async () => {
       const shown = editor.shown();
-      if (!shown) return editor.say("the light table waits for a source that compiles");
+      if (!shown) return editor.say("Nothing changed: the source has an error to fix first");
       editor.say(doing);
       try {
         // The slot the state shown will have, from the order the ops leave.
@@ -283,7 +286,7 @@ export function slides(stage: Stage, into: HTMLElement, button: HTMLButtonElemen
         editor.say(done);
       } catch (e) {
         pending = undefined;
-        editor.say(`not made: ${said(e)}`);
+        editor.say(`Not changed: ${said(e)}`);
       }
     };
     making = making.then(run, run);
@@ -313,8 +316,8 @@ export function slides(stage: Stage, into: HTMLElement, button: HTMLButtonElemen
     const moving = picked().map((s) => s.id);
     if (!moving.length || moving.includes(to)) return;
     const ops = moving.map((slide, i) => (i === 0 ? { op: "move_slide", slide, [where]: to } : { op: "move_slide", slide, after: moving[i - 1] }));
-    const what = moving.length > 1 ? `${moving.length} slides` : moving[0];
-    return make(ops, "moving…", `${what} moved ${where} ${to} · each slide shows what it showed`, () => moving);
+    const what = moving.length > 1 ? `${moving.length} slides` : numbered(moving[0]);
+    return make(ops, "Moving…", `${what} moved ${where} ${numbered(to)} · each slide shows what it showed`, () => moving);
   }
 
   /** The slides selected a place before (`-1`) or after (`1`), past the slide beside them. */
@@ -323,7 +326,7 @@ export function slides(stage: Stage, into: HTMLElement, button: HTMLButtonElemen
     if (!moving.length) return;
     const ends = by < 0 ? all.indexOf(moving[0]) - 1 : all.indexOf(moving[moving.length - 1]) + 1;
     const beside = all[ends];
-    if (!beside || chosen.has(beside.id)) return editor.say(by < 0 ? "the first slide goes no further" : "the last slide goes no further");
+    if (!beside || chosen.has(beside.id)) return editor.say(by < 0 ? "The first slide goes no further" : "The last slide goes no further");
     return move(by < 0 ? "before" : "after", beside.id);
   }
 
@@ -331,12 +334,12 @@ export function slides(stage: Stage, into: HTMLElement, button: HTMLButtonElemen
   function duplicate() {
     const copying = picked().map((s) => s.id);
     if (!copying.length) return;
-    const what = copying.length > 1 ? `${copying.length} slides` : copying[0];
+    const what = copying.length > 1 ? `${copying.length} slides` : numbered(copying[0]);
     // The copies selected: each the slide just after the one it copies.
     const copies = () => copying.flatMap((id) => all[all.findIndex((s) => s.id === id) + 1]?.id ?? []);
     return make(
       copying.map((slide) => ({ op: "duplicate_slide", slide })),
-      "copying…",
+      "Copying…",
       `${what} copied, each just after itself · an edit to a copy leaves the slide it copies`,
       copies,
     );
@@ -346,14 +349,14 @@ export function slides(stage: Stage, into: HTMLElement, button: HTMLButtonElemen
   function remove() {
     const going = picked().map((s) => s.id);
     if (!going.length) return;
-    if (going.length === all.length) return editor.say("a deck keeps at least one slide");
+    if (going.length === all.length) return editor.say("A deck keeps at least one slide");
     const after = all.slice(all.findIndex((s) => s.id === going[going.length - 1]) + 1).find((s) => !chosen.has(s.id));
     const before = [...all].reverse().find((s) => !chosen.has(s.id));
     const next = (after ?? before)!.id;
-    const what = going.length > 1 ? `${going.length} slides` : going[0];
+    const what = going.length > 1 ? `${going.length} slides` : numbered(going[0]);
     return make(
       going.map((slide) => ({ op: "remove_slide", slide })),
-      "taking out…",
+      "Taking out…",
       `${what} taken out · every other slide shows what it showed`,
       () => [next],
     );

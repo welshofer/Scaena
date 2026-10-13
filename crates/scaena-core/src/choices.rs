@@ -32,6 +32,15 @@ pub struct Choices {
     pub state: String,
     /// Each property the inspector edits: the node type's own, then those every node has.
     pub fields: Vec<Field>,
+    /// The node as a person names it, by what it shows (PLAN 2.99, [`crate::words::object`]):
+    /// what the session words its answers with for an editor, absent elsewhere.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
+    pub said: Option<String>,
+    /// Its kind as a person names it, `Text` or `Chart` ([`crate::words::kind`]), as `said` is.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
+    pub noun: Option<String>,
 }
 
 /// What an inspector offers for a state itself (PLAN 2.36).
@@ -41,6 +50,11 @@ pub struct StateChoices {
     /// Its layout, each key of its transition, its hold, and its notes: what `set_state`
     /// names. A state that sets no key of its transition cuts in.
     pub fields: Vec<Field>,
+    /// The state as its slide's number says it, `Slide 3, step 2` (PLAN 2.99,
+    /// [`crate::words::slide`]): what the session words its answers with for an editor.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
+    pub said: Option<String>,
 }
 
 /// One property an inspector edits.
@@ -68,6 +82,11 @@ pub struct Field {
     /// for any other property.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub theme: Option<Value>,
+    /// Its label and its values as a person says them (PLAN 2.99, [`crate::words::field`]):
+    /// what the session words its answers with for an editor, absent elsewhere.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
+    pub words: Option<crate::words::FieldWords>,
 }
 
 /// Where a value a state shows lives.
@@ -290,9 +309,9 @@ pub fn choices(
         let layout = snapshots[i].layout.as_deref();
         let gives = || role_gives(theme, role, prop).or_else(|| slot_gives(theme, layout, shown.get("at"), prop));
         let theme = (node_type == NodeType::Text).then(gives).flatten();
-        Some(Field { prop: prop.into(), takes, value: value.cloned(), lives, literal, theme })
+        Some(Field { prop: prop.into(), takes, value: value.cloned(), lives, literal, theme, words: None })
     });
-    Ok(Choices { node: node.into(), node_type, state: state.into(), fields: fields.collect() })
+    Ok(Choices { node: node.into(), node_type, state: state.into(), fields: fields.collect(), said: None, noun: None })
 }
 
 /// What the theme gives `prop` of a text set in `role` where nothing in the deck sets it: the
@@ -405,9 +424,16 @@ pub fn characters(
         };
         let role = run.and_then(|r| r.get("role")?.as_str()).or_else(|| shown.get("role").and_then(Value::as_str));
         let theme = own.or_else(|| role_gives(theme, role, prop));
-        Some(Field { prop: prop.into(), takes, value: value.cloned(), lives, literal: false, theme })
+        Some(Field { prop: prop.into(), takes, value: value.cloned(), lives, literal: false, theme, words: None })
     });
-    Ok(Choices { node: node.into(), node_type: NodeType::Text, state: state.into(), fields: fields.collect() })
+    Ok(Choices {
+        node: node.into(),
+        node_type: NodeType::Text,
+        state: state.into(),
+        fields: fields.collect(),
+        said: None,
+        noun: None,
+    })
 }
 
 /// What an inspector edits on a state: what `set_state` names. A transition's keys are those
@@ -476,9 +502,9 @@ pub fn state_choices(deck: &Deck, theme: &Theme, state: &str) -> Result<StateCho
                 (value, set)
             }
         };
-        Some(Field { prop: prop.into(), takes, value, lives, literal: false, theme: None })
+        Some(Field { prop: prop.into(), takes, value, lives, literal: false, theme: None, words: None })
     });
-    Ok(StateChoices { state: state.into(), fields: fields.collect() })
+    Ok(StateChoices { state: state.into(), fields: fields.collect(), said: None })
 }
 
 /// What the schema allows, as an inspector offers it: a word, a number, yes or no, or words
@@ -553,6 +579,18 @@ mod tests {
                     assert!(allowed(schema.unwrap(), overrides).is_some(), "{tag}'s {prop}: {schema:?}");
                 }
             }
+        }
+    }
+
+    /// Each property an inspector offers, on a node, on characters, or on a state, has a label
+    /// of its own in the editors' words (PLAN 2.99): none is shown by its path, or by its last
+    /// key alone.
+    #[test]
+    fn every_property_offered_has_a_label_of_its_own() {
+        let labeled = |prop: &str| crate::words::LABELS.iter().any(|(p, _)| *p == prop);
+        let offered = TYPES.iter().flat_map(|&t| own(t).iter().chain(&EVERY)).chain(&CHARACTERS).chain(&STATE);
+        for (prop, _) in offered {
+            assert!(labeled(prop), "{prop} has no label in `words::LABELS`");
         }
     }
 

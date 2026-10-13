@@ -111,14 +111,18 @@ try {
   // Opened: what it found, its hint, and its fix, which is one patch and one undo.
   await page.locator('#marks [data-mark="title"]').click();
   check(await until(() => document.querySelector("#marked").matches(":popover-open")), "a mark opened shows its findings");
-  check((await popped()).includes("E100") && (await popped()).includes("does not fit"), `it says E100: ${(await popped()).slice(0, 120)}`);
+  // In a sentence, as the Mac says it (PLAN 2.99): no code.
+  check(
+    (await popped()).includes("The text doesn't fit its box.") && !(await popped()).includes("E100"),
+    `it says E100 in a sentence: ${(await popped()).slice(0, 120)}`,
+  );
   check(await page.evaluate(() => window.scaena.canvas.selected() === "title"), "and selects the title");
   await audit("a mark opened", "#marks", "#marked", "#strip");
   const fix = page.locator('#marked [data-fix]').first();
-  check((await fix.textContent()).includes("Fix") && (await page.locator("#marked .change").first().textContent()).includes("fit"), "it offers the fix lint checked: fit");
+  check((await fix.textContent()) === "Shrink to Fit", `it offers the fix lint checked, by name: ${await fix.textContent()}`);
   await fix.click();
   check(await until(() => window.scaena.source().includes("fit:shrink")), "the fix taken: the title shrinks to fit");
-  check(await says("E100 fixed on title"), `the status says so: ${await status()}`);
+  check(await says("Fixed “Revenue doubled"), `the status says so: ${await status()}`);
   check(await until(() => !window.scaena.canvas.marks().some((m) => m.node === "title" && m.severity === "error")), `and its error mark is gone: ${JSON.stringify(await marks())}`);
   check(!(await open()), "the popover closed");
   await page.locator("#overlay").focus();
@@ -137,7 +141,10 @@ try {
   const about = await page.evaluate(() => window.scaena.last().findings.filter((f) => f.state === "revenue" && f.shown && f.code === "W210").length);
   check(about === 1 && state?.severity === "warning", `a warning: ${state?.severity}`);
   await page.locator('#marks [data-mark=""]').click();
-  check(await until(() => (document.querySelector("#marked").textContent ?? "").includes("W210")), `opened, it says W210: ${(await popped()).slice(0, 120)}`);
+  check(
+    await until(() => (document.querySelector("#marked").textContent ?? "").includes("This slide has more words than the theme allows.")),
+    `opened, it says W210 in a sentence: ${(await popped()).slice(0, 120)}`,
+  );
   check((await page.locator("#marked [data-fix]").count()) === 0, "W210 has no fix, and none is offered");
   await page.locator("#marked [data-go]").first().click();
   check(await until(() => document.activeElement?.closest(".cm-content") !== null && !document.querySelector("#marked").matches(":popover-open")), "it goes to the source");

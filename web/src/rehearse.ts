@@ -29,9 +29,11 @@ export interface RehearsalEditor {
   say(text: string): void;
 }
 
-/** A state as the rehearsal kept it: how long it was shown, and the hold that keeps. */
+/** A state as the rehearsal kept it: how long it was shown, and the hold that keeps; `said` as a
+ * person counts it. */
 export interface Rehearsed {
   state: string;
+  said: string;
   /** How long it was shown, ms; 0 for a state not reached. */
   spent: number;
   /** Its cue's span, ms. */
@@ -51,10 +53,10 @@ const shown = (key: string) => ({ ArrowRight: "→", ArrowLeft: "←", ArrowUp: 
 /** What a rehearsal answers (PLAN 2.65), from the keys it goes on and back by, as the keys sheet
  * lists it. */
 export const rehearsalKeys = (): Key[] => [
-  { keys: [...ON].map(shown).join(" "), label: "Rehearsing: go on; from the last state, stop", group: "Rehearse" },
+  { keys: [...ON].map(shown).join(" "), label: "Rehearsing: go on; from the last slide, stop", group: "Rehearse" },
   { keys: "Click the canvas", label: "Go on", group: "Rehearse" },
   { keys: [...BACK].map(shown).join(" "), label: "Go back", group: "Rehearse" },
-  { keys: "Escape", label: "Stop, and see what each state took", group: "Rehearse" },
+  { keys: "Escape", label: "Stop, and see what each slide took", group: "Rehearse" },
 ];
 
 /** `ms` as the bar and the table say it: `1:05`, or `4.2 s` under a minute. */
@@ -91,8 +93,9 @@ export function rehearsal(stage: Stage, bar: HTMLElement, dialog: HTMLDialogElem
 
   function tell() {
     const now = performance.now();
-    const state = slots[index]?.state ?? "";
-    where.textContent = `${state} (${index + 1} of ${slots.length}) · ${clock(spent[index] + now - since)} here · ${clock(now - began)} in all`;
+    // The slide as a person counts it (PLAN 2.99).
+    const said = slots[index]?.said ?? `${index + 1} of ${slots.length}`;
+    where.textContent = `Rehearsing ${said} · ${clock(spent[index] + now - since)} here · ${clock(now - began)} in all`;
   }
 
   function play() {
@@ -103,7 +106,7 @@ export function rehearsal(stage: Stage, bar: HTMLElement, dialog: HTMLDialogElem
   async function start() {
     if (running) return;
     const now = await editor.slots().catch(() => undefined);
-    if (running || !now?.length) return editor.say("not rehearsed: the deck does not compile");
+    if (running || !now?.length) return editor.say("Not rehearsed: the source has an error to fix first");
     slots = now;
     spent = slots.map(() => 0);
     index = 0;
@@ -114,7 +117,7 @@ export function rehearsal(stage: Stage, bar: HTMLElement, dialog: HTMLDialogElem
     preview.addEventListener("pointerdown", click, true);
     ticking = setInterval(tell, 250);
     play();
-    editor.say("rehearsing: → goes on, ← back, Escape stops");
+    editor.say("Rehearsing: → goes on, ← back, Escape stops");
   }
 
   /** Go `by` states on, or back; on from the last, stop. */
@@ -139,6 +142,7 @@ export function rehearsal(stage: Stage, bar: HTMLElement, dialog: HTMLDialogElem
     bar.hidden = true;
     kept = slots.map((slot, i) => ({
       state: slot.state,
+      said: slot.said ?? slot.state,
       spent: spent[i],
       span: slot.span,
       hold: slot.hold,
@@ -158,8 +162,8 @@ export function rehearsal(stage: Stage, bar: HTMLElement, dialog: HTMLDialogElem
       ...kept.map((k) => {
         const tr = document.createElement("tr");
         tr.dataset.state = k.state;
-        const cells = [k.spent ? clock(k.spent) : "not reached", clock(k.span), k.keeps === undefined ? "as it is" : clock(k.keeps), k.hold ? clock(k.hold) : "none"];
-        tr.append(Object.assign(document.createElement("th"), { scope: "row", textContent: k.state }));
+        const cells = [k.spent ? clock(k.spent) : "Not reached", clock(k.span), k.keeps === undefined ? "As it is" : `After ${clock(k.keeps)}`, k.hold ? `After ${clock(k.hold)}` : "On click"];
+        tr.append(Object.assign(document.createElement("th"), { scope: "row", textContent: k.said }));
         for (const text of cells) tr.append(Object.assign(document.createElement("td"), { textContent: text }));
         return tr;
       }),
@@ -188,10 +192,10 @@ export function rehearsal(stage: Stage, bar: HTMLElement, dialog: HTMLDialogElem
   bar.querySelector("[data-back]")?.addEventListener("click", () => go(-1));
   bar.querySelector("[data-end]")?.addEventListener("click", () => stop());
   dialog.addEventListener("close", async () => {
-    if (dialog.returnValue !== "keep") return editor.say("rehearsal: nothing kept");
+    if (dialog.returnValue !== "keep") return editor.say("Rehearsal: nothing kept");
     const ops = kept.filter((k) => k.keeps !== undefined && k.keeps !== k.hold).map((k) => ({ op: "set_state", id: k.state, prop: "hold", value: k.keeps }));
-    if (!ops.length) return editor.say("rehearsal: every hold is as it was");
-    await editor.keep(ops, `${ops.length} hold${ops.length === 1 ? "" : "s"} from the rehearsal`);
+    if (!ops.length) return editor.say("Rehearsal: every timing is as it was");
+    await editor.keep(ops, `${ops.length} timing${ops.length === 1 ? "" : "s"} from the rehearsal`);
   });
 
   return {

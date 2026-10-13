@@ -5,7 +5,7 @@
 //   node web/slides.mjs     (after `just web`; from the repository's root)
 //
 // - Slides shows every slide in place of the preview, each drawn at its last state, the slide
-//   shown selected and focused; each says its number, its id, and its steps.
+//   shown selected and focused; each says its number and its steps, and no id (PLAN 2.99).
 // - Alt+← moves `close` before `revenue`, and a drag puts it before `intro`: one patch each, one
 //   step to undo, and every state reads as it read.
 // - ⌘D copies `revenue`, its step too, just after itself, the copy selected; each copy reads as
@@ -77,7 +77,7 @@ try {
   const first = await slides();
   check(first[0].selected && (await page.evaluate(() => document.activeElement?.dataset?.slide)) === "intro", "the slide shown is selected, and focused");
   const label = await tile("revenue").getAttribute("aria-label");
-  check(label === "2, revenue, 2 steps", `each says its number, its id, and its steps: ${label}`);
+  check(label === "Slide 2, 2 steps", `each says its number and its steps: ${label}`);
 
   // Alt+← moves `close` before `revenue`: each state reads as it read.
   await tile("close").click();
@@ -85,7 +85,7 @@ try {
   await changed(original);
   check((await order()) === "intro close revenue", `Alt+← moves close before revenue: ${await order()}`);
   check((await states()).join(" ") === "intro close revenue mix", `its states too: ${(await states()).join(" ")}`);
-  check(await says("close moved before revenue"), `the status says so: ${await status()}`);
+  check(await says("Slide 3 moved before Slide 2"), `the status says so: ${await status()}`);
   const off = await readsAsItRead();
   check(off.length === 0, `every state reads as it read: ${off.join(", ") || "all"}`);
   check((await slides()).find((s) => s.id === "close")?.selected, "close is still selected");

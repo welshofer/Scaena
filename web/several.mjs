@@ -146,7 +146,7 @@ try {
   check((await page.locator("#overlay rect.selected").count()) === 2, "both are outlined");
   check((await page.locator("#overlay rect.handle").count()) === 0, "and neither has handles");
   await page.waitForFunction(() => document.querySelector("#look h2")?.textContent.startsWith("2 selected"), null, { timeout: 30000 }).catch(() => {});
-  check((await page.locator("#look h2").textContent()).startsWith("2 selected"), `the inspector says what is selected: ${await page.locator("#look h2").textContent()}`);
+  check((await page.locator("#look h2").textContent()) === "2 Objects", `the inspector says what is selected: ${await page.locator("#look h2").textContent()}`);
   check((await page.locator("#look .arrange button").count()) >= 10, "and offers to align and order them");
 
   // A drag of the card moves both up a row: one patch, one step to undo.
@@ -157,7 +157,7 @@ try {
   await settled(n);
   check(await says("2 selected moved together"), `and that they moved: ${await status()}`);
   check((await placedAs("tally", "row 4")).includes("row 4"), `the tally a row up: ${await placedAs("tally", "row 4")}`);
-  check((await placedAs("card", "row 5–7")).includes("row 5–7"), `the card with it: ${await placedAs("card", "row 5–7")}`);
+  check((await placedAs("card", "rows 5–7")).includes("rows 5–7"), `the card with it: ${await placedAs("card", "rows 5–7")}`);
   check((await chosen()).join() === "tally,card", "both stay selected");
   await undo();
   check((await source()) === original, "one undo puts both back");
@@ -168,8 +168,8 @@ try {
   await page.locator("#look .arrange button", { hasText: "Left" }).click();
   await settled(n);
   check(await says("tally, card: align left"), `the status says so: ${await status()}`);
-  check((await placedAs("card", "col 1–4")).includes("col 1–4"), `Left aligns the card on the tally's edge: ${await placedAs("card", "col 1–4")}`);
-  check((await placedAs("tally", "col 1–11")).includes("col 1–11"), "the tally stays where it is");
+  check((await placedAs("card", "columns 1–4")).includes("columns 1–4"), `Left aligns the card on the tally's edge: ${await placedAs("card", "columns 1–4")}`);
+  check((await placedAs("tally", "columns 1–11")).includes("columns 1–11"), `the tally stays where it is: ${await placedAs("tally", "columns 1–11")}`);
   await undo();
   check((await source()) === original, "one undo puts it back");
 

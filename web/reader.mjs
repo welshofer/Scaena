@@ -81,20 +81,23 @@ try {
     part?.takes.kind === "word" && part.takes.words.includes("decoration") && part.value === "navigation" && part.lives === "node",
     `and its part, one of the schema's words, as it lives: ${JSON.stringify(part)}`,
   );
-  check((await page.getAttribute("#look-alt", "placeholder")) === "its words", "an empty description says the text's words are read");
-  check((await heard()).includes("heading 1") && (await heard()).includes("High Country Trails"), `it reads as the first heading, by its words: ${await heard()}`);
+  check((await page.getAttribute("#look-alt", "placeholder")) === "Its words", "an empty description says the text's words are read");
+  check((await heard()).includes("Heading “High Country Trails”"), `it reads as the first heading, by its words: ${await heard()}`);
 
   // Described: the description is read instead of the words, written on the node, one step to undo.
   await describe("alt", "High Country Trails, the annual meeting");
   check(await until(() => window.scaena.source().includes('alt:"High Country Trails, the annual meeting"')), "a description is one choose, in the source");
   check(await until(() => document.querySelector("#look .reads")?.textContent.includes("the annual meeting")), `and is what the title reads as: ${await heard()}`);
-  check((await status()).includes("cover-title's alt"), `the status says so: ${await status()}`);
+  check(
+    (await status()).startsWith("Description: “High Country Trails, the annual meeting” · on this slide"),
+    `the status says so, in words: ${await status()}`,
+  );
   await undo();
   check(await until((s) => window.scaena.source() === s, original), "one undo takes it back");
 
   // Decoration is not read.
   await select("cover-bg");
-  check((await heard()).includes("not read: decoration"), `a backdrop marked decoration is not read: ${await heard()}`);
+  check((await heard()).includes("Not read aloud: it’s decoration"), `a backdrop marked decoration is not read: ${await heard()}`);
 
   // With nothing selected, the state reads part by part, in order; a part selects its node.
   await page.evaluate(() => window.scaena.canvas.select(undefined));
@@ -112,7 +115,10 @@ try {
   await page.selectOption("#look-semantic", "decoration");
   await page.evaluate(() => window.scaena.look.settled());
   check(await until(() => /cover-sub text[^\n]*semantic:decoration/.test(window.scaena.source())), "decoration is one choose, on the node");
-  check(await until(() => document.querySelector("#look .reads")?.textContent.includes("not read: decoration")), `and the subtitle is no longer read: ${await heard()}`);
+  check(
+    await until(() => document.querySelector("#look .reads")?.textContent.includes("Not read aloud: it’s decoration")),
+    `and the subtitle is no longer read: ${await heard()}`,
+  );
   await undo();
   const undone = await until((s) => window.scaena.source() === s, original);
   const now = await source();
@@ -149,8 +155,11 @@ try {
     (await page.evaluate(() => document.querySelector("#tab-inspector").getAttribute("aria-selected"))) === "true",
     "the inspector's tab is shown",
   );
-  check((await heard()).includes("figure") && (await heard()).includes("not described"), `it reads as a figure, not described: ${await heard()}`);
-  check((await page.getAttribute("#look-alt", "placeholder")) === "not described", "and its empty description says so");
+  check((await heard()).includes("Picture not described"), `it reads as a picture, not described: ${await heard()}`);
+  check(
+    (await page.getAttribute("#look-alt", "placeholder")) === "Describe it for someone who can’t see it",
+    "and its empty description asks for one",
+  );
   await page.keyboard.type("Ridgelines at dusk above Bear Creek");
   await page.keyboard.press("Tab");
   await page.evaluate(() => window.scaena.look.settled());

@@ -7,8 +7,8 @@
 //
 // - The theme picker re-themes the deck in Daybreak, where each contrast error the storm slide's
 //   photo makes is fixed in one click and undone, and back in the theme it had.
-// - In the strip: a slide moved with Alt+→, one renamed with F2, one deleted with Delete, and the
-//   delete undone with ⌘Z.
+// - In the strip: a slide moved with Alt+→, one deleted with Delete, and the delete undone with
+//   ⌘Z. A slide's id is renamed in the source (PLAN 2.99).
 // - A text clicked on the canvas takes another role and another color from the inspector.
 // - A cell set in the Data tab: the chart that reads it is drawn again, changed.
 // - A figure of the Data tab quoted into a text's characters (PLAN 2.72).
@@ -177,7 +177,7 @@ try {
     check(/dusk/i.test(deckLine), `and back in the theme it had: ${deckLine}`);
   });
 
-  // 2. The strip: move, rename, delete, undo.
+  // 2. The strip: move, delete, undo.
   await step("strip", async () => {
     const before = await states();
     await page.locator('#strip li[data-state="agenda"]').click();
@@ -186,15 +186,6 @@ try {
     await changed(at);
     const moved = await states();
     check(moved.indexOf("agenda") === before.indexOf("agenda") + 1, `Alt+→ moves a slide one on: ${moved.slice(0, 4).join(", ")}`);
-    await page.locator('#strip li[data-state="hours"]').click();
-    await page.keyboard.press("F2");
-    const field = page.locator("#strip li input");
-    await field.waitFor({ timeout: 10000 });
-    at = await mark();
-    await field.fill("volunteer-hours");
-    await field.press("Enter");
-    await changed(at);
-    check((await states()).includes("volunteer-hours") && !(await states()).includes("hours"), "F2 renames a slide");
     await page.locator('#strip li[data-state="voice"]').click();
     at = await mark();
     await page.keyboard.press("Delete");
@@ -410,7 +401,7 @@ try {
     await page.waitForFunction(() => window.scaena.where().where && !window.scaena.where().dirty, null, { timeout: 60000 }).catch(() => {});
     const [player] = await Promise.all([context.waitForEvent("page", { timeout: 30000 }), page.click("#play")]);
     player.on("pageerror", (e) => failures.push(`player: ${e.message}`));
-    await player.waitForFunction(() => window.scaena?.at && /CPU painter/.test(document.querySelector("#status")?.textContent ?? ""), null, { timeout: 120000 });
+    await player.waitForFunction(() => window.scaena?.at && document.querySelector("#status")?.title === "Painted by the CPU", null, { timeout: 120000 });
     const [presenter] = await Promise.all([context.waitForEvent("page", { timeout: 30000 }), player.click("#present")]);
     presenter.on("pageerror", (e) => failures.push(`presenter: ${e.message}`));
     await presenter.waitForSelector("#on", { timeout: 120000 });
@@ -422,8 +413,9 @@ try {
       .then(() => true)
       .catch(() => false);
     // The presenter view follows the player to where it went.
+    const before = await presenter.textContent("#where");
     const follows = await presenter
-      .waitForFunction((w) => new RegExp(`· ${w + 2} / `).test(document.body.textContent), was, { timeout: 30000 })
+      .waitForFunction((b) => /^Slide \d+ of \d+/.test(document.querySelector("#where").textContent) && document.querySelector("#where").textContent !== b, before, { timeout: 30000 })
       .then(() => true)
       .catch(() => false);
     check(follows, "and the presenter view shows where the player went");

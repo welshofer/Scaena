@@ -1,5 +1,7 @@
 // The state strip (PLAN 2.35, ADR-0013): the deck's states in order, each a thumbnail the engine
-// paints at rest, with its cue's length. The page lays nothing out and paints nothing itself.
+// paints at rest, with its cue's length. The page lays nothing out and paints nothing itself. Each
+// is named as a person counts it (PLAN 2.99): a slide by its number, a step after a slide's first
+// by its place in the slide (`Slot.said`).
 //
 // - A click on a state, or the arrow keys, Home, and End among them, shows it.
 // - New step adds a state after the state shown that tracks from it, in its slide: it shows what
@@ -7,8 +9,8 @@
 //   (PLAN 3.30): each drawn as a slide started in it, its words in its slots, by the theme's
 //   sections, then a blank slide; a click starts that slide after the last step of the slide shown.
 // - A state dragged to another place, or moved with Alt and an arrow key, moves there
-//   (`move_state`). F2, or a double click, renames it (`rename_state`), and Delete removes it
-//   (`remove_state`).
+//   (`move_state`), and Delete removes it (`remove_state`). No id names it here, so none is
+//   renamed here: the source names it.
 // - Each is one patch, by the user, one step to undo; what the deck refuses, the status says why.
 // - A thumbnail is painted again only when its state's drawing changed (the digest of its display
 //   list), once every state is laid out after an edit.
@@ -22,11 +24,10 @@ import type { Stage } from "./stage";
 
 /** What a state in the strip answers, focused (PLAN 2.65), as the keys sheet lists it. */
 export const stripKeys = (): Key[] => [
-  { keys: "← → Home End", label: "In the strip: show the state before or after, the first, or the last", group: "States" },
-  { keys: `${ALT}← ${ALT}→`, label: "Move the state before or after the one beside it", group: "States" },
-  { keys: "F2", label: "Rename the state", group: "States" },
-  { keys: "Delete", label: "Delete the state", group: "States" },
-  { keys: "Enter Space", label: "Show the state", group: "States" },
+  { keys: "← → Home End", label: "Among the slides: show the slide or step before or after, the first, or the last", group: "Slides" },
+  { keys: `${ALT}← ${ALT}→`, label: "Move the slide or step before or after the one beside it", group: "Slides" },
+  { keys: "Delete", label: "Delete the slide or step", group: "Slides" },
+  { keys: "Enter Space", label: "Show the slide or step", group: "Slides" },
 ];
 
 /** What the strip asks of the editor around it. */
@@ -49,6 +50,8 @@ export interface StripEditor {
 }
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
+/** What the strip says while the source does not compile: nothing it does can be made. */
+const WAITING = "Nothing changed: the source has an error to fix first";
 const html = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 /** A cue's length, as the strip says it. */
 const seconds = (ms: number) => `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)} s`;
@@ -89,8 +92,12 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
     list.innerHTML = next
       .map((s, i) => {
         const on = i === shown;
-        return `<li role="option" id="strip-${html(s.state)}" data-state="${html(s.state)}" aria-selected="${on}" tabindex="${on ? 0 : -1}" draggable="true" title="${html(s.state)}: its cue ${seconds(s.span)}">
-          <canvas aria-hidden="true"></canvas><span class="id">${html(s.state)}</span><span class="cue">${seconds(s.span)}</span>${tally(s.state)}</li>`;
+        // A slide by its number, a step after its first by its place in the slide.
+        const said = s.said ?? s.state;
+        const step = said.split(", ")[1];
+        const name = step ? `${step[0].toUpperCase()}${step.slice(1)}` : said;
+        return `<li role="option" id="strip-${html(s.state)}" data-state="${html(s.state)}" aria-selected="${on}" tabindex="${on ? 0 : -1}" draggable="true" title="${html(said)}: it plays for ${seconds(s.span)}">
+          <canvas aria-hidden="true"></canvas><span class="id"${step ? ` aria-label="${html(said)}"` : ""}>${html(name)}</span><span class="cue">${seconds(s.span)}</span>${tally(s.state)}</li>`;
       })
       .join("");
     for (const s of next) draw(s.state);
@@ -168,14 +175,14 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
    * `to`: `to(slots)` of the slots as they are, which the patch is made on. Then say `done`. */
   function make(ops: unknown[], doing: string, done: string, to: (slots: Slot[]) => number) {
     const run = async () => {
-      if (!editor.shown()) return editor.say("the strip waits for a source that compiles");
+      if (!editor.shown()) return editor.say(WAITING);
       editor.say(doing);
       try {
         const { source, edited } = await stage.make(editor.source(), ops, Math.max(0, to(slots)), editor.format());
         editor.apply(source, edited);
         editor.say(done);
       } catch (e) {
-        editor.say(`not made: ${said(e)}`);
+        editor.say(`Not changed: ${said(e)}`);
       }
     };
     making = making.then(run, run);
@@ -185,23 +192,23 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
   /** A state after the one shown: a `step` of its slide, or a `slide` of its own. */
   function add(what: "step" | "slide") {
     const shown = editor.shown();
-    if (!shown) return editor.say("the strip waits for a source that compiles");
+    if (!shown) return editor.say(WAITING);
     return stage
       .addingState(editor.source(), shown.state, what)
       .then((added) => {
         const after = (added.patch[0] as { after?: string }).after;
         if (what === "slide") editor.started?.(added.id);
-        const said = `${added.id} added after ${what === "step" ? shown.state : `${shown.state}'s slide`}`;
-        return make(added.patch, `adding a ${what}…`, said, (all) => all.findIndex((s) => s.state === after) + 1);
+        const done = what === "step" ? `A step added after ${named(shown.state)}` : `A slide added after ${slide(shown.state)}`;
+        return make(added.patch, `Adding a ${what}…`, done, (all) => all.findIndex((s) => s.state === after) + 1);
       })
-      .catch((e) => editor.say(`not added: ${said(e)}`));
+      .catch((e) => editor.say(`Not added: ${said(e)}`));
   }
 
   /** The slides to start (PLAN 3.30, 3.31): the theme's layouts by their sections, each drawn as
    * a slide started in it, or a blank one. One chosen starts after the slide shown. */
   async function gallery() {
     const shown = editor.shown();
-    if (!shown) return editor.say("the strip waits for a source that compiles");
+    if (!shown) return editor.say(WAITING);
     const picked = await editor.pick({ purpose: "start", source: editor.source(), state: shown.state, format: editor.format() });
     if (picked !== undefined) await start(picked ?? undefined);
   }
@@ -209,15 +216,15 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
   /** A slide started in `layout`, or a blank one with none, after the slide shown (PLAN 3.30). */
   function start(layout: string | undefined) {
     const shown = editor.shown();
-    if (!shown) return editor.say("the strip waits for a source that compiles");
+    if (!shown) return editor.say(WAITING);
     return stage
       .starting(editor.source(), shown.state, layout)
       .then((added) => {
         const after = (added.patch[0] as { after?: string }).after;
         editor.started?.(added.id);
-        return make(added.patch, "adding a slide…", `${added.id} added after ${shown.state}'s slide`, (all) => all.findIndex((s) => s.state === after) + 1);
+        return make(added.patch, "Adding a slide…", `A slide added after ${slide(shown.state)}`, (all) => all.findIndex((s) => s.state === after) + 1);
       })
-      .catch((e) => editor.say(`not added: ${said(e)}`));
+      .catch((e) => editor.say(`Not added: ${said(e)}`));
   }
 
   /** Move `state` before or after `to`. */
@@ -227,49 +234,23 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
       const rest = all.map((s) => s.state).filter((id) => id !== state);
       return rest.indexOf(to) + (where === "after" ? 1 : 0);
     };
-    return make([{ op: "move_state", id: state, [where]: to }], "moving…", `${state} moved ${where} ${to}`, lands);
-  }
-
-  /** Rename `state`: a field where its name stands, Enter to rename and Escape to leave it. */
-  function rename(state: string) {
-    const label = list.querySelector<HTMLElement>(`li[data-state="${CSS.escape(state)}"] .id`);
-    if (!label) return;
-    const field = Object.assign(document.createElement("input"), { value: state, spellcheck: false });
-    field.setAttribute("aria-label", `Rename ${state}`);
-    label.replaceChildren(field);
-    field.select();
-    field.focus();
-    let done = false;
-    const end = (to?: string) => {
-      if (done) return;
-      done = true;
-      label.textContent = state;
-      if (to && to !== state) void make([{ op: "rename_state", id: state, to }], "renaming…", `${state} renamed ${to}`, () => index(state));
-      else (list.querySelector(`li[data-state="${CSS.escape(state)}"]`) as HTMLElement | null)?.focus();
-    };
-    field.onkeydown = (e) => {
-      e.stopPropagation();
-      if (e.key === "Enter") end(field.value.trim());
-      else if (e.key === "Escape") end();
-    };
-    field.onblur = () => end();
+    return make([{ op: "move_state", id: state, [where]: to }], "Moving…", `${named(state)} moved ${where} ${named(to)}`, lands);
   }
 
   /** Remove `state`: the state after it shows, or, past the last, the one before it. */
   function remove(state: string) {
-    return make([{ op: "remove_state", id: state }], "removing…", `${state} removed`, (all) => Math.min(index(state), all.length - 2));
+    return make([{ op: "remove_state", id: state }], "Removing…", `${named(state)} removed`, (all) => Math.min(index(state), all.length - 2));
   }
 
   const item = (e: Event) => (e.target as Element).closest<HTMLElement>("li[data-state]");
   const index = (state: string) => slots.findIndex((s) => s.state === state);
+  /** `state` as a person counts it, and the slide it is on (PLAN 2.99). */
+  const named = (state: string) => slots.find((s) => s.state === state)?.said ?? "the slide";
+  const slide = (state: string) => named(state).replace(/, step \d+$/, "");
 
   list.onclick = (e) => {
     const li = item(e);
     if (li) editor.show(index(li.dataset.state!));
-  };
-  list.ondblclick = (e) => {
-    const li = item(e);
-    if (li && (e.target as Element).closest(".id")) rename(li.dataset.state!);
   };
   list.onkeydown = (e) => {
     const li = item(e);
@@ -288,10 +269,7 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
       if (to !== at) editor.show(to);
       return;
     }
-    if (e.key === "F2") {
-      e.preventDefault();
-      rename(state);
-    } else if (e.key === "Delete" || e.key === "Backspace") {
+    if (e.key === "Delete" || e.key === "Backspace") {
       e.preventDefault();
       void remove(state);
     } else if (e.key === "Enter" || e.key === " ") {
@@ -350,7 +328,6 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
     start,
     move,
     remove,
-    rename,
     /** The changes made through the strip, for a test: once they are. */
     settled: () => making,
     /** Each state's thumbnail digest, for a test. */

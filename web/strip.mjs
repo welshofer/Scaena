@@ -24,9 +24,10 @@
 //   does a drag; Delete removes it, and the source is as it was.
 // - A deck whose bundle took Dusk before its library grew, 11 layouts in no section, opens with the
 //   library Dusk ships now (PLAN 3.31): + Slide offers the 13 sections and 124 layouts.
-// - F2 renames a state; a state another builds on is not removed, and the status says why.
-// - The state shown, renamed and taken away, leaves no error on the page, and ⌘Z and ⇧⌘Z with the
-//   strip focused undo and redo (PLAN 2.77).
+// - Each is named as a person counts it (PLAN 2.99): Slide 2, Step 2; no id names one. A state
+//   another builds on is not removed, and the status says why.
+// - The state shown, taken away, leaves no error on the page, and ⌘Z and ⇧⌘Z with the strip
+//   focused undo and redo (PLAN 2.77).
 // Exits 1 on any failure.
 import { readFile } from "node:fs/promises";
 import { launch, serve } from "./serve.mjs";
@@ -187,7 +188,7 @@ try {
   await page.click("#strip [data-add=step]");
   check(await holds(["intro", "revenue", "revenue-2", "mix", "close"]), `+ Step adds revenue-2 after revenue: ${await order()}`);
   check((await source()).includes("state revenue-2 slide:revenue"), "in revenue's slide");
-  check(await says("revenue-2 added after revenue"), `the status says so: ${await status()}`);
+  check(await says("A step added after Slide 2"), `the status says so: ${await status()}`);
   check(await shows(2), "and shows it");
   // The source, opened now, opens at the step shown, its lines from their starts: not where the
   // change began, which a pane folded scrolled to against no width.
@@ -383,19 +384,16 @@ try {
   check(await holds(["intro", "revenue", "mix", "close"]), `Delete removes it: ${await order()}`);
   check(await back(original), "and the source is as it was");
 
-  // F2 renames; what another state builds on stays.
+  // Each by its slide's number, a step by its place in its slide; no id, which nothing renames.
+  const names = await page.evaluate(() => [...document.querySelectorAll("#strip li .id")].map((n) => n.textContent));
+  check(names.join() === "Slide 1,Slide 2,Step 2,Slide 3", `each named as a person counts it: ${names}`);
   await item("close").focus();
   await page.keyboard.press("F2");
-  await page.keyboard.press("Control+a");
-  await page.keyboard.type("end");
-  await page.keyboard.press("Enter");
-  check(await holds(["intro", "revenue", "mix", "end"]), `F2 renames close: ${await order()}`);
-  check((await source()).includes("state end layout:title"), "in the source");
-  await undo();
-  check(await back(original), "one undo takes the name back");
+  check(!(await page.evaluate(() => document.querySelector("#strip input"))), "F2 opens no field to rename an id");
+  // What another state builds on stays.
   await item("revenue").focus();
   await page.keyboard.press("Delete");
-  check(await says("not made"), `revenue, which mix builds on, stays: ${await status()}`);
+  check(await says("Not changed"), `revenue, which mix builds on, stays: ${await status()}`);
   check(await holds(["intro", "revenue", "mix", "close"]), "the strip as it was");
   check(await page.evaluate(() => window.scaena.last().valid), "the source still compiles and validates");
 
@@ -424,30 +422,25 @@ try {
     await fresh.close();
   }
 
-  // The state shown, renamed then taken away, from the strip: what the canvas was asking of it
-  // lets go, with no error on the page; and ⌘Z with the strip focused undoes each (PLAN 2.77).
+  // The state shown, taken away from the strip: what the canvas was asking of it lets go, with no
+  // error on the page; and ⌘Z and ⇧⌘Z with the strip focused undo and redo it (PLAN 2.77).
   await item("close").click();
   check(await shows(3), "close shown");
-  await page.keyboard.press("F2");
-  await page.keyboard.press("Control+a");
-  await page.keyboard.type("end");
-  await page.keyboard.press("Enter");
-  check(await holds(["intro", "revenue", "mix", "end"]), `the state shown renamed: ${await order()}`);
-  await item("end").focus();
+  await item("close").focus();
   await page.keyboard.press("Delete");
-  check(await holds(["intro", "revenue", "mix"]), `and taken away: ${await order()}`);
+  check(await holds(["intro", "revenue", "mix"]), `the state shown taken away: ${await order()}`);
   await page.waitForTimeout(1500);
   check(!failures.some((f) => f.includes("unknown state")), "the page asks nothing of the state it took away");
   await item("mix").focus();
   await page.keyboard.press("Control+z");
-  check(await holds(["intro", "revenue", "mix", "end"]), `⌘Z in the strip puts it back: ${await order()}`);
-  await page.keyboard.press("Control+z");
-  check(await back(original), "and again, the name it had");
+  check(await holds(["intro", "revenue", "mix", "close"]), `⌘Z in the strip puts it back: ${await order()}`);
+  check(await back(original), "as it was");
+  await item("mix").focus();
   await page.keyboard.press("Control+Shift+z");
-  check(await holds(["intro", "revenue", "mix", "end"]), `⇧⌘Z in the strip makes the rename again: ${await order()}`);
+  check(await holds(["intro", "revenue", "mix"]), `⇧⌘Z in the strip takes it away again: ${await order()}`);
 } finally {
   await browser.close();
   await server.close();
 }
-console.log(failures.length ? `${failures.length} failure(s): ${failures.join("; ")}` : "the strip shows, adds, moves, renames, and removes states, each a patch");
+console.log(failures.length ? `${failures.length} failure(s): ${failures.join("; ")}` : "the strip shows, adds, moves, and removes states, each a patch, each named as a person counts it");
 process.exit(failures.length ? 1 : 0);

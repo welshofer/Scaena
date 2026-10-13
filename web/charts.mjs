@@ -131,7 +131,7 @@ try {
   await page.selectOption("#look-data", "@segments");
   check(await reads("q3-chart chart:bar data:@segments x:{field: segment} y:{field: sales}"), "the chart reads the segments and their sales");
   check(!(await source()).includes("series:{field: product}"), "its series, which segments have no column for, goes");
-  check((await status()).includes("q3-chart"), `the status says what changed: ${await status()}`);
+  check((await status()).startsWith("Data: segments · "), `the status says what changed: ${await status()}`);
 
   // Each a step to undo.
   await page.locator("#overlay").focus();

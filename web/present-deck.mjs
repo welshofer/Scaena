@@ -144,7 +144,7 @@ try {
     await rests(player, states.length - 1, "End on the scrubber");
     check(true, `End on the scrubber shows ${states.at(-1)} at rest`);
     const options = await player.$$eval("#state option", (o) => o.map((x) => x.textContent));
-    check(options.length === states.length && options.some((o) => / · /.test(o)), `the state picker lists each state, with its beat's claim: ${options[4]}`);
+    check(options.length === states.length && options.some((o) => /^Slide \d+(, step \d+)? · /.test(o)), `the state picker lists each slide and step, with its beat's claim: ${options[4]}`);
     await player.selectOption("#state", "5");
     await rests(player, 5, "the state picker");
     check(true, `the state picker plays ${states[5]}`);
@@ -175,11 +175,13 @@ try {
     await present.click();
     presenter = await opening;
     watch(presenter, "presenter");
-    const follows = (i) => `${i + 1} / ${states.length} · ${states[i]}`;
+    // Where the player is, as a person counts its slides (PLAN 2.99).
+    const slides = new Set(slots.map((s) => s.slide ?? s.state)).size;
+    const follows = (i) => slots[i].said.replace(/^Slide (\d+)/, `Slide $1 of ${slides}`);
     const followed = (i) => until(presenter, `the presenter view follows to ${states[i]}`, (w) => window.scaena?.follows?.() === w, follows(i), 120000);
     await followed(0);
     check((await presenter.textContent("#notes")) === notesOf(states[0]), `it shows ${states[0]}'s notes: ${await presenter.textContent("#notes")}`);
-    check((await presenter.textContent("#nextName")) === `Next: ${states[1]}`, `and ${states[1]} next`);
+    check((await presenter.textContent("#nextName")) === `Next: ${slots[1].said}`, `and ${states[1]} next`);
     const clock = await presenter.textContent("#clock");
     await until(presenter, "its clock runs", (c) => document.querySelector("#clock").textContent !== c, clock, 5000);
     check(true, `its clock runs: ${clock} → ${await presenter.textContent("#clock")}`);
@@ -212,7 +214,7 @@ try {
     await player.mouse.click(bar.x + (bar.width * 4.5) / states.length, bar.y + bar.height / 2);
     await goes(player, 4, "a click on the player's scrubber");
     await followed(4);
-    check((await presenter.textContent("#notes")) === notesOf(states[4]) && (await presenter.textContent("#nextName")) === `Next: ${states[5]}`, `it follows the player to ${states[4]}: its notes, and ${states[5]} next`);
+    check((await presenter.textContent("#notes")) === notesOf(states[4]) && (await presenter.textContent("#nextName")) === `Next: ${slots[5].said}`, `it follows the player to ${states[4]}: its notes, and ${states[5]} next`);
     await snap(presenter, "presenter-view");
   });
   await presenter?.close();

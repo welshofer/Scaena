@@ -100,9 +100,11 @@ try {
   );
   const deck = JSON.parse(await readFile(revenue.slice(1), "utf8"));
   const outline = await page.$$eval("#state optgroup", (groups) => groups.map((g) => [g.label, [...g.children].map((o) => o.textContent)]));
-  const expected = deck.spine.sections.map((s) => [s.title, s.beats.flatMap((b) => b.states.map((state) => `${state} · ${b.claim}`))]);
+  // Each state as a person counts it (PLAN 2.99), with its beat's claim.
+  const said = Object.fromEntries((await page.evaluate(() => window.scaena.timeline())).map((s) => [s.state, s.said]));
+  const expected = deck.spine.sections.map((s) => [s.title, s.beats.flatMap((b) => b.states.map((state) => `${said[state]} · ${b.claim}`))]);
   check(JSON.stringify(outline) === JSON.stringify(expected), `the state picker is the spine's outline: ${JSON.stringify(outline)}`);
-  await page.selectOption("#state", { label: `close · ${deck.spine.sections.at(-1).beats.at(-1).claim}` });
+  await page.selectOption("#state", { label: `${said.close} · ${deck.spine.sections.at(-1).beats.at(-1).claim}` });
   await page.waitForFunction(() => window.scaena.at().index === 3 && !window.scaena.at().playing, null, { timeout: 15000 }).catch(() => {});
   check((await at(page)).index === 3, "picking a state from the outline plays it");
   await page.close();
@@ -175,7 +177,8 @@ try {
   await keys.waitForTimeout(500);
   check((await at(keys)).index === 3, `Enter on ▶ goes on once: ${(await at(keys)).index}`);
   const valuetext = await keys.$eval("#scrub", (s) => s.getAttribute("aria-valuetext"));
-  check(valuetext === `4 of ${states.length}: ${states[3]}`, `the scrubber says where it is: ${valuetext}`);
+  const fourth = (await keys.evaluate(() => window.scaena.timeline()))[3].said;
+  check(valuetext === fourth, `the scrubber says where it is, as a person counts the slides: ${valuetext}`);
   await keys.close();
 
   // The editor.
