@@ -1,0 +1,163 @@
+/Users/runner/work/Scaena/Scaena/target/mac/window/Scaena.app: replacing existing signature
+saved /Users/runner/work/Scaena/Scaena/target/mac/window/trails.scaena: 20 files
+  subset fonts/Fraunces-VF.ttf: 277 KB → 277 KB
+  subset fonts/Inter-VF.ttf: 464 KB → 353 KB
+  subset fonts/JetBrainsMono-VF.ttf: 149 KB → 130 KB
+  subset fonts/Fraunces-Italic-VF.ttf: 321 KB → 321 KB
+  subset fonts/Inter-Italic-VF.ttf: 481 KB → 366 KB
+  subset fonts/JetBrainsMono-Italic-VF.ttf: 153 KB → 133 KB
+  assets/trails-ridge.png → assets/a81b573617499dc538413626bd010673b5dde5f3318cf8a78aaecb0120baed87.png
+  fonts/Fraunces-Italic-VF.ttf → fonts/Fraunces-Italic-778e8ee27bcbd425.ttf
+  fonts/Fraunces-VF.ttf → fonts/Fraunces-744bb5b7a199b885.ttf
+  fonts/Inter-Italic-VF.ttf → fonts/Inter-Italic-0ceaef921fccd6b1.ttf
+  fonts/Inter-VF.ttf → fonts/Inter-d78901d009daf77a.ttf
+  fonts/JetBrainsMono-Italic-VF.ttf → fonts/JetBrainsMono-Italic-0cbc5e7fc9aaf6ee.ttf
+  fonts/JetBrainsMono-VF.ttf → fonts/JetBrainsMono-7d7c222450f58b2a.ttf
+the canvas as VoiceOver hears it: AXStaticText "Annual meeting · October 2026" 301 304 231 26;AXHeading "High Country Trails" 301 335 261 90;AXHeading "What a summer of Saturdays built." 301 430 231 27;
+screen: 1024 768 0 31 1024 677
+window as opened: 20 46 984 648
+the View menu: Show Tab Bar, Show All Tabs, missing value, missing value, Show Toolbar, Customize Toolbar…, missing value, Light Table, missing value, Show Timeline, Show Other Sizes, Show Grid, Show Safe Area, Show Issues, Show Source, missing value, Show Assistant, Show Inspector, Format, Animate, Document, missing value, missing value, Zoom In, Zoom Out, Fit Slide, missing value, Find in Deck…, missing value, Show Sidebar, Enter Full Screen
+narrowest, as it opens: 889
+    AXSplitGroup 0 31 889 676:
+      AXGroup 8 39 220 660
+      AXSplitter 228 83 0 624
+      AXGroup 0 31 889 676
+narrowest, the inspector hidden: 600
+    AXSplitGroup 0 31 600 676:
+      AXGroup 8 39 220 660
+      AXSplitter 228 83 0 624
+      AXGroup 0 31 600 676
+View › Show Sidebar
+narrowest, the slides and the inspector hidden: 600
+    AXSplitGroup 0 31 600 676:
+      AXGroup 0 31 600 676
+narrowest, the slides hidden: 661
+    AXSplitGroup 0 31 661 676:
+      AXGroup 0 31 661 676
+View › Show Sidebar
+View › Show Toolbar
+narrowest, the toolbar hidden: 889
+    AXSplitGroup 0 31 889 676:
+      AXGroup 8 63 220 636
+      AXSplitter 228 63 0 644
+      AXGroup 0 31 889 676
+View › Show Toolbar
+View › Show Source
+narrowest, the source shown: 1398
+    AXSplitGroup 0 31 1398 676:
+      AXGroup 8 39 220 660
+      AXSplitter 228 83 0 624
+      AXGroup 0 31 1398 676
+    AXSplitGroup 0 31 1097 676:
+      AXGroup 0 31 662 676
+      AXSplitter 662 83 1 624
+      AXGroup 663 31 434 676
+View › Show Source
+window fitted to the screen: 0 31 1024 676
+what it holds, three deep:
+AXWindow "trails.scaena" 0 31 1024 676
+  AXGroup "group" 0 31 1024 676
+    AXSplitGroup "split group" 0 31 1024 676
+      AXGroup "group" 8 39 220 660
+      AXSplitter "splitter" 228 83 0 624
+      AXGroup "group" 0 31 1024 676
+  AXToolbar "toolbar" 0 31 1024 52
+    AXButton "Hide Sidebar" 181 31 47 52
+    AXGroup "group" 232 31 61 52
+      AXMenuButton "View" 236 39 53 36
+    AXGroup "group" 293 31 52 52
+      AXMenuButton "Zoom" 297 39 44 36
+    AXButton #add-slide "Add Slide" 505 31 46 52
+    AXButton "Play" 551 31 41 52
+    AXGroup "group" 592 31 49 52
+      AXPopUpButton #insert-Text "Text" 596 39 41 36
+    AXGroup "group" 641 31 43 52
+      AXMenuButton #insert-Shape "Shape" 647 39 38 36
+    AXGroup "group" 684 31 41 52
+      AXMenuButton #insert-Image "Image" 685 39 40 36
+    AXGroup "group" 725 31 43 52
+      AXMenuButton #insert-Chart "Chart" 726 39 42 36
+    AXGroup "group" 768 31 45 52
+      AXMenuButton #insert-Table "Table" 767 39 40 36
+    AXGroup "group" 813 31 55 52
+      AXMenuButton "Share" 817 39 47 36
+    AXGroup "group" 868 31 41 52
+      AXCheckBox "Assistant" 878 43 28 28
+    AXGroup "group" 909 31 44 52
+      AXCheckBox "Format" 912 43 31 28
+    AXPopUpButton "more toolbar items" 979 38 38 38
+  AXButton "close button" 18 49 16 16
+  AXButton "full screen button" 64 49 16 16
+    AXGroup "group" 65 50 14 14
+      AXGroup "group" 65 50 14 14
+  AXButton "minimize button" 41 49 16 16
+  AXStaticText "text" 345 31 160 52
+the slide: 256 272 439 246
+click at 475, 395
+drag at 475, 395, 565, 435
+the drop landed: within 5 s
+right at 475, 395
+frontmost: true
+the toolbar's Text: 596 39 41 36
+click at 616, 57
+the text inserted, typed in: within 1 s
+the words typed, shown: within 4 s
+the slide holds, before:
+AXStaticText "Annual meeting · October 2026" 283 293 255 30
+AXHeading "High Country Trails" 283 328 287 99
+AXHeading "What a summer of Saturdays built." 283 432 255 30
+AXStaticText "Seen on a Mac" 381 380 222 12
+Insert › Text: Display, Headline, Title, Body, Caption, Label, Axis, Value, Lede, Kicker, Figure, Quote, Numeral, Hero, Code, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true
+insert: menu item Display of menu Text of menu item Text of menu Insert of menu bar item Insert of menu bar 1 of application process Scaena
+the slide holds, after:
+AXStaticText "Annual meeting · October 2026" 283 293 255 30
+AXHeading "High Country Trails" 283 328 287 99
+AXHeading "What a summer of Saturdays built." 283 432 255 30
+AXStaticText "Seen on a Mac" 381 380 222 12
+AXHeading "Display" 446 363 222 64
+View › Show Safe Area
+View › Show Safe Area
+fitted, the canvas: 256 272 439 246
+zoomed twice, the canvas: 228 148 495 494
+fitted again, the canvas: 256 272 439 246
+click at 528, 57
+the gallery drawn: within 0 s
+click at 236, 268
+Frameworks shown: within 0 s
+click at 236, 156
+click at 434, 206
+the slide started holds:
+AXStaticText "Your name · the date" 543 467 125 30
+AXHeading "The talk's title" 283 328 287 99
+AXHeading "What it's about, in a line" 283 432 255 30
+⌘Z, the slide shown holds:
+AXStaticText "Annual meeting · October 2026" 283 293 255 30
+AXHeading "High Country Trails" 283 328 287 99
+AXHeading "What a summer of Saturdays built." 283 432 255 30
+AXStaticText "Seen on a Mac" 381 380 222 12
+AXHeading "Display" 446 363 222 64
+the Slide menu: New Slide, New Step, missing value, Duplicate Slide, Delete Slide, true, true, false, true, true
+New Slide, the canvas shows: Slide 2, within 0 s
+⌘Z, the canvas shows: Slide 1, within 0 s
+View › Show Timeline
+the slide, the timeline hidden: 439 × 246; shown: 439 × 247
+click at 116, 132
+ten slides down, the canvas shows: Slide 11
+the chart's lane: 455 673 150 12
+click at 599, 679
+click at 475, 349
+View › Show Timeline
+the theme's paper: 898 499 96 24, #101014
+click at 946, 511
+typed and Return: #2B1B3D; the Edit menu: Undo, Redo, true, false
+⌘Z: #101014; the Edit menu: Undo, Redo, true, true
+⌘⇧Z: #2B1B3D
+⌘Z again: #101014
+click at 651, 481
+a picture too large, pasted: no alert: 61:88: execution error: System Events got an error: Can’t get window 1 of process "Scaena". Invalid index. (-1719); the copy went in: within 2 s
+the light table: cover 24 107 319 198, agenda 363 107 319 198, promise 24 325 319 199, the slider 498 687 180 14
+click at 676, 694
+the slider at its end: cover 24 107 658 389, agenda 24 516 658 389
+the light table put away, the slides down the side: 0 768 0 0
+New from a Prompt: the windows New from a Prompt, trails.scaena ; the topic 325 93 477 32, Generate 736 668 80 24
+Escape: the windows trails.scaena 
