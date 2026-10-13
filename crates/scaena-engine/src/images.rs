@@ -8,7 +8,9 @@
 //! `object-position` does with percentages, so `cover` keeps it in view. `crop` cuts the
 //! image to `[x, y, w, h]`, fractions of it, before anything else, so a sharper file of
 //! the same picture keeps the crop. `radius` rounds the corners of what shows, and `mask` shows
-//! it only inside a shape, an oval or a polygon of the shape library (PLAN 2.113).
+//! it only inside a shape, an oval or a polygon of the shape library (PLAN 2.113). `adjust` sets
+//! its light and color (PLAN 2.117): the display list names the image's pixels so adjusted by an
+//! asset id of their own, which the painters make from the image's (`scaena_core::adjust`).
 //!
 //! Images are PNGs and JPEGs, each read by one decoder in Rust alone, the same pixels everywhere
 //! (SPEC §13): a JPEG by `scaena_core::jpeg`, in integers (ADR-0017). A JPEG's size is its size as
@@ -17,22 +19,25 @@
 use crate::EngineError;
 use crate::charts::{RoundRect, lerp};
 use crate::shadows::Shadow;
-use crate::shapes::{path_of, polyline};
+use crate::shapes::{Border, path_of, polyline};
 use crate::theme::Theme;
+use scaena_core::adjust::Adjust;
 use scaena_core::displaylist::{Blend, IDENTITY, MAX_IMAGE_SIDE, Op, Path, Quality, Rect};
 use scaena_core::document::Props;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
-/// What the engine knows of an image: its content id, as display lists name it, and its
-/// size in pixels.
+/// What the engine knows of an image: its content id, as display lists name it, its size in
+/// pixels, and whether it is a photo.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImageInfo {
     /// `sha256:<hex>` of the file's bytes.
     pub id: String,
     pub width: u32,
     pub height: u32,
+    /// A JPEG, which hides all that is under it; a PNG may let some show through.
+    pub photo: bool,
 }
 
 impl ImageInfo {
@@ -43,7 +48,7 @@ impl ImageInfo {
             return Err(format!("{width} × {height} px; images are at most {largest} px a side (SPEC §3.3)"));
         }
         let hex: String = Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect();
-        Ok(ImageInfo { id: format!("sha256:{hex}"), width, height })
+        Ok(ImageInfo { id: format!("sha256:{hex}"), width, height, photo: scaena_core::jpeg::is_jpeg(bytes) })
     }
 }
 
@@ -129,6 +134,14 @@ pub struct ImageNode {
     mask: Option<Mask>,
     /// The shadow it casts (PLAN 2.115), under what shows: none under a mask but an oval.
     shadow: Option<Shadow>,
+    /// Its light and color (PLAN 2.117).
+    adjust: Adjust,
+    /// Between two states whose adjustments differ: the one it leaves, drawn under the one it
+    /// takes, which fades in this much.
+    under: Option<(Adjust, f32)>,
+    /// Its border (PLAN 2.118), stroked around what shows as a shape's outline is, and how much
+    /// of it shows: less than all only between a state that draws it and one that does not.
+    border: Option<(Border, f32)>,
 }
 
 /// The shape an image shows inside (PLAN 2.113).
@@ -208,7 +221,32 @@ impl ImageNode {
         };
         let shadow = Shadow::of(theme, props.get("shadow"))?;
         let shadow = shadow.filter(|_| matches!(mask, None | Some(Mask::Oval)));
-        Ok(ImageNode { rect, info, fit, focal, crop, radius, mask, shadow })
+        let adjust = match props.get("adjust") {
+            None | Some(Value::Null) => Adjust::default(),
+            Some(Value::Object(a)) => {
+                let fraction = |key: &str| -> Result<f64, EngineError> {
+                    match a.get(key) {
+                        None | Some(Value::Null) => Ok(0.0),
+                        Some(v) => v.as_f64().filter(|v| (-1.0..=1.0).contains(v)).ok_or_else(|| {
+                            EngineError::Layout(format!("image `adjust/{key}` {v}: a number from -1 to 1"))
+                        }),
+                    }
+                };
+                Adjust::from_fractions(
+                    fraction("exposure")?,
+                    fraction("contrast")?,
+                    fraction("saturation")?,
+                    fraction("warmth")?,
+                )
+            }
+            Some(v) => {
+                return Err(EngineError::Layout(format!(
+                    "image `adjust` {v}: {{ exposure, contrast, saturation, warmth }}, each from -1 to 1"
+                )));
+            }
+        };
+        let border = props.get("stroke").map(|s| Border::of(theme, s)).transpose()?.map(|b| (b, 1.0));
+        Ok(ImageNode { rect, info, fit, focal, crop, radius, mask, shadow, adjust, under: None, border })
     }
 
     /// The same image in another box.
@@ -222,11 +260,21 @@ impl ImageNode {
             == (&other.info, other.fit, other.focal, other.crop, &other.mask)
     }
 
-    /// `a` to `b`, `p` of the way: the box, the radius, and the shadow move.
+    /// `a` to `b`, `p` of the way: the box, the radius, and the shadow move, where the two
+    /// adjust the picture apart `b`'s fades in over `a`'s (PLAN 2.117), and a border that only one
+    /// draws fades in or out (PLAN 2.118).
     pub fn lerp(a: &ImageNode, b: &ImageNode, p: f32) -> ImageNode {
         let rect = [0, 1, 2, 3].map(|k| lerp(a.rect[k], b.rect[k], p));
         let shadow = Shadow::between(a.shadow, b.shadow, p);
-        ImageNode { rect, radius: lerp(a.radius, b.radius, p).max(0.0), shadow, ..b.clone() }
+        // Past either end on a spring, the box overshoots; what fades does not.
+        let fade = p.clamp(0.0, 1.0);
+        let under = (a.adjust != b.adjust).then_some((a.adjust, fade));
+        let border = match (&a.border, &b.border) {
+            (Some((x, _)), None) => Some((x.clone(), 1.0 - fade)),
+            (None, Some((y, _))) => Some((y.clone(), fade)),
+            (_, border) => border.clone(),
+        };
+        ImageNode { rect, radius: lerp(a.radius, b.radius, p).max(0.0), shadow, under, border, ..b.clone() }
     }
 
     /// The pixels of the image that show, and where in the box, box-local: `(src, dst)`.
@@ -285,11 +333,35 @@ impl ImageNode {
         (whole, [x, y, dst[2], dst[3]], self.crop, self.focal, fit, [self.info.width, self.info.height])
     }
 
-    /// What the image draws, box-local: the image, clipped to its mask's shape if it has one
-    /// (PLAN 2.113), else to rounded corners if it has them.
+    /// What the image draws, box-local: the image, its pixels as adjusted (PLAN 2.117), clipped
+    /// to its mask's shape if it has one (PLAN 2.113), else to rounded corners if it has them.
     pub fn ops(&self) -> Vec<Op> {
         let (src, dst) = self.placement();
-        let image = Op::Image { asset: self.info.id.clone(), src, dst, quality: Quality::High };
+        let drawn = |adjust: Adjust| Op::Image { asset: adjust.name(&self.info.id), src, dst, quality: Quality::High };
+        let faded = |op: Op, opacity: f32| {
+            if opacity >= 1.0 {
+                return op;
+            }
+            Op::Layer {
+                node: None,
+                cell: None,
+                transform: IDENTITY,
+                opacity,
+                blend: Blend::Normal,
+                clip: None,
+                ops: vec![op],
+            }
+        };
+        // Between two adjustments, the one it takes fades in over the one it leaves: a photo,
+        // which hides what is under it, over itself as it was; a PNG, which may let it show,
+        // as the other fades out.
+        let images = match self.under {
+            None => vec![drawn(self.adjust)],
+            Some((under, p)) => {
+                let below = if self.info.photo { 1.0 } else { 1.0 - p };
+                vec![faded(drawn(under), below), faded(drawn(self.adjust), p)]
+            }
+        };
         // Its shadow under what shows (PLAN 2.115), its outline the picture's: rounded as it is,
         // or an oval.
         let [_, _, dw, dh] = dst;
@@ -297,13 +369,31 @@ impl ImageNode {
             Some(Mask::Oval) => s.oval(dst),
             _ => s.op(dst, self.radius.min(dw.min(dh) / 2.0)),
         });
+        // Its border (PLAN 2.118) on top, around what shows as a shape's outline is stroked: the
+        // mask's shape, the rounded corners, or the picture's edge.
+        let border = self.border.as_ref().map(|(b, shown)| {
+            let [x, y, w, h] = dst;
+            let outline = match &self.mask {
+                Some(mask) => mask.outline([0.0, 0.0, w, h]),
+                None => RoundRect::rounded(0.0, 0.0, w, h, self.radius.min(w.min(h) / 2.0)).path(),
+            };
+            Op::Layer {
+                node: None,
+                cell: None,
+                transform: [1.0, 0.0, 0.0, 1.0, x, y],
+                opacity: *shown,
+                blend: Blend::Normal,
+                clip: None,
+                ops: vec![b.op(outline, w, h)],
+            }
+        });
         let clip = match &self.mask {
             Some(mask) => mask.outline(dst),
             None if self.radius > 0.0 => {
                 let [x, y, w, h] = dst;
                 RoundRect::rounded(x, y, w, h, self.radius.min(w.min(h) / 2.0)).path()
             }
-            None => return shadow.into_iter().chain([image]).collect(),
+            None => return shadow.into_iter().chain(images).chain(border).collect(),
         };
         let layer = Op::Layer {
             node: None,
@@ -312,9 +402,9 @@ impl ImageNode {
             opacity: 1.0,
             blend: Blend::Normal,
             clip: Some(clip),
-            ops: vec![image],
+            ops: images,
         };
-        shadow.into_iter().chain([layer]).collect()
+        shadow.into_iter().chain([layer]).chain(border).collect()
     }
 }
 
@@ -359,6 +449,94 @@ mod tests {
         );
         let star = node(json!({ "src": "assets/photo.png", "mask": "star", "shadow": "soft" }), [0.0, 0.0, 80.0, 80.0]);
         assert!(!star.ops().iter().any(|op| matches!(op, Op::Shadow { .. })), "a star casts none");
+    }
+
+    /// Adjustments (PLAN 2.117): the display list names the picture's pixels as adjusted, and
+    /// between two adjustments the one taken fades in over the one left: over a photo as it was,
+    /// over a PNG's as that fades out.
+    #[test]
+    fn an_adjusted_image_names_its_pixels_and_fades_from_one_adjustment_to_another() {
+        let asset = |op: &Op| match op {
+            Op::Image { asset, .. } => asset.clone(),
+            Op::Layer { ops, .. } => match ops.as_slice() {
+                [Op::Image { asset, .. }] => asset.clone(),
+                ops => panic!("{ops:?}"),
+            },
+            op => panic!("{op:?}"),
+        };
+        let opacity = |op: &Op| match op {
+            Op::Layer { opacity, .. } => *opacity,
+            _ => 1.0,
+        };
+        let rect = [0.0, 0.0, 100.0, 50.0];
+        let plain = node(json!({ "src": "assets/photo.png" }), rect);
+        let mono = node(json!({ "src": "assets/photo.png", "adjust": { "saturation": -1, "warmth": 0.25 } }), rect);
+        let id = asset(&plain.ops()[0]);
+        assert!(!id.contains('+'), "a picture as it is keeps its own id: {id}");
+        assert_eq!(asset(&mono.ops()[0]), format!("{id}+adjust(0,0,-1000,250)"));
+        assert!(plain.same_image(&mono), "the same picture, so it moves, and its adjustments fade");
+
+        // A PNG may let what is under it show: one fades out as the other fades in.
+        let dissolved = ImageNode::lerp(&plain, &mono, 0.25).ops();
+        assert_eq!(dissolved.iter().map(asset).collect::<Vec<_>>(), [asset(&plain.ops()[0]), asset(&mono.ops()[0])]);
+        assert_eq!(dissolved.iter().map(opacity).collect::<Vec<_>>(), [0.75, 0.25]);
+        // A photo hides it: the one taken fades in over the one left, whole.
+        let photo = |n: &ImageNode| ImageNode { info: ImageInfo { photo: true, ..n.info.clone() }, ..n.clone() };
+        let jpeg = ImageNode::lerp(&photo(&plain), &photo(&mono), 0.25).ops();
+        assert_eq!(jpeg.iter().map(opacity).collect::<Vec<_>>(), [1.0, 0.25]);
+        // The same adjustment on both sides draws once.
+        assert_eq!(ImageNode::lerp(&mono, &mono, 0.5).ops().len(), 1);
+        // Inside a mask, both are clipped to it.
+        let oval = node(json!({ "src": "assets/photo.png", "mask": "ellipse", "adjust": { "exposure": 0.5 } }), rect);
+        let clipped = ImageNode::lerp(&plain.at(rect), &ImageNode { mask: oval.mask.clone(), ..plain.clone() }, 0.5);
+        assert!(matches!(clipped.ops().as_slice(), [Op::Layer { clip: Some(_), .. }]));
+        let both = ImageNode::lerp(&ImageNode { mask: oval.mask.clone(), ..plain.clone() }, &oval, 0.5).ops();
+        assert!(matches!(both.as_slice(), [Op::Layer { clip: Some(_), ops, .. }] if ops.len() == 2), "{both:?}");
+
+        // A value outside -1 to 1, or not a number, is said.
+        let mut images = BundleImages::new();
+        images.register("assets/photo.png", &png(400, 200)).unwrap();
+        let theme = Theme::from_json(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();
+        for bad in [json!({ "exposure": 2 }), json!({ "warmth": "warm" }), json!("mono")] {
+            let props = serde_json::from_value(json!({ "src": "assets/photo.png", "adjust": bad })).unwrap();
+            assert!(ImageNode::resolve(&props, &theme, &images, rect).is_err(), "{bad}");
+        }
+    }
+
+    /// Borders (PLAN 2.118): an image's stroke goes around what shows, on top of the picture, as a
+    /// shape's outline is stroked: the edge of a contained picture, or an oval; and between two
+    /// states a border that only one draws fades.
+    #[test]
+    fn an_images_border_goes_around_what_shows() {
+        let rect = [0.0, 0.0, 100.0, 100.0];
+        let stroke = json!({ "paint": "accent", "width": 4 });
+        let framed = node(json!({ "src": "assets/photo.png", "fit": "contain", "stroke": stroke }), rect);
+        let ops = framed.ops();
+        assert!(matches!(ops[0], Op::Image { .. }), "the picture first: {ops:?}");
+        let Some(Op::Layer { transform, opacity, ops: inner, clip: None, .. }) = ops.last() else { panic!("{ops:?}") };
+        assert_eq!(*transform, [1.0, 0.0, 0.0, 1.0, 0.0, 25.0], "around the 2:1 picture contained across the middle");
+        assert_eq!(*opacity, 1.0);
+        let [Op::Stroke { width, path, .. }] = inner.as_slice() else { panic!("{inner:?}") };
+        assert_eq!(*width, 4.0);
+        assert!(!path.0.iter().any(|el| matches!(el, PathEl::CurveTo(..))), "a square-cornered edge");
+
+        // An oval's border is the oval, outside the oval's clip so none of it is cut.
+        let oval = node(json!({ "src": "assets/photo.png", "mask": "ellipse", "stroke": stroke }), rect).ops();
+        let [Op::Layer { clip: Some(_), .. }, Op::Layer { clip: None, ops: inner, .. }] = oval.as_slice() else {
+            panic!("{oval:?}")
+        };
+        let [Op::Stroke { path, .. }] = inner.as_slice() else { panic!("{inner:?}") };
+        assert!(path.0.iter().any(|el| matches!(el, PathEl::CurveTo(..))), "the oval's curve");
+
+        // Drawn by one state and not the next, it fades.
+        let plain = node(json!({ "src": "assets/photo.png", "fit": "contain" }), rect);
+        let shown = |ops: Vec<Op>| match ops.last() {
+            Some(Op::Layer { opacity, clip: None, .. }) => *opacity,
+            _ => panic!("{ops:?}"),
+        };
+        assert_eq!(shown(ImageNode::lerp(&plain, &framed, 0.25).ops()), 0.25);
+        assert_eq!(shown(ImageNode::lerp(&framed, &plain, 0.25).ops()), 0.75);
+        assert_eq!(ImageNode::lerp(&plain, &plain, 0.5).ops().len(), 1, "none where neither draws one");
     }
 
     #[test]

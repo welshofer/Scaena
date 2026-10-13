@@ -1,10 +1,13 @@
 //! The work done pixel by pixel, the same bytes on every target: each shader kind's CPU
-//! reference and WGSL twin ([`shader`], SPEC §3.8), and the JPEG decoder ([`jpeg`], ADR-0017).
+//! reference and WGSL twin ([`shader`], SPEC §3.8), the JPEG decoder ([`jpeg`], ADR-0017), and
+//! an image's adjustments ([`adjust`], PLAN 2.117).
 //!
 //! It is a crate of its own so the browser's modules can build it for speed while they build
-//! the rest of `scaena-core` for size (PLAN 2.98). Core re-exports both, as
-//! `scaena_core::shader` and `scaena_core::jpeg`, and is how everything else reaches them.
+//! the rest of `scaena-core` for size (PLAN 2.98). Core re-exports them, as
+//! `scaena_core::shader`, `scaena_core::jpeg`, and `scaena_core::adjust`, and is how everything
+//! else reaches them.
 
+pub mod adjust;
 pub mod jpeg;
 pub mod shader;
 

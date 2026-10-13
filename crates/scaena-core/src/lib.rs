@@ -72,13 +72,17 @@ pub mod writing;
 /// JPEG, read the same on every target (ADR-0017): `scaena-pixels`' decoder.
 pub use scaena_pixels::jpeg;
 
+/// An image's light and color adjusted (PLAN 2.117), the same pixels on every target:
+/// `scaena-pixels`' own.
+pub use scaena_pixels::adjust;
+
 pub use document::Deck;
 pub use lint::{Finding, Severity};
 pub use tracking::{Snapshot, resolve_states};
 
 /// The `deck.json` format version this crate reads and writes (its `scaena` key). Bump per
 /// SPEC §3.1; `docs/schema/deck.schema.json` takes its `$id` and version pattern from it.
-pub const FORMAT_VERSION: &str = "0.25";
+pub const FORMAT_VERSION: &str = "0.26";
 
 /// The theme format version (a theme's `scaena-theme` key), versioned apart from decks.
 pub const THEME_FORMAT_VERSION: &str = "0.16";

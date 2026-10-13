@@ -648,6 +648,32 @@ fn stroke(theme: &Theme, s: &Value) -> Result<Stroke, EngineError> {
     Ok(Stroke { paint, width, cap, join, dash })
 }
 
+/// A stroke resolved as a shape's is, for what strokes an outline of its own: an image's
+/// border (PLAN 2.118).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Border(Stroke);
+
+impl Border {
+    pub(crate) fn of(theme: &Theme, s: &Value) -> Result<Border, EngineError> {
+        stroke(theme, s).map(Border)
+    }
+
+    /// `path`, in a box `w` × `h` from its origin, stroked: a gradient spans the box.
+    pub(crate) fn op(&self, path: Path, w: f32, h: f32) -> Op {
+        let s = &self.0;
+        Op::Stroke {
+            path,
+            paint: s.paint.paint(w, h),
+            width: s.width,
+            cap: s.cap,
+            join: s.join,
+            miter_limit: 4.0,
+            dash: s.dash.clone(),
+            dash_offset: 0.0,
+        }
+    }
+}
+
 /// What a connector joins and how it runs (PLAN 2.109): the scene keeps it, so a drag of either
 /// end runs the connector again from where that end stands, nothing laid out.
 #[derive(Debug, Clone, PartialEq)]

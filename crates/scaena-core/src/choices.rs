@@ -230,7 +230,15 @@ fn own(node_type: NodeType) -> &'static [(&'static str, Source)] {
             ("radius", Names(V::Radius, true)),
             // The shape it shows inside (PLAN 2.113).
             ("mask", Schema(false)),
+            // Its border around what shows (PLAN 2.118), as a shape's outline.
+            ("stroke/paint", Names(V::Color, true)),
+            ("stroke/width", Names(V::Stroke, true)),
             ("shadow", Names(V::Shadow, false)),
+            // Its light and color (PLAN 2.117), each from -1 to 1, as Adjust Image offers them.
+            ("adjust/exposure", Schema(false)),
+            ("adjust/contrast", Schema(false)),
+            ("adjust/saturation", Schema(false)),
+            ("adjust/warmth", Schema(false)),
         ],
         NodeType::Shader => &[("preset", Names(V::ShaderPreset, false)), ("palette", Names(V::ShaderPalette, false))],
         // What a chart reads, and how (PLAN 2.41): its source, each channel's field and the

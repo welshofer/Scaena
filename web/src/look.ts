@@ -325,6 +325,13 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
           const shown = typeof value === "number" ? String(value) : "";
           return `<input id="${id}" type="number" ${prop} step="1" value="${shown}" placeholder="0" aria-label="Rotation, degrees clockwise"> <span class="lives">°</span>`;
         }
+        // An image's light and color (PLAN 2.117), as Adjust Image's sliders: from -1 to 1, set
+        // when let go; none is the picture as it is.
+        if (f.prop.startsWith("adjust/")) {
+          const now = typeof value === "number" ? value : 0;
+          const said = now === 0 ? "None" : `${now > 0 ? "+" : "−"}${Math.round(Math.abs(now) * 100)}`;
+          return `<input id="${id}" type="range" ${prop} min="-1" max="1" step="0.01" value="${now}" aria-label="${html(label)}" aria-valuetext="${said}"> <span class="lives">${said}</span>`;
+        }
         // Tracking, in em after each character (PLAN 1.38): on a pair's first letter, the space
         // between the two, on top of the font's kerning.
         if (f.prop === "style/tracking") {
@@ -751,7 +758,11 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     }
     let value: unknown = target.value === "" ? null : target.value;
     if (target.matches("[data-flag]") && value !== null) value = value === "yes";
-    if (target instanceof HTMLInputElement && target.type === "number" && value !== null) value = Number(value) * Number(target.dataset.scale ?? 1);
+    if (target instanceof HTMLInputElement && (target.type === "number" || target.type === "range") && value !== null) {
+      value = Number(value) * Number(target.dataset.scale ?? 1);
+    }
+    // An adjustment let go at none takes the adjustment away (PLAN 2.117).
+    if (target instanceof HTMLInputElement && target.type === "range" && value === 0) value = null;
     void choose(prop, value);
   });
   into.addEventListener("click", (e) => {

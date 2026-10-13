@@ -334,6 +334,8 @@ jobs:
       - run: node web/pen.mjs
       # An object's shadow from the inspector, the theme's by name (PLAN 2.115).
       - run: node web/shadow.mjs
+      # An image's light and color from the inspector's sliders (PLAN 2.117).
+      - run: node web/adjust.mjs
       # A key arms the canvas to draw; a drag draws over the cells it covers, a line the way it went (PLAN 2.48).
       - run: node web/draw.mjs
       # Lint's findings on the canvas, the strip's counts, and a fix taken from a mark (PLAN 2.49).

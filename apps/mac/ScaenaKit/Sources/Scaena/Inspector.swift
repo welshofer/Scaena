@@ -118,7 +118,7 @@ struct Inspector: View {
 
     /// Where a field shows, in the order the sections stand.
     private enum Part: Int, CaseIterable {
-        case main, fitting, arrange, description, notes, transition, advance, builds, more
+        case main, adjust, fitting, arrange, description, notes, transition, advance, builds, more
     }
 
     /// The fields offered under this tab, in sections.
@@ -152,6 +152,7 @@ struct Inspector: View {
         case "alt": return (.format, .description)
         case "opacity", "transform/rotate": return (.format, .arrange)
         case "wrap", "maxLines": return (.format, .fitting)
+        case _ where prop.hasPrefix("adjust/"): return (.format, .adjust)
         case "fit": return (.format, type == "text" ? .fitting : .main)
         case "semantic", "x/type", "y/type", "sizeEncoding/field", "key", "labels/role", "focal", "crop":
             return (.format, .more)
@@ -162,6 +163,7 @@ struct Inspector: View {
     private func title(_ part: Part, type: String?, node: Bool) -> String {
         switch part {
         case .main: characters != nil ? "Selected Text" : node ? Words.kind(type) : "Slide"
+        case .adjust: "Adjust Image"
         case .fitting: "Fitting"
         case .arrange: "Arrange"
         case .description: "Description"
@@ -224,9 +226,13 @@ struct Inspector: View {
                         label: label, value: field.value, options: words.map(said), segmented: words.count <= 2,
                         shows: field.theme?.string.map(said), choose: choose)
                 case .number(_, _, _, let whole):
-                    NumberRow(
-                        label: label, value: field.value?.number, whole: whole, unit: nil, shows: field.theme?.number,
-                        choose: choose)
+                    if field.prop.hasPrefix("adjust/") {
+                        AdjustRow(label: label, value: field.value?.number ?? 0, choose: choose)
+                    } else {
+                        NumberRow(
+                            label: label, value: field.value?.number, whole: whole, unit: nil, shows: field.theme?.number,
+                            choose: choose)
+                    }
                 case .flag:
                     // Where the deck sets none, the theme's: an italic role reads as italic.
                     Toggle(
@@ -1152,6 +1158,54 @@ private struct NumberRow: View {
         } else {
             text = value.map(Words.number) ?? ""
         }
+    }
+}
+
+/// One of an image's adjustments (PLAN 2.117), as Adjust Image's sliders show it: from -1 to 1, set
+/// when the slider is let go, one step to undo; let go at the middle, it takes the adjustment away.
+private struct AdjustRow: View {
+    let label: String
+    let value: Double
+    let choose: (JSONValue) -> Void
+    /// Where the slider is while it moves, before it is let go.
+    @State private var moving: Double?
+    @State private var editing = false
+
+    var body: some View {
+        LabeledContent(label) {
+            HStack(spacing: 6) {
+                Slider(
+                    value: Binding(
+                        get: { moving ?? value },
+                        set: { now in
+                            moving = now
+                            // A step not dragged, as VoiceOver's, is set at once.
+                            if !editing { commit() }
+                        }),
+                    in: -1...1,
+                    onEditingChanged: { now in
+                        editing = now
+                        if !now { commit() }
+                    }
+                )
+                .frame(minWidth: 90, maxWidth: 140)
+                .accessibilityValue(Text(said(moving ?? value)))
+                Text(said(moving ?? value)).monospacedDigit().foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
+            }
+        }
+    }
+
+    /// The value as a share of the most it takes, signed: +25, −40, or None.
+    private func said(_ v: Double) -> String {
+        let percent = Int((abs(v) * 100).rounded())
+        return percent == 0 ? "None" : "\(v > 0 ? "+" : "−")\(percent)"
+    }
+
+    private func commit() {
+        guard let now = moving else { return }
+        moving = nil
+        let set = (now * 100).rounded() / 100
+        if set != value { choose(set == 0 ? .null : .number(set)) }
     }
 }
 
