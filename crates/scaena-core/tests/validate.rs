@@ -317,6 +317,43 @@ fn a_format_with_a_smaller_grid_is_judged_on_its_own() {
     );
 }
 
+/// A slide shows its number and footer whole (ADR-0028): its first state may say whether, and a
+/// step of it that says so is E106.
+#[test]
+fn a_step_cannot_say_whether_its_slide_shows_furniture() {
+    let deck =
+        fixture!("E102", "clean").replace(r#""id": "numbers","#, r#""id": "numbers", "furniture": false,"#).replace(
+            r#"{ "id": "photo", "layout": "full","#,
+            r#"{ "id": "photo", "slide": "numbers", "furniture": true, "layout": "full","#,
+        );
+    assert_eq!(findings(&deck), ["E106 /states/2/furniture"]);
+}
+
+/// A slide's number and footer (ADR-0028) are set in the theme's roles and colors, on its grid,
+/// and left off its layouts: what it lacks is E102 in the theme file.
+#[test]
+fn a_themes_furniture_names_what_it_has() {
+    let files = EditedTheme(|t| {
+        t.replacen(
+            "{",
+            r#"{ "furniture": { "number": { "col": [12, 14], "role": "folio", "color": "chartreuse" }, "footer": { "col": [1, 8], "role": "body", "color": "accent" }, "except": ["title", "cover"] },"#,
+            1,
+        )
+    });
+    let mut found = placed(&files);
+    found.sort();
+    let at = |p: &str| ("E102".to_string(), Some("theme.json".to_string()), p.to_string());
+    assert_eq!(
+        found,
+        [
+            at("/furniture/except/1"),
+            at("/furniture/number/col"),
+            at("/furniture/number/color"),
+            at("/furniture/number/role")
+        ]
+    );
+}
+
 /// The fixtures' bundle with its theme edited by `edit`.
 struct EditedTheme(fn(String) -> String);
 
@@ -423,7 +460,7 @@ fn a_deck_that_is_not_json_is_an_error_not_a_finding() {
 fn e103_two_rows_one_mark() {
     // A mark is known by its key, else its category, with its series beside it.
     let deck = serde_json::json!({
-        "scaena": "0.18",
+        "scaena": "0.19",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -467,7 +504,7 @@ fn what_marks_a_row_projected_is_a_column_that_can_hold_it() {
     let props: serde_json::Map<String, serde_json::Value> =
         nodes.keys().map(|k| (k.clone(), serde_json::json!({}))).collect();
     let deck = serde_json::json!({
-        "scaena": "0.18",
+        "scaena": "0.19",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -505,7 +542,7 @@ fn only_a_bar_charts_bars_turn() {
         c
     };
     let deck = serde_json::json!({
-        "scaena": "0.18",
+        "scaena": "0.19",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -531,7 +568,7 @@ fn a_slope_compares_two_states_and_a_range_spans_something() {
     // range's, each end a column of numbers (E106, E103); a range with no series, color, or
     // interval spans nothing (E106).
     let deck = serde_json::json!({
-        "scaena": "0.18",
+        "scaena": "0.19",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -579,7 +616,7 @@ fn small_multiples_facet_by_a_field_of_their_data() {
             "y": { "field": "v" }, "facet": facet, "alt": "", "at": { "in": "main" } })
     };
     let deck = serde_json::json!({
-        "scaena": "0.18",
+        "scaena": "0.19",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],

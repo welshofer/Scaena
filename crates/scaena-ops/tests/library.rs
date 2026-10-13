@@ -57,6 +57,11 @@ fn an_older_copy_takes_the_library_and_draws_as_it_did() {
     assert_eq!(theme["layouts"]["title"]["slots"]["title"]["prompt"], "The talk's title");
     assert_eq!(theme["layouts"]["title"]["slots"]["art"]["example"], json!({ "picture": "backdrop" }));
 
+    // The slide's number and footer, which the copy placed nowhere, placed as the theme ships them
+    // (ADR-0028); the deck shows them only where it asks.
+    assert!(brought.furniture);
+    assert_eq!(theme["furniture"], shipped["furniture"]);
+
     // Nothing else of the theme changes but the format it is written in, which reads.
     for part in ["name", "description", "tokens", "grid", "shaders", "charts", "tables", "motion", "density"] {
         assert_eq!(theme[part], older[part], "{part}");

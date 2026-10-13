@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.13",
+  "scaena-theme": "0.14",
   "name": "Dusk",
   "description": "Dark surface, warm paper-white ink, one accent. Display type set tight with optical sizing; body set loose.",
   "tokens": {
@@ -228,5 +228,10 @@
   "tables": {
     "header": { "role": "axis" }
   },
-  "density": { "maxWordsPerState": 40 }
+  "density": { "maxWordsPerState": 40 },
+  "furniture": {
+    "number": { "col": [12, 12], "role": "label", "align": "end" },
+    "footer": { "col": [1, 8], "role": "label" },
+    "except": ["title", "section", "photo-title", "title-only", "title-center", "title-split", "section-photo", "section-number", "bullets-photo", "agenda-photo", "number-photo", "photo", "photo-caption", "photo-left", "photo-right", "mosaic", "photo-quote", "photo-grid-text", "quote-portrait", "speaker", "chyron", "headline", "contact"]
+  }
 }

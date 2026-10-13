@@ -314,6 +314,8 @@ jobs:
       - run: node web/canvas.mjs
       - run: node web/typing.mjs
       - run: node web/inspector.mjs
+      # A slide's number and footer from the inspector: the deck's and a slide's say, each a patch (PLAN 2.103).
+      - run: node web/furniture.mjs
       # The layouts a state may take, drawn and judged by lint, previewed and chosen (PLAN 2.92).
       - run: node web/suggest.mjs
       # Nodes inserted from the theme and the bundle, copied, and deleted, each a patch (PLAN 2.34).

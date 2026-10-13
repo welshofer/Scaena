@@ -55,6 +55,29 @@ pub struct StateChoices {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(skip)]
     pub said: Option<String>,
+    /// The slide's number and footer (ADR-0028): what the deck shows on its slides, and what
+    /// this slide says of them.
+    pub furniture: FurnitureChoice,
+}
+
+/// What an inspector offers of a slide's number and footer (ADR-0028): the deck's, which
+/// `furnish` sets, and the slide's own, which `set_state`'s `furniture` writes on its first state.
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct FurnitureChoice {
+    /// Whether the theme places a number or a footer at all: none shows where it places neither.
+    pub placed: bool,
+    /// Whether the deck numbers its slides.
+    pub number: bool,
+    /// The words at the foot of its slides.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub footer: Option<String>,
+    /// The slide's first state, where the slide says whether it shows them.
+    pub head: String,
+    /// What the slide says: shown, hidden, or as its layout has them (none).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slide: Option<bool>,
+    /// Whether the slide shows them, as it stands.
+    pub shown: bool,
 }
 
 /// One property an inspector edits.
@@ -504,7 +527,29 @@ pub fn state_choices(deck: &Deck, theme: &Theme, state: &str) -> Result<StateCho
         };
         Some(Field { prop: prop.into(), takes, value, lives, literal: false, theme: None, words: None })
     });
-    Ok(StateChoices { state: state.into(), fields: fields.collect(), said: None })
+    let fields = fields.collect();
+    let furniture = furniture_choice(deck, theme, state, snapshots[i].layout.as_deref());
+    Ok(StateChoices { state: state.into(), fields, said: None, furniture })
+}
+
+/// What the deck and the slide `state` is on say of the slide's number and footer.
+fn furniture_choice(deck: &Deck, theme: &Theme, state: &str, layout: Option<&str>) -> FurnitureChoice {
+    let wants = deck.furniture.clone().unwrap_or_default();
+    let places = theme.furniture.as_ref();
+    let slide = crate::furniture::slide(deck, state);
+    let head = deck.state_index(state).map(|i| deck.slide_of(&deck.states[i]).to_string()).unwrap_or_default();
+    let placed = places.is_some_and(|p| p.number.is_some() || p.footer.is_some());
+    let shows_any = (wants.number && places.is_some_and(|p| p.number.is_some()))
+        || (wants.footer.is_some() && places.is_some_and(|p| p.footer.is_some()));
+    let shown = shows_any && slide.zip(places).is_some_and(|(s, p)| s.shown(p, layout));
+    FurnitureChoice {
+        placed,
+        number: wants.number,
+        footer: wants.footer,
+        head,
+        slide: slide.and_then(|s| s.shows),
+        shown,
+    }
 }
 
 /// What the schema allows, as an inspector offers it: a word, a number, yes or no, or words

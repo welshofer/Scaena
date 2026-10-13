@@ -423,7 +423,97 @@ impl Engine {
             });
         }
         let surface = theme_color(theme, "surface")?;
-        Ok(Scene { state: snap.state_id.clone(), canvas, surface, nodes, tree, tracks: placement.tracks })
+        let furniture = self.furniture(deck, theme, &grid, snap)?;
+        Ok(Scene { state: snap.state_id.clone(), canvas, surface, nodes, tree, tracks: placement.tracks, furniture })
+    }
+
+    /// The slide's number and footer in `snap`, laid out where the theme places them (ADR-0028):
+    /// none where the deck shows neither, its theme places neither, or the slide is one that
+    /// hides them, by its own word or as the theme leaves them off its layout.
+    fn furniture(
+        &mut self,
+        deck: &Deck,
+        theme: &Theme,
+        grid: &Grid,
+        snap: &Snapshot,
+    ) -> Result<Vec<SceneNode>, EngineError> {
+        let (Some(wants), Some(places)) = (deck.furniture.as_ref(), theme.furniture.as_ref()) else {
+            return Ok(Vec::new());
+        };
+        let Some(slide) = crate::furniture::slide(deck, &snap.state_id) else { return Ok(Vec::new()) };
+        if !slide.shown(places, snap.layout.as_deref()) {
+            return Ok(Vec::new());
+        }
+        let mut out = Vec::new();
+        if wants.number
+            && let Some(item) = &places.number
+        {
+            let words = slide.written(item.pattern.as_deref());
+            out.push(self.furnished(deck, theme, grid, crate::furniture::NUMBER, item, &words)?);
+        }
+        if let (Some(words), Some(item)) = (wants.footer.as_deref(), &places.footer) {
+            out.push(self.furnished(deck, theme, grid, crate::furniture::FOOTER, item, words)?);
+        }
+        Ok(out)
+    }
+
+    /// One piece of furniture: `words` set in its role across its columns, its caps centered in
+    /// the margin at the canvas's foot or head.
+    fn furnished(
+        &mut self,
+        deck: &Deck,
+        theme: &Theme,
+        grid: &Grid,
+        id: &str,
+        item: &scaena_core::model::theme::FurnitureItem,
+        words: &str,
+    ) -> Result<SceneNode, EngineError> {
+        use scaena_core::model::theme::{Across, Edge};
+        use scaena_core::model::values::Range;
+        let columns = grid.columns();
+        let last = columns.len().max(1) as u32;
+        let (a, b) = match item.col {
+            Range::Index(i) => (i, i),
+            Range::Span([a, b]) => (a, b),
+        };
+        // Held to the grid of the format laid out, which may have fewer columns.
+        let a = a.clamp(1, last);
+        let b = b.clamp(a, last);
+        let [x0, _] = columns[(a - 1) as usize];
+        let [_, x1] = columns[(b - 1) as usize];
+        let size = canvas(deck);
+        let rows = grid.rows();
+        let (y0, y1) = match item.edge {
+            Edge::Foot => (rows.last().map_or(size[1], |r| r[1]), size[1]),
+            Edge::Head => (0.0, rows.first().map_or(0.0, |r| r[0])),
+        };
+        let cell = [x0, y0, x1 - x0, y1 - y0];
+        let mut props = Props::new();
+        props.insert("type".into(), "text".into());
+        props.insert("text".into(), words.into());
+        props.insert("role".into(), item.role.clone().into());
+        if let Some(color) = &item.color {
+            props.insert("style".into(), serde_json::json!({ "color": color }));
+        }
+        let mut spec = text_spec(deck, theme, &props, None).map_err(|e| in_node(id, e))?;
+        spec.align = match item.align {
+            Some(Across::Center) => TextAlign::Center,
+            Some(Across::End) => TextAlign::End,
+            _ => TextAlign::Start,
+        };
+        let text = self.text.layout(&mut self.fonts, theme, &spec, cell[2]).map_err(|e| in_node(id, e))?;
+        // Its caps centered in the margin's height.
+        let (top, bottom) = text.trimmed(TextBox::Cap);
+        let y = cell[1] + 0.5 * (cell[3] - (bottom - top)) - top;
+        let overflow = text.lines.iter().any(|l| l.width > cell[2] + FIT_EPSILON);
+        let placed = PlacedText { cell, origin: [cell[0], y], text, scale: 1.0, overflow, clip: None };
+        Ok(SceneNode {
+            id: id.into(),
+            paint: Vec::new(),
+            opacity: 1.0,
+            policy: Policy::Crossfade,
+            content: Content::Text(placed),
+        })
     }
 
     /// One text node of a state, laid out and placed: what `frame` draws, and what

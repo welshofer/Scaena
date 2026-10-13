@@ -789,12 +789,12 @@ fn read_deltas(map: &LoroMap, keys: &Keys) -> Result<Map<String, Value>> {
 // --- writing ------------------------------------------------------------------------------
 
 /// The fields of a state the CRDT holds as JSON (its `notes` are text, its `props` a map).
-const STATE_FIELDS: [&str; 10] =
-    ["id", "name", "slide", "from", "mode", "layout", "transition", "remove", "choreography", "hold"];
+const STATE_FIELDS: [&str; 11] =
+    ["id", "name", "slide", "from", "mode", "layout", "furniture", "transition", "remove", "choreography", "hold"];
 /// The fields of a beat the CRDT holds as JSON (its `notes` are text).
 const BEAT_FIELDS: [&str; 6] = ["id", "claim", "evidence", "states", "duration", "media"];
 /// The deck's own fields, as JSON.
-const DECK_FIELDS: [&str; 6] = ["scaena", "canvas", "formats", "theme", "fonts", "_comment"];
+const DECK_FIELDS: [&str; 7] = ["scaena", "canvas", "formats", "theme", "furniture", "fonts", "_comment"];
 
 impl DeckDoc {
     fn write(&self, deck: &Deck, files: &[(String, Vec<u8>)], edit: &Edit, fresh: bool) -> Result<bool> {
@@ -1224,7 +1224,7 @@ impl DeckDoc {
             }
             deck.insert("meta".into(), Value::Object(meta));
         }
-        for key in ["canvas", "formats", "theme", "fonts"] {
+        for key in ["canvas", "formats", "theme", "furniture", "fonts"] {
             if let Some(v) = field(key)? {
                 deck.insert(key.into(), v);
             }

@@ -101,6 +101,9 @@ impl Printer {
         if let Some(formats) = d.get("formats") {
             props.push(format!("formats:{}", val(formats)));
         }
+        if let Some(furniture) = d.get("furniture") {
+            props.push(format!("furniture:{}", val(furniture)));
+        }
         if let Some(meta) = meta {
             let rest: Map<String, Value> =
                 meta.iter().filter(|(k, _)| *k != "title").map(|(k, v)| (k.clone(), v.clone())).collect();
@@ -259,7 +262,7 @@ impl Printer {
             Some(c) => props.push(format!("_comment:{}", val(c))),
             None => {}
         }
-        for key in ["name", "slide", "from", "mode", "layout", "transition", "hold"] {
+        for key in ["name", "slide", "from", "mode", "layout", "furniture", "transition", "hold"] {
             match (key, s.get(key)) {
                 ("mode", Some(Value::String(m))) if m == "delta" => {}
                 // `hold` is a float in the deck's types, so `4000` reads back as `4000.0`.

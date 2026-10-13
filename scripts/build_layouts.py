@@ -1083,6 +1083,26 @@ def library(theme, old):
     return out
 
 
+# A slide's number and footer (ADR-0028): at the foot of the slide, in the theme's `label`, the
+# footer from the left across eight columns and the number at the right in the last.
+FURNITURE = {
+    "number": {"col": [12, 12], "role": "label", "align": "end"},
+    "footer": {"col": [1, 8], "role": "label"},
+}
+
+
+def furniture(layouts):
+    """The theme's furniture: left off its titles and dividers, as a presentation app leaves a slide
+    number off a title slide, and off a layout whose picture bleeds to the foot of the slide, where
+    the number would stand on the picture."""
+    left = []
+    for name, layout in layouts.items():
+        bleeds = any(s.get("bleed") and cells(s)[1][1] == 12 for s in layout["slots"].values() if "row" in s)
+        if layout.get("group") == "Titles" or bleeds:
+            left.append(name)
+    return {**FURNITURE, "except": left}
+
+
 def compact(v):
     """JSON as the theme files set a layout: on one line, a space inside each brace."""
     if isinstance(v, dict):
@@ -1095,8 +1115,8 @@ def compact(v):
 
 
 def written(text, layouts):
-    """The theme file `text` with its layouts block set to `layouts`, one to a line, the rest as
-    it was."""
+    """The theme file `text` with its layouts block set to `layouts`, one to a line, and its
+    furniture block set from them, last; the rest as it was."""
     lines = text.split("\n")
     start = lines.index('  "layouts": {')
     end = next(i for i in range(start + 1, len(lines)) if lines[i] in ("  },", "  }"))
@@ -1106,7 +1126,18 @@ def written(text, layouts):
     for i, name in enumerate(names):
         key = (json.dumps(name, ensure_ascii=False) + ":").ljust(width)
         body.append(f"    {key}{compact(layouts[name])}{',' if i < len(names) - 1 else ''}")
-    return "\n".join(lines[: start + 1] + body + lines[end:])
+    lines = lines[: start + 1] + body + lines[end:]
+    # The furniture, the theme's last key, as the model orders a theme's keys.
+    if '  "furniture": {' in lines:
+        at = lines.index('  "furniture": {')
+        lines = lines[: at - 1] + [lines[at - 1].rstrip(",")] + lines[next(i for i in range(at, len(lines)) if lines[i] == "  }") + 1 :]
+    close = max(i for i, line in enumerate(lines) if line == "}")
+    held = furniture(layouts)
+    block = ['  "furniture": {'] + [
+        f"    {json.dumps(k)}: {compact(v)}{',' if i < len(held) - 1 else ''}" for i, (k, v) in enumerate(held.items())
+    ] + ["  }"]
+    lines = lines[: close - 1] + [lines[close - 1] + ","] + block + lines[close:]
+    return "\n".join(lines)
 
 
 def main():

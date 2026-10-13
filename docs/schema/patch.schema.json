@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/patch-0.18.json",
+  "$id": "https://scaena.dev/schema/patch-0.19.json",
   "title": "Scaena patch",
   "description": "A patch (SPEC §7.3): RFC 6902 ops and semantic ops, applied in order, all or none.",
   "type": "array",
@@ -401,19 +401,33 @@
           }
         },
         {
-          "description": "One property of state `id`, as an inspector chooses it (PLAN 2.36): its `layout`, its `transition` or one key of it (`transition/ease`), its `hold`, or its `notes`. A layout tracks (SPEC §2.2), so it is written where it lives: in the latest state that sets it, from `id` back along what it tracks, and each state that takes it from there changes with it; in `id` where none sets it. The rest are `id`'s own. A transition that is a bare duration, or none, stays bare while its duration is all it sets, and becomes an object to take another key. `null` takes a value away where it lives: a layout taken away shows what is under it, and a transition left with nothing cuts.",
+          "description": "One property of state `id`, as an inspector chooses it (PLAN 2.36): its `layout`, its `transition` or one key of it (`transition/ease`), its `hold`, its `notes`, or whether its slide shows the deck's number and footer (`furniture`, ADR-0028), which is written on the slide's first state, since a slide shows them whole. A layout tracks (SPEC §2.2), so it is written where it lives: in the latest state that sets it, from `id` back along what it tracks, and each state that takes it from there changes with it; in `id` where none sets it. The rest are `id`'s own. A transition that is a bare duration, or none, stays bare while its duration is all it sets, and becomes an object to take another key. `null` takes a value away where it lives: a layout taken away shows what is under it, and a transition left with nothing cuts.",
           "type": "object",
           "required": ["op", "id", "prop", "value"],
           "additionalProperties": false,
           "properties": {
             "id": { "$ref": "#/$defs/Id" },
-            "prop": { "type": "string", "pattern": "^(layout|hold|notes|transition(/(duration|ease|spring|match))?)$" },
+            "prop": {
+              "type": "string",
+              "pattern": "^(layout|hold|notes|furniture|transition(/(duration|ease|spring|match))?)$"
+            },
             "value": true,
             "fork": {
               "description": "Write a layout into `id` itself, wherever it lives now: it shows there, and in the states that track `id`, and the others show what they did. The rest are `id`'s own with or without it.",
               "type": "boolean"
             },
             "op": { "type": "string", "const": "set_state" }
+          }
+        },
+        {
+          "description": "The deck's slide numbers and footer (ADR-0028): `number` shows each slide's number or none, and `footer` sets the words at each slide's foot, `null` or no words taking them away. What it leaves out stays as it was; a deck left showing neither has no `furniture`. The theme places them, and a slide's `furniture` (`set_state`) hides or shows them there.",
+          "type": "object",
+          "required": ["op"],
+          "additionalProperties": false,
+          "properties": {
+            "number": { "type": "boolean" },
+            "footer": { "type": "string" },
+            "op": { "type": "string", "const": "furnish" }
           }
         },
         {
@@ -1612,6 +1626,10 @@
         "from": { "description": "Track from this state instead of the previous one (branch).", "$ref": "#/$defs/Id" },
         "mode": { "$ref": "#/$defs/StateMode", "default": "delta" },
         "layout": { "description": "Layout template name from the theme.", "type": "string" },
+        "furniture": {
+          "description": "Whether the slide shows the deck's furniture, its number and footer (deck format 0.19, ADR-0028): `false` hides them, `true` shows them on a layout the theme leaves them off. A slide's first state says it for the whole slide.",
+          "type": "boolean"
+        },
         "transition": { "$ref": "#/$defs/Transition" },
         "props": {
           "description": "Per-node property deltas for this state. Keys are node ids.",

@@ -801,9 +801,35 @@
             "description": "Its layout, each key of its transition, its hold, and its notes: what `set_state`\nnames. A state that sets no key of its transition cuts in.",
             "type": "array",
             "items": { "$ref": "#/$defs/Field" }
+          },
+          "furniture": {
+            "description": "The slide's number and footer (ADR-0028): what the deck shows on its slides, and what\nthis slide says of them.",
+            "$ref": "#/$defs/FurnitureChoice"
           }
         },
-        "required": ["state", "fields"]
+        "required": ["state", "fields", "furniture"]
+      },
+      "FurnitureChoice": {
+        "description": "What an inspector offers of a slide's number and footer (ADR-0028): the deck's, which\n`furnish` sets, and the slide's own, which `set_state`'s `furniture` writes on its first state.",
+        "type": "object",
+        "properties": {
+          "placed": {
+            "description": "Whether the theme places a number or a footer at all: none shows where it places neither.",
+            "type": "boolean"
+          },
+          "number": { "description": "Whether the deck numbers its slides.", "type": "boolean" },
+          "footer": { "description": "The words at the foot of its slides.", "type": ["string", "null"] },
+          "head": {
+            "description": "The slide's first state, where the slide says whether it shows them.",
+            "type": "string"
+          },
+          "slide": {
+            "description": "What the slide says: shown, hidden, or as its layout has them (none).",
+            "type": ["boolean", "null"]
+          },
+          "shown": { "description": "Whether the slide shows them, as it stands.", "type": "boolean" }
+        },
+        "required": ["placed", "number", "head", "shown"]
       },
       "Suggestion": {
         "description": "One layout a state may take, and what lint finds in the state laid out in it.",

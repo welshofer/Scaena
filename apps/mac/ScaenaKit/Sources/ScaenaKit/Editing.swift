@@ -92,6 +92,40 @@ public struct Choices: Decodable, Sendable {
     public let type: String?
     public let state: String
     public let fields: [Field]
+    /// The slide's number and footer (ADR-0028): offered with the state's own fields.
+    public let furniture: FurnitureChoice?
+}
+
+/// What an inspector offers of a slide's number and footer (ADR-0028): the deck's, which
+/// `furnish` sets, and the slide's own, which `set_state`'s `furniture` writes on its first state.
+public struct FurnitureChoice: Decodable, Sendable, Equatable {
+    /// Whether the theme places a number or a footer at all.
+    public let placed: Bool
+    /// Whether the deck numbers its slides.
+    public let number: Bool
+    /// The words at the foot of its slides.
+    public let footer: String?
+    /// The slide's first state, where the slide says whether it shows them.
+    public let head: String
+    /// What the slide says: shown, hidden, or as its layout has them (none).
+    public let slide: Bool?
+    /// Whether the slide shows them, as it stands.
+    public let shown: Bool
+
+    /// The patch that numbers the deck's slides, or not.
+    public static func numbering(_ on: Bool) -> [JSONValue] { [["op": "furnish", "number": .bool(on)]] }
+
+    /// The patch that sets the deck's footer, or takes it away with no words.
+    public static func footing(_ words: String) -> [JSONValue] {
+        let trimmed = words.trimmingCharacters(in: .whitespacesAndNewlines)
+        return [["op": "furnish", "footer": trimmed.isEmpty ? .null : .string(trimmed)]]
+    }
+
+    /// The patch that shows the number and footer on this slide, hides them, or leaves them as its
+    /// layout has them (`nil`): on the slide's first state.
+    public func showing(_ shows: Bool?) -> [JSONValue] {
+        [["op": "set_state", "id": .string(head), "prop": "furniture", "value": shows.map(JSONValue.bool) ?? .null]]
+    }
 }
 
 /// One property an inspector edits.

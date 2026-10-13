@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.13",
+  "scaena-theme": "0.14",
   "name": "Ember",
   "description": "Near-black surface, warm white ink, one signal orange. Serif claims and figures over a neutral sans; data in quiet grays with the orange spent on the point.",
   "tokens": {
@@ -716,5 +716,10 @@
   },
   "density": {
     "maxWordsPerState": 40
+  },
+  "furniture": {
+    "number": { "col": [12, 12], "role": "label", "align": "end" },
+    "footer": { "col": [1, 8], "role": "label" },
+    "except": ["title", "section", "photo-title", "title-only", "title-center", "title-split", "section-photo", "section-number", "bullets-photo", "agenda-photo", "number-photo", "photo", "photo-caption", "photo-left", "photo-right", "mosaic", "photo-quote", "photo-grid-text", "quote-portrait", "speaker", "chyron", "headline", "contact"]
   }
 }

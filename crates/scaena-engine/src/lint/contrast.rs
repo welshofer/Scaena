@@ -152,7 +152,8 @@ fn texts(cx: &Cx, state: &Laid) -> (Vec<Run>, BTreeSet<String>, BTreeSet<String>
         }
         alpha
     };
-    for node in &state.scene.nodes {
+    // The slide's number and footer too (ADR-0028), drawn over every node.
+    for node in state.scene.nodes.iter().chain(&state.scene.furniture) {
         let opacity = f64::from(node.opacity) * composite(&node.id);
         let at = |cell: &[f32; 4], o: [f32; 2]| [cell[0] + o[0], cell[1] + o[1]];
         // Where its transform and its containers' draw it (SPEC §3.3): each run over the
@@ -438,7 +439,9 @@ pub fn check(
                     continue;
                 }
                 failed.insert(&run.subject);
-                if run.subject.1.is_none() {
+                // A node's own text, which a color of the theme can fix (PLAN 2.82); the slide's
+                // furniture is the theme's to color.
+                if run.subject.1.is_none() && !crate::furniture::is_furniture(&run.subject.0) {
                     let reading = Faint { under, opacity: run.opacity, needs };
                     faint.entry(run.subject.0.clone()).or_default().push(reading);
                 }
@@ -475,6 +478,18 @@ pub fn check(
             let (code, class) = if needs > 3.0 { ("E110", "body") } else { ("E111", "display") };
             let fg = hex(fg.map(|c| (c * 255.0).round() as u8));
             let reads = format!("{r:.2}:1 contrast with what is behind it; {class} text needs {needs}:1");
+            if crate::furniture::is_furniture(&node) {
+                let what = if node == crate::furniture::NUMBER { "number" } else { "footer" };
+                let measure = json!({
+                    "ratio": (r * 100.0).round() / 100.0, "needs": needs, "text": fg, "background": hex(bg),
+                    "size": size, "states": states,
+                });
+                return cx
+                    .finding(code, Severity::Error, cx.laid(index), format!("the slide's {what} has {reads}"))
+                    .at("/furniture")
+                    .measure(measure)
+                    .hint("Give the theme's furniture a color that reads against what is behind it, or leave the number and footer off the slide (`furniture: false` on its first state).");
+            }
             let finding = match part {
                 None => cx.finding(code, Severity::Error, cx.laid(index), format!("text `{node}` has {reads}")),
                 Some(part) => cx.finding(

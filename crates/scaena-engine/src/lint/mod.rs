@@ -47,6 +47,7 @@ pub fn rules() -> Vec<Box<dyn Rule>> {
         Box::new(text::W203ShrinkFloor),
         Box::new(text::W220MixedAlignment),
         Box::new(text::W231Upright),
+        Box::new(space::W303UnderFurniture),
         Box::new(text::W310LabelCollision),
         Box::new(space::W311ShaderBehindData),
         Box::new(text::W312ChartTextSize),

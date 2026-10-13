@@ -487,7 +487,9 @@ pub enum SemanticOp {
         to: String,
     },
     /// One property of state `id`, as an inspector chooses it (PLAN 2.36): its `layout`, its
-    /// `transition` or one key of it (`transition/ease`), its `hold`, or its `notes`. A layout
+    /// `transition` or one key of it (`transition/ease`), its `hold`, its `notes`, or whether its
+    /// slide shows the deck's number and footer (`furniture`, ADR-0028), which is written on the
+    /// slide's first state, since a slide shows them whole. A layout
     /// tracks (SPEC §2.2), so it is written where it lives: in the latest state that sets it,
     /// from `id` back along what it tracks, and each state that takes it from there changes
     /// with it; in `id` where none sets it. The rest are `id`'s own. A transition that is a
@@ -497,7 +499,7 @@ pub enum SemanticOp {
     SetState {
         #[schemars(with = "Id")]
         id: String,
-        #[schemars(regex(pattern = r"^(layout|hold|notes|transition(/(duration|ease|spring|match))?)$"))]
+        #[schemars(regex(pattern = r"^(layout|hold|notes|furniture|transition(/(duration|ease|spring|match))?)$"))]
         prop: String,
         value: Value,
         /// Write a layout into `id` itself, wherever it lives now: it shows there, and in the
@@ -505,6 +507,17 @@ pub enum SemanticOp {
         /// with or without it.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         fork: bool,
+    },
+    /// The deck's slide numbers and footer (ADR-0028): `number` shows each slide's number or
+    /// none, and `footer` sets the words at each slide's foot, `null` or no words taking them
+    /// away. What it leaves out stays as it was; a deck left showing neither has no `furniture`.
+    /// The theme places them, and a slide's `furniture` (`set_state`) hides or shows them there.
+    Furnish {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        number: Option<bool>,
+        #[serde(default, deserialize_with = "kept", skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "Option<Option<String>>")]
+        footer: Option<Value>,
     },
     /// The deck's theme: a theme file in the bundle (`scaena theme --apply` copies one in),
     /// or a theme inline.
@@ -544,6 +557,7 @@ impl SemanticOp {
             SemanticOp::RemoveSlide { .. } => "remove_slide",
             SemanticOp::RenameState { .. } => "rename_state",
             SemanticOp::SetState { .. } => "set_state",
+            SemanticOp::Furnish { .. } => "furnish",
             SemanticOp::Retheme { .. } => "retheme",
         }
     }
@@ -604,6 +618,11 @@ fn container_or_canvas(generator: &mut schemars::SchemaGenerator) -> schemars::S
 /// A value that may be `null`, said: `null` is not the same as unsaid.
 fn said<'de, D: Deserializer<'de>, T: Deserialize<'de>>(d: D) -> Result<Option<Option<T>>, D::Error> {
     Option::<T>::deserialize(d).map(Some)
+}
+
+/// Any value said, `null` among them, as itself: unsaid is `None`, and `null` is `Value::Null`.
+fn kept<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Value>, D::Error> {
+    Value::deserialize(d).map(Some)
 }
 
 /// What `annotate` gives a chart's annotation (PLAN 2.67): a whole one, to add, with its

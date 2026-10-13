@@ -64,6 +64,9 @@ pub struct Scene {
     pub tree: HashMap<String, Place>,
     /// Each grid container's tracks, by its id: where its cells are (ADR-0013).
     pub tracks: HashMap<String, crate::containers::Tracks>,
+    /// The slide's number and footer, where it shows them (ADR-0028): drawn over its nodes, and
+    /// no node of the deck.
+    pub furniture: Vec<SceneNode>,
 }
 
 /// A visible node's place in its scene.
@@ -141,6 +144,10 @@ impl Scene {
             |id, _| self.groups(id).into_iter().map(|g| (g, false)).collect(),
             |(g, _)| self.tree[g].composite.map(|opacity| (opacity, self.rest(g))),
         );
+        for item in &self.furniture {
+            let op = item.draw(&mut dl, item.opacity, time);
+            dl.ops.push(op);
+        }
         dl
     }
 
@@ -1029,7 +1036,25 @@ impl Transition {
         }
         let ops = left.into_iter().zip(std::mem::take(&mut dl.ops)).collect();
         dl.ops = grouped(ops, |id, source| self.groups_of(id, source), |key| self.group_layer(key, t_ms, moving, p));
+        self.furnish(&mut dl, moving, p, time);
         dl
+    }
+
+    /// The slides' numbers and footers over the frame (ADR-0028): what both states draw alike
+    /// stays as it is, and what differs fades out with the state left and in with this one.
+    fn furnish(&self, dl: &mut DisplayList, moving: bool, p: f32, time: f64) {
+        let before = self.from.as_ref().map_or(&[][..], |s| &s.furniture[..]);
+        if moving {
+            for item in before.iter().filter(|item| !self.to.furniture.contains(item)) {
+                let op = item.draw(dl, item.opacity * (1.0 - p), time);
+                dl.ops.push(op);
+            }
+        }
+        for item in &self.to.furniture {
+            let fade = if moving && !before.contains(item) { p } else { 1.0 };
+            let op = item.draw(dl, item.opacity * fade, time);
+            dl.ops.push(op);
+        }
     }
 
     /// The groups the node `id` sits in, outermost first, in the state it is drawn from:

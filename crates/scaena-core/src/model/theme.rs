@@ -41,6 +41,10 @@ pub struct Theme {
     pub tables: Option<Tables>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub density: Option<Density>,
+    /// A slide's number and footer: where each stands and in what type, and the layouts a slide
+    /// shows neither on (theme format 0.14, ADR-0028). The deck says whether they show.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub furniture: Option<Furniture>,
 }
 
 /// A theme's format as read: an older one this build reads is the current one (SPEC §3.1).
@@ -831,6 +835,71 @@ pub struct ChartLegend {
     /// `direct` when unset; `auto` means the same.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub place: Option<LegendPlace>,
+}
+
+/// A slide's furniture (theme format 0.14, ADR-0028): its number and its footer, each set in a
+/// text role in the margin at the canvas's foot or head, across columns of the grid.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Furniture {
+    /// Where the slide's number stands, where the deck shows it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub number: Option<FurnitureItem>,
+    /// Where the deck's footer stands, where the deck has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub footer: Option<FurnitureItem>,
+    /// The layouts a slide in shows neither, unless it says so (a title, a divider, a picture
+    /// that bleeds to the foot).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub except: Vec<String>,
+}
+
+/// One piece of a slide's furniture: a line of words in the margin.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FurnitureItem {
+    /// The grid's columns it spans, in each format's grid.
+    pub col: Range,
+    /// The margin it stands in: the canvas's foot, or its head.
+    #[serde(default, skip_serializing_if = "Edge::is_foot")]
+    pub edge: Edge,
+    /// The text role it is set in.
+    pub role: String,
+    /// How it lines up across its columns; start by default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub align: Option<Across>,
+    /// A color token or role it is set in, in place of its role's color.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    /// How the number is written: `{n}` the slide's number, `{total}` how many slides the deck
+    /// has (`"{n} / {total}"`); `{n}` by default. The footer's words are the deck's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<String>,
+}
+
+/// How a piece of furniture lines up across its columns.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Across {
+    #[default]
+    Start,
+    Center,
+    End,
+}
+
+/// The margin a piece of furniture stands in.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Edge {
+    #[default]
+    Foot,
+    Head,
+}
+
+impl Edge {
+    fn is_foot(&self) -> bool {
+        *self == Edge::Foot
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]

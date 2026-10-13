@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.13",
+  "scaena-theme": "0.14",
   "name": "Lint",
   "description": "The bundle every lint fixture is checked in (tests/lint/README.md): two of the torture deck's families, dark ground, and low motion limits so small decks reach them.",
   "tokens": {
@@ -47,5 +47,10 @@
     "maxBuild": 1500
   },
   "shaders": { "palettes": { "ambient": ["#1B1430", "#3A1F4F", "#B0452C", "#FF6A3D"] } },
-  "density": { "maxWordsPerState": 30 }
+  "density": { "maxWordsPerState": 30 },
+  "furniture": {
+    "number": { "col": [12, 12], "role": "caption", "align": "end" },
+    "footer": { "col": [1, 8], "role": "caption" },
+    "except": ["title"]
+  }
 }

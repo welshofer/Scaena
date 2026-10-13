@@ -386,7 +386,7 @@ fn an_op_that_would_not_do_what_it_says_is_refused() {
 #[test]
 fn set_text_takes_runs_away_and_null_takes_a_property_away() {
     let doc = json!({
-        "scaena": "0.18", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.19", "canvas": { "width": 1920, "height": 1080 },
         "nodes": { "t": { "type": "text", "runs": [{ "text": "Hello" }], "fit": "shrink", "at": { "in": "canvas" } } },
         "states": [{ "id": "a", "props": { "t": {} } }, { "id": "b" }],
     });
@@ -526,7 +526,7 @@ fn place_forks_a_placement_into_its_state() {
         .unwrap_err();
     assert!(e.to_string().contains("`fork`"), "{e}");
     let doc = json!({
-        "scaena": "0.18", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.19", "canvas": { "width": 1920, "height": 1080 },
         "nodes": { "u": { "type": "text", "text": "Yo", "at": { "col": [1, 4] } } },
         "overrides": { "u": { "at": { "rect": [10, 10, 300, 100] } } },
         "states": [{ "id": "a", "props": { "u": {} } }],
@@ -539,7 +539,7 @@ fn place_forks_a_placement_into_its_state() {
 #[test]
 fn place_follows_a_node_out_and_back_and_into_its_overrides() {
     let doc = json!({
-        "scaena": "0.18", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.19", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "t": { "type": "text", "text": "Hi", "at": { "in": "grid", "align": "center" } },
             "u": { "type": "text", "text": "Yo", "at": { "col": [1, 4] } },
@@ -587,7 +587,7 @@ fn place_follows_a_node_out_and_back_and_into_its_overrides() {
 #[test]
 fn place_says_what_places_a_node() {
     let doc = json!({
-        "scaena": "0.18", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.19", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "row": { "type": "stack", "axis": "x", "at": { "in": "grid" } },
             "a": { "type": "text", "text": "A", "at": { "parent": "row" } },
@@ -637,7 +637,7 @@ fn place_says_what_places_a_node() {
 #[test]
 fn place_moves_a_node_into_another_container_or_onto_the_canvas() {
     let doc = json!({
-        "scaena": "0.18", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.19", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "row": { "type": "stack", "axis": "x", "at": { "col": [1, 6], "row": [1, 3] } },
             "a": { "type": "text", "text": "A", "at": { "parent": "row" } },
@@ -853,7 +853,7 @@ fn style_text_gives_characters_a_look_where_the_text_lives() {
 
     // A role, a color the theme names, and emphasis; characters, not bytes, counted.
     let doc = json!({
-        "scaena": "0.18", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.19", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "t": { "type": "text", "role": "body", "at": { "in": "title" },
                    "runs": [{ "text": "Hello " }, { "text": "wörld", "emphasis": "high" }, { "text": "!" }] },
@@ -971,7 +971,7 @@ fn style_text_gives_characters_features_and_axes_of_their_own() {
 #[test]
 fn replace_text_keeps_runs_and_their_looks() {
     let doc = json!({
-        "scaena": "0.18", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.19", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "t": { "type": "text", "at": { "in": "title" },
                    "runs": [{ "text": "Hello " }, { "text": "wörld", "emphasis": "strong" }, { "text": "!" }] },
@@ -1247,6 +1247,58 @@ fn set_state_writes_a_layout_where_it_lives_and_the_rest_in_the_state() {
         .unwrap_err()
         .to_string();
     assert!(e.contains("no state `nowhere`"), "{e}");
+}
+
+/// `furnish` sets the deck's slide numbers and footer (ADR-0028): what it leaves out stays, no
+/// words or `null` take the footer away, and a deck left showing neither has no `furniture`.
+#[test]
+fn furnish_sets_the_decks_number_and_footer() {
+    let c = patch(&example(), json!([{ "op": "furnish", "number": true }])).unwrap();
+    assert_eq!(rfc(&c), json!([{ "op": "add", "path": "/furniture", "value": { "number": true } }]));
+    assert!(errors(&c.doc).is_empty(), "{:?}", errors(&c.doc));
+    let c = patch(&c.doc, json!([{ "op": "furnish", "footer": "Q3 Review · Board" }])).unwrap();
+    assert_eq!(rfc(&c), json!([{ "op": "add", "path": "/furniture/footer", "value": "Q3 Review · Board" }]));
+    assert_eq!(c.doc["furniture"], json!({ "number": true, "footer": "Q3 Review · Board" }));
+    // The number off keeps the footer; the footer taken away by no words leaves nothing to show.
+    let c = patch(&c.doc, json!([{ "op": "furnish", "number": false }])).unwrap();
+    assert_eq!(c.doc["furniture"], json!({ "footer": "Q3 Review · Board" }));
+    let c = patch(&c.doc, json!([{ "op": "furnish", "footer": " " }])).unwrap();
+    assert_eq!(rfc(&c), json!([{ "op": "remove", "path": "/furniture" }]));
+    assert!(c.doc.get("furniture").is_none());
+    // `null` takes it away as no words do, and leaves the number as it was.
+    let c = patch(&example(), json!([{ "op": "furnish", "number": true, "footer": "Board" }])).unwrap();
+    let c = patch(&c.doc, json!([{ "op": "furnish", "footer": null }])).unwrap();
+    assert_eq!(rfc(&c), json!([{ "op": "remove", "path": "/furniture/footer" }]));
+    assert_eq!(c.doc["furniture"], json!({ "number": true }));
+    // Nothing to take away is no change; a footer that is not words is refused.
+    let c = patch(&example(), json!([{ "op": "furnish", "footer": null }])).unwrap();
+    assert_eq!(rfc(&c), json!([]));
+    let e = patch(&example(), json!([{ "op": "furnish", "footer": 3 }])).unwrap_err().to_string();
+    assert!(e.contains("a footer is words"), "{e}");
+}
+
+/// A slide says whether it shows the deck's number and footer on its first state (ADR-0028):
+/// chosen from a step, it is written there, and `null` takes it away. Anything but `true`,
+/// `false`, or `null` is refused, and a step that says it itself is E106.
+#[test]
+fn set_state_says_whether_a_slide_shows_its_furniture_on_its_first_state() {
+    let set = |doc: &Value, id: &str, value: Value| {
+        patch(doc, json!([{ "op": "set_state", "id": id, "prop": "furniture", "value": value }])).unwrap()
+    };
+    let c = set(&example(), "mix", json!(false));
+    assert_eq!(rfc(&c), json!([{ "op": "add", "path": "/states/1/furniture", "value": false }]), "on `revenue`");
+    assert!(errors(&c.doc).is_empty(), "{:?}", errors(&c.doc));
+    let c = set(&c.doc, "revenue", Value::Null);
+    assert_eq!(rfc(&c), json!([{ "op": "remove", "path": "/states/1/furniture" }]));
+    let c = set(&example(), "intro", json!(true));
+    assert_eq!(rfc(&c), json!([{ "op": "add", "path": "/states/0/furniture", "value": true }]));
+    let e = patch(&example(), json!([{ "op": "set_state", "id": "intro", "prop": "furniture", "value": "yes" }]))
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("`true`, `false`, or `null`"), "{e}");
+    let mut doc = example();
+    doc["states"][2]["furniture"] = json!(false);
+    assert!(errors(&doc).iter().any(|e| e.starts_with("E106 state `mix` is a step")), "{:?}", errors(&doc));
 }
 
 /// `group` puts nodes in a new group where they stand, shown in each state that shows one of
@@ -1609,7 +1661,7 @@ fn annotate_writes_a_charts_annotations_where_they_live() {
 fn list_marks_a_texts_paragraphs_and_replace_text_keeps_them_in_step() {
     // ADR-0018, PLAN 2.69: `t`'s three paragraphs, its list on the node; `b` forks its text.
     let doc = json!({
-        "scaena": "0.18", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.19", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "t": { "type": "text", "role": "body", "text": "One\nTwo\nThree", "at": { "in": "body" } },
         },
