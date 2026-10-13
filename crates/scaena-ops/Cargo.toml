@@ -13,8 +13,8 @@ authors.workspace = true
 # compile wgpu.
 gpu = ["scaena-paint/gpu", "scaena-export/gpu"]
 # The themes that ship, with their fonts, in the binary, so `create` takes one by name
-# (PLAN 2.13). The CLI and the MCP server carry them; the browser's module does not, as the
-# web build carries them beside its pages.
+# (PLAN 2.13), and the icons that ship (PLAN 2.104). The CLI, the MCP server, and the C ABI
+# carry them; the browser's module does not, as the web build carries them beside its pages.
 shipped = []
 # Decks made from a narrative Narrato writes (ADR-0026, PLAN G.1). Off in the browser's editor
 # module, which loads generation as a module of its own (PLAN G.5).

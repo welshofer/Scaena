@@ -907,6 +907,7 @@ export type ToWorker =
    * units); a copy of `node` beside it in `state`; or `node` taken out of `state` and the states
    * after it, with what it holds, or, `everywhere`, out of the deck. */
   | { type: "inserting"; id: number; source: string; state: string; n: number; at: [number, number]; format?: string; named?: string; with?: Record<string, unknown> }
+  | { type: "insertingIcon"; id: number; source: string; state: string; icon: { name: string; path: string; view: [number, number, number, number] }; at: [number, number]; format?: string }
   /** What `inserts` offers `n`th, drawn in the box a drag from `from` to `to` covers (canvas
    * units), snapped to the theme's grid as a resize snaps, or, `free`, where it was drawn (PLAN
    * 2.48). */

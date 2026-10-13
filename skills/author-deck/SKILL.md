@@ -30,6 +30,7 @@ Every step works through either surface. An MCP tool takes the same settings its
 | look | `scaena render <bundle> --state <id> --out frame.png` | `deck_render`, which returns the PNG |
 | read it back | `scaena decompile <bundle>` | `deck_read`, with `scn` for `.scn` |
 | the spine | edit `spine` in `deck.json` | `spine_read`, `spine_update` |
+| find an icon | `scaena icons <words> --json`: each its `path` and `view`, for `add_node` | `icon_find` |
 
 Errors:
 - Under `--json`, every command prints one JSON value, and an error is `{ "error": … }` (SPEC §7.1).
@@ -50,6 +51,7 @@ Errors:
    - For rows of cards, stat blocks, and photo grids, place a container (`stack`, `grid`, `frame`) like any node, then put each child in it with `at: { parent: <container> }`. The child goes nowhere else, and `at.index` reorders.
    - In a stack, text, tables, and images size to their content, and shapes and charts share the rest (`size: { w: "fill" }` gives equal shares). A table takes its rows, so a total band after it sits a `gap` under its last row.
    - A container with `fill` draws a panel with its `radius`. SPEC §3.4 has the rules.
+   - An icon is a shape: find one with `scaena icons <words> --json` (`icon_find`), then `add_node` a `shape` with its `path`, its `view` (`[0, 0, 256, 256]`), `"fill": "accent"`, and `"semantic": "decoration"` beside a card's heading. Icons on one view keep one weight beside each other, so give a row of them one size.
 4. **States.**
    - One state per click. Set `layout`, then only what changes: text, `kind`, `at`, `remove`. Group builds with `slide`.
    - A state tracks the one before it, so a new slide keeps the last slide's nodes on screen unless it lists them in `remove`. Or it may set `mode: "absolute"` and list everything it shows, which keeps each slide self-contained.

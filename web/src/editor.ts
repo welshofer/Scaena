@@ -69,6 +69,7 @@ import { formatsRow } from "./formats";
 import { layerKeys, layers } from "./layers";
 import { looks } from "./look";
 import { layoutPicker } from "./picker";
+import { iconPicker } from "./icons";
 import type {
   Arrange,
   DataMark,
@@ -537,6 +538,13 @@ async function edit(source: Source) {
   /** The theme's layouts by their sections, each drawn (PLAN 3.31): + Slide's, and the inspector's
    * Layout. */
   const picking = layoutPicker(stage, $<HTMLDialogElement>("#starting"));
+  /** The icons that ship, to insert one where the pointer last pressed (PLAN 2.104). */
+  const iconing = iconPicker($<HTMLDialogElement>("#iconing"));
+  async function insertIcon() {
+    const icon = await iconing.pick();
+    if (icon) await board.insertIcon(icon);
+    $("#overlay").focus();
+  }
   const look = looks(stage, $("#look"), {
     shown: showing,
     slide: slideOf,
@@ -1030,12 +1038,16 @@ async function edit(source: Source) {
       group.append(new Option(said, String(n)));
       insertable.push(`${kind} · ${said}`);
     }
-    inserter.replaceChildren(new Option("Insert…", ""), ...groups.values());
+    // Icons are the set's that ship, not the theme's or the bundle's: Icon… opens their picker.
+    const icon = Object.assign(document.createElement("optgroup"), { label: "Icon" });
+    icon.append(new Option("Icon…", "icon"));
+    inserter.replaceChildren(new Option("Insert…", ""), ...groups.values(), icon);
   }
   inserter.onchange = () => {
     const chosen = inserter.selectedOptions[0];
     inserter.value = "";
     if (!chosen?.value) return;
+    if (chosen.value === "icon") return void insertIcon();
     void board.insert(Number(chosen.value), chosen.textContent ?? undefined);
     $("#overlay").focus();
   };
@@ -1776,9 +1788,11 @@ async function edit(source: Source) {
     const inserts: Command[] = inMenu
       ? [{ label: "Insert…", where: ["canvas"], applies: () => ready() && insertable.length > 0, run: () => commanding.open("insert ") }]
       : insertable.map((label, n) => ({ label: `Insert ${label}`, applies: ready, run: () => board.insert(n, label.split(" · ").at(-1)) }));
+    const icon: Command = { label: "Insert an icon…", group: "Draw and insert", where: ["canvas"], applies: ready, run: () => void insertIcon() };
     return [
       { label: "Paste", keys: `${MOD}V`, group: "Edit", where: ["canvas"], applies: ready, run: pasted },
       ...inserts,
+      icon,
       ...draws.map(
         ([key, label]): Command => ({ label, keys: key.toUpperCase(), group: "Draw and insert", where: ["canvas"], applies: () => ready() && board.armed()?.key !== key, run: () => press(key) }),
       ),

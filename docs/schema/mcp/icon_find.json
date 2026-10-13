@@ -1,0 +1,74 @@
+{
+  "name": "icon_find",
+  "description": "Find the icons that ship (Phosphor, MIT) by words: each word begins a word of an icon's name, its tags, or its categories, and its name asked whole comes first. Each icon is its path data on a view 256 square, which deck_patch's add_node adds as a shape: {\"type\": \"shape\", \"path\": …, \"view\": [0, 0, 256, 256], \"fill\": \"accent\"}, so icons beside each other keep one weight.",
+  "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$defs": {
+      "Weight": {
+        "description": "A weight an icon is drawn in.",
+        "oneOf": [
+          { "description": "Drawn in outline, Phosphor's regular weight.", "type": "string", "const": "regular" },
+          { "description": "Drawn solid.", "type": "string", "const": "fill" }
+        ]
+      }
+    },
+    "type": "object",
+    "properties": {
+      "query": {
+        "description": "The words to find: each begins a word of an icon's name, its tags, or its categories.\nNone finds every icon.",
+        "type": "string",
+        "default": ""
+      },
+      "weight": {
+        "description": "`regular`, drawn in outline (the default), or `fill`, drawn solid.",
+        "$ref": "#/$defs/Weight",
+        "default": "regular"
+      },
+      "limit": {
+        "description": "At most this many; 20 when not given.",
+        "type": ["integer", "null"],
+        "minimum": 0,
+        "default": null
+      }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$defs": {
+      "Found": {
+        "description": "An icon found: its name, its tags and categories, and the icon to insert in the weight asked.",
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "categories": { "type": "array", "items": { "type": "string" } },
+          "icon": { "$ref": "#/$defs/Icon" }
+        },
+        "required": ["name", "tags", "categories", "icon"]
+      },
+      "Icon": {
+        "description": "An icon to insert (PLAN 2.104): its name, its path data, and the view it is drawn on.",
+        "type": "object",
+        "properties": {
+          "name": { "description": "Its name in its set, in kebab case: `airplane-tilt`.", "type": "string" },
+          "path": { "description": "SVG path data.", "type": "string" },
+          "view": {
+            "description": "The box of the path's own coordinates it is drawn on, [x, y, w, h].",
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 4,
+            "maxItems": 4
+          }
+        },
+        "required": ["name", "path", "view"]
+      }
+    },
+    "required": ["icons", "found"],
+    "type": "object",
+    "properties": {
+      "icons": { "type": "array", "items": { "$ref": "#/$defs/Found" } },
+      "found": { "type": "integer", "minimum": 0 }
+    }
+  }
+}

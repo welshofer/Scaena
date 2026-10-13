@@ -773,6 +773,39 @@ fn a_node_is_inserted_copied_and_taken_away_as_the_browser_does() {
     unsafe { scaena_session_free(s) };
 }
 
+/// The icons that ship (PLAN 2.104), as the browser's picker finds and inserts them: found by
+/// their words in a weight, and inserted about a point as a path shape on the icon's view, in the
+/// theme's accent, as decoration named by the icon, entering in the state shown.
+#[test]
+fn an_icon_is_found_and_inserted_as_the_browser_does() {
+    let s = open(B1);
+    let found = call(s, "icons", json!({ "query": "rocket", "weight": "fill", "limit": 3 }));
+    let first = &found["icons"][0];
+    assert_eq!(first["name"], "rocket", "{found}");
+    assert_eq!(first["icon"]["view"], json!([0.0, 0.0, 256.0, 256.0]), "{found}");
+    assert!(found["found"].as_u64().is_some_and(|n| n >= 2), "{found}");
+    let added = call(s, "insertingIcon", json!({ "state": "cover", "icon": first["icon"], "x": 1500, "y": 300 }));
+    assert_eq!(added["id"], "rocket", "{added}");
+    let node = &added["patch"][0]["node"];
+    assert_eq!((node["type"].as_str(), node["kind"].as_str()), (Some("shape"), Some("path")), "{added}");
+    assert_eq!(
+        (node["view"].clone(), node["semantic"].as_str()),
+        (json!([0.0, 0.0, 256.0, 256.0]), Some("decoration"))
+    );
+    assert_eq!(node["alt"], "Rocket", "{added}");
+    assert_eq!(tool(s, "deck_patch", json!({ "ops": added["patch"] }))["edited"], true);
+    let shown = call(s, "boxes", json!({ "state": "cover" }));
+    assert!(shown.as_array().unwrap().iter().any(|b| b["node"] == "rocket"), "{shown}");
+
+    // An icon that is not one: said.
+    let answer: Value = serde_json::from_str(&took(unsafe {
+        scaena_call(s, c("insertingIcon").as_ptr(), c(r#"{"state":"cover","x":0,"y":0}"#).as_ptr())
+    }))
+    .unwrap();
+    assert!(answer["error"]["message"].as_str().is_some_and(|m| m.contains("icon")), "{answer}");
+    unsafe { scaena_session_free(s) };
+}
+
 /// The clipboard (PLAN 3.12), as the browser's (PLAN 2.37, 2.58, 2.96): a node copied as a clip
 /// and pasted in another state under an id new to the deck; words from another app pasted as a
 /// text; a look copied and put on another node; a sheet's cells read as a source, its file

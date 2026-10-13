@@ -317,6 +317,21 @@ pub struct DeckPatch {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct IconFind {
+    /// The words to find: each begins a word of an icon's name, its tags, or its categories.
+    /// None finds every icon.
+    #[serde(default)]
+    pub query: String,
+    /// `regular`, drawn in outline (the default), or `fill`, drawn solid.
+    #[serde(default)]
+    pub weight: scaena_ops::icons::Weight,
+    /// At most this many; 20 when not given.
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DeckFind {
     /// The bundle: a directory, a `.scaena` zip, or a `deck.json`.
     pub bundle: String,
@@ -883,6 +898,15 @@ impl Scaena {
         Parameters(a): Parameters<BundleArg>,
     ) -> Result<Json<scaena_ops::health::Health>, String> {
         blocking(move || scaena_ops::health::health(&open(&a.bundle)?.deck)).await.map(Json)
+    }
+
+    #[tool(description = "Find the icons that ship (Phosphor, MIT) by words: each word begins a word of an icon's \
+        name, its tags, or its categories, and its name asked whole comes first. Each icon is its path data on a view \
+        256 square, which deck_patch's add_node adds as a shape: {\"type\": \"shape\", \"path\": …, \
+        \"view\": [0, 0, 256, 256], \"fill\": \"accent\"}, so icons beside each other keep one weight.")]
+    async fn icon_find(&self, Parameters(a): Parameters<IconFind>) -> Result<Json<scaena_ops::icons::Icons>, String> {
+        let limit = a.limit.unwrap_or(20);
+        blocking(move || Ok(scaena_ops::icons::find(&a.query, a.weight, limit))).await.map(Json)
     }
 
     #[tool(description = "Replace the deck's spine, as a patch: checked, refused if it makes the deck invalid, \

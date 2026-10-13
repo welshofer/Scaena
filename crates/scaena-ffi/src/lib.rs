@@ -1447,6 +1447,22 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             let with = args.get("with").and_then(Value::as_object);
             value(serde_json::to_value(s.inserting_with(state, n, at, optional("named"), with).map_err(said)?))?
         }
+        // The icons that ship, found by `query`'s words, in `weight` (`regular` or `fill`), at most
+        // `limit` (PLAN 2.104): `{icons, found}`, as `scaena icons` finds them.
+        "icons" => {
+            let weight = serde_json::from_value(Value::String(optional("weight").unwrap_or("regular").to_string()))
+                .map_err(said)?;
+            let limit = args.get("limit").and_then(Value::as_u64).map_or(usize::MAX, |n| n as usize);
+            value(serde_json::to_value(scaena_ops::icons::find(optional("query").unwrap_or_default(), weight, limit)))?
+        }
+        // An icon the app carries (PLAN 2.104), `icon` as `{name, path, view}`: `{id, cell, patch}`.
+        "insertingIcon" => {
+            let icon =
+                args.get("icon").cloned().ok_or_else(|| said(format!("{method}: `icon` is the icon it needs")))?;
+            let icon: scaena_core::inserts::Icon = serde_json::from_value(icon).map_err(said)?;
+            let at = [number("x")? as f32, number("y")? as f32];
+            value(serde_json::to_value(s.inserting_icon(arg("state")?, &icon, at).map_err(said)?))?
+        }
         "duplicating" => value(serde_json::to_value(s.duplicating(arg("state")?, arg("node")?).map_err(said)?))?,
         // A state added after the state shown (PLAN 2.35, 3.14): a `step` of its slide, or a
         // `slide` of its own, `{id, patch}`.

@@ -22,6 +22,8 @@ pub mod find;
 #[cfg(feature = "narrato")]
 pub mod health;
 pub mod history;
+#[cfg(feature = "shipped")]
+pub mod icons;
 pub mod inspect;
 pub mod layouts;
 pub mod lint;
