@@ -20,6 +20,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use indexmap::IndexMap;
 use scaena_core::Deck;
+use scaena_core::document::NodeType;
 use scaena_core::lint::{Finding, Severity};
 use scaena_core::model::theme::Theme;
 use scaena_core::validate::{BundleFiles, validate_bundle};
@@ -289,7 +290,8 @@ pub struct Pasted {
 /// The patch that pastes `clip` in `state` (PLAN 2.37): each node it holds under an id new
 /// to `deck`, the copy of its node `room`'s, held by the copy of what held it, entering
 /// there; the copy of the node copied placed as Insert places a node, a text or an image
-/// filling the template's slot under `at` where no node of the state's stands in it, and
+/// filling the template's slot under `at` where no node of the state's stands in it and
+/// `theme`'s layout says it goes there (`Slot::takes`), and
 /// anything else taking the box it was copied with about `at`, snapped to the theme's grid as
 /// a drop snaps. Nodes copied together (PLAN 2.42) keep where they stood about each other,
 /// their boxes all about `at` and on the grid where they fit, each snapped to it. `room` is the
@@ -298,8 +300,10 @@ pub struct Pasted {
 /// bytes, and a data source the deck declares otherwise, come in under names of their own.
 /// What the theme lacks is taken out, and said in `findings`. The copies stay on `state`'s
 /// slide, leaving where another would show them (PLAN 3.26).
+#[allow(clippy::too_many_arguments)]
 pub fn pasting(
     deck: &Deck,
+    theme: &Theme,
     files: &dyn BundleFiles,
     read: &dyn Fn(&str) -> Option<Vec<u8>>,
     room: &Targets,
@@ -405,8 +409,10 @@ pub fn pasting(
 
     // Where the copy of the node copied goes: as Insert places a node; and several, about `at`.
     let targets = if roots.len() == 1 {
-        let content = matches!(first["type"].as_str(), Some("text" | "image"));
-        let slot = if content { empty_slot(deck, room, state, at)? } else { None };
+        let slot = match serde_json::from_value(first["type"].clone()) {
+            Ok(content @ (NodeType::Text | NodeType::Image)) => empty_slot(deck, theme, room, state, at, content)?,
+            _ => None,
+        };
         let target = match slot {
             Some(rect) => room.snap(Snap::Slot, rect),
             None => {

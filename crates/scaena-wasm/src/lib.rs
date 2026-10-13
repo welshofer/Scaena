@@ -774,7 +774,7 @@ impl Player {
     /// The slots of `state`'s layout, in the format shown, that wait for what their prompts say
     /// goes there, nothing placed in them, as JSON: each `{ slot, rect, words, typed, role? }` (PLAN
     /// 3.30), which the canvas outlines.
-    pub fn waiting(&self, state: &str) -> Result<String, JsError> {
+    pub fn waiting(&mut self, state: &str) -> Result<String, JsError> {
         serde_json::to_string(&self.0.waiting(state).map_err(js)?).map_err(js)
     }
 
