@@ -116,8 +116,9 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
   let playing = false;
   /** One change at a time, each made on the source the one before left. */
   let making: Promise<unknown> = Promise.resolve();
-  /** The theme's motion presets, as the inspector offers them. */
-  let presets: string[] = [];
+  /** The theme's motion presets as the inspector offers them (PLAN 2.116): those that enter and
+   * leave, and those that emphasize. */
+  let presets: { enter: string[]; emphasis: string[] } = { enter: [], emphasis: [] };
   /** The bar or end focused, to focus again once the lanes are drawn again. */
   let focused: string | undefined;
   /** What the canvas selects, and what that holds: whose bars stand out. */
@@ -397,15 +398,18 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
     if (asked) {
       const choices = await stage.choices(at.state, asked).catch(() => undefined);
       const enter = choices?.fields.find((f) => f.prop === "enter");
-      if (enter?.takes.kind === "name") presets = enter.takes.names;
+      const emphasis = choices?.fields.find((f) => f.prop === "emphasis");
+      if (enter?.takes.kind === "name") presets.enter = enter.takes.names;
+      if (emphasis?.takes.kind === "name") presets.emphasis = emphasis.takes.names;
     }
     if (read !== found) return;
     const has = (n: string, kind: string) => found.timeline?.motions.some((m) => m.node === n && m.motion === kind);
     const groups: HTMLOptGroupElement[] = [];
     const group = (label: string, kind: string, of: string) => {
       const g = Object.assign(document.createElement("optgroup"), { label });
-      for (const p of presets) g.append(new Option(named(words, "motion-preset", p), JSON.stringify([kind, of, p])));
-      if (presets.length) groups.push(g);
+      const offered = kind === "emphasis" ? presets.emphasis : presets.enter;
+      for (const p of offered) g.append(new Option(named(words, "motion-preset", p), JSON.stringify([kind, of, p])));
+      if (offered.length) groups.push(g);
     };
     if (node && found.nodes[node]) {
       const enters = (found.entered ?? []).includes(node) || found.nodes[node].type === "chart";

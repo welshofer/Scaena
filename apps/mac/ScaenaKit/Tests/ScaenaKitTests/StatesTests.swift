@@ -119,6 +119,7 @@ private func playing(_ editor: DeckEditor) -> [String] {
     // A preset for emphasis on the title, which enters no state here.
     let offers = try session.motionOffers(state: "morph", node: "mf-title")
     #expect(offers.map(\.id) == ["mf-title emphasis"] && offers.first?.presets.contains("pulse") == true)
+    #expect(offers.first?.presets.contains("fade") == false, "Fade enters and leaves, and does not emphasize (PLAN 2.116)")
     #expect(try session.motionOffers(state: "morph", node: "mf-arrow").map(\.id) == ["mf-arrow emphasis"])
     let states = editor.slots.map(\.state)
     try editor.make(try #require(offers.first?.applying("pulse", in: "morph", states: states)))
@@ -128,6 +129,7 @@ private func playing(_ editor: DeckEditor) -> [String] {
     let b1Editor = DeckEditor(session: try ScaenaSession(directory: b1))
     let exits = try b1Editor.session.motionOffers(state: "goal", node: nil)
     #expect(exits.map(\.id) == ["title exit", "subtitle exit"] && exits.first?.label == "title leaves")
+    #expect(exits.first?.presets.contains("fade") == true && exits.first?.presets.contains("pulse") == false, "Pulse only emphasizes")
     let b1States = b1Editor.slots.map(\.state)
     let exit = try #require(exits.first?.applying("fade", in: "goal", states: b1States))
     #expect(exit.first?["state"]?.string == "cover")
