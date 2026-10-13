@@ -1549,6 +1549,63 @@ impl Session {
             .map_err(|e| Error::Ops(e.to_string()))
     }
 
+    /// The patch that draws a stroke of the pen in `state` (PLAN 2.114), `points` in canvas units
+    /// as the pointer gave them: one more stroke of the drawing `onto` where it is one this state
+    /// shows ([`Session::drawing_of`]), else a new drawing where the stroke was drawn, kept to the
+    /// state's slide.
+    #[cfg(feature = "editor")]
+    pub fn inking(
+        &mut self,
+        state: &str,
+        points: &[[f32; 2]],
+        onto: Option<&str>,
+    ) -> Result<scaena_ops::inspect::Added, Error> {
+        let joined = match onto {
+            Some(id) => self.drawing_of(state, id)?,
+            None => None,
+        };
+        let room = match &joined {
+            Some(drawing) => self.targets(state, &drawing.id)?.clone(),
+            None => self.room_for(state, &scaena_ops::ink::insert(&self.theme), None, None)?,
+        };
+        scaena_ops::ink::inking(&self.deck, &self.theme, &room, state, points, joined.as_ref())
+            .map_err(|e| Error::Ops(e.to_string()))
+    }
+
+    /// `id` as a drawing a stroke of the pen joins in `state` (PLAN 2.114): a path shape on a view
+    /// of its own, whose `path` and `view` no state changes, which `state` shows unturned and
+    /// placed where it draws, by a `rect`. `None` for anything else: a stroke starts a drawing of
+    /// its own instead.
+    #[cfg(feature = "editor")]
+    fn drawing_of(&mut self, state: &str, id: &str) -> Result<Option<scaena_ops::ink::Drawing>, Error> {
+        use serde_json::Value;
+        let Some(node) = self.deck.nodes.get(id) else { return Ok(None) };
+        if node.node_type != scaena_core::document::NodeType::Shape || node.props.contains_key("connect") {
+            return Ok(None);
+        }
+        let view = node.props.get("view").and_then(|v| serde_json::from_value::<[f32; 4]>(v.clone()).ok());
+        let sized = |v: &[f32; 4]| v.iter().all(|n| n.is_finite()) && v[2] > 0.0 && v[3] > 0.0;
+        let (Some(path), Some(view)) = (node.props.get("path").and_then(Value::as_str), view.filter(sized)) else {
+            return Ok(None);
+        };
+        let path = path.to_string();
+        let snaps = scaena_core::resolve_states(&self.deck).map_err(|e| Error::Deck(e.to_string()))?;
+        let Some(shown) = snaps.iter().find(|s| s.state_id == state).and_then(|s| s.nodes.get(id)) else {
+            return Ok(None);
+        };
+        let own = ["path", "view"].iter().all(|key| shown.get(*key) == self.deck.nodes[id].props.get(*key));
+        let width = scaena_ops::ink::width_of(&self.theme, shown.get("stroke"));
+        if !own {
+            return Ok(None);
+        }
+        let boxes = self.boxes(state)?;
+        let Some(rect) = boxes.iter().find(|b| b.node == id && b.transform.is_none()).map(|b| b.rect) else {
+            return Ok(None);
+        };
+        let free = self.targets(state, id)?.snap(scaena_engine::geometry::Snap::Free, rect).is_some();
+        Ok(free.then(|| scaena_ops::ink::Drawing { id: id.to_string(), path, view, rect, width }))
+    }
+
     /// [`Session::duplicating`] in the format shown alone.
     #[cfg(feature = "editor")]
     fn duplicating_here(&mut self, state: &str, node: &str) -> Result<scaena_ops::inspect::Added, Error> {
@@ -2840,6 +2897,66 @@ mod tests {
             "{:?}",
             copy.patch
         );
+    }
+
+    /// The pen (PLAN 2.114): a stroke across the revenue example's chart slide is a new drawing
+    /// where it was drawn, a path shape on its own view in the theme's accent, round at its ends; a
+    /// second stroke joins it, one more curve of its path, its box grown to take it in and what it
+    /// drew first where it was; moved, a third still lands where it is drawn; a stroke onto what is
+    /// no drawing starts another; a press alone is a dot; and a stroke of no point is refused.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_stroke_of_the_pen_is_a_drawing_that_later_strokes_join() {
+        let mut s = revenue();
+        let by = || assistant::Caller { author: "user", at: None };
+        let rect = |s: &mut Session, node: &str| -> [f32; 4] {
+            let boxes = s.boxes_json("revenue").unwrap();
+            let b = boxes.iter().find(|b| b["node"] == node).unwrap_or_else(|| panic!("no box of `{node}`"));
+            serde_json::from_value(b["rect"].clone()).unwrap()
+        };
+        let wave: Vec<[f32; 2]> =
+            (0..=40).map(|i| [200.0 + i as f32 * 10.0, 700.0 + 40.0 * (i as f32 / 4.0).sin()]).collect();
+        let first = s.inking("revenue", &wave, None).unwrap();
+        assert_eq!(first.id, "drawing");
+        let node = &first.patch[0]["node"];
+        assert_eq!((node["type"].as_str(), node["kind"].as_str()), (Some("shape"), Some("path")), "{node}");
+        assert_eq!(node["stroke"]["paint"], "accent");
+        assert_eq!((node["stroke"]["cap"].as_str(), node["stroke"]["join"].as_str()), (Some("round"), Some("round")));
+        assert!(node.get("fill").is_none(), "ink is unfilled: {node}");
+        s.tool("deck_patch", serde_json::json!({ "ops": first.patch }), by()).unwrap();
+        let drawn = rect(&mut s, "drawing");
+        // Its box takes in the stroke and its width, and little more.
+        assert!(drawn[0] <= 198.0 && drawn[0] >= 190.0 && drawn[0] + drawn[2] >= 602.0, "{drawn:?}");
+        assert!(drawn[1] <= 660.0 && drawn[1] + drawn[3] >= 740.0 && drawn[3] < 100.0, "{drawn:?}");
+        // A second stroke joins it.
+        let line: Vec<[f32; 2]> = (0..=10).map(|i| [300.0 + i as f32 * 20.0, 900.0]).collect();
+        let second = s.inking("revenue", &line, Some("drawing")).unwrap();
+        assert_eq!(second.id, "drawing");
+        let ops: Vec<&str> = second.patch.iter().filter_map(|op| op["op"].as_str()).collect();
+        assert_eq!(ops, ["replace", "replace", "place"], "{:?}", second.patch);
+        s.tool("deck_patch", serde_json::json!({ "ops": second.patch }), by()).unwrap();
+        let grown = rect(&mut s, "drawing");
+        assert_eq!((grown[0], grown[1]), (drawn[0], drawn[1]), "what it drew first stays where it was");
+        assert!(grown[1] + grown[3] >= 902.0, "{grown:?}");
+        let path = s.deck.nodes["drawing"].props["path"].as_str().unwrap().to_string();
+        assert_eq!(path.matches('M').count(), 2, "{path}");
+        // Moved, a stroke still lands where it is drawn.
+        let at = s.targets("revenue", "drawing").unwrap().clone();
+        let moved =
+            at.snap(scaena_engine::geometry::Snap::Free, [grown[0] + 100.0, grown[1], grown[2], grown[3]]).unwrap();
+        let place: Vec<serde_json::Value> =
+            moved.ops(Some("revenue"), false).iter().map(|op| serde_json::to_value(op).unwrap()).collect();
+        s.tool("deck_patch", serde_json::json!({ "ops": place }), by()).unwrap();
+        let dot = [[1500.0, 200.0]];
+        let third = s.inking("revenue", &dot, Some("drawing")).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": third.patch }), by()).unwrap();
+        let last = rect(&mut s, "drawing");
+        assert_eq!(last[0], grown[0] + 100.0, "what it drew stays where it was moved to: {last:?}");
+        assert!(last[1] <= 198.0 && last[0] + last[2] >= 1502.0, "the dot is drawn where it was pressed: {last:?}");
+        // Onto what is no drawing, a stroke starts another.
+        let other = s.inking("revenue", &line, Some("title")).unwrap();
+        assert_eq!(other.id, "drawing-2");
+        assert!(s.inking("revenue", &[], None).is_err(), "a stroke of no point");
     }
 
     /// Connectors (PLAN 2.109): two nodes joined by an arrow, which its box names with the line a

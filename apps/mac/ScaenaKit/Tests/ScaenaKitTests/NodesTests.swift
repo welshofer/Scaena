@@ -168,3 +168,29 @@ import Testing
     #expect(try session.boxes(state: "cover").first { $0.node == made.id } == nil, "one step to undo")
     #expect(throws: ScaenaError.self) { try session.diagramming(state: "cover", node: "subtitle", kind: .hierarchy) }
 }
+
+/// The pen (PLAN 2.114), as the browser's canvas draws with it: a stroke across B1's cover is a new
+/// drawing where it was drawn; a second stroke joins it, its box grown to take both in, what it
+/// drew first where it was; each one step to undo.
+@Test func aStrokeOfThePenIsADrawingThatLaterStrokesJoin() throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    editor.shown = "cover"
+    let session = editor.session
+    let wave = (0...40).map { i in CGPoint(x: 200 + Double(i) * 10, y: 700 + 40 * sin(Double(i) / 4)) }
+    let first = try session.inking(state: "cover", points: wave, onto: nil)
+    #expect(first.id == "drawing")
+    let blank = try editor.make(first.patch)
+    let drawn = try #require(try session.boxes(state: "cover").first { $0.node == first.id })
+    #expect(drawn.rect[0] <= 200 && drawn.rect[0] + drawn.rect[2] >= 600, "where it was drawn: \(drawn.rect)")
+    let line = (0...10).map { i in CGPoint(x: 300 + Double(i) * 20, y: 900) }
+    let second = try session.inking(state: "cover", points: line, onto: first.id)
+    #expect(second.id == first.id, "the second stroke joins the drawing")
+    let one = try editor.make(second.patch)
+    let grown = try #require(try session.boxes(state: "cover").first { $0.node == first.id })
+    #expect(grown.rect[0] == drawn.rect[0] && grown.rect[1] == drawn.rect[1], "what it drew first stays: \(grown.rect)")
+    #expect(grown.rect[1] + grown.rect[3] >= 900, "grown to take the second in: \(grown.rect)")
+    editor.restore(one)
+    #expect(try session.boxes(state: "cover").first { $0.node == first.id }?.rect == drawn.rect, "one step to undo")
+    editor.restore(blank)
+    #expect(try session.boxes(state: "cover").first { $0.node == first.id } == nil, "and another the drawing")
+}

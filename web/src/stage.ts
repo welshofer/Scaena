@@ -747,6 +747,13 @@ export class Stage {
     return this.request<"adding">({ type: "drawing", id: ++this.asked, source, state, n, from, to, free, format }).then(({ added }) => added);
   }
 
+  /** The patch that draws a stroke of the pen in `state` (PLAN 2.114), `points` in canvas units as
+   * the pointer gave them: one more stroke of the drawing `onto` where the state shows it as one,
+   * else a new drawing where the stroke was drawn; on the deck `source` compiles to. */
+  inking(source: string, state: string, points: [number, number][], onto?: string, format?: string): Promise<Added> {
+    return this.request<"adding">({ type: "inking", id: ++this.asked, source, state, points: points.flat(), onto, format }).then(({ added }) => added);
+  }
+
   /** The patch that copies `node` beside it in `state`, on the deck `source` compiles to. */
   duplicating(source: string, state: string, node: string, format?: string): Promise<Added> {
     return this.request<"adding">({ type: "duplicating", id: ++this.asked, source, state, node, format }).then(({ added }) => added);

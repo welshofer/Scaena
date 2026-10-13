@@ -41,6 +41,9 @@ struct DeckActions {
     var connect: ((Bool) -> Void)? = nil
     /// Draw the text selected as a diagram of a kind in its place (PLAN 2.110).
     var diagram: ((DiagramKind) -> Void)? = nil
+    /// Take up the pen, or put it down (PLAN 2.114), and whether it is taken up.
+    var draw: (() -> Void)? = nil
+    var drawing = false
     /// Whether a node selected shows on another slide too: Delete from All Slides takes it off
     /// those as well, where Delete takes it off this slide on.
     var deletesElsewhere = false
@@ -93,6 +96,9 @@ struct NodeCommands: Commands {
                 .disabled(deck?.choosePicture == nil)
             Button("Make a Picture…") { deck?.makePicture?() }
                 .disabled(deck?.makePicture == nil)
+            // The pen (PLAN 2.114): each drag on the slide a stroke, the strokes one drawing.
+            Button(deck?.drawing == true ? "Stop Drawing" : "Drawing") { deck?.draw?() }
+                .disabled(deck?.draw == nil)
             // The text selected drawn as a diagram in its place (PLAN 2.110).
             Menu("Diagram from Text") {
                 ForEach(DiagramKind.allCases, id: \.self) { kind in

@@ -790,6 +790,32 @@ fn two_nodes_are_connected_as_the_browser_connects_them() {
     unsafe { scaena_session_free(s) };
 }
 
+/// A stroke of the pen (PLAN 2.114), as the browser's canvas draws it: a new drawing where it was
+/// drawn on B1's cover, then a second stroke one more curve of the same drawing.
+#[test]
+fn a_stroke_of_the_pen_is_drawn_as_the_browser_draws_it() {
+    let s = open(B1);
+    let wave: Vec<[f64; 2]> =
+        (0..=20).map(|i| [300.0 + f64::from(i) * 15.0, 800.0 + (f64::from(i) / 3.0).sin() * 30.0]).collect();
+    let first = call(s, "inking", json!({ "state": "cover", "points": wave }));
+    assert_eq!(first["id"], "drawing", "{first}");
+    assert_eq!(first["patch"][0]["node"]["kind"], "path", "{first}");
+    let made = tool(s, "deck_patch", json!({ "ops": first["patch"] }));
+    assert_eq!(made["edited"], true, "{made}");
+    let line = json!([[320, 950], [500, 960], [640, 950]]);
+    let second = call(s, "inking", json!({ "state": "cover", "points": line, "onto": "drawing" }));
+    assert_eq!(second["id"], "drawing", "the second stroke joins it: {second}");
+    let made = tool(s, "deck_patch", json!({ "ops": second["patch"] }));
+    assert_eq!(made["edited"], true, "{made}");
+    let boxes = call(s, "boxes", json!({ "state": "cover" }));
+    let drawing = boxes.as_array().unwrap().iter().find(|b| b["node"] == "drawing").cloned().unwrap();
+    let rect: Vec<f64> = serde_json::from_value(drawing["rect"].clone()).unwrap();
+    assert!(rect[1] <= 770.0 && rect[1] + rect[3] >= 960.0, "it takes in both strokes: {drawing}");
+    let refused = answered(s, "inking", &json!({ "state": "cover" }));
+    assert!(refused["error"]["message"].as_str().unwrap_or_default().contains("points"), "{refused}");
+    unsafe { scaena_session_free(s) };
+}
+
 /// A text's lines drawn as a diagram in its place (PLAN 2.110), as the browser's canvas draws them:
 /// B1's subtitle, given three lines, as a process of three boxes joined by two arrows, the subtitle
 /// gone from the cover; and a hierarchy refused for lines at one level.

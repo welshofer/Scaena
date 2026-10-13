@@ -782,6 +782,14 @@ impl Player {
         serde_json::to_string(&self.0.connecting(state, from, to, arrow).map_err(js)?).map_err(js)
     }
 
+    /// The patch that draws a stroke of the pen in `state` (PLAN 2.114), `points` its points as
+    /// `x, y` pairs in canvas units, as JSON: `{ id, cell, patch }`: one more stroke of the drawing
+    /// `onto` where the state shows it as one, else a new drawing where the stroke was drawn.
+    pub fn inking(&mut self, state: &str, points: Vec<f32>, onto: Option<String>) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.inking(state, points.as_chunks::<2>().0, onto.as_deref()).map_err(js)?)
+            .map_err(js)
+    }
+
     /// The patch that draws text `node`'s lines in `state` as a diagram, `process`, `cycle`, or
     /// `hierarchy`, in the text's place (PLAN 2.110), as JSON: `{ id, patch }`, `id` its container.
     pub fn diagramming(&mut self, state: &str, node: &str, kind: &str) -> Result<String, JsError> {

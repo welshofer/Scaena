@@ -1471,6 +1471,15 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             let arrow = args.get("arrow").and_then(Value::as_bool).unwrap_or(true);
             value(serde_json::to_value(s.connecting(arg("state")?, arg("from")?, arg("to")?, arrow).map_err(said)?))?
         }
+        // A stroke of the pen (PLAN 2.114), `points` as `[[x, y], …]` in canvas units: one more
+        // stroke of the drawing `onto` where the state shows it as one, else a new drawing,
+        // `{id, cell, patch}`.
+        "inking" => {
+            let points =
+                args.get("points").cloned().ok_or_else(|| said(format!("{method}: `points` is the stroke")))?;
+            let points: Vec<[f32; 2]> = serde_json::from_value(points).map_err(said)?;
+            value(serde_json::to_value(s.inking(arg("state")?, &points, optional("onto")).map_err(said)?))?
+        }
         // A text's lines drawn as a diagram, `process`, `cycle`, or `hierarchy`, in its place
         // (PLAN 2.110): `{id, patch}`, `id` its container.
         "diagramming" => {
