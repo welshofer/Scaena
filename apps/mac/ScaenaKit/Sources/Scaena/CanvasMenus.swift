@@ -48,6 +48,11 @@ enum CanvasOffer {
         }
         if let group = deck.group { arranging.append(.action("Group", symbol: "square.on.square.dashed", run: group)) }
         if let ungroup = deck.ungroup { arranging.append(.action("Ungroup", symbol: "square.on.square", run: ungroup)) }
+        // Two objects joined by a connector that follows them (PLAN 2.109).
+        if let connect = deck.connect {
+            arranging.append(.action("Connect with Arrow", symbol: "arrow.right", run: { connect(true) }))
+            arranging.append(.action("Connect with Line", symbol: "line.diagonal", run: { connect(false) }))
+        }
         if !arranging.isEmpty { offers.append(.menu("Arrange", symbol: "square.3.layers.3d", arranging)) }
         if let copyLook = deck.copyLook { offers.append(.action("Copy Style", symbol: "paintbrush", run: copyLook)) }
         if let pasteLook = deck.pasteLook {

@@ -746,9 +746,21 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
    * none with ⌘ or Ctrl held. */
   const reach = (d: Drag) => (d.loose ? 0 : REACH * unit());
   const inside = ([x, y, w, h]: Rect, [px, py]: [number, number]) => px >= x && px <= x + w && py >= y && py <= y + h;
+  /** Whether `p` stands within 12 canvas units of the line through `points`: where a connector is
+   * pointed at (PLAN 2.109), as the engine's hit takes it. */
+  const nearLine = (points: [number, number][], [px, py]: [number, number]) =>
+    points.slice(1).some(([bx, by], i) => {
+      const [ax, ay] = points[i]!;
+      const [dx, dy] = [bx - ax, by - ay];
+      const length = dx * dx + dy * dy;
+      const t = length > 0 ? Math.min(1, Math.max(0, ((px - ax) * dx + (py - ay) * dy) / length)) : 0;
+      return Math.hypot(ax + t * dx - px, ay + t * dy - py) <= 12;
+    });
   /** Whether `at` is over `b` where it is drawn (PLAN 2.51). */
   const over = (b: NodeBox, at: Point) => {
     const p = laidOut(b, at);
+    // A connector by its line (PLAN 2.109), as the engine's hit takes it.
+    if (p !== undefined && b.route) return nearLine(b.route, p);
     return p !== undefined && inside(b.rect, p);
   };
   /** Every node selected: the one selected, then those beside it. */
@@ -1163,7 +1175,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       };
       // Its handles stand on its frame, clear of what it draws.
       const [x, y, w, h] = frame(first.rect);
-      const still = !drag && !typed && !turning && !reshaping && !cropping && also.length === 0 && !first.locked;
+      // A connector goes where what it joins goes (PLAN 2.109): nothing of it to resize or turn.
+      const still = !drag && !typed && !turning && !reshaping && !cropping && also.length === 0 && !first.locked && !first.joins;
       if (still && aim && snapOf(aim, editor.at(first.node), true, false)) {
         const s = 8 * u;
         const spot: Record<Edge, [number, number]> = {
@@ -2444,6 +2457,26 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     });
   }
 
+  /** Join the first of `nodes` to the second with an arrow that points at it, or with a line
+   * (PLAN 2.109): a connector that goes where they go, one patch, selected. */
+  function connect(nodes: string[], arrow: boolean) {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      if (!shown) return editor.say(WAITING);
+      const [from, to] = nodes;
+      if (nodes.length !== 2 || from === undefined || to === undefined) {
+        return editor.say("Select the two objects to connect: one, then Shift and the other");
+      }
+      const by = arrow ? "an arrow" : "a line";
+      try {
+        const made = await stage.connecting(editor.source(), shown.state, from, to, arrow);
+        await change(made.patch, "Connecting…", `${Called(from)} and ${called(to)} joined by ${by}, which follows them`, made.id);
+      } catch (e) {
+        editor.say(`Not connected: ${said(e)}`);
+      }
+    });
+  }
+
   /** What is selected in a new group where it stands (PLAN 2.43): one patch, the group selected. */
   function group() {
     return inTurn(async () => {
@@ -2992,6 +3025,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
    * its stack, a canvas unit off the grid. `fork` keeps it to the state shown. */
   async function nudge(node: string, [sx, sy]: [number, number], grow: boolean, fork: boolean) {
     if (locks(chosen(), grow ? "resizes" : "moves")) return;
+    // A connector goes where what it joins goes (PLAN 2.109): the keys move either, not it.
+    const joins = box(node)?.joins;
+    if (joins && !also.length) return editor.say(`${Called(node)} runs from ${called(joins[0])} to ${called(joins[1])}: move either, and it follows`);
     const shown = editor.shown();
     if (!shown) return;
     const t = await stage.targets(shown.state, node, editor.format());
@@ -3224,6 +3260,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   function begin(begun: Press, now: Starting) {
     const shown = editor.shown();
     if (!shown) return;
+    // A connector goes where what it joins goes (PLAN 2.109): a drag moves either, not it.
+    const joins = box(begun.node)?.joins;
+    if (joins) return editor.say(`${Called(begun.node!)} runs from ${called(joins[0])} to ${called(joins[1])}: move either, and it follows`);
+    if (begun.with?.some((n) => box(n)?.joins)) begun.with = begun.with.filter((n) => !box(n)?.joins);
     const version = editor.version();
     starting = now;
     void stage
@@ -3898,6 +3938,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     /** Group what is selected, as ⌘G does, and take the group selected apart, as ⌘⇧G does. */
     group,
     ungroup,
+    connect,
     /** Pick the focal point of the image selected with the next press on it, as the inspector's
      * Pick does; and a file dropped on the canvas: a picture on an image, put in its place (PLAN
      * 2.45), else inserted there, and data attached as a source with a chart of it there. */

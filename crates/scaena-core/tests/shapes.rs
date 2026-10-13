@@ -1,6 +1,7 @@
 //! Words in a shape (PLAN 2.108): a text whose `at.parent` names a shape is its words. A shape
 //! holds one text, which takes its place from the shape; a line or an arrow holds none; and the
-//! words go where the shape goes, entering with it and leaving with it.
+//! words go where the shape goes, entering with it and leaving with it. And connectors (PLAN
+//! 2.109): a line or an arrow that joins two nodes, placed by them, which leaves with either.
 
 use scaena_core::validate::{BundleFiles, validate_bundle};
 use scaena_core::{Deck, resolve_states};
@@ -136,4 +137,92 @@ fn the_words_go_where_their_shape_goes() {
         ]),
     );
     assert_eq!(shown(&d), ["one: star words title", "two: star title", "three: star title", "next: star words"]);
+}
+
+/// Each finding about what a connector joins (PLAN 2.109), as `code path: message`, sorted.
+fn joined(deck: &Deck) -> Vec<String> {
+    let json = serde_json::to_string(deck).unwrap();
+    let mut out: Vec<String> = (validate_bundle(&json, &Bare).unwrap().into_iter())
+        .filter(|f| f.path.as_deref().is_some_and(|p| ["/connect", "/at", "/points"].iter().any(|k| p.contains(k))))
+        .map(|f| format!("{} {}: {}", f.code, f.path.unwrap_or_default(), f.message))
+        .collect();
+    out.sort();
+    out
+}
+
+#[test]
+fn a_connector_joins_two_nodes_of_their_own_and_is_placed_by_them() {
+    let two = || json!({ "a": { "type": "text", "text": "A" }, "b": { "type": "text", "text": "B" } });
+    let one = |more: Value| {
+        let mut nodes = two();
+        nodes.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
+        let shows: Vec<String> = nodes.as_object().unwrap().keys().cloned().collect();
+        joined(&deck(nodes, json!([{ "id": "s", "shows": shows }])))
+    };
+    let arrow = |connect: Value| json!({ "type": "shape", "kind": "arrow", "connect": connect });
+    assert_eq!(one(json!({ "ab": arrow(json!({ "from": "a", "to": "b" })) })), Vec::<String>::new());
+    assert_eq!(one(json!({ "ab": arrow(json!({ "from": "a", "to": "b", "route": "elbow" })) })), Vec::<String>::new());
+    assert_eq!(
+        one(json!({ "ab": { "type": "shape", "kind": "rect", "connect": { "from": "a", "to": "b" } } })),
+        ["E106 /nodes/ab/connect: node `ab`, a rect, joins nothing: a line or an arrow joins two nodes"]
+    );
+    assert_eq!(
+        one(json!({ "ab": arrow(json!({ "from": "a", "to": "zz" })) })),
+        ["E102 /nodes/ab/connect/to: node `ab` joins `zz`, which the deck lacks"]
+    );
+    assert_eq!(
+        one(json!({ "ab": arrow(json!({ "from": "a", "to": "a" })) })),
+        ["E106 /nodes/ab/connect/to: node `ab` joins a node to itself"]
+    );
+    assert_eq!(
+        one(json!({ "ab": arrow(json!({ "from": "ab", "to": "b" })) })),
+        ["E106 /nodes/ab/connect/from: node `ab` joins itself"]
+    );
+    assert_eq!(
+        one(json!({ "ab": arrow(json!({ "from": "a", "to": "b" })), "ba": arrow(json!({ "from": "b", "to": "ab" })) })),
+        ["E106 /nodes/ba/connect/to: node `ba` joins `ab`, another connector"]
+    );
+    assert_eq!(
+        one(json!({ "g": { "type": "group" }, "ag": arrow(json!({ "from": "a", "to": "g" })) })),
+        ["E106 /nodes/ag/connect/to: node `ag` joins group `g`, which has no box of its own: join one of its members"]
+    );
+    let mut placed = arrow(json!({ "from": "a", "to": "b" }));
+    placed["at"] = json!({ "rect": [0, 0, 9, 9] });
+    assert_eq!(
+        one(json!({ "ab": placed })),
+        ["E106 /nodes/ab/at: node `ab` is placed by what it joins: take `at` away"]
+    );
+    // What it joins is its own, in every state (E104).
+    let mut nodes = two();
+    nodes["ab"] = arrow(json!({ "from": "a", "to": "b" }));
+    let mut d = deck(nodes, json!([{ "id": "s", "shows": ["a", "b", "ab"] }]));
+    d.states[0]
+        .props
+        .insert("ab".into(), serde_json::from_value(json!({ "connect": { "from": "b", "to": "a" } })).unwrap());
+    assert_eq!(
+        joined(&d),
+        ["E104 /states/0/props/ab/connect: `ab`'s ends are the node's own; a state cannot set `connect`"]
+    );
+}
+
+#[test]
+fn a_connector_leaves_wherever_either_end_does() {
+    let nodes = json!({
+        "a": { "type": "text", "text": "A" },
+        "b": { "type": "text", "text": "B" },
+        "ab": { "type": "shape", "kind": "arrow", "connect": { "from": "a", "to": "b" } }
+    });
+    let d = deck(
+        nodes,
+        json!([
+            { "id": "one", "shows": ["a", "b", "ab"] },
+            { "id": "two", "shows": ["-b"] },
+            { "id": "three", "shows": ["b"] }
+        ]),
+    );
+    let shown: Vec<String> = (resolve_states(&d).unwrap().iter())
+        .map(|s| format!("{}: {}", s.state_id, s.nodes.keys().cloned().collect::<Vec<_>>().join(" ")))
+        .collect();
+    // It goes with b, and b coming back does not bring it: a state enters it, as any node.
+    assert_eq!(shown, ["one: a b ab", "two: a", "three: a b"]);
 }

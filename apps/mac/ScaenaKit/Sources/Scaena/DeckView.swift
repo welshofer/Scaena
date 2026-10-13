@@ -977,6 +977,7 @@ struct DeckView: View {
         made.choosePicture = { choosingPicture = true }
         made.chooseIcon = { choosingIcon = true }
         made.makePicture = { makePicture(in: shown) }
+        if selection.count == 2 { made.connect = { arrow in connect(arrow, in: shown) } }
         made.deletesElsewhere = elsewhere
         // In another of the deck's formats, a node given a layout of its own there (PLAN 2.85).
         if one, let node, let format = editor.format {
@@ -1351,6 +1352,20 @@ struct DeckView: View {
             node = grouping.id
             also = []
             said = "Grouped"
+        }
+    }
+
+    /// The first object selected joined to the second by an arrow, or a line, that follows them
+    /// (PLAN 2.109): one step of undo, the connector selected.
+    private func connect(_ arrow: Bool, in state: String) {
+        let ends = selection
+        guard ends.count == 2 else { return }
+        perform {
+            let connected = try editor.session.connecting(state: state, from: ends[0], to: ends[1], arrow: arrow)
+            try document.make(connected.patch, undo: undo)
+            node = connected.id
+            also = []
+            said = arrow ? "Joined by an arrow" : "Joined by a line"
         }
     }
 

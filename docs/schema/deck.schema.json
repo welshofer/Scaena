@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/deck-0.21.json",
+  "$id": "https://scaena.dev/schema/deck-0.22.json",
   "title": "Scaena deck document",
   "description": "Canonical deck.json. A deck is a scene graph (nodes) plus an ordered cue list (states) over a narrative spine, rendered against a theme. See docs/SPEC.md §3.",
   "type": "object",
@@ -10,7 +10,7 @@
     "scaena": {
       "description": "Format version (semver, major.minor[.patch]).",
       "type": "string",
-      "pattern": "^0\\.21(\\.[0-9]+)?$"
+      "pattern": "^0\\.22(\\.[0-9]+)?$"
     },
     "meta": { "$ref": "#/$defs/Meta" },
     "canvas": { "$ref": "#/$defs/Canvas" },
@@ -425,7 +425,11 @@
           "type": "array",
           "items": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
         },
-        "radius": { "$ref": "#/$defs/Length" }
+        "radius": { "$ref": "#/$defs/Length" },
+        "connect": {
+          "description": "The two nodes a line or an arrow joins (PLAN 2.109): it runs from `from`'s box to `to`'s as each state lays them out, and so follows them, and it leaves wherever either does. What it joins places it: it takes no `at` and no `points` of its own.",
+          "$ref": "#/$defs/Connect"
+        }
       }
     },
     "ImageNode": {
@@ -1060,6 +1064,25 @@
     },
     "ListKind": { "type": "string", "enum": ["bullet", "number"] },
     "ShapeKind": { "type": "string", "enum": ["rect", "ellipse", "line", "arrow", "polygon", "path"] },
+    "Connect": {
+      "description": "What a connector joins (PLAN 2.109): the node it runs from, the node it runs to, and how.",
+      "type": "object",
+      "required": ["from", "to"],
+      "additionalProperties": false,
+      "properties": {
+        "from": { "$ref": "#/$defs/Id" },
+        "to": { "$ref": "#/$defs/Id" },
+        "route": {
+          "description": "`straight`, the default, runs between the two boxes along the line from middle to middle; `elbow` leaves one box by the side that faces the other and turns at right angles.",
+          "$ref": "#/$defs/Route"
+        }
+      }
+    },
+    "Route": {
+      "description": "How a connector runs between what it joins (PLAN 2.109).",
+      "type": "string",
+      "enum": ["straight", "elbow"]
+    },
     "ImageFit": {
       "description": "How an image meets its box.",
       "oneOf": [
@@ -1433,6 +1456,7 @@
           ]
         },
         "radius": { "anyOf": [{ "$ref": "#/$defs/Length" }, { "type": "null" }] },
+        "connect": { "anyOf": [{ "$ref": "#/$defs/ConnectDelta" }, { "type": "null" }] },
         "src": { "type": ["string", "null"] },
         "focal": {
           "anyOf": [
@@ -1637,6 +1661,16 @@
         "opsz": { "type": ["number", "null"] },
         "case": { "anyOf": [{ "$ref": "#/$defs/Case" }, { "type": "null" }] },
         "color": { "anyOf": [{ "$ref": "#/$defs/Color" }, { "type": "null" }] }
+      }
+    },
+    "ConnectDelta": {
+      "description": "`Connect` in a state's delta: it merges one level into the tracked value, so every key is optional and null deletes one (SPEC §2.2).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "from": { "anyOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] },
+        "to": { "anyOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] },
+        "route": { "anyOf": [{ "$ref": "#/$defs/Route" }, { "type": "null" }] }
       }
     },
     "EncodingDelta": {

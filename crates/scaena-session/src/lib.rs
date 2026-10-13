@@ -630,13 +630,20 @@ impl Session {
     }
 
     /// [`Session::boxes`] as a client lists them (ADR-0013): `[{ "node", "rect": [x, y, w, h],
-    /// "parent"?, "draws", "transform"?, "locked"?, "takesWords"?, "words"? }]`, canvas units.
-    /// `transform` is where its own and its containers' draw it from `rect` (SPEC §3.3),
-    /// `[a, b, c, d, e, f]`, where something moves it; `locked`, where the node is locked (PLAN
-    /// 2.95), the node whose lock holds it: itself, or what holds it; `takesWords`, a shape that
-    /// takes words, and `words`, the text that holds a shape's (PLAN 2.108).
+    /// "parent"?, "draws", "transform"?, "locked"?, "takesWords"?, "words"?, "joins"?, "route"?
+    /// }]`, canvas units. `transform` is where its own and its containers' draw it from `rect`
+    /// (SPEC §3.3), `[a, b, c, d, e, f]`, where something moves it; `locked`, where the node is
+    /// locked (PLAN 2.95), the node whose lock holds it: itself, or what holds it; `takesWords`, a
+    /// shape that takes words, and `words`, the text that holds a shape's (PLAN 2.108); `joins`,
+    /// the two nodes a connector joins, from and to, and `route`, its line's points, which a
+    /// pointer picks it by (PLAN 2.109).
     pub fn boxes_json(&mut self, state: &str) -> Result<Vec<serde_json::Value>, Error> {
         let boxes = self.boxes(state)?;
+        // Each connector's line (PLAN 2.109).
+        let routes: Vec<Option<Vec<[f32; 2]>>> = {
+            let scene = self.at_rest(state)?;
+            boxes.iter().map(|b| scene.route(&b.node)).collect()
+        };
         // Locked, or held by what is, however deep (PLAN 2.95).
         let parents: std::collections::HashMap<&str, &str> =
             boxes.iter().filter_map(|b| Some((b.node.as_str(), b.parent.as_deref()?))).collect();
@@ -664,8 +671,8 @@ impl Session {
                 Some((!matches!(kind, Some("line" | "arrow")), words.get(b.node.as_str()).map(|w| w.to_string())))
             })
             .collect();
-        Ok((boxes.into_iter().zip(locked).zip(shapes))
-            .map(|((b, locked), shape)| {
+        Ok((boxes.into_iter().zip(locked).zip(shapes).zip(routes))
+            .map(|(((b, locked), shape), route)| {
                 let mut out =
                     serde_json::json!({ "node": b.node, "rect": b.rect, "parent": b.parent, "draws": b.draws });
                 if let Some(map) = b.transform {
@@ -679,6 +686,14 @@ impl Session {
                     if let Some(words) = held {
                         out["words"] = serde_json::json!(words);
                     }
+                }
+                // A connector, and what it joins (PLAN 2.109), which place it: the canvas moves
+                // and resizes none.
+                if let Some((from, to)) = self.deck.nodes.get(&b.node).and_then(scaena_core::tracking::connects_of) {
+                    out["joins"] = serde_json::json!([from, to]);
+                }
+                if let Some(route) = route {
+                    out["route"] = serde_json::json!(route);
                 }
                 if let Some(by) = locked {
                     out["locked"] = serde_json::json!(by);
@@ -774,6 +789,10 @@ impl Session {
     /// a rect's corner radius, and the theme's radius steps. `None` for a node the state does
     /// not draw, or one that is no shape.
     pub fn outline(&mut self, state: &str, node: &str) -> Result<Option<scaena_engine::geometry::Outline>, Error> {
+        // A connector's points are its route's (PLAN 2.109): there is nothing of it to reshape.
+        if self.deck.nodes.get(node).and_then(scaena_core::tracking::connects_of).is_some() {
+            return Ok(None);
+        }
         self.at_rest(state)?;
         let scene = &self.rest.as_ref().expect("laid out above").1;
         Ok(scene.outline(node, &self.theme))
@@ -999,6 +1018,20 @@ impl Session {
         how: scaena_ops::arrange::How,
         fork: bool,
     ) -> Result<Option<scaena_ops::arrange::Arranged>, Error> {
+        // A connector goes where what it joins goes (PLAN 2.109): only its order is its own.
+        let placed: Vec<String>;
+        let nodes = match how {
+            scaena_ops::arrange::How::Order(_) => nodes,
+            _ => {
+                let connector =
+                    |n: &String| self.deck.nodes.get(n).and_then(scaena_core::tracking::connects_of).is_some();
+                placed = nodes.iter().filter(|n| !connector(n)).cloned().collect();
+                if placed.is_empty() {
+                    return Err(Error::Ops("a connector goes where what it joins goes: arrange what it joins".into()));
+                }
+                &placed[..]
+            }
+        };
         let found = nodes.iter().map(|n| self.targets(state, n).cloned()).collect::<Result<Vec<_>, _>>()?;
         let boxes = self.boxes(state)?;
         let (deck, _) = project(&self.deck, &self.theme, self.format.as_deref())?;
@@ -1482,6 +1515,20 @@ impl Session {
     #[cfg(feature = "editor")]
     pub fn wording(&self, shape: &str) -> Result<scaena_ops::inspect::Worded, Error> {
         scaena_ops::inspect::wording(&self.deck, &self.theme, shape).map_err(|e| Error::Deck(e.to_string()))
+    }
+
+    /// The patch that joins `from` to `to` in `state` with a line, or an arrow that points at `to`
+    /// (PLAN 2.109): a connector that runs between them as each state lays them out and goes where
+    /// they go, kept to the state's slide.
+    #[cfg(feature = "editor")]
+    pub fn connecting(
+        &self,
+        state: &str,
+        from: &str,
+        to: &str,
+        arrow: bool,
+    ) -> Result<scaena_ops::inspect::Connected, Error> {
+        scaena_ops::inspect::connecting(&self.deck, state, from, to, arrow).map_err(|e| Error::Deck(e.to_string()))
     }
 
     /// [`Session::duplicating`] in the format shown alone.
@@ -2775,6 +2822,75 @@ mod tests {
             "{:?}",
             copy.patch
         );
+    }
+
+    /// Connectors (PLAN 2.109): two nodes joined by an arrow, which its box names with the line a
+    /// pointer picks it by, which the canvas reaches by that line alone, and which runs from where
+    /// either end stands while a drag moves it, nothing laid out.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_connector_is_picked_by_its_line_and_follows_a_drag() {
+        use scaena_core::displaylist::Op;
+        let mut s = revenue();
+        let by = || assistant::Caller { author: "user", at: None };
+        let joined = s.connecting("revenue", "title", "rev", true).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": joined.patch }), by()).unwrap();
+        let boxes = s.boxes_json("revenue").unwrap();
+        let arrow = boxes.iter().find(|b| b["node"] == joined.id.as_str()).unwrap();
+        assert_eq!(arrow["joins"], serde_json::json!(["title", "rev"]));
+        let route: Vec<[f32; 2]> = serde_json::from_value(arrow["route"].clone()).unwrap();
+        assert_eq!(route.len(), 2);
+        // Between the boxes of what it joins: it leaves the title's and meets the chart's.
+        let rect = |node: &str| -> [f32; 4] {
+            let b = boxes.iter().find(|b| b["node"] == node).unwrap();
+            serde_json::from_value(b["rect"].clone()).unwrap()
+        };
+        let (title, rev) = (rect("title"), rect("rev"));
+        assert!(route[0][1] > title[1] + title[3] && route[1][1] < rev[1], "{route:?} {title:?} {rev:?}");
+        // A point on its line picks it; a point of its box off the line does not.
+        let middle = [(route[0][0] + route[1][0]) / 2.0, (route[0][1] + route[1][1]) / 2.0];
+        let top = |s: &mut Session, at: [f32; 2]| s.hit("revenue", at).unwrap().first().map(|h| h.node.clone());
+        assert_eq!(top(&mut s, middle), Some(joined.id.clone()));
+        let off = [middle[0] + 40.0, middle[1]];
+        assert_ne!(top(&mut s, off), Some(joined.id.clone()));
+        // A drag of the chart runs the arrow to where the chart is drawn; at rest, as it was.
+        let drawn = |dl: &DisplayList| {
+            dl.ops.iter().find(|op| matches!(op, Op::Layer { node: Some(n), .. } if *n == joined.id)).cloned().unwrap()
+        };
+        let still = drawn(&s.frame("revenue", f64::INFINITY).unwrap());
+        s.set_moving(Some((vec!["rev".into()], [0.0, 120.0])));
+        let moved = drawn(&s.frame("revenue", f64::INFINITY).unwrap());
+        assert_ne!(moved, still, "the arrow follows the chart");
+        s.set_moving(Some((vec!["note".into()], [0.0, 120.0])));
+        assert_eq!(drawn(&s.frame("revenue", f64::INFINITY).unwrap()), still, "what it does not join moves alone");
+        s.set_moving(None);
+        assert_eq!(drawn(&s.frame("revenue", f64::INFINITY).unwrap()), still);
+        // Its points are its route's: nothing of it to reshape.
+        assert!(s.outline("revenue", &joined.id).unwrap().is_none());
+        // Copied with what it joins, its copy joins their copies; copied alone, it is a line.
+        let clip = s.copying("revenue", &["title", "rev", joined.id.as_str()]).unwrap();
+        let pasted = s.pasting(&clip, "revenue", [960.0, 540.0]).unwrap();
+        let copy =
+            pasted.patch.iter().find(|op| op["op"] == "add_node" && op["node"].get("connect").is_some()).unwrap();
+        let ends = [&copy["node"]["connect"]["from"], &copy["node"]["connect"]["to"]];
+        assert!(ends.iter().all(|e| e.as_str().is_some_and(|e| e != "title" && e != "rev")), "{copy}");
+        assert!(
+            !pasted.patch.iter().any(|op| op["op"] == "place" && op["node"] == copy["id"]),
+            "what it joins places it"
+        );
+        s.tool("deck_patch", serde_json::json!({ "ops": pasted.patch }), by()).unwrap();
+        let alone = s.copying("revenue", &[joined.id.as_str()]).unwrap();
+        let line = s.pasting(&alone, "revenue", [300.0, 900.0]).unwrap();
+        assert!(line.patch.iter().all(|op| op["node"].get("connect").is_none()), "a line that joins nothing");
+        // ⌘D refuses it, an arrangement passes it by, and its end deleted from the deck takes it.
+        assert!(s.duplicating("revenue", &joined.id).unwrap_err().to_string().contains("follows what it joins"));
+        let nodes = ["title".to_string(), "note".to_string(), joined.id.clone()];
+        let how = scaena_ops::arrange::How::Align(scaena_ops::arrange::Align::Left);
+        let aligned = s.arranging("revenue", &nodes, how, false);
+        assert!(aligned.as_ref().is_ok_and(|a| !format!("{a:?}").contains(&joined.id)), "{aligned:?}");
+        let gone = s.deleting("revenue", "rev", true).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": gone }), by()).unwrap();
+        assert!(!s.deck.nodes.contains_key(&joined.id), "the connector to what the deck lost goes with it");
     }
 
     /// The revenue example, its files handed over as a page hands them.

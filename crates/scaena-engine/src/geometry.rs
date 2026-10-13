@@ -21,7 +21,7 @@ use crate::EngineError;
 use crate::carets::Carets;
 use crate::containers::{self, Tracks};
 use crate::layout::Grid;
-use crate::sample::{Content, Scene};
+use crate::sample::{Content, Scene, SceneNode};
 use crate::theme::Theme;
 use scaena_core::Snapshot;
 use scaena_core::displaylist::{DisplayList, Op, Rect};
@@ -29,6 +29,7 @@ use scaena_core::document::{Deck, NodeType};
 use scaena_core::model::values::{Range, Rect as Placed};
 use scaena_core::patch::{SemanticOp, Spot};
 use serde_json::{Value, json};
+use std::collections::HashMap;
 
 /// How near a point must come to a box under twice its width or height, canvas units: a
 /// rule a hairline thick is pointed at, not hit by luck. At 1080 a canvas unit is a pixel.
@@ -166,7 +167,12 @@ impl Scene {
         for node in self.nodes.iter().rev() {
             let Some(place) = self.tree.get(&node.id) else { continue };
             let Some(at) = self.laid_out(&node.id, point) else { continue };
-            if node.opacity <= 0.0 || !reaches(place.rect, at) {
+            // A connector is pointed at by its line, its box mostly empty (PLAN 2.109).
+            let there = match self.route(&node.id) {
+                Some(route) => near(&route, at),
+                None => reaches(place.rect, at),
+            };
+            if node.opacity <= 0.0 || !there {
                 continue;
             }
             let offset = match &node.content {
@@ -177,6 +183,16 @@ impl Scene {
             out.push(Hit { node: node.id.clone(), rect: place.rect, transform, containers, offset });
         }
         out
+    }
+
+    /// Connector `node`'s line at rest, canvas units (PLAN 2.109): where it runs between what it
+    /// joins, which a pointer picks it by. `None` for a node this state draws that is no
+    /// connector.
+    pub fn route(&self, node: &str) -> Option<Vec<[f32; 2]>> {
+        self.joins.get(node)?;
+        let Content::Shape(shape) = &self.nodes.iter().find(|n| n.id == node)?.content else { return None };
+        let [x, y, w, h] = self.tree.get(node)?.rect;
+        Some(shape.outline().1.iter().map(|p| [x + p[0] * w, y + p[1] * h]).collect())
     }
 
     /// Shape `node`'s outline at rest (PLAN 2.68), its corners' steps from `theme`'s radius
@@ -246,21 +262,45 @@ impl Scene {
     /// and everything they hold drawn `by` canvas units from where they stand, over the rest:
     /// what a drag shows while it moves, held above the page. Only their layers move;
     /// nothing is laid out again (ADR-0013). A member of a group composited as one layer
-    /// moves inside it, in its place.
+    /// moves inside it, in its place. A connector to what moves runs from where it stands
+    /// (PLAN 2.109).
     pub fn moved(&self, time: f64, nodes: &[&str], by: [f32; 2]) -> DisplayList {
-        let mut dl = self.draw_at(time);
         let mut held = nodes.to_vec();
         let mut i = 0;
         while let Some(id) = held.get(i).copied() {
             held.extend(self.tree.get(id).into_iter().flat_map(|p| p.children.iter().map(String::as_str)));
             i += 1;
         }
+        let mut dl = self.draw_with(time, &self.rerouted(&held, by));
         carry(&mut dl.ops, &held, by, [1.0, 0.0, 0.0, 1.0]);
         let carried = |op: &Op| matches!(op, Op::Layer { node: Some(id), .. } if held.contains(&id.as_str()));
         let (over, rest): (Vec<Op>, Vec<Op>) = std::mem::take(&mut dl.ops).into_iter().partition(carried);
         dl.ops = rest;
         dl.ops.extend(over);
         dl
+    }
+
+    /// Each connector that joins what `held` names, and is not itself held, run again between
+    /// its ends as they stand with those held moved `by`, canvas units (PLAN 2.109): routed,
+    /// nothing laid out.
+    fn rerouted(&self, held: &[&str], by: [f32; 2]) -> HashMap<&str, SceneNode> {
+        let mut out = HashMap::new();
+        for node in &self.nodes {
+            let (Some(joint), Content::Shape(shape)) = (self.joins.get(&node.id), &node.content) else { continue };
+            let moves = |id: &str| held.contains(&id);
+            if moves(&node.id) || !(moves(&joint.from) || moves(&joint.to)) {
+                continue;
+            }
+            let at = |id: &str| {
+                let [x, y, w, h] = self.tree.get(id)?.rect;
+                Some(if moves(id) { [x + by[0], y + by[1], w, h] } else { [x, y, w, h] })
+            };
+            let (Some(from), Some(to)) = (at(&joint.from), at(&joint.to)) else { continue };
+            let (rect, points) = joint.route(from, to);
+            let content = Content::Shape(shape.routed(rect, points));
+            out.insert(node.id.as_str(), SceneNode { content, ..node.clone() });
+        }
+        out
     }
 
     /// The containers and groups `id` sits in, innermost first.
@@ -692,6 +732,19 @@ fn most(slots: &[(String, Rect)], cell: Rect) -> Option<&(String, Rect)> {
     let nearer = |a: &&(String, Rect), b: &&(String, Rect)| gap(&a.1).total_cmp(&gap(&b.1));
     let own = slots.iter().rev().filter(|(name, _)| !whole(name)).min_by(&nearer);
     own.or_else(|| slots.iter().rev().min_by(&nearer))
+}
+
+/// Whether `point` falls within twice [`SLOP`] of the line through `points`, canvas units: where
+/// a connector is pointed at (PLAN 2.109).
+pub(crate) fn near(points: &[[f32; 2]], point: [f32; 2]) -> bool {
+    points.windows(2).any(|ends| {
+        let ([ax, ay], [bx, by]) = (ends[0], ends[1]);
+        let (dx, dy) = (bx - ax, by - ay);
+        let length = dx * dx + dy * dy;
+        let t =
+            if length > 0.0 { (((point[0] - ax) * dx + (point[1] - ay) * dy) / length).clamp(0.0, 1.0) } else { 0.0 };
+        (ax + t * dx - point[0]).hypot(ay + t * dy - point[1]) <= 2.0 * SLOP
+    })
 }
 
 /// Whether `point` falls in `rect`, its edges included, or within [`SLOP`] of it along a

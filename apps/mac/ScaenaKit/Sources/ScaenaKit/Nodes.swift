@@ -166,3 +166,17 @@ extension ScaenaSession {
         try call("wording", ["shape": .string(shape)])
     }
 }
+
+/// A connector made (PLAN 2.109): its id, and the patch that adds it.
+public struct Connected: Decodable, Sendable {
+    public let id: String
+    public let patch: [JSONValue]
+}
+
+extension ScaenaSession {
+    /// The patch that joins `from` to `to` in `state` with an arrow that points at `to`, or with a
+    /// line (PLAN 2.109), as the browser's canvas makes it: a connector that goes where they go.
+    public func connecting(state: String, from: String, to: String, arrow: Bool) throws -> Connected {
+        try call("connecting", ["state": .string(state), "from": .string(from), "to": .string(to), "arrow": .bool(arrow)])
+    }
+}

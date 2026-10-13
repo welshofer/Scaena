@@ -380,8 +380,9 @@ pub fn pasting(
         named.insert(name.clone(), name_in);
     }
 
-    // The copies.
+    // The copies, and the connectors among them that join copies, which those place.
     let mut nodes: IndexMap<String, Map<String, Value>> = IndexMap::new();
+    let mut joined: Vec<String> = Vec::new();
     for (id, node) in &clip.nodes {
         let mut props =
             node.as_object().cloned().ok_or_else(|| OpsError::new(format!("the clip's `{id}` is not a node")))?;
@@ -400,6 +401,23 @@ pub fn pasting(
         }
         if let Some(to) = props.get("src").and_then(Value::as_str).and_then(|src| moved.get(src)) {
             props.insert("src".into(), Value::String(to.clone()));
+        }
+        // A connector joins the copies of what it joined where both came with it, and they place
+        // it (PLAN 2.109); else it lands where it is pasted as a line that joins nothing.
+        if let Some(connect) = props.get("connect").cloned() {
+            let end = |key: &str| connect.get(key).and_then(Value::as_str).and_then(|e| ids.get(e)).cloned();
+            match (end("from"), end("to")) {
+                (Some(from), Some(to)) => {
+                    let mut connect = connect;
+                    connect["from"] = Value::String(from);
+                    connect["to"] = Value::String(to);
+                    props.insert("connect".into(), connect);
+                    joined.push(ids[id].clone());
+                }
+                _ => {
+                    props.remove("connect");
+                }
+            }
         }
         copied_layouts(&mut props, deck, &ids, root(id));
         nodes.insert(ids[id].clone(), props);
@@ -429,8 +447,10 @@ pub fn pasting(
         .collect::<Option<_>>()
         .ok_or_else(|| OpsError::new("the theme's grid has no tracks to place it on"))?;
     let cell = targets[0].cell;
-    let copies: Vec<String> = nodes.keys().cloned().collect();
-    let placing = targets.iter().flat_map(|t| t.ops(Some(state), false)).chain(leaving(deck, state, &copies));
+    // A connector among them leaves with what it joins.
+    let copies: Vec<String> = nodes.keys().filter(|id| !joined.contains(id)).cloned().collect();
+    let placed = targets.iter().filter(|t| !t.spots.iter().any(|(node, _)| joined.contains(node)));
+    let placing = placed.flat_map(|t| t.ops(Some(state), false)).chain(leaving(deck, state, &copies));
     let place: Vec<Value> = placing.map(serde_json::to_value).collect::<Result<_, _>>().context("a patch")?;
     let also: Vec<String> = roots[1..].iter().map(|(node, _)| ids[*node].clone()).collect();
 

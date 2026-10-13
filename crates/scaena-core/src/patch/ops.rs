@@ -1571,35 +1571,52 @@ fn remove_node(d: &Doc, id: &str) -> Result<Vec<JsonOp>, String> {
 }
 
 /// The ops that take node `id` out of the deck, with everything that names it: its deltas,
-/// its exits, its choreography, and its overrides.
+/// its exits, its choreography, and its overrides; and each connector that joins it, which would
+/// join what the deck lacks, goes with it the same way (PLAN 2.109).
 fn removal(d: &Doc, id: &str) -> Vec<JsonOp> {
+    let joins = |node: &Value| {
+        let end = |key: &str| node.get("connect").and_then(|c| c.get(key)).and_then(Value::as_str);
+        end("from") == Some(id) || end("to") == Some(id)
+    };
+    let mut gone: Vec<&str> =
+        d.nodes().filter(|(n, node)| n.as_str() != id && joins(node)).map(|(n, _)| n.as_str()).collect();
+    gone.push(id);
     let mut ops = Vec::new();
     for (i, state) in d.states().iter().enumerate() {
-        if state.get("props").and_then(|p| p.get(id)).is_some() {
-            ops.push(JsonOp::Remove { path: format!("/states/{i}/props/{}", esc(id)) });
+        for g in &gone {
+            if state.get("props").and_then(|p| p.get(*g)).is_some() {
+                ops.push(JsonOp::Remove { path: format!("/states/{i}/props/{}", esc(g)) });
+            }
         }
         if let Some(Value::Array(exits)) = state.get("remove")
-            && exits.iter().any(|x| x.as_str() == Some(id))
+            && exits.iter().any(|x| x.as_str().is_some_and(|x| gone.contains(&x)))
         {
-            ops.push(without_exit(i, exits, id));
+            ops.push(without_exits(i, exits, &gone));
         }
         if let Some(Value::Array(items)) = state.get("choreography") {
             ops.extend(retarget_ops(&format!("/states/{i}/choreography"), items, &|t| {
-                (t != id).then(|| t.to_string())
+                (!gone.contains(&t)).then(|| t.to_string())
             }));
         }
     }
-    if d.0.get("overrides").and_then(|o| o.get(id)).is_some() {
-        ops.push(JsonOp::Remove { path: format!("/overrides/{}", esc(id)) });
+    for g in &gone {
+        if d.0.get("overrides").and_then(|o| o.get(*g)).is_some() {
+            ops.push(JsonOp::Remove { path: format!("/overrides/{}", esc(g)) });
+        }
+        ops.push(JsonOp::Remove { path: format!("/nodes/{}", esc(g)) });
     }
-    ops.push(JsonOp::Remove { path: format!("/nodes/{}", esc(id)) });
     ops
 }
 
 /// State `i`'s exits, `exits`, without `node`: the list goes when it would be left empty, as
 /// a state with no exits is written.
 fn without_exit(i: usize, exits: &[Value], node: &str) -> JsonOp {
-    let kept: Vec<Value> = exits.iter().filter(|x| x.as_str() != Some(node)).cloned().collect();
+    without_exits(i, exits, &[node])
+}
+
+/// State `i`'s exits, `exits`, without any of `nodes`, as [`without_exit`] writes them.
+fn without_exits(i: usize, exits: &[Value], nodes: &[&str]) -> JsonOp {
+    let kept: Vec<Value> = exits.iter().filter(|x| !x.as_str().is_some_and(|x| nodes.contains(&x))).cloned().collect();
     match kept.is_empty() {
         true => JsonOp::Remove { path: format!("/states/{i}/remove") },
         false => JsonOp::Replace { path: format!("/states/{i}/remove"), value: Value::Array(kept) },

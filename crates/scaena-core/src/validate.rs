@@ -247,7 +247,7 @@ pub trait BundleFiles {
 ///   invalid id is E105);
 /// - a key written twice in one object (E105 for an id, E106 for anything else);
 /// - what a schema cannot say: references to nodes, states, data, files, and theme names
-///   (E102), a delta that sets `type` or `locked` (E104), an id used twice (E105), and each state,
+///   (E102), a delta that sets `type`, `locked`, or `connect` (E104), an id used twice (E105), and each state,
 ///   resolved, against its nodes' types (E106).
 ///
 /// `Err` only when `deck_json` is not JSON.
@@ -273,6 +273,7 @@ pub fn validate_bundle(deck_json: &str, files: &dyn BundleFiles) -> Result<Vec<F
     let theme = load_theme(&doc, files, &mut out);
     if let Ok(deck) = Deck::from_json(deck_json) {
         out.extend(validate(&deck));
+        out.extend(connectors(&deck));
         out.extend(type_changes(&deck));
         out.extend(missing_files(&deck, theme.as_ref(), files));
         // Tracking that fails (reported above) leaves no states to resolve.
@@ -679,23 +680,27 @@ fn check_theme_file(path: &str, text: &str) -> (Vec<Finding>, Option<Arc<Theme>>
     (out, Theme::from_json(text).ok().map(Arc::new))
 }
 
-/// E104: a node's type never changes, and its lock is its own in every state (PLAN 2.95), so
-/// neither a state's delta nor the node's overrides can set `type` or `locked`.
+/// E104: a node's type never changes, and its lock (PLAN 2.95) and a connector's ends (PLAN
+/// 2.109) are its own in every state, so neither a state's delta nor the node's overrides can set
+/// `type`, `locked`, or `connect`.
 fn type_changes(deck: &Deck) -> Vec<Finding> {
     let mut out = Vec::new();
     for (id, over) in &deck.overrides {
-        // A lock is the node's own, in every state (PLAN 2.95).
-        if deck.nodes.contains_key(id) && over.contains_key("locked") {
-            out.push(
-                Finding::new(
-                    "E104",
-                    Severity::Error,
-                    format!("`{id}`'s lock is the node's own; overrides cannot set `locked`"),
-                )
-                .at(child(&format!("/overrides/{}", esc(id)), "locked"))
-                .node(id.clone())
-                .hint(LOCKED),
-            );
+        // A lock is the node's own, in every state (PLAN 2.95), and so are a connector's ends
+        // (PLAN 2.109).
+        for (key, what, hint) in OWN {
+            if deck.nodes.contains_key(id) && over.contains_key(key) {
+                out.push(
+                    Finding::new(
+                        "E104",
+                        Severity::Error,
+                        format!("`{id}`'s {what} the node's own; overrides cannot set `{key}`"),
+                    )
+                    .at(child(&format!("/overrides/{}", esc(id)), key))
+                    .node(id.clone())
+                    .hint(hint),
+                );
+            }
         }
         let (Some(node), Some(_)) = (deck.nodes.get(id), over.get("type")) else { continue };
         let is = type_name(node.node_type);
@@ -711,18 +716,20 @@ fn type_changes(deck: &Deck) -> Vec<Finding> {
     }
     for (i, state) in deck.states.iter().enumerate() {
         for (id, delta) in &state.props {
-            if deck.nodes.contains_key(id) && delta.contains_key("locked") {
-                out.push(
-                    Finding::new(
-                        "E104",
-                        Severity::Error,
-                        format!("`{id}`'s lock is the node's own; a state cannot set `locked`"),
-                    )
-                    .at(child(&format!("/states/{i}/props/{}", esc(id)), "locked"))
-                    .state(state.id.clone())
-                    .node(id.clone())
-                    .hint(LOCKED),
-                );
+            for (key, what, hint) in OWN {
+                if deck.nodes.contains_key(id) && delta.contains_key(key) {
+                    out.push(
+                        Finding::new(
+                            "E104",
+                            Severity::Error,
+                            format!("`{id}`'s {what} the node's own; a state cannot set `{key}`"),
+                        )
+                        .at(child(&format!("/states/{i}/props/{}", esc(id)), key))
+                        .state(state.id.clone())
+                        .node(id.clone())
+                        .hint(hint),
+                    );
+                }
             }
             let (Some(node), Some(new)) = (deck.nodes.get(id), delta.get("type")) else { continue };
             let is = type_name(node.node_type);
@@ -744,9 +751,20 @@ fn type_changes(deck: &Deck) -> Vec<Finding> {
     out
 }
 
-/// What E104 says to do with a lock a state or the overrides set.
-const LOCKED: &str =
-    "A lock holds in every state: set `locked` in `nodes`, and the editor's canvas passes over the node.";
+/// What is a node's own in every state, which neither a state nor the overrides set: each key,
+/// what E104 calls it, and what it says to do.
+const OWN: [(&str, &str, &str); 2] = [
+    (
+        "locked",
+        "lock is",
+        "A lock holds in every state: set `locked` in `nodes`, and the editor's canvas passes over the node.",
+    ),
+    (
+        "connect",
+        "ends are",
+        "A connector joins the same two nodes in every state: set `connect` in `nodes`, and it leaves where either does.",
+    ),
+];
 
 /// E102: files the deck and its theme name that the bundle does not hold.
 fn missing_files(deck: &Deck, theme: Option<&LoadedTheme>, files: &dyn BundleFiles) -> Vec<Finding> {
@@ -1110,6 +1128,57 @@ fn containers(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
                     let message = format!("area `{area}` is not one of the areas of {} `{parent}`", type_name(kind));
                     out.push(finding("E102", id, "area", message));
                 }
+            }
+        }
+    }
+    out
+}
+
+/// E102 and E106: what each connector joins (PLAN 2.109). A line or an arrow joins two nodes of
+/// the deck, other than itself and each other, each with a box of its own: no group, and no other
+/// connector. What it joins places it, so it takes no `at` and no `points`.
+fn connectors(deck: &Deck) -> Vec<Finding> {
+    let mut out = Vec::new();
+    for (id, node) in &deck.nodes {
+        let Some(connect) = node.props.get("connect") else { continue };
+        let at = |key: &str| format!("/nodes/{}/{key}", esc(id));
+        let finding = |code: &str, key: &str, message: String| {
+            Finding::new(code, Severity::Error, message).at(at(key)).node(id.clone())
+        };
+        let kind = node.props.get("kind").and_then(Value::as_str);
+        if node.node_type != NodeType::Shape || !matches!(kind, Some("line" | "arrow")) {
+            let what = article(kind.unwrap_or(&type_name(node.node_type)));
+            out.push(finding(
+                "E106",
+                "connect",
+                format!("node `{id}`, {what}, joins nothing: a line or an arrow joins two nodes"),
+            ));
+            continue;
+        }
+        for end in ["from", "to"] {
+            let Some(other) = connect.get(end).and_then(Value::as_str) else { continue };
+            let key = format!("connect/{end}");
+            match deck.nodes.get(other) {
+                None => out.push(finding("E102", &key, format!("node `{id}` joins `{other}`, which the deck lacks"))),
+                Some(_) if other == id => out.push(finding("E106", &key, format!("node `{id}` joins itself"))),
+                Some(n) if n.node_type == NodeType::Group => out.push(finding(
+                    "E106",
+                    &key,
+                    format!("node `{id}` joins group `{other}`, which has no box of its own: join one of its members"),
+                )),
+                Some(n) if crate::tracking::connects_of(n).is_some() => {
+                    out.push(finding("E106", &key, format!("node `{id}` joins `{other}`, another connector")))
+                }
+                Some(_) => {}
+            }
+        }
+        if connect.get("from").is_some() && connect.get("from") == connect.get("to") {
+            out.push(finding("E106", "connect/to", format!("node `{id}` joins a node to itself")));
+        }
+        for key in ["at", "points"] {
+            if node.props.contains_key(key) {
+                let message = format!("node `{id}` is placed by what it joins: take `{key}` away");
+                out.push(finding("E106", key, message));
             }
         }
     }

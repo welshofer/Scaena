@@ -762,6 +762,34 @@ fn a_shape_is_given_words_as_the_browser_gives_them() {
     unsafe { scaena_session_free(s) };
 }
 
+/// Connectors (PLAN 2.109), as the browser makes them: B1's title joined to its subtitle by an
+/// arrow, whose box names what it joins and the line a pointer picks it by, which a press on that
+/// line reaches; and a node joined to itself refused.
+#[test]
+fn two_nodes_are_connected_as_the_browser_connects_them() {
+    let s = open(B1);
+    let joined = call(s, "connecting", json!({ "state": "cover", "from": "title", "to": "subtitle" }));
+    assert_eq!(joined["id"], "title-to-subtitle", "{joined}");
+    assert_eq!(joined["patch"][0]["node"]["kind"], "arrow", "an arrow unless a line is asked for: {joined}");
+    let made = tool(s, "deck_patch", json!({ "ops": joined["patch"] }));
+    assert_eq!(made["edited"], true, "{made}");
+    let boxes = call(s, "boxes", json!({ "state": "cover" }));
+    let arrow = boxes.as_array().unwrap().iter().find(|b| b["node"] == "title-to-subtitle").cloned().unwrap();
+    assert_eq!(arrow["joins"], json!(["title", "subtitle"]));
+    let route: Vec<Vec<f64>> = serde_json::from_value(arrow["route"].clone()).unwrap();
+    assert_eq!(route.len(), 2, "{arrow}");
+    let middle =
+        json!({ "state": "cover", "x": (route[0][0] + route[1][0]) / 2.0, "y": (route[0][1] + route[1][1]) / 2.0 });
+    let hits = call(s, "hit", middle);
+    assert_eq!(hits[0]["node"], "title-to-subtitle", "{hits}");
+    let line = call(s, "connecting", json!({ "state": "cover", "from": "subtitle", "to": "title", "arrow": false }));
+    assert_eq!(line["patch"][0]["node"]["kind"], "line", "{line}");
+    let refused = answered(s, "connecting", &json!({ "state": "cover", "from": "title", "to": "title" }));
+    let said = refused["error"]["message"].as_str().unwrap_or_default();
+    assert!(said.contains("not one to itself"), "{refused}");
+    unsafe { scaena_session_free(s) };
+}
+
 /// Nodes added and taken away (PLAN 3.11), as the browser's Insert menu, ⌘D, and Delete make them
 /// (PLAN 2.34, 2.79): what is offered, inserted about a point and entering in the state shown;
 /// a copy beside a node; and a node taken out of the state and those after, or out of the deck.

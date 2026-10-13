@@ -67,6 +67,7 @@ import type {
   Version,
   Waiting,
   Worded,
+  Connected,
   Writing,
   WritingAsk,
   WritingCall,
@@ -151,6 +152,7 @@ type Reply = Extract<
       | "layers"
       | "adding"
       | "worded"
+      | "connected"
       | "deleting"
       | "copied"
       | "pasted"
@@ -753,6 +755,13 @@ export class Stage {
     return this.request<"worded">({ type: "wording", id: ++this.asked, source, shape }).then(({ worded }) => worded);
   }
 
+  /** The patch that joins `from` to `to` in `state` with an arrow, or a line (PLAN 2.109). */
+  connecting(source: string, state: string, from: string, to: string, arrow: boolean): Promise<Connected> {
+    return this.request<"connected">({ type: "connecting", id: ++this.asked, source, state, from, to, arrow }).then(
+      ({ connected }) => connected,
+    );
+  }
+
   /** The patch that puts `nodes`, children of one container as `state` shows them, in a new group
    * where they stand, on the deck `source` compiles to (PLAN 2.43): its id and the patch. */
   grouping(source: string, state: string, nodes: string[]): Promise<Grouped> {
@@ -1035,6 +1044,7 @@ export class Stage {
       case "layers":
       case "adding":
       case "worded":
+      case "connected":
       case "deleting":
       case "copied":
       case "pasted":

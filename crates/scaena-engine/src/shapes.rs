@@ -150,6 +150,17 @@ struct Stroke {
 }
 
 impl ShapeNode {
+    /// This line or arrow run again along `points`, fractions of `rect` (PLAN 2.109): a
+    /// connector as a drag of what it joins draws it.
+    pub fn routed(&self, rect: Rect, points: Vec<[f32; 2]>) -> ShapeNode {
+        let mut shape = self.clone();
+        shape.rect = rect;
+        if let Geometry::Line { points: line, .. } = &mut shape.geometry {
+            *line = points;
+        }
+        shape
+    }
+
     pub fn resolve(props: &Props, theme: &Theme, rect: Rect) -> Result<ShapeNode, EngineError> {
         let path = props.get("path").and_then(Value::as_str);
         let kind = props.get("kind").and_then(Value::as_str).unwrap_or(if path.is_some() { "path" } else { "rect" });
@@ -618,6 +629,81 @@ fn stroke(theme: &Theme, s: &Value) -> Result<Stroke, EngineError> {
         None => Vec::new(),
     };
     Ok(Stroke { paint, width, cap, join, dash })
+}
+
+/// What a connector joins and how it runs (PLAN 2.109): the scene keeps it, so a drag of either
+/// end runs the connector again from where that end stands, nothing laid out.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Joint {
+    pub from: String,
+    pub to: String,
+    /// It leaves `from` by the side that faces `to` and turns at right angles.
+    pub elbow: bool,
+    /// How far each end stands off its box, canvas units: the theme's `space.2`, so an
+    /// arrowhead points at a box rather than into it.
+    pub gap: f32,
+}
+
+impl Joint {
+    /// The joint a node's `props` make, if they are a connector's.
+    pub fn of(props: &Props, theme: &Theme) -> Option<Joint> {
+        let connect = props.get("connect")?;
+        let end = |key: &str| connect.get(key).and_then(Value::as_str).map(str::to_string);
+        Some(Joint {
+            from: end("from")?,
+            to: end("to")?,
+            elbow: connect.get("route").and_then(Value::as_str) == Some("elbow"),
+            gap: theme.tokens.space.scale.get(2).map_or(theme.tokens.space.unit as f32, |s| s.0 as f32),
+        })
+    }
+
+    /// Its route between the boxes `from` and `to`, canvas units: its box, and its points as
+    /// fractions of that box. A straight one runs along the line between the boxes' middles,
+    /// from where it leaves `from` to where it meets `to`; an elbow leaves `from` by the side
+    /// that faces `to`, across or down, turns twice at right angles, and meets `to`'s facing
+    /// side. Boxes that overlap are joined middle to middle.
+    pub fn route(&self, from: Rect, to: Rect) -> (Rect, Vec<[f32; 2]>) {
+        let gap = self.gap;
+        let middle = |r: Rect| [r[0] + r[2] / 2.0, r[1] + r[3] / 2.0];
+        let (a, b) = (middle(from), middle(to));
+        let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+        let points = if self.elbow && dx.abs() >= dy.abs() {
+            // Across: out of the side that faces the other box, a turn halfway, and in.
+            let s = if dx < 0.0 { -1.0 } else { 1.0 };
+            let (x0, x1) = (a[0] + s * (from[2] / 2.0 + gap), b[0] - s * (to[2] / 2.0 + gap));
+            let xm = (x0 + x1) / 2.0;
+            vec![[x0, a[1]], [xm, a[1]], [xm, b[1]], [x1, b[1]]]
+        } else if self.elbow {
+            // Down, or up, the same way.
+            let s = if dy < 0.0 { -1.0 } else { 1.0 };
+            let (y0, y1) = (a[1] + s * (from[3] / 2.0 + gap), b[1] - s * (to[3] / 2.0 + gap));
+            let ym = (y0 + y1) / 2.0;
+            vec![[a[0], y0], [a[0], ym], [b[0], ym], [b[0], y1]]
+        } else {
+            let length = dx.hypot(dy);
+            // How far along the line from a box's middle its edge is.
+            let edge = |r: Rect, u: [f32; 2]| {
+                let across = if u[0].abs() > 1e-6 { r[2] / 2.0 / u[0].abs() } else { f32::INFINITY };
+                let down = if u[1].abs() > 1e-6 { r[3] / 2.0 / u[1].abs() } else { f32::INFINITY };
+                across.min(down)
+            };
+            let u = if length > 1e-3 { [dx / length, dy / length] } else { [1.0, 0.0] };
+            let (ta, tb) = (edge(from, u) + gap, edge(to, u) + gap);
+            if length <= 1e-3 || ta + tb >= length {
+                vec![a, b]
+            } else {
+                vec![[a[0] + u[0] * ta, a[1] + u[1] * ta], [b[0] - u[0] * tb, b[1] - u[1] * tb]]
+            }
+        };
+        // Its box: the points' bounds, a unit across at the least, so each fraction is a number.
+        let (lo, hi) = points.iter().fold(([f32::MAX; 2], [f32::MIN; 2]), |(lo, hi), p| {
+            ([lo[0].min(p[0]), lo[1].min(p[1])], [hi[0].max(p[0]), hi[1].max(p[1])])
+        });
+        let (w, h) = ((hi[0] - lo[0]).max(1.0), (hi[1] - lo[1]).max(1.0));
+        let (x, y) = ((lo[0] + hi[0] - w) / 2.0, (lo[1] + hi[1] - h) / 2.0);
+        let fractions = points.iter().map(|p| [(p[0] - x) / w, (p[1] - y) / h]).collect();
+        ([x, y, w, h], fractions)
+    }
 }
 
 /// The room a shape gives the words it holds (PLAN 2.108), canvas units: a rect's box less what

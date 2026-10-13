@@ -1466,6 +1466,11 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         "duplicating" => value(serde_json::to_value(s.duplicating(arg("state")?, arg("node")?).map_err(said)?))?,
         // The words of a shape to type in (PLAN 2.108): `{id, patch}`.
         "wording" => value(serde_json::to_value(s.wording(arg("shape")?).map_err(said)?))?,
+        // A line, or an arrow, joining two nodes (PLAN 2.109): `{id, patch}`.
+        "connecting" => {
+            let arrow = args.get("arrow").and_then(Value::as_bool).unwrap_or(true);
+            value(serde_json::to_value(s.connecting(arg("state")?, arg("from")?, arg("to")?, arrow).map_err(said)?))?
+        }
         // A state added after the state shown (PLAN 2.35, 3.14): a `step` of its slide, or a
         // `slide` of its own, `{id, patch}`.
         "addingState" => {

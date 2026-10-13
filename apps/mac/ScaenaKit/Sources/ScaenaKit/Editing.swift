@@ -272,13 +272,29 @@ public struct NodeBox: Decodable, Sendable {
     /// The text that holds a shape's words (PLAN 2.108), which a click on them reaches as the
     /// shape and a double click types in.
     public let words: String?
+    /// A connector's ends, from and to (PLAN 2.109), which place it: the canvas moves, resizes,
+    /// and turns nothing of it.
+    public let joins: [String]?
+    /// A connector's line, its points in canvas units (PLAN 2.109), which a pointer picks it by:
+    /// its box is mostly empty.
+    public let route: [[Double]]?
 
     /// Its box's corners where it is drawn, clockwise from the top left, canvas units.
     public var corners: [CGPoint] { drawn(rect, through: transform) }
 
     /// Whether `point`, canvas units, is inside its box where it is drawn: within the four corners
-    /// its map draws it at, its edges included.
+    /// its map draws it at, its edges included. A connector holds what stands within 12 units of
+    /// its line, as the engine's hit takes it (PLAN 2.109).
     public func holds(_ point: CGPoint) -> Bool {
+        if let route {
+            let points = route.compactMap { $0.count == 2 ? CGPoint(x: $0[0], y: $0[1]) : nil }
+            return zip(points, points.dropFirst()).contains { a, b in
+                let (dx, dy) = (b.x - a.x, b.y - a.y)
+                let length = dx * dx + dy * dy
+                let t = length > 0 ? min(1, max(0, ((point.x - a.x) * dx + (point.y - a.y) * dy) / length)) : 0
+                return hypot(a.x + t * dx - point.x, a.y + t * dy - point.y) <= 12
+            }
+        }
         let c = corners
         guard c.count == 4 else { return false }
         var turn = 0.0

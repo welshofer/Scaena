@@ -89,6 +89,12 @@ export interface NodeBox {
   /** The text that holds a shape's words (PLAN 2.108), which a click on them reaches as the shape
    * and a double click types in. */
   words?: string;
+  /** A connector's ends, from and to (PLAN 2.109), which place it: the canvas moves, resizes, and
+   * turns nothing of it. */
+  joins?: [string, string];
+  /** A connector's line, its points in canvas units (PLAN 2.109), which a pointer picks it by: its
+   * box is mostly empty. */
+  route?: [number, number][];
 }
 
 /** A map of canvas points, `[a, b, c, d, e, f]`: `x' = a·x + c·y + e`, `y' = b·x + d·y + f`. */
@@ -583,6 +589,12 @@ export interface Worded {
   patch: unknown[];
 }
 
+/** A connector made (PLAN 2.109): its id, and the patch that adds it. */
+export interface Connected {
+  id: string;
+  patch: unknown[];
+}
+
 /** What a paste makes (PLAN 2.37): the copy of the node copied, where it lands, and the patch;
  * the copies of the others copied with it (PLAN 2.42); the files the clip carried that the
  * bundle lacked, now in it; and what the copies named that the theme lacks, each taken out of
@@ -942,6 +954,7 @@ export type ToWorker =
   | { type: "drawing"; id: number; source: string; state: string; n: number; from: [number, number]; to: [number, number]; free: boolean; format?: string }
   | { type: "duplicating"; id: number; source: string; state: string; node: string; format?: string }
   | { type: "wording"; id: number; source: string; shape: string }
+  | { type: "connecting"; id: number; source: string; state: string; from: string; to: string; arrow: boolean }
   | { type: "deleting"; id: number; source: string; state: string; node: string; everywhere: boolean }
   /** The patch that puts `nodes`, children of one container as `state` shows them, in a new group
    * where they stand, on the deck the editor's `source` compiles to (PLAN 2.43). */
@@ -1649,6 +1662,8 @@ export type FromWorker =
   | { type: "adding"; id: number; added: Added }
   /** The words of a shape to type in, given it where it has none (PLAN 2.108). */
   | { type: "worded"; id: number; worded: Worded }
+  /** A connector between two nodes (PLAN 2.109). */
+  | { type: "connected"; id: number; connected: Connected }
   /** The patch that takes a node away. */
   | { type: "deleting"; id: number; patch: unknown[] }
   /** A node as the clipboard holds it, and what pasting a clip makes. */

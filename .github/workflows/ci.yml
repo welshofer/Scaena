@@ -323,6 +323,8 @@ jobs:
       - run: node web/insert.mjs
       # A shape takes words: a double click types in them, and they go where it goes (PLAN 2.108).
       - run: node web/words.mjs
+      # Two objects joined by an arrow that follows them, picked by its line (PLAN 2.109).
+      - run: node web/connect.mjs
       # A key arms the canvas to draw; a drag draws over the cells it covers, a line the way it went (PLAN 2.48).
       - run: node web/draw.mjs
       # Lint's findings on the canvas, the strip's counts, and a fix taken from a mark (PLAN 2.49).
