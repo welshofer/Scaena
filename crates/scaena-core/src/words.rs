@@ -216,6 +216,16 @@ pub fn kind(t: Option<NodeType>) -> &'static str {
 /// How long a name drawn from an object's words runs before it is cut.
 const NAMED: usize = 40;
 
+/// A node's kind as `props` show it, as a person names it: a connector is an Arrow or a Line
+/// (PLAN 2.109), and anything else its type's kind.
+pub fn kind_of(t: NodeType, props: &Props) -> &'static str {
+    match props.get("kind").and_then(Value::as_str) {
+        Some("arrow") if t == NodeType::Shape && props.contains_key("connect") => "Arrow",
+        Some("line") if t == NodeType::Shape && props.contains_key("connect") => "Line",
+        _ => kind(Some(t)),
+    }
+}
+
 /// A node as a person names it, as `props` show it: a text by its words, anything else by its
 /// description, the first line of either, cut at 40 characters; else its kind.
 pub fn object(t: NodeType, props: &Props) -> String {
@@ -225,7 +235,7 @@ pub fn object(t: NodeType, props: &Props) -> String {
     };
     let line = words.lines().next().unwrap_or_default().trim();
     if line.is_empty() {
-        return kind(Some(t)).to_string();
+        return kind_of(t, props).to_string();
     }
     if line.chars().count() > NAMED {
         let cut: String = line.chars().take(NAMED - 1).collect();
@@ -338,7 +348,10 @@ pub const MARKED: &[(&str, &str)] = &[
 pub const LISTED: &[(&str, &str)] = &[
     ("E102", "It names something the deck or its theme doesn't have."),
     ("E103", "Its data doesn't have what it reads."),
-    ("E104", "It's set up in a way the deck doesn't allow: its kind changes, or a slide locks it."),
+    (
+        "E104",
+        "It's set up in a way the deck doesn't allow: its kind changes, a slide locks it, or a slide changes what it joins.",
+    ),
     ("E105", "A name is used twice, or isn't one the deck allows."),
     ("E106", "Something in it isn't written the way the deck allows."),
     ("W200", "Its last line is left too short."),
@@ -594,7 +607,7 @@ pub fn lexicon(deck: &Deck, theme: &Theme, state: &str) -> Result<Lexicon, Strin
     for (id, node) in &deck.nodes {
         let props = snap.nodes.get(id).unwrap_or(&node.props);
         objects.insert(id.clone(), object(node.node_type, props));
-        kinds.insert(id.clone(), kind(Some(node.node_type)).to_string());
+        kinds.insert(id.clone(), kind_of(node.node_type, props).to_string());
     }
     let mut names = BTreeMap::new();
     for of in VOCABULARIES {

@@ -1737,6 +1737,9 @@ async function edit(source: Source) {
       // A look copied and pasted (PLAN 2.58): Option makes ⌥C a character, so the key goes by its place.
       pressing("Copy the look", `${MOD_ALT}C`, "c", mod({ altKey: true, code: "KeyC" }), "Edit", one),
       pressing("Paste the look", `${MOD_ALT}V`, "v", mod({ altKey: true, code: "KeyV" }), "Edit", () => any() && board.copiedLook() !== undefined),
+      // Two objects joined by a connector that follows them (PLAN 2.109): from the first selected to the second.
+      { label: "Connect with an arrow", group: "Arrange", where: ["node"], applies: () => picked().length === 2, run: () => board.connect(picked(), true) },
+      { label: "Connect with a line", group: "Arrange", where: ["node"], applies: () => picked().length === 2, run: () => board.connect(picked(), false) },
       pressing("Group", `${MOD}G`, "g", mod(), "Arrange"),
       pressing("Ungroup", `${MOD}${SHIFT}G`, "g", mod({ shiftKey: true }), "Arrange", () => one() && typeOf(picked()[0]) === "group"),
       pressing("Bring forward", `${MOD}]`, "]", mod({ code: "BracketRight" }), "Arrange"),

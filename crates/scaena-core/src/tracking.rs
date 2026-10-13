@@ -42,10 +42,14 @@ pub struct Snapshot {
 
 /// Resolve every state of `deck` into a [`Snapshot`], in order.
 pub fn resolve_states(deck: &Deck) -> Result<Vec<Snapshot>, TrackingError> {
-    // Each shape's words (PLAN 2.108), found once for every state: each state brings them in and
-    // takes them out with their shape.
+    // Each shape's words (PLAN 2.108) and each connector's ends (PLAN 2.109), found once for every
+    // state: each state brings the words in and takes them out with their shape, and takes a
+    // connector out where either end is gone.
     let words: Vec<(&str, &str)> =
         deck.nodes.iter().filter_map(|(id, node)| Some((id.as_str(), words_of(deck, node)?))).collect();
+    let joins: Vec<(&str, &str, &str)> = (deck.nodes.iter())
+        .filter_map(|(id, node)| connects_of(node).map(|(from, to)| (id.as_str(), from, to)))
+        .collect();
     let mut out: Vec<Snapshot> = Vec::with_capacity(deck.states.len());
     for (i, state) in deck.states.iter().enumerate() {
         if let (StateMode::Delta, Some(from)) = (state.mode, &state.from) {
@@ -60,7 +64,7 @@ pub fn resolve_states(deck: &Deck) -> Result<Vec<Snapshot>, TrackingError> {
             Some(j) => (strip_non_tracking(&out[j].nodes), out[j].layout.clone()),
             None => (IndexMap::new(), None),
         };
-        let snap = apply_state(deck, state, base, base_layout, out.last(), &words)?;
+        let snap = apply_state(deck, state, base, base_layout, out.last(), &words, &joins)?;
         out.push(snap);
     }
     Ok(out)
@@ -168,6 +172,7 @@ fn apply_state(
     base_layout: Option<String>,
     prev: Option<&Snapshot>,
     words: &[(&str, &str)],
+    joins: &[(&str, &str, &str)],
 ) -> Result<Snapshot, TrackingError> {
     // Whether each shape with words was in what the state tracks from, before it adds or takes
     // away anything.
@@ -194,6 +199,13 @@ fn apply_state(
             nodes.insert(id.to_string(), deck.nodes[id].props.clone());
         }
     }
+    // A connector goes where what it joins goes (PLAN 2.109): it leaves wherever either end is
+    // gone, a shape's words with their shape.
+    for &(id, from, to) in joins {
+        if !(nodes.contains_key(from) && nodes.contains_key(to)) {
+            nodes.shift_remove(id);
+        }
+    }
     // Keep scene-graph order (nodes map order) so painters get a stable z-list.
     let ordered: IndexMap<String, Props> =
         deck.nodes.keys().filter_map(|id| nodes.get(id).map(|p| (id.clone(), p.clone()))).collect();
@@ -212,6 +224,16 @@ fn apply_state(
         entered,
         exited,
     })
+}
+
+/// The two nodes `node` joins, from and to, if it is a connector (PLAN 2.109): a shape whose
+/// own `connect` names them.
+pub fn connects_of(node: &Node) -> Option<(&str, &str)> {
+    if node.node_type != NodeType::Shape {
+        return None;
+    }
+    let connect = node.props.get("connect")?;
+    Some((connect.get("from")?.as_str()?, connect.get("to")?.as_str()?))
 }
 
 /// The shape `node` is the words of (PLAN 2.108): a text whose own `at.parent` names a shape.

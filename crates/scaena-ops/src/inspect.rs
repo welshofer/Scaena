@@ -1076,6 +1076,12 @@ pub fn duplicating(
     if !snap.nodes.contains_key(node) {
         return Err(OpsError::new(format!("`{node}` is not on screen in `{state}`")));
     }
+    // A connector goes where what it joins goes (PLAN 2.109): a copy would lie on it.
+    if deck.nodes.get(node).and_then(scaena_core::tracking::connects_of).is_some() {
+        return Err(OpsError::new(format!(
+            "`{node}` follows what it joins, and a copy would lie on it: copy it with what it joins, and paste them"
+        )));
+    }
     // The node first, then what it holds, each before what it holds in turn.
     let mut copying = held(&[snap], node);
     copying.reverse();
@@ -1193,6 +1199,58 @@ pub fn wording(deck: &Deck, theme: &Theme, shape: &str) -> Result<Worded, OpsErr
     }
     let patch = vec![serde_json::json!({ "op": "add_node", "id": id, "node": words })];
     Ok(Worded { id, patch })
+}
+
+/// A connector made (PLAN 2.109): its id, and the patch that adds it.
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct Connected {
+    pub id: String,
+    pub patch: Vec<Value>,
+}
+
+/// The patch that joins `from` to `to` in `state` with a line, or with an arrow that points at
+/// `to` (PLAN 2.109): one `add_node` of a shape whose `connect` names them, entering in `state`,
+/// then the `hide_node`s that keep it to that state's slide, as Insert keeps what it adds (PLAN
+/// 3.24). It runs between them as each state lays them out, and leaves wherever either does.
+/// Refused for a node the state does not show, a group, a connector, or a node joined to itself.
+pub fn connecting(deck: &Deck, state: &str, from: &str, to: &str, arrow: bool) -> Result<Connected, OpsError> {
+    let snaps = scaena_core::resolve_states(deck).context("tracking")?;
+    let snap =
+        snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+    if from == to {
+        return Err(OpsError::new("a connector joins two nodes, not one to itself"));
+    }
+    for end in [from, to] {
+        let node = deck.nodes.get(end).ok_or_else(|| OpsError::new(format!("no node `{end}`")))?;
+        if !snap.nodes.contains_key(end) {
+            return Err(OpsError::new(format!("`{end}` is not on screen in `{state}`")));
+        }
+        if node.node_type == NodeType::Group {
+            return Err(OpsError::new(format!(
+                "`{end}` is a group, which has no box of its own: join one of its members"
+            )));
+        }
+        if scaena_core::tracking::connects_of(node).is_some() {
+            return Err(OpsError::new(format!("`{end}` is a connector itself")));
+        }
+    }
+    let taken: Vec<String> = deck.nodes.keys().cloned().collect();
+    let kind = if arrow { "arrow" } else { "line" };
+    let named = format!("{from}-to-{to}");
+    let id = free_id(&taken, if named.len() <= 56 { &named } else { kind });
+    let node = serde_json::json!({ "type": "shape", "kind": kind, "connect": { "from": from, "to": to } });
+    let node = serde_json::from_value(node).context("a connector")?;
+    let add = SemanticOp::AddNode { id: id.clone(), node, state: Some(state.into()), props: None };
+    // It leaves another slide's state where both ends show there; where either is gone, it is
+    // gone with it.
+    let both =
+        |at: &str| snaps.iter().any(|s| s.state_id == at && s.nodes.contains_key(from) && s.nodes.contains_key(to));
+    let leaves = leaving(deck, state, std::slice::from_ref(&id))
+        .into_iter()
+        .filter(|op| !matches!(op, SemanticOp::HideNode { state, .. } if !both(state)));
+    let ops: Vec<SemanticOp> = std::iter::once(add).chain(leaves).collect();
+    let patch = ops.iter().map(serde_json::to_value).collect::<Result<_, _>>().context("a patch")?;
+    Ok(Connected { id, patch })
 }
 
 /// The theme's color role that reads on a fill of `fill`, where the theme names one: `onAccent`
@@ -1518,6 +1576,48 @@ mod tests {
         // What is no shape, and a line, hold no words.
         assert!(wording(&deck, &theme, "title").unwrap_err().to_string().contains("only a shape holds words"));
         assert!(wording(&deck, &theme, "rule").unwrap_err().to_string().contains("a line or an arrow holds no words"));
+    }
+
+    #[test]
+    fn two_nodes_are_joined_by_a_connector_that_goes_where_they_go() {
+        // Connectors (PLAN 2.109): one `add_node` in the state, kept to its slide.
+        let deck = Deck::from_json(REVENUE).unwrap();
+        let joined = connecting(&deck, "revenue", "title", "rev", true).unwrap();
+        assert_eq!(joined.id, "title-to-rev");
+        let node = serde_json::json!({ "type": "shape", "kind": "arrow", "connect": { "from": "title", "to": "rev" } });
+        let add = serde_json::json!({ "op": "add_node", "id": "title-to-rev", "node": node, "state": "revenue" });
+        // `close`, the next slide, takes the chart away, and the arrow with it: nothing to hide.
+        assert_eq!(joined.patch, [add]);
+        assert_eq!(connecting(&deck, "revenue", "title", "note", false).unwrap().id, "title-to-note");
+        let line = connecting(&deck, "revenue", "title", "note", false).unwrap();
+        assert_eq!(line.patch[0]["node"]["kind"], "line");
+        // Added, it validates, and shows on the slide where both ends do.
+        let doc: Value = serde_json::from_str(REVENUE).unwrap();
+        struct Examples;
+        impl BundleFiles for Examples {
+            fn exists(&self, path: &str) -> bool {
+                std::path::Path::new("../../docs/examples").join(path).is_file()
+            }
+            fn read_text(&self, path: &str) -> Option<String> {
+                std::fs::read_to_string(std::path::Path::new("../../docs/examples").join(path)).ok()
+            }
+        }
+        let added = scaena_core::patch::compile(&doc, &joined.patch, &Examples).unwrap();
+        let deck = Deck::from_value(&added.doc).unwrap();
+        let shown: Vec<String> = (scaena_core::resolve_states(&deck).unwrap().iter())
+            .filter(|s| s.nodes.contains_key("title-to-rev"))
+            .map(|s| s.state_id.clone())
+            .collect();
+        assert_eq!(shown, ["revenue", "mix"]);
+        // Refused: a node to itself, one the state does not show, one unknown, and a connector.
+        let refused = |from: &str, to: &str| connecting(&deck, "revenue", from, to, true).unwrap_err().to_string();
+        assert!(refused("title", "title").contains("not one to itself"));
+        assert!(refused("title", "subtitle").contains("not on screen"));
+        assert!(refused("title", "nothing").contains("no node `nothing`"));
+        assert!(refused("title-to-rev", "note").contains("a connector itself"));
+        assert!(connecting(&deck, "nowhere", "title", "rev", true).unwrap_err().to_string().contains("unknown state"));
+        // A second connector between the same two is named apart.
+        assert_eq!(connecting(&deck, "revenue", "title", "rev", true).unwrap().id, "title-to-rev-2");
     }
 
     #[test]

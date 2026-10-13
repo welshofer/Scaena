@@ -121,3 +121,24 @@ import Testing
     editor.restore(before)
     #expect(try shape().words == nil, "one step to undo")
 }
+
+/// Connectors (PLAN 2.109), as the browser's canvas makes them: B1's title joined to its subtitle
+/// by an arrow, one step to undo, whose box names what it joins and whose line the pointer picks
+/// it by; a point of its box off the line is not it.
+@Test func twoNodesAreJoinedByAnArrowPickedByItsLine() throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    editor.shown = "cover"
+    let session = editor.session
+    let joined = try session.connecting(state: "cover", from: "title", to: "subtitle", arrow: true)
+    #expect(joined.id == "title-to-subtitle")
+    let before = try editor.make(joined.patch)
+    let arrow = try #require(try session.boxes(state: "cover").first { $0.node == joined.id })
+    #expect(arrow.joins == ["title", "subtitle"])
+    let route = try #require(arrow.route)
+    #expect(route.count == 2)
+    let middle = CGPoint(x: (route[0][0] + route[1][0]) / 2, y: (route[0][1] + route[1][1]) / 2)
+    #expect(arrow.holds(middle), "on its line")
+    #expect(!arrow.holds(CGPoint(x: middle.x + 40, y: middle.y)), "off its line")
+    editor.restore(before)
+    #expect(try session.boxes(state: "cover").first { $0.node == joined.id } == nil, "one step to undo")
+}

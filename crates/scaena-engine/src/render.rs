@@ -401,7 +401,16 @@ impl Engine {
                 NodeType::Shader => {
                     Content::Shader(ShaderNode::resolve(props, theme, rect).map_err(|e| in_node(id, e))?)
                 }
-                NodeType::Shape => Content::Shape(ShapeNode::resolve(props, theme, rect).map_err(|e| in_node(id, e))?),
+                NodeType::Shape => {
+                    // A connector runs where placement routed it (PLAN 2.109).
+                    let routed = placement.joined.get(id).map(|points| {
+                        let mut props = props.clone();
+                        props.insert("points".into(), serde_json::json!(points));
+                        props
+                    });
+                    let props = routed.as_ref().unwrap_or(props);
+                    Content::Shape(ShapeNode::resolve(props, theme, rect).map_err(|e| in_node(id, e))?)
+                }
                 NodeType::Image => {
                     Content::Image(ImageNode::resolve(props, theme, &self.images, rect).map_err(|e| in_node(id, e))?)
                 }
@@ -424,7 +433,20 @@ impl Engine {
         }
         let surface = theme_color(theme, "surface")?;
         let furniture = self.furniture(deck, theme, &grid, snap)?;
-        Ok(Scene { state: snap.state_id.clone(), canvas, surface, nodes, tree, tracks: placement.tracks, furniture })
+        // What each connector joins, which a drag of either end runs it between again (PLAN 2.109).
+        let joins = (placement.joined.keys())
+            .filter_map(|id| Some((id.clone(), crate::shapes::Joint::of(snap.nodes.get(id.as_str())?, theme)?)))
+            .collect();
+        Ok(Scene {
+            state: snap.state_id.clone(),
+            canvas,
+            surface,
+            nodes,
+            tree,
+            tracks: placement.tracks,
+            furniture,
+            joins,
+        })
     }
 
     /// The slide's number and footer in `snap`, laid out where the theme places them (ADR-0028):

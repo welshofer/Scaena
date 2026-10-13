@@ -305,8 +305,9 @@ struct CanvasSelection: View {
                     outline(framed(selected, scale: fit.scale).map { CGPoint(x: $0.x + by.dx, y: $0.y + by.dy) }, fit: fit)
                         .stroke(Color.accentColor, lineWidth: 1.5)
                         .allowsHitTesting(false)
+                    // A connector goes where what it joins goes (PLAN 2.109): no handles.
                     if drag == nil, holding == nil, also.isEmpty, !typing.typing, selected.locked == nil,
-                        let r = frameBox(selected, scale: fit.scale)
+                        selected.joins == nil, let r = frameBox(selected, scale: fit.scale)
                     {
                         ForEach(Edge.allCases, id: \.self) { edge in
                             let p = selected.onCanvas(edge.point(r))
@@ -656,7 +657,9 @@ struct CanvasSelection: View {
     /// the topmost of an image's focal point and crop bars, a shape's points, its corner, the
     /// middles of its edges, and the rotate handle; none where the press is on none of them.
     private func handle(at point: CGPoint, scale: CGFloat) -> Holding? {
-        guard also.isEmpty, let selected = boxes.first(where: { $0.node == node }), selected.locked == nil else {
+        guard also.isEmpty, let selected = boxes.first(where: { $0.node == node }), selected.locked == nil,
+            selected.joins == nil
+        else {
             return nil
         }
         let near = grabbing(selected, scale: scale)
@@ -1170,6 +1173,11 @@ struct CanvasSelection: View {
             said = "Resize one object at a time"
             return
         }
+        // A connector goes where what it joins goes (PLAN 2.109): the keys move either, not it.
+        if also.isEmpty, boxes.first(where: { $0.node == selected })?.joins != nil {
+            said = "\(name(selected, starting: true)) follows what it joins: move either"
+            return
+        }
         do {
             let targets = try editor.session.targets(state: state, node: selected)
             guard let how = targets.dragged(at: placements[selected], resize: grow, shift: false) else {
@@ -1385,7 +1393,7 @@ struct CanvasSelection: View {
     /// move of what draws there, selected.
     private func begin(at point: CGPoint, scale: CGFloat) {
         var held: (node: String, edge: Edge?)?
-        if let selected = boxes.first(where: { $0.node == node }), selected.locked == nil,
+        if let selected = boxes.first(where: { $0.node == node }), selected.locked == nil, selected.joins == nil,
             let r = frameBox(selected, scale: scale)
         {
             let near = grabbing(selected, scale: scale)
@@ -1409,6 +1417,11 @@ struct CanvasSelection: View {
             }
             node = hit
             also = []
+            // A connector goes where what it joins goes (PLAN 2.109): a drag moves either, not it.
+            if boxes.first(where: { $0.node == hit })?.joins != nil {
+                press = .refused("\(name(hit, starting: true)) follows what it joins: move either")
+                return
+            }
             held = (hit, nil)
         }
         guard let held else { return }
@@ -1426,7 +1439,13 @@ struct CanvasSelection: View {
 
     /// A drag of `first`, one of several selected: all of them moved together.
     private func beginTogether(_ first: String) {
-        let all = [first] + selection.filter { $0 != first }
+        // A connector among them goes where what it joins goes (PLAN 2.109), not with the drag.
+        let joined = Set(boxes.filter { $0.joins != nil }.map(\.node))
+        let all = ([first] + selection.filter { $0 != first }).filter { !joined.contains($0) }
+        guard let first = all.first else {
+            press = .refused("A connector follows what it joins: move either")
+            return
+        }
         if let held = boxes.first(where: { all.contains($0.node) && $0.locked != nil }) {
             press = .refused("\(held.node) is locked: nothing moves")
             return
@@ -1522,7 +1541,7 @@ struct CanvasSelection: View {
     /// rotate handle, then the box's own.
     private func handleSpot(at point: CGPoint, fit: Fit) -> CGPoint? {
         guard also.isEmpty, !typing.typing, let selected = boxes.first(where: { $0.node == node }),
-            selected.locked == nil
+            selected.locked == nil, selected.joins == nil
         else { return nil }
         let near = grabbing(selected, scale: fit.scale)
         let close = { (p: CGPoint) -> Bool in hypot(p.x - point.x, p.y - point.y) <= near }

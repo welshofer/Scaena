@@ -776,6 +776,12 @@ impl Player {
         serde_json::to_string(&self.0.wording(shape).map_err(js)?).map_err(js)
     }
 
+    /// The patch that joins `from` to `to` in `state` with a line, or with an arrow that points
+    /// at `to` (PLAN 2.109), as JSON: `{ id, patch }`.
+    pub fn connecting(&self, state: &str, from: &str, to: &str, arrow: bool) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.connecting(state, from, to, arrow).map_err(js)?).map_err(js)
+    }
+
     /// The patch that puts `nodes` in a new group where they stand in `state` (PLAN 2.43), as
     /// JSON: `{ id, patch }`.
     pub fn grouping(&self, state: &str, nodes: Vec<String>) -> Result<String, JsError> {

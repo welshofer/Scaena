@@ -69,6 +69,7 @@ import type {
   ToWorker,
   Waiting,
   Worded,
+  Connected,
   Where,
   Writing,
   Written,
@@ -365,6 +366,13 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "wording":
         current(data.source);
         return post({ type: "worded", id: data.id, worded: JSON.parse(player.wording(data.shape)) as Worded });
+      case "connecting":
+        current(data.source);
+        return post({
+          type: "connected",
+          id: data.id,
+          connected: JSON.parse(player.connecting(data.state, data.from, data.to, data.arrow)) as Connected,
+        });
       case "grouping":
         current(data.source);
         return post({ type: "grouped", id: data.id, grouped: JSON.parse(player.grouping(data.state, data.nodes)) as Grouped });

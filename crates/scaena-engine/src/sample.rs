@@ -67,6 +67,9 @@ pub struct Scene {
     /// The slide's number and footer, where it shows them (ADR-0028): drawn over its nodes, and
     /// no node of the deck.
     pub furniture: Vec<SceneNode>,
+    /// What each connector joins, by its id (PLAN 2.109): what a drag of either end runs it
+    /// between again.
+    pub joins: HashMap<String, crate::shapes::Joint>,
 }
 
 /// A visible node's place in its scene.
@@ -133,8 +136,14 @@ impl Policy {
 impl Scene {
     /// The state at rest, its shaders `time` seconds into the global timeline.
     pub fn draw_at(&self, time: f64) -> DisplayList {
+        self.draw_with(time, &HashMap::new())
+    }
+
+    /// [`Scene::draw_at`], with each node `with` names drawn as it says in its place.
+    pub(crate) fn draw_with(&self, time: f64, with: &HashMap<&str, SceneNode>) -> DisplayList {
         let mut dl = self.ground();
         for node in &self.nodes {
+            let node = with.get(node.id.as_str()).unwrap_or(node);
             let op = node.draw(&mut dl, node.opacity, time);
             dl.ops.push(looked(op, self.rest(&node.id)));
         }

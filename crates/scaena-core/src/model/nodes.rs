@@ -291,7 +291,32 @@ node! {
         pub points: Option<Vec<Point>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub radius: Option<Length>,
+        /// The two nodes a line or an arrow joins (PLAN 2.109): it runs from `from`'s box to
+        /// `to`'s as each state lays them out, and so follows them, and it leaves wherever either
+        /// does. What it joins places it: it takes no `at` and no `points` of its own.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub connect: Option<Connect>,
     }
+}
+
+/// What a connector joins (PLAN 2.109): the node it runs from, the node it runs to, and how.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Connect {
+    pub from: Id,
+    pub to: Id,
+    /// `straight`, the default, runs between the two boxes along the line from middle to middle;
+    /// `elbow` leaves one box by the side that faces the other and turns at right angles.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route: Option<Route>,
+}
+
+/// How a connector runs between what it joins (PLAN 2.109).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Route {
+    Straight,
+    Elbow,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

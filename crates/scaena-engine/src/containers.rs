@@ -52,6 +52,9 @@ pub struct Placement {
     pub order: Vec<(String, Vec<(i64, usize)>)>,
     /// Each grid container's tracks as laid out: where its cells are (ADR-0013).
     pub tracks: HashMap<String, Tracks>,
+    /// Each connector's route (PLAN 2.109): its points, as fractions of its box, which runs
+    /// between the boxes of what it joins.
+    pub joined: HashMap<String, Vec<[f32; 2]>>,
 }
 
 /// A grid's tracks, each `[start, end]` in canvas units: columns left to right, rows top to
@@ -252,6 +255,17 @@ pub fn place(
             let inner = crate::shapes::words_box(&snap.nodes[parent.as_str()], theme, outer);
             placement.boxes.insert(id.clone(), inner);
         }
+    }
+    // A connector runs between what it joins (PLAN 2.109), wherever each was placed: its box is
+    // its route's, and its points the route's, as fractions of that box.
+    for (id, props) in &snap.nodes {
+        let Some(joint) = crate::shapes::Joint::of(props, theme) else { continue };
+        let (Some(&from), Some(&to)) = (placement.boxes.get(&joint.from), placement.boxes.get(&joint.to)) else {
+            continue;
+        };
+        let (rect, points) = joint.route(from, to);
+        placement.boxes.insert(id.clone(), rect);
+        placement.joined.insert(id.clone(), points);
     }
     Ok(placement)
 }
@@ -1051,6 +1065,32 @@ mod tests {
         let [x, y, w, h] = b["say-words"];
         let close = |a: f32, b: f32| (a - b).abs() < 0.5;
         assert!(close(x, 1324.0) && close(y, 124.0) && close(w, 512.0) && close(h, 252.0), "{:?}", b["say-words"]);
+    }
+
+    #[test]
+    fn a_connector_runs_between_what_it_joins_wherever_each_is_placed() {
+        // Connectors (PLAN 2.109): a box its route's, and points the route's as fractions of it,
+        // from one box's edge to the other's, `space.2` (8) clear of each.
+        let placement = place_deck(&deck(json!({
+            "a": { "type": "shape", "kind": "rect", "at": { "rect": [100, 100, 200, 100] } },
+            "b": { "type": "shape", "kind": "rect", "at": { "rect": [600, 100, 200, 100] } },
+            "c": { "type": "shape", "kind": "rect", "at": { "rect": [600, 500, 200, 100] } },
+            "ab": { "type": "shape", "kind": "arrow", "connect": { "from": "a", "to": "b" } },
+            "ac": { "type": "shape", "kind": "line", "connect": { "from": "a", "to": "c", "route": "elbow" } }
+        })))
+        .unwrap();
+        let drawn = |id: &str| -> Vec<[f32; 2]> {
+            let [x, y, w, h] = placement.boxes[id];
+            placement.joined[id].iter().map(|p| [x + p[0] * w, y + p[1] * h]).collect()
+        };
+        let near = |a: [f32; 2], b: [f32; 2]| (a[0] - b[0]).abs() < 0.01 && (a[1] - b[1]).abs() < 0.01;
+        let ab = drawn("ab");
+        assert!(ab.len() == 2 && near(ab[0], [308.0, 150.0]) && near(ab[1], [592.0, 150.0]), "{ab:?}");
+        // An elbow leaves a's side that faces c, turns halfway across, and meets c's facing side.
+        let ac = drawn("ac");
+        let elbow = [[308.0, 150.0], [450.0, 150.0], [450.0, 550.0], [592.0, 550.0]];
+        assert!(ac.len() == 4 && ac.iter().zip(elbow).all(|(p, q)| near(*p, q)), "{ac:?}");
+        assert_eq!(placement.boxes["ac"], [308.0, 150.0, 284.0, 400.0]);
     }
 
     #[test]

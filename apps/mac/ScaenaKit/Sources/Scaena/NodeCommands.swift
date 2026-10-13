@@ -36,6 +36,9 @@ struct DeckActions {
     /// Make a picture by the user's image model for the image selected, the slide's empty place
     /// for one, or where the pointer last pressed (PLAN 2.107).
     var makePicture: (() -> Void)? = nil
+    /// Join the first object selected to the second with an arrow, `true`, or a line, which
+    /// follows them (PLAN 2.109).
+    var connect: ((Bool) -> Void)? = nil
     /// Whether a node selected shows on another slide too: Delete from All Slides takes it off
     /// those as well, where Delete takes it off this slide on.
     var deletesElsewhere = false
@@ -58,7 +61,8 @@ extension FocusedValues {
 /// the bundle offer, landing where the pointer last pressed on the canvas; in the Edit menu,
 /// Duplicate (⌘D), Delete, from this slide on, Delete from All Slides, and Copy Style (⌥⌘C) and
 /// Paste Style (⌥⌘V, PLAN 2.58); and the Arrange menu: the order among what their container paints
-/// (⌥⌘], ⌘], ⌘[, ⌥⌘[, PLAN 2.42), Group (⌘G) and Ungroup (⌘⇧G, PLAN 2.43), and Lock (⇧⌘L). Each
+/// (⌥⌘], ⌘], ⌘[, ⌥⌘[, PLAN 2.42), Group (⌘G) and Ungroup (⌘⇧G, PLAN 2.43), Connect with Arrow
+/// and with Line (PLAN 2.109), and Lock (⇧⌘L). Each
 /// acts on every object selected (PLAN 3.13). The canvas takes Delete and Shift+Delete itself, as
 /// the browser's does. Between Insert and Arrange, as a presentation app has it, the Slide menu:
 /// New Slide (⇧⌘N), New Step, Duplicate Slide, and Delete Slide, on the slide shown.
@@ -136,6 +140,10 @@ struct NodeCommands: Commands {
             Button("Ungroup") { deck?.ungroup?() }
                 .keyboardShortcut("g", modifiers: [.command, .shift])
                 .disabled(deck?.ungroup == nil)
+            Button("Connect with Arrow") { deck?.connect?(true) }
+                .disabled(deck?.connect == nil)
+            Button("Connect with Line") { deck?.connect?(false) }
+                .disabled(deck?.connect == nil)
             Divider()
             Button(deck?.locked == true ? "Unlock" : "Lock") { deck?.lock?() }
                 .keyboardShortcut("l", modifiers: [.command, .shift])
