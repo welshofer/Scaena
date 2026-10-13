@@ -282,7 +282,7 @@ public struct Restored: Decodable, Sendable {
 extension ScaenaSession {
     // MARK: The theme
 
-    /// The themes that ship: Dusk, Daybreak, and Ember.
+    /// The themes that ship: Dusk, Daybreak, Ember, and Gallery.
     public func shippedThemes() throws -> [ShippedTheme] { try call("shippedThemes") }
 
     /// The theme the deck names, and the theme files the bundle holds.

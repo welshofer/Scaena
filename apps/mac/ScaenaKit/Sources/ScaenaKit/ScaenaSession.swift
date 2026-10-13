@@ -73,7 +73,7 @@ public final class ScaenaSession {
     }
 
     /// A new deck, as New makes one in the browser (PLAN 2.12, 3.3): the theme that ships as
-    /// `theme` (`dusk`, `daybreak`, or `ember`), its fonts, and one state with nothing on it,
+    /// `theme` (`dusk`, `daybreak`, `ember`, or `gallery`), its fonts, and one state with nothing on it,
     /// titled `title`. Kept nowhere until it is saved.
     public static func create(theme: String, title: String) throws -> ScaenaSession {
         var error: UnsafeMutablePointer<CChar>?

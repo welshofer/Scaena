@@ -41,7 +41,7 @@ enum Cmd {
     /// (PLAN 2.13): a theme, its fonts, and one state with nothing on it, titled `--title`.
     New {
         dir: PathBuf,
-        /// A theme that ships (`dusk`, `daybreak`, `ember`), which comes with its fonts; or a
+        /// A theme that ships (`dusk`, `daybreak`, `ember`, `gallery`), which comes with its fonts; or a
         /// theme file, whose fonts are beside it or above it.
         #[arg(long, default_value = "dusk")]
         theme: String,

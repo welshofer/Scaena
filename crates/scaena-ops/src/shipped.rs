@@ -1,12 +1,14 @@
 //! The themes that ship (SPEC §3.6), with their fonts, carried in the binary: what a deck starts
-//! from where no theme file is at hand (PLAN 2.13). Dusk, Daybreak, and Ember share one
-//! vocabulary on one grid, and the same three fonts, each with its italic. Each font carries
-//! its copyright and its license (the SIL Open Font License) in its own name table.
+//! from where no theme file is at hand (PLAN 2.13). Dusk, Daybreak, Ember, and Gallery share one
+//! vocabulary on one grid, and the same body and mono fonts, each with its italic: Inter and
+//! JetBrains Mono. The first three set display in Fraunces, and Gallery in Instrument Serif (PLAN
+//! 2.102). Each font carries its copyright and its license (the SIL
+//! Open Font License) in its own name table.
 
 /// A theme that ships.
 #[derive(Debug, Clone, Copy)]
 pub struct Shipped {
-    /// Its name, as `create` takes it: `dusk`, `daybreak`, or `ember`.
+    /// Its name, as `create` takes it: `dusk`, `daybreak`, `ember`, or `gallery`.
     pub name: &'static str,
     /// Its file's name in a bundle's `themes/`.
     pub file: &'static str,
@@ -14,7 +16,7 @@ pub struct Shipped {
 }
 
 /// Every theme that ships.
-pub const THEMES: [Shipped; 3] = [
+pub const THEMES: [Shipped; 4] = [
     Shipped {
         name: "dusk",
         file: "dusk.theme.json",
@@ -30,17 +32,25 @@ pub const THEMES: [Shipped; 3] = [
         file: "ember.theme.json",
         text: include_str!("../../../docs/examples/themes/ember.theme.json"),
     },
+    Shipped {
+        name: "gallery",
+        file: "gallery.theme.json",
+        text: include_str!("../../../docs/examples/themes/gallery.theme.json"),
+    },
 ];
 
 /// The fonts the themes name, by the paths they give them: each family's, and its italic's
 /// (PLAN 2.40).
-const FONTS: [(&str, &[u8]); 6] = [
+const FONTS: [(&str, &[u8]); 8] = [
     ("fonts/Fraunces-VF.ttf", include_bytes!("../../../docs/examples/fonts/Fraunces-VF.ttf")),
     ("fonts/Inter-VF.ttf", include_bytes!("../../../docs/examples/fonts/Inter-VF.ttf")),
     ("fonts/JetBrainsMono-VF.ttf", include_bytes!("../../../docs/examples/fonts/JetBrainsMono-VF.ttf")),
     ("fonts/Fraunces-Italic-VF.ttf", include_bytes!("../../../docs/examples/fonts/Fraunces-Italic-VF.ttf")),
     ("fonts/Inter-Italic-VF.ttf", include_bytes!("../../../docs/examples/fonts/Inter-Italic-VF.ttf")),
     ("fonts/JetBrainsMono-Italic-VF.ttf", include_bytes!("../../../docs/examples/fonts/JetBrainsMono-Italic-VF.ttf")),
+    // Gallery's (PLAN 2.102).
+    ("fonts/InstrumentSerif-Regular.ttf", include_bytes!("../../../docs/examples/fonts/InstrumentSerif-Regular.ttf")),
+    ("fonts/InstrumentSerif-Italic.ttf", include_bytes!("../../../docs/examples/fonts/InstrumentSerif-Italic.ttf")),
 ];
 
 /// The theme that ships as `name`, in any case.

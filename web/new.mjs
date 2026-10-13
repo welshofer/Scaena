@@ -74,7 +74,7 @@ try {
 
   // New, from its dialog.
   const themes = await page.locator("#making-theme option").allTextContents();
-  check(themes.join() === "Dusk,Daybreak,Ember", `New offers the themes that ship: ${themes}`);
+  check(themes.join() === "Dusk,Daybreak,Ember,Gallery", `New offers the themes that ship: ${themes}`);
   await page.click("#new-deck");
   await page.fill("#making-name", "Field notes: what’s next");
   await page.selectOption("#making-theme", "Daybreak");

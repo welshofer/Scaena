@@ -17,7 +17,7 @@
   - `lint` finds overflow, collisions, contrast against what is painted behind the text, missing glyphs, and motion. It also checks the argument itself: a beat with no claim, or evidence larger than its claim.
   - `lint --fix` applies the fixes it has checked by laying the state out again.
 - **See** it. `render` draws any state at rest or mid-cue, with the CPU painter or the GPU. Between states, text morphs word by word, shapes point by point, and charts by their marks.
-- **Theme** it. Dusk, Daybreak, and Ember ship with their fonts and share one vocabulary, so `theme --apply` moves a deck between them.
+- **Theme** it. Dusk, Daybreak, Ember, and Gallery ship with their fonts and share one vocabulary, so `theme --apply` moves a deck between them.
 - **Export** it:
   - a PDF, tagged, with text that copies;
   - PNG and SVG;

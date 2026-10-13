@@ -6,11 +6,12 @@ use scaena_ops::lint::{View, lint_state_in};
 use scaena_ops::states::starting;
 use std::path::{Path, PathBuf};
 
-/// The shipped themes, by name: Dusk, its light twin Daybreak, and Ember.
-const SHIPPED: [(&str, &str); 3] = [
+/// The shipped themes, by name: Dusk, its light twin Daybreak, Ember, and Gallery.
+const SHIPPED: [(&str, &str); 4] = [
     ("dusk", "../../docs/examples/themes/dusk.theme.json"),
     ("daybreak", "../../docs/examples/authorability/themes/daybreak.theme.json"),
     ("ember", "../../docs/examples/themes/ember.theme.json"),
+    ("gallery", "../../docs/examples/themes/gallery.theme.json"),
 ];
 
 /// A new bundle in `theme`, titled, at a place of its own.

@@ -49,9 +49,10 @@ pub struct Themed {
 
 /// Point the bundle's deck at the theme file `theme`, copying it to `themes/` unless it is
 /// in the bundle already. A family whose file the bundle does not hold is set in the bundle
-/// font of that family, if it has one: a saved bundle names fonts by their content. The
-/// deck's `fonts` lists each of the theme's families the bundle holds, as rendering needs
-/// it to (E102). A text the theme leaves too faint to read is set in its color that reads where
+/// font of that family, if it has one: a saved bundle names fonts by their content. One it has
+/// none of comes from the theme's own bundle, beside the theme file, and is copied in with it
+/// (`beside`), so a theme in a typeface the deck has never used brings it. The deck's `fonts`
+/// lists each of the theme's families the bundle holds, as rendering needs it to (E102). A text the theme leaves too faint to read is set in its color that reads where
 /// the text stands (below); the deck is not otherwise touched, and is written canonically.
 ///
 /// A theme that lacks a name the deck uses would leave it invalid, and an invalid deck is
@@ -74,7 +75,8 @@ pub fn theme_apply(b: &Bundle, theme: &Path, dry_run: bool, force: bool) -> Resu
     };
     let name = theme.file_name().and_then(|n| n.to_str()).context("the theme has no file name")?;
     let rel = inside.clone().unwrap_or_else(|| format!("themes/{name}"));
-    let (themed, write) = theming(b, &rel, &text, &BTreeMap::new(), inside.is_none(), force, true)?;
+    let fonts = if inside.is_some() { BTreeMap::new() } else { beside(theme, &text) };
+    let (themed, write) = theming(b, &rel, &text, &fonts, inside.is_none(), force, true)?;
     if !dry_run {
         if !themed.refused {
             write_deck(b, &write.deck, write.files, &write.why)?;
@@ -84,6 +86,26 @@ pub fn theme_apply(b: &Bundle, theme: &Path, dry_run: bool, force: bool) -> Resu
         }
     }
     Ok(Themed { applied: !dry_run && !themed.refused, ..themed })
+}
+
+/// The font files `text`, the theme file at `theme`, names, as its own bundle holds them: each
+/// path from the theme's folder, or from the folder above it, a bundle's `themes/` being in its
+/// root. A face found in neither is left to the bundle being themed.
+fn beside(theme: &Path, text: &str) -> BTreeMap<String, Vec<u8>> {
+    let mut fonts = BTreeMap::new();
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(text) else { return fonts };
+    let folder = theme.parent().unwrap_or(Path::new("."));
+    let families = parsed.pointer("/type/families").and_then(|f| f.as_object());
+    for family in families.into_iter().flat_map(|f| f.values()) {
+        for face in [Some(family), family.get("italic")].into_iter().flatten() {
+            let Some(file) = face.get("file").and_then(|f| f.as_str()) else { continue };
+            let found = [folder.join(file), folder.join("..").join(file)].iter().find_map(|p| std::fs::read(p).ok());
+            if let Some(bytes) = found {
+                fonts.insert(file.to_string(), bytes);
+            }
+        }
+    }
+    fonts
 }
 
 /// What a re-theme would do and what it writes, with nothing written: `theme_apply`'s twin,

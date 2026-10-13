@@ -155,7 +155,7 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
 
 | | |
 |---|---|
-| **New…** | a new deck: a title and a theme (Dusk, Daybreak, or Ember), with its fonts, on a title slide whose words you type over. It is kept nowhere until you save it. |
+| **New…** | a new deck: a title and a theme (Dusk, Daybreak, Ember, or Gallery), with its fonts, on a title slide whose words you type over. It is kept nowhere until you save it. |
 | **Open folder…** (Chrome, Edge) | a bundle folder on your disk. **Save** writes back into it. Use this to keep your work as files. |
 | **Open .scaena…** | a `.scaena` file, copied into the browser's storage. |
 | **Kept in this browser** | the bundles this browser keeps. A deck opened from the site's own folder saves here, under its name. |
@@ -184,7 +184,7 @@ cargo install --path crates/scaena-cli --locked    # puts `scaena` in ~/.cargo/b
 **The loop.** Start a deck, turn it into source, serve it, and write:
 
 ```sh
-scaena new talk --theme dusk --title "Field notes"   # a new deck: dusk, daybreak, or ember
+scaena new talk --theme dusk --title "Field notes"   # a new deck: dusk, daybreak, ember, or gallery
 scaena decompile talk -o talk/deck.scn            # the deck as source
 scaena serve talk                                 # then open http://localhost:4848/, and leave it running
 ```
@@ -351,7 +351,7 @@ What the props mean is in SPEC §3: the objects in §3.3, layout in §3.4, type 
 
 ## The theme's names
 
-The shipped themes, Dusk, Daybreak, and Ember, share these names, so a deck moves between them with no other change (`scaena theme --apply`). A name the theme does not have is E102. A test holds this section to the themes.
+The shipped themes, Dusk, Daybreak, Ember, and Gallery, share these names, so a deck moves between them with no other change (`scaena theme --apply`). A name the theme does not have is E102. A test holds this section to the themes.
 
 Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type over, a picture, a chart, or a card, a rule, an arrow, or a chevron. Add Slide in the editor offers every layout by the gallery's sections, Titles, Statements, Lists, Comparison, Frameworks, Process, Time, Numbers, Charts, Pictures, People, Editorial, and Closing, each under its name and drawn as its picture: the slide it starts, a picture in each picture's place and a chart or a table in each figure's, as its slots' `example`s say (PLAN 3.30, 3.31). A new slide in one has the words in its slots and its cards and rules; its pictures and figures wait for you. A slot that `bleed`s reaches the canvas's edge: `photo` is a picture edge to edge, and `photo-left` one off the left edge. `scripts/build_layouts.py` writes the library into each theme.
 

@@ -10,6 +10,10 @@ Built by `scripts/build_bundle_fonts.py` (fontTools 4.66.1) from [google/fonts](
 | `Fraunces-Italic-VF.ttf` | `ofl/fraunces/Fraunces-Italic[SOFT,WONK,opsz,wght].ttf` | `b24448c43702fac4…` | `61865dc5b081a18c…` | 405 KB → 321 KB | `display, italic` |
 | `Inter-Italic-VF.ttf` | `ofl/inter/Inter-Italic[opsz,wght].ttf` | `acd98e64795781b2…` | `d98eeb2fc9a2dd52…` | 885 KB → 481 KB | `body, italic` |
 | `JetBrainsMono-Italic-VF.ttf` | `ofl/jetbrainsmono/JetBrainsMono-Italic[wght].ttf` | `85ae2a5cd3f56baf…` | `8136f9ff0b6a7f6c…` | 187 KB → 153 KB | `mono, italic` |
+| `InstrumentSerif-Regular.ttf` | `ofl/instrumentserif/InstrumentSerif-Regular.ttf` | `498efd461f6ddfcb…` | `c4f9be612a41ffdd…` | 68 KB → 60 KB | `display (Gallery)` |
+| `InstrumentSerif-Italic.ttf` | `ofl/instrumentserif/InstrumentSerif-Italic.ttf` | `08939b8bdf534afe…` | `3f9be9cf7399400f…` | 69 KB → 61 KB | `display (Gallery), italic` |
+| `InstrumentSans-VF.ttf` | `ofl/instrumentsans/InstrumentSans[wdth,wght].ttf` | `b24f181258481695…` | `9460eec7eb2ca40e…` | 189 KB → 176 KB | `body (Gallery)` |
+| `InstrumentSans-Italic-VF.ttf` | `ofl/instrumentsans/InstrumentSans-Italic[wdth,wght].ttf` | `a74203cc5066a3b2…` | `a4a7a150ab71ea36…` | 197 KB → 182 KB | `body (Gallery), italic` |
 
 **Subset:** every character in `revenue.deck.json` ∪ `trails.deck.json` ∪ `higher-ed.deck.json` ∪ U+0020–007E ∪ U+00A0–017F ∪ U+0218–021B ∪ U+0370–04FF ∪ U+2000–27BF. All OpenType layout features, all name records, variations and hinting kept.
 

@@ -161,7 +161,7 @@ fn schema_of(source: &Value) -> IndexMap<String, String> {
 pub struct Create {
     /// The theme file to start from, copied to `themes/`. The fonts its families name are
     /// copied to `fonts/` from beside it, or above it: from the bundle it belongs to. Where no
-    /// such file is, a theme that ships, by its name (`dusk`, `daybreak`, `ember`), with its
+    /// such file is, a theme that ships, by its name (`dusk`, `daybreak`, `ember`, `gallery`), with its
     /// fonts, in a build that carries them (PLAN 2.13).
     pub theme: PathBuf,
     /// The deck, as `deck.json` holds it. Its `theme` and `fonts` are set to the bundle's.
