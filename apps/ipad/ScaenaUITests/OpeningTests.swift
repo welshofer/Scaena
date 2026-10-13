@@ -20,14 +20,22 @@ final class OpeningTests: XCTestCase {
 
     /// The launch screen offers a new deck, or one written from a prompt (PLAN G.6): New from a
     /// Prompt… shows the brief over the document browser, Generate held until the deck has
-    /// something to be about, and Cancel puts it away with no deck made.
+    /// something to be about, and Cancel puts it away with no deck made. A deck the app brought
+    /// back open is closed first, by its way back to the launch screen.
     @MainActor
     func testNewFromAPromptShowsTheBriefOverTheBrowser() {
         let app = launched()
-        let prompting = app.buttons["New from a Prompt…"]
+        let canvas = app.descendants(matching: .any).matching(identifier: "canvas").firstMatch
+        if canvas.waitForExistence(timeout: 10) {
+            app.buttons.matching(identifier: "BackButton").firstMatch.tap()
+            XCTAssertTrue(wait(10) { !canvas.exists }, "the deck brought back did not close: \(app.debugDescription)")
+        }
+        let prompting = app.buttons.matching(NSPredicate(format: "label == 'New from a Prompt…'")).firstMatch
         XCTAssertTrue(
             prompting.waitForExistence(timeout: 30), "the launch screen offers no New from a Prompt…: \(app.debugDescription)")
-        XCTAssertTrue(app.buttons["New Deck"].exists, "the launch screen offers no New Deck: \(app.debugDescription)")
+        XCTAssertTrue(
+            app.buttons.matching(NSPredicate(format: "label == 'New Deck'")).firstMatch.exists,
+            "the launch screen offers no New Deck: \(app.debugDescription)")
         prompting.tap()
         let topic = app.descendants(matching: .any).matching(identifier: "prompt-topic").firstMatch
         XCTAssertTrue(topic.waitForExistence(timeout: 10), "New from a Prompt… shows no brief: \(app.debugDescription)")
@@ -39,7 +47,6 @@ final class OpeningTests: XCTestCase {
         app.buttons["prompt-cancel"].tap()
         XCTAssertTrue(wait(10) { !topic.exists }, "Cancel left the brief up: \(app.debugDescription)")
         XCTAssertTrue(prompting.waitForExistence(timeout: 10), "Cancel went elsewhere than the launch screen: \(app.debugDescription)")
-        let canvas = app.descendants(matching: .any).matching(identifier: "canvas").firstMatch
         XCTAssertFalse(canvas.exists, "Cancel opened a deck: \(app.debugDescription)")
     }
 
@@ -51,6 +58,7 @@ final class OpeningTests: XCTestCase {
         XCTAssertTrue(app.buttons["Play"].exists, "B1's window has no Play: \(app.debugDescription)")
         settle()
         keep(app, as: "b1")
+        keepElements(app, as: "b1-elements")
     }
 
     /// A text inserted from the toolbar is typed in, its words selected, as a presentation app's

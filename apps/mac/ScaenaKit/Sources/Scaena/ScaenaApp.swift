@@ -63,11 +63,10 @@ struct ScaenaApp: App {
         }
         #if !os(macOS)
         // The document browser's launch screen: a new deck, or one written from a prompt, which
-        // the browser keeps where it stands and opens (PLAN G.6). It is declared after the
-        // DocumentGroup it launches, as the platform's own examples declare it, and its buttons are
-        // plain, the brief shown from UIKit (`Prompting`). Declared before it, with the brief's
-        // cover on its button (#281), an open deck showed inside the launch screen's window, under
-        // neither its title nor its toolbar.
+        // the browser keeps where it stands and opens (PLAN G.6), the brief shown from UIKit
+        // (`Prompting`). With it, a deck's window has no bar of the browser's over the split view:
+        // the deck's way back stands in the bar over the canvas's column, and the toolbar stands
+        // there with it (`DeckView`). Put on the split view (#281), the toolbar showed nowhere.
         DocumentGroupLaunchScene("Scaena") {
             NewDocumentButton("New Deck", contentType: .scaenaDeck)
             NewDocumentButton("New from a Prompt…", contentType: .scaenaDeck) {
