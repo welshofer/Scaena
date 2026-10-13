@@ -45,8 +45,16 @@
       a.button { text-decoration: none; }
       #bundle { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--line); }
       #where { color: var(--muted); }
-      #stage { display: block; width: 100%; height: auto; background: #000; }
-      #preview { position: relative; }
+      /* The desk: the room the panels around it leave, where the slide shows whole, centered, as
+         large as it fits: as wide as the column, or as tall as the room, so every panel and the
+         status stay in the window. `--aspect`, the canvas shown's width over its height, comes
+         from the canvas (canvas.ts); the slide's edge shows on any theme. */
+      /* The work's own column is the window's height, whatever the findings under it say: they
+         are a scroll away, and never move the slide while a person types or drags. */
+      #column { flex: none; height: 100%; display: flex; flex-direction: column; min-height: 0; }
+      #desk { flex: 1 1 0; min-height: 160px; display: grid; place-items: center; container-type: size; padding: 12px; }
+      #preview { position: relative; width: min(100cqw, calc(100cqh * var(--aspect, 1.7778))); aspect-ratio: var(--aspect, 1.7778); box-shadow: 0 0 0 1px var(--line), 0 8px 28px rgb(0 0 0 / 0.5); }
+      #stage { display: block; width: 100%; height: 100%; background: #000; }
       #overlay { position: absolute; inset: 0; outline: none; touch-action: none; }
       #overlay:focus-visible { outline: 2px solid var(--info); outline-offset: -2px; }
       #overlay svg { display: block; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
@@ -129,6 +137,9 @@
         resize: none; overflow: hidden; white-space: pre; pointer-events: none; caret-color: transparent;
       }
       #work p, #panel p { margin: 0; padding: 8px 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      /* What is marked hidden stays hidden: the rule above would show it (the assistant's
+         "Working…" did, with nothing asked). */
+      #work p[hidden], #panel p[hidden] { display: none; }
       /* What a press on the cue's ruler shows is the state in its cue, not at rest: the canvas's
          outlines, which are where things rest, step back. */
       #preview.scrubbing #overlay svg, #preview.scrubbing #marks { visibility: hidden; }
@@ -172,7 +183,7 @@
       #cue .cue-head { padding: 6px 0 2px; }
       #cue .clock { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
       #cue select { margin-left: auto; max-width: 16em; }
-      #cue .lanes { position: relative; display: grid; grid-template-columns: minmax(6em, 11em) minmax(0, 1fr); column-gap: 8px; row-gap: 2px; max-height: 26vh; overflow-y: auto; padding-bottom: 4px; }
+      #cue .lanes { position: relative; display: grid; grid-template-columns: minmax(6em, 11em) minmax(0, 1fr); column-gap: 8px; row-gap: 2px; height: 110px; max-height: 26vh; overflow-y: auto; padding-bottom: 4px; }
       #cue .label { grid-column: 1; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 16px; }
       #cue .ruler, #cue .track { grid-column: 2; position: relative; height: 16px; cursor: text; }
       #cue .track { background: rgb(255 255 255 / 0.03); border-radius: 2px; }
@@ -227,7 +238,9 @@
       }
       #strip li[aria-selected="true"] { border-color: var(--info); }
       #strip li:focus-visible { outline: 2px solid var(--info); outline-offset: 1px; }
-      #strip canvas { display: block; height: 54px; width: auto; background: #000; }
+      /* A thumbnail keeps its place and shows as one waiting until it is painted: the canvas
+         shown's shape, in the line's gray, not a black slide. */
+      #strip canvas { display: block; height: 54px; width: auto; aspect-ratio: var(--aspect, 1.7778); background: var(--line); }
       #strip .id { max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #strip .cue { color: var(--muted); font-variant-numeric: tabular-nums; }
       #strip input { width: 90px; font: inherit; font-size: 11px; background: var(--surface); color: var(--ink); border: 1px solid var(--info); border-radius: 3px; }
@@ -235,8 +248,11 @@
       #strip .drop-after { box-shadow: 3px 0 0 var(--info); }
       #strip .adds { display: flex; flex-direction: column; gap: 4px; justify-content: center; }
       /* The light table (PLAN 2.97): the deck's slides in a grid, in place of the preview. */
-      #slides { flex: none; padding: 12px; }
-      #work.tabled #preview, #work.tabled #formats, #work.tabled #cue { display: none !important; }
+      /* It scrolls itself, the panels under it staying put; a slide brought into view stands clear
+         of the slider at its foot. */
+      #slides { flex: 1 1 0; min-height: 0; overflow: auto; padding: 12px; scroll-padding-bottom: 56px; }
+      #slides[hidden] { display: none; }
+      #work.tabled #desk, #work.tabled #formats, #work.tabled #cue { display: none !important; }
       #slides ol { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--slide, 240px), 1fr)); gap: 14px; margin: 0; padding: 4px; list-style: none; }
       /* The slider at its foot that makes the slides larger or smaller, as many to a row as fit. */
       #slides .sizing { position: sticky; bottom: 0; display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin: 8px 0 0; padding: 6px 4px; background: var(--surface); color: var(--muted); }
@@ -244,7 +260,7 @@
       #slides .sizing .small { font-size: 10px; }
       #slides .sizing .large { font-size: 20px; }
       #slides li { position: relative; display: grid; grid-template-columns: auto 1fr auto; align-items: baseline; gap: 2px 8px; padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); cursor: pointer; font-size: 12px; }
-      #slides canvas { grid-column: 1 / -1; display: block; width: 100%; height: auto; aspect-ratio: auto 16 / 9; background: #000; border-radius: 3px; }
+      #slides canvas { grid-column: 1 / -1; display: block; width: 100%; height: auto; aspect-ratio: var(--aspect, 1.7778); background: var(--line); border-radius: 3px; }
       #slides .n { color: var(--muted); font-variant-numeric: tabular-nums; }
       #slides .id { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #slides .steps { color: var(--muted); }
@@ -547,6 +563,7 @@
         <div id="code"></div>
       </section>
       <div id="work">
+        <div id="column">
         <nav id="bundle" aria-label="Bundle">
           <button type="button" id="source-toggle" aria-controls="source" aria-pressed="false" title="The deck's source as .scn, beside the canvas (⌘\)">Source</button>
           <button id="new-deck" title="A new deck from a theme that ships">New…</button>
@@ -580,6 +597,7 @@
           <button type="button" data-on title="The next state (→, Space, or a click on the canvas)">On</button>
           <button type="button" data-end title="Stop, and see what each state took (Escape)">End</button>
         </div>
+        <div id="desk">
         <div id="preview">
           <canvas id="stage"></canvas>
           <div
@@ -589,6 +607,7 @@
             aria-label="The state shown. Click a node to select it, then drag it, or move it with the arrow keys; Shift with an arrow resizes it, and Escape selects what holds it."
           ><svg aria-hidden="true"></svg></div>
           <div id="marks"></div>
+        </div>
         </div>
         <section id="slides" aria-label="The light table: the deck's slides" hidden>
           <ol role="listbox" aria-label="Slides" aria-multiselectable="true"></ol>
@@ -633,6 +652,7 @@
           <span id="status" role="status">loading…</span>
           <span id="offline" class="offline" hidden title="The site keeps every file it needs in this browser: it opens, plays, and edits with no network">Works offline</span>
         </p>
+        </div>
         <ul id="problems" aria-label="Problems"></ul>
       </div>
       <aside id="panel">
