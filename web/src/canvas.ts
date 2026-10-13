@@ -707,6 +707,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (ruling) grid = await ruling;
     waits = await waiting;
     boxed = shown.state;
+    // The desk shapes the preview as the canvas shown, and the strip its thumbnails.
+    overlay.closest<HTMLElement>("#work")?.style.setProperty("--aspect", String(size[0] / size[1]));
     // Another format, laid out again, or another canvas: the preview shows all of it again.
     if (size[0] !== was[0] || size[1] !== was[1] || format !== framed) void look([0, 0, size[0], size[1]]);
     framed = format;
