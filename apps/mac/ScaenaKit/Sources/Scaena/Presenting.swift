@@ -205,13 +205,14 @@ extension View {
     /// a point of this view is; it turns no slide.
     func turns(_ showing: Showing, slide: @escaping (CGPoint) -> CGPoint?) -> some View {
         self
-            .highPriorityGesture(
+            // Beside the tap, which still turns a slide: a hold ended turns none (`lifting`).
+            .simultaneousGesture(
                 LongPressGesture(minimumDuration: 0.3)
                     .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .local))
                     .onChanged { held in
                         if case .second(true, let drag?) = held { showing.hold(slide(drag.location)) }
                     }
-                    .onEnded { _ in showing.hold(nil) }
+                    .onEnded { _ in showing.hold(nil, ended: true) }
             )
             .gesture(
                 DragGesture(minimumDistance: 24)
@@ -371,10 +372,20 @@ final class Showing {
         #endif
     }
 
-    /// A touch held on the slide at `at`, or let go: the laser while it stays down, on or off.
-    func hold(_ at: CGPoint?) {
-        pointer = at
+    /// A touch held on the slide at `at`, or off it, or let go (`ended`): the laser while it stays
+    /// down, on or off.
+    func hold(_ at: CGPoint?, ended: Bool = false) {
+        pointer = ended ? nil : at
+        held = !ended
+        if ended { letGo = Date() }
     }
+
+    /// A touch held as the laser, while it is down, and when it was let go.
+    @ObservationIgnored private var held = false
+    @ObservationIgnored private var letGo: Date?
+
+    /// Whether a tap now is the lifting of a touch held as the laser, which turns no slide.
+    var lifting: Bool { held || letGo.map { Date().timeIntervalSince($0) < 0.5 } == true }
 
     /// Where `location` on a view `size` big that fits the canvas in its middle is on the slide, as
     /// fractions of it; none off it.
@@ -426,6 +437,7 @@ final class Showing {
     /// A click at `location` on a stage `stage` points across: a link there at rest followed
     /// (PLAN 2.70), a state shown, a web address opened in the browser; else on, as any click.
     func click(at location: CGPoint, on stage: CGSize) {
+        if lifting { return }
         if uncovered() { return }
         if let link = link(at: location, on: stage), follow(link) { return }
         on()
@@ -797,7 +809,7 @@ struct PresenterView: View {
                                 ZStack {
                                     Color.clear
                                         .contentShape(Rectangle())
-                                        .onTapGesture { showing.on() }
+                                        .onTapGesture { if !showing.lifting { showing.on() } }
                                         // The pointer here points the laser on the room's slide.
                                         .onContinuousHover(coordinateSpace: .local) { phase in
                                             switch phase {
