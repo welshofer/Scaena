@@ -66,6 +66,7 @@ import type {
   Starter,
   Version,
   Waiting,
+  Worded,
   Writing,
   WritingAsk,
   WritingCall,
@@ -149,6 +150,7 @@ type Reply = Extract<
       | "inserts"
       | "layers"
       | "adding"
+      | "worded"
       | "deleting"
       | "copied"
       | "pasted"
@@ -745,6 +747,12 @@ export class Stage {
     return this.request<"adding">({ type: "duplicating", id: ++this.asked, source, state, node, format }).then(({ added }) => added);
   }
 
+  /** The words of `shape` to type in (PLAN 2.108): the text that holds them, and the patch that
+   * gives it one where it holds none. */
+  wording(source: string, shape: string): Promise<Worded> {
+    return this.request<"worded">({ type: "wording", id: ++this.asked, source, shape }).then(({ worded }) => worded);
+  }
+
   /** The patch that puts `nodes`, children of one container as `state` shows them, in a new group
    * where they stand, on the deck `source` compiles to (PLAN 2.43): its id and the patch. */
   grouping(source: string, state: string, nodes: string[]): Promise<Grouped> {
@@ -1026,6 +1034,7 @@ export class Stage {
       case "inserts":
       case "layers":
       case "adding":
+      case "worded":
       case "deleting":
       case "copied":
       case "pasted":

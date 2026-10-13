@@ -113,7 +113,9 @@ pub fn place(
         if !snap.nodes.contains_key(parent) {
             return Err(in_node(id, format!("its container `{parent}` is not in state `{}`", snap.state_id)));
         }
-        if !is_container(kind(parent)) {
+        // A shape holds words (PLAN 2.108): one text, which it places inside itself.
+        let words = kind(parent) == NodeType::Shape && kind(id) == NodeType::Text;
+        if !is_container(kind(parent)) && !words {
             let what = kind_name(kind(parent));
             return Err(in_node(id, format!("`{parent}` is a {what} node, not a stack, grid, frame, or group")));
         }
@@ -241,6 +243,15 @@ pub fn place(
             return Err(e);
         }
         flow.read(node, [cell[0], cell[1]], &mut placement.boxes, &mut placement.tracks)?;
+    }
+    // The words in a shape take the room inside it (PLAN 2.108), wherever the shape was placed.
+    for (id, parent) in &placement.parents {
+        if kind(parent) == NodeType::Shape
+            && let Some(&outer) = placement.boxes.get(parent.as_str())
+        {
+            let inner = crate::shapes::words_box(&snap.nodes[parent.as_str()], theme, outer);
+            placement.boxes.insert(id.clone(), inner);
+        }
     }
     Ok(placement)
 }
@@ -1011,6 +1022,42 @@ mod tests {
             "b": { "type": "shape", "at": { "parent": "g" }, "opacity": 0.5 } })))
         .unwrap()[0];
         assert_eq!((p.opacity(snap, "b"), p.opacity(snap, "g")), (0.5, 0.5), "a group composites at its own opacity");
+    }
+
+    #[test]
+    fn a_shape_holds_its_words_in_the_room_inside_it() {
+        // Words in a shape (PLAN 2.108): a rect's box, an oval's inscribed square, and the part of
+        // a callout above its tail, each less the theme's `space.4` (24) on every side, or a twelfth
+        // of its shorter side where that is less.
+        let b = boxes(json!({
+            "card": { "type": "shape", "kind": "rect", "at": { "rect": [100, 100, 600, 300] } },
+            "card-words": { "type": "text", "text": "Hi", "at": { "parent": "card" } },
+            "oval": { "type": "shape", "kind": "ellipse", "at": { "rect": [800, 100, 400, 400] } },
+            "oval-words": { "type": "text", "text": "Hi", "at": { "parent": "oval" } },
+            "say": { "type": "shape", "kind": "polygon", "at": { "rect": [1300, 100, 560, 400] },
+                "points": [[0, 0], [1, 0], [1, 0.75], [0.42, 0.75], [0.2, 1], [0.26, 0.75], [0, 0.75]] },
+            "say-words": { "type": "text", "text": "Hi", "at": { "parent": "say" } }
+        }));
+        assert_eq!(b["card-words"], [124.0, 124.0, 552.0, 252.0]);
+        let [x, y, w, h] = b["oval-words"];
+        // The square inscribed is 283 a side, so a twelfth of it, less than 24, is its inset.
+        let side = 400.0 * std::f32::consts::FRAC_1_SQRT_2;
+        let pad = side / 12.0;
+        let inset = (400.0 - side) / 2.0 + pad;
+        let near = |a: f32, b: f32| (a - b).abs() < 0.01;
+        assert!(near(x, 800.0 + inset) && near(y, 100.0 + inset), "{:?}", b["oval-words"]);
+        assert!(near(w, side - 2.0 * pad) && near(h, side - 2.0 * pad), "{:?}", b["oval-words"]);
+        // The bubble above the tail, 560 × 300, its inset 24.
+        let [x, y, w, h] = b["say-words"];
+        let close = |a: f32, b: f32| (a - b).abs() < 0.5;
+        assert!(close(x, 1324.0) && close(y, 124.0) && close(w, 512.0) && close(h, 252.0), "{:?}", b["say-words"]);
+    }
+
+    #[test]
+    fn a_shape_holds_words_alone() {
+        let err = |nodes: Value| place_deck(&deck(nodes)).unwrap_err().to_string();
+        let e = err(json!({ "s": { "type": "shape" }, "i": { "type": "shape", "at": { "parent": "s" } } }));
+        assert!(e.contains("node `i`") && e.contains("not a stack, grid, frame, or group"), "{e}");
     }
 
     #[test]

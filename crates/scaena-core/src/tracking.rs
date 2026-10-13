@@ -7,7 +7,7 @@
 //!
 //! Resolution is deterministic and depends only on the document.
 
-use crate::document::{Deck, Props, State, StateMode};
+use crate::document::{Deck, Node, NodeType, Props, State, StateMode};
 use indexmap::IndexMap;
 use serde::Serialize;
 use serde_json::Value;
@@ -164,6 +164,8 @@ fn apply_state(
     base_layout: Option<String>,
     prev: Option<&Snapshot>,
 ) -> Result<Snapshot, TrackingError> {
+    // What the state tracks from, before it adds or takes away anything.
+    let tracked: std::collections::HashSet<String> = nodes.keys().cloned().collect();
     for id in &state.remove {
         if !deck.nodes.contains_key(id) {
             return Err(TrackingError::UnknownNode { state: state.id.clone(), node: id.clone() });
@@ -176,6 +178,17 @@ fn apply_state(
         };
         let entry = nodes.entry(id.clone()).or_insert_with(|| node.props.clone());
         merge_props(entry, delta);
+    }
+    // Words in a shape go where it goes (PLAN 2.108): they enter with it, unless this state takes
+    // them away, track as any node does, and leave when it leaves.
+    for (id, node) in &deck.nodes {
+        let Some(shape) = words_of(deck, node) else { continue };
+        let entering = nodes.contains_key(shape) && !tracked.contains(shape) && !state.remove.contains(id);
+        if !nodes.contains_key(shape) {
+            nodes.shift_remove(id.as_str());
+        } else if entering && !nodes.contains_key(id.as_str()) {
+            nodes.insert(id.clone(), node.props.clone());
+        }
     }
     // Keep scene-graph order (nodes map order) so painters get a stable z-list.
     let ordered: IndexMap<String, Props> =
@@ -195,6 +208,15 @@ fn apply_state(
         entered,
         exited,
     })
+}
+
+/// The shape `node` is the words of (PLAN 2.108): a text whose own `at.parent` names a shape.
+pub fn words_of<'a>(deck: &'a Deck, node: &'a Node) -> Option<&'a str> {
+    if node.node_type != NodeType::Text {
+        return None;
+    }
+    let shape = node.props.get("at")?.get("parent")?.as_str()?;
+    (deck.nodes.get(shape)?.node_type == NodeType::Shape).then_some(shape)
 }
 
 /// Shallow-merge `delta` into `base`: top-level keys replace; object values merge

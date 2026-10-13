@@ -440,7 +440,8 @@ impl Rule for W201Measure {
     }
 }
 
-/// W220: paragraphs (text of two lines or more) aligned more than one way in a state.
+/// W220: paragraphs (text of two lines or more) aligned more than one way in a state; a shape's
+/// words are none of them (PLAN 2.108).
 pub struct W220MixedAlignment;
 impl Rule for W220MixedAlignment {
     fn code(&self) -> &'static str {
@@ -453,8 +454,11 @@ impl Rule for W220MixedAlignment {
         let mut out = Vec::new();
         for state in cx.states {
             let mut by: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+            // A shape's words stand in its middle as a label does (PLAN 2.108): no paragraph of
+            // the slide's.
+            let words = |id: &str| cx.deck.nodes.get(id).and_then(|n| scaena_core::tracking::words_of(cx.deck, n));
             for (id, placed, _) in texts(state) {
-                if placed.text.lines.len() >= 2 {
+                if placed.text.lines.len() >= 2 && words(id).is_none() {
                     let align = match placed.text.align {
                         TextAlign::Start => "start",
                         TextAlign::Center => "center",

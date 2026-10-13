@@ -230,7 +230,8 @@ pub struct AlignAxes {
 /// Where a node goes. One placement wins: `rect`, else `in`, else `col`/`row` (SPEC §3.4).
 /// Grid cells and slots are theme-managed; `rect` is an explicit override (lint W301 in
 /// template-managed states). In a container (`parent`), `col`/`row` and `area` are its
-/// grid's, `rect` is relative to a frame's padding, and a stack places its children itself.
+/// grid's, `rect` is relative to a frame's padding, and a stack places its children itself, as
+/// a shape places its words.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Placement {
@@ -241,7 +242,9 @@ pub struct Placement {
     /// Named slot in the state's layout template, or `canvas` or `grid`.
     #[serde(rename = "in", default, skip_serializing_if = "Option::is_none")]
     pub slot: Option<String>,
-    /// The container this node is in: a `stack`, `grid`, `frame`, or `group` (ADR-0008).
+    /// The container this node is in: a `stack`, `grid`, `frame`, or `group` (ADR-0008). A
+    /// text's may be a shape, other than a line or an arrow: the text is the shape's words, which
+    /// it places in the room inside it, with no other key of `at` (PLAN 2.108).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<Id>,
     /// Order among the container's children, as CSS `order`: ascending, default 0, ties

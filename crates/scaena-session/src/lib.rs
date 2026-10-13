@@ -630,10 +630,11 @@ impl Session {
     }
 
     /// [`Session::boxes`] as a client lists them (ADR-0013): `[{ "node", "rect": [x, y, w, h],
-    /// "parent"?, "draws", "transform"?, "locked"? }]`, canvas units. `transform` is where its
-    /// own and its containers' draw it from `rect` (SPEC §3.3), `[a, b, c, d, e, f]`, where
-    /// something moves it; `locked`, where the node is locked (PLAN 2.95), the node whose lock
-    /// holds it: itself, or what holds it.
+    /// "parent"?, "draws", "transform"?, "locked"?, "takesWords"?, "words"? }]`, canvas units.
+    /// `transform` is where its own and its containers' draw it from `rect` (SPEC §3.3),
+    /// `[a, b, c, d, e, f]`, where something moves it; `locked`, where the node is locked (PLAN
+    /// 2.95), the node whose lock holds it: itself, or what holds it; `takesWords`, a shape that
+    /// takes words, and `words`, the text that holds a shape's (PLAN 2.108).
     pub fn boxes_json(&mut self, state: &str) -> Result<Vec<serde_json::Value>, Error> {
         let boxes = self.boxes(state)?;
         // Locked, or held by what is, however deep (PLAN 2.95).
@@ -651,12 +652,33 @@ impl Session {
             None
         };
         let locked: Vec<Option<String>> = boxes.iter().map(|b| held(&b.node)).collect();
-        Ok((boxes.into_iter().zip(locked))
-            .map(|(b, locked)| {
+        // Each shape's words (PLAN 2.108): the text it holds.
+        let words: std::collections::HashMap<&str, &str> = (self.deck.nodes.iter())
+            .filter_map(|(id, n)| Some((scaena_core::tracking::words_of(&self.deck, n)?, id.as_str())))
+            .collect();
+        let shapes: Vec<Option<(bool, Option<String>)>> = (boxes.iter())
+            .map(|b| {
+                let node =
+                    (self.deck.nodes.get(&b.node)).filter(|n| n.node_type == scaena_core::document::NodeType::Shape)?;
+                let kind = node.props.get("kind").and_then(serde_json::Value::as_str);
+                Some((!matches!(kind, Some("line" | "arrow")), words.get(b.node.as_str()).map(|w| w.to_string())))
+            })
+            .collect();
+        Ok((boxes.into_iter().zip(locked).zip(shapes))
+            .map(|((b, locked), shape)| {
                 let mut out =
                     serde_json::json!({ "node": b.node, "rect": b.rect, "parent": b.parent, "draws": b.draws });
                 if let Some(map) = b.transform {
                     out["transform"] = serde_json::json!(map);
+                }
+                // A shape that takes words, and the text that holds them, if any (PLAN 2.108).
+                if let Some((takes, held)) = shape {
+                    if takes {
+                        out["takesWords"] = serde_json::json!(true);
+                    }
+                    if let Some(words) = held {
+                        out["words"] = serde_json::json!(words);
+                    }
                 }
                 if let Some(by) = locked {
                     out["locked"] = serde_json::json!(by);
@@ -1453,6 +1475,13 @@ impl Session {
         let done = there();
         self.set_format(shown.as_deref())?;
         done.map(|()| added)
+    }
+
+    /// The words of `shape` to type in (PLAN 2.108): the text it holds, or the patch that gives it
+    /// one, empty, which goes where the shape goes.
+    #[cfg(feature = "editor")]
+    pub fn wording(&self, shape: &str) -> Result<scaena_ops::inspect::Worded, Error> {
+        scaena_ops::inspect::wording(&self.deck, &self.theme, shape).map_err(|e| Error::Deck(e.to_string()))
     }
 
     /// [`Session::duplicating`] in the format shown alone.
@@ -2699,6 +2728,53 @@ mod tests {
         assert!(!s.compile(&invalid).valid);
         assert!(!s.compiled_from(&invalid));
         assert!(!s.compiled_from(&typed), "the deck shown is from it, but it is not the source compiled last");
+    }
+
+    /// Words in a shape (PLAN 2.108): a star inserted takes words; the patch that gives it some adds
+    /// an empty text that stands inside it, which its box names, the layers list under it, and
+    /// what is written there draws there.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_shape_is_given_words_that_stand_inside_it() {
+        let mut s = revenue();
+        let by = || assistant::Caller { author: "user", at: None };
+        let n = s.inserts().iter().position(|i| i.label == "Shape · star").unwrap();
+        let star = s.inserting("revenue", n, [960.0, 540.0], None).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": star.patch }), by()).unwrap();
+        let shape = |s: &mut Session| {
+            s.boxes_json("revenue").unwrap().into_iter().find(|b| b["node"] == star.id.as_str()).unwrap()
+        };
+        assert_eq!(shape(&mut s)["takesWords"], true);
+        assert!(shape(&mut s).get("words").is_none());
+        let given = s.wording(&star.id).unwrap();
+        assert_eq!(given.id, format!("{}-words", star.id));
+        s.tool("deck_patch", serde_json::json!({ "ops": given.patch }), by()).unwrap();
+        let path = format!("/nodes/{}/text", given.id);
+        let write = serde_json::json!([{ "op": "replace", "path": path, "value": "Ship it" }]);
+        s.tool("deck_patch", serde_json::json!({ "ops": write }), by()).unwrap();
+        assert_eq!(shape(&mut s)["words"], given.id.as_str());
+        let boxes = s.boxes("revenue").unwrap();
+        let outer = boxes.iter().find(|b| b.node == star.id).unwrap().rect;
+        let inner = boxes.iter().find(|b| b.node == given.id).unwrap().rect;
+        let within = inner[0] > outer[0] && inner[1] > outer[1];
+        assert!(within && inner[0] + inner[2] < outer[0] + outer[2] && inner[1] + inner[3] < outer[1] + outer[3]);
+        // The words draw there, and the layers list them under the star.
+        let hits = s.hit("revenue", [inner[0] + inner[2] / 2.0, inner[1] + inner[3] / 2.0]).unwrap();
+        assert_eq!(hits.first().map(|h| h.node.as_str()), Some(given.id.as_str()));
+        let layers = s.layers("revenue").unwrap();
+        let held = layers.iter().find(|l| l.node == star.id).unwrap();
+        assert_eq!(held.children.iter().map(|l| l.node.as_str()).collect::<Vec<_>>(), [given.id.as_str()]);
+        // A shape holding words is given them back, nothing added.
+        assert!(s.wording(&star.id).unwrap().patch.is_empty());
+        // A copy of the star copies its words, which the copy places.
+        let copy = s.duplicating("revenue", &star.id).unwrap();
+        let words = copy.patch.iter().find(|op| op["op"] == "add_node" && op["node"]["type"] == "text");
+        assert_eq!(
+            words.map(|op| op["node"]["at"]["parent"].clone()),
+            Some(serde_json::json!(copy.id)),
+            "{:?}",
+            copy.patch
+        );
     }
 
     /// The revenue example, its files handed over as a page hands them.

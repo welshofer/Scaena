@@ -770,6 +770,12 @@ impl Player {
         serde_json::to_string(&self.0.duplicating(state, node).map_err(js)?).map_err(js)
     }
 
+    /// The words of `shape` to type in, as JSON: `{ id, patch }`, the patch empty where it holds
+    /// them already (PLAN 2.108).
+    pub fn wording(&self, shape: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.wording(shape).map_err(js)?).map_err(js)
+    }
+
     /// The patch that puts `nodes` in a new group where they stand in `state` (PLAN 2.43), as
     /// JSON: `{ id, patch }`.
     pub fn grouping(&self, state: &str, nodes: Vec<String>) -> Result<String, JsError> {

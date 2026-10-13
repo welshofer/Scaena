@@ -109,7 +109,9 @@ fn nest<'a>(
             let node = deck.nodes.get(id)?;
             let kind = node.node_type;
             let locked = node.props.get("locked").and_then(Value::as_bool) == Some(true);
-            let children = if kind.is_container() { nest(Some(id), listed, deck, placed) } else { vec![] };
+            // A shape lists its words under it (PLAN 2.108), as a container what it holds.
+            let holds = kind.is_container() || kind == NodeType::Shape;
+            let children = if holds { nest(Some(id), listed, deck, placed) } else { vec![] };
             Some(Layer { node: id.to_string(), kind, shown, locked, children })
         })
         .collect()

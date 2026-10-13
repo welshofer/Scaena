@@ -426,13 +426,16 @@ struct CanvasSelection: View {
                 press = nil
             }
         }
-        .onChange(of: typing.node) { _, now in
+        .onChange(of: typing.node) { was, now in
             // Typing begun where no press began it (the Pencil writing on a text, PLAN 4.4) selects
             // the text typed in, as a double click does.
             if let now, node != now {
                 node = now
                 also = []
             }
+            // Typing in a shape's words stopped: the shape is selected, as a presentation app's is
+            // (PLAN 2.108).
+            if now == nil, let was, node == was, also.isEmpty { node = reached(was) }
         }
         .onChange(of: node) { _, now in
             // Another node selected, in the layers or by a finding, stops typing.
@@ -1085,7 +1088,7 @@ struct CanvasSelection: View {
             said = handleSaid(selected, first, 0, list.count)
             return true
         }
-        if also.isEmpty, typing.enter(selected, in: state, at: nil, fork: option) { return true }
+        if also.isEmpty, typeIn(selected, at: nil) { return true }
         said = "Nothing to edit in it here"
         return true
     }
@@ -1256,14 +1259,45 @@ struct CanvasSelection: View {
     /// Shift, a click adds what draws there to what is selected, or takes it out (PLAN 3.13).
     private func pick(_ point: CGPoint) {
         let hits = (try? editor.session.hits(state: state, at: point)) ?? []
-        let hit = hits.first { $0.locked == nil }?.node
+        let hit = (hits.first { $0.locked == nil }?.node).map(reached)
         if Held.shift, let hit, node != nil {
             return toggle(hit)
         }
         node = hit
         also = []
         if let node, clicks >= 2 {
-            typing.enter(node, in: state, at: point, fork: Held.option)
+            typeIn(node, at: point)
+        }
+    }
+
+    /// What a press on `hit` reaches (PLAN 2.108): a shape's words, reached as the shape, which a
+    /// click selects and a drag moves; anything else as itself.
+    private func reached(_ hit: String) -> String {
+        guard let parent = boxes.first(where: { $0.node == hit })?.parent,
+            boxes.first(where: { $0.node == parent })?.words == hit
+        else { return hit }
+        return parent
+    }
+
+    /// Type in `node` where `point` is (PLAN 3.9), kept to the state with Option; in a shape, in
+    /// its words, which it is given first where it holds none, one step to undo (PLAN 2.108).
+    @discardableResult
+    private func typeIn(_ node: String, at point: CGPoint?) -> Bool {
+        guard let shape = boxes.first(where: { $0.node == node }), shape.takesWords == true else {
+            return typing.enter(node, in: state, at: point, fork: Held.option)
+        }
+        if let words = shape.words {
+            self.node = words
+            return typing.enter(words, in: state, at: point, fork: Held.option)
+        }
+        do {
+            let worded = try editor.session.wording(shape: node)
+            try editor.make(worded.patch)
+            self.node = worded.id
+            return typing.enter(worded.id, in: state, at: nil, fork: false)
+        } catch {
+            said = "Not given words: \(error)"
+            return false
         }
     }
 
@@ -1363,18 +1397,19 @@ struct CanvasSelection: View {
         }
         if held == nil {
             let hits = (try? editor.session.hits(state: state, at: point)) ?? []
-            guard let hit = hits.first(where: { $0.locked == nil }) else {
+            guard let top = hits.first(where: { $0.locked == nil }) else {
                 // From where nothing draws, a marquee.
                 press = .banding(from: point, to: point)
                 return
             }
+            let hit = reached(top.node)
             // A node selected with others moves them all.
-            if also.count > 0, selection.contains(hit.node) {
-                return beginTogether(hit.node)
+            if also.count > 0, selection.contains(hit) {
+                return beginTogether(hit)
             }
-            node = hit.node
+            node = hit
             also = []
-            held = (hit.node, nil)
+            held = (hit, nil)
         }
         guard let held else { return }
         do {

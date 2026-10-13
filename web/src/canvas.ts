@@ -716,8 +716,19 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     editor.say(`${names} ${is} locked: nothing ${doing}. ${MOD}${SHIFT}L unlocks ${held.length === 1 ? "it" : "them"}`);
     return true;
   }
-  /** The topmost of `hits` a pointer reaches: a locked node it passes over (PLAN 2.95). */
-  const reached = <H extends { locked?: string }>(hits: H[]) => hits.find((h) => !h.locked);
+  /** The topmost of `hits` a pointer reaches: a locked node it passes over (PLAN 2.95), and a
+   * shape's words it reaches as the shape, which a click selects and a drag moves (PLAN 2.108). */
+  const reached = <H extends { node: string; rect: Rect; locked?: string }>(hits: H[]): H | undefined => {
+    const top = hits.find((h) => !h.locked);
+    const shape = top && shapeOf(top.node);
+    const b = shape === undefined ? undefined : box(shape);
+    return top && b ? { ...top, node: b.node, rect: b.rect } : top;
+  };
+  /** The shape `node` is the words of (PLAN 2.108), if it is. */
+  const shapeOf = (node: string) => {
+    const b = box(box(node)?.parent ?? undefined);
+    return b?.words === node ? b.node : undefined;
+  };
   /** The locked nodes under the pointer when the menu last opened on the canvas, to unlock. */
   let lockedThere: string[] = [];
   const point = (e: MouseEvent): [number, number] => {
@@ -766,6 +777,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     map: (node) => box(node)?.transform,
     chose: (selected) => editor.chose(selected),
     keeps: (to) => editor.keeps(to),
+    // Typing in a shape's words stopped: the shape is selected, as a presentation app's is.
+    left: (node) => {
+      const shape = shapeOf(node);
+      if (shape !== undefined && selected === node && !also.length) select(shape);
+    },
   });
 
   /** Lint's findings on the state shown (PLAN 2.49), on the boxes of the state they stand in. */
@@ -785,9 +801,23 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     say: (said) => editor.say(said),
   });
 
-  /** Type in `node` (a text), at the caret nearest `at`, or at its end, or with `all` its words
-   * selected; `fork` keeps it to the state shown. */
+  /** Type in `node` (a text, or a shape's words), at the caret nearest `at`, or at its end, or with
+   * `all` its words selected; `fork` keeps it to the state shown. */
   async function type(node: string, at: [number, number] | undefined, fork: boolean, all = false) {
+    // A shape types in its words, which it is given first where it holds none (PLAN 2.108).
+    const b = box(node);
+    if (b?.takesWords && b.words === undefined) {
+      if (!editor.shown()) return editor.say(WAITING);
+      try {
+        const worded = await stage.wording(editor.source(), node);
+        if (!(await change(worded.patch, "Giving it words…", `${Called(node)} takes words: type them`, worded.id))) return;
+        // Words just given are the shape's wherever it stands: what is typed is theirs, kept to
+        // no state.
+        [node, at, fork] = [worded.id, undefined, false];
+      } catch (e) {
+        return editor.say(`Not given words: ${said(e)}`);
+      }
+    } else if (b?.words !== undefined) node = b.words;
     if (selected !== node) select(node);
     if (!(await text.enter(node, at, fork, all))) editor.say(`${Called(node)} is no text: only a text takes typing`);
   }
@@ -3320,8 +3350,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       return draw();
     }
     if (!press) {
-      // What a click would select, from the boxes the engine gave: nothing is asked.
-      const under = boxes.filter((b) => b.draws && !b.locked && over(b, at)).at(-1)?.node;
+      // What a click would select, from the boxes the engine gave: nothing is asked. A shape's
+      // words are the shape (PLAN 2.108).
+      const top = boxes.filter((b) => b.draws && !b.locked && over(b, at)).at(-1)?.node;
+      const under = top === undefined ? undefined : (shapeOf(top) ?? top);
       if (under !== hovered) {
         hovered = under;
         draw();

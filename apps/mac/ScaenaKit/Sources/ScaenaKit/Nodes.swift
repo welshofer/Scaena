@@ -150,3 +150,19 @@ public func locking(_ nodes: [String], own: (String) -> Bool, on: Bool? = nil) -
         : nodes.filter { on == false || own($0) }.map { ["op": "remove", "path": path($0)] }
     return (ops, locking)
 }
+
+/// The words of a shape to type in (PLAN 2.108): the text that holds them, and the patch that gives
+/// the shape one where it holds none, empty where it does.
+public struct Worded: Decodable, Sendable {
+    public let id: String
+    public let patch: [JSONValue]
+}
+
+extension ScaenaSession {
+    /// The words of `shape` to type in (PLAN 2.108), as the browser's canvas gives them: the text
+    /// it holds, or a patch that adds one, empty, in the color that reads on its fill, which goes
+    /// where the shape goes.
+    public func wording(shape: String) throws -> Worded {
+        try call("wording", ["shape": .string(shape)])
+    }
+}
