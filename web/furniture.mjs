@@ -5,7 +5,8 @@
 //   and the slide as its layout has them.
 // - Number: Each slide's is one `furnish` patch: the deck's header says so, the slide draws its
 //   number at the right of its foot and nothing else moves, and the status says what changed.
-// - A footer typed is one `furnish` patch, its words in the header, drawn from the left of the foot.
+// - A footer typed is one `furnish` patch, its words in the header, drawn from the left of the foot;
+//   the field emptied takes it away, one `furnish` of `null`.
 // - This slide: Hides them is a `set_state` of `furniture` on the slide's first state, chosen
 //   from its step too, and the slide draws as it did; As its layout has them takes it away.
 // - The title slide, which Dusk leaves them off, shows them when it asks.
@@ -160,10 +161,17 @@ try {
   check((await line("intro")).includes("furniture:true"), `asked for, they show on it: ${await line("intro")}`);
   check((await shows()).lives === "Shown", `the inspector says so: ${(await shows()).lives}`);
 
+  // No words take the footer away: one `furnish` of `null`, the number as it was.
+  await page.fill("#look-footer", "");
+  await page.locator("#overlay").focus();
+  await until(() => !window.scaena.source().includes("footer:"));
+  check(!(await header()).includes("footer") && /furniture:\{number: true\}/.test(await header()), `no words take the footer away: ${await header()}`);
+  check((await status()).startsWith("No footer"), `the status says so: ${await status()}`);
+
   // Each is one step to undo.
-  for (let i = 0; i < 5; i++) await undo();
+  for (let i = 0; i < 6; i++) await undo();
   await until((s) => window.scaena.source() === s, original);
-  check((await source()) === original, "five undos take the deck back as it was");
+  check((await source()) === original, "six undos take the deck back as it was");
   check(await page.evaluate(() => window.scaena.last().valid), "the source still compiles and validates");
 } finally {
   await browser.close();

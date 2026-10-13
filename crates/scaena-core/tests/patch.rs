@@ -1265,6 +1265,11 @@ fn furnish_sets_the_decks_number_and_footer() {
     let c = patch(&c.doc, json!([{ "op": "furnish", "footer": " " }])).unwrap();
     assert_eq!(rfc(&c), json!([{ "op": "remove", "path": "/furniture" }]));
     assert!(c.doc.get("furniture").is_none());
+    // `null` takes it away as no words do, and leaves the number as it was.
+    let c = patch(&example(), json!([{ "op": "furnish", "number": true, "footer": "Board" }])).unwrap();
+    let c = patch(&c.doc, json!([{ "op": "furnish", "footer": null }])).unwrap();
+    assert_eq!(rfc(&c), json!([{ "op": "remove", "path": "/furniture/footer" }]));
+    assert_eq!(c.doc["furniture"], json!({ "number": true }));
     // Nothing to take away is no change; a footer that is not words is refused.
     let c = patch(&example(), json!([{ "op": "furnish", "footer": null }])).unwrap();
     assert_eq!(rfc(&c), json!([]));

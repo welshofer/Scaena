@@ -515,7 +515,7 @@ pub enum SemanticOp {
     Furnish {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         number: Option<bool>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(default, deserialize_with = "kept", skip_serializing_if = "Option::is_none")]
         #[schemars(with = "Option<Option<String>>")]
         footer: Option<Value>,
     },
@@ -618,6 +618,11 @@ fn container_or_canvas(generator: &mut schemars::SchemaGenerator) -> schemars::S
 /// A value that may be `null`, said: `null` is not the same as unsaid.
 fn said<'de, D: Deserializer<'de>, T: Deserialize<'de>>(d: D) -> Result<Option<Option<T>>, D::Error> {
     Option::<T>::deserialize(d).map(Some)
+}
+
+/// Any value said, `null` among them, as itself: unsaid is `None`, and `null` is `Value::Null`.
+fn kept<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Value>, D::Error> {
+    Value::deserialize(d).map(Some)
 }
 
 /// What `annotate` gives a chart's annotation (PLAN 2.67): a whole one, to add, with its
