@@ -16,7 +16,7 @@
 // - In `shapes`, the pill's look pasted on the ring: the pill's fill and corners, and the ring's
 //   stroke taken away, as the pill's is the theme's.
 // - In `containers`, a shape's look on an image and a stack: the image takes its corners, and the
-//   stack none of it.
+//   stack only its shadow (PLAN 2.115), which neither casts, so it looks so already.
 // Exits 1 on any failure.
 import { launch, serve } from "./serve.mjs";
 
@@ -145,15 +145,16 @@ try {
     `it takes the pill's fill and corners, and the ring's stroke is taken away: ${JSON.stringify(filled)}`,
   );
 
-  // On an image, a shape's corners alone; a stack takes none of it.
+  // On an image, a shape's corners (and its shadow, of which the tag casts none); a stack takes
+  // its shadow alone (PLAN 2.115), and casts none already.
   await into("containers");
   await press(["card-tag"], "Control+Alt+KeyC", "copied: ⌥⌘V");
   const photo = await press(["board-photo"], "Control+Alt+KeyV", "pasted on");
   check(photo.includes("The look of the shape pasted on “The test card in a grid area two rows t…”"), `a shape's look on an image: ${photo}`);
   const corners = await shows("board-photo", ["radius", "fit"]);
   check(corners.radius === "radius.5", `the image takes its corners: ${JSON.stringify(corners)}`);
-  const stack = await press(["stats"], "Control+Alt+KeyV", "takes none");
-  check(stack.includes("The group: a stack takes none of a shape's look"), `a stack takes none of it, and says so: ${stack}`);
+  const stack = await press(["stats"], "Control+Alt+KeyV", "looks so already");
+  check(stack.includes("The group looks so already"), `a stack takes only a shape's shadow, and has it already: ${stack}`);
 } catch (e) {
   failures.push(String(e));
 } finally {

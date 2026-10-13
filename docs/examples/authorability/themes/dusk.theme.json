@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.15",
+  "scaena-theme": "0.16",
   "name": "Dusk",
   "description": "Dark surface, warm paper-white ink, one accent. Display type set tight with optical sizing; body set loose.",
   "tokens": {
@@ -28,7 +28,8 @@
     },
     "space": { "unit": 8, "scale": [0, 4, 8, 16, 24, 32, 48, 64, 96, 128, 192] },
     "radius": { "scale": [0, 4, 8, 16, 32] },
-    "stroke": { "hairline": 1, "thin": 2, "regular": 3, "thick": 4 }
+    "stroke": { "hairline": 1, "thin": 2, "regular": 3, "thick": 4 },
+    "shadow": { "soft": { "y": 6, "blur": 20, "opacity": 0.18 }, "raised": { "y": 12, "blur": 36, "opacity": 0.24 }, "floating": { "y": 24, "blur": 64, "opacity": 0.3 } }
   },
   "type": {
     "families": {

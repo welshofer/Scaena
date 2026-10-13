@@ -2,8 +2,8 @@
 //! states are isolated cases, so the parity harness (PLAN 0.9)
 //! can report per case without one case's nodes leaking into another. The exceptions
 //! are the chart's build (PLAN 0.10), the chart gallery's motion (PLAN 1.9), the morphs
-//! (PLAN 1.12), and transforms that move (PLAN 2.51): those states track from the one
-//! before, because the transitions between them are what they test.
+//! (PLAN 1.12), transforms that move (PLAN 2.51), and shadows that move (PLAN 2.115): those
+//! states track from the one before, because the transitions between them are what they test.
 
 use scaena_core::document::StateMode;
 use scaena_core::lint::{Severity, lint_document};
@@ -27,7 +27,7 @@ fn torture_deck_is_valid() {
 
 /// States that track from the state before them, as (state, that state): the chart's
 /// build and the gallery's next states, where the transitions are what is tested.
-const MORPHS: [(&str, &str); 12] = [
+const MORPHS: [(&str, &str); 13] = [
     ("chart", "chart-intro"),
     ("chart-next", "chart"),
     ("chart-kinds-next", "chart-kinds"),
@@ -40,13 +40,14 @@ const MORPHS: [(&str, &str); 12] = [
     ("across-next", "across"),
     ("slopes-next", "slopes"),
     ("multiples-next", "multiples"),
+    ("shadows-next", "shadows"),
 ];
 
 #[test]
 fn every_torture_state_is_an_isolated_case() {
     let deck = Deck::from_json(TORTURE).unwrap();
     let snapshots = resolve_states(&deck).unwrap();
-    assert_eq!(snapshots.len(), 60);
+    assert_eq!(snapshots.len(), 62);
     let mut specimens_seen = HashSet::new();
     for (i, (state, snap)) in deck.states.iter().zip(&snapshots).enumerate() {
         if let Some((_, from)) = MORPHS.iter().find(|(s, _)| *s == state.id) {

@@ -775,6 +775,7 @@
           { "description": "A color role or a color token.", "type": "string", "const": "color" },
           { "description": "A chart's color scale.", "type": "string", "const": "data-palette" },
           { "description": "A stroke token: a width.", "type": "string", "const": "stroke" },
+          { "description": "A shadow token (PLAN 2.115).", "type": "string", "const": "shadow" },
           { "description": "A step of the radius scale.", "type": "string", "const": "radius" },
           { "description": "A step of the space scale.", "type": "string", "const": "space" }
         ]

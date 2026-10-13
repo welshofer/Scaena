@@ -26,7 +26,7 @@ enum Words {
         "role": "Text Style", "emphasis": "Emphasis", "style/family": "Font", "style/weight": "Weight",
         "style/italic": "Italic", "style/size": "Size", "style/color": "Color", "style/case": "Capitalization",
         "style/tracking": "Character Spacing", "align/x": "Alignment", "fit": "Fit", "wrap": "Line Breaks",
-        "maxLines": "Most Lines", "mask": "Mask",
+        "maxLines": "Most Lines", "mask": "Mask", "shadow": "Shadow",
         "opacity": "Opacity", "transform/rotate": "Rotation", "enter": "Build In", "exit": "Build Out",
         "alt": "Description", "semantic": "Part in the Story", "focal": "Focal Point", "crop": "Crop",
         "radius": "Corners", "fill": "Fill", "stroke/paint": "Border", "stroke/width": "Border Width",

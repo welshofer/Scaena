@@ -142,8 +142,9 @@ macro_rules! node {
             pub stroke: Option<Stroke>,
             #[serde(default, skip_serializing_if = "Option::is_none")]
             pub blur: Option<NonNegative>,
+            /// The shadow it casts (PLAN 2.115): one of the theme's by name, or one written out.
             #[serde(default, skip_serializing_if = "Option::is_none")]
-            pub shadow: Option<IndexMap<String, Value>>,
+            pub shadow: Option<ShadowRef>,
             #[serde(default, skip_serializing_if = "Option::is_none")]
             pub clip: Option<Clip>,
             #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -297,6 +298,16 @@ node! {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub connect: Option<Connect>,
     }
+}
+
+/// The shadow a node casts (PLAN 2.115): the theme's shadow of this name (`tokens.shadow`), or
+/// one written out, an override: `x`, `y`, and `blur` in canvas units, a `color`, and an
+/// `opacity`. A filled rectangle or ellipse, an image, and a container's panel cast one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum ShadowRef {
+    Named(String),
+    Written(IndexMap<String, Value>),
 }
 
 /// What a connector joins (PLAN 2.109): the node it runs from, the node it runs to, and how.

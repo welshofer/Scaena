@@ -474,6 +474,9 @@ pub struct Library {
     pub builds: Vec<String>,
     /// The springs added, by their names: those the builds added spring on.
     pub springs: Vec<String>,
+    /// The shadows added (PLAN 2.115): those the theme ships that the copy lacked, by their names,
+    /// in the theme's order.
+    pub shadows: Vec<String>,
 }
 
 /// `theme`, a bundle's copy of the theme that ships as `shipped`, with the layout library that
@@ -556,7 +559,16 @@ pub fn library(theme: &Value, shipped: &Value) -> Option<(Value, Library)> {
         brought.builds = added.clone();
         brought.springs = springs.clone();
     }
-    if brought.added.is_empty() && brought.named.is_empty() && !brought.furniture && builds.is_none() {
+    let shadows = shadows(theme, shipped);
+    if let Some((_, added)) = &shadows {
+        brought.shadows = added.clone();
+    }
+    if brought.added.is_empty()
+        && brought.named.is_empty()
+        && !brought.furniture
+        && builds.is_none()
+        && shadows.is_none()
+    {
         return None;
     }
     let mut theme = theme.clone();
@@ -575,10 +587,33 @@ pub fn library(theme: &Value, shipped: &Value) -> Option<(Value, Library)> {
     if let Some(furniture) = furniture {
         theme["furniture"] = furniture;
     }
+    if let Some((all, _)) = shadows {
+        theme["tokens"]["shadow"] = Value::Object(all);
+    }
     if let Some(version) = shipped.get("scaena-theme") {
         theme["scaena-theme"] = version.clone();
     }
     Some((theme, brought))
+}
+
+/// The shadows `copy` takes from `shipped` (PLAN 2.115): every one the theme ships, in its order,
+/// the copy's own where it has one of that name, then the copy's others; and the names of those
+/// added. None where the copy lacks none.
+fn shadows(copy: &Value, shipped: &Value) -> Option<(serde_json::Map<String, Value>, Vec<String>)> {
+    let theirs = shipped.pointer("/tokens/shadow")?.as_object()?;
+    let ours = copy.pointer("/tokens/shadow").and_then(Value::as_object).cloned().unwrap_or_default();
+    let added: Vec<String> = theirs.keys().filter(|k| !ours.contains_key(*k)).cloned().collect();
+    if added.is_empty() {
+        return None;
+    }
+    let mut all = serde_json::Map::new();
+    for (name, shadow) in theirs {
+        all.insert(name.clone(), ours.get(name).unwrap_or(shadow).clone());
+    }
+    for (name, shadow) in ours {
+        all.entry(name).or_insert(shadow);
+    }
+    Some((all, added))
 }
 
 /// `furniture`, the theme's as it ships, for `copy` (taking the roles `taken` too), its layouts

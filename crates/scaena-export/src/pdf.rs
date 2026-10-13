@@ -50,7 +50,8 @@ use scaena_core::document::Section;
 use scaena_core::model::values::ListKind;
 use scaena_core::reading::{self, Kind, Reading};
 use scaena_core::shader::Job;
-use scaena_paint::Assets;
+use scaena_paint::Painter as _;
+use scaena_paint::{Assets, cpu::CpuPainter};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
@@ -654,6 +655,11 @@ impl Cx<'_, '_> {
                 }
                 // A link's area draws nothing (PLAN 2.70): its annotation is the page's.
                 Op::Link { .. } => {}
+                Op::Shadow { .. } => {
+                    if let Err(e) = self.shadow(op, xf) {
+                        self.fail(e);
+                    }
+                }
                 Op::Shader { rect, .. } => {
                     let job = self.jobs.next().expect("shader_jobs makes one job per shader op");
                     if let Some(job) = job
@@ -730,6 +736,40 @@ impl Cx<'_, '_> {
         self.surface.draw_image(image, size);
         self.surface.pop();
         self.surface.pop();
+        self.surface.pop();
+        Ok(())
+    }
+
+    /// A shadow (PLAN 2.115) as the CPU painter blurs it, an image of what it reaches with its
+    /// alpha kept: PDF has no blur. Drawn at the scale shaders are, pixel for pixel.
+    fn shadow(&mut self, op: &Op, xf: Affine) -> Result<(), ExportError> {
+        let Op::Shadow { rect: [x, y, w, h], blur, .. } = op else { return Ok(()) };
+        let reach = f64::from(*blur) * 3.0;
+        let area =
+            kurbo::Rect::new(f64::from(*x), f64::from(*y), f64::from(x + w), f64::from(y + h)).inflate(reach, reach);
+        let device = xf.transform_rect_bbox(area);
+        let (x0, y0, x1, y1) = (device.x0.floor(), device.y0.floor(), device.x1.ceil(), device.y1.ceil());
+        if !(x1 - x0 >= 1.0 && y1 - y0 >= 1.0) {
+            return Ok(());
+        }
+        let mut list = DisplayList::new([(x1 - x0) as f32, (y1 - y0) as f32]);
+        list.ops.push(Op::Layer {
+            node: None,
+            cell: None,
+            transform: (Affine::translate((-x0, -y0)) * xf).as_coeffs().map(|v| v as f32),
+            opacity: 1.0,
+            blend: Blend::Normal,
+            clip: None,
+            ops: vec![op.clone()],
+        });
+        let raster =
+            CpuPainter::default().paint(&list, self.assets, 1.0).map_err(|e| ExportError::Pdf(e.to_string()))?;
+        let Some(size) = Size::from_wh(raster.width as f32, raster.height as f32) else { return Ok(()) };
+        let pixels = Pixels::of_rgba(raster.rgba, raster.width, raster.height);
+        let image = Image::from_custom(pixels, true).map_err(ExportError::Pdf)?;
+        // Pixel (0, 0) on device pixel (x0, y0): undo the layers' transforms and the scale.
+        self.surface.push_transform(&from_affine(xf.inverse() * Affine::translate((x0, y0))));
+        self.surface.draw_image(image, size);
         self.surface.pop();
         Ok(())
     }

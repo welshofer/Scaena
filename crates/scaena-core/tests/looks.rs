@@ -105,3 +105,20 @@ fn an_override_goes_down_as_one_and_the_themes_value_takes_one_away() {
     );
     assert_eq!(made["nodes"]["subtitle"]["role"], "display");
 }
+
+#[test]
+fn a_shadow_goes_down_with_a_look() {
+    let mut doc: Value = serde_json::from_str(EXAMPLE).unwrap();
+    // Two cards on `revenue`, one raised on the theme's shadow (PLAN 2.115).
+    doc["nodes"]["card"] = json!({ "type": "shape", "kind": "rect", "fill": "accent", "shadow": "raised", "at": { "col": [1, 3], "row": [10, 11] } });
+    doc["nodes"]["pane"] =
+        json!({ "type": "shape", "kind": "rect", "fill": "accent", "at": { "col": [4, 6], "row": [10, 11] } });
+    for node in ["card", "pane"] {
+        doc["states"][1]["props"][node] = json!({});
+    }
+    let card = picked(&doc, "revenue", "card");
+    assert!(card.props.contains(&Part { prop: "shadow".into(), value: Some(json!("raised")) }), "{:?}", card.props);
+    let (put, made) = put_on(&doc, "revenue", &card, &["pane"]);
+    assert_eq!(put.took, ["pane"]);
+    assert_eq!(made["nodes"]["pane"]["shadow"], "raised");
+}

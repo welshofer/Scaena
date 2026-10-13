@@ -79,7 +79,7 @@ const RULES: [(&str, &[&str]); 39] = [
     ("W221", &["/theme/type/roles/body/leading", "/theme/type/roles/body/snap", "/theme/type/roles/caption/snap"]),
     ("W230", &["/fonts/2/file"]),
     ("W231", &["/nodes/t"]),
-    ("W300", &["/nodes/t/style/color", "/nodes/t/style/size", "/states/0/props/box/radius"]),
+    ("W300", &["/nodes/t/style/color", "/nodes/t/style/size", "/nodes/box/shadow", "/states/0/props/box/radius"]),
     ("W301", &["/nodes/t/at/rect"]),
     ("W302", &["/nodes/t/at/col"]),
     ("W303", &["/nodes/t"]),
@@ -138,7 +138,7 @@ fn deck(data: Value, nodes: Value) -> Value {
     let props: serde_json::Map<String, Value> =
         nodes.as_object().unwrap().keys().map(|k| (k.clone(), serde_json::json!({}))).collect();
     serde_json::json!({
-        "scaena": "0.24",
+        "scaena": "0.25",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [

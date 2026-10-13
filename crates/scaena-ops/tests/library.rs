@@ -62,11 +62,16 @@ fn an_older_copy_takes_the_library_and_draws_as_it_did() {
     assert!(brought.furniture);
     assert_eq!(theme["furniture"], shipped["furniture"]);
 
-    // Nothing else of the theme changes but the format it is written in, which reads, and the
-    // builds it lacked (PLAN 2.112).
-    for part in ["name", "description", "tokens", "grid", "shaders", "charts", "tables", "density"] {
+    // Nothing else of the theme changes but the format it is written in, which reads, the builds
+    // it lacked (PLAN 2.112), and the shadows it lacked (PLAN 2.115).
+    for part in ["name", "description", "grid", "shaders", "charts", "tables", "density"] {
         assert_eq!(theme[part], older[part], "{part}");
     }
+    let mut tokens = theme["tokens"].clone();
+    tokens.as_object_mut().unwrap().remove("shadow");
+    assert_eq!(tokens, older["tokens"], "tokens, but the shadows");
+    assert_eq!(brought.shadows, ["soft", "raised", "floating"]);
+    assert_eq!(theme["tokens"]["shadow"], shipped["tokens"]["shadow"]);
     // Every build the theme ships, in its order, the copy's own as they were, with the spring
     // they spring on; its durations, easings, and limits as they were.
     let names =

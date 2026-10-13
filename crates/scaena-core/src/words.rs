@@ -29,6 +29,7 @@ pub const LABELS: &[(&str, &str)] = &[
     ("align/x", "Alignment"),
     ("fit", "Fit"),
     ("mask", "Mask"),
+    ("shadow", "Shadow"),
     ("wrap", "Line Breaks"),
     ("maxLines", "Most Lines"),
     ("opacity", "Opacity"),
@@ -559,7 +560,7 @@ pub fn state_choices(choices: &mut StateChoices, deck: &Deck, theme: &Theme) {
 }
 
 /// Every kind of name a theme defines, in the order an editor lists them.
-const VOCABULARIES: [Vocabulary; 14] = [
+const VOCABULARIES: [Vocabulary; 15] = [
     Vocabulary::TextRole,
     Vocabulary::FontFamily,
     Vocabulary::Color,
@@ -572,6 +573,7 @@ const VOCABULARIES: [Vocabulary; 14] = [
     Vocabulary::ShaderPalette,
     Vocabulary::DataPalette,
     Vocabulary::Stroke,
+    Vocabulary::Shadow,
     Vocabulary::Radius,
     Vocabulary::Space,
 ];

@@ -16,6 +16,7 @@
 
 use crate::EngineError;
 use crate::charts::{RoundRect, lerp};
+use crate::shadows::Shadow;
 use crate::shapes::{path_of, polyline};
 use crate::theme::Theme;
 use scaena_core::displaylist::{Blend, IDENTITY, MAX_IMAGE_SIDE, Op, Path, Quality, Rect};
@@ -126,6 +127,8 @@ pub struct ImageNode {
     crop: Rect,
     radius: f32,
     mask: Option<Mask>,
+    /// The shadow it casts (PLAN 2.115), under what shows: none under a mask but an oval.
+    shadow: Option<Shadow>,
 }
 
 /// The shape an image shows inside (PLAN 2.113).
@@ -203,7 +206,9 @@ impl ImageNode {
                 EngineError::Layout(format!("image `mask` {v}: `ellipse`, or a shape of the library by its name"))
             })?),
         };
-        Ok(ImageNode { rect, info, fit, focal, crop, radius, mask })
+        let shadow = Shadow::of(theme, props.get("shadow"))?;
+        let shadow = shadow.filter(|_| matches!(mask, None | Some(Mask::Oval)));
+        Ok(ImageNode { rect, info, fit, focal, crop, radius, mask, shadow })
     }
 
     /// The same image in another box.
@@ -217,10 +222,11 @@ impl ImageNode {
             == (&other.info, other.fit, other.focal, other.crop, &other.mask)
     }
 
-    /// `a` to `b`, `p` of the way: the box and the radius move.
+    /// `a` to `b`, `p` of the way: the box, the radius, and the shadow move.
     pub fn lerp(a: &ImageNode, b: &ImageNode, p: f32) -> ImageNode {
         let rect = [0, 1, 2, 3].map(|k| lerp(a.rect[k], b.rect[k], p));
-        ImageNode { rect, radius: lerp(a.radius, b.radius, p).max(0.0), ..b.clone() }
+        let shadow = Shadow::between(a.shadow, b.shadow, p);
+        ImageNode { rect, radius: lerp(a.radius, b.radius, p).max(0.0), shadow, ..b.clone() }
     }
 
     /// The pixels of the image that show, and where in the box, box-local: `(src, dst)`.
@@ -284,15 +290,22 @@ impl ImageNode {
     pub fn ops(&self) -> Vec<Op> {
         let (src, dst) = self.placement();
         let image = Op::Image { asset: self.info.id.clone(), src, dst, quality: Quality::High };
+        // Its shadow under what shows (PLAN 2.115), its outline the picture's: rounded as it is,
+        // or an oval.
+        let [_, _, dw, dh] = dst;
+        let shadow = self.shadow.map(|s| match &self.mask {
+            Some(Mask::Oval) => s.oval(dst),
+            _ => s.op(dst, self.radius.min(dw.min(dh) / 2.0)),
+        });
         let clip = match &self.mask {
             Some(mask) => mask.outline(dst),
             None if self.radius > 0.0 => {
                 let [x, y, w, h] = dst;
                 RoundRect::rounded(x, y, w, h, self.radius.min(w.min(h) / 2.0)).path()
             }
-            None => return vec![image],
+            None => return shadow.into_iter().chain([image]).collect(),
         };
-        vec![Op::Layer {
+        let layer = Op::Layer {
             node: None,
             cell: None,
             transform: IDENTITY,
@@ -300,7 +313,8 @@ impl ImageNode {
             blend: Blend::Normal,
             clip: Some(clip),
             ops: vec![image],
-        }]
+        };
+        shadow.into_iter().chain([layer]).collect()
     }
 }
 
@@ -324,6 +338,27 @@ mod tests {
         images.register("assets/photo.png", &png(400, 200)).unwrap();
         let theme = Theme::from_json(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();
         ImageNode::resolve(&serde_json::from_value(props).unwrap(), &theme, &images, rect).unwrap()
+    }
+
+    /// Shadows (PLAN 2.115): an image casts its shadow under what shows, a contained picture's
+    /// own part, rounded as it is; under an oval, the oval's; under another mask, none.
+    #[test]
+    fn an_image_casts_its_shadow_under_what_shows() {
+        // A 2:1 picture contained in a square: it shows across the middle, 100 × 50.
+        let ops =
+            node(json!({ "src": "assets/photo.png", "fit": "contain", "shadow": "soft" }), [0.0, 0.0, 100.0, 100.0])
+                .ops();
+        let Op::Shadow { rect, radius, .. } = ops[0] else { panic!("the shadow first: {ops:?}") };
+        assert_eq!((rect, radius), ([0.0, 31.0, 100.0, 50.0], 0.0), "under the picture, fallen 6 below it");
+        assert!(matches!(ops[1], Op::Image { .. }));
+        let oval =
+            node(json!({ "src": "assets/photo.png", "mask": "ellipse", "shadow": "soft" }), [0.0, 0.0, 80.0, 40.0]);
+        assert!(
+            matches!(oval.ops()[0], Op::Layer { transform: [2.0, 0.0, 0.0, 1.0, 0.0, 0.0], .. }),
+            "an oval's is the oval's"
+        );
+        let star = node(json!({ "src": "assets/photo.png", "mask": "star", "shadow": "soft" }), [0.0, 0.0, 80.0, 80.0]);
+        assert!(!star.ops().iter().any(|op| matches!(op, Op::Shadow { .. })), "a star casts none");
     }
 
     #[test]

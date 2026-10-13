@@ -180,9 +180,10 @@ impl Rule for W221OffGrid {
 }
 
 /// W300: a pixel or color literal outside `overrides`: a color written out (`#rrggbb`,
-/// `oklch(…)`, `oklab(…)`) where a theme color would go, a text `size`, or a length in
+/// `oklch(…)`, `oklab(…)`) where a theme color would go, a text `size`, a length in
 /// canvas units where a theme token would go (`radius`, `gap`, `padding`, `inset`, a
-/// stroke's `width`, a child's `size`). Placement by `rect` is W301's.
+/// stroke's `width`, a child's `size`), or a shadow written out where the theme names its
+/// shadows (PLAN 2.115). Placement by `rect` is W301's.
 struct W300Literal;
 impl Rule for W300Literal {
     fn code(&self) -> &'static str {
@@ -221,7 +222,7 @@ impl Rule for W300Literal {
 
 /// Whether `value`, set as a node's `prop` (a property, or one key of one: `style/size`),
 /// is a literal W300 flags outside `overrides`: a color written out where a theme color goes,
-/// a text size, or a length in canvas units where a theme token goes.
+/// a text size, a length in canvas units where a theme token goes, or a shadow written out.
 pub(crate) fn literal(prop: &str, value: &Value) -> bool {
     let set = match prop.split_once('/') {
         Some((name, key)) => (name, Value::Object(serde_json::Map::from_iter([(key.to_string(), value.clone())]))),
@@ -281,6 +282,11 @@ fn literals(props: &Props, base: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for (k, v) in props {
         if PROSE.contains(&k.as_str()) {
+            continue;
+        }
+        // A shadow written out (PLAN 2.115) is one literal, whatever it holds.
+        if k == "shadow" && v.is_object() {
+            out.push((format!("{base}/shadow"), "a shadow written out".into()));
             continue;
         }
         let mut path = vec![k.clone()];
