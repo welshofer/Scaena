@@ -1,5 +1,5 @@
 {
-  "scaena": "0.19",
+  "scaena": "0.20",
   "_comment": "W401 clean: every state in a beat.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

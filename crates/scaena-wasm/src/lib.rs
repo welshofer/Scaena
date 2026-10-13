@@ -737,6 +737,16 @@ impl Player {
         serde_json::to_string(&added).map_err(js)
     }
 
+    /// The patch that inserts an icon in `state`, about `x`, `y` (canvas units), as JSON: `{ id,
+    /// cell, patch }` (PLAN 2.104). `icon` is JSON, `{ name, path, view }`, one of the icons the
+    /// page carries: a path shape on its view, in the theme's accent, as decoration it names.
+    #[wasm_bindgen(js_name = insertingIcon)]
+    pub fn inserting_icon(&mut self, state: &str, icon: &str, x: f32, y: f32) -> Result<String, JsError> {
+        let icon: scaena_core::inserts::Icon = serde_json::from_str(icon).map_err(js)?;
+        let added = self.0.inserting_icon(state, &icon, [x, y]).map_err(js)?;
+        serde_json::to_string(&added).map_err(js)
+    }
+
     /// The patch that draws what `inserts` offers `n`th in `state`, in the box a drag from `x0`,
     /// `y0` to `x1`, `y1` covers (canvas units), snapped to the grid or, `free`, where it was
     /// drawn, as JSON: `{ id, cell, patch }` (PLAN 2.48).

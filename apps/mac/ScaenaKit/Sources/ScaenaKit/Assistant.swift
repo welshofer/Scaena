@@ -190,6 +190,7 @@ public enum ToolWords {
         "deck_patch": ("Editing the deck…", "Edited the deck"),
         "deck_read": ("Reading the deck…", "Went through the deck"),
         "deck_render": ("Looking at a slide…", "Looked at a slide"),
+        "icon_find": ("Finding an icon…", "Found an icon"),
         "spine_read": ("Reading the outline…", "Went through the outline"),
         "spine_update": ("Changing the outline…", "Changed the outline"),
         "theme_apply": ("Changing the theme…", "Changed the theme"),

@@ -27,7 +27,55 @@ public struct Added: Decodable, Sendable {
     public let patch: [JSONValue]
 }
 
+/// An icon to insert (PLAN 2.104): its name in its set, its path data (absolute M, L, C, and Z),
+/// and the view, `[x, y, width, height]`, it is drawn on.
+public struct Icon: Codable, Sendable, Hashable {
+    public let name: String
+    public let path: String
+    public let view: [Double]
+
+    public init(name: String, path: String, view: [Double]) {
+        self.name = name
+        self.path = path
+        self.view = view
+    }
+}
+
+/// An icon the words found: its name, its tags and categories, and the icon in the weight asked.
+public struct IconFound: Decodable, Sendable, Hashable {
+    public let name: String
+    public let tags: [String]
+    public let categories: [String]
+    public let icon: Icon
+}
+
+/// The icons the words found, best first, at most as many as asked, and how many they found.
+public struct IconsFound: Decodable, Sendable {
+    public let icons: [IconFound]
+    public let found: Int
+}
+
 extension ScaenaSession {
+    /// The icons that ship (PLAN 2.104), found as `scaena icons` finds them: each word begins a
+    /// word of an icon's name, tags, or categories, its name asked whole first; every icon for no
+    /// words. `fill` draws them solid, else in outline; at most `limit`.
+    public func icons(_ query: String, fill: Bool = false, limit: Int = 240) throws -> IconsFound {
+        try call(
+            "icons",
+            ["query": .string(query), "weight": .string(fill ? "fill" : "regular"), "limit": .number(Double(limit))])
+    }
+
+    /// The patch that inserts `icon` in `state` about `point` (canvas units), as `inserting`
+    /// inserts what is offered (PLAN 2.104): a path shape on its view in the theme's accent, as
+    /// decoration named by the icon.
+    public func insertingIcon(state: String, icon: Icon, at point: CGPoint) throws -> Added {
+        let view = JSONValue.array(icon.view.map { .number($0) })
+        let given: JSONValue = .object(["name": .string(icon.name), "path": .string(icon.path), "view": view])
+        return try call(
+            "insertingIcon",
+            ["state": .string(state), "icon": given, "x": .number(Double(point.x)), "y": .number(Double(point.y))])
+    }
+
     /// Everything the deck may have inserted (PLAN 2.34): a text in each of the theme's roles,
     /// each shape, each image in the bundle, a chart and a table of each data source, and each
     /// shader preset.

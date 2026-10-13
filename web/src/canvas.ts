@@ -64,6 +64,7 @@
 // - An image dragged from the Files panel (PLAN 2.59) takes the place of the image node it is
 //   dropped on, a `choose` of `src`; dropped anywhere else, it is inserted there, as Insert does.
 import { ALT, type Key, MOD, SHIFT } from "./commands";
+import { type Icon, iconSaid } from "./icons";
 import { marks } from "./marks";
 import { fitting } from "./pictures";
 import { BUNDLE_PATH, CLIP, DATA, PICTURE } from "./protocol";
@@ -2154,6 +2155,21 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     }
   }
 
+  /** Insert `icon` where the pointer last pressed, or in the middle of the canvas (PLAN 2.104): a
+   * path shape on its view in the theme's accent, entering in the state shown, selected. */
+  function insertIcon(icon: Icon) {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      if (!shown) return editor.say(WAITING);
+      try {
+        const added = await stage.insertingIcon(editor.source(), shown.state, icon, landing(), editor.format());
+        await change(added.patch, "Inserting…", `The icon ${iconSaid(icon.name).toLowerCase()} inserted on this slide`, added.id);
+      } catch (e) {
+        editor.say(`Not inserted: ${said(e)}`);
+      }
+    });
+  }
+
   /** An empty slot of the layout filled from a press on its words, as a presentation app's
    * placeholder fills (PLAN 3.30): its words put back, as a new slide in the layout puts them
    * there; else a picture, or a sheet's data, chosen from a file and put there, as a drop there
@@ -3747,6 +3763,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     /** Insert what the deck offers `n`th, as the Insert menu does; `label` is what the status
      * calls it. */
     insert,
+    insertIcon,
     /** Arm the canvas to draw what `key` draws, as T, R, O, L, and A do (PLAN 2.48). */
     arm,
     /** What the canvas is armed to draw, if anything: the key, and its name. */

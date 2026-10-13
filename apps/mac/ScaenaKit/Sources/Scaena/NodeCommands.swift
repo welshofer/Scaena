@@ -31,6 +31,8 @@ struct DeckActions {
     var placeAnew: (() -> Void)? = nil
     /// Ask for a picture, or a sheet's data, from a file, to put on the slide shown.
     var choosePicture: (() -> Void)? = nil
+    /// Offer the icons that ship, to put one on the slide shown (PLAN 2.104).
+    var chooseIcon: (() -> Void)? = nil
     /// Whether a node selected shows on another slide too: Delete from All Slides takes it off
     /// those as well, where Delete takes it off this slide on.
     var deletesElsewhere = false
@@ -75,6 +77,8 @@ struct NodeCommands: Commands {
                     .disabled(true)
             }
             Divider()
+            Button("Icon…") { deck?.chooseIcon?() }
+                .disabled(deck?.chooseIcon == nil)
             Button("Choose Picture…") { deck?.choosePicture?() }
                 .disabled(deck?.choosePicture == nil)
         }

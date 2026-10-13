@@ -281,6 +281,12 @@ node! {
         /// SVG path data.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub path: Option<String>,
+        /// The box of the path's own coordinates that fits the node's box, [x, y, w, h], as
+        /// SVG's `viewBox`: the path is scaled alike both ways to fit it and centered in the
+        /// node's box, so icons drawn on one view keep one weight beside each other (PLAN
+        /// 2.104). Without one, the path's own bounds fit.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub view: Option<Rect>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub points: Option<Vec<Point>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]

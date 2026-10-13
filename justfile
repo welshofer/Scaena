@@ -91,6 +91,7 @@ schema:
     python3 scripts/build_lint_fonts.py --check
     python3 scripts/build_bench_decks.py --check
     python3 scripts/build_layouts.py --check
+    python3 scripts/build_icons.py --check
 
 # The scripts' own tests: the bench gate's judgment (PLAN 1.24); and the browser's assistant, held to
 # the exchanges scaena-chat's tests hold the Mac's to (ADR-0022).
@@ -213,6 +214,7 @@ web-smoke: site
     node web/typing.mjs
     node web/inspector.mjs
     node web/furniture.mjs
+    node web/icons.mjs
     node web/suggest.mjs
     node web/insert.mjs
     node web/draw.mjs

@@ -71,6 +71,7 @@ import type {
   WritingCall,
   Written,
 } from "./protocol";
+import type { Icon } from "./icons";
 
 type Reply = Extract<
   FromWorker,
@@ -710,6 +711,12 @@ export class Stage {
    * units), snapped to the theme's grid as a drop snaps, on the deck `source` compiles to. */
   inserting(source: string, state: string, n: number, at: [number, number], format?: string, named?: string, with_?: Record<string, unknown>): Promise<Added> {
     return this.request<"adding">({ type: "inserting", id: ++this.asked, source, state, n, at, format, named, with: with_ }).then(({ added }) => added);
+  }
+
+  /** The patch that inserts `icon` (PLAN 2.104), entering in `state` about `at` (canvas units),
+   * on the deck `source` compiles to: a path shape on its view, in the theme's accent. */
+  insertingIcon(source: string, state: string, icon: Icon, at: [number, number], format?: string): Promise<Added> {
+    return this.request<"adding">({ type: "insertingIcon", id: ++this.asked, source, state, icon, at, format }).then(({ added }) => added);
   }
 
   /** The patch that draws what `inserts` offers `n`th, entering in `state`, in the box a drag

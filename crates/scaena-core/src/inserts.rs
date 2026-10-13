@@ -10,13 +10,17 @@
 //! - **A chart and a table** of each of the deck's data sources (PLAN 2.41), from the columns
 //!   it has, half the canvas each way; the table its first rows, as many as that holds.
 //! - **A shader** of each preset, filling the canvas, under what is there.
+//!
+//! An icon (PLAN 2.104) is offered by an editor's picker of the icons that ship, not here: the
+//! icons are no part of the theme or the bundle, and the editor's module carries none of them.
+//! [`icon`] makes what it inserts.
 
 use crate::data::{self, ColumnType, Datum, SourceFiles, Table};
 use crate::document::Deck;
 use crate::ids::is_valid_id;
 use crate::model::theme::{Theme, Vocabulary};
 use schemars::JsonSchema;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 
@@ -175,6 +179,45 @@ fn table_of(name: &str, table: &Table) -> Option<Value> {
         node["key"] = json!(table.columns[key]);
     }
     Some(node)
+}
+
+/// An icon to insert (PLAN 2.104): its name, its path data, and the view it is drawn on.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Icon {
+    /// Its name in its set, in kebab case: `airplane-tilt`.
+    pub name: String,
+    /// SVG path data.
+    pub path: String,
+    /// The box of the path's own coordinates it is drawn on, [x, y, w, h].
+    pub view: [f64; 4],
+}
+
+/// What inserts `icon` in `deck`, `theme` its theme (PLAN 2.104): a path shape on the icon's
+/// view, so icons beside each other keep one weight, filled with the theme's accent (or its
+/// first color), as decoration a reader passes over, named by the icon (`alt`, `airplane-tilt` as
+/// "Airplane tilt"), as an editor names an object. It starts a twelfth of the canvas wide and as
+/// tall, a square.
+pub fn icon(deck: &Deck, theme: &Theme, icon: &Icon) -> Insert {
+    let [w, h] = [deck.canvas.width as f32, deck.canvas.height as f32];
+    let colors = theme.names(Vocabulary::Color);
+    let mut node = json!({
+        "type": "shape",
+        "kind": "path",
+        "path": icon.path,
+        "view": icon.view,
+        "alt": sentence(&icon.name),
+        "semantic": "decoration",
+    });
+    if let Some(fill) = colors.iter().find(|c| *c == "accent").or(colors.first()) {
+        node["fill"] = json!(fill);
+    }
+    let side = 1.0 / 12.0;
+    Insert {
+        label: format!("Icon · {}", icon.name),
+        node,
+        id: slug(&icon.name, "icon"),
+        start: Start::Box { w: side, h: side * w / h },
+    }
 }
 
 /// The first of `base`, `base-2`, `base-3`, … that names no node of `deck`.

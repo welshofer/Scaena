@@ -148,6 +148,12 @@ enum Words {
 
     private static let shapes = ["rect": "Rectangle", "ellipse": "Oval", "line": "Line", "arrow": "Arrow"]
 
+    /// An icon as a person names it (PLAN 2.104): `airplane-tilt` as `Airplane tilt`.
+    static func icon(_ name: String) -> String {
+        let words = name.replacingOccurrences(of: "-", with: " ")
+        return words.prefix(1).uppercased() + words.dropFirst()
+    }
+
     /// What an insert added, as the window says it once it is in: `Title text`, `Rectangle`.
     static func inserted(_ insert: Insert) -> String {
         switch insert.kind {

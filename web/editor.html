@@ -532,6 +532,17 @@
       #starting canvas { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; border-radius: 3px; background: rgb(255 255 255 / 0.04); }
       #starting .group button.drawn canvas { aspect-ratio: auto; background: #000; }
       #starting menu .blank { margin-right: auto; }
+      /* The icon picker (PLAN 2.104): a field, a weight, and the icons found, drawn in ink. */
+      #iconing { width: min(760px, 96vw); }
+      #iconing .picker-head { display: flex; align-items: center; gap: 12px; }
+      #iconing .picker-head h2 { margin: 0; margin-right: auto; }
+      #iconing .find { width: min(280px, 50%); }
+      #iconing .picker-head label { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; white-space: nowrap; }
+      #iconing .icons { display: grid; grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); gap: 6px; margin-top: 10px; height: min(420px, 60vh); overflow-y: auto; padding: 2px; align-content: start; }
+      #iconing .icons button { display: grid; place-items: center; aspect-ratio: 1; padding: 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); cursor: pointer; }
+      #iconing .icons button:hover, #iconing .icons button:focus-visible { border-color: var(--info); outline: none; }
+      #iconing .icons svg { width: 100%; height: 100%; fill: currentColor; }
+      #iconing .count { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
       dialog h2 { font-size: 15px; margin: 0 0 12px; }
       dialog form { display: flex; flex-direction: column; gap: 10px; }
       dialog label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
@@ -859,6 +870,20 @@
         </div>
         <menu>
           <button type="button" class="blank" title="A slide in no layout, with nothing on it">Blank</button>
+          <button value="cancel" formnovalidate>Cancel</button>
+        </menu>
+      </form>
+    </dialog>
+    <dialog id="iconing" aria-labelledby="iconing-title">
+      <form method="dialog">
+        <div class="picker-head">
+          <h2 id="iconing-title">Insert an icon</h2>
+          <input type="search" class="find" placeholder="Find an icon" aria-label="Find an icon" autocomplete="off" spellcheck="false" />
+          <label><input type="checkbox" class="solid" /> Solid</label>
+        </div>
+        <div class="icons" role="listbox" aria-label="Icons"></div>
+        <p class="count" aria-live="polite"></p>
+        <menu>
           <button value="cancel" formnovalidate>Cancel</button>
         </menu>
       </form>

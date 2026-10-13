@@ -4,7 +4,8 @@
 //! `ellipse` is inscribed in it. `line`, `arrow`, and `polygon` join `points`, given as
 //! fractions of the box: `[0, 0]` is its top-left and `[1, 1]` its bottom-right. A line or
 //! arrow with no points crosses the box's middle, left to right. A `path` is SVG path data,
-//! scaled uniformly to fit the box and centered in it. The geometry is made for whatever
+//! scaled uniformly to fit the box and centered in it: its `view` fits, where it gives one, as
+//! SVG's `viewBox` does, else its own bounds (PLAN 2.104). The geometry is made for whatever
 //! box the shape is given, so a shape that changes size between states morphs: a frame
 //! makes it again at the box it has reached, and lays nothing out. One whose outline
 //! lines up with the next state's morphs point by point, its paints mixing (PLAN 1.12),
@@ -131,11 +132,12 @@ enum Geometry {
         arrow: bool,
     },
     Polygon(Vec<[f32; 2]>),
-    /// As written: fitted to the box when drawn.
-    Path(kurbo::BezPath),
+    /// As written, with the box of its own coordinates that fits the shape's box when drawn:
+    /// its `view`, or its own bounds.
+    Path(kurbo::BezPath, kurbo::Rect),
     /// Two paths of one structure on their way from one to the other: each fitted to
-    /// the box when drawn, then `p` of the way between, point by point.
-    Between(kurbo::BezPath, kurbo::BezPath, f32),
+    /// the box when drawn by its own frame, then `p` of the way between, point by point.
+    Between((kurbo::BezPath, kurbo::Rect), (kurbo::BezPath, kurbo::Rect), f32),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -190,7 +192,19 @@ impl ShapeNode {
                     path.ok_or_else(|| EngineError::Layout("a path shape needs `path`, SVG path data".into()))?;
                 let bez = kurbo::BezPath::from_svg(data)
                     .map_err(|e| EngineError::Layout(format!("`path` is not SVG path data: {e}")))?;
-                Geometry::Path(bez)
+                let frame = match props.get("view") {
+                    None => kurbo::Shape::bounding_box(&bez),
+                    Some(v) => {
+                        let [x, y, w, h] = serde_json::from_value::<[f64; 4]>(v.clone()).map_err(|_| {
+                            EngineError::Layout(format!("`view` {v}: expected [x, y, w, h], in the path's own units"))
+                        })?;
+                        if !(w > 0.0 && h > 0.0 && w.is_finite() && h.is_finite() && x.is_finite() && y.is_finite()) {
+                            return Err(EngineError::Layout(format!("`view` {v} has no size")));
+                        }
+                        kurbo::Rect::new(x, y, x + w, y + h)
+                    }
+                };
+                Geometry::Path(bez, frame)
             }
             other => return Err(EngineError::Layout(format!("unknown shape kind `{other}`"))),
         };
@@ -217,7 +231,7 @@ impl ShapeNode {
             Geometry::Ellipse => ("ellipse", &[], None),
             Geometry::Line { points, arrow } => (if *arrow { "arrow" } else { "line" }, points, None),
             Geometry::Polygon(points) => ("polygon", points, None),
-            Geometry::Path(_) | Geometry::Between(..) => ("path", &[], None),
+            Geometry::Path(..) | Geometry::Between(..) => ("path", &[], None),
         }
     }
 
@@ -233,7 +247,7 @@ impl ShapeNode {
                 x == y && a.len() == b.len()
             }
             (Geometry::Polygon(a), Geometry::Polygon(b)) => a.len() == b.len(),
-            (Geometry::Path(a), Geometry::Path(b)) => same_commands(a, b),
+            (Geometry::Path(a, _), Geometry::Path(b, _)) => same_commands(a, b),
             _ => false,
         };
         let fills = match (&self.fill, &other.fill) {
@@ -264,7 +278,7 @@ impl ShapeNode {
                 Geometry::Line { points: points(x, y), arrow: *arrow }
             }
             (Geometry::Polygon(x), Geometry::Polygon(y)) => Geometry::Polygon(points(x, y)),
-            (Geometry::Path(x), Geometry::Path(y)) => Geometry::Between(x.clone(), y.clone(), geo),
+            (Geometry::Path(x, f), Geometry::Path(y, g)) => Geometry::Between((x.clone(), *f), (y.clone(), *g), geo),
             _ => b.geometry.clone(),
         };
         let fill = match (&a.fill, &b.fill) {
@@ -306,8 +320,10 @@ impl ShapeNode {
             }
             Geometry::Line { points, .. } => (polyline(points.iter().copied().map(at), false), false),
             Geometry::Polygon(points) => (polyline(points.iter().copied().map(at), true), true),
-            Geometry::Path(bez) => (path_of(&fit(bez, w, h)), true),
-            Geometry::Between(x, y, p) => (path_of(&between(&fit(x, w, h), &fit(y, w, h), f64::from(*p))), true),
+            Geometry::Path(bez, frame) => (path_of(&fit(bez, *frame, w, h)), true),
+            Geometry::Between((x, f), (y, g), p) => {
+                (path_of(&between(&fit(x, *f, w, h), &fit(y, *g, w, h), f64::from(*p))), true)
+            }
         };
         let mut ops = Vec::new();
         if let (Some(fill), true) = (&self.fill, closed) {
@@ -417,9 +433,10 @@ fn between(a: &kurbo::BezPath, b: &kurbo::BezPath, p: f64) -> kurbo::BezPath {
     kurbo::BezPath::from_vec(els.collect())
 }
 
-/// `bez` scaled uniformly to fit `w` × `h`, and centered.
-fn fit(bez: &kurbo::BezPath, w: f32, h: f32) -> kurbo::BezPath {
-    let b = kurbo::Shape::bounding_box(bez);
+/// `bez` scaled uniformly so that `frame`, a box of its own coordinates, fits `w` × `h`, and
+/// centered.
+fn fit(bez: &kurbo::BezPath, frame: kurbo::Rect, w: f32, h: f32) -> kurbo::BezPath {
+    let b = frame;
     let (bw, bh) = (b.width(), b.height());
     let scale = match (bw > 0.0, bh > 0.0) {
         (true, true) => (f64::from(w) / bw).min(f64::from(h) / bh),
@@ -688,6 +705,31 @@ mod tests {
     }
 
     #[test]
+    fn a_path_with_a_view_keeps_the_room_its_view_gives_it() {
+        // A mark 12 wide on a view 24 square, in a box 100 wide and 200 tall: the view fits as
+        // 100 × 100, centered, so the mark is drawn half as wide as the box, where its view puts it.
+        let at = |props: Value| {
+            let s = shape(props, [0.0, 0.0, 100.0, 200.0]).unwrap();
+            let Op::Fill { path, .. } = &s.ops()[0] else { panic!() };
+            path.0.clone()
+        };
+        let viewed = at(json!({"path": "M6 6 L18 6 L18 18 Z", "view": [0, 0, 24, 24], "fill": "accent"}));
+        assert_eq!(viewed[0], PathEl::MoveTo([25.0, 75.0]));
+        assert_eq!(viewed[2], PathEl::LineTo([75.0, 125.0]));
+        // Without one, its own bounds fit the box: the same mark fills its width.
+        let bare = at(json!({"path": "M6 6 L18 6 L18 18 Z", "fill": "accent"}));
+        assert_eq!((bare[0], bare[2]), (PathEl::MoveTo([0.0, 50.0]), PathEl::LineTo([100.0, 150.0])));
+        // A view that starts off its origin moves the path as its own coordinates say.
+        let moved = at(json!({"path": "M106 6 L118 6 L118 18 Z", "view": [100, 0, 24, 24], "fill": "accent"}));
+        assert_eq!(moved, viewed);
+        // Two icons on one view keep one weight: a narrow one is not scaled up to the box.
+        let narrow = at(json!({"path": "M11 2 L13 2 L13 22 L11 22 Z", "view": [0, 0, 24, 24], "fill": "accent"}));
+        let PathEl::LineTo([x, _]) = narrow[1] else { panic!("{narrow:?}") };
+        let PathEl::MoveTo([x0, _]) = narrow[0] else { panic!() };
+        assert!((x - x0 - 100.0 * 2.0 / 24.0).abs() < 1e-3, "its stem is as wide as the view makes it");
+    }
+
+    #[test]
     fn a_shape_morphs_between_boxes_corners_and_paints() {
         let a = shape(json!({"kind": "rect", "fill": "accent", "radius": 8}), [0.0, 0.0, 100.0, 100.0]).unwrap();
         let b = shape(json!({"kind": "rect", "fill": "muted"}), [100.0, 0.0, 300.0, 50.0]).unwrap();
@@ -733,6 +775,8 @@ mod tests {
         assert!(err(json!({"kind": "polygon", "points": [[0, 0], [1, 1]]})).contains("three points"));
         assert!(err(json!({"kind": "path"})).contains("needs `path`"));
         assert!(err(json!({"path": "M0 0 Q"})).contains("not SVG path data"));
+        assert!(err(json!({"path": "M0 0 L1 1", "view": [0, 0, 0, 24]})).contains("has no size"));
+        assert!(err(json!({"path": "M0 0 L1 1", "view": [0, 0, 24]})).contains("expected [x, y, w, h]"));
         assert!(err(json!({"kind": "rect", "fill": {"gradient": {}}})).contains("gradient kind"));
         let one =
             json!({"kind": "rect", "fill": {"gradient": {"kind": "linear", "stops": [{"at": 0, "color": "accent"}]}}});

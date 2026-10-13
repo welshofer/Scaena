@@ -1299,10 +1299,37 @@ impl Session {
         named: Option<&str>,
         with: Option<&serde_json::Map<String, serde_json::Value>>,
     ) -> Result<scaena_ops::inspect::Added, Error> {
-        let (mut insert, room) = self.room(state, n, named)?;
+        let mut insert = self.offered(n)?;
         if let (Some(with), Some(node)) = (with, insert.node.as_object_mut()) {
             node.extend(with.clone());
         }
+        self.inserting_offer(state, insert, at, named)
+    }
+
+    /// The patch that inserts `icon` in `state` as [`Session::inserting`] inserts what is
+    /// offered (PLAN 2.104): a path shape on the icon's view, in the theme's accent, as decoration
+    /// named by the icon ([`scaena_core::inserts::icon`]), about `at`, its id made from its name.
+    #[cfg(feature = "editor")]
+    pub fn inserting_icon(
+        &mut self,
+        state: &str,
+        icon: &scaena_core::inserts::Icon,
+        at: [f32; 2],
+    ) -> Result<scaena_ops::inspect::Added, Error> {
+        let insert = scaena_core::inserts::icon(&self.deck, &self.theme, icon);
+        self.inserting_offer(state, insert, at, None)
+    }
+
+    /// [`Session::inserting`] of `insert`, whatever offered it.
+    #[cfg(feature = "editor")]
+    fn inserting_offer(
+        &mut self,
+        state: &str,
+        insert: scaena_core::inserts::Insert,
+        at: [f32; 2],
+        named: Option<&str>,
+    ) -> Result<scaena_ops::inspect::Added, Error> {
+        let room = self.room_for(state, &insert, named, None)?;
         // What lint E101 would judge it against: a decoration lies anywhere.
         let snaps = scaena_core::resolve_states(&self.deck).map_err(|e| Error::Deck(e.to_string()))?;
         let decorations: Vec<String> = (snaps.iter().find(|s| s.state_id == state).into_iter())
@@ -1318,7 +1345,7 @@ impl Session {
         if insert.node["type"] != "table" || self.lays_out_with(&added.patch, state)? {
             return Ok(added);
         }
-        let (_, room) = self.room_at(state, n, named, Some(1.0))?;
+        let room = self.room_for(state, &insert, named, Some(1.0))?;
         scaena_ops::inspect::inserting(&self.deck, &self.theme, &room, &insert, state, at, &crowded)
             .map_err(|e| Error::Deck(e.to_string()))
     }
@@ -1362,9 +1389,27 @@ impl Session {
         named: Option<&str>,
         wide: Option<f32>,
     ) -> Result<(scaena_core::inserts::Insert, scaena_engine::geometry::Targets), Error> {
+        let insert = self.offered(n)?;
+        let room = self.room_for(state, &insert, named, wide)?;
+        Ok((insert, room))
+    }
+
+    /// What [`Session::inserts`] offers `n`th.
+    #[cfg(feature = "editor")]
+    fn offered(&self, n: usize) -> Result<scaena_core::inserts::Insert, Error> {
+        self.inserts().into_iter().nth(n).ok_or_else(|| Error::Ops(format!("nothing is offered at {n}")))
+    }
+
+    /// Where `insert` may go in `state` under an id new to the deck, as [`Session::room_at`] says.
+    #[cfg(feature = "editor")]
+    fn room_for(
+        &mut self,
+        state: &str,
+        insert: &scaena_core::inserts::Insert,
+        named: Option<&str>,
+        wide: Option<f32>,
+    ) -> Result<scaena_engine::geometry::Targets, Error> {
         use scaena_core::inserts::{Start, fresh, slug};
-        let offered = self.inserts().into_iter().nth(n);
-        let insert = offered.ok_or_else(|| Error::Ops(format!("nothing is offered at {n}")))?;
         let kind = insert.node["type"].as_str().unwrap_or("node");
         let stem = named.map(|name| std::path::Path::new(name).file_stem().and_then(|s| s.to_str()).unwrap_or(name));
         let id = fresh(&self.deck, &stem.map_or_else(|| insert.id.clone(), |stem| slug(stem, kind)));
@@ -1377,7 +1422,7 @@ impl Session {
         let format = self.format.as_deref();
         let req =
             FrameRequest { deck: &self.deck, theme: &self.theme, data: &self.data, state, t_ms: f64::INFINITY, format };
-        Ok((insert, engine.room(&req, &id, share)?))
+        Ok(engine.room(&req, &id, share)?)
     }
 
     /// The patch that copies `node`, as `state` shows it, with what it holds there, beside it

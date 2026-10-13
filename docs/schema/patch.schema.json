@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/patch-0.19.json",
+  "$id": "https://scaena.dev/schema/patch-0.20.json",
   "title": "Scaena patch",
   "description": "A patch (SPEC §7.3): RFC 6902 ops and semantic ops, applied in order, all or none.",
   "type": "array",
@@ -759,6 +759,10 @@
         "type": { "type": "string", "const": "shape" },
         "kind": { "$ref": "#/$defs/ShapeKind" },
         "path": { "description": "SVG path data.", "type": "string" },
+        "view": {
+          "description": "The box of the path's own coordinates that fits the node's box, [x, y, w, h], as SVG's `viewBox`: the path is scaled alike both ways to fit it and centered in the node's box, so icons drawn on one view keep one weight beside each other (PLAN 2.104). Without one, the path's own bounds fit.",
+          "$ref": "#/$defs/Rect"
+        },
         "points": {
           "type": "array",
           "items": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
@@ -1760,6 +1764,7 @@
           ]
         },
         "path": { "type": ["string", "null"] },
+        "view": { "anyOf": [{ "$ref": "#/$defs/Rect" }, { "type": "null" }] },
         "points": {
           "anyOf": [
             {

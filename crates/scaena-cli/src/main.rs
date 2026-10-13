@@ -314,6 +314,20 @@ enum Cmd {
         #[arg(long, requires = "remove")]
         dry_run: bool,
     },
+    /// The icons that ship (PLAN 2.104): Phosphor's, MIT, each found when every word asked
+    /// begins a word of its name, its tags, or its categories, its name asked whole first; with
+    /// no words, every icon. Each is a path on a view 256 square, which `patch`'s `add_node` adds
+    /// as a shape: `{"type": "shape", "path": …, "view": [0, 0, 256, 256], "fill": "accent"}`.
+    Icons {
+        /// The words to find.
+        query: Vec<String>,
+        /// Drawn solid, Phosphor's fill weight; in outline, its regular weight, without it.
+        #[arg(long)]
+        fill: bool,
+        /// At most this many.
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+    },
     /// The deck's narrative health (PLAN G.9): Vzestup's measures of a talk, over its slides as
     /// its spine tells them: pacing against the length its brief asked, the points each slide
     /// makes and its notes, how each follows from the one before, how the intensity each
@@ -687,6 +701,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Data { bundle, source, edits, dry_run } => data(&bundle, &source, edits.as_deref(), dry_run, cli.json),
         Cmd::Files { bundle, remove, dry_run } => files(&bundle, remove.as_deref(), dry_run, cli.json),
         Cmd::Health { bundle } => health(&bundle, cli.json),
+        Cmd::Icons { query, fill, limit } => icons(&query.join(" "), fill, limit, cli.json),
         Cmd::History { bundle, at, scn, diff, restore, dry_run } => {
             let ask = scaena_ops::history::Ask { at, scn, compare: diff.unwrap_or_default(), restore, dry_run };
             history(&bundle, &ask, cli.json)
@@ -1135,6 +1150,25 @@ fn health(bundle: &Path, json: bool) -> Result<ExitCode> {
         if let Some(fix) = &f.fix {
             println!("  fix: {}: {}", fix.says, serde_json::to_string(&fix.patch)?);
         }
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn icons(query: &str, fill: bool, limit: usize, json: bool) -> Result<ExitCode> {
+    use scaena_ops::icons::{Icons, Weight, find};
+    let found: Icons = find(query, if fill { Weight::Fill } else { Weight::Regular }, limit);
+    if json {
+        println!("{}", serde_json::to_string_pretty(&found)?);
+        return Ok(ExitCode::SUCCESS);
+    }
+    if found.icons.is_empty() {
+        println!("no icon answers “{query}”");
+    }
+    for icon in &found.icons {
+        println!("{:<32} {}", icon.name, icon.tags.join(", "));
+    }
+    if found.found > found.icons.len() {
+        println!("… {} of {} icons: --limit shows more, and more words fewer", found.icons.len(), found.found);
     }
     Ok(ExitCode::SUCCESS)
 }

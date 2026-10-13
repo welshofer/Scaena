@@ -89,6 +89,8 @@ struct DeckView: View {
     @State private var choosingSlide = false
     /// Whether Choose Picture… asks for a file.
     @State private var choosingPicture = false
+    /// The icons that ship, offered to insert one (PLAN 2.104).
+    @State private var choosingIcon = false
     /// The themes that ship, offered as a deck made by New opens (PLAN 3.3); none once one is chosen.
     @State private var offeredThemes: [ShippedTheme] = []
     /// The slides made in this window, from the gallery or after the slide shown (PLAN 3.30):
@@ -156,6 +158,12 @@ struct DeckView: View {
             switch result {
             case .success(let url): choose(url)
             case .failure(let error): failure = error.localizedDescription
+            }
+        }
+        // An icon chosen lands where the pointer last pressed, or in the middle of the slide.
+        .sheet(isPresented: $choosingIcon) {
+            IconPicker(session: editor.session) { icon in
+                if let shown { insertIcon(icon, in: shown) }
             }
         }
     }
@@ -368,7 +376,7 @@ struct DeckView: View {
         case .shape:
             InsertMenu(
                 title: "Shape", symbol: "square.on.circle", kinds: ["Shape", "Shader"], first: nil, inserts: inserts,
-                insert: insertHere)
+                insert: insertHere, choose: shown == nil ? nil : (title: "Icon…", action: { choosingIcon = true }))
         case .image:
             InsertMenu(
                 title: "Image", symbol: "photo", kinds: ["Image"], first: nil, inserts: inserts, insert: insertHere,
@@ -954,6 +962,7 @@ struct DeckView: View {
             ungroup: one && grouped ? { ungroup(in: shown) } : nil,
             order: some ? { how in order(how, in: shown) } : nil)
         made.choosePicture = { choosingPicture = true }
+        made.chooseIcon = { choosingIcon = true }
         made.deletesElsewhere = elsewhere
         // In another of the deck's formats, a node given a layout of its own there (PLAN 2.85).
         if one, let node, let format = editor.format {
@@ -1219,6 +1228,21 @@ struct DeckView: View {
                 return
             }
             said = "\(offered.map(Words.inserted) ?? "Object") inserted"
+        }
+    }
+
+    /// Insert `icon` where the pointer last pressed on the canvas, or in its middle (PLAN 2.104): a
+    /// path shape on its view in the theme's accent, as decoration named by the icon. It enters in
+    /// the state shown, selected: one step to undo.
+    private func insertIcon(_ icon: Icon, in state: String) {
+        let size = (try? editor.session.canvasSize()) ?? CGSize(width: 1920, height: 1080)
+        let at = pointed ?? CGPoint(x: size.width / 2, y: size.height / 2)
+        perform {
+            let added = try editor.session.insertingIcon(state: state, icon: icon, at: at)
+            try document.make(added.patch, undo: undo)
+            node = added.id
+            also = []
+            said = "\(Words.icon(icon.name)) icon inserted"
         }
     }
 
