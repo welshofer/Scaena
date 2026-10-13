@@ -71,7 +71,7 @@ import type {
   WritingCall,
   Written,
 } from "./protocol";
-import type { Icon } from "./icons";
+import type { Icon } from "./icon-set";
 
 type Reply = Extract<
   FromWorker,

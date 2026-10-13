@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/theme-0.14.json",
+  "$id": "https://scaena.dev/schema/theme-0.15.json",
   "title": "Scaena theme (design system)",
   "description": "Tokens, typographic roles, layout templates, motion, and palettes. Documents reference these by name; they never store resolved values. See docs/SPEC.md §3.6.",
   "type": "object",
   "required": ["scaena-theme", "name", "tokens", "type", "grid", "layouts", "motion"],
   "additionalProperties": false,
   "properties": {
-    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.14(\\.[0-9]+)?$" },
+    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.15(\\.[0-9]+)?$" },
     "name": { "type": "string", "minLength": 1 },
     "description": { "type": "string" },
     "tokens": { "$ref": "#/$defs/Tokens" },
@@ -475,14 +475,14 @@
       ]
     },
     "PromptShape": {
-      "description": "A shape a new slide puts in a slot (PLAN 3.30): a card behind words, a rule between them, or an arrow from one to the next.",
+      "description": "A shape a new slide puts in a slot (PLAN 3.30): a card behind words, a rule between them, an arrow from one to the next, or an icon over an item's words (PLAN G.23).",
       "type": "object",
       "required": ["shape"],
       "additionalProperties": false,
       "properties": {
         "shape": { "$ref": "#/$defs/PromptShapeKind" },
         "fill": {
-          "description": "What fills a rectangle, an ellipse, or a polygon: a color token or role. A line and an arrow take the theme's rule.",
+          "description": "What fills a rectangle, an ellipse, a polygon, or an icon: a color token or role. A line and an arrow take the theme's rule.",
           "type": "string"
         },
         "stroke": {
@@ -493,6 +493,20 @@
           "description": "Its points, as fractions of the slot: `[0, 0]` its top left, `[1, 1]` its bottom right (theme format 0.12, PLAN 3.31). A line or an arrow with none crosses the slot's middle, left to right; one down the slot, or back, gives them. A polygon gives three or more.",
           "type": "array",
           "items": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
+        },
+        "icon": {
+          "description": "An icon's name, as the set it is drawn from names it (theme format 0.15, PLAN G.23): what the icon a new slide puts there is called, by a reader and in the layers.",
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "description": "An icon's outline, as SVG path data (theme format 0.15, PLAN G.23), drawn on its `view`.",
+          "type": "string",
+          "minLength": 1
+        },
+        "view": {
+          "description": "The box of an icon's `path` that fits the slot, `[x, y, w, h]`, as a path shape's `view` fits its node (theme format 0.15, PLAN G.23): the icon as large as the slot takes, in its middle.",
+          "$ref": "#/$defs/Rect"
         }
       }
     },
@@ -504,8 +518,20 @@
           "description": "Theme format 0.12: a chevron, a triangle, or any outline its `points` give.",
           "type": "string",
           "const": "polygon"
+        },
+        {
+          "description": "Theme format 0.15 (PLAN G.23): an icon, its `path` drawn on its `view` and named by `icon`. A new slide puts it there for a person to swap for another; a deck made from a prompt puts there the icon its item names.",
+          "type": "string",
+          "const": "icon"
         }
       ]
+    },
+    "Rect": {
+      "description": "[x, y, w, h] in canvas units.",
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 4,
+      "maxItems": 4
     },
     "Example": {
       "description": "What a layout's picture shows in a slot that waits (PLAN 3.31): `{ \"picture\": \"backdrop\" }`, `{ \"chart\": \"bar\" }`, or `{ \"table\": 3 }`.",

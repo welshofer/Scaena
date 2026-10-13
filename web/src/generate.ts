@@ -9,6 +9,7 @@
 // font, fetched from google/fonts at the commit the shipped fonts come from, held to its digest,
 // and kept in the browser's cache for the next deck (PLAN G.22, ADR-0027).
 import { Making, scriptChecked, scriptFor, scriptTaken, writable } from "@scaena/wasm";
+import { findIcons, iconSet } from "./icon-set";
 import type { Choices, Generate, Generated, GeneratingEvent, Health } from "./protocol";
 
 type Generator = typeof import("@scaena/generator");
@@ -188,6 +189,7 @@ export async function generate(
         if (step === "arc") hear({ kind: "chose", arc: at.arc ?? "", fallback: at.fallback ?? undefined });
         else hear({ kind: "wrote", slides: at.written ?? 0, truncated: at.truncated ?? false });
       }
+      await giveIcons(generation);
       const painted = job.pictures ? await paint(g, generation, job.pictures, theme, hear) : undefined;
       hear({ kind: "making" });
       const built = generation.deck(theme.text, painted?.placed ?? "{}");
@@ -214,6 +216,22 @@ export async function generate(
   } finally {
     sources.free();
   }
+}
+
+/** The icons the narrative's slides name (PLAN G.23), each the first its word finds in the set
+ * that ships, in its regular weight, as `scaena_ops::narrative::icons_found` finds them: the set
+ * fetched only where a slide names one. A word that finds none is left out, and its slide set
+ * without icons. */
+async function giveIcons(generation: InstanceType<Generator["Generation"]>) {
+  const words = JSON.parse(generation.iconWords()) as string[];
+  if (words.length === 0) return;
+  const set = await iconSet();
+  const found: Record<string, { name: string; path: string; view: number[] }> = {};
+  for (const word of words) {
+    const [first] = findIcons(set, word);
+    if (first) found[word] = { name: first.name, path: first.regular, view: set.view };
+  }
+  generation.giveIcons(JSON.stringify(found));
 }
 
 /** The pictures the narrative's slides ask for (PLAN G.10), made by the user's image model, the

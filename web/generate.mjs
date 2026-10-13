@@ -41,6 +41,23 @@ const check = (ok, what) => {
 const answers = "crates/scaena-narrato/tests/answers";
 const ARC = await readFile(`${answers}/anthropic-arc.json`, "utf8");
 const SLIDES = await readFile(`${answers}/anthropic-slides.json`, "utf8");
+/** The recorded answer, its slides two lists whose items each name an icon (PLAN G.23). */
+const ICONED = (() => {
+  const answer = JSON.parse(SLIDES);
+  const three = ["Fast: a crossing in a day", "Safe: checked at every port", "Shared: one ledger for all"];
+  const four = ["Plan: the route set a week out", "Track: each crate seen", "Agree: one price", "Arrive: on time"];
+  answer.content.find((c) => c.type === "text").text = JSON.stringify({
+    executiveSummary: "Cargo that pays for its carbon.",
+    slides: [
+      { slideTitle: "Tidewater", subtitle: "Series A", layoutSuggestion: "Title", keyBullets: [] },
+      { slideTitle: "Why Tidewater wins", layoutSuggestion: "Bullet List", keyBullets: three, icons: ["lightning", "shield", "users"] },
+      { slideTitle: "Cargo can pay for the carbon it moves", layoutSuggestion: "Statement", keyBullets: [] },
+      { slideTitle: "How we work", layoutSuggestion: "Bullet List", keyBullets: four, icons: ["compass", "chart", "handshake", "flag"] },
+      { slideTitle: "Sail with us", layoutSuggestion: "Closing", keyBullets: [] },
+    ],
+  });
+  return JSON.stringify(answer);
+})();
 const NOTES = "# Tidewater field notes\n\nPort calls doubled in Q3, and every berth ran on shore power.";
 /** A picture, as OpenAI's Images API gives one: a JPEG from the decoder's fixtures. */
 const PICTURE = (await readFile("tests/fixtures/jpeg/baseline-422.jpg")).toString("base64");
@@ -50,9 +67,10 @@ const DEVANAGARI = await readFile("tests/fixtures/scripts/NotoSansDevanagari-VF.
 const painted = [];
 const PAGE = "<h1>Tidewater in the press</h1><p>The Gulf's first carbon-negative cargo line opened its third route.</p>";
 
-/** Anthropic, scripted: what each request asks, and the state the walk sets (`slow`, `fail`). */
+/** Anthropic, scripted: what each request asks, and the state the walk sets (`slow`, `fail`, and
+ * the `slides` it answers with, the recorded ones where none is set). */
 const requests = [];
-const state = { slow: 0, fail: false };
+const state = { slow: 0, fail: false, slides: undefined };
 const provider = createServer(async (req, res) => {
   const cors = {
     "access-control-allow-origin": req.headers.origin ?? "*",
@@ -91,7 +109,7 @@ const provider = createServer(async (req, res) => {
   if (state.slow) await new Promise((ok) => setTimeout(ok, state.slow));
   if (state.fail) return reply(401, { type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } });
   if (asked === "arc") return reply(200, ARC);
-  if (asked === "slides") return reply(200, SLIDES);
+  if (asked === "slides") return reply(200, state.slides ?? SLIDES);
   if (asked === "look") {
     const look = { slides: [{ slide: 1, layout: "", title: "Carbon-negative cargo, ready to scale", subtitle: "", bullets: [], why: "One idea, one line." }] };
     return reply(200, { content: [{ type: "text", text: JSON.stringify(look) }], stop_reason: "end_turn" });
@@ -339,6 +357,25 @@ try {
   await asked.click();
   check((await page.getAttribute("#tab-assistant", "aria-selected")) === "true", "a question opens the assistant's tab");
   check((await page.inputValue("#question")) === question, `the question is in its box: ${question}`);
+
+  // Items that each name an icon are set under the icons the worker finds in the set that ships,
+  // fetched for them (PLAN G.23): each a path on its view, named by the icon.
+  state.slides = ICONED;
+  await opened();
+  await page.click("#prompting-go");
+  // Made, opened, and compiled: the new deck's first compile is its `last`.
+  await page
+    .waitForFunction(() => window.scaena.source().includes("alt:Lightning") && window.scaena.last(), null, { timeout: 180000 })
+    .catch(() => {});
+  const iconed = await page.evaluate(() => window.scaena.source());
+  check(
+    ["alt:Lightning", "alt:Shield", "alt:Users", "alt:Compass", "alt:Handshake"].every((a) => iconed.includes(a)) && iconed.includes("view:[0, 0, 256, 256]"),
+    "items that each name an icon are set under it",
+  );
+  const iconedLast = await page.evaluate(() => window.scaena.last());
+  const iconedErrors = (iconedLast?.findings ?? []).filter((f) => f.severity === "error").map((f) => f.code);
+  check(iconedLast?.valid && iconedErrors.length === 0, `it lints with no error: ${iconedLast ? iconedErrors : "not compiled"}`);
+  state.slides = undefined;
 } catch (e) {
   failures.push(String(e?.stack ?? e));
 } finally {

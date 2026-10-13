@@ -205,6 +205,7 @@ pub const SLOT_SHAPES: &str = "
 - Letter and Memo: `keyBullets` are the body's short paragraphs; `subtitle` says who it is to.
 - The Ask: `slideTitle` is the request; up to three bullets give its specifics.
 - Bar Chart and Line Chart: the figures go in `chartData`; `keyBullets[0]` is the one takeaway.
+- Icons: where a slide's three to six bullets are parallel features, values, reasons, or parts, each \"label: detail\" (a Bullet List or a Gallery), give `icons`, one word per bullet, in order, naming a plain pictogram of it, a thing or a sign rather than an idea (\"rocket\", \"shield\", \"leaf\", \"users\", \"clock\", \"globe\"); leave `icons` empty on every other slide.
 ";
 
 /// The arc-selection prompt's half that is the same for every brief: the rubric and the catalog.

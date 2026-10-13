@@ -200,16 +200,10 @@ pub struct Icon {
 pub fn icon(deck: &Deck, theme: &Theme, icon: &Icon) -> Insert {
     let [w, h] = [deck.canvas.width as f32, deck.canvas.height as f32];
     let colors = theme.names(Vocabulary::Color);
-    let mut node = json!({
-        "type": "shape",
-        "kind": "path",
-        "path": icon.path,
-        "view": icon.view,
-        "alt": sentence(&icon.name),
-        "semantic": "decoration",
-    });
-    if let Some(fill) = colors.iter().find(|c| *c == "accent").or(colors.first()) {
-        node["fill"] = json!(fill);
+    let fill = colors.iter().find(|c| *c == "accent").or(colors.first());
+    let mut node = icon_node(&icon.name, &icon.path, icon.view, fill.map_or("", String::as_str));
+    if fill.is_none() {
+        node.as_object_mut().expect("an object").remove("fill");
     }
     let side = 1.0 / 12.0;
     Insert {
@@ -218,6 +212,24 @@ pub fn icon(deck: &Deck, theme: &Theme, icon: &Icon) -> Insert {
         id: slug(&icon.name, "icon"),
         start: Start::Box { w: side, h: side * w / h },
     }
+}
+
+/// An icon's node (PLAN 2.104, G.23): a path shape on its view, filled with `fill`, a theme color,
+/// as decoration a reader passes over, named by the icon as an editor names an object
+/// (`airplane-tilt` as "Airplane tilt"). What Insert, a layout's icon, and a deck made from a
+/// prompt each put on a slide.
+pub fn icon_node(name: &str, path: &str, view: [f64; 4], fill: &str) -> Value {
+    // A whole number written whole, as the set writes it: `[0, 0, 256, 256]`.
+    let whole = |v: f64| if v.fract() == 0.0 && v.abs() < 1e15 { json!(v as i64) } else { json!(v) };
+    json!({
+        "type": "shape",
+        "kind": "path",
+        "path": path,
+        "view": view.map(whole),
+        "alt": sentence(name),
+        "semantic": "decoration",
+        "fill": fill,
+    })
 }
 
 /// The first of `base`, `base-2`, `base-3`, … that names no node of `deck`.

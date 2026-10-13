@@ -849,10 +849,11 @@ pub struct Added {
 
 /// The patch that inserts `insert` in `state` as `room`'s node (PLAN 2.34): `add_node`, the
 /// node entering there, then `place`, then where it leaves, so it stays on the slide (PLAN
-/// 3.26). A text or an image fills the template's slot under `at` (canvas units) where no node
-/// of the state's is placed in it and `theme`'s layout says it goes there: a text where words
-/// go, an image where a picture or a figure does (`Slot::takes`). Anything else, or a text or an
-/// image with no such slot free, takes the box it starts as, about `at`, snapped to the theme's
+/// 3.26). A text, an image, or an icon fills the template's slot under `at` (canvas units) where
+/// no node of the state's is placed in it and `theme`'s layout says it goes there: a text where
+/// words go, an image where a picture or a figure does, an icon where an icon does (PLAN G.23,
+/// `Slot::takes`). Anything else, or one with no such slot free, takes the box it starts as,
+/// about `at`, snapped to the theme's
 /// grid as a drop snaps; a shader fills the slot it names. What draws content (a text, an
 /// image, a chart, a table) and would overlap what is `crowded` there (`Scene::crowded`, what
 /// lint E101 judges it against) goes instead to the place on the grid clear of it whose middle
@@ -870,8 +871,11 @@ pub fn inserting(
     let target = match &insert.start {
         Start::Box { .. } => {
             let kind = insert.node["type"].as_str();
+            // An icon goes in an empty place for one, as words go in a place for words (PLAN G.23).
+            let icon = kind == Some("shape") && insert.node.get("view").is_some();
             let empty = match serde_json::from_value(insert.node["type"].clone()) {
                 Ok(content @ (NodeType::Text | NodeType::Image)) => empty_slot(deck, theme, room, state, at, content)?,
+                Ok(NodeType::Shape) if icon => empty_slot(deck, theme, room, state, at, NodeType::Shape)?,
                 _ => None,
             };
             match empty {

@@ -334,6 +334,7 @@ mod tests {
             executive_summary: written.executive_summary.clone(),
             slides: written.slides.clone(),
             truncated: false,
+            icons: Default::default(),
             brief: scaena_narrato::Brief {
                 topic: written.slides[0].slide_title.clone(),
                 language: Some(language.into()),

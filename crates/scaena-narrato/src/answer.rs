@@ -40,6 +40,11 @@ pub struct Slide {
     /// −1 (grave) to +1 (hopeful).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expected_valence: Option<f64>,
+    /// A word for each bullet naming a pictogram of it (Scaena's, PLAN G.23): `rocket`, `shield`,
+    /// `leaf`. Where a slide's bullets are parallel features, values, or parts, the deck sets each
+    /// under the icon its word finds.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub icons: Vec<String>,
 }
 
 /// The exact figures a chart plots.
@@ -153,6 +158,10 @@ pub fn normalize(raw: &Value) -> Slide {
         intent: some("intent"),
         expected_intensity: finite("expectedIntensity").map(|v| v.clamp(0.0, 1.0)),
         expected_valence: finite("expectedValence").map(|v| v.clamp(-1.0, 1.0)),
+        icons: (raw.get("icons").and_then(Value::as_array).into_iter().flatten())
+            .filter_map(Value::as_str)
+            .map(|s| js::trim(s).to_string())
+            .collect(),
     }
 }
 
@@ -290,6 +299,17 @@ mod tests {
         assert_eq!(chart.series, [Series { name: Some("kt CO2".into()), values: vec![100.0, 80.0, 59.0] }]);
         assert_eq!((s.beat_index, s.expected_intensity, s.expected_valence), (Some(4), Some(1.0), Some(-1.0)));
         assert_eq!((s.supporting_facts, s.purpose), (None, None));
+        assert!(s.icons.is_empty(), "a slide that names no icon has none");
+    }
+
+    /// Scaena's `icons` (PLAN G.23): a word for each bullet, each trimmed, what is not a word left
+    /// out; and a slide that names none, as OpenAI's strict mode writes it, null.
+    #[test]
+    fn a_slides_icon_words_are_read_as_written() {
+        let s =
+            normalize(&json!({ "keyBullets": ["Fast: a day", "Safe: sealed"], "icons": [" rocket ", "shield", 3] }));
+        assert_eq!(s.icons, ["rocket", "shield"]);
+        assert!(normalize(&json!({ "icons": null })).icons.is_empty());
     }
 
     #[test]

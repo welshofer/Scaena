@@ -3,10 +3,12 @@ import SwiftUI
 
 /// The icons that ship, to insert one (PLAN 2.104), as the browser's picker offers them: a field
 /// that finds them by their words, Solid for their filled weight, and the icons found, drawn in
-/// ink. A click on one inserts it where the pointer last pressed on the slide; Return inserts the
-/// first found.
+/// ink. A click on one inserts it where the pointer last pressed on the slide, or, `replacing`,
+/// puts it in the place of the icon selected (PLAN G.23); Return takes the first found.
 struct IconPicker: View {
     let session: ScaenaSession
+    /// Whether the icon chosen takes the place of the icon selected.
+    var replacing = false
     /// Insert the icon chosen.
     let insert: (Icon) -> Void
     @Environment(\.dismiss) private var dismiss
@@ -21,7 +23,7 @@ struct IconPicker: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Insert an Icon").font(.headline)
+                Text(replacing ? "Replace the Icon" : "Insert an Icon").font(.headline)
                 Spacer()
                 Toggle("Solid", isOn: $solid)
                     .accessibilityIdentifier("icon-solid")

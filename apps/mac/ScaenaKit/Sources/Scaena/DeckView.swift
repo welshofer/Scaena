@@ -160,9 +160,10 @@ struct DeckView: View {
             case .failure(let error): failure = error.localizedDescription
             }
         }
-        // An icon chosen lands where the pointer last pressed, or in the middle of the slide.
+        // An icon chosen lands where the pointer last pressed, or in the middle of the slide; with
+        // an icon selected, it takes that one's place (PLAN G.23).
         .sheet(isPresented: $choosingIcon) {
-            IconPicker(session: editor.session) { icon in
+            IconPicker(session: editor.session, replacing: iconSelected != nil) { icon in
                 if let shown { insertIcon(icon, in: shown) }
             }
         }
@@ -1231,10 +1232,24 @@ struct DeckView: View {
         }
     }
 
+    /// The node selected, where it is one icon (PLAN G.23): what the picker puts another in place of.
+    private var iconSelected: String? {
+        guard let shown, selection.count == 1, let one = selection.first else { return nil }
+        return editor.session.isIcon(one, in: shown) ? one : nil
+    }
+
     /// Insert `icon` where the pointer last pressed on the canvas, or in its middle (PLAN 2.104): a
     /// path shape on its view in the theme's accent, as decoration named by the icon. It enters in
-    /// the state shown, selected: one step to undo.
+    /// the state shown, selected: one step to undo. With an icon selected, `icon` takes its place
+    /// instead, its box, color, and place as they were (PLAN G.23).
     private func insertIcon(_ icon: Icon, in state: String) {
+        if let swapped = iconSelected {
+            perform {
+                try document.make(icon.swapping(swapped, in: state), undo: undo)
+                said = "\(icon.said) icon in its place"
+            }
+            return
+        }
         let size = (try? editor.session.canvasSize()) ?? CGSize(width: 1920, height: 1080)
         let at = pointed ?? CGPoint(x: size.width / 2, y: size.height / 2)
         perform {

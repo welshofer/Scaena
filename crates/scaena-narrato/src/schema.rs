@@ -6,7 +6,9 @@
 
 use serde_json::{Map, Value, json};
 
-/// The slides' contract as Gemini's `responseSchema` takes it, as Vzestup writes it.
+/// The slides' contract as Gemini's `responseSchema` takes it, as Vzestup writes it, with
+/// Scaena's `icons` after Vzestup's fields: a word for each bullet naming its pictogram (PLAN
+/// G.23), which no field asks for in Vzestup.
 pub fn slides_gemini() -> Value {
     json!({
         "type": "OBJECT",
@@ -50,7 +52,8 @@ pub fn slides_gemini() -> Value {
                         "purpose": { "type": "STRING" },
                         "intent": { "type": "STRING" },
                         "expectedIntensity": { "type": "NUMBER" },
-                        "expectedValence": { "type": "NUMBER" }
+                        "expectedValence": { "type": "NUMBER" },
+                        "icons": { "type": "ARRAY", "items": { "type": "STRING" } }
                     },
                     "required": [
                         "slideTitle", "subtitle", "layoutSuggestion", "keyBullets", "visualDescription",
@@ -170,10 +173,13 @@ mod tests {
         assert_eq!(slide["properties"]["keyBullets"], json!({ "type": "array", "items": { "type": "string" } }));
         assert_eq!(slide["properties"]["chartData"]["required"], json!(["categories", "series"]));
         assert_eq!(slide["required"].as_array().unwrap().len(), 12);
+        // Scaena's: a word for each bullet's icon, which a slide may leave out (PLAN G.23).
+        assert_eq!(slide["properties"]["icons"], json!({ "type": "array", "items": { "type": "string" } }));
 
         let openai = strict(&anthropic);
         let slide = &openai["properties"]["slides"]["items"];
-        assert_eq!(slide["required"].as_array().unwrap().len(), 15);
+        assert_eq!(slide["required"].as_array().unwrap().len(), 16);
+        assert_eq!(slide["properties"]["icons"]["anyOf"][1], json!({ "type": "null" }));
         assert_eq!(slide["properties"]["supportingFacts"], json!({ "type": ["string", "null"] }));
         assert_eq!(slide["properties"]["chartData"]["anyOf"][1], json!({ "type": "null" }));
         assert_eq!(slide["properties"]["slideTitle"], json!({ "type": "string" }));

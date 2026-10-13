@@ -14,14 +14,14 @@ use crate::lint::{View, Write, lint_in};
 use crate::{Context, OpsError};
 use base64::Engine;
 use scaena_core::inserts::slug;
-use scaena_core::model::theme::{Example, Prompt, PromptItems, Slot, Theme};
+use scaena_core::model::theme::{Example, Prompt, PromptItems, PromptShapeKind, Slot, Theme};
 use scaena_core::model::values::Range;
 use scaena_core::{Deck, Finding};
 use scaena_narrato::fit::Long;
 use scaena_narrato::layouts::{self, Varied};
 use scaena_narrato::look::{Change, Choice, Seen};
 use scaena_narrato::pictures::{self, Frame, Look, Palette};
-use scaena_narrato::{ChartData, Document, Generation, Narrative, Picture, Provider, Request, Slide, Step};
+use scaena_narrato::{ChartData, Document, Generation, Icon, Narrative, Picture, Provider, Request, Slide, Step};
 pub use scaena_sources::Given;
 use scaena_sources::{Source, Table};
 use serde::{Deserialize, Serialize};
@@ -430,6 +430,9 @@ pub fn generate(
             say(Progress::Chose { arc, fallback: generation.fallback().map(str::to_string) });
         }
     }
+    // Each icon the slides name, found in the set that ships (G.23).
+    #[cfg(feature = "shipped")]
+    generation.give_icons(icons_found(&generation.icon_words()));
     let narrative = (generation.narrative().cloned())
         .ok_or_else(|| OpsError::new("the narrative is not written: a key asks the model for it"))?;
     say(Progress::Wrote { slides: narrative.slides.len(), truncated: narrative.truncated });
@@ -543,7 +546,8 @@ pub fn seeing(narrative: &Narrative, theme: &Theme, pictures: &Pictures, layouts
     (narrative.slides.iter().zip(&varied).zip(layouts).enumerate())
         .map(|(i, ((slide, v), own))| {
             let items = items(slide, v);
-            let options = others(v.layout.identity(), slide, &items, theme, pictures.contains_key(&i), own);
+            let iconed = icons_of(narrative, slide, &items).is_some();
+            let options = others(v.layout.identity(), slide, &items, theme, pictures.contains_key(&i), iconed, own);
             Seen {
                 slide: i + 1,
                 layout: choice(own),
@@ -559,9 +563,18 @@ pub fn seeing(narrative: &Narrative, theme: &Theme, pictures: &Pictures, layouts
 /// The layouts a slide may take in place of `own`, the one it took (PLAN G.13): for a slide of
 /// items that a layout of places sets as well as a list, the theme's layouts with a place for
 /// each item that set them as they are written (each under its label where each has one, each
-/// as its figure where each has one), and a list of them; none for a cover, a divider, a quote,
-/// a chart, a slide with a picture, or a slide whose layout reads its items in its own way.
-fn others(identity: &str, slide: &Slide, items: &[Item], theme: &Theme, pictured: bool, own: &str) -> Vec<String> {
+/// as its figure where each has one, each under its icon where each is `iconed`, G.23), and a
+/// list of them; none for a cover, a divider, a quote, a chart, a slide with a picture, or a
+/// slide whose layout reads its items in its own way.
+fn others(
+    identity: &str,
+    slide: &Slide,
+    items: &[Item],
+    theme: &Theme,
+    pictured: bool,
+    iconed: bool,
+    own: &str,
+) -> Vec<String> {
     let free = [
         "body",
         "numbered",
@@ -605,6 +618,15 @@ fn others(identity: &str, slide: &Slide, items: &[Item], theme: &Theme, pictured
             (4, false) => &["numbered-cards", "quadrants", "four-points"],
             _ => &[],
         });
+        // Each under the icon its word names, where every one names one (G.23).
+        if iconed && !ordered {
+            wanted.extend(match n {
+                3 => &["icon-columns", "icon-cards"][..],
+                4 => &["icon-rows", "icon-grid"],
+                5 | 6 => &["icon-grid"],
+                _ => &[],
+            });
+        }
     }
     wanted.extend(if ordered { ["numbered", "bullets"] } else { ["bullets", "numbered"] });
     let mut out: Vec<String> = Vec::new();
@@ -1223,10 +1245,13 @@ pub fn deck_as(
             .unwrap_or_else(|| scaena_narrato::beats::beat_of(i, count, names.len()));
         let items = items(slide, v);
         let picture = pictures.get(&i);
-        let given = layouts.get(&i).filter(|l| theme.layouts.contains_key(*l) && holds(theme, l, items.len()));
+        let icons = icons_of(narrative, slide, &items);
+        let given = layouts.get(&i).filter(|l| {
+            theme.layouts.contains_key(*l) && holds(theme, l, items.len()) && (icons.is_some() || !iconic(theme, l))
+        });
         let layout = match given {
             Some(layout) => layout.clone(),
-            None => layout_for(v.layout.identity(), slide, &items, i, theme, picture.is_some()),
+            None => layout_for(v.layout.identity(), slide, &items, i, theme, picture.is_some(), icons.is_some()),
         };
         if matches!(layout.as_str(), "section" | "section-photo") {
             section_number += 1;
@@ -1242,6 +1267,7 @@ pub fn deck_as(
             section: section_number,
             running: running.as_deref(),
             picture,
+            icons,
         };
         let made = deck.slide(slots, i > 0)?;
         if layout.starts_with("section") && !slide.slide_title.is_empty() {
@@ -1348,7 +1374,7 @@ pub fn asking(narrative: &Narrative, theme: &Theme, look: Look) -> Vec<Asked> {
     (pictures::wanted(&identities).into_iter())
         .filter_map(|i| {
             let slide = &narrative.slides[i];
-            let layout = layout_for(identities[i], slide, &items(slide, &varied[i]), i, theme, true);
+            let layout = layout_for(identities[i], slide, &items(slide, &varied[i]), i, theme, true, false);
             let slot =
                 theme.layouts.get(&layout)?.slots.values().find(|s| matches!(s.example, Some(Example::Picture(_))))?;
             let frame = frame_of(theme, slot);
@@ -1484,6 +1510,34 @@ fn items(slide: &Slide, v: &Varied) -> Vec<Item> {
     slide.key_bullets.iter().map(|b| item(b)).filter(|i| !i.whole.is_empty()).collect()
 }
 
+/// The icon each of `slide`'s `items` is set under (PLAN G.23): the one its word names, as the
+/// client found it in the set that ships; none unless each item has one.
+fn icons_of<'n>(narrative: &'n Narrative, slide: &Slide, items: &[Item]) -> Option<Vec<&'n Icon>> {
+    if items.is_empty() || slide.icons.len() != items.len() {
+        return None;
+    }
+    slide.icons.iter().map(|word| narrative.icons.get(&word.trim().to_lowercase())).collect()
+}
+
+/// The icons `words` name (PLAN G.23), each the first its word finds in the set that ships
+/// ([`crate::icons::find`]), in its regular weight; a word that finds none left out. What the
+/// CLI and the Mac hand a generation ([`Generation::give_icons`]); the browser finds them by the
+/// same rule (`web/src/icons.ts`).
+#[cfg(feature = "shipped")]
+pub fn icons_found(words: &[String]) -> BTreeMap<String, Icon> {
+    scaena_core::sort::map(words.iter().filter_map(|word| {
+        let found = crate::icons::find(word, crate::icons::Weight::Regular, 1).icons.into_iter().next()?;
+        Some((word.clone(), Icon { name: found.name, path: found.icon.path, view: found.icon.view }))
+    }))
+}
+
+/// Whether `layout` sets an icon in a place of its own (PLAN G.23).
+fn iconic(theme: &Theme, layout: &str) -> bool {
+    theme.layouts.get(layout).is_some_and(|l| {
+        l.slots.values().any(|s| matches!(&s.prompt, Some(Prompt::Shape(p)) if p.shape == PromptShapeKind::Icon))
+    })
+}
+
 fn item(bullet: &str) -> Item {
     let bullet = bullet.trim();
     // The mark a model may lead an item with, but not a figure's minus: "-13%" keeps it.
@@ -1571,7 +1625,15 @@ fn meaning(items: &[Item]) -> Option<String> {
 /// to its items, else a list of its bullets, else the first the theme has. A slide with a
 /// picture made for it takes the layout that shows its picture beside its words, where the
 /// library has one; one with none takes a layout that waits for none.
-fn layout_for(identity: &str, slide: &Slide, items: &[Item], index: usize, theme: &Theme, pictured: bool) -> String {
+fn layout_for(
+    identity: &str,
+    slide: &Slide,
+    items: &[Item],
+    index: usize,
+    theme: &Theme,
+    pictured: bool,
+    iconed: bool,
+) -> String {
     let n = items.len();
     let chart = slide.chart_data.is_some();
     let words = format!("{} {}", slide.slide_title, slide.subtitle).to_lowercase();
@@ -1694,6 +1756,16 @@ fn layout_for(identity: &str, slide: &Slide, items: &[Item], index: usize, theme
         "recipe-card" => "recipe",
         _ => "bullets",
     };
+    // Items each under the icon its word names (G.23): three side by side, in columns and on
+    // cards in turn; four down the slide; five or six in two rows of three. Steps, figures, and
+    // a layout that reads its items in its own way keep theirs.
+    let twin = match (wanted, n) {
+        ("bullets" | "three-columns", 3) => side("icon-columns", "icon-cards"),
+        ("bullets" | "quadrants", 4) => "icon-rows",
+        ("bullets", 5 | 6) => "icon-grid",
+        _ => wanted,
+    };
+    let wanted = if iconed && labelled && brief && theme.layouts.contains_key(twin) { twin } else { wanted };
     // A layout with no place for some of the items gives way to a list of them all.
     let sequential = [
         "steps",
@@ -1774,6 +1846,8 @@ struct Slots<'a> {
     running: Option<&'a str>,
     /// The picture made for the slide, if one was.
     picture: Option<&'a Placed>,
+    /// The icon each item is set under, where each has one (G.23).
+    icons: Option<Vec<&'a Icon>>,
 }
 
 /// What one slide added beyond its nodes: the data source its chart reads.
@@ -1788,6 +1862,8 @@ enum Fill {
     /// The prompt's own words: a column's or a lane's label.
     Prompt,
     Shape,
+    /// An item's icon, in a place for one (G.23).
+    Icon(Icon),
     Picture,
     Chart,
 }
@@ -1957,6 +2033,11 @@ impl Slots<'_> {
         self.items.get(k)
     }
 
+    /// The icon the `k`th item is set under (G.23).
+    fn icon(&self, k: usize) -> Option<&Icon> {
+        self.icons.as_ref().and_then(|icons| icons.get(k).copied())
+    }
+
     fn wholes(&self) -> Vec<String> {
         self.items.iter().map(|i| i.whole.clone()).collect()
     }
@@ -2054,6 +2135,12 @@ impl Slots<'_> {
         };
         let text = |t: Option<String>| t.map(Fill::Text);
         let picture = matches!(slot.example, Some(Example::Picture(_)));
+        // A place for an item's icon holds the one its word names (G.23).
+        if let Some(Prompt::Shape(shape)) = &slot.prompt
+            && shape.shape == PromptShapeKind::Icon
+        {
+            return ordinal(name).and_then(|(k, _)| self.icon(k)).map(|icon| Fill::Icon(icon.clone()));
+        }
         if let Some(Prompt::Shape(_)) = &slot.prompt {
             // A card, a rule, or an arrow: with its ordinal's item, or the slide's own.
             return match ordinal(name) {
@@ -2615,6 +2702,13 @@ impl Builder {
                     }
                     node
                 }
+                Fill::Icon(icon) => {
+                    let Some(Prompt::Shape(shape)) = &slot.prompt else { continue };
+                    let fill = shape.fill.as_deref().unwrap_or("accent");
+                    let mut node = scaena_core::inserts::icon_node(&icon.name, &icon.path, icon.view, fill);
+                    node["at"] = at;
+                    node
+                }
                 Fill::Picture => {
                     let Some(p) = s.picture else { continue };
                     // Under the cards (`z` −1) and the words over it.
@@ -3036,6 +3130,7 @@ mod tests {
             executive_summary: summary.into(),
             slides,
             truncated: false,
+            icons: Default::default(),
             brief: Brief {
                 topic: "Pitch a Series A round for our carbon-negative cargo platform.".into(),
                 audience: "Investors".into(),
@@ -4005,6 +4100,82 @@ mod tests {
         assert_eq!(deck["data"]["q3"]["source"], "data/q3.csv");
         assert_eq!(deck["data"]["fleet-plan-by-port"]["schema"]["share"], "number");
         assert_eq!(write.files["data/q3.csv"], b"region,revenue\nGulf,4.1\nAtlantic,2.2\n");
+    }
+
+    /// Items that each name an icon are set under the icons their words find (PLAN G.23): three
+    /// side by side, on cards and in columns in turn; four down the slide; six in two rows of
+    /// three. Each icon is the set's own path on its view, in the theme's accent, as decoration
+    /// named by the icon, and rises with its item. A slide where a word finds none keeps its
+    /// layout of words. The deck lints with no error.
+    #[cfg(feature = "shipped")]
+    #[test]
+    fn items_that_name_icons_are_set_under_them() {
+        let slide = |kind: &str, title: &str, bullets: &[&str], icons: &[&str]| Slide {
+            slide_title: title.into(),
+            layout_suggestion: kind.into(),
+            key_bullets: bullets.iter().map(|b| b.to_string()).collect(),
+            icons: icons.iter().map(|i| i.to_string()).collect(),
+            ..Slide::default()
+        };
+        let three = ["Fast: a crossing in a day", "Safe: checked at every port", "Shared: one ledger for all"];
+        let four = ["Plan: the route set a week out", "Track: each crate seen", "Agree: one price", "Arrive: on time"];
+        let six = [
+            "Quick: a day",
+            "Locked: sealed",
+            "Global: forty ports",
+            "Timed: to the hour",
+            "Heard: one line",
+            "Rated: five stars",
+        ];
+        let slides = vec![
+            slide("Title", "Tidewater", &[], &[]),
+            slide("Bullet List", "Why Tidewater wins", &three, &[" Lightning ", "shield", "users"]),
+            slide("Statement", "Cargo can pay for the carbon it moves", &[], &[]),
+            slide("Bullet List", "How we work", &four, &["compass", "chart", "handshake", "flag"]),
+            slide("Gallery", "What it means for a port", &three, &["rocket", "target", "heart"]),
+            slide("Bullet List", "What a shipper gets", &six, &["lightning", "lock", "globe", "clock", "chat", "star"]),
+            slide("Statement", "Every crossing counts", &[], &[]),
+            slide("Gallery", "What it means for a crew", &three, &["rocket", "zzqx", "leaf"]),
+            slide("Closing", "Sail with us", &[], &[]),
+        ];
+        let mut n = narrative("A pitch.", slides);
+        let words = n.icon_words();
+        assert_eq!(words[0], "lightning", "each word trimmed and in lower case, once");
+        assert_eq!(words.iter().filter(|w| *w == "lightning").count(), 1);
+        n.icons = icons_found(&words);
+        assert!(n.icons.contains_key("chart") && !n.icons.contains_key("zzqx"), "{:?}", n.icons.keys());
+
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let made = deck(&n, &theme, &Pictures::new()).unwrap();
+        assert_eq!(made.layouts[1], "icon-cards");
+        assert_eq!(made.layouts[3], "icon-rows");
+        assert_eq!(made.layouts[4], "icon-columns");
+        assert_eq!(made.layouts[5], "icon-grid");
+        assert_eq!(made.layouts[7], "three-columns", "a word that finds no icon leaves the slide its words");
+
+        // The first card's icon: the set's own, on its view, in the accent, named by the icon.
+        let icon = placed(&made.deck, 1, "first-icon");
+        let lightning = &n.icons["lightning"];
+        assert_eq!(icon["kind"], "path");
+        assert_eq!(icon["path"], json!(lightning.path));
+        assert_eq!(icon["view"], json!([0, 0, 256, 256]), "a whole number written whole");
+        assert_eq!((icon["fill"].as_str(), icon["alt"].as_str()), (Some("accent"), Some("Lightning")));
+        assert_eq!(icon["semantic"], "decoration");
+        // Each rises with its item: in the choreography's step for the first item.
+        let id = (made.deck["states"][1]["props"].as_object().unwrap().keys())
+            .find(|id| made.deck["nodes"][id.as_str()]["at"]["in"] == "first-icon")
+            .unwrap();
+        let first = &made.deck["states"][1]["choreography"][0];
+        assert!(first["target"].as_array().unwrap().iter().any(|t| t == id.as_str()), "{first}");
+        // Six in two rows: the sixth place holds the icon `star` finds.
+        assert_eq!(placed(&made.deck, 5, "sixth-icon")["alt"], "Star");
+
+        let (made, _) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let errors: Vec<String> = (made.created.findings.iter())
+            .filter(|f| f.severity == scaena_core::Severity::Error)
+            .map(|f| format!("{} {}", f.code, f.message))
+            .collect();
+        assert!(errors.is_empty(), "{errors:#?}");
     }
 
     #[test]

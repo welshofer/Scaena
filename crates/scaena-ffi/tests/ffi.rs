@@ -788,14 +788,14 @@ fn an_icon_is_found_and_inserted_as_the_browser_does() {
     assert_eq!(added["id"], "rocket", "{added}");
     let node = &added["patch"][0]["node"];
     assert_eq!((node["type"].as_str(), node["kind"].as_str()), (Some("shape"), Some("path")), "{added}");
-    assert_eq!(
-        (node["view"].clone(), node["semantic"].as_str()),
-        (json!([0.0, 0.0, 256.0, 256.0]), Some("decoration"))
-    );
+    assert_eq!((node["view"].clone(), node["semantic"].as_str()), (json!([0, 0, 256, 256]), Some("decoration")));
     assert_eq!(node["alt"], "Rocket", "{added}");
     assert_eq!(tool(s, "deck_patch", json!({ "ops": added["patch"] }))["edited"], true);
     let shown = call(s, "boxes", json!({ "state": "cover" }));
     assert!(shown.as_array().unwrap().iter().any(|b| b["node"] == "rocket"), "{shown}");
+    // The inspector names it an icon, by its name; what the picker replaces (PLAN G.23).
+    let offered = call(s, "choices", json!({ "state": "cover", "node": "rocket" }));
+    assert_eq!((offered["noun"].as_str(), offered["said"].as_str()), (Some("Icon"), Some("Rocket")), "{offered}");
 
     // An icon that is not one: said.
     let answer: Value = serde_json::from_str(&took(unsafe {
@@ -804,6 +804,32 @@ fn an_icon_is_found_and_inserted_as_the_browser_does() {
     .unwrap();
     assert!(answer["error"]["message"].as_str().is_some_and(|m| m.contains("icon")), "{answer}");
     unsafe { scaena_session_free(s) };
+
+    // A slide started in Icon Columns (PLAN G.23): each place holds the icon Dusk names there, as
+    // decoration named by it; with one taken out, an icon inserted where its place stands fills it.
+    let mut error = null_mut();
+    let d = unsafe { scaena_create(c("Dusk").as_ptr(), c("Icons").as_ptr(), &mut error) };
+    assert!(!d.is_null(), "made: {}", took(error));
+    let cover = call(d, "states", Value::Null)[0].as_str().unwrap().to_string();
+    let started = call(d, "starting", json!({ "state": cover, "layout": "icon-columns" }));
+    assert_eq!(tool(d, "deck_patch", json!({ "ops": started["patch"] }))["edited"], true, "{started}");
+    let slide = started["id"].as_str().unwrap().to_string();
+    let icons: Vec<&Value> = (started["patch"].as_array().unwrap().iter())
+        .filter(|op| op["op"] == "add_node" && op["node"]["kind"] == "path")
+        .collect();
+    let named: Vec<&str> = icons.iter().filter_map(|op| op["node"]["alt"].as_str()).collect();
+    assert_eq!(named, ["Lightning", "Shield check", "Users three"], "{started}");
+    assert!(icons.iter().all(|op| op["node"]["semantic"] == "decoration" && op["node"]["view"].is_array()));
+    let lightning = icons[0]["id"].as_str().unwrap();
+    let deleted = call(d, "deleting", json!({ "state": slide, "node": lightning }));
+    assert_eq!(tool(d, "deck_patch", json!({ "ops": deleted }))["edited"], true, "{deleted}");
+    // The first third's place for an icon: its columns and rows, less its inset, about (392, 388).
+    let rocket = first["icon"].clone();
+    let filled = call(d, "insertingIcon", json!({ "state": slide, "icon": rocket, "x": 392, "y": 388 }));
+    let placed =
+        (filled["patch"].as_array().unwrap().iter()).find(|op| op["op"] == "place").cloned().unwrap_or_default();
+    assert_eq!(placed["at"]["in"], "first-icon", "an icon fills the empty place for one: {filled}");
+    unsafe { scaena_session_free(d) };
 }
 
 /// The clipboard (PLAN 3.12), as the browser's (PLAN 2.37, 2.58, 2.96): a node copied as a clip

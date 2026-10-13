@@ -1,7 +1,7 @@
 //! A generation driven step by step on recorded answers, as a client drives it: arc selection,
 //! then the slides, each request made by the client and its response handed back.
 
-use scaena_narrato::{Brief, Generation, NarratoError, Provider, Settings, Step};
+use scaena_narrato::{Brief, Generation, Icon, NarratoError, Provider, Settings, Step};
 
 fn answer(name: &str) -> String {
     std::fs::read_to_string(format!("{}/tests/answers/{name}.json", env!("CARGO_MANIFEST_DIR"))).unwrap()
@@ -49,6 +49,29 @@ fn a_deck_is_generated_in_two_calls() {
     assert!(!narrative.truncated);
     assert_eq!(narrative.slides[3].chart_data.as_ref().unwrap().series[0].values, [100.0, 80.0, 59.0]);
     assert_eq!(narrative.brief.source_content, None);
+}
+
+/// The words the slides name icons by are asked for once each (PLAN G.23), and the icons the
+/// client finds for them are kept with the narrative, for the deck it makes.
+#[test]
+fn the_icons_the_slides_name_are_asked_once_and_kept() {
+    let mut g = Generation::new(brief(), settings(Provider::Anthropic)).unwrap();
+    assert!(g.icon_words().is_empty(), "none before the narrative is written");
+    g.answer(200, "OK", &answer("anthropic-arc")).unwrap();
+    let slides = r#"{ "executiveSummary": "A pitch.", "slides": [
+        { "slideTitle": "Tidewater", "layoutSuggestion": "Title", "keyBullets": [] },
+        { "slideTitle": "Why us", "layoutSuggestion": "Bullet List",
+          "keyBullets": ["Fast: a day", "Safe: sealed", "Shared: one ledger"], "icons": ["Rocket", " shield", "rocket"] },
+        { "slideTitle": "The route", "layoutSuggestion": "Bullet List", "keyBullets": ["Ports", "Ships"] },
+        { "slideTitle": "The cost", "layoutSuggestion": "Bullet List", "keyBullets": ["Less", "Sooner"] },
+        { "slideTitle": "Sail with us", "layoutSuggestion": "Closing", "keyBullets": [] }
+    ] }"#;
+    g.written(slides, false).unwrap();
+    assert_eq!(g.icon_words(), ["rocket", "shield"]);
+    let rocket = Icon { name: "rocket".into(), path: "M0,0L1,1Z".into(), view: [0.0, 0.0, 256.0, 256.0] };
+    g.give_icons([("rocket".to_string(), rocket.clone())].into());
+    assert_eq!(g.narrative().unwrap().icons["rocket"], rocket);
+    assert!(!g.narrative().unwrap().icons.contains_key("shield"), "a word the client found none for has none");
 }
 
 #[test]

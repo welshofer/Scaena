@@ -161,7 +161,8 @@ mod tests {
         assert_eq!((every.icons.len(), every.found), (count(), count()));
         for found in every.icons.into_iter().step_by(97) {
             let insert = scaena_core::inserts::icon(&deck, &theme, &found.icon);
-            assert_eq!(insert.node["view"], serde_json::json!([0.0, 0.0, 256.0, 256.0]));
+            // A view in whole numbers is written whole, as the set writes it (PLAN G.23).
+            assert_eq!(insert.node["view"], serde_json::json!([0, 0, 256, 256]));
             assert!(kurbo_like(&found.icon.path), "{}: {}", found.name, &found.icon.path[..40]);
         }
     }

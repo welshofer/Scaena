@@ -37,7 +37,8 @@ pub struct Choices {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(skip)]
     pub said: Option<String>,
-    /// Its kind as a person names it, `Text` or `Chart` ([`crate::words::kind`]), as `said` is.
+    /// Its kind as a person names it, `Text` or `Chart` ([`crate::words::kind`]), as `said` is;
+    /// `Icon` for a path on a view (PLAN 2.104), which the icon picker replaces (PLAN G.23).
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(skip)]
     pub noun: Option<String>,

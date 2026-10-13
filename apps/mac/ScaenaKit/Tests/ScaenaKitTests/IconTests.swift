@@ -35,4 +35,14 @@ import Testing
     #expect(editor.source.contains("heart") && editor.source.contains("view:"))
     let again = try editor.session.insertingIcon(state: "revenue", icon: outline, at: CGPoint(x: 400, y: 300))
     #expect(again.id == "heart-2", "a second heart takes a name of its own")
+
+    // Another icon in its place (PLAN G.23): its path, view, and name, as one patch; what is not an
+    // icon is none.
+    #expect(editor.session.isIcon("heart", in: "revenue"))
+    #expect(!editor.session.isIcon("title", in: "revenue"))
+    let star = try #require(try editor.session.icons("star", limit: 1).icons.first).icon
+    #expect(star.said == "Star")
+    let before = editor.source
+    #expect(try editor.make(star.swapping("heart", in: "revenue")) == before)
+    #expect(editor.source.contains("alt:Star") && !editor.source.contains("alt:Heart"), "\(editor.source)")
 }

@@ -106,6 +106,20 @@ def picture(col, row, words="A picture", bleed=None):
     return slot(col, row, prompt=words, bleed=bleed, example=PICTURE)
 
 
+# The icons that ship (PLAN 2.104), as `scripts/build_icons.py` writes them.
+ICON_SET = json.loads((ROOT / "docs/icons/phosphor.json").read_text())
+ICON_PATHS = {i["name"]: i["regular"] for i in ICON_SET["icons"]}
+
+
+def icon(col, row, name, inset=None, fill="accent"):
+    """A place for an item's icon (PLAN G.23): a new slide puts the icon `name` there, from the set
+    that ships, in its regular weight, for a person to swap for another; a deck made from a prompt
+    puts there the icon its item's word names. The icon stands in the middle of the place, as large
+    as it takes."""
+    prompt = {"shape": "icon", "fill": fill, "icon": name, "path": ICON_PATHS[name], "view": ICON_SET["view"]}
+    return slot(col, row, prompt=prompt, inset=inset)
+
+
 KICKER = slot((9, 12), (11, 12), "kicker", align={"x": "end"})
 
 
@@ -236,6 +250,50 @@ layout("Lists", "numbered-cards", "Four reasons, each on its card under its numb
     **{f"{o}-number": slot(c, (3, 5), "figure", f"0{i + 1}", inset=24, fit="grow") for i, (o, c) in enumerate(zip(ORDINALS, QUARTERS))},
     **{f"{o}-title": slot(c, (6, 7), "title", "A reason", inset=24, align={"y": "end"}) for o, c in zip(ORDINALS, QUARTERS)},
     **{o: slot(c, (8, 10), "body", "Why it counts, in a line", inset=24) for o, c in zip(ORDINALS, QUARTERS)},
+})
+
+# Icons (PLAN G.23) ------------------------------------------------------------------------------
+# Each item under its icon, or beside it: features, values, reasons, or parts. An icon's place says
+# which icon a new slide puts there, from the set that ships, for a person to swap for another; a
+# deck made from a prompt puts there the icon its words name.
+
+layout("Lists", "icon-columns", "Three things side by side, each under its icon and heading: features, values, or parts.", {
+    "kicker": KICKER,
+    "header": header(),
+    **{f"{o}-icon": icon(c, (4, 5), i, inset=16) for o, c, i in zip(ORDINALS, THIRDS, ["lightning", "shield-check", "users-three"])},
+    **{f"{o}-title": slot(c, (6, 7), "title", "A feature", align={"x": "center", "y": "center"}) for o, c in zip(ORDINALS, THIRDS)},
+    **{o: slot(c, (8, 10), "body", "What it does, in a sentence or two.", align={"x": "center"}) for o, c in zip(ORDINALS, THIRDS)},
+})
+
+layout("Lists", "icon-cards", "Three cards side by side, each with its icon, its heading, and a few words: plans, promises, or parts.", {
+    "kicker": KICKER,
+    "header": header(),
+    **{f"{o}-card": card(c, (3, 10)) for o, c in zip(ORDINALS, THIRDS)},
+    **{f"{o}-icon": icon(c, (4, 5), i, inset=16) for o, c, i in zip(ORDINALS, THIRDS, ["rocket-launch", "target", "heart"])},
+    **{f"{o}-title": slot(c, (6, 7), "title", "A promise", inset=24, align={"x": "center", "y": "center"}) for o, c in zip(ORDINALS, THIRDS)},
+    **{o: slot(c, (8, 10), "body", "What it means, in a sentence or two.", inset=24, align={"x": "center"}) for o, c in zip(ORDINALS, THIRDS)},
+})
+
+FOUR_ROWS = [(3, 4), (5, 6), (7, 8), (9, 10)]
+
+layout("Lists", "icon-rows", "Four points down the slide, each its icon, its heading, and a line on it.", {
+    "kicker": KICKER,
+    "header": header(),
+    **{f"{o}-icon": icon((1, 1), r, i, inset=16) for o, r, i in zip(ORDINALS, FOUR_ROWS, ["compass", "chart-line-up", "handshake", "flag"])},
+    **{f"{o}-title": slot((2, 6), r, "title", w, align={"y": "center"}) for o, r, w in zip(ORDINALS, FOUR_ROWS, ["The first point", "The second", "The third", "The fourth"])},
+    **{o: slot((7, 12), r, "body", "What it means", align={"y": "center"}) for o, r in zip(ORDINALS, FOUR_ROWS)},
+})
+
+# Six in two rows of three: each icon in the first column of its third, its heading beside it, and
+# a line under the heading.
+GRID_SIX = [(c, top) for top in (3, 7) for c in THIRDS]
+
+layout("Lists", "icon-grid", "Six features in two rows of three, each its icon beside its heading and a line under it.", {
+    "kicker": KICKER,
+    "header": header(),
+    **{f"{o}-icon": icon((c[0], c[0]), (top, top + 1), i, inset=16) for o, (c, top), i in zip(ORDINALS, GRID_SIX, ["lightning", "lock", "globe", "clock", "chat-circle", "star"])},
+    **{f"{o}-title": slot((c[0] + 1, c[1]), (top, top + 1), "title", "A feature", align={"y": "center"}) for o, (c, top) in zip(ORDINALS, GRID_SIX)},
+    **{o: slot((c[0] + 1, c[1]), (top + 2, top + 3), "body", "What it does") for o, (c, top) in zip(ORDINALS, GRID_SIX)},
 })
 
 # Comparison ------------------------------------------------------------------------------------
@@ -904,7 +962,8 @@ NAMES = {
     # Lists
     "bullets": "Bullets", "numbered": "Numbered List", "agenda": "Agenda", "three-rows": "Three Rows",
     "bullets-photo": "Bullets and Photo", "checklist": "Checklist", "agenda-photo": "Agenda and Photo",
-    "four-points": "Four Points", "numbered-cards": "Numbered Cards",
+    "four-points": "Four Points", "numbered-cards": "Numbered Cards", "icon-columns": "Icon Columns",
+    "icon-cards": "Icon Cards", "icon-rows": "Icon Rows", "icon-grid": "Icon Grid",
     # Comparison
     "two-columns": "Two Columns", "comparison": "Comparison", "pros-cons": "Pros and Cons",
     "three-columns": "Three Columns", "cards": "Cards", "before-after": "Before and After",

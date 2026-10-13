@@ -64,7 +64,7 @@
 // - An image dragged from the Files panel (PLAN 2.59) takes the place of the image node it is
 //   dropped on, a `choose` of `src`; dropped anywhere else, it is inserted there, as Insert does.
 import { ALT, type Key, MOD, SHIFT } from "./commands";
-import { type Icon, iconSaid } from "./icons";
+import { type Icon, iconSaid } from "./icon-set";
 import { marks } from "./marks";
 import { fitting } from "./pictures";
 import { BUNDLE_PATH, CLIP, DATA, PICTURE } from "./protocol";
@@ -2170,6 +2170,29 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     });
   }
 
+  /** The node selected, where it is one icon (PLAN G.23): a path shape drawn on its view. */
+  async function selectedIcon(): Promise<string | undefined> {
+    const shown = editor.shown();
+    const [node, ...more] = chosen();
+    if (!shown || node === undefined || more.length > 0) return undefined;
+    const c = await stage.choices(shown.state, node).catch(() => undefined);
+    return c?.noun === "Icon" ? node : undefined;
+  }
+
+  /** `icon` in the place of icon `node` (PLAN G.23), as Insert's icon in a layout's place is
+   * swapped for another: its path, its view, and its name, each a `choose` written where it
+   * lives; its box, its color, and its place as they were. One patch, one step to undo. */
+  function swapIcon(node: string, icon: Icon) {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      if (!shown) return editor.say(WAITING);
+      const said = iconSaid(icon.name);
+      const choose = (prop: string, value: unknown) => ({ op: "choose", node, prop, value, state: shown.state });
+      const patch = [choose("path", icon.path), choose("view", icon.view), choose("alt", said)];
+      await change(patch, "Swapping…", `The icon ${said.toLowerCase()} in its place`, node);
+    });
+  }
+
   /** An empty slot of the layout filled from a press on its words, as a presentation app's
    * placeholder fills (PLAN 3.30): its words put back, as a new slide in the layout puts them
    * there; else a picture, or a sheet's data, chosen from a file and put there, as a drop there
@@ -3764,6 +3787,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
      * calls it. */
     insert,
     insertIcon,
+    /** The node selected, where it is one icon; and another icon in its place (PLAN G.23). */
+    selectedIcon,
+    swapIcon,
     /** Arm the canvas to draw what `key` draws, as T, R, O, L, and A do (PLAN 2.48). */
     arm,
     /** What the canvas is armed to draw, if anything: the key, and its name. */
