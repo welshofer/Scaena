@@ -1266,7 +1266,7 @@ impl Session {
             .map(|(id, _)| id.clone())
             .collect();
         let crowded = self.at_rest(state)?.crowded(|id| decorations.iter().any(|d| d == id));
-        let added = scaena_ops::inspect::inserting(&self.deck, &room, &insert, state, at, &crowded)
+        let added = scaena_ops::inspect::inserting(&self.deck, &self.theme, &room, &insert, state, at, &crowded)
             .map_err(|e| Error::Deck(e.to_string()))?;
         // A table is as wide as its columns: where the cell offered is too narrow for them in a
         // format the deck lists, it takes the grid's width (PLAN 2.96).
@@ -1274,7 +1274,7 @@ impl Session {
             return Ok(added);
         }
         let (_, room) = self.room_at(state, n, named, Some(1.0))?;
-        scaena_ops::inspect::inserting(&self.deck, &room, &insert, state, at, &crowded)
+        scaena_ops::inspect::inserting(&self.deck, &self.theme, &room, &insert, state, at, &crowded)
             .map_err(|e| Error::Deck(e.to_string()))
     }
 
@@ -1291,7 +1291,7 @@ impl Session {
         free: bool,
     ) -> Result<scaena_ops::inspect::Added, Error> {
         let (insert, room) = self.room(state, n, None)?;
-        scaena_ops::inspect::drawing(&self.deck, &room, &insert, state, drag, free)
+        scaena_ops::inspect::drawing(&self.deck, &self.theme, &room, &insert, state, drag, free)
             .map_err(|e| Error::Deck(e.to_string()))
     }
 
@@ -1435,8 +1435,17 @@ impl Session {
         let room = engine.room(&req, &id, [clip.share[2], clip.share[3]])?;
         let files = Arc::clone(&self.files);
         let read = |p: &str| files.get(p).cloned();
-        let pasted = scaena_ops::clipboard::pasting(&self.deck, &editor::Handed(&files), &read, &room, clip, state, at)
-            .map_err(|e| Error::Ops(e.to_string()))?;
+        let pasted = scaena_ops::clipboard::pasting(
+            &self.deck,
+            &self.theme,
+            &editor::Handed(&files),
+            &read,
+            &room,
+            clip,
+            state,
+            at,
+        )
+        .map_err(|e| Error::Ops(e.to_string()))?;
         for (path, bytes) in pasted.files.iter().zip(&pasted.bytes) {
             self.add_file(path, bytes.clone());
         }
@@ -1456,10 +1465,27 @@ impl Session {
 
     /// The slots of `state`'s layout, in the format shown, that wait for what their prompts say
     /// goes there, nothing placed in them (PLAN 3.30): what an editor outlines with its words.
+    /// One with something drawn over its middle, where its words go, in front of the background
+    /// and no decoration, waits unseen under it, so that its words are not drawn over it.
     #[cfg(feature = "editor")]
-    pub fn waiting(&self, state: &str) -> Result<Vec<scaena_ops::states::Waiting>, Error> {
-        scaena_ops::states::waiting(&self.deck, &self.theme, state, self.format.as_deref())
-            .map_err(|e| Error::Ops(e.to_string()))
+    pub fn waiting(&mut self, state: &str) -> Result<Vec<scaena_ops::states::Waiting>, Error> {
+        let waits = scaena_ops::states::waiting(&self.deck, &self.theme, state, self.format.as_deref())
+            .map_err(|e| Error::Ops(e.to_string()))?;
+        if waits.is_empty() {
+            return Ok(waits);
+        }
+        let snaps = scaena_core::resolve_states(&self.deck).map_err(|e| Error::Deck(e.to_string()))?;
+        let shown = snaps.into_iter().find(|s| s.state_id == state).map(|s| s.nodes).unwrap_or_default();
+        let stands = |id: &str| {
+            shown.get(id).is_some_and(|props| {
+                props.get("z").and_then(serde_json::Value::as_f64).unwrap_or(0.0) >= 0.0
+                    && props.get("semantic").and_then(serde_json::Value::as_str) != Some("decoration")
+            })
+        };
+        let scene = self.at_rest(state)?;
+        let covered =
+            |[x, y, w, h]: [f32; 4]| scene.hit([x + w / 2.0, y + h / 2.0]).iter().any(|hit| stands(&hit.node));
+        Ok(waits.into_iter().filter(|w| !covered(w.rect)).collect())
     }
 
     /// The patch that starts a slide in `layout`, one of the theme's, after the slide of `state`,
@@ -1493,12 +1519,50 @@ impl Session {
     #[cfg(feature = "editor")]
     pub fn typed(&mut self, ops: &serde_json::Value, at: Option<i64>) -> Result<bool, Error> {
         let typing = ops.as_array().is_some_and(|ops| ops.iter().all(|op| op["op"] == "replace_text"));
+        // A text typed past the foot of its cells grows to hold its lines, in the same change.
+        let grown = if typing { self.growing(ops)? } else { None };
+        let ops = grown.as_ref().unwrap_or(ops);
         let (patched, write) = scaena_ops::patch::typing(&self.bundle(), ops, typing.then_some(store::TYPED))?;
         if patched.refused {
             let why = patched.added.iter().find(|f| f.severity == scaena_core::lint::Severity::Error);
             return Err(Error::Ops(format!("the deck refuses it: {}", why.map_or("", |f| f.message.as_str()))));
         }
         self.write(write, assistant::Caller { author: "user", at })
+    }
+
+    /// `ops`, a run of typing, with the `place` that grows each text it types past the foot of
+    /// its cells on the theme's grid, in the state it is typed in and the format shown: its rows
+    /// down to the first that holds its lines, as a presentation app's text box grows (PLAN
+    /// 2.32, `Engine::grown`). `None` where none grows, or the run does not make a deck.
+    #[cfg(feature = "editor")]
+    fn growing(&mut self, ops: &serde_json::Value) -> Result<Option<serde_json::Value>, Error> {
+        let Some(list) = ops.as_array() else { return Ok(None) };
+        let mut typed: Vec<(&str, &str)> = Vec::new();
+        for (node, state) in list.iter().filter_map(|op| Some((op["node"].as_str()?, op["state"].as_str()?))) {
+            if !typed.contains(&(node, state)) {
+                typed.push((node, state));
+            }
+        }
+        if typed.is_empty() {
+            return Ok(None);
+        }
+        let doc = self.deck.to_value().map_err(|e| Error::Deck(e.to_string()))?;
+        let made = scaena_core::patch::compile(&doc, list, &editor::Handed(&self.files))
+            .ok()
+            .and_then(|compiled| Deck::from_value(&compiled.doc).ok());
+        let Some(made) = made else { return Ok(None) };
+        self.build()?;
+        let Session { theme, data, engine, format, .. } = self;
+        let engine = engine.as_mut().expect("built above");
+        let mut grown = list.clone();
+        for (node, state) in typed {
+            let req = FrameRequest { deck: &made, theme, data, state, t_ms: f64::INFINITY, format: format.as_deref() };
+            let Ok(Some(target)) = engine.grown(&req, node) else { continue };
+            for op in target.ops(Some(state), false) {
+                grown.push(serde_json::to_value(op).map_err(|e| Error::Ops(e.to_string()))?);
+            }
+        }
+        Ok((grown.len() > list.len()).then_some(serde_json::Value::Array(grown)))
     }
 
     /// The link drawn at `point` (canvas units) in `state` at rest, in the format shown (PLAN
@@ -2382,6 +2446,35 @@ mod tests {
         assert!(e.to_string().contains("15 characters"), "{e}");
     }
 
+    /// A text on the grid typed past the foot of its cells grows down the grid to hold its
+    /// lines, in the same change, as a presentation app's text box grows (PLAN 2.32): its place
+    /// and width kept, and nothing left for lint E100 to find.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_text_typed_past_its_cells_grows_to_hold_its_lines() {
+        let mut s = revenue();
+        let by = assistant::Caller { author: "user", at: None };
+        let n = s.inserts().iter().position(|i| i.label == "Text · body").unwrap();
+        // Over the title, with the rows down to it for the text to grow into.
+        let added = s.inserting("close", n, [960.0, 120.0], None).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": added.patch }), by).unwrap();
+        let id = added.id.clone();
+        let stands = |s: &mut Session| s.boxes("close").unwrap().into_iter().find(|b| b.node == id).unwrap().rect;
+        let before = stands(&mut s);
+        let written = s.carets("close", &id).unwrap().unwrap().text.chars().count();
+        let lines = "Three trails surveyed\nTwo need new bridges\nOne closes for winter\nThe fourth comes next year";
+        let ops = serde_json::json!([
+            { "op": "replace_text", "node": id, "state": "close", "from": 0, "to": written, "text": lines }
+        ]);
+        assert!(s.typed(&ops, None).unwrap());
+        let after = stands(&mut s);
+        assert_eq!(after[..3], before[..3], "its place and its width kept");
+        assert!(after[3] > before[3], "{before:?} grown to {after:?}");
+        let linted = s.tool("deck_lint", serde_json::json!({}), by).unwrap();
+        assert!(!linted.result.contains(&format!("text `{id}` does not fit")), "{}", linted.result);
+        assert_eq!(s.carets("close", &id).unwrap().unwrap().text, lines);
+    }
+
     /// Characters selected on the canvas take a look (PLAN 2.38): ⌘B's from the weight the
     /// engine sets them in, and the inspector's from the run of the first of them.
     #[cfg(feature = "editor")]
@@ -2662,6 +2755,52 @@ mod tests {
             offered[image].id,
             "a click names it as offered"
         );
+    }
+
+    /// A text or a picture fills an empty slot only where the layout says it goes there (PLAN
+    /// 2.34, 3.30): on a slide started in `art-left`, words put on the picture's place land about
+    /// the pointer, and the place waits unseen under them, so that its words are not drawn over
+    /// them; a photo fills it. With the header's words taken out, a headline fills the header,
+    /// and a photo does not.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn an_insert_fills_a_slot_only_where_the_layout_says_it_goes() {
+        let mut s = revenue();
+        let by = assistant::Caller { author: "user", at: None };
+        let started = s.starting("revenue", Some("art-left")).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": started.patch }), by).unwrap();
+        let photo = std::fs::read("../../docs/examples/agent-run/dusk.jpg").unwrap();
+        let path = scaena_store::place("Trail Head.jpg", &photo);
+        s.add_file(&path, photo);
+        let offered = s.inserts();
+        let n = |label: &str| offered.iter().position(|i| i.label == label).unwrap();
+        let image = offered.iter().position(|i| i.node["src"] == path.as_str()).expect("the photo offered");
+        let slots = s.targets("art-left", "art-left-header").unwrap().slots.clone();
+        let rect = |name: &str| slots.iter().find(|(n, _)| n == name).unwrap().1;
+        let middle = |name: &str| {
+            let [x, y, w, h] = rect(name);
+            [x + w / 2.0, y + h / 2.0]
+        };
+        let waits = |s: &mut Session| s.waiting("art-left").unwrap().into_iter().map(|w| w.slot).collect::<Vec<_>>();
+        assert_eq!(waits(&mut s), ["art"], "the picture's place waits");
+
+        // The picture's place takes no words, and a photo fills it.
+        let words = s.inserting("art-left", n("Text · lede"), middle("art"), None).unwrap();
+        assert!(words.patch[1]["at"].get("in").is_none(), "{:?}", words.patch);
+        let pictured = s.inserting("art-left", image, middle("art"), None).unwrap();
+        assert_eq!(pictured.patch[1]["at"], serde_json::json!({ "in": "art" }), "{:?}", pictured.patch);
+        assert_eq!(pictured.cell, rect("art"));
+        s.tool("deck_patch", serde_json::json!({ "ops": words.patch }), by).unwrap();
+        assert!(waits(&mut s).is_empty(), "with words over its middle, it waits unseen under them");
+
+        // The header takes words, and no photo.
+        let header = serde_json::json!([{ "op": "remove_node", "id": "art-left-header" }]);
+        s.tool("deck_patch", serde_json::json!({ "ops": header }), by).unwrap();
+        assert_eq!(waits(&mut s), ["header"]);
+        let headline = s.inserting("art-left", n("Text · headline"), middle("header"), None).unwrap();
+        assert_eq!(headline.patch[1]["at"], serde_json::json!({ "in": "header" }), "{:?}", headline.patch);
+        let over = s.inserting("art-left", image, middle("header"), None).unwrap();
+        assert!(over.patch[1]["at"].get("in").is_none(), "{:?}", over.patch);
     }
 
     /// A drag draws what is offered over the cells it covers, each edge on the nearest track's as

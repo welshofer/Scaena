@@ -849,16 +849,18 @@ pub struct Added {
 
 /// The patch that inserts `insert` in `state` as `room`'s node (PLAN 2.34): `add_node`, the
 /// node entering there, then `place`, then where it leaves, so it stays on the slide (PLAN
-/// 3.26). A text or an image fills the template's slot under `at`
-/// (canvas units) where no node of the state's is placed in it; anything else, or a text where
-/// the slot is filled, takes the box it starts as, about `at`, snapped to the theme's grid as a
-/// drop snaps; a shader fills the slot it names. What draws content (a text, an image, a chart,
-/// a table) and would overlap what is `crowded` there (`Scene::crowded`, what lint E101 judges
-/// it against) goes instead to the place on the grid clear of it whose middle is nearest `at`,
-/// and stays about `at` where none is (PLAN 2.79). `room` is the engine's for the new node in
-/// `deck` (`Engine::room`), its cell the box `insert` starts as.
+/// 3.26). A text or an image fills the template's slot under `at` (canvas units) where no node
+/// of the state's is placed in it and `theme`'s layout says it goes there: a text where words
+/// go, an image where a picture or a figure does (`Slot::takes`). Anything else, or a text or an
+/// image with no such slot free, takes the box it starts as, about `at`, snapped to the theme's
+/// grid as a drop snaps; a shader fills the slot it names. What draws content (a text, an
+/// image, a chart, a table) and would overlap what is `crowded` there (`Scene::crowded`, what
+/// lint E101 judges it against) goes instead to the place on the grid clear of it whose middle
+/// is nearest `at`, and stays about `at` where none is (PLAN 2.79). `room` is the engine's for
+/// the new node in `deck` (`Engine::room`), its cell the box `insert` starts as.
 pub fn inserting(
     deck: &Deck,
+    theme: &scaena_core::model::theme::Theme,
     room: &scaena_engine::geometry::Targets,
     insert: &Insert,
     state: &str,
@@ -868,8 +870,10 @@ pub fn inserting(
     let target = match &insert.start {
         Start::Box { .. } => {
             let kind = insert.node["type"].as_str();
-            let content = matches!(kind, Some("text" | "image"));
-            let empty = if content { empty_slot(deck, room, state, at)? } else { None };
+            let empty = match serde_json::from_value(insert.node["type"].clone()) {
+                Ok(content @ (NodeType::Text | NodeType::Image)) => empty_slot(deck, theme, room, state, at, content)?,
+                _ => None,
+            };
             match empty {
                 Some(rect) => room.snap(Snap::Slot, rect),
                 None => {
@@ -935,6 +939,7 @@ fn roomy(
 /// puts it.
 pub fn drawing(
     deck: &Deck,
+    theme: &scaena_core::model::theme::Theme,
     room: &scaena_engine::geometry::Targets,
     insert: &Insert,
     state: &str,
@@ -942,7 +947,7 @@ pub fn drawing(
     free: bool,
 ) -> Result<Added, OpsError> {
     if matches!(insert.start, Start::Slot(_)) {
-        return inserting(deck, room, insert, state, from, &[]);
+        return inserting(deck, theme, room, insert, state, from, &[]);
     }
     let drawn = [from[0].min(to[0]), from[1].min(to[1]), (to[0] - from[0]).abs(), (to[1] - from[1]).abs()];
     let target = room.snap(if free { Snap::Free } else { Snap::Resize }, drawn);
@@ -1017,12 +1022,16 @@ pub(crate) fn leaving(deck: &Deck, state: &str, ids: &[String]) -> Vec<SemanticO
     leaves.into_iter().flat_map(hide).collect()
 }
 
-/// The smallest of the template's slots under `at` that no node `state` shows is placed in.
+/// The smallest of the template's slots under `at` that no node `state` shows is placed in and
+/// that takes a node of `kind`, as the state's layout in `theme` says (`Slot::takes`): words in
+/// a slot for words, a picture in one that waits for a picture or a figure.
 pub(crate) fn empty_slot(
     deck: &Deck,
+    theme: &scaena_core::model::theme::Theme,
     room: &scaena_engine::geometry::Targets,
     state: &str,
     at: [f32; 2],
+    kind: NodeType,
 ) -> Result<Option<[f32; 4]>, OpsError> {
     let snaps = scaena_core::resolve_states(deck).context("tracking")?;
     let snap =
@@ -1032,9 +1041,11 @@ pub(crate) fn empty_slot(
         .values()
         .filter_map(|p| p.get("at").filter(|a| a.get("parent").is_none())?.get("in")?.as_str())
         .collect();
+    let slots = snap.layout.as_deref().and_then(|l| theme.layouts.get(l)).map(|l| &l.slots);
+    let takes = |name: &str| slots.and_then(|s| s.get(name)).is_none_or(|slot| slot.takes(kind));
     let under = |&[x, y, w, h]: &[f32; 4]| x <= at[0] && at[0] <= x + w && y <= at[1] && at[1] <= y + h;
     let free = room.slots.iter().filter(|(name, rect)| {
-        !matches!(name.as_str(), "canvas" | "grid") && !filled.contains(&name.as_str()) && under(rect)
+        !matches!(name.as_str(), "canvas" | "grid") && !filled.contains(&name.as_str()) && under(rect) && takes(name)
     });
     Ok(free.map(|(_, rect)| *rect).min_by(|a, b| (a[2] * a[3]).total_cmp(&(b[2] * b[3]))))
 }

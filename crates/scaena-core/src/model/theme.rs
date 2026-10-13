@@ -467,6 +467,23 @@ pub struct Slot {
     pub fit: Option<super::nodes::TextFit>,
 }
 
+impl Slot {
+    /// Whether a node of `kind` goes in the slot, as Insert and a paste fill it (PLAN 2.34): a
+    /// text where words go, in the slot's role; a picture or a figure where the slot says in
+    /// words what goes there with no role to type it in (PLAN 3.30); nothing where its prompt is
+    /// a shape, a card or a rule made with the slide; and anything where it says nothing of
+    /// what goes there.
+    pub fn takes(&self, kind: crate::document::NodeType) -> bool {
+        use crate::document::NodeType;
+        match (&self.role, &self.prompt) {
+            (_, Some(Prompt::Shape(_))) => false,
+            (Some(_), _) => kind == NodeType::Text,
+            (None, Some(_)) => matches!(kind, NodeType::Image | NodeType::Chart | NodeType::Table | NodeType::Shader),
+            (None, None) => true,
+        }
+    }
+}
+
 /// What a layout's picture shows in a slot that waits (PLAN 3.31): `{ "picture": "backdrop" }`,
 /// `{ "chart": "bar" }`, or `{ "table": 3 }`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
