@@ -83,7 +83,7 @@ struct Inspector: View {
                 objects
             }
             if Writer.available, tab == .format, characters == nil, also.isEmpty {
-                Section("Writing") {
+                Section {
                     if let node = choices?.node {
                         if choices?.type == "text" {
                             Button("Proofread", systemImage: "checkmark.circle") { write(.proofread, node: node, in: state) }
@@ -93,6 +93,8 @@ struct Inspector: View {
                     } else {
                         Button("Draft Presenter Notes", systemImage: "sparkles") { write(.notes, in: state) }
                     }
+                } header: {
+                    Text("Writing")
                 } footer: {
                     Text(OnDevice.available ? "Runs on this \(Words.device)" : "By the assistant's model, with your key")
                         .font(.caption).foregroundStyle(.secondary)
