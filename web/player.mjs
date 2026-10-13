@@ -13,8 +13,13 @@
 // - The scrubber shows the deck at a time on its timeline: the frame `show` paints for the
 //   same state and time.
 // - A click goes on; a swipe either way goes on or back.
+// - The presenter's keys (PLAN 2.105): B, W, . and , turn the screen black or white and back, the
+//   deck waiting under it, a hold where it stood, and a key or a click brings the slide back; a
+//   slide's number then Return goes there, one the deck lacks said; L shows the laser where the
+//   pointer is over the slide; ? lists the keys.
 // - The presenter view follows the player, shows the state's notes (its beat's, where it has
-//   none), and steers it: on, back, and with End and Home to the last and the first.
+//   none), and steers it: on, back, and with End and Home to the last and the first; and its own
+//   presenter's keys steer the room's screen, its laser pointed from the slide it shows.
 // - With `?fps`, the frame meter reads a played cue's frames: frames a second, the worst frame,
 //   late frames, and the mean paint (gate 2, criterion 1).
 // Exits 1 on any failure.
@@ -115,6 +120,120 @@ try {
   at = await until(player, () => window.scaena.at().index === 1 && !window.scaena.at().playing, "a swipe right goes back");
   check(at.index === 1 && !at.playing, `a swipe right goes back to ${states[1]}`);
 
+  // The presenter's keys (PLAN 2.105). B: the screen black, the deck waiting where it was, a hold
+  // under way standing still; a key brings the slide back, and the hold goes on from there.
+  const curtain = () =>
+    player.evaluate(() => {
+      const c = document.querySelector(".curtain");
+      return { hidden: c.hidden, color: getComputedStyle(c).backgroundColor, blank: window.scaena.blank() };
+    });
+  await player.evaluate((t) => window.scaena.run(0, t), slots[0].span + slots[0].hold - 700);
+  await until(player, () => window.scaena.at().playing, "the first state's hold runs");
+  await player.keyboard.press("b");
+  await player.waitForFunction(() => window.scaena.blank() === "black" && !window.scaena.at().playing, null, { timeout: 5000 }).catch(() => {});
+  let screen = await curtain();
+  check(!screen.hidden && screen.color === "rgb(0, 0, 0)" && screen.blank === "black", `B turns the screen black: ${JSON.stringify(screen)}`);
+  check((await player.textContent("#status")).endsWith("black screen"), `and the status says so: ${await player.textContent("#status")}`);
+  await player.waitForTimeout(1500);
+  at = await player.evaluate(() => window.scaena.at());
+  check(at.index === 0 && !at.playing, `the deck waits under it: ${states[0]}'s hold stands still`);
+  await player.keyboard.press("ArrowRight");
+  screen = await curtain();
+  at = await player.evaluate(() => window.scaena.at());
+  check(screen.hidden && screen.blank === null && at.index === 0, "→ brings the slide back, and goes no further");
+  at = await until(player, () => window.scaena.at().index === 1, "the hold goes on once the slide is back", null, 5000);
+  check(at.index === 1, `and the hold goes on from where it stood, to ${states[1]}`);
+  await player.evaluate(() => window.scaena.seek(1));
+  // W: white; . and , turn it black and white again, W the slide back; a click on it, too.
+  await player.keyboard.press("w");
+  screen = await curtain();
+  check(!screen.hidden && screen.color === "rgb(255, 255, 255)" && screen.blank === "white", `W turns it white: ${JSON.stringify(screen)}`);
+  await player.keyboard.press(".");
+  check((await curtain()).blank === "black", ". turns it black");
+  await player.keyboard.press(",");
+  check((await curtain()).blank === "white", ", turns it white");
+  await player.keyboard.press("w");
+  check((await curtain()).hidden, "W again brings the slide back");
+  await player.keyboard.press("b");
+  await player.mouse.click(960, 400);
+  screen = await curtain();
+  at = await player.evaluate(() => window.scaena.at());
+  check(screen.hidden && at.index === 1, "a click brings it back, and goes no further");
+
+  // A slide's number then Return goes there; one the deck lacks is said; Escape lets it go.
+  const typed = () =>
+    player.evaluate(() => {
+      const t = document.querySelector(".typed");
+      return t.hidden ? "" : t.textContent;
+    });
+  const slideAt = (n) => slots.findIndex((s) => s.said === `Slide ${n}`);
+  const count = new Set(slots.map((s) => s.slide ?? s.state)).size;
+  await player.keyboard.press("Home");
+  await until(player, () => window.scaena.at().index === 0, "Home before a number");
+  await player.keyboard.press(String(count));
+  check((await typed()) === `Slide ${count} · Return goes there`, `a number typed shows: ${await typed()}`);
+  await player.keyboard.press("Enter");
+  at = await until(player, (k) => window.scaena.at().index === k, `slide ${count}`, slideAt(count));
+  check(at.index === slideAt(count) && !(await typed()), `${count} then Return shows slide ${count}, ${states[slideAt(count)]}`);
+  await player.keyboard.press("1");
+  await player.keyboard.press("2");
+  check((await typed()).startsWith("Slide 12 "), `digits run on: ${await typed()}`);
+  await player.keyboard.press("Backspace");
+  check((await typed()).startsWith("Slide 1 "), `Backspace takes the last back: ${await typed()}`);
+  await player.keyboard.press("Enter");
+  at = await until(player, () => window.scaena.at().index === 0, "slide 1");
+  check(at.index === 0, `and Return goes to slide 1, ${states[0]}`);
+  await player.keyboard.press("9");
+  await player.keyboard.press("Enter");
+  await player.waitForTimeout(300);
+  at = await player.evaluate(() => window.scaena.at());
+  check((await typed()) === `No slide 9: the deck has ${count} slides` && at.index === 0, `a slide the deck lacks is said: ${await typed()}`);
+  await player.keyboard.press("2");
+  await player.keyboard.press("Escape");
+  await player.keyboard.press("ArrowLeft");
+  at = await player.evaluate(() => window.scaena.at());
+  check(!(await typed()) && at.index === 0, "Escape lets a number go");
+
+  // L: the laser, a red dot where the pointer is over the slide.
+  const laser = () =>
+    player.evaluate(() => {
+      const d = document.querySelector(".laser");
+      const r = d.getBoundingClientRect();
+      return { ...window.scaena.laser(), hidden: d.hidden, at: [r.left + r.width / 2, r.top + r.height / 2] };
+    });
+  await player.keyboard.press("l");
+  await player.mouse.move(700, 300);
+  await player.mouse.move(960, 400, { steps: 3 });
+  let dot = await laser();
+  const box = await player.locator("#stage").boundingBox();
+  const near = (p, q) => Math.abs(p[0] - q[0]) <= 2 && Math.abs(p[1] - q[1]) <= 2;
+  const fraction = [(960 - box.x) / box.width, (400 - box.y) / box.height];
+  check(dot.on && !dot.hidden && near(dot.at, [960, 400]), `L shows the laser where the pointer is: ${JSON.stringify(dot)}`);
+  check(
+    dot.point && Math.abs(dot.point[0] - fraction[0]) < 0.01 && Math.abs(dot.point[1] - fraction[1]) < 0.01,
+    `at its place on the slide: ${dot.point}`,
+  );
+  await player.keyboard.press("l");
+  dot = await laser();
+  check(!dot.on && dot.hidden, "L again puts it away");
+
+  // ?: the keys, listed.
+  const listed = () =>
+    player.evaluate(() => {
+      const d = document.querySelector("dialog.keylist");
+      return { open: d.open, text: d.textContent };
+    });
+  await player.keyboard.press("?");
+  const list = await listed();
+  const words = ["A black screen", "A white screen", "That slide", "The laser", "Fullscreen"];
+  check(list.open && words.every((w) => list.text.includes(w)), "? lists the keys");
+  await player.keyboard.press("?");
+  check(!(await listed()).open, "? again closes the list");
+  await player.keyboard.press("?");
+  await player.keyboard.press("Escape");
+  check(!(await listed()).open, "and so does Escape");
+  await player.evaluate(() => window.scaena.seek(1));
+
   // The presenter view follows the player, shows the notes, and steers it.
   const deck = JSON.parse(await readFile(`.${revenue}`, "utf8"));
   const beatNotes = (state) => deck.spine.sections.flatMap((s) => s.beats).find((b) => b.states?.includes(state))?.notes;
@@ -143,6 +262,51 @@ try {
   await presenter.keyboard.press("Home");
   at = await until(player, () => window.scaena.at().index === 0, "the presenter view's Home", null, 2000);
   check(at.index === 0, `and its Home to ${states[0]}`);
+  // Its presenter's keys steer the player's screen (PLAN 2.105): B turns the room's black, and the
+  // view says so; a key brings the slide back.
+  await presenter.keyboard.press("b");
+  await player.waitForFunction(() => window.scaena.blank() === "black", null, { timeout: 5000 }).catch(() => {});
+  const blankedSaid = await presenter
+    .waitForFunction(() => window.scaena.blanked(), null, { timeout: 5000 })
+    .then((h) => h.jsonValue(), () => null);
+  check((await player.evaluate(() => window.scaena.blank())) === "black", "the presenter view's B turns the room's screen black");
+  check(blankedSaid?.startsWith("The room sees a black screen"), `and it says so: ${blankedSaid}`);
+  await presenter.keyboard.press("ArrowRight");
+  await player.waitForFunction(() => window.scaena.blank() === null, null, { timeout: 5000 }).catch(() => {});
+  at = await player.evaluate(() => window.scaena.at());
+  check((await player.evaluate(() => window.scaena.blank())) === null && at.index === 0, "its → brings the slide back");
+  const unsaid = await presenter
+    .waitForFunction(() => window.scaena.blanked() === null, null, { timeout: 5000 })
+    .then(() => true, () => false);
+  check(unsaid, "and it says so no longer");
+  // A slide's number typed there goes there, at once, though Next has the keys since its click;
+  // one the deck lacks is said there, not to the room.
+  check(await presenter.evaluate(() => document.activeElement?.id === "on"), "Next has the presenter view's keys");
+  await presenter.keyboard.press(String(count));
+  await presenter.keyboard.press("Enter");
+  at = await until(player, (k) => window.scaena.at().index === k, "the presenter view's number", slideAt(count), 2000);
+  check(at.index === slideAt(count), `its ${count} then Return shows slide ${count} in the player`);
+  await presenter.keyboard.press("9");
+  await presenter.keyboard.press("Enter");
+  const there = await presenter.evaluate(() => document.querySelector(".typed").textContent);
+  check(there === `No slide 9: the deck has ${count} slides` && !(await typed()), `a slide the deck lacks is said there alone: ${there}`);
+  // L: the laser, pointed from the slide the presenter view shows, drawn on the room's.
+  await presenter.keyboard.press("l");
+  await player.waitForFunction(() => window.scaena.laser().on, null, { timeout: 5000 }).catch(() => {});
+  const shownBox = await presenter.locator("#stage").boundingBox();
+  await presenter.mouse.move(shownBox.x + shownBox.width / 4, shownBox.y + shownBox.height / 4);
+  await presenter.mouse.move(shownBox.x + shownBox.width / 2, shownBox.y + shownBox.height / 2, { steps: 3 });
+  await player.waitForFunction(() => window.scaena.laser().point, null, { timeout: 5000 }).catch(() => {});
+  dot = await laser();
+  const centered = (p) => p && Math.abs(p[0] - 0.5) < 0.01 && Math.abs(p[1] - 0.5) < 0.01;
+  check(dot.on && !dot.hidden && centered(dot.point), `its L and its pointer put the laser on the room's slide: ${dot.point}`);
+  const mirrored = await presenter
+    .waitForFunction(() => window.scaena.pointed(), null, { timeout: 5000 })
+    .then((h) => h.jsonValue(), () => null);
+  check(centered(mirrored), `and it draws the dot where it points: ${mirrored}`);
+  await presenter.keyboard.press("l");
+  await player.waitForFunction(() => !window.scaena.laser().on, null, { timeout: 5000 }).catch(() => {});
+  check((await laser()).hidden, "its L again puts the laser away");
   await presenter.close();
 
   // Fullscreen: F asks for it.

@@ -8,6 +8,12 @@
 // either way. Going on plays the next state's cue; a state that holds goes on by itself
 // when its hold is over (SPEC §2.4). Going on during a cue finishes it.
 //
+// The presenter's keys, as a presentation app's (PLAN 2.105): B or . turns the screen black and
+// W or , white, the deck waiting where it was until a key or a click brings the slide back; a
+// slide's number then Return goes there; L is the laser, a red dot where the pointer is over the
+// slide; ? lists the keys. The presenter view's own do the same to the player, its laser drawn
+// where its pointer is over the slide it shows.
+//
 // For a screen reader (PLAN 2.8, SPEC §3.12): the canvas is hidden, and the page keeps how the
 // state shown reads in a live region (`#reading`). The state picker is the spine's outline.
 // For a reader who asks for less motion (`prefers-reduced-motion`, or `?motion=reduce`; and
@@ -20,7 +26,7 @@ import type { At, Painter, Section, Slot, Source } from "./protocol";
 import { reader } from "./reading";
 import { line, listen, served } from "./served";
 import { type Engine, Stage } from "./stage";
-import { place } from "./words";
+import { numbered, place } from "./words";
 
 /** How a page plays a bundle. */
 export interface Play {
@@ -35,9 +41,23 @@ export interface Play {
   read?: (state: string, format?: string) => string | Promise<string>;
 }
 
-type Follow = { type: "at"; format?: string } & At;
-/** What the presenter view asks of the player: on, back, the first or the last state, or where it is. */
-type Steer = { type: "on" | "back" | "first" | "last" | "hello" };
+/** The screen as the presenter turns it, black or white, the slide out of sight (PLAN 2.105). */
+type Blank = "black" | "white";
+/** A point on the slide, fractions of its width and height. */
+type Point = [number, number];
+
+/** Where the player is, as it tells the presenter view: the place, the format, and whether the
+ * screen is black or white or the laser on. */
+type Follow = { type: "at"; format?: string; blank?: Blank; laser?: boolean } & At;
+/** Where the laser points, as the player tells the presenter view: none where it is off, or off
+ * the slide. */
+type Pointed = { type: "pointed"; laser: boolean; point: Point | null };
+/** What the presenter view asks of the player: on, back, the first or the last state, or where
+ * it is; the screen black or white, a slide by its number, the laser, and where it points. */
+type Steer =
+  | { type: "on" | "back" | "first" | "last" | "hello" | "black" | "white" | "laser" }
+  | { type: "slide"; number: number }
+  | { type: "point"; at: Point | null };
 
 /** Play the bundle at `deck`: the player, or, at `?view=presenter`, its presenter view. */
 export function start(deck: Source, how: Play): Promise<void> {
@@ -56,24 +76,122 @@ const still = () => {
   return motion === "reduce" || (motion !== "full" && reduced.matches);
 };
 
-/** The keys the player and the presenter view answer to, as `on`, `back`, and the rest. */
-function keys(act: Partial<Record<"on" | "back" | "first" | "last" | "full" | "present", () => void>>) {
-  const names: Record<string, keyof typeof act> = {
+type Acting = "on" | "back" | "first" | "last" | "full" | "present" | "black" | "white" | "laser";
+/** What the keys do on a page: each its action, where the page has it, and a slide by its number. */
+type Act = Partial<Record<Acting, () => void>> & { slide?: (number: number) => void };
+
+/** The keys the player and the presenter view answer to, as `on`, `back`, and the rest; a
+ * slide's number, typed then Return, goes there, and ? lists them (PLAN 2.105). */
+function keys(act: Act) {
+  const names: Record<string, Acting> = {
     ArrowRight: "on", ArrowDown: "on", PageDown: "on", " ": "on", Enter: "on",
     ArrowLeft: "back", ArrowUp: "back", PageUp: "back", Backspace: "back",
     Home: "first", End: "last", f: "full", F: "full", p: "present", P: "present",
+    // As a presentation app's: B or . a black screen, W or , a white one, and L the laser.
+    b: "black", B: "black", ".": "black", w: "white", W: "white", ",": "white", l: "laser", L: "laser",
   };
+  const list = keyList(act);
+  const number = numbering(act.slide);
   addEventListener("keydown", (e) => {
     // A control keeps the keys it answers to: a button or a link Enter and Space, the scrubber,
-    // a picker, or a text field every key.
+    // a picker, or a text field every key; but a slide's number typed takes its Return from a
+    // button, as Next is where a click left the keys.
     const control = (e.target as HTMLElement).closest("input, select, textarea, button, a");
-    const its = control && (!control.matches("button, a") || e.key === "Enter" || e.key === " ");
-    if (e.metaKey || e.ctrlKey || e.altKey || its) return;
+    if (e.metaKey || e.ctrlKey || e.altKey || (control && !control.matches("button, a"))) return;
+    if (number.key(e.key) || list.key(e.key)) return e.preventDefault();
+    if (control && (e.key === "Enter" || e.key === " ")) return;
     const action = act[names[e.key]];
     if (!action) return;
     e.preventDefault();
     action();
   });
+  return number;
+}
+
+/** A slide's number as it is typed (PLAN 2.105): its digits shown at the foot of the page, Return
+ * going there, Backspace taking the last back, and Escape, or four seconds with no key, letting it
+ * go. Its `key` says whether a key was the number's. */
+function numbering(go?: (number: number) => void) {
+  const shown = document.createElement("output");
+  shown.className = "typed";
+  shown.hidden = true;
+  document.body.append(shown);
+  let typed = "";
+  let idle: ReturnType<typeof setTimeout> | undefined;
+  const show = (words?: string) => {
+    clearTimeout(idle);
+    shown.textContent = words ?? (typed ? `Slide ${typed} · Return goes there` : "");
+    shown.hidden = !shown.textContent;
+    if (!shown.hidden) idle = setTimeout(() => ((typed = ""), show()), 4000);
+  };
+  return {
+    key(key: string): boolean {
+      if (!go) return false;
+      if (/^[0-9]$/.test(key)) {
+        // No slide is numbered 0, nor begins with it.
+        typed = `${typed}${key}`.replace(/^0+/, "").slice(0, 4);
+      } else if (!typed) {
+        return false;
+      } else if (key === "Backspace") {
+        typed = typed.slice(0, -1);
+      } else if (key === "Escape") {
+        typed = "";
+      } else if (key === "Enter") {
+        const n = Number(typed);
+        typed = "";
+        show();
+        go(n);
+        return true;
+      } else {
+        return false;
+      }
+      show();
+      return true;
+    },
+    /** Say `words` where the number was typed, for as long as one stands there. */
+    say: (words: string) => show(words),
+  };
+}
+
+/** What a slide's number typed says where the deck has no such slide (PLAN 2.105). */
+const noSlide = (slots: Slot[], number: number) => {
+  const count = new Set(slots.map((s) => s.slide ?? s.state)).size;
+  return `No slide ${number}: the deck has ${count === 1 ? "1 slide" : `${count} slides`}`;
+};
+
+/** The keys, listed (PLAN 2.105): ? shows and hides the list, and Escape or a click on it hides it.
+ * Its `key` says whether a key was the list's. */
+function keyList(act: Act) {
+  const rows: [string, string, unknown][] = [
+    ["<kbd>→</kbd> <kbd>Space</kbd> <kbd>Return</kbd>, or a click", "Go on: a cue playing finishes, then the next plays", true],
+    ["<kbd>←</kbd> <kbd>Backspace</kbd>", "Go back", true],
+    ["<kbd>Home</kbd> <kbd>End</kbd>", "The first slide, the last", true],
+    ["A slide’s number, then <kbd>Return</kbd>", "That slide", act.slide],
+    ["<kbd>B</kbd> or <kbd>.</kbd>", "A black screen, and the slide again", act.black],
+    ["<kbd>W</kbd> or <kbd>,</kbd>", "A white screen, and the slide again", act.white],
+    ["<kbd>L</kbd>", "The laser, where the pointer is over the slide", act.laser],
+    ["<kbd>F</kbd>", "Fullscreen", act.full],
+    ["<kbd>P</kbd>", "The presenter view, in a window of its own", act.present],
+    ["<kbd>?</kbd>", "These keys", true],
+  ];
+  const dialog = document.createElement("dialog");
+  dialog.className = "keylist";
+  dialog.setAttribute("aria-labelledby", "keylist-title");
+  // The words are the page's own, none a deck's.
+  dialog.innerHTML = `<h2 id="keylist-title">Keys</h2><dl>${rows
+    .filter(([, , has]) => has)
+    .map(([keys, does]) => `<dt>${keys}</dt><dd>${does}</dd>`)
+    .join("")}</dl><p>A key or a click brings back a black or white screen. <kbd>Escape</kbd> or <kbd>?</kbd> closes this.</p>`;
+  dialog.onclick = () => dialog.close();
+  document.body.append(dialog);
+  return {
+    key(key: string): boolean {
+      if (key === "?") dialog.open ? dialog.close() : dialog.show();
+      else if (key === "Escape" && dialog.open) dialog.close();
+      else return false;
+      return true;
+    },
+  };
 }
 
 /** With `?fps`, the frame meter: while the deck plays, its frames a second over the run so far,
@@ -135,18 +253,24 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     const index = Math.min(Math.max(Math.ceil(value) - 1, 0), slots.length - 1);
     return { index, t: Math.min(Math.max(value - index, 0), 1) * slots[index].span };
   };
+  /** The screen black or white, where the presenter turned it so (PLAN 2.105). */
+  let blank: Blank | undefined;
+  /** Whether the laser is on, and where it points on the slide while the pointer is over it. */
+  let laser = false;
+  let point: Point | undefined;
   /** Say where the deck is: in the controls, to the presenter view, and to the page. */
   const report = (at: At) => {
     // Where the deck is, as a person counts its slides (PLAN 2.99); what paints it is said on a
     // pointer over it.
-    const line = [place(slots, at.index), format(), at.playing ? "playing" : ""].filter(Boolean).join(" · ");
+    const screen = blank && `${blank} screen`;
+    const line = [place(slots, at.index), format(), at.playing && !blank ? "playing" : "", screen].filter(Boolean).join(" · ");
     // The status is a live region: it changes when the deck's place does, not every frame.
     if (status.textContent !== line) status.textContent = line;
     status.title = stage.opened.painter === "webgpu" ? "Painted by WebGPU" : "Painted by the CPU";
     if (statesPicker.value !== String(at.index)) statesPicker.value = String(at.index);
     scrub.value = String(scrubbed(at));
     scrub.setAttribute("aria-valuetext", slots[at.index].said ?? `${at.index + 1} of ${slots.length}`);
-    channel.postMessage({ type: "at", ...at, format: format() } satisfies Follow);
+    channel.postMessage({ type: "at", ...at, format: format(), blank, laser } satisfies Follow);
     void read?.(slots[at.index].state, format());
   };
   const measure = meter();
@@ -155,20 +279,103 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     measure?.(at);
   };
 
+  // The screen black or white (PLAN 2.105): over the page, the slide out of sight, and the deck
+  // waiting where it was, a cue or a hold where it stood, until the slide is back.
+  const curtain = document.createElement("div");
+  curtain.className = "curtain";
+  curtain.hidden = true;
+  curtain.setAttribute("aria-hidden", "true");
+  document.body.append(curtain);
+  /** Where a cue or a hold stood when the screen went black or white, to go on from there. */
+  let resume: { index: number; t: number } | undefined;
+  /** The screen `to`, black or white; the slide again where it is that already, or for none. */
+  const blanking = async (to?: Blank) => {
+    const was = blank;
+    blank = to === blank ? undefined : to;
+    curtain.hidden = !blank;
+    curtain.dataset.blank = blank ?? "";
+    if (blank && !was) {
+      const { index, t, playing } = stage.at;
+      resume = playing ? { index, t } : undefined;
+      if (playing) await stage.seek(index, t, format());
+    } else if (!blank && resume) {
+      const { index, t } = resume;
+      resume = undefined;
+      stage.run(index, t, format(), still());
+    }
+    report(stage.at);
+  };
+  /** Whether the slide is in sight: a key or a click while the screen is black or white brings
+   * it back, and does no more. */
+  const shown = () => {
+    if (!blank) return true;
+    void blanking();
+    return false;
+  };
+  curtain.onclick = () => void blanking();
+
   /** On: finish a cue that is playing, else play the next state's. */
   const on = () => {
+    if (!shown()) return;
     const { index, t, playing } = stage.at;
     if (playing && t < slots[index].span) return void stage.seek(index, undefined, format());
     if (index + 1 < slots.length) stage.run(index + 1, 0, format(), still());
   };
   /** Back: the state before, at rest. */
-  const back = () => void stage.seek(Math.max(0, stage.at.index - 1), undefined, format());
-  const go = (i: number) => void stage.seek(i, undefined, format());
+  const back = () => {
+    if (shown()) void stage.seek(Math.max(0, stage.at.index - 1), undefined, format());
+  };
+  const go = (i: number) => {
+    if (shown()) void stage.seek(i, undefined, format());
+  };
+  /** Slide `number`, as a person counts them, its first state's cue played; the slide again where
+   * the screen is black or white. Said where the deck has no such slide. */
+  const slide = (number: number) => {
+    const to = slots.findIndex((s) => s.state === numbered(slots, String(number)));
+    if (to < 0) return typing.say(noSlide(slots, number));
+    resume = undefined;
+    if (blank) void blanking();
+    stage.run(to, 0, format(), still());
+  };
   const present = () => {
     const url = new URL(location.href);
     url.searchParams.set("view", "presenter");
     open(url, "scaena-presenter", "popup,width=1280,height=800");
   };
+
+  // The laser (PLAN 2.105): a red dot where the pointer is over the slide, the pointer hidden
+  // there; the presenter view's points it too, from its own slide.
+  const dot = document.createElement("div");
+  dot.className = "laser";
+  dot.hidden = true;
+  dot.setAttribute("aria-hidden", "true");
+  document.body.append(dot);
+  const drawDot = () => {
+    dot.hidden = !laser || !point;
+    if (!point) return;
+    const r = stage.canvas.getBoundingClientRect();
+    dot.style.left = `${r.left + point[0] * r.width}px`;
+    dot.style.top = `${r.top + point[1] * r.height}px`;
+  };
+  /** The laser pointing at `at` on the slide, or at nothing. */
+  const pointAt = (at: Point | null | undefined) => {
+    point = laser && at ? at : undefined;
+    drawDot();
+    channel.postMessage({ type: "pointed", laser, point: point ?? null } satisfies Pointed);
+  };
+  const lasering = () => {
+    laser = !laser;
+    document.body.classList.toggle("lasering", laser);
+    pointAt(undefined);
+    report(stage.at);
+  };
+  const over = (e: PointerEvent): Point => {
+    const r = stage.canvas.getBoundingClientRect();
+    return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height];
+  };
+  stage.canvas.addEventListener("pointermove", (e) => laser && pointAt(over(e)));
+  stage.canvas.addEventListener("pointerleave", () => laser && pointAt(undefined));
+  addEventListener("resize", drawDot);
 
   outline(statesPicker, slots, stage.opened.outline);
   // The deck's own size by its shape (`16:9`) where a format is it, which it is then offered as.
@@ -192,7 +399,18 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
   $("#back").onclick = back;
   $("#full").onclick = fullscreen;
   $("#present").onclick = present;
-  keys({ on, back, first: () => go(0), last: () => go(slots.length - 1), full: fullscreen, present });
+  const typing = keys({
+    on,
+    back,
+    first: () => go(0),
+    last: () => go(slots.length - 1),
+    full: fullscreen,
+    present,
+    black: () => void blanking("black"),
+    white: () => void blanking("white"),
+    laser: lasering,
+    slide,
+  });
   // A click or a tap goes on; a swipe goes either way.
   let down: PointerEvent | undefined;
   stage.canvas.onpointerdown = (e) => (down = e);
@@ -234,7 +452,14 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     else if (data.type === "back") back();
     else if (data.type === "first") go(0);
     else if (data.type === "last") go(slots.length - 1);
-    else if (data.type === "hello") report(stage.at);
+    else if (data.type === "black" || data.type === "white") void blanking(data.type);
+    else if (data.type === "slide") slide(data.number);
+    else if (data.type === "laser") lasering();
+    else if (data.type === "point") pointAt(data.at);
+    else if (data.type === "hello") {
+      report(stage.at);
+      pointAt(point);
+    }
   };
 
   /** The bundle read again, and shown where the deck was: the same state, at rest. */
@@ -287,6 +512,10 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
       at: () => stage.at,
       on,
       back,
+      /** The screen as the presenter turned it, black or white, or null (PLAN 2.105). */
+      blank: () => blank ?? null,
+      /** Whether the laser is on, and where it points on the slide, fractions, or null. */
+      laser: () => ({ on: laser, point: point ?? null }),
     },
   });
 }
@@ -318,7 +547,7 @@ function outline(picker: HTMLSelectElement, slots: Slot[], sections: Section[]) 
 async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
   document.body.className = "presenter";
   document.body.innerHTML = `
-    <main><canvas id="stage"></canvas></main>
+    <main><canvas id="stage"></canvas><p id="blanked" class="blanked" hidden></p></main>
     <aside>
       <div class="next"><canvas id="upnext"></canvas><p id="nextName"></p></div>
       <p class="clock"><span id="clock">0:00</span> · <span id="where"></span></p>
@@ -335,16 +564,47 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
   // Each state as a person counts it (PLAN 2.99).
   let slots: Slot[] = await now.timeline();
   const steer = (message: Steer) => channel.postMessage(message);
-  // The player's own keys, Home and End among them, steer it from here.
-  keys({
+  // The player's own keys, Home and End among them, steer it from here; and the presenter's
+  // (PLAN 2.105): the room's screen black or white, a slide by its number, and the laser.
+  const typing = keys({
     on: () => steer({ type: "on" }),
     back: () => steer({ type: "back" }),
     first: () => steer({ type: "first" }),
     last: () => steer({ type: "last" }),
     full: fullscreen,
+    black: () => steer({ type: "black" }),
+    white: () => steer({ type: "white" }),
+    laser: () => steer({ type: "laser" }),
+    // A number the deck has no slide for is said here, where the presenter typed it.
+    slide: (number) => (numbered(slots, String(number)) ? steer({ type: "slide", number }) : typing.say(noSlide(slots, number))),
   });
   $("#on").onclick = () => steer({ type: "on" });
   $("#back").onclick = () => steer({ type: "back" });
+  // The laser as the player draws it on the room's screen, drawn here on the slide this view shows;
+  // with it on, the pointer over that slide points it.
+  const canvas = $<HTMLCanvasElement>("#stage");
+  const dot = document.createElement("div");
+  dot.className = "laser";
+  dot.hidden = true;
+  dot.setAttribute("aria-hidden", "true");
+  document.body.append(dot);
+  let laser = false;
+  let point: Point | null = null;
+  const drawDot = () => {
+    dot.hidden = !laser || !point;
+    if (!point) return;
+    const r = canvas.getBoundingClientRect();
+    dot.style.left = `${r.left + point[0] * r.width}px`;
+    dot.style.top = `${r.top + point[1] * r.height}px`;
+  };
+  canvas.addEventListener("pointermove", (e) => {
+    if (!laser) return;
+    const r = canvas.getBoundingClientRect();
+    steer({ type: "point", at: [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height] });
+  });
+  canvas.addEventListener("pointerleave", () => laser && steer({ type: "point", at: null }));
+  addEventListener("resize", drawDot);
+  const blanked = $("#blanked");
   const opened = performance.now();
   const clock = () => {
     const s = Math.floor((performance.now() - opened) / 1000);
@@ -381,8 +641,17 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
       painting = false;
     }
   };
-  channel.onmessage = ({ data }: MessageEvent<Follow>) => {
+  channel.onmessage = ({ data }: MessageEvent<Follow | Pointed>) => {
+    if (data.type === "pointed") {
+      ({ laser, point } = data);
+      return drawDot();
+    }
     if (data.type !== "at") return;
+    // What the room sees while its screen is black or white, said over the slide shown here.
+    blanked.hidden = !data.blank;
+    blanked.textContent = data.blank ? `The room sees a ${data.blank} screen. A key or a click brings the slide back.` : "";
+    document.body.classList.toggle("blanking", !!data.blank);
+    document.body.classList.toggle("lasering", !!data.laser);
     latest = data;
     void follow();
   };
@@ -401,5 +670,14 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
       },
     });
   steer({ type: "hello" });
-  Object.assign(window, { scaena: { ...now.opened, follows: () => $("#where").textContent } });
+  Object.assign(window, {
+    scaena: {
+      ...now.opened,
+      follows: () => $("#where").textContent,
+      /** What this view says the room sees, while its screen is black or white (PLAN 2.105). */
+      blanked: () => (blanked.hidden ? null : blanked.textContent),
+      /** Where the laser points on the slide, as the player says, or null. */
+      pointed: () => (laser ? point : null),
+    },
+  });
 }

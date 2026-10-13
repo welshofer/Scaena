@@ -33,3 +33,26 @@ body.presenter { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; heigh
 .presenter #on:hover { background: #46709f; }
 /* How the state shown reads, for a screen reader (PLAN 2.5): there, and not seen. */
 .reading { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* The presenter's keys (PLAN 2.105). The screen black or white, over the whole page: a click
+ * brings the slide back. */
+.curtain { position: fixed; inset: 0; z-index: 30; cursor: none; }
+.curtain[data-blank="black"] { background: #000; }
+.curtain[data-blank="white"] { background: #fff; }
+/* The laser: a red dot where the pointer is over the slide, and no pointer there. */
+.laser { position: fixed; z-index: 40; width: max(12px, 1.1vmin); aspect-ratio: 1; transform: translate(-50%, -50%); border-radius: 50%; background: #ff2b2b; box-shadow: 0 0 6px 3px rgba(255, 60, 60, 0.7), 0 0 18px 8px rgba(255, 40, 40, 0.35); pointer-events: none; }
+.lasering #stage { cursor: none; }
+/* A slide's number as it is typed, at the foot of the page. */
+.typed { position: fixed; z-index: 35; left: 50%; bottom: calc(var(--bar) + 24px); transform: translateX(-50%); padding: 10px 18px; border-radius: 10px; background: rgba(24, 23, 21, 0.9); color: #fff; font-size: 22px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+:fullscreen .typed, .presenter .typed { bottom: 24px; }
+/* The keys, listed: ? shows them. */
+.keylist { position: fixed; z-index: 50; top: 50%; left: 50%; transform: translate(-50%, -50%); margin: 0; max-width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; box-sizing: border-box; padding: 20px 24px; border: 1px solid #555; border-radius: 12px; background: #262522; color: #eee; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); }
+.keylist h2 { margin: 0 0 12px; font-size: 18px; }
+.keylist dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 20px; margin: 0; }
+.keylist dt { white-space: nowrap; }
+.keylist dd { margin: 0; }
+.keylist p { margin: 14px 0 0; opacity: 0.85; }
+.keylist kbd { display: inline-block; min-width: 1.2em; padding: 1px 6px; border: 1px solid #666; border-bottom-width: 2px; border-radius: 5px; background: #33312d; font: 13px ui-monospace, Menlo, monospace; text-align: center; }
+/* The presenter view, while the room's screen is black or white: its slide dimmed, and said. */
+.presenter main { position: relative; }
+.presenter.blanking #stage { opacity: 0.3; }
+.blanked { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); margin: 0; padding: 12px 18px; border-radius: 10px; background: rgba(0, 0, 0, 0.8); color: #fff; font-size: 20px; text-align: center; max-width: 80%; }
