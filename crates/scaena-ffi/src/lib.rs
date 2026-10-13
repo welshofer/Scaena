@@ -1471,6 +1471,12 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             let arrow = args.get("arrow").and_then(Value::as_bool).unwrap_or(true);
             value(serde_json::to_value(s.connecting(arg("state")?, arg("from")?, arg("to")?, arrow).map_err(said)?))?
         }
+        // A text's lines drawn as a diagram, `process`, `cycle`, or `hierarchy`, in its place
+        // (PLAN 2.110): `{id, patch}`, `id` its container.
+        "diagramming" => {
+            let kind = serde_json::from_value(Value::String(arg("kind")?.to_string())).map_err(said)?;
+            value(serde_json::to_value(s.diagramming(arg("state")?, arg("node")?, kind).map_err(said)?))?
+        }
         // A state added after the state shown (PLAN 2.35, 3.14): a `step` of its slide, or a
         // `slide` of its own, `{id, patch}`.
         "addingState" => {

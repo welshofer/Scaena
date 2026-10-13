@@ -142,3 +142,29 @@ import Testing
     editor.restore(before)
     #expect(try session.boxes(state: "cover").first { $0.node == joined.id } == nil, "one step to undo")
 }
+
+/// Diagrams (PLAN 2.110), as the browser's canvas draws them: B1's subtitle, given three lines,
+/// drawn as a process in its place, a box for each line with its words, an arrow between each two,
+/// the subtitle gone from the cover; one step to undo; and a hierarchy refused for lines at one
+/// level.
+@Test func aTextsLinesAreDrawnAsADiagramInItsPlace() throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    editor.shown = "cover"
+    let session = editor.session
+    let lines: JSONValue = .object([
+        "op": .string("replace"), "path": .string("/nodes/subtitle/text"), "value": .string("Why\nWhat\nRefuse"),
+    ])
+    _ = try editor.make([lines])
+    let made = try session.diagramming(state: "cover", node: "subtitle", kind: .process)
+    #expect(made.id == "subtitle-process")
+    let before = try editor.make(made.patch)
+    let boxes = try session.boxes(state: "cover")
+    let held = boxes.filter { $0.parent == made.id }.map(\.node)
+    #expect(held.count == 3, "a box for each line: \(held)")
+    let arrows = boxes.filter { box in box.joins.map { ends in ends.allSatisfy { held.contains($0) } } ?? false }
+    #expect(arrows.count == 2, "an arrow between each two")
+    #expect(boxes.first { $0.node == "subtitle" } == nil, "the text gone from the cover")
+    editor.restore(before)
+    #expect(try session.boxes(state: "cover").first { $0.node == made.id } == nil, "one step to undo")
+    #expect(throws: ScaenaError.self) { try session.diagramming(state: "cover", node: "subtitle", kind: .hierarchy) }
+}

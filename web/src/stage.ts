@@ -68,6 +68,8 @@ import type {
   Waiting,
   Worded,
   Connected,
+  Diagram,
+  Diagrammed,
   Writing,
   WritingAsk,
   WritingCall,
@@ -153,6 +155,7 @@ type Reply = Extract<
       | "adding"
       | "worded"
       | "connected"
+      | "diagrammed"
       | "deleting"
       | "copied"
       | "pasted"
@@ -762,6 +765,14 @@ export class Stage {
     );
   }
 
+  /** The patch that draws text `node`'s lines in `state` as a diagram of `kind` in its place, in
+   * `format` (PLAN 2.110). */
+  diagramming(source: string, state: string, node: string, kind: Diagram, format?: string): Promise<Diagrammed> {
+    return this.request<"diagrammed">({ type: "diagramming", id: ++this.asked, source, state, node, kind, format }).then(
+      ({ diagrammed }) => diagrammed,
+    );
+  }
+
   /** The patch that puts `nodes`, children of one container as `state` shows them, in a new group
    * where they stand, on the deck `source` compiles to (PLAN 2.43): its id and the patch. */
   grouping(source: string, state: string, nodes: string[]): Promise<Grouped> {
@@ -1045,6 +1056,7 @@ export class Stage {
       case "adding":
       case "worded":
       case "connected":
+      case "diagrammed":
       case "deleting":
       case "copied":
       case "pasted":

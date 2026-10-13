@@ -1075,8 +1075,10 @@ mod tests {
             "a": { "type": "shape", "kind": "rect", "at": { "rect": [100, 100, 200, 100] } },
             "b": { "type": "shape", "kind": "rect", "at": { "rect": [600, 100, 200, 100] } },
             "c": { "type": "shape", "kind": "rect", "at": { "rect": [600, 500, 200, 100] } },
+            "d": { "type": "shape", "kind": "rect", "at": { "rect": [600, 150, 200, 100] } },
             "ab": { "type": "shape", "kind": "arrow", "connect": { "from": "a", "to": "b" } },
-            "ac": { "type": "shape", "kind": "line", "connect": { "from": "a", "to": "c", "route": "elbow" } }
+            "ac": { "type": "shape", "kind": "line", "connect": { "from": "a", "to": "c", "route": "elbow" } },
+            "ad": { "type": "shape", "kind": "line", "connect": { "from": "a", "to": "d", "route": "elbow" } }
         })))
         .unwrap();
         let drawn = |id: &str| -> Vec<[f32; 2]> {
@@ -1086,11 +1088,16 @@ mod tests {
         let near = |a: [f32; 2], b: [f32; 2]| (a[0] - b[0]).abs() < 0.01 && (a[1] - b[1]).abs() < 0.01;
         let ab = drawn("ab");
         assert!(ab.len() == 2 && near(ab[0], [308.0, 150.0]) && near(ab[1], [592.0, 150.0]), "{ab:?}");
-        // An elbow leaves a's side that faces c, turns halfway across, and meets c's facing side.
+        // An elbow to a box below leaves a's bottom, turns halfway down, and meets c's top, though
+        // c stands farther to the side than below, as an organization chart's lines run (PLAN 2.110).
         let ac = drawn("ac");
-        let elbow = [[308.0, 150.0], [450.0, 150.0], [450.0, 550.0], [592.0, 550.0]];
+        let elbow = [[200.0, 208.0], [200.0, 350.0], [700.0, 350.0], [700.0, 492.0]];
         assert!(ac.len() == 4 && ac.iter().zip(elbow).all(|(p, q)| near(*p, q)), "{ac:?}");
-        assert_eq!(placement.boxes["ac"], [308.0, 150.0, 284.0, 400.0]);
+        assert_eq!(placement.boxes["ac"], [200.0, 208.0, 500.0, 284.0]);
+        // To a box beside it, though lower, it leaves a's side, turns halfway across, and meets d's.
+        let ad = drawn("ad");
+        let elbow = [[308.0, 150.0], [450.0, 150.0], [450.0, 200.0], [592.0, 200.0]];
+        assert!(ad.len() == 4 && ad.iter().zip(elbow).all(|(p, q)| near(*p, q)), "{ad:?}");
     }
 
     #[test]

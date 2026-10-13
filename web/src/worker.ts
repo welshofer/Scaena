@@ -70,6 +70,7 @@ import type {
   Waiting,
   Worded,
   Connected,
+  Diagrammed,
   Where,
   Writing,
   Written,
@@ -372,6 +373,14 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
           type: "connected",
           id: data.id,
           connected: JSON.parse(player.connecting(data.state, data.from, data.to, data.arrow)) as Connected,
+        });
+      case "diagramming":
+        current(data.source);
+        layOut(data.format);
+        return post({
+          type: "diagrammed",
+          id: data.id,
+          diagrammed: JSON.parse(player.diagramming(data.state, data.node, data.kind)) as Diagrammed,
         });
       case "grouping":
         current(data.source);

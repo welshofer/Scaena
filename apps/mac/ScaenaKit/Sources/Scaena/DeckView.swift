@@ -46,6 +46,8 @@ struct DeckView: View {
     @State private var ownLocks: Set<String> = []
     /// Whether the node selected is a group, which Ungroup takes apart.
     @State private var grouped = false
+    /// Whether the node selected is a text, which a diagram may be drawn from (PLAN 2.110).
+    @State private var texted = false
     /// Whether a node selected shows on another slide than the one shown (`showsElsewhere`).
     @State private var elsewhere = false
     /// The look ⌥⌘C copied last, which ⌥⌘V pastes, as `look` gives it.
@@ -653,8 +655,10 @@ struct DeckView: View {
                 ownLocks = Set(boxes.filter { $0.locked == $0.node }.map(\.node))
                 if let shown, let node, let choices = try? editor.session.choices(state: shown, node: node) {
                     grouped = choices.type == "group"
+                    texted = choices.type == "text"
                 } else {
                     grouped = false
+                    texted = false
                 }
                 // Not while a text is typed in: the Node menu is the text's then, and a key typed
                 // shows the node on no other slide.
@@ -978,6 +982,7 @@ struct DeckView: View {
         made.chooseIcon = { choosingIcon = true }
         made.makePicture = { makePicture(in: shown) }
         if selection.count == 2 { made.connect = { arrow in connect(arrow, in: shown) } }
+        if one && texted { made.diagram = { kind in diagram(kind, in: shown) } }
         made.deletesElsewhere = elsewhere
         // In another of the deck's formats, a node given a layout of its own there (PLAN 2.85).
         if one, let node, let format = editor.format {
@@ -1366,6 +1371,19 @@ struct DeckView: View {
             node = connected.id
             also = []
             said = arrow ? "Joined by an arrow" : "Joined by a line"
+        }
+    }
+
+    /// The text selected drawn as a diagram of `kind` in its place (PLAN 2.110): one step of undo,
+    /// the diagram selected.
+    private func diagram(_ kind: DiagramKind, in state: String) {
+        guard let text = node, also.isEmpty else { return }
+        perform {
+            let made = try editor.session.diagramming(state: state, node: text, kind: kind)
+            try document.make(made.patch, undo: undo)
+            node = made.id
+            also = []
+            said = "Drawn as a \(kind.rawValue)"
         }
     }
 

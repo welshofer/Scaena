@@ -790,6 +790,32 @@ fn two_nodes_are_connected_as_the_browser_connects_them() {
     unsafe { scaena_session_free(s) };
 }
 
+/// A text's lines drawn as a diagram in its place (PLAN 2.110), as the browser's canvas draws them:
+/// B1's subtitle, given three lines, as a process of three boxes joined by two arrows, the subtitle
+/// gone from the cover; and a hierarchy refused for lines at one level.
+#[test]
+fn a_texts_lines_are_drawn_as_a_diagram_as_the_browser_draws_them() {
+    let s = open(B1);
+    let lines = json!([{ "op": "replace", "path": "/nodes/subtitle/text", "value": "Why\nWhat\nRefuse" }]);
+    assert_eq!(tool(s, "deck_patch", json!({ "ops": lines }))["edited"], true);
+    let made = call(s, "diagramming", json!({ "state": "cover", "node": "subtitle", "kind": "process" }));
+    assert_eq!(made["id"], "subtitle-process", "{made}");
+    let done = tool(s, "deck_patch", json!({ "ops": made["patch"] }));
+    assert_eq!(done["edited"], true, "{done}");
+    let boxes = call(s, "boxes", json!({ "state": "cover" }));
+    let boxes = boxes.as_array().unwrap();
+    let held: Vec<&str> =
+        boxes.iter().filter(|b| b["parent"] == "subtitle-process").filter_map(|b| b["node"].as_str()).collect();
+    assert_eq!(held.len(), 3, "{held:?}");
+    let arrows = boxes.iter().filter(|b| b["joins"].is_array()).count();
+    assert_eq!(arrows, 2, "{boxes:?}");
+    assert!(!boxes.iter().any(|b| b["node"] == "subtitle"), "the subtitle gone from the cover");
+    let refused = answered(s, "diagramming", &json!({ "state": "cover", "node": "title", "kind": "hierarchy" }));
+    let said = refused["error"]["message"].as_str().unwrap_or_default();
+    assert!(said.contains("two lines or more"), "{refused}");
+    unsafe { scaena_session_free(s) };
+}
+
 /// Nodes added and taken away (PLAN 3.11), as the browser's Insert menu, ⌘D, and Delete make them
 /// (PLAN 2.34, 2.79): what is offered, inserted about a point and entering in the state shown;
 /// a copy beside a node; and a node taken out of the state and those after, or out of the deck.

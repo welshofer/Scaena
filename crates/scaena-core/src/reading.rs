@@ -338,7 +338,7 @@ fn listed(words: &str, items: &[Option<ListItem>], say: &dyn Fn(Range<usize>) ->
 }
 
 /// A text node's words: its `text`, or its runs' texts in turn.
-pub(crate) fn words(props: &Props) -> String {
+pub fn words(props: &Props) -> String {
     stretches(props).into_iter().map(|(w, _)| w).collect()
 }
 

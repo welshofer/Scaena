@@ -1740,6 +1740,15 @@ async function edit(source: Source) {
       // Two objects joined by a connector that follows them (PLAN 2.109): from the first selected to the second.
       { label: "Connect with an arrow", group: "Arrange", where: ["node"], applies: () => picked().length === 2, run: () => board.connect(picked(), true) },
       { label: "Connect with a line", group: "Arrange", where: ["node"], applies: () => picked().length === 2, run: () => board.connect(picked(), false) },
+      // A text's lines drawn as a diagram in its place (PLAN 2.110): steps joined by arrows, steps
+      // around a ring, or a tree by their list levels.
+      ...(["process", "cycle", "hierarchy"] as const).map((kind): Command => ({
+        label: `Make a ${kind} diagram`,
+        group: "Draw and insert",
+        where: ["node"],
+        applies: () => one() && typeOf(picked()[0]) === "text",
+        run: () => board.diagram(picked()[0], kind),
+      })),
       pressing("Group", `${MOD}G`, "g", mod(), "Arrange"),
       pressing("Ungroup", `${MOD}${SHIFT}G`, "g", mod({ shiftKey: true }), "Arrange", () => one() && typeOf(picked()[0]) === "group"),
       pressing("Bring forward", `${MOD}]`, "]", mod({ code: "BracketRight" }), "Arrange"),

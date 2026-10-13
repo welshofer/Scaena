@@ -68,7 +68,7 @@ import { type Icon, iconSaid } from "./icon-set";
 import { marks } from "./marks";
 import { fitting } from "./pictures";
 import { BUNDLE_PATH, CLIP, DATA, PICTURE } from "./protocol";
-import type { Added, Arrange, Cells, DataMark, Edited, Finding, Framing, Grid, Insert, LayoutSlots, Lexicon, Look, Map6, NodeBox, NoteMark, Outline, Rect, SlotBox, SnapMode, Snapped, Targets, Waiting } from "./protocol";
+import type { Added, Arrange, Cells, DataMark, Diagram, Edited, Finding, Framing, Grid, Insert, LayoutSlots, Lexicon, Look, Map6, NodeBox, NoteMark, Outline, Rect, SlotBox, SnapMode, Snapped, Targets, Waiting } from "./protocol";
 import { pointer } from "./theme-panel";
 import * as notes from "./notes";
 import { annotate, askWords, markName, noteName } from "./notes";
@@ -2477,6 +2477,22 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     });
   }
 
+  /** Draw text `node`'s lines as a diagram of `kind` in its place (PLAN 2.110): boxes with their
+   * words, joined by connectors, in a container placed as the text was; one patch, the diagram
+   * selected. */
+  function diagram(node: string, kind: Diagram) {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      if (!shown) return editor.say(WAITING);
+      try {
+        const made = await stage.diagramming(editor.source(), shown.state, node, kind, editor.format());
+        await change(made.patch, "Drawing a diagram…", `${Called(node)} drawn as a ${kind}`, made.id);
+      } catch (e) {
+        editor.say(`Not drawn as a ${kind}: ${said(e)}`);
+      }
+    });
+  }
+
   /** What is selected in a new group where it stands (PLAN 2.43): one patch, the group selected. */
   function group() {
     return inTurn(async () => {
@@ -3939,6 +3955,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     group,
     ungroup,
     connect,
+    /** Draw a text's lines as a diagram in its place (PLAN 2.110). */
+    diagram,
     /** Pick the focal point of the image selected with the next press on it, as the inspector's
      * Pick does; and a file dropped on the canvas: a picture on an image, put in its place (PLAN
      * 2.45), else inserted there, and data attached as a source with a chart of it there. */

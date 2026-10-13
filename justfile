@@ -219,6 +219,7 @@ web-smoke: site
     node web/insert.mjs
     node web/words.mjs
     node web/connect.mjs
+    node web/diagram.mjs
     node web/draw.mjs
     node web/findings.mjs
     node web/layers.mjs

@@ -595,6 +595,16 @@ export interface Connected {
   patch: unknown[];
 }
 
+/** What a diagram draws a text's lines as (PLAN 2.110). */
+export type Diagram = "process" | "cycle" | "hierarchy";
+
+/** A diagram made from a text's lines (PLAN 2.110): its container, and the patch that makes it
+ * in the text's place. */
+export interface Diagrammed {
+  id: string;
+  patch: unknown[];
+}
+
 /** What a paste makes (PLAN 2.37): the copy of the node copied, where it lands, and the patch;
  * the copies of the others copied with it (PLAN 2.42); the files the clip carried that the
  * bundle lacked, now in it; and what the copies named that the theme lacks, each taken out of
@@ -955,6 +965,9 @@ export type ToWorker =
   | { type: "duplicating"; id: number; source: string; state: string; node: string; format?: string }
   | { type: "wording"; id: number; source: string; shape: string }
   | { type: "connecting"; id: number; source: string; state: string; from: string; to: string; arrow: boolean }
+  /** The patch that draws text `node`'s lines in `state` as a diagram of `kind` in its place, in
+   * the format shown (PLAN 2.110). */
+  | { type: "diagramming"; id: number; source: string; state: string; node: string; kind: Diagram; format?: string }
   | { type: "deleting"; id: number; source: string; state: string; node: string; everywhere: boolean }
   /** The patch that puts `nodes`, children of one container as `state` shows them, in a new group
    * where they stand, on the deck the editor's `source` compiles to (PLAN 2.43). */
@@ -1664,6 +1677,8 @@ export type FromWorker =
   | { type: "worded"; id: number; worded: Worded }
   /** A connector between two nodes (PLAN 2.109). */
   | { type: "connected"; id: number; connected: Connected }
+  /** A text's lines drawn as a diagram (PLAN 2.110). */
+  | { type: "diagrammed"; id: number; diagrammed: Diagrammed }
   /** The patch that takes a node away. */
   | { type: "deleting"; id: number; patch: unknown[] }
   /** A node as the clipboard holds it, and what pasting a clip makes. */
