@@ -89,7 +89,7 @@ const RULES: [(&str, &[&str]); 39] = [
     ("W313", &["/nodes/c"]),
     ("W320", &["/states/0"]),
     ("W321", &["/states/0/choreography"]),
-    ("W322", &["/states/1/choreography/0"]),
+    ("W322", &["/states/1/choreography/0", "/states/2/choreography/0"]),
     ("W323", &["/states/1"]),
     ("W401", &["/states/1"]),
     ("W410", &["/nodes/p"]),
@@ -138,7 +138,7 @@ fn deck(data: Value, nodes: Value) -> Value {
     let props: serde_json::Map<String, Value> =
         nodes.as_object().unwrap().keys().map(|k| (k.clone(), serde_json::json!({}))).collect();
     serde_json::json!({
-        "scaena": "0.22",
+        "scaena": "0.23",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [

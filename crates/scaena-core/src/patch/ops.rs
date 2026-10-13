@@ -2093,7 +2093,7 @@ fn links_to(d: &Doc, id: &str) -> Vec<String> {
 }
 
 /// The keys of a state's transition (SPEC §3.9).
-const TRANSITION: [&str; 4] = ["duration", "ease", "spring", "match"];
+const TRANSITION: [&str; 6] = ["duration", "ease", "spring", "match", "style", "direction"];
 
 /// `set_state` (PLAN 2.36): `value` becomes state `id`'s `prop`. A layout is written where it
 /// lives: the latest state that sets it, from `id` back along what it tracks, else `id`; or,

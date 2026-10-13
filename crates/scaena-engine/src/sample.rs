@@ -42,7 +42,9 @@ use crate::shapes::ShapeNode;
 use crate::tables::{Cell, TableLayout};
 use crate::text::{GlyphRun, TextLayout};
 use crate::theme::Theme;
-use scaena_core::displaylist::{Blend, Cap, Color, DisplayList, FillRule, Join, Op, Paint, Path, PathEl, Point, Rect};
+use scaena_core::displaylist::{
+    Affine, Blend, Cap, Color, DisplayList, FillRule, Join, Op, Paint, Path, PathEl, Point, Rect,
+};
 use scaena_core::model::values::{SplitUnit, TextSplit};
 use scaena_core::pose::Pose;
 use scaena_core::timeline::{Clock, CubicBezier, Curve, Item, Look, Motion, Placed, Schedule, schedule};
@@ -141,10 +143,18 @@ impl Scene {
 
     /// [`Scene::draw_at`], with each node `with` names drawn as it says in its place.
     pub(crate) fn draw_with(&self, time: f64, with: &HashMap<&str, SceneNode>) -> DisplayList {
-        let mut dl = self.ground();
+        let mut dl = DisplayList::new(self.canvas);
+        dl.ops = self.ops_into(&mut dl, time, with);
+        dl
+    }
+
+    /// The ops [`Scene::draw_with`] draws, its ground first, each font they name named in `dl`:
+    /// the state at rest, to draw in another display list (PLAN 2.111). `dl`'s own ops stay.
+    fn ops_into(&self, dl: &mut DisplayList, time: f64, with: &HashMap<&str, SceneNode>) -> Vec<Op> {
+        let kept = std::mem::replace(&mut dl.ops, vec![self.ground_op()]);
         for node in &self.nodes {
             let node = with.get(node.id.as_str()).unwrap_or(node);
-            let op = node.draw(&mut dl, node.opacity, time);
+            let op = node.draw(dl, node.opacity, time);
             dl.ops.push(looked(op, self.rest(&node.id)));
         }
         let ops = std::mem::take(&mut dl.ops).into_iter().map(|op| (false, op)).collect();
@@ -154,10 +164,10 @@ impl Scene {
             |(g, _)| self.tree[g].composite.map(|opacity| (opacity, self.rest(g))),
         );
         for item in &self.furniture {
-            let op = item.draw(&mut dl, item.opacity, time);
+            let op = item.draw(dl, item.opacity, time);
             dl.ops.push(op);
         }
-        dl
+        std::mem::replace(&mut dl.ops, kept)
     }
 
     /// What the transforms of `id` and of what holds it make of it at rest, up to the group
@@ -203,12 +213,17 @@ impl Scene {
     /// Only the surface: where a transition into the first state starts.
     fn ground(&self) -> DisplayList {
         let mut dl = DisplayList::new(self.canvas);
-        dl.ops.push(Op::Fill {
+        dl.ops.push(self.ground_op());
+        dl
+    }
+
+    /// The canvas filled with the theme's surface.
+    fn ground_op(&self) -> Op {
+        Op::Fill {
             path: Path::rect([0.0, 0.0, self.canvas[0], self.canvas[1]]),
             rule: FillRule::NonZero,
             paint: Paint::Solid(self.surface),
-        });
-        dl
+        }
     }
 }
 
@@ -260,11 +275,106 @@ pub struct Timing {
     /// `match: "id"` (the default) morphs nodes present in both states; `"none"`
     /// fades every node out and in.
     pub matched: bool,
+    /// A slide transition (PLAN 2.111): its style, and the way it moves on the canvas as a unit
+    /// vector. The slide left and the slide entered are each drawn whole, nothing matched.
+    pub slide: Option<(Slide, [f32; 2])>,
+}
+
+/// A slide transition's style (PLAN 2.111, SPEC §3.9).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Slide {
+    /// The slide entered fades in over the slide left.
+    Dissolve,
+    /// The slide entered pushes the slide left off the canvas.
+    Push,
+    /// The slide entered slides in over the slide left.
+    Cover,
+    /// The slide left slides away, uncovering the slide entered.
+    Reveal,
+    /// An edge sweeps across the canvas, the slide entered behind it.
+    Wipe,
+}
+
+impl Slide {
+    /// Its `style` as a deck writes it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Slide::Dissolve => "dissolve",
+            Slide::Push => "push",
+            Slide::Cover => "cover",
+            Slide::Reveal => "reveal",
+            Slide::Wipe => "wipe",
+        }
+    }
+
+    /// The `direction` a deck writes for the way a slide transition moves.
+    pub fn direction(way: [f32; 2]) -> &'static str {
+        match way {
+            [x, _] if x > 0.0 => "right",
+            [_, y] if y < 0.0 => "up",
+            [_, y] if y > 0.0 => "down",
+            _ => "left",
+        }
+    }
+
+    /// A transition's `style` and `direction`, if it gives a style: the way the slides move, as a
+    /// unit vector, `left` where it gives none.
+    fn parse(spec: &serde_json::Map<String, Value>) -> Result<Option<(Slide, [f32; 2])>, EngineError> {
+        let Some(style) = spec.get("style") else { return Ok(None) };
+        let slide = match style.as_str() {
+            Some("dissolve") => Slide::Dissolve,
+            Some("push") => Slide::Push,
+            Some("cover") => Slide::Cover,
+            Some("reveal") => Slide::Reveal,
+            Some("wipe") => Slide::Wipe,
+            _ => return Err(EngineError::Layout(format!("transition style {style}"))),
+        };
+        let way = match spec.get("direction").map(|d| (d, d.as_str())) {
+            None | Some((_, Some("left"))) => [-1.0, 0.0],
+            Some((_, Some("right"))) => [1.0, 0.0],
+            Some((_, Some("up"))) => [0.0, -1.0],
+            Some((_, Some("down"))) => [0.0, 1.0],
+            Some((d, _)) => return Err(EngineError::Layout(format!("transition direction {d}"))),
+        };
+        Ok(Some((slide, way)))
+    }
+
+    /// The frame `p` of the way through: the slide left (`left`) and the slide entered
+    /// (`entered`), each drawn whole on a canvas `size` big, as layers this style moves `way`,
+    /// uncovers, or fades.
+    fn compose(self, way: [f32; 2], p: f32, size: [f32; 2], left: Vec<Op>, entered: Vec<Op>) -> Vec<Op> {
+        let [w, h] = size;
+        // A slide `k` of the way along: 0 where it rests, -1 where it starts, 1 where it ends.
+        let moved = |k: f32| [1.0, 0.0, 0.0, 1.0, way[0] * w * k, way[1] * h * k];
+        let layer = |transform: Affine, opacity: f32, clip: Option<Path>, ops: Vec<Op>| Op::Layer {
+            node: None,
+            cell: None,
+            transform,
+            opacity,
+            blend: Blend::Normal,
+            clip,
+            ops,
+        };
+        let still = moved(0.0);
+        match self {
+            Slide::Dissolve => vec![layer(still, 1.0, None, left), layer(still, p, None, entered)],
+            Slide::Push => vec![layer(moved(p), 1.0, None, left), layer(moved(p - 1.0), 1.0, None, entered)],
+            Slide::Cover => vec![layer(still, 1.0, None, left), layer(moved(p - 1.0), 1.0, None, entered)],
+            Slide::Reveal => vec![layer(still, 1.0, None, entered), layer(moved(p), 1.0, None, left)],
+            Slide::Wipe => {
+                // What the edge has swept: from the side it starts on, `p` of the canvas.
+                let (cw, ch) = (if way[0] != 0.0 { w * p } else { w }, if way[1] != 0.0 { h * p } else { h });
+                let (cx, cy) = (if way[0] < 0.0 { w - cw } else { 0.0 }, if way[1] < 0.0 { h - ch } else { 0.0 });
+                vec![layer(still, 1.0, None, left), layer(still, 1.0, Some(Path::rect([cx, cy, cw, ch])), entered)]
+            }
+        }
+    }
 }
 
 impl Timing {
     /// A state without `transition` cuts in.
-    pub const CUT: Timing = Timing { duration_ms: 0.0, curve: Curve::Ease(CubicBezier::LINEAR), matched: true };
+    pub const CUT: Timing =
+        Timing { duration_ms: 0.0, curve: Curve::Ease(CubicBezier::LINEAR), matched: true, slide: None };
 
     /// A state's `transition`: a duration (ms or a theme name), or
     /// `{ duration, ease, spring, match }`, with `duration` and `ease` defaulting to
@@ -273,15 +383,23 @@ impl Timing {
     pub fn parse(theme: &Theme, transition: Option<&Value>) -> Result<Timing, EngineError> {
         let Some(v) = transition else { return Ok(Timing::CUT) };
         let standard = Value::from("standard");
-        let (duration, ease, spring, matched) = match v {
-            Value::Number(_) | Value::String(_) => (v, None, None, true),
+        let (duration, ease, spring, matched, slide) = match v {
+            Value::Number(_) | Value::String(_) => (v, None, None, true, None),
             Value::Object(o) => {
                 let matched = match o.get("match").and_then(Value::as_str) {
                     None | Some("id") => true,
                     Some("none") => false,
                     Some(other) => return Err(EngineError::Layout(format!("transition match `{other}`"))),
                 };
-                (o.get("duration").unwrap_or(&standard), o.get("ease"), o.get("spring"), matched)
+                // A slide transition draws each slide whole: nothing matches across it.
+                let slide = Slide::parse(o)?;
+                (
+                    o.get("duration").unwrap_or(&standard),
+                    o.get("ease"),
+                    o.get("spring"),
+                    matched && slide.is_none(),
+                    slide,
+                )
             }
             other => return Err(EngineError::Layout(format!("transition {other}: expected a duration or an object"))),
         };
@@ -297,7 +415,7 @@ impl Timing {
                 _ => return Err(bad()),
             };
             let curve = Curve::spring(spring);
-            return Ok(Timing { duration_ms: curve.duration(0.0), curve, matched });
+            return Ok(Timing { duration_ms: curve.duration(0.0), curve, matched, slide });
         }
         let duration_ms = theme
             .duration(duration)
@@ -313,7 +431,7 @@ impl Timing {
             Some(_) => None,
         }
         .ok_or_else(|| EngineError::Theme(format!("unknown or invalid easing in transition {v}")))?;
-        Ok(Timing { duration_ms, curve: Curve::Ease(ease), matched })
+        Ok(Timing { duration_ms, curve: Curve::Ease(ease), matched, slide })
     }
 
     /// The transition's clock, from the start of the state's cue.
@@ -881,6 +999,11 @@ impl Transition {
         let moving = t_ms < self.timing.duration_ms;
         let geo = self.timing.progress(t_ms) as f32;
         let p = geo.clamp(0.0, 1.0);
+        // A slide transition (PLAN 2.111) draws the slide entered as at the transition's end, its
+        // own motions running, nothing left from the slide before; then moves it over that slide.
+        let slid = self.timing.slide.filter(|_| moving);
+        let moving = moving && slid.is_none();
+        let whole = self.timing.slide.is_some();
         let from = self.from.as_ref().map_or(&[][..], |s| &s.nodes[..]);
         let to = &self.to.nodes;
         let mut dl = self.to.ground();
@@ -889,6 +1012,7 @@ impl Transition {
         for track in &self.tracks {
             starts.push(dl.ops.len());
             match track {
+                Track::Exit(_) if whole => {}
                 Track::Exit(i) => {
                     let node = &from[*i];
                     let (Some(seen), governed) = self.seen(&node.id, true, false, t_ms) else { continue };
@@ -950,6 +1074,7 @@ impl Transition {
                     let op = self.units(&mut dl, op, &to[*j], false, t_ms);
                     dl.ops.push(looked(op, seen));
                 }
+                Track::Chart { to: None, .. } if whole => {}
                 Track::Chart { from: i, to: j, plan } => {
                     let (a, b) = (chart(i.map(|i| &from[i])), chart(j.map(|j| &to[j])));
                     let id = &b.or(a).expect("a chart track has a side").0.id;
@@ -1046,6 +1171,11 @@ impl Transition {
         let ops = left.into_iter().zip(std::mem::take(&mut dl.ops)).collect();
         dl.ops = grouped(ops, |id, source| self.groups_of(id, source), |key| self.group_layer(key, t_ms, moving, p));
         self.furnish(&mut dl, moving, p, time);
+        if let Some((slide, way)) = slid {
+            let entered = std::mem::take(&mut dl.ops);
+            let left = self.from.as_ref().map(|s| s.ops_into(&mut dl, time, &HashMap::new())).unwrap_or_default();
+            dl.ops = slide.compose(way, p, dl.viewport, left, entered);
+        }
         dl
     }
 
@@ -2695,7 +2825,12 @@ mod tests {
 
     #[test]
     fn progress_is_exact_at_both_ends_and_eased_between() {
-        let t = Timing { duration_ms: 400.0, curve: Curve::Ease(CubicBezier(0.2, 0.0, 0.0, 1.0)), matched: true };
+        let t = Timing {
+            duration_ms: 400.0,
+            curve: Curve::Ease(CubicBezier(0.2, 0.0, 0.0, 1.0)),
+            matched: true,
+            slide: None,
+        };
         assert_eq!((t.progress(-5.0), t.progress(0.0)), (0.0, 0.0));
         assert_eq!((t.progress(400.0), t.progress(f64::INFINITY), t.progress(f64::NAN)), (1.0, 1.0, 1.0));
         assert!(t.progress(100.0) > 0.25, "ease-out runs ahead early: {}", t.progress(100.0));

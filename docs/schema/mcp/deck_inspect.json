@@ -327,7 +327,12 @@
           "match": {
             "description": "`id`: nodes are matched by id across the cut. `none`: every node leaves and enters.",
             "type": "string"
-          }
+          },
+          "style": {
+            "description": "A slide transition's style and the way it moves (PLAN 2.111): the slides drawn whole.",
+            "type": ["string", "null"]
+          },
+          "direction": { "type": ["string", "null"] }
         },
         "required": ["duration", "curve", "match"]
       },

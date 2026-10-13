@@ -423,7 +423,17 @@ fn a_state_offers_its_layout_transition_hold_and_notes() {
     let props: Vec<&str> = mix.fields.iter().map(|f| f.prop.as_str()).collect();
     assert_eq!(
         props,
-        ["layout", "transition/duration", "transition/ease", "transition/spring", "transition/match", "hold", "notes"]
+        [
+            "layout",
+            "transition/style",
+            "transition/direction",
+            "transition/duration",
+            "transition/ease",
+            "transition/spring",
+            "transition/match",
+            "hold",
+            "notes"
+        ]
     );
     // The layout `mix` takes from `revenue`, which it builds on, and where it lives.
     let layout = own(&mix, "layout");
@@ -441,6 +451,11 @@ fn a_state_offers_its_layout_transition_hold_and_notes() {
     assert_eq!(shown(own(&mix, "transition/ease")), (None, None));
     let Takes::Name { of: Vocabulary::Spring, .. } = &own(&mix, "transition/spring").takes else { panic!() };
     assert_eq!(own(&mix, "transition/match").takes, Takes::Word { words: vec!["id".into(), "none".into()] });
+    // A slide transition's style and the way it moves (PLAN 2.111), neither set.
+    let words = |w: &[&str]| Takes::Word { words: w.iter().map(|w| w.to_string()).collect() };
+    assert_eq!(own(&mix, "transition/style").takes, words(&["dissolve", "push", "cover", "reveal", "wipe"]));
+    assert_eq!(own(&mix, "transition/direction").takes, words(&["left", "right", "up", "down"]));
+    assert_eq!(shown(own(&mix, "transition/style")), (None, None));
     // Its hold, a number of milliseconds, and its notes, words for people.
     assert_eq!(
         own(&mix, "hold").takes,

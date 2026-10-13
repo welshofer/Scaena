@@ -462,8 +462,10 @@ pub fn characters(
 
 /// What an inspector edits on a state: what `set_state` names. A transition's keys are those
 /// of `TransitionSpec`; the rest are `State`'s.
-const STATE: [(&str, Source); 7] = [
+const STATE: [(&str, Source); 9] = [
     ("layout", Names(V::Layout, false)),
+    ("transition/style", Schema(false)),
+    ("transition/direction", Schema(false)),
     ("transition/duration", Names(V::Duration, false)),
     ("transition/ease", Names(V::Easing, false)),
     ("transition/spring", Names(V::Spring, false)),

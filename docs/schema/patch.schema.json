@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/patch-0.22.json",
+  "$id": "https://scaena.dev/schema/patch-0.23.json",
   "title": "Scaena patch",
   "description": "A patch (SPEC §7.3): RFC 6902 ops and semantic ops, applied in order, all or none.",
   "type": "array",
@@ -1693,10 +1693,38 @@
         "duration": { "$ref": "#/$defs/Duration" },
         "ease": { "$ref": "#/$defs/Easing" },
         "spring": { "$ref": "#/$defs/Spring" },
-        "match": { "$ref": "#/$defs/MatchBy", "default": "id" }
+        "match": { "$ref": "#/$defs/MatchBy", "default": "id" },
+        "style": {
+          "description": "How the slide changes, as a presentation app's slide transitions do (PLAN 2.111): the slide left and the slide entered each drawn whole, one moving, uncovered, or faded over the other, nothing morphing between them. Without one, what both states show morphs.",
+          "$ref": "#/$defs/TransitionStyle"
+        },
+        "direction": {
+          "description": "Which way a `push`, a `cover`, a `reveal`, or a `wipe` moves: `left`, the default, which brings the slide entered in from the right, `right`, `up`, or `down`.",
+          "$ref": "#/$defs/TransitionDirection",
+          "default": "left"
+        }
       }
     },
     "MatchBy": { "type": "string", "enum": ["id", "none"] },
+    "TransitionStyle": {
+      "description": "A slide transition (PLAN 2.111).",
+      "oneOf": [
+        { "description": "The slide entered fades in over the slide left.", "type": "string", "const": "dissolve" },
+        { "description": "The slide entered pushes the slide left off the canvas.", "type": "string", "const": "push" },
+        { "description": "The slide entered slides in over the slide left.", "type": "string", "const": "cover" },
+        {
+          "description": "The slide left slides away, uncovering the slide entered.",
+          "type": "string",
+          "const": "reveal"
+        },
+        { "description": "An edge sweeps across, the slide entered behind it.", "type": "string", "const": "wipe" }
+      ]
+    },
+    "TransitionDirection": {
+      "description": "Which way a slide transition moves (PLAN 2.111).",
+      "type": "string",
+      "enum": ["left", "right", "up", "down"]
+    },
     "StateDelta": {
       "description": "The delta a state applies to one node: any node type's property, or null to delete it. An object value merges one level into the tracked one (the …Delta forms), so its keys are optional and null deletes one. An empty delta shows the node with its defaults (SPEC §2.2). Whether a property belongs to the node's type is checked on the resolved state (PLAN 1.2).",
       "type": "object",

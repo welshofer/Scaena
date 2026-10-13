@@ -429,7 +429,8 @@ impl Rule for W302Fixed {
 
 /// W322: a motion that moves nothing. The engine runs an entrance only on a node that
 /// enters in its state, and an exit only on one that leaves (under `match: none`, every
-/// node does both); an emphasis or `anim` only on a node on screen; and a look's
+/// node does both; under a slide transition, every node enters and no exit runs, the slide
+/// left moving whole); an emphasis or `anim` only on a node on screen; and a look's
 /// `progress` draws only the outline a shape strokes. Such a cue still takes its time.
 struct W322Idle;
 impl Rule for W322Idle {
@@ -445,8 +446,10 @@ impl Rule for W322Idle {
             let (Some(now), before) = (cx.snapshots.get(i), i.checked_sub(1).and_then(|p| cx.snapshots.get(p))) else {
                 continue;
             };
-            let matched =
-                state.transition.as_ref().and_then(|t| t.get("match")).and_then(Value::as_str) != Some("none");
+            // A slide transition moves the slide left whole and matches nothing (PLAN 2.111).
+            let slide = state.transition.as_ref().and_then(|t| t.get("style")).is_some();
+            let matched = !slide
+                && state.transition.as_ref().and_then(|t| t.get("match")).and_then(Value::as_str) != Some("none");
             let mut items = Vec::new();
             for (k, v) in state.choreography.iter().enumerate() {
                 if let Ok(item) = serde_json::from_value::<ChoreoItem>(v.clone()) {
@@ -467,6 +470,7 @@ impl Rule for W322Idle {
                     } else if t.exit.is_some() {
                         (!was)
                             .then_some("an exit on a node that was not on screen")
+                            .or(slide.then_some("an exit under a slide transition, which moves the slide left whole"))
                             .or((is && matched).then_some("an exit on a node that stays on screen"))
                     } else {
                         (!is).then_some("a motion on a node that is not on screen")

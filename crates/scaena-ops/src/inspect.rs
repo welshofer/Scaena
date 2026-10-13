@@ -390,6 +390,11 @@ pub struct Transition {
     /// `id`: nodes are matched by id across the cut. `none`: every node leaves and enters.
     #[serde(rename = "match")]
     pub matched: String,
+    /// A slide transition's style and the way it moves (PLAN 2.111): the slides drawn whole.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub style: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direction: Option<String>,
 }
 
 /// An easing as its cubic Bézier, or a spring as its constants.
@@ -1342,6 +1347,8 @@ fn cue_of(slot: &timeline::Slot, cue: &scaena_engine::sample::Transition, doc: &
             duration: ms(timing.duration_ms),
             curve: curve(&timing.curve),
             matched: if timing.matched { "id" } else { "none" }.to_string(),
+            style: timing.slide.map(|(slide, _)| slide.name().to_string()),
+            direction: timing.slide.map(|(_, way)| scaena_engine::sample::Slide::direction(way).to_string()),
         },
         motions: cue.schedule().cues.iter().map(|p| motion(p, doc, state)).collect(),
     }

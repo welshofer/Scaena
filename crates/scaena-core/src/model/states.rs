@@ -26,6 +26,42 @@ pub struct TransitionSpec {
     #[serde(rename = "match", default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("default" = "id"))]
     pub match_by: Option<MatchBy>,
+    /// How the slide changes, as a presentation app's slide transitions do (PLAN 2.111): the
+    /// slide left and the slide entered each drawn whole, one moving, uncovered, or faded over the
+    /// other, nothing morphing between them. Without one, what both states show morphs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub style: Option<TransitionStyle>,
+    /// Which way a `push`, a `cover`, a `reveal`, or a `wipe` moves: `left`, the default, which
+    /// brings the slide entered in from the right, `right`, `up`, or `down`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("default" = "left"))]
+    pub direction: Option<TransitionDirection>,
+}
+
+/// A slide transition (PLAN 2.111).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum TransitionStyle {
+    /// The slide entered fades in over the slide left.
+    Dissolve,
+    /// The slide entered pushes the slide left off the canvas.
+    Push,
+    /// The slide entered slides in over the slide left.
+    Cover,
+    /// The slide left slides away, uncovering the slide entered.
+    Reveal,
+    /// An edge sweeps across, the slide entered behind it.
+    Wipe,
+}
+
+/// Which way a slide transition moves (PLAN 2.111).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum TransitionDirection {
+    Left,
+    Right,
+    Up,
+    Down,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

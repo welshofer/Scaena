@@ -37,7 +37,8 @@ enum Words {
         "labels/show": "Values Shown", "labels/role": "Value Style", "header": "Header Row", "preset": "Effect",
         "palette": "Colors", "axis": "Direction", "gap": "Spacing", "layout": "Layout",
         "transition/duration": "Duration", "transition/ease": "Easing", "transition/spring": "Spring",
-        "transition/match": "Magic Move", "hold": "Advance", "notes": "Presenter Notes",
+        "transition/match": "Magic Move", "transition/style": "Transition", "transition/direction": "Direction",
+        "hold": "Advance", "notes": "Presenter Notes",
     ]
 
     /// One of the words a property takes, said: `cover` as an image's Fill.
@@ -64,6 +65,15 @@ enum Words {
         case ("style/case", "smallcaps"): return "Small Caps"
         case ("transition/match", "id"): return "On"
         case ("transition/match", "none"): return "Off"
+        case ("transition/style", "dissolve"): return "Dissolve"
+        case ("transition/style", "push"): return "Push"
+        case ("transition/style", "cover"): return "Move In"
+        case ("transition/style", "reveal"): return "Reveal"
+        case ("transition/style", "wipe"): return "Wipe"
+        case ("transition/direction", "left"): return "Right to Left"
+        case ("transition/direction", "right"): return "Left to Right"
+        case ("transition/direction", "up"): return "Bottom to Top"
+        case ("transition/direction", "down"): return "Top to Bottom"
         case ("axis", "x"): return "Across"
         case ("axis", "y"): return "Down"
         case ("labels/show", "auto"): return "Automatic"

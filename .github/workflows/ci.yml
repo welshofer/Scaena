@@ -327,6 +327,8 @@ jobs:
       - run: node web/connect.mjs
       # A text's lines drawn as a process, a cycle, or a hierarchy in its place (PLAN 2.110).
       - run: node web/diagram.mjs
+      # A slide transition chosen in the inspector, a presentation app's, in plain words (PLAN 2.111).
+      - run: node web/transition.mjs
       # A key arms the canvas to draw; a drag draws over the cells it covers, a line the way it went (PLAN 2.48).
       - run: node web/draw.mjs
       # Lint's findings on the canvas, the strip's counts, and a fix taken from a mark (PLAN 2.49).
