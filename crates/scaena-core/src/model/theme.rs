@@ -101,6 +101,7 @@ impl Theme {
                 ["categorical"].into_iter().chain(more).map(String::from).collect()
             }
             Vocabulary::Stroke => self.tokens.stroke.as_ref().map(keys).unwrap_or_default(),
+            Vocabulary::Shadow => self.tokens.shadow.as_ref().map(keys).unwrap_or_default(),
             Vocabulary::Radius => steps(self.tokens.radius.as_ref().and_then(|r| r.scale.as_ref()), "radius"),
             Vocabulary::Space => steps(Some(&self.tokens.space.scale), "space"),
         }
@@ -126,6 +127,8 @@ pub enum Vocabulary {
     DataPalette,
     /// A stroke token: a width.
     Stroke,
+    /// A shadow token (PLAN 2.115).
+    Shadow,
     /// A step of the radius scale.
     Radius,
     /// A step of the space scale.
@@ -153,6 +156,37 @@ pub struct Tokens {
     pub radius: Option<Radius>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stroke: Option<IndexMap<String, NonNegative>>,
+    /// The shadows a node may cast (PLAN 2.115), by name: `soft`, `raised`, and `floating` in
+    /// the shipped themes, as a presentation app offers an object's shadow.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shadow: Option<IndexMap<String, Shadow>>,
+}
+
+/// A shadow a node casts (PLAN 2.115): how far it falls from the node, right and down, how soft
+/// its edge is, its color, and how dark it is.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Shadow {
+    /// How far right of the node it falls, canvas units; left where it is negative.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub x: f64,
+    /// How far below the node it falls, canvas units; above where it is negative.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub y: f64,
+    /// How soft its edge is, canvas units: the blur's radius, twice the deviation of the
+    /// Gaussian it is drawn with.
+    pub blur: NonNegative,
+    /// Its color: black where it names none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<ColorLiteral>,
+    /// How dark it is, from 0 to 1.
+    #[schemars(range(min = 0, max = 1))]
+    pub opacity: f64,
+}
+
+/// A shadow's offset of none is written as none, as the shipped themes write it.
+fn is_zero(v: &f64) -> bool {
+    *v == 0.0
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]

@@ -43,6 +43,7 @@ pub mod render;
 pub mod sample;
 pub mod scale;
 pub mod shaders;
+pub mod shadows;
 pub mod shapes;
 pub mod tables;
 pub mod text;

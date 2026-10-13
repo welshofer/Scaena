@@ -113,4 +113,20 @@ mod tests {
         }
         assert!(first.1.get("bouncy").is_some(), "the spring Pop, Drop, Skid, Swing, and Jiggle spring on");
     }
+
+    /// Every theme that ships casts the same shadows (PLAN 2.115), by the same names: a deck keeps
+    /// its shadows through a re-theme.
+    #[test]
+    fn every_theme_that_ships_casts_the_same_shadows() {
+        let shadows = |t: &Shipped| {
+            let parsed: serde_json::Value = serde_json::from_str(t.text).unwrap();
+            parsed["tokens"]["shadow"].clone()
+        };
+        let first = shadows(&THEMES[0]);
+        let names: Vec<&String> = first.as_object().unwrap().keys().collect();
+        assert_eq!(names, ["soft", "raised", "floating"]);
+        for theme in &THEMES[1..] {
+            assert_eq!(shadows(theme), first, "{}", theme.name);
+        }
+    }
 }

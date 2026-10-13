@@ -226,6 +226,13 @@ impl Cx<'_> {
                 Op::Image { asset, src, dst, quality } => self.image(asset, *src, *dst, *quality)?,
                 // A link's area draws nothing (PLAN 2.70).
                 Op::Link { .. } => {}
+                // A shadow (PLAN 2.115) as the CPU painter blurs it: SVG's own blur would draw
+                // another.
+                Op::Shadow { rect: [x, y, w, h], blur, .. } => {
+                    let reach = f64::from(*blur) * 3.0;
+                    let area = KRect::new(f64::from(*x), f64::from(*y), f64::from(x + w), f64::from(y + h));
+                    self.raster(op, xf, area.inflate(reach, reach))?;
+                }
                 Op::Shader { rect, .. } => {
                     let job = self.jobs.next().expect("shader_jobs makes one job per shader op");
                     if let Some(job) = job {

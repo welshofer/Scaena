@@ -164,6 +164,16 @@ pub enum Op {
         rect: Rect,
         target: LinkTarget,
     },
+    /// A shadow (PLAN 2.115), in its layer's space, drawn under what casts it: the rounded
+    /// rectangle `rect`, its corners of `radius`, blurred by a Gaussian of deviation `blur`, in
+    /// `color`. Every painter draws it as it is; an export that cannot blurs it as the CPU
+    /// painter's pixels. Last, so the ops before it keep their encoding.
+    Shadow {
+        rect: Rect,
+        radius: f32,
+        blur: f32,
+        color: Color,
+    },
 }
 
 /// Where a link goes (PLAN 2.70): a web address, or a state of the deck.
@@ -685,6 +695,11 @@ fn visit_ops(ops: &mut [Op], f: &mut dyn FnMut(Num, &mut f32)) {
                 f(Num::Other, t);
                 lengths(f, rect);
                 params.values_mut().for_each(|v| f(Num::Other, v));
+            }
+            Op::Shadow { rect, radius, blur, .. } => {
+                lengths(f, rect);
+                f(Num::Length, radius);
+                f(Num::Length, blur);
             }
             Op::Link { rect, .. } => lengths(f, rect),
         }

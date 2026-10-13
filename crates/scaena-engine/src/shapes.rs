@@ -13,6 +13,7 @@
 
 use crate::EngineError;
 use crate::charts::{RoundRect, lerp};
+use crate::shadows::Shadow;
 use crate::theme::Theme;
 use scaena_core::displaylist::{Cap, Color, FillRule, Join, Op, Paint, Path, PathEl, Rect, Stop};
 use scaena_core::document::Props;
@@ -29,6 +30,8 @@ pub struct ShapeNode {
     /// How much of its outline the stroke draws, from where the outline starts: 1 at
     /// rest, less while a look draws it on (SPEC §3.9).
     progress: f32,
+    /// The shadow it casts (PLAN 2.115): a filled rectangle's or ellipse's.
+    shadow: Option<Shadow>,
 }
 
 /// A fill's or a stroke's paint: a color, or a gradient across the shape's box, made for
@@ -230,7 +233,12 @@ impl ShapeNode {
             None if open => Some(stroke(theme, &Value::Object(Default::default()))?),
             None => None,
         };
-        Ok(ShapeNode { rect, geometry, fill, stroke, progress: 1.0 })
+        // A filled rectangle or ellipse casts its shadow (PLAN 2.115): a line, an outline, a
+        // polygon, and a path cast none, as a box's shadow would misdraw them.
+        let shadow = Shadow::of(theme, props.get("shadow"))?;
+        let casts = fill.is_some() && matches!(geometry, Geometry::Rect(_) | Geometry::Ellipse);
+        let shadow = shadow.filter(|_| casts);
+        Ok(ShapeNode { rect, geometry, fill, stroke, progress: 1.0, shadow })
     }
 
     /// Its kind as it draws, its points as fractions of its box, and a rect's corner radius in
@@ -305,7 +313,8 @@ impl ShapeNode {
             }),
             _ => b.stroke.clone(),
         };
-        ShapeNode { rect, geometry, fill, stroke, progress: b.progress }
+        let shadow = Shadow::between(a.shadow, b.shadow, p);
+        ShapeNode { rect, geometry, fill, stroke, progress: b.progress, shadow }
     }
 
     /// The shape with `progress` of its outline drawn: its stroke runs from where its
@@ -337,6 +346,14 @@ impl ShapeNode {
             }
         };
         let mut ops = Vec::new();
+        // Its shadow under it (PLAN 2.115), its outline the shape's: a box rounded as it is, or
+        // an ellipse.
+        if let Some(shadow) = &self.shadow {
+            ops.push(match &self.geometry {
+                Geometry::Rect(r) => shadow.op([0.0, 0.0, w, h], *r),
+                _ => shadow.oval([0.0, 0.0, w, h]),
+            });
+        }
         if let (Some(fill), true) = (&self.fill, closed) {
             ops.push(Op::Fill { path: path.clone(), rule: FillRule::NonZero, paint: fill.paint(w, h) });
         }
@@ -874,6 +891,50 @@ mod tests {
         // A radius past half the short side is a pill.
         let pill = shape(json!({"kind": "rect", "fill": "accent", "radius": 500}), [0.0, 0.0, 200.0, 40.0]).unwrap();
         assert_eq!(pill.geometry, Geometry::Rect(20.0));
+    }
+
+    /// Shadows (PLAN 2.115): a filled rectangle casts its shadow under it, rounded as it is, and an
+    /// ellipse as a circle is; an outline, a line, and a polygon cast none; a morph moves it.
+    #[test]
+    fn a_filled_box_casts_its_shadow_under_it() {
+        let card =
+            shape(json!({"kind": "rect", "fill": "accent", "radius": 8, "shadow": "soft"}), [10.0, 20.0, 200.0, 100.0]);
+        let ops = card.unwrap().ops();
+        let Op::Shadow { rect, radius, blur, color } = &ops[0] else {
+            panic!("the shadow first, under the fill: {ops:?}")
+        };
+        assert_eq!((*rect, *radius), ([0.0, 6.0, 200.0, 100.0], 8.0), "box-local, fallen as the theme says");
+        assert!(*blur > 0.0 && color.0[3] > 0 && color.0[3] < 255, "{blur} {color:?}");
+        assert!(matches!(ops[1], Op::Fill { .. }));
+        let dot =
+            shape(json!({"kind": "ellipse", "fill": "accent", "shadow": "soft"}), [0.0, 0.0, 40.0, 40.0]).unwrap();
+        assert!(matches!(dot.ops()[0], Op::Shadow { radius: 20.0, .. }), "a circle's shadow is round");
+        let oval =
+            shape(json!({"kind": "ellipse", "fill": "accent", "shadow": "soft"}), [0.0, 0.0, 80.0, 40.0]).unwrap();
+        assert!(
+            matches!(oval.ops()[0], Op::Layer { transform: [2.0, 0.0, 0.0, 1.0, 0.0, 0.0], .. }),
+            "an oval's is too"
+        );
+        for none in [
+            json!({"kind": "rect", "stroke": {"paint": "accent"}, "shadow": "soft"}),
+            json!({"kind": "line", "shadow": "soft"}),
+            json!({"kind": "polygon", "points": [[0, 1], [0.5, 0], [1, 1]], "fill": "accent", "shadow": "soft"}),
+        ] {
+            let ops = shape(none.clone(), [0.0, 0.0, 40.0, 40.0]).unwrap().ops();
+            assert!(!ops.iter().any(|op| matches!(op, Op::Shadow { .. })), "{none}");
+        }
+        // A morph from no shadow to one fades it in where it falls.
+        let bare = shape(json!({"kind": "rect", "fill": "accent"}), [0.0, 0.0, 40.0, 40.0]).unwrap();
+        let lifted =
+            shape(json!({"kind": "rect", "fill": "accent", "shadow": "raised"}), [0.0, 0.0, 40.0, 40.0]).unwrap();
+        let half = ShapeNode::lerp(&bare, &lifted, 0.5, 0.5).ops();
+        let (Op::Shadow { color: c, .. }, Op::Shadow { color: full, .. }) = (&half[0], &lifted.ops()[0]) else {
+            panic!("{half:?}")
+        };
+        assert!(c.0[3] < full.0[3] && c.0[3] > 0, "half faded in: {c:?} of {full:?}");
+        // A name the theme lacks says which it has.
+        let err = shape(json!({"kind": "rect", "fill": "accent", "shadow": "dreamy"}), [0.0, 0.0, 9.0, 9.0]);
+        assert!(err.unwrap_err().to_string().contains("soft, raised, floating"));
     }
 
     #[test]

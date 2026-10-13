@@ -343,6 +343,16 @@ impl Theme {
         self.stroke(s).map_err(|_| EngineError::Theme(format!("unknown length token `{s}`")))
     }
 
+    /// The theme's shadow `name` (PLAN 2.115): an unknown one says which the theme has.
+    pub fn shadow(&self, name: &str) -> Result<&model::Shadow, EngineError> {
+        let shadows = self.tokens.shadow.as_ref();
+        shadows.and_then(|s| s.get(name)).ok_or_else(|| {
+            let names: Vec<&str> = shadows.into_iter().flat_map(|s| s.keys()).map(String::as_str).collect();
+            let has = if names.is_empty() { "none".to_string() } else { names.join(", ") };
+            EngineError::Theme(format!("unknown shadow `{name}`: the theme's shadows are {has}"))
+        })
+    }
+
     /// A stroke token's width.
     pub fn stroke(&self, name: &str) -> Result<f32, EngineError> {
         self.tokens

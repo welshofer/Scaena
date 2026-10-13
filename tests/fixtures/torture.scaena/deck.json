@@ -1,5 +1,5 @@
 {
-  "scaena": "0.24",
+  "scaena": "0.25",
   "meta": {
     "title": "Typography torture deck",
     "author": "Scaena",
@@ -4518,6 +4518,152 @@
       },
       "alt": "Revenue by quarter, a panel for each product on one scale: Core from $12 to $22, Cloud from $6 to $19.",
       "semantic": "evidence"
+    },
+    "sh-card": {
+      "type": "shape",
+      "kind": "rect",
+      "radius": "radius.3",
+      "fill": "surface-2",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "shadow": "soft",
+      "semantic": "decoration",
+      "alt": "",
+      "at": {
+        "col": [
+          1,
+          4
+        ],
+        "row": [
+          2,
+          4
+        ]
+      }
+    },
+    "sh-pill": {
+      "type": "shape",
+      "kind": "rect",
+      "radius": "radius.5",
+      "fill": "accent",
+      "semantic": "decoration",
+      "alt": "",
+      "at": {
+        "col": [
+          5,
+          8
+        ],
+        "row": 2
+      }
+    },
+    "sh-hard": {
+      "type": "shape",
+      "kind": "rect",
+      "radius": "radius.2",
+      "fill": "surface-2",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "alt": "",
+      "at": {
+        "col": [
+          5,
+          8
+        ],
+        "row": [
+          3,
+          4
+        ]
+      }
+    },
+    "sh-oval": {
+      "type": "shape",
+      "kind": "ellipse",
+      "fill": "accent",
+      "shadow": "floating",
+      "semantic": "decoration",
+      "alt": "",
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          2,
+          4
+        ]
+      }
+    },
+    "sh-photo": {
+      "type": "image",
+      "src": "assets/test-card.png",
+      "radius": "radius.4",
+      "shadow": "raised",
+      "alt": "The test card, rounded, raised on its shadow.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          1,
+          4
+        ],
+        "row": [
+          6,
+          8
+        ]
+      }
+    },
+    "sh-photo-oval": {
+      "type": "image",
+      "src": "assets/test-card.png",
+      "fit": "contain",
+      "mask": "ellipse",
+      "shadow": "soft",
+      "alt": "The test card in an oval, on its shadow.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          5,
+          7
+        ],
+        "row": [
+          6,
+          8
+        ]
+      }
+    },
+    "sh-frame": {
+      "type": "frame",
+      "fill": "surface-2",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "radius": "radius.3",
+      "padding": "space.4",
+      "shadow": "soft",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          6,
+          8
+        ]
+      }
+    },
+    "sh-frame-label": {
+      "type": "text",
+      "role": "body",
+      "text": "A card on its shadow",
+      "semantic": "annotation",
+      "at": {
+        "parent": "sh-frame"
+      }
     }
   },
   "states": [
@@ -5710,6 +5856,46 @@
         }
       },
       "notes": "Pass in the transition (frame @0.5): Edge joins as a third panel, so the grid goes from two columns to three. Core's and Cloud's panels move and narrow to their places, each line sliding a quarter on as its window advances, Q1 leaving on the left and Q5 coming in on the right, while Edge's panel draws in where it stands. The shared value axis widens with the data."
+    },
+    {
+      "id": "shadows",
+      "name": "Shadows",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "59 · Shadows · recorded"
+        },
+        "sh-card": {},
+        "sh-pill": {},
+        "sh-hard": {},
+        "sh-oval": {},
+        "sh-photo": {},
+        "sh-photo-oval": {},
+        "sh-frame": {},
+        "sh-frame-label": {}
+      },
+      "notes": "Pass: each object casts a shadow under it, a blurred copy of its outline in black at the theme's opacity, falling straight down, softer and further the higher it is. Rows 2-4: the hairlined card casts the theme's soft shadow; the accent pill casts none; the panel under it casts a hard accent shadow written out in the deck's overrides, its own box at 0.6, 12 to the right and 12 down, with no blur; the accent oval casts the floating shadow, an oval and not a pill, widest under its middle. Rows 6-8: the rounded test card casts the raised shadow, its corners rounded as the picture's are; the test card contained in an oval casts its soft shadow under the oval it shows, not under its taller box; and the framed card's panel casts the soft shadow, its words casting none. Every painter draws them alike."
+    },
+    {
+      "id": "shadows-next",
+      "name": "Shadows: they move",
+      "transition": "standard",
+      "props": {
+        "case": {
+          "text": "60 · Shadows: they move · recorded"
+        },
+        "sh-card": {
+          "shadow": "floating"
+        },
+        "sh-pill": {
+          "shadow": "raised"
+        },
+        "sh-frame": {
+          "shadow": null
+        }
+      },
+      "notes": "Pass in the transition (frame @0.5): each shadow moves part by part. The card's shadow halfway from soft to floating: further down, softer, and darker than soft; the pill's raised shadow fading in where it falls, at half its opacity; and the framed card's soft shadow fading out, at half. The rest stay as they were."
     }
   ],
   "overrides": {
@@ -5725,6 +5911,15 @@
       "radius": 12,
       "stroke": {
         "width": 8
+      }
+    },
+    "sh-hard": {
+      "shadow": {
+        "x": 12,
+        "y": 12,
+        "blur": 0,
+        "color": "accent",
+        "opacity": 0.6
       }
     }
   }

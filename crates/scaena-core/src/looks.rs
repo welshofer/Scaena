@@ -4,7 +4,8 @@
 //!
 //! A look is what [`look_props`] names for a node's type, of what an inspector edits
 //! ([`crate::choices`]): a text's role and style, a shape's fill, stroke, and corners, an
-//! image's corners, a shader's preset and palette, a chart's labels, a stack's or a grid's gap.
+//! image's corners and mask, a shader's preset and palette, a chart's labels, a stack's or a
+//! grid's gap, and the shadow a shape, an image, or a container casts (PLAN 2.115).
 //! What a node is and holds (its words, its data, its file and crop), where it goes, how it
 //! moves, and what a reader hears are not its look. A value the theme gives, which the deck sets
 //! nowhere, is part of it too: put down, it takes the other node's own value away where it lives,
@@ -26,12 +27,13 @@ pub fn look_props(node_type: NodeType) -> &'static [&'static str] {
         NodeType::Text => {
             &["role", "style/family", "style/weight", "style/italic", "style/size", "style/color", "style/case"]
         }
-        NodeType::Shape => &["fill", "stroke/paint", "stroke/width", "radius"],
-        NodeType::Image => &["radius", "mask"],
+        NodeType::Shape => &["fill", "stroke/paint", "stroke/width", "radius", "shadow"],
+        NodeType::Image => &["radius", "mask", "shadow"],
         NodeType::Shader => &["preset", "palette"],
         NodeType::Chart => &["labels/show", "labels/role"],
-        NodeType::Stack | NodeType::Grid => &["gap"],
-        NodeType::Table | NodeType::Frame | NodeType::Group => &[],
+        NodeType::Stack | NodeType::Grid => &["gap", "shadow"],
+        NodeType::Frame => &["shadow"],
+        NodeType::Table | NodeType::Group => &[],
     }
 }
 

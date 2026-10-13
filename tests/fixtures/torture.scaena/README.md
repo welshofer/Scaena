@@ -4,10 +4,10 @@ Phase 0 is adversarial: this bundle exists to make `parley`/`harfrust` and the p
 
 ```
 torture.scaena/
-  deck.json        60 states, mode: absolute (but `chart` and `chart-next`, which build on `chart-intro`, each
+  deck.json        62 states, mode: absolute (but `chart` and `chart-next`, which build on `chart-intro`, each
                    state that moves a gallery's data or its annotations, `forecast-next`, `morph`,
-                   `transforms-next`, `across-next`, `slopes-next`, and `multiples-next`, which build on the one
-                   before), layout: specimen
+                   `transforms-next`, `across-next`, `slopes-next`, `multiples-next`, and `shadows-next`, which
+                   build on the one before), layout: specimen
   theme.json       "Torture": every case-specific setting is a role, so the deck references roles only
   data/bars.csv    six quarters for the bar chart; bars-next.csv, the window a quarter later; the chart
                    galleries' sources are inline in deck.json
@@ -92,6 +92,8 @@ Class: **kill** = gate 0 criterion 1 (bit-identical display lists macOS/Linux, r
 | 56 | `slopes-next` | Slopes and ranges: they move | recorded (added with PLAN 1.30) | Frame `slopes-next@0.5`. Left, the slope moves to 2025: keyed by region and side, its lines tilt, each second point sliding to its 2025 value, rather than scrolling; `2024` cross-fades into `2025` under the points, and each second value, which says its change, cross-fades. Middle, each dumbbell's dots slide by key to their new values, the stroke between them following; in Design women's pay passes men's, so the lower value's place moves from one dot to the other. Right, each interval narrows about its estimate, its value riding the interval's top and counting. |
 | 57 | `multiples` | Small multiples | recorded (added with PLAN 1.31) | One line chart faceted by product (`facet`), a panel each for Core and Cloud side by side, two space units apart, with no frames. Each panel is named over its top-left in the charts' title role, and both run on one value axis, the union of the two each would draw alone, so Cloud's line stands as far below Core's as its revenue is less. Each panel names its quarters under its plot and its line's ends. |
 | 58 | `multiples-next` | Small multiples: they move | recorded (added with PLAN 1.31) | Frame `multiples-next@0.5`. Edge joins as a third panel and the grid goes from two columns to three: Core's and Cloud's panels move and narrow to their places, each clipped at its sides, their lines sliding a quarter on as the window advances (Q1 leaving, Q5 coming in), while Edge's panel draws in where it stands. The shared value axis widens with the data. |
+| 59 | `shadows` | Shadows | recorded (added with PLAN 2.115) | Each object casts a shadow under it (`Op::Shadow`): its outline blurred by a Gaussian, in black at the shadow's opacity, falling straight down, softer and further the higher it is. Rows 2–4: the hairlined card casts the theme's `soft` shadow; the accent pill casts none; the panel under it casts a hard shadow the deck's `overrides` write out, its own box in accent at 0.6, 12 cu right and 12 down, with no blur, drawn as a fill; the accent oval casts `floating`, an oval and not a pill: a circle's shadow stretched to the oval, widest under its middle. Rows 6–8: the rounded test card casts `raised`, its corners rounded as the picture's; the test card contained in an oval casts its `soft` shadow under the oval it shows, not under its taller box; and the framed card's panel casts `soft`, its words none. |
+| 60 | `shadows-next` | Shadows: they move | recorded (added with PLAN 2.115) | Frame `shadows-next@0.5`. Each shadow moves part by part: the card's halfway from `soft` to `floating`, further down, softer, and darker than `soft`; the pill's `raised` shadow fades in where it falls, at half its opacity; and the framed card's `soft` shadow fades out, at half. |
 
 Each state's `notes` repeats its pass condition in full, so a rendered PNG and its notes are enough to judge it.
 

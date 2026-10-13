@@ -218,6 +218,8 @@ fn own(node_type: NodeType) -> &'static [(&'static str, Source)] {
             ("stroke/paint", Names(V::Color, true)),
             ("stroke/width", Names(V::Stroke, true)),
             ("radius", Names(V::Radius, true)),
+            // The shadow it casts (PLAN 2.115).
+            ("shadow", Names(V::Shadow, false)),
         ],
         // Where an image's focal point is and what part of it shows (PLAN 2.45).
         NodeType::Image => &[
@@ -227,6 +229,7 @@ fn own(node_type: NodeType) -> &'static [(&'static str, Source)] {
             ("radius", Names(V::Radius, true)),
             // The shape it shows inside (PLAN 2.113).
             ("mask", Schema(false)),
+            ("shadow", Names(V::Shadow, false)),
         ],
         NodeType::Shader => &[("preset", Names(V::ShaderPreset, false)), ("palette", Names(V::ShaderPalette, false))],
         // What a chart reads, and how (PLAN 2.41): its source, each channel's field and the
@@ -250,9 +253,13 @@ fn own(node_type: NodeType) -> &'static [(&'static str, Source)] {
             ("labels/role", Names(V::TextRole, false)),
         ],
         NodeType::Table => &[("data", Data), ("key", Columns), ("header", Schema(false))],
-        NodeType::Stack => &[("axis", Schema(false)), ("gap", Names(V::Space, true))],
-        NodeType::Grid => &[("gap", Names(V::Space, true))],
-        NodeType::Frame | NodeType::Group => &[],
+        // A container's panel casts a shadow (PLAN 2.115).
+        NodeType::Stack => {
+            &[("axis", Schema(false)), ("gap", Names(V::Space, true)), ("shadow", Names(V::Shadow, false))]
+        }
+        NodeType::Grid => &[("gap", Names(V::Space, true)), ("shadow", Names(V::Shadow, false))],
+        NodeType::Frame => &[("shadow", Names(V::Shadow, false))],
+        NodeType::Group => &[],
     }
 }
 

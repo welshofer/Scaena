@@ -847,14 +847,15 @@ fn measure_table(
     }
 }
 
-/// A container's panel: its `fill` and `stroke` as a rectangle with its `radius`.
+/// A container's panel: its `fill` and `stroke` as a rectangle with its `radius`, casting its
+/// `shadow` (PLAN 2.115).
 fn container_panel(props: &Props, theme: &Theme, rect: Rect) -> Result<Option<ShapeNode>, EngineError> {
     if props.get("fill").is_none() && props.get("stroke").is_none() {
         return Ok(None);
     }
     let mut panel = Props::new();
     panel.insert("kind".into(), Value::from("rect"));
-    for key in ["fill", "stroke", "radius"] {
+    for key in ["fill", "stroke", "radius", "shadow"] {
         if let Some(v) = props.get(key) {
             panel.insert(key.into(), v.clone());
         }

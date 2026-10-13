@@ -162,6 +162,13 @@ W302 - photos photo-large /nodes/photo-large/at/col
 W302 - lists list-points /nodes/list-points/at/col
 W302 - lists list-steps /nodes/list-steps/at/col
 W302 - links link-text /nodes/link-text/at/col
+W302 - shadows sh-card /nodes/sh-card/at/col
+W302 - shadows sh-pill /nodes/sh-pill/at/col
+W302 - shadows sh-hard /nodes/sh-hard/at/col
+W302 - shadows sh-oval /nodes/sh-oval/at/col
+W302 - shadows sh-photo /nodes/sh-photo/at/col
+W302 - shadows sh-photo-oval /nodes/sh-photo-oval/at/col
+W302 - shadows sh-frame /nodes/sh-frame/at/col
 W421 - chart-next - /states/23
 W421 - images - /states/26
 W421 - containers - /states/27
@@ -172,6 +179,9 @@ W421 - photos - /states/51
 W421 - across-next - /states/55
 W421 - slopes-next - /states/57
 W421 - multiples-next - /states/59
+W421 - shadows - /states/60
+W421 - shadows-next - /states/61
 I402 - - marks-dot /overrides/marks-dot
 I402 - - gp-linear /overrides/gp-linear
 I402 - - gp-conic /overrides/gp-conic
+I402 - - sh-hard /overrides/sh-hard

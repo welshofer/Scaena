@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/theme-0.15.json",
+  "$id": "https://scaena.dev/schema/theme-0.16.json",
   "title": "Scaena theme (design system)",
   "description": "Tokens, typographic roles, layout templates, motion, and palettes. Documents reference these by name; they never store resolved values. See docs/SPEC.md §3.6.",
   "type": "object",
   "required": ["scaena-theme", "name", "tokens", "type", "grid", "layouts", "motion"],
   "additionalProperties": false,
   "properties": {
-    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.15(\\.[0-9]+)?$" },
+    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.16(\\.[0-9]+)?$" },
     "name": { "type": "string", "minLength": 1 },
     "description": { "type": "string" },
     "tokens": { "$ref": "#/$defs/Tokens" },
@@ -171,7 +171,12 @@
         "data": { "$ref": "#/$defs/DataPalettes" },
         "space": { "$ref": "#/$defs/Space" },
         "radius": { "$ref": "#/$defs/Radius" },
-        "stroke": { "type": "object", "additionalProperties": { "$ref": "#/$defs/NonNegative" } }
+        "stroke": { "type": "object", "additionalProperties": { "$ref": "#/$defs/NonNegative" } },
+        "shadow": {
+          "description": "The shadows a node may cast (PLAN 2.115), by name: `soft`, `raised`, and `floating` in the shipped themes, as a presentation app offers an object's shadow.",
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/Shadow" }
+        }
       }
     },
     "ColorLiteral": {
@@ -203,6 +208,28 @@
       "type": "object",
       "additionalProperties": false,
       "properties": { "scale": { "type": "array", "items": { "$ref": "#/$defs/NonNegative" } } }
+    },
+    "Shadow": {
+      "description": "A shadow a node casts (PLAN 2.115): how far it falls from the node, right and down, how soft its edge is, its color, and how dark it is.",
+      "type": "object",
+      "required": ["blur", "opacity"],
+      "additionalProperties": false,
+      "properties": {
+        "x": {
+          "description": "How far right of the node it falls, canvas units; left where it is negative.",
+          "type": "number"
+        },
+        "y": {
+          "description": "How far below the node it falls, canvas units; above where it is negative.",
+          "type": "number"
+        },
+        "blur": {
+          "description": "How soft its edge is, canvas units: the blur's radius, twice the deviation of the Gaussian it is drawn with.",
+          "$ref": "#/$defs/NonNegative"
+        },
+        "color": { "description": "Its color: black where it names none.", "$ref": "#/$defs/ColorLiteral" },
+        "opacity": { "description": "How dark it is, from 0 to 1.", "type": "number", "minimum": 0, "maximum": 1 }
+      }
     },
     "Typography": {
       "type": "object",

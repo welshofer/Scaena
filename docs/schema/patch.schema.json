@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/patch-0.24.json",
+  "$id": "https://scaena.dev/schema/patch-0.25.json",
   "title": "Scaena patch",
   "description": "A patch (SPEC §7.3): RFC 6902 ops and semantic ops, applied in order, all or none.",
   "type": "array",
@@ -682,7 +682,10 @@
         "fill": { "$ref": "#/$defs/Paint" },
         "stroke": { "$ref": "#/$defs/Stroke" },
         "blur": { "$ref": "#/$defs/NonNegative" },
-        "shadow": { "type": "object", "additionalProperties": true },
+        "shadow": {
+          "description": "The shadow it casts (PLAN 2.115): one of the theme's by name, or one written out.",
+          "$ref": "#/$defs/ShadowRef"
+        },
         "clip": { "$ref": "#/$defs/Clip" },
         "blend": { "$ref": "#/$defs/Blend" },
         "at": { "$ref": "#/$defs/Placement" },
@@ -1080,6 +1083,10 @@
     "Cap": { "type": "string", "enum": ["butt", "round", "square"] },
     "Join": { "type": "string", "enum": ["miter", "round", "bevel"] },
     "NonNegative": { "description": "A number at or above 0.", "type": "number", "minimum": 0 },
+    "ShadowRef": {
+      "description": "The shadow a node casts (PLAN 2.115): the theme's shadow of this name (`tokens.shadow`), or one written out, an override: `x`, `y`, and `blur` in canvas units, a `color`, and an `opacity`. A filled rectangle or ellipse, an image, and a container's panel cast one.",
+      "anyOf": [{ "type": "string" }, { "type": "object", "additionalProperties": true }]
+    },
     "Clip": {
       "description": "Clip to the node's box, or to SVG path data.",
       "anyOf": [{ "type": "boolean" }, { "type": "string" }]
@@ -1769,7 +1776,7 @@
         "fill": { "anyOf": [{ "$ref": "#/$defs/PaintDelta" }, { "type": "null" }] },
         "stroke": { "anyOf": [{ "$ref": "#/$defs/StrokeDelta" }, { "type": "null" }] },
         "blur": { "anyOf": [{ "$ref": "#/$defs/NonNegative" }, { "type": "null" }] },
-        "shadow": { "anyOf": [{ "type": "object", "additionalProperties": true }, { "type": "null" }] },
+        "shadow": { "anyOf": [{ "$ref": "#/$defs/ShadowRef" }, { "type": "null" }] },
         "clip": { "anyOf": [{ "$ref": "#/$defs/Clip" }, { "type": "null" }] },
         "blend": { "anyOf": [{ "$ref": "#/$defs/Blend" }, { "type": "null" }] },
         "at": { "anyOf": [{ "$ref": "#/$defs/PlacementDelta" }, { "type": "null" }] },

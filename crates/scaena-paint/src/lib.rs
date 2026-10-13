@@ -830,6 +830,13 @@ pub mod cpu {
                             self.shader(bbox, pixels, *rect, xf);
                         }
                     }
+                    // A shadow (PLAN 2.115): its rounded box blurred, in its color, as vello on
+                    // the GPU draws it.
+                    Op::Shadow { rect: r, radius, blur, color } => {
+                        self.ctx.set_transform(xf);
+                        self.set_paint(&Paint::Solid(*color));
+                        self.ctx.fill_blurred_rounded_rect(&rect(*r), *radius, *blur, false);
+                    }
                     // A link's area draws nothing (PLAN 2.70).
                     Op::Link { .. } => {}
                 }
@@ -1378,6 +1385,14 @@ pub mod gpu {
                         self.scene.fill(Fill::NonZero, xf, &brush, Some(src_to_dst(*src, *dst)), &rect(*dst));
                     }
                     Op::Link { .. } => {}
+                    // A shadow (PLAN 2.115): its rounded box blurred, in its color.
+                    Op::Shadow { rect: r, radius, blur, color } => {
+                        let vello::peniko::Brush::Solid(c) = brush(&scaena_core::displaylist::Paint::Solid(*color))
+                        else {
+                            unreachable!("a solid paint is a solid brush")
+                        };
+                        self.scene.draw_blurred_rounded_rect(xf, rect(*r), c, f64::from(*radius), f64::from(*blur));
+                    }
                     Op::Shader { rect, .. } => {
                         let shader = self.shaders.next().ok_or_else(|| {
                             PaintError::Gpu("a shader op with no image: run `Shaders::prepare` on `shader_jobs`".into())
@@ -1422,6 +1437,11 @@ pub mod gpu {
                     }
                     Op::Image { dst, .. } => add(xf.transform_rect_bbox(rect(*dst))),
                     Op::Shader { rect: r, .. } => add(xf.transform_rect_bbox(rect(*r))),
+                    // A shadow reaches three deviations past its box.
+                    Op::Shadow { rect: r, blur, .. } => {
+                        let reach = f64::from(*blur) * 3.0;
+                        add(xf.transform_rect_bbox(rect(*r).inflate(reach, reach)))
+                    }
                     Op::Link { .. } => {}
                     Op::Layer { transform, clip, ops, .. } => {
                         let child = xf * affine(transform);
