@@ -87,10 +87,11 @@ async fn every_resource_arrives_whole() {
 }
 
 /// The shipped themes, as the server serves each, and the file each is.
-const THEMES: [(&str, &str); 3] = [
+const THEMES: [(&str, &str); 4] = [
     ("scaena://examples/dusk.theme.json", "../../docs/examples/themes/dusk.theme.json"),
     ("scaena://examples/daybreak.theme.json", "../../docs/examples/authorability/themes/daybreak.theme.json"),
     ("scaena://examples/ember.theme.json", "../../docs/examples/themes/ember.theme.json"),
+    ("scaena://examples/gallery.theme.json", "../../docs/examples/themes/gallery.theme.json"),
 ];
 
 /// Each layout of a theme as its layouts' index names it, and the uri of the part that holds it.

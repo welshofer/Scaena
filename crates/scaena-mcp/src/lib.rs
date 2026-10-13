@@ -268,7 +268,7 @@ pub struct BundleArg {
 pub struct DeckCreate {
     /// Where the bundle goes: a directory that is not there yet, or is empty.
     pub bundle: String,
-    /// The theme to start from: one that ships, by its name (`dusk`, `daybreak`, or `ember`),
+    /// The theme to start from: one that ships, by its name (`dusk`, `daybreak`, `ember`, or `gallery`),
     /// which comes with its fonts; or a theme file, copied in with the fonts its families
     /// name (from beside it, or above it).
     pub theme: String,
@@ -557,7 +557,7 @@ pub struct Rendered {
 #[tool_router]
 impl Scaena {
     #[tool(description = "Make a bundle: a theme and its fonts, data files, and a deck pointed at them \
-        (or one state with nothing on screen). The theme is one that ships, by name (dusk, daybreak, ember), or a \
+        (or one state with nothing on screen). The theme is one that ships, by name (dusk, daybreak, ember, gallery), or a \
         theme file. Checked as `deck_lint` checks a bundle, and written only if it validates.")]
     async fn deck_create(
         &self,
@@ -909,7 +909,7 @@ impl ServerHandler for Scaena {
         ServerConfig::new(capabilities).with_server_info(server).with_instructions(
             "Scaena decks are states over one scene graph: nodes exist for the whole deck, each state says what changes, \
              and the theme owns type and layout, so a deck names roles, slots, and presets, never pixels. Make a bundle \
-             with deck_create (a theme that ships, dusk, daybreak, or ember, needs no file), attach data with data_attach, edit with deck_patch, check with deck_lint, and look with \
+             with deck_create (a theme that ships, dusk, daybreak, ember, or gallery, needs no file), attach data with data_attach, edit with deck_patch, check with deck_lint, and look with \
              deck_render. The resources hold the schemas, the lint catalog, the specification by section (scaena://spec is \
              its index), the skills (procedures to follow: scaena://skills/author-deck first), and examples.",
         )

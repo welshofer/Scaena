@@ -3076,7 +3076,10 @@ mod tests {
         assert_eq!(LETTERS.map(|(language, _)| language), scaena_narrato::brief::LANGUAGES);
         let themes = ["docs/examples/themes/dusk.theme.json", "docs/examples/themes/ember.theme.json"]
             .into_iter()
-            .chain(["docs/examples/authorability/themes/daybreak.theme.json"])
+            .chain([
+                "docs/examples/authorability/themes/daybreak.theme.json",
+                "docs/examples/themes/gallery.theme.json",
+            ])
             .map(|path| std::fs::read_to_string(root().join(path)).unwrap());
         for theme in themes {
             for (language, _) in LETTERS {

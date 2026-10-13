@@ -1007,7 +1007,7 @@ fn revenue() -> *mut ScaenaSession {
 fn the_theme_is_edited_and_another_taken_as_the_browsers_theme_tab_does() {
     let shipped = call(revenue(), "shippedThemes", Value::Null);
     let names: Vec<&str> = shipped.as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
-    assert_eq!(names, ["dusk", "daybreak", "ember"], "{shipped}");
+    assert_eq!(names, ["dusk", "daybreak", "ember", "gallery"], "{shipped}");
 
     let s = revenue();
     let themed = call(s, "retheme", json!({ "ships": "daybreak", "at": "2026-10-08T12:00:00Z" }));

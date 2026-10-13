@@ -63,6 +63,28 @@ JETBRAINS_MONO_ITALIC = (
     "85ae2a5cd3f56baf1ce1c21a851322c58e3d8fbe8e8ad4a4d090a820dd7fe558",
     "mono, italic",
 )
+# Gallery's display family (PLAN 2.102): Instrument Serif, one weight, and its italic. Its body is
+# Inter, which draws Greek and Cyrillic where Instrument Serif does not.
+INSTRUMENT_SERIF = (
+    "ofl/instrumentserif/InstrumentSerif-Regular.ttf",
+    "498efd461f6ddfcb7a111bf9a565709d2085d48201d501ead960d93e84ffbb88",
+    "display (Gallery)",
+)
+INSTRUMENT_SERIF_ITALIC = (
+    "ofl/instrumentserif/InstrumentSerif-Italic.ttf",
+    "08939b8bdf534afec24ae0ef5e03f948940cd9a8fe08e7fecbad040e62327385",
+    "display (Gallery), italic",
+)
+GALLERY_FONTS = {
+    "InstrumentSerif-Regular.ttf": INSTRUMENT_SERIF,
+    "InstrumentSerif-Italic.ttf": INSTRUMENT_SERIF_ITALIC,
+}
+GALLERY_LICENSES = {
+    "OFL-InstrumentSerif.txt": (
+        "ofl/instrumentserif/OFL.txt",
+        "129ed7618959716959f2941fdd5b49e0ad6e6c1d78726761786a00253d865521",
+    ),
+}
 # What every subset keeps besides its decks' characters: what `scaena save` keeps of a font
 # (scaena-store's `BASE_RANGES`, SPEC §3.1). The torture deck's ranges, the letters Romanian
 # writes (ș, ț), and U+2000–27BF: punctuation, super- and subscripts (CO₂), currency, letterlike
@@ -126,8 +148,9 @@ BUNDLES = {
         # Decks beside it that share its fonts: the subset covers them all, and each is checked.
         "also": ["trails.deck.json", "higher-ed.deck.json"],
         "every_family": False,
-        "fonts": EXAMPLE_FONTS,
-        "licenses": LICENSES,
+        # And Gallery's, which ships beside Dusk, Daybreak, and Ember (PLAN 2.102).
+        "fonts": {**EXAMPLE_FONTS, **GALLERY_FONTS},
+        "licenses": {**LICENSES, **GALLERY_LICENSES},
     },
     "authorability": {
         "title": "Authorability spike deck",

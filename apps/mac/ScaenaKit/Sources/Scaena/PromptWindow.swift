@@ -232,6 +232,7 @@ struct PromptView: View {
                         Text("Dusk").tag("dusk")
                         Text("Daybreak").tag("daybreak")
                         Text("Ember").tag("ember")
+                        Text("Gallery").tag("gallery")
                     }
                 }
                 Section("Written by") {

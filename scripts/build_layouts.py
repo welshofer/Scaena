@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The shipped themes' library of layouts (PLAN 3.30, 3.31), written into Dusk, Daybreak, and Ember.
+"""The shipped themes' library of layouts (PLAN 3.30, 3.31), written into Dusk, Daybreak, Ember, and Gallery.
 
 Each layout is a slide a person starts from Add Slide: slots on the theme's 12 × 12 grid, each
 saying what goes in it. This script holds the library's catalog: the sections it is offered in,
@@ -32,6 +32,8 @@ THEMES = {
     "dusk": [ROOT / "docs/examples/themes/dusk.theme.json", ROOT / "docs/examples/authorability/themes/dusk.theme.json"],
     "daybreak": [ROOT / "docs/examples/authorability/themes/daybreak.theme.json"],
     "ember": [ROOT / "docs/examples/themes/ember.theme.json"],
+    # Gallery (PLAN 2.102) takes Daybreak's layouts, on the same grid.
+    "gallery": [ROOT / "docs/examples/themes/gallery.theme.json"],
 }
 
 # The sections Add Slide offers the layouts in, in order.

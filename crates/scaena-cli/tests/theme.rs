@@ -210,6 +210,32 @@ fn a_zip_bundle_is_rewritten_with_its_new_theme() {
     assert_eq!(states[0]["looks"]["title"]["hex"], format!("{}FF", ink.to_uppercase()), "the title is set in Daybreak");
 }
 
+/// A theme in a typeface the bundle has never held brings its fonts from beside it, its own
+/// bundle's (PLAN 2.102): Gallery's Instrument Serif, into a bundle of Dusk's three families.
+#[test]
+fn a_theme_in_a_new_typeface_brings_its_fonts() {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("theme-typeface");
+    let _ = std::fs::remove_dir_all(&dir);
+    copy_dir(Path::new("../../docs/examples/authorability"), &dir);
+    let _ = std::fs::remove_dir_all(dir.join("history"));
+    assert!(!dir.join("fonts/InstrumentSerif-Regular.ttf").exists());
+    let out =
+        scaena(&["--json", "theme", dir.to_str().unwrap(), "--apply", "../../docs/examples/themes/gallery.theme.json"]);
+    let t: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(out.status.code(), Some(0), "{t:#}");
+    assert_eq!(t["applied"], true, "{t:#}");
+    for face in ["fonts/InstrumentSerif-Regular.ttf", "fonts/InstrumentSerif-Italic.ttf"] {
+        assert_eq!(
+            std::fs::read(dir.join(face)).unwrap(),
+            std::fs::read(Path::new("../../docs/examples").join(face)).unwrap(),
+            "{face} is copied in"
+        );
+        assert!(deck(&dir)["fonts"].as_array().unwrap().iter().any(|f| f["file"] == face), "the deck lists {face}");
+    }
+    let out = scaena(&["validate", dir.to_str().unwrap()]);
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stdout));
+}
+
 #[test]
 fn inspect_resolved_shows_each_look_and_what_overrides_set() {
     let dir = example("resolved");
@@ -251,11 +277,12 @@ fn copy_dir(from: &Path, to: &Path) {
     }
 }
 
-/// The shipped themes, by name: Dusk, its light twin Daybreak, and Ember.
-const SHIPPED: [(&str, &str); 3] = [
+/// The shipped themes, by name: Dusk, its light twin Daybreak, Ember, and Gallery.
+const SHIPPED: [(&str, &str); 4] = [
     ("dusk", "../../docs/examples/themes/dusk.theme.json"),
     ("daybreak", DAYBREAK),
     ("ember", "../../docs/examples/themes/ember.theme.json"),
+    ("gallery", "../../docs/examples/themes/gallery.theme.json"),
 ];
 
 /// What a theme names that a deck may use (SPEC §3.6): its layouts and their slots, roles,

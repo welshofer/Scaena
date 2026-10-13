@@ -178,6 +178,11 @@ static ALL: LazyLock<Vec<Served>> = LazyLock::new(|| {
             "A theme: Ember, near-black with one signal orange",
             include_str!("../../../docs/examples/themes/ember.theme.json"),
         ),
+        (
+            "gallery.theme.json",
+            "A theme: Gallery, white and ink with one cobalt accent, its headlines in a serif",
+            include_str!("../../../docs/examples/themes/gallery.theme.json"),
+        ),
     ] {
         let uri = format!("scaena://examples/{name}");
         let mut theme: Value = serde_json::from_str(text).expect("a theme is JSON");

@@ -1,4 +1,4 @@
-// What the editor starts a new deck from (PLAN 2.12): the three themes that ship, which share
+// What the editor starts a new deck from (PLAN 2.12): the four themes that ship, which share
 // one vocabulary on one grid (SPEC §3.6), and the fonts they name. The build copies each file
 // beside the pages, and the worker fetches them to make a deck, and a theme to bring its layout
 // library into a bundle's older copy of it (PLAN 3.31). A single-file export's worker is built
@@ -10,14 +10,18 @@ import interItalic from "../../docs/examples/fonts/Inter-Italic-VF.ttf?url";
 import inter from "../../docs/examples/fonts/Inter-VF.ttf?url";
 import monoItalic from "../../docs/examples/fonts/JetBrainsMono-Italic-VF.ttf?url";
 import mono from "../../docs/examples/fonts/JetBrainsMono-VF.ttf?url";
+import serifItalic from "../../docs/examples/fonts/InstrumentSerif-Italic.ttf?url";
+import serif from "../../docs/examples/fonts/InstrumentSerif-Regular.ttf?url";
 import dusk from "../../docs/examples/themes/dusk.theme.json?url";
 import ember from "../../docs/examples/themes/ember.theme.json?url";
+import gallery from "../../docs/examples/themes/gallery.theme.json?url";
 
 /** Each theme by its name: its file's name in a bundle (`themes/…`), and where the page has it. */
 export const themes: Record<string, { file: string; url: string }> = {
   Dusk: { file: "dusk.theme.json", url: dusk },
   Daybreak: { file: "daybreak.theme.json", url: daybreak },
   Ember: { file: "ember.theme.json", url: ember },
+  Gallery: { file: "gallery.theme.json", url: gallery },
 };
 
 /** The fonts the themes name, by the paths they give them, and where the page has each: each
@@ -29,4 +33,7 @@ export const fonts: Record<string, string> = {
   "fonts/Fraunces-Italic-VF.ttf": frauncesItalic,
   "fonts/Inter-Italic-VF.ttf": interItalic,
   "fonts/JetBrainsMono-Italic-VF.ttf": monoItalic,
+  // Gallery's (PLAN 2.102).
+  "fonts/InstrumentSerif-Regular.ttf": serif,
+  "fonts/InstrumentSerif-Italic.ttf": serifItalic,
 };
