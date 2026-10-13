@@ -90,6 +90,11 @@ try {
   await show("intro");
   const keys = (await bars()).map((b) => b.key);
   check(JSON.stringify(keys) === JSON.stringify(["transition", "title enter", "subtitle enter"]), `intro's cue, a bar each: ${keys}`);
+  // Each lane named by its object and what it does, the clock in seconds (PLAN 2.99).
+  const lanes = await page.evaluate(() => [...document.querySelectorAll("#cue .label")].map((l) => l.textContent).filter(Boolean));
+  check(lanes[0] === "Transition" && lanes.slice(1).every((l) => / · Enters/.test(l)), `each lane named by its object and what it does: ${lanes.join(" | ")}`);
+  const clock = await page.textContent("#cue .clock");
+  check(/^\d+(\.\d+)? s, at rest$/.test(clock ?? ""), `the clock in seconds: ${clock}`);
   const rise = await bar("subtitle enter");
   check(rise.delay === 240 && rise.from === 240, `the subtitle's rise waits 240 ms: ${JSON.stringify(rise)}`);
 
@@ -127,7 +132,7 @@ try {
   let n = await trips();
   await page.locator('#cue [data-key="subtitle enter/delay"]').focus();
   await page.keyboard.press("ArrowRight");
-  check(await says("subtitle's enter waits 250 ms"), `→ moves it 10 ms: ${await status()}`);
+  check(await says(": waits 0.25 s"), `→ moves it 10 ms, said in seconds: ${await status()}`);
   await redrawn(n);
   check((await source()).includes("choreo subtitle enter:rise delay:250ms"), "written in the choreography item");
   check((await bar("subtitle enter"))?.from === 250, "and the bar is drawn there");
@@ -137,7 +142,7 @@ try {
   // A drag moves it, in tens of ms.
   n = await trips();
   await drag('#cue [data-key="subtitle enter/delay"]', await pixels(300));
-  check(await says("subtitle's enter waits"), `a drag moves it: ${await status()}`);
+  check(await says(": waits "), `a drag moves it: ${await status()}`);
   await redrawn(n);
   const dragged = await bar("subtitle enter");
   check(Math.abs(dragged.delay - 540) <= 20 && dragged.delay % 10 === 0, `about 300 ms later, in whole tens: ${dragged.delay}`);
@@ -147,7 +152,7 @@ try {
   // Its end dragged sets how long it lasts.
   n = await trips();
   await drag('#cue [data-key="subtitle enter/duration"]', await pixels(200));
-  check(await says("subtitle's enter lasts"), `its end sets its duration: ${await status()}`);
+  check(await says(": lasts "), `its end sets its duration: ${await status()}`);
   await redrawn(n);
   const longer = await bar("subtitle enter");
   check(Math.abs(longer.duration - 620) <= 20, `about 200 ms longer than the theme's 420: ${longer.duration}`);
@@ -169,7 +174,7 @@ try {
   n = await trips();
   await page.locator('#cue [data-key="transition/duration"]').focus();
   await page.keyboard.press("Shift+ArrowRight");
-  check(await says("the transition into revenue lasts 520 ms"), `Shift+→ lengthens it 100 ms: ${await status()}`);
+  check(await says("The transition lasts 0.52 s"), `Shift+→ lengthens it 100 ms: ${await status()}`);
   await redrawn(n);
   check((await source()).includes("transition:{duration: 520ms, ease: standard}"), "written in the state's transition");
   await undo();
@@ -212,7 +217,7 @@ try {
   await page.waitForFunction(() => [...document.querySelectorAll("#cue [data-add] option")].some((o) => o.value.includes('"enter","bg","fade"')), null, { timeout: 30000 });
   n = await trips();
   await page.locator("#cue [data-add]").selectOption('["enter","bg","fade"]');
-  check(await says("fade on bg as it enters"), `the menu adds a fade as the backdrop enters: ${await status()}`);
+  check(await says("Fade added to") && (await status()).includes("as it enters"), `the menu adds a fade as the backdrop enters: ${await status()}`);
   await redrawn(n);
   check((await bar("bg enter")) !== undefined, "and the cue has its bar");
   await undo();
@@ -222,7 +227,7 @@ try {
   await page.waitForFunction(() => [...document.querySelectorAll("#cue [data-add] option")].some((o) => o.value.includes('"exit","subtitle","rise"')), null, { timeout: 30000 });
   n = await trips();
   await page.locator("#cue [data-add]").selectOption('["exit","subtitle","rise"]');
-  check(await says("rise on subtitle as it leaves"), `a rise as the subtitle leaves: ${await status()}`);
+  check(await says("Rise added to") && (await status()).includes("as it leaves"), `a rise as the subtitle leaves: ${await status()}`);
   await redrawn(n);
   check((await bar("subtitle exit")) !== undefined, "the cue has its bar");
   const intro = (await source()).split("state revenue")[0];

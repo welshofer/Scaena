@@ -120,13 +120,15 @@ try {
   const beatNotes = (state) => deck.spine.sections.flatMap((s) => s.beats).find((b) => b.states?.includes(state))?.notes;
   const notes = (i) => deck.states[i].notes ?? beatNotes(states[i]) ?? "No notes.";
   const presenter = await open(url(revenue, "presenter"));
-  const follows = (i) => `${i + 1} / ${states.length} · ${states[i]}`;
+  // Where the player is, as a person counts its slides (PLAN 2.99): Slide 2 of 3, step 2.
+  const slides = new Set(slots.map((s) => s.slide ?? s.state)).size;
+  const follows = (i) => slots[i].said.replace(/^Slide (\d+)/, `Slide $1 of ${slides}`);
   const followed = await presenter
     .waitForFunction((want) => window.scaena.follows() === want, follows(1), { timeout: 15000 })
     .then(() => true, () => false);
   check(followed, `the presenter view follows the player to ${states[1]}`);
   check((await presenter.textContent("#notes")) === notes(1), `it shows ${states[1]}'s notes, its beat's`);
-  check((await presenter.textContent("#nextName")) === `Next: ${states[2]}`, `it shows ${states[2]} next`);
+  check((await presenter.textContent("#nextName")) === `Next: ${slots[2].said}`, `it shows ${states[2]} next, by its slide's number: ${await presenter.textContent("#nextName")}`);
   await presenter.click("#on");
   at = await until(player, () => window.scaena.at().index === 2, "the presenter view goes on");
   check(at.index === 2, `its ▶ steers the player on to ${states[2]}`);

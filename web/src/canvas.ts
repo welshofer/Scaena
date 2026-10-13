@@ -67,12 +67,13 @@ import { ALT, type Key, MOD, SHIFT } from "./commands";
 import { marks } from "./marks";
 import { fitting } from "./pictures";
 import { BUNDLE_PATH, CLIP, DATA, PICTURE } from "./protocol";
-import type { Added, Arrange, Cells, DataMark, Edited, Finding, Framing, Grid, Insert, LayoutSlots, Look, Map6, NodeBox, NoteMark, Outline, Rect, SlotBox, SnapMode, Snapped, Targets, Waiting } from "./protocol";
+import type { Added, Arrange, Cells, DataMark, Edited, Finding, Framing, Grid, Insert, LayoutSlots, Lexicon, Look, Map6, NodeBox, NoteMark, Outline, Rect, SlotBox, SnapMode, Snapped, Targets, Waiting } from "./protocol";
 import { pointer } from "./theme-panel";
 import * as notes from "./notes";
 import { annotate, askWords, markName, noteName } from "./notes";
 import type { Stage } from "./stage";
 import { covered, paragraphs, type Selected, typing } from "./typing";
+import { object } from "./words";
 
 /** `text` as SVG holds it: the words of a slot's prompt (PLAN 3.30). */
 const escaped = (text: string) => text.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]!);
@@ -177,7 +178,7 @@ export interface Editor {
    * rows chosen in the data, the Data tab `open`ed on them, else only where it is shown. Whether
    * the press was on one. */
   pointedAt?(at: [number, number], open: boolean): Promise<boolean>;
-  /** Whether a change is kept to the state shown, as the inspector's "Only in this state" says
+  /** Whether a change is kept to the state shown, as the inspector's "Only on Slide N" says
    * (PLAN 2.67): an annotation made from a mark is. */
   keeping?(): boolean;
   /** Edit the theme by `ops`, RFC 6902 operations, as the Theme tab does (PLAN 2.71, ADR-0016):
@@ -401,20 +402,33 @@ export function snapOf(t: Targets, at: Placement | undefined, resize: boolean, s
   }
 }
 
-/** A placement as the status and the inspector say it. A `rect` on the theme's grid is off it: an
- * override, which lint flags (W301). */
-export function placed(at: Placement, by?: Targets["by"]): string {
+/** A placement as the status and the inspector say it, in a person's words (PLAN 2.99): on the
+ * whole slide or within its margins, in a slot or an area by its name as `words` says it, at a
+ * point and a size, in order among what holds it, or on the grid's columns and rows. A box placed
+ * by `rect` on the theme's grid is off it. */
+export function placed(at: Placement, by?: Targets["by"], words?: Lexicon): string {
   const span = (v: unknown) => (Array.isArray(v) ? (v[0] === v[1] ? `${v[0]}` : `${v[0]}–${v[1]}`) : `${v}`);
-  if (has(at, "in")) return `slot ${at.in}`;
-  if (has(at, "area")) return `area ${at.area}`;
+  const many = (v: unknown) => Array.isArray(v) && v[0] !== v[1];
+  const place = (key: unknown) => words?.places[String(key)] ?? String(key);
+  // The two places every layout has: the whole canvas, and the box within its margins.
+  if (has(at, "in") && at.in === "canvas") return "on the whole slide";
+  if (has(at, "in") && at.in === "grid") return "within the margins";
+  if (has(at, "in")) return `in the ${place(at.in)} slot`;
+  if (has(at, "area")) return `in the ${place(at.area)} area`;
   if (has(at, "rect")) {
     const [x, y, w, h] = at.rect as number[];
-    return `rect ${x}, ${y}, ${w} × ${h}${by === "grid" ? ", off the grid" : ""}`;
+    return `at ${x}, ${y}, ${w} × ${h}${by === "grid" ? ", off the grid" : ""}`;
   }
-  if (has(at, "index")) return `index ${at.index}`;
-  const cells = [has(at, "col") ? `col ${span(at.col)}` : "", has(at, "row") ? `row ${span(at.row)}` : ""];
-  return cells.filter(Boolean).join(", ") || "the grid";
+  if (has(at, "index")) return `${Number(at.index) + 1}${ordinal(Number(at.index) + 1)} in order`;
+  const cells = [
+    has(at, "col") ? `${many(at.col) ? "columns" : "column"} ${span(at.col)}` : "",
+    has(at, "row") ? `${many(at.row) ? "rows" : "row"} ${span(at.row)}` : "",
+  ];
+  return cells.filter(Boolean).join(", ") || "on the grid";
 }
+
+/** An ordinal's ending: 1st, 2nd, 3rd, 4th, 11th, 22nd. */
+const ordinal = (n: number) => (n % 100 >= 11 && n % 100 <= 13 ? "th" : (["th", "st", "nd", "rd"][n % 10] ?? "th"));
 
 const moved = ([x, y, w, h]: Rect, [dx, dy]: [number, number]): Rect => [x + dx, y + dy, w, h];
 
@@ -530,6 +544,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   let boxes: NodeBox[] = [];
   /** The state `boxes` stand in. */
   let boxed: string | undefined;
+  /** The words for the state shown (PLAN 2.99): each object by what it shows, the theme's names
+   * said. Asked again whenever what stands where is. */
+  let words: Lexicon | undefined;
   let selected: string | undefined;
   /** Selected beside it, children of what holds it too (PLAN 2.42). */
   let also: string[] = [];
@@ -679,7 +696,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       if (f.node !== undefined && (selected !== f.node || also.length)) select(f.node);
       editor.edit(f, prop);
     },
-    say: (words) => editor.say(words),
+    name: (node, quoted) => object(words, node, quoted),
+    say: (said) => editor.say(said),
   });
 
   /** Type in `node` (a text), at the caret nearest `at`, or at its end, or with `all` its words
@@ -696,10 +714,16 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const [was, format] = [size, editor.format()];
     const ruling = ruled || safeShown ? stage.grid(format).catch(() => undefined) : undefined;
     const waiting = fresh.has(shown.state) ? stage.waits(shown.state, format).catch((): Waiting[] => []) : Promise.resolve([]);
+    const asking = stage.boxes(shown.state, format);
+    // Its words (PLAN 2.99), asked after its boxes, which wait for nothing they say.
+    void stage.words(shown.state).then(
+      (said) => (words = said),
+      () => {},
+    );
     // A state renamed or taken away while its boxes were asked for (PLAN 2.77): the edit that did it
     // asks again, for the state shown now.
     try {
-      ({ boxes, size } = await stage.boxes(shown.state, format));
+      ({ boxes, size } = await asking);
     } catch (e) {
       if (/^unknown state /.test(said(e))) return;
       throw e;
@@ -1126,7 +1150,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
    * handles of their own: one dragged moves within the shape's box, and one clicked is picked, which
    * Delete takes away; a handle at an edge's middle adds a point there. A rect's corner handle rounds
    * it to the theme's radius steps. Each is one `choose` of `points` or `radius`, written where it
-   * lives, or kept to the state shown with Alt or the inspector's "Only in this state". */
+   * lives, or kept to the state shown with Alt or the inspector's "Only on Slide N". */
   /** Point `f`, fractions of outline `o`'s box, where it is drawn on the canvas. */
   const onOutline = (o: Outline, [fx, fy]: Point): Point => {
     const [x, y, w, h] = o.rect;
@@ -1866,7 +1890,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const n = d.states?.length ?? 0;
     const where = n === 1 && d.states?.[0] === state ? "in this state" : `in ${n} states`;
     const keep = d.alt ? ` · kept to ${state}` : n > 1 ? ` · Alt keeps it to ${state}` : "";
-    editor.say(`${d.node} → ${placed(op.at ?? {}, d.targets.by)} · ${where}${keep}`);
+    editor.say(`${d.node} → ${placed(op.at ?? {}, d.targets.by, words)} · ${where}${keep}`);
   }
 
   /** The box `d` leaves, and how it snaps, with the pointer where it is now: `by` on the canvas,
@@ -2022,7 +2046,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       const { source, edited } = await stage.make(editor.source(), ops, shown.index, editor.format());
       editor.apply(source, edited);
       await refresh();
-      editor.say(done ?? `${op?.node} placed: ${placed(op?.at ?? {}, aim?.by)}`);
+      editor.say(done ?? `${op?.node} placed: ${placed(op?.at ?? {}, aim?.by, words)}`);
     } catch (e) {
       await still(`not placed: ${said(e)}`);
     }
@@ -2316,7 +2340,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
    * it, and its menu annotates it; a click on one of the chart's annotations selects it, Delete
    * takes it away, a double click changes what it says, and a callout dragged moves onto the mark
    * there or to the value there. Each is one `annotate` op, written where the chart's annotations
-   * live, or kept to the state shown with Alt or the inspector's "Only in this state". */
+   * live, or kept to the state shown with Alt or the inspector's "Only on Slide N". */
   /** Let go of the mark picked and the annotation selected, unless they are `node`'s. */
   function letGo(node: string | undefined) {
     if (picked && picked.mark.node !== node) picked = undefined;

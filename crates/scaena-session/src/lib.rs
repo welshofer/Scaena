@@ -509,17 +509,22 @@ impl Session {
         Ok(engine.timeline(deck.as_ref(), theme.as_ref(), &self.data)?)
     }
 
-    /// The deck's states end to end, as a client lists them: `[{ "state", "slide", "start",
-    /// "span", "hold" }]`, ms (SPEC §2.4), `slide` the slide each builds on. What a player
-    /// auto-advances by, and a video samples.
+    /// The deck's states end to end, as a client lists them: `[{ "state", "slide", "said",
+    /// "start", "span", "hold" }]`, ms (SPEC §2.4), `slide` the slide each builds on and `said` the
+    /// state as a person counts it, `Slide 3, step 2` (PLAN 2.99). What a player auto-advances by,
+    /// and a video samples.
     pub fn slots(&mut self) -> Result<serde_json::Value, Error> {
         let timeline = self.timeline()?;
         let deck = &self.deck;
         let slide = |id: &str| deck.states.iter().find(|s| s.id == id).map_or(id, |s| deck.slide_of(s)).to_string();
+        // Each as a person counts it (PLAN 2.99): `Slide 3, step 2`.
+        let said = scaena_core::words::slides(deck);
+        let said = |id: &str| deck.states.iter().position(|s| s.id == id).and_then(|i| said.get(i)).cloned();
         let slots: Vec<serde_json::Value> = (timeline.slots.iter())
             .map(|s| {
                 let slide = slide(&s.state);
-                serde_json::json!({ "state": s.state, "slide": slide, "start": s.start, "span": s.span, "hold": s.hold })
+                let said = said(&s.state);
+                serde_json::json!({ "state": s.state, "slide": slide, "said": said, "start": s.start, "span": s.span, "hold": s.hold })
             })
             .collect();
         Ok(serde_json::Value::Array(slots))
@@ -1075,9 +1080,14 @@ impl Session {
     /// What an inspector offers for `node` as `state` shows it (ADR-0013, PLAN 2.33): each
     /// property it edits, with the theme's names for it or what the schema allows, the value
     /// shown, and where that value lives, which is where a `choose` patch writes. A chart's or a
-    /// table's fields are the columns of the data handed over (PLAN 2.41).
+    /// table's fields are the columns of the data handed over (PLAN 2.41). Each is worded as an
+    /// editor shows it (PLAN 2.99): the node named by what it shows, each field labeled, and each
+    /// value said.
     pub fn choices(&self, state: &str, node: &str) -> Result<scaena_core::choices::Choices, Error> {
-        scaena_core::choices::choices(&self.deck, &self.theme, state, node, &*self.files).map_err(Error::Ops)
+        let mut c =
+            scaena_core::choices::choices(&self.deck, &self.theme, state, node, &*self.files).map_err(Error::Ops)?;
+        scaena_core::words::choices(&mut c, &self.deck, &self.theme);
+        Ok(c)
     }
 
     /// `node`'s look as `state` shows it (PLAN 2.58): each property of its type's look and the
@@ -1108,7 +1118,10 @@ impl Session {
         from: usize,
         to: usize,
     ) -> Result<scaena_core::choices::Choices, Error> {
-        scaena_core::choices::characters(&self.deck, &self.theme, state, node, (from, to)).map_err(Error::Ops)
+        let mut c =
+            scaena_core::choices::characters(&self.deck, &self.theme, state, node, (from, to)).map_err(Error::Ops)?;
+        scaena_core::words::choices(&mut c, &self.deck, &self.theme);
+        Ok(c)
     }
 
     /// The deck in another theme (PLAN 2.39), as `theme --apply` re-themes a bundle: the theme
@@ -1201,11 +1214,21 @@ impl Session {
         Ok(carets.italicizing(byte(from), byte(to)))
     }
 
+    /// The words an editor shows for `state` (PLAN 2.99): each object it shows named by what it
+    /// shows and by its kind, each of the theme's names said, and how a motion and a shape are
+    /// said.
+    pub fn words(&self, state: &str) -> Result<scaena_core::words::Lexicon, Error> {
+        scaena_core::words::lexicon(&self.deck, &self.theme, state).map_err(Error::Ops)
+    }
+
     /// What an inspector offers for `state` itself (PLAN 2.36): its layout, each key of its
     /// transition, its hold, and its notes, each with its value and where it lives, which is
-    /// where a `set_state` patch writes.
+    /// where a `set_state` patch writes; worded as an editor shows them (PLAN 2.99), the state by
+    /// its slide's number.
     pub fn state_choices(&self, state: &str) -> Result<scaena_core::choices::StateChoices, Error> {
-        scaena_core::choices::state_choices(&self.deck, &self.theme, state).map_err(Error::Ops)
+        let mut c = scaena_core::choices::state_choices(&self.deck, &self.theme, state).map_err(Error::Ops)?;
+        scaena_core::words::state_choices(&mut c, &self.deck, &self.theme);
+        Ok(c)
     }
 
     /// `state`'s layers (PLAN 2.50): its nodes nested as their containers and groups hold them,

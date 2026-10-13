@@ -193,10 +193,10 @@ try {
   check(3 < 6 * u, `3 canvas units are within the reach of 6 pixels: ${(6 * u).toFixed(1)} units`);
   let n = await trips();
   const by = [photo[0] + 3 - card[0], -37];
-  const near = await drag(panel, [panel[0] + by[0], panel[1] + by[1]], ["Shift"], { says: "rect" });
+  const near = await drag(panel, [panel[0] + by[0], panel[1] + by[1]], ["Shift"], { says: "off the grid" });
   await settled(n);
   const left = Math.round(photo[0]);
-  check(near.said.includes(`rect ${left}, `), `with Shift, its edge goes onto the photo's: ${near.said} (the photo at ${photo[0]})`);
+  check(near.said.includes(`at ${left}, `), `with Shift, its edge goes onto the photo's: ${near.said} (the photo at ${photo[0]})`);
   const down = near.guides.find((g) => g[0] === g[2] && Math.abs(g[0] - photo[0]) <= 0.5);
   check(Boolean(down), `a guide down the edges that meet: ${JSON.stringify(near.guides)}`);
   check((await box("card"))?.[0] === left, `the patch puts it there: ${JSON.stringify(await box("card"))}`);
@@ -205,9 +205,9 @@ try {
 
   // With Ctrl (⌘) held too, the same drag goes where the pointer says, onto no guide.
   n = await trips();
-  const loose = await drag(panel, [panel[0] + by[0], panel[1] + by[1]], ["Shift", "Control"], { says: "rect" });
+  const loose = await drag(panel, [panel[0] + by[0], panel[1] + by[1]], ["Shift", "Control"], { says: "off the grid" });
   await settled(n);
-  check(loose.said.includes(`rect ${Math.round(photo[0] + 3)}, `), `with Ctrl held, it goes where the pointer says: ${loose.said}`);
+  check(loose.said.includes(`at ${Math.round(photo[0] + 3)}, `), `with Ctrl held, it goes where the pointer says: ${loose.said}`);
   await undo();
 
   // Farther off than the reach from every edge and middle across: where the drag left it.
@@ -231,9 +231,9 @@ try {
     [card, 6 * u],
   );
   n = await trips();
-  const away = await drag(panel, [panel[0] + clear - card[0], panel[1] - 37], ["Shift"], { says: "rect" });
+  const away = await drag(panel, [panel[0] + clear - card[0], panel[1] - 37], ["Shift"], { says: "off the grid" });
   await settled(n);
-  check(away.said.includes(`rect ${clear}, `), `farther off, it stays where the drag left it: ${away.said} (at ${clear})`);
+  check(away.said.includes(`at ${clear}, `), `farther off, it stays where the drag left it: ${away.said} (at ${clear})`);
   await undo();
 
   // A handle dragged with Shift: the right edge, 4 units short of the canvas's, onto it. The undo
@@ -248,9 +248,9 @@ try {
   // Pressed where the canvas draws the handle, on the card's frame, and moved as far as takes the
   // card's edge to 4 units short of the canvas's.
   const edge = await handle("e");
-  const wide = await drag(edge, [edge[0] + (1920 - 4) - (card[0] + card[2]), edge[1]], ["Shift"], { says: "rect" });
+  const wide = await drag(edge, [edge[0] + (1920 - 4) - (card[0] + card[2]), edge[1]], ["Shift"], { says: "off the grid" });
   await settled(n);
-  check(wide.said.includes(`rect ${card[0]}, ${card[1]}, ${1920 - card[0]} × `), `a handle with Shift takes the edge onto the canvas's: ${wide.said}`);
+  check(wide.said.includes(`at ${card[0]}, ${card[1]}, ${1920 - card[0]} × `), `a handle with Shift takes the edge onto the canvas's: ${wide.said}`);
   await undo();
   check((await source()) === original, "and one undo takes that back");
 

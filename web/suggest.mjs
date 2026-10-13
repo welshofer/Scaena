@@ -46,6 +46,8 @@ try {
         layout: b.dataset.layout,
         pressed: b.getAttribute("aria-pressed"),
         says: [...b.querySelectorAll(".name, .verdict, .alike")].map((s) => s.textContent).join(" · "),
+        // Red where what lint finds there holds an error, as the Mac's triangle is.
+        found: b.querySelector(".verdict .error") ? "error" : b.querySelector(".verdict .warning") ? "warning" : "",
       })),
     );
   /** The canvas as painted, without the guides and the findings' marks over it. */
@@ -100,11 +102,14 @@ try {
   check(shown.map((b) => b.layout).join() === best, `best first: ${shown.map((b) => b.layout).join(", ")}`);
   check(shown[0]?.pressed === "true" && shown.slice(1).every((b) => b.pressed === "false"), "the layout it takes now is pressed");
   check(
-    shown[0]?.says === "figure · nothing found · also poster, table, full, photo-caption",
+    shown[0]?.says === "Chart · No issues · also Poster, Table, Full Bleed, Photo and Caption",
     `poster, table, full, and photo-caption draw it as figure does: ${shown[0]?.says}`,
   );
   const last = (await suggested()).at(-1);
-  check(last?.errors === 3 && shown.at(-1)?.says === "narrow-figure · 3 errors", `narrow-figure says its errors: ${shown.at(-1)?.says}`);
+  check(
+    last?.errors === 3 && shown.at(-1)?.says === "Narrow Chart · 3 issues" && shown.at(-1)?.found === "error",
+    `narrow-figure says its errors: ${shown.at(-1)?.says} (${shown.at(-1)?.found})`,
+  );
   check(
     last?.patch.length === 1 && last.patch[0].op === "set_state" && last.patch[0].value === "narrow-figure" && last.reach.join() === "budget",
     "it is one set_state that changes budget alone",
@@ -127,8 +132,9 @@ try {
   const storm = await buttons();
   check(
     storm.map((b) => b.says).join(" | ") ===
-      "full · nothing found · also poster, figure, table, photo-caption | two-figures · nothing found | metric-trend · nothing found | narrow-figure · nothing found | panorama · nothing found | venn · 1 warning | bar-chart · 1 error | line-chart · 1 error",
-    `storm: ${storm.map((b) => b.says).join(" | ")}`,
+      "Full Bleed · No issues · also Poster, Chart, Table, Photo and Caption | Two Figures · No issues | Number and Trend · No issues | Narrow Chart · No issues | Panorama · No issues | Venn Diagram · 1 issue | Bar Chart · 1 issue | Line Chart · 1 issue" &&
+      storm.map((b) => b.found).join() === ",,,,,warning,error,error",
+    `storm: ${storm.map((b) => `${b.says}${b.found ? ` (${b.found})` : ""}`).join(" | ")}`,
   );
   const before = await shot();
   await page.hover('#look .layouts [data-layout="narrow-figure"]');
@@ -148,7 +154,7 @@ try {
     timeout: 30000,
   }).catch(() => {});
   check((await line("storm")).includes("layout:narrow-figure"), `a click writes the layout where it lives: ${await line("storm")}`);
-  check((await status()).includes("storm's layout: narrow-figure · in this state"), `the status says so: ${await status()}`);
+  check((await status()).includes("Layout: Narrow Chart · on this slide"), `the status says so: ${await status()}`);
   await suggestedFor("storm", "narrow-figure");
   const again = await buttons();
   check(again[0]?.layout === "narrow-figure" && again[0]?.pressed === "true", `judged again, narrow-figure is pressed: ${again.map((b) => `${b.layout} ${b.pressed}`).join(", ")}`);

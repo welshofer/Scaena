@@ -669,6 +669,13 @@ impl Player {
         self.0.theme_text().map(|t| t.to_string())
     }
 
+    /// The words an editor shows for `state`, as JSON (PLAN 2.99): `{ objects, kinds, names,
+    /// motions, splits, shapes }`, each object it shows named by what it shows and by its kind,
+    /// and each of the theme's names said.
+    pub fn words(&self, state: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.words(state).map_err(js)?).map_err(js)
+    }
+
     /// What an inspector offers for `state` itself, as JSON (PLAN 2.36): `{ state, fields }`,
     /// as `scaena inspect --state-choices` says it.
     #[wasm_bindgen(js_name = stateChoices)]

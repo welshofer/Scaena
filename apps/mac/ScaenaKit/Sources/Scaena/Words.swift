@@ -4,7 +4,8 @@ import SwiftUI
 /// The window's words (PLAN 3.18): what a person reads where the deck's format has names of its
 /// own. A slide is numbered and a step is its slide's; a node is what it shows; a property is what
 /// a presentation app calls it; a value is said, a time in seconds. No id, path, code, or
-/// millisecond reaches the window through here.
+/// millisecond reaches the window through here. The browser says the same through
+/// `scaena_core::words`, and `crates/scaena-core/tests/words.rs` holds these tables to its.
 enum Words {
     /// The device the window is on, as a person calls it: what the on-device model answers on
     /// (PLAN 3.6, 4.9).
@@ -31,7 +32,8 @@ enum Words {
         "radius": "Corners", "fill": "Fill", "stroke/paint": "Border", "stroke/width": "Border Width",
         "data": "Data", "kind": "Chart", "orient": "Bars Run", "x/field": "Across", "x/type": "Across Are",
         "y/field": "Up", "y/type": "Up Are", "series/field": "Series", "color/field": "Color By",
-        "sizeEncoding/field": "Size By", "facet/field": "Small Multiples By", "key": "Rows Match By",
+        "sizeEncoding/field": "Size By", "interval/low": "Low End", "interval/high": "High End",
+        "facet/field": "Small Multiples By", "key": "Rows Match By",
         "labels/show": "Values Shown", "labels/role": "Value Style", "header": "Header Row", "preset": "Effect",
         "palette": "Colors", "axis": "Direction", "gap": "Spacing", "layout": "Layout",
         "transition/duration": "Duration", "transition/ease": "Easing", "transition/spring": "Spring",

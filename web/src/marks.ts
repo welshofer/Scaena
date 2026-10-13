@@ -6,8 +6,9 @@
 //   and takes the color of the worst. A document rule's finding about a node, in no state, stands
 //   on it in every state that shows it. Findings about the state, or about a node it does not
 //   show, stand on the state: a mark at the canvas's top left corner.
-// - A mark opened says each finding, its hint, and where the source writes it, with its fix where
-//   lint has one. Lint keeps a fix only once laying the state out again with it took the finding
+// - A mark opened says each finding in a sentence a person would say (PLAN 2.99, `Finding.said`),
+//   with its fix where lint has one, as a button names it (`Finding.fixing`), and where the source
+//   writes it. Lint keeps a fix only once laying the state out again with it took the finding
 //   away (SPEC §7.4); one taken is one patch, one step to undo. A node's mark selects it too.
 // - A finding no fix can make, about a property the inspector offers, takes the person there:
 //   W410's image without alt text opens the inspector on the image, its description in focus
@@ -31,6 +32,8 @@ export interface MarksHost {
   go(f: Finding): void;
   /** Open the inspector on `f`'s node, its field for `prop` in focus (PLAN 2.56). */
   edit(f: Finding, prop: string): void;
+  /** `node` as a person names it, by what it shows; `quoted`, as a sentence names it (PLAN 2.99). */
+  name(node: string, quoted?: boolean): string;
   say(text: string): void;
 }
 
@@ -54,12 +57,16 @@ interface Mark {
   worst: Severity;
 }
 
-/** `1 error, 2 warnings`. */
+/** Each severity as a person says it (PLAN 2.99): an error is a problem, an info a note. */
+const SAID: Record<Severity, string> = { error: "problem", warning: "warning", info: "note" };
+
+/** `1 problem, 2 warnings`; `No issues` for none. */
 export function counted(findings: Finding[]): string {
-  return SEVERITIES.map((s) => [s, findings.filter((f) => f.severity === s).length] as const)
+  const said = SEVERITIES.map((s) => [s, findings.filter((f) => f.severity === s).length] as const)
     .filter(([, n]) => n > 0)
-    .map(([s, n]) => `${n} ${s}${n === 1 ? "" : "s"}`)
+    .map(([s, n]) => `${n} ${SAID[s]}${n === 1 ? "" : "s"}`)
     .join(", ");
+  return said || "No issues";
 }
 
 /** The worst severity among `findings`. */
@@ -142,7 +149,9 @@ export function marks(layer: HTMLElement, pop: HTMLElement, host: MarksHost) {
   }
 
   /** The words a mark is read by. */
-  const named = (m: Mark) => `${m.node ?? `the state ${host.shown()?.state ?? ""}`}: ${counted(m.findings)}`;
+  const named = (m: Mark) => `${m.node === undefined ? "This slide" : host.name(m.node)}: ${counted(m.findings)}`;
+  /** What a finding says: its sentence, else lint's own words. */
+  const sentence = (f: Finding) => f.said ?? f.message;
 
   /** Draw the marks, if what they stand for or where moved. */
   function draw() {
@@ -155,7 +164,7 @@ export function marks(layer: HTMLElement, pop: HTMLElement, host: MarksHost) {
     layer.innerHTML = at
       .map(({ mark, at: [x, y] }) => {
         const id = mark.node ?? "";
-        const tip = mark.findings.map((f) => `${f.code} ${f.message}`).join("\n");
+        const tip = mark.findings.map(sentence).join("\n");
         return `<button type="button" class="mark ${mark.worst}${mark.node === undefined ? " state" : ""}" data-mark="${html(id)}" style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px" aria-label="${html(named(mark))}" title="${html(tip)}">${mark.findings.length}</button>`;
       })
       .join("");
@@ -172,14 +181,10 @@ export function marks(layer: HTMLElement, pop: HTMLElement, host: MarksHost) {
   function open(mark: Mark, focus: boolean) {
     opened = mark.node ?? null;
     const button = layer.querySelector<HTMLElement>(`[data-mark="${CSS.escape(mark.node ?? "")}"]`);
-    pop.innerHTML = `<h2>${html(mark.node ?? `The state ${host.shown()?.state ?? ""}`)}<span>${html(counted(mark.findings))}</span></h2><ol>${mark.findings
+    pop.innerHTML = `<h2>${html(mark.node === undefined ? "This slide" : host.name(mark.node))}<span>${html(counted(mark.findings))}</span></h2><ol>${mark.findings
       .map(
-        (f, i) => `<li class="${f.severity}"><p><span class="code">${html(f.code)}</span>${html(f.message)}${f.format ? ` <span class="where">(${html(f.format)})</span>` : ""}</p>${
-          f.hint ? `<p class="hint">${html(f.hint)}</p>` : ""
-        }<p class="acts">${
-          f.fix && f.fixable
-            ? `<button type="button" data-fix="${i}" aria-label="Fix ${html(f.code)}: ${html(fixing(f.fix))}">Fix</button><span class="change">${html(fixing(f.fix))}</span>`
-            : ""
+        (f, i) => `<li class="${f.severity}"><p>${html(sentence(f))}${f.format ? ` <span class="where">(in ${html(f.format)})</span>` : ""}</p><p class="acts">${
+          f.fix && f.fixable ? `<button type="button" data-fix="${i}" title="${html(fixing(f.fix))}">${html(f.fixing ?? "Fix")}</button>` : ""
         }${f.node && EDITS[f.code] ? `<button type="button" data-edit="${i}">${html(EDITS[f.code][1])}</button>` : ""}${
           f.at ? `<button type="button" data-go="${i}">In the source</button>` : ""
         }</p></li>`,
@@ -213,13 +218,12 @@ export function marks(layer: HTMLElement, pop: HTMLElement, host: MarksHost) {
   /** Take `f`'s fix, and say so. */
   async function take(f: Finding) {
     pop.hidePopover();
-    const how = fixing(f.fix ?? []);
-    host.say(`fixing ${f.code}${f.node ? ` on ${f.node}` : ""}…`);
+    host.say("Fixing…");
     try {
       await host.fix(f);
-      host.say(`${f.code} fixed${f.node ? ` on ${f.node}` : ""}: ${how}`);
+      host.say(`Fixed ${f.node === undefined ? "it on this slide" : host.name(f.node, true)} · ⌘Z undoes it`);
     } catch (e) {
-      host.say(`not fixed: ${said(e)}`);
+      host.say(`Not fixed: ${said(e)}`);
     }
   }
 

@@ -188,7 +188,7 @@ try {
     input.value = "30";
     input.dispatchEvent(new Event("change", { bubbles: true }));
   });
-  check(await says("tf-flag's transform/rotate: 30°"), `one typed there turns it: ${await status()}`);
+  check(await says("Rotation: 30° · on this slide"), `one typed there turns it: ${await status()}`);
   check((await source()).includes("transform:{rotate: 30}"), "and writes 30");
   await undo();
   check(await back(original), "one undo takes it back");
@@ -208,7 +208,7 @@ try {
     input.value = "90";
     input.dispatchEvent(new Event("change", { bubbles: true }));
   });
-  check(await says("tf-title's transform/rotate: 90°"), `the inspector turns the headline a quarter: ${await status()}`);
+  check(await says("Rotation: 90° · on this slide"), `the inspector turns the headline a quarter: ${await status()}`);
   await page
     .waitForFunction(() => Math.abs((window.scaena.canvas.boxes()?.find((b) => b.node === "tf-title")?.transform?.[1] ?? 0) - 1) < 1e-4, null, { timeout: 30000 })
     .catch(() => {});

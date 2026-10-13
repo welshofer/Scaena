@@ -277,8 +277,8 @@ try {
   );
   const onState = await menu();
   check(
-    ["Add a step", "Add a slide…", "Rename the state", "Delete the state"].every((l) => onState.includes(l)),
-    `it offers what is done to a state: ${onState.join(", ")}`,
+    ["Add a step", "Add a slide…", "Delete this slide"].every((l) => onState.includes(l)) && !onState.some((l) => l.startsWith("Rename")),
+    `it offers what is done to a slide: ${onState.join(", ")}`,
   );
   await choose("Add a step");
   check(
@@ -298,15 +298,15 @@ try {
   check(await page.evaluate(() => window.scaena.canvas.selected() === "note"), "and selects its node");
   const onLayer = await menu();
   check(
-    ["Hide it in this state", "Rename it", "Duplicate", "Delete"].every((l) => onLayer.includes(l)),
+    ["Hide it on this slide", "Duplicate", "Delete", "Delete from every slide"].every((l) => onLayer.includes(l)) && !onLayer.some((l) => l.startsWith("Rename")),
     `it offers what is done to a layer and its node: ${onLayer.join(", ")}`,
   );
-  await choose("Hide it in this state");
+  await choose("Hide it on this slide");
   check(
     await page
       .waitForFunction(() => window.scaena.layers.listed().includes("note (hidden)"), null, { timeout: 30000 })
       .then(() => true, () => false),
-    "Hide it in this state hides the note there",
+    "Hide it on this slide hides the note there",
   );
   await undo();
   check(await back(original), "one undo shows it again");
@@ -315,7 +315,7 @@ try {
   await menuOpen();
   const hidden = await menu();
   check(
-    hidden.includes("Show it in this state") && !hidden.includes("Duplicate"),
+    hidden.includes("Show it on this slide") && !hidden.includes("Duplicate"),
     `on a layer not shown: Show it, and nothing done to a node: ${hidden.join(", ")}`,
   );
   await page.keyboard.press("Escape");

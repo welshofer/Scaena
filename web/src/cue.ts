@@ -1,7 +1,8 @@
 // The cue of the state shown (PLAN 2.44, ADR-0013, SPEC §3.9), under the preview: its transition,
 // then each motion on the cue's clock, a bar each, where `scaena inspect --timeline` places them.
 // The page lays nothing out and times nothing itself: the engine says when each motion starts and
-// rests, its delay as written, and where it is written.
+// rests, its delay as written, and where it is written. Each is said as a person says it (PLAN
+// 2.99): its object by what it shows, what it does, and its times in seconds.
 //
 // - A bar dragged changes its motion's delay, and its end its duration (`time_motion`, written
 //   where the motion is). The transition's end changes its duration (`set_state`). Times move in
@@ -20,8 +21,9 @@
 // - Each change is one patch, by the user, one step to undo. What the deck refuses, the status
 //   says why.
 import { type Key, SHIFT } from "./commands";
-import type { At, Cue, Edited, Inspected, Motion } from "./protocol";
+import type { At, Cue, Edited, Inspected, Lexicon, Motion } from "./protocol";
 import type { Stage } from "./stage";
+import { moving, named, object, seconds } from "./words";
 
 /** What the cue asks of the editor around it. */
 export interface CueEditor {
@@ -40,6 +42,8 @@ export interface CueEditor {
 }
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
+/** Seconds without their unit, where one follows: the 0.25 of 0.25–1 s. */
+const bare = (ms: number) => seconds(ms).replace(" s", "");
 const html = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 /** A drag moves a time in whole tens of ms. */
 const STEP = 10;
@@ -47,9 +51,9 @@ const snap = (ms: number) => Math.round(ms / STEP) * STEP;
 
 /** What a bar of the cue answers, focused (PLAN 2.65), as the keys sheet lists it. */
 export const cueKeys = (): Key[] => [
-  { keys: "← →", label: `In the cue: move a motion's start, or its end, ${STEP} ms`, group: "The cue" },
-  { keys: `${SHIFT}← ${SHIFT}→`, label: "Move it 100 ms", group: "The cue" },
-  { keys: "Enter", label: "On a motion's bar: select its node on the canvas", group: "The cue" },
+  { keys: "← →", label: `In the animations: move one's start, or its end, by ${seconds(STEP)}`, group: "Animations" },
+  { keys: `${SHIFT}← ${SHIFT}→`, label: `Move it by ${seconds(100)}`, group: "Animations" },
+  { keys: "Enter", label: "On an animation: select its object on the canvas", group: "Animations" },
 ];
 
 /** One bar: the transition, or a motion. */
@@ -69,18 +73,18 @@ interface Bar {
   sprung: boolean;
 }
 
-/** The bars of `cue`: its transition, then its motions in the order the state lists them. */
-function bars(cue: Cue): Bar[] {
+/** The bars of `cue`: its transition, then its motions in the order the state lists them, each
+ * named by its object and what it does, as `words` says them. */
+function bars(cue: Cue, words: Lexicon | undefined): Bar[] {
   const seen = new Map<string, number>();
   const motions = cue.motions.map((m): Bar => {
     const name = `${m.node} ${m.motion}`;
     const n = (seen.get(name) ?? 0) + 1;
     seen.set(name, n);
-    const units = m.units > 1 ? ` ×${m.units}` : "";
     const span = m.moving[1] - m.moving[0] - (m.units - 1) * m.stagger;
     return {
       key: n === 1 ? name : `${name} ${n}`,
-      label: `${m.node} · ${m.motion}${m.split ? ` by ${m.split}` : ""}${units}`,
+      label: `${object(words, m.node)} · ${moving(words, m.motion, m.split)}`,
       motion: m,
       from: m.moving[0],
       to: m.moving[1],
@@ -90,7 +94,7 @@ function bars(cue: Cue): Bar[] {
     };
   });
   const t = cue.transition;
-  const transition: Bar = { key: "transition", label: "transition", from: 0, to: t.duration, delay: 0, duration: t.duration, sprung: "spring" in t.curve };
+  const transition: Bar = { key: "transition", label: "Transition", from: 0, to: t.duration, delay: 0, duration: t.duration, sprung: "spring" in t.curve };
   return [transition, ...motions];
 }
 
@@ -101,8 +105,9 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
   const play = into.querySelector<HTMLButtonElement>("[data-play]")!;
   const clock = into.querySelector<HTMLElement>(".clock")!;
   const adder = into.querySelector<HTMLSelectElement>("[data-add]")!;
-  /** The state as the inspector last read it. */
+  /** The state as the inspector last read it, and its words. */
   let read: Inspected | undefined;
+  let words: Lexicon | undefined;
   let drawn: Bar[] = [];
   /** How many ms the lanes span. */
   let scale = 1000;
@@ -121,9 +126,10 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
   const pct = (ms: number) => `${(Math.min(Math.max(ms, 0), scale) / scale) * 100}%`;
   const span = () => read?.timeline?.span ?? 0;
 
-  /** The cue of the state the inspector read: drawn, the preview at rest. */
-  function show(found: Inspected) {
+  /** The cue of the state the inspector read, said in `said`: drawn, the preview at rest. */
+  function show(found: Inspected, said?: Lexicon) {
     read = found;
+    words = said;
     t = undefined;
     playing = false;
     draw();
@@ -134,31 +140,31 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
     const c = read?.timeline;
     into.hidden = !c;
     if (!c) return lanes.replaceChildren();
-    drawn = bars(c);
+    drawn = bars(c, words);
     scale = Math.ceil((Math.max(1000, c.span, c.transition.duration) * 1.25) / 100) * 100;
     const step = scale <= 2000 ? 250 : scale <= 5000 ? 500 : 1000;
     const ticks = Array.from({ length: Math.floor(scale / step) + 1 }, (_, k) => k * step)
-      .map((ms) => `<span class="tick" style="left:${pct(ms)}">${ms === 0 ? "0" : ms % 1000 === 0 ? `${ms / 1000} s` : ms}</span>`)
+      .map((ms) => `<span class="tick" style="left:${pct(ms)}">${ms === 0 ? "0" : ms % 1000 === 0 ? seconds(ms) : bare(ms)}</span>`)
       .join("");
     const rows = drawn
       .map((b, i) => {
         const row = i + 2;
         const kind = b.motion?.motion ?? "transition";
         const what = b.motion
-          ? `${b.label}, ${Math.round(b.from)}–${Math.round(b.to)} ms: a press selects ${b.motion.node}, a drag moves when it starts`
-          : `the transition, ${Math.round(b.duration)} ms`;
+          ? `${b.label}, ${bare(b.from)}–${seconds(b.to)}: a press selects it, a drag moves when it starts`
+          : `The transition, ${seconds(b.duration)}`;
         const body = b.motion
-          ? `<div class="bar ${kind}" data-bar="${i}" data-part="delay" role="slider" tabindex="0" aria-label="${html(b.label)}: when it starts" aria-valuemin="0" aria-valuenow="${Math.round(b.delay)}" aria-valuetext="waits ${Math.round(b.delay)} ms, starts ${Math.round(b.from)} ms in" title="${html(what)}" style="left:${pct(b.from)};width:${pct(b.to - b.from)}"></div>`
+          ? `<div class="bar ${kind}" data-bar="${i}" data-part="delay" role="slider" tabindex="0" aria-label="${html(b.label)}: when it starts" aria-valuemin="0" aria-valuenow="${Math.round(b.delay)}" aria-valuetext="waits ${seconds(b.delay)}, starts ${seconds(b.from)} in" title="${html(what)}" style="left:${pct(b.from)};width:${pct(b.to - b.from)}"></div>`
           : `<div class="bar transition" data-bar="${i}" title="${html(what)}" style="left:0;width:${pct(b.to)}"></div>`;
         const end = b.sprung
           ? ""
-          : `<div class="end" data-bar="${i}" data-part="duration" role="slider" tabindex="0" aria-label="${html(b.label)}: how long it lasts" aria-valuemin="0" aria-valuenow="${Math.round(b.duration)}" aria-valuetext="${Math.round(b.duration)} ms${b.motion && b.motion.units > 1 ? " each" : ""}" title="drag to change how long it lasts" style="left:${pct(b.to)}"></div>`;
-        const tip = b.sprung ? "on a spring: it lasts as long as it takes to settle" : b.motion ? `a press selects ${b.motion.node}` : "";
+          : `<div class="end" data-bar="${i}" data-part="duration" role="slider" tabindex="0" aria-label="${html(b.label)}: how long it lasts" aria-valuemin="0" aria-valuenow="${Math.round(b.duration)}" aria-valuetext="${seconds(b.duration)}${b.motion && b.motion.units > 1 ? " each" : ""}" title="Drag to change how long it lasts" style="left:${pct(b.to)}"></div>`;
+        const tip = b.sprung ? "On a spring: it lasts as long as it takes to settle" : b.motion ? "A press selects it" : "";
         const node = b.motion ? ` data-node="${html(b.motion.node)}"` : "";
         return `<span class="label" data-bar="${i}"${node} style="grid-row:${row}"${tip ? ` title="${html(tip)}"` : ""}>${html(b.label)}</span><div class="track" data-bar="${i}"${node} style="grid-row:${row}">${body}${end}</div>`;
       })
       .join("");
-    lanes.innerHTML = `<span class="label" style="grid-row:1"></span><div class="ruler" style="grid-row:1" title="press or drag to see the cue at a time">${ticks}</div>${rows}<div class="head" style="grid-row:1 / ${drawn.length + 2}" aria-hidden="true"><i></i></div>`;
+    lanes.innerHTML = `<span class="label" style="grid-row:1"></span><div class="ruler" style="grid-row:1" title="Press or drag to see the animation at that moment">${ticks}</div>${rows}<div class="head" style="grid-row:1 / ${drawn.length + 2}" aria-hidden="true"><i></i></div>`;
     place();
     mark();
     for (const el of lanes.querySelectorAll<HTMLElement>("[data-part]")) {
@@ -184,9 +190,9 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
     const head = lanes.querySelector<HTMLElement>(".head i");
     const at = t ?? span();
     if (head) head.style.left = pct(at);
-    clock.textContent = t === undefined ? `${Math.round(span())} ms, at rest` : `${Math.round(at)} of ${Math.round(span())} ms`;
+    clock.textContent = t === undefined ? `${seconds(span())}, at rest` : `${bare(at)} of ${seconds(span())}`;
     play.textContent = playing ? "❚❚" : "▶";
-    play.setAttribute("aria-label", playing ? "Pause the cue" : "Play the cue");
+    play.setAttribute("aria-label", playing ? "Pause the animation" : "Play the animation");
     preview.classList.toggle("scrubbing", t !== undefined);
   }
 
@@ -248,14 +254,14 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
   function make(op: Record<string, unknown>, doing: string, done: string) {
     const run = async () => {
       const at = editor.shown();
-      if (!at) return editor.say("the cue waits for a source that compiles");
+      if (!at) return editor.say("Nothing changed: the source has an error to fix first");
       editor.say(doing);
       try {
         const { source, edited } = await stage.make(editor.source(), [op], at.index, editor.format());
         editor.apply(source, edited);
         editor.say(done);
       } catch (e) {
-        editor.say(`not made: ${said(e)}`);
+        editor.say(`Not changed: ${said(e)}`);
       }
     };
     making = making.then(run, run);
@@ -270,13 +276,13 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
     if (!b.motion) {
       const value = Math.max(0, snap(b.duration + by));
       const op = { op: "set_state", id: at.state, prop: "transition/duration", value };
-      return make(op, "timing…", `the transition into ${at.state} lasts ${value} ms`);
+      return make(op, "Timing…", `The transition lasts ${seconds(value)}`);
     }
     const { node, motion } = b.motion;
     const value = Math.max(part === "duration" && motion === "anim" ? STEP : 0, snap(b[part] + by));
     const op = { op: "time_motion", node, motion, state: at.state, [part]: value };
-    const done = part === "delay" ? `${node}'s ${motion} waits ${value} ms` : `${node}'s ${motion} lasts ${value} ms${b.motion.units > 1 ? " a unit" : ""}`;
-    return make(op, "timing…", done);
+    const done = part === "delay" ? `${b.label}: waits ${seconds(value)}` : `${b.label}: lasts ${seconds(value)}${b.motion.units > 1 ? " each" : ""}`;
+    return make(op, "Timing…", done);
   }
 
   /** A drag of bar `b`'s start or end from the press `down`: the bar follows, and where it is let
@@ -382,7 +388,7 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
     const at = editor.shown();
     const found = read;
     const none = () => {
-      adder.replaceChildren(new Option("Add a motion…", ""));
+      adder.replaceChildren(new Option("Add an animation…", ""));
       adder.disabled = true;
     };
     if (!at || !found?.timeline) return none();
@@ -398,21 +404,21 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
     const groups: HTMLOptGroupElement[] = [];
     const group = (label: string, kind: string, of: string) => {
       const g = Object.assign(document.createElement("optgroup"), { label });
-      for (const p of presets) g.append(new Option(p, JSON.stringify([kind, of, p])));
+      for (const p of presets) g.append(new Option(named(words, "motion-preset", p), JSON.stringify([kind, of, p])));
       if (presets.length) groups.push(g);
     };
     if (node && found.nodes[node]) {
       const enters = (found.entered ?? []).includes(node) || found.nodes[node].type === "chart";
-      if (enters && !has(node, "enter")) group(`${node} enters`, "enter", node);
-      if (!has(node, "emphasis")) group(`${node}, for emphasis`, "emphasis", node);
+      if (enters && !has(node, "enter")) group(`${object(words, node)}, as it enters`, "enter", node);
+      if (!has(node, "emphasis")) group(`${object(words, node)}, for emphasis`, "emphasis", node);
     }
-    for (const gone of found.exited ?? []) if (!has(gone, "exit")) group(`${gone} leaves`, "exit", gone);
-    adder.replaceChildren(new Option("Add a motion…", ""), ...groups);
-    // With nothing to add, it says why: the canvas selects what a motion is for.
+    for (const gone of found.exited ?? []) if (!has(gone, "exit")) group(`${object(words, gone)}, as it leaves`, "exit", gone);
+    adder.replaceChildren(new Option("Add an animation…", ""), ...groups);
+    // With nothing to add, it says why: the canvas selects what an animation is for.
     adder.disabled = groups.length === 0;
     adder.title = groups.length
-      ? "A motion from the theme's presets: for the node selected, as it enters or for emphasis, or for a node that leaves, as it leaves"
-      : "Select a node on the canvas to add a motion to it";
+      ? "An animation from the theme: for the object selected, as it enters or for emphasis, or for one that leaves, as it leaves"
+      : "Select an object on the canvas to animate it";
   }
   adder.onchange = () => {
     const chosen = adder.value;
@@ -423,9 +429,10 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
     // An exit is read from the state the node leaves: the one before this one.
     const states = editor.states();
     const state = motion === "exit" ? states[states.indexOf(at.state) - 1] : at.state;
-    if (!state) return editor.say(`${node} leaves no state before ${at.state}`);
+    const it = object(words, node, true);
+    if (!state) return editor.say(`${it[0].toUpperCase()}${it.slice(1)} leaves no slide before this one`);
     const verb = { enter: "as it enters", emphasis: "for emphasis", exit: "as it leaves" }[motion];
-    void make({ op: "apply_preset", node, preset, motion, state }, "adding…", `${preset} on ${node} ${verb}`);
+    void make({ op: "apply_preset", node, preset, motion, state }, "Adding…", `${named(words, "motion-preset", preset)} added to ${it} ${verb}`);
   };
 
   return {

@@ -93,6 +93,22 @@ pub struct Located {
     /// then each of the deck's `formats` (PLAN 2.62). What the formats shown side by side count
     /// on each.
     pub formats: Vec<String>,
+    /// What it finds, in a sentence a person would say (PLAN 2.99, `scaena_core::words::issue`),
+    /// its fix as a button names it, and whether an editor marks it on its object.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub said: Option<&'static str>,
+    pub fixing: &'static str,
+    pub marked: bool,
+}
+
+impl Located {
+    /// `finding`, at `at`, holding in `formats`: worded as an editor shows it.
+    fn new(finding: Finding, at: Option<Place>, fixable: bool, shown: bool, formats: Vec<String>) -> Located {
+        let said = scaena_core::words::issue(&finding.code);
+        let fixing = scaena_core::words::fixing(&finding.code);
+        let marked = scaena_core::words::marked(&finding.code);
+        Located { finding, at, fixable, shown, formats, said, fixing, marked }
+    }
 }
 
 /// The format frames are laid out in, as the findings shown in it are told apart (PLAN 2.49).
@@ -184,7 +200,7 @@ impl Session {
                 let finding = Finding::new("E106", Severity::Error, e.message.clone());
                 let at = Some(Place::of(source, e.offset, e.len));
                 let formats = self.every().each.into_iter().map(|(name, _)| name).collect();
-                let error = Located { finding, at, fixable: false, shown: true, formats };
+                let error = Located::new(finding, at, false, true, formats);
                 self.edit = None;
                 return Compiling { error: Some(error), findings: Vec::new(), states: Vec::new(), valid: false };
             }
@@ -532,13 +548,7 @@ impl Every {
     fn locate(&self, source: &str, compiled: &Compiled, f: &Finding, laid: bool) -> Located {
         let at = compiled.span(f).map(|(offset, len)| Place::of(source, offset, len.max(1)));
         let formats = (self.each.iter()).filter(|(_, shown)| shown.holds(f, laid)).map(|(name, _)| name.clone());
-        Located {
-            finding: f.clone(),
-            at,
-            fixable: f.fix.is_some(),
-            shown: self.shown.holds(f, laid),
-            formats: formats.collect(),
-        }
+        Located::new(f.clone(), at, f.fix.is_some(), self.shown.holds(f, laid), formats.collect())
     }
 }
 

@@ -287,6 +287,7 @@
       #inspector .flag { color: var(--warning); font-size: 12px; margin-left: 4px; }
       /* The node selected, its look chosen from the theme (PLAN 2.33); with none, the state's (PLAN 2.36). */
       #look:empty { display: none; }
+      #look .named { margin: 0 0 6px; font-size: 13px; overflow-wrap: anywhere; }
       #look .keep { padding: 0 0 6px; color: var(--muted); font-size: 13px; }
       /* The controls take the room: a name and where its value lives wrap before a control is cut,
          and in a narrow panel (the source open beside the canvas) each name stands over its control. */
@@ -624,11 +625,11 @@
           <p class="sizing"><span class="small" aria-hidden="true">▭</span><input type="range" min="120" max="520" step="10" value="240" data-size aria-label="Slide size" /><span class="large" aria-hidden="true">▭</span></p>
         </section>
         <div id="formats" role="group" aria-label="The state shown in each format: a click edits the deck in it" hidden></div>
-        <section id="cue" aria-label="The cue of the state shown" hidden>
+        <section id="cue" aria-label="The slide's animations" hidden>
           <p class="cue-head">
-            <button type="button" data-play aria-label="Play the cue">▶</button>
+            <button type="button" data-play aria-label="Play the animation">▶</button>
             <span class="clock"></span>
-            <select data-add aria-label="Add a motion" title="A motion from the theme's presets for the node selected, as it enters or for emphasis, or for a node that leaves"></select>
+            <select data-add aria-label="Add an animation" title="An animation from the theme for the object selected, as it enters or for emphasis, or for one that leaves"></select>
           </p>
           <div class="lanes"></div>
         </section>
@@ -641,7 +642,7 @@
         </div>
         <p>
           <select id="state" aria-label="State"></select>
-          <select id="format" aria-label="Format"><option value="">own canvas</option></select>
+          <select id="format" aria-label="Format"><option value="">Own size</option></select>
           <button type="button" id="slides-open" aria-pressed="false" aria-controls="slides" title="The light table: every slide, to move, copy, and take out across the deck (Escape closes it)">Slides</button>
           <button type="button" id="formats-open" aria-pressed="false" title="The state shown in each of the deck's formats, side by side, as it plays; a click on one edits the deck in it">Formats</button>
           <button type="button" id="rehearse-open" title="Play the deck as you present it, and keep the time each state took as its hold">Rehearse</button>
@@ -887,14 +888,14 @@
         <h2 id="rehearsed-title">Rehearsed in <span data-total></span></h2>
         <table>
           <thead>
-            <tr><th scope="col">State</th><th scope="col">Time</th><th scope="col">Cue</th><th scope="col">Hold it keeps</th><th scope="col">Hold now</th></tr>
+            <tr><th scope="col">Slide</th><th scope="col">Time</th><th scope="col">Animation</th><th scope="col">Advance it keeps</th><th scope="col">Advance now</th></tr>
           </thead>
           <tbody></tbody>
         </table>
-        <p class="note">A state's cue plays, then its hold, then the next state: the hold a state keeps is its time less its cue. Kept, the deck plays at the pace you rehearsed.</p>
+        <p class="note">A slide's animation plays, then it waits, then the next slide comes: the wait it keeps is its time less its animation. Kept, the deck plays at the pace you rehearsed.</p>
         <menu>
           <button value="cancel">Discard</button>
-          <button value="keep" id="rehearsed-keep">Keep as holds</button>
+          <button value="keep" id="rehearsed-keep">Keep these timings</button>
         </menu>
       </form>
     </dialog>

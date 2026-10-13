@@ -59,6 +59,9 @@ export interface Slot {
   state: string;
   /** The slide it builds on: its first state's id (PLAN 2.97). */
   slide?: string;
+  /** The state as a person counts it: `Slide 3`, or `Slide 3, step 2` for a step after a slide's
+   * first (PLAN 2.99). */
+  said?: string;
   start: number;
   span: number;
   hold: number;
@@ -270,6 +273,10 @@ export interface Choices {
   state: string;
   /** Each property the inspector edits: the node type's own, then those every node has. */
   fields: Field[];
+  /** The node as a person names it, by what it shows: its words, else its kind (PLAN 2.99). */
+  said?: string;
+  /** Its kind as a person names it: `Text`, `Chart`, `Background Effect` (PLAN 2.99). */
+  noun?: string;
 }
 
 /** A node's look as a state shows it (PLAN 2.58), as `scaena inspect --look` says it: each
@@ -297,6 +304,24 @@ export interface StateChoices {
   state: string;
   /** What `set_state` names. A state that sets no key of its transition cuts in. */
   fields: Field[];
+  /** The state as a person counts it: `Slide 3, step 2` (PLAN 2.99). */
+  said?: string;
+}
+
+/** The words an editor shows for a state (PLAN 2.99): each object it shows named by what it
+ * shows and by its kind, each of the theme's names said by its kind of name (`color`,
+ * `text-role`, `layout`, …), and how a motion, its split, and a shape are said. */
+export interface Lexicon {
+  objects: Record<string, string>;
+  kinds: Record<string, string>;
+  names: Record<string, Record<string, string>>;
+  motions: Record<string, string>;
+  splits: Record<string, string>;
+  shapes: Record<string, string>;
+  /** Each place a node is put by name, said: a slot of the theme's layouts, an area of a grid. */
+  places: Record<string, string>;
+  /** Each weight a type menu names, by its number: `700` is Bold. */
+  weights: Record<string, string>;
 }
 
 /** A slide a person may start (PLAN 3.30): one in a layout of the theme, a text in each slot that
@@ -364,6 +389,9 @@ export interface Field {
    * role's family, weight, size, italic, case, tracking, or color; for characters selected, the
    * text's own look where their run sets none, its role and emphasis too. Absent for the rest. */
   theme?: unknown;
+  /** Its label, and each name or word it offers, its value, and the theme's, said as a person says
+   * them (PLAN 2.99): `style/family` is Font, `onSurface` Text, `fast` Fast (0.18 s). */
+  words?: { label: string; said: Record<string, string> };
 }
 
 /** What a property takes: one of the theme's names of a kind (with `overrides`, or a value written
@@ -812,6 +840,7 @@ export type ToWorker =
   /** What an inspector offers for `node` as `state` shows it (PLAN 2.33). */
   | { type: "choices"; id: number; state: string; node: string }
   | { type: "stateChoices"; id: number; state: string }
+  | { type: "words"; id: number; state: string }
   /** The layouts `state` may take, best first, each painted at rest `height` pixels high, in the
    * deck the editor's `source` compiles to (PLAN 2.92). */
   | { type: "layoutSuggestions"; id: number; state: string; height: number; format?: string }
@@ -1302,6 +1331,13 @@ export interface Finding {
   /** The formats it holds in, as the format menu names them: `""` for the deck's own canvas,
    * then each of the deck's `formats` (PLAN 2.62). */
   formats: string[];
+  /** What it finds, in a sentence a person would say (PLAN 2.99): `The text doesn't fit its
+   * box.` */
+  said?: string;
+  /** Its fix, as a button names it: `Shrink to Fit`, `Use a Color That Reads`, `Fix`. */
+  fixing?: string;
+  /** Whether the canvas marks it on its object (PLAN 3.20); the rest are listed. */
+  marked?: boolean;
 }
 
 /** A data source's rows as the Data panel shows them (PLAN 2.55, SPEC §3.10): its columns, each
@@ -1486,6 +1522,7 @@ export type FromWorker =
   | { type: "made"; id: number; source: string; edited: Edited }
   | { type: "choices"; id: number; choices: Choices }
   | { type: "stateChoices"; id: number; choices: StateChoices }
+  | { type: "words"; id: number; words: Lexicon }
   | { type: "layoutSuggestions"; id: number; suggestions: LayoutSuggestion[] }
   | { type: "look"; id: number; look: Look }
   | { type: "put"; id: number; put: Put }

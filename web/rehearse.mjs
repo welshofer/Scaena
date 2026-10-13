@@ -63,7 +63,7 @@ try {
   check(!(await page.locator("#rehearsing").isHidden()), "Rehearse shows its bar");
   check((await at()) === 0, "and plays from the first state");
   const where = await page.locator("#rehearsing [data-where]").textContent();
-  check(where.startsWith("intro (1 of 4)"), `the bar says where it is: ${where}`);
+  check(where.startsWith("Rehearsing Slide 1 · "), `the bar says where it is: ${where}`);
   const found = await audit();
   check(!found.length, `axe finds nothing with the bar shown${found.length ? `:\n    ${found.join("\n    ")}` : ""}`);
   await press("ArrowRight", 100);
@@ -105,7 +105,10 @@ try {
     `each keeps its time less its cue, to a tenth of a second: ${holds.map((k) => `${k.state} ${k.keeps}`).join(", ")}`,
   );
   const rows = await page.locator("#rehearsed tbody tr").evaluateAll((trs) => trs.map((tr) => [...tr.children].map((c) => c.textContent)));
-  check(rows.length === 4 && rows[3][1] === "not reached" && rows[3][3] === "as it is", `the table: ${JSON.stringify(rows)}`);
+  check(
+    rows.map((r) => r[0]).join() === "Slide 1,Slide 2,Slide 2, step 2,Slide 3" && rows[3][1] === "Not reached" && rows[3][3] === "As it is",
+    `the table, each slide as a person counts it: ${JSON.stringify(rows)}`,
+  );
 
   // Keep: one patch of the holds; ⌘Z takes them back in one step; ⇧⌘Z makes them again.
   const introHold = slots[0].hold;

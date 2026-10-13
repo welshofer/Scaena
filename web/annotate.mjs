@@ -12,7 +12,7 @@
 //   on the callout selects it; dragged onto another bar, it stands there; a double click changes
 //   its words; Delete takes it away, and the chart stays.
 // - Rule its value; a band from one quarter's bar to another quarter's.
-// - "Only in this state" keeps an annotation to the state shown.
+// - "Only on Slide N" keeps an annotation to the state shown.
 // - Escape lets go of the mark picked, and the chart stays selected.
 // - The keys sheet lists what annotates; axe-core finds nothing against WCAG 2.1 AA with a mark
 //   picked and its menu open.
@@ -233,7 +233,7 @@ try {
     `banded from one quarter to the other: ${JSON.stringify(await annotations())}`,
   );
 
-  // Kept to the state shown: the inspector's "Only in this state".
+  // Kept to the state shown: the inspector's "Only on Slide N".
   await page.click("#tab-inspector");
   const keep = page.locator("#look [data-keep]");
   await keep.waitFor({ timeout: 10000 }).catch(() => {});

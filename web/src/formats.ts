@@ -55,11 +55,11 @@ export function formatsRow(stage: Stage, into: HTMLElement, toggle: HTMLButtonEl
       const button = document.createElement("button");
       button.type = "button";
       button.dataset.format = name;
-      button.title = `Edit the deck ${name ? `in ${name}` : "on its own canvas"}`;
+      button.title = `Edit the deck ${name ? `in ${name}` : "in its own size"}`;
       const canvas = document.createElement("canvas");
       canvas.style.height = `${HEIGHT}px`;
       canvas.setAttribute("aria-hidden", "true");
-      const label = Object.assign(document.createElement("span"), { className: "name", textContent: name || "own canvas" });
+      const label = Object.assign(document.createElement("span"), { className: "name", textContent: name || "Own size" });
       button.append(canvas, label);
       button.addEventListener("click", () => editor.open(name));
       return { name, button, canvas };
@@ -83,7 +83,7 @@ export function formatsRow(stage: Stage, into: HTMLElement, toggle: HTMLButtonEl
       const mine = findings.filter((f) => f.state === state && f.formats?.includes(name));
       button.querySelector(".found")?.remove();
       const said = mine.length ? counted(mine) : "no findings";
-      button.setAttribute("aria-label", `${name || "own canvas"}: ${said}`);
+      button.setAttribute("aria-label", `${name || "Own size"}: ${said}`);
       if (mine.length) {
         button.insertAdjacentHTML(
           "beforeend",

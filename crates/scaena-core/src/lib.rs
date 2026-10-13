@@ -28,6 +28,8 @@
 //! - [`validate`] — semantic validation (ids, references), surfaced as lint findings.
 //! - [`version`] — which formats this build reads: an older one reads as the current one
 //!   (SPEC §3.1).
+//! - [`words`] — the editors' words: slides numbered, objects named by what they show, each
+//!   property and value as a person says it (PLAN 3.18, 2.99).
 //!
 //! Invariant: nothing in this crate reads a clock, a font, or the filesystem.
 
@@ -60,6 +62,7 @@ pub mod tracking;
 pub mod transform;
 pub mod validate;
 pub mod version;
+pub mod words;
 
 /// JPEG, read the same on every target (ADR-0017): `scaena-pixels`' decoder.
 pub use scaena_pixels::jpeg;

@@ -58,6 +58,7 @@ import type {
   Carets,
   Choices,
   StateChoices,
+  Lexicon,
   Look,
   Put,
   BundleFile,
@@ -114,6 +115,7 @@ type Reply = Extract<
       | "made"
       | "choices"
       | "stateChoices"
+      | "words"
       | "look"
       | "put"
       | "bundleFiles"
@@ -629,6 +631,12 @@ export class Stage {
     return this.request<"stateChoices">({ type: "stateChoices", id: ++this.asked, state }).then(({ choices }) => choices);
   }
 
+  /** The words an editor shows for `state` (PLAN 2.99): each object it shows named by what it
+   * shows and by its kind, and each of the theme's names said. */
+  words(state: string): Promise<Lexicon> {
+    return this.request<"words">({ type: "words", id: ++this.asked, state }).then(({ words }) => words);
+  }
+
   /** The layouts `state` may take, best first, in the deck shown (PLAN 2.92), as `stateChoices`
    * offers them: each judged by lint, with the patch that gives it, and painted at rest `height`
    * pixels high. The deck the worker holds: a request on a timer never takes it back to a source
@@ -946,6 +954,7 @@ export class Stage {
       case "made":
       case "choices":
       case "stateChoices":
+      case "words":
       case "look":
       case "put":
       case "bundleFiles":

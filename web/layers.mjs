@@ -12,7 +12,8 @@
 //   in `revenue`, so no state shows it once hidden: it stays listed, and its eye shows it again
 //   (`show_node`). The eye shows the background too; the subtitle, whose slot `figure` lacks, the
 //   deck refuses, and the status says why.
-// - A double click on a name renames the node everywhere (`rename_node`), and Escape leaves it.
+// - Each is named as a person names it (PLAN 2.99): a text by its words, a picture by its
+//   description, else its kind; no id. A double click on a name opens no field to rename one.
 // - A node dragged before another of what holds it goes over it, by `z`, and Alt with ↓ or ↑
 //   moves the node focused one place: each one patch, one undo.
 // - On the torture deck's `containers` case, a node dropped before a child of another stack goes
@@ -92,12 +93,15 @@ try {
     "a node selected on the canvas is marked in the list",
   );
   await row("bg").locator("[data-pick]").click();
-  check(await says("bg is not shown in revenue"), `a node not shown says so: ${await status()}`);
+  check(await says("isn’t shown on this slide"), `a node not shown says so: ${await status()}`);
+  // Each by its words or its kind, and no id.
+  const names = await page.evaluate(() => [...document.querySelectorAll("#layers [data-pick]")].map((b) => b.textContent));
+  check(names.includes("Revenue doubled") && !names.some((n) => ["note", "rev", "title", "bg", "subtitle"].includes(n)), `each by what it shows: ${names.join(", ")}`);
 
   // The eye hides a node in the state shown, and one undo takes it back.
   await row("note").locator("[data-eye]").click();
   check(await lists(["note (hidden)", "rev", "subtitle (hidden)", "title", "bg (hidden)"]), `the eye hides the note in revenue: ${(await listed()).join(", ")}`);
-  check(await says("note hidden in revenue"), `the status says so: ${await status()}`);
+  check(await says("hidden on this slide"), `the status says so: ${await status()}`);
   check(await page.evaluate(() => !window.scaena.canvas.boxes().some((b) => b.node === "note")), "and the canvas draws it no more");
   await row("note").locator("[data-eye]").click();
   check(await lists(all), `no state shows it now, and its eye shows it again: ${(await listed()).join(", ")}`);
@@ -132,32 +136,17 @@ try {
   await undo();
   check(await back(original), "one undo hides it again");
   await row("subtitle").locator("[data-eye]").click();
-  check(await says("not made: the deck refuses it: slot `subtitle` is not in layout `figure`"), `one the deck refuses says why: ${await status()}`);
+  check(await says("Not changed: the deck refuses it: slot `subtitle` is not in layout `figure`"), `one the deck refuses says why: ${await status()}`);
   check((await source()) === original, "and nothing changes");
 
-  // A double click on a name renames the node everywhere; Escape leaves it.
+  // No id is shown, so none is renamed here: a double click on a name opens no field.
   await row("note").locator("[data-pick]").dblclick();
-  const field = page.locator('#layers li[data-layer="note"] input');
-  check((await field.count()) === 1, "a double click on a name gives a field");
-  await field.press("Escape");
-  check((await page.locator("#layers input").count()) === 0 && (await source()) === original, "Escape leaves the name as it was");
-  await row("note").locator("[data-pick]").dblclick();
-  await page.locator('#layers li[data-layer="note"] input').fill("caption");
-  await page.locator('#layers li[data-layer="note"] input').press("Enter");
-  check(await lists(["caption", "rev", "subtitle (hidden)", "title", "bg (hidden)"]), `Enter renames it: ${(await listed()).join(", ")}`);
-  const renamed = await source();
-  // Where the deck names the node (its declaration, its choreography, where it leaves); the slot
-  // it stands in keeps its name.
-  const named = ["caption text", "choreo caption", "-caption"].every((n) => renamed.includes(n));
-  check(named && !/note text|choreo note|-note\b/.test(renamed) && renamed.includes("at:in(note)"), "everywhere the deck names it");
-  check(await says("note renamed caption"), `the status says so: ${await status()}`);
-  await undo();
-  check(await back(original), "one undo takes the name back");
+  check((await page.locator("#layers input").count()) === 0 && (await source()) === original, "a double click on a name renames nothing");
 
   // Dragged before the note, the title goes over it: one `z`, one patch, one undo.
   await row("title").dragTo(row("note"), { targetPosition: { x: 40, y: 2 } });
   check(await lists(["title", "note", "rev", "subtitle (hidden)", "bg (hidden)"]), `dragged before the note, the title is listed first: ${(await listed()).join(", ")}`);
-  check(await says("title moved before note"), `the status says so: ${await status()}`);
+  check(await says("“Revenue doubled” moved before"), `the status says so: ${await status()}`);
   check((await source()).includes("z:1"), "by its z");
   await undo();
   check(await back(original), "one undo takes it back");
@@ -169,7 +158,7 @@ try {
   check(await lists(["rev", "note", "subtitle (hidden)", "title", "bg (hidden)"]), `Alt+↓ moves the note under the chart: ${(await listed()).join(", ")}`);
   check(await page.evaluate(() => document.activeElement?.closest("[data-layer]")?.dataset.layer === "note"), "and keeps the focus on it");
   await page.keyboard.press("Alt+ArrowDown");
-  check(await says("note moved after title"), `again, under the title: ${await status()}`);
+  check(await says("moved after “Revenue doubled”"), `again, under the title: ${await status()}`);
   await undo();
   await undo();
   check(await back(original), "two undos take both back");
@@ -178,7 +167,7 @@ try {
   await lists(all);
   await row("note").locator("[data-pick]").focus();
   await page.keyboard.press("Alt+ArrowUp");
-  check(await says("note is first among what holds it"), `the topmost goes no higher: ${await status()}`);
+  check(await says("is first already"), `the topmost goes no higher: ${await status()}`);
 
   // Into other containers, on the torture deck's `containers` case: a stack's children, a
   // frame's, a group's, and the canvas.
@@ -214,7 +203,7 @@ try {
   // Dropped before a child of another stack, the tally's label goes into that stack, before it.
   await drop("tally-label", "stat-a-label", "before");
   check(await has("stat-a [stat-a-figure, tally-label, stat-a-label]", "tally [tally-figure]"), `into another stack, at the drop: ${(await listed()).join(" | ")}`);
-  check(await says("tally-label moved into stat-a, before stat-a-label"), `the status says so: ${await status()}`);
+  check((await says(" moved into ")) && (await status()).includes(", before "), `the status says so: ${await status()}`);
   await undo();
   check(await back(torture), "one undo takes it back");
 
@@ -223,7 +212,7 @@ try {
   const tag = await box("card-tag-label");
   await drop("card-tag-label", "card", "before");
   check(await has("card-tag-label | card [card-tag, card-photo]"), `onto the canvas, over the card: ${(await listed()).join(" | ")}`);
-  check(await says("card-tag-label moved onto the canvas, before card"), `the status says so: ${await status()}`);
+  check(await says(" moved out of its group, before "), `the status says so: ${await status()}`);
   const out = await page.waitForFunction((t) => {
     const b = window.scaena.canvas.boxes()?.find((x) => x.node === "card-tag-label")?.rect;
     return b && b[0] <= t[0] + t[2] && t[0] <= b[0] + b[2] && b[1] <= t[1] + t[3] && t[1] <= b[1] + b[3] && b;
@@ -236,7 +225,7 @@ try {
   // padding.
   await drop("marks-dot", "card", "into");
   check(await has("card [marks-dot, card-tag-label, card-tag, card-photo]", "marks [marks-ring]"), `into the frame, first: ${(await listed()).join(" | ")}`);
-  check(await says("marks-dot moved into card"), `the status says so: ${await status()}`);
+  check(await says(" moved into "), `the status says so: ${await status()}`);
   // The canvas's boxes come after the list and the status: waited for, as the drop onto the canvas
   // waits for its own.
   const inside = await page
@@ -257,18 +246,18 @@ try {
   await row("stat-b-label").locator("[data-pick]").focus();
   await page.keyboard.press("Alt+ArrowLeft");
   check(await has("stat-a [stat-a-figure, stat-a-label], stat-b-label, stat-b [stat-b-figure]"), `Alt+← takes it out: ${(await listed()).join(" | ")}`);
-  check(await says("stat-b-label moved into stats, before stat-b"), `the status says so: ${await status()}`);
+  check((await says(" moved into ")) && (await status()).includes(", before "), `the status says so: ${await status()}`);
   await row("stat-b-label").locator("[data-pick]").focus();
   await page.keyboard.press("Alt+ArrowRight");
   check(await has("stat-a [stat-a-figure, stat-a-label, stat-b-label], stat-b [stat-b-figure]"), `Alt+→ puts it into the stat before it: ${(await listed()).join(" | ")}`);
-  check(await says("stat-b-label moved into stat-a, after stat-a-label"), `the status says so: ${await status()}`);
+  check((await says(" moved into ")) && (await status()).includes(", after "), `the status says so: ${await status()}`);
   await undo();
   await undo();
   check(await back(torture), "two undos take both back");
   await has(...holding);
   await row("case").locator("[data-pick]").focus();
   await page.keyboard.press("Alt+ArrowLeft");
-  check(await says("case is on the canvas already"), `a root goes no further out: ${await status()}`);
+  check(await says("is in no group"), `a root goes no further out: ${await status()}`);
 
   // What may not be: a container into what it holds, a node into what holds nothing.
   await page.evaluate(() => window.scaena.layers.restack("stats", { into: "stat-a" }));

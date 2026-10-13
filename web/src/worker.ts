@@ -60,6 +60,7 @@ import type {
   Source,
   Starter,
   StateChoices,
+  Lexicon,
   Themed,
   ThemeEdited,
   ThemeText,
@@ -96,8 +97,46 @@ let judging = 0;
 /** The states a single-file export plays, in its order; every state without it. */
 let only: string[] | undefined;
 
+/** The words of the state last asked for (PLAN 2.99), kept while only reads come: the inspector,
+ * the layers, and the canvas each ask for them after an edit. */
+let worded: { state: string; words: Lexicon } | undefined;
+/** What only reads the deck and its theme. Any other message may change either, and the words
+ * kept go, before it and after it. */
+const READS = new Set<ToWorker["type"]>([
+  "boxes",
+  "calloutAt",
+  "characterChoices",
+  "choices",
+  "framing",
+  "grid",
+  "hit",
+  "inserts",
+  "inspect",
+  "layers",
+  "layout",
+  "linkAt",
+  "markAt",
+  "marksIn",
+  "marksOf",
+  "noteAt",
+  "outline",
+  "read",
+  "seek",
+  "show",
+  "stateChoices",
+  "targets",
+  "themes",
+  "thumbnails",
+  "timeline",
+  "view",
+  "waiting",
+  "words",
+]);
+
 self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
   const id = "id" in data ? data.id : undefined;
+  const reads = READS.has(data.type);
+  if (!reads) worded = undefined;
   try {
     switch (data.type) {
       case "open":
@@ -252,6 +291,9 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return post({ type: "choices", id: data.id, choices: JSON.parse(player.choices(data.state, data.node)) as Choices });
       case "stateChoices":
         return post({ type: "stateChoices", id: data.id, choices: JSON.parse(player.stateChoices(data.state)) as StateChoices });
+      case "words":
+        if (worded?.state !== data.state) worded = { state: data.state, words: JSON.parse(player.words(data.state)) as Lexicon };
+        return post({ type: "words", id: data.id, words: worded.words });
       case "layoutSuggestions": {
         layOut(data.format);
         // A layout at a time, each a lint of the state in every format and a frame: what else the
@@ -565,6 +607,8 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
     }
   } catch (e) {
     post({ type: "error", id, message: said(e) });
+  } finally {
+    if (!reads) worded = undefined;
   }
 };
 

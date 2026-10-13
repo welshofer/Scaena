@@ -1,6 +1,7 @@
 // The layers panel (PLAN 2.50, ADR-0013): the state shown's nodes, topmost first (a stack's in the
 // order it lays them out), nested as their containers and groups hold them, as the engine lists
-// them (`Player.layers`). The page orders nothing itself.
+// them (`Player.layers`). The page orders nothing itself. Each is named as a person names it, by
+// what it shows and by its kind (PLAN 2.99, `Player.words`).
 //
 // - A click on a node selects it on the canvas, one under the rest too. A node the state does not
 //   show (it leaves here, or another state of its slide shows it) is listed dimmed.
@@ -8,8 +9,6 @@
 //   `hide_node`): one patch, one step to undo.
 // - The lock locks a node, or unlocks it (PLAN 2.95): the canvas passes over a node locked, and
 //   moves, resizes, turns, and deletes nothing of it, while here it is selected as any other.
-// - A double click on a name, or F2, renames the node everywhere (`rename_node`): Enter renames,
-//   Escape leaves it.
 // - A node shown, dragged to another place in the list, or moved with Alt and an arrow key, goes
 //   there (`Player.arranging`), one patch:
 //   - Before or after the one it is dropped on, by which half of it the pointer is over: over or
@@ -21,14 +20,15 @@
 //     container, listed just before it; Alt with → puts it into the container listed just
 //     before it, last among what that holds.
 import { ALT, type Key } from "./commands";
-import type { Arrange, Edited, Layer } from "./protocol";
+import type { Arrange, Edited, Layer, Lexicon } from "./protocol";
 import type { Stage } from "./stage";
+import { object } from "./words";
 
-/** What a layer answers, focused (PLAN 2.65), as the keys sheet lists it; F2 renames it, a command. */
+/** What a layer answers, focused (PLAN 2.65), as the keys sheet lists it. */
 export const layerKeys = (): Key[] => [
   { keys: `${ALT}↑ ${ALT}↓`, label: "In the layers: move it before or after the one beside it", group: "Layers" },
-  { keys: `${ALT}←`, label: "Take it out of what holds it", group: "Layers" },
-  { keys: `${ALT}→`, label: "Put it in the container listed just before it", group: "Layers" },
+  { keys: `${ALT}←`, label: "Take it out of its group", group: "Layers" },
+  { keys: `${ALT}→`, label: "Put it in the group listed just before it", group: "Layers" },
 ];
 
 /** What the panel asks of the editor around it. */
@@ -47,6 +47,8 @@ export interface LayersEditor {
 }
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
+/** What the panel says while the source does not compile: nothing it does can be made. */
+const WAITING = "Nothing changed: the source has an error to fix first";
 /** The types of node that hold others. */
 const CONTAINERS = new Set(["stack", "grid", "frame", "group"]);
 const html = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
@@ -54,8 +56,8 @@ const html = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&
 /** The panel in `into`, over `stage`. */
 export function layers(stage: Stage, into: HTMLElement, editor: LayersEditor) {
   const list = into.querySelector<HTMLUListElement>("ul")!;
-  /** The layers of the state they were asked for, as the engine lists them. */
-  let shown: { state: string; layers: Layer[] } | undefined;
+  /** The layers of the state they were asked for, as the engine lists them, and its words. */
+  let shown: { state: string; layers: Layer[]; words?: Lexicon } | undefined;
   /** The nodes selected on the canvas, the first leading. */
   let chosen: string[] = [];
   /** Layers asked for: the last answer wins. */
@@ -79,32 +81,40 @@ export function layers(stage: Stage, into: HTMLElement, editor: LayersEditor) {
     if (state === undefined) return;
     const asked = ++asking;
     let found: Layer[];
+    let words: Lexicon | undefined;
     try {
-      found = await stage.layers(state);
+      [found, words] = await Promise.all([stage.layers(state), stage.words(state).catch(() => undefined)]);
     } catch {
       return;
     }
     if (asked !== asking) return;
-    shown = { state, layers: found };
+    shown = { state, layers: found, words };
     draw();
   }
+
+  /** `node` as a person names it in a sentence: “Revenue doubled”, the chart. */
+  const named = (node: string) => object(shown?.words, node, true);
 
   /** The list, topmost first: each node with its eye, its name, and its type. */
   function draw() {
     if (!shown) return;
     const focused = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>("[data-layer]")?.dataset.layer;
+    const words = shown.words;
     const row = (l: Layer, depth: number): string => {
       const on = chosen.includes(l.node);
-      const eye = l.shown ? `Hide ${l.node} in ${shown!.state}` : `Show ${l.node} in ${shown!.state}`;
-      const lock = l.locked ? `Unlock ${l.node}` : `Lock ${l.node}: the canvas passes over it`;
+      // Each by what it shows, and its kind beside it where its words name it.
+      const name = object(words, l.node);
+      const kind = words?.kinds[l.node] ?? l.type;
+      const eye = l.shown ? `Hide ${named(l.node)} on this slide` : `Show ${named(l.node)} on this slide`;
+      const lock = l.locked ? `Unlock ${named(l.node)}` : `Lock ${named(l.node)}: the canvas passes over it`;
       const held = (l.children ?? []).map((c) => row(c, depth + 1)).join("");
       const holds = CONTAINERS.has(l.type) ? " data-container" : "";
       return `<li data-layer="${html(l.node)}" class="${l.shown ? "shown" : "hidden"}"${holds}${on ? ' aria-current="true"' : ""}>
         <div class="row" style="padding-left:${depth * 14}px"${l.shown ? ' draggable="true"' : ""}>
           <button type="button" class="eye" data-eye aria-pressed="${l.shown}" aria-label="${html(eye)}" title="${html(eye)}">${l.shown ? "◉" : "○"}</button>
-          <button type="button" class="lock" data-lock aria-pressed="${!!l.locked}" aria-label="${html(`Lock ${l.node}`)}" title="${html(lock)}">${l.locked ? "🔒" : "🔓"}</button>
-          <button type="button" class="name" data-pick title="${html(l.shown ? `Select ${l.node} (double click or F2 renames it)` : `${l.node} is not shown in ${shown!.state} (double click or F2 renames it)`)}">${html(l.node)}</button>
-          <span class="kind">${html(l.type)}</span>
+          <button type="button" class="lock" data-lock aria-pressed="${!!l.locked}" aria-label="${html(`Lock ${named(l.node)}`)}" title="${html(lock)}">${l.locked ? "🔒" : "🔓"}</button>
+          <button type="button" class="name" data-pick title="${html(l.shown ? "Select it" : "Not shown on this slide")}">${html(name)}</button>
+          <span class="kind">${name === kind ? "" : html(kind)}</span>
         </div>${held ? `<ul>${held}</ul>` : ""}</li>`;
     };
     list.innerHTML = shown.layers.map((l) => row(l, 0)).join("");
@@ -116,7 +126,7 @@ export function layers(stage: Stage, into: HTMLElement, editor: LayersEditor) {
   function make(ops: unknown[] | (() => Promise<unknown[]>), doing: string, done: string, none = done) {
     const run = async () => {
       const now = editor.shown();
-      if (!now) return editor.say("the layers wait for a source that compiles");
+      if (!now) return editor.say(WAITING);
       editor.say(doing);
       try {
         const patch = typeof ops === "function" ? await ops() : ops;
@@ -125,7 +135,7 @@ export function layers(stage: Stage, into: HTMLElement, editor: LayersEditor) {
         editor.apply(source, edited);
         editor.say(done);
       } catch (e) {
-        editor.say(`not made: ${said(e)}`);
+        editor.say(`Not changed: ${said(e)}`);
       }
     };
     making = making.then(run, run);
@@ -151,13 +161,13 @@ export function layers(stage: Stage, into: HTMLElement, editor: LayersEditor) {
     if (!state) return;
     const ask = async () => (await stage.arranging(state, [node], how as Arrange, false, editor.format()))?.patch ?? [];
     if ("into" in how) {
-      return make(ask, `moving ${node}…`, `${node} moved into ${how.into}`, `${node} is first in ${how.into} already`);
+      return make(ask, "Moving…", `${named(node)} moved into ${named(how.into)}`, `${named(node)} is first in ${named(how.into)} already`);
     }
     const [where, to] = "before" in how ? ["before", how.before] : ["after", how.after];
     const from = holderOf(node);
     const there = holderOf(to);
-    const moved = there === undefined || there === from ? "" : there ? ` into ${there},` : " onto the canvas,";
-    return make(ask, `moving ${node}…`, `${node} moved${moved} ${where} ${to}`, `${node} is ${where} ${to} already`);
+    const moved = there === undefined || there === from ? "" : there ? ` into ${named(there)},` : " out of its group,";
+    return make(ask, "Moving…", `${named(node)} moved${moved} ${where} ${named(to)}`, `${named(node)} is ${where} ${named(to)} already`);
   }
 
   /** The children shown of what holds `node`, as listed, and where `node` is among them. */
@@ -178,32 +188,8 @@ export function layers(stage: Stage, into: HTMLElement, editor: LayersEditor) {
     const ops = within(layer)
       .filter((l) => l.shown === layer.shown)
       .map((l) => ({ op, node: l.node, state }));
-    return make(ops, layer.shown ? `hiding ${node}…` : `showing ${node}…`, `${node} ${layer.shown ? "hidden" : "shown"} in ${state}`);
-  }
-
-  /** Rename `node`: a field where its name stands, Enter to rename and Escape to leave it. */
-  function rename(node: string) {
-    const name = list.querySelector<HTMLElement>(`[data-layer="${CSS.escape(node)}"] [data-pick]`);
-    if (!name) return;
-    const field = Object.assign(document.createElement("input"), { value: node, spellcheck: false });
-    field.setAttribute("aria-label", `Rename ${node}`);
-    name.replaceWith(field);
-    field.select();
-    field.focus();
-    let done = false;
-    const end = (to?: string) => {
-      if (done) return;
-      done = true;
-      field.replaceWith(name);
-      if (to && to !== node) void make([{ op: "rename_node", id: node, to }], "renaming…", `${node} renamed ${to}`);
-      else name.focus();
-    };
-    field.onkeydown = (e) => {
-      e.stopPropagation();
-      if (e.key === "Enter") end(field.value.trim());
-      else if (e.key === "Escape") end();
-    };
-    field.onblur = () => end();
+    const name = named(node);
+    return make(ops, layer.shown ? "Hiding…" : "Showing…", `${name[0].toUpperCase()}${name.slice(1)} ${layer.shown ? "hidden" : "shown"} on this slide`);
   }
 
   const layerOf = (e: Event) => (e.target as Element).closest<HTMLElement>("[data-layer]")?.dataset.layer;
@@ -218,38 +204,31 @@ export function layers(stage: Stage, into: HTMLElement, editor: LayersEditor) {
     if (!(e.target as Element).closest("[data-pick]")) return;
     const layer = shown && find(shown.layers, node);
     if (layer?.shown) editor.select(node);
-    else editor.say(`${node} is not shown in ${shown?.state}: its eye shows it here`);
-  };
-  list.ondblclick = (e) => {
-    const node = layerOf(e);
-    if (node !== undefined && (e.target as Element).closest("[data-pick]")) rename(node);
+    else editor.say(`${named(node)} isn’t shown on this slide: its eye shows it here`);
   };
   list.onkeydown = (e) => {
     const node = layerOf(e);
     if (node === undefined || (e.target as Element).tagName === "INPUT") return;
-    if (e.key === "F2") {
-      e.preventDefault();
-      rename(node);
-    } else if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+    if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
       e.preventDefault();
       const { all, at } = siblings(node);
       if (at < 0) return;
       const up = e.key === "ArrowUp";
       const to = all[up ? at - 1 : at + 1];
-      if (to === undefined) return editor.say(`${node} is ${up ? "first" : "last"} among what holds it`);
+      if (to === undefined) return editor.say(`${named(node)} is ${up ? "first" : "last"} already`);
       void restack(node, up ? { before: to } : { after: to });
     } else if (e.altKey && e.key === "ArrowLeft") {
       // Out of its container: listed just before it, among what holds that.
       e.preventDefault();
       const holder = holderOf(node);
-      if (!holder) return editor.say(`${node} is on the canvas already`);
+      if (!holder) return editor.say(`${named(node)} is in no group`);
       void restack(node, { before: holder });
     } else if (e.altKey && e.key === "ArrowRight") {
       // Into the container listed just before it: last among what that holds.
       e.preventDefault();
       const { all, at } = siblings(node);
       const above = at > 0 ? shown && find(shown.layers, all[at - 1]) : undefined;
-      if (!above || !CONTAINERS.has(above.type)) return editor.say(`${node} has no container just before it to go into`);
+      if (!above || !CONTAINERS.has(above.type)) return editor.say(`${named(node)} has no group just before it to go into`);
       const last = (above.children ?? []).filter((c) => c.shown).at(-1);
       void restack(node, last ? { after: last.node } : { into: above.node });
     }
@@ -327,7 +306,6 @@ export function layers(stage: Stage, into: HTMLElement, editor: LayersEditor) {
     /** The changes made through the panel, for a test: once they are. */
     settled: () => making,
     toggle,
-    rename,
     restack,
   };
 }

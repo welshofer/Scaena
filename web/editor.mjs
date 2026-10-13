@@ -118,10 +118,10 @@ try {
   check((await page.evaluate(() => window.scaena.at().index)) === 3, "putting the cursor in `close` shows `close`");
   await page.evaluate((at) => window.scaena.cursor(at), fixed.indexOf("state revenue"));
   await page
-    .waitForFunction(() => window.scaena.inspector().includes("revenue") && window.scaena.inspector().includes("headline"), null, { timeout: 15000 })
+    .waitForFunction(() => window.scaena.inspector().includes("Slide 2") && window.scaena.inspector().includes("Headline"), null, { timeout: 15000 })
     .catch(() => {});
   const inspector = await page.evaluate(() => window.scaena.inspector());
-  check(inspector.includes("headline") && inspector.includes("transition"), `the inspector shows the title's look and the cue: ${inspector.slice(0, 120)}`);
+  check(inspector.includes("Headline") && inspector.includes("transition"), `the inspector shows the title's look and the cue: ${inspector.slice(0, 120)}`);
 
   // A copy of the chart put in `revenue`, low on the slide, as a paste puts one: `mix` and
   // `close` keep it, and once every state is linted, findings name it there.

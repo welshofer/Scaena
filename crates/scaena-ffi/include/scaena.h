@@ -141,7 +141,8 @@ char *scaena_picture(const uint8_t *bytes, size_t len);
 // in turn: its role and its words, PLAN 3.17), `source`, `compiledFrom
 // {source}`, `compile {source}`, `lint {state?}`, `fix {patch}`, `inspect {state}`, `boxes
 // {state}`, `hit {state, x, y}`, `layers {state}`, `carets {state, node}`, `choices {state,
-// node}`, `stateChoices {state}`, `inserts`, `themes`, `themeText`, `keepHistory`,
+// node}`, `stateChoices {state}`, `words {state}` (its objects by what they show, and the
+// theme's names said, PLAN 2.99), `inserts`, `themes`, `themeText`, `keepHistory`,
 // `keepsHistory`, and `writeFiles {files: [{path, text}]}`, which writes files back as an undo
 // has them (`text` null: taken out). A drag (PLAN 3.7, ADR-0013): `targets {state, node}`,
 // where a node may go; `snap {state, node, how, x, y, w, h, fork?, reach?}`, where a box left

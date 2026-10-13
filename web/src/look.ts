@@ -1,7 +1,9 @@
 // The inspector's edits (PLAN 2.33, ADR-0013): the node selected, its role, style, presets, and
 // props, chosen from what the theme names for its type, or what the schema allows. The engine
-// says what it offers, the value the state shows, and where that value lives (`Player.choices`);
-// the page lays nothing out and keeps no vocabulary of its own.
+// says what it offers, the value the state shows, and where that value lives (`Player.choices`),
+// each in a person's words (PLAN 2.99): the node named by what it shows, each property labeled as
+// a presentation app labels it, each value said, a slide by its number. The page lays nothing
+// out and keeps no vocabulary of its own.
 //
 // With no node selected, the state shown (PLAN 2.36, `Player.stateChoices`): its layout, from the
 // theme's layouts with a slot for each node placed in one, written where it lives, so the states
@@ -15,7 +17,7 @@
 //
 // - Each choice is one `choose` patch, by the user, written where the value lives: the state
 //   that sets it, or the node. The status says which states it changes, and it is one step to
-//   undo. "Only in this state" keeps it to the state shown (`fork`).
+//   undo. "Only on Slide N" keeps it to the state shown (`fork`).
 // - A value written out where the theme has names (a color, a text size, a length in canvas
 //   units) goes in the deck's `overrides`, the only place it is legal, and shows as an override,
 //   in every state.
@@ -38,11 +40,14 @@
 import type { Arrange, Choices, Edited, Field, LayoutSuggestion, Lives, StateChoices } from "./protocol";
 import type { Stage } from "./stage";
 import type { Selected } from "./typing";
+import { counted, quote } from "./words";
 
 /** What the inspector's edits ask of the editor around them. */
 export interface Around {
   /** The state shown, by its id and its slot's index. */
   shown(): { state: string; index: number } | undefined;
+  /** `state` as a person counts it: `Slide 3, step 2` (PLAN 2.99). */
+  slide(state: string): string;
   format(): string | undefined;
   source(): string;
   /** Take `source`, the patch made: one step to undo. */
@@ -74,11 +79,14 @@ function shared(all: Choices[]): Shared {
   const alike = (f: Field) => rest.every((c) => c.fields.some((g) => g.prop === f.prop && same(g.takes, f.takes)));
   const fields = first.fields.filter(alike).map((f) => {
     const agree = rest.every((c) => same(c.fields.find((g) => g.prop === f.prop)?.value, f.value));
-    return agree ? f : { prop: f.prop, takes: f.takes };
+    return agree ? f : { prop: f.prop, takes: f.takes, words: f.words };
   });
   const types = [...new Set(all.map((c) => c.type))];
   return { ...first, type: types.join(", "), fields, nodes: all.map((c) => c.node) };
 }
+
+/** What each kind of arranging is called. */
+const ARRANGING: Record<string, string> = { align: "Align", spread: "Distribute", order: "Arrange", group: "Group" };
 
 /** The buttons that arrange what is selected: each how, and what it says. */
 const ARRANGE: [string, Arrange, string][] = [
@@ -98,7 +106,7 @@ const ARRANGE: [string, Arrange, string][] = [
 
 const html = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
-const counted = (n: number, what: string) => `${n} ${what}${n === 1 ? "" : "s"}`;
+
 
 /** How high a suggested layout is drawn, in CSS pixels (PLAN 2.92). */
 const PICTURE = 72;
@@ -119,12 +127,12 @@ function part(el: HTMLElement): { node: string; kind: string; says: string } {
   switch (el.tagName) {
     case "H1":
     case "H2":
-      return { node, kind: `heading ${el.tagName[1]}`, says: quoted(el.textContent ?? "") };
+      return { node, kind: el.tagName === "H1" ? "Heading" : "Subheading", says: quoted(el.textContent ?? "") };
     case "P":
-      return { node, kind: "text", says: quoted(el.textContent ?? "") };
+      return { node, kind: "Text", says: quoted(el.textContent ?? "") };
     case "TABLE": {
       const rows = el.querySelectorAll("tr").length;
-      return { node, kind: "table", says: `${label ? `${quoted(label)}, ` : ""}${rows} row${rows === 1 ? "" : "s"}` };
+      return { node, kind: "Table", says: `${label ? `${quoted(label)}, ` : ""}${rows} row${rows === 1 ? "" : "s"}` };
     }
     case "DIV":
       // A text whose paragraphs are a list's items (PLAN 2.69) reads as its list, item by item,
@@ -133,28 +141,71 @@ function part(el: HTMLElement): { node: string; kind: string; says: string } {
         const own = (li: Element) =>
           [...li.childNodes].filter((n) => !(n instanceof HTMLElement && /^(UL|OL)$/.test(n.tagName))).map((n) => n.textContent ?? "").join("");
         const items = [...el.querySelectorAll("li")].map((li) => own(li).trim()).filter(Boolean);
-        return { node, kind: "list", says: quoted(items.length ? items.join(" · ") : (el.textContent ?? "")) };
+        return { node, kind: "List", says: quoted(items.length ? items.join(" · ") : (el.textContent ?? "")) };
       }
-      return { node, kind: "figure", says: label ? quoted(label) : "not described" };
+      return { node, kind: "Picture", says: label ? quoted(label) : "not described" };
     default:
-      return { node, kind: "figure", says: label ? quoted(label) : "not described" };
+      return { node, kind: "Picture", says: label ? quoted(label) : "not described" };
   }
 }
 
-/** A value as the inspector says it. */
-const spoken = (v: unknown) => (typeof v === "string" ? v : JSON.stringify(v));
+/** A property as a person labels it (PLAN 2.99): `style/family` is Font. */
+const labeled = (f: Field) => f.words?.label ?? f.prop;
 
-/** Where a value lives, for a person. */
-export function where(lives: Lives | undefined): string {
-  if (lives === undefined) return "the theme's";
-  if (lives === "overrides") return "an override, in every state";
-  if (lives === "node") return "on the node";
-  return `set in ${lives.state}`;
+/** A value of `f`'s as a person says it (PLAN 2.99): one of its names or words as the engine says
+ * it (`onSurface` is Text), a weight by its name, yes or no; a value written out, a color or a
+ * gradient, is the deck's own. */
+function spoken(f: Field, v: unknown): string {
+  if (typeof v === "string") return f.words?.said[v] ?? (v.startsWith("#") ? v : "Custom");
+  if (typeof v === "boolean") return v ? "Yes" : "No";
+  if (typeof v === "number") return f.words?.said[String(v)] ?? String(Math.round(v * 1000) / 1000);
+  return "Custom";
 }
 
-/** A value as the status says it: a hold in seconds, a turn in degrees. */
-const told = (prop: string, v: unknown) =>
-  prop === "hold" && typeof v === "number" ? `${v / 1000} s` : prop === "transform/rotate" && typeof v === "number" ? `${v}°` : spoken(v);
+/** Where a value lives, as a person says it: on the slide shown (`shown`), on another (`slide`
+ * says which), on the object, on the object on every slide, or the theme's. */
+function where(lives: Lives | undefined, shown: string | undefined, slide: (state: string) => string): string {
+  if (lives === undefined) return "The theme's";
+  if (lives === "overrides") return "Set on this object, on every slide";
+  if (lives === "node") return "Set on this object";
+  return lives.state === shown ? "Set on this slide" : `Set on ${slide(lives.state)}`;
+}
+
+/** A value as the status says it: a hold in seconds, a turn in degrees, words written (a
+ * description, notes) quoted, the rest as `spoken`. */
+const told = (f: Field, v: unknown) =>
+  f.prop === "hold" && typeof v === "number"
+    ? `after ${Math.round(v) / 1000} s`
+    : f.prop === "transform/rotate" && typeof v === "number"
+      ? `${v}°`
+      : f.takes.kind === "text" && typeof v === "string"
+        ? v.trim()
+          ? quote(v)
+          : "None"
+        : f.takes.kind === "fractions" && Array.isArray(v)
+          ? fractions(f.takes.names, v as number[])
+          : spoken(f, v);
+
+/** An image's crop or focal point as a person says it, in shares of the picture: 80% wide, 100%
+ * high, from 10% across and 0% down; 30% across, 60% down. */
+function fractions(names: string[], v: number[]): string {
+  const pct = (k: number) => `${Math.round((v[k] ?? 0) * 100)}%`;
+  if (names.join() === "x,y,w,h") return `${pct(2)} wide, ${pct(3)} high, from ${pct(0)} across and ${pct(1)} down`;
+  return names.map((n, k) => `${pct(k)} ${PARTS[n] ?? n}`).join(", ");
+}
+
+/** Each part of an image a fraction gives, said. */
+const PARTS: Record<string, string> = { x: "across", y: "down", w: "width", h: "height" };
+
+/** The slides `states` are, as a person counts them (PLAN 2.99): this slide, where `shown` alone;
+ * a slide by its number; 3 slides; 2 steps of Slide 4; or 3 slides, 5 steps in all. */
+export function reaching(states: string[], shown: string, slide: (state: string) => string): string {
+  if (states.length === 1) return states[0] === shown ? "on this slide" : `on ${slide(states[0])}`;
+  const slides = new Set(states.map((s) => slide(s).replace(/, step \d+$/, "")));
+  if (slides.size === states.length) return `on ${counted(slides.size, "slide")}`;
+  if (slides.size === 1) return `on ${states.length} steps of ${[...slides][0]}`;
+  return `on ${counted(slides.size, "slide")}, ${states.length} steps in all`;
+}
 
 /** The inspector's edits, in `into`, for the node the canvas selects in `stage`'s state shown, or
  * the state itself when it selects none. */
@@ -234,31 +285,33 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
   function control(f: Field, id: string): string {
     const prop = `data-prop="${html(f.prop)}"`;
     const value = f.value;
-    // A value no control here sets (a preset with parameters, a gradient) shows as the source has it.
+    const label = labeled(f);
+    // A value no control here sets (a preset with parameters, a gradient) shows as the deck's own.
     const kept = (known: unknown[]) =>
-      value !== undefined && !known.includes(value) ? `<option value="" selected disabled>${html(spoken(value))}</option>` : "";
+      value !== undefined && !known.includes(value) ? `<option value="" selected disabled>${html(spoken(f, value))}</option>` : "";
     // What shows where nothing sets it: the theme's, by what it gives a text's look.
-    const gives = f.theme === undefined ? "" : `: ${typeof f.theme === "boolean" ? (f.theme ? "yes" : "no") : spoken(f.theme)}`;
-    const unset = f.prop === "transition/duration" && cuts() ? "cut" : f.prop === "layout" ? "none" : `the theme's${gives}`;
+    const gives = f.theme === undefined ? "" : ` (${spoken(f, f.theme)})`;
+    const unset = f.prop === "transition/duration" && cuts() ? "None: it cuts in" : f.prop === "layout" ? "None" : `Default${gives}`;
     const none = `<option value=""${value === undefined ? " selected" : ""}>${value === undefined || gives ? html(unset) : "—"}</option>`;
-    const options = (all: string[]) => all.map((o) => `<option${o === value ? " selected" : ""}>${html(o)}</option>`).join("");
+    const options = (all: string[]) =>
+      all.map((o) => `<option value="${html(o)}"${o === value ? " selected" : ""}>${html(f.words?.said[o] ?? o)}</option>`).join("");
     const t = f.takes;
     // The state's layout opens the theme's layouts by their sections, each drawn (PLAN 3.31).
     if (f.prop === "layout" && t.kind === "name") {
-      const now = typeof value === "string" ? value : "none";
+      const now = typeof value === "string" ? spoken(f, value) : "None";
       return `<button type="button" id="${id}" ${prop} data-pick-layout title="The theme's layouts by their sections, each drawn as it is used">${html(now)} ▾</button>`;
     }
     switch (t.kind) {
       case "name": {
-        // A value written out (an override) shows as it is written, beside the theme's names.
+        // A value written out (one of its own, on every slide) shows as it is, beside the theme's names.
         let select = `<select id="${id}" ${prop}>${none}${options(t.names)}${kept(t.names)}</select>`;
-        const written = `id="${id}-written" ${prop} title="Written out: an override, in every state"`;
+        const written = `id="${id}-written" ${prop} title="One of its own, on every slide"`;
         if (t.overrides && t.of === "color") {
           const hex = typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ? value : "#000000";
-          select += ` <input type="color" ${written} value="${hex}" aria-label="${html(f.prop)} written out, an override">`;
+          select += ` <input type="color" ${written} value="${hex}" aria-label="${html(label)} of its own, on every slide">`;
         } else if (t.overrides) {
           const units = typeof value === "number" ? String(value) : "";
-          select += ` <input type="number" ${written} min="0" step="any" value="${units}" placeholder="cu" aria-label="${html(f.prop)} in canvas units, an override">`;
+          select += ` <input type="number" ${written} min="0" step="any" value="${units}" placeholder="pt" aria-label="${html(label)} of its own in points, on every slide">`;
         }
         return select;
       }
@@ -267,47 +320,47 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
       case "flag": {
         const yes = value === true ? " selected" : "";
         const no = value === false ? " selected" : "";
-        return `<select id="${id}" ${prop} data-flag>${none}<option value="yes"${yes}>yes</option><option value="no"${no}>no</option></select>`;
+        return `<select id="${id}" ${prop} data-flag>${none}<option value="yes"${yes}>Yes</option><option value="no"${no}>No</option></select>`;
       }
       case "number": {
-        // A hold is milliseconds; a person sets it in seconds.
+        // A hold is milliseconds; a person sets it in seconds, and none advances on a click.
         if (f.prop === "hold") {
           const shown = typeof value === "number" ? String(value / 1000) : "";
-          return `<input id="${id}" type="number" ${prop} data-scale="1000" min="0" step="0.5" value="${shown}" placeholder="none" aria-label="hold, seconds"> <span class="lives">s</span>`;
+          return `<input id="${id}" type="number" ${prop} data-scale="1000" min="0" step="0.5" value="${shown}" placeholder="On click" aria-label="Advance after, in seconds"> <span class="lives">s</span>`;
         }
         // How far a node is turned (PLAN 2.51): degrees, clockwise; none is upright.
         if (f.prop === "transform/rotate") {
           const shown = typeof value === "number" ? String(value) : "";
-          return `<input id="${id}" type="number" ${prop} step="1" value="${shown}" placeholder="0" aria-label="turned, degrees clockwise"> <span class="lives">°</span>`;
+          return `<input id="${id}" type="number" ${prop} step="1" value="${shown}" placeholder="0" aria-label="Rotation, degrees clockwise"> <span class="lives">°</span>`;
         }
         // Tracking, in em after each character (PLAN 1.38): on a pair's first letter, the space
         // between the two, on top of the font's kerning.
         if (f.prop === "style/tracking") {
           const shown = typeof value === "number" ? String(value) : "";
-          return `<input id="${id}" type="number" ${prop} step="0.01" value="${shown}" placeholder="the theme's${html(gives)}" aria-label="tracking, em"> <span class="lives">em</span>`;
+          return `<input id="${id}" type="number" ${prop} step="0.01" value="${shown}" placeholder="Default${html(gives)}" aria-label="${html(label)}, em"> <span class="lives">em</span>`;
         }
         const min = t.min ?? t.above;
         const bounds = `${min !== undefined ? ` min="${min}"` : ""}${t.max !== undefined ? ` max="${t.max}"` : ""}`;
         const step = t.whole ? "1" : t.max !== undefined && t.max <= 1 ? "0.05" : "any";
         const shown = typeof value === "number" ? String(value) : "";
-        return `<input id="${id}" type="number" ${prop}${bounds} step="${step}" value="${shown}" placeholder="the theme's${html(gives)}">`;
+        return `<input id="${id}" type="number" ${prop}${bounds} step="${step}" value="${shown}" placeholder="Default${html(gives)}">`;
       }
       case "text": {
         // A text says its words unless it is described; anything else says nothing until it is.
-        const words = offered && "node" in offered && offered.type === "text" ? "its words" : "not described";
-        const [rows, empty] = f.prop === "alt" ? [2, words] : [3, "none"];
+        const words = offered && "node" in offered && offered.type === "text" ? "Its words" : "Describe it for someone who can’t see it";
+        const [rows, empty] = f.prop === "alt" ? [2, words] : [3, "Notes you see as you present"];
         return `<textarea id="${id}" ${prop} rows="${rows}" placeholder="${empty}">${html(typeof value === "string" ? value : "")}</textarea>`;
       }
       case "fractions": {
         // An image's focal point or crop (PLAN 2.45): what shows where nothing sets it.
         const rest = f.prop === "crop" ? [0, 0, 1, 1] : [0.5, 0.5];
         const now = Array.isArray(value) && value.length === t.names.length ? (value as number[]) : rest;
-        const inputs = t.names.map(
-          (name, k) =>
-            `<input${k === 0 ? ` id="${id}"` : ""} type="number" class="fraction" ${prop} data-part="${k}" min="0" max="1" step="0.01" value="${now[k]}" aria-label="${html(f.prop)} ${name}" title="${name}, a fraction of the image">`,
-        );
+        const inputs = t.names.map((name, k) => {
+          const part = PARTS[name] ?? name;
+          return `<input${k === 0 ? ` id="${id}"` : ""} type="number" class="fraction" ${prop} data-part="${k}" min="0" max="1" step="0.01" value="${now[k]}" aria-label="${html(label)}, ${part}" title="${part[0].toUpperCase()}${part.slice(1)}, as a share of the picture">`;
+        });
         // The focal point is picked on the image itself: where its subject is.
-        const pick = f.prop === "focal" ? ' <button type="button" data-pick title="Then click the image where its subject is">Pick</button>' : "";
+        const pick = f.prop === "focal" ? ' <button type="button" data-pick title="Then click the picture where its subject is">Pick</button>' : "";
         return `${inputs.join("")}${pick}`;
       }
     }
@@ -315,26 +368,29 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
 
   /** What `f`'s value is, where it lives, and the × that takes it away there. */
   function note(f: Field): string {
+    const shown = around.shown()?.state;
+    // A value written out where the theme has a name, outside what an object sets on every slide.
     const flag =
-      f.lives === "overrides"
-        ? ' <span class="flag" title="In the deck\'s overrides: it wins in every state, and a theme does not change it">override</span>'
-        : f.literal
-          ? ' <span class="flag" title="W300: written out where the theme has names; it belongs in overrides">W300</span>'
-          : "";
+      f.literal && f.lives !== "overrides"
+        ? ' <span class="flag" title="Written out where the theme has a name for it: a change of theme leaves it as it is">Not the theme’s</span>'
+        : "";
+    const at = where(f.lives, shown, around.slide);
     const away =
-      f.lives === undefined ? "" : ` <button type="button" class="away" data-away="${html(f.prop)}" aria-label="Take ${html(f.prop)} away, ${html(where(f.lives))}" title="Take it away where it lives">×</button>`;
+      f.lives === undefined
+        ? ""
+        : ` <button type="button" class="away" data-away="${html(f.prop)}" aria-label="Take away ${html(labeled(f))}: ${html(at)}" title="Take it away where it is set">×</button>`;
     // A state's own property set nowhere: a cut, or none. Characters with no look of their own
     // show the text's.
     const lives =
       chars && f.lives === undefined
-        ? "the text's"
+        ? "The text’s"
         : f.lives !== undefined || "node" in (offered ?? {})
-          ? where(f.lives)
+          ? at
           : f.prop.startsWith("transition/")
             ? cuts()
-              ? "cuts in"
-              : "the theme's"
-            : "none";
+              ? "Cuts in"
+              : "The theme's"
+            : "None";
     return `<span class="lives">${html(lives)}</span>${flag}${away}`;
   }
 
@@ -353,17 +409,21 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     const focused = into.contains(document.activeElement) ? document.activeElement?.id : undefined;
     const rows = offered.fields.map((f) => {
       const id = `look-${f.prop.replace(/\//g, "-")}`;
-      // A long name breaks after its slash, so the controls keep the room.
-      return `<label for="${id}">${html(f.prop).replaceAll("/", "/<wbr>")}</label><span class="control">${control(f, id)}</span><span>${note(f)}</span>`;
+      return `<label for="${id}">${html(labeled(f))}</label><span class="control">${control(f, id)}</span><span>${note(f)}</span>`;
     });
     const nodes = "nodes" in offered ? (offered as Shared).nodes : "node" in offered ? [offered.node] : [];
-    const title = chars
-      ? `${html(chars.node)} · characters ${chars.from + 1}–${chars.to}`
+    // What is shown, as a person names it (PLAN 2.99): the object by its kind and what it shows,
+    // the characters selected in it, several by how many, or the slide by its number.
+    const said = offered.said;
+    const noun = "noun" in offered ? offered.noun : undefined;
+    const count = chars ? chars.to - chars.from : 0;
+    const [title, named] = chars
+      ? ["Selected Text", `${count} character${count === 1 ? "" : "s"} of “${said ?? ""}”`]
       : nodes.length > 1
-        ? `${nodes.length} selected · ${html(nodes.join(", "))}`
+        ? [`${nodes.length} Objects`, ""]
         : "node" in offered
-          ? `${html(offered.node)} · ${html(offered.type)}`
-          : `${html(offered.state)} · state`;
+          ? [noun ?? "Object", said && said !== noun ? said : ""]
+          : [said ?? around.slide(offered.state), ""];
     // Aligning takes two, spreading three; ordering takes one or more.
     const offers = (kind: string) => (kind === "order" ? nodes.length >= 1 : kind === "align" ? nodes.length >= 2 : nodes.length >= 3);
     const groups = ["align", "spread", "order"].filter((kind) => !chars && offers(kind));
@@ -372,16 +432,17 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
         const buttons = ARRANGE.filter(([k]) => k === kind).map(
           ([, how, label]) => `<button type="button" data-arrange='${html(JSON.stringify(how))}'>${html(label)}</button>`,
         );
-        return `<span class="arrange-kind">${kind}</span><span class="arrange-buttons" role="group" aria-label="${kind}">${buttons.join("")}</span>`;
+        return `<span class="arrange-kind">${ARRANGING[kind]}</span><span class="arrange-buttons" role="group" aria-label="${ARRANGING[kind]}">${buttons.join("")}</span>`;
       })
       .join("");
     // Grouping takes one or more, and a group alone comes apart (PLAN 2.43).
     const apart = nodes.length === 1 && "type" in offered && offered.type === "group";
     const grouping =
       !chars && nodes.length
-        ? `<span class="arrange-kind">group</span><span class="arrange-buttons" role="group" aria-label="group"><button type="button" data-group>Group</button>${apart ? '<button type="button" data-ungroup>Ungroup</button>' : ""}</span>`
+        ? `<span class="arrange-kind">${ARRANGING.group}</span><span class="arrange-buttons" role="group" aria-label="${ARRANGING.group}"><button type="button" data-group>Group</button>${apart ? '<button type="button" data-ungroup>Ungroup</button>' : ""}</span>`
         : "";
-    const kept = "node" in offered ? `only in ${html(now.state)}` : `layout only in ${html(now.state)}`;
+    const here = html(around.slide(now.state));
+    const kept = "node" in offered ? `Only on ${here}` : `Its layout only on ${here}`;
     // Characters are kept to the state as their text is typed in: with Alt, or not.
     const keeping = chars ? "" : `<p class="keep"><label><input type="checkbox" data-keep${keep ? " checked" : ""}> ${kept}</label></p>`;
     // How it reads: for one node or the state, never for several or for characters.
@@ -391,7 +452,8 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     const choosing = layout?.takes.kind === "name" && layout.takes.names.length > 1;
     const layouts = choosing ? `<section class="layouts" aria-label="Layouts, best first" hidden></section>` : "";
     into.innerHTML = `
-      <h2>${title}</h2>
+      <h2>${html(title)}</h2>
+      ${named ? `<p class="named">${html(named)}</p>` : ""}
       ${keeping}
       ${arrange || grouping ? `<div class="arrange">${arrange}${grouping}</div>` : ""}
       ${layouts}
@@ -428,9 +490,9 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     if (node === undefined) {
       box.innerHTML = parts.length
         ? `<h3>Reads, in order</h3><ol>${parts
-            .map((p) => `<li><button type="button" data-read="${html(p.node)}" title="Select ${html(p.node)}">${html(p.kind)}</button> ${html(p.says)}</li>`)
+            .map((p) => `<li><button type="button" data-read="${html(p.node)}" title="Select it">${html(p.kind)}</button> ${html(p.says)}</li>`)
             .join("")}</ol>`
-        : "<h3>Reads</h3><p>nothing: no node here is read</p>";
+        : "<h3>Reads</h3><p>Nothing on this slide is read aloud</p>";
       return;
     }
     const mine = parts.find((p) => p.node === node);
@@ -439,15 +501,15 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     const type = offered && "type" in offered ? offered.type : "";
     const why =
       value("semantic") === "decoration" || value("alt") === ""
-        ? "decoration"
+        ? "it’s decoration"
         : ["stack", "grid", "frame"].includes(type)
-          ? "a container: what it holds reads on its own"
+          ? "it holds others, which each read on their own"
           : ["shape", "shader"].includes(type)
-            ? "it says nothing until it is described"
+            ? "it says nothing until it’s described"
             : "not on its own";
     box.innerHTML = mine
       ? `<h3>Reads as</h3><p><span class="kind">${html(mine.kind)}</span> ${html(mine.says)}</p>`
-      : `<h3>Reads as</h3><p>not read: ${html(why)}</p>`;
+      : `<h3>Reads as</h3><p>Not read aloud: ${html(why)}</p>`;
   }
 
   /** Ask for the layouts the state shown may take (PLAN 2.92), once the inspector has settled on
@@ -480,19 +542,21 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     const focused = box.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.layout : undefined;
     // One drawing is nothing to choose between.
     box.hidden = these.layouts.length < 2;
+    // Each layout by what the theme calls it (PLAN 2.99), as the layout field says it.
+    const field = offered && !("node" in offered) ? offered.fields.find((f) => f.prop === "layout") : undefined;
+    const name = (layout: string) => field?.words?.said[layout] ?? layout;
     const buttons = these.layouts.map(({ suggestion: s }) => {
-      const found = s.errors
-        ? `<span class="error">${counted(s.errors, "error")}</span>${s.warnings ? `, <span class="warning">${counted(s.warnings, "warning")}</span>` : ""}`
-        : s.warnings
-          ? `<span class="warning">${counted(s.warnings, "warning")}</span>`
-          : "nothing found";
-      const reach = s.current ? "the layout it takes now" : keep || s.reach.length <= 1 ? `changes ${these.state}` : `changes ${s.reach.length} states`;
+      // What lint finds, as issues: red where one is an error.
+      const issues = s.errors + s.warnings;
+      const found = issues ? `<span class="${s.errors ? "error" : "warning"}">${counted(issues, "issue")}</span>` : "No issues";
+      const reach = s.current ? "The slide's layout now" : keep ? "Changes this slide" : `Changes ${reaching(s.reach, these.state, around.slide)}`;
       // The layouts that draw it so, folded into this one.
-      const alike = s.alike?.length ? `also ${s.alike.join(", ")}` : "";
-      const said = `${s.layout}: ${reach}${alike ? `; ${s.alike!.join(" and ")} ${s.alike!.length === 1 ? "draws" : "draw"} it alike` : ""}`;
+      const others = (s.alike ?? []).map(name);
+      const alike = others.length ? `also ${others.join(", ")}` : "";
+      const said = `${name(s.layout)}: ${reach}${alike ? `; ${others.join(" and ")} ${others.length === 1 ? "draws" : "draw"} it alike` : ""}`;
       // An id, so that the focus on one stays there when the inspector is drawn again.
       return `<button type="button" id="layout-suggested-${html(s.layout)}" data-layout="${html(s.layout)}" aria-pressed="${s.current === true}" title="${html(said)}">
-        <canvas aria-hidden="true" width="${s.width}" height="${s.height}"></canvas><span class="name">${html(s.layout)}</span><span class="verdict">${found}</span>${alike ? `<span class="alike">${html(alike)}</span>` : ""}<span class="sr">, ${html(reach)}</span></button>`;
+        <canvas aria-hidden="true" width="${s.width}" height="${s.height}"></canvas><span class="name">${html(name(s.layout))}</span><span class="verdict">${found}</span>${alike ? `<span class="alike">${html(alike)}</span>` : ""}<span class="sr">, ${html(reach)}</span></button>`;
     });
     box.innerHTML = `<h3>Layouts, best first</h3><div class="suggested">${buttons.join("")}</div>`;
     box.querySelectorAll("canvas").forEach((canvas, i) => canvas.getContext("2d")?.putImageData(these.layouts[i].picture, 0, 0));
@@ -562,16 +626,20 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     const ops = all.length
       ? all.map((n) => ({ op: "choose", node: n, prop, value, state: now.state, ...(keep ? { fork: true } : {}) }))
       : [{ op: "set_state", id: now.state, prop, value, ...(keep && prop === "layout" ? { fork: true } : {}) }];
-    const who = all.length ? all.join(", ") : now.state;
-    around.say(`choosing ${who}'s ${prop}…`);
+    // What changed, as a person says it (PLAN 2.99): the property by its label, the value said,
+    // several by how many, and the slides it reaches.
+    const field = offered.fields.find((f) => f.prop === prop);
+    const name = field ? labeled(field) : prop;
+    const several = all.length > 1 ? ` · ${all.length} objects` : "";
+    around.say(`Changing ${name}…`);
     try {
       const states = await stage.reach(ops);
       const { source, edited } = await stage.make(around.source(), ops, now.index, around.format());
       around.apply(source, edited);
-      const reach = states.length === 1 && states[0] === now.state ? "in this state" : `in ${states.length} states`;
-      around.say(`${who}'s ${prop}: ${value === null ? "taken away" : told(prop, value)} · ${reach}`);
+      const given = value === null ? "back to the theme’s" : field ? told(field, value) : String(value);
+      around.say(`${name}: ${given}${several} · ${reaching(states, now.state, around.slide)}`);
     } catch (e) {
-      around.say(`not chosen: ${said(e)}`);
+      around.say(`Not changed: ${said(e)}`);
       // The controls go back to what the deck says.
       render(true);
     }
@@ -665,7 +733,7 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
       await previews;
       return previewed;
     },
-    /** Whether "Only in this state" is checked: what keeps an annotation made on the canvas to
+    /** Whether "Only on Slide N" is checked: what keeps an annotation made on the canvas to
      * the state shown too (PLAN 2.67). */
     keeping: () => keep,
   };

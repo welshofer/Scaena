@@ -76,6 +76,7 @@ import type {
   Finding,
   FromWorker,
   Inspected,
+  Lexicon,
   Linted,
   Painter,
   Rewritten,
@@ -86,6 +87,8 @@ import type {
 } from "./protocol";
 import { fitting } from "./pictures";
 import { PICTURE } from "./protocol";
+import { counted } from "./marks";
+import { moving, named, object, seconds } from "./words";
 import { prompting } from "./prompt";
 import { rehearsal, rehearsalKeys } from "./rehearse";
 import { scn, scnHighlight } from "./scn";
@@ -297,7 +300,7 @@ async function edit(source: Source) {
   /** On a served page, the deck's source on disk, where the folder keeps one (PLAN 2.11). */
   const scnOnDisk = "url" in source && source.serve && (await onDisk()).source ? new URL("deck.scn", source.url) : undefined;
   const fromDisk = async () => (await fetch(scnOnDisk!, { cache: "no-store" })).text();
-  formatPicker.replaceChildren(new Option("own canvas", ""));
+  formatPicker.replaceChildren(new Option("Own size", ""));
   for (const format of stage.opened.formats) formatPicker.add(new Option(format, format));
   const format = () => formatPicker.value || undefined;
   /** The deck's formats as an edit leaves them: the format menu, and the formats side by side,
@@ -306,7 +309,7 @@ async function edit(source: Source) {
     const listed = [...formatPicker.options].slice(1).map((o) => o.value);
     if (listed.length !== formats.length || listed.some((f, i) => f !== formats[i])) {
       const chosen = formatPicker.value;
-      formatPicker.replaceChildren(new Option("own canvas", ""), ...formats.map((f) => new Option(f, f)));
+      formatPicker.replaceChildren(new Option("Own size", ""), ...formats.map((f) => new Option(f, f)));
       formatPicker.value = formats.includes(chosen) ? chosen : "";
     }
     formatting.formats(formats);
@@ -507,6 +510,11 @@ async function edit(source: Source) {
     const state = last?.valid && !last.error ? last.states[shown]?.[0] : undefined;
     return state !== undefined && !assisting ? { state, index: shown } : undefined;
   };
+  /** `state` as a person counts it: `Slide 3`, or `Slide 3, step 2` (PLAN 2.99). */
+  const slideOf = (state: string) => last?.slots?.find((s) => s.state === state)?.said ?? "the slide";
+  /** The words for the state shown (PLAN 2.99): its objects by what they show, the theme's names
+   * said. Asked for each time the state shown is inspected. */
+  let lexicon: Lexicon | undefined;
   /** Take `source`, a patch made on the canvas or in the inspector: one change, one step to undo. */
   const made = (source: string, edited: Edited) => {
     taken = { source, edited, showings };
@@ -520,6 +528,7 @@ async function edit(source: Source) {
   const picking = layoutPicker(stage, $<HTMLDialogElement>("#starting"));
   const look = looks(stage, $("#look"), {
     shown: showing,
+    slide: slideOf,
     format,
     source: () => view.state.doc.toString(),
     apply: made,
@@ -814,10 +823,10 @@ async function edit(source: Source) {
       try {
         const { source, edited } = await stage.make(view.state.doc.toString(), ops, shown, format());
         made(source, edited);
-        say(`kept ${what} · ⌘Z undoes them`);
+        say(`Kept ${what} · ⌘Z undoes them`);
         return true;
       } catch (e) {
-        say(`not kept: ${said(e)}`);
+        say(`Not kept: ${said(e)}`);
         return false;
       }
     },
@@ -922,7 +931,7 @@ async function edit(source: Source) {
   });
   $("#find-open").onclick = () => finding?.open();
   /** The state strip (PLAN 2.35): the deck's states, each a thumbnail, and the patches that add,
-   * move, rename, and remove them. */
+   * move, and remove them. */
   const states = strip(stage, $("#strip"), {
     shown: showing,
     format,
@@ -1094,7 +1103,8 @@ async function edit(source: Source) {
   function take(edited: Edited, source: string, read: number, moved = false): Finding[] {
     last = edited;
     if (edited.valid) {
-      statesPicker.replaceChildren(...edited.states.map(([id]) => new Option(id, id)));
+      // Each as a person counts it (PLAN 2.99): Slide 3, Slide 3, step 2.
+      statesPicker.replaceChildren(...edited.states.map(([id], i) => new Option(edited.slots[i]?.state === id ? (edited.slots[i].said ?? id) : (edited.slots.find((s) => s.state === id)?.said ?? id), id)));
       reformats(edited.formats);
       if (edited.at && !moved) shown = edited.at.index;
       statesPicker.selectedIndex = shown;
@@ -1154,18 +1164,18 @@ async function edit(source: Source) {
     table.found(findings);
     formatting.found(findings);
     if (edited.error) {
-      status.textContent = reported = "does not compile";
+      status.textContent = reported = "The source has an error to fix";
+      status.title = "";
       return;
     }
-    const errors = findings.filter((f) => f.severity === "error").length;
-    const ms = (n: number) => `${n.toFixed(0)} ms`;
+    // What lint found, in a person's words (PLAN 2.99); how long each step took, on a pointer
+    // over it.
     const linted =
-      whole !== undefined
-        ? `every state linted in ${ms(whole)}`
-        : `${edited.whole ? "linted" : "its state linted"} in ${ms(edited.ms.lint)}`;
-    const found = `${errors} error${errors === 1 ? "" : "s"}, ${findings.length - errors} other · compiled in ${ms(edited.ms.compile)}, shown in ${ms(edited.ms.paint)}, ${linted}`;
+      whole !== undefined ? `every slide checked in ${seconds(whole)}` : `${edited.whole ? "checked" : "the slide checked"} in ${seconds(edited.ms.lint)}`;
+    const found = counted(findings);
     reported = found;
     status.textContent = told ? `${told} — ${found}` : found;
+    status.title = `Read in ${seconds(edited.ms.compile)}, drawn in ${seconds(edited.ms.paint)}, ${linted}`;
   }
 
   /** A finding as CodeMirror shows it, with its fix as an action. One about the theme file
@@ -1202,16 +1212,19 @@ async function edit(source: Source) {
     view.focus();
   }
 
-  /** Every finding under the source; one that stands in it is a button, which goes there. */
+  /** Every finding under the canvas, each in a sentence and where it is, by its object, its slide,
+   * and its size (PLAN 2.99); one that stands in the source is a button, which goes there. */
   function list(findings: Finding[]) {
     problems.replaceChildren(
       ...findings.map((f) => {
         const li = document.createElement("li");
         li.className = f.severity;
-        const where = f.at ? `${f.at.line}:${f.at.col}` : (f.file ?? "");
-        const said = `<span class="code">${f.code}</span>${html(f.message)}<span class="where">${html(
-          [f.state, f.format, where].filter(Boolean).join(" · "),
-        )}</span>`;
+        const where = [
+          f.node !== undefined ? object(lexicon, f.node) : "",
+          f.state !== undefined ? slideOf(f.state) : f.file ? "The theme" : "The deck",
+          f.format ? `in ${f.format}` : "",
+        ];
+        const said = `${html(f.said ?? f.message)}<span class="where">${html(where.filter(Boolean).join(" · "))}</span>`;
         if (!f.at) li.innerHTML = said;
         else {
           const button = li.appendChild(document.createElement("button"));
@@ -1284,37 +1297,42 @@ async function edit(source: Source) {
     if (!state) return;
     let found: Inspected;
     try {
-      found = await stage.inspect(state, format());
+      [found, lexicon] = await Promise.all([stage.inspect(state, format()), stage.words(state).catch(() => lexicon)]);
     } catch (e) {
       listing.textContent = said(e);
       return;
     }
     inspected = found;
-    cueing?.show(found);
+    cueing?.show(found, lexicon);
     const cue = found.timeline;
+    // The slide shown, its objects and its animations, in a person's words (PLAN 2.99).
+    const words = lexicon;
     const rows = Object.keys(found.nodes).map((id) => {
       const look = found.looks?.[id];
-      const overrides = found.overrides?.[id]?.length ?? 0;
+      const own = found.overrides?.[id]?.length ?? 0;
+      const weight = look ? (words?.weights[String(look.weight)] ?? String(look.weight)) : "";
       const text = look
-        ? `<span class="swatch" style="background:${look.hex}"></span>${html(look.role)} · ${html(look.family)} ${look.size}/${look.weight} · ${html(look.color)}`
+        ? `<span class="swatch" style="background:${look.hex}"></span>${html(named(words, "text-role", look.role))} · ${html(look.family)} ${look.size} pt ${html(weight)} · ${html(named(words, "color", look.color))}`
         : "";
-      // A placement by `rect` on the template's grid is an override, as lint says (W301): once for
-      // each place a `rect` is written, under the first state that shows it.
+      // A box placed where it was let go, off the template's grid, as lint says (W301): once for
+      // each place it is written, under the first state that shows it.
       const at = found.nodes[id].at as Record<string, unknown> | undefined;
       const off = at?.rect !== undefined && last?.findings.some((f) => f.code === "W301" && f.node === id);
-      const place = at ? `${html(placed(at))}${off ? ' <span class="flag" title="W301: placed by a rect, an override">override</span>' : ""}` : "";
-      return `<tr data-node="${html(id)}"${id === chosen || beside.includes(id) ? ' aria-selected="true"' : ""}><td>${html(id)}</td><td>${place}</td><td>${text}</td><td>${overrides || ""}</td></tr>`;
+      const place = at ? `${html(placed(at, undefined, words))}${off ? ' <span class="flag" title="Placed where it was let go, off the theme’s grid">off the grid</span>' : ""}` : "";
+      return `<tr data-node="${html(id)}"${id === chosen || beside.includes(id) ? ' aria-selected="true"' : ""}><td>${html(object(words, id))}</td><td>${place}</td><td>${text}</td><td>${own || ""}</td></tr>`;
     });
     const motions = (cue?.motions ?? []).map(
-      (m) => `<tr><td>${html(m.node)}</td><td>${html(m.motion)}${m.units > 1 ? ` × ${m.units}` : ""}</td><td>${m.start.toFixed(0)}–${m.end.toFixed(0)} ms</td></tr>`,
+      (m) => `<tr><td>${html(object(words, m.node))}</td><td>${html(moving(words, m.motion, m.split))}</td><td>${seconds(m.start).replace(" s", "")}–${seconds(m.end)}</td></tr>`,
     );
     void look.show(chosen, beside);
+    const advance = cue && cue.hold > 0 ? `advances after ${seconds(cue.hold)}` : "advances on a click";
+    const transition = cue && cue.transition.duration > 0 ? `transition ${seconds(cue.transition.duration)}, Magic Move ${cue.transition.match === "id" ? "on" : "off"}` : "no transition";
     listing.innerHTML = `
-      <h2>${html(found.state_id)}${found.layout ? ` · ${html(found.layout)}` : ""}</h2>
-      ${cue ? `<p>starts at ${cue.start.toFixed(0)} ms · cue ${cue.span.toFixed(0)} ms · holds ${cue.hold.toFixed(0)} ms · transition ${cue.transition.duration.toFixed(0)} ms, matched by ${html(cue.transition.match)}</p>` : ""}
-      ${motions.length ? `<table><tr><th>moves</th><th></th><th></th></tr>${motions.join("")}</table>` : ""}
-      <h2>Nodes</h2>
-      <table><tr><th>node</th><th>place</th><th>look</th><th>overrides</th></tr>${rows.join("")}</table>`;
+      <h2>${html(slideOf(found.state_id))}${found.layout ? ` · ${html(named(words, "layout", found.layout))}` : ""}</h2>
+      ${cue ? `<p>Starts at ${seconds(cue.start)} · plays for ${seconds(cue.span)} · ${advance} · ${transition}</p>` : ""}
+      ${motions.length ? `<table><tr><th>Animations</th><th></th><th></th></tr>${motions.join("")}</table>` : ""}
+      <h2>Objects</h2>
+      <table><tr><th>Object</th><th>Place</th><th>Look</th><th>Own settings</th></tr>${rows.join("")}</table>`;
   }
 
   /** Save the source as it stands where the bundle is kept, or into the browser's storage. A
@@ -1624,13 +1642,13 @@ async function edit(source: Source) {
         run: () => press("Escape"),
       },
       pressing("Delete", "Delete", "Delete", {}, "Edit"),
-      pressing("Delete from every state", `${SHIFT}Delete`, "Delete", { shiftKey: true }, "Edit"),
+      pressing("Delete from every slide", `${SHIFT}Delete`, "Delete", { shiftKey: true }, "Edit"),
     ];
   }
 
   /** What annotates the chart selected (PLAN 2.67): the mark picked, highlighted, called out, ruled
    * at its value, or banded from; the annotation selected, reworded or taken away. Each is one
-   * `annotate` patch, kept to the state shown where the inspector's "Only in this state" is. */
+   * `annotate` patch, kept to the state shown where the inspector's "Only on Slide N" is. */
   function annotationCommands(): Command[] {
     const mark = () => board.picked();
     const notes = () => mark()?.notes;
@@ -1655,25 +1673,14 @@ async function edit(source: Source) {
     ];
   }
 
-  /** What is done to `node` in the layers: shown or hidden in the state shown, and renamed. */
+  /** What is done to `node` in the layers: shown or hidden on the slide shown. */
   function layerCommands(node: () => string | undefined, hidden: () => boolean): Command[] {
     return [
       {
-        label: hidden() ? "Show it in this state" : "Hide it in this state",
+        label: hidden() ? "Show it on this slide" : "Hide it on this slide",
         where: ["layer"],
         applies: () => node() !== undefined && showing() !== undefined,
         run: () => layering.toggle(node()!),
-      },
-      {
-        label: "Rename it",
-        keys: "F2",
-        group: "Layers",
-        where: ["layer"],
-        applies: () => node() !== undefined && showing() !== undefined,
-        run: () => {
-          tab("layers");
-          layering.rename(node()!);
-        },
       },
     ];
   }
@@ -1715,16 +1722,17 @@ async function edit(source: Source) {
   function stateCommands(): Command[] {
     const now = () => showing()?.state;
     const count = () => last?.states.length ?? 0;
+    /** The state shown is a step after its slide's first. */
+    const step = () => slideOf(now() ?? "").includes(", step ");
     return [
       { label: "Add a step", where: ["state"], applies: () => now() !== undefined, run: () => states.add("step") },
       { label: "Add a slide…", where: ["state"], applies: () => now() !== undefined, run: () => void states.gallery() },
-      { label: "Rename the state", where: ["state"], applies: () => now() !== undefined, run: () => states.rename(now()!) },
-      { label: "Delete the state", where: ["state"], applies: () => now() !== undefined && count() > 1, run: () => states.remove(now()!) },
+      { label: step() ? "Delete this step" : "Delete this slide", where: ["state"], applies: () => now() !== undefined && count() > 1, run: () => states.remove(now()!) },
       { label: "Export it as a PNG…", where: ["state"], applies: () => now() !== undefined, run: () => openExport("png") },
       { label: "Show the light table", applies: () => now() !== undefined && !table.open(), run: () => table.toggle(true) },
       { label: "Close the light table", applies: () => table.open(), run: () => table.toggle(false) },
-      { label: "Show the next state", applies: () => last?.valid === true && shown < count() - 1, run: () => goTo(shown + 1) },
-      { label: "Show the state before", applies: () => last?.valid === true && shown > 0, run: () => goTo(shown - 1) },
+      { label: "Show the next slide or step", applies: () => last?.valid === true && shown < count() - 1, run: () => goTo(shown + 1) },
+      { label: "Show the slide or step before", applies: () => last?.valid === true && shown > 0, run: () => goTo(shown - 1) },
     ];
   }
 

@@ -36,7 +36,8 @@ try {
 
   const source = () => page.evaluate(() => window.scaena.source());
   const status = () => page.evaluate(() => document.querySelector("#status").textContent);
-  const heading = () => page.evaluate(() => document.querySelector("#look h2")?.textContent ?? "");
+  const heading = () =>
+    page.evaluate(() => `${document.querySelector("#look h2")?.textContent ?? ""} · ${document.querySelector("#look .named")?.textContent ?? ""}`);
   const typing = () => page.evaluate(() => window.scaena.canvas.typing());
   const client = ([x, y]) =>
     page.evaluate(
@@ -59,8 +60,9 @@ try {
     check(ok, `${what}: ${ok ? text : (await source()).split("\n").find((l) => l.includes("Revenue")) ?? ""}`);
     await page.waitForTimeout(200);
   };
+  /** Once the inspector's heading, with the line that names what it shows, includes `words`. */
   const showing = (words) =>
-    page.waitForFunction((w) => document.querySelector("#look h2")?.textContent.includes(w), words, { timeout: 30000 }).then(
+    page.waitForFunction((w) => `${document.querySelector("#look h2")?.textContent} · ${document.querySelector("#look .named")?.textContent ?? ""}`.includes(w), words, { timeout: 30000 }).then(
       () => true,
       () => false,
     );
@@ -80,7 +82,7 @@ try {
   // "doubled": the end, and seven characters back.
   await page.keyboard.press("End");
   for (let i = 0; i < 7; i++) await page.keyboard.press("Shift+ArrowLeft");
-  check(await showing("characters 9–15"), `the inspector offers the characters selected: ${await heading()}`);
+  check(await showing("Selected Text · 7 characters of “Revenue doubled”"), `the inspector offers the characters selected: ${await heading()}`);
   const props = await page.evaluate(() => [...document.querySelectorAll("#look [data-prop]")].map((e) => e.dataset.prop));
   check(
     ["role", "emphasis", "style/family", "style/weight", "style/italic", "style/color"].every((p) => props.includes(p)),
@@ -169,7 +171,7 @@ try {
 
   // Escape: the title, not its characters.
   await page.keyboard.press("Escape");
-  check(await showing("title · text"), `the inspector shows the title again: ${await heading()}`);
+  check(await showing("Text · Revenue doubled"), `the inspector shows the title again: ${await heading()}`);
 } catch (e) {
   failures.push(`error: ${e.message}`);
 } finally {

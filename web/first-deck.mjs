@@ -305,7 +305,7 @@ try {
 
   await step("findings", async () => {
     // Once typing stops, every state is linted: what the deck has is what that finds.
-    await page.waitForFunction(() => /every state linted/.test(document.querySelector("#status").textContent), null, { timeout: 60000 });
+    await page.waitForFunction(() => window.scaena.last()?.whole, null, { timeout: 60000 });
     const found = await page.evaluate(() => window.scaena.last().findings.map((f) => `${f.severity} ${f.code} ${f.message}`));
     console.log(`     lint: ${found.join("; ") || "nothing"}`);
     check(!found.some((f) => f.startsWith("error")), `lint finds no error in any state: ${found.filter((f) => f.startsWith("error")).join("; ")}`);
@@ -320,7 +320,7 @@ try {
   await step("play", async () => {
     const [player] = await Promise.all([context.waitForEvent("page", { timeout: 30000 }), page.click("#play")]);
     player.on("pageerror", (e) => failures.push(`player: ${e.message}`));
-    await player.waitForFunction(() => /CPU painter/.test(document.querySelector("#status")?.textContent ?? ""), null, { timeout: 120000 });
+    await player.waitForFunction(() => document.querySelector("#status")?.title === "Painted by the CPU", null, { timeout: 120000 });
     await player.waitForTimeout(2000);
     await snap("player-title", player);
     for (const name of ["player-list", "player-photo"]) {
@@ -329,7 +329,7 @@ try {
       await snap(name, player);
     }
     const at = await player.evaluate(() => document.querySelector("#status").textContent);
-    check(/^3 \/ 3/.test(at), `the player plays it to its last slide: ${at}`);
+    check(/^Slide 3 of 3/.test(at), `the player plays it to its last slide: ${at}`);
     await player.close();
   });
 

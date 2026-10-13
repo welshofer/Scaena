@@ -173,10 +173,10 @@ try {
   // The presenter view, from the file.
   const [presenter] = await Promise.all([context.waitForEvent("page"), page.keyboard.press("p")]);
   watch(presenter, "presenter");
-  await presenter.waitForFunction(() => window.scaena?.follows?.()?.startsWith("1 / 4"), null, { timeout: 120000 });
+  await presenter.waitForFunction(() => window.scaena?.follows?.() === "Slide 1 of 3", null, { timeout: 120000 });
   await page.keyboard.press("ArrowRight");
-  await presenter.waitForFunction(() => window.scaena.follows().startsWith("2 / 4"), null, { timeout: 30000 }).catch(() => {});
-  check((await presenter.evaluate(() => window.scaena.follows())).startsWith("2 / 4 · revenue"), "the presenter view opens from the file and follows it");
+  await presenter.waitForFunction(() => window.scaena.follows().startsWith("Slide 2 of 3"), null, { timeout: 30000 }).catch(() => {});
+  check((await presenter.evaluate(() => window.scaena.follows())) === "Slide 2 of 3", `the presenter view opens from the file and follows it: ${await presenter.evaluate(() => window.scaena.follows())}`);
   await presenter.close();
   await page.close();
 

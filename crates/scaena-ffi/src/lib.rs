@@ -363,7 +363,8 @@ pub unsafe extern "C" fn scaena_picture(bytes: *const u8, len: usize) -> *mut c_
 /// in turn: its role and its words, PLAN 3.17), `source`, `compiledFrom
 /// {source}`, `compile {source}`, `lint {state?}`, `fix {patch}`, `inspect {state}`, `boxes
 /// {state}`, `hit {state, x, y}`, `layers {state}`, `carets {state, node}`, `choices {state,
-/// node}`, `stateChoices {state}`, `inserts`, `themes`, `themeText`, `keepHistory`,
+/// node}`, `stateChoices {state}`, `words {state}` (its objects by what they show, and the
+/// theme's names said, PLAN 2.99), `inserts`, `themes`, `themeText`, `keepHistory`,
 /// `keepsHistory`, and `writeFiles {files: [{path, text}]}`, which writes files back as an undo
 /// has them (`text` null: taken out). A drag (PLAN 3.7, ADR-0013): `targets {state, node}`,
 /// where a node may go; `snap {state, node, how, x, y, w, h, fork?, reach?}`, where a box left
@@ -1397,6 +1398,9 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             value(serde_json::to_value(s.character_choices(state, node, from, to).map_err(said)?))?
         }
         "stateChoices" => value(serde_json::to_value(s.state_choices(arg("state")?).map_err(said)?))?,
+        // The words an editor shows for a state: its objects by what they show, and the theme's
+        // names said (PLAN 2.99).
+        "words" => value(serde_json::to_value(s.words(arg("state")?).map_err(said)?))?,
         "layoutsBegin" => json!(s.layouts_begin(arg("state")?).map_err(said)?),
         "layoutsStep" => json!(s.layouts_step().map_err(said)?),
         "layoutSuggestions" => json!(s.layouts_painted(number("height")?.max(1.0) as u32).map_err(said)?),

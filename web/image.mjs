@@ -128,7 +128,7 @@ try {
     input.value = "0.5";
     input.dispatchEvent(new Event("change", { bubbles: true }));
   });
-  check(await says("image-cover's crop"), `the crop is chosen: ${await status()}`);
+  check(await says("Crop: 50% wide, 100% high, from 0% across and 0% down · on this slide"), `the crop is chosen, said in shares: ${await status()}`);
   await settled(n);
   check(/\bcrop:\[0, ?0, ?0\.5, ?1\]/.test(declared(await source(), "image-cover")), `written: ${declared(await source(), "image-cover")}`);
   await undo();
@@ -151,7 +151,7 @@ try {
   await choose("image-cover");
   n = await trips();
   await page.locator('#look select[data-prop="fit"]').selectOption("contain");
-  check(await says("image-cover's fit"), `the fit is chosen: ${await status()}`);
+  check(await says("Fit: Fit · on this slide"), `the fit is chosen: ${await status()}`);
   await settled(n);
   check(/\bfit:contain\b/.test(declared(await source(), "image-cover")), `written: ${declared(await source(), "image-cover")}`);
   await undo();
