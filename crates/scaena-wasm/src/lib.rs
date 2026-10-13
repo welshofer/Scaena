@@ -92,6 +92,14 @@ impl Player {
         self.0.formats()
     }
 
+    /// The deck's sizes as an editor offers them, as JSON: `{own, anew}`, its own canvas named
+    /// by its shape (`16:9`) where a format is it, and the formats it lays out anew.
+    pub fn sizes(&self) -> String {
+        // The player's module carries no serde derives (the session's `editor` feature).
+        let sizes = self.0.sizes();
+        serde_json::json!({ "own": sizes.own, "anew": sizes.anew }).to_string()
+    }
+
     /// Lay frames out in one of the deck's formats, or on its own canvas (`undefined`).
     #[wasm_bindgen(js_name = setFormat)]
     pub fn set_format(&mut self, format: Option<String>) -> Result<(), JsError> {

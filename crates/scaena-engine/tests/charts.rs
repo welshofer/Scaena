@@ -725,7 +725,8 @@ fn a_donut_leaves_its_values_room_on_every_side() {
 #[test]
 fn a_lines_end_values_stand_away_from_it() {
     // A line leaves its first point and comes to its last, so the first value ends at
-    // its point and the last begins there: neither crosses the line.
+    // its point and the last begins there: neither crosses the line. A first value over
+    // the category's label under its point ends before that label instead (below).
     let lines = by_series("line", json!({}));
     let x = |key: &str| match lines.marks.iter().find(|m| m.key == key).unwrap().shape {
         Shape::Dot { x, .. } => x,
@@ -736,7 +737,9 @@ fn a_lines_end_values_stand_away_from_it() {
     for path in &lines.paths {
         let (first, last) = (&path.marks[0], path.marks.last().unwrap());
         let (a, b) = (label(first), label(last));
-        assert!((a.origin[0] + a.text.width - x(first)).abs() < 0.01, "{first} ends at its point");
+        let beside = a.value.map_or(0.0, |v| v.beside);
+        assert!(beside <= 0.0, "{first} moves only away from its line");
+        assert!((a.origin[0] + a.text.width - (x(first) + beside)).abs() < 0.01, "{first} ends at its anchor");
         assert!((b.origin[0] - x(last)).abs() < 0.01, "{last} begins at its point");
     }
     // The names stand a space past the widest of them.
@@ -792,6 +795,33 @@ fn a_lines_end_values_take_room_beside_a_continuous_axis() {
 }
 
 #[test]
+fn a_lines_first_value_stands_clear_of_the_category_label_under_its_point() {
+    // A first point at the plot's foot: its value, a space over it, would stand two spaces
+    // over the category's label centered under it, the two read as one. It ends a space
+    // before that label, its anchor that far across from its point, so frames sample it
+    // there; a first value well over the axis keeps to its point.
+    let lines = by_series("line", json!({}));
+    let x = |key: &str| match lines.marks.iter().find(|m| m.key == key).unwrap().shape {
+        Shape::Dot { x, .. } => x,
+        other => panic!("{other:?}"),
+    };
+    let tick = &lines.ticks[0];
+    let (mut moved, mut kept) = (0, 0);
+    for path in &lines.paths {
+        let first = &path.marks[0];
+        let label = lines.labels.iter().find(|l| l.key == *first).unwrap();
+        if label.value.map_or(0.0, |v| v.beside) < 0.0 {
+            moved += 1;
+            assert!(label.origin[0] + label.text.width < tick.origin[0], "{first} ends before {}", tick.key);
+        } else {
+            kept += 1;
+            assert!((label.origin[0] + label.text.width - x(first)).abs() < 0.01, "{first} ends at its point");
+        }
+    }
+    assert!(moved >= 1 && kept >= 1, "moved {moved}, kept {kept}");
+}
+
+#[test]
 fn a_lines_first_values_keep_their_room_where_the_names_narrow_the_plot() {
     // In a narrow chart, as a column of a portrait slide leaves one, the first values
     // are wider than half a band, and the names past the last points take a share of
@@ -812,7 +842,12 @@ fn a_lines_first_values_keep_their_room_where_the_names_narrow_the_plot() {
         let label = lines.labels.iter().find(|l| l.key == *first).unwrap();
         assert!(label.text.width > x(first) - left, "{first} is wider than its room inside the plot");
         let end = label.origin[0] + label.text.width;
-        assert!((end - x(first)).abs() < 0.01, "{first} ends at {end}, its point at {}", x(first));
+        let anchor = x(first) + label.value.map_or(0.0, |v| v.beside);
+        assert!(
+            (end - anchor).abs() < 0.01 && end <= x(first) + 0.01,
+            "{first} ends at {end}, its point at {}",
+            x(first)
+        );
         assert!(label.origin[0] >= -0.01, "{first} stays inside the chart");
     }
 }

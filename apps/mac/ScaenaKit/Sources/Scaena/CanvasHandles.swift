@@ -32,6 +32,17 @@ struct Fit {
     var units: Double { 1 / max(Double(scale), 0.01) }
 }
 
+/// How far apart, points, the baseline grid's lines stand at the least to be drawn.
+private let baselinesApart: CGFloat = 6
+
+/// Whether the baseline grid at `baselines` reads at `scale` points to the unit: its lines at
+/// least `baselinesApart` points apart, not a stripe across the slide (the browser's
+/// `baselinesRead`).
+func baselinesRead(_ baselines: [Double], scale: CGFloat) -> Bool {
+    guard baselines.count > 1 else { return false }
+    return CGFloat(baselines[1] - baselines[0]) * scale >= baselinesApart
+}
+
 /// A handle of the node selected, held (PLAN 3.16), as the browser's canvas holds one: what it
 /// changes as the pointer goes, from where the press began.
 struct Holding {
@@ -418,14 +429,18 @@ struct GridOverlay: View {
             }
             .applying(fit.transform)
             .fill(pink.opacity(0.07))
-            Path { path in
-                for y in grid.baselines {
-                    path.move(to: CGPoint(x: left, y: CGFloat(y)))
-                    path.addLine(to: CGPoint(x: right, y: CGFloat(y)))
+            // The baseline grid only where its lines stand apart enough to read, as the browser's
+            // canvas draws it: zoomed out, a line every few points stripes the slide.
+            if baselinesRead(grid.baselines, scale: fit.scale) {
+                Path { path in
+                    for y in grid.baselines {
+                        path.move(to: CGPoint(x: left, y: CGFloat(y)))
+                        path.addLine(to: CGPoint(x: right, y: CGFloat(y)))
+                    }
                 }
+                .applying(fit.transform)
+                .stroke(Color(red: 0.25, green: 0.77, blue: 1).opacity(0.3), lineWidth: 0.5)
             }
-            .applying(fit.transform)
-            .stroke(Color(red: 0.25, green: 0.77, blue: 1).opacity(0.3), lineWidth: 0.5)
             Path(CGRect(x: left, y: top, width: right - left, height: bottom - top))
                 .applying(fit.transform)
                 .stroke(pink.opacity(0.55), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))

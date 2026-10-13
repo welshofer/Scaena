@@ -78,6 +78,9 @@ private func alike(_ a: CGRect, _ b: CGRect) -> Bool {
     let editor = DeckEditor(session: try ScaenaSession(directory: torture))
     let session = editor.session
     #expect(try session.formats() == ["9:16"])
+    // Its own canvas named by its shape, as the strip names it, and the one format laid out anew.
+    let sizes = try session.sizes()
+    #expect(sizes.own == "16:9" && sizes.anew == ["9:16"])
     let revision = editor.revision
     try editor.show(format: "9:16")
     #expect(editor.format == "9:16" && editor.revision > revision)

@@ -304,16 +304,21 @@ async function edit(source: Source) {
   /** On a served page, the deck's source on disk, where the folder keeps one (PLAN 2.11). */
   const scnOnDisk = "url" in source && source.serve && (await onDisk()).source ? new URL("deck.scn", source.url) : undefined;
   const fromDisk = async () => (await fetch(scnOnDisk!, { cache: "no-store" })).text();
-  formatPicker.replaceChildren(new Option("Own size", ""));
-  for (const format of stage.opened.formats) formatPicker.add(new Option(format, format));
+  /** The deck's own size, named by its shape where a format is it (`16:9`); a format it lists of
+   * that shape is its own canvas, offered once. */
+  const own = () => stage.opened.own;
+  const sizes = (formats: string[]) => formats.filter((f) => f !== own());
+  formatPicker.replaceChildren(new Option(own() ?? "Own size", ""));
+  for (const format of sizes(stage.opened.formats)) formatPicker.add(new Option(format, format));
   const format = () => formatPicker.value || undefined;
   /** The deck's formats as an edit leaves them: the format menu, and the formats side by side,
    * follow. A format the deck no longer lists gives way to its own canvas, as the worker's does. */
-  function reformats(formats: string[]) {
+  function reformats(all: string[]) {
+    const formats = sizes(all);
     const listed = [...formatPicker.options].slice(1).map((o) => o.value);
     if (listed.length !== formats.length || listed.some((f, i) => f !== formats[i])) {
       const chosen = formatPicker.value;
-      formatPicker.replaceChildren(new Option("Own size", ""), ...formats.map((f) => new Option(f, f)));
+      formatPicker.replaceChildren(new Option(own() ?? "Own size", ""), ...formats.map((f) => new Option(f, f)));
       formatPicker.value = formats.includes(chosen) ? chosen : "";
     }
     formatting.formats(formats);
@@ -818,13 +823,14 @@ async function edit(source: Source) {
   const formatting = formatsRow(stage, $("#formats"), $<HTMLButtonElement>("#formats-open"), {
     state: () => last?.states[shown]?.[0] ?? stage.opened.states[shown],
     format: () => formatPicker.value,
+    own,
     open: (name) => {
       if (formatPicker.value === name) return;
       formatPicker.value = name;
       formatPicker.dispatchEvent(new Event("change"));
     },
   });
-  formatting.formats(stage.opened.formats);
+  formatting.formats(sizes(stage.opened.formats));
   /** The deck played as presented, each state's time kept, and kept as its hold on request: one
    * patch, one step to undo (PLAN 2.63). */
   const rehearsing = rehearsal(stage, $("#rehearsing"), $<HTMLDialogElement>("#rehearsed"), $("#preview"), {

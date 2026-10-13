@@ -8,7 +8,9 @@
 //   button, a strip 3/8 inch, 54 cu, deep around the canvas's edge, its inner edge dashed.
 // - The theme's grid is drawn over the canvas on request: ⌘' (Ctrl+'), the Grid button, and the
 //   command each draw it or take it away. Drawn, it is the engine's: each column and row, the
-//   margin around them, and every line of the baseline grid. In another format, that format's.
+//   margin around them, and every line of the baseline grid where its lines stand 6 pixels apart
+//   or more, zoomed in far enough; zoomed out further, none, not a stripe. In another format,
+//   that format's.
 // - As a node is dragged on the grid, a guide shows wherever one of its edges, or its middle,
 //   meets another node's or the canvas's: the card's top meets the board's beside it.
 // - Off the grid (Shift), a node dragged within a few pixels of another's edge goes onto it, and
@@ -131,12 +133,24 @@ try {
     `⌘' draws the theme's grid, the engine's: ${JSON.stringify(grid && { columns: grid.columns.length, rows: grid.rows.length, first: grid.columns[0], last: grid.columns[11] })}`,
   );
   check((await drawn("grid-track")) === 20 && (await drawn("grid-margin")) === 1, `each column and row, and the margin: ${await drawn("grid-track")} tracks`);
+  // The baseline grid's lines, 8 cu apart from the top margin, only where they stand 6 pixels
+  // apart or more: zoomed out further, they would stripe the slide.
+  const apart = await page.evaluate(() => 8 / (window.scaena.canvas.view()[2] / document.querySelector("#overlay").getBoundingClientRect().width));
+  const reads = apart >= 6;
   check(
-    (await drawn("baseline")) === 112 && grid.baselines[0] === 96 && grid.baselines.at(-1) === 984,
-    `and every line of the baseline grid, 8 cu apart from the top margin: ${await drawn("baseline")}`,
+    (await drawn("baseline")) === (reads ? 112 : 0) && grid.baselines.length === 112 && grid.baselines[0] === 96 && grid.baselines.at(-1) === 984,
+    `the baseline grid's lines ${apart.toFixed(1)} px apart: ${reads ? "every one drawn" : "none drawn, not a stripe"}: ${await drawn("baseline")}`,
   );
   check((await pressed()) === "true", "the Grid button says it is drawn");
-  check((await status()).includes("12 columns and 8 rows, and the baseline grid"), `the status says what: ${await status()}`);
+  const said = reads ? "12 columns and 8 rows, and the baseline grid" : "12 columns and 8 rows; zoom in to see its baseline grid";
+  check((await status()).includes(said), `the status says what: ${await status()}`);
+  // Zoomed in, every line of the baseline grid; zoomed out again, none.
+  await page.evaluate((z) => window.scaena.canvas.zoom(z), Math.max(2, Math.ceil(6 / apart)));
+  await page.waitForFunction(() => document.querySelectorAll("#overlay .baseline").length === 112, null, { timeout: 10000 }).catch(() => {});
+  check((await drawn("baseline")) === 112, `zoomed in, every line of the baseline grid: ${await drawn("baseline")}`);
+  await page.evaluate(() => window.scaena.canvas.zoom("fit"));
+  await page.waitForFunction((n) => document.querySelectorAll("#overlay .baseline").length === n, reads ? 112 : 0, { timeout: 10000 }).catch(() => {});
+  check((await drawn("baseline")) === (reads ? 112 : 0), `zoomed to fit again, as before: ${await drawn("baseline")}`);
 
   // Another format: that format's grid, on its canvas.
   await page.locator("#format").selectOption("9:16");

@@ -171,7 +171,9 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
   };
 
   outline(statesPicker, slots, stage.opened.outline);
-  for (const id of stage.opened.formats) formatPicker.add(new Option(id, id));
+  // The deck's own size by its shape (`16:9`) where a format is it, which it is then offered as.
+  if (stage.opened.own) formatPicker.options[0].text = stage.opened.own;
+  for (const id of stage.opened.formats) if (id !== stage.opened.own) formatPicker.add(new Option(id, id));
   statesPicker.onchange = () => stage.run(Number(statesPicker.value), 0, format(), still());
   // A change of mind while the deck plays takes hold where it is.
   reduced.onchange = () => {
@@ -241,8 +243,10 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     const state = slots[stage.at.index]?.state;
     await stage.reload();
     const chosen = formatPicker.value;
-    formatPicker.replaceChildren(new Option("Own size", ""), ...stage.opened.formats.map((id) => new Option(id, id)));
-    formatPicker.value = stage.opened.formats.includes(chosen) ? chosen : "";
+    const own = stage.opened.own;
+    const formats = stage.opened.formats.filter((f) => f !== own);
+    formatPicker.replaceChildren(new Option(own ?? "Own size", ""), ...formats.map((id) => new Option(id, id)));
+    formatPicker.value = formats.includes(chosen) ? chosen : "";
     slots = await stage.timeline(format());
     outline(statesPicker, slots, stage.opened.outline);
     scrub.max = String(slots.length);
@@ -319,7 +323,7 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
       <div class="next"><canvas id="upnext"></canvas><p id="nextName"></p></div>
       <p class="clock"><span id="clock">0:00</span> · <span id="where"></span></p>
       <div id="notes" class="notes"></div>
-      <p class="buttons"><button id="back" aria-label="Back">◀</button> <button id="on" aria-label="On">▶</button></p>
+      <p class="buttons"><button id="back" aria-label="Back"><span aria-hidden="true">◀</span> Back</button><button id="on" aria-label="Next"><span aria-hidden="true">▶</span> Next</button></p>
       <p id="status" role="status">Loading…</p>
     </aside>`;
   const status = $("#status");

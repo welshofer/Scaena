@@ -433,6 +433,16 @@ export function placed(at: Placement, by?: Targets["by"], words?: Lexicon): stri
   return cells.filter(Boolean).join(", ") || "on the grid";
 }
 
+/** How far apart, CSS pixels, the baseline grid's lines stand at the least to be drawn. */
+const BASELINES_APART = 6;
+
+/** Whether the baseline grid at `baselines` reads at `u` canvas units to the pixel: its lines
+ * at least BASELINES_APART pixels apart, not a stripe across the slide. */
+export function baselinesRead(baselines: number[], u: number): boolean {
+  const step = baselines.length > 1 ? baselines[1] - baselines[0] : 0;
+  return step > 0 && step / Math.max(u, 1e-6) >= BASELINES_APART;
+}
+
 /** What arranging `how` did, as a person says it (PLAN 2.99): aligned left, brought to the front. */
 function arranged(how: Arrange): string {
   if ("align" in how)
@@ -960,7 +970,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (ruled !== on) return;
     draw();
     editor.ruled(on);
-    const where = grid?.baselines.length ? ", and the baseline grid" : "";
+    const where = !grid?.baselines.length ? "" : baselinesRead(grid.baselines, unit()) ? ", and the baseline grid" : "; zoom in to see its baseline grid";
     editor.say(on ? `The theme's grid: ${grid?.columns.length ?? 0} columns and ${grid?.rows.length ?? 0} rows${where}` : "The grid is hidden");
   }
 
@@ -1006,7 +1016,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       const [top, bottom] = [grid.rows[0]?.[0] ?? 0, grid.rows.at(-1)?.[1] ?? size[1]];
       for (const [a, b] of grid.columns) parts.push(rect([a, top, b - a, bottom - top], "grid-track"));
       for (const [a, b] of grid.rows) parts.push(rect([left, a, right - left, b - a], "grid-track"));
-      for (const y of grid.baselines) parts.push(line(left, y, right, y, "baseline"));
+      // The baseline grid only where its lines stand apart enough to read: zoomed out, a line
+      // every few pixels stripes the slide, so they wait for a zoom to spread them, as a layout
+      // app's baseline grid waits for its view threshold.
+      if (baselinesRead(grid.baselines, u)) for (const y of grid.baselines) parts.push(line(left, y, right, y, "baseline"));
       parts.push(rect([left, top, right - left, bottom - top], "grid-margin"));
     }
     // The safe area (PLAN 3.29): the strip between the canvas's edge and what lies inside it, and

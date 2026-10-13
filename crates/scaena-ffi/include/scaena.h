@@ -136,7 +136,8 @@ char *scaena_picture(const uint8_t *bytes, size_t len);
 
 // Answer `method` with `args` (a JSON object, or null for none), as a page's `Player` does:
 // `{"ok": value}` or `{"error": {"message"}}`, a string to free. The calls ([`call`]):
-// `states`, `formats`, `setFormat {format?}`, `canvasSize`, `duration {state}`, `timeline`,
+// `states`, `formats`, `sizes` (`{own, anew}`: the deck's own canvas named by its shape, and the
+// formats it lays out anew), `setFormat {format?}`, `canvasSize`, `duration {state}`, `timeline`,
 // `files`, `imageFiles`, `digest {state}`, `reading {state}`, `reads {state}` (each node read,
 // in turn: its role and its words, PLAN 3.17), `source`, `compiledFrom
 // {source}`, `compile {source}`, `lint {state?}`, `fix {patch}`, `inspect {state}`, `boxes

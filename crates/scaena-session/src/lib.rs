@@ -180,6 +180,15 @@ pub struct Session {
     viewing: Option<Box<Session>>,
 }
 
+/// The deck's sizes as an editor offers them ([`Session::sizes`]): its own canvas named by its
+/// shape (`16:9`), where a format is it, and the formats it lays out anew (`9:16`).
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "editor", derive(serde::Serialize))]
+pub struct Sizes {
+    pub own: Option<String>,
+    pub anew: Vec<String>,
+}
+
 /// What grouping makes (PLAN 2.43): the new group's id, and the patch that makes it.
 #[cfg(feature = "editor")]
 #[derive(Debug, Clone, serde::Serialize)]
@@ -480,6 +489,17 @@ impl Session {
     /// The formats the deck is also laid out in, as it writes them (`9:16`).
     pub fn formats(&self) -> Vec<String> {
         self.deck.formats.clone()
+    }
+
+    /// The deck's sizes as an editor offers them: its own canvas named by the format of its
+    /// shape, where one is (`16:9` on a 1920 × 1080 deck), and each format it lays out anew. A
+    /// format it lists of its own canvas's shape is that canvas, laid out as it is (ADR-0020),
+    /// so it is no size of its own.
+    pub fn sizes(&self) -> Sizes {
+        let own = [self.deck.canvas.width, self.deck.canvas.height];
+        let shape =
+            (scaena_core::model::Format::ALL.into_iter()).find(|f| f.canvas(own) == own).map(|f| f.name().to_string());
+        Sizes { own: shape, anew: self.deck.anew().into_iter().map(String::from).collect() }
     }
 
     /// Lay frames out in `format`, one of the deck's `formats` (SPEC §3.4), or on the
@@ -1854,6 +1874,18 @@ mod tests {
         assert_eq!(s.file("assets/smaller.png"), Some(&fits[..]));
         s.dropping("notes.txt", "assets/notes.txt", b"words".to_vec()).unwrap();
         assert_eq!(s.files().len(), files + 2);
+    }
+
+    /// A format the deck lists of its own canvas's shape is that canvas, no size of its own:
+    /// revenue's `16:9` is its 1920 × 1080 canvas, which an editor names by it.
+    #[test]
+    fn a_format_of_the_canvas_own_shape_is_the_canvas() {
+        let read = |p: &str| std::fs::read_to_string(format!("../../docs/examples/{p}")).unwrap();
+        let s = Session::new(&read("revenue.deck.json"), &read("themes/dusk.theme.json")).unwrap();
+        assert_eq!(s.formats(), ["16:9", "9:16"]);
+        assert_eq!(s.sizes(), Sizes { own: Some("16:9".into()), anew: vec!["9:16".into()] });
+        // The torture deck lists only another shape, which it lays out anew.
+        assert_eq!(torture().sizes(), Sizes { own: Some("16:9".into()), anew: vec!["9:16".into()] });
     }
 
     /// Set `s` up for the golden frame `name`, and say which state it is and when: `state`
