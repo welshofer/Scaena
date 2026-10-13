@@ -26,7 +26,7 @@ enum Words {
         "role": "Text Style", "emphasis": "Emphasis", "style/family": "Font", "style/weight": "Weight",
         "style/italic": "Italic", "style/size": "Size", "style/color": "Color", "style/case": "Capitalization",
         "style/tracking": "Character Spacing", "align/x": "Alignment", "fit": "Fit", "wrap": "Line Breaks",
-        "maxLines": "Most Lines",
+        "maxLines": "Most Lines", "mask": "Mask",
         "opacity": "Opacity", "transform/rotate": "Rotation", "enter": "Build In", "exit": "Build Out",
         "alt": "Description", "semantic": "Part in the Story", "focal": "Focal Point", "crop": "Crop",
         "radius": "Corners", "fill": "Fill", "stroke/paint": "Border", "stroke/width": "Border Width",
@@ -45,6 +45,7 @@ enum Words {
     static func word(_ word: String, of prop: String, type: String?) -> String {
         switch (prop, word) {
         case ("fit", "cover"): return "Fill"
+        case ("mask", "ellipse"): return "Oval"
         case ("fit", "contain"): return "Fit"
         case ("fit", "fill"): return "Stretch"
         case ("fit", "wrap"): return "Wrap"

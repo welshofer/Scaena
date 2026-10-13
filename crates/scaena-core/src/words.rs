@@ -28,6 +28,7 @@ pub const LABELS: &[(&str, &str)] = &[
     ("style/tracking", "Character Spacing"),
     ("align/x", "Alignment"),
     ("fit", "Fit"),
+    ("mask", "Mask"),
     ("wrap", "Line Breaks"),
     ("maxLines", "Most Lines"),
     ("opacity", "Opacity"),
@@ -86,6 +87,7 @@ pub fn label(prop: &str) -> String {
 /// `cover` is its Fill. A word any property takes is in [`ANY_WORDS`].
 pub const WORDS: &[(&str, &str, &str)] = &[
     ("fit", "cover", "Fill"),
+    ("mask", "ellipse", "Oval"),
     ("fit", "contain", "Fit"),
     ("fit", "fill", "Stretch"),
     ("fit", "wrap", "Wrap"),

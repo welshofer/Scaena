@@ -225,6 +225,8 @@ fn own(node_type: NodeType) -> &'static [(&'static str, Source)] {
             ("focal", Fractions(&["x", "y"])),
             ("crop", Fractions(&["x", "y", "w", "h"])),
             ("radius", Names(V::Radius, true)),
+            // The shape it shows inside (PLAN 2.113).
+            ("mask", Schema(false)),
         ],
         NodeType::Shader => &[("preset", Names(V::ShaderPreset, false)), ("palette", Names(V::ShaderPalette, false))],
         // What a chart reads, and how (PLAN 2.41): its source, each channel's field and the

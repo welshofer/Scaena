@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/patch-0.23.json",
+  "$id": "https://scaena.dev/schema/patch-0.24.json",
   "title": "Scaena patch",
   "description": "A patch (SPEC §7.3): RFC 6902 ops and semantic ops, applied in order, all or none.",
   "type": "array",
@@ -798,7 +798,11 @@
           "description": "The part of the image to show, [x, y, w, h] in fractions of the image.",
           "$ref": "#/$defs/Rect"
         },
-        "radius": { "description": "Rounds the corners of what shows.", "$ref": "#/$defs/Length" }
+        "radius": { "description": "Rounds the corners of what shows.", "$ref": "#/$defs/Length" },
+        "mask": {
+          "description": "Shows the image only inside a shape (PLAN 2.113), fitted to what shows, as a presentation app masks a picture with a shape: an oval, or a polygon of the shape library. It takes the place of `radius`.",
+          "$ref": "#/$defs/ImageMask"
+        }
       }
     },
     "ChartNode": {
@@ -1433,6 +1437,29 @@
         { "description": "Stretched to the box.", "type": "string", "const": "fill" }
       ]
     },
+    "ImageMask": {
+      "description": "The shape an image shows inside (PLAN 2.113): an oval, or a polygon of the shape library (`scaena_core::inserts::polygons`), by its name.",
+      "type": "string",
+      "enum": [
+        "ellipse",
+        "triangle",
+        "right-triangle",
+        "diamond",
+        "parallelogram",
+        "trapezoid",
+        "pentagon",
+        "hexagon",
+        "octagon",
+        "star",
+        "chevron",
+        "right-arrow",
+        "left-arrow",
+        "up-arrow",
+        "down-arrow",
+        "plus",
+        "callout"
+      ]
+    },
     "ChartKind": {
       "description": "v1 chart kinds (SPEC §3.7); waffle and heatmap are deferred. A `slope` compares two states, a line a series from the first to the second, both ends labeled and the change said; a `range` spans the value axis at each category, a dumbbell between its series or each value with its `interval` (PLAN 1.30).",
       "type": "string",
@@ -1835,6 +1862,7 @@
           ]
         },
         "crop": { "anyOf": [{ "$ref": "#/$defs/Rect" }, { "type": "null" }] },
+        "mask": { "anyOf": [{ "$ref": "#/$defs/ImageMask" }, { "type": "null" }] },
         "orient": { "anyOf": [{ "$ref": "#/$defs/ChartOrient" }, { "type": "null" }] },
         "data": { "anyOf": [{ "pattern": "^@[a-z][a-z0-9_-]*$", "type": "string" }, { "type": "null" }] },
         "dataTransform": {

@@ -364,6 +364,22 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
+    /// An image's mask (PLAN 2.113) is an oval or a polygon of the shape library, by its name: each
+    /// the format names is one, and each of the library is one the format names.
+    #[test]
+    fn every_mask_is_an_oval_or_a_shape_of_the_library() {
+        let schema = serde_json::to_value(schemars::schema_for!(crate::model::nodes::ImageMask)).unwrap();
+        let mut named: Vec<String> = schema.to_string().split('"').map(String::from).collect();
+        let masks: Vec<String> = polygons().into_iter().map(|(name, _, _)| name.to_string()).collect();
+        for mask in masks.iter().chain([&"ellipse".to_string()]) {
+            let typed: crate::model::nodes::ImageMask = serde_json::from_value(json!(mask)).unwrap();
+            assert_eq!(serde_json::to_value(typed).unwrap(), json!(mask));
+        }
+        named.retain(|w| masks.contains(w) || w == "ellipse");
+        named.dedup();
+        assert_eq!(named.len(), masks.len() + 1, "{named:?}");
+    }
+
     #[test]
     fn a_name_becomes_an_id_and_a_role_a_sentence() {
         assert_eq!(slug("Team Photo 2026", "image"), "team-photo-2026");

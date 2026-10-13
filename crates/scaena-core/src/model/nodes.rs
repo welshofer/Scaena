@@ -347,7 +347,36 @@ node! {
         /// Rounds the corners of what shows.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub radius: Option<Length>,
+        /// Shows the image only inside a shape (PLAN 2.113), fitted to what shows, as a
+        /// presentation app masks a picture with a shape: an oval, or a polygon of the shape
+        /// library. It takes the place of `radius`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub mask: Option<ImageMask>,
     }
+}
+
+/// The shape an image shows inside (PLAN 2.113): an oval, or a polygon of the shape library
+/// (`scaena_core::inserts::polygons`), by its name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum ImageMask {
+    Ellipse,
+    Triangle,
+    RightTriangle,
+    Diamond,
+    Parallelogram,
+    Trapezoid,
+    Pentagon,
+    Hexagon,
+    Octagon,
+    Star,
+    Chevron,
+    RightArrow,
+    LeftArrow,
+    UpArrow,
+    DownArrow,
+    Plus,
+    Callout,
 }
 
 /// How an image meets its box.
