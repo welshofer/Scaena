@@ -660,14 +660,19 @@ impl Joint {
     /// Its route between the boxes `from` and `to`, canvas units: its box, and its points as
     /// fractions of that box. A straight one runs along the line between the boxes' middles,
     /// from where it leaves `from` to where it meets `to`; an elbow leaves `from` by the side
-    /// that faces `to`, across or down, turns twice at right angles, and meets `to`'s facing
-    /// side. Boxes that overlap are joined middle to middle.
+    /// that faces `to`, turns twice at right angles, and meets `to`'s facing side: down, or up,
+    /// where one box is above the other, as an organization chart's lines run, even where it
+    /// stands to one side too, and across where they stand side by side (PLAN 2.110). Boxes that
+    /// overlap are joined middle to middle.
     pub fn route(&self, from: Rect, to: Rect) -> (Rect, Vec<[f32; 2]>) {
         let gap = self.gap;
         let middle = |r: Rect| [r[0] + r[2] / 2.0, r[1] + r[3] / 2.0];
         let (a, b) = (middle(from), middle(to));
         let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
-        let points = if self.elbow && dx.abs() >= dy.abs() {
+        let above = to[1] >= from[1] + from[3] || to[1] + to[3] <= from[1];
+        let beside = to[0] >= from[0] + from[2] || to[0] + to[2] <= from[0];
+        let across = if above || beside { !above } else { dx.abs() >= dy.abs() };
+        let points = if self.elbow && across {
             // Across: out of the side that faces the other box, a turn halfway, and in.
             let s = if dx < 0.0 { -1.0 } else { 1.0 };
             let (x0, x1) = (a[0] + s * (from[2] / 2.0 + gap), b[0] - s * (to[2] / 2.0 + gap));

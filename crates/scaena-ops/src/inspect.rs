@@ -1255,7 +1255,7 @@ pub fn connecting(deck: &Deck, state: &str, from: &str, to: &str, arrow: bool) -
 
 /// The theme's color role that reads on a fill of `fill`, where the theme names one: `onAccent`
 /// on `accent`.
-fn reads_on(theme: &Theme, fill: Option<&Value>) -> Option<String> {
+pub(crate) fn reads_on(theme: &Theme, fill: Option<&Value>) -> Option<String> {
     let fill = match fill? {
         Value::String(s) => s.as_str(),
         Value::Object(o) => o.get("solid")?.as_str()?,

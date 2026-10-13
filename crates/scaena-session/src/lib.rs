@@ -1514,7 +1514,7 @@ impl Session {
     /// one, empty, which goes where the shape goes.
     #[cfg(feature = "editor")]
     pub fn wording(&self, shape: &str) -> Result<scaena_ops::inspect::Worded, Error> {
-        scaena_ops::inspect::wording(&self.deck, &self.theme, shape).map_err(|e| Error::Deck(e.to_string()))
+        scaena_ops::inspect::wording(&self.deck, &self.theme, shape).map_err(|e| Error::Ops(e.to_string()))
     }
 
     /// The patch that joins `from` to `to` in `state` with a line, or an arrow that points at `to`
@@ -1528,7 +1528,25 @@ impl Session {
         to: &str,
         arrow: bool,
     ) -> Result<scaena_ops::inspect::Connected, Error> {
-        scaena_ops::inspect::connecting(&self.deck, state, from, to, arrow).map_err(|e| Error::Deck(e.to_string()))
+        scaena_ops::inspect::connecting(&self.deck, state, from, to, arrow).map_err(|e| Error::Ops(e.to_string()))
+    }
+
+    /// The patch that draws text `node`'s lines in `state` as a diagram of `kind` in the text's
+    /// place (PLAN 2.110): a container of boxes, each with its words, joined by connectors, kept
+    /// to the state's slide, and the text deleted from the state on.
+    #[cfg(feature = "editor")]
+    pub fn diagramming(
+        &mut self,
+        state: &str,
+        node: &str,
+        kind: scaena_ops::diagrams::Diagram,
+    ) -> Result<scaena_ops::diagrams::Diagrammed, Error> {
+        let boxes = self.boxes(state)?;
+        let rest = (boxes.iter().find(|b| b.node == node).map(|b| b.rect))
+            .ok_or_else(|| Error::Ops(format!("`{node}` stands nowhere in `{state}`")))?;
+        let files = editor::Handed(&self.files);
+        scaena_ops::diagrams::diagramming(&self.deck, &self.theme, &files, state, node, kind, rest)
+            .map_err(|e| Error::Ops(e.to_string()))
     }
 
     /// [`Session::duplicating`] in the format shown alone.
@@ -2827,6 +2845,54 @@ mod tests {
     /// Connectors (PLAN 2.109): two nodes joined by an arrow, which its box names with the line a
     /// pointer picks it by, which the canvas reaches by that line alone, and which runs from where
     /// either end stands while a drag moves it, nothing laid out.
+    /// Diagrams (PLAN 2.110): the revenue example's subtitle, given three lines, the last two under
+    /// the first, drawn as a hierarchy in its place: a box for each, the first above the others,
+    /// clear of each other, each holding its words inside it; a line from the first down to each
+    /// under it, which leaves its foot and meets their tops; and the subtitle gone from the intro.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_texts_lines_are_drawn_as_a_diagram_whose_boxes_hold_their_words() {
+        let mut s = revenue();
+        let by = || assistant::Caller { author: "user", at: None };
+        let lines = serde_json::json!([
+            { "op": "replace", "path": "/nodes/subtitle/text", "value": "Lead\nDesign\nBuild" },
+            { "op": "add", "path": "/nodes/subtitle/list",
+              "value": [{ "kind": "bullet" }, { "kind": "bullet", "level": 1 }, { "kind": "bullet", "level": 1 }] }
+        ]);
+        s.tool("deck_patch", serde_json::json!({ "ops": lines }), by()).unwrap();
+        let made = s.diagramming("intro", "subtitle", scaena_ops::diagrams::Diagram::Hierarchy).unwrap();
+        assert_eq!(made.id, "subtitle-hierarchy");
+        s.tool("deck_patch", serde_json::json!({ "ops": made.patch }), by()).unwrap();
+        let boxes = s.boxes_json("intro").unwrap();
+        let rect = |node: &str| -> [f32; 4] {
+            let b = boxes.iter().find(|b| b["node"] == node).unwrap_or_else(|| panic!("no box for {node}"));
+            serde_json::from_value(b["rect"].clone()).unwrap()
+        };
+        let [lead, design, build] = ["subtitle-hierarchy-1", "subtitle-hierarchy-2", "subtitle-hierarchy-3"].map(rect);
+        assert!(lead[1] + lead[3] < design[1] && design[1] == build[1], "{lead:?} {design:?} {build:?}");
+        assert!(design[0] + design[2] < build[0], "side by side: {design:?} {build:?}");
+        let middle = |r: [f32; 4]| r[0] + r[2] / 2.0;
+        assert!((middle(lead) - (middle(design) + middle(build)) / 2.0).abs() < 1.0, "centered over them");
+        assert!((lead[2] - design[2]).abs() < 1.0, "one column wide: {lead:?} {design:?}");
+        for id in ["subtitle-hierarchy-1", "subtitle-hierarchy-2", "subtitle-hierarchy-3"] {
+            let (outer, inner) = (rect(id), rect(&format!("{id}-words")));
+            let inside = inner[0] >= outer[0]
+                && inner[1] >= outer[1]
+                && inner[0] + inner[2] <= outer[0] + outer[2]
+                && inner[1] + inner[3] <= outer[1] + outer[3];
+            assert!(inside, "{id}'s words inside it: {inner:?} {outer:?}");
+        }
+        let line =
+            boxes.iter().find(|b| b["joins"] == serde_json::json!(["subtitle-hierarchy-1", "subtitle-hierarchy-2"]));
+        let route: Vec<[f32; 2]> = serde_json::from_value(line.unwrap()["route"].clone()).unwrap();
+        assert_eq!(route.len(), 4, "a line that turns twice: {route:?}");
+        assert!(
+            route[0][1] > lead[1] + lead[3] && route[3][1] < design[1],
+            "down from its foot to their top: {route:?}"
+        );
+        assert!(!boxes.iter().any(|b| b["node"] == "subtitle"), "the subtitle gone from the intro");
+    }
+
     #[cfg(feature = "editor")]
     #[test]
     fn a_connector_is_picked_by_its_line_and_follows_a_drag() {

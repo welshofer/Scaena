@@ -54,6 +54,17 @@ enum CanvasOffer {
             arranging.append(.action("Connect with Line", symbol: "line.diagonal", run: { connect(false) }))
         }
         if !arranging.isEmpty { offers.append(.menu("Arrange", symbol: "square.3.layers.3d", arranging)) }
+        // The text selected drawn as a diagram in its place (PLAN 2.110).
+        if let diagram = deck.diagram {
+            let symbols: [DiagramKind: String] = [
+                .process: "arrow.right.square", .cycle: "arrow.triangle.2.circlepath",
+                .hierarchy: "point.3.connected.trianglepath.dotted",
+            ]
+            let kinds: [CanvasOffer] = DiagramKind.allCases.map { kind in
+                .action(kind.title, symbol: symbols[kind] ?? "square", run: { diagram(kind) })
+            }
+            offers.append(.menu("Diagram from Text", symbol: "rectangle.3.group", kinds))
+        }
         if let copyLook = deck.copyLook { offers.append(.action("Copy Style", symbol: "paintbrush", run: copyLook)) }
         if let pasteLook = deck.pasteLook {
             offers.append(.action("Paste Style", symbol: "paintbrush.pointed", run: pasteLook))

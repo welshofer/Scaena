@@ -16,6 +16,7 @@ pub mod clipboard;
 pub mod compile;
 pub mod create;
 pub mod data;
+pub mod diagrams;
 pub mod export;
 pub mod files;
 pub mod find;

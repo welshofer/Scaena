@@ -782,6 +782,13 @@ impl Player {
         serde_json::to_string(&self.0.connecting(state, from, to, arrow).map_err(js)?).map_err(js)
     }
 
+    /// The patch that draws text `node`'s lines in `state` as a diagram, `process`, `cycle`, or
+    /// `hierarchy`, in the text's place (PLAN 2.110), as JSON: `{ id, patch }`, `id` its container.
+    pub fn diagramming(&mut self, state: &str, node: &str, kind: &str) -> Result<String, JsError> {
+        let kind = serde_json::from_value(serde_json::Value::String(kind.into())).map_err(js)?;
+        serde_json::to_string(&self.0.diagramming(state, node, kind).map_err(js)?).map_err(js)
+    }
+
     /// The patch that puts `nodes` in a new group where they stand in `state` (PLAN 2.43), as
     /// JSON: `{ id, patch }`.
     pub fn grouping(&self, state: &str, nodes: Vec<String>) -> Result<String, JsError> {

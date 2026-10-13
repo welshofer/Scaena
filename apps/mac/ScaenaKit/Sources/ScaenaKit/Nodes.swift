@@ -180,3 +180,34 @@ extension ScaenaSession {
         try call("connecting", ["state": .string(state), "from": .string(from), "to": .string(to), "arrow": .bool(arrow)])
     }
 }
+
+/// What a diagram draws a text's lines as (PLAN 2.110): steps joined by arrows, steps around a
+/// ring, or a tree by their list levels.
+public enum DiagramKind: String, CaseIterable, Sendable {
+    case process, cycle, hierarchy
+
+    /// What a menu calls it.
+    public var title: String {
+        switch self {
+        case .process: "Process"
+        case .cycle: "Cycle"
+        case .hierarchy: "Hierarchy"
+        }
+    }
+}
+
+/// A diagram made from a text's lines (PLAN 2.110): its container, and the patch that makes it in
+/// the text's place.
+public struct Diagrammed: Decodable, Sendable {
+    public let id: String
+    public let patch: [JSONValue]
+}
+
+extension ScaenaSession {
+    /// The patch that draws text `node`'s lines in `state` as a diagram of `kind` in its place
+    /// (PLAN 2.110), as the browser's canvas makes it: boxes with their words, joined by
+    /// connectors, in a container placed as the text was, the text deleted from the state on.
+    public func diagramming(state: String, node: String, kind: DiagramKind) throws -> Diagrammed {
+        try call("diagramming", ["state": .string(state), "node": .string(node), "kind": .string(kind.rawValue)])
+    }
+}
