@@ -305,7 +305,7 @@ try {
 
   await step("findings", async () => {
     // Once typing stops, every state is linted: what the deck has is what that finds.
-    await page.waitForFunction(() => /every state linted/.test(document.querySelector("#status").textContent), null, { timeout: 60000 });
+    await page.waitForFunction(() => window.scaena.last()?.whole, null, { timeout: 60000 });
     const found = await page.evaluate(() => window.scaena.last().findings.map((f) => `${f.severity} ${f.code} ${f.message}`));
     console.log(`     lint: ${found.join("; ") || "nothing"}`);
     check(!found.some((f) => f.startsWith("error")), `lint finds no error in any state: ${found.filter((f) => f.startsWith("error")).join("; ")}`);
