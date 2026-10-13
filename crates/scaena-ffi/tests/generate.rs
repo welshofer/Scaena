@@ -206,6 +206,50 @@ fn a_deck_is_made_from_a_prompt_as_swift_makes_one_its_pictures_with_it() {
     }
 }
 
+/// The icons the slides name are found in the set that ships as the deck is made, as the CLI
+/// finds them (PLAN G.23): a slide whose items each name one sets each under it, and Swift does
+/// nothing more for it.
+#[test]
+fn the_icons_the_slides_name_are_found_as_the_deck_is_made() {
+    let arc = std::fs::read_to_string(format!("{ANSWERS}/anthropic-arc.json")).unwrap();
+    let three = ["Fast: a crossing in a day", "Safe: checked at every port", "Shared: one ledger for all"];
+    let four = ["Plan: the route set a week out", "Track: each crate seen", "Agree: one price", "Arrive: on time"];
+    let written = json!({ "executiveSummary": "Cargo that pays for its carbon.", "slides": [
+        { "slideTitle": "Tidewater", "subtitle": "Series A", "layoutSuggestion": "Title", "keyBullets": [] },
+        { "slideTitle": "Why Tidewater wins", "layoutSuggestion": "Bullet List", "keyBullets": three, "icons": ["lightning", "shield", "users"] },
+        { "slideTitle": "Cargo can pay for the carbon it moves", "layoutSuggestion": "Statement", "keyBullets": [] },
+        { "slideTitle": "How we work", "layoutSuggestion": "Bullet List", "keyBullets": four, "icons": ["compass", "chart", "handshake", "flag"] },
+        { "slideTitle": "Sail with us", "layoutSuggestion": "Closing", "keyBullets": [] },
+    ] });
+    let slides = anthropic(&written.to_string());
+    let g = scaena_generator_new();
+    let brief = json!({ "topic": "Carbon-negative cargo is ready to scale", "audience": "Investors" });
+    step(g, "begin", json!({ "brief": brief, "provider": "anthropic", "model": "a-model" }), &[]);
+    loop {
+        let standing = step(g, "request", json!({ "key": "sk-writer" }), &[]);
+        let Some(request) = standing.get("request").cloned() else { break };
+        let answer = if request["body"].as_str().unwrap().contains("=== CATALOG ===") { &arc } else { &slides };
+        step(g, "answer", json!({ "status": 200, "statusText": "OK", "body": answer }), &[]);
+    }
+    step(g, "make", json!({ "theme": "dusk" }), &[]);
+    let report = step(g, "report", json!({}), &[]);
+    assert_eq!(report["created"]["errors"], 0, "{report:#}");
+    assert_eq!(report["layouts"][1], "icon-cards", "{report:#}");
+    assert_eq!(report["layouts"][3], "icon-rows", "{report:#}");
+    let mut error = null_mut();
+    let session = unsafe { scaena_generator_open(g, &mut error) };
+    assert!(!session.is_null(), "the deck opens: {}", took(error));
+    let source = call(session, "source");
+    let source = source.as_str().unwrap();
+    for named in ["alt:Lightning", "alt:Handshake", "view:[0, 0, 256, 256]"] {
+        assert!(source.contains(named), "{named}: {source}");
+    }
+    unsafe {
+        scaena_session_free(session);
+        scaena_generator_free(g);
+    }
+}
+
 /// A deck in a script the theme's fonts do not draw takes the script's font, which Swift fetches
 /// where `script` says and hands over as `scriptFont`, held to its pinned digest (PLAN G.22). The
 /// theme is asked before anything is read or any call paid for, and refuses the language until

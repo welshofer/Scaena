@@ -538,11 +538,13 @@ async function edit(source: Source) {
   /** The theme's layouts by their sections, each drawn (PLAN 3.31): + Slide's, and the inspector's
    * Layout. */
   const picking = layoutPicker(stage, $<HTMLDialogElement>("#starting"));
-  /** The icons that ship, to insert one where the pointer last pressed (PLAN 2.104). */
+  /** The icons that ship, to insert one where the pointer last pressed (PLAN 2.104), or, with an
+   * icon selected, to put another in its place (PLAN G.23). */
   const iconing = iconPicker($<HTMLDialogElement>("#iconing"));
   async function insertIcon() {
-    const icon = await iconing.pick();
-    if (icon) await board.insertIcon(icon);
+    const swapping = await board.selectedIcon();
+    const icon = await iconing.pick(swapping ? "Replace the icon" : undefined);
+    if (icon) await (swapping ? board.swapIcon(swapping, icon) : board.insertIcon(icon));
     $("#overlay").focus();
   }
   const look = looks(stage, $("#look"), {

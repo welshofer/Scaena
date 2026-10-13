@@ -474,11 +474,16 @@ pub fn choices(choices: &mut Choices, deck: &Deck, theme: &Theme) {
         .ok()
         .and_then(|snaps| snaps.into_iter().find(|s| s.state_id == choices.state))
         .and_then(|snap| snap.nodes.get(&choices.node).cloned());
-    choices.said = Some(match shown {
-        Some(props) => object(choices.node_type, &props),
+    choices.said = Some(match &shown {
+        Some(props) => object(choices.node_type, props),
         None => kind(Some(choices.node_type)).to_string(),
     });
-    choices.noun = Some(kind(Some(choices.node_type)).to_string());
+    // A path on a view is an icon (PLAN 2.104), as Insert names it: what the picker replaces.
+    let icon = choices.node_type == NodeType::Shape
+        && shown
+            .as_ref()
+            .is_some_and(|p| p.get("kind").and_then(Value::as_str) == Some("path") && p.contains_key("view"));
+    choices.noun = Some(if icon { "Icon" } else { kind(Some(choices.node_type)) }.to_string());
     for f in &mut choices.fields {
         f.words = Some(field(f, theme));
     }

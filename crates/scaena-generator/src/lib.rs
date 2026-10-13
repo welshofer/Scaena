@@ -331,6 +331,23 @@ impl Generation {
         .to_string()
     }
 
+    /// The words the narrative's slides name icons by (PLAN G.23), JSON `[word]`, each once and in
+    /// lower case; `[]` before the narrative is written. The page finds each in the set that
+    /// ships, as `scaena_ops::icons` finds one, and hands them back to `giveIcons`.
+    #[wasm_bindgen(js_name = iconWords)]
+    pub fn icon_words(&self) -> String {
+        serde_json::to_string(&self.inner.icon_words()).expect("words are JSON")
+    }
+
+    /// The icons the page found for `iconWords`, JSON `{ word: { name, path, view } }`, a word
+    /// that found none left out: what `deck` sets each item under (PLAN G.23).
+    #[wasm_bindgen(js_name = giveIcons)]
+    pub fn give_icons(&mut self, icons: &str) -> Result<(), JsError> {
+        let icons = serde_json::from_str(icons).map_err(|e| error(format!("the icons: {e}")))?;
+        self.inner.give_icons(icons);
+        Ok(())
+    }
+
     /// The pictures the narrative's slides ask for in `theme`, the theme's JSON, made as `look`
     /// (`illustration` or `photo`; PLAN G.10): JSON `[{ slide, prompt, frame, alt }]`, which a
     /// `Painting` makes.

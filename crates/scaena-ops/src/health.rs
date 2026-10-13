@@ -705,6 +705,7 @@ mod tests {
             executive_summary: written.executive_summary,
             slides: written.slides,
             truncated: false,
+            icons: Default::default(),
             brief: Brief {
                 topic: "Climate change, where we stand, for an audience of colleagues".into(),
                 audience: "Colleagues".into(),

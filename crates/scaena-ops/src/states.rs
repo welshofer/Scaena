@@ -7,7 +7,7 @@
 use crate::{Context, OpsError};
 use scaena_core::Deck;
 use scaena_core::inserts::slug;
-use scaena_core::model::theme::{Prompt, Slot, Theme};
+use scaena_core::model::theme::{Prompt, PromptShapeKind, Slot, Theme};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -80,8 +80,9 @@ fn added(deck: &Deck, after: usize, state: Value) -> Value {
 /// the beat of the state it follows. It is named after its layout (`bullets`, `bullets-2`, …),
 /// absolute, and in the layout. Each slot's text is in the slot's role, with its prompt's words,
 /// a list's items each a paragraph, and is named after the slide and the slot
-/// (`bullets-header`). A slot's shape is under the words over it (`z` −1), a decoration. The
-/// slots that wait for a picture or a figure it leaves empty. With no layout, the slide is
+/// (`bullets-header`). A slot's shape is under the words over it (`z` −1), a decoration, but an
+/// icon, which stands with them (PLAN G.23). The slots that wait for a picture or a figure it
+/// leaves empty. With no layout, the slide is
 /// `slide`, blank.
 pub fn starting(deck: &Deck, theme: &Theme, shown: &str, layout: Option<&str>) -> Result<AddedState, OpsError> {
     let i = deck
@@ -285,9 +286,10 @@ fn example_table(columns: u32) -> Vec<Value> {
 }
 
 /// What a new slide puts in `slot`, as its prompt says (PLAN 3.30): words to type over in the
-/// slot's role, a list's items each a paragraph; or a card or a rule, under the words in the
-/// slots over it (`z` −1), which a reader passes over. None for a slot that waits for a picture or
-/// a figure, or says nothing of what goes there.
+/// slot's role, a list's items each a paragraph; a card or a rule, under the words in the slots
+/// over it (`z` −1), which a reader passes over; or an icon, for a person to swap for another
+/// (PLAN G.23). None for a slot that waits for a picture or a figure, or says nothing of what
+/// goes there.
 fn slot_node(slot: &str, s: &Slot) -> Option<Value> {
     let prompt = s.prompt.as_ref()?;
     match (prompt, prompt.text(), &s.role) {
@@ -296,6 +298,11 @@ fn slot_node(slot: &str, s: &Slot) -> Option<Value> {
             if let Some(kind) = list {
                 node["list"] = json!(vec![json!({ "kind": kind }); text.split('\n').count()]);
             }
+            Some(node)
+        }
+        (Prompt::Shape(shape), _, _) if shape.shape == PromptShapeKind::Icon => {
+            let mut node = shape.icon_node()?;
+            node["at"] = json!({ "in": slot });
             Some(node)
         }
         (Prompt::Shape(shape), _, _) => {

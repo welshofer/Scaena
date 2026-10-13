@@ -323,6 +323,9 @@ impl Generating {
                 let shipped = shipped(arg("theme")?)?;
                 self.theme = arg("theme")?.to_string();
                 let w = self.generation.as_mut().ok_or_else(|| said("no generation has begun: `begin` first"))?;
+                // Each icon the slides name, found in the set that ships (PLAN G.23).
+                let words = w.generation.icon_words();
+                w.generation.give_icons(scaena_ops::narrative::icons_found(&words));
                 let narrative =
                     w.generation.narrative().ok_or_else(|| said("make: the narrative is not written yet"))?;
                 let model: scaena_core::model::theme::Theme =

@@ -39,6 +39,26 @@ public struct Icon: Codable, Sendable, Hashable {
         self.path = path
         self.view = view
     }
+
+    /// Its name as a person reads it, and as its node is named: `airplane-tilt` as Airplane tilt.
+    public var said: String {
+        let words = name.replacingOccurrences(of: "-", with: " ")
+        return words.prefix(1).uppercased() + words.dropFirst()
+    }
+
+    /// The patch that puts this icon in the place of icon `node` in `state` (PLAN G.23), as the
+    /// browser's picker swaps one: its path, its view, and its name, each a `choose` written where
+    /// it lives; the node's box, color, and place as they were.
+    public func swapping(_ node: String, in state: String) -> [JSONValue] {
+        func choose(_ prop: String, _ value: JSONValue) -> JSONValue {
+            ["op": "choose", "node": .string(node), "prop": .string(prop), "value": value, "state": .string(state)]
+        }
+        return [
+            choose("path", .string(path)),
+            choose("view", .array(view.map { .number($0) })),
+            choose("alt", .string(said)),
+        ]
+    }
 }
 
 /// An icon the words found: its name, its tags and categories, and the icon in the weight asked.
@@ -63,6 +83,12 @@ extension ScaenaSession {
         try call(
             "icons",
             ["query": .string(query), "weight": .string(fill ? "fill" : "regular"), "limit": .number(Double(limit))])
+    }
+
+    /// Whether `node`, as `state` shows it, is an icon: a path on a view, as the inspector names it
+    /// (PLAN 2.104), which the picker puts another icon in place of (PLAN G.23).
+    public func isIcon(_ node: String, in state: String) -> Bool {
+        (try? choices(state: state, node: node))?.noun == "Icon"
     }
 
     /// The patch that inserts `icon` in `state` about `point` (canvas units), as `inserting`

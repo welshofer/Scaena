@@ -72,12 +72,39 @@ pub struct Narrative {
     /// Recovered from an answer cut short: what closed of it, enough for the length.
     pub truncated: bool,
     pub brief: Brief,
+    /// The icons the slides' words name, each by the word (PLAN G.23), as the set that ships
+    /// draws them: what the client found, which [`Generation::give_icons`] hands over. A word with
+    /// none has no icon.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub icons: std::collections::BTreeMap<String, Icon>,
+}
+
+/// An icon a slide's word names (PLAN G.23): its name in its set, and its outline on its view.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Icon {
+    pub name: String,
+    /// SVG path data.
+    pub path: String,
+    /// The box of the path's own coordinates it is drawn on, `[x, y, w, h]`.
+    pub view: [f64; 4],
 }
 
 impl Narrative {
     /// Its arc's definition.
     pub fn narrative_arc(&self) -> &'static arcs::NarrativeArc {
         arcs::arc(&self.arc)
+    }
+
+    /// The words its slides name icons by (PLAN G.23), each once, as written but trimmed and in
+    /// lower case: what [`Narrative::icons`] keys the icons found by.
+    pub fn icon_words(&self) -> Vec<String> {
+        let mut words: Vec<String> = Vec::new();
+        for word in self.slides.iter().flat_map(|s| &s.icons).map(|w| w.trim().to_lowercase()) {
+            if !word.is_empty() && !words.contains(&word) {
+                words.push(word);
+            }
+        }
+        words
     }
 }
 
@@ -162,6 +189,21 @@ impl Generation {
 
     pub fn narrative(&self) -> Option<&Narrative> {
         self.narrative.as_ref()
+    }
+
+    /// The words the narrative's slides name icons by ([`Narrative::icon_words`]); none before
+    /// the narrative is written. The client finds each in the set that ships and hands back what
+    /// it found ([`Generation::give_icons`]).
+    pub fn icon_words(&self) -> Vec<String> {
+        self.narrative.as_ref().map(Narrative::icon_words).unwrap_or_default()
+    }
+
+    /// The icons the client found for [`Generation::icon_words`], each by its word, kept with the
+    /// narrative for the deck it makes (PLAN G.23).
+    pub fn give_icons(&mut self, icons: std::collections::BTreeMap<String, Icon>) {
+        if let Some(narrative) = &mut self.narrative {
+            narrative.icons = icons;
+        }
     }
 
     pub fn into_narrative(self) -> Option<Narrative> {
@@ -372,6 +414,7 @@ impl Generation {
             slides: written.slides,
             truncated: written.recovered || stopped,
             brief: Brief { source_content: None, ..self.brief.clone() },
+            icons: Default::default(),
         });
         self.step = Step::Done;
         Ok(self.step)

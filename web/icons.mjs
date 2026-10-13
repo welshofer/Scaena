@@ -9,6 +9,8 @@
 //   there and nowhere else; the status says so.
 // - Solid draws the fill weight, another path on the same view; Return in the field inserts the
 //   first found, a second icon named apart from the first.
+// - With an icon selected, the picker puts another in its place (PLAN G.23): the same node, where
+//   it stood, its path and name the other's, one step to undo.
 // - Escape leaves the picker with nothing inserted (the first clears its words, as a search field's
 //   Escape does), and ⌘Z takes each insert back.
 //
@@ -34,6 +36,7 @@ try {
   await page.waitForFunction(() => window.scaena?.last()?.valid && window.scaena.canvas.boxes()?.length, null, { timeout: 120000 });
 
   const source = () => page.evaluate(() => window.scaena.source());
+  const box = (node) => page.evaluate((n) => window.scaena.canvas.boxes().find((b) => b.node === n)?.rect, node);
   const status = () => page.evaluate(() => document.querySelector("#status").textContent);
   /** Once the source satisfies `test`, and the canvas has caught up. */
   const until = async (test, arg) => {
@@ -142,7 +145,28 @@ try {
   const [x0, y0, x1, y1] = once.box;
   check(once.n > 100 && x0 >= 960 * (1300 / 1920) && x1 <= 960 * (1700 / 1920) && y1 <= 540 * (400 / 1080), `drawn about the point pressed, nowhere else: ${once.n} px in ${once.box}`);
 
-  // Solid draws the fill weight; Return inserts the first found, named apart.
+  // With the rocket selected, the picker puts another icon in its place: the same node, where it
+  // stood, the heart's path and name, one step to undo.
+  const stood = await box("rocket");
+  await open();
+  const title = await page.evaluate(() => document.querySelector("#iconing-title").textContent);
+  check(title === "Replace the icon", `with an icon selected, the picker replaces it: ${title}`);
+  await page.fill("#iconing input.find", "heart");
+  await page.waitForFunction(() => document.querySelector("#iconing .icons button.icon")?.dataset.icon === "heart", null, { timeout: 10000 });
+  const heart = await page.evaluate(() => document.querySelector('#iconing button.icon[data-icon="heart"] path').getAttribute("d"));
+  await page.click('#iconing button.icon[data-icon="heart"]');
+  await until((d) => window.scaena.source().includes(d), heart);
+  const swapped = await line("rocket");
+  check(swapped.includes(`path:"${heart}"`) && /\balt:"?Heart\b/.test(swapped), `the same node, the heart's path and name: ${swapped.replace(/path:"[^"]*"/, "path:…")}`);
+  check(JSON.stringify(await box("rocket")) === JSON.stringify(stood), `where the rocket stood: ${await box("rocket")}`);
+  check((await status()).includes("The icon heart in its place"), `the status says so: ${await status()}`);
+  await undo();
+  await until((d) => window.scaena.source().includes(d), regular);
+  check((await line("rocket")).includes(`path:"${regular}"`), "one undo puts the rocket back");
+
+  // Solid draws the fill weight; Return inserts the first found, named apart: nothing selected,
+  // Icon… inserts.
+  await page.evaluate(() => window.scaena.canvas.select(undefined));
   await open();
   await page.check("#iconing input.solid");
   await page.fill("#iconing input.find", "rocket");

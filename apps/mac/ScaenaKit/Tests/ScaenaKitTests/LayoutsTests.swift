@@ -32,7 +32,7 @@ import Testing
 @Test @MainActor func theLayoutsAreListedThenDrawnAFewAtATimeAndKept() throws {
     let session = try ScaenaSession(files: example("revenue"))
     let listed = try session.starters()
-    #expect(listed.count == 125 && listed.last?.layout == nil, "Dusk's 124, then a blank slide")
+    #expect(listed.count == 129 && listed.last?.layout == nil, "Dusk's 128, then a blank slide")
     #expect(listed.allSatisfy { $0.width == 0 && $0.height == 0 }, "listed, none drawn")
     let swot = listed.first { $0.layout == "swot" }
     #expect(swot?.name == "SWOT" && swot?.group == "Frameworks")

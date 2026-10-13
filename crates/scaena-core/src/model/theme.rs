@@ -474,13 +474,14 @@ pub struct Slot {
 impl Slot {
     /// Whether a node of `kind` goes in the slot, as Insert and a paste fill it (PLAN 2.34): a
     /// text where words go, in the slot's role; a picture or a figure where the slot says in
-    /// words what goes there with no role to type it in (PLAN 3.30); nothing where its prompt is
-    /// a shape, a card or a rule made with the slide; and anything where it says nothing of
-    /// what goes there.
+    /// words what goes there with no role to type it in (PLAN 3.30); a shape where its prompt is
+    /// an icon, for another icon in its place (PLAN G.23); nothing where its prompt is another
+    /// shape, a card or a rule made with the slide; and anything where it says nothing of what
+    /// goes there.
     pub fn takes(&self, kind: crate::document::NodeType) -> bool {
         use crate::document::NodeType;
         match (&self.role, &self.prompt) {
-            (_, Some(Prompt::Shape(_))) => false,
+            (_, Some(Prompt::Shape(shape))) => shape.shape == PromptShapeKind::Icon && kind == NodeType::Shape,
             (Some(_), _) => kind == NodeType::Text,
             (None, Some(_)) => matches!(kind, NodeType::Image | NodeType::Chart | NodeType::Table | NodeType::Shader),
             (None, None) => true,
@@ -510,14 +511,14 @@ pub enum Prompt {
     Shape(PromptShape),
 }
 
-/// A shape a new slide puts in a slot (PLAN 3.30): a card behind words, a rule between them, or
-/// an arrow from one to the next.
+/// A shape a new slide puts in a slot (PLAN 3.30): a card behind words, a rule between them, an
+/// arrow from one to the next, or an icon over an item's words (PLAN G.23).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PromptShape {
     pub shape: PromptShapeKind,
-    /// What fills a rectangle, an ellipse, or a polygon: a color token or role. A line and an
-    /// arrow take the theme's rule.
+    /// What fills a rectangle, an ellipse, a polygon, or an icon: a color token or role. A line
+    /// and an arrow take the theme's rule.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fill: Option<String>,
     /// What strokes its outline, a color token or role, in the theme's thin rule (theme format
@@ -529,6 +530,34 @@ pub struct PromptShape {
     /// left to right; one down the slot, or back, gives them. A polygon gives three or more.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub points: Option<Vec<super::values::Point>>,
+    /// An icon's name, as the set it is drawn from names it (theme format 0.15, PLAN G.23): what
+    /// the icon a new slide puts there is called, by a reader and in the layers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(length(min = 1))]
+    pub icon: Option<String>,
+    /// An icon's outline, as SVG path data (theme format 0.15, PLAN G.23), drawn on its `view`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(length(min = 1))]
+    pub path: Option<String>,
+    /// The box of an icon's `path` that fits the slot, `[x, y, w, h]`, as a path shape's `view`
+    /// fits its node (theme format 0.15, PLAN G.23): the icon as large as the slot takes, in its
+    /// middle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view: Option<super::values::Rect>,
+}
+
+impl PromptShape {
+    /// The node an icon's prompt makes, as an inserted icon is made
+    /// ([`crate::inserts::icon_node`]): its path on its view, filled as the prompt says or in the
+    /// theme's accent, decoration named by the icon. None for another shape, or an icon with no
+    /// path or view.
+    pub fn icon_node(&self) -> Option<serde_json::Value> {
+        let (PromptShapeKind::Icon, Some(path), Some(view)) = (self.shape, &self.path, &self.view) else {
+            return None;
+        };
+        let name = self.icon.as_deref().unwrap_or("icon");
+        Some(crate::inserts::icon_node(name, path, view.0, self.fill.as_deref().unwrap_or("accent")))
+    }
 }
 
 /// The shapes a slot's prompt makes.
@@ -541,6 +570,10 @@ pub enum PromptShapeKind {
     Arrow,
     /// Theme format 0.12: a chevron, a triangle, or any outline its `points` give.
     Polygon,
+    /// Theme format 0.15 (PLAN G.23): an icon, its `path` drawn on its `view` and named by
+    /// `icon`. A new slide puts it there for a person to swap for another; a deck made from a
+    /// prompt puts there the icon its item names.
+    Icon,
 }
 
 /// A list's items, as a slot's prompt gives them: `{ "bullet": [...] }` or `{ "number": [...] }`.
