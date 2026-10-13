@@ -542,7 +542,7 @@ struct CanvasSelection: View {
             if d.fork { return "On this slide only" }
             let others = d.states.filter { $0 != state }.count
             guard others > 0 else { return nil }
-            return "Also moves it on \(others) other slide\(others == 1 ? "" : "s") · ⌥ moves it here only"
+            return "Also moves it on \(others) other slide\(others == 1 ? "" : "s")\(Held.keyboard ? " · ⌥ moves it here only" : "")"
         case .handling(let h):
             return holdingTold(h)
         default:
@@ -555,7 +555,7 @@ struct CanvasSelection: View {
         let kept = h.fork ? " · on this slide only" : ""
         switch h.handle {
         case .turn(let turn):
-            return h.moved ? "\(Int(turn.now))°\(kept)" : "Drag to rotate · Shift turns by 15°"
+            return h.moved ? "\(Int(turn.now))°\(kept)" : "Drag to rotate\(Held.keyboard ? " · Shift turns by 15°" : "")"
         default:
             return h.fork && h.moved ? "On this slide only" : nil
         }

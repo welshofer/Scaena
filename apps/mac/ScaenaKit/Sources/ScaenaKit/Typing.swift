@@ -1,6 +1,9 @@
 import CoreGraphics
 import Foundation
 import Observation
+#if os(iOS)
+import GameController
+#endif
 
 /// Text typed in place on the canvas (PLAN 3.9), as the browser's canvas types it (PLAN 2.32,
 /// `web/src/typing.ts`): a double click puts a caret in a text where the engine says the character
@@ -668,7 +671,7 @@ public final class Typing {
         if fork {
             whereTold = "Editing on this slide only · \(Self.stops)"
         } else if others > 0 {
-            whereTold = "Editing · it changes on \(others) other slide\(others == 1 ? "" : "s") too · ⌥ with a double click keeps it to this one"
+            whereTold = "Editing · it changes on \(others) other slide\(others == 1 ? "" : "s") too\(Self.keeping)"
         } else {
             whereTold = "Editing · \(Self.stops)"
         }
@@ -681,6 +684,15 @@ public final class Typing {
     private static let stops = "Escape stops"
     #else
     private static let stops = "tap outside it to stop"
+    #endif
+
+    /// How typing is kept to this slide, as the hint says it: Option held as typing begins, with a
+    /// double click on the Mac or a double tap on an iPad. An iPad with no keyboard has no Option
+    /// key, and its hint says nothing of it.
+    #if os(macOS)
+    private static var keeping: String { " · ⌥ with a double click keeps it to this one" }
+    #else
+    private static var keeping: String { GCKeyboard.coalesced == nil ? "" : " · ⌥ with a double tap keeps it to this one" }
     #endif
 }
 

@@ -462,7 +462,16 @@ async function edit(source: Source) {
   const fold = (open: boolean, keep = true) => {
     framed.classList.toggle("folded", !open);
     sourceToggle.setAttribute("aria-pressed", String(open));
-    if (open) view.requestMeasure();
+    if (open) {
+      // It opens at the state the canvas shows: the cursor stays where it is in that state, else
+      // goes to where the state starts, not where an edit made folded left it, at the end of a
+      // long line. A scroll asked for folded was measured against no width; this one, the pane's.
+      const head = view.state.selection.main.head;
+      const start = last?.states[shown]?.[1];
+      const end = last?.states[shown + 1]?.[1] ?? Infinity;
+      const to = start === undefined || (start <= head && head < end) ? head : start;
+      view.dispatch({ selection: to === head ? undefined : { anchor: to }, effects: EditorView.scrollIntoView(to, { y: "center" }) });
+    }
     if (!keep) return;
     try {
       localStorage.setItem("scaena.source", open ? "open" : "folded");
@@ -480,10 +489,17 @@ async function edit(source: Source) {
   /** The source a line said of the deck as it opened was said of (`current.say`): it stays
    * through that source's lint, until the source is edited. */
   let toldOf: string | undefined;
+  /** What lint's last report said, which a line taken back leaves standing. */
+  let reported = "";
   const say = (text: string) => {
     told = text;
     toldOf = undefined;
     status.textContent = text;
+  };
+  const unsay = (text: string) => {
+    if (told !== text) return;
+    told = undefined;
+    status.textContent = reported;
   };
   /** The state shown, where a gesture on the canvas or a choice in the inspector makes a patch:
    * none while the source does not compile, nor while the assistant works. */
@@ -938,6 +954,7 @@ async function edit(source: Source) {
       if (!open) $("#overlay").focus();
     },
     say,
+    unsay,
   });
   // ⌘Z, ⇧⌘Z, and ⌘Y where nothing on the page takes them itself (PLAN 2.77): the strip, the layers,
   // the inspector's choices, a button. A field keeps its own typing's undo; the source, the canvas,
@@ -1135,7 +1152,7 @@ async function edit(source: Source) {
     table.found(findings);
     formatting.found(findings);
     if (edited.error) {
-      status.textContent = "does not compile";
+      status.textContent = reported = "does not compile";
       return;
     }
     const errors = findings.filter((f) => f.severity === "error").length;
@@ -1145,6 +1162,7 @@ async function edit(source: Source) {
         ? `every state linted in ${ms(whole)}`
         : `${edited.whole ? "linted" : "its state linted"} in ${ms(edited.ms.lint)}`;
     const found = `${errors} error${errors === 1 ? "" : "s"}, ${findings.length - errors} other · compiled in ${ms(edited.ms.compile)}, shown in ${ms(edited.ms.paint)}, ${linted}`;
+    reported = found;
     status.textContent = told ? `${told} — ${found}` : found;
   }
 

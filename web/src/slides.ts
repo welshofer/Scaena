@@ -44,6 +44,8 @@ export interface SlidesEditor {
   /** The light table opened or closed: the preview, hidden or shown again. */
   opened(open: boolean): void;
   say(text: string): void;
+  /** Take back `text`, where the status says it still: what lint found stands alone again. */
+  unsay(text: string): void;
 }
 
 /** A slide: its first state's id, which names it, and its states in order. */
@@ -201,13 +203,19 @@ export function slides(stage: Stage, into: HTMLElement, button: HTMLButtonElemen
     }
   }
 
+  /** What the light table says of itself as it opens, which goes when it closes. */
+  let hint: string | undefined;
+
   /** Show it, or put the preview back. */
   function toggle(on = !open()) {
     if (on === open()) return;
     into.hidden = !on;
     button.setAttribute("aria-pressed", String(on));
     editor.opened(on);
-    if (!on) return;
+    if (!on) {
+      if (hint !== undefined) editor.unsay(hint);
+      return;
+    }
     // The slide shown is selected, and has the focus.
     const shown = editor.shown();
     const slide = shown && all.find((s) => s.states.includes(shown.state));
@@ -216,7 +224,8 @@ export function slides(stage: Stage, into: HTMLElement, button: HTMLButtonElemen
     tile(focus)?.focus();
     tile(focus)?.scrollIntoView({ block: "nearest" });
     void paint();
-    editor.say(`${all.length} slides: select them, drag them, ${ALT}← ${ALT}→ moves them, ${MOD}D copies them, Delete takes them out · Enter shows one`);
+    hint = `${all.length} slides: select them, drag them, ${ALT}← ${ALT}→ moves them, ${MOD}D copies them, Delete takes them out · Enter shows one`;
+    editor.say(hint);
   }
 
   /** The slides selected, in the deck's order. */

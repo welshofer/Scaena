@@ -11,7 +11,8 @@
 // - ⌘D copies `revenue`, its step too, just after itself, the copy selected; each copy reads as
 //   what it copies.
 // - Delete takes `revenue` out, its step too; `close` reads as it read.
-// - Enter shows a slide's first state in the canvas, and the preview back; Escape closes it.
+// - Enter shows a slide's first state in the canvas, and the preview back; Escape closes it, and
+//   what it said of itself in the status goes with it.
 // - The slider at its foot makes the slides larger, fewer to a row, each painted larger.
 // - axe-core finds nothing against WCAG 2.1 AA in the light table.
 // Exits 1 on any failure.
@@ -157,8 +158,10 @@ try {
   // Escape closes it.
   await page.click("#slides-open");
   await page.waitForFunction(() => !document.querySelector("#slides").hidden, null, { timeout: 10000 });
+  check(await says("Enter shows one"), `opened, it says how it works: ${await status()}`);
   await page.keyboard.press("Escape");
   check(await page.locator("#slides").isHidden(), "Escape closes it");
+  check(!(await status()).includes("Enter shows one"), `and what it said goes with it: ${await status()}`);
   check((await source()) === original, "the deck is as it was");
 } finally {
   await browser.close();

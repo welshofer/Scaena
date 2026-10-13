@@ -31,6 +31,16 @@ enum Held {
         #endif
     }
 
+    /// Whether there are keys to hold at all: always on the Mac; on an iPad, while a keyboard is
+    /// joined to it. A hint names a key to hold only where one is.
+    static var keyboard: Bool {
+        #if os(macOS)
+        true
+        #else
+        GCKeyboard.coalesced != nil
+        #endif
+    }
+
     /// Command: one more selected, or one taken out.
     static var command: Bool {
         #if os(macOS)

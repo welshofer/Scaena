@@ -353,7 +353,8 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     const focused = into.contains(document.activeElement) ? document.activeElement?.id : undefined;
     const rows = offered.fields.map((f) => {
       const id = `look-${f.prop.replace(/\//g, "-")}`;
-      return `<label for="${id}">${html(f.prop)}</label><span class="control">${control(f, id)}</span><span>${note(f)}</span>`;
+      // A long name breaks after its slash, so the controls keep the room.
+      return `<label for="${id}">${html(f.prop).replaceAll("/", "/<wbr>")}</label><span class="control">${control(f, id)}</span><span>${note(f)}</span>`;
     });
     const nodes = "nodes" in offered ? (offered as Shared).nodes : "node" in offered ? [offered.node] : [];
     const title = chars
