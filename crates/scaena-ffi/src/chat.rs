@@ -152,6 +152,28 @@ pub fn providers(method: &str, args: &Value) -> Result<Value, Failure> {
             let status_text = args.get("statusText").and_then(Value::as_str).unwrap_or_default();
             json!(provider(args)?.read_models(status, status_text, key("body")?).map_err(said)?)
         }
+        // A question asked once, told `instructions`, with nothing to call: a writing tool's
+        // (PLAN 2.101), which no conversation keeps.
+        "once" => {
+            let base = args.get("base").and_then(Value::as_str).filter(|b| !b.is_empty());
+            let asked = scaena_chat::once(
+                provider(args)?,
+                key("model")?,
+                base,
+                key("key")?,
+                false,
+                key("instructions")?,
+                key("prompt")?,
+            );
+            request(asked)
+        }
+        "answered" => {
+            let status = (args.get("status").and_then(Value::as_u64))
+                .and_then(|s| u16::try_from(s).ok())
+                .ok_or_else(|| said("answered: `status` is an HTTP status it needs"))?;
+            let status_text = args.get("statusText").and_then(Value::as_str).unwrap_or_default();
+            json!(scaena_chat::answered(provider(args)?, status, status_text, key("body")?).map_err(said)?)
+        }
         _ => return Err(said(format!("`{method}` is not a call the providers answer"))),
     })
 }

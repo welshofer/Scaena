@@ -13,6 +13,8 @@
 // - A finding no fix can make, about a property the inspector offers, takes the person there:
 //   W410's image without alt text opens the inspector on the image, its description in focus
 //   (PLAN 2.56).
+// - Explain says what a finding means for the slide, and what could be done, in two or three
+//   sentences by the model the assistant uses, with the user's own key (PLAN 2.101).
 // - The marks step aside while a drag, a marquee, or a drawing goes, and while the cue plays.
 import type { Finding, NodeBox, Rect } from "./protocol";
 
@@ -32,6 +34,8 @@ export interface MarksHost {
   go(f: Finding): void;
   /** Open the inspector on `f`'s node, its field for `prop` in focus (PLAN 2.56). */
   edit(f: Finding, prop: string): void;
+  /** Explain `f` in plain sentences, by the model the assistant uses (PLAN 2.101). */
+  explain(f: Finding): void;
   /** `node` as a person names it, by what it shows; `quoted`, as a sentence names it (PLAN 2.99). */
   name(node: string, quoted?: boolean): string;
   say(text: string): void;
@@ -187,7 +191,7 @@ export function marks(layer: HTMLElement, pop: HTMLElement, host: MarksHost) {
           f.fix && f.fixable ? `<button type="button" data-fix="${i}" title="${html(fixing(f.fix))}">${html(f.fixing ?? "Fix")}</button>` : ""
         }${f.node && EDITS[f.code] ? `<button type="button" data-edit="${i}">${html(EDITS[f.code][1])}</button>` : ""}${
           f.at ? `<button type="button" data-go="${i}">In the source</button>` : ""
-        }</p></li>`,
+        }<button type="button" data-explain="${i}" title="What it means, and what could be done, by the assistant's model">Explain</button></p></li>`,
       )
       .join("")}</ol>`;
     pop.querySelectorAll<HTMLButtonElement>("[data-fix]").forEach((b) => {
@@ -204,6 +208,12 @@ export function marks(layer: HTMLElement, pop: HTMLElement, host: MarksHost) {
       b.onclick = () => {
         pop.hidePopover();
         host.go(mark.findings[Number(b.dataset.go)]);
+      };
+    });
+    pop.querySelectorAll<HTMLButtonElement>("[data-explain]").forEach((b) => {
+      b.onclick = () => {
+        pop.hidePopover();
+        host.explain(mark.findings[Number(b.dataset.explain)]);
       };
     });
     if (!pop.matches(":popover-open")) pop.showPopover();

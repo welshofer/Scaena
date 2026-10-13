@@ -178,6 +178,42 @@
     },
     "failure": {
       "message": "401 : invalid x-api-key"
+    },
+    "once": {
+      "request": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "headers": {
+          "anthropic-dangerous-direct-browser-access": "true",
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+          "x-api-key": "sk-test"
+        },
+        "body": {
+          "model": "a-model",
+          "max_tokens": 8192,
+          "system": [
+            {
+              "type": "text",
+              "text": "You tighten the words of one text on a slide: fewer words, the same meaning.",
+              "cache_control": {
+                "type": "ephemeral"
+              }
+            }
+          ],
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "We have made the decision to expand into three new markets this year"
+                }
+              ]
+            }
+          ]
+        }
+      }
     }
   },
   "openai": {
@@ -337,6 +373,29 @@
     },
     "failure": {
       "message": "429 : Rate limit reached"
+    },
+    "once": {
+      "request": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "headers": {
+          "authorization": "Bearer sk-test",
+          "content-type": "application/json"
+        },
+        "body": {
+          "model": "a-model",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You tighten the words of one text on a slide: fewer words, the same meaning."
+            },
+            {
+              "role": "user",
+              "content": "We have made the decision to expand into three new markets this year"
+            }
+          ]
+        }
+      }
     }
   },
   "gemini": {
@@ -533,6 +592,35 @@
     },
     "failure": {
       "message": "500 : upstream exploded"
+    },
+    "once": {
+      "request": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/a-model:generateContent",
+        "headers": {
+          "content-type": "application/json",
+          "x-goog-api-key": "sk-test"
+        },
+        "body": {
+          "systemInstruction": {
+            "parts": [
+              {
+                "text": "You tighten the words of one text on a slide: fewer words, the same meaning."
+              }
+            ]
+          },
+          "contents": [
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "We have made the decision to expand into three new markets this year"
+                }
+              ]
+            }
+          ]
+        }
+      }
     }
   },
   "prompt": {

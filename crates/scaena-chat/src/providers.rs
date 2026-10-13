@@ -282,14 +282,17 @@ fn anthropic(ask: &Ask) -> Request {
     let tools: Vec<Value> = (ask.tools.iter())
         .map(|t| json!({ "name": t.name, "description": t.description, "input_schema": inlined(&t.schema) }))
         .collect();
-    let body = json!({
+    let mut body = json!({
         "model": ask.model,
         "max_tokens": 8192,
         // The system prompt is the same each turn: cached, it costs a tenth on every turn after the first.
         "system": [{ "type": "text", "text": ask.system, "cache_control": { "type": "ephemeral" } }],
-        "tools": tools,
         "messages": messages,
     });
+    // A question asked once, with nothing to call, sends no tools (PLAN 2.101).
+    if !tools.is_empty() {
+        body["tools"] = Value::Array(tools);
+    }
     let mut headers = anthropic_headers(ask.key, ask.browser);
     headers.insert("content-type".into(), "application/json".into());
     Request {
@@ -383,7 +386,11 @@ fn openai(ask: &Ask) -> Request {
     let tools: Vec<Value> = (ask.tools.iter())
         .map(|t| json!({ "type": "function", "function": { "name": t.name, "description": t.description, "parameters": inlined(&t.schema) } }))
         .collect();
-    let body = json!({ "model": ask.model, "messages": messages, "tools": tools });
+    let mut body = json!({ "model": ask.model, "messages": messages });
+    // OpenAI refuses an empty list of tools: a question asked once sends none (PLAN 2.101).
+    if !tools.is_empty() {
+        body["tools"] = Value::Array(tools);
+    }
     let headers =
         headers([("authorization", format!("Bearer {}", ask.key)), ("content-type", "application/json".to_string())]);
     Request {
@@ -462,11 +469,14 @@ fn gemini(ask: &Ask) -> Request {
     let declarations: Vec<Value> = (ask.tools.iter())
         .map(|t| json!({ "name": t.name, "description": t.description, "parametersJsonSchema": inlined(&t.schema) }))
         .collect();
-    let body = json!({
+    let mut body = json!({
         "systemInstruction": { "parts": [{ "text": ask.system }] },
         "contents": contents,
-        "tools": [{ "functionDeclarations": declarations }],
     });
+    // A question asked once, with nothing to call, declares no functions (PLAN 2.101).
+    if !declarations.is_empty() {
+        body["tools"] = json!([{ "functionDeclarations": declarations }]);
+    }
     let model = ask.model.strip_prefix("models/").unwrap_or(ask.model);
     let path = format!("/v1beta/models/{}:generateContent", component(model));
     let headers = headers([("x-goog-api-key", ask.key.to_string()), ("content-type", "application/json".to_string())]);

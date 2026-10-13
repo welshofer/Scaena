@@ -69,6 +69,8 @@ import type {
   ToWorker,
   Waiting,
   Where,
+  Writing,
+  Written,
 } from "./protocol";
 
 const post = (message: FromWorker, transfer: Transferable[] = []) => self.postMessage(message, transfer);
@@ -131,6 +133,8 @@ const READS = new Set<ToWorker["type"]>([
   "view",
   "waiting",
   "words",
+  "writing",
+  "written",
 ]);
 
 self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
@@ -291,6 +295,10 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return post({ type: "choices", id: data.id, choices: JSON.parse(player.choices(data.state, data.node)) as Choices });
       case "stateChoices":
         return post({ type: "stateChoices", id: data.id, choices: JSON.parse(player.stateChoices(data.state)) as StateChoices });
+      case "writing":
+        return post({ type: "writing", id: data.id, writing: JSON.parse(player.writing(JSON.stringify(data.ask))) as Writing });
+      case "written":
+        return post({ type: "written", id: data.id, written: JSON.parse(player.written(JSON.stringify(data.ask), data.answer)) as Written });
       case "words":
         if (worded?.state !== data.state) worded = { state: data.state, words: JSON.parse(player.words(data.state)) as Lexicon };
         return post({ type: "words", id: data.id, words: worded.words });
@@ -591,6 +599,11 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "models": {
         const { providers } = await import("@scaena/assistant");
         return post({ type: "models", id: data.id, models: await providers[data.provider].models(data.key, data.base) });
+      }
+      case "write": {
+        const { write } = await import("@scaena/assistant");
+        const { text, usage } = await write(data.call);
+        return post({ type: "wrote", id: data.id, text, usage });
       }
       case "helpers":
         await Promise.all(data.ports.map(join));

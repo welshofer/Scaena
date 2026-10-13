@@ -28,10 +28,13 @@
       #code .cm-editor { height: 100%; }
       #problems { max-height: 22vh; flex: none; overflow: auto; border-top: 1px solid var(--line); background: var(--panel); margin: 0; padding: 4px 0; list-style: none; }
       #problems:empty { display: none; }
-      #problems li { padding: 2px 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      #problems li:has(button) { padding: 0; }
-      #problems li button { all: unset; display: block; box-sizing: border-box; width: 100%; padding: 2px 12px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
+      #problems li { display: flex; align-items: baseline; padding: 0; white-space: nowrap; }
+      #problems li .said { flex: 1; min-width: 0; padding: 2px 12px; overflow: hidden; text-overflow: ellipsis; }
+      #problems li button { all: unset; box-sizing: border-box; cursor: pointer; }
+      #problems li button.said { display: block; }
+      #problems li button.explain { flex: none; padding: 2px 12px; color: var(--muted); font-size: 12px; }
       #problems li button:hover { background: var(--line); }
+      #problems li button.explain:hover { color: var(--ink); }
       #problems li button:focus-visible { outline: 2px solid var(--info); outline-offset: -2px; }
       #problems .code { display: inline-block; width: 4.5em; font-variant-numeric: tabular-nums; }
       #problems .error .code { color: var(--error); }
@@ -225,6 +228,10 @@
       #rehearsing[hidden] { display: none; }
       #rehearsing [data-where] { flex: 1; }
       #rehearsed { width: min(34em, 92vw); }
+      #writing { width: min(34em, 92vw); }
+      #writing textarea { box-sizing: border-box; width: 100%; font: inherit; line-height: 1.4; }
+      #writing-was, #writing-said { white-space: pre-wrap; }
+      #writing-was { max-height: 8em; overflow: auto; }
       #rehearsed table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
       #rehearsed th, #rehearsed td { text-align: left; padding: 3px 8px 3px 0; border-bottom: 1px solid var(--line); }
       #rehearsed thead th { color: var(--muted); font-weight: 500; }
@@ -301,6 +308,7 @@
       #look .arrange-kind { color: var(--muted); font-size: 13px; }
       #look .arrange-buttons { display: flex; flex-wrap: wrap; gap: 4px; }
       #look .arrange-buttons button { font-size: 12px; padding: 2px 6px; }
+      #look .fields + .writing { padding: 8px 0; }
       #look .fields > label { color: var(--muted); font-size: 13px; }
       #look .control { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-width: 0; }
       #look select { min-width: 0; max-width: 100%; }
@@ -896,6 +904,21 @@
         <menu>
           <button value="cancel">Discard</button>
           <button value="keep" id="rehearsed-keep">Keep these timings</button>
+        </menu>
+      </form>
+    </dialog>
+    <dialog id="writing" aria-labelledby="writing-title">
+      <form method="dialog">
+        <h2 id="writing-title">Writing</h2>
+        <p class="note" id="writing-was" hidden></p>
+        <p id="writing-thinking" aria-live="polite"></p>
+        <textarea id="writing-answer" rows="6" aria-labelledby="writing-title" hidden></textarea>
+        <p id="writing-said" aria-live="polite" hidden></p>
+        <p class="note" id="writing-by"></p>
+        <menu>
+          <button type="button" id="writing-key" hidden>Add a key…</button>
+          <button value="cancel" id="writing-leave" formnovalidate>Leave it</button>
+          <button value="use" id="writing-use" hidden>Use it</button>
         </menu>
       </form>
     </dialog>

@@ -845,6 +845,10 @@ export type ToWorker =
   /** What an inspector offers for `node` as `state` shows it (PLAN 2.33). */
   | { type: "choices"; id: number; state: string; node: string }
   | { type: "stateChoices"; id: number; state: string }
+  /** What to ask a model for the person editing (PLAN 2.101), from the deck as it stands. */
+  | { type: "writing"; id: number; ask: WritingAsk }
+  /** A model's `answer` to `ask` as it is offered, and the patch that takes it (PLAN 2.101). */
+  | { type: "written"; id: number; ask: WritingAsk; answer: string }
   | { type: "words"; id: number; state: string }
   /** The layouts `state` may take, best first, each painted at rest `height` pixels high, in the
    * deck the editor's `source` compiles to (PLAN 2.92). */
@@ -1019,6 +1023,8 @@ export type ToWorker =
   | { type: "forget" }
   /** The models `key` can use at `provider`. */
   | { type: "models"; id: number; provider: ProviderId; key: string; base?: string }
+  /** Ask a model once, with the user's key and nothing to call (PLAN 2.101): its words. */
+  | { type: "write"; id: number; call: WritingCall }
   /** The workers `helpers` asked for: a port to each (PLAN 2.28). */
   | { type: "helpers"; ports: MessagePort[] }
   /** Paint the state shown in each of `besides`' formats beside the canvas, on its own canvas,
@@ -1161,6 +1167,45 @@ export interface Asking {
   base?: string;
   text: string;
   seeing?: Seeing;
+}
+
+/** What a person asks a model to write (PLAN 2.101): a text's words proofread, tightened, or
+ * rewritten; a slide's notes drafted; an issue explained. */
+export type WritingKind = "proofread" | "tighten" | "rewrite" | "notes" | "explain";
+
+/** A writing tool asked of the deck as it stands: the task, the state shown, and the text it is
+ * about, or the finding to explain, as the window says it (`said`). */
+export interface WritingAsk {
+  kind: WritingKind;
+  state: string;
+  node?: string;
+  finding?: { code: string; severity: string; message: string; said?: string; hint?: string; node?: string };
+}
+
+/** What a model is asked for a writing tool (`scaena_core::writing`): the task, with the words it
+ * works on where it works on a text's; what it is called; and the instructions and the prompt. */
+export interface Writing {
+  task: { kind: WritingKind; text?: string };
+  title: string;
+  instructions: string;
+  prompt: string;
+}
+
+/** An answer as it is offered, and the patch that takes it: null for one that is only read. */
+export interface Written {
+  text: string;
+  patch: unknown[] | null;
+}
+
+/** A question asked once of the model the assistant uses (PLAN 2.101): who answers it, with the
+ * user's key, and what it is told and asked. */
+export interface WritingCall {
+  provider: ProviderId;
+  model: string;
+  key: string;
+  base?: string;
+  instructions: string;
+  prompt: string;
 }
 
 /** What the editor shows as a question is asked (PLAN 2.52): the state shown, in a format if not
@@ -1531,6 +1576,8 @@ export type FromWorker =
   | { type: "made"; id: number; source: string; edited: Edited }
   | { type: "choices"; id: number; choices: Choices }
   | { type: "stateChoices"; id: number; choices: StateChoices }
+  | { type: "writing"; id: number; writing: Writing }
+  | { type: "written"; id: number; written: Written }
   | { type: "words"; id: number; words: Lexicon }
   | { type: "layoutSuggestions"; id: number; suggestions: LayoutSuggestion[] }
   | { type: "look"; id: number; look: Look }
@@ -1610,6 +1657,8 @@ export type FromWorker =
   /** A step of the assistant's answer to `ask` request `id`. */
   | { type: "assistant"; id: number; event: AssistantEvent }
   | { type: "models"; id: number; models: string[] }
+  /** What a model wrote, asked once (PLAN 2.101), and the tokens it took. */
+  | { type: "wrote"; id: number; text: string; usage?: { input: number; output: number } }
   /** The CPU painter met a shader whose rows `count` more workers could share (PLAN 2.28): the
    * page starts each as it started this one, and hands this one a port to each (`helpers`). */
   | { type: "helpers"; count: number }

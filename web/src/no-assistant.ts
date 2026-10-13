@@ -5,4 +5,5 @@ const none = (): never => {
 };
 export const ask = none;
 export const forget = none;
+export const write = none;
 export const providers = new Proxy({}, { get: none }) as Record<string, { models: () => Promise<string[]> }>;

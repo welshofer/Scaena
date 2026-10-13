@@ -9,9 +9,10 @@ import SwiftUI
 /// or the slide's transition and how it advances. Each choice is one patch, a `choose` written
 /// where the value lives or a `set_state`, as in the browser (PLAN 2.33, 2.36); a position or a
 /// size typed is the `place` a drag there makes. With characters selected in a text typed in, it
-/// offers their look (PLAN 2.38, 3.10), each chosen one `style_text`. Where the Mac has the
-/// on-device model (PLAN 3.6), it drafts the slide's notes and tightens a text's words, each
-/// offered to take as one patch, or to leave.
+/// offers their look (PLAN 2.38, 3.10), each chosen one `style_text`. Its writing tools (PLAN
+/// 3.6, 2.101) proofread, tighten, or rewrite a text's words and draft the slide's notes, on the
+/// device where it has a model, else by the assistant's with the user's key, each offered to take
+/// as one patch, or to leave.
 struct Inspector: View {
     let editor: DeckEditor
     let state: String?
@@ -23,7 +24,7 @@ struct Inspector: View {
     let typing: Typing?
     /// Format or Animate: which part of what is offered it shows.
     let tab: InspectorTab
-    /// Ask the on-device model, its answer offered.
+    /// Ask a model, its answer offered.
     let offer: (Asked) -> Void
     let make: ([JSONValue]) -> Void
     @State private var layers: [Layer] = []
@@ -81,17 +82,22 @@ struct Inspector: View {
             if tab == .format, choices?.node == nil, characters == nil {
                 objects
             }
-            if OnDevice.available, tab == .format, characters == nil {
+            if Writer.available, tab == .format, characters == nil, also.isEmpty {
                 Section {
                     if let node = choices?.node {
                         if choices?.type == "text" {
-                            Button("Tighten the Wording", systemImage: "sparkles") { tighten(node, in: state) }
+                            Button("Proofread", systemImage: "checkmark.circle") { write(.proofread, node: node, in: state) }
+                            Button("Tighten the Wording", systemImage: "sparkles") { write(.tighten, node: node, in: state) }
+                            Button("Rewrite", systemImage: "wand.and.stars") { write(.rewrite, node: node, in: state) }
                         }
                     } else {
-                        Button("Draft Presenter Notes", systemImage: "sparkles") { draft(state) }
+                        Button("Draft Presenter Notes", systemImage: "sparkles") { write(.notes, in: state) }
                     }
+                } header: {
+                    Text("Writing")
                 } footer: {
-                    Text("Runs on this \(Words.device)").font(.caption).foregroundStyle(.secondary)
+                    Text(OnDevice.available ? "Runs on this \(Words.device)" : "By the assistant's model, with your key")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
         }
@@ -457,32 +463,12 @@ struct Inspector: View {
         if !ops.isEmpty { make(ops) }
     }
 
-    /// `node`'s words tightened on this Mac, offered as one `replace_text` of them all.
-    private func tighten(_ node: String, in state: String) {
-        guard let words = (try? editor.session.text(state: state, node: node)) ?? nil, !words.isEmpty else { return }
-        let count = Double(words.unicodeScalars.count)
-        offer(
-            Asked(
-                title: "Tightened", ask: { try await OnDevice.tighten(words) },
-                take: { tightened in
-                    [
-                        [
-                            "op": "replace_text", "state": .string(state), "node": .string(node), "from": 0,
-                            "to": .number(count), "text": .string(tightened),
-                        ]
-                    ]
-                }))
-    }
-
-    /// `state`'s notes drafted on this Mac from how it reads, offered as one `set_state`.
-    private func draft(_ state: String) {
-        guard let reading = try? editor.session.reading(state: state) else { return }
-        offer(
-            Asked(
-                title: "Presenter Notes", ask: { try await OnDevice.notes(state: state, reading: reading) },
-                take: { notes in
-                    [["op": "set_state", "id": .string(state), "prop": "notes", "value": .string(notes)]]
-                }))
+    /// `kind` written for `node`, a text, or for `state`'s notes (PLAN 2.101): on the device, or by the
+    /// assistant's model with the user's key, offered to take as one patch or to leave.
+    private func write(_ kind: WritingKind, node: String? = nil, in state: String) {
+        if let asked = Writer.asking(WritingAsk(kind: kind, state: state, node: node), of: editor.session) {
+            offer(asked)
+        }
     }
 
     /// Where a field's value lives, which is where a choice is written, as a person says it.

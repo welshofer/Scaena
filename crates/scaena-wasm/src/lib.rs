@@ -691,6 +691,21 @@ impl Player {
         serde_json::to_string(&self.0.state_choices(state).map_err(js)?).map_err(js)
     }
 
+    /// What to ask a model for the person editing, as JSON (PLAN 2.101): `ask` is `{ kind, state,
+    /// node?, finding? }`, `kind` one of `proofread`, `tighten`, `rewrite`, `notes`, or `explain`;
+    /// the answer is `{ task, title, instructions, prompt }`, from the deck as it stands.
+    pub fn writing(&mut self, ask: &str) -> Result<String, JsError> {
+        let ask: scaena_session::writing::Ask = serde_json::from_str(ask).map_err(js)?;
+        serde_json::to_string(&self.0.writing(&ask).map_err(js)?).map_err(js)
+    }
+
+    /// A model's `answer` to `ask` as it is offered, and the patch that takes it, as JSON (PLAN
+    /// 2.101): `{ text, patch }`, `patch` null for an answer that is only read.
+    pub fn written(&mut self, ask: &str, answer: &str) -> Result<String, JsError> {
+        let ask: scaena_session::writing::Ask = serde_json::from_str(ask).map_err(js)?;
+        serde_json::to_string(&self.0.written(&ask, answer).map_err(js)?).map_err(js)
+    }
+
     /// `state`'s layers, as JSON (PLAN 2.50): `[{ node, type, shown, children? }]`, topmost
     /// first, as `scaena inspect --layers` says them.
     pub fn layers(&self, state: &str) -> Result<String, JsError> {

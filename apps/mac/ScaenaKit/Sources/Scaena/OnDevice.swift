@@ -6,15 +6,15 @@ import SwiftUI
 import FoundationModels
 #endif
 
-/// The on-device model's three tasks (PLAN 3.6, ADR-0022): a finding explained, a state's notes
-/// drafted, and a text's words tightened. Apple's Foundation Models answer on this Mac or iPad,
-/// and nothing leaves it. None edits on its own: each answer is offered, and the user takes it as
-/// one patch, or leaves it. Where the device has no model ready (before macOS or iPadOS 26, or
-/// without Apple Intelligence), none is offered.
+/// Apple's Foundation Models, on this Mac or iPad (PLAN 3.6, ADR-0022): where the device has a
+/// model ready, the writing tools ask it, and nothing leaves the device. Before macOS or iPadOS 26,
+/// or without Apple Intelligence, it is not available.
 enum OnDevice {
     /// Why no answer came.
     struct Unavailable: LocalizedError {
-        var errorDescription: String? { "The on-device model is not available on this \(Words.device)." }
+        var errorDescription: String? {
+            "No model to ask: this \(Words.device) has no on-device model, and the assistant has no key. Add one in the assistant's Keys."
+        }
     }
 
     /// Whether the on-device model is ready to answer.
@@ -27,46 +27,8 @@ enum OnDevice {
         return false
     }
 
-    /// What `finding` means for this deck, in plain words, and what could be done.
-    static func explain(_ finding: Finding, text: String?) async throws -> String {
-        var prompt = "Finding \(finding.code) (\(finding.severity)): \(finding.message)"
-        if let hint = finding.hint { prompt += "\nLint's hint: \(hint)" }
-        if let state = finding.state { prompt += "\nIn state: \(state)" }
-        if let node = finding.node { prompt += "\nAbout: \(node)" }
-        if let text, !text.isEmpty { prompt += "\nIts words: \(text)" }
-        return try await respond(
-            instructions: """
-                You explain a finding of a slide deck's lint to the person writing the deck, in two or \
-                three plain sentences: what it means for their slide, and what they could do about it. \
-                Say nothing the finding does not support, and write no headings or lists.
-                """,
-            prompt: prompt)
-    }
-
-    /// Notes for the speaker of `state`, drafted from how it reads.
-    static func notes(state: String, reading: String) async throws -> String {
-        try await respond(
-            instructions: """
-                You draft speaker notes for one slide of a talk: what the speaker says while it \
-                shows, in two to four short sentences, in the slide's language, from the slide's \
-                words. Write only the notes, with no heading.
-                """,
-            prompt: "The slide \(state) reads:\n\(plain(reading))")
-    }
-
-    /// `text` tightened: fewer words, the same meaning.
-    static func tighten(_ text: String) async throws -> String {
-        let tightened = try await respond(
-            instructions: """
-                You tighten the words of one text on a slide: fewer words, the same meaning, in the \
-                same language and tone. Keep every number and name exactly as written. Write only \
-                the tightened text, with no quotes and no comment.
-                """,
-            prompt: text)
-        return tightened.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"“”")))
-    }
-
-    private static func respond(instructions: String, prompt: String) async throws -> String {
+    /// `prompt` answered by the on-device model, told `instructions`.
+    static func respond(instructions: String, prompt: String) async throws -> String {
         #if canImport(FoundationModels)
         if #available(macOS 26.0, *) {
             let session = LanguageModelSession(instructions: instructions)
@@ -76,31 +38,78 @@ enum OnDevice {
         #endif
         throw Unavailable()
     }
+}
 
-    /// HTML as the words it reads.
-    private static func plain(_ html: String) -> String {
-        var text = html.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
-        for (entity, character) in [("&lt;", "<"), ("&gt;", ">"), ("&quot;", "\""), ("&#39;", "'"), ("&amp;", "&")] {
-            text = text.replacingOccurrences(of: entity, with: character)
-        }
-        return text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+/// Who answers the writing tools (PLAN 2.101): the on-device model where the device has one,
+/// nothing leaving it; else the model the assistant uses, with the user's key from the Keychain,
+/// as the browser's writing tools ask it. What each is asked is the engine's (`scaena_core::
+/// writing`), the same words on every platform.
+enum Writer {
+    /// The model the assistant uses and its key: none where no key is kept or no model chosen.
+    static func byKey() -> (provider: Provider, model: String, key: String)? {
+        let defaults = UserDefaults.standard
+        let provider = defaults.string(forKey: "assistant.provider").flatMap(Provider.init(rawValue:)) ?? .anthropic
+        let model = defaults.string(forKey: "assistant.model.\(provider.rawValue)") ?? ""
+        guard !model.isEmpty, let key = Keychain().key(for: provider), !key.isEmpty else { return nil }
+        return (provider, model, key)
+    }
+
+    /// Whether there is a model to ask.
+    static var available: Bool { OnDevice.available || byKey() != nil }
+
+    /// Where an answer comes from, as the sheet says it.
+    static var whence: String {
+        if OnDevice.available { return "Answered on this \(Words.device): nothing was sent anywhere." }
+        if let who = byKey() { return "Written by \(who.model), with your \(who.provider.name) key." }
+        return ""
+    }
+
+    /// `writing` answered: on the device, or by the assistant's model with the user's key.
+    static func respond(instructions: String, prompt: String) async throws -> String {
+        if OnDevice.available { return try await OnDevice.respond(instructions: instructions, prompt: prompt) }
+        guard let who = byKey() else { throw OnDevice.Unavailable() }
+        return try await who.provider.write(model: who.model, key: who.key, instructions: instructions, prompt: prompt)
+    }
+
+    /// `ask` of the deck `session` holds, as the sheet offers it: what the model is asked, the
+    /// answer shown as it is offered, and the patch that takes it, edited or not; none for an
+    /// answer only read. Nil where there is nothing to ask.
+    @MainActor
+    static func asking(_ ask: WritingAsk, of session: ScaenaSession) -> Asked? {
+        guard let writing = try? session.writing(ask) else { return nil }
+        let (instructions, prompt) = (writing.instructions, writing.prompt)
+        let reads = ask.kind == .explain
+        return Asked(
+            title: writing.title,
+            ask: { try await Writer.respond(instructions: instructions, prompt: prompt) },
+            shown: { answer in (try? session.written(ask, answer: answer).text) ?? answer },
+            take: reads ? nil : { answer in (try? session.written(ask, answer: answer).patch) ?? [] },
+            whence: whence)
     }
 }
 
-/// A question for the on-device model, and the patch that takes its answer, if one does.
+/// A question for a model, the answer as it is offered, and the patch that takes it, if one does.
 struct Asked: Identifiable {
     let id = UUID()
     let title: String
     let ask: () async throws -> String
+    /// The model's answer as it is offered.
+    var shown: (String) -> String = { $0 }
     let take: ((String) -> [JSONValue])?
+    /// Where the answer comes from.
+    var whence = Writer.whence
 }
 
 /// The model's answer as it comes: thinking, then the answer to take or leave, or why none came.
 struct OfferSheet: View {
     let title: String
     let ask: () async throws -> String
+    /// The model's answer as it is offered.
+    var shown: (String) -> String = { $0 }
     /// The patch that takes the answer, edited or not; none where it is only read.
     let take: ((String) -> [JSONValue])?
+    /// Where the answer comes from.
+    var whence = Writer.whence
     let make: ([JSONValue]) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var answer: String?
@@ -123,9 +132,9 @@ struct OfferSheet: View {
             } else if let failure {
                 Text(failure).foregroundStyle(.secondary)
             } else {
-                ProgressView("Thinking on this \(Words.device)…")
+                ProgressView(OnDevice.available ? "Thinking on this \(Words.device)…" : "Asking…")
             }
-            Text("Answered on this \(Words.device): nothing was sent anywhere.").font(.caption).foregroundStyle(.secondary)
+            Text(whence).font(.caption).foregroundStyle(.secondary)
             HStack {
                 Spacer()
                 if let take, let answer {
@@ -146,7 +155,7 @@ struct OfferSheet: View {
         .frame(width: 420)
         .task {
             do {
-                answer = try await ask()
+                answer = shown(try await ask())
             } catch {
                 failure = error.localizedDescription
             }

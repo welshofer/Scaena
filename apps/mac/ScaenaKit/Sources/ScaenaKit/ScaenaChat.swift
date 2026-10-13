@@ -35,6 +35,40 @@ public enum Provider: String, Codable, CaseIterable, Identifiable, Sendable {
             ])
     }
 
+    /// The request that asks `model` `prompt` once, told `instructions`, with nothing to call: what
+    /// a writing tool asks (PLAN 2.101), which no conversation keeps.
+    public func onceRequest(
+        model: String, key: String, base: String? = nil, instructions: String, prompt: String
+    ) throws -> ProviderRequest {
+        var args: [String: JSONValue] = [
+            "provider": .string(rawValue), "model": .string(model), "key": .string(key),
+            "instructions": .string(instructions), "prompt": .string(prompt),
+        ]
+        if let base { args["base"] = .string(base) }
+        return try Self.call("once", .object(args))
+    }
+
+    /// The words of an answer to `onceRequest`, or why it gave none.
+    public func answered(status: Int, body: String) throws -> String {
+        try Self.call(
+            "answered",
+            [
+                "provider": .string(rawValue), "status": .number(Double(status)),
+                "statusText": .string(HTTPURLResponse.localizedString(forStatusCode: status)), "body": .string(body),
+            ])
+    }
+
+    /// Ask `model` `prompt` once with the user's `key`, told `instructions` (PLAN 2.101): the words
+    /// it answers. `send` makes the request, as the assistant's does.
+    public func write(
+        model: String, key: String, base: String? = nil, instructions: String, prompt: String,
+        send: Assistant.Send = Assistant.urlSession
+    ) async throws -> String {
+        let request = try onceRequest(model: model, key: key, base: base, instructions: instructions, prompt: prompt)
+        let (data, status) = try await send(request.urlRequest())
+        return try answered(status: status, body: String(decoding: data, as: UTF8.self))
+    }
+
     private static func call<T: Decodable>(_ method: String, _ args: JSONValue) throws -> T {
         let json = String(decoding: try JSONEncoder().encode(args), as: UTF8.self)
         return try ScaenaSession.decode(scaena_providers(method, json), as: T.self)

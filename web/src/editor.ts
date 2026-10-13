@@ -54,6 +54,7 @@ import {
 } from "@codemirror/view";
 import { themes } from "@scaena/themes";
 import { panel } from "./assistant/panel";
+import { TOOLS, writer } from "./writing";
 import { sourceOf } from "./bundle";
 import { canvas, canvasKeys, placed } from "./canvas";
 import { markName, noteName } from "./notes";
@@ -84,6 +85,7 @@ import type {
   Seeing,
   Source,
   Where,
+  WritingKind,
 } from "./protocol";
 import { fitting } from "./pictures";
 import { PICTURE } from "./protocol";
@@ -553,6 +555,7 @@ async function edit(source: Source) {
       if (!now) return Promise.resolve(undefined);
       return picking.pick({ purpose: { names, current }, source: view.state.doc.toString(), state: now.state, format: format() });
     },
+    write: (kind, node) => write(kind, node),
   });
 
   /** The cue of the state shown (PLAN 2.44), under the preview: once the canvas is there. */
@@ -641,6 +644,7 @@ async function edit(source: Source) {
       tab("inspector");
       if (f.node !== undefined) look.focus(f.node, prop);
     },
+    explain: (f) => explain(f),
     // A right click, or the menu key (PLAN 2.53): what is done to the nodes selected, or on the
     // canvas where nothing is.
     // What is locked under the pointer, which the canvas passes over, is offered to unlock (PLAN 2.95).
@@ -1250,12 +1254,19 @@ async function edit(source: Source) {
           f.format ? `in ${f.format}` : "",
         ];
         const said = `${html(f.said ?? f.message)}<span class="where">${html(where.filter(Boolean).join(" · "))}</span>`;
-        if (!f.at) li.innerHTML = said;
-        else {
-          const button = li.appendChild(document.createElement("button"));
-          button.innerHTML = said;
-          button.onclick = () => go(f);
-        }
+        // One that stands in the source goes there.
+        const main = li.appendChild(document.createElement(f.at ? "button" : "span"));
+        main.className = "said";
+        main.innerHTML = said;
+        if (f.at) main.onclick = () => go(f);
+        // What it means, and what could be done, by the assistant's model (PLAN 2.101).
+        const explaining = li.appendChild(document.createElement("button"));
+        explaining.type = "button";
+        explaining.className = "explain";
+        explaining.textContent = "Explain";
+        explaining.title = "What it means, and what could be done, in a few sentences by the assistant's model";
+        explaining.setAttribute("aria-label", `Explain: ${f.said ?? f.message}`);
+        explaining.onclick = () => explain(f);
         return li;
       }),
     );
@@ -1539,6 +1550,35 @@ async function edit(source: Source) {
     slide: slideOf,
   });
 
+  /** The writing tools (PLAN 2.101): a text's words, a slide's notes, and an issue, written by the
+   * model the assistant uses, with the user's key, each offered to take or leave. */
+  const writing = writer(stage, {
+    who: () => assistant.who(),
+    shown: showing,
+    format,
+    source: () => view.state.doc.toString(),
+    apply: made,
+    say,
+    keys: () => {
+      tab("assistant");
+      $("#key").focus();
+    },
+    slide: slideOf,
+  });
+  /** Ask the model the assistant uses to write `kind` for `node`, a text, or for the state shown. */
+  function write(kind: WritingKind, node?: string) {
+    const now = showing();
+    if (!now) return say("Nothing to write yet: the deck must compile first");
+    void writing.offer({ kind, state: now.state, node });
+  }
+  /** Explain `f` by the model the assistant uses: what it means for the slide, and what could be done. */
+  function explain(f: Finding) {
+    const state = f.state ?? showing()?.state;
+    if (!state) return say("Nothing to explain yet: the deck must compile first");
+    const { code, severity, message, said, hint, node } = f;
+    void writing.offer({ kind: "explain", state, finding: { code, severity, message, said, hint, node } });
+  }
+
   /** Every command the editor has, by name (PLAN 2.53): what its key or its button does, nothing
    * else, so each edit is the patch that gesture makes. ⌘K lists those that apply, narrowed by
    * the words typed; a right click offers those for what is under the pointer. */
@@ -1627,6 +1667,15 @@ async function edit(source: Source) {
       { label: "Type in it", keys: "Enter", group: "Type", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "text", run: () => press("Enter") },
       { label: "Bulleted list", keys: `${MOD}${SHIFT}8`, group: "Type", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "text", run: () => board.list("bullet") },
       { label: "Numbered list", keys: `${MOD}${SHIFT}7`, group: "Type", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "text", run: () => board.list("number") },
+      // A text's words, by the model the assistant uses, offered to take or leave (PLAN 2.101).
+      ...(["proofread", "tighten", "rewrite"] as const).map(
+        (kind): Command => ({
+          label: TOOLS[kind],
+          where: ["node"],
+          applies: () => one() && typeOf(picked()[0]) === "text",
+          run: () => write(kind, picked()[0]),
+        }),
+      ),
       // A lock (PLAN 2.95): the canvas passes over what is locked, and moves and deletes nothing of it.
       {
         label: any() && picked().every((n) => board.lockedBy(n) === n) ? "Unlock" : "Lock",
@@ -1758,6 +1807,8 @@ async function edit(source: Source) {
       { label: "Add a slide…", where: ["state"], applies: () => now() !== undefined, run: () => void states.gallery() },
       { label: step() ? "Delete this step" : "Delete this slide", where: ["state"], applies: () => now() !== undefined && count() > 1, run: () => states.remove(now()!) },
       { label: "Export it as a PNG…", where: ["state"], applies: () => now() !== undefined, run: () => openExport("png") },
+      // Its notes, drafted from how it reads by the model the assistant uses (PLAN 2.101).
+      { label: "Draft its notes", where: ["state"], applies: () => now() !== undefined, run: () => write("notes") },
       { label: "Show the light table", applies: () => now() !== undefined && !table.open(), run: () => table.toggle(true) },
       { label: "Close the light table", applies: () => table.open(), run: () => table.toggle(false) },
       { label: "Show the next slide or step", applies: () => last?.valid === true && shown < count() - 1, run: () => goTo(shown + 1) },
@@ -2080,6 +2131,8 @@ async function edit(source: Source) {
       at: () => stage.at,
       /** The assistant: ask it something, and read the conversation. */
       assistant,
+      /** The writing tools (PLAN 2.101): one asked, and its answer taken, settled. */
+      writing,
       /** The canvas: what it selected, what stands where, and its drag. */
       canvas: board,
       /** The layers panel: what it lists, and the patches it makes. */

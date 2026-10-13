@@ -30,6 +30,8 @@
 //!   (SPEC §3.1).
 //! - [`words`] — the editors' words: slides numbered, objects named by what they show, each
 //!   property and value as a person says it (PLAN 3.18, 2.99).
+//! - [`writing`] — what a model is asked to write for the person editing, and the least changes
+//!   that take its answer into a text (PLAN 2.101).
 //!
 //! Invariant: nothing in this crate reads a clock, a font, or the filesystem.
 
@@ -63,6 +65,7 @@ pub mod transform;
 pub mod validate;
 pub mod version;
 pub mod words;
+pub mod writing;
 
 /// JPEG, read the same on every target (ADR-0017): `scaena-pixels`' decoder.
 pub use scaena_pixels::jpeg;

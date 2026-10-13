@@ -420,7 +420,9 @@ pub unsafe extern "C" fn scaena_picture(bytes: *const u8, len: usize) -> *mut c_
 /// for what their prompts say goes there, each `{slot, rect, words, typed, role?}`; and
 /// `filling {state, slot}`, the patch that fills one that waits for words as a new slide fills
 /// it, `{id, patch}`; and `prompted {state, node}`, whether a text still reads as its slot's
-/// prompt, which typing selects whole.
+/// prompt, which typing selects whole. Writing (PLAN 2.101): `writing {kind, state, node?,
+/// finding?}`, what to ask a model, `{task, title, instructions, prompt}`; and `written {ask,
+/// answer}`, an answer as it is offered and the patch that takes it, `{text, patch}`.
 ///
 /// # Safety
 /// `session` is a live handle; `method` a NUL-terminated string; `args` one, or null.
@@ -1203,8 +1205,10 @@ pub unsafe extern "C" fn scaena_generator_free(generator: *mut ScaenaGenerator) 
 
 /// The models' providers, as `{"ok": value}` or `{"error": {"message"}}`: `list`, each provider
 /// `{id, name, base}`; `models {provider, key, base?}`, the request that lists the models a key
-/// can use, as `request` gives one; and `readModels {provider, status, statusText?, body}`, the
-/// models its answer lists.
+/// can use, as `request` gives one; `readModels {provider, status, statusText?, body}`, the
+/// models its answer lists; and, for a writing tool (PLAN 2.101), `once {provider, model, key,
+/// base?, instructions, prompt}`, the request that asks a model once with nothing to call, and
+/// `answered {provider, status, statusText?, body}`, the words of its answer.
 ///
 /// # Safety
 /// `method` is a NUL-terminated string; `args` one, or null.
@@ -1400,6 +1404,18 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             value(serde_json::to_value(s.character_choices(state, node, from, to).map_err(said)?))?
         }
         "stateChoices" => value(serde_json::to_value(s.state_choices(arg("state")?).map_err(said)?))?,
+        // What to ask a model for the person editing (PLAN 2.101): the task, its title, and the
+        // instructions and prompt it answers; and an answer as it is offered, with the patch that
+        // takes it.
+        "writing" => {
+            let ask: scaena_session::writing::Ask = serde_json::from_value(args.clone()).map_err(said)?;
+            value(serde_json::to_value(s.writing(&ask).map_err(said)?))?
+        }
+        "written" => {
+            let ask: scaena_session::writing::Ask =
+                serde_json::from_value(args.get("ask").cloned().unwrap_or_default()).map_err(said)?;
+            value(serde_json::to_value(s.written(&ask, arg("answer")?).map_err(said)?))?
+        }
         // The words an editor shows for a state: its objects by what they show, and the theme's
         // names said (PLAN 2.99).
         "words" => value(serde_json::to_value(s.words(arg("state")?).map_err(said)?))?,

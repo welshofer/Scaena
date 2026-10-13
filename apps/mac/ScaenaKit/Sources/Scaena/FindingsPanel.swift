@@ -80,7 +80,8 @@ private struct FindingRow: View {
                     Image(systemName: "sparkles")
                 }
                 .buttonStyle(.borderless)
-                .help("What this means for the deck, answered on this \(Words.device)")
+                .help(OnDevice.available ? "What this means for the deck, answered on this \(Words.device)" : "What this means for the deck, by the assistant's model")
+                .accessibilityLabel("Explain")
             }
             if finding.fixable, finding.fix != nil {
                 Button("Fix") { fix(finding) }

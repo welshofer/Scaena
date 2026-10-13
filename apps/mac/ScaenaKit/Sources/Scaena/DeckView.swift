@@ -220,7 +220,7 @@ struct DeckView: View {
                 middle
                     .frame(minHeight: 240)
                 if showsFindings {
-                    FindingsPanel(editor: editor, go: go, explain: OnDevice.available ? explain : nil) { finding in
+                    FindingsPanel(editor: editor, go: go, explain: Writer.available ? explain : nil) { finding in
                         perform { try document.fix(finding, undo: undo) }
                     }
                     .frame(minHeight: 90, idealHeight: 160)
@@ -675,7 +675,7 @@ struct DeckView: View {
                 RemoteSheet(editor: editor) { shown }
             }
             .sheet(item: $asked) { asked in
-                OfferSheet(title: asked.title, ask: asked.ask, take: asked.take) { ops in
+                OfferSheet(title: asked.title, ask: asked.ask, shown: asked.shown, take: asked.take, whence: asked.whence) { ops in
                     perform { try document.make(ops, undo: undo) }
                 }
             }
@@ -924,14 +924,11 @@ struct DeckView: View {
         return Seeing(state: shown, nodes: nodes)
     }
 
-    /// `finding` explained by the on-device model.
+    /// `finding` explained by the on-device model, or the assistant's with the user's key (PLAN 2.101):
+    /// what it means for the slide, and what could be done.
     private func explain(_ finding: Finding) {
-        var words: String?
-        if let state = finding.state, let node = finding.node {
-            words = (try? editor.session.text(state: state, node: node)) ?? nil
-        }
-        let text = words
-        asked = Asked(title: "What This Means", ask: { try await OnDevice.explain(finding, text: text) }, take: nil)
+        guard let state = finding.state ?? shown else { return }
+        asked = Writer.asking(WritingAsk(kind: .explain, state: state, finding: finding), of: editor.session)
     }
 
     /// Every node selected, the first first (PLAN 3.13).
