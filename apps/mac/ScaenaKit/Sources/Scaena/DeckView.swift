@@ -52,6 +52,10 @@ struct DeckView: View {
     @State private var copiedLook: JSONValue?
     /// What the on-device model is asked, shown in a sheet.
     @State private var asked: Asked?
+    /// Where a picture made goes, while Make a Picture's sheet asks what it shows (PLAN 2.107),
+    /// and the deck's theme, its JSON, whose palette colors it.
+    @State private var picturing: PictureTarget?
+    @State private var picturingTheme = ""
     /// The light table shown in place of the canvas, and the slides selected on it (PLAN 3.14).
     @State private var showsSlides = false
     /// Which of the window's columns show: the slides down the side fold away while the light
@@ -377,11 +381,16 @@ struct DeckView: View {
         case .shape:
             InsertMenu(
                 title: "Shape", symbol: "square.on.circle", kinds: ["Shape", "Shader"], first: nil, inserts: inserts,
-                insert: insertHere, choose: shown == nil ? nil : (title: "Icon…", action: { choosingIcon = true }))
+                insert: insertHere, also: shown == nil ? [] : [(title: "Icon…", action: { choosingIcon = true })])
         case .image:
             InsertMenu(
                 title: "Image", symbol: "photo", kinds: ["Image"], first: nil, inserts: inserts, insert: insertHere,
-                choose: shown == nil ? nil : (title: "Choose Picture…", action: { choosingPicture = true }))
+                also: shown.map { state -> [(title: String, action: () -> Void)] in
+                    [
+                        (title: "Choose Picture…", action: { choosingPicture = true }),
+                        (title: "Make a Picture…", action: { makePicture(in: state) }),
+                    ]
+                } ?? [])
         case .chart:
             InsertMenu(title: "Chart", symbol: "chart.bar", kinds: ["Chart"], first: nil, inserts: inserts, insert: insertHere)
         case .table:
@@ -688,6 +697,9 @@ struct DeckView: View {
                     perform { try document.make(ops, undo: undo) }
                 }
             }
+            .sheet(item: $picturing) { target in
+                PictureSheet(target: target, theme: picturingTheme) { made in putPicture(made, at: target) }
+            }
             .sheet(isPresented: choosingTheme) {
                 ThemeChooser(themes: offeredThemes) { name in
                     offeredThemes = []
@@ -964,6 +976,7 @@ struct DeckView: View {
             order: some ? { how in order(how, in: shown) } : nil)
         made.choosePicture = { choosingPicture = true }
         made.chooseIcon = { choosingIcon = true }
+        made.makePicture = { makePicture(in: shown) }
         made.deletesElsewhere = elsewhere
         // In another of the deck's formats, a node given a layout of its own there (PLAN 2.85).
         if one, let node, let format = editor.format {
@@ -1482,6 +1495,30 @@ struct DeckView: View {
         perform {
             try document.make(holds, undo: undo)
             said = "Kept the rehearsal's timing for \(holds.count) slide\(holds.count == 1 ? "" : "s")"
+        }
+    }
+
+    /// Make a Picture (PLAN 2.107): its sheet opened for where a picture made for `state` goes,
+    /// as the browser finds it: the image selected, alone, which it takes the place of; the slide's
+    /// empty place for one; or where the pointer last pressed.
+    private func makePicture(in state: String) {
+        perform {
+            picturingTheme = try editor.session.themeText()?.text ?? ""
+            picturing = try editor.session.pictureTarget(state: state, selected: selection, pressed: pointed)
+        }
+    }
+
+    /// The picture made put where it was asked for on the slide shown: one patch, one step to
+    /// undo, the image it went to selected.
+    private func putPicture(_ made: MadePicture, at target: PictureTarget) {
+        guard let shown else { return }
+        perform {
+            let put = try editor.session.puttingPicture(made, at: target, in: shown)
+            try document.make(put.patch, undo: undo)
+            undo?.setActionName("Make Picture")
+            node = put.node
+            also = []
+            said = put.said
         }
     }
 

@@ -548,6 +548,12 @@
       dialog label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
       dialog input, dialog select { font: inherit; font-size: 14px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; }
       dialog menu { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin: 4px 0 0; padding: 0; }
+      /* Make a picture (PLAN 2.107): what it shows, its look, and who makes it. */
+      #picturing { width: min(34em, 92vw); }
+      #picturing textarea { font: inherit; font-size: 14px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 6px; resize: vertical; }
+      #picturing .fields { display: flex; flex-wrap: wrap; gap: 8px; }
+      #picturing .fields > label { flex: 1 1 12em; }
+      #picturing-status:empty { display: none; }
       /* New from a prompt (PLAN G.5): the brief, what it is grounded in, and how far it has come. */
       #prompting { width: min(42em, 94vw); max-height: 92vh; }
       #prompting textarea { font: inherit; font-size: 14px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 6px; resize: vertical; }
@@ -946,6 +952,30 @@
           <button type="button" id="writing-key" hidden>Add a key…</button>
           <button value="cancel" id="writing-leave" formnovalidate>Leave it</button>
           <button value="use" id="writing-use" hidden>Use it</button>
+        </menu>
+      </form>
+    </dialog>
+    <dialog id="picturing" aria-labelledby="picturing-title">
+      <form method="dialog">
+        <h2 id="picturing-title">Make a picture</h2>
+        <label>What it shows <textarea id="picturing-subject" name="subject" rows="3" required placeholder="A lighthouse on a rocky point at dusk, seen from the sea"></textarea></label>
+        <div class="fields">
+          <label>As <select id="picturing-look" name="look">
+            <option value="illustration">An illustration in the theme's colors</option>
+            <option value="photo">A photograph</option>
+          </select></label>
+          <label>Made by <select id="picturing-by" name="by">
+            <option value="openai">OpenAI</option>
+            <option value="gemini">Gemini</option>
+          </select></label>
+        </div>
+        <p class="note" id="picturing-where"></p>
+        <p class="note" id="picturing-who"></p>
+        <p id="picturing-status" aria-live="polite"></p>
+        <menu>
+          <button type="button" id="picturing-key" hidden>Add a key…</button>
+          <button type="button" id="picturing-cancel">Cancel</button>
+          <button value="make" id="picturing-make">Make</button>
         </menu>
       </form>
     </dialog>

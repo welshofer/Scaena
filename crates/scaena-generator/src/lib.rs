@@ -454,6 +454,22 @@ impl Generation {
     }
 }
 
+/// One picture a person asks for in an editor (PLAN 2.107): of `subject`, in their words, in
+/// `theme`'s palette (the theme's JSON), made as `look` (`illustration` or `photo`), for a place
+/// `width` × `height` on the slide: JSON `[{ slide, prompt, frame, alt }]`, which a `Painting`
+/// makes.
+#[wasm_bindgen(js_name = pictureAsked)]
+pub fn picture_asked(theme: &str, subject: &str, look: &str, width: f64, height: f64) -> Result<String, JsError> {
+    let model: scaena_core::model::theme::Theme =
+        serde_json::from_str(theme).map_err(|e| error(format!("the theme: {e}")))?;
+    let look = scaena_narrato::pictures::Look::named(look).ok_or_else(|| error(format!("`{look}` is no look")))?;
+    if subject.trim().is_empty() {
+        return Err(error("say what the picture shows"));
+    }
+    let asked = scaena_ops::narrative::asked_one(&model, subject, look, width, height);
+    Ok(serde_json::to_string(&[asked]).expect("a picture asked is JSON"))
+}
+
 /// The request that lists the image models a key can use (PLAN G.10), JSON, for `provider`
 /// (`openai`, `gemini`) at `base`, the provider's own where none.
 #[wasm_bindgen(js_name = pictureModelsRequest)]

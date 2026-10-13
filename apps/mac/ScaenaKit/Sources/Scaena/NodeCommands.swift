@@ -33,6 +33,9 @@ struct DeckActions {
     var choosePicture: (() -> Void)? = nil
     /// Offer the icons that ship, to put one on the slide shown (PLAN 2.104).
     var chooseIcon: (() -> Void)? = nil
+    /// Make a picture by the user's image model for the image selected, the slide's empty place
+    /// for one, or where the pointer last pressed (PLAN 2.107).
+    var makePicture: (() -> Void)? = nil
     /// Whether a node selected shows on another slide too: Delete from All Slides takes it off
     /// those as well, where Delete takes it off this slide on.
     var deletesElsewhere = false
@@ -81,6 +84,8 @@ struct NodeCommands: Commands {
                 .disabled(deck?.chooseIcon == nil)
             Button("Choose Picture…") { deck?.choosePicture?() }
                 .disabled(deck?.choosePicture == nil)
+            Button("Make a Picture…") { deck?.makePicture?() }
+                .disabled(deck?.makePicture == nil)
         }
         CommandMenu("Slide") {
             Button("New Slide") { panes?.newSlide?() }

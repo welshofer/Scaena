@@ -78,12 +78,15 @@ public struct WaitingSlot: Decodable, Sendable, Identifiable, Equatable {
     public let words: String
     /// Whether words go there; else a picture or a figure.
     public let typed: Bool
+    /// Whether a picture goes there: no words, and no chart or table its example (PLAN 2.107),
+    /// which Make a Picture fills.
+    public let picture: Bool
     /// The text role words there are set in, which Insert offers a text of.
     public let role: String?
 
     public var id: String { slot }
 
-    private enum Keys: String, CodingKey { case slot, rect, words, typed, role }
+    private enum Keys: String, CodingKey { case slot, rect, words, typed, picture, role }
 
     public init(from decoder: any Decoder) throws {
         let fields = try decoder.container(keyedBy: Keys.self)
@@ -92,6 +95,7 @@ public struct WaitingSlot: Decodable, Sendable, Identifiable, Equatable {
         rect = r.count == 4 ? CGRect(x: r[0], y: r[1], width: r[2], height: r[3]) : .null
         words = try fields.decode(String.self, forKey: .words)
         typed = try fields.decode(Bool.self, forKey: .typed)
+        picture = try fields.decodeIfPresent(Bool.self, forKey: .picture) ?? !typed
         role = try fields.decodeIfPresent(String.self, forKey: .role)
     }
 }

@@ -198,6 +198,42 @@ export interface Editor {
 /** A node's `at`, resolved. */
 export type Placement = Record<string, unknown>;
 
+/** Where a picture made for the slide shown goes (PLAN 2.107): the image `node`, which shows it in
+ * place of what it showed (`shows`, what that image says it shows); the empty place for a picture
+ * `slot`; or neither, inserted about `at`. Its place is `width` × `height`, canvas units, which
+ * frames the picture wide, tall, or square. */
+export interface PictureTarget {
+  node?: string;
+  slot?: string;
+  at: [number, number];
+  width: number;
+  height: number;
+  shows?: string;
+}
+
+/** A picture made (PLAN 2.107): its bytes, its file's kind (`png`, `jpg`), what it shows, and the
+ * model that made it. */
+export interface MadePicture {
+  bytes: ArrayBuffer;
+  ext: string;
+  alt: string;
+  model: string;
+}
+
+/** `words` as a file's name: its first few words, in lowercase, joined by hyphens; `picture` where
+ * none are. A picture made is named so, which names its image (PLAN 2.107). */
+export function slugged(words: string): string {
+  const slug = words
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+    .slice(0, 5)
+    .join("-");
+  return slug || "picture";
+}
+
 /** A handle: the edge or corner of a box it moves. */
 type Edge = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 const EDGES: Edge[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
@@ -2667,12 +2703,62 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     });
   }
   /** The image of the bundle at `path` inserted at `at`, as Insert inserts it; `label` says what
-   * it is, and `named`, the file dropped, names its node. */
-  async function inserted(at: [number, number], path: string, label: string, named?: string) {
+   * it is, `named`, the file dropped, names its node, and `with_` sets its own properties. */
+  async function inserted(at: [number, number], path: string, label: string, named?: string, with_?: Record<string, unknown>) {
     const n = offered.findIndex((i) => i.node.type === "image" && (i.node as { src?: unknown }).src === path);
     if (n < 0) return editor.say(`Not inserted: ${path.replace(/^.*\//, "")} isn't a PNG or a JPEG the deck holds`);
     pointed = at;
-    await inserting(n, label, named);
+    await inserting(n, label, named, with_);
+  }
+
+  /** Where a picture made for the slide shown goes (PLAN 2.107), and the place it is framed for:
+   * the image selected, which shows it in place of what it showed, and says what it showed; else
+   * the first empty place for a picture on the slide, which it fills; else where the pointer last
+   * pressed, in the canvas's own shape. */
+  async function pictureTarget(): Promise<PictureTarget | undefined> {
+    const shown = editor.shown();
+    if (!shown) return undefined;
+    const one = selected !== undefined && !also.length ? box(selected) : undefined;
+    const choices = one && (await stage.choices(shown.state, one.node).catch(() => undefined));
+    if (one && choices?.type === "image") {
+      const [x, y, w, h] = one.rect;
+      const alt = choices.fields.find((f) => f.prop === "alt")?.value;
+      return { node: one.node, at: [x + w / 2, y + h / 2], width: w, height: h, shows: typeof alt === "string" ? alt : undefined };
+    }
+    const place = (await stage.waits(shown.state, editor.format()).catch((): Waiting[] => [])).find((w) => w.picture);
+    if (place) {
+      const [x, y, w, h] = place.rect;
+      return { slot: place.slot, at: [x + w / 2, y + h / 2], width: w, height: h };
+    }
+    return { at: landing(), width: size[0], height: size[1] };
+  }
+
+  /** A picture made (PLAN 2.107) put where `target` says: it joins the bundle, named by its
+   * SHA-256 as one dropped is. The image it was made for shows it, saying what it shows, one
+   * `choose` of `src` and one of `alt`, each written where it lives; else it is inserted as Insert
+   * inserts a picture, filling the empty place it was made for, saying what it shows. One patch,
+   * one step to undo. */
+  function putPicture(target: PictureTarget, made: MadePicture) {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      if (!shown) return editor.say(WAITING);
+      const name = `${slugged(made.alt)}.${made.ext}`;
+      // What it shows, mid-sentence: "A lighthouse" as "a lighthouse", "NASA" as it is.
+      const shows = made.alt.replace(/[.!]+$/, "");
+      const word = shows.match(/^\p{L}+/u)?.[0] ?? "";
+      const what = `a picture of ${/^\p{Lu}\p{Ll}*$/u.test(word) ? shows[0].toLowerCase() + shows.slice(1) : shows}, made by ${made.model}`;
+      try {
+        const path = await stage.drop(name, made.bytes);
+        if (target.node !== undefined && box(target.node)) {
+          const ops = ["src", "alt"].map((prop) => ({ op: "choose", node: target.node, prop, value: prop === "src" ? path : made.alt, state: shown.state }));
+          return void (await change(ops, "Placing the picture…", `Replaced ${called(target.node)} with ${what} · ⌘Z undoes it`, target.node));
+        }
+        offered = await stage.inserts();
+        await inserted(target.at, path, `${what},`, name, { alt: made.alt });
+      } catch (e) {
+        editor.say(`Not placed: ${said(e)}`);
+      }
+    });
   }
   overlay.addEventListener("dragover", (e) => {
     const types = e.dataTransfer?.types ?? [];
@@ -3710,6 +3796,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     grid: () => (ruled ? grid : undefined),
     /** The empty slots outlined on the canvas, with their words (PLAN 3.30). */
     waiting: () => waits,
+    /** Where a picture made for the slide shown goes, and the place it is framed for (PLAN 2.107). */
+    pictureTarget,
+    /** A picture made put where it was asked for: one patch, one step to undo (PLAN 2.107). */
+    putPicture,
     /** A slide made here: its layout's empty slots are outlined once it shows. */
     freshen: (state: string) => void fresh.add(state),
     /** Draw the safe area around the canvas's edge, or stop, as ⌥⌘' does (PLAN 3.29); and whether

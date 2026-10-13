@@ -122,9 +122,9 @@ struct InsertMenu: View {
     let inserts: [Insert]
     /// Insert what the deck offers `n`th.
     let insert: (Int) -> Void
-    /// Choose a file to insert, by what the menu calls it, offered last; none where there is no
-    /// slide to put it on.
-    var choose: (title: String, action: () -> Void)? = nil
+    /// What else it offers, last, by what the menu calls each: a file to choose, a picture to make
+    /// (PLAN 2.107); none where there is no slide to put one on.
+    var also: [(title: String, action: () -> Void)] = []
 
     /// One thing offered, by its place in what the deck offers.
     private struct Offered: Identifiable {
@@ -140,7 +140,7 @@ struct InsertMenu: View {
         let all = kinds.flatMap(offered)
         menu(all)
             .menuIndicator(.hidden)
-            .disabled(all.isEmpty && choose == nil)
+            .disabled(all.isEmpty && also.isEmpty)
             .help(help(all))
             // Read by its name: a pop-up button in the toolbar is otherwise read as one.
             .accessibilityLabel(title)
@@ -155,9 +155,11 @@ struct InsertMenu: View {
                 Button(Words.insertion(item.insert, among: inserts)) { insert(item.id) }
             }
         }
-        if let choose {
+        if !also.isEmpty {
             if !kinds.flatMap(offered).isEmpty { Divider() }
-            Button(choose.title, action: choose.action)
+            ForEach(also.indices, id: \.self) { i in
+                Button(also[i].title, action: also[i].action)
+            }
         }
     }
 
@@ -181,7 +183,7 @@ struct InsertMenu: View {
     }
 
     private func help(_ all: [Offered]) -> String {
-        if all.isEmpty, choose == nil { return "Nothing of this kind to insert" }
+        if all.isEmpty, also.isEmpty { return "Nothing of this kind to insert" }
         return first == nil ? "Insert \(title.lowercased())" : "Insert \(title.lowercased()); hold for each style"
     }
 }

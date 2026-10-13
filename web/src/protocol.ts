@@ -376,6 +376,8 @@ export interface Waiting {
   words: string;
   /** Whether words go there; else a picture or a figure. */
   typed: boolean;
+  /** Whether a picture goes there: no words, and no chart or table its example (PLAN 2.107). */
+  picture: boolean;
   /** The text role words there are set in, which a press on its words inserts a text of. */
   role?: string;
 }
@@ -751,6 +753,20 @@ export interface Health {
   findings: HealthFinding[];
 }
 
+/** A picture a person asks for in the editor (PLAN 2.107): what it shows, in their words; made as
+ * an illustration or a photo, in the theme's palette; by the best image model the key kept for
+ * `provider` lists, at `base` where it is not the provider's own; for a place `width` × `height`
+ * on the slide, which frames it. */
+export interface PictureJob {
+  subject: string;
+  look: "illustration" | "photo";
+  provider: "openai" | "gemini";
+  key: string;
+  base?: string;
+  width: number;
+  height: number;
+}
+
 /** The page to the worker. */
 export type ToWorker =
   /** Open the bundle at `source`, and paint into `canvas` by `painter`, with the engine's
@@ -1003,6 +1019,9 @@ export type ToWorker =
   /** The narrative health of the deck `source` compiles to (PLAN G.9), read by the generator's
    * module. */
   | { type: "health"; id: number; source: string }
+  /** A picture made by the user's image model, in the deck's theme (PLAN 2.107), by the
+   * generator's module. */
+  | { type: "makePicture"; id: number; picture: PictureJob }
   /** `path` taken out of the bundle, by the user: one nothing names (PLAN 2.59). */
   | { type: "removeFile"; id: number; source: string; path: string; index: number; format?: string }
   /** The bundle's versions (PLAN 2.60), read from its history by the history's own module: none
@@ -1653,6 +1672,8 @@ export type FromWorker =
   | { type: "sheet"; id: number; sources: DataSource[]; name?: string; sheet?: Sheet; file?: string; why?: string }
   | { type: "bundleFiles"; id: number; files: BundleFile[] }
   | { type: "health"; id: number; health: Health }
+  /** A picture made: its bytes, its file's kind (`png`, `jpg`), what it shows, and the model. */
+  | { type: "pictureMade"; id: number; bytes: ArrayBuffer; ext: string; alt: string; model: string }
   /** A file taken out: what the deck came to, shown and linted as an edit is. */
   | { type: "removed"; id: number; edited: Edited }
   /** The bundle's versions, oldest first; none where it keeps no history. */

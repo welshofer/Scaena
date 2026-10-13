@@ -511,6 +511,15 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         const { health } = await import("@scaena/generate");
         return post({ type: "health", id: data.id, health: await health(JSON.stringify(deck)) });
       }
+      case "makePicture": {
+        // The theme frames are drawn in, as its JSON: its palette colors the picture.
+        const named = player.themeText();
+        if (!named) throw new Error("the deck names no theme to color the picture");
+        const { picture } = await import("@scaena/generate");
+        const made = await picture(data.picture, (JSON.parse(named) as ThemeText).text);
+        const bytes = made.bytes.slice().buffer as ArrayBuffer;
+        return post({ type: "pictureMade", id: data.id, bytes, ext: made.ext, alt: made.alt, model: made.model }, [bytes]);
+      }
       case "removeFile": {
         compiles(data.source);
         player.removeFile(data.path);

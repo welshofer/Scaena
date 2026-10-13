@@ -463,9 +463,9 @@ public final class Generator {
         let unmade: [String]
     }
 
-    /// The pictures the narrative's slides ask for, made by `painter`'s best image model, every
-    /// one at once, a busy provider asked again after the wait the engine says; kept for `make`.
-    private func paint(_ painter: Painter, theme: String, hear: (GeneratingStep) -> Void) async throws {
+    /// The best image model `painter`'s key lists, as the engine orders them; none where it
+    /// lists none.
+    private func bestModel(_ painter: Painter) async throws -> String? {
         var listing: [String: JSONValue] = ["provider": .string(painter.provider.rawValue), "key": .string(painter.key)]
         if let base = painter.base { listing["base"] = .string(base) }
         let list: Listing = try step("imageModels", listing)
@@ -477,18 +477,12 @@ public final class Generator {
                 "statusText": .string(HTTPURLResponse.localizedString(forStatusCode: listed.status)),
                 "body": .string(listed.text),
             ])
-        guard let model = models.models.first else {
-            hear(.painted(pictures: 0, unmade: ["your \(painter.provider.name) key lists no image model"]))
-            return
-        }
-        var asking: [String: JSONValue] = [
-            "theme": .string(theme), "look": .string(painter.look), "provider": .string(painter.provider.rawValue),
-            "model": .string(model),
-        ]
-        if let base = painter.base { asking["base"] = .string(base) }
-        let asked: Asked = try step("pictures", asking)
-        guard asked.pictures > 0 else { return }
-        hear(.painting(pictures: asked.pictures, model: model))
+        return models.models.first
+    }
+
+    /// The pictures asked for made by `painter`, every one at once, a busy provider asked again
+    /// after the wait the engine says.
+    private func rounds(_ painter: Painter) async throws {
         while true {
             let round: Round = try step("paint", ["key": .string(painter.key)])
             if round.requests.isEmpty { break }
@@ -515,8 +509,52 @@ public final class Generator {
             let wait: Wait = try step("round")
             if wait.wait > 0 { try await Task.sleep(nanoseconds: UInt64(wait.wait * 1_000_000_000)) }
         }
+    }
+
+    /// The pictures the narrative's slides ask for, made by `painter`'s best image model, every
+    /// one at once, a busy provider asked again after the wait the engine says; kept for `make`.
+    private func paint(_ painter: Painter, theme: String, hear: (GeneratingStep) -> Void) async throws {
+        guard let model = try await bestModel(painter) else {
+            hear(.painted(pictures: 0, unmade: ["your \(painter.provider.name) key lists no image model"]))
+            return
+        }
+        var asking: [String: JSONValue] = [
+            "theme": .string(theme), "look": .string(painter.look), "provider": .string(painter.provider.rawValue),
+            "model": .string(model),
+        ]
+        if let base = painter.base { asking["base"] = .string(base) }
+        let asked: Asked = try step("pictures", asking)
+        guard asked.pictures > 0 else { return }
+        hear(.painting(pictures: asked.pictures, model: model))
+        try await rounds(painter)
         let finished: Finished = try step("finish")
         hear(.painted(pictures: finished.pictures, unmade: finished.unmade))
+    }
+
+    private struct Picture: Decodable {
+        let bytes: Data
+        let ext: String
+        let alt: String
+    }
+
+    /// One picture a person asks for in an editor (PLAN 2.107): of `subject`, in their words, made
+    /// as `painter.look` in the palette of `theme` (the deck's theme, its JSON), for a place `size`
+    /// on the slide, which frames it wide, tall, or square, by the best image model `painter`'s key
+    /// lists, as a made deck's pictures are. Why none was made, where none was.
+    public func picture(subject: String, theme: String, size: CGSize, painter: Painter) async throws -> MadePicture {
+        guard let model = try await bestModel(painter) else {
+            throw ScaenaError(message: "your \(painter.provider.name) key lists no image model")
+        }
+        var asking: [String: JSONValue] = [
+            "theme": .string(theme), "subject": .string(subject), "look": .string(painter.look),
+            "width": .number(Double(size.width)), "height": .number(Double(size.height)),
+            "provider": .string(painter.provider.rawValue), "model": .string(model),
+        ]
+        if let base = painter.base { asking["base"] = .string(base) }
+        let _: Asked = try step("picture", asking)
+        try await rounds(painter)
+        let made: Picture = try step("pictureMade")
+        return MadePicture(bytes: made.bytes, ext: made.ext, alt: made.alt, model: model)
     }
 
     /// The deck `brief` asks for, grounded in the sources read, written by `provider`'s `model`
