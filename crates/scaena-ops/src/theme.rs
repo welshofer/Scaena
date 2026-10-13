@@ -41,18 +41,27 @@ pub struct Themed {
     /// Whether the theme was refused: it would have added a validation error (in `added`),
     /// and the swap was not forced. The deck keeps its theme.
     pub refused: bool,
+    /// The contrast errors the theme brought that a color of its own fixes, each fixed, one for
+    /// each text recolored (PLAN 2.82): a text that read in the deck's theme reads in this one,
+    /// set in its color that reads where the text stands. What lint finds after is in `added`.
+    pub recolored: Vec<Finding>,
 }
 
 /// Point the bundle's deck at the theme file `theme`, copying it to `themes/` unless it is
 /// in the bundle already. A family whose file the bundle does not hold is set in the bundle
 /// font of that family, if it has one: a saved bundle names fonts by their content. The
 /// deck's `fonts` lists each of the theme's families the bundle holds, as rendering needs
-/// it to (E102). The deck is not otherwise touched, and is written canonically.
+/// it to (E102). A text the theme leaves too faint to read is set in its color that reads where
+/// the text stands (below); the deck is not otherwise touched, and is written canonically.
 ///
 /// A theme that lacks a name the deck uses would leave it invalid, and an invalid deck is
 /// not laid out, so lint could not say what else the theme breaks. Such a theme is refused,
 /// as `patch` refuses an invalid deck, unless `force`: the deck keeps its theme, and the new
 /// one is copied in all the same, for one `patch` with the `retheme` op and the fixes.
+///
+/// A text the theme leaves too faint to read where it stands, which a contrast error finds (E110,
+/// E111), is set in the theme's color that reads there, as the error's fix offers (PLAN 2.82,
+/// `recolored`), so a deck reads in a theme it takes as it read in its own.
 pub fn theme_apply(b: &Bundle, theme: &Path, dry_run: bool, force: bool) -> Result<Themed, OpsError> {
     let text = std::fs::read_to_string(theme).with_context(|| format!("reading {}", theme.display()))?;
     // Where it goes: where it already is inside a bundle directory, else `themes/`.
@@ -65,7 +74,7 @@ pub fn theme_apply(b: &Bundle, theme: &Path, dry_run: bool, force: bool) -> Resu
     };
     let name = theme.file_name().and_then(|n| n.to_str()).context("the theme has no file name")?;
     let rel = inside.clone().unwrap_or_else(|| format!("themes/{name}"));
-    let (themed, write) = theming(b, &rel, &text, &BTreeMap::new(), inside.is_none(), force)?;
+    let (themed, write) = theming(b, &rel, &text, &BTreeMap::new(), inside.is_none(), force, true)?;
     if !dry_run {
         if !themed.refused {
             write_deck(b, &write.deck, write.files, &write.why)?;
@@ -85,7 +94,9 @@ pub fn theme_apply(b: &Bundle, theme: &Path, dry_run: bool, force: bool) -> Resu
 /// What to write comes back beside what it does: the deck naming the theme, or, refused, the
 /// deck as it is, with the theme to copy in all the same. `applied` says whether the write
 /// names the theme. The family the deck's theme took for a script's font, the new theme takes
-/// too, and is written with it (PLAN G.22).
+/// too, and is written with it (PLAN G.22). With `recolor`, each text the theme leaves too faint
+/// to read is set in its color that reads where the text stands (PLAN 2.82), as a re-theme does;
+/// a theme edit (`theme_editing`) changes the theme alone.
 pub fn theming(
     b: &Bundle,
     rel: &str,
@@ -93,6 +104,7 @@ pub fn theming(
     fonts: &BTreeMap<String, Vec<u8>>,
     copy: bool,
     force: bool,
+    recolor: bool,
 ) -> Result<(Themed, Write), OpsError> {
     // A deck in a script the theme's own fonts do not draw keeps the script's font (PLAN G.22).
     let carried = crate::scripts::carried(b.theme_json.as_deref(), text)?;
@@ -142,12 +154,16 @@ pub fn theming(
     for (path, bytes) in &added {
         view = view.with(path.clone(), bytes.clone());
     }
-    let after = lint_in(&deck, &view)?.findings;
+    let mut after = lint_in(&deck, &view)?.findings;
 
     let states: Vec<&str> = b.deck.states.iter().map(|s| s.id.as_str()).collect();
     let invalid = validate_bundle(&b.deck.to_json()?, &View::of(b))?;
     let invalid_after = validate_bundle(&deck.to_json()?, &view)?;
     let refused = !force && !delta(&invalid, &states, &invalid_after, &states, &[]).added.is_empty();
+    let mut recolored = Vec::new();
+    if recolor && !refused {
+        (deck, after, recolored) = recoloring(deck, &view, &before, &states, after)?;
+    }
     let Delta { added: worse, removed: better } = delta(&before, &states, &after, &states, &[]);
     let (worse, better) = (worse.into_iter().cloned().collect(), better.into_iter().cloned().collect());
     let mut files = added;
@@ -164,9 +180,54 @@ pub fn theming(
         removed: better,
         errors: errors(&after),
         refused,
+        recolored,
     };
     let deck = if refused { b.deck.clone() } else { deck };
     Ok((themed, Write { deck, files, why: Why::new(format!("theme --apply {rel}")) }))
+}
+
+/// `deck`, in the theme `files` hold, with each contrast error a re-theme brought (in `after` and
+/// not in `before`) fixed as its fix offers: the text set in the theme's color that reads where it
+/// stands (PLAN 2.82). The deck so recolored, what lint finds in it, and the errors fixed, one for
+/// each text. Two fixes that make one container in one state could each write it whole, so lint
+/// lays the deck out again and fixes what is left, three rounds at most.
+fn recoloring(
+    mut deck: Deck,
+    files: &View,
+    before: &[Finding],
+    states: &[&str],
+    mut after: Vec<Finding>,
+) -> Result<(Deck, Vec<Finding>, Vec<Finding>), OpsError> {
+    let mut recolored: Vec<Finding> = Vec::new();
+    for _ in 0..3 {
+        let faint: Vec<Finding> = (delta(before, states, &after, states, &[]).added.into_iter())
+            .filter(|f| matches!(f.code.as_str(), "E110" | "E111") && f.fix.is_some())
+            .cloned()
+            .collect();
+        let mut doc = deck.to_value()?;
+        let mut applied: Vec<&[Value]> = Vec::new();
+        for f in &faint {
+            // A text's errors in each format share one fix, which applies once.
+            let fix = f.fix.as_deref().unwrap_or_default();
+            if applied.contains(&fix) {
+                continue;
+            }
+            let mut next = doc.clone();
+            if scaena_core::patch::apply(&mut next, fix).is_ok() {
+                doc = next;
+                applied.push(fix);
+                if !recolored.iter().any(|r| r.node == f.node) {
+                    recolored.push(f.clone());
+                }
+            }
+        }
+        if applied.is_empty() {
+            break;
+        }
+        deck = Deck::from_json(&doc.to_string()).context("the deck, recolored")?;
+        after = lint_in(&deck, files)?.findings;
+    }
+    Ok((deck, after, recolored))
 }
 
 /// Each of `theme`'s families, and its italic, whose file `held` says the bundle holds and
@@ -319,7 +380,7 @@ pub fn theme_editing(b: &Bundle, edit: &ThemeEdit) -> Result<(ThemeEdited, Optio
             let mut theme = was.clone();
             scaena_core::patch::apply(&mut theme, &ops).map_err(failed)?;
             let text = serde_json::to_string_pretty(&theme)? + "\n";
-            let (themed, mut w) = theming(b, rel, &text, &BTreeMap::new(), true, false)?;
+            let (themed, mut w) = theming(b, rel, &text, &BTreeMap::new(), true, false, false)?;
             // The deck changes only where it lists a font the theme now names.
             let changes = theme != was || !themed.listed.is_empty();
             let edited = ThemeEdited {

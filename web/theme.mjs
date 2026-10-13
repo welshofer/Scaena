@@ -81,6 +81,24 @@ try {
   await page.waitForFunction(() => document.querySelector("#theme option:checked")?.textContent === "dusk", null, { timeout: 30000 }).catch(() => {});
   check((await offered(page)).includes("In the bundle/dusk*"), "the picker shows Dusk again");
 
+  // The trails example in Daybreak: the storm slide's words would be dark on its dark photo, so the
+  // re-theme sets each in Daybreak's color that reads there, and says so (PLAN 2.82).
+  const trails = await open("/docs/examples/trails.deck.json");
+  await trails.selectOption("#theme", "ships:Daybreak");
+  const recolored = await trails
+    .waitForFunction(() => document.querySelector("#status").textContent.startsWith("theme Daybreak"), null, { timeout: 60000 })
+    .then(() => true, () => false);
+  const told = await status(trails);
+  check(recolored && told.includes("2 texts recolored to read on what lies behind them"), `the storm slide's two texts are recolored, and it says so: ${told}`);
+  await settled(trails);
+  const storm = (await source(trails)).match(/\nstate storm [\s\S]*?(?=\nstate |$)/)?.[0] ?? "";
+  const surfaced = storm.match(/style:\{color: surface\}/g)?.length ?? 0;
+  check(surfaced === 2, `each is set in Daybreak's surface, in the source: ${surfaced} of 2`);
+  const faint = await trails.evaluate(() =>
+    (window.scaena.last()?.findings ?? []).filter((f) => f.code === "E110" || f.code === "E111").map((f) => `${f.code} ${f.node} in ${f.state}`),
+  );
+  check(faint.length === 0, `no text is left too faint to read: ${faint.join(", ") || "none"}`);
+
   // The torture deck: Dusk lacks the roles it uses, and is refused.
   const torture = await open("/tests/fixtures/torture.scaena");
   const before = await source(torture);

@@ -69,6 +69,8 @@ struct PanelEdits {
     let go: (_ state: String) -> Void
     /// Put a question to the assistant: its panel shown, the question in its box to send.
     let ask: (_ question: String) -> Void
+    /// Say what an edit did, as the window says it for a moment.
+    let say: (_ words: String) -> Void
 
     /// `edit` made beside the source, one step to undo named `name`: whether it was.
     @discardableResult

@@ -113,7 +113,8 @@ struct ThemePanel: View {
     }
 
     private func retheme(_ picked: String) {
-        edits.beside("Theme Change") {
+        var recolored = 0
+        let made = edits.beside("Theme Change") {
             let session = editor.session
             let themed =
                 try picked.hasPrefix("ships:")
@@ -121,7 +122,13 @@ struct ThemePanel: View {
             guard themed.applied else {
                 throw Refused(description: "not re-themed: \(themed.why.first ?? "the deck would not validate in it")")
             }
+            recolored = themed.recolored
             return []
+        }
+        // A text the theme left too faint was set in its color that reads where it stands (PLAN 2.82).
+        if made && recolored > 0 {
+            let name = picked.hasPrefix("ships:") ? Words.phrase(String(picked.dropFirst("ships:".count))) : Words.theme(picked)
+            edits.say("\(recolored) text\(recolored == 1 ? "" : "s") recolored to read in \(name)")
         }
     }
 

@@ -916,6 +916,15 @@ fn theme_apply(bundle: &Path, theme: &Path, dry_run: bool, force: bool, json: bo
         for l in &t.listed {
             println!("  fonts lists {l}");
         }
+        // Each text the theme left too faint, set in its color that reads where it stands.
+        for f in &t.recolored {
+            let at = f.state.as_deref().map(|s| format!(" in `{s}`")).unwrap_or_default();
+            println!(
+                "  recolored `{}`{at}: it reads on what lies behind it ({})",
+                f.node.as_deref().unwrap_or("?"),
+                f.code
+            );
+        }
         print_delta(&t.added, &t.removed);
     }
     Ok(if t.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
