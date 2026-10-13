@@ -236,7 +236,9 @@ struct Inspector: View {
                         shows: field.theme?.string.map(said), choose: choose)
                 case .number(_, _, _, let whole):
                     if field.prop.hasPrefix("adjust/") {
-                        AdjustRow(label: label, value: field.value?.number ?? 0, choose: choose)
+                        AdjustRow(
+                            label: label, value: field.value?.number ?? 0,
+                            awayAtNone: field.lives == nil || field.lives == .node, choose: choose)
                     } else {
                         NumberRow(
                             label: label, value: field.value?.number, whole: whole, unit: nil, shows: field.theme?.number,
@@ -1175,6 +1177,9 @@ private struct NumberRow: View {
 private struct AdjustRow: View {
     let label: String
     let value: Double
+    /// Whether none takes the value away: the object's own, or none set. Written on a slide, none
+    /// is written there, so that what the object or an earlier slide sets does not show through.
+    let awayAtNone: Bool
     let choose: (JSONValue) -> Void
     /// Where the slider is while it moves, before it is let go.
     @State private var moving: Double?
@@ -1214,7 +1219,7 @@ private struct AdjustRow: View {
         guard let now = moving else { return }
         moving = nil
         let set = (now * 100).rounded() / 100
-        if set != value { choose(set == 0 ? .null : .number(set)) }
+        if set != value { choose(set == 0 && awayAtNone ? .null : .number(set)) }
     }
 }
 

@@ -71,6 +71,7 @@ pub fn svg(list: &DisplayList, assets: &Assets, settings: &SvgSettings) -> Resul
         return Err(ExportError::Svg(format!("a {w} × {h} px drawing")));
     }
     let jobs = scaena_paint::shader_jobs(list, scale).map_err(|e| ExportError::Svg(e.to_string()))?;
+    assets.frame();
     let mut cx = Cx {
         assets,
         table: &list.fonts,

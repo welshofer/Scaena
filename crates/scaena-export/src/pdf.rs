@@ -215,6 +215,7 @@ fn write(deck: &Deck, pages: &[Page], assets: &Assets, settings: &PdfSettings) -
     let mut structure: Vec<Vec<Node>> = Vec::with_capacity(pages.len());
     for page in pages {
         let dl = &page.list;
+        assets.frame();
         let Some(snap) = snapshots.iter().find(|s| s.state_id == page.state) else {
             return Err(ExportError::Pdf(format!("`{}` is not a state of the deck", page.state)));
         };

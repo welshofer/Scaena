@@ -152,6 +152,19 @@ struct Stroke {
     dash: Vec<f32>,
 }
 
+impl Stroke {
+    /// `x` to `y`, `p` of the way: the paint, colors mixing in Oklab, the width, and the dashes;
+    /// the caps and joins are `y`'s.
+    fn lerp(x: &Stroke, y: &Stroke, p: f32) -> Stroke {
+        Stroke {
+            paint: ShapePaint::lerp(&x.paint, &y.paint, p),
+            width: lerp(x.width, y.width, p),
+            dash: x.dash.iter().zip(&y.dash).map(|(u, v)| lerp(*u, *v, p)).collect(),
+            ..y.clone()
+        }
+    }
+}
+
 impl ShapeNode {
     /// This line or arrow run again along `points`, fractions of `rect` (PLAN 2.109): a
     /// connector as a drag of what it joins draws it.
@@ -305,12 +318,7 @@ impl ShapeNode {
             _ => b.fill.clone(),
         };
         let stroke = match (&a.stroke, &b.stroke) {
-            (Some(x), Some(y)) => Some(Stroke {
-                paint: ShapePaint::lerp(&x.paint, &y.paint, p),
-                width: lerp(x.width, y.width, p),
-                dash: x.dash.iter().zip(&y.dash).map(|(u, v)| lerp(*u, *v, p)).collect(),
-                ..y.clone()
-            }),
+            (Some(x), Some(y)) => Some(Stroke::lerp(x, y, p)),
             _ => b.stroke.clone(),
         };
         let shadow = Shadow::between(a.shadow, b.shadow, p);
@@ -656,6 +664,11 @@ pub(crate) struct Border(Stroke);
 impl Border {
     pub(crate) fn of(theme: &Theme, s: &Value) -> Result<Border, EngineError> {
         stroke(theme, s).map(Border)
+    }
+
+    /// `a` to `b`, `p` of the way, as a shape's stroke moves: its paint and its width.
+    pub(crate) fn lerp(a: &Border, b: &Border, p: f32) -> Border {
+        Border(Stroke::lerp(&a.0, &b.0, p))
     }
 
     /// `path`, in a box `w` × `h` from its origin, stroked: a gradient spans the box.

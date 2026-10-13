@@ -261,8 +261,9 @@ impl ImageNode {
     }
 
     /// `a` to `b`, `p` of the way: the box, the radius, and the shadow move, where the two
-    /// adjust the picture apart `b`'s fades in over `a`'s (PLAN 2.117), and a border that only one
-    /// draws fades in or out (PLAN 2.118).
+    /// adjust the picture apart `b`'s fades in over `a`'s (PLAN 2.117), and a border that both
+    /// draw moves, its paint and its width, as a shape's stroke does, one that only one draws
+    /// fading in or out (PLAN 2.118).
     pub fn lerp(a: &ImageNode, b: &ImageNode, p: f32) -> ImageNode {
         let rect = [0, 1, 2, 3].map(|k| lerp(a.rect[k], b.rect[k], p));
         let shadow = Shadow::between(a.shadow, b.shadow, p);
@@ -272,7 +273,11 @@ impl ImageNode {
         let border = match (&a.border, &b.border) {
             (Some((x, _)), None) => Some((x.clone(), 1.0 - fade)),
             (None, Some((y, _))) => Some((y.clone(), fade)),
-            (_, border) => border.clone(),
+            (Some((x, u)), Some((y, v))) => {
+                let moved = if x == y { y.clone() } else { Border::lerp(x, y, fade) };
+                Some((moved, lerp(*u, *v, fade)))
+            }
+            (None, None) => None,
         };
         ImageNode { rect, radius: lerp(a.radius, b.radius, p).max(0.0), shadow, under, border, ..b.clone() }
     }
@@ -411,7 +416,7 @@ impl ImageNode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use scaena_core::displaylist::PathEl;
+    use scaena_core::displaylist::{Paint, PathEl};
     use serde_json::json;
 
     /// A PNG header for an image of `w` × `h`: all the engine reads.
@@ -537,6 +542,22 @@ mod tests {
         assert_eq!(shown(ImageNode::lerp(&plain, &framed, 0.25).ops()), 0.25);
         assert_eq!(shown(ImageNode::lerp(&framed, &plain, 0.25).ops()), 0.75);
         assert_eq!(ImageNode::lerp(&plain, &plain, 0.5).ops().len(), 1, "none where neither draws one");
+
+        // Drawn by both, it moves from one to the other: its width, and its paint in Oklab.
+        let heavy = json!({ "paint": "ink", "width": 12 });
+        let other = node(json!({ "src": "assets/photo.png", "fit": "contain", "stroke": heavy }), rect);
+        let stroked = |ops: Vec<Op>| match ops.last() {
+            Some(Op::Layer { opacity, clip: None, ops, .. }) => match ops.as_slice() {
+                [Op::Stroke { width, paint: Paint::Solid(c), .. }] => (*opacity, *width, *c),
+                _ => panic!("{ops:?}"),
+            },
+            _ => panic!("{ops:?}"),
+        };
+        let (_, _, from) = stroked(framed.ops());
+        let (_, _, to) = stroked(other.ops());
+        let (opacity, width, between) = stroked(ImageNode::lerp(&framed, &other, 0.5).ops());
+        assert_eq!((opacity, width), (1.0, 8.0), "whole, halfway from 4 to 12");
+        assert!(between != from && between != to, "a color between {from:?} and {to:?}: {between:?}");
     }
 
     #[test]
