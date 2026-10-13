@@ -288,7 +288,14 @@
       /* The node selected, its look chosen from the theme (PLAN 2.33); with none, the state's (PLAN 2.36). */
       #look:empty { display: none; }
       #look .keep { padding: 0 0 6px; color: var(--muted); font-size: 13px; }
-      #look .fields { display: grid; grid-template-columns: max-content minmax(0, 1fr) max-content; gap: 4px 8px; align-items: center; }
+      /* The controls take the room: a name and where its value lives wrap before a control is cut,
+         and in a narrow panel (the source open beside the canvas) each name stands over its control. */
+      #look { container-type: inline-size; }
+      #look .fields { display: grid; grid-template-columns: fit-content(6.25em) minmax(0, 1fr) fit-content(7.5em); gap: 4px 8px; align-items: center; }
+      @container (max-width: 359px) {
+        #look .fields { grid-template-columns: minmax(0, 1fr) fit-content(7.5em); row-gap: 2px; }
+        #look .fields > label { grid-column: 1 / -1; padding-top: 4px; }
+      }
       #look .arrange { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 8px; align-items: center; padding: 0 0 8px; }
       #look .arrange-kind { color: var(--muted); font-size: 13px; }
       #look .arrange-buttons { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -297,6 +304,7 @@
       #look .control { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-width: 0; }
       #look select { min-width: 0; max-width: 100%; }
       #look input[type="number"] { width: 6em; font: inherit; font-size: 13px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; }
+      #look .control > input[type="number"]:first-child { flex: 1 1 6em; width: auto; min-width: 5em; max-width: 14em; }
       #look input[type="color"] { width: 2em; height: 1.6em; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); }
       /* A state's notes (PLAN 2.36). */
       #look textarea { width: 100%; min-width: 12em; font: inherit; font-size: 13px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; resize: vertical; }
@@ -375,7 +383,9 @@
       #theming table { border-collapse: collapse; width: 100%; font-size: 12px; }
       #theming th, #theming td { text-align: left; padding: 2px 4px 2px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
       #theming thead th { color: var(--muted); font-weight: 500; }
-      #theming td input[type="number"] { width: 4.6em; }
+      /* A role's numbers step by the arrow keys: no spinner, so a value such as -0.025 shows whole. */
+      #theming td input[type="number"] { width: 4.6em; appearance: textfield; }
+      #theming td input[type="number"]::-webkit-inner-spin-button, #theming td input[type="number"]::-webkit-outer-spin-button { appearance: none; margin: 0; }
       #theming td select { max-width: 7em; }
       #theming [data-spacing] { display: grid; grid-template-columns: max-content 6em; gap: 4px 8px; align-items: center; font-size: 12px; }
       #theming [data-spacing] label { color: var(--muted); }

@@ -9,7 +9,8 @@
 // - A click on a state shows it; the arrow keys, Home, and End move among them. A state clicked
 //   just after an edit on the canvas stays shown once the editor lints the source.
 // - + Step adds `revenue-2` after `revenue`, in its slide: it shows what `revenue` shows, its
-//   thumbnail the same drawing, and it is shown. One undo takes it back.
+//   thumbnail the same drawing, and it is shown; the source, opened, opens at it. One undo takes
+//   it back.
 // - + Slide opens Dusk's layouts by their sections (PLAN 3.30, 3.31): the 13 down the side as tabs,
 //   124 layouts in all, Titles first, each drawn as it is used and named as a person calls it; a
 //   tab clicked or the down arrow shows another, and the field finds a layout in any section.
@@ -188,6 +189,15 @@ try {
   check((await source()).includes("state revenue-2 slide:revenue"), "in revenue's slide");
   check(await says("revenue-2 added after revenue"), `the status says so: ${await status()}`);
   check(await shows(2), "and shows it");
+  // The source, opened now, opens at the step shown, its lines from their starts: not where the
+  // change began, which a pane folded scrolled to against no width.
+  await page.click("#source-toggle");
+  await page.waitForFunction(() => !document.querySelector("main").classList.contains("folded"), null, { timeout: 10000 });
+  await page.waitForTimeout(300);
+  const cursor = await page.evaluate(() => ({ line: document.querySelector(".cm-activeLine")?.textContent ?? "", left: document.querySelector(".cm-scroller").scrollLeft }));
+  check(cursor.line.startsWith("state revenue-2") && cursor.left === 0, `the source opens at it, from the line's start: ${JSON.stringify(cursor)}`);
+  await page.click("#source-toggle");
+  await page.waitForFunction(() => document.querySelector("main").classList.contains("folded"), null, { timeout: 10000 });
   const after = await painted(["revenue-2"]);
   check(after["revenue-2"] === after.revenue, "its thumbnail is revenue's drawing, digest for digest");
   await undo();
