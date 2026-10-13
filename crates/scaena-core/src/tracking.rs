@@ -42,6 +42,10 @@ pub struct Snapshot {
 
 /// Resolve every state of `deck` into a [`Snapshot`], in order.
 pub fn resolve_states(deck: &Deck) -> Result<Vec<Snapshot>, TrackingError> {
+    // Each shape's words (PLAN 2.108), found once for every state: each state brings them in and
+    // takes them out with their shape.
+    let words: Vec<(&str, &str)> =
+        deck.nodes.iter().filter_map(|(id, node)| Some((id.as_str(), words_of(deck, node)?))).collect();
     let mut out: Vec<Snapshot> = Vec::with_capacity(deck.states.len());
     for (i, state) in deck.states.iter().enumerate() {
         if let (StateMode::Delta, Some(from)) = (state.mode, &state.from) {
@@ -56,7 +60,7 @@ pub fn resolve_states(deck: &Deck) -> Result<Vec<Snapshot>, TrackingError> {
             Some(j) => (strip_non_tracking(&out[j].nodes), out[j].layout.clone()),
             None => (IndexMap::new(), None),
         };
-        let snap = apply_state(deck, state, base, base_layout, out.last())?;
+        let snap = apply_state(deck, state, base, base_layout, out.last(), &words)?;
         out.push(snap);
     }
     Ok(out)
@@ -163,9 +167,11 @@ fn apply_state(
     mut nodes: IndexMap<String, Props>,
     base_layout: Option<String>,
     prev: Option<&Snapshot>,
+    words: &[(&str, &str)],
 ) -> Result<Snapshot, TrackingError> {
-    // What the state tracks from, before it adds or takes away anything.
-    let tracked: std::collections::HashSet<String> = nodes.keys().cloned().collect();
+    // Whether each shape with words was in what the state tracks from, before it adds or takes
+    // away anything.
+    let tracked: Vec<bool> = words.iter().map(|(_, shape)| nodes.contains_key(*shape)).collect();
     for id in &state.remove {
         if !deck.nodes.contains_key(id) {
             return Err(TrackingError::UnknownNode { state: state.id.clone(), node: id.clone() });
@@ -181,13 +187,11 @@ fn apply_state(
     }
     // Words in a shape go where it goes (PLAN 2.108): they enter with it, unless this state takes
     // them away, track as any node does, and leave when it leaves.
-    for (id, node) in &deck.nodes {
-        let Some(shape) = words_of(deck, node) else { continue };
-        let entering = nodes.contains_key(shape) && !tracked.contains(shape) && !state.remove.contains(id);
+    for (&(id, shape), was) in words.iter().zip(tracked) {
         if !nodes.contains_key(shape) {
-            nodes.shift_remove(id.as_str());
-        } else if entering && !nodes.contains_key(id.as_str()) {
-            nodes.insert(id.clone(), node.props.clone());
+            nodes.shift_remove(id);
+        } else if !was && !state.remove.iter().any(|r| r == id) && !nodes.contains_key(id) {
+            nodes.insert(id.to_string(), deck.nodes[id].props.clone());
         }
     }
     // Keep scene-graph order (nodes map order) so painters get a stable z-list.
