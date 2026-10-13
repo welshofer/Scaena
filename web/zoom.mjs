@@ -90,7 +90,7 @@ try {
     await page.mouse.move(sx + 8, sy + 8, { steps: 2 });
     await page.mouse.move(sx + dx, sy + dx / 2, { steps: 8 });
     // Where it lands, as the status says once the last move is answered.
-    await page.waitForFunction(() => document.querySelector("#status").textContent.includes("rect"), null, { timeout: 30000 }).catch(() => {});
+    await page.waitForFunction(() => document.querySelector("#status").textContent.includes(" × "), null, { timeout: 30000 }).catch(() => {});
     await page.waitForTimeout(150);
     await page.mouse.up();
     await page.keyboard.up("Control");

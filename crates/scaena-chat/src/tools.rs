@@ -77,7 +77,9 @@ pub fn tools(names: &[&str]) -> Result<Vec<Tool>, ChatError> {
     Ok(out)
 }
 
-/// A line saying what a tool's result came to, for the client to show beside the call.
+/// A line saying what a tool's result came to, for the client to show beside the call, in a
+/// person's words (PLAN 2.99): what lint finds counted, never its codes, as the browser's
+/// `summary` says it (`web/src/assistant/tools.ts`).
 pub fn summary(name: &str, json: &str, error: bool) -> String {
     // A resource is its text, not JSON.
     if name == RESOURCE_READ && !error {
@@ -88,18 +90,18 @@ pub fn summary(name: &str, json: &str, error: bool) -> String {
     };
     if error {
         return match &r["message"] {
-            Value::Null => format!("stopped: {json}"),
-            message => format!("stopped: {}", shown(message)),
+            Value::Null => format!("Stopped: {json}"),
+            message => format!("Stopped: {}", shown(message)),
         };
     }
     match name {
         "deck_patch" | "spine_update" => {
             let done = if truthy(&r["applied"]) {
-                "applied"
+                "Done"
             } else if any(&r["added"]) {
-                "refused"
+                "Refused"
             } else {
-                "not applied (a dry run)"
+                "Tried, not made"
             };
             format!("{done}{}", delta(&r))
         }
@@ -118,15 +120,15 @@ pub fn summary(name: &str, json: &str, error: bool) -> String {
             } else if any(&p["added"]) {
                 "refused"
             } else {
-                "not replaced (a dry run)"
+                "tried, not replaced"
             };
             format!("{found}; {done}{}", delta(p))
         }
         "data_attach" => {
             let done = if truthy(&r["attached"]) {
-                format!("attached {}: {} rows", shown(&r["source"]), shown(&r["rows"]))
+                format!("Added {}: {} rows", shown(&r["source"]), shown(&r["rows"]))
             } else {
-                "refused".to_string()
+                "Refused".to_string()
             };
             format!("{done}{}", delta(&r))
         }
@@ -134,34 +136,38 @@ pub fn summary(name: &str, json: &str, error: bool) -> String {
             let rows = r.pointer("/sheet/rows").and_then(Value::as_array).map_or(0, Vec::len);
             let sheet = format!("{}, {rows} row{}", shown(&r["source"]), if rows == 1 { "" } else { "s" });
             if truthy(&r["edited"]) {
-                format!("edited {sheet}{}", delta(&r))
+                format!("Changed {sheet}{}", delta(&r))
             } else if truthy(&r["refused"]) {
-                format!("refused{}", delta(&r))
+                format!("Refused{}", delta(&r))
             } else if any(&r["added"]) || any(&r["removed"]) {
-                format!("not written (a dry run){}", delta(&r))
+                format!("Tried, not written{}", delta(&r))
             } else {
-                format!("read {sheet}")
+                format!("Read {sheet}")
             }
         }
         "theme_edit" => {
             if truthy(&r["refused"]) {
-                return format!("refused{}", delta(&r));
+                return format!("Refused{}", delta(&r));
             }
-            let done = if truthy(&r["applied"]) { "edited" } else { "not written (a dry run)" };
-            let paths: Vec<String> = r["paths"].as_array().into_iter().flatten().map(shown).collect();
-            format!("{done} {}: {}{}", shown(&r["theme"]), paths.join(", "), delta(&r))
+            let done = if truthy(&r["applied"]) { "Changed" } else { "Tried changing" };
+            let values = many(r["paths"].as_array().map_or(0, Vec::len), "value");
+            format!("{done} {}, {values}{}", shown(&r["theme"]), delta(&r))
         }
         "deck_lint" => {
-            let fixed = if any(&r["fixed"]) { format!("fixed {}; ", codes(&r["fixed"])) } else { String::new() };
+            let fixed = match r["fixed"].as_array() {
+                Some(fixed) if !fixed.is_empty() => format!("Fixed {}; ", many(fixed.len(), "issue")),
+                _ => String::new(),
+            };
             let findings = r["findings"].as_array().map(Vec::as_slice).unwrap_or_default();
-            let found: Vec<String> = ["error", "warning", "info"]
+            let found: Vec<String> = [("error", "problem"), ("warning", "warning"), ("info", "note")]
                 .iter()
-                .filter_map(|severity| {
+                .filter_map(|(severity, said)| {
                     let n = findings.iter().filter(|f| f["severity"].as_str() == Some(severity)).count();
-                    (n > 0).then(|| format!("{n} {severity}{}", if n > 1 { "s" } else { "" }))
+                    (n > 0).then(|| format!("{n} {said}{}", if n > 1 { "s" } else { "" }))
                 })
                 .collect();
-            let found = if found.is_empty() { "nothing found".to_string() } else { found.join(", ") };
+            let none = if fixed.is_empty() { "No issues" } else { "no issues" };
+            let found = if found.is_empty() { none.to_string() } else { found.join(", ") };
             format!("{fixed}{found}")
         }
         "deck_render" => {
@@ -169,19 +175,27 @@ pub fn summary(name: &str, json: &str, error: bool) -> String {
                 Some(size) => size.iter().map(shown).collect::<Vec<_>>().join("×"),
                 None => "undefined".to_string(),
             };
-            format!("{}, {size} px", shown(&r["state"]))
+            format!("{size} px")
         }
         "deck_read" => match r["scn"].as_str() {
-            Some(scn) => format!("{} lines of .scn", scn.split('\n').count()),
-            None => "deck.json".to_string(),
+            Some(scn) => format!("The deck, {} lines", scn.split('\n').count()),
+            None => "The deck".to_string(),
         },
-        "deck_inspect" => {
-            let n = r["states"].as_array().map_or(0, Vec::len);
-            format!("{n} state{}", if n == 1 { "" } else { "s" })
-        }
-        "deck_diff" => format!("{} nodes change", r["changes"].as_object().map_or(0, |c| c.len())),
-        _ => "done".to_string(),
+        "deck_inspect" => match r["states"].as_array().map_or(0, Vec::len) {
+            1 => "1 slide".to_string(),
+            n => format!("{n} slides and steps"),
+        },
+        "deck_diff" => match r["changes"].as_object().map_or(0, |c| c.len()) {
+            1 => "1 object changes".to_string(),
+            n => format!("{n} objects change"),
+        },
+        _ => "Done".to_string(),
     }
+}
+
+/// `n` of `one`, made plural where it is not one.
+fn many(n: usize, one: &str) -> String {
+    format!("{n} {one}{}", if n == 1 { "" } else { "s" })
 }
 
 /// `value` as a page prints it into text.
@@ -215,28 +229,19 @@ fn any(value: &Value) -> bool {
     value.as_array().is_some_and(|a| !a.is_empty())
 }
 
-/// The findings' codes, each once, in the order they come.
-fn codes(findings: &Value) -> String {
-    let mut seen: Vec<String> = Vec::new();
-    for f in findings.as_array().into_iter().flatten() {
-        let code = shown(&f["code"]);
-        if !seen.contains(&code) {
-            seen.push(code);
-        }
-    }
-    seen.join(", ")
-}
-
-/// What a result's lint delta came to: the codes it added and removed.
+/// What a result's lint delta came to, as a person counts it: the issues it added, and those it
+/// took away.
 fn delta(p: &Value) -> String {
+    let added = p["added"].as_array().map_or(0, Vec::len);
+    let removed = p["removed"].as_array().map_or(0, Vec::len);
     let mut parts = Vec::new();
-    if any(&p["added"]) {
-        parts.push(format!("+{}", codes(&p["added"])));
+    if added > 0 {
+        parts.push(format!("{added} new {}", if added == 1 { "issue" } else { "issues" }));
     }
-    if any(&p["removed"]) {
-        parts.push(format!("−{}", codes(&p["removed"])));
+    if removed > 0 {
+        parts.push(if added > 0 { format!("{removed} gone") } else { format!("{} gone", many(removed, "issue")) });
     }
-    if parts.is_empty() { String::new() } else { format!(" ({})", parts.join(" ")) }
+    if parts.is_empty() { String::new() } else { format!(" ({})", parts.join(", ")) }
 }
 
 #[cfg(test)]
@@ -277,33 +282,39 @@ mod tests {
     #[test]
     fn a_summary_says_what_a_call_came_to() {
         let lint = r#"{"findings":[{"code":"E100","severity":"error"},{"code":"W300","severity":"warning"},{"code":"E101","severity":"error"}],"fixed":[{"code":"E110"},{"code":"E110"}]}"#;
-        assert_eq!(summary("deck_lint", lint, false), "fixed E110; 2 errors, 1 warning");
-        assert_eq!(summary("deck_lint", r#"{"findings":[]}"#, false), "nothing found");
+        assert_eq!(summary("deck_lint", lint, false), "Fixed 2 issues; 2 problems, 1 warning");
+        assert_eq!(summary("deck_lint", r#"{"findings":[]}"#, false), "No issues");
         let patch = r#"{"applied":false,"added":[{"code":"E101"},{"code":"E101"}],"removed":[{"code":"W300"}]}"#;
-        assert_eq!(summary("deck_patch", patch, false), "refused (+E101 −W300)");
-        assert_eq!(summary("deck_patch", r#"{"applied":true}"#, false), "applied");
-        assert_eq!(summary("deck_patch", r#"{"applied":false}"#, false), "not applied (a dry run)");
+        assert_eq!(summary("deck_patch", patch, false), "Refused (2 new issues, 1 gone)");
+        assert_eq!(
+            summary("deck_patch", r#"{"applied":true,"removed":[{"code":"W300"}]}"#, false),
+            "Done (1 issue gone)"
+        );
+        assert_eq!(summary("deck_patch", r#"{"applied":true}"#, false), "Done");
+        assert_eq!(summary("deck_patch", r#"{"applied":false}"#, false), "Tried, not made");
         assert_eq!(summary("deck_find", r#"{"matches":1,"found":[{}]}"#, false), "1 match in 1 text");
         assert_eq!(summary("deck_find", r#"{"found":[]}"#, false), "0 matches in 0 texts");
         assert_eq!(
             summary("deck_find", r#"{"matches":3,"found":[{},{}],"replaced":{"applied":true}}"#, false),
             "3 matches in 2 texts; replaced"
         );
-        assert_eq!(summary("deck_render", r#"{"state":"cover","size":[1920,1080]}"#, false), "cover, 1920×1080 px");
-        assert_eq!(summary("deck_read", r#"{"scn":"a\nb\nc"}"#, false), "3 lines of .scn");
-        assert_eq!(summary("deck_read", r#"{"deck":{}}"#, false), "deck.json");
-        assert_eq!(summary("data_edit", r#"{"source":"sales","sheet":{"rows":[[1]]}}"#, false), "read sales, 1 row");
+        assert_eq!(summary("deck_render", r#"{"state":"cover","size":[1920,1080]}"#, false), "1920×1080 px");
+        assert_eq!(summary("deck_read", r#"{"scn":"a\nb\nc"}"#, false), "The deck, 3 lines");
+        assert_eq!(summary("deck_read", r#"{"deck":{}}"#, false), "The deck");
+        assert_eq!(summary("data_edit", r#"{"source":"sales","sheet":{"rows":[[1]]}}"#, false), "Read sales, 1 row");
         assert_eq!(
             summary("data_attach", r#"{"attached":true,"source":"sales","rows":12}"#, false),
-            "attached sales: 12 rows"
+            "Added sales: 12 rows"
         );
         assert_eq!(
             summary("theme_edit", r#"{"applied":true,"theme":"dusk","paths":["/colors/accent"]}"#, false),
-            "edited dusk: /colors/accent"
+            "Changed dusk, 1 value"
         );
-        assert_eq!(summary("deck_patch", r#"{"message":"no such op"}"#, true), "stopped: no such op");
+        assert_eq!(summary("deck_inspect", r#"{"states":[{},{},{}]}"#, false), "3 slides and steps");
+        assert_eq!(summary("deck_diff", r#"{"changes":{"title":{}}}"#, false), "1 object changes");
+        assert_eq!(summary("deck_patch", r#"{"message":"no such op"}"#, true), "Stopped: no such op");
         assert_eq!(summary("resource_read", "é𝄞", false), "3 characters");
         assert_eq!(summary("deck_lint", &"x".repeat(300), false), "x".repeat(200));
-        assert_eq!(summary("spine_read", "{}", false), "done");
+        assert_eq!(summary("spine_read", "{}", false), "Done");
     }
 }

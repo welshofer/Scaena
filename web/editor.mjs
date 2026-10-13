@@ -37,7 +37,7 @@ try {
     page.on("console", (m) => m.type() === "error" && failures.push(`${bundle}: console: ${m.text()}`));
     await page.goto(url(bundle));
     await page.waitForFunction(
-      () => window.scaena?.last() || document.querySelector("#status")?.textContent.startsWith("error"),
+      () => window.scaena?.last() || document.querySelector("#status")?.textContent.startsWith("Error"),
       null,
       { timeout: 120000 },
     );

@@ -36,7 +36,7 @@ try {
     page.on("console", (m) => m.type() === "error" && failures.push(`${bundle}: console: ${m.text()}`));
     await page.goto(url(bundle));
     await page.waitForFunction(
-      () => window.scaena?.last() || document.querySelector("#status")?.textContent.startsWith("error"),
+      () => window.scaena?.last() || document.querySelector("#status")?.textContent.startsWith("Error"),
       null,
       { timeout: 120000 },
     );
@@ -92,7 +92,7 @@ try {
     await page.mouse.dblclick(x, y);
     for (const key of keys) await page.keyboard.up(key);
     await page.waitForFunction((n) => window.scaena.canvas.typing() === n, node, { timeout: 30000 }).catch(() => {});
-    await page.waitForFunction(() => document.querySelector("#status").textContent.startsWith("typing in"), null, { timeout: 30000 }).catch(() => {});
+    await page.waitForFunction(() => document.querySelector("#status").textContent.startsWith("Typing in"), null, { timeout: 30000 }).catch(() => {});
     return page.evaluate(() => window.scaena.canvas.typing());
   };
 
@@ -103,7 +103,7 @@ try {
   // A double click on the title types in it, where its text lives: `revenue` sets it.
   check((await typeIn(page, "title")) === "title", "a double click on the title types in it");
   const where = await status(page);
-  check(where.includes("typing in title") && where.includes("in this state"), `the status says where typing goes: ${where}`);
+  check(where.startsWith("Typing in “Revenue doubled”") && where.includes("shows on this slide"), `the status says where typing goes: ${where}`);
   check((await page.evaluate(() => document.activeElement?.classList.contains("typing"))), "the keys go to what is typed in");
   check((await page.locator("#overlay rect.caret").count()) === 1, "the canvas draws the caret");
   check((await typed(page))?.value === "Revenue doubled", `what is typed in is the title as \`revenue\` shows it: ${(await typed(page))?.value}`);
@@ -209,14 +209,14 @@ try {
   // The note reads its own text in `revenue` and in `mix`, which tracks it.
   check((await typeIn(page, "note")) === "note", "a double click on the note types in it");
   const noted = await status(page);
-  check(noted.includes("in 2 states"), `the note reads its own text in \`revenue\` and \`mix\`: ${noted}`);
+  check(noted.includes("on 2 steps of Slide 2"), `the note reads its own text in \`revenue\` and \`mix\`: ${noted}`);
   await page.keyboard.press("Escape");
 
   // With Alt, typing is kept to the state shown: the node keeps its text, and `revenue` reads the
   // note as typed.
   check((await typeIn(page, "note", ["Alt"])) === "note", "Alt and a double click type in the note");
   const kept = await status(page);
-  check(kept.includes("kept to revenue"), `with Alt, typing is kept to the state shown: ${kept}`);
+  check(kept.includes("kept to this slide"), `with Alt, typing is kept to the slide shown: ${kept}`);
   await page.keyboard.press("Control+Home");
   await page.keyboard.type("Net ");
   await reads(page, '"Net Revenue in $M.');

@@ -99,7 +99,7 @@ try {
   await drag([x + w / 2, y + h / 2], [x + w / 2 + column * 4, y + h / 2]);
   const moved = await lands("note", [5, 12]);
   check(JSON.stringify(moved?.col) === "[5,12]" && JSON.stringify(moved?.row) === "[11,12]", `the note's slot lands four columns right: ${JSON.stringify(moved?.col)}, ${JSON.stringify(moved?.row)}`);
-  check(await says("every state that uses it shows it moved"), `the status says so: ${await status()}`);
+  check(await says("every slide in this layout shows it moved"), `the status says so: ${await status()}`);
   await page.waitForFunction((was) => window.scaena.canvas.boxes().find((b) => b.node === "note")?.rect[0] > was + 1, noteBox[0], { timeout: 30000 }).catch(() => {});
   check((await box("note"))[0] > noteBox[0] + column * 3, "the note in it moves with it");
   await page.selectOption("#state", "mix");

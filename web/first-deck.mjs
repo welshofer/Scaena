@@ -223,7 +223,7 @@ try {
     await page.click('#starting button[data-start="full"]');
     await changed(before);
     const nodes = await shownNodes();
-    await page.selectOption("#insert", { label: "body" });
+    await page.selectOption("#insert", { label: "Body" });
     await page.waitForFunction((n) => window.scaena.canvas.boxes().length > n, nodes.length, { timeout: 60000 });
     const body = (await shownNodes()).find((n) => !nodes.includes(n));
     await typeInto(body, ["Three trails surveyed", "Two need new bridges", "One closes for winter"]);
@@ -308,7 +308,7 @@ try {
     await page.waitForFunction(() => window.scaena.last()?.whole, null, { timeout: 60000 });
     const found = await page.evaluate(() => window.scaena.last().findings.map((f) => `${f.severity} ${f.code} ${f.message}`));
     console.log(`     lint: ${found.join("; ") || "nothing"}`);
-    check(!found.some((f) => f.startsWith("error")), `lint finds no error in any state: ${found.filter((f) => f.startsWith("error")).join("; ")}`);
+    check(!found.some((f) => f.startsWith("Error")), `lint finds no error in any state: ${found.filter((f) => f.startsWith("Error")).join("; ")}`);
   });
 
   await step("save", async () => {

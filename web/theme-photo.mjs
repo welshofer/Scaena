@@ -52,7 +52,8 @@ try {
   const listed = await page.evaluate(() =>
     [...document.querySelectorAll("#theming [data-photos] li")].map((li) => [...li.children].map((c) => c.textContent).join(" ")),
   );
-  check(listed.join(" | ") === `${RIDGE} storm-photo`, `the tab lists the bundle's photo and what draws it: ${listed.join(" | ")}`);
+  // The photo by its file's name, and what draws it by its description.
+  check(listed.join(" | ") === "trails-ridge.png Layered ridgelines at dusk above Bear C…", `the tab lists the bundle's photo and what draws it: ${listed.join(" | ")}`);
   const original = await source();
   const was = await accent();
   check(was === "#FF6A3D", `Dusk's accent first: ${was}`);
@@ -63,7 +64,7 @@ try {
   await settled();
   await accentIs("#B97CFF");
   check((await accent()) === "#B97CFF", `the ridge's violet is the accent: ${await accent()}`);
-  check((await status()).includes(`theme: colors from ${RIDGE}`) && (await status()).includes("⌘Z undoes it"), `the status says so: ${await status()}`);
+  check((await status()).includes(`Theme: colors from ${RIDGE.replace(/^.*\//, "")}`) && (await status()).includes("⌘Z undoes it"), `the status says so: ${await status()}`);
   check((await source()) === original, "the source is as it was: the theme is the bundle's file");
   check(!(await shot()).equals(before), "the deck is drawn in the photo's colors");
 

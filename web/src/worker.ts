@@ -517,6 +517,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "version": {
         const held = await version(data.version);
         const states = JSON.parse(player.viewVersion(held)) as string[];
+        const slides = JSON.parse(player.versionSlides()) as string[];
         const state = data.state !== undefined && states.includes(data.state) ? data.state : states[0];
         // A version that cannot be drawn in the bundle as it is still lists its states, and why.
         let png: ArrayBuffer | undefined;
@@ -526,7 +527,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         } catch (e) {
           why = said(e);
         }
-        return post({ type: "version", id: data.id, states, state, png, why }, png ? [png] : []);
+        return post({ type: "version", id: data.id, states, said: slides, state, png, why }, png ? [png] : []);
       }
       case "compareVersions": {
         const from = await version(data.from);

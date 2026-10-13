@@ -122,7 +122,7 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
   const formatPicker = $<HTMLSelectElement>("#format");
   const scrub = $<HTMLInputElement>("#scrub");
   const stage = await Stage.open($("#stage"), deck, how.painter, how.engine);
-  stage.onError = (e) => (status.textContent = `error: ${e.message}`);
+  stage.onError = (e) => (status.textContent = `Error: ${e.message}`);
   const format = () => formatPicker.value || undefined;
   let slots: Slot[] = await stage.timeline();
   const region = document.querySelector("#reading");
@@ -256,7 +256,7 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     listen({
       // A change to the deck's source alone shows once it compiles, as `deck.json`.
       changed: (paths) => {
-        if (paths.some((path) => path !== "deck.scn")) void reload().catch((e) => (status.textContent = `error: ${said(e)}`));
+        if (paths.some((path) => path !== "deck.scn")) void reload().catch((e) => (status.textContent = `Error: ${said(e)}`));
       },
       status: (failed) => {
         if (!alert) return;
@@ -320,7 +320,7 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
       <p class="clock"><span id="clock">0:00</span> · <span id="where"></span></p>
       <div id="notes" class="notes"></div>
       <p class="buttons"><button id="back" aria-label="Back">◀</button> <button id="on" aria-label="On">▶</button></p>
-      <p id="status" role="status">loading…</p>
+      <p id="status" role="status">Loading…</p>
     </aside>`;
   const status = $("#status");
   const [now, upNext] = await Promise.all([
@@ -372,7 +372,7 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
         status.textContent = "";
       }
     } catch (e) {
-      status.textContent = `error: ${said(e)}`;
+      status.textContent = `Error: ${said(e)}`;
     } finally {
       painting = false;
     }

@@ -79,9 +79,18 @@ try {
   await page.waitForFunction(() => window.scaena.canvas.typing() === "link-text", null, { timeout: 30000 });
   await choose(0, 4);
   check(await link("#shapes"), "⌘K asks where the characters go, in a field over them");
-  check(await says("linked to the state shapes"), `the status says so: ${await status()}`);
+  const shapes = await page.evaluate(() => window.scaena.last().slots.find((s) => s.state === "shapes")?.said);
+  check(await says(`linked to ${shapes}`), `the status says so, by the slide's number: ${await status()}`);
   check(await comes('{text: Read, link: {state: shapes}}'), "a state's id links them to it");
   check((await page.evaluate(() => window.scaena.canvas.typing())) === "link-text", "typing goes on");
+  await page.keyboard.press("Control+z");
+  check(await back(original), "one undo takes it back");
+  // A slide by its number, as a person names it (PLAN 2.99).
+  const second = await page.evaluate(() => window.scaena.last().slots.find((s) => s.said === "Slide 2")?.state);
+  await choose(0, 4);
+  await link("slide 2");
+  check(await comes(`{text: Read, link: {state: ${second}}}`), `a slide's number links them to it: ${second}`);
+  check(await says("linked to Slide 2"), `and says so: ${await status()}`);
   await page.keyboard.press("Control+z");
   check(await back(original), "one undo takes it back");
 

@@ -6,7 +6,7 @@
 //
 // `scaena` runs here by cargo, so it is built after the web build it carries the single-file page of.
 // - Export… opens on a PNG of the state shown, its width the canvas's, and the note says its pixels.
-//   axe-core finds nothing against WCAG 2.1 AA in it. Export downloads `<state>.png`: the size
+//   axe-core finds nothing against WCAG 2.1 AA in it. Export downloads `<deck> - Slide N.png`: the size
 //   asked, within SPEC §13.5 of `scaena export --format png --size` of that state. The CPU painter
 //   runs in WASM SIMD in the browser and natively there (ADR-0004 finding 15).
 // - At 960 pixels wide, the state is 960 × 540, and within §13.5 of the CLI's at that size.
@@ -84,9 +84,9 @@ try {
   const ours = decode(big.bytes);
   const theirs = cliPng("1920x1080");
   const same = compare(theirs, ours);
-  check(big.name === `${state}.png` && ours.width === 1920 && ours.height === 1080, `Export downloads ${big.name}, ${ours.width} × ${ours.height}`);
+  check(/ - Slide \d+(, step \d+)?\.png$/.test(big.name) && ours.width === 1920 && ours.height === 1080, `Export downloads ${big.name}, named by its slide, ${ours.width} × ${ours.height}`);
   check(same.passes, `the PNG is within §13.5 of the CLI's: ${same.said}${Buffer.compare(theirs.rgba, ours.rgba) === 0 ? " (the same pixels)" : ""}`);
-  check((await status()).startsWith(`downloaded ${state}.png`), `the status says what was downloaded: ${await status()}`);
+  check((await status()).startsWith(`Downloaded ${big.name}`), `the status says what was downloaded: ${await status()}`);
 
   await page.click("#export");
   await page.fill("#exporting-width", "960");
@@ -151,7 +151,7 @@ try {
   let downloads = 0;
   page.on("download", () => downloads++);
   const refused = await page.evaluate(() => window.scaena.exportAs("pdf"));
-  check(refused === undefined && downloads === 0 && (await status()).startsWith("not exported: the source does not compile"), `a source that does not compile is not exported: ${await status()}`);
+  check(refused === undefined && downloads === 0 && (await status()).startsWith("Not exported: the source does not compile"), `a source that does not compile is not exported: ${await status()}`);
   await page.evaluate((s) => window.scaena.type(s), source);
 } finally {
   await browser.close();

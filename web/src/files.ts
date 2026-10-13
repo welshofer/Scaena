@@ -10,8 +10,9 @@
 // - A file nothing names says so, and Remove takes it out of the bundle: the deck draws and reads
 //   the same. Undo puts it back and Redo takes it out again, as the Data panel's undo does a data
 //   file's edits; the next save takes it out where the bundle is kept.
-import { BUNDLE_PATH, type BundleFile, type Edited, type Named, PICTURE } from "./protocol";
+import { BUNDLE_PATH, type BundleFile, type Edited, type Lexicon, type Named, PICTURE } from "./protocol";
 import type { Stage } from "./stage";
+import { named, object } from "./words";
 
 /** What the panel asks of the editor around it. */
 export interface FilesEditor {
@@ -27,6 +28,11 @@ export interface FilesEditor {
   /** Insert image `path` where the canvas was last pressed, as Insert does. */
   insert(path: string): Promise<void>;
   say(text: string): void;
+  /** The words for the state shown (PLAN 2.99): its objects by what they show, the theme's names
+   * said. */
+  words?(): Lexicon | undefined;
+  /** `state` as a person counts it: Slide 3, or Slide 3, step 2. */
+  slide?(state: string): string;
 }
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -36,21 +42,25 @@ const html = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&
 export const size = (bytes: number) =>
   bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${Math.round(bytes / 1024)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 
-/** What names a file, as `scaena files` says it. */
-export function naming(n: Named): string {
+/** What uses a file, as a person says it (PLAN 2.99): an image by what it shows, the story's
+ * evidence, a font, a data source by its name. */
+export function naming(n: Named, words?: Lexicon): string {
   switch (n.by) {
     case "node":
-      return `image ${n.node}`;
+      return object(words, n.node, true);
     case "evidence":
-      return `beat ${n.beat}'s evidence`;
+      return "the story, as evidence";
     case "font":
       return `the deck's fonts (${n.family}${n.style ? ` ${n.style}` : ""})`;
     case "theme":
-      return `the theme's ${n.family} family`;
+      return `the theme's font ${named(words, "font-family", n.family)}`;
     case "source":
-      return `data source ${n.source}`;
+      return `the data “${n.source}”`;
   }
 }
+
+/** A bundle file's name, without the folder it is in: `assets/ridge.jpg` is ridge.jpg. */
+const fileName = (path: string) => path.replace(/^.*\//, "");
 
 const HEADINGS: [BundleFile["type"], string][] = [
   ["image", "Images"],
@@ -81,7 +91,7 @@ export function filesPanel(stage: Stage, into: HTMLElement, editor: FilesEditor)
     } catch (e) {
       if (asked !== asking) return;
       listed = [];
-      head.textContent = `the files wait for a source that compiles: ${said(e)}`;
+      head.textContent = `The files show once the source has no error to fix: ${said(e)}`;
       list.replaceChildren();
     }
   }
@@ -94,7 +104,7 @@ export function filesPanel(stage: Stage, into: HTMLElement, editor: FilesEditor)
       count(of("image"), "image", "images"),
       count(of("font"), "font", "fonts"),
       count(of("data"), "data file", "data files"),
-      loose ? `${count(loose, "file", "files")} nothing names` : "",
+      loose ? `${count(loose, "file", "files")} nothing uses` : "",
     ]
       .filter(Boolean)
       .join(" · ");
@@ -110,17 +120,20 @@ export function filesPanel(stage: Stage, into: HTMLElement, editor: FilesEditor)
   function row(f: BundleFile): string {
     const path = html(f.path);
     const drags = f.type === "image" && PICTURE.test(f.path);
-    const named = f.named.length
-      ? `<p class="named">named by ${html(f.named.map(naming).join(", "))}</p>`
-      : `<p class="unnamed">Nothing names it. <button type="button" data-remove aria-label="Remove ${path}">Remove</button></p>`;
+    const words = editor.words?.();
+    const slide = (state: string) => editor.slide?.(state) ?? state;
+    const uses = f.named.length
+      ? `<p class="named">used by ${html(f.named.map((n) => naming(n, words)).join(", "))}</p>`
+      : `<p class="unnamed">Nothing in the deck uses it. <button type="button" data-remove aria-label="Remove ${html(fileName(f.path))}">Remove</button></p>`;
     const used = f.used
-      .map(
-        (u) =>
-          `<li><button type="button" data-node="${html(u.node)}" data-state="${html(u.states[0])}" title="Show ${html(u.states[0])}, ${html(u.node)} selected">${html(u.node)}</button> in ${html(u.states.join(", "))}</li>`,
-      )
+      .map((u) => {
+        const [what, first] = [object(words, u.node), slide(u.states[0])];
+        const slides = [...new Set(u.states.map(slide))].join(", ");
+        return `<li><button type="button" data-node="${html(u.node)}" data-state="${html(u.states[0])}" title="Show ${html(first)}, ${html(what)} selected">${html(what)}</button> on ${html(slides)}</li>`;
+      })
       .join("");
-    const insert = drags ? ` <button type="button" data-insert aria-label="Insert ${path}">Insert</button>` : "";
-    return `<li data-path="${path}"${drags ? ' draggable="true"' : ""}><span class="name">${path}</span> <span class="size">${size(f.bytes)}</span>${insert}${named}${used ? `<ul class="used">${used}</ul>` : ""}</li>`;
+    const insert = drags ? ` <button type="button" data-insert aria-label="Insert ${html(fileName(f.path))}">Insert</button>` : "";
+    return `<li data-path="${path}"${drags ? ' draggable="true"' : ""}><span class="name" title="${path}">${html(fileName(f.path))}</span> <span class="size">${size(f.bytes)}</span>${insert}${uses}${used ? `<ul class="used">${used}</ul>` : ""}</li>`;
   }
 
   /** `path` taken out of the bundle: one change, which Undo takes back. */
@@ -130,9 +143,9 @@ export function filesPanel(stage: Stage, into: HTMLElement, editor: FilesEditor)
         const edited = await stage.removeFile(editor.source(), path, editor.shown()?.index ?? 0, editor.format());
         editor.took(edited);
         await refresh();
-        editor.say(`${path} taken out of the bundle · Undo puts it back`);
+        editor.say(`${fileName(path)} taken out of the deck · Undo puts it back`);
       } catch (e) {
-        editor.say(`not taken out: ${said(e)}`);
+        editor.say(`Not taken out: ${said(e)}`);
       }
     };
     making = making.then(run, run);
@@ -144,12 +157,12 @@ export function filesPanel(stage: Stage, into: HTMLElement, editor: FilesEditor)
     const run = async () => {
       try {
         const { name, edited } = await stage.dataUndo(editor.source(), redo, editor.shown()?.index ?? 0, editor.format());
-        if (name === undefined || !edited) return editor.say(redo ? "no change to the files to redo" : "no change to the files to undo");
+        if (name === undefined || !edited) return editor.say(redo ? "No change to the files to redo" : "No change to the files to undo");
         editor.took(edited);
         await refresh();
-        editor.say(redo ? `made again: the last change to ${name}` : `undone: the last change to ${name}`);
+        editor.say(redo ? `Made again: the last change to ${fileName(name)}` : `Undone: the last change to ${fileName(name)}`);
       } catch (e) {
-        editor.say(`${redo ? "not made again" : "not undone"}: ${said(e)}`);
+        editor.say(`${redo ? "Not made again" : "Not undone"}: ${said(e)}`);
       }
     };
     making = making.then(run, run);

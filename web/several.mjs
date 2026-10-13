@@ -145,7 +145,7 @@ try {
   check((await chosen()).join() === "tally,card", `Shift+click puts the card beside it, not the photo it is in: ${await chosen()}`);
   check((await page.locator("#overlay rect.selected").count()) === 2, "both are outlined");
   check((await page.locator("#overlay rect.handle").count()) === 0, "and neither has handles");
-  await page.waitForFunction(() => document.querySelector("#look h2")?.textContent.startsWith("2 selected"), null, { timeout: 30000 }).catch(() => {});
+  await page.waitForFunction(() => document.querySelector("#look h2")?.textContent === "2 Objects", null, { timeout: 30000 }).catch(() => {});
   check((await page.locator("#look h2").textContent()) === "2 Objects", `the inspector says what is selected: ${await page.locator("#look h2").textContent()}`);
   check((await page.locator("#look .arrange button").count()) >= 10, "and offers to align and order them");
 
@@ -153,9 +153,9 @@ try {
   let n = await trips();
   const [cx, cy] = center(await box("card"));
   const moving = await drag([cx, cy], [cx, cy - 114], "move together");
-  check(moving.includes("2 selected move together"), `the status says both move: ${moving}`);
+  check(moving.includes("2 objects move together"), `the status says both move: ${moving}`);
   await settled(n);
-  check(await says("2 selected moved together"), `and that they moved: ${await status()}`);
+  check(await says("2 objects moved together"), `and that they moved: ${await status()}`);
   check((await placedAs("tally", "row 4")).includes("row 4"), `the tally a row up: ${await placedAs("tally", "row 4")}`);
   check((await placedAs("card", "rows 5–7")).includes("rows 5–7"), `the card with it: ${await placedAs("card", "rows 5–7")}`);
   check((await chosen()).join() === "tally,card", "both stay selected");
@@ -167,7 +167,7 @@ try {
   n = await trips();
   await page.locator("#look .arrange button", { hasText: "Left" }).click();
   await settled(n);
-  check(await says("tally, card: align left"), `the status says so: ${await status()}`);
+  check(await says("2 objects aligned left"), `the status says so: ${await status()}`);
   check((await placedAs("card", "columns 1–4")).includes("columns 1–4"), `Left aligns the card on the tally's edge: ${await placedAs("card", "columns 1–4")}`);
   check((await placedAs("tally", "columns 1–11")).includes("columns 1–11"), `the tally stays where it is: ${await placedAs("tally", "columns 1–11")}`);
   await undo();
@@ -180,7 +180,7 @@ try {
   await page.locator("#overlay").focus();
   await page.keyboard.press("Control+Shift+BracketRight");
   await settled(n);
-  check(await says("card-photo: order front"), `the status says so: ${await status()}`);
+  check(await says("brought to the front"), `the status says so: ${await status()}`);
   const fronted = declared(await source(), "card-photo");
   check(/\bz:\s*2\b/.test(fronted), `its z puts it in front of the tag and its label: ${fronted.trim()}`);
   await undo();
@@ -200,7 +200,7 @@ try {
   await page.locator("#overlay").focus();
   await page.keyboard.press("Delete");
   await settled(n);
-  await says("2 deleted");
+  await says("2 objects deleted");
   const left = await page.evaluate(() => window.scaena.canvas.boxes().map((b) => b.node));
   check(!left.includes("tally") && !left.includes("marks"), `Delete takes both out of the state: ${await status()}`);
   await undo();
@@ -215,12 +215,12 @@ try {
   const clip = JSON.parse(copied.clip || "{}");
   check(copied.taken && clip.node === "tally" && clip.more?.map((m) => m.node).join() === "card", `one clip of both: ${clip.node} and ${JSON.stringify(clip.more)}`);
   check(clip.version === 2 && Boolean(clip.nodes?.["card-photo"]), "of version 2, with what the card holds");
-  check(await says("2 selected copied"), `the status says so: ${await status()}`);
+  check(await says("2 objects copied"), `the status says so: ${await status()}`);
   await click([960, 1000]);
   n = await trips();
   check(await pasting({ "application/x-scaena+json": copied.clip, "text/plain": copied.text }), "the canvas takes the paste");
   await settled(n);
-  check(await says("tally-2, card-2 pasted in containers"), `both are pasted: ${await status()}`);
+  check(await says("2 objects pasted on this slide"), `both are pasted: ${await status()}`);
   check((await chosen()).join() === "tally-2,card-2", `and both selected: ${await chosen()}`);
   const [t2, c2, t1, c1] = await Promise.all([box("tally-2"), box("card-2"), box("tally"), box("card")]);
   check(Math.abs(c2[0] - t2[0] - (c1[0] - t1[0])) < 1 && Math.abs(c2[1] - t2[1] - (c1[1] - t1[1])) < 1, `as they stood about each other: ${t2} ${c2}`);
@@ -234,7 +234,7 @@ try {
   n = await trips();
   const cut = await clipboard("cut");
   await settled(n);
-  await says("2 cut");
+  await says("2 objects cut");
   const kept = await page.evaluate(() => window.scaena.canvas.boxes().map((b) => b.node));
   check(cut.taken && JSON.parse(cut.clip || "{}").more?.length === 1 && !kept.includes("tally") && !kept.includes("card"), `⌘X takes both out: ${await status()}`);
   await undo();
@@ -243,7 +243,7 @@ try {
   // A stat's figure and its label: the inspector offers the role both have, with none shown, as
   // they differ; one chosen is both of theirs.
   await page.evaluate(() => window.scaena.canvas.selectAll(["stat-a-figure", "stat-a-label"]));
-  await page.waitForFunction(() => document.querySelector("#look h2")?.textContent.startsWith("2 selected") && document.querySelector("#look-role"), null, { timeout: 30000 }).catch(() => {});
+  await page.waitForFunction(() => document.querySelector("#look h2")?.textContent === "2 Objects" && document.querySelector("#look-role"), null, { timeout: 30000 }).catch(() => {});
   check((await page.locator("#look-role").count()) === 1, "the inspector offers the role both have");
   check((await page.locator("#look-role").inputValue().catch(() => "?")) === "", "with none shown, as theirs differ");
   n = await trips();

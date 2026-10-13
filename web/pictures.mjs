@@ -75,15 +75,19 @@ try {
     }),
   );
 
+  /** The picture a drop put in the source: the file it names now and did not before. */
+  const fresh = (was, now) => [...now.matchAll(/assets\/[0-9a-f]{64}\.(?:png|jpg)/g)].map((m) => m[0]).find((p) => !was.includes(p)) ?? "";
+
   // A PNG too large goes straight in as a smaller copy: a PNG still.
   let n = await trips();
+  let before = await source();
   await drop("wide.png", await made("image/png"));
-  check(await says("kept as a smaller copy, assets/"), `a smaller copy goes in: ${await status()}`);
+  check(await says("wide.png (as a smaller copy) inserted"), `a smaller copy goes in: ${await status()}`);
   check(dialogs.length === 0, `nothing is asked: ${dialogs.join(" | ") || "no dialog"}`);
   const told = making.find((w) => w.includes("wide.png is")) ?? "";
   check(told.includes("9,000 × 40 pixels") && told.includes("8,192 × 36"), `the status says how large it was and the copy is: ${told}`);
   await settled(n);
-  const path = (await status()).match(/assets\/[0-9a-f]{64}\.png/)?.[0] ?? "";
+  const path = fresh(before, await source());
   check(path !== "" && (await source()).includes(`"${path}"`), `a PNG still, named by its SHA-256: ${path}`);
   check(await page.evaluate(() => window.scaena.last().valid), "the deck validates with it");
 
@@ -115,10 +119,12 @@ try {
 
   // A JPEG stays a JPEG.
   n = await trips();
+  before = await source();
   await drop("wide.jpg", await made("image/jpeg"));
-  check(await says("kept as a smaller copy, assets/"), `a JPEG too large goes in as a smaller copy too: ${await status()}`);
+  // Dropped on the image the PNG made, it is that image's picture now.
+  check(await says("wide.jpg (as a smaller copy)"), `a JPEG too large goes in as a smaller copy too: ${await status()}`);
   await settled(n);
-  const photo = (await status()).match(/assets\/[0-9a-f]{64}\.(png|jpg)/)?.[0] ?? "";
+  const photo = fresh(before, await source());
   check(photo.endsWith(".jpg") && (await source()).includes(`"${photo}"`), `a JPEG still: ${photo}`);
   check(dialogs.length === 0, `and nothing was asked: ${dialogs.join(" | ") || "no dialog"}`);
 } catch (e) {

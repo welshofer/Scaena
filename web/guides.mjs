@@ -114,7 +114,7 @@ try {
     JSON.stringify(safe) === "[54,54,1812,972]" && (await drawn("safe-strip")) === 1 && (await drawn("safe-edge")) === 1,
     `⌥⌘' draws the safe area, 54 cu in from each edge: ${JSON.stringify(safe)}`,
   );
-  check((await shielded()) === "true" && (await status()).includes("the safe area"), `the button and the status say so: ${await status()}`);
+  check((await shielded()) === "true" && (await status()).includes("The safe area: 3/8 inch"), `the button and the status say so: ${await status()}`);
   check((await drawn("grid-track")) === 0, "the safe area draws no grid");
   await page.locator("#safe").click();
   await page.waitForFunction(() => !document.querySelector("#overlay .safe-strip"), null, { timeout: 10000 }).catch(() => {});

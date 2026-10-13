@@ -29,7 +29,7 @@ try {
     page.on("pageerror", (e) => failures.push(`${painter}: ${e.message}`));
     const navigated = performance.now();
     await page.goto(player(painter));
-    await page.waitForFunction(() => window.scaena || document.querySelector("#status").textContent.startsWith("error"), null, { timeout: 120000 });
+    await page.waitForFunction(() => window.scaena || document.querySelector("#status").textContent.startsWith("Error"), null, { timeout: 120000 });
     const opened = await page.evaluate(() => window.scaena && { painter: window.scaena.painter, adapter: window.scaena.adapter });
     if (!opened) throw new Error(`${painter}: ${await page.textContent("#status")}`);
     console.log(`${painter}: ${opened.painter} (${opened.adapter}); first frame ${(performance.now() - navigated).toFixed(0)} ms after navigation`);

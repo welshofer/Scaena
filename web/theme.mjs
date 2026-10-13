@@ -3,10 +3,10 @@
 //
 //   node web/theme.mjs     (after `just web`; from the repository's root)
 //
-// - On the revenue example, the theme picker offers the bundle's Dusk, chosen, and the themes that
-//   ship. Daybreak chosen re-themes the deck: its source names `themes/daybreak.theme.json`, the
-//   preview is drawn in it, the status says what lint finds new, and the picker offers it from the
-//   bundle now. One undo puts Dusk back, drawn as before.
+// - On the revenue example, the theme picker offers the deck's Dusk, chosen, and the themes built
+//   in. Daybreak chosen re-themes the deck: its source names `themes/daybreak.theme.json`, the
+//   preview is drawn in it, the status says how many issues are new, and the picker offers it from
+//   the deck now. One undo puts Dusk back, drawn as before.
 // - On the torture deck, Dusk is refused: the deck uses roles Dusk lacks. The status says why, and
 //   the source and the picker are as they were.
 // Exits 1 on any failure.
@@ -54,8 +54,8 @@ try {
   const dusk = await drawn(page);
   const first = await offered(page);
   check(
-    first.includes("In the bundle/dusk*") && ["Dusk", "Daybreak", "Ember"].every((t) => first.includes(`Ships/${t}`)),
-    `the picker offers the bundle's Dusk, chosen, and the themes that ship: ${first.join(", ")}`,
+    first.includes("In this deck/Dusk*") && ["Dusk", "Daybreak", "Ember"].every((t) => first.includes(`Built in/${t}`)),
+    `the picker offers the deck's Dusk, chosen, and the themes built in: ${first.join(", ")}`,
   );
 
   // Daybreak, which ships.
@@ -64,12 +64,12 @@ try {
     .waitForFunction(() => window.scaena.source().includes('theme:"themes/daybreak.theme.json"'), null, { timeout: 60000 })
     .then(() => true, () => false);
   check(named, "Daybreak chosen, the source names it");
-  check(/theme Daybreak · lint finds \d+ new, \d+ gone/.test(await status(page)), `the status says what lint finds: ${await status(page)}`);
+  check(/^Theme Daybreak · (no new issues|\d+ new issues?)/.test(await status(page)), `the status says what it found: ${await status(page)}`);
   await settled(page);
   const day = await drawn(page);
   check(day !== dusk, "the preview is drawn in Daybreak");
   const after = await offered(page);
-  check(after.includes("In the bundle/daybreak*") && after.includes("In the bundle/dusk"), `the bundle holds it now, chosen: ${after.join(", ")}`);
+  check(after.includes("In this deck/Daybreak*") && after.includes("In this deck/Dusk"), `the deck holds it now, chosen: ${after.join(", ")}`);
 
   // One undo: Dusk again, drawn as it was.
   await page.locator("#overlay").focus();
@@ -78,15 +78,15 @@ try {
   check(back, "one undo puts the source back");
   await settled(page);
   check((await drawn(page)) === dusk, "and the preview is drawn in Dusk again");
-  await page.waitForFunction(() => document.querySelector("#theme option:checked")?.textContent === "dusk", null, { timeout: 30000 }).catch(() => {});
-  check((await offered(page)).includes("In the bundle/dusk*"), "the picker shows Dusk again");
+  await page.waitForFunction(() => document.querySelector("#theme option:checked")?.textContent === "Dusk", null, { timeout: 30000 }).catch(() => {});
+  check((await offered(page)).includes("In this deck/Dusk*"), "the picker shows Dusk again");
 
   // The trails example in Daybreak: the storm slide's words would be dark on its dark photo, so the
   // re-theme sets each in Daybreak's color that reads there, and says so (PLAN 2.82).
   const trails = await open("/docs/examples/trails.deck.json");
   await trails.selectOption("#theme", "ships:Daybreak");
   const recolored = await trails
-    .waitForFunction(() => document.querySelector("#status").textContent.startsWith("theme Daybreak"), null, { timeout: 60000 })
+    .waitForFunction(() => document.querySelector("#status").textContent.startsWith("Theme Daybreak"), null, { timeout: 60000 })
     .then(() => true, () => false);
   const told = await status(trails);
   check(recolored && told.includes("2 texts recolored to read on what lies behind them"), `the storm slide's two texts are recolored, and it says so: ${told}`);
@@ -105,10 +105,10 @@ try {
   const was = await offered(torture);
   await torture.selectOption("#theme", "ships:Dusk");
   const refused = await torture
-    .waitForFunction(() => document.querySelector("#status").textContent.includes("refused"), null, { timeout: 60000 })
+    .waitForFunction(() => document.querySelector("#status").textContent.includes("not taken"), null, { timeout: 60000 })
     .then(() => true, () => false);
   const said = await status(torture);
-  check(refused && said.includes("Dusk refused: the deck would not validate in it") && said.includes("more"), `Dusk is refused, with why: ${said}`);
+  check(refused && said.includes("Dusk not taken: the deck would not open in it") && said.includes("more") && !/\b[EWI]\d{3}\b/.test(said), `Dusk is refused, with why, in sentences: ${said}`);
   check((await source(torture)) === before, "the torture deck's source is as it was");
   const now = await offered(torture);
   check(JSON.stringify(now) === JSON.stringify(was), `and the picker too: ${now.join(", ")} (was ${was.join(", ")})`);

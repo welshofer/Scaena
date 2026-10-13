@@ -44,7 +44,7 @@ try {
   };
   const opened = async (page, test) => {
     await page.waitForFunction(test, null, { timeout: 120000 }).catch(() => {});
-    return page.evaluate(() => (document.querySelector("#status")?.textContent ?? "").startsWith("error") && document.querySelector("#status").textContent);
+    return page.evaluate(() => (document.querySelector("#status")?.textContent ?? "").startsWith("Error") && document.querySelector("#status").textContent);
   };
 
   // Online, once: the player, then the editor, each opening the demo deck.

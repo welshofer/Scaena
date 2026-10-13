@@ -322,6 +322,11 @@ export interface Lexicon {
   places: Record<string, string>;
   /** Each weight a type menu names, by its number: `700` is Bold. */
   weights: Record<string, string>;
+  /** Each type of node by its name in the format: `shader` is Background Effect. */
+  types: Record<string, string>;
+  /** What lint finds, by its code, in a sentence a person would say: `E100` is The text doesn't
+   * fit its box. */
+  issues: Record<string, string>;
 }
 
 /** A slide a person may start (PLAN 3.30): one in a layout of the theme, a text in each slot that
@@ -1581,9 +1586,9 @@ export type FromWorker =
   | { type: "removed"; id: number; edited: Edited }
   /** The bundle's versions, oldest first; none where it keeps no history. */
   | { type: "versions"; id: number; versions: Version[] | null }
-  /** A version shown: its states, and the one drawn, as a PNG; or why it is not drawn (a file
-   * it names the bundle no longer holds). */
-  | { type: "version"; id: number; states: string[]; state: string; png?: ArrayBuffer; why?: string }
+  /** A version shown: its states, each as a person counts it (`said`, PLAN 2.99), and the one
+   * drawn, as a PNG; or why it is not drawn (a file it names the bundle no longer holds). */
+  | { type: "version"; id: number; states: string[]; said: string[]; state: string; png?: ArrayBuffer; why?: string }
   | { type: "compared"; id: number; compared: Compared }
   /** What restoring a version did; where it did, each data file it wrote, before and after, the
    * deck's source after, and what the edit came to. */

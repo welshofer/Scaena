@@ -52,7 +52,7 @@ try {
   /** The editor once it has compiled and linted the bundle named `name`. */
   const ready = async (name) => {
     await page.waitForFunction(
-      (name) => (window.scaena?.last() && window.scaena.where().name === name) || document.querySelector("#status")?.textContent.startsWith("error"),
+      (name) => (window.scaena?.last() && window.scaena.where().name === name) || document.querySelector("#status")?.textContent.startsWith("Error"),
       name,
       { timeout: 120000 },
     );

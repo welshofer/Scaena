@@ -112,7 +112,7 @@ try {
   /** `page` once its player has opened the file and shown its first frame. */
   const ready = async (page) => {
     await page.waitForFunction(
-      () => window.scaena?.at || document.querySelector("#status")?.textContent.startsWith("error"),
+      () => window.scaena?.at || document.querySelector("#status")?.textContent.startsWith("Error"),
       null,
       { timeout: 120000 },
     );

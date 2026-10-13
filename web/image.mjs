@@ -96,10 +96,10 @@ try {
   const expected = [((480 - sw) / 2 + 0.25 * sw) / 480, ((240 - sh) / 2 + 0.5 * sh) / 240];
   let n = await trips();
   await page.locator("#look [data-pick]").click();
-  check(await says("click image-cover where its subject is"), `Pick asks for a click on the image: ${await status()}`);
+  check(await says("Click the picture where its subject is"), `Pick asks for a click on the image: ${await status()}`);
   const [cx, cy] = await client([x + w * 0.25, y + h * 0.5]);
   await page.mouse.click(cx, cy);
-  check(await says("image-cover's focal point"), `a click sets its focal point: ${await status()}`);
+  check(await says(": its focal point at "), `a click sets its focal point: ${await status()}`);
   await settled(n);
   await page.waitForFunction(() => Array.isArray(window.scaena.look.offered()?.fields.find((f) => f.prop === "focal")?.value), null, { timeout: 30000 }).catch(() => {});
   const focal = await shows("focal");
@@ -116,7 +116,7 @@ try {
   await choose("image-cover");
   await page.locator("#look [data-pick]").click();
   await page.keyboard.press("Escape");
-  check(await says("the focal point is as it was"), `Escape leaves it: ${await status()}`);
+  check(await says("The focal point is as it was"), `Escape leaves it: ${await status()}`);
   check((await source()) === original, "and nothing changes");
 
   // Its crop, from the inspector: the left half.
@@ -179,7 +179,7 @@ try {
   const label = await page.evaluate(() => window.scaena.canvas.boxes().find((b) => b.node === "case").rect);
   n = await trips();
   await drop("ridge.png", [label[0] + label[2] / 2, label[1] + label[3] / 2]);
-  check(await says("ridge.png inserted as ridge,"), `a PNG dropped on a text is inserted, named after its file: ${await status()}`);
+  check(await says("The picture ridge.png inserted on this slide"), `a PNG dropped on a text is inserted, named after its file: ${await status()}`);
   await settled(n);
   check(/\bridge image\s+"assets\/[0-9a-f]{64}\.png"/.test(await source()), "a new image of it, its file named by its SHA-256");
   // Clear of the text's words, as lint judges an overlap (E101): a text collides by its lines. The
@@ -196,7 +196,7 @@ try {
   check((await source()) === original, "and it does not change the deck");
   n = await trips();
   await drop("ridge.png", [x + w / 2, y + h / 2]);
-  check(await says("image-cover shows ridge.png, kept as assets/"), `a PNG dropped on it takes its place: ${await status()}`);
+  check(await says(" shows ridge.png"), `a PNG dropped on it takes its place: ${await status()}`);
   await settled(n);
   const src = declared(await source(), "image-cover").match(/\bimage "([^"]+)"/)?.[1] ?? "";
   check(/^assets\/[0-9a-f]{64}\.png$/.test(src), `named by its SHA-256: ${src}`);
@@ -209,7 +209,7 @@ try {
   // draws it, turned upright, the web smoke holds to torture case 50's golden.)
   n = await trips();
   await drop("turned.jpg", [x + w / 2, y + h / 2], jpeg);
-  check(await says("image-cover shows turned.jpg, kept as assets/"), `a JPEG dropped on it takes its place: ${await status()}`);
+  check(await says(" shows turned.jpg"), `a JPEG dropped on it takes its place: ${await status()}`);
   await settled(n);
   const photo = declared(await source(), "image-cover").match(/\bimage "([^"]+)"/)?.[1] ?? "";
   check(/^assets\/[0-9a-f]{64}\.jpg$/.test(photo), `named by its SHA-256, a JPEG still: ${photo}`);

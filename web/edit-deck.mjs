@@ -437,7 +437,7 @@ try {
     await until("every state linted", () => window.scaena.last()?.whole, null, 60000);
     const found = await page.evaluate(() => window.scaena.last().findings.map((f) => `${f.severity} ${f.code} ${f.message}`));
     console.log(`     lint: ${found.join("; ") || "nothing"}`);
-    check(!found.some((f) => f.startsWith("error")), `lint finds no error in the edited deck: ${found.filter((f) => f.startsWith("error")).join("; ")}`);
+    check(!found.some((f) => f.startsWith("Error")), `lint finds no error in the edited deck: ${found.filter((f) => f.startsWith("Error")).join("; ")}`);
   });
   void original;
 } catch (e) {

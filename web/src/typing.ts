@@ -21,6 +21,7 @@ import { type Key, MOD, SHIFT } from "./commands";
 import type { CaretLine, Carets, Edited, ListMark, Map6, Rect } from "./protocol";
 import { askWords } from "./notes";
 import type { Stage } from "./stage";
+import { quote, reaching, sentence } from "./words";
 
 /** What a text typed in answers that no command runs by name (PLAN 2.65), as the keys sheet lists
  * it; the rest are the keys of any field typed in. */
@@ -30,7 +31,7 @@ export const typingKeys = (): Key[] => [
   { keys: "↑ ↓ Home End", label: "Go up or down a line, or to its start or end, as the text is set", group: "Type" },
   { keys: "Enter", label: "In a list: a new item like it; in an empty item, the list ends", group: "Type" },
   { keys: `Tab, ${SHIFT}Tab`, label: "In a list: the items selected a level in, or out", group: "Type" },
-  { keys: `${MOD}K`, label: "In a text typed in: link the characters selected to a web address or a state", group: "Type" },
+  { keys: `${MOD}K`, label: "In a text typed in: link the characters selected to a web address or a slide", group: "Type" },
   { keys: "Escape", label: "Stop typing: the text stays selected", group: "Type" },
 ];
 
@@ -46,6 +47,12 @@ export interface Around {
   undo(): void;
   redo(): void;
   say(text: string): void;
+  /** `node` as a person names it (PLAN 2.99): a text by its words, quoted. */
+  name(node: string): string;
+  /** The state `state` as a person counts it: Slide 3, or Slide 3, step 2. */
+  slide(state: string): string;
+  /** The state a slide's number names, as a person types it: `3`, `slide 3`, `3, step 2`. */
+  numbered(typed: string): string | undefined;
   /** Draw the canvas again: the caret moved, or the text changed. */
   draw(): void;
   /** Canvas units to a CSS pixel. */
@@ -322,7 +329,7 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     keys = made = undefined;
     area.hidden = false;
     area.value = found.text;
-    area.setAttribute("aria-label", `The text of ${node}, typed where it stands`);
+    area.setAttribute("aria-label", `Typing in ${around.name(node)}, where it stands`);
     area.focus({ preventScroll: true });
     // A slot's prompt, still as it was put, is selected whole, so typing replaces it (PLAN 3.30).
     if (point && !found.prompt) {
@@ -341,8 +348,8 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     const states = await stage.reach([op]).catch(() => undefined);
     if (open !== now || !states) return;
     const n = states.length;
-    const where = now.fork ? `kept to ${now.state}` : n === 1 && states[0] === now.state ? "in this state" : `in ${n} states`;
-    around.say(`typing in ${now.node} · ${where} · Escape leaves it${now.fork || n < 2 ? "" : `; Alt and a double click keep it to ${now.state}`}`);
+    const where = now.fork ? "kept to this slide" : `what is typed shows ${reaching(states, now.state, around.slide)}`;
+    around.say(`Typing in ${around.name(now.node)} · ${where} · Escape leaves it${now.fork || n < 2 ? "" : "; Alt and a double click keep it to this slide"}`);
   }
 
   /** The characters selected, if any are. */
@@ -371,7 +378,7 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     if (now && around.source() !== read) await sync();
     const chosen = selection();
     if (!now || !chosen || open !== now) {
-      around.say("select characters in a text to give them a look");
+      around.say("Select characters in a text to give them a look");
       return false;
     }
     const op = { op: "style_text", node: now.node, state: now.state, from: chosen.from, to: chosen.to, look, ...(now.fork ? { fork: true } : {}) };
@@ -393,11 +400,10 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
           }
         }
       }
-      const what = words ?? Object.entries(look).map(([k, v]) => (v === null ? `${k} taken away` : `${k} ${typeof v === "string" ? v : JSON.stringify(v)}`)).join(", ");
-      around.say(`${now.node}, characters ${chosen.from + 1}–${chosen.to}: ${what}`);
+      around.say(`${quote(chosen.text)} · ${words ?? "a new look"}`);
       return true;
     } catch (e) {
-      around.say(`no look given: ${said(e)}`);
+      around.say(`No look given: ${said(e)}`);
       return false;
     } finally {
       sending = false;
@@ -416,14 +422,14 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     const now = open;
     const chosen = selection();
     if (!now || !chosen) {
-      around.say("select characters to make them bold");
+      around.say("Select characters to make them bold");
       return false;
     }
     let look: Record<string, unknown>;
     try {
       look = await stage.bolding(around.source(), now.state, now.node, chosen.from, chosen.to, around.format());
     } catch (e) {
-      around.say(`not bold: ${said(e)}`);
+      around.say(`Not made bold: ${said(e)}`);
       return false;
     }
     if (open !== now) return false;
@@ -437,14 +443,14 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     const now = open;
     const chosen = selection();
     if (!now || !chosen) {
-      around.say("select characters to set them in italic");
+      around.say("Select characters to set them in italic");
       return false;
     }
     let look: Record<string, unknown>;
     try {
       look = await stage.italicizing(around.source(), now.state, now.node, chosen.from, chosen.to, around.format());
     } catch (e) {
-      around.say(`not italic: ${said(e)}`);
+      around.say(`Not set in italic: ${said(e)}`);
       return false;
     }
     if (open !== now) return false;
@@ -478,10 +484,10 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
         if (!typed.carets) leave();
         else [carets, read] = [typed.carets, typed.source];
       }
-      around.say(`${now.node}: ${done}`);
+      around.say(`${sentence(around.name(now.node))}: ${done}`);
       return true;
     } catch (e) {
-      around.say(`not listed: ${said(e)}`);
+      around.say(`Not listed: ${said(e)}`);
       return false;
     } finally {
       sending = false;
@@ -515,26 +521,29 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     const now = open;
     const chosen = selection();
     if (!now || !chosen) {
-      around.say("select characters to link them");
+      around.say("Select characters to link them");
       return false;
     }
     const r = area.getBoundingClientRect();
     asking = true;
-    const words = await askWords([r.left, r.top], "", `Where ${chosen.text} links to: a web address, or a state's id`).finally(
+    const words = await askWords([r.left, r.top], "", `Where ${quote(chosen.text)} links to: a web address, or a slide by its number`).finally(
       () => (asking = false),
     );
     if (open !== now) return false;
     area.focus({ preventScroll: true });
     if (words === undefined) {
-      around.say("no link made");
+      around.say("No link made");
       return false;
     }
     const to = words.trim();
-    if (!to) return style({ link: null }, "the link taken away");
+    if (!to) return style({ link: null }, "link removed");
     if (/^(https?:\/\/|mailto:)\S+$/.test(to)) return style({ link: { href: to } }, `linked to ${to}`);
+    const numbered = around.numbered(to);
+    if (numbered !== undefined) return style({ link: { state: numbered } }, `linked to ${around.slide(numbered)}`);
+    // A state's id, as the source names it.
     const state = to.replace(/^#/, "");
-    if (/^[a-z][a-z0-9_-]{0,63}$/.test(state)) return style({ link: { state } }, `linked to the state ${state}`);
-    around.say(`${to} is no link: a web address (https://…, mailto:…) or a state's id`);
+    if (/^[a-z][a-z0-9_-]{0,63}$/.test(state)) return style({ link: { state } }, `linked to ${around.slide(state)}`);
+    around.say(`“${to}” is no link: type a web address (https://…) or a slide's number`);
     return false;
   }
 
@@ -589,7 +598,7 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
       carets = typed.carets;
       read = typed.source;
     } catch (e) {
-      around.say(`not typed: ${said(e)}`);
+      around.say(`Not typed: ${said(e)}`);
       // What the deck reads stands: the textarea goes back to it.
       if (open === now && carets) {
         const at = Math.min(area.selectionStart, carets.text.length);
@@ -614,7 +623,7 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     if (text === undefined || source === undefined) return;
     const change = changed(text, value, end, left.bounds);
     if (!change) return;
-    if (source !== around.source()) return around.say(`not typed in ${now.node}: the source changed as typing ended`);
+    if (source !== around.source()) return around.say(`Not typed in ${around.name(now.node)}: the deck changed as typing ended`);
     const op = {
       op: "replace_text",
       node: now.node,
@@ -629,7 +638,7 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
       const typed = await stage.type(source, [op], { index: now.index, state: now.state, node: now.node }, around.format());
       around.typed(typed.source, typed.edited, true);
     } catch (e) {
-      around.say(`not typed: ${said(e)}`);
+      around.say(`Not typed: ${said(e)}`);
     } finally {
       sending = false;
       around.draw();
@@ -662,7 +671,7 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     read = source;
     if (found.text !== was) {
       const next = follow(was, found.text, area.value, area.selectionEnd, bounds);
-      if (next.lost) around.say("not typed: the text changed where it was typed");
+      if (next.lost) around.say("Not typed: the text changed where it was typed");
       area.value = next.value;
       area.setSelectionRange(next.at, next.at);
       bounds = next.bounds;
@@ -749,7 +758,7 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     if (e.key === "Escape") {
       e.preventDefault();
       leave();
-      return around.say("typing done");
+      return around.say("Typing done");
     }
     if (mod && key === "b" && !e.shiftKey && !e.altKey) {
       e.preventDefault();

@@ -68,7 +68,7 @@ try {
   await lockButton.click();
   await settled(original);
   check(await lockedNow(), `the lock writes the photo's own locked: ${await photoLine()}`);
-  check(await says("storm-photo locked: the canvas passes over it"), `the status says so: ${await status()}`);
+  check(await says("locked: the canvas passes over it"), `the status says so: ${await status()}`);
   await page.waitForFunction(() => document.querySelector('#layers [data-layer="storm-photo"] [data-lock]')?.getAttribute("aria-pressed") === "true", null, { timeout: 30000 }).catch(() => {});
   check((await lockButton.getAttribute("aria-pressed")) === "true", "its lock is closed");
   const lockedSource = await source();
@@ -119,11 +119,11 @@ try {
   await page.mouse.click(px, py, { button: "right" });
   await page.waitForSelector(".context-menu", { timeout: 10000 }).catch(() => {});
   const offered = await page.evaluate(() => [...document.querySelectorAll(".context-menu [role=menuitem] span")].map((s) => s.textContent));
-  check(offered.includes("Unlock storm-photo"), `the menu offers to unlock it: ${offered.join(", ")}`);
-  await page.locator(".context-menu [role=menuitem]", { hasText: "Unlock storm-photo" }).first().click();
+  check(offered.some((o) => o.startsWith("Unlock ") && !o.includes("storm-photo")), `the menu offers to unlock it, by its words: ${offered.join(", ")}`);
+  await page.locator(".context-menu [role=menuitem]", { hasText: "Unlock " }).first().click();
   await settled(lockedSource);
   check(!(await lockedNow()), `unlocked: ${await photoLine()}`);
-  check(await says("storm-photo unlocked"), `the status says so: ${await status()}`);
+  check(await says("unlocked"), `the status says so: ${await status()}`);
 
   // ⌘Z locks it again, one step, and again leaves it as it was.
   await page.locator("#overlay").focus();

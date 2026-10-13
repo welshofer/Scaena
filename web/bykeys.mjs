@@ -230,7 +230,7 @@ try {
   await rev.waitForFunction(() => window.scaena.canvas.slotting()?.layout === "figure", null, { timeout: 30000 }).catch(() => {});
   await rev.locator("#overlay").focus();
   await press(rev, "Tab");
-  check((await status(rev)).includes("slot kicker, 1 of 4"), `Tab keys the first slot: ${await status(rev)}`);
+  check((await status(rev)).includes("The Kicker slot, 1 of 4"), `Tab keys the first slot: ${await status(rev)}`);
   const kicker = await rev.evaluate(() => window.scaena.canvas.slotting().slots.find((s) => s.name === "kicker").col);
   await press(rev, "ArrowLeft");
   const moved = await rev
@@ -247,7 +247,7 @@ try {
   await rev.waitForSelector("#keys[open]", { timeout: 10000 }).catch(() => {});
   const sheet = await rev.evaluate(() => [...document.querySelectorAll("#keys tr")].map((tr) => tr.textContent));
   const lists = (s) => sheet.some((l) => l.includes(s));
-  check(lists("Tab, Shift+Tab") && lists("Enter on a shape or an image") && lists("[ ]") && lists("Key a slot"), "the keys sheet lists Tab, Enter, the handles' keys, [ ], and the slots'");
+  check(lists("Tab, Shift+Tab") && lists("Enter on a shape or an image") && lists("[ ]") && lists("Choose a slot"), "the keys sheet lists Tab, Enter, the handles' keys, [ ], and the slots'");
 } finally {
   await browser.close();
   await site.close();

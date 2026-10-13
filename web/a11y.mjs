@@ -111,7 +111,7 @@ try {
 
   // The presenter view.
   const presenter = await open(player(revenue, "&view=presenter"), () => document.querySelector("#clock"));
-  await presenter.waitForFunction(() => document.querySelector("#status")?.textContent !== "loading…", null, { timeout: 60000 }).catch(() => {});
+  await presenter.waitForFunction(() => document.querySelector("#status")?.textContent !== "Loading…", null, { timeout: 60000 }).catch(() => {});
   await audit(presenter, "the presenter view");
   await presenter.close();
 

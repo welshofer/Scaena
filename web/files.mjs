@@ -93,7 +93,7 @@ try {
   await page.locator("#tab-files").click();
   await page.waitForFunction(() => window.scaena.files.listed().length > 0, null, { timeout: 30000 });
   const summary = await page.evaluate(() => document.querySelector("#files [data-summary]").textContent);
-  check(/\d+ images? · \d+ fonts? · \d+ data files? · 1 file nothing names/.test(summary), `the tab says what the bundle holds: ${summary}`);
+  check(/\d+ images? · \d+ fonts? · \d+ data files? · 1 file nothing uses/.test(summary), `the tab says what the bundle holds: ${summary}`);
   const test = await file("assets/test-card.png");
   check(test?.named.some((n) => n.by === "node" && n.node === "image-cover"), `the test card is named by the images that show it: ${JSON.stringify(test?.named.slice(0, 3))}`);
   check(test?.used.some((u) => u.node === "image-cover" && u.states.includes("images")), "and drawn by image-cover in images");
@@ -104,7 +104,7 @@ try {
   const spare = await file(stray);
   check(spare?.named.length === 0, `the image nothing names says so: ${stray}`);
   const row = await page.evaluate((p) => document.querySelector(`#files [data-path="${p}"]`)?.textContent, stray);
-  check(row?.includes("Nothing names it") && row.includes("Remove"), `and offers to take it out: ${row?.trim()}`);
+  check(row?.includes("Nothing in the deck uses it") && row.includes("Remove"), `and offers to take it out: ${row?.trim()}`);
 
   // A node a file draws shows its state, the node selected.
   await into("axes");
@@ -115,29 +115,29 @@ try {
 
   // Remove takes it out; the panel's Undo puts it back, and Redo takes it out again.
   await page.locator(`#files [data-path="${stray}"] [data-remove]`).click();
-  await says("taken out of the bundle");
+  await says("taken out of the deck");
   check(!(await file(stray)), `Remove takes it out: ${await status()}`);
   check((await source()) === original, "and the source is as it was");
   await page.locator("#files [data-undo]").click();
-  await says("undone");
+  await says("Undone");
   await page.waitForFunction((p) => window.scaena.files.listed().some((f) => f.path === p), stray, { timeout: 30000 }).catch(() => {});
   check(Boolean(await file(stray)), `Undo puts it back: ${await status()}`);
   await page.locator("#files [data-redo]").click();
-  await says("made again");
+  await says("Made again");
   await page.waitForFunction((p) => !window.scaena.files.listed().some((f) => f.path === p), stray, { timeout: 30000 }).catch(() => {});
   check(!(await file(stray)), "and Redo takes it out again");
   await page.locator("#files [data-undo]").click();
   await page.waitForFunction((p) => window.scaena.files.listed().some((f) => f.path === p), stray, { timeout: 30000 }).catch(() => {});
   // One something names cannot be.
   const refused = await page.evaluate(() => window.scaena.files.remove("data/bars.csv").then(() => document.querySelector("#status").textContent));
-  check(refused.startsWith("not taken out") && refused.includes("data source"), `one something names stays: ${refused}`);
+  check(refused.startsWith("Not taken out") && refused.includes("data source"), `one something names stays: ${refused}`);
 
   // Dragged onto an image node, the node shows it: one `choose` of `src`.
   const boxes = await page.evaluate(() => window.scaena.canvas.boxes());
   const cover = boxes.find((b) => b.node === "image-cover").rect;
   const carried = await dropAt(stray, [cover[0] + cover[2] / 2, cover[1] + cover[3] / 2]);
   check(carried.path === stray && carried.text === JSON.stringify(stray), `a row carries its path, and its path quoted for the source: ${JSON.stringify(carried)}`);
-  await says(`image-cover shows ${stray}`);
+  await says(` shows ${stray.replace(/^.*\//, "")}`);
   // Each edit on the canvas writes the source canonically, without the comment.
   const line = (await source()).split("\n").find((l) => l.trim().startsWith("image-cover "));
   check(line?.includes(JSON.stringify(stray)), `dropped on image-cover, it shows the image: ${line?.trim()} · ${await status()}`);
@@ -148,10 +148,10 @@ try {
   // Dropped on empty canvas, it is inserted there.
   const empty = [1700, 1000];
   await dropAt(stray, empty);
-  await says("inserted as");
+  await says("inserted on this slide");
   const inserted = await status();
-  check(inserted.startsWith(`${stray} inserted as image`), `dropped on empty canvas, it is inserted: ${inserted}`);
-  const id = inserted.match(/inserted as (\S+),/)?.[1];
+  check(inserted.startsWith(`The picture ${stray.replace(/^.*\//, "")} inserted on this slide`), `dropped on empty canvas, it is inserted: ${inserted}`);
+  const id = await page.evaluate(() => window.scaena.canvas.selected());
   const at = await page.evaluate((n) => window.scaena.canvas.boxes().find((b) => b.node === n)?.rect, id);
   check(at && empty[0] >= at[0] - 1 && empty[1] >= at[1] - 1, `about where it was dropped: ${JSON.stringify(at)}`);
   check(await undo(original), "one undo takes it back");
@@ -160,8 +160,8 @@ try {
   await page.locator(`#files [data-path="${stray}"] [data-insert]`).focus();
   await page.keyboard.press("Enter");
   await page.waitForFunction((s) => window.scaena.source() !== s, original, { timeout: 30000 }).catch(() => {});
-  await says("inserted as");
-  check((await status()).startsWith(`${stray} inserted as image`), `Insert inserts it: ${await status()}`);
+  await says("inserted on this slide");
+  check((await status()).startsWith(`The picture ${stray.replace(/^.*\//, "")} inserted on this slide`), `Insert inserts it: ${await status()}`);
   check(await undo(original), "and one undo takes that back");
 
   // Dropped on the source, its path goes where it is dropped, quoted.

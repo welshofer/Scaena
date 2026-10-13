@@ -38,7 +38,7 @@ try {
     page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
     page.on("console", (m) => m.type() === "error" && failures.push(`console: ${m.text()}`));
     await page.goto(url(bundle));
-    await page.waitForFunction(() => window.scaena?.last() || document.querySelector("#status")?.textContent.startsWith("error"), null, {
+    await page.waitForFunction(() => window.scaena?.last() || document.querySelector("#status")?.textContent.startsWith("Error"), null, {
       timeout: 120000,
     });
     return page;
@@ -128,14 +128,14 @@ try {
   check(clip.kind === "scaena/clip" && clip.node === "rev", `a clip of the chart: ${clip.kind} ${clip.node}`);
   check(clip.nodes?.rev?.type === "chart" && clip.nodes.rev.data === "@q3", "the chart as the state shows it");
   check(Boolean(clip.data?.q3) && Boolean(clip.files?.["data/q3-revenue.csv"]), "with its data source and the CSV it reads");
-  check(await says(page, "rev copied"), `the status says so: ${await status(page)}`);
+  check(await says(page, " copied: ⌘V pastes it"), `the status says so: ${await status(page)}`);
 
   // ⌘V where the canvas was last pressed: `rev-2`, entering in `revenue`, selected.
   const at = [600, 820];
   await press(page, at);
   check(await paste(page, { [CLIP]: copied.clip, "text/plain": copied.text }), "the canvas takes the paste");
   check(await reads(page, "rev-2 chart"), "the chart is pasted as `rev-2`");
-  check(await says(page, "rev-2 pasted in revenue"), `the status says where: ${await status(page)}`);
+  check(await says(page, "Pasted on this slide"), `the status says where: ${await status(page)}`);
   check((await selected(page)) === "rev-2", "and the canvas selects it");
   const scn = await source(page);
   check(scn.indexOf("rev-2 chart") > scn.indexOf("state revenue") && scn.indexOf("rev-2 chart") < scn.indexOf("state mix"), "it enters in `revenue`");
@@ -150,7 +150,7 @@ try {
   const cut = await copy(page, "cut");
   check(cut.taken && JSON.parse(cut.clip || "{}").node === "note", "a cut puts the note on the clipboard");
   check(await reads(page, '"Revenue in $M', true), "and takes it out");
-  check(await says(page, "note cut from"), `the status says so: ${await status(page)}`);
+  check(await says(page, " cut from "), `the status says so: ${await status(page)}`);
   const afterCut = await source(page);
   await press(page, [960, 1000]);
   check(await paste(page, { [CLIP]: cut.clip }), "the canvas takes the paste");

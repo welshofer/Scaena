@@ -124,7 +124,7 @@ private actor Answers {
     try #require(shown.count == 5, "\(shown)")
     #expect(shown[0] == "asked Say it louder.")
     #expect(shown[1] == "said Making it louder.")
-    #expect(shown[2].hasPrefix("deck_patch: applied"), "\(shown[2])")
+    #expect(shown[2].hasPrefix("deck_patch: Done"), "\(shown[2])")
     #expect(shown[3...] == ["said Done.", "done: end"])
     #expect(assistant.usage == Usage(input: 10, output: 2))
 

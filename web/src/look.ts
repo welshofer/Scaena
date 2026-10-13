@@ -40,7 +40,7 @@
 import type { Arrange, Choices, Edited, Field, LayoutSuggestion, Lives, StateChoices } from "./protocol";
 import type { Stage } from "./stage";
 import type { Selected } from "./typing";
-import { counted, quote } from "./words";
+import { counted, fractions, PARTS, quote, reaching } from "./words";
 
 /** What the inspector's edits ask of the editor around them. */
 export interface Around {
@@ -54,7 +54,7 @@ export interface Around {
   apply(source: string, edited: Edited): void;
   say(text: string): void;
   /** Give the characters selected in the text typed in `look` (`style_text`): whether it was. */
-  style(look: Record<string, unknown>): Promise<boolean>;
+  style(look: Record<string, unknown>, words?: string): Promise<boolean>;
   /** Arrange what the canvas selects `how` (PLAN 2.42). */
   arrange(how: Arrange): Promise<void>;
   /** Put what the canvas selects in a new group, and take the group it selects apart (PLAN 2.43). */
@@ -185,27 +185,6 @@ const told = (f: Field, v: unknown) =>
         : f.takes.kind === "fractions" && Array.isArray(v)
           ? fractions(f.takes.names, v as number[])
           : spoken(f, v);
-
-/** An image's crop or focal point as a person says it, in shares of the picture: 80% wide, 100%
- * high, from 10% across and 0% down; 30% across, 60% down. */
-function fractions(names: string[], v: number[]): string {
-  const pct = (k: number) => `${Math.round((v[k] ?? 0) * 100)}%`;
-  if (names.join() === "x,y,w,h") return `${pct(2)} wide, ${pct(3)} high, from ${pct(0)} across and ${pct(1)} down`;
-  return names.map((n, k) => `${pct(k)} ${PARTS[n] ?? n}`).join(", ");
-}
-
-/** Each part of an image a fraction gives, said. */
-const PARTS: Record<string, string> = { x: "across", y: "down", w: "width", h: "height" };
-
-/** The slides `states` are, as a person counts them (PLAN 2.99): this slide, where `shown` alone;
- * a slide by its number; 3 slides; 2 steps of Slide 4; or 3 slides, 5 steps in all. */
-export function reaching(states: string[], shown: string, slide: (state: string) => string): string {
-  if (states.length === 1) return states[0] === shown ? "on this slide" : `on ${slide(states[0])}`;
-  const slides = new Set(states.map((s) => slide(s).replace(/, step \d+$/, "")));
-  if (slides.size === states.length) return `on ${counted(slides.size, "slide")}`;
-  if (slides.size === 1) return `on ${states.length} steps of ${[...slides][0]}`;
-  return `on ${counted(slides.size, "slide")}, ${states.length} steps in all`;
-}
 
 /** The inspector's edits, in `into`, for the node the canvas selects in `stage`'s state shown, or
  * the state itself when it selects none. */
@@ -616,8 +595,10 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     if (!now || !offered) return;
     if (chars) {
       const selected = chars;
-      // The text says what it gave them; the look is read again once it is.
-      if (!(await around.style({ [prop]: value }))) render(true);
+      // The text says what it gave them, in a person's words; the look is read again once it is.
+      const field = offered.fields.find((f) => f.prop === prop);
+      const what = field && `${labeled(field)}: ${value === null ? "back to the text’s" : told(field, value)}`;
+      if (!(await around.style({ [prop]: value }, what))) render(true);
       else if (chars === selected) await characters(selected);
       return;
     }

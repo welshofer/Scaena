@@ -138,7 +138,7 @@ try {
 
   // Its apex dragged a quarter of the box left: one `choose` of its points, on the triangle.
   await drag(apex, [apex[0] - tw / 4, apex[1]]);
-  check(await says("shape-tri's point 1 moved"), `the status says the point moved: ${await status()}`);
+  check(await says("The shape: point 1 moved"), `the status says the point moved: ${await status()}`);
   await comes("points:[[0.25, 0], [1, 1], [0, 1]]");
   check(declared(await source(), "shape-tri").includes("points:[[0.25, 0], [1, 1], [0, 1]]"), `written on the triangle: ${declared(await source(), "shape-tri")}`);
   await undo();
@@ -148,13 +148,13 @@ try {
   check(JSON.stringify((await outline("shape-tri", TRI)).points) === JSON.stringify(TRI), "the canvas holds the triangle as it was");
   const apex2 = await handle('[data-point="0"]');
   await drag(apex2, [apex2[0], apex2[1] - th]);
-  check(await says("shape-tri's point 1 stays where it is"), `a point dragged above its box stays at its edge: ${await status()}`);
+  check(await says("The shape: point 1 stays where it is"), `a point dragged above its box stays at its edge: ${await status()}`);
   check((await source()) === original, "and nothing changes");
 
   // A point added at an edge's middle, then picked and taken away.
   const mid = await handle('[data-add="0"]');
   await click(mid);
-  check(await says("shape-tri has a point added"), `a click on an edge's middle adds a point there: ${await status()}`);
+  check(await says("The shape: a point added"), `a click on an edge's middle adds a point there: ${await status()}`);
   await comes("points:[[0.5, 0], [0.75, 0.5], [1, 1], [0, 1]]");
   check(declared(await source(), "shape-tri").includes("points:[[0.5, 0], [0.75, 0.5], [1, 1], [0, 1]]"), `between its neighbors: ${declared(await source(), "shape-tri")}`);
   await outline("shape-tri", 4);
@@ -164,7 +164,7 @@ try {
   check((await page.evaluate(() => window.scaena.canvas.pointPicked())) === 1, "a click on it picks it");
   check((await page.locator('#overlay svg [data-point="1"].picked').count()) === 1, "and draws it picked");
   await page.keyboard.press("Delete");
-  check(await says("shape-tri's point 2 taken away"), `Delete takes it away: ${await status()}`);
+  check(await says("The shape: point 2 taken away"), `Delete takes it away: ${await status()}`);
   await comes("points:[[0.5, 0], [1, 1], [0, 1]]");
   check(declared(await source(), "shape-tri").includes("points:[[0.5, 0], [1, 1], [0, 1]]"), "the triangle as it was");
   check(await selects("shape-tri"), "and the triangle stays selected");
@@ -175,7 +175,7 @@ try {
   await page.waitForFunction(() => window.scaena.canvas.pointPicked() === 2, null, { timeout: 10000 }).catch(() => {});
   const before = await source();
   await page.keyboard.press("Delete");
-  check(await says("a polygon keeps three points"), `a triangle keeps its three: ${await status()}`);
+  check(await says("A polygon keeps three points"), `a triangle keeps its three: ${await status()}`);
   check((await source()) === before, "and nothing changes");
   await page.keyboard.press("Escape");
   check((await page.evaluate(() => [window.scaena.canvas.pointPicked(), window.scaena.canvas.selected()])).join() === ",shape-tri", "Escape lets go of the point, and the triangle stays selected");
@@ -201,7 +201,7 @@ try {
   await outline("shape-rule", RULE);
   const end2 = await handle('[data-point="1"]');
   await drag(end2, [end2[0] - rw / 2, end2[1]], ["Alt"]);
-  check(await says("kept to shapes"), `the status says it is kept to the state: ${await status()}`);
+  check(await says("kept to this slide"), `the status says it is kept to the slide: ${await status()}`);
   await comes("[[0, 0.5], [0.5, 0.5]]");
   const kept = await source();
   // The state's own line names the rule and its points, no type: the rule's declaration, now a
@@ -219,7 +219,7 @@ try {
   await click(await handle('[data-point="0"]'));
   await page.waitForFunction(() => window.scaena.canvas.pointPicked() === 0, null, { timeout: 10000 }).catch(() => {});
   await page.keyboard.press("Delete");
-  check(await says("a line keeps two points"), `a line keeps its two: ${await status()}`);
+  check(await says("A line keeps two points"), `a line keeps its two: ${await status()}`);
 
   // The panel's corner: radius.3 rounded to radius.4.
   const [px, py, pw, ph] = (await box("shape-panel")).rect;
@@ -231,7 +231,7 @@ try {
   const corner = await handle("[data-radius]");
   const by = po.radii[4] - po.radius;
   await drag(corner, [corner[0] + by, corner[1] + by]);
-  check(await says("shape-panel's corners round to radius.4"), `the status says the step: ${await status()}`);
+  check(await says("The shape: corners rounded 32 pt"), `the status says the step: ${await status()}`);
   await comes("radius:radius.4");
   check(declared(await source(), "shape-panel").includes("radius:radius.4"), `written on the panel: ${declared(await source(), "shape-panel")}`);
   await undo();
@@ -254,7 +254,7 @@ try {
   await page.mouse.move(cx + 30, cy + 30, { steps: 4 });
   await page.keyboard.press("Escape");
   await page.mouse.up();
-  check(await says("shape-panel stays as it is"), `Escape leaves it: ${await status()}`);
+  check(await says("The shape stays as it is"), `Escape leaves it: ${await status()}`);
   await page.waitForTimeout(300);
   check((await source()) === original, "and nothing changes");
 
