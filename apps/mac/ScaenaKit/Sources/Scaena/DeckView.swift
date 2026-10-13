@@ -381,7 +381,7 @@ struct DeckView: View {
         case .shape:
             InsertMenu(
                 title: "Shape", symbol: "square.on.circle", kinds: ["Shape", "Shader"], first: nil, inserts: inserts,
-                insert: insertHere, choose: shown == nil ? nil : (title: "Icon…", action: { choosingIcon = true }))
+                insert: insertHere, also: shown == nil ? [] : [(title: "Icon…", action: { choosingIcon = true })])
         case .image:
             InsertMenu(
                 title: "Image", symbol: "photo", kinds: ["Image"], first: nil, inserts: inserts, insert: insertHere,

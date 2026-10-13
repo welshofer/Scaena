@@ -183,7 +183,7 @@ struct InsertMenu: View {
     }
 
     private func help(_ all: [Offered]) -> String {
-        if all.isEmpty, choose == nil { return "Nothing of this kind to insert" }
+        if all.isEmpty, also.isEmpty { return "Nothing of this kind to insert" }
         return first == nil ? "Insert \(title.lowercased())" : "Insert \(title.lowercased()); hold for each style"
     }
 }
