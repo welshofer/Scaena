@@ -1519,12 +1519,50 @@ impl Session {
     #[cfg(feature = "editor")]
     pub fn typed(&mut self, ops: &serde_json::Value, at: Option<i64>) -> Result<bool, Error> {
         let typing = ops.as_array().is_some_and(|ops| ops.iter().all(|op| op["op"] == "replace_text"));
+        // A text typed past the foot of its cells grows to hold its lines, in the same change.
+        let grown = if typing { self.growing(ops)? } else { None };
+        let ops = grown.as_ref().unwrap_or(ops);
         let (patched, write) = scaena_ops::patch::typing(&self.bundle(), ops, typing.then_some(store::TYPED))?;
         if patched.refused {
             let why = patched.added.iter().find(|f| f.severity == scaena_core::lint::Severity::Error);
             return Err(Error::Ops(format!("the deck refuses it: {}", why.map_or("", |f| f.message.as_str()))));
         }
         self.write(write, assistant::Caller { author: "user", at })
+    }
+
+    /// `ops`, a run of typing, with the `place` that grows each text it types past the foot of
+    /// its cells on the theme's grid, in the state it is typed in and the format shown: its rows
+    /// down to the first that holds its lines, as a presentation app's text box grows (PLAN
+    /// 2.32, `Engine::grown`). `None` where none grows, or the run does not make a deck.
+    #[cfg(feature = "editor")]
+    fn growing(&mut self, ops: &serde_json::Value) -> Result<Option<serde_json::Value>, Error> {
+        let Some(list) = ops.as_array() else { return Ok(None) };
+        let mut typed: Vec<(&str, &str)> = Vec::new();
+        for (node, state) in list.iter().filter_map(|op| Some((op["node"].as_str()?, op["state"].as_str()?))) {
+            if !typed.contains(&(node, state)) {
+                typed.push((node, state));
+            }
+        }
+        if typed.is_empty() {
+            return Ok(None);
+        }
+        let doc = self.deck.to_value().map_err(|e| Error::Deck(e.to_string()))?;
+        let made = scaena_core::patch::compile(&doc, list, &editor::Handed(&self.files))
+            .ok()
+            .and_then(|compiled| Deck::from_value(&compiled.doc).ok());
+        let Some(made) = made else { return Ok(None) };
+        self.build()?;
+        let Session { theme, data, engine, format, .. } = self;
+        let engine = engine.as_mut().expect("built above");
+        let mut grown = list.clone();
+        for (node, state) in typed {
+            let req = FrameRequest { deck: &made, theme, data, state, t_ms: f64::INFINITY, format: format.as_deref() };
+            let Ok(Some(target)) = engine.grown(&req, node) else { continue };
+            for op in target.ops(Some(state), false) {
+                grown.push(serde_json::to_value(op).map_err(|e| Error::Ops(e.to_string()))?);
+            }
+        }
+        Ok((grown.len() > list.len()).then_some(serde_json::Value::Array(grown)))
     }
 
     /// The link drawn at `point` (canvas units) in `state` at rest, in the format shown (PLAN
@@ -2406,6 +2444,35 @@ mod tests {
         let past = serde_json::json!([{ "op": "replace_text", "node": "title", "state": "revenue", "from": 99, "to": 99, "text": "!" }]);
         let e = s.typed(&past, None).unwrap_err();
         assert!(e.to_string().contains("15 characters"), "{e}");
+    }
+
+    /// A text on the grid typed past the foot of its cells grows down the grid to hold its
+    /// lines, in the same change, as a presentation app's text box grows (PLAN 2.32): its place
+    /// and width kept, and nothing left for lint E100 to find.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_text_typed_past_its_cells_grows_to_hold_its_lines() {
+        let mut s = revenue();
+        let by = assistant::Caller { author: "user", at: None };
+        let n = s.inserts().iter().position(|i| i.label == "Text · body").unwrap();
+        // Over the title, with the rows down to it for the text to grow into.
+        let added = s.inserting("close", n, [960.0, 120.0], None).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": added.patch }), by).unwrap();
+        let id = added.id.clone();
+        let stands = |s: &mut Session| s.boxes("close").unwrap().into_iter().find(|b| b.node == id).unwrap().rect;
+        let before = stands(&mut s);
+        let written = s.carets("close", &id).unwrap().unwrap().text.chars().count();
+        let lines = "Three trails surveyed\nTwo need new bridges\nOne closes for winter\nThe fourth comes next year";
+        let ops = serde_json::json!([
+            { "op": "replace_text", "node": id, "state": "close", "from": 0, "to": written, "text": lines }
+        ]);
+        assert!(s.typed(&ops, None).unwrap());
+        let after = stands(&mut s);
+        assert_eq!(after[..3], before[..3], "its place and its width kept");
+        assert!(after[3] > before[3], "{before:?} grown to {after:?}");
+        let linted = s.tool("deck_lint", serde_json::json!({}), by).unwrap();
+        assert!(!linted.result.contains(&format!("text `{id}` does not fit")), "{}", linted.result);
+        assert_eq!(s.carets("close", &id).unwrap().unwrap().text, lines);
     }
 
     /// Characters selected on the canvas take a look (PLAN 2.38): ⌘B's from the weight the

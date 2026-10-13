@@ -289,6 +289,42 @@ impl Engine {
         Ok(t)
     }
 
+    /// Where text `node` goes in `req.state` at rest, laid out in `req.format`, to hold its lines
+    /// where they run past the foot of its cells (PLAN 2.32): its rows on the theme's grid grown
+    /// down to the first that holds them, or the grid's last, as a presentation app's text box
+    /// grows as it is typed in. `None` for a text that does not run past the foot of its box,
+    /// one placed otherwise (in a slot, by a `rect`, in a container), and one whose `fit` is not
+    /// to wrap or grow.
+    pub fn grown(&mut self, req: &FrameRequest, node: &str) -> Result<Option<crate::geometry::Target>, EngineError> {
+        let (deck, theme) = project(req.deck, req.theme, req.format)?;
+        let (deck, theme) = (deck.as_ref(), theme.as_ref());
+        let snapshots = scaena_core::resolve_states(deck)?;
+        let snap = &snapshots[state_index(&snapshots, req.state)?];
+        let Some(props) = snap.nodes.get(node) else { return Ok(None) };
+        let by_cells = props
+            .get("at")
+            .is_some_and(|at| at.get("row").is_some() && ["in", "rect", "parent"].iter().all(|k| at.get(k).is_none()));
+        let fit = props.get("fit").and_then(Value::as_str).unwrap_or("wrap");
+        if !by_cells || !matches!(fit, "wrap" | "grow") {
+            return Ok(None);
+        }
+        let scene = self.scene(deck, theme, req.data, snap)?;
+        let need = scene.nodes.iter().find(|n| n.id == node).and_then(|n| match &n.content {
+            Content::Text(placed) if placed.text.height > placed.cell[3] + 0.5 => Some(placed.text.height),
+            _ => None,
+        });
+        let Some(need) = need else { return Ok(None) };
+        let mut t = crate::geometry::targets(deck, theme, &cascade::with_overrides(deck, snap), &scene, node, None)?;
+        t.format = req.format.map(String::from);
+        let [x, y, w, h] = t.cell;
+        let Some(last) = t.rows.last() else { return Ok(None) };
+        let foot = t.rows.iter().find(|r| r[1] >= y + need - 0.5).unwrap_or(last)[1];
+        if foot - y <= h + 0.5 {
+            return Ok(None);
+        }
+        Ok(t.snap(crate::geometry::Snap::Resize, [x, y, w, foot - y]))
+    }
+
     /// Where a node new to `req.state`, named `node`, would go at the root, laid out in
     /// `req.format` (PLAN 2.34): the theme's grid and the template's slots there, its cell
     /// `share` of the canvas's width and height ([`crate::geometry::room`]).
