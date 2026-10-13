@@ -235,6 +235,7 @@ web-smoke: site
     node web/slides.mjs
     node web/storage.mjs
     node web/assistant.mjs
+    node web/writing.mjs
     node web/seeing.mjs
     node web/commands.mjs
     node web/export.mjs

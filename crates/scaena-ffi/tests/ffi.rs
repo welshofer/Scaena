@@ -1292,3 +1292,65 @@ fn a_states_layouts_are_judged_a_step_at_a_time_and_drawn_small() {
     assert_eq!(layout.map(|f| f["value"].clone()), Some(other["layout"].clone()), "{now}");
     unsafe { scaena_session_free(s) };
 }
+
+/// The writing tools through the C ABI, as the Mac asks them (PLAN 2.101): what a model is asked
+/// for a text, the request that asks it once with nothing to call, the words of its answer, and
+/// the patch that takes them, after which the text reads so; a slide's notes taken as its own; a
+/// finding explained only read.
+#[test]
+fn a_writing_tool_asks_once_and_its_answer_is_one_patch() {
+    let s = open(B1);
+    let ask = json!({ "kind": "tighten", "state": "cover", "node": "subtitle" });
+    let writing = call(s, "writing", ask.clone());
+    assert_eq!(writing["title"], "Tightened", "{writing}");
+    let words = writing["task"]["text"].as_str().unwrap_or_default().to_string();
+    assert!(words.starts_with("Why this exists"), "{writing}");
+    assert_eq!(writing["prompt"], words.as_str());
+
+    let request = providers(
+        "once",
+        json!({
+            "provider": "anthropic", "model": "a-model", "key": "sk-test",
+            "instructions": writing["instructions"], "prompt": writing["prompt"],
+        }),
+    );
+    assert_eq!(request["url"], "https://api.anthropic.com/v1/messages");
+    let body = body_of(&request);
+    assert!(body.get("tools").is_none(), "a question asked once sends no tools: {body}");
+    assert_eq!(body["system"][0]["text"], writing["instructions"]);
+    assert_eq!(body["messages"][0]["content"][0]["text"], words.as_str());
+    let reply = json!({ "content": [{ "type": "text", "text": "“Why Scaena exists.”" }], "stop_reason": "end_turn" });
+    let said = providers("answered", json!({ "provider": "anthropic", "status": 200, "body": reply.to_string() }));
+    assert_eq!(said, "“Why Scaena exists.”");
+
+    let written = call(s, "written", json!({ "ask": ask, "answer": said }));
+    assert_eq!(written["text"], "Why Scaena exists.", "the quotes a model wraps it in come off");
+    let ops = written["patch"].as_array().cloned().unwrap_or_default();
+    assert!(!ops.is_empty() && ops.iter().all(|op| op["op"] == "replace_text"), "{written}");
+    assert_eq!(tool(s, "deck_patch", json!({ "ops": ops }))["edited"], true);
+    assert_eq!(call(s, "writing", ask)["prompt"], "Why Scaena exists.", "the patch makes the text read so");
+
+    let notes = json!({ "kind": "notes", "state": "cover" });
+    assert!(
+        call(s, "writing", notes.clone())["prompt"]
+            .as_str()
+            .is_some_and(|p| p.starts_with("The slide reads:\nTitle: Scaena"))
+    );
+    let drafted = call(s, "written", json!({ "ask": notes, "answer": "Open on the name." }));
+    assert_eq!(
+        drafted["patch"],
+        json!([{ "op": "set_state", "id": "cover", "prop": "notes", "value": "Open on the name." }])
+    );
+
+    let finding = json!({ "code": "E100", "severity": "error", "message": "text `title` overflows", "node": "title" });
+    let explain = json!({ "kind": "explain", "state": "cover", "finding": finding });
+    let asked = call(s, "writing", explain.clone());
+    assert_eq!(asked["prompt"], "Finding E100 (error): text `title` overflows\nIts words: Scaena", "{asked}");
+    assert_eq!(
+        call(s, "written", json!({ "ask": explain, "answer": "It runs out of its box." }))["patch"],
+        Value::Null
+    );
+    let refused = answered(s, "writing", &json!({ "kind": "polish", "state": "cover" }));
+    assert!(refused["error"]["message"].as_str().is_some_and(|m| m.contains("no task")), "{refused}");
+    unsafe { scaena_session_free(s) };
+}

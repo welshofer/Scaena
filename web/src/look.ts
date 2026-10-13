@@ -33,11 +33,14 @@
 // state shown reads, as the player's live region and the PDF's tags say it (`Player.reading`): for
 // the node shown, what it reads as; for the state, each part in order, each selecting its node.
 //
+// Writing (PLAN 2.101): a text offers its words proofread, tightened, or rewritten, and the state
+// its notes drafted, by the model the assistant uses, each answer offered to take or leave.
+//
 // With characters selected in a text typed in (PLAN 2.38, `Player.characterChoices`), their look:
 // a run's role, emphasis, family, weight, italic (PLAN 2.40), and color, each the first
 // character's. Each choice is one `style_text`, written where the text lives; × takes the run's
 // own away, so the text's look shows there. A run takes the theme's names only.
-import type { Arrange, Choices, Edited, Field, LayoutSuggestion, Lives, StateChoices } from "./protocol";
+import type { Arrange, Choices, Edited, Field, LayoutSuggestion, Lives, StateChoices, WritingKind } from "./protocol";
 import type { Stage } from "./stage";
 import type { Selected } from "./typing";
 import { counted, fractions, PARTS, quote, reaching } from "./words";
@@ -67,7 +70,17 @@ export interface Around {
   /** One of `names` chosen from the theme's layouts by their sections, `current` outlined (PLAN
    * 3.31): undefined where none is. */
   pickLayout(names: string[], current?: string): Promise<string | null | undefined>;
+  /** Ask the model the assistant uses to write `kind` for `node`, a text, or for the state shown
+   * (PLAN 2.101): offered to take or leave. */
+  write(kind: WritingKind, node?: string): void;
 }
+
+/** The writing tools a text offers, and what each does (PLAN 2.101). */
+const WRITING: [WritingKind, string, string][] = [
+  ["proofread", "Proofread", "Its spelling, grammar, and punctuation put right, and nothing else"],
+  ["tighten", "Tighten", "The same meaning in fewer words"],
+  ["rewrite", "Rewrite", "Said more clearly and directly"],
+];
 
 /** What several nodes offer alike: each field all of them have with the same choices, its value
  * where they agree. */
@@ -436,6 +449,16 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     const keeping = chars ? "" : `<p class="keep"><label><input type="checkbox" data-keep${keep ? " checked" : ""}> ${kept}</label></p>`;
     // How it reads: for one node or the state, never for several or for characters.
     const reading = !chars && nodes.length <= 1 ? `<section class="reads" aria-label="How it reads"></section>` : "";
+    // Writing (PLAN 2.101): one text's words, or the slide's notes, by the assistant's model.
+    const text = !chars && nodes.length === 1 && "type" in offered && offered.type === "text";
+    const writes = text
+      ? WRITING.map(([kind, label, title]) => `<button type="button" data-write="${kind}" title="${html(title)}, by the assistant's model">${label}</button>`)
+      : !chars && !nodes.length
+        ? [`<button type="button" data-write="notes" title="What you say while it shows, drafted from its words by the assistant's model">Draft Notes</button>`]
+        : [];
+    const writing = writes.length
+      ? `<div class="arrange writing"><span class="arrange-kind">Writing</span><span class="arrange-buttons" role="group" aria-label="Writing">${writes.join("")}</span></div>`
+      : "";
     // The layouts the state may take, drawn (PLAN 2.92): where there is more than one.
     const layout = !chars && !("node" in offered) ? offered.fields.find((f) => f.prop === "layout") : undefined;
     const choosing = layout?.takes.kind === "name" && layout.takes.names.length > 1;
@@ -445,8 +468,10 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
       ${named ? `<p class="named">${html(named)}</p>` : ""}
       ${keeping}
       ${arrange || grouping ? `<div class="arrange">${arrange}${grouping}</div>` : ""}
+      ${text ? writing : ""}
       ${layouts}
       <div class="fields">${rows.join("")}</div>
+      ${text ? "" : writing}
       ${reading}`;
     // A layout previewed is let go: the canvas shows the state at rest as it is.
     if (previewing !== undefined || previewed !== undefined) preview(undefined);
@@ -692,6 +717,8 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     if ((e.target as Element).closest("[data-ungroup]")) void around.ungroup();
     if ((e.target as Element).closest("[data-pick]")) around.pick();
     if ((e.target as Element).closest("[data-pick-layout]")) void pickLayout();
+    const writing = (e.target as Element).closest<HTMLElement>("[data-write]");
+    if (writing?.dataset.write && offered) around.write(writing.dataset.write as WritingKind, "node" in offered ? offered.node : undefined);
     const reading = (e.target as Element).closest<HTMLElement>("[data-read]");
     if (reading?.dataset.read) around.select(reading.dataset.read);
     // A layout suggested is chosen as the layout field chooses it (PLAN 2.92), and the layouts are

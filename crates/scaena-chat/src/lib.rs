@@ -101,6 +101,26 @@ pub fn recent(conversation: &[Message], frames: usize) -> Vec<Message> {
     out
 }
 
+/// The request that asks a model `prompt` once, told `instructions`, with nothing to call: what a
+/// writing tool asks (PLAN 2.101, `scaena_core::writing`), `key` in its headers.
+pub fn once(
+    provider: Provider,
+    model: &str,
+    base: Option<&str>,
+    key: &str,
+    browser: bool,
+    instructions: &str,
+    prompt: &str,
+) -> Request {
+    let messages = [Message::User { text: prompt.to_string() }];
+    provider.turn(&Ask { model, key, base, system: instructions, tools: &[], messages: &messages, browser })
+}
+
+/// What a model said in answer to [`once`]: its words, or why it gave none.
+pub fn answered(provider: Provider, status: u16, status_text: &str, body: &str) -> Result<String, ChatError> {
+    Ok(provider.read_turn(status, status_text, body)?.text)
+}
+
 /// One conversation with a model, kept between questions until the client forgets it.
 #[derive(Debug, Clone)]
 pub struct Chat {

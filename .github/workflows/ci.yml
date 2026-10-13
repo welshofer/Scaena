@@ -362,6 +362,9 @@ jobs:
       - run: node web/storage.mjs
       # The assistant runs PLAN 1.19's agent loop against a scripted server for each provider (PLAN 2.6).
       - run: node web/assistant.mjs
+      # The writing tools (PLAN 2.101): a text proofread, tightened, rewritten, a slide's notes
+      # drafted, and an issue explained, by a scripted model, each taken or left.
+      - run: node web/writing.mjs
       # A question carries what the editor shows, and what its patch changes is selected after it (PLAN 2.52).
       - run: node web/seeing.mjs
       - run: node web/commands.mjs

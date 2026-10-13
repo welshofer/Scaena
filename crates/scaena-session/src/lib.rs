@@ -49,6 +49,8 @@ pub mod store;
 mod theme;
 #[cfg(feature = "editor")]
 pub mod versions;
+#[cfg(feature = "editor")]
+pub mod writing;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

@@ -161,7 +161,8 @@ export const anthropic: Provider = {
       max_tokens: 8192,
       // The system prompt is the same each turn: cached, it costs a tenth on every turn after the first.
       system: [{ type: "text", text: ask.system, cache_control: { type: "ephemeral" } }],
-      tools: ask.tools.map((t) => ({ name: t.name, description: t.description, input_schema: inlined(t.schema) })),
+      // A question asked once, with nothing to call, sends no tools (PLAN 2.101).
+      ...(ask.tools.length && { tools: ask.tools.map((t) => ({ name: t.name, description: t.description, input_schema: inlined(t.schema) })) }),
       messages,
     };
     const response = await fetch(at(ask.base, this.base, "/v1/messages"), {
@@ -231,7 +232,10 @@ export const openai: Provider = {
     const body = {
       model: ask.model,
       messages,
-      tools: ask.tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: inlined(t.schema) } })),
+      // OpenAI refuses an empty list of tools: a question asked once sends none (PLAN 2.101).
+      ...(ask.tools.length && {
+        tools: ask.tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: inlined(t.schema) } })),
+      }),
     };
     const response = await fetch(at(ask.base, this.base, "/v1/chat/completions"), {
       method: "POST",
@@ -306,7 +310,10 @@ export const gemini: Provider = {
     const body = {
       systemInstruction: { parts: [{ text: ask.system }] },
       contents,
-      tools: [{ functionDeclarations: ask.tools.map((t) => ({ name: t.name, description: t.description, parametersJsonSchema: inlined(t.schema) })) }],
+      // A question asked once, with nothing to call, declares no functions (PLAN 2.101).
+      ...(ask.tools.length && {
+        tools: [{ functionDeclarations: ask.tools.map((t) => ({ name: t.name, description: t.description, parametersJsonSchema: inlined(t.schema) })) }],
+      }),
     };
     const model = ask.model.replace(/^models\//, "");
     const response = await fetch(at(ask.base, this.base, `/v1beta/models/${encodeURIComponent(model)}:generateContent`), {

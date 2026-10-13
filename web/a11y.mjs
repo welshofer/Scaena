@@ -193,11 +193,11 @@ try {
   const source = await editor.evaluate(() => window.scaena.source());
   const long = "Revenue doubled, and then some";
   await editor.evaluate((t) => window.scaena.type(t), source.replace('"Revenue doubled"', `"${long}"`));
-  await editor.waitForFunction(() => document.querySelector("#problems li button"), null, { timeout: 30000 }).catch(() => {});
+  await editor.waitForFunction(() => document.querySelector("#problems li button.said"), null, { timeout: 30000 }).catch(() => {});
   const line = String((await editor.evaluate(() => window.scaena.source())).split("\n").findIndex((l) => l.includes(long)) + 1);
   const gutter = () => editor.evaluate(() => document.querySelector(".cm-activeLineGutter")?.textContent);
   await editor.evaluate(() => window.scaena.cursor(0));
-  await editor.focus("#problems li button");
+  await editor.focus("#problems li button.said");
   await editor.keyboard.press("Enter");
   check(
     (await gutter()) === line && (await editor.evaluate(() => Boolean(document.activeElement?.closest(".cm-editor")))),

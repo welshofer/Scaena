@@ -175,6 +175,8 @@ export interface Editor {
   go(f: Finding): void;
   /** Open the inspector on the node `f` is about, its field for `prop` in focus (PLAN 2.56). */
   edit(f: Finding, prop: string): void;
+  /** Explain `f` by the model the assistant uses (PLAN 2.101). */
+  explain(f: Finding): void;
   /** A right click, or the menu key (PLAN 2.53): offer, at `x`, `y` (client pixels), what can be
    * done to what is selected, `on` a node, or to the canvas where nothing is. */
   menu(x: number, y: number, on: "node" | "canvas"): void;
@@ -741,6 +743,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       if (f.node !== undefined && (selected !== f.node || also.length)) select(f.node);
       editor.edit(f, prop);
     },
+    explain: (f) => editor.explain(f),
     name: (node, quoted) => object(words, node, quoted),
     say: (said) => editor.say(said),
   });

@@ -92,6 +92,33 @@ export async function ask(
   });
 }
 
+/** Who writes: the provider, at its own address or at `base`, with the user's key, and the model
+ * they picked; what it is told it does, `instructions`, and what it is asked, `prompt` (PLAN 2.101). */
+export interface Writing {
+  provider: ProviderId;
+  model: string;
+  key: string;
+  base?: string;
+  instructions: string;
+  prompt: string;
+}
+
+/** Ask a model `writing.prompt` once, told `writing.instructions`, with nothing to call: what a
+ * writing tool asks (PLAN 2.101). Its words, and the tokens it took; the conversation does not
+ * keep it. */
+export async function write(writing: Writing, signal?: AbortSignal): Promise<{ text: string; usage?: { input: number; output: number } }> {
+  const turn = await providers[writing.provider].turn({
+    model: writing.model,
+    key: writing.key,
+    base: writing.base,
+    system: writing.instructions,
+    tools: [],
+    messages: [{ role: "user", text: writing.prompt }],
+    signal,
+  });
+  return { text: turn.text, usage: turn.usage };
+}
+
 /** The open deck, in a few facts: its title, states, formats, and theme. */
 function facts(session: Session) {
   const read = session.tool("deck_read", "{}");

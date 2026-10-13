@@ -5,6 +5,7 @@
 // state before and after, as the strip draws it (PLAN 2.93): a click shows it.
 import type { AssistantEvent, Edited, ProviderId, Rewritten, Seeing, Thumb } from "../protocol";
 import type { Stage } from "../stage";
+import type { Who } from "../writing";
 import * as keys from "./keys";
 
 /** The editor, as the panel works with it. */
@@ -82,6 +83,9 @@ const STOPS: Record<string, string> = {
 
 export interface Panel {
   ask(text: string): Promise<AssistantEvent>;
+  /** Who the writing tools ask (PLAN 2.101): the provider, model, and key the panel holds; or why
+   * there is none to ask. */
+  who(): Who | string;
   /** What the conversation shows, entry by entry, as text. */
   transcript(): string[];
   /** Tokens in and out so far. */
@@ -353,6 +357,14 @@ export function panel(stage: Stage, editor: Editor): Panel {
   void choose(settings.provider);
   return {
     ask,
+    who: () => {
+      const p = which();
+      const name = PROVIDERS[p].name;
+      if (!key.value) return `Add your ${name} key in the Assistant tab first: the model you pick there writes this, with your key.`;
+      if (!model.value) return `Pick a model in the Assistant tab first: the list fills once ${name} has your key.`;
+      remember();
+      return { provider: p, name, model: model.value, key: key.value, base: base.value || undefined };
+    },
     transcript: () => [...transcript.children].map((li) => `${li.className}: ${li.querySelector("summary")?.textContent ?? li.textContent}`),
     usage: () => ({ ...used }),
   };

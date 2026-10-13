@@ -66,6 +66,10 @@ import type {
   Starter,
   Version,
   Waiting,
+  Writing,
+  WritingAsk,
+  WritingCall,
+  Written,
 } from "./protocol";
 
 type Reply = Extract<
@@ -115,6 +119,9 @@ type Reply = Extract<
       | "made"
       | "choices"
       | "stateChoices"
+      | "writing"
+      | "written"
+      | "wrote"
       | "words"
       | "look"
       | "put"
@@ -631,6 +638,22 @@ export class Stage {
     return this.request<"stateChoices">({ type: "stateChoices", id: ++this.asked, state }).then(({ choices }) => choices);
   }
 
+  /** What to ask a model for the person editing (PLAN 2.101): the task, its title, and the
+   * instructions and prompt it answers, from the deck as it stands. */
+  writing(ask: WritingAsk): Promise<Writing> {
+    return this.request<"writing">({ type: "writing", id: ++this.asked, ask }).then(({ writing }) => writing);
+  }
+
+  /** A model's `answer` to `ask` as it is offered, and the patch that takes it (PLAN 2.101). */
+  written(ask: WritingAsk, answer: string): Promise<Written> {
+    return this.request<"written">({ type: "written", id: ++this.asked, ask, answer }).then(({ written }) => written);
+  }
+
+  /** Ask a model once, with the user's key and nothing to call (PLAN 2.101): its words. */
+  write(call: WritingCall): Promise<{ text: string; usage?: { input: number; output: number } }> {
+    return this.request<"wrote">({ type: "write", id: ++this.asked, call }).then(({ text, usage }) => ({ text, usage }));
+  }
+
   /** The words an editor shows for `state` (PLAN 2.99): each object it shows named by what it
    * shows and by its kind, and each of the theme's names said. */
   words(state: string): Promise<Lexicon> {
@@ -954,6 +977,9 @@ export class Stage {
       case "made":
       case "choices":
       case "stateChoices":
+      case "writing":
+      case "written":
+      case "wrote":
       case "words":
       case "look":
       case "put":

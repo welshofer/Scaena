@@ -180,3 +180,34 @@ private func keychainWritable() -> Bool {
     #expect(ToolWords.done("deck_patch") == "Edited the deck")
     #expect(ToolWords.doing("a_tool_to_come") == "Working…")
 }
+
+/// The writing tools (PLAN 2.101): what a model is asked for a text and for a slide, from the deck
+/// as it stands, in the engine's words; the request that asks it once, with nothing to call; and
+/// the patch that takes its answer, as the browser takes one.
+@Test func aWritingToolAsksOnceAndTakesTheAnswerAsOnePatch() throws {
+    let session = try ScaenaSession(directory: b1)
+    let ask = WritingAsk(kind: .tighten, state: "cover", node: "subtitle")
+    let writing = try session.writing(ask)
+    let words = try #require(writing.task.text)
+    #expect(words.hasPrefix("Why this exists"))
+    #expect(writing.title == "Tightened" && writing.prompt == words)
+    #expect(writing.instructions.hasPrefix("You tighten the words of one text on a slide"))
+    let notes = try session.writing(WritingAsk(kind: .notes, state: "cover"))
+    #expect(notes.prompt.hasPrefix("The slide reads:\nTitle: Scaena"))
+
+    let request = try Provider.anthropic.onceRequest(
+        model: "a-model", key: "sk-test", instructions: writing.instructions, prompt: writing.prompt)
+    let sent = try JSONDecoder().decode(JSONValue.self, from: try #require(try request.urlRequest().httpBody))
+    #expect(sent["tools"] == nil, "a question asked once sends no tools")
+    #expect(sent["system"]?[0]?["text"]?.string == writing.instructions)
+    #expect(sent["messages"]?[0]?["content"]?[0]?["text"]?.string == words)
+    let answer = try Provider.anthropic.answered(status: 200, body: answering("“Why Scaena exists.”"))
+    #expect(answer == "“Why Scaena exists.”")
+
+    let written = try session.written(ask, answer: answer)
+    #expect(written.text == "Why Scaena exists.", "the quotes a model wraps it in come off")
+    let patch = try #require(written.patch)
+    #expect(!patch.isEmpty && patch.allSatisfy { $0["op"]?.string == "replace_text" })
+    let drafted = try session.written(WritingAsk(kind: .notes, state: "cover"), answer: "Open on the name.")
+    #expect(drafted.patch?.first?["op"]?.string == "set_state")
+}

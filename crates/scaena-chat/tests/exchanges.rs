@@ -51,6 +51,19 @@ fn each_adapter_asks_and_reads_as_the_browsers_does() {
         let listed = provider.read_models(200, "", &body(&conversation["models"][&id])).unwrap();
         assert_eq!(json!(listed), kept["models"]["read"], "{id}: the models read");
 
+        // A question asked once, with nothing to call: a writing tool's (PLAN 2.101).
+        let once = &conversation["once"];
+        let asked = scaena_chat::once(
+            provider,
+            conversation["model"].as_str().unwrap(),
+            None,
+            key,
+            true,
+            once["system"].as_str().unwrap(),
+            once["prompt"].as_str().unwrap(),
+        );
+        assert_eq!(serde_json::to_value(asked).unwrap(), kept["once"]["request"], "{id}: a question asked once");
+
         let failure = &conversation["failures"][&id];
         let status = failure["status"].as_u64().unwrap() as u16;
         let said = provider.read_turn(status, "", &body(&failure["body"])).unwrap_err().to_string();
