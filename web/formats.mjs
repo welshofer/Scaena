@@ -155,8 +155,8 @@ try {
   await page.selectOption("#state", "intro");
   await page.waitForFunction(() => document.querySelector('#formats button[data-format="9:16"] .found'), null, { timeout: 60000 }).catch(() => {});
   const counted = await figures();
-  check(counted[2].found === "1" && /1 warning/.test(counted[2].label), `9:16 counts its finding: ${counted[2].label}`);
-  check(counted[0].found === "" && counted[1].found === "", `the others count none: ${counted[0].label}; ${counted[1].label}`);
+  check(counted[1].found === "1" && /1 warning/.test(counted[1].label), `9:16 counts its finding: ${counted[1].label}`);
+  check(counted[0].found === "", `the deck's own canvas counts none: ${counted[0].label}`);
   await page.evaluate((s) => window.scaena.type(s), was);
   await page.waitForFunction(() => window.scaena.last()?.whole, null, { timeout: 60000 }).catch(() => {});
   await page.selectOption("#state", "intro");
@@ -173,7 +173,7 @@ try {
   await repainted(count, "revenue");
   check((await page.locator("#format").inputValue()) === "9:16", "a click opens the canvas in 9:16");
   const pressed = await figures();
-  check(pressed[2].pressed === "true" && pressed[0].pressed === "false", "and its figure is pressed");
+  check(pressed[1].pressed === "true" && pressed[0].pressed === "false", "and its figure is pressed");
   // The worker holds the canvas: its shape is what the page shows of it.
   await page.waitForFunction(() => { const r = document.querySelector("#stage").getBoundingClientRect(); return r.height > r.width; }, null, { timeout: 10000 }).catch(() => {});
   const size = await page.evaluate(() => { const r = document.querySelector("#stage").getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; });
