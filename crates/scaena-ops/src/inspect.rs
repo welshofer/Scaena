@@ -989,7 +989,7 @@ fn across(from: [f32; 2], to: [f32; 2]) -> Option<Value> {
 
 /// `add_node` for `node` as `room`'s, entering in `state`, then the `place` ops that put it on
 /// `target`, then where it leaves, so it stays on the slide (PLAN 3.26).
-fn added(
+pub(crate) fn added(
     deck: &Deck,
     room: &scaena_engine::geometry::Targets,
     node: Value,

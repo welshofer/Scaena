@@ -114,6 +114,7 @@ export const canvasKeys = (): Key[] => [
   { keys: "← ↑ → ↓", label: "On a handle: move it a hundredth, a corner a radius step; with Shift, a tenth", group: "Points and corners" },
   { keys: "+, Delete", label: "On a point: add one after it, or take it away", group: "Points and corners" },
   { keys: "Escape", label: "Leave the handles: the object stays selected", group: "Points and corners" },
+  { keys: "P, then Drag", label: "Draw with the pen: each stroke part of one drawing, until P or Escape puts the pen down", group: "Draw and insert" },
   { keys: "Double-click a text", label: "Type in it where it was clicked", group: "Type" },
   { keys: `${ALT}Double-click, ${ALT}Enter`, label: "Type in it, what is typed kept to this slide", group: "Type" },
   { keys: "Space Drag, Wheel", label: "Pan what is zoomed in", group: "See" },
@@ -670,6 +671,14 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
    * named `label`; and the drag drawing it. */
   let armed: { key: string; n: number; label: string; text: boolean; line: boolean } | undefined;
   let sketch: Sketch | undefined;
+  /** The pen, taken up by P (PLAN 2.114): each drag draws a stroke, each stroke one patch and one
+   * step to undo, the strokes since it was taken up one drawing, `onto` once its first is drawn;
+   * drawn as the drawing will be, in the theme's color and width. */
+  let pen: { onto?: string; color: string; width: number } | undefined;
+  /** The stroke the pen draws, under way: its points, canvas units, and the pointer drawing it. */
+  let stroke: { points: Point[]; pointer: number } | undefined;
+  /** Strokes let go and not yet in the deck, drawn until the drawing shows them. */
+  let wet: Point[][] = [];
   /** What the deck offers, as last asked: at hand when a key arms the canvas, so a drag that
    * follows it at once draws. */
   let offered: Insert[] = [];
@@ -1176,7 +1185,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       // Its handles stand on its frame, clear of what it draws.
       const [x, y, w, h] = frame(first.rect);
       // A connector goes where what it joins goes (PLAN 2.109): nothing of it to resize or turn.
-      const still = !drag && !typed && !turning && !reshaping && !cropping && also.length === 0 && !first.locked && !first.joins;
+      const still = !drag && !typed && !turning && !reshaping && !cropping && !pen && also.length === 0 && !first.locked && !first.joins;
       if (still && aim && snapOf(aim, editor.at(first.node), true, false)) {
         const s = 8 * u;
         const spot: Record<Edge, [number, number]> = {
@@ -1211,7 +1220,14 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const key = box(keyOn);
     if (key && !drag && !marquee) parts.push(shape(key, [0, 0], "keyed"));
     const over = box(hovered);
-    if (over && !chosen().includes(over.node) && !drag && !typed && !marquee && !armed && !turning && !reshaping && !cropping) parts.push(shape(over, [0, 0], "hover"));
+    if (over && !chosen().includes(over.node) && !drag && !typed && !marquee && !armed && !pen && !turning && !reshaping && !cropping) parts.push(shape(over, [0, 0], "hover"));
+    // The pen's strokes as they are drawn (PLAN 2.114), in the drawing's color and width.
+    if (pen) {
+      const { color, width } = pen;
+      const ink = (points: Point[]) =>
+        `<polyline class="ink" points="${points.map(([x, y]) => `${x},${y}`).join(" ")}" style="stroke: ${color}; stroke-width: ${width}"/>`;
+      for (const points of [...wet, ...(stroke ? [stroke.points] : [])]) parts.push(ink(points));
+    }
     if (sketch) {
       const [[fx, fy], [ax, ay]] = [sketch.from, sketch.at];
       if (sketch.cell) parts.push(rect(sketch.cell, "landing"));
@@ -2306,6 +2322,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   /** Arm the canvas to draw what `key` draws (PLAN 2.48); armed with it already, stop. */
   function arm(key: string) {
     if (armed?.key === key) return disarm("Not drawing");
+    if (pen) putPen();
     const fits = DRAWS[key];
     const n = Math.max(offered.findIndex((i) => fits(i) && i.id === "body"), offered.findIndex(fits));
     if (n < 0) return editor.say(`Nothing to draw with ${key.toUpperCase()}: the theme offers none`);
@@ -2323,6 +2340,74 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     overlay.classList.remove("drawing");
     draw();
     if (why) editor.say(why);
+  }
+
+  /** Take up the pen (PLAN 2.114), or put it down where it is taken up already. */
+  async function takePen() {
+    if (pen) return putPen("The pen is put down");
+    if (armed) disarm();
+    const look = await penLook();
+    pen = { ...look };
+    overlay.classList.add("drawing");
+    draw();
+    editor.say("Drawing with the pen: drag to draw, each stroke part of one drawing · P or Escape puts it down");
+  }
+
+  function putPen(why?: string) {
+    pen = stroke = undefined;
+    overlay.classList.remove("drawing");
+    draw();
+    if (why) editor.say(why);
+  }
+
+  /** How the pen draws, as the drawing will (`scaena_ops::ink::insert`): in the theme's accent,
+   * else its first color, at its thick stroke, else its regular; read from the theme. */
+  async function penLook(): Promise<{ color: string; width: number }> {
+    const plain = { color: "var(--info)", width: 4 };
+    type Tokens = { roles?: Record<string, string>; color?: Record<string, string>; stroke?: Record<string, number> };
+    try {
+      const theme = await stage.themeText();
+      const tokens = theme && (JSON.parse(theme.text) as { tokens?: Tokens }).tokens;
+      if (!tokens) return plain;
+      const [roles, colors, strokes] = [tokens.roles ?? {}, tokens.color ?? {}, tokens.stroke ?? {}];
+      const names = [...Object.keys(roles), ...Object.keys(colors).filter((k) => !Object.hasOwn(roles, k))];
+      // A role names a color token, or a color; a token is a color.
+      const color = (name: string | undefined, depth = 0): string | undefined => {
+        if (name === undefined || depth > 4) return undefined;
+        if (/^(#|oklch\(|oklab\()/.test(name)) return name;
+        if (Object.hasOwn(colors, name)) return color(colors[name], depth + 1);
+        return Object.hasOwn(roles, name) ? color(roles[name], depth + 1) : undefined;
+      };
+      const width = strokes.thick ?? strokes.regular ?? strokes.thin ?? 2;
+      return { color: color(names.includes("accent") ? "accent" : names[0]) ?? plain.color, width };
+    } catch {
+      return plain;
+    }
+  }
+
+  /** A stroke of the pen let go (PLAN 2.114): the pen's first a new drawing, each after it one more
+   * stroke of that drawing, each one patch and one step to undo, the drawing selected. The pen
+   * stays up for the next. */
+  function inked(points: Point[]) {
+    const now = pen;
+    if (!now) return;
+    wet.push(points);
+    draw();
+    return inTurn(async () => {
+      try {
+        const shown = editor.shown();
+        if (!shown) return editor.say(WAITING);
+        const added = await stage.inking(editor.source(), shown.state, points, now.onto, editor.format());
+        const more = added.id === now.onto;
+        const done = more ? "A stroke added to the drawing" : "A drawing drawn on this slide: each stroke after it joins it";
+        if (await change(added.patch, "Drawing…", `${done} · P or Escape puts the pen down`, added.id)) now.onto = added.id;
+      } catch (e) {
+        editor.say(`Not drawn: ${said(e)}`);
+      } finally {
+        wet = wet.filter((w) => w !== points);
+        draw();
+      }
+    });
   }
 
   /** Ask where the drag drawing lands, one request at a time: the last asked once the one before
@@ -3119,6 +3204,15 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       overlay.setPointerCapture(e.pointerId);
       return slotPress(e);
     }
+    // The pen taken up (PLAN 2.114): a drag draws a stroke, a press alone a dot.
+    if (pen) {
+      e.preventDefault();
+      if (text.node() !== undefined) text.leave();
+      overlay.focus();
+      overlay.setPointerCapture(e.pointerId);
+      stroke = { points: [point(e)], pointer: e.pointerId };
+      return draw();
+    }
     // Armed to draw (PLAN 2.48): a drag draws what is armed, and a click places it.
     if (armed) {
       e.preventDefault();
@@ -3376,6 +3470,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       const [p, u] = [panning, unit()];
       return void look([p.from[0] - (e.clientX - p.client[0]) * u, p.from[1] - (e.clientY - p.client[1]) * u, p.from[2], p.from[3]]);
     }
+    if (stroke && e.pointerId === stroke.pointer) {
+      // Every point the pointer gave since the last move: a quick stroke keeps its curve.
+      const given = e.getCoalescedEvents?.() ?? [];
+      for (const g of given.length ? given : [e]) stroke.points.push(point(g));
+      return draw();
+    }
     if (sketch) {
       [sketch.at, sketch.shift] = [point(e), e.shiftKey];
       draw();
@@ -3444,6 +3544,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       panning = undefined;
       if (!spaced) overlay.classList.remove("panning");
       return;
+    }
+    if (stroke && e.pointerId === stroke.pointer) {
+      const { points } = stroke;
+      stroke = undefined;
+      points.push(point(e));
+      return void inked(points);
     }
     if (sketch) {
       const s = sketch;
@@ -3516,6 +3622,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       draw();
     }
     if (sketch) disarm("Not drawn: the drag was cancelled");
+    if (stroke) {
+      stroke = undefined;
+      draw();
+      editor.say("Not drawn: the stroke was cancelled");
+    }
     if (drag) void still("The drag was cancelled");
   };
 
@@ -3593,6 +3704,15 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (armed && e.key === "Escape") {
       e.preventDefault();
       return disarm(sketch ? "Not drawn" : "Not drawing");
+    }
+    // P takes up the pen and puts it down, and so does Escape (PLAN 2.114).
+    if (pen && e.key === "Escape") {
+      e.preventDefault();
+      return putPen(stroke ? "Not drawn: the pen is put down" : "The pen is put down");
+    }
+    if (key === "p" && !mod && !e.altKey && !drag && !starting && !sketch && !stroke) {
+      e.preventDefault();
+      return void takePen();
     }
     // T, R, O, L, and A arm the canvas to draw a text, a rectangle, an ellipse, a line, or an
     // arrow (PLAN 2.48); the same key again stops.
@@ -3975,6 +4095,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     arm,
     /** What the canvas is armed to draw, if anything: the key, and its name. */
     armed: () => armed && { key: armed.key, label: armed.label },
+    /** Take up the pen, or put it down, as P does (PLAN 2.114). */
+    takePen,
+    /** Whether the pen is taken up, and the drawing its strokes join once it has one. */
+    pen: () => pen && { onto: pen.onto },
     /** A copy of `node` beside it, as ⌘D does. */
     duplicate,
     /** Take `node` out of the state shown on, as Delete does; `everywhere`, out of the deck, as

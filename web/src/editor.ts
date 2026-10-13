@@ -1851,6 +1851,8 @@ async function edit(source: Source) {
       ...draws.map(
         ([key, label]): Command => ({ label, keys: key.toUpperCase(), group: "Draw and insert", where: ["canvas"], applies: () => ready() && board.armed()?.key !== key, run: () => press(key) }),
       ),
+      // The pen (PLAN 2.114): each drag a stroke, the strokes one drawing, until it is put down.
+      { label: board.pen() ? "Put the pen down" : "Draw with the pen", keys: "P", group: "Draw and insert", where: ["canvas"], applies: ready, run: () => press("p") },
       { label: "Zoom in", keys: `${MOD}+`, group: "See", where: ["canvas"], applies: () => board.zoomed() < 8, run: () => board.zoom("in") },
       { label: "Zoom out", keys: `${MOD}−`, group: "See", where: ["canvas"], applies: () => board.zoomed() > 1, run: () => board.zoom("out") },
       { label: "Zoom to fit", keys: `${MOD}0`, group: "See", where: ["canvas"], applies: () => board.zoomed() > 1, run: () => board.zoom("fit") },

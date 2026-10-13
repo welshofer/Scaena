@@ -181,6 +181,19 @@ extension ScaenaSession {
     }
 }
 
+extension ScaenaSession {
+    /// The patch that draws a stroke of the pen in `state` (PLAN 2.114), `points` in canvas units as
+    /// the pointer, a finger, or the Pencil gave them, as the browser's canvas draws it: one more
+    /// stroke of the drawing `onto` where the state shows it as one, else a new drawing where the
+    /// stroke was drawn, smoothed, in the theme's accent, kept to the state's slide.
+    public func inking(state: String, points: [CGPoint], onto: String?) throws -> Added {
+        let stroke: [JSONValue] = points.map { .array([.number(Double($0.x)), .number(Double($0.y))]) }
+        var args: [String: JSONValue] = ["state": .string(state), "points": .array(stroke)]
+        if let onto { args["onto"] = .string(onto) }
+        return try call("inking", .object(args))
+    }
+}
+
 /// What a diagram draws a text's lines as (PLAN 2.110): steps joined by arrows, steps around a
 /// ring, or a tree by their list levels.
 public enum DiagramKind: String, CaseIterable, Sendable {

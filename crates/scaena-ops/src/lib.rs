@@ -25,6 +25,7 @@ pub mod health;
 pub mod history;
 #[cfg(feature = "shipped")]
 pub mod icons;
+pub mod ink;
 pub mod inspect;
 pub mod layouts;
 pub mod lint;

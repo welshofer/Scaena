@@ -52,6 +52,9 @@ struct DeckView: View {
     @State private var elsewhere = false
     /// The look ⌥⌘C copied last, which ⌥⌘V pastes, as `look` gives it.
     @State private var copiedLook: JSONValue?
+    /// The pen, taken up (PLAN 2.114): each drag on the slide draws a stroke, the strokes one
+    /// drawing, until it is put down.
+    @State private var pen: PenUp?
     /// What the on-device model is asked, shown in a sheet.
     @State private var asked: Asked?
     /// Where a picture made goes, while Make a Picture's sheet asks what it shows (PLAN 2.107),
@@ -383,7 +386,13 @@ struct DeckView: View {
         case .shape:
             InsertMenu(
                 title: "Shape", symbol: "square.on.circle", kinds: ["Shape", "Shader"], first: nil, inserts: inserts,
-                insert: insertHere, also: shown == nil ? [] : [(title: "Icon…", action: { choosingIcon = true })])
+                insert: insertHere,
+                also: shown == nil
+                    ? []
+                    : [
+                        (title: "Icon…", action: { choosingIcon = true }),
+                        (title: pen == nil ? "Draw with Pen" : "Stop Drawing", action: { takePen() }),
+                    ])
         case .image:
             InsertMenu(
                 title: "Image", symbol: "photo", kinds: ["Image"], first: nil, inserts: inserts, insert: insertHere,
@@ -816,7 +825,10 @@ struct DeckView: View {
                                 finding: { searching = true }, actions: actions,
                                 fix: { finding in perform { try document.fix(finding, undo: undo) } },
                                 dropped: { items, at in drop(items, in: shown, at: at) },
-                                fill: filling(shown)
+                                fill: filling(shown),
+                                pen: pen,
+                                penning: { takePen() },
+                                inked: { points in ink(points, in: shown) }
                             ) { ops in
                                 perform { try document.make(ops, undo: undo) }
                             }
@@ -981,6 +993,8 @@ struct DeckView: View {
         made.choosePicture = { choosingPicture = true }
         made.chooseIcon = { choosingIcon = true }
         made.makePicture = { makePicture(in: shown) }
+        made.draw = { takePen() }
+        made.drawing = pen != nil
         if selection.count == 2 { made.connect = { arrow in connect(arrow, in: shown) } }
         if one && texted { made.diagram = { kind in diagram(kind, in: shown) } }
         made.deletesElsewhere = elsewhere
@@ -1371,6 +1385,33 @@ struct DeckView: View {
             node = connected.id
             also = []
             said = arrow ? "Joined by an arrow" : "Joined by a line"
+        }
+    }
+
+    /// Take up the pen (PLAN 2.114), as P does on the canvas, or put it down: each drag on the slide
+    /// then draws a stroke, in the theme's accent, and the strokes are one drawing, as a presentation
+    /// app's drawing tool draws them. On the iPad, a finger and the Pencil draw alike.
+    private func takePen() {
+        guard pen == nil else {
+            pen = nil
+            said = "The pen is put down"
+            return
+        }
+        pen = PenUp.of((try? editor.session.themeText())?.json)
+        said = "Drawing with the pen: drag to draw · P or Escape puts it down"
+    }
+
+    /// A stroke of the pen let go (PLAN 2.114): the pen's first a new drawing, each after it one more
+    /// stroke of that drawing, each one step of undo, the drawing selected.
+    private func ink(_ points: [CGPoint], in state: String) {
+        perform {
+            let added = try editor.session.inking(state: state, points: points, onto: pen?.onto)
+            let more = added.id == pen?.onto
+            try document.make(added.patch, undo: undo)
+            pen?.onto = added.id
+            node = added.id
+            also = []
+            said = more ? "A stroke added to the drawing" : "A drawing drawn on this slide"
         }
     }
 

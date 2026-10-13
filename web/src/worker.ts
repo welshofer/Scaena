@@ -360,6 +360,10 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         current(data.source);
         layOut(data.format);
         return post({ type: "adding", id: data.id, added: JSON.parse(player.drawing(data.state, data.n, ...data.from, ...data.to, data.free)) as Added });
+      case "inking":
+        current(data.source);
+        layOut(data.format);
+        return post({ type: "adding", id: data.id, added: JSON.parse(player.inking(data.state, new Float32Array(data.points), data.onto)) as Added });
       case "duplicating":
         current(data.source);
         layOut(data.format);

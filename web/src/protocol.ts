@@ -962,6 +962,9 @@ export type ToWorker =
    * units), snapped to the theme's grid as a resize snaps, or, `free`, where it was drawn (PLAN
    * 2.48). */
   | { type: "drawing"; id: number; source: string; state: string; n: number; from: [number, number]; to: [number, number]; free: boolean; format?: string }
+  /** A stroke of the pen in `state`, its points as `x, y` pairs in canvas units (PLAN 2.114): one
+   * more stroke of the drawing `onto` where the state shows it as one, else a new drawing. */
+  | { type: "inking"; id: number; source: string; state: string; points: number[]; onto?: string; format?: string }
   | { type: "duplicating"; id: number; source: string; state: string; node: string; format?: string }
   | { type: "wording"; id: number; source: string; shape: string }
   | { type: "connecting"; id: number; source: string; state: string; from: string; to: string; arrow: boolean }

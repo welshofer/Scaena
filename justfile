@@ -223,6 +223,7 @@ web-smoke: site
     node web/transition.mjs
     node web/builds.mjs
     node web/mask.mjs
+    node web/pen.mjs
     node web/draw.mjs
     node web/findings.mjs
     node web/layers.mjs
