@@ -41,8 +41,8 @@ struct ScaenaApp: App {
     #if !os(macOS)
     /// Whether New from a Prompt's brief covers the launch screen (PLAN G.6).
     @State private var prompting = false
-    /// The launch screen's button, waiting on the brief: the bundle of the deck made, or none.
-    @State private var prompted: CheckedContinuation<URL?, Never>?
+    /// The bundle of the deck the brief made, opened once the brief is put away.
+    @State private var made: URL?
     #endif
 
     var body: some Scene {
@@ -69,29 +69,34 @@ struct ScaenaApp: App {
             #endif
         }
         #if !os(macOS)
-        // The document browser's launch screen: a new deck, or one written from a prompt, which
-        // the browser keeps where it stands and opens (PLAN G.6). The brief covers the screen from
-        // its button, which waits on it, as the platform's own example covers one, the launch scene
-        // declared after the DocumentGroup it launches; shown from UIKit instead, the brief never
-        // showed. With it, a deck's window has no bar of the browser's over the split view: the
-        // deck's way back stands in the bar over the canvas's column, and the toolbar stands there
-        // with it (`DeckView`). Put on the split view (#281), the toolbar showed nowhere.
+        // The document browser's launch screen: a new deck, or one written from a prompt (PLAN
+        // G.6), declared after the DocumentGroup it launches. New from a Prompt is a button of its
+        // own whose brief covers the screen: a NewDocumentButton given a content type or a closure
+        // that prepares the document never asks the closure for a ReferenceFileDocument
+        // (FB21003107), so the brief never showed. The deck made is kept in the app's folder and
+        // opened as the browser opens one a person picks (`Prompting.open`). With the launch
+        // screen, a deck's window has no bar of the browser's over the split view: the deck's way
+        // back stands in the bar over the canvas's column, and the toolbar stands there with it
+        // (`DeckView`). Put on the split view (#281), the toolbar showed nowhere.
         DocumentGroupLaunchScene("Scaena") {
-            NewDocumentButton("New Deck", contentType: .scaenaDeck)
-            NewDocumentButton("New from a Prompt…", contentType: .scaenaDeck) { @MainActor in
-                await withCheckedContinuation { waiting in
-                    prompted = waiting
-                    prompting = true
-                }
+            NewDocumentButton("New Deck")
+            Button("New from a Prompt…") {
+                openingLog.debug("New from a Prompt: the brief asked for")
+                prompting = true
             }
             .fullScreenCover(isPresented: $prompting) {
+                if let made {
+                    self.made = nil
+                    Prompting.open(made)
+                }
+            } content: {
                 NavigationStack {
-                    PromptView { made in
+                    PromptView { bundle in
+                        made = bundle
                         prompting = false
-                        prompted?.resume(returning: made)
-                        prompted = nil
                     }
                 }
+                .onAppear { openingLog.debug("New from a Prompt: the brief shows") }
             }
         }
         #endif

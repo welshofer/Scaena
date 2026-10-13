@@ -28,7 +28,7 @@ rm -rf "$results"
 # each key went (PLAN 4.6), and how long the GPU, each deck, and each canvas's surface took to open.
 said="$root/target/ipad/log.txt"
 xcrun simctl spawn "$udid" log stream --level debug --style compact \
-  --predicate 'subsystem == "com.welshofer.Scaena"' >"$said" 2>&1 &
+  --predicate 'subsystem == "com.welshofer.Scaena" OR (process == "ScaenaApp" AND (messageType == error OR messageType == fault))' >"$said" 2>&1 &
 logging=$!
 status=0
 xcodebuild test-without-building -quiet -project Scaena.xcodeproj -scheme ScaenaApp -destination "$destination" \

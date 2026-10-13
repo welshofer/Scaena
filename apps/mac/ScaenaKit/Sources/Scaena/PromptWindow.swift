@@ -27,21 +27,62 @@ struct PromptCommands: Commands {
 }
 #else
 /// New from a Prompt on the iPad (PLAN G.6): the document browser's launch screen offers it beside
-/// New Deck, and the brief covers the screen from its button (`ScaenaApp`). The deck made is handed
-/// to the browser as a bundle, which it keeps where it stands and opens as a new document.
+/// New Deck, and its brief covers the screen (`ScaenaApp`). The deck made is kept in the app's own
+/// folder, On My iPad › Scaena, and opened as the browser opens a deck a person picks there.
 @MainActor
 enum Prompting {
-    /// `document` written as a bundle named for what it is about, in a folder of its own among the
-    /// app's temporary files, where the browser takes it from; the deck to say `said` as it opens.
+    /// `document` written as a bundle named for what it is about in the app's own folder, numbered
+    /// where a deck there has the name already; the deck to say `said` as it opens.
     static func written(_ document: ScaenaDocument, about topic: String, said: String) throws -> URL {
         let name = fileName(topic)
-        let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let bundle = folder.appending(path: "\(name).scaena", directoryHint: .isDirectory)
+        let folder = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+        var bundle = folder.appending(path: "\(name).scaena", directoryHint: .isDirectory)
+        var n = 2
+        while FileManager.default.fileExists(atPath: bundle.path) {
+            bundle = folder.appending(path: "\(name) \(n).scaena", directoryHint: .isDirectory)
+            n += 1
+        }
         let files = try document.snapshot(contentType: .scaenaDeck)
         try ScaenaDocument.wrapper(files).write(to: bundle, options: .atomic, originalContentsURL: nil)
         ScaenaDocument.handing(said, as: name)
         return bundle
+    }
+
+    /// The deck at `bundle` opened as the document browser opens one a person picks: shown in the
+    /// browser, then handed to it as picked. Each step is logged, the iPad's UI tests reading it.
+    static func open(_ bundle: URL) {
+        guard let browser = browser() else {
+            openingLog.debug("New from a Prompt: no document browser to open the deck in")
+            return
+        }
+        browser.revealDocument(at: bundle, importIfNeeded: false) { shown, error in
+            Task { @MainActor in
+                guard let shown else {
+                    openingLog.debug("New from a Prompt: the deck not shown: \(String(describing: error), privacy: .public)")
+                    return
+                }
+                browser.delegate?.documentBrowser?(browser, didPickDocumentsAt: [shown])
+                openingLog.debug("New from a Prompt: the deck handed to the browser")
+            }
+        }
+    }
+
+    /// The document browser in a window of the app, the launch screen's: found among each window's
+    /// view controllers, what each holds and what each presents.
+    private static func browser() -> UIDocumentBrowserViewController? {
+        func found(in controller: UIViewController?) -> UIDocumentBrowserViewController? {
+            guard let controller else { return nil }
+            if let browser = controller as? UIDocumentBrowserViewController { return browser }
+            for child in controller.children {
+                if let browser = found(in: child) { return browser }
+            }
+            return found(in: controller.presentedViewController)
+        }
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+        for window in windows.filter(\.isKeyWindow) + windows.filter({ !$0.isKeyWindow }) {
+            if let browser = found(in: window.rootViewController) { return browser }
+        }
+        return nil
     }
 
     /// A deck's file name from what it is about: its first line, without a slash or a colon, at
