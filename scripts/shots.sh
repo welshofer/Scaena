@@ -2,7 +2,8 @@
 # The screenshots a CI run kept, where whoever reviews the pull request can fetch them without the
 # run's artifacts: each PNG under DIR made a JPEG no wider than 1600 pixels, named as the test that
 # kept it named it; each screen recording a UI test made (MP4), and what the steps that took them
-# said (each `.txt`: the Mac's `window.txt`, the iPad's `log.txt`), as they are; in one commit with
+# said (each `.txt`: the Mac's `window.txt`, the iPad's `log.txt`, and the elements a UI test kept
+# as text, named as it named them), as they are; in one commit with
 # no parent, force-pushed to the branch `shots/NAME`, which the next run replaces. On a Mac (sips);
 # in a job that may push (`contents: write`).
 #
@@ -23,8 +24,10 @@ if os.path.exists(manifest):
         for shot in test.get("attachments", []):
             names[shot["exportedFileName"]] = shot.get("suggestedHumanReadableName") or shot["exportedFileName"]
 for file in sorted(os.listdir(src)):
-    if file.endswith(".txt"):
-        shutil.copy(os.path.join(src, file), os.path.join(out, file))
+    if file.endswith(".txt") or names.get(file, "").endswith(".txt"):
+        name = re.sub(r"[^A-Za-z0-9._-]+", "-", names.get(file, file))
+        name = name if name.endswith(".txt") else name + ".txt"
+        shutil.copy(os.path.join(src, file), os.path.join(out, name))
         continue
     ext = os.path.splitext(file)[1].lower()
     if ext not in (".png", ".mp4"):

@@ -107,4 +107,15 @@ extension XCTestCase {
         shot.lifetime = .keepAlways
         add(shot)
     }
+
+    /// What `app` shows as XCUITest reads it, each element with its kind, frame, identifier, and
+    /// label, kept with the run's results as `name`: beside a screenshot, what each control on it
+    /// is, as the Mac's walk keeps `window.txt`.
+    @MainActor
+    func keepElements(_ app: XCUIApplication, as name: String) {
+        let elements = XCTAttachment(string: app.debugDescription)
+        elements.name = name
+        elements.lifetime = .keepAlways
+        add(elements)
+    }
 }

@@ -2,26 +2,10 @@ import Foundation
 import ScaenaKit
 import Testing
 
-/// The revenue example's bundle: its deck, and the fonts, themes, data, and pictures beside it.
-private func revenueExample() throws -> [String: Data] {
-    let examples = repository.appending(path: "docs/examples")
-    var files = ["deck.json": try Data(contentsOf: examples.appending(path: "revenue.deck.json"))]
-    for dir in ["fonts", "themes", "data", "assets"] {
-        let root = examples.appending(path: dir).resolvingSymlinksInPath()
-        guard let walk = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey])
-        else { continue }
-        for case let url as URL in walk where (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true {
-            let path = url.resolvingSymlinksInPath().pathComponents.dropFirst(root.pathComponents.count)
-            files["\(dir)/\(path.joined(separator: "/"))"] = try Data(contentsOf: url)
-        }
-    }
-    return files
-}
-
 /// The layouts a slide may take (PLAN 2.92, 3.26), as the Format tab shows them: judged a step at
 /// a time, best first, each drawn small and its picture taken once, and one chosen by its patch.
 @Test func aSlidesLayoutsAreJudgedAStepAtATimeAndDrawnSmall() throws {
-    let session = try ScaenaSession(files: revenueExample())
+    let session = try ScaenaSession(files: example("revenue"))
     let count = try session.layoutsBegin(state: "revenue")
     var steps = 1
     while try session.layoutsStep() { steps += 1 }
@@ -46,7 +30,7 @@ private func revenueExample() throws -> [String: Data] {
 /// each named as a person calls it, in its section; then a few drawn as the picker asks for them,
 /// kept by the editor, and drawn again only for another theme or format.
 @Test @MainActor func theLayoutsAreListedThenDrawnAFewAtATimeAndKept() throws {
-    let session = try ScaenaSession(files: revenueExample())
+    let session = try ScaenaSession(files: example("revenue"))
     let listed = try session.starters()
     #expect(listed.count == 125 && listed.last?.layout == nil, "Dusk's 124, then a blank slide")
     #expect(listed.allSatisfy { $0.width == 0 && $0.height == 0 }, "listed, none drawn")

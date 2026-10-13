@@ -40,7 +40,7 @@ A theme change is a pure re-render: swap `theme`, and the next frame is in the n
    - Once the deck is valid with the new theme, lint lays it out, and the delta adds what the new type and colors break (step 4).
 4. **Read the layout findings in the delta.** Lint lays every state out in the new theme, so the delta also says what the new type and colors break:
    - **E100:** text that no longer fits. A larger type scale wants tighter copy (the `tighten-copy` skill) or `fit: shrink`, not overrides.
-   - **E110 and E111:** text whose contrast with what is painted behind it drops below WCAG's line. A palette with less contrast wants a different color *role*, not a literal.
+   - **E110 and E111:** text whose contrast with what is painted behind it drops below WCAG's line. The swap sets each text it would leave too faint in the theme's color that reads where the text stands, as the error's fix does, and `recolored` lists each one. Those left in the delta are what no color of the theme mends there. They want a different color *role*, or another picture behind, not a literal.
    - **W210:** density, if the theme's `maxWordsPerState` is lower.
    - **W221:** a role that snaps to the new theme's baseline grid at a leading off it. Its finding points into the theme file: the theme's to fix, not the deck's, with `--edit` (step 8).
    - **W310:** chart labels that now collide.

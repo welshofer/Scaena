@@ -1051,7 +1051,9 @@ async function edit(source: Source) {
       } else if (source && edited) {
         made(source, edited);
         const [worse, better] = [themed.added.length, themed.removed.length];
-        say(`theme ${label} · lint finds ${worse} new, ${better} gone`);
+        const n = themed.recolored.length;
+        const recolored = n ? ` · ${n} text${n === 1 ? "" : "s"} recolored to read on what lies behind ${n === 1 ? "it" : "them"}` : "";
+        say(`theme ${label}${recolored} · lint finds ${worse} new, ${better} gone`);
       }
     } catch (e) {
       themePicker.value = named;

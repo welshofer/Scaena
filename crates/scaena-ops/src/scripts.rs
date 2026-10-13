@@ -388,7 +388,7 @@ mod tests {
         let b = scaena_store::Bundle::in_memory(files).unwrap();
         let ember = std::fs::read_to_string(root().join("docs/examples/themes/ember.theme.json")).unwrap();
         let (themed, rethemed) =
-            crate::theme::theming(&b, "themes/ember.theme.json", &ember, &BTreeMap::new(), true, false).unwrap();
+            crate::theme::theming(&b, "themes/ember.theme.json", &ember, &BTreeMap::new(), true, false, true).unwrap();
         assert!(themed.applied && !themed.refused, "{themed:#?}");
         assert!(themed.added.iter().all(|f| f.code != "E120"), "{:#?}", themed.added);
         let theme: Value = serde_json::from_slice(&rethemed.files["themes/ember.theme.json"]).unwrap();

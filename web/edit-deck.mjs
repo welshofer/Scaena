@@ -5,8 +5,8 @@
 //
 //   node web/edit-deck.mjs     (after `just site`; from the repository's root)
 //
-// - The theme picker re-themes the deck in Daybreak, where each contrast error the storm slide's
-//   photo makes is fixed in one click and undone, and back in the theme it had.
+// - The theme picker re-themes the deck in Daybreak, which sets the storm slide's title and note
+//   in its color that reads on the photo itself, and back in the theme it had.
 // - In the strip: a slide moved with Alt+→, one deleted with Delete, and the delete undone with
 //   ⌘Z. A slide's id is renamed in the source (PLAN 2.99).
 // - A text clicked on the canvas takes another role and another color from the inspector.
@@ -144,31 +144,18 @@ try {
     await page.selectOption("#theme", "ships:Daybreak");
     await changed(before);
     check(/daybreak/i.test((await source()).split("\n").find((l) => l.startsWith("deck ")) ?? ""), `the deck is in Daybreak: ${await status()}`);
-    // In Daybreak the storm slide sets its title and note dark on its dark photo: each contrast
-    // error offers the theme's color that reads there, taken in one click (PLAN 2.82), and undone.
+    // In Daybreak the storm slide would set its title and note dark on its dark photo: the
+    // re-theme sets each in the theme's color that reads there itself, and says so (PLAN 2.82).
+    await until("the re-theme says what it recolored", () => document.querySelector("#status").textContent.includes("recolored"), undefined, 60000).catch(() => {});
+    check((await status()).includes("2 texts recolored"), `the re-theme recolors the storm slide's title and note: ${await status()}`);
     await show("storm");
-    const themed = await source();
+    const storm = (await source()).match(/\nstate storm [\s\S]*?(?=\nstate |$)/)?.[0] ?? "";
+    check((storm.match(/style:\{color: surface\}/g)?.length ?? 0) === 2, "each set in Daybreak's surface, in the source");
+    await page.waitForTimeout(1000);
     for (const node of ["storm-title", "storm-note"]) {
-      await until(`a contrast error on ${node}`, (n) => window.scaena.canvas.marks().some((m) => m.node === n && m.severity === "error"), node, 60000);
-      await page.locator(`#marks [data-mark="${node}"]`).click();
-      await until(`${node}'s findings open`, () => document.querySelector("#marked").matches(":popover-open"));
-      const fixes = await page.$$eval("#marked [data-fix]", (bs) => bs.map((b) => ({ i: b.dataset.fix, change: b.nextElementSibling?.textContent ?? "" })));
-      const recolor = fixes.find((f) => f.change.includes("color: surface"));
-      if (!check(Boolean(recolor), `${node}'s contrast error offers the theme's surface color: ${JSON.stringify(fixes)}`)) continue;
-      const at = await mark();
-      await page.locator(`#marked [data-fix="${recolor.i}"]`).click();
-      await changed(at);
-      const clear = (n) => !window.scaena.canvas.marks().some((m) => m.node === n && m.severity === "error");
-      await until(`${node} reading, its fix taken`, clear, node, 60000);
-      check(await page.evaluate(clear, node), `one click, and ${node} reads: no error on it`);
+      const faint = await page.evaluate((n) => window.scaena.last().findings.some((f) => f.node === n && (f.code === "E110" || f.code === "E111")), node);
+      check(!faint, `${node} reads in Daybreak: no contrast error on it`);
     }
-    for (const _ of ["storm-note", "storm-title"]) {
-      const at = await mark();
-      await page.locator("#overlay").focus();
-      await page.keyboard.press("Control+z");
-      await changed(at);
-    }
-    check(await back(themed), "and two undos take both fixes back");
     await until(`${was} in the theme picker`, (w) => [...document.querySelectorAll("#theme option")].some((o) => o.value === w), was);
     const again = await mark();
     await page.selectOption("#theme", was);

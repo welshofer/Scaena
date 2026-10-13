@@ -33,6 +33,17 @@ private let torture = repository.appending(path: "tests/fixtures/torture.scaena"
     #expect(try color() == "#101014", "undone: the theme written back")
 }
 
+/// A theme taken recolors what it would leave too faint to read (PLAN 2.82), as the browser's
+/// does: trails in Daybreak sets its storm slide's title and note in the theme's color that reads
+/// on the photo, and the panel says how many. A deck with nothing to recolor recolors nothing.
+@Test func aThemeTakenRecolorsWhatItWouldLeaveTooFaintToRead() throws {
+    let trails = try ScaenaSession(files: example("trails"))
+    let themed = try trails.retheme(ships: "daybreak")
+    #expect(themed.applied && themed.recolored == 2, "\(themed.recolored) recolored")
+    let made = try ScaenaSession.create(theme: "Dusk", title: "Trail report")
+    #expect(try made.retheme(ships: "daybreak").recolored == 0)
+}
+
 /// The data and files panels (PLAN 3.15, as the browser's, PLAN 2.55, 2.59): a source as a sheet,
 /// a cell set, undone and redone; a row added and taken away; a value its column does not read
 /// refused; and a file nothing names taken out and put back, one the deck names kept.
