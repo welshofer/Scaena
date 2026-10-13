@@ -319,6 +319,51 @@ impl Generating {
                 self.painted = Some((placed, assets, unmade));
                 out
             }
+            "picture" => {
+                // One picture a person asks for in an editor (PLAN 2.107): of `subject`, made as
+                // `look` in the palette of `theme` (the deck's theme, its JSON), for a place
+                // `width` × `height` on the slide, by `provider`'s `model`; painted by `paint`,
+                // `painted`, and `round` as a made deck's are: `{pictures}`, one.
+                let theme: scaena_core::model::theme::Theme =
+                    serde_json::from_str(arg("theme")?).map_err(|e| said(format!("the theme: {e}")))?;
+                let look = scaena_narrato::pictures::Look::named(arg("look")?)
+                    .ok_or_else(|| said("picture: `look` is illustration or photo"))?;
+                let subject = arg("subject")?;
+                if subject.trim().is_empty() {
+                    return Err(said("say what the picture shows"));
+                }
+                let size = |key: &str| {
+                    args.get(key)
+                        .and_then(Value::as_f64)
+                        .filter(|v| *v > 0.0)
+                        .ok_or_else(|| said(format!("picture: `{key}`")))
+                };
+                let asked = scaena_ops::narrative::asked_one(&theme, subject, look, size("width")?, size("height")?);
+                let settings = scaena_narrato::pictures::Settings {
+                    provider: provider(arg("provider")?)?,
+                    model: arg("model")?.to_string(),
+                    base: args.get("base").and_then(Value::as_str).filter(|b| !b.is_empty()).map(str::to_string),
+                    quality: (args.get("quality").and_then(Value::as_str))
+                        .and_then(scaena_narrato::pictures::Quality::named)
+                        .unwrap_or_default(),
+                };
+                self.painting = Some((Painting::new(vec![asked], settings), Vec::new()));
+                self.painted = None;
+                json!({ "pictures": 1 })
+            }
+            "pictureMade" => {
+                // The picture `picture` asked for, made: `{bytes, ext, alt}`, its bytes in base64,
+                // its file's kind (`png`, `jpg`), and what it shows; or why none was made.
+                let (painting, _) = self.painting.take().ok_or_else(|| said("pictureMade: no picture is asked"))?;
+                let (placed, assets, unmade) = painting.finish();
+                let made = placed.values().next().and_then(|p| Some((p, assets.get(&p.src)?)));
+                let Some((put, bytes)) = made else {
+                    let why = unmade.join("; ");
+                    return Err(said(if why.is_empty() { "no picture was made".to_string() } else { why }));
+                };
+                let ext = put.src.rsplit_once('.').map_or("png", |(_, ext)| ext);
+                json!({ "bytes": base64::engine::general_purpose::STANDARD.encode(bytes), "ext": ext, "alt": put.alt })
+            }
             "make" => {
                 let shipped = shipped(arg("theme")?)?;
                 self.theme = arg("theme")?.to_string();

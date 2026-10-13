@@ -55,6 +55,7 @@ import {
 import { themes } from "@scaena/themes";
 import { panel } from "./assistant/panel";
 import { TOOLS, writer } from "./writing";
+import { picturer } from "./picturing";
 import { sourceOf } from "./bundle";
 import { canvas, canvasKeys, placed } from "./canvas";
 import { markName, noteName } from "./notes";
@@ -1017,6 +1018,8 @@ async function edit(source: Source) {
   /** What may be inserted (PLAN 2.34), grouped by type, as the deck offers it: asked again after
    * each edit, since the theme and the bundle's images change. */
   const inserter = $<HTMLSelectElement>("#insert");
+  /** The Insert menu's own choice beside what the deck offers: a picture made (PLAN 2.107). */
+  const MAKE_PICTURE = "make-picture";
   let offered = "";
   /** What may be inserted, by label, as the deck last offered it: what the palette lists. */
   let insertable: string[] = [];
@@ -1040,16 +1043,23 @@ async function edit(source: Source) {
       group.append(new Option(said, String(n)));
       insertable.push(`${kind} · ${said}`);
     }
-    // Icons are the set's that ship, not the theme's or the bundle's: Icon… opens their picker.
+    // Icons are the set's that ship, not the theme's or the bundle's: Icon… opens their picker. A
+    // picture made by the user's image model (PLAN 2.107) comes after what the deck offers.
     const icon = Object.assign(document.createElement("optgroup"), { label: "Icon" });
     icon.append(new Option("Icon…", "icon"));
-    inserter.replaceChildren(new Option("Insert…", ""), ...groups.values(), icon);
+    inserter.replaceChildren(
+      new Option("Insert…", ""),
+      ...groups.values(),
+      icon,
+      new Option("Make a picture…", MAKE_PICTURE),
+    );
   }
   inserter.onchange = () => {
     const chosen = inserter.selectedOptions[0];
     inserter.value = "";
     if (!chosen?.value) return;
     if (chosen.value === "icon") return void insertIcon();
+    if (chosen.value === MAKE_PICTURE) return void picturing.open();
     void board.insert(Number(chosen.value), chosen.textContent ?? undefined);
     $("#overlay").focus();
   };
@@ -1125,11 +1135,11 @@ async function edit(source: Source) {
     try {
       if (taken?.source === source) edited = taken.edited;
       else {
-        const before = taken;
+        // The worker holds this source's deck from now on, not the one the patch left: an undo,
+        // then a redo back to the patch's source, compiles it again, even a redo made before
+        // this answer comes. A patch taken meanwhile is the worker's after this, and stays.
+        taken = undefined;
         edited = await stage.edit(source, shown, format());
-        // The worker holds this source's deck now, not the one the patch left: an undo, then a
-        // redo back to the patch's source, compiles it again. A patch taken meanwhile stays.
-        if (taken === before) taken = undefined;
       }
     } catch (e) {
       status.textContent = `Error: ${said(e)}`;
@@ -1579,6 +1589,21 @@ async function edit(source: Source) {
     },
     slide: slideOf,
   });
+  /** Make a picture (PLAN 2.107): of what the user says, by the image model their OpenAI or Gemini
+   * key lists, in the theme's palette, for the image selected, the slide's empty place for a
+   * picture, or where they last pressed; one patch, one step to undo. */
+  const picturing = picturer(stage, {
+    target: async () => {
+      if (!ready()) return "Nothing to make a picture for yet: the deck must compile first, with no text typed in";
+      return (await board.pictureTarget()) ?? "Nothing to make a picture for yet: the deck must compile first";
+    },
+    put: (target, made) => board.putPicture(target, made),
+    say,
+    keys: () => {
+      tab("assistant");
+      $("#key").focus();
+    },
+  });
   /** Ask the model the assistant uses to write `kind` for `node`, a text, or for the state shown. */
   function write(kind: WritingKind, node?: string) {
     const now = showing();
@@ -1690,6 +1715,8 @@ async function edit(source: Source) {
           run: () => write(kind, picked()[0]),
         }),
       ),
+      // A picture made by the user's image model in the image's place (PLAN 2.107).
+      { label: "Make a picture to replace it…", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "image", run: () => void picturing.open() },
       // A lock (PLAN 2.95): the canvas passes over what is locked, and moves and deletes nothing of it.
       {
         label: any() && picked().every((n) => board.lockedBy(n) === n) ? "Unlock" : "Lock",
@@ -1795,6 +1822,14 @@ async function edit(source: Source) {
       { label: "Paste", keys: `${MOD}V`, group: "Edit", where: ["canvas"], applies: ready, run: pasted },
       ...inserts,
       icon,
+      // A picture made by the user's image model (PLAN 2.107): in the slide's empty place for one,
+      // else where the pointer last pressed.
+      {
+        label: "Make a picture…",
+        where: ["canvas"],
+        applies: () => ready() && !(picked().length === 1 && typeOf(picked()[0]) === "image"),
+        run: () => void picturing.open(),
+      },
       ...draws.map(
         ([key, label]): Command => ({ label, keys: key.toUpperCase(), group: "Draw and insert", where: ["canvas"], applies: () => ready() && board.armed()?.key !== key, run: () => press(key) }),
       ),
@@ -2149,6 +2184,8 @@ async function edit(source: Source) {
       assistant,
       /** The writing tools (PLAN 2.101): one asked, and its answer taken, settled. */
       writing,
+      /** Make a picture (PLAN 2.107): the dialog opened, and the last picture made and put, settled. */
+      picturing,
       /** The canvas: what it selected, what stands where, and its drag. */
       canvas: board,
       /** The layers panel: what it lists, and the patches it makes. */

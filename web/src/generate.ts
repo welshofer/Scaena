@@ -10,7 +10,7 @@
 // and kept in the browser's cache for the next deck (PLAN G.22, ADR-0027).
 import { Making, scriptChecked, scriptFor, scriptTaken, writable } from "@scaena/wasm";
 import { findIcons, iconSet } from "./icon-set";
-import type { Choices, Generate, Generated, GeneratingEvent, Health } from "./protocol";
+import type { Choices, Generate, Generated, GeneratingEvent, Health, PictureJob } from "./protocol";
 
 type Generator = typeof import("@scaena/generator");
 
@@ -246,8 +246,21 @@ async function paint(
   hear: (event: GeneratingEvent) => void,
 ): Promise<{ placed: string; bytes: Map<string, Uint8Array>; made: number; unmade: string[] } | undefined> {
   const asked = generation.pictures(theme.text, pictures.look);
+  if (!(JSON.parse(asked) as unknown[]).length) return undefined;
+  return painting(g, asked, pictures, hear);
+}
+
+/** The pictures `asked` (JSON, as `Painting` takes them) made by the best image model the key
+ * lists at `pictures.provider`, every one at once, each round's answers read by the generator,
+ * which says how long to wait before asking a busy provider again. None where the key lists no
+ * image model, which `hear` hears. */
+async function painting(
+  g: Generator,
+  asked: string,
+  pictures: { provider: "openai" | "gemini"; key: string; base?: string },
+  hear: (event: GeneratingEvent) => void,
+): Promise<{ placed: string; bytes: Map<string, Uint8Array>; made: number; unmade: string[]; model: string } | undefined> {
   const wanted = (JSON.parse(asked) as unknown[]).length;
-  if (!wanted) return undefined;
   const listed = await send(JSON.parse(g.pictureModelsRequest(pictures.provider, pictures.key, pictures.base)));
   let model: string | undefined;
   try {
@@ -281,10 +294,31 @@ async function paint(
     }
     const unmade = JSON.parse(finished.unmade()) as string[];
     hear({ kind: "painted", pictures: bytes.size, unmade });
-    return { placed: finished.placed(), bytes, made: bytes.size, unmade };
+    return { placed: finished.placed(), bytes, made: bytes.size, unmade, model };
   } finally {
     finished?.free();
   }
+}
+
+/** One picture a person asks for in the editor (PLAN 2.107): of `job.subject`, made as `job.look`
+ * in `theme`'s palette (the theme's JSON) for a place `job.width` × `job.height`, by the best image
+ * model the key lists, as a made deck's pictures are. Its bytes, its file's kind (`png`, `jpg`),
+ * what it shows, and the model that made it; or an error that says why none was made. */
+export async function picture(
+  job: PictureJob,
+  theme: string,
+): Promise<{ bytes: Uint8Array; ext: string; alt: string; model: string }> {
+  const g = await generator();
+  const asked = g.pictureAsked(theme, job.subject, job.look, job.width, job.height);
+  let why: string | undefined;
+  const made = await painting(g, asked, job, (event) => {
+    if (event.kind === "painted" && event.unmade.length) why = event.unmade.join("; ");
+  });
+  if (!made) throw new Error(why ?? "no picture was made");
+  const [path, bytes] = [...made.bytes][0] ?? [];
+  if (!path || !bytes) throw new Error((why ?? "no picture was made").replace(/^slide 1: /, ""));
+  const alt = (JSON.parse(made.placed) as Record<string, { alt: string }>)["0"]?.alt ?? job.subject.trim();
+  return { bytes, ext: path.replace(/^.*\./, ""), alt, model: made.model };
 }
 
 /** Deep research on the brief's topic (PLAN G.8), its report kept among `sources`: Gemini's agent

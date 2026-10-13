@@ -280,6 +280,50 @@ fn a_deck_in_another_script_takes_the_font_swift_fetches() {
     unsafe { scaena_generator_free(g) };
 }
 
+/// One picture a person asks for in an editor (PLAN 2.107), as ScaenaKit's `Generator.picture`
+/// makes it: of their words, in the deck's theme, framed as its place, painted as a made deck's
+/// pictures are, and handed back with what it shows; a refusal says why, and so does a picture
+/// that shows nothing.
+#[test]
+fn a_picture_asked_for_in_an_editor_is_painted_and_handed_back() {
+    let b64 = base64::engine::general_purpose::STANDARD;
+    let g = scaena_generator_new();
+    let theme = std::fs::read_to_string("../../docs/examples/themes/dusk.theme.json").unwrap();
+    let picture = |subject: &str| {
+        json!({ "theme": theme, "subject": subject, "look": "photo", "width": 400, "height": 900,
+                "provider": "openai", "model": "gpt-image-1" })
+    };
+    assert_eq!(step(g, "picture", picture("A lighthouse at dusk"), &[])["pictures"], 1);
+    let round = step(g, "paint", json!({ "key": "sk-pictures" }), &[]);
+    let requests = round["requests"].as_array().unwrap();
+    assert_eq!(requests.len(), 1, "asked once");
+    assert_eq!(requests[0]["headers"]["authorization"], "Bearer sk-pictures");
+    let body: Value = serde_json::from_str(requests[0]["body"].as_str().unwrap()).unwrap();
+    assert_eq!(body["size"], "1024x1536", "framed tall, as its place is");
+    let prompt = body["prompt"].as_str().unwrap();
+    assert!(prompt.contains("SUBJECT: A lighthouse at dusk") && prompt.contains("#FF6A3D"), "{prompt}");
+    let jpeg = std::fs::read("../../tests/fixtures/jpeg/baseline-422.jpg").unwrap();
+    let answer = json!({ "data": [{ "b64_json": b64.encode(&jpeg) }] }).to_string();
+    step(g, "painted", json!({ "status": 200, "statusText": "OK" }), answer.as_bytes());
+    assert_eq!(step(g, "round", json!({}), &[])["wait"], 0.0);
+    assert!(step(g, "paint", json!({ "key": "sk-pictures" }), &[])["requests"].as_array().unwrap().is_empty());
+    let made = step(g, "pictureMade", json!({}), &[]);
+    assert_eq!((made["alt"].as_str(), made["ext"].as_str()), (Some("A lighthouse at dusk"), Some("jpg")));
+    assert_eq!(b64.decode(made["bytes"].as_str().unwrap()).unwrap(), jpeg, "the picture's own bytes");
+    // Refused by the provider: why, and nothing handed back.
+    step(g, "picture", picture("A harbor at night"), &[]);
+    step(g, "paint", json!({ "key": "sk-pictures" }), &[]);
+    let refused = br#"{"error":{"message":"Your request was rejected by the safety system."}}"#;
+    step(g, "painted", json!({ "status": 400, "statusText": "Bad Request" }), refused);
+    step(g, "round", json!({}), &[]);
+    let none = answered(g, "pictureMade", &json!({}), &[]);
+    assert!(none["error"]["message"].as_str().unwrap().contains("safety system"), "{none}");
+    // A picture of nothing is not asked for.
+    let blank = answered(g, "picture", &picture("  "), &[]);
+    assert!(blank["error"]["message"].as_str().unwrap().contains("say what the picture shows"), "{blank}");
+    unsafe { scaena_generator_free(g) };
+}
+
 #[test]
 fn a_step_out_of_order_is_an_error_that_says_why() {
     let g = scaena_generator_new();
@@ -288,6 +332,7 @@ fn a_step_out_of_order_is_an_error_that_says_why() {
         ("paint", json!({ "key": "k" })),
         ("round", json!({})),
         ("finish", json!({})),
+        ("pictureMade", json!({})),
         ("make", json!({ "theme": "dusk" })),
         ("report", json!({})),
         ("no such step", json!({})),

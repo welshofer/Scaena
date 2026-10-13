@@ -7,7 +7,7 @@
 use crate::{Context, OpsError};
 use scaena_core::Deck;
 use scaena_core::inserts::slug;
-use scaena_core::model::theme::{Prompt, PromptShapeKind, Slot, Theme};
+use scaena_core::model::theme::{Example, Prompt, PromptShapeKind, Slot, Theme};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -128,7 +128,6 @@ pub fn starting(deck: &Deck, theme: &Theme, shown: &str, layout: Option<&str>) -
 /// inline. An editor draws it, so a
 /// layout's picture shows what each slot is for, and never saves it.
 pub fn example(deck: &Deck, theme: &Theme, shown: &str, layout: &str) -> Result<AddedState, OpsError> {
-    use scaena_core::model::theme::Example;
     let mut started = starting(deck, theme, shown, Some(layout))?;
     let template =
         theme.layouts.get(layout).ok_or_else(|| OpsError::new(format!("the theme has no layout `{layout}`")))?;
@@ -394,6 +393,9 @@ pub struct Waiting {
     pub words: String,
     /// Whether words go there, typed in the slot's role; else a picture or a figure.
     pub typed: bool,
+    /// Whether a picture goes there: no words, and no chart or table its example (PLAN 2.107),
+    /// which an editor's Make a Picture paints.
+    pub picture: bool,
     /// The slot's text role, where words go there: what a text put in it is set in, which an
     /// editor inserts when the outline is pressed.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -430,7 +432,9 @@ pub fn waiting(
             continue;
         }
         let words = text.lines().next().unwrap_or_default().to_string();
-        out.push(Waiting { slot: b.name, rect: b.rect, words, typed: slot.role.is_some(), role: slot.role.clone() });
+        let typed = slot.role.is_some();
+        let picture = !typed && !matches!(slot.example, Some(Example::Chart(_) | Example::Table(_)));
+        out.push(Waiting { slot: b.name, rect: b.rect, words, typed, picture, role: slot.role.clone() });
     }
     Ok(out)
 }
@@ -543,9 +547,14 @@ mod tests {
         };
         let made = patched(&started.patch);
         let waits = waiting(&made, &theme, "art-left", None).unwrap();
-        let said: Vec<(&str, &str, bool)> =
-            waits.iter().map(|w| (w.slot.as_str(), w.words.as_str(), w.typed)).collect();
-        assert_eq!(said, [("art", "A picture", false)]);
+        let said: Vec<(&str, &str, bool, bool)> =
+            waits.iter().map(|w| (w.slot.as_str(), w.words.as_str(), w.typed, w.picture)).collect();
+        assert_eq!(said, [("art", "A picture", false, true)]);
+        // A place for a chart is no picture's (PLAN 2.107).
+        let charted = patched(&starting(&deck, &theme, "revenue", Some("bar-chart")).unwrap().patch);
+        let chart: Vec<(String, bool)> =
+            waiting(&charted, &theme, "bar-chart", None).unwrap().into_iter().map(|w| (w.slot, w.picture)).collect();
+        assert_eq!(chart, [("main".into(), false)]);
         assert_eq!(waits[0].rect, [120.0, 248.0, 686.0, 736.0], "columns 1 to 5, rows 3 to 12");
         let mut ops = started.patch.clone();
         ops.push(json!({ "op": "remove_node", "id": "art-left-header" }));

@@ -70,6 +70,7 @@ import type {
   WritingAsk,
   WritingCall,
   Written,
+  PictureJob,
 } from "./protocol";
 import type { Icon } from "./icon-set";
 
@@ -128,6 +129,7 @@ type Reply = Extract<
       | "put"
       | "bundleFiles"
       | "health"
+      | "pictureMade"
       | "removed"
       | "versions"
       | "version"
@@ -489,6 +491,18 @@ export class Stage {
    * time. */
   health(source: string): Promise<Health> {
     return this.request<"health">({ type: "health", id: ++this.asked, source }).then(({ health }) => health);
+  }
+
+  /** A picture made by the user's image model in the deck's theme (PLAN 2.107), by the
+   * generator's module, which the worker loads the first time: its bytes, its file's kind, what
+   * it shows, and the model that made it. */
+  makePicture(picture: PictureJob): Promise<{ bytes: ArrayBuffer; ext: string; alt: string; model: string }> {
+    return this.request<"pictureMade">({ type: "makePicture", id: ++this.asked, picture }).then(({ bytes, ext, alt, model }) => ({
+      bytes,
+      ext,
+      alt,
+      model,
+    }));
   }
 
   bundleFiles(source: string): Promise<BundleFile[]> {
@@ -992,6 +1006,7 @@ export class Stage {
       case "put":
       case "bundleFiles":
       case "health":
+      case "pictureMade":
       case "removed":
       case "versions":
       case "version":

@@ -1363,6 +1363,17 @@ pub struct Asked {
     pub alt: String,
 }
 
+/// One picture a person asks for in an editor (PLAN 2.107): of `subject`, in their words, made as
+/// `look` in `theme`'s palette, as a made deck's are, for a place `width` × `height` on the slide.
+/// What [`Painting`] takes, its one slide the first; `subject` is what it shows, for a reader.
+pub fn asked_one(theme: &Theme, subject: &str, look: Look, width: f64, height: f64) -> Asked {
+    let subject = subject.trim();
+    let style = pictures::style(look, &palette(theme));
+    let frame = Frame::of(width, height);
+    let prompt = pictures::prompt(look, &style, subject, pictures::composition(""), frame);
+    Asked { slide: 0, prompt, frame, alt: subject.to_string() }
+}
+
 /// The pictures `narrative` asks for in `theme`, made as `look`: one for each slide that wants
 /// one most, up to two in five slides (Vzestup's priorities and cap,
 /// [`scaena_narrato::pictures::wanted`]), each from Vzestup's prompt, in the theme's palette,
@@ -3761,6 +3772,35 @@ mod tests {
         assert_eq!(placed(&made.deck, 2, "number")["text"], "01");
         let images = made.deck["nodes"].as_object().unwrap().values().filter(|n| n["type"] == "image").count();
         assert_eq!(images, 5);
+    }
+
+    /// One picture asked for in an editor (PLAN 2.107): its subject in the person's words, in the
+    /// theme's palette as a made deck's pictures are, framed as its place, and painted as they are.
+    #[test]
+    fn a_picture_asked_for_in_an_editor_is_framed_as_its_place_in_the_themes_palette() {
+        use base64::Engine;
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let wide = asked_one(&theme, "  A lighthouse at dusk ", Look::Photo, 1600.0, 900.0);
+        assert_eq!((wide.slide, wide.frame, wide.alt.as_str()), (0, Frame::Landscape, "A lighthouse at dusk"));
+        assert!(wide.prompt.contains("SUBJECT: A lighthouse at dusk"), "{}", wide.prompt);
+        assert!(wide.prompt.contains("#FF6A3D"), "in the theme's accent: {}", wide.prompt);
+        assert_eq!(asked_one(&theme, "A door", Look::Illustration, 400.0, 900.0).frame, Frame::Portrait);
+        assert_eq!(asked_one(&theme, "A door", Look::Illustration, 500.0, 500.0).frame, Frame::Square);
+        let settings = pictures::Settings {
+            provider: Provider::Openai,
+            model: "gpt-image-1".into(),
+            base: None,
+            quality: pictures::Quality::Medium,
+        };
+        let mut painting = Painting::new(vec![wide], settings);
+        assert_eq!(painting.requests("sk-test").len(), 1);
+        let png = base64::engine::general_purpose::STANDARD.encode([0x89u8, b'P', b'N', b'G', 1, 2]);
+        let body = json!({ "data": [{ "b64_json": png }] }).to_string();
+        assert_eq!(painting.answer(vec![Reply { status: 200, status_text: "OK".into(), body, after: None }]), 0.0);
+        let (placed, assets, unmade) = painting.finish();
+        assert!(unmade.is_empty(), "{unmade:?}");
+        assert_eq!(placed[&0].alt, "A lighthouse at dusk");
+        assert_eq!(assets[&placed[&0].src][..4], [0x89, b'P', b'N', b'G']);
     }
 
     #[test]

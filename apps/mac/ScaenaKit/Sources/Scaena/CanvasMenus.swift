@@ -59,6 +59,11 @@ enum CanvasOffer {
         if let placeAnew = deck.placeAnew {
             offers.append(.action("Lay Out on Its Own in This Size", symbol: "rectangle.badge.plus", run: placeAnew))
         }
+        // A picture made by the user's image model (PLAN 2.107), in place of the image selected,
+        // in the slide's empty place for one, or where the menu was asked for.
+        if let makePicture = deck.makePicture {
+            offers.append(.action("Make a Picture…", symbol: "wand.and.stars", run: makePicture))
+        }
         // What the theme and the bundle offer, by kind, landing where the menu was asked for.
         var kinds: [String] = []
         for insert in deck.inserts where !kinds.contains(insert.kind) { kinds.append(insert.kind) }
