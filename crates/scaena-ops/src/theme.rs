@@ -469,6 +469,11 @@ pub struct Library {
     /// Whether the slide's number and footer, which the copy placed nowhere, were placed as the
     /// theme ships them (ADR-0028).
     pub furniture: bool,
+    /// The builds added (PLAN 2.112): the motion presets the theme ships that the copy lacked, by
+    /// their names, in the theme's order.
+    pub builds: Vec<String>,
+    /// The springs added, by their names: those the builds added spring on.
+    pub springs: Vec<String>,
 }
 
 /// `theme`, a bundle's copy of the theme that ships as `shipped`, with the layout library that
@@ -485,8 +490,11 @@ pub struct Library {
 /// the theme, and the theme is written in the library's format. A copy that places no slide
 /// number or footer takes the theme's placement of them (ADR-0028) where it has their roles and
 /// colors, left off the layouts it has of those the theme leaves them off; a deck shows them only
-/// where it asks. None where `theme` is not a copy of `shipped`, another name or another grid, or
-/// has every layout, name, and placement it would bring.
+/// where it asks. The builds the theme ships that the copy lacks are added too (PLAN 2.112), each
+/// motion preset whose duration, easing, and color the copy names, with the spring it springs on
+/// where the copy lacks that, so the cue offers every build a deck started in the theme does. None
+/// where `theme` is not a copy of `shipped`, another name or another grid, or has every layout,
+/// name, placement, and build it would bring.
 pub fn library(theme: &Value, shipped: &Value) -> Option<(Value, Library)> {
     let name = shipped.get("name")?.as_str()?;
     if theme.get("name")?.as_str()? != name {
@@ -543,11 +551,20 @@ pub fn library(theme: &Value, shipped: &Value) -> Option<(Value, Library)> {
         None => shipped.get("furniture").and_then(|f| placed(f, theme, &taken, &layouts)),
     };
     brought.furniture = furniture.is_some();
-    if brought.added.is_empty() && brought.named.is_empty() && !brought.furniture {
+    let builds = builds(theme, shipped);
+    if let Some((_, _, added, springs)) = &builds {
+        brought.builds = added.clone();
+        brought.springs = springs.clone();
+    }
+    if brought.added.is_empty() && brought.named.is_empty() && !brought.furniture && builds.is_none() {
         return None;
     }
     let mut theme = theme.clone();
     theme["layouts"] = Value::Object(layouts);
+    if let Some((presets, springs, _, _)) = builds {
+        theme["motion"]["presets"] = Value::Object(presets);
+        theme["motion"]["springs"] = Value::Object(springs);
+    }
     if !taken.is_empty() {
         if theme.pointer("/type/roles").is_none() {
             theme["type"]["roles"] = Value::Object(serde_json::Map::new());
@@ -594,6 +611,60 @@ fn placed(
         except.retain(|l| l.as_str().is_some_and(|l| layouts.contains_key(l)));
     }
     Some(Value::Object(out))
+}
+
+/// The motion presets of `copy` with the builds `shipped` has that it lacks (PLAN 2.112): each
+/// whose duration, easing, and color `copy` names, the theme's order first, then the copy's own;
+/// and its springs, with each that a build added springs on and the copy lacks. Then the names of
+/// the builds and the springs added. None where it lacks none it can take.
+#[allow(clippy::type_complexity)]
+fn builds(
+    copy: &Value,
+    shipped: &Value,
+) -> Option<(serde_json::Map<String, Value>, serde_json::Map<String, Value>, Vec<String>, Vec<String>)> {
+    let named = |at: &str| copy.pointer(at).and_then(Value::as_object).cloned().unwrap_or_default();
+    let (ours, mut springs) = (named("/motion/presets"), named("/motion/springs"));
+    let (durations, easings) = (named("/motion/durations"), named("/motion/easings"));
+    let theirs = shipped.pointer("/motion/presets")?.as_object()?;
+    let their_springs = shipped.pointer("/motion/springs").and_then(Value::as_object);
+    let has = |at: &str, name: &str| copy.pointer(at).and_then(Value::as_object).is_some_and(|m| m.contains_key(name));
+    let (mut presets, mut added, mut sprung) = (serde_json::Map::new(), Vec::new(), Vec::new());
+    for (name, preset) in theirs {
+        if let Some(own) = ours.get(name) {
+            presets.insert(name.clone(), own.clone());
+            continue;
+        }
+        // What it names: a duration, an easing, and a color the copy has, and a spring it has or
+        // can take.
+        let says = |key: &str, in_: &serde_json::Map<String, Value>| {
+            preset.get(key).and_then(Value::as_str).is_none_or(|n| in_.contains_key(n))
+        };
+        let colored = ["from", "to"].iter().all(|look| {
+            (preset.get(*look).and_then(|l| l.get("color")).and_then(Value::as_str))
+                .is_none_or(|c| c.starts_with('#') || has("/tokens/color", c) || has("/tokens/roles", c))
+        });
+        let spring = preset.get("spring").and_then(Value::as_str);
+        let springs_on =
+            spring.is_none_or(|n| springs.contains_key(n) || their_springs.is_some_and(|s| s.contains_key(n)));
+        if !(says("duration", &durations) && says("ease", &easings) && colored && springs_on) {
+            continue;
+        }
+        if let Some(n) = spring.filter(|n| !springs.contains_key(*n))
+            && let Some(s) = their_springs.and_then(|s| s.get(n))
+        {
+            springs.insert(n.to_string(), s.clone());
+            sprung.push(n.to_string());
+        }
+        presets.insert(name.clone(), preset.clone());
+        added.push(name.clone());
+    }
+    if added.is_empty() {
+        return None;
+    }
+    for (name, own) in ours {
+        presets.entry(name).or_insert(own);
+    }
+    Some((presets, springs, added, sprung))
 }
 
 /// The roles a layout sets words in: its slots', and those of its slots in each format.

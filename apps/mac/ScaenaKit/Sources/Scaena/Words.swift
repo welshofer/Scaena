@@ -103,7 +103,7 @@ enum Words {
         case "easing":
             return easings[name] ?? phrase(name)
         case "motion-preset":
-            return name == "words" ? "Word by Word" : phrase(name)
+            return presets[name] ?? phrase(name)
         case "radius", "space":
             guard let size = theme?.step(name) else { return phrase(name) }
             return size == 0 ? "None" : "\(number(size)) pt"
@@ -120,6 +120,13 @@ enum Words {
     ]
 
     private static let easings: [String: String] = ["in": "Ease In", "out": "Ease Out"]
+
+    /// The shipped themes' builds whose names say them in fewer words than a person would (PLAN 2.112).
+    private static let presets: [String: String] = [
+        "words": "Word by Word", "fadeScale": "Fade and Scale", "scaleBig": "Scale Big",
+        "moveInLeft": "Move In from Left", "moveInRight": "Move In from Right", "moveInTop": "Move In from Top",
+        "moveInBottom": "Move In from Bottom",
+    ]
 
     /// A node's kind, as a person names it.
     static func kind(_ type: String?) -> String {

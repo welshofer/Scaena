@@ -93,4 +93,24 @@ mod tests {
         assert_eq!(theme("Ember").map(|t| t.file), Some("ember.theme.json"));
         assert!(theme("ember.theme.json").is_none());
     }
+
+    /// The themes that ship offer the same builds, a presentation app's (PLAN 2.112), and the same
+    /// springs they spring on, so a deck moves between them with its cue as it is.
+    #[test]
+    fn every_theme_that_ships_offers_the_same_builds() {
+        let motion = |t: &Shipped| {
+            let parsed: serde_json::Value = serde_json::from_str(t.text).unwrap();
+            (parsed["motion"]["presets"].clone(), parsed["motion"]["springs"].clone())
+        };
+        let first = motion(&THEMES[0]);
+        for theme in &THEMES[1..] {
+            assert_eq!(motion(theme), first, "{}", theme.name);
+        }
+        let builds = first.0.as_object().unwrap();
+        assert_eq!(builds.len(), 24);
+        for name in ["appear", "typewriter", "pop", "drop", "moveInLeft", "spin", "swing", "flip", "blink", "jiggle"] {
+            assert!(builds.contains_key(name), "{name}");
+        }
+        assert!(first.1.get("bouncy").is_some(), "the spring Pop, Drop, Skid, Swing, and Jiggle spring on");
+    }
 }

@@ -47,9 +47,10 @@ fn the_mac_says_each_word_as_the_browser_does() {
 }
 
 #[test]
-fn the_mac_names_colors_easings_shapes_and_kinds_as_the_browser_does() {
+fn the_mac_names_colors_easings_presets_shapes_and_kinds_as_the_browser_does() {
     assert_eq!(dictionary(between(WORDS_SWIFT, "private static let colors", "]\n")), table(words::COLORS));
     assert_eq!(dictionary(between(WORDS_SWIFT, "private static let easings", "]\n")), table(words::EASINGS));
+    assert_eq!(dictionary(between(WORDS_SWIFT, "private static let presets", "]\n")), table(words::PRESETS));
     assert_eq!(dictionary(between(WORDS_SWIFT, "private static let shapes", "]\n")), table(words::SHAPES));
     let kinds = Regex::new(r#"case "([a-z]+)": "([^"]+)""#).unwrap();
     let source = between(WORDS_SWIFT, "static func kind(", "default:");

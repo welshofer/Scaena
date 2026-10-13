@@ -295,7 +295,8 @@ try {
     await page.mouse.click(x, y);
     await until("a motion offered for the title", () => document.querySelectorAll("#cue [data-add] option").length > 1);
     const options = await page.evaluate(() => [...document.querySelectorAll("#cue [data-add] option")].map((o) => [o.value, o.textContent]));
-    const enter = options.find(([v]) => v.includes('"enter"'));
+    // Fade, as it enters, from the theme's builds, which start with Appear.
+    const enter = options.find(([v]) => /^\["enter",.*,"fade"\]$/.test(v));
     if (!check(Boolean(enter), `the cue offers a motion for the title: ${options.map((o) => o[1]).join(", ")}`)) return;
     const before = await mark();
     await page.locator("#cue [data-add]").selectOption(enter[0]);
