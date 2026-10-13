@@ -283,8 +283,30 @@ pub fn motion(kind: &str, split: Option<&str>) -> String {
     format!("{does} {by}")
 }
 
-/// A shape's kind, as Insert offers it.
-pub const SHAPES: &[(&str, &str)] = &[("rect", "Rectangle"), ("ellipse", "Oval"), ("line", "Line"), ("arrow", "Arrow")];
+/// A shape's kind, as Insert offers it, and the shape library's polygons by name (PLAN 2.106).
+pub const SHAPES: &[(&str, &str)] = &[
+    ("rect", "Rectangle"),
+    ("ellipse", "Oval"),
+    ("line", "Line"),
+    ("arrow", "Arrow"),
+    ("polygon", "Polygon"),
+    ("triangle", "Triangle"),
+    ("right-triangle", "Right Triangle"),
+    ("diamond", "Diamond"),
+    ("parallelogram", "Parallelogram"),
+    ("trapezoid", "Trapezoid"),
+    ("pentagon", "Pentagon"),
+    ("hexagon", "Hexagon"),
+    ("octagon", "Octagon"),
+    ("star", "Star"),
+    ("chevron", "Chevron"),
+    ("right-arrow", "Right Arrow"),
+    ("left-arrow", "Left Arrow"),
+    ("up-arrow", "Up Arrow"),
+    ("down-arrow", "Down Arrow"),
+    ("plus", "Plus"),
+    ("callout", "Callout"),
+];
 
 /// A shape's kind said: `rect` as Rectangle.
 pub fn shape(kind: &str) -> String {

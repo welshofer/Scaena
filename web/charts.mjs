@@ -36,6 +36,12 @@ try {
   const source = () => page.evaluate(() => window.scaena.source());
   const status = () => page.evaluate(() => document.querySelector("#status").textContent);
   const selected = () => page.evaluate(() => window.scaena.canvas.selected());
+  /** Once the canvas selects `id`, which it does once the edit that made it is shown: whether it
+   * does within the wait. */
+  const selects = (id) =>
+    page
+      .waitForFunction((n) => window.scaena.canvas.selected() === n, id, { timeout: 10000 })
+      .then(() => true, () => false);
   /** Once the source holds `text`, and the canvas has caught up. */
   const reads = async (text) => {
     await page
@@ -97,7 +103,7 @@ try {
   await page.selectOption("#insert", chart);
   check(await reads("q3-chart chart:bar data:@q3 x:{field: quarter} y:{field: revenue}"), "the chart of q3 is inserted");
   check((await source()).includes("series:{field: product}"), "its quarters grouped by product");
-  check((await selected()) === "q3-chart", `and selected: ${await selected()}`);
+  check(await selects("q3-chart"), `and selected: ${await selected()}`);
 
   // What it reads: its source, the columns each channel can read, and the type.
   check(JSON.stringify(await offers("data", "@q3")) === JSON.stringify(["@q3"]), "its source, from the deck's");

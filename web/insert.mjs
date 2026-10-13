@@ -4,8 +4,9 @@
 //   node web/insert.mjs     (after `just web`; from the repository's root)
 //
 // On the revenue example:
-// - The Insert menu offers what Dusk and the bundle name: a text in each of the theme's roles, four
-//   shapes, and the theme's two shader presets; once a PNG is dropped into the bundle, the image.
+// - The Insert menu offers what Dusk and the bundle name: a text in each of the theme's roles, the
+//   shapes and the shape library's polygons (PLAN 2.106), and the theme's two shader presets; once
+//   a PNG is dropped into the bundle, the image.
 // - A kicker inserted where the canvas was last pressed, in the template's `kicker` slot, which
 //   nothing fills in `revenue`, fills it, and enters in `revenue`, selected: one patch, one undo.
 // - A headline inserted over the chart, whose slot is filled, takes the grid's cells in the room
@@ -15,6 +16,7 @@
 //   own delta.
 // - ⌘D copies the title beside it as `title-2`, selected, and Shift+Delete takes the copy out of
 //   the deck.
+// - A star from the shape library is a polygon of ten points in the accent, named Star.
 // - A shader preset fills the canvas under the rest, and the image dropped is inserted.
 // Exits 1 on any failure.
 import { readFile } from "node:fs/promises";
@@ -42,6 +44,12 @@ try {
   const source = () => page.evaluate(() => window.scaena.source());
   const status = () => page.evaluate(() => document.querySelector("#status").textContent);
   const selected = () => page.evaluate(() => window.scaena.canvas.selected());
+  /** Once the canvas selects `id`, which it does once the edit that made it is shown: whether it
+   * does within the wait. */
+  const selects = (id) =>
+    page
+      .waitForFunction((n) => window.scaena.canvas.selected() === n, id, { timeout: 10000 })
+      .then(() => true, () => false);
   const box = (node) => page.evaluate((n) => window.scaena.canvas.boxes().find((b) => b.node === n)?.rect, node);
   /** Once the source holds `text` (or, with `absent`, does not), and the canvas has caught up. */
   const reads = async (text, absent = false) => {
@@ -102,7 +110,12 @@ try {
   await page.waitForFunction(() => document.querySelectorAll("#insert optgroup").length > 0, null, { timeout: 30000 });
   const offered = await menu();
   check(["Display", "Headline", "Title", "Caption"].every((r) => offered.Text?.includes(r)), `a text in each of Dusk's roles, by its name: ${offered.Text}`);
-  check(JSON.stringify(offered.Shape) === JSON.stringify(["Rectangle", "Oval", "Line", "Arrow"]), `four shapes, by their names: ${offered.Shape}`);
+  // The rectangle and the oval, the shape library's polygons (PLAN 2.106), then the line and the arrow.
+  const shapes = [
+    "Rectangle", "Oval", "Triangle", "Right Triangle", "Diamond", "Parallelogram", "Trapezoid", "Pentagon", "Hexagon",
+    "Octagon", "Star", "Chevron", "Right Arrow", "Left Arrow", "Up Arrow", "Down Arrow", "Plus", "Callout", "Line", "Arrow",
+  ];
+  check(JSON.stringify(offered.Shape) === JSON.stringify(shapes), `the shapes, by their names: ${offered.Shape}`);
   check(offered["Background Effect"]?.length === 2, `the theme's shader presets: ${offered["Background Effect"]}`);
   check(!offered.Image, "no image: the bundle holds no PNG");
 
@@ -114,7 +127,7 @@ try {
   await page.selectOption("#insert", { label: "Kicker" });
   check(await reads('kicker text role:kicker "Kicker" at:in(kicker)'), "a kicker inserted in the empty kicker slot fills it");
   check(await says("Kicker inserted on this slide"), `the status says what was inserted: ${await status()}`);
-  check((await selected()) === "kicker", "and the canvas selects it");
+  check(await selects("kicker"), "and the canvas selects it");
   check(JSON.stringify(await box("kicker")) === JSON.stringify(kicker), `it stands in the slot: ${await box("kicker")}`);
   const scn = await source();
   check(scn.indexOf("kicker text") > scn.indexOf("state revenue") && scn.indexOf("kicker text") < scn.indexOf("state mix"), "it enters in `revenue`");
@@ -158,11 +171,29 @@ try {
   await page.keyboard.press("Control+d");
   check(await reads("title-2 text"), "Ctrl+D copies the title as `title-2`");
   check(await says("duplicated"), `the status says so: ${await status()}`);
-  check((await selected()) === "title-2", "and the canvas selects the copy");
+  check(await selects("title-2"), "and the canvas selects the copy");
   const [title, copy] = [await box("title"), await box("title-2")];
   check(Boolean(title && copy) && (copy[0] >= title[0] + title[2] || copy[1] >= title[1] + title[3]), `beside the title, clear of it: ${title} / ${copy}`);
   await page.keyboard.press("Shift+Delete");
   check(await back(original), "Shift+Delete takes the copy out of the deck");
+
+  // The shape library (PLAN 2.106): a star, a polygon of ten points filling its box, in the
+  // accent, named in a person's words.
+  await press([700, 760]);
+  await page.selectOption("#insert", { label: "Star" });
+  check(await reads("star shape kind:polygon"), "a star is inserted as a polygon");
+  // Its declaration, the lines its properties run on to, indented under it, read as one.
+  const lines = (await source()).split("\n");
+  const line = lines.findIndex((l) => l.trimStart().startsWith("star shape"));
+  const indent = (l) => l.length - l.trimStart().length;
+  const rest = line < 0 ? [] : lines.slice(line + 1);
+  const end = rest.findIndex((l) => indent(l) <= indent(lines[line]));
+  const star = line < 0 ? "" : [lines[line], ...rest.slice(0, end < 0 ? rest.length : end)].map((l) => l.trim()).join(" ");
+  const corners = (/points:\[\[(.*?)\]\]/.exec(star)?.[1] ?? "").split("], [").length;
+  check(corners === 10 && star.includes("fill:accent"), `its ten points, in the accent: ${star.slice(0, 90)}…`);
+  check(await says("Star inserted on this slide"), `the status names it: ${await status()}`);
+  await page.keyboard.press("Control+z");
+  check(await back(original), "one undo takes it back");
 
   // A shader preset fills the canvas, under the rest.
   // Offered by its name, Backdrop; the node is named after the preset, `backdrop`.
@@ -191,7 +222,7 @@ try {
     await press([960, 540]);
     await page.selectOption("#insert", { label: images[0] });
     check(await reads(JSON.stringify(path)), "and inserted, its path its `src`");
-    const id = await selected();
+    const id = (await selects(`image-${hash}`)) ? `image-${hash}` : await selected();
     check(id === `image-${hash}` && Boolean(await box(id)), `it stands on the canvas, selected: ${id}`);
     await page.keyboard.press("Delete");
     check(await back(original), "Delete takes it out again");

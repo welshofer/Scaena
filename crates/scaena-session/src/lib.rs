@@ -2788,7 +2788,7 @@ mod tests {
         let offered = s.inserts();
         let of = |kind: &str| offered.iter().filter(|i| i.node["type"] == kind).count();
         assert_eq!(of("text"), s.theme.typography.roles.len(), "a text in each of Dusk's roles");
-        assert_eq!((of("shape"), of("image"), of("shader")), (4, 0, 2), "the revenue bundle holds no PNG");
+        assert_eq!((of("shape"), of("image"), of("shader")), (20, 0, 2), "the revenue bundle holds no PNG");
         let n = |label: &str| offered.iter().position(|i| i.label == label).unwrap();
         let within =
             |c: [f32; 4], p: [f32; 2]| c[0] <= p[0] && p[0] <= c[0] + c[2] && c[1] <= p[1] && p[1] <= c[1] + c[3];
