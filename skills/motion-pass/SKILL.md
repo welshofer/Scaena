@@ -19,7 +19,7 @@ Motion is a cue: the transition into a state and the state's motions run on one 
 | watch it play (needs ffmpeg) | `scaena export <bundle> --format mp4 --states <id>,<id> --size 960x540 --fps 30 --out preview.mp4` | `deck_export` with `format: "mp4"`; while it answers `running`, call it again with the same arguments |
 
 The theme names what you may use, under `motion` in the theme file the deck names (`themes/*.theme.json`):
-- `presets` (Dusk: `fade`, `rise`, `grow`, `draw`, and `words` to enter; `pulse` for emphasis);
+- `presets`, a presentation app's builds in each shipped theme (SPEC §3.6): to enter, `appear`, `fade`, `rise`, `words`, `typewriter`, `pop`, `scale`, `fadeScale`, `scaleBig`, `drop`, `moveInLeft`, `moveInRight`, `moveInTop`, `moveInBottom`, `skid`, `spin`, `pivot`, `swing`, and `flip`; `grow` for a chart's marks and `draw` for a shape's outline; and `pulse`, `blink`, and `jiggle` for emphasis;
 - `durations` (`fast`, `standard`, `slow`), `easings`, and `springs`;
 - the limits, `maxConcurrent` and `maxBuild`.
 
@@ -35,6 +35,7 @@ The theme names what you may use, under `motion` in the theme file the deck name
    - Between slides that share nothing, keep it `fast` or cut, and bring the new slide's content in after it (step 4). Then the old slide clears before the new one builds. Or give it a slide transition, which moves each slide whole rather than fading words under words: `{ "style": "push", "duration": "standard" }`, or `dissolve`, `cover`, `reveal`, or `wipe`, each with a `direction` (SPEC §3.9). Keep one style through a deck, for the turns between sections.
 3. **Entrances and exits.**
    - At most one `enter` per object that enters, from the theme's presets. An `exit` (from the state the node leaves) moves it out.
+   - Choose by what the object is. `fade` or `rise` for words read in place; `typewriter` for a short line typed out; `pop` or `fadeScale` for a number or an icon that lands; `drop` or `moveInLeft` and its kin for something that arrives from somewhere; `flip` or `spin` for a reveal. Keep one or two through a deck, as a presentation app's default does: a deck of every build reads as a demo.
    - A node's own `enter` and `exit` run with the transition. A choreography item runs after it unless it says `timing: "with"`.
    - So put a motion on the node when the node always moves that way, wherever it appears. Put it in the state's `choreography` to order it after the transition or against other motions.
 4. **Builds.** Order matters more than style.
@@ -44,7 +45,7 @@ The theme names what you may use, under `motion` in the theme file the deck name
    - A `sequence` runs its items one after another, and a `parallel` starts them together.
    - `split` divides a target into units that a `stagger` brings in one after another: `lines`, `words`, or `glyphs` of text, a container's `children`, a chart's `marks`.
 5. **Emphasis.**
-   - `emphasis` is a preset with a `to` look, such as `pulse`. It points at something already on screen, once, after the transition. Set it on the node in a state's `props`, or as a choreography item.
+   - `emphasis` is a preset with a `to` look: `pulse` swells softly, `blink` dims once, `jiggle` wobbles, and `pop`, `drop`, and `swing` swell, hop, and sway. It points at something already on screen, once, after the transition. Set it on the node in a state's `props`, or as a choreography item.
    - It never replays on the next state.
    - A slide that is one state has nothing already on screen to point back at: a pulse right after an entrance is decoration.
 6. **Charts.**

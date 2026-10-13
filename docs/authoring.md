@@ -493,10 +493,10 @@ Every layout also has `in(canvas)`, the whole canvas, and `in(grid)`, the margin
 | Names | |
 |---|---|
 | Text roles (`role:`) | `display`, `headline`, `title`, `body`, `caption`, `label`, `axis`, `value`, `lede`, `kicker`, `figure`, `quote`, `numeral`, `hero`, `code` |
-| Motion presets (`enter:`, `exit:`, `emphasis:`) | `fade`, `rise`, `grow`, `draw`, `words`, `pulse` |
+| Motion presets (`enter:`, `exit:`, `emphasis:`) | `appear`, `fade`, `rise`, `words`, `typewriter`, `pop`, `scale`, `fadeScale`, `scaleBig`, `drop`, `moveInLeft`, `moveInRight`, `moveInTop`, `moveInBottom`, `skid`, `spin`, `pivot`, `swing`, `flip`, `grow`, `draw`, `pulse`, `blink`, `jiggle` |
 | Durations (`transition:`, `duration:`) | `fast`, `standard`, `slow` |
 | Easings (`ease:`) | `standard`, `in`, `out`, `linear` |
-| Springs (`spring:`) | `snappy`, `gentle`, `heavy` |
+| Springs (`spring:`) | `snappy`, `gentle`, `heavy`, `bouncy` |
 | Colors | `ink`, `paper`, `paper-2`, `accent`, `accent-2`, `muted`, `line` |
 | Color roles | `surface`, `surface-2`, `onSurface`, `onSurfaceMuted`, `accent`, `onAccent`, `line` |
 | Shader presets (`preset:`) | `backdrop`, a mesh behind a title; `texture`, a slow noise field |

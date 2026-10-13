@@ -142,6 +142,16 @@ impl Events {
     }
 }
 
+/// `text` saved as `path`, as a text editor saves: written beside the folder, then moved over the
+/// file, so the server never reads it part written. A write in place is a truncation, then the
+/// text: a scan between the two, on a loaded runner, read an empty source and said it had no
+/// canvas.
+fn save(path: &Path, text: &str) {
+    let aside = path.parent().unwrap().with_extension("saving");
+    std::fs::write(&aside, text).unwrap();
+    std::fs::rename(&aside, path).unwrap();
+}
+
 /// The next note that `wanted` picks, within 20 s.
 fn noted<T>(notes: &mut tokio::sync::broadcast::Receiver<Note>, wanted: impl Fn(Note) -> Option<T>) -> T {
     let deadline = Instant::now() + Duration::from_secs(20);
@@ -303,7 +313,7 @@ fn a_source_saved_on_disk_compiles_into_the_deck_and_a_broken_one_keeps_it() {
     assert!(source.contains("\"Q3 Review\""));
 
     // Saved in a text editor: the deck follows.
-    std::fs::write(dir.join("deck.scn"), source.replace("\"Q3 Review\"", "\"Q4 Review\"")).unwrap();
+    save(&dir.join("deck.scn"), &source.replace("\"Q3 Review\"", "\"Q4 Review\""));
     let changed = events.next("changed");
     assert_eq!(changed["by"], Value::Null);
     assert_eq!(changed["paths"], serde_json::json!(["deck.json", "deck.scn"]));
@@ -316,7 +326,7 @@ fn a_source_saved_on_disk_compiles_into_the_deck_and_a_broken_one_keeps_it() {
     // A source that does not compile is said at its line, and the deck stays as it was.
     let broken = format!("{source}\nstate broken\n  t text \"unterminated\n");
     let line = broken.lines().position(|l| l.contains("unterminated")).unwrap() + 1;
-    std::fs::write(dir.join("deck.scn"), &broken).unwrap();
+    save(&dir.join("deck.scn"), &broken);
     let failed = events.next("failed");
     let problem = &failed["failed"]["problems"][0];
     assert_eq!(problem["message"], "this string is not closed on its line");
@@ -332,7 +342,7 @@ fn a_source_saved_on_disk_compiles_into_the_deck_and_a_broken_one_keeps_it() {
     assert_eq!(state["failed"]["problems"][0]["line"], line);
 
     // Mended, it compiles again, and the failure is over.
-    std::fs::write(dir.join("deck.scn"), &source).unwrap();
+    save(&dir.join("deck.scn"), &source);
     let changed = events.next("changed");
     assert_eq!(changed["failed"], Value::Null);
     assert!(std::fs::read_to_string(dir.join("deck.json")).unwrap().contains("\"Q3 Review\""));

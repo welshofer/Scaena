@@ -524,9 +524,21 @@
         "stiffness": 120,
         "damping": 30,
         "mass": 1.6
+      },
+      "bouncy": {
+        "stiffness": 400,
+        "damping": 18,
+        "mass": 1
       }
     },
     "presets": {
+      "appear": {
+        "from": {
+          "opacity": 0
+        },
+        "duration": 0,
+        "description": "Appears at once, as a cut."
+      },
       "fade": {
         "from": {
           "opacity": 0
@@ -548,6 +560,231 @@
         "duration": "standard",
         "ease": "out",
         "description": "Fade up from 24cu below."
+      },
+      "words": {
+        "from": {
+          "opacity": 0,
+          "transform": {
+            "translate": [
+              0,
+              12
+            ]
+          }
+        },
+        "split": "words",
+        "stagger": 28,
+        "ease": "out",
+        "duration": "fast",
+        "description": "Word-by-word rise."
+      },
+      "typewriter": {
+        "from": {
+          "opacity": 0
+        },
+        "split": "glyphs",
+        "stagger": 40,
+        "duration": 0,
+        "description": "Letter by letter, each at once, as typed."
+      },
+      "pop": {
+        "from": {
+          "opacity": 0,
+          "transform": {
+            "scale": 0.5
+          }
+        },
+        "to": {
+          "transform": {
+            "scale": 1.12
+          }
+        },
+        "spring": "bouncy",
+        "description": "Springs up from half its size, past it and back; as emphasis, swells and settles."
+      },
+      "scale": {
+        "from": {
+          "transform": {
+            "scale": 0
+          }
+        },
+        "duration": "standard",
+        "ease": "out",
+        "description": "Grows from nothing about its middle."
+      },
+      "fadeScale": {
+        "from": {
+          "opacity": 0,
+          "transform": {
+            "scale": 0.85
+          }
+        },
+        "duration": "standard",
+        "ease": "out",
+        "description": "Fades in as it grows to its size."
+      },
+      "scaleBig": {
+        "from": {
+          "opacity": 0,
+          "transform": {
+            "scale": 2
+          }
+        },
+        "duration": "standard",
+        "ease": "out",
+        "description": "Fades in as it shrinks from twice its size."
+      },
+      "drop": {
+        "from": {
+          "opacity": 0,
+          "transform": {
+            "translate": [
+              0,
+              -240
+            ]
+          }
+        },
+        "to": {
+          "transform": {
+            "translate": [
+              0,
+              -40
+            ]
+          }
+        },
+        "spring": "bouncy",
+        "description": "Falls from above and bounces to rest; as emphasis, a hop."
+      },
+      "moveInLeft": {
+        "from": {
+          "opacity": 0,
+          "transform": {
+            "translate": [
+              -320,
+              0
+            ]
+          }
+        },
+        "duration": "standard",
+        "ease": "out",
+        "description": "Slides in from the left as it fades in."
+      },
+      "moveInRight": {
+        "from": {
+          "opacity": 0,
+          "transform": {
+            "translate": [
+              320,
+              0
+            ]
+          }
+        },
+        "duration": "standard",
+        "ease": "out",
+        "description": "Slides in from the right as it fades in."
+      },
+      "moveInTop": {
+        "from": {
+          "opacity": 0,
+          "transform": {
+            "translate": [
+              0,
+              -240
+            ]
+          }
+        },
+        "duration": "standard",
+        "ease": "out",
+        "description": "Slides down from above as it fades in."
+      },
+      "moveInBottom": {
+        "from": {
+          "opacity": 0,
+          "transform": {
+            "translate": [
+              0,
+              240
+            ]
+          }
+        },
+        "duration": "standard",
+        "ease": "out",
+        "description": "Slides up from below as it fades in."
+      },
+      "skid": {
+        "from": {
+          "opacity": 0,
+          "transform": {
+            "translate": [
+              -480,
+              0
+            ]
+          }
+        },
+        "spring": "bouncy",
+        "description": "Skids in from the left, past its place and back."
+      },
+      "spin": {
+        "from": {
+          "opacity": 0,
+          "transform": {
+            "scale": 0.4,
+            "rotate": -180
+          }
+        },
+        "duration": "slow",
+        "ease": "out",
+        "description": "Spins in as it grows."
+      },
+      "pivot": {
+        "from": {
+          "opacity": 0,
+          "transform": {
+            "rotate": -90,
+            "anchor": [
+              0,
+              1
+            ]
+          }
+        },
+        "duration": "standard",
+        "ease": "out",
+        "description": "Swings up about its lower left corner."
+      },
+      "swing": {
+        "from": {
+          "opacity": 0,
+          "transform": {
+            "rotate": -20,
+            "anchor": [
+              0.5,
+              0
+            ]
+          }
+        },
+        "to": {
+          "transform": {
+            "rotate": 6,
+            "anchor": [
+              0.5,
+              0
+            ]
+          }
+        },
+        "spring": "bouncy",
+        "description": "Swings into place from its top middle, as a sign hangs; as emphasis, sways."
+      },
+      "flip": {
+        "from": {
+          "transform": {
+            "scale": [
+              0,
+              1
+            ]
+          }
+        },
+        "duration": "standard",
+        "ease": "out",
+        "description": "Turns in about its middle, as a card flips."
       },
       "grow": {
         "from": {
@@ -577,22 +814,6 @@
         "ease": "standard",
         "description": "A shape's outline draws on from where it starts."
       },
-      "words": {
-        "from": {
-          "opacity": 0,
-          "transform": {
-            "translate": [
-              0,
-              12
-            ]
-          }
-        },
-        "split": "words",
-        "stagger": 28,
-        "ease": "out",
-        "duration": "fast",
-        "description": "Word-by-word rise."
-      },
       "pulse": {
         "to": {
           "transform": {
@@ -601,6 +822,22 @@
         },
         "spring": "gentle",
         "description": "Emphasis: a single soft pulse."
+      },
+      "blink": {
+        "to": {
+          "opacity": 0.15
+        },
+        "duration": "fast",
+        "description": "Emphasis: dims once, quickly, and comes back."
+      },
+      "jiggle": {
+        "to": {
+          "transform": {
+            "rotate": 5
+          }
+        },
+        "spring": "bouncy",
+        "description": "Emphasis: a quick wobble that settles."
       }
     },
     "maxConcurrent": 12,

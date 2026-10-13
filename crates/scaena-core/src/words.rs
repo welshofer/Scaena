@@ -152,6 +152,18 @@ pub const COLORS: &[(&str, &str)] = &[
 /// An easing by what it does.
 pub const EASINGS: &[(&str, &str)] = &[("in", "Ease In"), ("out", "Ease Out")];
 
+/// A motion preset whose name says it in fewer words than a person would (PLAN 2.112): the
+/// shipped themes' builds, as a presentation app names them. The rest are said as they read.
+pub const PRESETS: &[(&str, &str)] = &[
+    ("words", "Word by Word"),
+    ("fadeScale", "Fade and Scale"),
+    ("scaleBig", "Scale Big"),
+    ("moveInLeft", "Move In from Left"),
+    ("moveInRight", "Move In from Right"),
+    ("moveInTop", "Move In from Top"),
+    ("moveInBottom", "Move In from Bottom"),
+];
+
 /// One of `theme`'s names of a kind, said: a color by what it is for, a font by its family, a
 /// duration with its seconds, a step of a scale by its size, a layout by what the theme calls it.
 pub fn named(of: Vocabulary, name: &str, theme: &Theme) -> String {
@@ -166,7 +178,7 @@ pub fn named(of: Vocabulary, name: &str, theme: &Theme) -> String {
             None => phrase(name),
         },
         Vocabulary::Easing => table(EASINGS).unwrap_or_else(|| phrase(name)),
-        Vocabulary::MotionPreset if name == "words" => "Word by Word".into(),
+        Vocabulary::MotionPreset => table(PRESETS).unwrap_or_else(|| phrase(name)),
         Vocabulary::Radius | Vocabulary::Space => match step(theme, name) {
             Some(0.0) => "None".into(),
             Some(size) => format!("{} pt", number(size)),

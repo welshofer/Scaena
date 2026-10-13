@@ -62,9 +62,26 @@ fn an_older_copy_takes_the_library_and_draws_as_it_did() {
     assert!(brought.furniture);
     assert_eq!(theme["furniture"], shipped["furniture"]);
 
-    // Nothing else of the theme changes but the format it is written in, which reads.
-    for part in ["name", "description", "tokens", "grid", "shaders", "charts", "tables", "motion", "density"] {
+    // Nothing else of the theme changes but the format it is written in, which reads, and the
+    // builds it lacked (PLAN 2.112).
+    for part in ["name", "description", "tokens", "grid", "shaders", "charts", "tables", "density"] {
         assert_eq!(theme[part], older[part], "{part}");
+    }
+    // Every build the theme ships, in its order, the copy's own as they were, with the spring
+    // they spring on; its durations, easings, and limits as they were.
+    let names =
+        |t: &Value, key: &str| -> Vec<String> { t["motion"][key].as_object().unwrap().keys().cloned().collect() };
+    let had = names(&older, "presets");
+    assert_eq!(names(&theme, "presets"), names(&shipped, "presets"));
+    assert_eq!(brought.builds, names(&shipped, "presets").into_iter().filter(|p| !had.contains(p)).collect::<Vec<_>>());
+    assert!(brought.builds.iter().any(|b| b == "typewriter") && !brought.builds.iter().any(|b| b == "fade"));
+    for p in &had {
+        assert_eq!(theme["motion"]["presets"][p], older["motion"]["presets"][p], "{p}, as it was");
+    }
+    assert_eq!(brought.springs, ["bouncy"]);
+    assert_eq!(theme["motion"]["springs"]["bouncy"], shipped["motion"]["springs"]["bouncy"]);
+    for part in ["durations", "easings", "maxConcurrent", "maxBuild"] {
+        assert_eq!(theme["motion"][part], older["motion"][part], "motion/{part}");
     }
     assert_eq!(theme["scaena-theme"], shipped["scaena-theme"]);
     scaena_engine::theme::Theme::from_json(&theme.to_string()).expect("the theme reads");

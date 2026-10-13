@@ -221,6 +221,7 @@ web-smoke: site
     node web/connect.mjs
     node web/diagram.mjs
     node web/transition.mjs
+    node web/builds.mjs
     node web/draw.mjs
     node web/findings.mjs
     node web/layers.mjs

@@ -629,3 +629,86 @@ fn a_slide_transition_moves_each_slide_whole() {
     let clip = entered.2.expect("a wipe clips the slide entered");
     assert_eq!(clip, scaena_core::displaylist::Path::rect([0.0, 0.75 * h, w, 0.25 * h]));
 }
+
+#[test]
+fn the_shipped_builds_move_as_a_presentation_apps_do() {
+    // The builds the shipped themes offer (PLAN 2.112), on the torture theme's grid: Dusk's motion
+    // presets and the springs they spring on. `b` enters the second slide with the build named,
+    // after a cut; on the third, it is emphasized.
+    let dusk: Value = serde_json::from_str(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();
+    let builds = |t: &mut Value| {
+        t["motion"]["presets"] = dusk["motion"]["presets"].clone();
+        t["motion"]["springs"] = dusk["motion"]["springs"].clone();
+    };
+    let deck_with = |enter: &str, emphasis: &str| {
+        let nodes = json!({ "a": text("Alpha", "case"), "b": text("Beta", "main") });
+        let states = json!([
+            { "id": "one", "layout": "specimen", "props": { "a": {} } },
+            { "id": "two", "props": { "b": {} }, "choreography": [{ "target": "b", "enter": enter }] },
+            { "id": "three", "props": { "a": { "text": "Again" } }, "choreography": [{ "target": "b", "emphasis": emphasis }] }
+        ]);
+        Fx::new(deck(nodes, states), theme(builds))
+    };
+    // Each frame of a state's cue, every 10 ms, and its span.
+    let frames = |fx: &mut Fx, state: &str| {
+        let span = fx.frame(state, f64::INFINITY).duration_ms;
+        let at: Vec<f64> = (1..).map(|k| f64::from(k) * 10.0).take_while(|t| *t < span).collect();
+        (at.iter().map(|t| fx.dl(state, *t)).collect::<Vec<_>>(), span)
+    };
+    let look = |dl: &DisplayList| seen(dl, "b").expect("b is drawn");
+
+    // Appear: no time at all; Typewriter: a letter every 40 ms, each at once.
+    let mut fx = deck_with("appear", "blink");
+    assert_eq!(fx.frame("two", f64::INFINITY).duration_ms, 0.0, "it appears as the slide does");
+    let mut fx2 = deck_with("typewriter", "blink");
+    assert_eq!(fx2.frame("two", f64::INFINITY).duration_ms, 120.0, "Beta: four letters 40 ms apart");
+    assert_eq!([50.0, 100.0].map(|t| units(&fx2.dl("two", t), "b")), [2, 3]);
+    // Blink, as emphasis: dims to 15% at its middle, and comes back.
+    let (dims, _) = frames(&mut fx, "three");
+    let least = dims.iter().map(|dl| look(dl).1).fold(1.0, f32::min);
+    assert!((least - 0.15).abs() < 0.05, "it dims to {least}");
+
+    // Pop: up from half its size, past it on the spring, and back to rest.
+    let (popping, span) = frames(&mut deck_with("pop", "jiggle"), "two");
+    let scales: Vec<f32> = popping.iter().map(|dl| look(dl).0[0]).collect();
+    assert!(scales[0] < 0.75 && scales.iter().copied().fold(0.0, f32::max) > 1.05, "{scales:?}");
+    assert!(span > 300.0 && span < 1500.0, "the bouncy spring settles in {span} ms");
+    // Jiggle, as emphasis: turns one way, then the other, and settles.
+    let (jiggling, _) = frames(&mut deck_with("pop", "jiggle"), "three");
+    let turns: Vec<f32> = jiggling.iter().map(|dl| look(dl).0[1]).collect();
+    assert!(turns.iter().any(|b| *b > 0.05) && turns.iter().any(|b| *b < -0.01), "{turns:?}");
+
+    // Drop: from 240 above, past its place on the spring, and back.
+    let mut fx = deck_with("drop", "pulse");
+    let rest = look(&fx.dl("two", f64::INFINITY)).0[5];
+    let (dropping, _) = frames(&mut fx, "two");
+    let falls: Vec<f32> = dropping.iter().map(|dl| look(dl).0[5] - rest).collect();
+    assert!(falls[0] < -150.0 && falls.iter().any(|dy| *dy > 10.0), "{falls:?}");
+
+    // Flip: turned in about its middle, as wide as nothing at first; Spin: turned and growing.
+    let mut fx = deck_with("flip", "pulse");
+    let [a, _, _, d, _, _] = look(&fx.dl("two", 100.0)).0;
+    assert!(a > 0.0 && a < 1.0 && d == 1.0, "flipping: {a} {d}");
+    let mut fx = deck_with("spin", "pulse");
+    let [a, b, ..] = look(&fx.dl("two", 200.0)).0;
+    assert!(b.abs() > 0.01 && a.hypot(b) < 1.0, "spinning in: {a} {b}");
+    // Each at rest when its cue ends, as the state draws at rest.
+    for build in [
+        "appear",
+        "typewriter",
+        "pop",
+        "scale",
+        "fadeScale",
+        "scaleBig",
+        "drop",
+        "skid",
+        "spin",
+        "pivot",
+        "swing",
+        "flip",
+    ] {
+        let mut fx = deck_with(build, "pulse");
+        let span = fx.frame("two", f64::INFINITY).duration_ms;
+        assert_eq!(fx.dl("two", span), fx.dl("two", f64::INFINITY), "{build} rests");
+    }
+}
