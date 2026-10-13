@@ -358,7 +358,8 @@ pub unsafe extern "C" fn scaena_picture(bytes: *const u8, len: usize) -> *mut c_
 
 /// Answer `method` with `args` (a JSON object, or null for none), as a page's `Player` does:
 /// `{"ok": value}` or `{"error": {"message"}}`, a string to free. The calls ([`call`]):
-/// `states`, `formats`, `setFormat {format?}`, `canvasSize`, `duration {state}`, `timeline`,
+/// `states`, `formats`, `sizes` (`{own, anew}`: the deck's own canvas named by its shape, and the
+/// formats it lays out anew), `setFormat {format?}`, `canvasSize`, `duration {state}`, `timeline`,
 /// `files`, `imageFiles`, `digest {state}`, `reading {state}`, `reads {state}` (each node read,
 /// in turn: its role and its words, PLAN 3.17), `source`, `compiledFrom
 /// {source}`, `compile {source}`, `lint {state?}`, `fix {patch}`, `inspect {state}`, `boxes
@@ -1301,6 +1302,7 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
     Ok(match method {
         "states" => json!(s.states()),
         "formats" => json!(s.formats()),
+        "sizes" => json!(s.sizes()),
         "setFormat" => {
             s.set_format(optional("format")).map_err(said)?;
             Value::Null

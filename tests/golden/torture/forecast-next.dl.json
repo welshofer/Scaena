@@ -133,7 +133,7 @@
             [310,87.90625,24.484375]
           ],"clusters":[0,1,2,3,5,6,7,8]}}
         ]}},
-        {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,22.609375,710.28125],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,0.0,710.28125],"opacity":1.0,"blend":"normal","clip":null,"ops":[
           {"glyphs":{"font":0,"size":26.0,"coords":[0,793,3277,0],"paint":{"solid":"#16140FFF"},"text":"$8","glyphs":[
             [342,0.0,24.484375],
             [423,14.5625,24.484375]

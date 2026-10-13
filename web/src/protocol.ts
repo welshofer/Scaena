@@ -1215,6 +1215,10 @@ export interface Opened {
   where?: Where;
   states: string[];
   formats: string[];
+  /** The deck's own canvas named by its shape (`16:9`), where a format is it. A format the deck
+   * lists of that shape is its own canvas, laid out as it is, so an editor offers it once, by
+   * that name. */
+  own?: string;
   /** Each state's speaker notes: its own, else its beat's (SPEC §3.11), else empty. */
   notes: string[];
   /** The spine's sections in its order, each with its title (else its first beat's claim)

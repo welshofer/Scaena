@@ -1,10 +1,11 @@
 // PLAN 2.62 check: every format at once, in the editor in headless Chromium (serve.mjs), the CPU
-// painting, on the revenue example, which lists 16:9 and 9:16 besides its own canvas.
+// painting, on the revenue example, which lists 16:9 and 9:16 besides its own 1920 × 1080 canvas.
 //
 //   node web/formats.mjs     (after `just web`; from the repository's root)
 //
-// - Formats shows a figure for the deck's own canvas and for each format it lists, all one height,
-//   each the shape of its format, the one the canvas shows pressed.
+// - Formats shows a figure for the deck's own canvas and for each other format it lists, all one
+//   height, each the shape of its format, the one the canvas shows pressed. The 16:9 it lists is
+//   its own canvas's shape: the canvas itself, shown once, named 16:9, as the format menu names it.
 // - Each is the state shown as the canvas shows it in that format (the WASM session's test holds
 //   the bytes to the canvas's), and follows the state shown.
 // - The cue played, they are painted inside it as it plays, and come to rest with it.
@@ -100,11 +101,14 @@ try {
     )
     .catch(() => {});
   const shown = await figures();
-  check(JSON.stringify(shown.map((f) => f.format)) === JSON.stringify(["", "16:9", "9:16"]), `a figure for each: ${JSON.stringify(shown.map((f) => f.format))}`);
-  const [own, wide, tall] = shown;
+  check(JSON.stringify(shown.map((f) => f.format)) === JSON.stringify(["", "9:16"]), `a figure for each, 16:9 once: ${JSON.stringify(shown.map((f) => f.format))}`);
+  const [own, tall] = shown;
+  check(own.label.startsWith("16:9:"), `the deck's own canvas named by its shape: ${own.label}`);
+  const menu = await page.locator("#format option").allTextContents();
+  check(JSON.stringify(menu) === JSON.stringify(["16:9", "9:16"]), `and so is it in the format menu, once: ${JSON.stringify(menu)}`);
   check(shown.every((f) => f.height === shown[0].height && f.height > 0), `all one height: ${shown.map((f) => f.height).join(", ")}`);
-  check(own.width > own.height && wide.width === own.width && tall.height > tall.width, `each the shape of its format: ${shown.map((f) => `${f.width}×${f.height}`).join(", ")}`);
-  check(own.pressed === "true" && wide.pressed === "false" && tall.pressed === "false", "the one the canvas shows is pressed");
+  check(own.width > own.height && tall.height > tall.width, `each the shape of its format: ${shown.map((f) => `${f.width}×${f.height}`).join(", ")}`);
+  check(own.pressed === "true" && tall.pressed === "false", "the one the canvas shows is pressed");
   check((await painted())?.state === "revenue", `they show the state shown: ${JSON.stringify(await painted())}`);
 
   // axe-core, with the row shown.
@@ -193,12 +197,12 @@ try {
   const one = source.replace(/formats(:| )[^\n]*9:16[^\n]*\n/, (line) => line.replace(/,?\s*9:16/, ""));
   check(one !== source, "the deck lists its formats in the source");
   await page.evaluate((s) => window.scaena.type(s), one);
-  await page.waitForFunction(() => document.querySelectorAll("#formats button[data-format]").length === 2, null, { timeout: 30000 }).catch(() => {});
-  check(JSON.stringify((await figures()).map((f) => f.format)) === JSON.stringify(["", "16:9"]), `9:16 taken out: ${JSON.stringify((await figures()).map((f) => f.format))}`);
+  await page.waitForFunction(() => document.querySelectorAll("#formats button[data-format]").length === 1, null, { timeout: 30000 }).catch(() => {});
+  check(JSON.stringify((await figures()).map((f) => f.format)) === JSON.stringify([""]), `9:16 taken out: ${JSON.stringify((await figures()).map((f) => f.format))}`);
   check(!(await page.locator("#format option").allTextContents()).includes("9:16"), "and the format menu no longer lists it");
   await page.evaluate((s) => window.scaena.type(s), source);
-  await page.waitForFunction(() => document.querySelectorAll("#formats button[data-format]").length === 3, null, { timeout: 30000 }).catch(() => {});
-  check((await figures()).length === 3 && (await page.locator("#format option").allTextContents()).includes("9:16"), "put back, its figure and its menu item are back");
+  await page.waitForFunction(() => document.querySelectorAll("#formats button[data-format]").length === 2, null, { timeout: 30000 }).catch(() => {});
+  check((await figures()).length === 2 && (await page.locator("#format option").allTextContents()).includes("9:16"), "put back, its figure and its menu item are back");
 
   // Hidden again: none is painted.
   await page.click("#formats-open");

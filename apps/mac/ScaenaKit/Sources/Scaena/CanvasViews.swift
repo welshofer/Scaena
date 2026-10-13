@@ -320,6 +320,8 @@ struct FormatsStrip: View {
     /// Show the canvas in a format: none for the deck's own canvas.
     let open: (String?) -> Void
     @State private var figures: [Figure] = []
+    /// The deck's own canvas named by its shape (`16:9`), where a format is it.
+    @State private var own: String?
 
     /// One format drawn: `""` for the deck's own canvas.
     private struct Figure: Identifiable {
@@ -341,7 +343,7 @@ struct FormatsStrip: View {
                         drawn(figure)
                     }
                     .buttonStyle(.plain)
-                    .help("Edit the deck \(figure.name.isEmpty ? "on its own canvas" : "in \(figure.name)")")
+                    .help("Edit the deck \(figure.name.isEmpty ? "in its own size" : "in \(figure.name)")")
                 }
             }
             .padding(8)
@@ -371,7 +373,7 @@ struct FormatsStrip: View {
                 RoundedRectangle(cornerRadius: 3)
                     .strokeBorder(pressed ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: pressed ? 2 : 1))
             HStack(spacing: 4) {
-                Text(figure.name.isEmpty ? "own canvas" : figure.name).font(.caption)
+                Text(figure.name.isEmpty ? (own ?? "Own Size") : figure.name).font(.caption)
                 if let worst = found.map(\.severity).max() {
                     Text("\(found.count)")
                         .font(.caption2.monospacedDigit())
@@ -383,10 +385,13 @@ struct FormatsStrip: View {
         }
     }
 
-    /// Each figure drawn again: as the state shown, the deck, or its formats changed.
+    /// Each figure drawn again: as the state shown, the deck, or its formats changed. A format
+    /// of the deck's own canvas's shape is that canvas, drawn once, named by its shape.
     private func draw() {
         let session = editor.session
-        let names = [""] + ((try? session.formats()) ?? [])
+        let sizes = try? session.sizes()
+        own = sizes?.own
+        let names = [""] + (sizes?.anew ?? [])
         figures = names.map { name in
             let pixels = try? session.pixels(in: name.isEmpty ? nil : name, state: state, height: Int(Self.height * 2))
             return Figure(name: name, image: pixels?.image)

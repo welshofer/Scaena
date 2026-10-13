@@ -1,8 +1,9 @@
 // Every format at once (PLAN 2.62, SPEC §3.4): the state shown in each of the deck's formats,
 // side by side under the canvas, each as the canvas would show it there.
 //
-// - A figure for the deck's own canvas, then one for each format the deck lists, in the order the
-//   format menu lists them, all one height.
+// - A figure for the deck's own canvas, named by its shape (`16:9`) where a format is it, then one
+//   for each other format the deck lists, in the order the format menu lists them, all one height:
+//   a format of the canvas's own shape is the canvas itself, shown once.
 // - The worker paints each after each frame of the canvas, so they play as it plays (a cue, the
 //   deck run), and come to rest with it (`Player.pixelsIn`): each format lays a state out once.
 // - Each counts the findings about the state shown that hold in its format, in the color of the
@@ -21,6 +22,8 @@ export interface FormatsEditor {
   format(): string;
   /** Open the canvas in `format`, as the format menu does. */
   open(format: string): void;
+  /** The deck's own canvas named by its shape (`16:9`), where a format is it. */
+  own(): string | undefined;
 }
 
 /** How high each figure is, CSS pixels. */
@@ -59,7 +62,7 @@ export function formatsRow(stage: Stage, into: HTMLElement, toggle: HTMLButtonEl
       const canvas = document.createElement("canvas");
       canvas.style.height = `${HEIGHT}px`;
       canvas.setAttribute("aria-hidden", "true");
-      const label = Object.assign(document.createElement("span"), { className: "name", textContent: name || "Own size" });
+      const label = Object.assign(document.createElement("span"), { className: "name", textContent: name || editor.own() || "Own size" });
       button.append(canvas, label);
       button.addEventListener("click", () => editor.open(name));
       return { name, button, canvas };
@@ -83,7 +86,7 @@ export function formatsRow(stage: Stage, into: HTMLElement, toggle: HTMLButtonEl
       const mine = findings.filter((f) => f.state === state && f.formats?.includes(name));
       button.querySelector(".found")?.remove();
       const said = mine.length ? counted(mine) : "no findings";
-      button.setAttribute("aria-label", `${name || "Own size"}: ${said}`);
+      button.setAttribute("aria-label", `${name || editor.own() || "Own size"}: ${said}`);
       if (mine.length) {
         button.insertAdjacentHTML(
           "beforeend",

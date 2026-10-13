@@ -194,9 +194,21 @@ public struct Matches: Equatable, Sendable {
     }
 }
 
+/// The deck's sizes as the editors offer them (`Session::sizes`): its own canvas named by its
+/// shape (`16:9`) where a format is it, and the formats it lays out anew (`9:16`). A format it
+/// lists of its own canvas's shape is that canvas, so it is no size of its own.
+public struct Sizes: Decodable, Equatable, Sendable {
+    public let own: String?
+    public let anew: [String]
+}
+
 extension ScaenaSession {
     /// The formats the deck is laid out in besides its own canvas, as it writes them (`9:16`).
     public func formats() throws -> [String] { try call("formats") }
+
+    /// The deck's sizes as the editors offer them: its own canvas by its shape, and the formats
+    /// it lays out anew.
+    public func sizes() throws -> Sizes { try call("sizes") }
 
     /// Lay frames out in `format`, one of the deck's formats, or on its own canvas where none
     /// (SPEC §3.4): what the canvas, its boxes, its targets, and its grid are in from now on.

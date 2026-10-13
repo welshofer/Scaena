@@ -77,6 +77,8 @@ fn a_bundle_opened_from_its_files_draws_its_goldens() {
     let s = open(TORTURE);
     let states = call(s, "states", Value::Null);
     assert!(states.as_array().unwrap().len() > 50, "{states}");
+    // Its own canvas named by its shape, and the one format it lays out anew.
+    assert_eq!(call(s, "sizes", Value::Null), serde_json::json!({ "own": "16:9", "anew": ["9:16"] }));
 
     // Each state at rest in the deck's own canvas: its display list is the goldens' (raw.fnv1a).
     let goldens = std::fs::read_to_string("../../tests/golden/torture/raw.fnv1a").unwrap();

@@ -697,6 +697,7 @@ function opened(): Opened {
     where: home?.where,
     states: slots.map((slot) => slot.state),
     formats: player.formats(),
+    own: (JSON.parse(player.sizes()) as { own: string | null }).own ?? undefined,
     notes: slots.map((slot) => noted.get(slot.state) ?? ""),
     outline: outline(deck),
     painter: gpu ? "webgpu" : "cpu",

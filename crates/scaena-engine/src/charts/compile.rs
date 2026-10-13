@@ -1986,6 +1986,25 @@ fn compile_in(
         let origin = [at(i, &text), foot + gap - text.trimmed(TextBox::Cap).0];
         out.ticks.push(Label::new(key, origin, text, None));
     }
+    // A line's first value does not stand on the category's label under its point: where the
+    // point is near the plot's foot, the value ending a space over it sat two spaces over the
+    // label centered under it, and the two read as one. Within three spaces of that label, it
+    // ends a space before it instead, within the room the chart's left side leaves, its anchor
+    // that far across from its point. A last value keeps to its point, its name beside it.
+    if kind == Kind::Line {
+        for i in (0..rows.len()).filter(|&i| end_of(i) == Some(true)) {
+            let Some(l) = out.labels.iter_mut().find(|l| l.key == rows[i].key) else { continue };
+            let b = ink(l);
+            let under = |t: &[f32; 4]| b[0] < t[2] && t[0] < b[2] && b[1] < t[3] && t[1] - b[3] < 3.0 * gap;
+            let Some(t) = out.ticks.iter().map(ink).find(under) else { continue };
+            let x0 = (t[0] - gap - l.text.width).max(left - room[0]);
+            let Some(v) = l.value.as_mut().filter(|v| !v.below && v.beside == 0.0) else { continue };
+            if x0 < l.origin[0] {
+                v.beside -= l.origin[0] - x0;
+                l.origin[0] = x0;
+            }
+        }
+    }
     // A value label does not cover another mark. A dot's that would goes under its dot;
     // a bar's wider than its bar leans off the mark, starting or ending at the bar's
     // edge; one that still would hides, unless the chart asked for its values, which
