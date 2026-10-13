@@ -1127,6 +1127,10 @@ A node the state does not show is an error that says so.
 `inspect --state S --inserts` says what an editor may insert (PLAN 2.34): the nodes the theme and the bundle name, each as `add_node` adds it (§7.3), unplaced (`node`), with what its id starts from (`id`), what a menu calls it (`label`), and the box it takes at first (`start`).
 - **A text** in each of the theme's roles, its text the role's name: half the canvas wide and two of the role's lines tall (`{ "box": { "w", "h" } }`, each a share of the canvas's side).
 - **A shape** of each kind that needs no points: a rectangle and an ellipse, filled with the theme's `accent` (or its first color), a quarter of the canvas wide and square; a line and an arrow, drawn in the theme's rule.
+- **The shape library** (PLAN 2.106), as a presentation app's: a triangle and a right triangle, a diamond, a parallelogram, a trapezoid, a pentagon, a hexagon, an octagon, a five-pointed star, a chevron, a block arrow each way, a plus, and a callout.
+  - Each is a `polygon` whose `points` fill its box edge to edge, so its points take their handles (§9.2.4) and a change of state moves them one by one (PLAN 1.12).
+  - Each is filled as the rectangle is, a quarter of the canvas wide, and as tall as its shape is for that width.
+  - Each is named in a person's words: Right Arrow, Callout (`scaena_core::words::SHAPES`).
 - **An image** of each PNG and JPEG in the bundle, a third of the canvas wide and square.
 - **A chart and a table** of each of the deck's data sources (PLAN 2.41), half the canvas each way, from the columns it has:
   - The chart's `y` is the first column of numbers. Its `x` is the first column of dates, a line over time (`temporal`), or else the first of text, bars. Where `x` alone repeats among the rows, its `series` is the next column of text that tells them apart.

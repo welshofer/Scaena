@@ -395,7 +395,7 @@ fn inspect_says_what_may_be_inserted() {
     let offered = states[0]["inserts"].as_array().unwrap();
     let of = |kind: &str| offered.iter().filter(|i| i["node"]["type"] == kind).count();
     assert!(of("text") > 0 && of("image") > 0 && of("shader") > 0, "{offered:#?}");
-    assert_eq!(of("shape"), 4, "a rectangle, an ellipse, a line, and an arrow");
+    assert_eq!(of("shape"), 20, "a rectangle, an ellipse, the 16 of the shape library, a line, and an arrow");
     let rect = offered.iter().find(|i| i["label"] == "Shape · rect").unwrap();
     assert_eq!(rect["id"], "rect");
     assert!(rect["start"]["box"]["w"].as_f64().is_some_and(|w| w > 0.0), "{rect:#}");

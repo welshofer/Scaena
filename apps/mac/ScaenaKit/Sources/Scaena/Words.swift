@@ -146,7 +146,15 @@ enum Words {
         }
     }
 
-    private static let shapes = ["rect": "Rectangle", "ellipse": "Oval", "line": "Line", "arrow": "Arrow"]
+    /// Each shape Insert offers, as a presentation app's shape library names it (PLAN 2.106).
+    private static let shapes = [
+        "rect": "Rectangle", "ellipse": "Oval", "line": "Line", "arrow": "Arrow", "polygon": "Polygon",
+        "triangle": "Triangle", "right-triangle": "Right Triangle", "diamond": "Diamond",
+        "parallelogram": "Parallelogram", "trapezoid": "Trapezoid", "pentagon": "Pentagon", "hexagon": "Hexagon",
+        "octagon": "Octagon", "star": "Star", "chevron": "Chevron", "right-arrow": "Right Arrow",
+        "left-arrow": "Left Arrow", "up-arrow": "Up Arrow", "down-arrow": "Down Arrow", "plus": "Plus",
+        "callout": "Callout",
+    ]
 
     /// An icon as a person names it (PLAN 2.104): `airplane-tilt` as `Airplane tilt`.
     static func icon(_ name: String) -> String {

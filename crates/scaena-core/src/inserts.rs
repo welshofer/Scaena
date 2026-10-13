@@ -5,7 +5,9 @@
 //! - **A text** in each of the theme's roles, two of the role's lines tall and half the canvas
 //!   wide, its text the role's name.
 //! - **A shape** of each kind that needs no points: a rectangle and an ellipse, filled with the
-//!   theme's accent (or its first color); a line and an arrow, the theme's rule.
+//!   theme's accent (or its first color); a line and an arrow, the theme's rule. And the shape
+//!   library's polygons (PLAN 2.106, [`polygons`]): triangles, a diamond, regular polygons, a
+//!   star, a chevron, block arrows, a plus, and a callout, filled as the rectangle is.
 //! - **An image** of each PNG and JPEG in the bundle.
 //! - **A chart and a table** of each of the deck's data sources (PLAN 2.41), from the columns
 //!   it has, half the canvas each way; the table its first rows, as many as that holds.
@@ -49,6 +51,89 @@ pub enum Start {
     Slot(String),
 }
 
+/// The shape library's polygons (PLAN 2.106), as a presentation app's shape library offers them:
+/// each its name, its `points` as fractions of its box (§3.3), which the canvas gives handles and a
+/// change of state moves one by one, and its box's width over its height. Regular ones fill their
+/// box edge to edge, and each point is written to four places.
+pub fn polygons() -> Vec<(&'static str, Vec<[f64; 2]>, f64)> {
+    let tidy = |v: f64| (v * 1e4).round() / 1e4;
+    // `n` points round a circle from the top, each `i`-th at radius `r(i)`, fitted to their box:
+    // the points and the box's width over its height.
+    let round = |n: usize, r: &dyn Fn(usize) -> f64| {
+        let at: Vec<[f64; 2]> = (0..n)
+            .map(|i| {
+                let a = -std::f64::consts::FRAC_PI_2 + std::f64::consts::TAU * i as f64 / n as f64;
+                [r(i) * a.cos(), r(i) * a.sin()]
+            })
+            .collect();
+        let (x0, x1) = at.iter().fold((f64::MAX, f64::MIN), |(lo, hi), p| (lo.min(p[0]), hi.max(p[0])));
+        let (y0, y1) = at.iter().fold((f64::MAX, f64::MIN), |(lo, hi), p| (lo.min(p[1]), hi.max(p[1])));
+        let points = at.iter().map(|p| [tidy((p[0] - x0) / (x1 - x0)), tidy((p[1] - y0) / (y1 - y0))]).collect();
+        (points, (x1 - x0) / (y1 - y0))
+    };
+    let (pentagon, pentagon_aspect) = round(5, &|_| 1.0);
+    // A five-pointed star whose inner points stand where the lines between its outer ones cross:
+    // sin 18° over sin 54° of the way out.
+    let inner = (std::f64::consts::PI / 10.0).sin() / (3.0 * std::f64::consts::PI / 10.0).sin();
+    let (star, star_aspect) = round(10, &|i| if i % 2 == 0 { 1.0 } else { inner });
+    let s = 1.0 - std::f64::consts::FRAC_1_SQRT_2;
+    let octagon = [
+        [s / 2.0, 0.0],
+        [1.0 - s / 2.0, 0.0],
+        [1.0, s / 2.0],
+        [1.0, 1.0 - s / 2.0],
+        [1.0 - s / 2.0, 1.0],
+        [s / 2.0, 1.0],
+        [0.0, 1.0 - s / 2.0],
+        [0.0, s / 2.0],
+    ];
+    let right = [[0.0, 0.3], [0.6, 0.3], [0.6, 0.0], [1.0, 0.5], [0.6, 1.0], [0.6, 0.7], [0.0, 0.7]];
+    let flip = |p: &[[f64; 2]], f: &dyn Fn([f64; 2]) -> [f64; 2]| p.iter().map(|q| f(*q)).collect::<Vec<_>>();
+    vec![
+        ("triangle", vec![[0.5, 0.0], [1.0, 1.0], [0.0, 1.0]], 1.0),
+        ("right-triangle", vec![[0.0, 0.0], [1.0, 1.0], [0.0, 1.0]], 1.0),
+        ("diamond", vec![[0.5, 0.0], [1.0, 0.5], [0.5, 1.0], [0.0, 0.5]], 1.0),
+        ("parallelogram", vec![[0.25, 0.0], [1.0, 0.0], [0.75, 1.0], [0.0, 1.0]], 1.6),
+        ("trapezoid", vec![[0.2, 0.0], [0.8, 0.0], [1.0, 1.0], [0.0, 1.0]], 1.4),
+        ("pentagon", pentagon, pentagon_aspect),
+        (
+            "hexagon",
+            vec![[0.25, 0.0], [0.75, 0.0], [1.0, 0.5], [0.75, 1.0], [0.25, 1.0], [0.0, 0.5]],
+            2.0 / 3f64.sqrt(),
+        ),
+        ("octagon", octagon.iter().map(|p| [tidy(p[0]), tidy(p[1])]).collect(), 1.0),
+        ("star", star, star_aspect),
+        ("chevron", vec![[0.0, 0.0], [0.7, 0.0], [1.0, 0.5], [0.7, 1.0], [0.0, 1.0], [0.3, 0.5]], 1.6),
+        ("right-arrow", right.to_vec(), 1.6),
+        ("left-arrow", flip(&right, &|[x, y]| [tidy(1.0 - x), y]), 1.6),
+        ("up-arrow", flip(&right, &|[x, y]| [y, tidy(1.0 - x)]), 1.0 / 1.6),
+        ("down-arrow", flip(&right, &|[x, y]| [y, x]), 1.0 / 1.6),
+        (
+            "plus",
+            vec![
+                [0.35, 0.0],
+                [0.65, 0.0],
+                [0.65, 0.35],
+                [1.0, 0.35],
+                [1.0, 0.65],
+                [0.65, 0.65],
+                [0.65, 1.0],
+                [0.35, 1.0],
+                [0.35, 0.65],
+                [0.0, 0.65],
+                [0.0, 0.35],
+                [0.35, 0.35],
+            ],
+            1.0,
+        ),
+        (
+            "callout",
+            vec![[0.0, 0.0], [1.0, 0.0], [1.0, 0.75], [0.42, 0.75], [0.2, 1.0], [0.26, 0.75], [0.0, 0.75]],
+            1.4,
+        ),
+    ]
+}
+
 /// Everything `deck` may have inserted, `theme` its theme, `files` its bundle's paths, and
 /// `sources` its files' bytes, for its data sources' columns.
 pub fn inserts(deck: &Deck, theme: &Theme, files: &[String], sources: &dyn SourceFiles) -> Vec<Insert> {
@@ -70,6 +155,14 @@ pub fn inserts(deck: &Deck, theme: &Theme, files: &[String], sources: &dyn Sourc
         let Some(fill) = fill else { break };
         let node = json!({ "type": "shape", "kind": kind, "fill": fill });
         out.push(Insert { label: format!("Shape · {kind}"), node, id: kind.into(), start: square(0.25) });
+    }
+    // The shape library's polygons, each in the box its own shape takes: as wide as the
+    // rectangle, and as tall as its aspect makes it.
+    for (name, points, aspect) in polygons() {
+        let Some(fill) = fill else { break };
+        let node = json!({ "type": "shape", "kind": "polygon", "points": points, "fill": fill });
+        let start = Start::Box { w: 0.25, h: 0.25 * w / h / aspect as f32 };
+        out.push(Insert { label: format!("Shape · {name}"), node, id: name.into(), start });
     }
     for kind in ["line", "arrow"] {
         let node = json!({ "type": "shape", "kind": kind });
@@ -301,6 +394,68 @@ mod tests {
         assert_eq!(sentence("title"), "Title");
         // A source the bundle does not hand over offers nothing to insert.
         assert!(!offered.iter().any(|i| i.node["type"] == "chart" || i.node["type"] == "table"));
+    }
+
+    /// The shape library (PLAN 2.106): after the rectangle and the oval, each polygon, filled as
+    /// they are, in a box its aspect makes, its points inside the box and touching each of its
+    /// sides, as many as its shape has; and each said in a person's words.
+    #[test]
+    fn the_shape_librarys_polygons_are_offered_filled_and_named() {
+        let deck = Deck::from_json(include_str!("../../../docs/examples/revenue.deck.json")).unwrap();
+        let theme: Theme = serde_json::from_str(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();
+        let offered = inserts(&deck, &theme, &[], &BTreeMap::new());
+        let shapes: Vec<&Insert> = offered.iter().filter(|i| i.node["type"] == "shape").collect();
+        let names: Vec<&str> = shapes.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "rect",
+                "ellipse",
+                "triangle",
+                "right-triangle",
+                "diamond",
+                "parallelogram",
+                "trapezoid",
+                "pentagon",
+                "hexagon",
+                "octagon",
+                "star",
+                "chevron",
+                "right-arrow",
+                "left-arrow",
+                "up-arrow",
+                "down-arrow",
+                "plus",
+                "callout",
+                "line",
+                "arrow"
+            ]
+        );
+        let corners = [("triangle", 3), ("diamond", 4), ("pentagon", 5), ("hexagon", 6), ("octagon", 8), ("star", 10)];
+        for insert in shapes.iter().filter(|i| i.node["kind"] == "polygon") {
+            let id = insert.id.as_str();
+            assert_eq!(insert.label, format!("Shape · {id}"));
+            assert_eq!(insert.node["fill"], "accent", "{id}");
+            let points: Vec<[f64; 2]> = serde_json::from_value(insert.node["points"].clone()).unwrap();
+            assert!(points.len() >= 3, "{id}");
+            if let Some((_, n)) = corners.iter().find(|(name, _)| *name == id) {
+                assert_eq!(points.len(), *n, "{id}");
+            }
+            for axis in 0..2 {
+                let (lo, hi) =
+                    points.iter().fold((f64::MAX, f64::MIN), |(lo, hi), p| (lo.min(p[axis]), hi.max(p[axis])));
+                assert!(lo == 0.0 && hi == 1.0, "{id} fills its box: {lo}..{hi}");
+            }
+            assert!(crate::words::SHAPES.iter().any(|(name, _)| *name == id), "{id} is said in a person's words");
+        }
+        // A chevron's box is wider than tall; an up arrow's taller than wide; a star's as its points.
+        let start = |id: &str| match &shapes.iter().find(|i| i.id == id).unwrap().start {
+            Start::Box { w, h } => w * 1920.0 / (h * 1080.0),
+            Start::Slot(_) => unreachable!(),
+        };
+        assert!((start("chevron") - 1.6).abs() < 1e-3 && (start("up-arrow") - 0.625).abs() < 1e-3);
+        assert!((start("star") - 1.0515).abs() < 1e-3, "{}", start("star"));
+        assert_eq!(crate::words::shape("right-arrow"), "Right Arrow");
     }
 
     /// A data source offers a chart and a table of it (PLAN 2.41), from its columns: the

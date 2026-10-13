@@ -1287,6 +1287,19 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
         - It walks the presenter view too: its B is said over its slide; its number goes at once, though Next has its keys; one the deck lacks is said there alone; and its laser is drawn on the room's slide and its own.
         - ScaenaKit's `theScreenGoesBlackAndASlidesNumberGoesThere`.
         - The iPad's `PresentingTests` hold a touch and drag it across the slide, which stays, then swipe.
+- [x] 2.106 The shape library: Insert offers a presentation app's shapes, each a polygon the canvas reshapes by its points (the parent session, 2026-10-13, at Jay's "the power of PowerPoint").
+    - Done. After the rectangle and the oval, Insert offers 16 shapes, in the browser's Insert menu and command palette and the Mac's and iPad's Shape menu:
+        - a triangle and a right triangle, a diamond, a parallelogram, and a trapezoid;
+        - a pentagon, a hexagon, and an octagon;
+        - a five-pointed star and a chevron;
+        - a block arrow each way, a plus, and a callout.
+    - **Each is a `polygon`** whose `points` fill its box edge to edge (`scaena_core::inserts::polygons`). Its points take their handles on the canvas (PLAN 2.68), and a change of state moves them one by one, as any polygon's (PLAN 1.12).
+    - **Each is filled as the rectangle is**, in the theme's accent, a quarter of the canvas wide, and as tall as its shape is for that width: the star and the pentagon a little wider than tall, the chevron wide, an up arrow tall.
+    - **Each is named in a person's words** in the menus and the layers (`scaena_core::words::SHAPES`): Right Triangle, Up Arrow, Callout.
+    - Tests:
+        - core's `the_shape_librarys_polygons_are_offered_filled_and_named`: the order, each filled and named, each filling its box, the corners each has, and the boxes' aspects;
+        - `each_polygon_of_the_shape_library_is_a_shape_the_deck_takes`: each added to the revenue example on the grid validates;
+        - the walk `insert`: the Insert menu lists the shapes by their names, and a star is inserted as a polygon of ten points in the accent, named Star, and undone. It and the walk `charts` now wait for the canvas to select what was inserted, which it does once the edit is shown: on a busy machine they read the selection before.
 ### Exit criteria (gate 2)
 *(Evidence so far, and the runs that close it: `docs/gate-2.md`.)*
 1. A deck authored in Phase 1 plays at 60 fps on WebGPU in Chrome and Safari 26+, and on the CPU fallback in Firefox at 60 fps where a cue draws no shader and 30 where it draws one (the bar Jay set on 2026-10-04: `docs/gate-2.md`).

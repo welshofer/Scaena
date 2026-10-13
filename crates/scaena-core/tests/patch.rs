@@ -50,6 +50,21 @@ fn keys(v: &Value) -> Vec<&str> {
     v.as_object().unwrap().keys().map(String::as_str).collect()
 }
 
+/// Each of the shape library's polygons (PLAN 2.106) is a shape the deck takes, placed on the grid.
+#[test]
+fn each_polygon_of_the_shape_library_is_a_shape_the_deck_takes() {
+    for (name, points, _) in scaena_core::inserts::polygons() {
+        let node = json!({ "type": "shape", "kind": "polygon", "points": points, "fill": "accent" });
+        let c = patch(
+            &example(),
+            json!([{ "op": "add_node", "id": name, "node": node, "state": "revenue",
+                     "props": { "at": { "col": [2, 4], "row": [2, 4] } } }]),
+        )
+        .unwrap();
+        assert!(errors(&c.doc).is_empty(), "{name}: {:?}", errors(&c.doc));
+    }
+}
+
 #[test]
 fn each_op_compiles_against_the_deck_the_ops_before_it_leave() {
     let c = patch(
