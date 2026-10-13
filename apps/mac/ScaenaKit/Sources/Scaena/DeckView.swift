@@ -125,7 +125,14 @@ struct DeckView: View {
             StateList(editor: editor, chosen: $chosen, make: restage, add: addState)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 320)
         } detail: {
+            #if os(macOS)
             detail
+            #else
+            // On the iPad the document browser is the app's launch screen (PLAN G.6), and the
+            // deck's way back to it stands in the bar over the canvas's column, the split view's own:
+            // the toolbar's items stand there with it. Put on the split view, they showed nowhere.
+            detail.toolbar { toolbar }
+            #endif
         }
         .onChange(of: showsSlides) { _, shows in
             if shows {
@@ -140,8 +147,6 @@ struct DeckView: View {
         }
         #if os(macOS)
         .toolbar(id: "deck") { customizable }
-        #else
-        .toolbar { toolbar }
         #endif
         // A picture, or a sheet's data, chosen from a file lands as it lands dropped: where the
         // pointer last pressed, or in the middle of the slide.
