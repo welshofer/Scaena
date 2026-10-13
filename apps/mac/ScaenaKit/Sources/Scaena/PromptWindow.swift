@@ -27,33 +27,10 @@ struct PromptCommands: Commands {
 }
 #else
 /// New from a Prompt on the iPad (PLAN G.6): the document browser's launch screen offers it beside
-/// New Deck (`ScaenaApp`). The brief shows over the browser, and the deck made is handed to the
-/// browser as a bundle, which it keeps where it stands and opens as a new document.
+/// New Deck, and the brief covers the screen from its button (`ScaenaApp`). The deck made is handed
+/// to the browser as a bundle, which it keeps where it stands and opens as a new document.
 @MainActor
 enum Prompting {
-    /// The bundle of the deck made from the brief shown in front of the window that is key, written
-    /// where the browser takes it from; none where the brief was put away first.
-    static func deck() async -> URL? {
-        guard let below = front() else { return nil }
-        return await withCheckedContinuation { continuation in
-            // Cancel and a deck made as it is cancelled both finish: the first is taken.
-            var finished = false
-            let brief = UIHostingController(rootView: NavigationStack {
-                PromptView { made in
-                    guard !finished else { return }
-                    finished = true
-                    below.dismiss(animated: true)
-                    continuation.resume(returning: made)
-                }
-            })
-            brief.modalPresentationStyle = .formSheet
-            brief.preferredContentSize = CGSize(width: 640, height: 780)
-            // Put away by Cancel alone, which tells the browser no deck was made.
-            brief.isModalInPresentation = true
-            below.present(brief, animated: true)
-        }
-    }
-
     /// `document` written as a bundle named for what it is about, in a folder of its own among the
     /// app's temporary files, where the browser takes it from; the deck to say `said` as it opens.
     static func written(_ document: ScaenaDocument, about topic: String, said: String) throws -> URL {
@@ -77,17 +54,6 @@ enum Prompting {
         while name.hasPrefix(".") { name.removeFirst() }
         name = String(name.prefix(60)).trimmingCharacters(in: .whitespaces)
         return name.isEmpty ? "Untitled" : name
-    }
-
-    /// The view controller in front in the window that is key: the launch screen, or what it shows.
-    private static func front() -> UIViewController? {
-        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        let window = scenes.flatMap(\.windows).first(where: \.isKeyWindow) ?? scenes.first?.keyWindow
-        var front = window?.rootViewController
-        while let shown = front?.presentedViewController, !shown.isBeingDismissed {
-            front = shown
-        }
-        return front
     }
 }
 #endif

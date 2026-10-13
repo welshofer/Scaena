@@ -38,6 +38,13 @@ struct ScaenaApp: App {
     }
     #endif
 
+    #if !os(macOS)
+    /// Whether New from a Prompt's brief covers the launch screen (PLAN G.6).
+    @State private var prompting = false
+    /// The launch screen's button, waiting on the brief: the bundle of the deck made, or none.
+    @State private var prompted: CheckedContinuation<URL?, Never>?
+    #endif
+
     var body: some Scene {
         DocumentGroup(newDocument: { ScaenaDocument() }) { file in
             DeckView(document: file.document)
@@ -63,14 +70,28 @@ struct ScaenaApp: App {
         }
         #if !os(macOS)
         // The document browser's launch screen: a new deck, or one written from a prompt, which
-        // the browser keeps where it stands and opens (PLAN G.6), the brief shown from UIKit
-        // (`Prompting`). With it, a deck's window has no bar of the browser's over the split view:
-        // the deck's way back stands in the bar over the canvas's column, and the toolbar stands
-        // there with it (`DeckView`). Put on the split view (#281), the toolbar showed nowhere.
+        // the browser keeps where it stands and opens (PLAN G.6). The brief covers the screen from
+        // its button, which waits on it, as the platform's own example covers one, the launch scene
+        // declared after the DocumentGroup it launches; shown from UIKit instead, the brief never
+        // showed. With it, a deck's window has no bar of the browser's over the split view: the
+        // deck's way back stands in the bar over the canvas's column, and the toolbar stands there
+        // with it (`DeckView`). Put on the split view (#281), the toolbar showed nowhere.
         DocumentGroupLaunchScene("Scaena") {
             NewDocumentButton("New Deck", contentType: .scaenaDeck)
-            NewDocumentButton("New from a Prompt…", contentType: .scaenaDeck) {
-                await Prompting.deck()
+            NewDocumentButton("New from a Prompt…", contentType: .scaenaDeck) { @MainActor in
+                await withCheckedContinuation { waiting in
+                    prompted = waiting
+                    prompting = true
+                }
+            }
+            .fullScreenCover(isPresented: $prompting) {
+                NavigationStack {
+                    PromptView { made in
+                        prompting = false
+                        prompted?.resume(returning: made)
+                        prompted = nil
+                    }
+                }
             }
         }
         #endif
