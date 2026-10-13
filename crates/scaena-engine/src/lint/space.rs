@@ -8,6 +8,8 @@
 //! collides only where its words are. A box is where it is drawn: through its `transform`
 //! and those of what holds it (SPEC §3.3), so a turned label collides where it turns to.
 //!
+//! W303: a node drawn where the slide's number or footer stands (ADR-0028).
+//!
 //! W311: a shader painted behind a chart or a table, where they overlap.
 //!
 //! W313: a chart squashed below a legible plot.
@@ -175,6 +177,58 @@ impl Rule for E101Collision {
                 .node(b.clone())
                 .measure(json!({ "nodes": [a, b], "overlap": [w, h], "states": states }))
                 .hint("Move one to another slot or cell; if one is meant to lie over the other, give it, or the container it is in, a higher `z`, or mark a decoration `semantic: decoration`.")
+            })
+            .collect()
+    }
+}
+
+/// W303: a node that draws content where the slide's number or footer stands (ADR-0028), which
+/// is drawn over it. One finding per node and piece of furniture, at the node, naming every state;
+/// a decoration lies anywhere.
+pub struct W303UnderFurniture;
+
+impl Rule for W303UnderFurniture {
+    fn code(&self) -> &'static str {
+        "W303"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn check(&self, cx: &Cx) -> Vec<Finding> {
+        let mut pairs: BTreeMap<(String, String), Pair> = BTreeMap::new();
+        for state in cx.states {
+            for item in &state.scene.furniture {
+                let Some(stands) = item.ink() else { continue };
+                for node in &state.scene.nodes {
+                    let props = state.snapshot.nodes.get(&node.id);
+                    if props.and_then(|p| p.get("semantic")).and_then(Value::as_str) == Some("decoration") {
+                        continue;
+                    }
+                    let Some(ink) = node.ink() else { continue };
+                    let Some(by) = meets((stands, None), drawn(&state.scene, &node.id, ink)) else { continue };
+                    let pair = pairs.entry((node.id.clone(), item.id.clone())).or_insert_with(|| Pair {
+                        first: state.index,
+                        overlap: by,
+                        states: Vec::new(),
+                    });
+                    pair.states.push(state.snapshot.state_id.clone());
+                }
+            }
+        }
+        pairs
+            .into_iter()
+            .map(|((node, item), Pair { first, overlap: [w, h], states })| {
+                let what = if item == crate::furniture::NUMBER { "number" } else { "footer" };
+                cx.finding(
+                    self.code(),
+                    self.severity(),
+                    cx.laid(first),
+                    format!("`{node}` lies under the slide's {what} by {w:.0} × {h:.0} cu"),
+                )
+                .at(cx.node_path(&node))
+                .node(node)
+                .measure(json!({ "furniture": what, "overlap": [w, h], "states": states }))
+                .hint("Move it clear of the margin the slide's number and footer stand in, or leave them off this slide (`furniture: false` on its first state).")
             })
             .collect()
     }

@@ -13,7 +13,7 @@ pub const KINDED: [&str; 2] = ["chart", "shader"];
 /// Words that start a line in a state's body other than a node line.
 pub const STATE_WORDS: [&str; 4] = ["notes", "choreo", "sequence", "parallel"];
 /// Header keys that belong to the deck; any other header key belongs to its `meta`.
-pub const DECK_KEYS: [&str; 7] = ["scaena", "theme", "canvas", "formats", "spine", "meta", "_comment"];
+pub const DECK_KEYS: [&str; 8] = ["scaena", "theme", "canvas", "formats", "furniture", "spine", "meta", "_comment"];
 
 pub fn parse(src: &str, lines: &[Line]) -> Result<(Value, SourceMap), DslError> {
     let mut p = Parser { src, lines, i: 0, ..Parser::default() };
@@ -963,7 +963,7 @@ impl<'a> Parser<'a> {
                 .pointer("/canvas"));
         };
         doc.insert("canvas".into(), canvas);
-        for key in ["formats", "theme"] {
+        for key in ["formats", "theme", "furniture"] {
             if let Some(v) = deck_key(&mut self.deck, key) {
                 doc.insert(key.into(), v);
             }

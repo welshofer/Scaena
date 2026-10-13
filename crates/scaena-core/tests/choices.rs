@@ -3,7 +3,9 @@
 //! shows, and where that value lives.
 
 use scaena_core::Deck;
-use scaena_core::choices::{Choices, Field, StateChoices, Takes, Where, characters, choices, state_choices};
+use scaena_core::choices::{
+    Choices, Field, FurnitureChoice, StateChoices, Takes, Where, characters, choices, state_choices,
+};
 use scaena_core::data::Texts;
 use scaena_core::model::Theme;
 use scaena_core::model::theme::Vocabulary;
@@ -480,6 +482,42 @@ fn a_state_offers_its_layout_transition_hold_and_notes() {
     assert_eq!(names.len(), 124, "with nothing placed in a slot, every layout fits: {names:?}");
     let deck: Deck = serde_json::from_value(example()).unwrap();
     assert!(state_choices(&deck, &Theme::from_json(DUSK).unwrap(), "nowhere").is_err());
+}
+
+/// What the inspector offers of a slide's number and footer (ADR-0028): the deck's, and what the
+/// slide says on its first state; shown where the theme places them and the slide's layout has
+/// them, or where the slide asks for them.
+#[test]
+fn a_state_offers_its_slides_number_and_footer() {
+    let mix = state(&example(), "mix");
+    let none = FurnitureChoice {
+        placed: true,
+        number: false,
+        footer: None,
+        head: "revenue".into(),
+        slide: None,
+        shown: false,
+    };
+    assert_eq!(mix.furniture, none, "Dusk places them; the deck shows neither");
+    let mut doc = example();
+    doc["furniture"] = json!({ "number": true, "footer": "Board" });
+    let mix = state(&doc, "mix");
+    assert_eq!(
+        mix.furniture,
+        FurnitureChoice { number: true, footer: Some("Board".into()), shown: true, ..none.clone() }
+    );
+    // The title slide, which Dusk leaves them off, until it asks for them.
+    assert!(!state(&doc, "intro").furniture.shown);
+    doc["states"][0]["furniture"] = json!(true);
+    let intro = state(&doc, "intro");
+    assert_eq!(
+        (intro.furniture.head.as_str(), intro.furniture.slide, intro.furniture.shown),
+        ("intro", Some(true), true)
+    );
+    // The revenue slide hides them, and its step with it.
+    doc["states"][1]["furniture"] = json!(false);
+    let mix = state(&doc, "mix");
+    assert_eq!((mix.furniture.slide, mix.furniture.shown), (Some(false), false));
 }
 
 #[test]

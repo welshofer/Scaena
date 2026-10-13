@@ -81,6 +81,9 @@ struct Inspector: View {
             }
             if tab == .format, choices?.node == nil, characters == nil {
                 objects
+                if let furniture = choices?.furniture, furniture.placed {
+                    FurnitureSection(furniture: furniture, make: make)
+                }
             }
             if Writer.available, tab == .format, characters == nil, also.isEmpty {
                 Section {
@@ -1148,6 +1151,37 @@ private struct NumberRow: View {
             if chosen != value { choose(.number(chosen)) }
         } else {
             text = value.map(Words.number) ?? ""
+        }
+    }
+}
+
+/// The slide's number and footer (ADR-0028), as a presentation app's Header and Footer offers them:
+/// the deck numbers its slides or not, the words at their foot, and whether this slide shows them.
+/// Each choice is one patch, one step to undo.
+private struct FurnitureSection: View {
+    let furniture: FurnitureChoice
+    let make: ([JSONValue]) -> Void
+
+    var body: some View {
+        Section {
+            Toggle("Slide Numbers", isOn: Binding(get: { furniture.number }, set: { make(FurnitureChoice.numbering($0)) }))
+                .accessibilityIdentifier("slide-numbers")
+            TextRow(label: "Footer", value: furniture.footer ?? "", long: false) { value in
+                make(FurnitureChoice.footing(value.string ?? ""))
+            }
+            .accessibilityIdentifier("footer")
+            Picker("On This Slide", selection: Binding(get: { furniture.slide.map { $0 ? "shown" : "hidden" } ?? "" }, set: { picked in
+                make(furniture.showing(picked.isEmpty ? nil : picked == "shown"))
+            })) {
+                Text("As the Layout Has Them").tag("")
+                Text("Shown").tag("shown")
+                Text("Hidden").tag("hidden")
+            }
+        } header: {
+            Text("Slide Number and Footer")
+        } footer: {
+            Text(furniture.shown ? "This slide shows them." : "This slide doesn’t show them.")
+                .font(.caption).foregroundStyle(.secondary)
         }
     }
 }

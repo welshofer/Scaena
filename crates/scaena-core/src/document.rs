@@ -42,6 +42,10 @@ pub struct Deck {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "Option<model::ThemeRef>")]
     pub theme: Option<Value>,
+    /// What each slide shows of the theme's furniture (deck format 0.19, ADR-0028): its number,
+    /// and the words at its foot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub furniture: Option<Furniture>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fonts: Vec<FontRef>,
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
@@ -270,6 +274,19 @@ impl JsonSchema for Node {
     }
 }
 
+/// What a deck shows on each slide of its theme's furniture (deck format 0.19, ADR-0028).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Furniture {
+    /// Each slide's number, counted from 1 in the deck's order, where the theme places it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub number: bool,
+    /// Words at each slide's foot, where the theme places them: a company, a date, `Confidential`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(length(min = 1))]
+    pub footer: Option<String>,
+}
+
 /// How a state relates to the one before it (SPEC §2.2).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, JsonSchema)]
 #[serde(rename_all = "lowercase")]
@@ -303,6 +320,11 @@ pub struct State {
     /// Layout template name from the theme.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layout: Option<String>,
+    /// Whether the slide shows the deck's furniture, its number and footer (deck format 0.19,
+    /// ADR-0028): `false` hides them, `true` shows them on a layout the theme leaves them off. A
+    /// slide's first state says it for the whole slide.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub furniture: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "Option<model::Transition>")]
     pub transition: Option<Value>,

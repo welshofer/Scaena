@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/theme-0.13.json",
+  "$id": "https://scaena.dev/schema/theme-0.14.json",
   "title": "Scaena theme (design system)",
   "description": "Tokens, typographic roles, layout templates, motion, and palettes. Documents reference these by name; they never store resolved values. See docs/SPEC.md §3.6.",
   "type": "object",
   "required": ["scaena-theme", "name", "tokens", "type", "grid", "layouts", "motion"],
   "additionalProperties": false,
   "properties": {
-    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.13(\\.[0-9]+)?$" },
+    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.14(\\.[0-9]+)?$" },
     "name": { "type": "string", "minLength": 1 },
     "description": { "type": "string" },
     "tokens": { "$ref": "#/$defs/Tokens" },
@@ -36,7 +36,11 @@
     "shaders": { "$ref": "#/$defs/Shaders" },
     "charts": { "$ref": "#/$defs/Charts" },
     "tables": { "$ref": "#/$defs/Tables" },
-    "density": { "$ref": "#/$defs/Density" }
+    "density": { "$ref": "#/$defs/Density" },
+    "furniture": {
+      "description": "A slide's number and footer: where each stands and in what type, and the layouts a slide shows neither on (theme format 0.14, ADR-0028). The deck says whether they show.",
+      "$ref": "#/$defs/Furniture"
+    }
   },
   "$defs": {
     "MeshParams": {
@@ -928,6 +932,52 @@
       "type": "object",
       "additionalProperties": false,
       "properties": { "maxWordsPerState": { "type": "integer", "minimum": 1, "default": 40 } }
+    },
+    "Furniture": {
+      "description": "A slide's furniture (theme format 0.14, ADR-0028): its number and its footer, each set in a text role in the margin at the canvas's foot or head, across columns of the grid.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "number": {
+          "description": "Where the slide's number stands, where the deck shows it.",
+          "$ref": "#/$defs/FurnitureItem"
+        },
+        "footer": {
+          "description": "Where the deck's footer stands, where the deck has one.",
+          "$ref": "#/$defs/FurnitureItem"
+        },
+        "except": {
+          "description": "The layouts a slide in shows neither, unless it says so (a title, a divider, a picture that bleeds to the foot).",
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "FurnitureItem": {
+      "description": "One piece of a slide's furniture: a line of words in the margin.",
+      "type": "object",
+      "required": ["col", "role"],
+      "additionalProperties": false,
+      "properties": {
+        "col": { "description": "The grid's columns it spans, in each format's grid.", "$ref": "#/$defs/Range" },
+        "edge": { "description": "The margin it stands in: the canvas's foot, or its head.", "$ref": "#/$defs/Edge" },
+        "role": { "description": "The text role it is set in.", "type": "string" },
+        "align": { "description": "How it lines up across its columns; start by default.", "$ref": "#/$defs/Across" },
+        "color": {
+          "description": "A color token or role it is set in, in place of its role's color.",
+          "type": "string"
+        },
+        "pattern": {
+          "description": "How the number is written: `{n}` the slide's number, `{total}` how many slides the deck has (`\"{n} / {total}\"`); `{n}` by default. The footer's words are the deck's.",
+          "type": "string"
+        }
+      }
+    },
+    "Edge": { "description": "The margin a piece of furniture stands in.", "type": "string", "enum": ["foot", "head"] },
+    "Across": {
+      "description": "How a piece of furniture lines up across its columns.",
+      "type": "string",
+      "enum": ["start", "center", "end"]
     }
   }
 }

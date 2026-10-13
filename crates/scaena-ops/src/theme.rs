@@ -466,6 +466,9 @@ pub struct Library {
     pub roles: Vec<String>,
     /// The layouts the copy had that were given a name, a section, a prompt, or an example.
     pub named: Vec<String>,
+    /// Whether the slide's number and footer, which the copy placed nowhere, were placed as the
+    /// theme ships them (ADR-0028).
+    pub furniture: bool,
 }
 
 /// `theme`, a bundle's copy of the theme that ships as `shipped`, with the layout library that
@@ -479,8 +482,11 @@ pub struct Library {
 /// the copy lacks and cannot take, that role's family or color not being the copy's, is left out,
 /// and an example drawn by a shader preset the copy lacks is left off. The layouts go in the
 /// library's order, then the copy's own, so the gallery's sections come as in a deck started in
-/// the theme, and the theme is written in the library's format. None where `theme` is not a copy
-/// of `shipped`, another name or another grid, or has every layout and name it would bring.
+/// the theme, and the theme is written in the library's format. A copy that places no slide
+/// number or footer takes the theme's placement of them (ADR-0028) where it has their roles and
+/// colors, left off the layouts it has of those the theme leaves them off; a deck shows them only
+/// where it asks. None where `theme` is not a copy of `shipped`, another name or another grid, or
+/// has every layout, name, and placement it would bring.
 pub fn library(theme: &Value, shipped: &Value) -> Option<(Value, Library)> {
     let name = shipped.get("name")?.as_str()?;
     if theme.get("name")?.as_str()? != name {
@@ -528,11 +534,17 @@ pub fn library(theme: &Value, shipped: &Value) -> Option<(Value, Library)> {
         brought.added.push(key.clone());
         layouts.insert(key.clone(), drawable(layout, presets));
     }
-    if brought.added.is_empty() && brought.named.is_empty() {
-        return None;
-    }
     for (key, own) in ours {
         layouts.entry(key).or_insert(own);
+    }
+    // The slide's number and footer, where the copy places neither: in roles and colors it has.
+    let furniture = match theme.get("furniture") {
+        Some(_) => None,
+        None => shipped.get("furniture").and_then(|f| placed(f, theme, &taken, &layouts)),
+    };
+    brought.furniture = furniture.is_some();
+    if brought.added.is_empty() && brought.named.is_empty() && !brought.furniture {
+        return None;
     }
     let mut theme = theme.clone();
     theme["layouts"] = Value::Object(layouts);
@@ -543,10 +555,45 @@ pub fn library(theme: &Value, shipped: &Value) -> Option<(Value, Library)> {
         let roles = theme.pointer_mut("/type/roles")?.as_object_mut()?;
         roles.extend(taken);
     }
+    if let Some(furniture) = furniture {
+        theme["furniture"] = furniture;
+    }
     if let Some(version) = shipped.get("scaena-theme") {
         theme["scaena-theme"] = version.clone();
     }
     Some((theme, brought))
+}
+
+/// `furniture`, the theme's as it ships, for `copy` (taking the roles `taken` too), its layouts
+/// being `layouts`: each piece in a role and a color the copy has, the layouts it is left off those
+/// the copy has. None where neither piece can be placed.
+fn placed(
+    furniture: &Value,
+    copy: &Value,
+    taken: &serde_json::Map<String, Value>,
+    layouts: &serde_json::Map<String, Value>,
+) -> Option<Value> {
+    let has = |at: &str, name: &str| copy.pointer(at).and_then(Value::as_object).is_some_and(|m| m.contains_key(name));
+    let mut out = furniture.as_object()?.clone();
+    for key in ["number", "footer"] {
+        let fits = out.get(key).is_some_and(|item| {
+            let role = (item.get("role").and_then(Value::as_str))
+                .is_some_and(|r| has("/type/roles", r) || taken.contains_key(r));
+            let color = (item.get("color").and_then(Value::as_str))
+                .is_none_or(|c| c.starts_with('#') || has("/tokens/color", c) || has("/tokens/roles", c));
+            role && color
+        });
+        if !fits {
+            out.remove(key);
+        }
+    }
+    if !out.contains_key("number") && !out.contains_key("footer") {
+        return None;
+    }
+    if let Some(Value::Array(except)) = out.get_mut("except") {
+        except.retain(|l| l.as_str().is_some_and(|l| layouts.contains_key(l)));
+    }
+    Some(Value::Object(out))
 }
 
 /// The roles a layout sets words in: its slots', and those of its slots in each format.

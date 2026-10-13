@@ -1,0 +1,14 @@
+{
+  "scaena": "0.19",
+  "_comment": "W303 trigger: a note placed in the margin at the foot of the slide, where its footer stands.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "furniture": {"number": true, "footer": "Scaena lint"},
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "nodes": {
+    "t": {"type": "text", "role": "caption", "text": "A note at the foot", "at": {"rect": [96, 1000, 700, 60]}}
+  },
+  "states": [
+    {"id": "a", "props": {"t": {}}}
+  ]
+}

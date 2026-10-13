@@ -256,7 +256,8 @@ impl Rule for E120MissingGlyphs {
     fn check(&self, cx: &Cx) -> Vec<Finding> {
         let mut out = Vec::new();
         for state in cx.states {
-            for node in &state.scene.nodes {
+            // The slide's number and footer too (ADR-0028): the footer's words are the deck's.
+            for node in state.scene.nodes.iter().chain(&state.scene.furniture) {
                 let mut missing: Vec<char> = Vec::new();
                 for t in layouts(&node.content) {
                     for run in &t.runs {
@@ -285,6 +286,27 @@ impl Rule for E120MissingGlyphs {
                     continue;
                 }
                 let chars: Vec<String> = missing.iter().map(|c| format!("`{c}` (U+{:04X})", *c as u32)).collect();
+                let measure = json!({ "missing": missing.iter().map(|c| c.to_string()).collect::<Vec<_>>() });
+                if crate::furniture::is_furniture(&node.id) {
+                    // The footer's words are the deck's; the number's figures are in every font. Each
+                    // state's finding is the same: once.
+                    let said = out.iter().any(|f: &Finding| f.path.as_deref() == Some("/furniture/footer"));
+                    if node.id != crate::furniture::FOOTER || said {
+                        continue;
+                    }
+                    out.push(
+                        cx.finding(
+                            self.code(),
+                            self.severity(),
+                            state,
+                            format!("the deck's footer sets {}, which its fonts have no glyph for", chars.join(", ")),
+                        )
+                        .at("/furniture/footer")
+                        .measure(measure)
+                        .hint("Add a family that has them to the footer's role's `fallback` (and its file to the bundle), or change the footer."),
+                    );
+                    continue;
+                }
                 out.push(
                     cx.finding(
                         self.code(),
@@ -294,7 +316,7 @@ impl Rule for E120MissingGlyphs {
                     )
                     .at(cx.node_path(&node.id))
                     .node(node.id.clone())
-                    .measure(json!({ "missing": missing.iter().map(|c| c.to_string()).collect::<Vec<_>>() }))
+                    .measure(measure)
                     .hint("Add a family that has them to the role's `fallback` (and its file to the bundle), or change the text."),
                 );
             }

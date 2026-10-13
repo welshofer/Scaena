@@ -89,6 +89,15 @@ pub fn validate(deck: &Deck) -> Vec<Finding> {
                     .state(s.id.clone()),
             );
         }
+        // A slide shows its number and footer whole or not at all: its first state says which
+        // (ADR-0028).
+        if s.furniture.is_some() && s.slide.as_ref().is_some_and(|slide| *slide != s.id) {
+            out.push(
+                err("E106", format!("state `{}` is a step of a slide: only its first state shows or hides the slide's number and footer", s.id))
+                    .at(format!("/states/{i}/furniture"))
+                    .state(s.id.clone()),
+            );
+        }
         for (j, item) in s.choreography.iter().enumerate() {
             for target in choreo_targets(item) {
                 if !deck.nodes.contains_key(&target) {
@@ -508,6 +517,33 @@ impl LoadedTheme {
                     need(self.stroke(stroke), "stroke", stroke, format!("/tables/{key}/stroke"));
                 }
             }
+        }
+        // A slide's number and footer (ADR-0028): their roles and colors, the layouts they are left
+        // off, and their columns on the grid.
+        let mut past = Vec::new();
+        if let Some(furniture) = &t.furniture {
+            for (key, item) in [("number", &furniture.number), ("footer", &furniture.footer)] {
+                let Some(item) = item else { continue };
+                let at = format!("/furniture/{key}");
+                need(t.typography.roles.contains_key(&item.role), "text role", &item.role, format!("{at}/role"));
+                if let Some(color) = &item.color {
+                    need(self.color(color), "color", color, format!("{at}/color"));
+                }
+                let (a, b) = match item.col {
+                    crate::model::values::Range::Index(i) => (i, i),
+                    crate::model::values::Range::Span([a, b]) => (a, b),
+                };
+                if a > b || b > t.grid.columns {
+                    let message = format!("the slide's {key} spans columns {a} to {b} of a grid of {}", t.grid.columns);
+                    past.push((message, format!("{at}/col")));
+                }
+            }
+            for (i, layout) in furniture.except.iter().enumerate() {
+                need(t.layouts.contains_key(layout), "layout", layout, format!("/furniture/except/{i}"));
+            }
+        }
+        for (message, path) in past {
+            out.push(self.finding("E102", message, &path));
         }
         out
     }

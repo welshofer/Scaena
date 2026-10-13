@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.13",
+  "scaena-theme": "0.14",
   "name": "Daybreak",
   "description": "Warm paper surface, near-black ink, one deep teal accent. Same families, roles, layouts, and presets as Dusk: a deck moves between them by swapping the file.",
   "tokens": {
@@ -709,5 +709,10 @@
   },
   "density": {
     "maxWordsPerState": 40
+  },
+  "furniture": {
+    "number": { "col": [12, 12], "role": "label", "align": "end" },
+    "footer": { "col": [1, 8], "role": "label" },
+    "except": ["title", "section", "photo-title", "title-only", "title-center", "title-split", "section-photo", "section-number", "bullets-photo", "agenda-photo", "number-photo", "photo", "photo-caption", "photo-left", "photo-right", "mosaic", "photo-quote", "photo-grid-text", "quote-portrait", "speaker", "chyron", "headline", "contact"]
   }
 }

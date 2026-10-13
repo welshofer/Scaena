@@ -459,6 +459,17 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     const writing = writes.length
       ? `<div class="arrange writing"><span class="arrange-kind">Writing</span><span class="arrange-buttons" role="group" aria-label="Writing">${writes.join("")}</span></div>`
       : "";
+    // The slide's number and footer (ADR-0028), where the theme places them: the deck's, and this
+    // slide's own say.
+    const furniture = !chars && !nodes.length && "furniture" in offered ? offered.furniture : undefined;
+    const furnishing = furniture?.placed
+      ? `<h3 class="furniture-title">Slide Number and Footer</h3>
+      <div class="fields furniture">
+        <label for="look-number">Number</label><span class="control"><select id="look-number" data-furnish="number"><option value="yes"${furniture.number ? " selected" : ""}>Each slide's</option><option value="no"${furniture.number ? "" : " selected"}>None</option></select></span><span></span>
+        <label for="look-footer">Footer</label><span class="control"><input id="look-footer" type="text" data-furnish="footer" value="${html(furniture.footer ?? "")}" placeholder="Words at the foot of each slide" aria-label="Footer: words at the foot of each slide"></span><span></span>
+        <label for="look-furniture">This slide</label><span class="control"><select id="look-furniture" data-furnish="slide"><option value=""${furniture.slide === undefined ? " selected" : ""}>As its layout has them</option><option value="yes"${furniture.slide === true ? " selected" : ""}>Shows them</option><option value="no"${furniture.slide === false ? " selected" : ""}>Hides them</option></select></span><span class="lives">${furniture.shown ? "Shown" : "Hidden"}</span>
+      </div>`
+      : "";
     // The layouts the state may take, drawn (PLAN 2.92): where there is more than one.
     const layout = !chars && !("node" in offered) ? offered.fields.find((f) => f.prop === "layout") : undefined;
     const choosing = layout?.takes.kind === "name" && layout.takes.names.length > 1;
@@ -471,6 +482,7 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
       ${text ? writing : ""}
       ${layouts}
       <div class="fields">${rows.join("")}</div>
+      ${furnishing}
       ${text ? "" : writing}
       ${reading}`;
     // A layout previewed is let go: the canvas shows the state at rest as it is.
@@ -679,8 +691,42 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     }
   }
 
+  /** The deck's slide numbers and footer, or the slide's own say, by `ops` (ADR-0028): one patch,
+   * one step to undo, said as `told`. */
+  function furnish(ops: unknown[], told: string) {
+    queue = queue.then(async () => {
+      const now = around.shown();
+      if (!now) return;
+      try {
+        const { source, edited } = await stage.make(around.source(), ops, now.index, around.format());
+        around.apply(source, edited);
+        around.say(`${told} · ⌘Z undoes it`);
+      } catch (e) {
+        around.say(`Not changed: ${said(e)}`);
+        render(true);
+      }
+    });
+  }
+
   into.addEventListener("change", (e) => {
     const target = e.target as HTMLInputElement | HTMLSelectElement;
+    const furnishing = target.dataset.furnish;
+    if (furnishing && offered && "furniture" in offered) {
+      const f = offered.furniture;
+      if (furnishing === "number") {
+        const on = target.value === "yes";
+        furnish([{ op: "furnish", number: on }], on ? "Slides numbered" : "Slides not numbered");
+      } else if (furnishing === "footer") {
+        const words = target.value.trim();
+        furnish([{ op: "furnish", footer: words || null }], words ? `Footer: “${words}”` : "No footer");
+      } else {
+        const value = target.value === "" ? null : target.value === "yes";
+        const slide = around.slide(f.head);
+        const told = value === null ? `${slide}: number and footer as its layout has them` : `${slide}: number and footer ${value ? "shown" : "hidden"}`;
+        furnish([{ op: "set_state", id: f.head, prop: "furniture", value }], told);
+      }
+      return;
+    }
     if (target.matches("[data-keep]")) {
       keep = (target as HTMLInputElement).checked;
       // What each layout suggested changes, kept to the state or not.

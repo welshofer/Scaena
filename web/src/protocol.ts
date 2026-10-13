@@ -306,6 +306,25 @@ export interface StateChoices {
   fields: Field[];
   /** The state as a person counts it: `Slide 3, step 2` (PLAN 2.99). */
   said?: string;
+  /** The slide's number and footer (ADR-0028). */
+  furniture: FurnitureChoice;
+}
+
+/** What the inspector offers of a slide's number and footer (ADR-0028): the deck's, which
+ * `furnish` sets, and the slide's own, which `set_state`'s `furniture` writes on its first state. */
+export interface FurnitureChoice {
+  /** Whether the theme places a number or a footer at all. */
+  placed: boolean;
+  /** Whether the deck numbers its slides. */
+  number: boolean;
+  /** The words at the foot of its slides. */
+  footer?: string;
+  /** The slide's first state, where the slide says whether it shows them. */
+  head: string;
+  /** What the slide says: shown, hidden, or as its layout has them (absent). */
+  slide?: boolean;
+  /** Whether the slide shows them, as it stands. */
+  shown: boolean;
 }
 
 /** The words an editor shows for a state (PLAN 2.99): each object it shows named by what it

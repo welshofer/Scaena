@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/deck-0.18.json",
+  "$id": "https://scaena.dev/schema/deck-0.19.json",
   "title": "Scaena deck document",
   "description": "Canonical deck.json. A deck is a scene graph (nodes) plus an ordered cue list (states) over a narrative spine, rendered against a theme. See docs/SPEC.md §3.",
   "type": "object",
@@ -10,7 +10,7 @@
     "scaena": {
       "description": "Format version (semver, major.minor[.patch]).",
       "type": "string",
-      "pattern": "^0\\.18(\\.[0-9]+)?$"
+      "pattern": "^0\\.19(\\.[0-9]+)?$"
     },
     "meta": { "$ref": "#/$defs/Meta" },
     "canvas": { "$ref": "#/$defs/Canvas" },
@@ -23,6 +23,10 @@
     "theme": {
       "description": "Path to a theme file inside the bundle, or an inline theme object (schema: theme.schema.json).",
       "$ref": "#/$defs/ThemeRef"
+    },
+    "furniture": {
+      "description": "What each slide shows of the theme's furniture (deck format 0.19, ADR-0028): its number, and the words at its foot.",
+      "$ref": "#/$defs/Furniture"
     },
     "fonts": { "type": "array", "items": { "$ref": "#/$defs/FontRef" } },
     "data": {
@@ -196,6 +200,22 @@
     "ThemeRef": {
       "description": "A theme file inside the bundle, or an inline theme object (schema: theme.schema.json).",
       "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "object", "additionalProperties": true }]
+    },
+    "Furniture": {
+      "description": "What a deck shows on each slide of its theme's furniture (deck format 0.19, ADR-0028).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "number": {
+          "description": "Each slide's number, counted from 1 in the deck's order, where the theme places it.",
+          "type": "boolean"
+        },
+        "footer": {
+          "description": "Words at each slide's foot, where the theme places them: a company, a date, `Confidential`.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
     },
     "FontRef": {
       "type": "object",
@@ -1264,6 +1284,10 @@
         "from": { "description": "Track from this state instead of the previous one (branch).", "$ref": "#/$defs/Id" },
         "mode": { "$ref": "#/$defs/StateMode", "default": "delta" },
         "layout": { "description": "Layout template name from the theme.", "type": "string" },
+        "furniture": {
+          "description": "Whether the slide shows the deck's furniture, its number and footer (deck format 0.19, ADR-0028): `false` hides them, `true` shows them on a layout the theme leaves them off. A slide's first state says it for the whole slide.",
+          "type": "boolean"
+        },
         "transition": { "$ref": "#/$defs/Transition" },
         "props": {
           "description": "Per-node property deltas for this state. Keys are node ids.",

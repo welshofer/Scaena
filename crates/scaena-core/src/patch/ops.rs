@@ -216,6 +216,7 @@ pub(super) fn compile(doc: &Value, op: &SemanticOp, files: &dyn BundleFiles) -> 
             rename_state(&d, id, to)?
         }
         SemanticOp::SetState { id, prop, value, fork } => set_state(&d, id, prop, value, *fork)?,
+        SemanticOp::Furnish { number, footer } => furnish(&d, *number, footer.as_ref())?,
         SemanticOp::Retheme { theme } => {
             match theme {
                 Value::String(path) if !files.exists(path) => {
@@ -2088,10 +2089,23 @@ fn set_state(d: &Doc, id: &str, prop: &str, value: &Value, fork: bool) -> Result
         ("layout", None) => layout_lives(&d.snapshots()?.0, i).unwrap_or(i),
         ("hold" | "notes" | "transition", None) => i,
         ("transition", Some(key)) if TRANSITION.contains(&key) => i,
+        // A slide shows its number and footer whole: its first state says it (ADR-0028).
+        ("furniture", None) => {
+            if !matches!(value, Value::Bool(_) | Value::Null) {
+                return Err(
+                    "a slide's `furniture` is `true`, `false`, or `null` to show them as its layout has them".into()
+                );
+            }
+            let slide = d.states()[i].get("slide").and_then(Value::as_str);
+            match slide {
+                Some(slide) => d.state(slide).unwrap_or(i),
+                None => i,
+            }
+        }
         _ => {
             let keys = list(TRANSITION.iter().map(|k| format!("transition/{k}")));
             return Err(format!(
-                "`{prop}` is not one `set_state` sets: a state's `layout`, `transition` or one of its keys ({keys}), `hold`, or `notes`; `rename_state` and `move_state` change the rest"
+                "`{prop}` is not one `set_state` sets: a state's `layout`, `transition` or one of its keys ({keys}), `hold`, `notes`, or its slide's `furniture`; `rename_state` and `move_state` change the rest"
             ));
         }
     };
@@ -2107,6 +2121,33 @@ fn set_state(d: &Doc, id: &str, prop: &str, value: &Value, fork: bool) -> Result
         None => drop(new.shift_remove(&name)),
     }
     Ok(diff(&format!("/states/{at}"), old, &new))
+}
+
+/// `furnish` (ADR-0028): the deck's furniture with its `number` turned on or off and its
+/// `footer` set, or taken away with `null` or no words. A deck left showing neither has none.
+fn furnish(d: &Doc, number: Option<bool>, footer: Option<&Value>) -> Result<Vec<JsonOp>, String> {
+    let old = d.0.get("furniture").and_then(Value::as_object).cloned().unwrap_or_default();
+    let mut new = old.clone();
+    match number {
+        Some(true) => drop(new.insert("number".into(), Value::Bool(true))),
+        Some(false) => drop(new.shift_remove("number")),
+        None => {}
+    }
+    match footer {
+        None => {}
+        Some(Value::String(words)) if !words.trim().is_empty() => {
+            drop(new.insert("footer".into(), words.clone().into()))
+        }
+        Some(Value::String(_) | Value::Null) => drop(new.shift_remove("footer")),
+        Some(other) => return Err(format!("a footer is words, or `null` to take it away, not {other}")),
+    }
+    let had = d.0.get("furniture").is_some();
+    Ok(match (had, new.is_empty()) {
+        (true, true) => vec![JsonOp::Remove { path: "/furniture".into() }],
+        (false, true) => Vec::new(),
+        (false, false) => vec![JsonOp::Add { path: "/furniture".into(), value: Value::Object(new) }],
+        (true, false) => diff("/furniture", &old, &new),
+    })
 }
 
 /// A state's transition, `old`, with its `key` set to `value`, or taken away with `null`. A

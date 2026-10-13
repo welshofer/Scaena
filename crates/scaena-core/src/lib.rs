@@ -14,6 +14,7 @@
 //! - [`data`] — data sources read and typed (SPEC §3.10), from bytes the caller hands over.
 //! - [`format`] — number and date formats, d3's grammar (`docs/spec/format.md`).
 //! - [`files`] — a bundle's images, fonts, and data, and what in the deck uses each (PLAN 2.59).
+//! - [`furniture`] — a slide's number and footer: which slide a state is, and whether it shows them (ADR-0028).
 //! - [`jpeg`] — photos: a JPEG decoder in integers alone, the same pixels on every target
 //!   (ADR-0017); `scaena-pixels`' own, re-exported.
 //! - [`shader`] — what a shader op draws, here because every painter runs it: each kind's CPU
@@ -44,6 +45,7 @@ pub mod dsl;
 pub mod expr;
 pub mod files;
 pub mod format;
+pub mod furniture;
 pub mod ids;
 pub mod inserts;
 pub mod layers;
@@ -76,10 +78,10 @@ pub use tracking::{Snapshot, resolve_states};
 
 /// The `deck.json` format version this crate reads and writes (its `scaena` key). Bump per
 /// SPEC §3.1; `docs/schema/deck.schema.json` takes its `$id` and version pattern from it.
-pub const FORMAT_VERSION: &str = "0.18";
+pub const FORMAT_VERSION: &str = "0.19";
 
 /// The theme format version (a theme's `scaena-theme` key), versioned apart from decks.
-pub const THEME_FORMAT_VERSION: &str = "0.13";
+pub const THEME_FORMAT_VERSION: &str = "0.14";
 
 /// The oldest deck format this crate reads (SPEC §3.1, [`version`]). Every format since has only
 /// added to what a deck may say, so a deck saved in one reads as the current format. A format

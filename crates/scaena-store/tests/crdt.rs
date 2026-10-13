@@ -94,6 +94,23 @@ fn every_deck_in_the_repository_comes_out_as_it_went_in() {
     }
 }
 
+/// A slide's number and footer (ADR-0028), the deck's and a slide's own say, go in and come out,
+/// and a change to them is the deck's.
+#[test]
+fn the_decks_furniture_and_a_slides_say_come_out_as_they_went_in() {
+    let mut v = base();
+    v["furniture"] = json!({ "number": true, "footer": "Q3 · Acme" });
+    v["states"][0]["furniture"] = json!(false);
+    let furnished = deck(v.clone());
+    let doc = DeckDoc::from_deck(&furnished, &user()).unwrap();
+    let loaded = DeckDoc::load(&doc.save().unwrap()).unwrap();
+    assert_eq!(loaded.deck().unwrap().to_json().unwrap(), furnished.to_json().unwrap());
+    v["furniture"]["footer"] = json!("Q4 · Acme");
+    v["states"][0]["furniture"] = json!(true);
+    assert!(loaded.apply(&deck(v.clone()), &user()).unwrap(), "a new footer and the slide's say are a change");
+    assert_eq!(json_of(&loaded.deck().unwrap()), json_of(&deck(v)));
+}
+
 #[test]
 fn a_change_is_the_least_it_can_be_and_says_who_made_it() {
     let doc = DeckDoc::from_deck(&deck(base()), &user()).unwrap();

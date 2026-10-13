@@ -374,3 +374,36 @@ fn text_in_capitals_reads_as_written() {
     // Only where case sets the words otherwise: the cover's title is written as it shows.
     assert_eq!(actual.len(), 1, "{actual:?}");
 }
+
+/// A slide's number and footer (ADR-0028) are pagination artifacts, as PDF/UA marks a page's
+/// number and running footer: the page of a slide that shows them marks both so, the title page,
+/// which Dusk leaves them off, marks none, and the structure a reader reads is as it was.
+#[test]
+fn a_slides_number_and_footer_are_pagination_artifacts() {
+    let bundle = |name: &str, furniture: Option<serde_json::Value>| {
+        let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("pdf-{name}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        for sub in ["fonts", "themes", "data"] {
+            copy_dir(&Path::new("../../docs/examples").join(sub), &dir.join(sub));
+        }
+        let mut deck: serde_json::Value =
+            serde_json::from_slice(&std::fs::read("../../docs/examples/revenue.deck.json").unwrap()).unwrap();
+        if let Some(furniture) = furniture {
+            deck["furniture"] = furniture;
+        }
+        std::fs::write(dir.join("deck.json"), deck.to_string()).unwrap();
+        scaena_ops::open(&dir).unwrap()
+    };
+    let (bare, _) = exported(&bundle("bare", None), None, "bare");
+    let furnished = bundle("furnished", Some(serde_json::json!({ "number": true, "footer": "Q3 Review · Board" })));
+    let (bytes, pages) = exported(&furnished, None, "furnished");
+    assert_eq!(pages, ["intro", "mix", "close"]);
+    let pdf = hayro::hayro_syntax::Pdf::new(Arc::new(bytes.clone())).expect("the PDF parses");
+    let content: Vec<String> = (pdf.pages().iter())
+        .map(|page| String::from_utf8_lossy(page.page_stream().expect("its content")).into_owned())
+        .collect();
+    assert_eq!(content[1].matches("Pagination").count(), 2, "the revenue slide's number and footer");
+    assert!(content[1].contains("Footer"), "its footer says it is one");
+    assert!(!content[0].contains("Pagination") && !content[2].contains("Pagination"), "the title slides show neither");
+    assert_eq!(structure(&bytes), structure(&bare), "a reader reads the deck as it read without them");
+}

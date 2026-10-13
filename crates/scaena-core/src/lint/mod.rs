@@ -209,6 +209,7 @@ mod tests {
             from: None,
             mode: Default::default(),
             layout: Some("title".into()),
+            furniture: None,
             transition: None,
             props: Default::default(),
             remove: vec![],
