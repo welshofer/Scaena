@@ -228,7 +228,7 @@ try {
     const set = Math.round((Number(held) + 0.4) * 10) / 10;
     await cell.fill(String(set));
     await cell.press("Enter");
-    await until("the cell set", () => / of row 0 set/.test(document.querySelector("#status").textContent));
+    await until("the cell set", () => /^Row 0, .*: set/.test(document.querySelector("#status").textContent));
     // The chart drawn again: the canvas as painted is not what it was.
     let now = await painted();
     for (let i = 0; i < 40 && differ(was, now) <= 100; i++) {
@@ -437,7 +437,7 @@ try {
     await until("every state linted", () => window.scaena.last()?.whole, null, 60000);
     const found = await page.evaluate(() => window.scaena.last().findings.map((f) => `${f.severity} ${f.code} ${f.message}`));
     console.log(`     lint: ${found.join("; ") || "nothing"}`);
-    check(!found.some((f) => f.startsWith("error")), `lint finds no error in the edited deck: ${found.filter((f) => f.startsWith("error")).join("; ")}`);
+    check(!found.some((f) => f.startsWith("Error")), `lint finds no error in the edited deck: ${found.filter((f) => f.startsWith("Error")).join("; ")}`);
   });
   void original;
 } catch (e) {

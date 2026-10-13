@@ -30,7 +30,7 @@ try {
     state: params.get("state"),
   });
 } catch (e) {
-  document.querySelector("#status")!.textContent = `error: ${e instanceof Error ? e.message : String(e)}`;
+  document.querySelector("#status")!.textContent = `Error: ${e instanceof Error ? e.message : String(e)}`;
 }
 
 offline();

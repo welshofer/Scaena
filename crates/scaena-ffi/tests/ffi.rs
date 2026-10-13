@@ -477,9 +477,10 @@ fn the_assistant_asks_with_the_users_key_and_runs_each_call_on_the_bundle() {
     }
     assert!(stepped(chat, s, "run", json!({ "index": 3 }))["error"]["message"].is_string(), "three calls, not four");
     assert_eq!(ran[0]["error"], false, "{}", ran[0]);
-    assert!(ran[0]["summary"].as_str().unwrap().contains("found") || ran[0]["summary"] == "nothing found");
+    let linted = ran[0]["summary"].as_str().unwrap();
+    assert!(linted == "No issues" || ["problem", "warning", "note"].iter().any(|s| linted.contains(s)), "{linted}");
     assert!(ran[1]["png"].as_str().unwrap().starts_with("iVBORw0KGgo"), "deck_render's frame, a PNG in base64");
-    assert!(ran[1]["summary"].as_str().unwrap().starts_with("cover, "), "{}", ran[1]["summary"]);
+    assert!(ran[1]["summary"].as_str().unwrap().ends_with(" px"), "{}", ran[1]["summary"]);
     assert!(ran[2]["summary"].as_str().unwrap().ends_with(" characters"), "{}", ran[2]);
     assert!(ran.iter().all(|r| r["edited"] == false));
     assert_eq!(step(chat, null_mut(), "next", Value::Null), json!(true), "one round taken of 32");
@@ -515,7 +516,7 @@ fn the_assistant_asks_with_the_users_key_and_runs_each_call_on_the_bundle() {
     let next = step(chat, null_mut(), "answer", json!({ "status": 200, "body": answer }));
     let patched = step(chat, s, "run", json!({ "call": next["calls"][0], "at": at }));
     assert_eq!(patched["edited"], true, "{patched}");
-    assert_eq!(patched["summary"], "applied");
+    assert_eq!(patched["summary"], "Done");
     assert!(call(s, "source", Value::Null).as_str().unwrap().contains("Loudly: "));
     step(chat, null_mut(), "next", Value::Null);
 

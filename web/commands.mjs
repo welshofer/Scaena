@@ -111,7 +111,7 @@ try {
   const dup = await palette("dup");
   check(dup[0] === "Duplicate", `the title selected, "dup" lists Duplicate first: ${dup.join(", ")}`);
   await page.keyboard.press("Enter");
-  check(await says("title copied as"), `Enter duplicates the title: ${await status()}`);
+  check(await says(" duplicated"), `Enter duplicates the title: ${await status()}`);
   const copy = await page.evaluate(() => window.scaena.canvas.selected());
   check(copy !== "title" && (await source()).includes(`\n  ${copy} `), `the copy is in the source, selected: ${copy}`);
   await undo();
@@ -141,7 +141,7 @@ try {
       .then(() => true, () => false),
     "Enter re-themes the deck in Daybreak",
   );
-  check(await says("theme Daybreak · lint finds"), `the status says what lint finds: ${await status()}`);
+  check(await says("Theme Daybreak · "), `the status says what lint finds: ${await status()}`);
   await undo();
   check(await back(original), "one undo puts Dusk back");
 
@@ -226,7 +226,7 @@ try {
   );
   const before = await source();
   await choose("Paste");
-  check(await says("pasted in revenue"), `Paste puts what was copied there: ${await status()}`);
+  check(await says("Pasted on this slide"), `Paste puts what was copied there: ${await status()}`);
   const pasted = await page.evaluate(() => window.scaena.canvas.selected());
   check(pasted !== undefined && pasted !== "title" && (await source()) !== before, `the paste is selected: ${pasted}`);
   await undo();
@@ -263,7 +263,7 @@ try {
     "↓ moves item by item, to Duplicate",
   );
   await page.keyboard.press("Enter");
-  check(await says("title copied as"), `Enter runs it: ${await status()}`);
+  check(await says(" duplicated"), `Enter runs it: ${await status()}`);
   await undo();
   check(await back(original), "one undo takes it back");
 

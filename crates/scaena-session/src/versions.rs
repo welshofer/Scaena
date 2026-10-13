@@ -56,12 +56,21 @@ impl Session {
         Ok(states)
     }
 
+    /// The version shown's states as a person counts them, in order, as its own slide list
+    /// would number them (PLAN 2.99): `Slide 3, step 2`. None where no version is shown.
+    pub fn version_slides(&self) -> Vec<String> {
+        self.viewing.as_ref().map(|viewed| scaena_core::words::slides(&viewed.deck)).unwrap_or_default()
+    }
+
     /// The version shown's `state` at rest, as a PNG `width` pixels wide. A version that names a
     /// file the bundle no longer holds says so, as one a restore would refuse (E102).
     pub fn version_png(&mut self, state: &str, width: u32) -> Result<Vec<u8>, Error> {
         let viewed = self.viewing.as_mut().ok_or_else(|| Error::Ops("no version is shown".into()))?;
         viewed.png(state, width).map_err(|e| match e {
-            Error::Missing(path) => Error::Ops(format!("it names {path}, which the bundle no longer holds")),
+            Error::Missing(path) => {
+                let file = path.rsplit('/').next().unwrap_or(&path);
+                Error::Ops(format!("it uses {file}, which the deck no longer holds"))
+            }
             e => e,
         })
     }

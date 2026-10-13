@@ -32,7 +32,7 @@ try {
   page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
   page.on("console", (m) => m.type() === "error" && failures.push(`console: ${m.text()}`));
   await page.goto(url("/docs/examples/trails.deck.json"));
-  await page.waitForFunction(() => window.scaena?.last() || document.querySelector("#status")?.textContent.startsWith("error"), null, {
+  await page.waitForFunction(() => window.scaena?.last() || document.querySelector("#status")?.textContent.startsWith("Error"), null, {
     timeout: 120000,
   });
 

@@ -480,7 +480,7 @@
       #transcript li { white-space: pre-wrap; overflow-wrap: anywhere; }
       #transcript .user { align-self: flex-end; background: var(--line); border-radius: 6px; padding: 4px 8px; max-width: 90%; }
       #transcript .call { font-size: 12px; color: var(--muted); }
-      #transcript .call code { color: var(--ink); }
+      #transcript .call .doing { color: var(--ink); }
       #transcript .call.stopped .outcome { color: var(--error); }
       #transcript .call pre { white-space: pre-wrap; max-height: 12em; overflow: auto; background: var(--panel); padding: 4px 6px; margin: 4px 0; }
       #transcript img { display: block; max-width: 100%; margin-top: 4px; border: 1px solid var(--line); }
@@ -575,18 +575,18 @@
       </section>
       <div id="work">
         <div id="column">
-        <nav id="bundle" aria-label="Bundle">
+        <nav id="bundle" aria-label="File">
           <button type="button" id="source-toggle" aria-controls="source" aria-pressed="false" title="The deck's source as .scn, beside the canvas (⌘\)">Source</button>
-          <button id="new-deck" title="A new deck from a theme that ships">New…</button>
+          <button id="new-deck" title="A new deck in a built-in theme">New…</button>
           <button id="new-prompt" title="A new deck written from a prompt by Narrato, grounded in what you give it, with your own key" aria-haspopup="dialog">From a prompt…</button>
           <button id="open-folder" hidden>Open folder…</button>
           <label class="button">Open .scaena…<input id="open-file" type="file" accept=".scaena" hidden /></label>
           <select id="kept" aria-label="Kept in this browser"></select>
-          <button id="save" title="Save where the bundle is kept (⌘S, Ctrl+S)">Save</button>
-          <button id="save-as" title="Save the bundle somewhere new, and keep it there">Save as…</button>
-          <button id="download" title="The bundle as a .scaena file, its fonts subset">Download .scaena</button>
-          <button id="export" title="The state shown as a PNG, or the deck as a PDF or one HTML file that plays offline">Export…</button>
-          <a id="play" class="button" target="_blank" title="The player, on the bundle as last saved" hidden>Play</a>
+          <button id="save" title="Save where the deck is kept (⌘S, Ctrl+S)">Save</button>
+          <button id="save-as" title="Save the deck somewhere new, and keep it there">Save as…</button>
+          <button id="download" title="The deck as a .scaena file, its fonts cut to what it draws">Download .scaena</button>
+          <button id="export" title="This slide as a PNG, or the deck as a PDF or one HTML file that plays offline">Export…</button>
+          <a id="play" class="button" target="_blank" title="The player, on the deck as last saved" hidden>Play</a>
           <button id="again" hidden></button>
           <span id="where"></span>
         </nav>
@@ -604,9 +604,9 @@
         </div>
         <div id="rehearsing" role="group" aria-label="Rehearsal" hidden>
           <span data-where></span>
-          <button type="button" data-back title="The state before (←)">Back</button>
-          <button type="button" data-on title="The next state (→, Space, or a click on the canvas)">On</button>
-          <button type="button" data-end title="Stop, and see what each state took (Escape)">End</button>
+          <button type="button" data-back title="The slide before (←)">Back</button>
+          <button type="button" data-on title="The next slide (→, Space, or a click on the canvas)">On</button>
+          <button type="button" data-end title="Stop, and see what each slide took (Escape)">End</button>
         </div>
         <div id="desk">
         <div id="preview">
@@ -615,7 +615,7 @@
             id="overlay"
             tabindex="0"
             role="application"
-            aria-label="The state shown. Click a node to select it, then drag it, or move it with the arrow keys; Shift with an arrow resizes it, and Escape selects what holds it."
+            aria-label="This slide. Click an object to select it, then drag it, or move it with the arrow keys; Shift with an arrow resizes it, and Escape selects what holds it."
           ><svg aria-hidden="true"></svg></div>
           <div id="marks"></div>
         </div>
@@ -624,7 +624,7 @@
           <ol role="listbox" aria-label="Slides" aria-multiselectable="true"></ol>
           <p class="sizing"><span class="small" aria-hidden="true">▭</span><input type="range" min="120" max="520" step="10" value="240" data-size aria-label="Slide size" /><span class="large" aria-hidden="true">▭</span></p>
         </section>
-        <div id="formats" role="group" aria-label="The state shown in each format: a click edits the deck in it" hidden></div>
+        <div id="formats" role="group" aria-label="This slide in each of the deck's sizes: a click edits the deck in it" hidden></div>
         <section id="cue" aria-label="The slide's animations" hidden>
           <p class="cue-head">
             <button type="button" data-play aria-label="Play the animation">▶</button>
@@ -634,21 +634,21 @@
           <div class="lanes"></div>
         </section>
         <div id="strip">
-          <ol role="listbox" aria-label="States" aria-orientation="horizontal"></ol>
+          <ol role="listbox" aria-label="Slides and their steps" aria-orientation="horizontal"></ol>
           <span class="adds">
-            <button type="button" data-add="step" title="A state after the one shown, in its slide, showing what it shows">+ Step</button>
-            <button type="button" data-add="slide" title="A slide after the shown state's slide, in one of the theme's layouts, or blank" aria-haspopup="dialog">+ Slide</button>
+            <button type="button" data-add="step" title="A step after this one, on its slide, showing what it shows">+ Step</button>
+            <button type="button" data-add="slide" title="A slide after this one, in one of the theme's layouts, or blank" aria-haspopup="dialog">+ Slide</button>
           </span>
         </div>
         <p>
-          <select id="state" aria-label="State"></select>
-          <select id="format" aria-label="Format"><option value="">Own size</option></select>
+          <select id="state" aria-label="Slide"></select>
+          <select id="format" aria-label="Size"><option value="">Own size</option></select>
           <button type="button" id="slides-open" aria-pressed="false" aria-controls="slides" title="The light table: every slide, to move, copy, and take out across the deck (Escape closes it)">Slides</button>
-          <button type="button" id="formats-open" aria-pressed="false" title="The state shown in each of the deck's formats, side by side, as it plays; a click on one edits the deck in it">Formats</button>
-          <button type="button" id="rehearse-open" title="Play the deck as you present it, and keep the time each state took as its hold">Rehearse</button>
-          <select id="theme" aria-label="Theme" title="The deck's theme: one that ships, or one the bundle holds. A theme the deck would not validate in is refused, and says why."></select>
-          <select id="insert" aria-label="Insert" title="Insert a node where you last clicked on the canvas, or in the middle (Delete takes the node selected out, ⌘D copies it)"><option value="">Insert…</option></select>
-          <button type="button" id="find-open" title="Find and replace in the deck's texts, in every state (⌘F)">Find…</button>
+          <button type="button" id="formats-open" aria-pressed="false" title="This slide in each of the deck's sizes, side by side, as it plays; a click on one edits the deck in it">Formats</button>
+          <button type="button" id="rehearse-open" title="Play the deck as you present it, and keep the time each slide took as its timing">Rehearse</button>
+          <select id="theme" aria-label="Theme" title="The deck's theme: one built in, or one the deck holds. A theme the deck would not open in is refused, and says why."></select>
+          <select id="insert" aria-label="Insert" title="Insert an object where you last clicked on the slide, or in the middle (Delete takes the object selected out, ⌘D copies it)"><option value="">Insert…</option></select>
+          <button type="button" id="find-open" title="Find and replace in the deck's words, on every slide (⌘F)">Find…</button>
           <button type="button" id="commands-open" title="Every command, by name (⌘K); words no command has are asked of the assistant">Commands…</button>
           <button type="button" id="keys-open" title="Every key the editor answers (?)">Keys</button>
           <span id="zoom" role="group" aria-label="Zoom">
@@ -659,8 +659,8 @@
           </span>
           <button type="button" id="grid" aria-pressed="false" title="The theme's grid over the canvas: its columns, rows, gutters, margins, and baseline grid (⌘')">Grid</button>
           <button type="button" id="safe" aria-pressed="false" title="The safe area: a strip 3/8 inch deep around the canvas's edge, inside which to keep what must not be cut off; it keeps nothing out (⌥⌘')">Safe area</button>
-          <button type="button" id="layout-edit" aria-pressed="false" title="The layout of the state shown as its slots, to move and resize on the theme's grid">Layout</button>
-          <span id="status" role="status">loading…</span>
+          <button type="button" id="layout-edit" aria-pressed="false" title="This slide's layout as its slots, to move and resize on the theme's grid">Layout</button>
+          <span id="status" role="status">Loading…</span>
           <span id="offline" class="offline" hidden title="The site keeps every file it needs in this browser: it opens, plays, and edits with no network">Works offline</span>
         </p>
         </div>
@@ -678,23 +678,23 @@
           <button role="tab" id="tab-assistant" aria-selected="false" aria-controls="assistant">Assistant</button>
         </nav>
         <div id="inspector" role="tabpanel" aria-labelledby="tab-inspector">
-          <section id="look" aria-label="The node selected"></section>
+          <section id="look" aria-label="The object selected"></section>
           <div id="listing"></div>
         </div>
         <section id="layers" role="tabpanel" aria-labelledby="tab-layers" hidden>
-          <ul aria-label="The state shown's nodes, topmost first"></ul>
+          <ul aria-label="This slide's objects, topmost first"></ul>
         </section>
         <section id="data" role="tabpanel" aria-labelledby="tab-data" hidden>
           <p class="data-head">
-            <select data-source aria-label="Data source"></select>
+            <select data-source aria-label="Data"></select>
             <span data-where></span>
             <button type="button" data-add title="A row after the row of the cell last focused, or at the end">+ Row</button>
             <button type="button" data-remove title="Take the row of the cell last focused away">− Row</button>
-            <button type="button" data-quote title="The characters selected in the text typed in quote the cell last focused, set again as the data changes">Quote</button>
+            <button type="button" data-quote title="The characters selected in the text you are typing in show the cell last clicked, set again as the data changes">Quote</button>
             <button type="button" data-undo title="Undo the last change to the data (⌘Z in the table)">Undo</button>
             <button type="button" data-redo title="Make the last change undone again (⇧⌘Z in the table)">Redo</button>
           </p>
-          <div class="sheet"><table aria-label="The source's rows: each cell a field, Enter to set it, Escape to put it back"></table></div>
+          <div class="sheet"><table aria-label="The data's rows: each cell a field, Enter to set it, Escape to put it back"></table></div>
           <ul data-problems aria-label="Cells their column does not read"></ul>
           <p data-drawn aria-live="polite"></p>
         </section>
@@ -703,12 +703,12 @@
           <h3 id="theming-colors">Colors</h3>
           <ul data-colors aria-labelledby="theming-colors"></ul>
           <h3 id="theming-photo">From a photo</h3>
-          <p class="hint">The colors of a photo the bundle holds, on the theme's own tones: its hues for the accents, the hue it leans to for the neutrals. Text still reads on the surfaces.</p>
+          <p class="hint">The colors of a photo the deck holds, on the theme's own tones: its hues for the accents, the hue it leans to for the neutrals. Text still reads on the surfaces.</p>
           <ul data-photos aria-labelledby="theming-photo"></ul>
           <h3 id="theming-type">Type</h3>
           <div class="theming-roles">
             <table data-roles aria-labelledby="theming-type">
-              <thead><tr><th scope="col">Role</th><th scope="col">Family</th><th scope="col">Size</th><th scope="col">Weight</th><th scope="col">Leading</th><th scope="col">Tracking</th></tr></thead>
+              <thead><tr><th scope="col">Text Style</th><th scope="col">Font</th><th scope="col">Size</th><th scope="col">Weight</th><th scope="col">Line Spacing</th><th scope="col">Character Spacing</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -718,19 +718,19 @@
         <section id="files" role="tabpanel" aria-labelledby="tab-files" hidden>
           <p class="files-head">
             <span data-summary></span>
-            <button type="button" data-undo title="Undo the last change to the bundle's files (⌘Z in the panel)">Undo</button>
+            <button type="button" data-undo title="Undo the last change to the deck's files (⌘Z in the panel)">Undo</button>
             <button type="button" data-redo title="Make the last change undone again (⇧⌘Z in the panel)">Redo</button>
           </p>
           <div data-files></div>
         </section>
         <section id="versions" role="tabpanel" aria-labelledby="tab-versions" hidden>
           <p data-summary></p>
-          <button type="button" data-keep hidden title="Save the bundle now as its history's first version: each save after records the edits since the last">Keep a history</button>
+          <button type="button" data-keep hidden title="Save the deck now as its history's first version: each save after keeps the edits since the last">Keep a history</button>
           <ol data-versions aria-label="The deck's versions, the newest first"></ol>
           <div data-version hidden>
             <h3 data-title></h3>
             <p class="versions-pick">
-              <select data-state aria-label="The version's state shown"></select>
+              <select data-state aria-label="The version's slide shown"></select>
               <select data-against aria-label="Compared with"></select>
               <button type="button" data-restore title="Make this version the deck again, with its data files: one change, which ⌘Z undoes">Restore</button>
             </p>
@@ -777,7 +777,7 @@
         <h2 id="making-title">New deck</h2>
         <label>Title <input id="making-name" name="title" required autocomplete="off" value="Untitled" /></label>
         <label>Theme <select id="making-theme" name="theme"></select></label>
-        <p class="note">One state with nothing on it yet, on a 16:9 canvas, with the theme and its fonts. It is kept nowhere until you save it.</p>
+        <p class="note">A title slide to type over, on a 16:9 canvas, with the theme and its fonts. It is kept nowhere until you save it.</p>
         <menu>
           <button value="cancel" formnovalidate>Cancel</button>
           <button value="create" id="making-create">Create</button>
@@ -870,13 +870,13 @@
         <h2 id="exporting-title">Export</h2>
         <fieldset>
           <legend>As</legend>
-          <label><input type="radio" name="as" value="png" checked /> The state shown, as a PNG</label>
+          <label><input type="radio" name="as" value="png" checked /> This slide, as a PNG</label>
           <label><input type="radio" name="as" value="pdf" /> The deck, as a PDF</label>
           <label><input type="radio" name="as" value="html" /> The deck, as one HTML file that plays offline</label>
         </fieldset>
         <label id="exporting-size">Width <input id="exporting-width" name="width" type="number" min="1" max="8192" step="1" required /> pixels</label>
         <p class="note" id="exporting-note" aria-live="polite"></p>
-        <p class="note">Made here and downloaded, as <code>scaena export</code> writes it: nothing is sent anywhere.</p>
+        <p class="note">Made here and downloaded: nothing is sent anywhere.</p>
         <menu>
           <button value="cancel" formnovalidate>Cancel</button>
           <button value="export" id="exporting-go">Export</button>

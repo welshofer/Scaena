@@ -58,21 +58,21 @@ try {
   // What the tab shows: the theme's colors, each with the roles that name it; its type roles; its
   // spacing.
   const summary = await page.locator("#theming [data-summary]").textContent();
-  check(summary.startsWith("Dusk · themes/dusk.theme.json"), `the theme the deck names: ${summary}`);
+  check(summary.startsWith("Dusk · each change") && !summary.includes(".json"), `the theme the deck names, by its name: ${summary}`);
   const colors = await page.locator("#theming [data-color]").evaluateAll((els) => els.map((e) => e.dataset.color));
   check(["ink", "paper", "accent"].every((c) => colors.includes(c)), `its colors: ${JSON.stringify(colors)}`);
   const paper = page.locator('#theming [data-color="paper"] input[type="text"]');
   const uses = await page.locator('#theming [data-color="paper"] .uses').textContent();
-  check((await paper.inputValue()) === "#101014" && uses.includes("surface"), `paper, #101014, the surface: ${uses}`);
+  check((await paper.inputValue()) === "#101014" && uses.includes("Background"), `paper, #101014, the background: ${uses}`);
   const roles = await page.locator("#theming [data-roles] tbody tr").evaluateAll((els) => els.map((e) => e.dataset.role));
   check(["display", "headline", "body", "caption"].every((r) => roles.includes(r)), `its type roles: ${JSON.stringify(roles)}`);
-  const size = page.getByLabel("headline size", { exact: true });
+  const size = page.getByLabel("Headline: Size", { exact: true });
   const headline = Number(await size.inputValue());
-  const family = await page.getByLabel("headline family", { exact: true }).inputValue();
+  const family = await page.getByLabel("Headline: font", { exact: true }).inputValue();
   check(headline > 0 && family === "display", `the headline: ${family} at ${headline}`);
-  const gutter = await page.getByLabel("gutter", { exact: true }).inputValue();
+  const gutter = await page.getByLabel("Space between columns", { exact: true }).inputValue();
   const sides = await page.locator("#theming [data-spacing] label").allTextContents();
-  check(gutter === "24" && sides.includes("margin, top and bottom") && sides.includes("space unit"), `its spacing: gutter ${gutter}; ${sides.join(", ")}`);
+  check(gutter === "24" && sides.includes("Margin, top and bottom") && sides.includes("Spacing step"), `its spacing: gutter ${gutter}; ${sides.join(", ")}`);
 
   // axe-core, with the tab shown.
   await page.addScriptTag({ path: axe });
@@ -89,7 +89,7 @@ try {
   await paper.press("Enter");
   await settled();
   await page.waitForFunction(() => window.scaena.theme.theme()?.tokens?.color?.paper === "#0B0B10", null, { timeout: 30000 }).catch(() => {});
-  check((await status()).startsWith("theme: paper #0B0B10") && (await status()).includes("⌘Z undoes it"), `the edit, said: ${await status()}`);
+  check((await status()).startsWith("Theme: Paper #0B0B10") && (await status()).includes("⌘Z undoes it"), `the edit, said: ${await status()}`);
   check((await theme())?.tokens?.color?.paper === "#0B0B10" && (await source()) === was, "the theme holds it, and the source is as it was");
   const darker = await shot();
   check(!darker.equals(before), "the deck is drawn in the theme as edited");
@@ -122,7 +122,7 @@ try {
   await paper.press("Enter");
   await settled();
   const refused = await status();
-  check(refused.startsWith("theme not edited: E106"), `a color the theme cannot read is refused, with why: ${refused}`);
+  check(refused.startsWith("Theme not changed: The theme: ") && !/\b[EWI]\d{3}\b/.test(refused), `a color the theme cannot read is refused, with why, in a sentence: ${refused}`);
   check((await theme())?.tokens?.color?.paper === "#0B0B10" && (await paper.inputValue()) === "#0B0B10", "and the theme, and the tab, are as they were");
 
   // A save records each edit, by the user, and nothing as changed outside Scaena.

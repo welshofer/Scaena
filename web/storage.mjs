@@ -67,7 +67,7 @@ try {
     await page.waitForFunction(
       (name) =>
         (window.scaena?.last() && (!name || window.scaena.where().name === name)) ||
-        document.querySelector("#status")?.textContent.startsWith("error"),
+        document.querySelector("#status")?.textContent.startsWith("Error"),
       name,
       { timeout: 120000 },
     );
@@ -94,7 +94,7 @@ try {
   await type(broken);
   const refused = await page.evaluate(() => window.scaena.save());
   const said = await page.locator("#status").textContent();
-  check(refused === undefined && said.includes("not saved: the source does not compile"), `a source that does not compile is not saved: ${said}`);
+  check(refused === undefined && said.includes("Not saved: the source does not compile"), `a source that does not compile is not saved: ${said}`);
   await type(edited);
 
   const saved = await page.evaluate(() => window.scaena.save());
@@ -120,7 +120,7 @@ try {
 
   const player = await context.newPage();
   await player.goto(`${server.origin}/web/dist/?painter=cpu&bundle=opfs:revenue`);
-  await player.waitForFunction(() => window.scaena?.at || document.querySelector("#status")?.textContent.startsWith("error"), null, { timeout: 120000 });
+  await player.waitForFunction(() => window.scaena?.at || document.querySelector("#status")?.textContent.startsWith("Error"), null, { timeout: 120000 });
   const played = await player.evaluate(() => window.scaena?.states ?? document.querySelector("#status").textContent);
   check(Array.isArray(played) && played.length === 4, `the player plays it from there: ${played}`);
   await player.close();
@@ -154,7 +154,7 @@ try {
   const zip = await readFile(await download.path());
   check(download.suggestedFilename() === "revenue.scaena" && zip[0] === 0x50 && zip[1] === 0x4b, `a download is a .scaena zip: ${download.suggestedFilename()}, ${zip.length} bytes`);
   const status = await page.locator("#status").textContent();
-  check(/fonts subset from \d+ KB to \d+ KB/.test(status), `the page says how far its fonts were subset: ${status}`);
+  check(/its fonts cut to what it draws, \d+ KB to \d+ KB/.test(status), `the page says how far its fonts were subset: ${status}`);
 
   // The download, opened: copied into the browser's storage.
   await page.evaluate(
@@ -194,7 +194,7 @@ try {
     await put(damaged);
     await page.evaluate(() => window.scaena.download());
     const refused = await page.locator("#status").textContent();
-    check(refused.startsWith("not downloaded") && refused.includes(inter) && refused.includes("damaged"), `a damaged font stops a download, which names it: ${refused}`);
+    check(refused.startsWith("Not downloaded") && refused.includes(inter) && refused.includes("damaged"), `a damaged font stops a download, which names it: ${refused}`);
     await put(whole);
     const [again] = await Promise.all([page.waitForEvent("download"), page.click("#download")]);
     check(again.suggestedFilename() === "downloaded.scaena", `with the font whole again, the next download goes through: ${await page.locator("#status").textContent()}`);

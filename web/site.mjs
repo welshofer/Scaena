@@ -74,13 +74,13 @@ try {
   /** Once `page` has opened its deck, or said why not. */
   const opened = async (page, test) => {
     await page.waitForFunction(test, null, { timeout: 120000 }).catch(() => {});
-    return page.evaluate(() => (document.querySelector("#status")?.textContent ?? "").startsWith("error") && document.querySelector("#status").textContent);
+    return page.evaluate(() => (document.querySelector("#status")?.textContent ?? "").startsWith("Error") && document.querySelector("#status").textContent);
   };
 
   // The player, at the site's address alone (the CPU painter asked for, as in the player's check).
   const player = watch(await context.newPage());
   await player.goto(`${home}?painter=cpu`);
-  const error = await opened(player, () => window.scaena?.at || document.querySelector("#status")?.textContent.startsWith("error"));
+  const error = await opened(player, () => window.scaena?.at || document.querySelector("#status")?.textContent.startsWith("Error"));
   check(!error, `the player opens the demo deck${error ? `: ${error}` : ""}`);
   const shown = await player.evaluate(() => window.scaena?.states ?? []);
   check(JSON.stringify(shown) === JSON.stringify(states), `it plays ${decks[0]}'s ${states.length} states: ${shown.join(", ")}`);
@@ -97,7 +97,7 @@ try {
   // Edit: the editor on the same deck.
   await player.click("#edit");
   const editor = player;
-  const editing = await opened(editor, () => window.scaena?.last?.() || document.querySelector("#status")?.textContent.startsWith("error"));
+  const editing = await opened(editor, () => window.scaena?.last?.() || document.querySelector("#status")?.textContent.startsWith("Error"));
   check(!editing && editor.url().startsWith(`${home}editor.html?`), `Edit opens the editor: ${editor.url().slice(site.origin.length)}${editing ? `: ${editing}` : ""}`);
   await editor.waitForFunction(() => window.scaena.wholes().length > 0 && window.scaena.last().whole, null, { timeout: 60000 }).catch(() => {});
   const linted = await editor.evaluate(() => window.scaena.last());
@@ -107,7 +107,7 @@ try {
   check(play.startsWith(`${home}index.html?`) && new URL(play).searchParams.get("bundle"), `Play is the player on it: ${play.slice(site.origin.length)}`);
   const [again] = await Promise.all([context.waitForEvent("page"), editor.click("#play")]);
   watch(again);
-  const back = await opened(again, () => window.scaena?.at || document.querySelector("#status")?.textContent.startsWith("error"));
+  const back = await opened(again, () => window.scaena?.at || document.querySelector("#status")?.textContent.startsWith("Error"));
   const replayed = await again.evaluate(() => window.scaena?.states ?? []);
   check(!back && JSON.stringify(replayed) === JSON.stringify(states), `Play opens the player on the deck again${back ? `: ${back}` : ""}`);
   await again.close();

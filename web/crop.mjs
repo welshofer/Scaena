@@ -109,7 +109,7 @@ try {
   });
   check(JSON.stringify(during) === "[1,1]", `as it is dragged, the whole image is outlined, and the part the crop keeps: ${JSON.stringify(during)}`);
   check(await comes("crop:[0, 0, 0.75, 1]"), `let go, the crop keeps three quarters of the image: ${(await source()).match(/image-cover[^\n]*/)?.[0]}`);
-  check(await says("image-cover cropped to 0, 0, 0.75, 1"), `the status says so: ${await status()}`);
+  check(await says("cropped to 75% wide, 100% high, from 0% across and 0% down"), `the status says so: ${await status()}`);
   await page.locator("#overlay").focus();
   await page.keyboard.press("Control+z");
   check(await back(original), "one undo takes it back");
@@ -124,7 +124,7 @@ try {
   await choose("image-cover");
   const left = await handle('[data-crop="w"]');
   await drag(left, [left[0] + cover.whole[2] / 10, left[1]], { alt: true });
-  check(await says("kept to images"), `with Alt, kept to the state shown: ${await status()}`);
+  check(await says("kept to this slide"), `with Alt, kept to the slide shown: ${await status()}`);
   await page.locator("#overlay").focus();
   await page.keyboard.press("Control+z");
   await back(original);

@@ -67,7 +67,7 @@ try {
     return null;
   };
   await page.goto(url("/docs/examples/revenue.deck.json"));
-  await page.waitForFunction(() => window.scaena?.last() || document.querySelector("#status")?.textContent.startsWith("error"), null, {
+  await page.waitForFunction(() => window.scaena?.last() || document.querySelector("#status")?.textContent.startsWith("Error"), null, {
     timeout: 120000,
   });
 
@@ -296,7 +296,7 @@ try {
   if (header) {
     const at = await boxOf(page.locator("#overlay [data-wait]").filter({ hasText: header.words }));
     if (at) await page.mouse.click(at.x + at.width / 2, at.y + at.height / 2);
-    check(await says("bullets-header fills header"), `a press on them puts its headline back: ${await status()}`);
+    check(await says("The Header slot filled"), `a press on them puts its headline back: ${await status()}`);
     check((await source()).includes('"What this slide says"'), "its words, as the slide was started with them");
     const id = "bullets-header";
     const put = await page
@@ -340,8 +340,8 @@ try {
   check(Boolean(chooser), "a press on its words asks for a picture");
   if (chooser) {
     await chooser.setFiles({ name: "card.png", mimeType: "image/png", buffer: await readFile("tests/fixtures/torture.scaena/assets/test-card.png") });
-    check(await says("card.png inserted as"), `the picture goes in: ${await status()}`);
-    const id = /inserted as ([\w-]+)/.exec(await status())?.[1];
+    check(await says("The picture card.png inserted on this slide"), `the picture goes in: ${await status()}`);
+    const id = await page.evaluate(() => window.scaena.canvas.selected());
     const filled = await page
       .waitForFunction((n) => {
         const b = window.scaena.canvas.boxes()?.find((x) => x.node === n);
@@ -410,7 +410,7 @@ try {
     const older = await fresh.newPage();
     older.on("pageerror", (e) => failures.push(`older Dusk: ${e.message}`));
     await older.goto(url("/docs/examples/revenue.deck.json"));
-    await older.waitForFunction(() => window.scaena?.last() || document.querySelector("#status")?.textContent.startsWith("error"), null, { timeout: 120000 });
+    await older.waitForFunction(() => window.scaena?.last() || document.querySelector("#status")?.textContent.startsWith("Error"), null, { timeout: 120000 });
     await older.click("#strip [data-add=slide]");
     await older.waitForSelector("#starting[open] button[data-start]", { timeout: 60000 });
     const brought = await older.evaluate(() => ({

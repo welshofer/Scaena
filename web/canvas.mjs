@@ -38,7 +38,7 @@ try {
     page.on("console", (m) => m.type() === "error" && failures.push(`${bundle}: console: ${m.text()}`));
     await page.goto(url(bundle));
     await page.waitForFunction(
-      () => window.scaena?.last() || document.querySelector("#status")?.textContent.startsWith("error"),
+      () => window.scaena?.last() || document.querySelector("#status")?.textContent.startsWith("Error"),
       null,
       { timeout: 120000 },
     );
@@ -163,7 +163,7 @@ try {
   const midway = await drag(page, center(note), to, [], { hold: true, says: "in the Kicker slot" });
   const moving = await shot(page);
   await page.mouse.up();
-  check(midway.includes("in the Kicker slot") && midway.includes("in 2 states"), `before the drop, the status says where and in how many states: ${midway}`);
+  check(midway.includes("in the Kicker slot") && midway.includes("on 2 steps of Slide 2"), `before the drop, the status says where and on which slides: ${midway}`);
   check(!moving.equals(before), "while it moves, the note's layer is drawn where it is dragged");
   await settled(page, n);
   const placed = await source(page);
@@ -212,7 +212,7 @@ try {
   await click(page, center(mixNote));
   n = await trips(page);
   const kept = await drag(page, center(mixNote), [center(mixNote)[0] + shift[0], center(mixNote)[1] + shift[1]], ["Alt"], { says: "kept to" });
-  check(kept.includes("in this state") && kept.includes("kept to mix"), `with Alt, the move is kept to the state shown: ${kept}`);
+  check(kept.includes("on this slide") && kept.includes("kept to this slide"), `with Alt, the move is kept to the slide shown: ${kept}`);
   await settled(page, n);
   check((await placedAs(page, "note", "in the Kicker slot")).includes("in the Kicker slot"), "in `mix`, the note is in the kicker slot");
   await showState(page, "revenue", 1);

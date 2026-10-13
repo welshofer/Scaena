@@ -194,6 +194,7 @@ public enum ToolWords {
         "spine_update": ("Changing the outline…", "Changed the outline"),
         "theme_apply": ("Changing the theme…", "Changed the theme"),
         "theme_edit": ("Editing the theme…", "Edited the theme"),
+        "resource_read": ("Reading how decks are written…", "Read how decks are written"),
     ]
 
     /// What the assistant is doing while a call to `tool` runs.

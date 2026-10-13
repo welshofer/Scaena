@@ -1105,6 +1105,13 @@ impl Player {
         serde_json::to_string(&self.0.view_version(&held).map_err(js)?).map_err(js)
     }
 
+    /// The version shown's states as a person counts them, in order (PLAN 2.99): JSON, `Slide 3,
+    /// step 2` for each.
+    #[wasm_bindgen(js_name = versionSlides)]
+    pub fn version_slides(&self) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.version_slides()).map_err(js)
+    }
+
     /// The version shown's `state` at rest, as a PNG `width` pixels wide.
     #[wasm_bindgen(js_name = versionPng)]
     pub fn version_png(&mut self, state: &str, width: u32) -> Result<Vec<u8>, JsError> {

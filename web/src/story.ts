@@ -183,9 +183,9 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
       button.textContent = fix.says;
       button.addEventListener("click", async () => {
         try {
-          await editor.make(fix.patch, `slide ${slide}: ${fix.says.toLowerCase()}`);
+          await editor.make(fix.patch, `Slide ${slide}: ${fix.says.toLowerCase()}`);
         } catch (e) {
-          editor.say(`not fixed: ${said(e)}`);
+          editor.say(`Not fixed: ${said(e)}`);
         }
       });
       actions.append(button);

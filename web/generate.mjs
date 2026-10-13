@@ -247,7 +247,7 @@ try {
   const made = await page.evaluate(() => window.scaena.where());
   check(made.where === undefined, `the deck made is kept nowhere until it is saved: ${JSON.stringify(made)}`);
   const status = await page.textContent("#status");
-  check(/made: 5 slides on the arc Problem–Solution, 2 pictures/.test(status), `the status says what was made: ${status}`);
+  check(/Made: 5 slides on the arc Problem–Solution, 2 pictures/.test(status), `the status says what was made: ${status}`);
   // Two pictures, the cover's and the ending's, by the best image model the key lists.
   check(painted.length === 2, `two pictures asked for: ${painted.length}`);
   check(

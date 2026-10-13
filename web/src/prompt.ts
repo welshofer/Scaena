@@ -60,11 +60,11 @@ export function said(event: GeneratingEvent): string {
 
 /** What was made, in a line for the status bar. */
 export function made(m: Generated): string {
-  const fixed = m.fixed.length ? `, ${m.fixed.length} fixed by lint` : "";
-  const errors = m.created.errors ? `, ${m.created.errors} ${m.created.errors === 1 ? "error" : "errors"} to look at` : "";
+  const fixed = m.fixed.length ? `, ${m.fixed.length} ${m.fixed.length === 1 ? "issue" : "issues"} fixed` : "";
+  const errors = m.created.errors ? `, ${m.created.errors} ${m.created.errors === 1 ? "problem" : "problems"} to look at` : "";
   const pictures = m.pictures ? `, ${m.pictures} ${m.pictures === 1 ? "picture" : "pictures"}` : "";
   const looked = m.looked?.length ? `, ${m.looked.length} changed by what the model saw` : "";
-  return `made: ${m.layouts.length} slides on the arc ${m.arc}${pictures}${looked}${fixed}${errors}`;
+  return `Made: ${m.layouts.length} slides on the arc ${m.arc}${pictures}${looked}${fixed}${errors}`;
 }
 
 /** A source given: a file, or a link. */

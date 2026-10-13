@@ -100,7 +100,7 @@ try {
     page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
     page.on("console", (m) => m.type() === "error" && failures.push(`console: ${m.text()}`));
     await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&source=open&bundle=${bundle}`);
-    await page.waitForFunction(() => window.scaena?.last() || document.querySelector("#status")?.textContent.startsWith("error"), null, { timeout: 120000 });
+    await page.waitForFunction(() => window.scaena?.last() || document.querySelector("#status")?.textContent.startsWith("Error"), null, { timeout: 120000 });
     const loaded = () => asked.some((u) => /\/scaena_history_bg-[^/]+\.wasm$/.test(u));
     return { context, page, loaded };
   };
@@ -152,7 +152,7 @@ try {
   check(saved?.where.kind === "opfs" && saved.where.name === "revenue", `the save goes into the browser's storage: ${JSON.stringify(saved?.where)}`);
   check(loaded(), "and loads the history's module");
   const status = await page.locator("#status").textContent();
-  check(saved?.recorded === true && status.endsWith("and recorded in its history"), `the page says it recorded the save: ${status}`);
+  check(saved?.recorded === true && status.endsWith("and the changes kept in its history"), `the page says it recorded the save: ${status}`);
   const files = await kept(page, "bundles/revenue");
   const history = log(Buffer.from(files["history/deck.loro"] ?? "", "base64"));
   const ours = history.slice(begun.length);

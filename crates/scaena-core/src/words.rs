@@ -512,7 +512,7 @@ const VOCABULARIES: [Vocabulary; 14] = [
 
 /// The words an editor shows for a state and the deck around it (PLAN 2.99): each object the
 /// state shows named by what it shows and by its kind, each of the theme's names said, and how a
-/// motion, its split, and a shape are said.
+/// motion, its split, a shape, and each issue lint finds are said.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Lexicon {
     /// Each node, by its id: what it shows, as the state shows it where it does, else its kind
@@ -534,7 +534,27 @@ pub struct Lexicon {
     pub places: BTreeMap<String, String>,
     /// Each weight a type menu names, by its number: `700` is Bold.
     pub weights: BTreeMap<String, String>,
+    /// Each type of node, by its name in the format: `shader` is Background Effect.
+    pub types: BTreeMap<String, String>,
+    /// What lint finds, by its code, in a sentence a person would say ([`issue`]): `E100` is The
+    /// text doesn't fit its box. An editor says by these a finding that came without its
+    /// sentence, as those do that refuse a theme, a version, or a data edit.
+    pub issues: BTreeMap<String, String>,
 }
+
+/// Every type of node, in the format's order.
+const TYPES: [NodeType; 10] = [
+    NodeType::Text,
+    NodeType::Shape,
+    NodeType::Image,
+    NodeType::Chart,
+    NodeType::Table,
+    NodeType::Shader,
+    NodeType::Stack,
+    NodeType::Grid,
+    NodeType::Frame,
+    NodeType::Group,
+];
 
 /// The words for `state` of `deck` in `theme`: each node as the state shows it, or, where it shows
 /// it not, as the node itself is.
@@ -586,7 +606,16 @@ pub fn lexicon(deck: &Deck, theme: &Theme, state: &str) -> Result<Lexicon, Strin
     for (w, said) in WEIGHTS {
         weights.insert(w.to_string(), said.to_string());
     }
-    Ok(Lexicon { objects, kinds, names, motions, splits, shapes, places, weights })
+    let mut types = BTreeMap::new();
+    for t in TYPES {
+        let name = serde_json::to_value(t).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
+        types.insert(name, kind(Some(t)).to_string());
+    }
+    let mut issues = BTreeMap::new();
+    for (code, said) in MARKED.iter().chain(LISTED) {
+        issues.insert(code.to_string(), said.to_string());
+    }
+    Ok(Lexicon { objects, kinds, names, motions, splits, shapes, places, weights, types, issues })
 }
 
 #[cfg(test)]

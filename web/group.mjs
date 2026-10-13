@@ -99,7 +99,7 @@ try {
 
   // ⌘G: the tally and the card in a new group, where they stand.
   await page.evaluate(() => window.scaena.canvas.selectAll(["tally", "card"]));
-  check(await press("Control+g", "tally, card grouped as group"), `⌘G groups them: ${await status()}`);
+  check(await press("Control+g", "2 objects grouped"), `⌘G groups them: ${await status()}`);
   const grouped = await source();
   // A node whose id is its type is written by its id alone.
   check(declared(grouped, "group").trim() === "group", `the source declares the group: ${declared(grouped, "group").trim()}`);
@@ -111,9 +111,9 @@ try {
 
   // ⌘⇧G: the group taken apart, the deck as it was.
   await page.evaluate(() => window.scaena.canvas.selectAll(["tally", "card"]));
-  check(await press("Control+g", "grouped as group"), "grouped again");
+  check(await press("Control+g", "2 objects grouped"), "grouped again");
   await page.waitForFunction(() => window.scaena.canvas.chosen().join() === "group", null, { timeout: 30000 }).catch(() => {});
-  check(await press("Control+Shift+g", "group taken apart"), `⌘⇧G takes it apart: ${await status()}`);
+  check(await press("Control+Shift+g", "The group taken apart: 2 objects"), `⌘⇧G takes it apart: ${await status()}`);
   check((await source()) === original, "and the deck is as it was");
   check(JSON.stringify((await chosen()).sort()) === JSON.stringify(["card", "tally"]), `its children are selected: ${await chosen()}`);
 
@@ -122,13 +122,13 @@ try {
   let n = await trips();
   await page.locator("#look [data-group]").click();
   await settled(n);
-  check(await says("grouped as group"), `the inspector's Group groups them: ${await status()}`);
+  check(await says("2 objects grouped"), `the inspector's Group groups them: ${await status()}`);
   await page.waitForFunction(() => document.querySelector("#look [data-ungroup]"), null, { timeout: 30000 }).catch(() => {});
   check((await page.locator("#look [data-ungroup]").count()) === 1, "with the group selected, it offers Ungroup");
   n = await trips();
   await page.locator("#look [data-ungroup]").click();
   await settled(n);
-  check(await says("group taken apart"), `and Ungroup takes it apart: ${await status()}`);
+  check(await says("The group taken apart: 2 objects"), `and Ungroup takes it apart: ${await status()}`);
   check((await source()) === original, "the deck as it was");
 
   // A stack places what it holds: its children are not grouped.

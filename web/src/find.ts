@@ -12,8 +12,9 @@
 //   replaces every match in one patch, one step to undo, and says how many, in how many texts.
 // - Match case and Whole words, as asked. Escape, or ×, closes the bar.
 import { type Key, MOD, SHIFT } from "./commands";
-import type { Edited, Found, Query } from "./protocol";
+import type { Edited, Found, Lexicon, Query } from "./protocol";
 import type { Stage } from "./stage";
+import { object, sentence } from "./words";
 
 /** What the find bar answers (PLAN 2.65), as the keys sheet lists it. */
 export const findKeys = (): Key[] => [
@@ -40,23 +41,28 @@ export interface FindEditor {
   reveal(state: string, node?: string, from?: number, to?: number): Promise<void>;
   /** Take the mark away. */
   unmark(): void;
+  /** The words for the state shown (PLAN 2.99): the deck's objects by what they show. */
+  words?(): Lexicon | undefined;
+  /** `state` as a person counts it: Slide 3, or Slide 3, step 2. */
+  slide?(state: string): string;
 }
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 /** UTF-16 offset of character `chars` (Unicode scalar values, as the engine counts) in `text`. */
 const utf16 = (text: string, chars: number) => [...text].slice(0, chars).join("").length;
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-/** Where words `f` are, as the status says it. */
-export const where = (f: Found) =>
+/** Where words `f` are, as the status says it, in a person's words (PLAN 2.99): the text, the
+ * description of an object, the story's claim or notes, or the presenter notes. */
+export const where = (f: Found, words?: Lexicon) =>
   f.kind === "alt"
-    ? `${f.node}'s description`
+    ? `the description of ${f.node === undefined ? "an object" : object(words, f.node, true)}`
     : f.kind === "claim"
-      ? `beat ${f.beat}'s claim`
+      ? "the story's claim"
       : f.kind === "notes"
         ? f.beat
-          ? `beat ${f.beat}'s notes`
-          : `${f.state}'s notes`
-        : (f.node ?? "");
+          ? "the story's notes"
+          : "the presenter notes"
+        : `the ${(f.node === undefined ? undefined : words?.kinds[f.node])?.toLowerCase() ?? "text"}`;
 
 export function finder(stage: Stage, bar: HTMLElement, editor: FindEditor) {
   const field = bar.querySelector<HTMLInputElement>('input[name="find"]')!;
@@ -87,7 +93,7 @@ export function finder(stage: Stage, bar: HTMLElement, editor: FindEditor) {
   async function search() {
     const mine = ++asked;
     const q = query();
-    const next = q.find ? await stage.find(editor.source(), q).catch((e) => (editor.say(`not found: ${said(e)}`), [])) : [];
+    const next = q.find ? await stage.find(editor.source(), q).catch((e) => (editor.say(`Not found: ${said(e)}`), [])) : [];
     if (mine !== asked) return;
     found = next;
     const n = total();
@@ -106,8 +112,8 @@ export function finder(stage: Stage, bar: HTMLElement, editor: FindEditor) {
     const [from, to] = f.matches[k];
     if (f.kind === "text") await editor.reveal(f.state, f.node, utf16(f.text, from), utf16(f.text, to));
     else await editor.reveal(f.state, f.kind === "alt" ? f.node : undefined);
-    const elsewhere = f.states.length > 1 ? `, and ${plural(f.states.length - 1, "state")} more that show it so` : "";
-    editor.say(`${where(f)} in ${f.state}${elsewhere}: “${f.text}”`);
+    const elsewhere = f.states.length > 1 ? `, and ${plural(f.states.length - 1, "slide")} more that show it so` : "";
+    editor.say(`${sentence(where(f, editor.words?.()))} on ${editor.slide?.(f.state) ?? "this slide"}${elsewhere}: “${f.text}”`);
   }
 
   const step = (by: 1 | -1) => show(at === undefined ? (by > 0 ? 0 : -1) : at + by);
@@ -124,7 +130,7 @@ export function finder(stage: Stage, bar: HTMLElement, editor: FindEditor) {
       editor.say(done);
       return true;
     } catch (e) {
-      editor.say(`not replaced: ${said(e)}`);
+      editor.say(`Not replaced: ${said(e)}`);
       return false;
     }
   }
@@ -139,11 +145,11 @@ export function finder(stage: Stage, bar: HTMLElement, editor: FindEditor) {
     const f = found[i];
     const past = f.matches[k][0] + [...replacement.value].length;
     const ops = await stage.replacing(editor.source(), query(), replacement.value, [i, k]).catch(() => []);
-    const reach = f.states.length > 1 ? ` in ${plural(f.states.length, "state")}` : "";
+    const reach = f.states.length > 1 ? ` on ${plural(f.states.length, "slide")}` : "";
     // A replacement changes only its own text, so the next match is the one after it now, and the
     // deck after the patch shows that one's state.
     const then = found[before[(at + 1) % before.length][0]].state;
-    if (!(await make(ops, `replaced in ${where(f)}${reach}`, then))) return;
+    if (!(await make(ops, `Replaced in ${where(f, editor.words?.())}${reach}`, then))) return;
     await search();
     const matches = all();
     if (!matches.length) return editor.unmark();
@@ -158,7 +164,7 @@ export function finder(stage: Stage, bar: HTMLElement, editor: FindEditor) {
     const [n, places] = [total(), found.length];
     if (!n) return;
     const ops = await stage.replacing(editor.source(), query(), replacement.value).catch(() => []);
-    if (!(await make(ops, `replaced ${plural(n, "match", "matches")} in ${plural(places, "place")}, one step to undo`))) return;
+    if (!(await make(ops, `Replaced ${plural(n, "match", "matches")} in ${plural(places, "place")}, one step to undo`))) return;
     at = undefined;
     await search();
     editor.unmark();

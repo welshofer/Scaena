@@ -111,7 +111,7 @@ try {
 
   // R arms the canvas; a drag draws a rectangle over the cells it covers.
   check(await arms("r"), "R arms the canvas to draw a rectangle, at once");
-  check(await says("drawing Shape · rect"), `and says so: ${await status()}`);
+  check(await says("Drawing a rectangle"), `and says so: ${await status()}`);
   let landing = 0;
   await drag([300, 200], [1100, 700], false, async () => {
     await page.waitForFunction(() => document.querySelectorAll("#overlay svg rect.landing").length > 0, null, { timeout: 30000 }).catch(() => {});
@@ -119,7 +119,7 @@ try {
   });
   check(landing === 1, "while the drag goes, the overlay shows where it lands");
   check(await reads("rect shape"), `let go, it is drawn: ${await declared("rect")}`);
-  check(await says("rect drawn as rect, in revenue"), `the status says what was drawn: ${await status()}`);
+  check(await says("A rectangle drawn on this slide"), `the status says what was drawn: ${await status()}`);
   check((await selected()) === "rect", "selected");
   const r = await box("rect");
   check(Boolean(r) && on(cols, r[0], 0) && on(cols, r[0] + r[2], 1) && on(rows, r[1], 0) && on(rows, r[1] + r[3], 1), `over the grid's cells: ${r}`);
@@ -174,7 +174,7 @@ try {
   const [cx, cy] = await client([960, 540]);
   await page.mouse.click(cx, cy);
   check(await reads("rect shape"), "a click, armed, places it");
-  check(await says("rect inserted as rect, in revenue"), `as Insert does: ${await status()}`);
+  check(await says("A rectangle inserted on this slide"), `as Insert does: ${await status()}`);
   const placed = await box("rect");
   check(Boolean(placed) && placed[0] <= 960 && 960 <= placed[0] + placed[2] && placed[1] <= 540 && 540 <= placed[1] + placed[3], `about the point pressed: ${placed}`);
 
@@ -183,7 +183,7 @@ try {
   await key("o");
   await key("Escape");
   check((await armed()) === undefined && !(await drawing()), "Escape stops drawing");
-  check(await says("not drawing"), `and says so: ${await status()}`);
+  check(await says("Not drawing"), `and says so: ${await status()}`);
   await key("l");
   await key("l");
   check((await armed()) === undefined, "and so does the same key again");

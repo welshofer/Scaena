@@ -75,16 +75,16 @@ try {
   await page.keyboard.press("Enter");
   check(await saying("2 of 5"), `Enter again: ${await says()}`);
   // The status says where it is once its state is shown.
-  await page.waitForFunction(() => document.querySelector("#status").textContent.startsWith("beat doubled's claim"), null, { timeout: 30000 }).catch(() => {});
-  check((await shownState()) === "revenue" && (await status()).startsWith("beat doubled's claim in revenue"), `the second in the beat's claim, its state shown: ${await shownState()} · ${await status()}`);
+  await page.waitForFunction(() => document.querySelector("#status").textContent.startsWith("The story's claim"), null, { timeout: 30000 }).catch(() => {});
+  check((await shownState()) === "revenue" && (await status()).startsWith("The story's claim on Slide 2"), `the second in the beat's claim, its slide shown: ${await shownState()} · ${await status()}`);
   await page.keyboard.press("Enter");
   check(await saying("3 of 5"), `Enter again: ${await says()}`);
   await page.waitForFunction(() => document.querySelectorAll("#overlay svg rect.found").length > 0, null, { timeout: 30000 }).catch(() => {});
   check((await shownState()) === "revenue" && (await selected()) === "title", `the third in revenue's title: ${await shownState()}, ${await selected()}`);
   await page.keyboard.press("Enter");
   check(await saying("4 of 5"), `Enter again: ${await says()}`);
-  await page.waitForFunction(() => document.querySelector("#status").textContent.startsWith("rev's description"), null, { timeout: 30000 }).catch(() => {});
-  check((await selected()) === "rev" && (await status()).startsWith("rev's description in revenue"), `the fourth in the chart's description, the chart selected: ${await selected()} · ${await status()}`);
+  await page.waitForFunction(() => document.querySelector("#status").textContent.startsWith("The description of"), null, { timeout: 30000 }).catch(() => {});
+  check((await selected()) === "rev" && /^The description of .+ on Slide 2/.test(await status()), `the fourth in the chart's description, the chart selected: ${await selected()} · ${await status()}`);
   for (const k of [3, 2, 1]) {
     await page.keyboard.press("Shift+Enter");
     check(await saying(`${k} of 5`), `Shift+Enter goes back: ${await says()}`);

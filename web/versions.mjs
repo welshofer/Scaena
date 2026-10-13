@@ -97,7 +97,7 @@ try {
   );
   check(versions.every((v, i) => v.n === i + 1 && v.author === "user" && v.at?.endsWith("Z")), "each numbered, by its author, and when");
   const rows = await page.locator("#versions [data-versions] button").allTextContents();
-  check(rows.length === versions.length && rows[0].includes("patch: remove_node") && rows.at(-1).includes("history begins"), `listed the newest first: ${rows[0]} … ${rows.at(-1)}`);
+  check(rows.length === versions.length && rows[0].includes("An object deleted") && rows.at(-1).includes("The history begins"), `listed the newest first, in words: ${rows[0]} … ${rows.at(-1)}`);
   const summary = await page.locator("#versions [data-summary]").textContent();
   check(summary.startsWith(`${versions.length} versions`), `the summary counts them: ${summary}`);
 
@@ -106,9 +106,9 @@ try {
   await page.click(`#versions [data-id="${first.id}"]`);
   await settled();
   const title = await page.locator("#versions [data-title]").textContent();
-  check(title.startsWith("Version 1: history begins · user"), `the version shown says what it is: ${title}`);
+  check(title.startsWith("Version 1: The history begins · you"), `the version shown says what it is: ${title}`);
   const states = await page.locator("#versions [data-state] option").allTextContents();
-  check(JSON.stringify(states) === JSON.stringify(["intro", "revenue", "mix", "close"]), `its states, as it had them: ${JSON.stringify(states)}`);
+  check(JSON.stringify(states) === JSON.stringify(["Slide 1", "Slide 2", "Slide 2, step 2", "Slide 3"]), `its slides, as it had them: ${JSON.stringify(states)}`);
   const drawn = async () =>
     page.evaluate(async () => {
       const img = document.querySelector("#versions img");
@@ -116,30 +116,30 @@ try {
       return { src: img.src, width: img.naturalWidth, alt: img.alt };
     });
   const intro = await drawn();
-  check(intro.width >= 320 && intro.alt.includes("intro") && intro.alt.includes("version 1"), `a state of it drawn at rest: ${JSON.stringify(intro)}`);
+  check(intro.width >= 320 && intro.alt.includes("Slide 1") && intro.alt.includes("version 1"), `a slide of it drawn at rest: ${JSON.stringify(intro)}`);
   const now = await changes();
   check(
-    now.some((l) => l.startsWith("state intro:") && l.includes('title: text "Revenue tripled"')) &&
-      now.includes("state outro added") &&
-      now.includes("data/q3-revenue.csv changed"),
+    now.some((l) => l.startsWith("Slide 1:") && l.includes("its words now “Revenue tripled”")) &&
+      now.some((l) => /^Slide \d+ added$/.test(l)) &&
+      now.includes("q3-revenue.csv changed"),
     `what changed from it to the deck now: ${JSON.stringify(now)}`,
   );
   await page.selectOption("#versions [data-state]", "mix");
   await settled();
   const mix = await drawn();
-  check(mix.src !== intro.src && mix.alt.includes("mix"), `another of its states, picked: ${mix.alt}`);
+  check(mix.src !== intro.src && mix.alt.includes("Slide 2, step 2"), `another of its slides, picked: ${mix.alt}`);
 
   // Compared with another version.
   await page.selectOption("#versions [data-against]", versions[1].id);
   await settled();
   const second = await changes();
   check(
-    second.length === 1 && second[0].startsWith("state intro:") && second[0].includes('"Revenue tripled"'),
+    second.length === 1 && second[0].startsWith("Slide 1:") && second[0].includes("“Revenue tripled”"),
     `to version 2, the title's text alone: ${JSON.stringify(second)}`,
   );
   await page.selectOption("#versions [data-against]", versions[2].id);
   await settled();
-  check((await changes()).includes("data/q3-revenue.csv changed"), "to version 3, the data file too");
+  check((await changes()).includes("q3-revenue.csv changed"), "to version 3, the data file too");
   await page.selectOption("#versions [data-against]", "");
   await settled();
 
@@ -174,8 +174,8 @@ try {
   await page.waitForFunction(() => window.scaena.last()?.valid && window.scaena.source().includes('"Q3 Review"'), null, { timeout: 60000 }).catch(() => {});
   const restored = await source();
   check(restored.includes('"Q3 Review"') && !restored.includes("Revenue tripled") && !/state outro/.test(restored), "Restore makes the first version the deck again");
-  check((await status()).startsWith("version 1 restored, with data/q3-revenue.csv"), `and says so: ${await status()}`);
-  check((await changes())[0]?.startsWith("nothing: version 1 draws and reads as the deck now does"), `the version and the deck now are alike: ${JSON.stringify(await changes())}`);
+  check((await status()).startsWith("Version 1 restored, with q3-revenue.csv"), `and says so: ${await status()}`);
+  check((await changes())[0]?.startsWith("Nothing: version 1 draws and reads as the deck now does"), `the version and the deck now are alike: ${JSON.stringify(await changes())}`);
   check((await revenue("18.2")) === "18.2", "the data file as the version read it");
 
   // ⌘Z puts back the deck and its data file; ⇧⌘Z restores them again.
@@ -205,15 +205,16 @@ try {
   await settled();
   const why = await page.locator("#versions [data-why]").textContent();
   check(
-    (await page.locator("#versions img").isHidden()) && why.includes("assets/card.png, which the bundle no longer holds"),
+    (await page.locator("#versions img").isHidden()) && why.includes("card.png, which the deck no longer holds"),
     `a version that names a file taken out since is not drawn, and says why: ${why}`,
   );
   // The image node no state shows draws nothing: what changed since is what draws and reads.
-  check((await changes()).includes("state outro taken out"), `and what changed since: ${JSON.stringify(await changes())}`);
+  check((await changes()).includes("A slide taken out"), `and what changed since: ${JSON.stringify(await changes())}`);
   const before = await source();
   await page.click("#versions [data-restore]");
   await settled();
-  check((await status()).startsWith(`version ${photo.n} not restored: E102`), `a version whose image is gone is refused, with why: ${await status()}`);
+  const refused = await status();
+  check(refused.startsWith(`Version ${photo.n} not restored: `) && !/\b[EWI]\d{3}\b/.test(refused), `a version whose image is gone is refused, with why, in a sentence: ${refused}`);
   check((await source()) === before, "and the deck stays as it is");
   await context.close();
 } catch (e) {

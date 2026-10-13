@@ -38,7 +38,7 @@ try {
     page.on("pageerror", (e) => failures.push(`${address}: ${e.message}`));
     page.on("console", (m) => m.type() === "error" && failures.push(`${address}: console: ${m.text()}`));
     await page.goto(address);
-    await page.waitForFunction(() => window.scaena || document.querySelector("#status")?.textContent.startsWith("error"), null, {
+    await page.waitForFunction(() => window.scaena || document.querySelector("#status")?.textContent.startsWith("Error"), null, {
       timeout: 120000,
     });
     const status = await page.evaluate(() => (window.scaena ? "" : document.querySelector("#status").textContent));

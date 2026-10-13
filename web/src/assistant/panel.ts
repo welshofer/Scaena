@@ -25,6 +25,8 @@ export interface Editor {
   drawings(): Promise<{ height: number; drawn: Map<string, Drawing>; states: string[] }>;
   /** Show `state`. */
   show(state: string): void;
+  /** `state` as a person counts it (PLAN 2.99): Slide 3, or Slide 3, step 2. */
+  slide?(state: string): string;
 }
 
 /** A state's picture, and the digest of what it draws. */
@@ -44,6 +46,31 @@ const PROVIDERS: Record<ProviderId, { name: string; base: string; keys: string }
   openai: { name: "OpenAI", base: "https://api.openai.com", keys: "platform.openai.com, or the server that speaks its API at the address below" },
   gemini: { name: "Gemini", base: "https://generativelanguage.googleapis.com", keys: "aistudio.google.com" },
 };
+
+/** What each of the tools does, in a person's words (PLAN 2.99), while it runs and once it has:
+ * no tool's name reaches the conversation, as ScaenaKit's `ToolWords` says them on the Mac. */
+const TOOL_WORDS: Record<string, [doing: string, done: string]> = {
+  data_attach: ["Adding data…", "Added data"],
+  data_edit: ["Changing the data…", "Changed the data"],
+  deck_create: ["Making a deck…", "Made a deck"],
+  deck_diff: ["Comparing versions…", "Compared versions"],
+  deck_export: ["Exporting the deck…", "Exported the deck"],
+  deck_find: ["Searching the deck…", "Searched the deck"],
+  deck_health: ["Reading the deck's story…", "Read the deck's story"],
+  deck_history: ["Reading the history…", "Looked at the history"],
+  deck_inspect: ["Looking over the deck…", "Looked over the deck"],
+  deck_lint: ["Checking the deck…", "Checked the deck"],
+  deck_patch: ["Editing the deck…", "Edited the deck"],
+  deck_read: ["Reading the deck…", "Went through the deck"],
+  deck_render: ["Looking at a slide…", "Looked at a slide"],
+  spine_read: ["Reading the outline…", "Went through the outline"],
+  spine_update: ["Changing the outline…", "Changed the outline"],
+  theme_apply: ["Changing the theme…", "Changed the theme"],
+  theme_edit: ["Editing the theme…", "Edited the theme"],
+  resource_read: ["Reading how decks are written…", "Read how decks are written"],
+};
+const doing = (tool: string) => TOOL_WORDS[tool]?.[0] ?? "Working…";
+const done = (tool: string) => TOOL_WORDS[tool]?.[1] ?? "Used a tool";
 
 /** What the conversation shows of each stop that is not the end of an answer. */
 const STOPS: Record<string, string> = {
@@ -191,20 +218,24 @@ export function panel(stage: Stage, editor: Editor): Panel {
         return void entry("said", event.text);
       case "call": {
         const li = entry("call");
-        li.innerHTML = "<details><summary><code></code> <span class=outcome>…</span></summary><pre class=args></pre></details>";
-        li.querySelector("code")!.textContent = event.name;
-        li.querySelector(".args")!.textContent = JSON.stringify(event.args, null, 1);
+        // What the call does, in a person's words; the tool and what it was given, opened.
+        li.innerHTML = "<details><summary><span class=doing></span> <span class=outcome></span></summary><pre class=args></pre></details>";
+        li.dataset.tool = event.name;
+        li.querySelector(".doing")!.textContent = doing(event.name);
+        li.querySelector(".args")!.textContent = `${event.name} ${JSON.stringify(event.args, null, 1)}`;
         calling = li;
         return void calls.set(event.id, li);
       }
       case "result": {
         const li = calls.get(event.id) ?? entry("call");
         li.classList.toggle("stopped", event.error);
+        const said = li.querySelector(".doing");
+        if (said) said.textContent = done(event.name);
         li.querySelector(".outcome")!.textContent = event.summary;
         const result = document.createElement("pre");
         result.textContent = event.json.length > 4000 ? `${event.json.slice(0, 4000)}…` : event.json;
         li.querySelector("details")?.append(result);
-        if (event.png) li.append(Object.assign(document.createElement("img"), { src: `data:image/png;base64,${event.png}`, alt: `deck_render: ${event.summary}` }));
+        if (event.png) li.append(Object.assign(document.createElement("img"), { src: `data:image/png;base64,${event.png}`, alt: `The slide the assistant looked at, ${event.summary}` }));
         return;
       }
       case "edited":
@@ -248,18 +279,19 @@ export function panel(stage: Stage, editor: Editor): Panel {
       button.className = "change";
       button.dataset.state = state;
       const added = !were.has(state);
-      button.setAttribute("aria-label", added ? `Show ${state}, which it added` : `Show ${state}, as it drew it before and after`);
+      const slide = editor.slide?.(state) ?? "the slide";
+      button.setAttribute("aria-label", added ? `Show ${slide}, which it added` : `Show ${slide}, as it drew it before and after`);
       const before = was ? picture(was) : Object.assign(document.createElement("span"), { className: "none", textContent: added ? "new" : "" });
       const arrow = Object.assign(document.createElement("span"), { className: "arrow", textContent: "→" });
       arrow.setAttribute("aria-hidden", "true");
-      const name = Object.assign(document.createElement("span"), { className: "name", textContent: state });
+      const name = Object.assign(document.createElement("span"), { className: "name", textContent: slide });
       button.append(before, arrow, picture(image), name);
       button.onclick = () => editor.show(state);
       box.append(button);
     }
     const more = now.length - SHOWN;
     if (more > 0) box.append(Object.assign(document.createElement("span"), { className: "more", textContent: `and ${more} more` }));
-    if (gone.length) box.append(Object.assign(document.createElement("span"), { className: "more", textContent: `took away ${gone.join(", ")}` }));
+    if (gone.length) box.append(Object.assign(document.createElement("span"), { className: "more", textContent: `took away ${gone.length === 1 ? "a slide" : `${gone.length} slides`}` }));
     li.append(box);
     // The next edit is drawn against this one.
     for (const { state, digest, image } of now) {

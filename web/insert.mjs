@@ -35,7 +35,7 @@ try {
   page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
   page.on("console", (m) => m.type() === "error" && failures.push(`console: ${m.text()}`));
   await page.goto(url("/docs/examples/revenue.deck.json"));
-  await page.waitForFunction(() => window.scaena?.last() || document.querySelector("#status")?.textContent.startsWith("error"), null, {
+  await page.waitForFunction(() => window.scaena?.last() || document.querySelector("#status")?.textContent.startsWith("Error"), null, {
     timeout: 120000,
   });
 
@@ -101,9 +101,9 @@ try {
   // What the menu offers: Dusk's roles, the shapes, the shader presets, and no image yet.
   await page.waitForFunction(() => document.querySelectorAll("#insert optgroup").length > 0, null, { timeout: 30000 });
   const offered = await menu();
-  check(["display", "headline", "title", "caption"].every((r) => offered.Text?.includes(r)), `a text in each of Dusk's roles: ${offered.Text}`);
-  check(JSON.stringify(offered.Shape) === JSON.stringify(["rect", "ellipse", "line", "arrow"]), `four shapes: ${offered.Shape}`);
-  check(offered.Shader?.length === 2, `the theme's shader presets: ${offered.Shader}`);
+  check(["Display", "Headline", "Title", "Caption"].every((r) => offered.Text?.includes(r)), `a text in each of Dusk's roles, by its name: ${offered.Text}`);
+  check(JSON.stringify(offered.Shape) === JSON.stringify(["Rectangle", "Oval", "Line", "Arrow"]), `four shapes, by their names: ${offered.Shape}`);
+  check(offered["Background Effect"]?.length === 2, `the theme's shader presets: ${offered["Background Effect"]}`);
   check(!offered.Image, "no image: the bundle holds no PNG");
 
   // A kicker in the `kicker` slot, which nothing fills in `revenue`: it fills the slot.
@@ -111,9 +111,9 @@ try {
   const kicker = slots.kicker;
   check(Boolean(kicker), `the figure layout has a kicker slot: ${Object.keys(slots)}`);
   await press([kicker[0] + kicker[2] / 2, kicker[1] + kicker[3] / 2]);
-  await page.selectOption("#insert", { label: "kicker" });
+  await page.selectOption("#insert", { label: "Kicker" });
   check(await reads('kicker text role:kicker "Kicker" at:in(kicker)'), "a kicker inserted in the empty kicker slot fills it");
-  check(await says("kicker inserted as kicker, in revenue"), `the status says what was inserted: ${await status()}`);
+  check(await says("Kicker inserted on this slide"), `the status says what was inserted: ${await status()}`);
   check((await selected()) === "kicker", "and the canvas selects it");
   check(JSON.stringify(await box("kicker")) === JSON.stringify(kicker), `it stands in the slot: ${await box("kicker")}`);
   const scn = await source();
@@ -125,7 +125,7 @@ try {
   // grid's cells in the room nearest the point, clear of what lint judges it against (PLAN 2.79).
   const at = [1400, 300];
   await press(at);
-  await page.selectOption("#insert", { label: "headline" });
+  await page.selectOption("#insert", { label: "Headline" });
   check(await reads("headline text role:headline"), "the headline is inserted into the source");
   check((await source()).includes('headline text role:headline "Headline" at:col('), "on the grid's cells");
   const cell = await box("headline");
@@ -138,7 +138,7 @@ try {
   await page.locator("#overlay").focus();
   await page.keyboard.press("Delete");
   check(await back(original), "Delete takes a node just inserted out of the deck: the source is as it was");
-  check(await says("headline deleted from the deck"), `and says so: ${await status()}`);
+  check(await says("deleted from every slide"), `and says so: ${await status()}`);
 
   // The title deleted in `mix`: it leaves `mix`, and `close` shows it again by its own delta.
   await showState("mix", 2);
@@ -147,7 +147,7 @@ try {
   check(await reads("state mix slide:revenue transition:slow hold:6s\n  -title"), "Delete takes the title out of `mix`");
   check(!(await source()).includes("…and the mix shifted"), "with its delta there");
   check((await source()).includes('title "Thank you"'), "`close` shows it again by its own");
-  check(await says("title deleted from mix on"), `the status says where from: ${await status()}`);
+  check(await says("deleted from this slide on"), `the status says where from: ${await status()}`);
   check((await selected()) === undefined, "nothing is selected after");
   await page.keyboard.press("Control+z");
   check(await back(original), "one undo puts it back");
@@ -157,7 +157,7 @@ try {
   await select("title");
   await page.keyboard.press("Control+d");
   check(await reads("title-2 text"), "Ctrl+D copies the title as `title-2`");
-  check(await says("title copied as title-2"), `the status says so: ${await status()}`);
+  check(await says("duplicated"), `the status says so: ${await status()}`);
   check((await selected()) === "title-2", "and the canvas selects the copy");
   const [title, copy] = [await box("title"), await box("title-2")];
   check(Boolean(title && copy) && (copy[0] >= title[0] + title[2] || copy[1] >= title[1] + title[3]), `beside the title, clear of it: ${title} / ${copy}`);
@@ -165,10 +165,12 @@ try {
   check(await back(original), "Shift+Delete takes the copy out of the deck");
 
   // A shader preset fills the canvas, under the rest.
-  const preset = offered.Shader[0];
+  // Offered by its name, Backdrop; the node is named after the preset, `backdrop`.
+  const preset = offered["Background Effect"]?.[0] ?? "Backdrop";
+  const named = preset.toLowerCase();
   await page.selectOption("#insert", { label: preset });
-  check(await reads(`${preset} shader:`), `the ${preset} preset is inserted`);
-  const filled = await box(preset);
+  check(await reads(`${named} shader:`), `the ${preset} preset is inserted`);
+  const filled = await box(named);
   const [w, h] = await page.evaluate(() => window.scaena.canvas.size());
   check(JSON.stringify(filled) === JSON.stringify([0, 0, w, h]), `it fills the canvas: ${filled}`);
   check((await source()).includes("z:-1"), "under what is there");

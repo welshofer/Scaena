@@ -88,7 +88,7 @@ import type {
 import { fitting } from "./pictures";
 import { PICTURE } from "./protocol";
 import { counted } from "./marks";
-import { moving, named, object, seconds } from "./words";
+import { counted as many, findings as why, inserting, moving, named, numbered, object, seconds, sentence } from "./words";
 import { prompting } from "./prompt";
 import { rehearsal, rehearsalKeys } from "./rehearse";
 import { scn, scnHighlight } from "./scn";
@@ -109,6 +109,10 @@ const fallback = import.meta.env.VITE_BUNDLE ?? "../../docs/examples/revenue.dec
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
+/** A theme file's name as a person reads it (PLAN 2.99): `themes/dusk.theme.json` is Dusk. */
+const themeName = (path: string) => sentence(path.replace(/^.*\//, "").replace(/\.theme\.json$|\.json$/, ""));
+/** What an edit did to what lint finds, said: 2 new issues, 1 gone; or no new issues. */
+const issuesChanged = (worse: number, better: number) => `${worse ? many(worse, "new issue") : "no new issues"}${better ? `, ${better} gone` : ""}`;
 /** `rows` of a source as a sentence says them: `row 3`, or `rows 1 and 3`. */
 const rowsSaid = (rows: number[]) =>
   rows.length === 1 ? `row ${rows[0]}` : `rows ${rows.slice(0, -1).join(", ")} and ${rows[rows.length - 1]}`;
@@ -179,7 +183,7 @@ async function open(source: Source, asked = false) {
   if (!asked && current?.dirty() && !confirm("The bundle has changes not saved. Open another and lose them?")) return;
   current?.close();
   current = undefined;
-  $("#status").textContent = "opening…";
+  $("#status").textContent = "Opening…";
   await edit(source);
 }
 
@@ -271,7 +275,7 @@ async function first(): Promise<Source> {
 }
 
 const failed = (e: unknown) => {
-  $("#status").textContent = `error: ${said(e)}`;
+  $("#status").textContent = `Error: ${said(e)}`;
   console.error(e);
 };
 
@@ -324,12 +328,12 @@ async function edit(source: Source) {
   let quiet = false;
   const tell = () => {
     const kinds = {
-      folder: `folder ${where?.name}`,
-      opfs: `kept in this browser as ${where?.name}`,
-      serve: `folder ${where?.name}, served${scnOnDisk ? ", from its deck.scn" : ""}`,
+      folder: `In the folder ${where?.name}`,
+      opfs: `Kept in this browser as ${where?.name}`,
+      serve: `In the folder ${where?.name}, served${scnOnDisk ? ", from its deck.scn" : ""}`,
     };
     const kept = where ? kinds[where.kind] : `${name}, not saved`;
-    whereLine.textContent = `${kept}${dirty() ? " · changed" : ""}`;
+    whereLine.textContent = `${kept}${dirty() ? " · edited" : ""}`;
     // The player opens a bundle by its address or from the browser's storage, not a folder.
     const playing =
       where?.kind === "serve"
@@ -533,7 +537,7 @@ async function edit(source: Source) {
     source: () => view.state.doc.toString(),
     apply: made,
     say,
-    style: (given) => board.style(given),
+    style: (given, words) => board.style(given, words),
     arrange: (how) => board.arrange(how, false),
     group: () => board.group(),
     ungroup: () => board.ungroup(),
@@ -555,6 +559,8 @@ async function edit(source: Source) {
    * assistant works. */
   const board = canvas(stage, $("#overlay"), {
     shown: showing,
+    slide: slideOf,
+    numbered: (typed) => numbered(last?.slots ?? [], typed),
     format,
     source: () => view.state.doc.toString(),
     version: () => version,
@@ -634,7 +640,7 @@ async function edit(source: Source) {
     // canvas where nothing is.
     // What is locked under the pointer, which the canvas passes over, is offered to unlock (PLAN 2.95).
     menu: (x, y, on) => {
-      const unlock: Command[] = board.lockedThere().map((n) => ({ label: `Unlock ${n}`, run: () => board.lock([n], false) }));
+      const unlock: Command[] = board.lockedThere().map((n) => ({ label: `Unlock ${object(lexicon, n, true)}`, run: () => board.lock([n], false) }));
       const here = on === "node" ? nodeCommands().filter((c) => c.where?.includes("node")) : canvasCommands(true);
       void menu(x, y, [...here, ...unlock], $("#overlay"));
     },
@@ -650,7 +656,7 @@ async function edit(source: Source) {
       if (!mark) return false;
       if (open) tab("data");
       await data.select(mark.source, mark.rows);
-      say(`${mark.node} is drawn from ${rowsSaid(mark.rows)} of ${mark.source}`);
+      say(`${sentence(object(lexicon, mark.node, true))} is drawn from ${rowsSaid(mark.rows)} of the data “${mark.source}”`);
       return true;
     },
   }, $("#marks"), $("#marked"));
@@ -688,6 +694,7 @@ async function edit(source: Source) {
     undo: () => void undo(view),
     redo: () => void redo(view),
     say,
+    words: () => lexicon,
     chose: (source, rows) => {
       rowsChosen = rows.length ? { source, rows } : undefined;
       void outlineRows();
@@ -709,8 +716,9 @@ async function edit(source: Source) {
     const marks = await stage.marksOf(now.state, chosen.source, chosen.rows, format()).catch((): DataMark[] => []);
     if (asked !== outlining) return;
     board.markRows(now.state, marks);
-    const what = marks.map((m) => `${m.node} (${m.key.replaceAll("\u001f", " · ")})`);
-    data.drawn(what.length ? `In this state, ${rowsSaid(chosen.rows)} ${chosen.rows.length === 1 ? "draws" : "draw"} ${what.join(", ")}.` : `In this state, nothing draws ${rowsSaid(chosen.rows)}.`);
+    const what = marks.map((m) => `${object(lexicon, m.node, true)} (${m.key.replaceAll("\u001f", " · ")})`);
+    const draws = chosen.rows.length === 1 ? "draws" : "draw";
+    data.drawn(what.length ? `On this slide, ${rowsSaid(chosen.rows)} ${draws} ${what.join(", ")}.` : `On this slide, nothing draws ${rowsSaid(chosen.rows)}.`);
   }
   new MutationObserver(() => void outlineRows()).observe($("#data"), { attributes: true, attributeFilter: ["hidden"] });
   /** The bundle's files (PLAN 2.59): its images, fonts, and data, what uses each in which states,
@@ -732,10 +740,12 @@ async function edit(source: Source) {
     insert: async (path) => {
       const inserts = await stage.inserts().catch(() => []);
       const n = inserts.findIndex((i) => i.node.type === "image" && (i.node as { src?: unknown }).src === path);
-      if (n < 0) return say(`${path} is not an image the deck can insert: a PNG or a JPEG in the bundle`);
-      await board.insert(n, path);
+      if (n < 0) return say(`Not inserted: ${path.replace(/^.*\//, "")} isn't a PNG or a JPEG the deck holds`);
+      await board.insert(n, `the picture ${path.replace(/^.*\//, "")}`);
     },
     say,
+    words: () => lexicon,
+    slide: slideOf,
   });
   /** The deck's story (PLAN G.9): its narrative health, read by the generator's module, each finding
    * a slide to show, a fix that is one change to undo, and a question for the assistant. */
@@ -769,17 +779,17 @@ async function edit(source: Source) {
     shown: showing,
     source: () => view.state.doc.toString(),
     keep: async () => {
-      if (assisting) return void say("no history begun: the assistant is at work on the deck");
+      if (assisting) return void say("No history begun: the assistant is at work on the deck");
       await save(true);
     },
     restore: async (version) => {
-      if (assisting) return void say("not restored: the assistant is at work on the deck");
+      if (assisting) return void say("Not restored: the assistant is at work on the deck");
       try {
         const done = await stage.restoreVersion(view.state.doc.toString(), version, shown, format());
         const r = done.restored;
         if (!r.applied || done.source === undefined || !done.edited) {
-          const why = r.added.filter((f) => f.severity === "error").map((f) => `${f.code} ${f.message}`);
-          say(`version ${version.n} not restored: ${why.join("; ") || "the deck would not validate in the bundle as it is"}`);
+          const errors = r.added.filter((f) => f.severity === "error");
+          say(`Version ${version.n} not restored: ${errors.length ? why(lexicon, errors) : "the deck would not open with the files it has now"}`);
           return r;
         }
         // One change, which carries the data files the restore wrote for its undo.
@@ -792,14 +802,16 @@ async function edit(source: Source) {
           const changes = change(view.state.doc.toString(), done.source);
           view.dispatch({ changes, effects, userEvent: "input.restore", annotations: isolateHistory.of("full") });
         }
-        const files = r.files.length ? `, with ${r.files.join(", ")}` : "";
-        say(`version ${version.n} restored${files} · ⌘Z undoes it`);
+        const files = r.files.length ? `, with ${r.files.map((f) => f.replace(/^.*\//, "")).join(", ")}` : "";
+        say(`Version ${version.n} restored${files} · ⌘Z undoes it`);
         return r;
       } catch (e) {
-        say(`not restored: ${said(e)}`);
+        say(`Not restored: ${said(e)}`);
       }
     },
     say,
+    words: () => lexicon,
+    slide: (state) => last?.slots?.find((s) => s.state === state)?.said,
   });
   /** The state shown in each of the deck's formats, side by side under the canvas (PLAN 2.62): a
    * click opens the canvas in one, as the format menu does. */
@@ -839,19 +851,19 @@ async function edit(source: Source) {
    * ⌘Z writes the theme back, as with a restore's data files. An inline theme is the deck's own:
    * its edit is a change of the source. */
   async function themeEdit(ops: unknown[], what: string, photo?: string) {
-    if (assisting) return void say("theme not edited: the assistant is at work on the deck");
-    if (!showing()) return void say("theme not edited while the source does not compile");
+    if (assisting) return void say("Theme not changed: the assistant is at work on the deck");
+    if (!showing()) return void say("Theme not changed: the source has an error to fix first");
     try {
       const done = await stage.themeEdit(view.state.doc.toString(), ops, shown, format(), photo);
       const r = done.result;
       if (r.refused || done.source === undefined || !done.edited) {
-        const why = r.added.filter((f) => f.severity === "error").map((f) => `${f.code} ${f.message}`);
-        say(`theme not edited: ${why.join("; ") || "the deck would not validate in it"}`);
+        const errors = r.added.filter((f) => f.severity === "error");
+        say(`Theme not changed: ${errors.length ? why(lexicon, errors) : "the deck would not open in it"}`);
         return r;
       }
       const effects = done.files.length ? [filesWritten.of(done.files)] : [];
       if (done.source === view.state.doc.toString()) {
-        if (!effects.length) return void say(`theme: ${what}, as it was`);
+        if (!effects.length) return void say(`Theme: ${what}, as it was`);
         view.dispatch({ effects, annotations: isolateHistory.of("full") });
         wrote(done.edited);
       } else {
@@ -859,25 +871,25 @@ async function edit(source: Source) {
         const changes = change(view.state.doc.toString(), done.source);
         view.dispatch({ changes, effects, userEvent: "input.theme", annotations: isolateHistory.of("full") });
       }
-      const lint = r.added.length || r.removed.length ? ` · lint finds ${r.added.length} new, ${r.removed.length} gone` : "";
-      say(`theme: ${what}${lint} · ⌘Z undoes it`);
+      const issues = r.added.length || r.removed.length ? ` · ${issuesChanged(r.added.length, r.removed.length)}` : "";
+      say(`Theme: ${what}${issues} · ⌘Z undoes it`);
       return r;
     } catch (e) {
-      say(`theme not edited: ${said(e)}`);
+      say(`Theme not changed: ${said(e)}`);
     }
   }
   /** The images the bundle holds that a theme may take its colors from (PLAN 2.94): each PNG and
    * JPEG, with the nodes drawn from it. */
   const photos = async () =>
     (await stage.bundleFiles(view.state.doc.toString())).filter((f) => f.type === "image" && PICTURE.test(f.path));
-  const theming = themePanel(stage, $("#theming"), { edit: themeEdit, photos });
+  const theming = themePanel(stage, $("#theming"), { edit: themeEdit, photos, words: () => lexicon });
   /** The theme given the colors of the photo the image `node` draws in the state shown (PLAN 2.94). */
   async function colorsFrom(node: string) {
     const state = showing()?.state;
     const files = await photos().catch(() => []);
     const draws = (f: (typeof files)[number], here: boolean) => f.used.some((u) => u.node === node && (!here || !state || u.states.includes(state)));
     const file = files.find((f) => draws(f, true)) ?? files.find((f) => draws(f, false));
-    if (!file) return void say(`theme not edited: ${node} draws no photo the bundle holds`);
+    if (!file) return void say(`Theme not changed: ${object(lexicon, node, true)} draws no photo the deck holds`);
     await theming.fromPhoto(file.path);
   }
   /** Files an undo or a redo of a restore or a theme edit writes back (PLAN 2.60, 2.61), each to
@@ -928,6 +940,8 @@ async function edit(source: Source) {
       await board.mark(node, from, to);
     },
     unmark: () => void board.mark(),
+    words: () => lexicon,
+    slide: slideOf,
   });
   $("#find-open").onclick = () => finding?.open();
   /** The state strip (PLAN 2.35): the deck's states, each a thumbnail, and the patches that add,
@@ -975,7 +989,7 @@ async function edit(source: Source) {
     const at = e.target instanceof Element ? e.target : null;
     if (at?.closest('input, textarea, [contenteditable="true"], .cm-editor, #overlay, #data, #files')) return;
     e.preventDefault();
-    if (assisting) return say("the assistant is working on the deck: undo once it is done");
+    if (assisting) return say("The assistant is at work on the deck: undo once it is done");
     if (key === "y" || e.shiftKey) {
       if (redo(view)) forceLinting(view);
     } else if (undo(view)) forceLinting(view);
@@ -987,17 +1001,24 @@ async function edit(source: Source) {
   /** What may be inserted, by label, as the deck last offered it: what the palette lists. */
   let insertable: string[] = [];
   async function offer() {
-    const inserts = await stage.inserts().catch(() => undefined);
-    const key = JSON.stringify(inserts?.map((i) => i.label));
+    const state = last?.states[shown]?.[0];
+    const [inserts, words] = await Promise.all([
+      stage.inserts().catch(() => undefined),
+      state === undefined ? Promise.resolve(lexicon) : stage.words(state).catch(() => lexicon),
+    ]);
+    const key = JSON.stringify([inserts?.map((i) => i.label), words?.types]);
     if (!inserts || key === offered) return;
     offered = key;
-    insertable = inserts.map((i) => i.label);
+    insertable = [];
+    // Each as a person names it (PLAN 2.99): its kind, then a text by its role, a shape by its
+    // kind, an effect by the theme's preset, and a picture or a source's chart by its name.
     const groups = new Map<string, HTMLOptGroupElement>();
     for (const [n, insert] of inserts.entries()) {
-      const [kind, name] = insert.label.includes(" · ") ? insert.label.split(" · ", 2) : [insert.node.type, insert.label];
+      const { kind, said } = inserting(words, insert);
       const group = groups.get(kind) ?? Object.assign(document.createElement("optgroup"), { label: kind });
       groups.set(kind, group);
-      group.append(new Option(name, String(n)));
+      group.append(new Option(said, String(n)));
+      insertable.push(`${kind} · ${said}`);
     }
     inserter.replaceChildren(new Option("Insert…", ""), ...groups.values());
   }
@@ -1020,11 +1041,10 @@ async function edit(source: Source) {
     const key = JSON.stringify([held, Object.keys(themes)]);
     if (key === themesOffered) return;
     themesOffered = key;
-    const named = (path: string) => path.replace(/^.*\//, "").replace(/\.theme\.json$|\.json$/, "");
-    const inBundle = Object.assign(document.createElement("optgroup"), { label: "In the bundle" });
-    for (const file of held.files) inBundle.append(new Option(named(file), `path:${file}`, file === held.current, file === held.current));
-    if (held.current === "(inline)") inBundle.append(new Option("(inline)", "", true, true));
-    const ships = Object.assign(document.createElement("optgroup"), { label: "Ships" });
+    const inBundle = Object.assign(document.createElement("optgroup"), { label: "In this deck" });
+    for (const file of held.files) inBundle.append(new Option(themeName(file), `path:${file}`, file === held.current, file === held.current));
+    if (held.current === "(inline)") inBundle.append(new Option("The deck’s own", "", true, true));
+    const ships = Object.assign(document.createElement("optgroup"), { label: "Built in" });
     for (const name of Object.keys(themes)) ships.append(new Option(name, `ships:${name}`));
     themePicker.replaceChildren(...[inBundle, ships].filter((g) => g.children.length > 0));
   }
@@ -1036,28 +1056,27 @@ async function edit(source: Source) {
     const [kind, name] = [chosen.slice(0, chosen.indexOf(":")), chosen.slice(chosen.indexOf(":") + 1)];
     if (!now || !name) {
       themePicker.value = named;
-      return say("not re-themed while the source does not compile or the assistant works");
+      return say("Not re-themed: the source has an error to fix first, or the assistant is at work");
     }
-    const label = kind === "ships" ? name : name.replace(/^.*\//, "");
-    say(`re-theming in ${label}…`);
+    const label = kind === "ships" ? name : themeName(name);
+    say(`Re-theming in ${label}…`);
     try {
       const theme = kind === "ships" ? { ships: name } : { path: name };
       const { themed, source, edited } = await stage.retheme(view.state.doc.toString(), theme, now.index, format());
       if (themed.refused) {
         themePicker.value = named;
         const errors = themed.added.filter((f) => f.severity === "error");
-        const more = errors.length > 1 ? ` (and ${errors.length - 1} more)` : "";
-        say(`${label} refused: the deck would not validate in it: ${errors[0]?.message ?? ""}${more}`);
+        say(`${label} not taken: the deck would not open in it. ${why(lexicon, errors, 1)}`);
       } else if (source && edited) {
         made(source, edited);
         const [worse, better] = [themed.added.length, themed.removed.length];
         const n = themed.recolored.length;
         const recolored = n ? ` · ${n} text${n === 1 ? "" : "s"} recolored to read on what lies behind ${n === 1 ? "it" : "them"}` : "";
-        say(`theme ${label}${recolored} · lint finds ${worse} new, ${better} gone`);
+        say(`Theme ${label}${recolored} · ${issuesChanged(worse, better)}`);
       }
     } catch (e) {
       themePicker.value = named;
-      say(`not re-themed: ${said(e)}`);
+      say(`Not re-themed: ${said(e)}`);
     } finally {
       themesOffered = "";
       void offerThemes();
@@ -1089,7 +1108,7 @@ async function edit(source: Source) {
         if (taken === before) taken = undefined;
       }
     } catch (e) {
-      status.textContent = `error: ${said(e)}`;
+      status.textContent = `Error: ${said(e)}`;
       return [];
     }
     trips.push({ ms: performance.now() - sent, ...edited.ms });
@@ -1139,7 +1158,7 @@ async function edit(source: Source) {
     try {
       linted = await stage.lint();
     } catch (e) {
-      status.textContent = `error: ${said(e)}`;
+      status.textContent = `Error: ${said(e)}`;
       return;
     }
     wholes.push(linted);
@@ -1188,7 +1207,7 @@ async function edit(source: Source) {
       severity: f.severity,
       source: f.code,
       message: `${f.file ? `${f.file}: ` : ""}${f.message}${f.format ? ` (${f.format})` : ""}${f.hint ? `\n${f.hint}` : ""}`,
-      actions: f.fix ? [{ name: "Fix", apply: () => void fix(f).catch((e) => say(`not fixed: ${said(e)}`)) }] : [],
+      actions: f.fix ? [{ name: "Fix", apply: () => void fix(f).catch((e) => say(`Not fixed: ${said(e)}`)) }] : [],
     };
   }
 
@@ -1304,6 +1323,8 @@ async function edit(source: Source) {
     }
     inspected = found;
     cueing?.show(found, lexicon);
+    // The Theme tab says the theme's names in the words just read.
+    theming.worded();
     const cue = found.timeline;
     // The slide shown, its objects and its animations, in a person's words (PLAN 2.99).
     const words = lexicon;
@@ -1341,12 +1362,12 @@ async function edit(source: Source) {
    * that keeps no history begins one with this save (PLAN 2.87). */
   async function save(keep = false) {
     const at = edits;
-    status.textContent = "saving…";
+    status.textContent = "Saving…";
     let done: Extract<FromWorker, { type: "saved" }>;
     try {
       done = await stage.save(view.state.doc.toString(), keep);
     } catch (e) {
-      status.textContent = `not saved: ${said(e)}`;
+      status.textContent = `Not saved: ${said(e)}`;
       return;
     }
     return took(done, at);
@@ -1358,12 +1379,12 @@ async function edit(source: Source) {
   async function saveAs(to: SaveTo) {
     if (where?.kind === "serve") throw new Error("a served bundle saves to the folder scaena serve serves it from");
     const at = edits;
-    status.textContent = "saving…";
+    status.textContent = "Saving…";
     let done: Extract<FromWorker, { type: "saved" }>;
     try {
       done = await stage.saveAs(view.state.doc.toString(), to);
     } catch (e) {
-      status.textContent = `not saved: ${said(e)}`;
+      status.textContent = `Not saved: ${said(e)}`;
       return;
     }
     if ("folder" in to) await folders("readwrite", (store) => store.put(to.folder, to.folder.name));
@@ -1391,8 +1412,7 @@ async function edit(source: Source) {
     void listKept();
     // The save recorded the edits since the last: they are versions now.
     void versioning.refresh();
-    const named = done.renamed.length ? `, ${done.renamed.length} named by their content` : "";
-    status.textContent = `saved ${done.files} files${named}${done.recorded ? ", and recorded in its history" : ""}`;
+    status.textContent = `Saved, ${many(done.files, "file")}${done.recorded ? ", and the changes kept in its history" : ""}`;
     return done;
   }
 
@@ -1403,7 +1423,7 @@ async function edit(source: Source) {
     try {
       zipped = await stage.zip(view.state.doc.toString());
     } catch (e) {
-      status.textContent = `not downloaded: ${said(e)}`;
+      status.textContent = `Not downloaded: ${said(e)}`;
       return;
     }
     const url = URL.createObjectURL(new Blob([zipped.bytes], { type: "application/zip" }));
@@ -1411,7 +1431,7 @@ async function edit(source: Source) {
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
     const [before, after] = zipped.subset.reduce(([b, a], [, x, y]) => [b + x, a + y], [0, 0]);
     const kb = (n: number) => `${Math.round(n / 1024)} KB`;
-    status.textContent = `downloaded ${name}.scaena, ${kb(zipped.bytes.byteLength)}: fonts subset from ${kb(before)} to ${kb(after)}`;
+    status.textContent = `Downloaded ${name}.scaena, ${kb(zipped.bytes.byteLength)}: its fonts cut to what it draws, ${kb(before)} to ${kb(after)}`;
     return zipped;
   }
 
@@ -1426,37 +1446,39 @@ async function edit(source: Source) {
     if (as === "png") {
       const now = showing();
       if (!now) {
-        say("not exported: no state is shown");
+        say("Not exported: no slide is shown");
         return;
       }
       const shownIn = format();
       what = { kind: "png", state: now.state, width: width ?? board.size()[0], format: shownIn };
-      file = `${now.state}${shownIn ? `-${shownIn.replace(/[^\w.-]+/g, "x")}` : ""}.png`;
+      // Named as a person counts the slide (PLAN 2.99): Q3 Review - Slide 3, step 2.png, by a
+      // hyphen, which a browser keeps in a file's name where the system's own encoding is not UTF-8.
+      file = `${name} - ${slideOf(now.state)}${shownIn ? ` (${shownIn.replace(/[^\w.-]+/g, "x")})` : ""}.png`;
     } else if (as === "pdf") {
       what = { kind: "pdf" };
       file = `${name}.pdf`;
     } else {
       const page = await fetch(new URL("standalone.html", document.baseURI)).catch(() => undefined);
       if (!page?.ok) {
-        say("not exported: this build of the editor carries no single-file page (build it with `just web`)");
+        say("Not exported: this copy of the editor has no page to play a single file (build it with `just web`)");
         return;
       }
       what = { kind: "html", page: await page.text(), name };
       file = `${name}.html`;
     }
-    say(`exporting ${file}…`);
+    say(`Exporting ${file}…`);
     let bytes: ArrayBuffer;
     try {
       bytes = await stage.export(view.state.doc.toString(), what);
     } catch (e) {
-      say(`not exported: ${said(e)}`);
+      say(`Not exported: ${said(e)}`);
       return;
     }
     const type = { png: "image/png", pdf: "application/pdf", html: "text/html" }[as];
     const url = URL.createObjectURL(new Blob([bytes], { type }));
     Object.assign(document.createElement("a"), { href: url, download: file }).click();
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    say(`downloaded ${file}, ${Math.max(1, Math.round(bytes.byteLength / 1024))} KB`);
+    say(`Downloaded ${file}, ${Math.max(1, Math.round(bytes.byteLength / 1024))} KB`);
     return { file, bytes };
   }
 
@@ -1475,7 +1497,7 @@ async function edit(source: Source) {
     const insert = paths.map((p) => JSON.stringify(p)).join(" ");
     view.dispatch({ changes: { from: at, insert }, selection: { anchor: at + insert.length } });
     view.focus();
-    status.textContent = `added ${paths.join(", ")}`;
+    status.textContent = `Added ${paths.join(", ")}`;
     return paths;
   }
 
@@ -1508,6 +1530,7 @@ async function edit(source: Source) {
       const index = last?.states.findIndex(([id]) => id === state) ?? -1;
       if (index >= 0) void show(index);
     },
+    slide: slideOf,
   });
 
   /** Every command the editor has, by name (PLAN 2.53): what its key or its button does, nothing
@@ -1523,14 +1546,14 @@ async function edit(source: Source) {
   /** The browser's own copy or cut, which the canvas takes while it has the focus. */
   const clip = (how: "copy" | "cut") => {
     overlay.focus();
-    if (!document.execCommand(how)) say(`not ${how === "copy" ? "copied" : "cut"}: the browser keeps its clipboard from this page; ${MOD}${how === "copy" ? "C" : "X"} does it`);
+    if (!document.execCommand(how)) say(`Not ${how === "copy" ? "copied" : "cut"}: the browser keeps its clipboard from this page; ${MOD}${how === "copy" ? "C" : "X"} does it`);
   };
   /** The clipboard's text, pasted on the canvas as ⌘V pastes it. */
   const pasted = async () => {
     overlay.focus();
-    const text = await navigator.clipboard.readText().catch((e) => void say(`not pasted: ${said(e)}; ${MOD}V pastes`));
+    const text = await navigator.clipboard.readText().catch((e) => void say(`Not pasted: ${said(e)}; ${MOD}V pastes`));
     if (text === undefined) return;
-    if (!text) return say("the clipboard holds nothing to paste");
+    if (!text) return say("The clipboard holds nothing to paste");
     await board.paste(text);
   };
   /** Whether the canvas takes a gesture: the source compiles, the assistant is not at work, and no
@@ -1556,9 +1579,9 @@ async function edit(source: Source) {
       const op = { op: "place", node, at: spot, format: f, anew: true };
       const { source, edited } = await stage.make(view.state.doc.toString(), [op], now.index, f);
       made(source, edited);
-      say(`${node} placed anew in ${f}: a move there moves it there alone · ⌘Z undoes it`);
+      say(`${sentence(object(lexicon, node, true))} has a layout of its own in ${f}: a move there moves it there alone · ⌘Z undoes it`);
     } catch (e) {
-      say(`not placed anew: ${said(e)}`);
+      say(`Not placed anew: ${said(e)}`);
     }
   };
   const typeOf = (node: string) => layering.type(node, showing()?.state ?? "");
@@ -1757,7 +1780,7 @@ async function edit(source: Source) {
       { label: "Show or fold the source", keys: `${MOD}\\`, group: "The editor", run: () => fold(folded()) },
       { label: "Save as…", applies: () => !$("#save-as").hidden, run: () => $("#save-as").click() },
       { label: "Download .scaena", run: () => download().catch(failed) },
-      { label: "Export the state shown as a PNG…", applies: () => showing() !== undefined, run: () => openExport("png") },
+      { label: "Export this slide as a PNG…", applies: () => showing() !== undefined, run: () => openExport("png") },
       { label: "Export the deck as a PDF", applies: () => last?.valid === true, run: () => exportAs("pdf").catch(failed) },
       { label: "Export the deck as one HTML file", applies: () => last?.valid === true, run: () => exportAs("html").catch(failed) },
       { label: "Play", applies: () => !play.hidden, run: () => play.click() },
@@ -1776,7 +1799,7 @@ async function edit(source: Source) {
       { label: "Rehearse the deck", applies: () => last?.valid === true, run: () => void rehearsing.start() },
       { label: "Edit the layout", applies: () => showing() !== undefined, run: () => void board.layoutMode(true) },
       { label: "New layout from this one…", applies: () => showing() !== undefined, run: () => void board.newLayout() },
-      { label: "Show the bundle's files", run: () => tab("files").focus() },
+      { label: "Show the deck's files", run: () => tab("files").focus() },
       { label: "Show the versions", run: () => tab("versions").focus() },
       { label: "Show the deck's story", run: () => tab("story").focus() },
       { label: "Show the assistant", run: () => (tab("assistant"), $("#question").focus()) },
@@ -1865,7 +1888,7 @@ async function edit(source: Source) {
       quiet = false;
       saved = edits;
       tell();
-      status.textContent = `read again from disk: ${paths.join(", ")}`;
+      status.textContent = `Read again from disk: ${paths.join(", ")}`;
     };
     const changed = (paths: string[]) => {
       if (!dirty()) return void take(paths).catch(failed);

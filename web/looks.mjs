@@ -97,8 +97,8 @@ try {
   check(none !== "Paste the look", `with no look copied, the palette offers no paste: ${none}`);
 
   // ⌥⌘C on the title: its role in `revenue`, and the theme's for the rest.
-  const copied = await press(["title"], "Control+Alt+KeyC", "look copied");
-  check(copied.includes("title's look copied (role headline)"), `⌥⌘C copies the title's look: ${copied}`);
+  const copied = await press(["title"], "Control+Alt+KeyC", "copied: ⌥⌘V");
+  check(copied.includes("The look of “") && copied.includes("” copied: ⌥⌘V pastes it on what is selected"), `⌥⌘C copies the title's look: ${copied}`);
   const look = await page.evaluate(() => window.scaena.canvas.copiedLook());
   check(
     look?.node === "title" && look.props[0]?.prop === "role" && look.props[0]?.value === "headline" && look.props.slice(1).every((p) => p.value === undefined),
@@ -107,18 +107,18 @@ try {
   check((await source()) === original, "copying a look changes nothing");
 
   // ⌥⌘V on the note: its role lives on the node, so the look goes there.
-  const pasted = await press(["note"], "Control+Alt+KeyV", "look pasted");
-  check(pasted.includes("title's look pasted on note"), `⌥⌘V pastes it on the note: ${pasted}`);
+  const pasted = await press(["note"], "Control+Alt+KeyV", "pasted on");
+  check(pasted.includes("pasted on “Revenue in $M. Enterprise recognized on…”"), `⌥⌘V pastes it on the note: ${pasted}`);
   check((await source()).includes('note text role:headline "Revenue in $M.'), "written where the note's role lives, on the node");
   check(await page.evaluate(() => window.scaena.canvas.chosen().join()) === "note", "the note stays selected");
   const again = await press(["note"], "Control+Alt+KeyV", "so already");
-  check(again.includes("note looks so already"), `pasted again, it changes nothing, and says so: ${again}`);
+  check(again.includes("“Revenue in $M. Enterprise recognized on…” looks so already"), `pasted again, it changes nothing, and says so: ${again}`);
   check(await undo(original), "one undo takes it back");
 
   // On the note and the chart together: the note takes it, and the chart's refusal is said.
-  const both = await press(["note", "rev"], "Control+Alt+KeyV", "look pasted");
+  const both = await press(["note", "rev"], "Control+Alt+KeyV", "pasted on");
   check(
-    both.includes("title's look pasted on note") && both.includes("rev: a chart takes none of a text's look"),
+    both.includes("pasted on “Revenue in $M.") && both.includes("“Quarterly revenue by product, Q4 2025 t…”: a chart takes none of a text's look"),
     `on several, each that takes it, and what the others cannot: ${both}`,
   );
   check(await undo(original), "and one undo takes that back");
@@ -136,9 +136,9 @@ try {
   const props = ["fill", "stroke/paint", "stroke/width", "radius"];
   const ring = await shows("shape-ring", props);
   check(ring.fill === null && ring["stroke/paint"] === "accent" && ring["stroke/width"] === "thick", `the ring is a stroke: ${JSON.stringify(ring)}`);
-  await press(["shape-pill"], "Control+Alt+KeyC", "look copied");
-  const onRing = await press(["shape-ring"], "Control+Alt+KeyV", "look pasted");
-  check(onRing.includes("shape-pill's look pasted on shape-ring"), `the pill's look on the ring: ${onRing}`);
+  await press(["shape-pill"], "Control+Alt+KeyC", "copied: ⌥⌘V");
+  const onRing = await press(["shape-ring"], "Control+Alt+KeyV", "pasted on");
+  check(onRing.includes("The look of the shape pasted on the shape"), `the pill's look on the ring: ${onRing}`);
   const filled = await shows("shape-ring", props);
   check(
     filled.fill === "accent" && filled.radius === "radius.5" && filled["stroke/paint"] === null && filled["stroke/width"] === null,
@@ -147,13 +147,13 @@ try {
 
   // On an image, a shape's corners alone; a stack takes none of it.
   await into("containers");
-  await press(["card-tag"], "Control+Alt+KeyC", "look copied");
-  const photo = await press(["board-photo"], "Control+Alt+KeyV", "look pasted");
-  check(photo.includes("card-tag's look pasted on board-photo"), `a shape's look on an image: ${photo}`);
+  await press(["card-tag"], "Control+Alt+KeyC", "copied: ⌥⌘V");
+  const photo = await press(["board-photo"], "Control+Alt+KeyV", "pasted on");
+  check(photo.includes("The look of the shape pasted on “The test card in a grid area two rows t…”"), `a shape's look on an image: ${photo}`);
   const corners = await shows("board-photo", ["radius", "fit"]);
   check(corners.radius === "radius.5", `the image takes its corners: ${JSON.stringify(corners)}`);
   const stack = await press(["stats"], "Control+Alt+KeyV", "takes none");
-  check(stack.includes("stats: a stack takes none of a shape's look"), `a stack takes none of it, and says so: ${stack}`);
+  check(stack.includes("The group: a stack takes none of a shape's look"), `a stack takes none of it, and says so: ${stack}`);
 } catch (e) {
   failures.push(String(e));
 } finally {

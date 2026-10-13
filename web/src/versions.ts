@@ -8,8 +8,9 @@
 //   refused, with why, where the deck would not validate in the bundle as it is. The source takes
 //   it as one change, which ⌘Z undoes with the data files, as any other edit.
 // - The versions are what the history holds: an edit is one once a save records it.
-import type { Compared, NodeChange, Restored, StateChange, Version } from "./protocol";
+import type { Compared, Lexicon, NodeChange, Restored, StateChange, Version } from "./protocol";
 import type { Stage } from "./stage";
+import { object, phrase, quote, sentence } from "./words";
 
 /** What the panel asks of the editor around it. */
 export interface VersionsEditor {
@@ -21,15 +22,124 @@ export interface VersionsEditor {
   /** Begin a history: save the bundle, the deck as saved its first version (PLAN 2.87). */
   keep(): Promise<void>;
   say(text: string): void;
+  /** The words for the state shown (PLAN 2.99): the deck's objects by what they show. */
+  words?(): Lexicon | undefined;
+  /** `state` as a person counts it in the deck now: Slide 3, step 2; none for a state it has not. */
+  slide?(state: string): string | undefined;
 }
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const html = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
-/** A value as the comparison says it: gone, or as JSON, cut short. */
-const value = (v: unknown) => {
-  const text = v === null ? "gone" : JSON.stringify(v);
-  return text.length > 80 ? `${text.slice(0, 79)}…` : text;
+
+/** What each change the history records did, by the operation's name (`patch: add_node`), as a
+ * person says it (PLAN 2.99). */
+const OPS: Record<string, string> = {
+  add_node: "an object added",
+  remove_node: "an object deleted",
+  rename_node: "an object renamed",
+  set_prop: "an object changed",
+  set_text: "words changed",
+  replace_text: "words typed",
+  style_text: "characters given a look",
+  list: "a list made",
+  choose: "a look chosen",
+  place: "an object moved",
+  hide_node: "an object hidden",
+  show_node: "an object shown",
+  annotate: "a chart annotated",
+  group: "objects grouped",
+  ungroup: "a group taken apart",
+  apply_preset: "an animation added",
+  time_motion: "an animation timed",
+  bind_data: "a chart given data",
+  add_state: "a slide added",
+  set_state: "a slide changed",
+  move_state: "a slide moved",
+  rename_state: "a slide renamed",
+  remove_state: "a slide deleted",
+  duplicate_slide: "a slide copied",
+  move_slide: "a slide moved",
+  remove_slide: "a slide deleted",
+  retheme: "the theme changed",
 };
+
+/** A change's message, as the history records it, in a person's words (PLAN 2.99): `patch:
+ * add_node, place` is An object added, an object moved. */
+export function told(message: string | null | undefined): string {
+  const m = (message ?? "").trim();
+  const patch = /^patch: (.*)$/.exec(m);
+  if (patch) return sentence([...new Set(patch[1].split(", ").map((op) => OPS[op] ?? "an edit"))].join(", "));
+  const said: [RegExp, (...g: string[]) => string][] = [
+    [/^$/, () => "A change"],
+    [/^history begins$/, () => "The history begins"],
+    [/^type$/, () => "Typing"],
+    [/^edit$/, () => "Edits"],
+    [/^save$/, () => "Saved"],
+    [/^deck_create$/, () => "The deck made"],
+    [/^data_attach (.*)$/, (n) => `The data “${n}” added`],
+    [/^data_edit ([^:]*)/, (n) => `The data “${n}” changed`],
+    [/^history --restore /, () => "A version restored"],
+    [/^theme --apply (.*)$/, (p) => `The theme ${phrase(p.replace(/^.*\//, "").replace(/\.theme\.json$|\.json$/, ""))} taken`],
+    [/^theme_edit: colors from (.*)$/, (p) => `The theme given the colors of ${p.replace(/^.*\//, "")}`],
+    [/^theme_edit/, () => "The theme changed"],
+    [/^lint --fix/, () => "Issues fixed"],
+    [/^(undo|redo) (.*)$/, (how, rest) => `${how === "undo" ? "Undone" : "Made again"}: ${told(rest).toLowerCase()}`],
+    [/^library: /, () => "The theme's layouts brought up to date"],
+    [/changed outside Scaena$/, () => "Changed outside Scaena"],
+  ];
+  for (const [pattern, say] of said) {
+    const found = pattern.exec(m);
+    if (found) return say(...found.slice(1));
+  }
+  return sentence(m);
+}
+
+/** Who made a change, as a person reads it (PLAN 2.99): you, the assistant and its model, or an
+ * edit made outside Scaena; another author by the name the history keeps. */
+export function who(author: string | null | undefined): string {
+  if (!author || author === "user") return "you";
+  if (author === "fs") return "outside Scaena";
+  if (author.startsWith("agent:")) {
+    const model = author.slice("agent:".length);
+    return model && model !== "scripted" ? `the assistant (${model})` : "the assistant";
+  }
+  return author;
+}
+
+/** An object's property as what changed says it. */
+const PROPS: Record<string, string> = {
+  text: "words",
+  runs: "words",
+  list: "list",
+  role: "text style",
+  style: "look",
+  emphasis: "emphasis",
+  at: "place",
+  formats: "place in other sizes",
+  transform: "turn and size",
+  opacity: "opacity",
+  fill: "fill",
+  stroke: "border",
+  radius: "corners",
+  points: "shape",
+  src: "picture",
+  fit: "fit",
+  focal: "focal point",
+  crop: "crop",
+  alt: "description",
+  semantic: "part in the story",
+  data: "data",
+  encoding: "chart",
+  kind: "chart",
+  motion: "animation",
+  enter: "build in",
+  exit: "build out",
+  preset: "effect",
+  locked: "lock",
+  z: "order",
+};
+/** A state's own field as what changed says it. */
+const FIELDS: Record<string, string> = { layout: "layout", transition: "transition", hold: "advance", notes: "presenter notes" };
 
 /** When a version was made, as a person reads it, in this browser's time zone. */
 export function when(at: string | null | undefined): string {
@@ -41,31 +151,45 @@ export function when(at: string | null | undefined): string {
 
 /** A version as a person reads it: what was done, by whom, and when. */
 export function saying(v: Version): string {
-  return `${v.message || "a change"} · ${v.author || "someone"} · ${when(v.at)}`;
+  return `${told(v.message)} · ${who(v.author)} · ${when(v.at)}`;
 }
 
-/** What changed, a line each: each state, then the deck's own fields, then the data files. */
-export function changes(c: Compared): string[] {
+/** What changed, a line each, in a person's words (PLAN 2.99): each slide, by its number in the
+ * deck now (`slide`), and what changed on it, each object named as `words` names it; then the
+ * deck's own settings, then the files. */
+export function changes(c: Compared, words?: Lexicon, slide: (state: string) => string | undefined = () => undefined): string[] {
   const out: string[] = [];
-  const props = (p: Record<string, unknown>) =>
-    Object.entries(p)
-      .map(([k, v]) => `${k} ${value(v)}`)
-      .join(", ");
-  const node = (id: string, n: NodeChange) =>
-    "enter" in n ? `${id} enters (${props(n.enter)})` : "exit" in n ? `${id} exits` : `${id}: ${props(n.change)}`;
+  // An object by what it shows now; one whose words changed, by its kind, which names it either side.
+  const named = (n: string) => (words?.objects[n] === undefined ? "an object" : object(words, n, true));
+  const kind = (n: string) => `the ${(words?.kinds[n] ?? "object").toLowerCase()}`;
+  const parts = (p: Record<string, unknown>) =>
+    [
+      ...new Set(
+        Object.entries(p).map(([k, v]) =>
+          k === "text" && typeof v === "string" ? `its words now ${quote(v)}` : `its ${PROPS[k] ?? phrase(k).toLowerCase()} changed`,
+        ),
+      ),
+    ].join(", ");
+  const node = (n: string, how: NodeChange) =>
+    "enter" in how
+      ? `${named(n)} added`
+      : "exit" in how
+        ? `${named(n)} taken off`
+        : `${"text" in how.change || "runs" in how.change ? kind(n) : named(n)}: ${parts(how.change)}`;
   for (const [id, s] of Object.entries(c.states) as [string, StateChange][]) {
-    if ("added" in s) out.push(`state ${id} added`);
-    else if ("removed" in s) out.push(`state ${id} taken out`);
+    const which = slide(id);
+    if ("added" in s) out.push(`${which ?? "A slide"} added`);
+    else if ("removed" in s) out.push(which ? `${which} taken out` : "A slide taken out");
     else {
-      const fields = Object.entries(s.changed.fields ?? {}).map(([k, v]) => `its ${k} ${value(v)}`);
+      const fields = Object.keys(s.changed.fields ?? {}).map((k) => `its ${FIELDS[k] ?? phrase(k).toLowerCase()} changed`);
       const nodes = Object.entries(s.changed.nodes ?? {}).map(([n, how]) => node(n, how));
-      out.push(`state ${id}: ${[...fields, ...nodes].join("; ")}`);
+      out.push(`${which ?? "A slide"}: ${[...fields, ...nodes].join("; ")}`);
     }
   }
-  for (const [field, v] of Object.entries(c.deck)) {
-    out.push(field === "order" ? `the states' order: ${(v as string[]).join(", ")}` : `the deck's ${field}: ${value(v)}`);
+  for (const field of Object.keys(c.deck)) {
+    out.push(field === "order" ? "The slides' order changed" : `The deck's ${phrase(field).toLowerCase()} changed`);
   }
-  for (const path of c.files) out.push(`${path} changed`);
+  for (const path of c.files) out.push(`${path.replace(/^.*\//, "")} changed`);
   return out;
 }
 
@@ -115,7 +239,7 @@ export function versionsPanel(stage: Stage, into: HTMLElement, editor: VersionsE
           if (asked !== listing) return;
           versions = [];
           draw();
-          head.textContent = `the versions could not be read: ${said(e)}`;
+          head.textContent = `The versions could not be read: ${said(e)}`;
         }
         if (chosen && by(chosen)) await show(chosen);
         else hide();
@@ -127,20 +251,20 @@ export function versionsPanel(stage: Stage, into: HTMLElement, editor: VersionsE
     keep.hidden = versions !== null;
     if (versions === null) {
       head.textContent =
-        "This bundle keeps no history. Keep a history saves it now, as its first version, and each save after records the edits since the last.";
+        "This deck keeps no history. Keep a history saves it now, as its first version, and each save after keeps the edits since the last.";
       list.replaceChildren();
       return;
     }
     const n = versions.length;
     head.textContent = n
-      ? `${n} ${n === 1 ? "version" : "versions"}, the last ${when(versions[n - 1].at)} · each save records the edits since the last`
+      ? `${n} ${n === 1 ? "version" : "versions"}, the last ${when(versions[n - 1].at)} · each save keeps the edits since the last`
       : "The history holds no versions yet.";
     list.innerHTML = versions
       .slice()
       .reverse()
       .map(
         (v) =>
-          `<li><button type="button" data-id="${html(v.id)}" aria-pressed="${v.id === chosen}"><span class="n">${v.n}</span> ${html(v.message || "a change")} <span class="by">${html(v.author || "someone")} · ${html(when(v.at))}</span></button></li>`,
+          `<li><button type="button" data-id="${html(v.id)}" aria-pressed="${v.id === chosen}"><span class="n">${v.n}</span> ${html(told(v.message))} <span class="by">${html(who(v.author))} · ${html(when(v.at))}</span></button></li>`,
       )
       .join("");
   }
@@ -159,7 +283,7 @@ export function versionsPanel(stage: Stage, into: HTMLElement, editor: VersionsE
     if (chosen !== id) {
       against.replaceChildren(
         new Option("the deck now", ""),
-        ...versions!.filter((x) => x.id !== id).map((x) => new Option(`version ${x.n}: ${x.message || "a change"}`, x.id)),
+        ...versions!.filter((x) => x.id !== id).map((x) => new Option(`version ${x.n}: ${told(x.message)}`, x.id)),
       );
     }
     chosen = id;
@@ -170,11 +294,13 @@ export function versionsPanel(stage: Stage, into: HTMLElement, editor: VersionsE
       const width = Math.round(Math.max(320, detail.clientWidth || 480) * Math.min(devicePixelRatio || 1, 2));
       const got = await stage.version(id, state, width);
       if (asked !== drawing) return;
-      states.replaceChildren(...got.states.map((s) => new Option(s, s)));
+      // Each of its states as its own slide list would number it (PLAN 2.99).
+      const slideOf = (s: string) => got.said[got.states.indexOf(s)] ?? s;
+      states.replaceChildren(...got.states.map((s) => new Option(slideOf(s), s)));
       states.value = got.state;
       if (url) URL.revokeObjectURL(url);
       url = got.png && URL.createObjectURL(new Blob([got.png], { type: "image/png" }));
-      depict(url, got.png ? `State ${got.state} as version ${v.n} drew it, at rest` : `Version ${v.n} is not drawn: ${got.why}`);
+      depict(url, got.png ? `${slideOf(got.state)} as version ${v.n} drew it, at rest` : `Version ${v.n} is not drawn: ${got.why}`);
     } catch (e) {
       if (asked !== drawing) return;
       depict(undefined, `Version ${v.n} is not shown: ${said(e)}`);
@@ -211,12 +337,12 @@ export function versionsPanel(stage: Stage, into: HTMLElement, editor: VersionsE
     try {
       const got = await stage.compareVersions(editor.source(), v.id, to?.id);
       if (asked !== comparing) return;
-      const lines = changes(got);
+      const lines = changes(got, editor.words?.(), (s) => editor.slide?.(s));
       const them = to ? `version ${to.n}` : "the deck now";
       changed.setAttribute("aria-label", `What changed from version ${v.n} to ${them}`);
-      changed.replaceChildren(...(lines.length ? lines : [`nothing: version ${v.n} draws and reads as ${them} does`]).map(item));
+      changed.replaceChildren(...(lines.length ? lines : [`Nothing: version ${v.n} draws and reads as ${them} does`]).map(item));
     } catch (e) {
-      if (asked === comparing) changed.replaceChildren(item(`not compared: ${said(e)}`));
+      if (asked === comparing) changed.replaceChildren(item(`Not compared: ${said(e)}`));
     }
   }
 
@@ -241,7 +367,7 @@ export function versionsPanel(stage: Stage, into: HTMLElement, editor: VersionsE
   // A history begun with a save, the deck as saved its first version (PLAN 2.87); listed then.
   keep.addEventListener("click", () => {
     keep.disabled = true;
-    void settle(editor.keep().then(refresh, (e) => editor.say(`no history begun: ${said(e)}`)))
+    void settle(editor.keep().then(refresh, (e) => editor.say(`No history begun: ${said(e)}`)))
       .finally(() => (keep.disabled = false));
   });
   new MutationObserver(() => {

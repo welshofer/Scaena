@@ -73,7 +73,7 @@ import * as notes from "./notes";
 import { annotate, askWords, markName, noteName } from "./notes";
 import type { Stage } from "./stage";
 import { covered, paragraphs, type Selected, typing } from "./typing";
-import { object } from "./words";
+import { findings, fractions, inserting as insertSaid, named, object, reaching, sentence } from "./words";
 
 /** `text` as SVG holds it: the words of a slot's prompt (PLAN 3.30). */
 const escaped = (text: string) => text.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]!);
@@ -84,37 +84,37 @@ const escaped = (text: string) => text.replace(/[&<>]/g, (c) => ({ "&": "&amp;",
 export const canvasKeys = (): Key[] => [
   { keys: "Click", label: "Select what is topmost there", group: "Select" },
   { keys: "Tab, Shift+Tab", label: "Select the next, or the one before, in reading order; past the last, leave the canvas", group: "Select" },
-  { keys: "Enter", label: "Go into the container or group selected: its first node; Escape goes back out", group: "Select" },
+  { keys: "Enter", label: "Go into the group selected: the first object in it; Escape goes back out", group: "Select" },
   { keys: `${SHIFT}Click`, label: "Put it in the selection, or take it out", group: "Select" },
   { keys: "Drag across nothing", label: "Select what the drag encloses", group: "Select" },
   { keys: `${SHIFT}Drag across nothing`, label: "Select what it encloses too", group: "Select" },
-  { keys: `${MOD}A`, label: "Select what is selected and all beside it, or all on the canvas", group: "Select" },
+  { keys: `${MOD}A`, label: "Select what is selected and all beside it, or all on the slide", group: "Select" },
   { keys: "Space, then Tab", label: "Build a selection by keys: Tab keys the next beside it, Space puts it in or takes it out, Escape stops", group: "Select" },
   { keys: "Drag", label: "Move what is selected onto the grid; a handle resizes it", group: "Move and resize" },
   { keys: `${SHIFT}Drag`, label: "Move or resize it off the grid, or back onto it", group: "Move and resize" },
   { keys: `${MOD}Drag`, label: "Off the grid, go where the pointer says, not onto an edge it meets", group: "Move and resize" },
-  { keys: "← ↑ → ↓", label: "Move what is selected a track, a place along its stack, or a unit off the grid", group: "Move and resize" },
+  { keys: "← ↑ → ↓", label: "Move what is selected a column or a row, a place along its stack, or a step off the grid", group: "Move and resize" },
   { keys: `${SHIFT}← ↑ → ↓`, label: "Resize it the same", group: "Move and resize" },
-  { keys: `${ALT}Drag, ${ALT}← ↑ → ↓`, label: "Keep the move to the state shown", group: "Move and resize" },
+  { keys: `${ALT}Drag, ${ALT}← ↑ → ↓`, label: "Keep the move to this slide", group: "Move and resize" },
   { keys: "Drag the round handle", label: "Turn it", group: "Move and resize" },
   { keys: `${SHIFT}Drag the round handle`, label: "Turn it by 15°", group: "Move and resize" },
   { keys: "[ ]", label: "Turn what is selected 15° back or on; with Shift, 1°", group: "Move and resize" },
   { keys: "Escape", label: "Cancel the drag, the turn, or the drawing under way", group: "Move and resize" },
   { keys: "Drag a point of the shape selected", label: "Move it within the shape's box: a line's, an arrow's, or a polygon's", group: "Points and corners" },
-  { keys: `${ALT}Drag a point`, label: "Keep the move to the state shown", group: "Points and corners" },
+  { keys: `${ALT}Drag a point`, label: "Keep the move to this slide", group: "Points and corners" },
   { keys: "Click an edge's middle", label: "Add a point there; a drag from it places the point", group: "Points and corners" },
   { keys: "Click a point, then Delete", label: "Take it away, though never below the two or three its kind keeps", group: "Points and corners" },
   { keys: "Drag a rect's corner", label: "Round its corners to the theme's radius steps", group: "Points and corners" },
   { keys: "Drag a crop handle inside an image", label: "Crop it from that side, the crop shown on the whole image as it goes", group: "Points and corners" },
   { keys: "Drag an image's focal point", label: "Keep that point of the image in view as its box cuts it", group: "Points and corners" },
-  { keys: `${ALT}Drag a crop handle or the focal point`, label: "Keep the crop or the focal point to the state shown", group: "Points and corners" },
+  { keys: `${ALT}Drag a crop handle or the focal point`, label: "Keep the crop or the focal point to this slide", group: "Points and corners" },
   { keys: "Enter on a shape or an image", label: "Go to its handles: its points, its corner, its crop's sides, its focal point", group: "Points and corners" },
   { keys: "Tab, Shift+Tab", label: "On its handles: the next handle, or the one before", group: "Points and corners" },
   { keys: "← ↑ → ↓", label: "On a handle: move it a hundredth, a corner a radius step; with Shift, a tenth", group: "Points and corners" },
   { keys: "+, Delete", label: "On a point: add one after it, or take it away", group: "Points and corners" },
-  { keys: "Escape", label: "Leave the handles: the node stays selected", group: "Points and corners" },
+  { keys: "Escape", label: "Leave the handles: the object stays selected", group: "Points and corners" },
   { keys: "Double-click a text", label: "Type in it where it was clicked", group: "Type" },
-  { keys: `${ALT}Double-click, ${ALT}Enter`, label: "Type in it, what is typed kept to the state shown", group: "Type" },
+  { keys: `${ALT}Double-click, ${ALT}Enter`, label: "Type in it, what is typed kept to this slide", group: "Type" },
   { keys: "Space Drag, Wheel", label: "Pan what is zoomed in", group: "See" },
   { keys: `${MOD}Wheel, Pinch`, label: "Zoom about the pointer", group: "See" },
   { keys: "Click a chart's mark", label: "With the Data tab shown, choose the rows it was made from", group: "The data" },
@@ -122,12 +122,12 @@ export const canvasKeys = (): Key[] => [
   { keys: "Click a mark of the chart selected", label: "Pick it: its menu highlights it, calls it out, rules its value, or bands from it", group: "Annotate" },
   { keys: "Click an annotation of the chart selected", label: "Select it; Delete takes it away", group: "Annotate" },
   { keys: "Drag a callout", label: "Move it onto the mark there, or to the value there", group: "Annotate" },
-  { keys: `${ALT}Drag a callout`, label: "Keep the move to the state shown", group: "Annotate" },
+  { keys: `${ALT}Drag a callout`, label: "Keep the move to this slide", group: "Annotate" },
   { keys: "Double-click an annotation", label: "Change what it says", group: "Annotate" },
   { keys: "Escape", label: "Let go of the mark picked, or the band begun", group: "Annotate" },
-  { keys: "Drag a slot, the layout shown", label: "Move it onto the theme's grid: every state that uses the layout shows it moved", group: "Layouts" },
+  { keys: "Drag a slot, the layout shown", label: "Move it onto the theme's grid: every slide in the layout shows it moved", group: "Layouts" },
   { keys: "Drag a slot's handle", label: "Resize it onto the grid", group: "Layouts" },
-  { keys: "Tab, then ← ↑ → ↓", label: "Key a slot, then move it a track; with Shift, resize it", group: "Layouts" },
+  { keys: "Tab, then ← ↑ → ↓", label: "Choose a slot, then move it a column or a row; with Shift, resize it", group: "Layouts" },
   { keys: "Escape", label: "Leave the layout, or the drag under way as it was", group: "Layouts" },
 ];
 
@@ -136,6 +136,10 @@ export interface Editor {
   /** The state shown, by its id and its slot's index; none while the canvas waits: the source
    * does not compile, or the assistant is working on it. */
   shown(): { state: string; index: number } | undefined;
+  /** `state` as a person counts it (PLAN 2.99): Slide 3, or Slide 3, step 2. */
+  slide(state: string): string;
+  /** The state a slide's number names, as a person types it: `3`, `slide 3`, `3, step 2`. */
+  numbered(typed: string): string | undefined;
   format(): string | undefined;
   /** The source as it stands: what a patch is made on. */
   source(): string;
@@ -357,6 +361,8 @@ const REACH = 6;
  * its frame. */
 const CLEAR = 5;
 
+/** What the canvas says while the source does not compile: nothing it does can be made. */
+const WAITING = "Nothing changed: the source has an error to fix first";
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** Whether the words a clipboard holds beside a file only name it (PLAN 2.96): none, its name, or
@@ -425,6 +431,15 @@ export function placed(at: Placement, by?: Targets["by"], words?: Lexicon): stri
     has(at, "row") ? `${many(at.row) ? "rows" : "row"} ${span(at.row)}` : "",
   ];
   return cells.filter(Boolean).join(", ") || "on the grid";
+}
+
+/** What arranging `how` did, as a person says it (PLAN 2.99): aligned left, brought to the front. */
+function arranged(how: Arrange): string {
+  if ("align" in how)
+    return { left: "aligned left", center: "centered", right: "aligned right", top: "aligned to the top", middle: "aligned in the middle", bottom: "aligned to the bottom" }[how.align];
+  if ("spread" in how) return how.spread === "across" ? "spread across" : "spread down";
+  if ("order" in how) return { front: "brought to the front", forward: "brought forward", backward: "sent backward", back: "sent to the back" }[how.order];
+  return "moved";
 }
 
 /** An ordinal's ending: 1st, 2nd, 3rd, 4th, 11th, 22nd. */
@@ -547,6 +562,23 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   /** The words for the state shown (PLAN 2.99): each object by what it shows, the theme's names
    * said. Asked again whenever what stands where is. */
   let words: Lexicon | undefined;
+  /** `node` as a sentence names it (PLAN 2.99): “Revenue doubled”, the chart. */
+  const called = (node: string) => object(words, node, true);
+  /** `node` named at the start of a sentence: “Revenue doubled”, The chart. */
+  const Called = (node: string) => sentence(called(node));
+  /** Several nodes named: one by its name, more by how many. */
+  const these = (nodes: string[]) => (nodes.length === 1 ? called(nodes[0]) : `${nodes.length} objects`);
+  /** The state `state` as a person counts it, or this slide where it is the one shown. */
+  const slideSaid = (state: string) => (state === editor.shown()?.state ? "this slide" : editor.slide(state));
+  /** A layout of the theme's by its name (PLAN 2.99): Chart, Big Number. */
+  const layoutSaid = (layout: string) => named(words, "layout", layout);
+  /** A slot by its name: the Kicker slot. */
+  const slotSaid = (slot: string) => `the ${words?.places[slot] ?? slot} slot`;
+  /** Corners at the theme's radius step `step`, said: rounded 8 pt, or square. */
+  const rounded = (step: number | undefined) => {
+    const said = named(words, "radius", `radius.${step ?? 0}`);
+    return said === "None" ? "square" : `rounded ${said}`;
+  };
   let selected: string | undefined;
   /** Selected beside it, children of what holds it too (PLAN 2.42). */
   let also: string[] = [];
@@ -631,8 +663,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   function locks(nodes: string[], doing: string): boolean {
     const held = lockedOf(nodes);
     if (!held.length) return false;
-    const [names, is] = held.length === 1 ? [held[0], "is"] : [held.join(", "), "are"];
-    editor.say(`${names} ${is} locked: nothing ${doing}. ${MOD}${SHIFT}L unlocks it`);
+    const [names, is] = held.length === 1 ? [Called(held[0]), "is"] : [`${held.length} objects`, "are"];
+    editor.say(`${names} ${is} locked: nothing ${doing}. ${MOD}${SHIFT}L unlocks ${held.length === 1 ? "it" : "them"}`);
     return true;
   }
   /** The topmost of `hits` a pointer reaches: a locked node it passes over (PLAN 2.95). */
@@ -675,6 +707,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     undo: () => editor.undo(),
     redo: () => editor.redo(),
     say: (words) => editor.say(words),
+    name: (node) => called(node),
+    slide: (state) => editor.slide(state),
+    numbered: (typed) => editor.numbered(typed),
     draw: () => draw(),
     unit,
     origin: () => [view[0], view[1]],
@@ -704,7 +739,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
    * selected; `fork` keeps it to the state shown. */
   async function type(node: string, at: [number, number] | undefined, fork: boolean, all = false) {
     if (selected !== node) select(node);
-    if (!(await text.enter(node, at, fork, all))) editor.say(`${node} is no text: only a text takes typing`);
+    if (!(await text.enter(node, at, fork, all))) editor.say(`${Called(node)} is no text: only a text takes typing`);
   }
 
   /** What stands where in the state shown, asked again: the deck, the state, or the format changed. */
@@ -800,7 +835,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     [shaped, pointPicked, imaged, handling, charted] = [undefined, undefined, undefined, undefined, undefined];
     editor.selected(node, []);
     if (node !== undefined) {
-      editor.say(`${node} selected: drag it, or move it with the arrow keys`);
+      editor.say(`${Called(node)} selected: drag it, or move it with the arrow keys`);
       aimAt(node);
     }
     hold();
@@ -816,7 +851,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     aim = undefined;
     [shaped, pointPicked] = [undefined, undefined];
     editor.selected(selected, also);
-    editor.say(`${nodes.length} selected, ${nodes.join(", ")}: drag them, move them with the arrow keys, or align them in the inspector`);
+    editor.say(`${nodes.length} objects selected: drag them, move them with the arrow keys, or align them in the inspector`);
     hold();
     draw();
   }
@@ -919,14 +954,14 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       } catch (e) {
         ruled = false;
         editor.ruled(false);
-        return editor.say(`no grid: ${said(e)}`);
+        return editor.say(`No grid: ${said(e)}`);
       }
     }
     if (ruled !== on) return;
     draw();
     editor.ruled(on);
     const where = grid?.baselines.length ? ", and the baseline grid" : "";
-    editor.say(on ? `the theme's grid: ${grid?.columns.length ?? 0} columns and ${grid?.rows.length ?? 0} rows${where}` : "the grid is hidden");
+    editor.say(on ? `The theme's grid: ${grid?.columns.length ?? 0} columns and ${grid?.rows.length ?? 0} rows${where}` : "The grid is hidden");
   }
 
   /** Draw the safe area over the canvas, or stop (PLAN 3.29): a strip 3/8 inch deep around the
@@ -940,13 +975,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       } catch (e) {
         safeShown = false;
         editor.safe(false);
-        return editor.say(`no safe area: ${said(e)}`);
+        return editor.say(`No safe area: ${said(e)}`);
       }
     }
     if (safeShown !== on) return;
     draw();
     editor.safe(on);
-    editor.say(on ? "the safe area: 3/8 inch around the canvas's edge, inside which to keep what must not be cut off" : "the safe area is hidden");
+    editor.say(on ? "The safe area: 3/8 inch around the slide's edge, inside which to keep what must not be cut off" : "The safe area is hidden");
   }
 
   function draw() {
@@ -1238,20 +1273,20 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (!r.moved && Math.hypot(client[0] - r.client[0], client[1] - r.client[1]) < SLOP) return;
     r.moved = true;
     const o = r.outline;
-    const kept = keeping(alt) ? ` · kept to ${r.state}` : "";
+    const kept = keeping(alt) ? ` · kept to ${slideSaid(r.state)}` : "";
     const p = inOutline(o, at);
     if (!p) return;
     const [x, y, w, h] = o.rect;
     if (r.index !== undefined) {
       const f: Point = [w > 0 ? hundredth((p[0] - x) / w) : 0, h > 0 ? hundredth((p[1] - y) / h) : 0];
       r.points[r.index] = f;
-      editor.say(`${o.node}'s point ${r.index + 1} → ${f.join(", ")}${kept}`);
+      editor.say(`${Called(o.node)}: point ${r.index + 1} to ${fractions(["x", "y"], f)}${kept}`);
     } else {
       const from = inOutline(o, r.from) ?? r.from;
       const half = Math.min(w, h) / 2;
       const radius = Math.min(half, Math.max(0, (o.radius ?? 0) + (p[0] - from[0] + p[1] - from[1]) / 2));
       r.step = nearest(o.radii, radius);
-      editor.say(`${o.node}'s corners round to radius.${r.step}${kept}`);
+      editor.say(`${Called(o.node)}: corners ${rounded(r.step)}${kept}`);
     }
     draw();
   }
@@ -1264,30 +1299,30 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (!shown || shown.state !== r.state) return draw();
     if (editor.version() !== r.version) {
       draw();
-      return editor.say("the source changed under the drag: nothing is changed");
+      return editor.say("The source changed under the drag: nothing is changed");
     }
     const fork = keeping(r.alt);
-    const kept = fork ? ` · kept to ${r.state}` : "";
+    const kept = fork ? ` · kept to ${slideSaid(r.state)}` : "";
     const choose = (prop: string, value: unknown) => ({ op: "choose", node: o.node, prop, value, state: r.state, ...(fork ? { fork } : {}) });
     if (r.index === undefined) {
       const step = r.step ?? 0;
       if (!r.moved || Math.abs((o.radius ?? 0) - (o.radii[step] ?? 0)) < 0.01) {
         draw();
-        return editor.say(r.moved ? `${o.node}'s corners stay as they are` : `drag ${o.node}'s corner handle to round it to the theme's radius steps`);
+        return editor.say(r.moved ? `${Called(o.node)}: its corners stay as they are` : `Drag the corner handle to round the corners to the theme's steps`);
       }
-      return change([choose("radius", `radius.${step}`)], "rounding…", `${o.node}'s corners round to radius.${step}${kept}`, o.node);
+      return change([choose("radius", `radius.${step}`)], "Rounding…", `${Called(o.node)}: corners ${rounded(step)}${kept}`, o.node);
     }
     if (!r.moved && !r.added) {
       pointPicked = r.index;
       draw();
-      return editor.say(`${o.node}'s point ${r.index + 1} picked: Delete takes it away, a drag moves it`);
+      return editor.say(`${Called(o.node)}: point ${r.index + 1} picked · Delete takes it away, a drag moves it`);
     }
     if (!r.added && r.points.every(([px, py], i) => px === o.points[i][0] && py === o.points[i][1])) {
       draw();
-      return editor.say(`${o.node}'s point ${r.index + 1} stays where it is`);
+      return editor.say(`${Called(o.node)}: point ${r.index + 1} stays where it is`);
     }
-    const done = r.added ? `${o.node} has a point added${kept}` : `${o.node}'s point ${r.index + 1} moved${kept}`;
-    await change([choose("points", r.points)], r.added ? "adding a point…" : "moving the point…", done, o.node);
+    const done = r.added ? `${Called(o.node)}: a point added${kept}` : `${Called(o.node)}: point ${r.index + 1} moved${kept}`;
+    await change([choose("points", r.points)], r.added ? "Adding a point…" : "Moving the point…", done, o.node);
   }
 
   /** An image's crop and focal point on the canvas (PLAN 2.74). With an image selected, a handle
@@ -1376,7 +1411,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const m = f.transform && invert(f.transform);
     const p = f.transform ? (m ? apply(m, at) : undefined) : at;
     if (!p) return;
-    const kept = keeping(alt) ? ` · kept to ${c.state}` : "";
+    const kept = keeping(alt) ? ` · kept to ${slideSaid(c.state)}` : "";
     const [x, y, w, h] = f.crop;
     if (c.side) {
       const [dx, dy] = [(p[0] - c.from[0]) / f.whole[2], (p[1] - c.from[1]) / f.whole[3]];
@@ -1390,11 +1425,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         crop = [x, ny, w, y + h - ny];
       } else crop = [x, y, w, Math.min(1 - y, Math.max(LEAST_CROP, h + dy))];
       c.crop = crop.map(thousandth) as Rect;
-      editor.say(`${f.node} cropped to ${c.crop.join(", ")} of the image${kept}`);
+      editor.say(`${Called(f.node)} cropped to ${fractions(["x", "y", "w", "h"], c.crop)}${kept}`);
     } else {
       const [rx, ry, rw, rh] = f.rect;
       c.focal = [thousandth((p[0] - rx) / rw), thousandth((p[1] - ry) / rh)];
-      editor.say(`${f.node}'s focal point → ${c.focal.join(", ")}${kept}`);
+      editor.say(`${Called(f.node)}: its focal point at ${fractions(["x", "y"], c.focal)}${kept}`);
     }
     draw();
   }
@@ -1405,29 +1440,34 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const f = c.framing;
     if (!shown || shown.state !== c.state) {
       draw();
-      return editor.say(`another state is shown: ${f.node} is as it was`);
+      return editor.say(`Another slide is shown: ${called(f.node)} is as it was`);
     }
     if (editor.version() !== c.version) {
       draw();
-      return editor.say("the source changed under the drag: nothing is changed");
+      return editor.say("The source changed under the drag: nothing is changed");
     }
     const same = (a: number[], b: number[]) => a.every((v, i) => Math.abs(v - b[i]) < 5e-4);
     const fork = keeping(c.alt);
-    const kept = fork ? ` · kept to ${c.state}` : "";
+    const kept = fork ? ` · kept to ${slideSaid(c.state)}` : "";
     const choose = (prop: string, value: unknown) => ({ op: "choose", node: f.node, prop, value, state: c.state, ...(fork ? { fork } : {}) });
     if (c.side) {
       if (!c.moved || same(c.crop, f.crop)) {
         draw();
-        return editor.say(c.moved ? `${f.node}'s crop stays as it is` : `drag ${f.node}'s crop handle to crop it from that side`);
+        return editor.say(c.moved ? `${Called(f.node)}: its crop stays as it is` : "Drag a crop handle to crop the picture from that side");
       }
       const whole = same(c.crop, [0, 0, 1, 1]);
-      return change([choose("crop", whole ? null : c.crop)], "cropping…", whole ? `${f.node} shows the whole image${kept}` : `${f.node} cropped to ${c.crop.join(", ")}${kept}`, f.node);
+      return change(
+        [choose("crop", whole ? null : c.crop)],
+        "Cropping…",
+        whole ? `${Called(f.node)} shows the whole picture${kept}` : `${Called(f.node)} cropped to ${fractions(["x", "y", "w", "h"], c.crop)}${kept}`,
+        f.node,
+      );
     }
     if (!c.moved || same(c.focal, f.focal)) {
       draw();
-      return editor.say(c.moved ? `${f.node}'s focal point stays where it is` : `drag ${f.node}'s focal point to keep that part of the image in view`);
+      return editor.say(c.moved ? `${Called(f.node)}: its focal point stays where it is` : "Drag the focal point to keep that part of the picture in view");
     }
-    return change([choose("focal", c.focal)], "moving the focal point…", `${f.node}'s focal point → ${c.focal.join(", ")}${kept}`, f.node);
+    return change([choose("focal", c.focal)], "Moving the focal point…", `${Called(f.node)}: its focal point at ${fractions(["x", "y"], c.focal)}${kept}`, f.node);
   }
 
   /** The canvas by keys alone (PLAN 2.75, WCAG 2.1.1). Tab and Shift+Tab select the next node,
@@ -1463,11 +1503,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const next = at + (back ? -1 : 1);
     if (next < 0 || next >= order.length) {
       if (selected !== undefined) select(undefined);
-      editor.say("nothing selected: the focus leaves the canvas");
+      editor.say("Nothing selected: the focus leaves the slide");
       return false;
     }
     select(order[next]);
-    editor.say(`${order[next]} selected, ${next + 1} of ${order.length}${level ? ` in ${level}` : ""} · Enter goes into it or its handles`);
+    editor.say(`${Called(order[next])} selected, ${next + 1} of ${order.length}${level ? ` in ${called(level)}` : ""} · Enter goes into it or its handles`);
     return true;
   }
 
@@ -1481,13 +1521,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (next < 0 || next >= order.length) {
       keyOn = undefined;
       draw();
-      editor.say(`${chosen().length} selected: the focus leaves the canvas`);
+      editor.say(`${sentence(these(chosen()))} selected: the focus leaves the slide`);
       return false;
     }
     keyOn = order[next];
     draw();
     const inIt = chosen().includes(keyOn);
-    editor.say(`${keyOn}, ${next + 1} of ${order.length}${inIt ? ", selected" : ""} · Space ${inIt ? "takes it out of" : "puts it in"} the selection · Tab the next · Escape stops`);
+    editor.say(`${Called(keyOn)}, ${next + 1} of ${order.length}${inIt ? ", selected" : ""} · Space ${inIt ? "takes it out of" : "puts it in"} the selection · Tab the next · Escape stops`);
     return true;
   }
 
@@ -1495,10 +1535,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
    * one node selected and none keyed, the keys start on it, to build a selection from there. */
   function keyedToggle() {
     if (keyOn === undefined) {
-      if (selected === undefined) return editor.say("nothing selected: Tab selects a node, then Space builds a selection from it");
+      if (selected === undefined) return editor.say("Nothing selected: Tab selects an object, then Space builds a selection from it");
       keyOn = selected;
       draw();
-      return editor.say(`${selected} selected · Tab keys the next beside it, and Space puts it in the selection or takes it out`);
+      return editor.say(`${Called(selected)} selected · Tab goes to the next beside it, and Space puts it in the selection or takes it out`);
     }
     const node = keyOn;
     const was = chosen();
@@ -1507,7 +1547,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     keyOn = node;
     draw();
     const now = chosen();
-    editor.say(`${node} ${now.includes(node) ? "put in" : "taken out of"} the selection: ${now.length ? now.join(", ") : "nothing"} selected · Tab the next · Escape stops`);
+    editor.say(`${Called(node)} ${now.includes(node) ? "put in" : "taken out of"} the selection: ${now.length ? these(now) : "nothing"} selected · Tab the next · Escape stops`);
   }
 
   /** A handle the keys work: what it is, and where its mark is drawn. */
@@ -1552,8 +1592,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         ? "picked: Shift+F10 opens its menu, to highlight it, call it out, rule its value, or band from it"
         : h.kind === "note"
           ? "selected: Enter changes what it says, Delete takes it away"
-          : `arrows move it${h.kind === "point" ? ", + adds a point after it, Delete takes it away" : ""}`;
-    return `${node}: ${h.label}, ${n + 1} of ${of} · ${does} · Tab the next · Escape leaves them`;
+          : `the arrows move it${h.kind === "point" ? ", + adds a point after it, Delete takes it away" : ""}`;
+    return `${Called(node)}: ${h.label}, ${n + 1} of ${of} · ${does} · Tab the next · Escape leaves them`;
   };
 
   /** The keys on handle `h`: a mark is picked and an annotation selected, as a click on each does. */
@@ -1603,7 +1643,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         const ny = Math.min(y + ht - LEAST_CROP, Math.max(0, y + dy * by));
         c.crop = [x, ny, w, y + ht - ny];
       } else if (h.side === "s" && dy) c.crop = [x, y, w, Math.min(1 - y, Math.max(LEAST_CROP, ht + dy * by))];
-      else return editor.say(`${h.label} moves ${h.side === "n" || h.side === "s" ? "up and down" : "left and right"}`);
+      else return editor.say(`${sentence(h.label)} moves ${h.side === "n" || h.side === "s" ? "up and down" : "left and right"}`);
       c.crop = c.crop.map(thousandth) as Rect;
     }
     return cropEnd(c);
@@ -1639,15 +1679,15 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     return inTurn(async () => {
       const shown = editor.shown();
       const node = selected;
-      if (!shown || node === undefined || also.length) return editor.say("select a text to make it a list");
+      if (!shown || node === undefined || also.length) return editor.say("Select a text to make it a list");
       const carets = await stage.carets(editor.source(), shown.state, node, editor.format()).catch(() => null);
-      if (!carets) return editor.say(`${node} is no text: only a text is a list`);
+      if (!carets) return editor.say(`${Called(node)} is no text: only a text is a list`);
       const count = paragraphs(carets.text).length;
       const all = Array.from({ length: count }, (_, k) => carets.items?.[k]?.kind).every((k) => k === kind);
       const fork = keeping();
       const op = { op: "list", node, state: shown.state, from: 0, to: [...carets.text].length, kind: all ? "none" : kind, ...(fork ? { fork } : {}) };
       const what = all ? "out of the list" : kind === "bullet" ? "bulleted" : "numbered";
-      await change([op], "listing…", `${node}: ${what}${fork ? ` · kept to ${shown.state}` : ""}`, node);
+      await change([op], "Listing…", `${Called(node)}: ${what}${fork ? " · kept to this slide" : ""}`, node);
     });
   }
 
@@ -1660,12 +1700,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       const o = s.outline;
       if (o.points.length <= o.fewest) {
         const kind = o.kind === "arrow" ? "an arrow" : `a ${o.kind}`;
-        return editor.say(`${kind} keeps ${o.fewest === 2 ? "two" : "three"} points: ${o.node}'s point ${i + 1} stays`);
+        return editor.say(`${sentence(kind)} keeps ${o.fewest === 2 ? "two" : "three"} points: point ${i + 1} stays`);
       }
       pointPicked = undefined;
       const fork = keeping();
       const op = { op: "choose", node: o.node, prop: "points", value: o.points.filter((_, k) => k !== i), state: shown.state, ...(fork ? { fork } : {}) };
-      await change([op], "taking the point away…", `${o.node}'s point ${i + 1} taken away${fork ? ` · kept to ${shown.state}` : ""}`, o.node);
+      await change([op], "Taking the point away…", `${Called(o.node)}: point ${i + 1} taken away${fork ? " · kept to this slide" : ""}`, o.node);
     });
   }
 
@@ -1680,22 +1720,22 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       slotting = slotDrag = slotKeyed = undefined;
       editor.layouting?.(false);
       draw();
-      return editor.say("the layout is left as it is");
+      return editor.say("The layout is left as it is");
     }
     const shown = editor.shown();
-    if (!shown) return editor.say("the canvas waits for a source that compiles");
+    if (!shown) return editor.say(WAITING);
     const format = editor.format();
     const [layout, g] = await Promise.all([
       stage.layout(shown.state, format).catch(() => undefined),
       stage.grid(format).catch(() => undefined),
     ]);
-    if (!layout) return editor.say(`${shown.state} uses no layout of the theme's: choose one in the inspector`);
+    if (!layout) return editor.say("This slide uses none of the theme's layouts: choose one in the inspector");
     if (text.node() !== undefined) text.leave();
     select(undefined);
     slotting = { state: shown.state, format, layout, grid: g };
     editor.layouting?.(true);
     draw();
-    editor.say(`the layout ${layout.layout}${format ? `, in ${format}` : ""}: drag a slot onto the grid, or a handle to resize it · Escape leaves it`);
+    editor.say(`The ${layoutSaid(layout.layout)} layout${format ? `, in ${format}` : ""}: drag a slot onto the grid, or a handle to resize it · Escape leaves it`);
   }
   /** The layout asked again: the deck, the theme, the state, or the format changed. */
   async function relayout() {
@@ -1749,9 +1789,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       const under = slotting.layout.slots.filter((s) => inside(s.rect, at));
       slot = under.sort((a, b) => a.rect[2] * a.rect[3] - b.rect[2] * b.rect[3])[0];
     }
-    if (!slot) return editor.say("press on a slot to move it, or on its handle to resize it");
+    if (!slot) return editor.say("Press on a slot to move it, or on its handle to resize it");
     slotDrag = { slot, edge, from: at, rect: slot.rect, version: editor.version() };
-    editor.say(`slot ${slot.name} of ${slotting.layout.layout}: drag it onto the grid`);
+    editor.say(`${sentence(slotSaid(slot.name))} of ${layoutSaid(slotting.layout.layout)}: drag it onto the grid`);
     draw();
   }
   /** The pointer at `at` in a slot's drag: its box follows, and lands on the grid. */
@@ -1763,7 +1803,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     d.rect = d.edge ? resized(d.slot.rect, d.edge, by) : moved(d.slot.rect, by);
     const [c, r] = [cellsOf(d.slot.col, g.columns.length), cellsOf(d.slot.row, g.rows.length)];
     d.landed = slotLanding(d.rect, d.edge ? undefined : [c[1] - c[0] + 1, r[1] - r[0] + 1]);
-    if (d.landed) editor.say(`slot ${d.slot.name} → ${placed({ col: d.landed.col, row: d.landed.row })}`);
+    if (d.landed) editor.say(`${sentence(slotSaid(d.slot.name))} → ${placed({ col: d.landed.col, row: d.landed.row })}`);
     draw();
   }
   /** A slot let go: one `theme_edit` that puts it where it landed. */
@@ -1774,26 +1814,26 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (!d || !now || !d.landed || !now.grid) return draw();
     if (editor.version() !== d.version) {
       draw();
-      return editor.say("the source changed under the drag: the layout is as it was");
+      return editor.say("The source changed under the drag: the layout is as it was");
     }
     const was = [cellsOf(d.slot.col, now.grid.columns.length), cellsOf(d.slot.row, now.grid.rows.length)];
     const { col, row } = d.landed;
     if (was[0][0] === col[0] && was[0][1] === col[1] && was[1][0] === row[0] && was[1][1] === row[1]) {
       draw();
-      return editor.say(`slot ${d.slot.name} stays where it is`);
+      return editor.say(`${sentence(slotSaid(d.slot.name))} stays where it is`);
     }
     let ops: unknown[];
     try {
       ops = await slotOps(now, d.slot, col, row);
     } catch (e) {
       draw();
-      return editor.say(`the layout is as it was: ${said(e)}`);
+      return editor.say(`The layout is as it was: ${said(e)}`);
     }
     const where = placed({ col, row });
-    const what = `slot ${d.slot.name} of ${now.layout.layout}${now.format ? ` in ${now.format}` : ""} → ${where}`;
+    const what = `${sentence(slotSaid(d.slot.name))} of ${layoutSaid(now.layout.layout)}${now.format ? ` in ${now.format}` : ""} → ${where}`;
     const done = await editor.themeEdit?.(ops, what);
     await relayout();
-    if (done) editor.say(`${what} · every state that uses it shows it moved · ⌘Z undoes it`);
+    if (done) editor.say(`${what} · every slide in this layout shows it moved · ⌘Z undoes it`);
   }
   /** Slot `slot` moved a track by arrow `[dx, dy]`, or, with `grow`, its far side moved so: one
    * theme edit, as a drag's drop makes (PLAN 2.75). */
@@ -1813,17 +1853,17 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       [c0, c1, r0, r1] = [c0 + sx, c1 + sx, r0 + sy, r1 + sy];
     }
     const was = [cellsOf(slot.col, cols), cellsOf(slot.row, rows)];
-    if (was[0][0] === c0 && was[0][1] === c1 && was[1][0] === r0 && was[1][1] === r1) return editor.say(`slot ${slot.name} goes no farther that way`);
+    if (was[0][0] === c0 && was[0][1] === c1 && was[1][0] === r0 && was[1][1] === r1) return editor.say(`${sentence(slotSaid(slot.name))} goes no farther that way`);
     let ops: unknown[];
     try {
       ops = await slotOps(now, slot, [c0, c1], [r0, r1]);
     } catch (e) {
-      return editor.say(`the layout is as it was: ${said(e)}`);
+      return editor.say(`The layout is as it was: ${said(e)}`);
     }
-    const what = `slot ${slot.name} of ${now.layout.layout}${now.format ? ` in ${now.format}` : ""} → ${placed({ col: [c0, c1], row: [r0, r1] })}`;
+    const what = `${sentence(slotSaid(slot.name))} of ${layoutSaid(now.layout.layout)}${now.format ? ` in ${now.format}` : ""} → ${placed({ col: [c0, c1], row: [r0, r1] })}`;
     const done = await editor.themeEdit?.(ops, what);
     await relayout();
-    if (done) editor.say(`${what} · every state that uses it shows it moved · ⌘Z undoes it`);
+    if (done) editor.say(`${what} · every slide in this layout shows it moved · ⌘Z undoes it`);
   }
 
   /** The operations that put `slot` on cells `col` and `row`: where the layout writes it on the
@@ -1859,19 +1899,21 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (!now || !shown) return;
     const r = overlay.getBoundingClientRect();
     const from = now.layout.layout;
-    const name = (await askWords([r.left + r.width / 2, r.top + 48], `${from}-2`, `The new layout's name: a copy of ${from}`))?.trim();
-    if (!name) return editor.say("no layout added");
-    if (!/^[a-z][a-z0-9_-]{0,63}$/.test(name)) return editor.say(`${name} is no layout's name: lower-case letters, digits, - and _`);
+    const was = layoutSaid(from);
+    const title = (await askWords([r.left + r.width / 2, r.top + 48], `${was} 2`, `The new layout's name: a copy of ${was}`))?.trim();
+    if (!title) return editor.say("No layout added");
     const text = await stage.themeText();
     const theme = text && JSON.parse(text.text);
-    if (!theme?.layouts?.[from]) return editor.say(`the theme has no layout ${from}`);
-    if (theme.layouts[name]) return editor.say(`the theme has a layout ${name} already`);
-    // The copy is called by its own key, not by the name of the layout it copies.
-    const copied = { ...theme.layouts[from] };
-    delete copied.name;
-    const done = await editor.themeEdit?.([{ op: "add", path: pointer("layouts", name), value: copied }], `layout ${name} added, a copy of ${from}`);
+    if (!theme?.layouts?.[from]) return editor.say(`The theme has no ${was} layout`);
+    // The copy is called by the name given (PLAN 2.99), under a key made from it, new to the theme.
+    const stem = title.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 56) || "layout";
+    const root = /^[a-z]/.test(stem) ? stem : `layout-${stem}`;
+    let name = root;
+    for (let n = 2; theme.layouts[name]; n++) name = `${root}-${n}`;
+    const copied = { ...theme.layouts[from], name: title };
+    const done = await editor.themeEdit?.([{ op: "add", path: pointer("layouts", name), value: copied }], `The ${title} layout added, a copy of ${was}`);
     if (!done) return;
-    await change([{ op: "set_state", id: shown.state, prop: "layout", value: name, fork: true }], "choosing it…", `layout ${name} added, a copy of ${from}; ${shown.state} uses it`, null);
+    await change([{ op: "set_state", id: shown.state, prop: "layout", value: name, fork: true }], "Choosing it…", `The ${title} layout added, a copy of ${was}; this slide uses it`, null);
     await relayout();
   }
 
@@ -1879,18 +1921,17 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   function tell(d: Drag) {
     const state = editor.shown()?.state;
     const op = d.snapped?.patch[0] as { at?: Placement } | undefined;
+    // Which slides the move changes, as a person counts them (PLAN 2.99).
+    const where = d.states?.length && state ? ` · ${reaching(d.states, state, editor.slide)}` : "";
     if (d.with.length) {
-      const n = d.states?.length ?? 0;
-      const where = n === 1 && d.states?.[0] === state ? "in this state" : `in ${n} states`;
-      if (!op) return editor.say(`${d.with.length + 1} selected stay where they are`);
-      return editor.say(`${d.with.length + 1} selected move together · ${where}${d.alt ? ` · kept to ${state}` : ""}`);
+      if (!op) return editor.say(`${d.with.length + 1} objects stay where they are`);
+      return editor.say(`${d.with.length + 1} objects move together${where}${d.alt ? " · kept to this slide" : ""}`);
     }
-    if (!d.how) return editor.say(`${d.node} is placed by name: drag it into another slot, or with Shift off the grid`);
-    if (!op) return editor.say(`${d.node} stays where it is`);
+    if (!d.how) return editor.say(`${Called(d.node)} sits in a slot: drag it into another, or with Shift off the grid`);
+    if (!op) return editor.say(`${Called(d.node)} stays where it is`);
     const n = d.states?.length ?? 0;
-    const where = n === 1 && d.states?.[0] === state ? "in this state" : `in ${n} states`;
-    const keep = d.alt ? ` · kept to ${state}` : n > 1 ? ` · Alt keeps it to ${state}` : "";
-    editor.say(`${d.node} → ${placed(op.at ?? {}, d.targets.by, words)} · ${where}${keep}`);
+    const keep = d.alt ? " · kept to this slide" : n > 1 ? " · Alt keeps it to this slide" : "";
+    editor.say(`${Called(d.node)} → ${placed(op.at ?? {}, d.targets.by, words)}${where}${keep}`);
   }
 
   /** The box `d` leaves, and how it snaps, with the pointer where it is now: `by` on the canvas,
@@ -1932,7 +1973,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         d.pause = setTimeout(() => void preview(d), PAUSE);
       }
     } catch (e) {
-      editor.say(`error: ${said(e)}`);
+      editor.say(`Error: ${said(e)}`);
     } finally {
       busy = false;
       if (drag === d) void pump(d);
@@ -1948,7 +1989,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       const { how, to } = aimed(d);
       if (how) await stage.drag(shown.state, d.node, { snap: { how, to, fork: d.alt, reach: reach(d) }, preview: true }, editor.format());
     } catch (e) {
-      editor.say(`error: ${said(e)}`);
+      editor.say(`Error: ${said(e)}`);
     } finally {
       busy = false;
       if (drag === d) void pump(d);
@@ -1960,7 +2001,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   async function drop(d: Drag) {
     clearTimeout(d.pause);
     const shown = editor.shown();
-    if (!shown || editor.version() !== d.version) return still("the source changed under the drag: nothing is placed");
+    if (!shown || editor.version() !== d.version) return still("The source changed under the drag: nothing is placed");
     const { how, to, held } = aimed(d);
     let snapped: Snapped | null | undefined;
     try {
@@ -1968,10 +2009,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       if (d.with.length) snapped = (await stage.drag(shown.state, d.node, together, editor.format())).snapped;
       else if (how) snapped = (await stage.drag(shown.state, d.node, { snap: { how, to, fork: d.alt, reach: reach(d) } }, editor.format())).snapped;
     } catch (e) {
-      return still(`not placed: ${said(e)}`);
+      return still(`Not placed: ${said(e)}`);
     }
-    if (!snapped?.patch.length) return still(d.with.length ? `${d.with.length + 1} selected stay where they are` : `${d.node} stays where it is`);
-    await commit(snapped.patch, d.with.length ? `${d.with.length + 1} selected moved together` : undefined);
+    if (!snapped?.patch.length) return still(d.with.length ? `${d.with.length + 1} objects stay where they are` : `${Called(d.node)} stays where it is`);
+    await commit(snapped.patch, d.with.length ? `${d.with.length + 1} objects moved together` : undefined);
   }
 
   /** A turn of `node` begun on its rotate handle at `from` (PLAN 2.51): it turns about where its
@@ -1991,7 +2032,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const m = parent === null ? undefined : box(parent)?.transform;
     const way = m && m[0] * m[3] - m[1] * m[2] < 0 ? -1 : 1;
     turning = { node, pivot, last, round: 0, start, now: start, way, version: editor.version() };
-    editor.say(`turning ${node} about its anchor · Shift by 15° · Escape leaves it as it is`);
+    editor.say(`Turning ${called(node)} · Shift turns it by 15° · Escape leaves it as it is`);
     draw();
   }
 
@@ -2006,7 +2047,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     t.round += (step * 180) / Math.PI;
     const now = t.start + t.round * t.way;
     t.now = shift ? Math.round(now / 15) * 15 : Math.round(now);
-    editor.say(`${t.node} turns to ${t.now}°`);
+    editor.say(`${Called(t.node)} turns to ${t.now}°`);
     draw();
   }
 
@@ -2016,14 +2057,14 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (!shown) return draw();
     if (editor.version() !== t.version) {
       draw();
-      return editor.say("the source changed under the turn: nothing is turned");
+      return editor.say("The source changed under the turn: nothing is turned");
     }
     if (t.now === t.start) {
       draw();
-      return editor.say(`${t.node} stays as it is`);
+      return editor.say(`${Called(t.node)} stays as it is`);
     }
     const op = { op: "choose", node: t.node, prop: "transform/rotate", value: t.now, state: shown.state };
-    await change([op], "turning…", `${t.node} turned to ${t.now}°`, t.node);
+    await change([op], "Turning…", `${Called(t.node)} turned to ${t.now}°`, t.node);
   }
 
   /** The state shown as it stands, after a drag that places nothing. */
@@ -2032,7 +2073,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     draw();
     editor.say(why);
     const shown = editor.shown();
-    if (shown) await stage.rest(shown.state, editor.format()).catch((e) => editor.say(`error: ${said(e)}`));
+    if (shown) await stage.rest(shown.state, editor.format()).catch((e) => editor.say(`Error: ${said(e)}`));
   }
 
   /** Make `ops`, by the user, on the source as it stands: one change to undo; `done` is what the
@@ -2041,14 +2082,14 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const shown = editor.shown();
     if (!shown) return;
     const op = ops[0] as { node?: string; at?: Placement } | undefined;
-    editor.say("placing…");
+    editor.say("Placing…");
     try {
       const { source, edited } = await stage.make(editor.source(), ops, shown.index, editor.format());
       editor.apply(source, edited);
       await refresh();
-      editor.say(done ?? `${op?.node} placed: ${placed(op?.at ?? {}, aim?.by, words)}`);
+      editor.say(done ?? `${op?.node === undefined ? "Placed" : `${Called(op.node)} placed`}: ${placed(op?.at ?? {}, aim?.by, words)}`);
     } catch (e) {
-      await still(`not placed: ${said(e)}`);
+      await still(`Not placed: ${said(e)}`);
     }
   }
 
@@ -2068,7 +2109,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       editor.say(done);
       return true;
     } catch (e) {
-      editor.say(`not made: ${said(e)}`);
+      editor.say(`Not changed: ${said(e)}`);
       return false;
     }
   }
@@ -2088,12 +2129,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
    * nearest it where that is taken. */
   async function inserting(n: number, label: string, named?: string, with_?: Record<string, unknown>) {
     const shown = editor.shown();
-    if (!shown) return editor.say("the canvas waits for a source that compiles");
+    if (!shown) return editor.say(WAITING);
     try {
       const added = await stage.inserting(editor.source(), shown.state, n, landing(), editor.format(), named, with_);
-      await change(added.patch, "inserting…", `${label} inserted as ${added.id}, in ${shown.state}`, added.id);
+      await change(added.patch, "Inserting…", `${sentence(label)} inserted on this slide`, added.id);
     } catch (e) {
-      editor.say(`not inserted: ${said(e)}`);
+      editor.say(`Not inserted: ${said(e)}`);
     }
   }
 
@@ -2119,26 +2160,28 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
    * there: its prompt's words to type over, or a list's items (PLAN 3.30). One patch, selected. */
   async function filling(w: Waiting) {
     const shown = editor.shown();
-    if (!shown) return editor.say("the canvas waits for a source that compiles");
+    if (!shown) return editor.say(WAITING);
     try {
       const filled = await stage.filling(editor.source(), shown.state, w.slot);
-      await change(filled.patch, "filling…", `${filled.id} fills ${w.slot}, in ${shown.state}`, filled.id);
+      await change(filled.patch, "Filling…", `${sentence(slotSaid(w.slot))} filled`, filled.id);
     } catch (e) {
-      editor.say(`not filled: ${said(e)}`);
+      editor.say(`Not filled: ${said(e)}`);
     }
   }
 
   /** Arm the canvas to draw what `key` draws (PLAN 2.48); armed with it already, stop. */
   function arm(key: string) {
-    if (armed?.key === key) return disarm("not drawing");
+    if (armed?.key === key) return disarm("Not drawing");
     const fits = DRAWS[key];
     const n = Math.max(offered.findIndex((i) => fits(i) && i.id === "body"), offered.findIndex(fits));
-    if (n < 0) return editor.say(`nothing to draw with ${key.toUpperCase()}: the deck offers none`);
-    const { label, node } = offered[n];
-    armed = { key, n, label: label.split(" · ").at(-1)!, text: node.type === "text", line: key === "l" || key === "a" };
+    if (n < 0) return editor.say(`Nothing to draw with ${key.toUpperCase()}: the theme offers none`);
+    const { node } = offered[n];
+    const { kind, said: what } = insertSaid(words, offered[n]);
+    const label = node.type === "text" ? `${what} ${kind.toLowerCase()}` : what.toLowerCase();
+    armed = { key, n, label, text: node.type === "text", line: key === "l" || key === "a" };
     overlay.classList.add("drawing");
     draw();
-    editor.say(`drawing ${label}: drag where it goes, or click · Shift draws off the grid · Escape stops`);
+    editor.say(`Drawing a ${label}: drag where it goes, or click · Shift draws off the grid · Escape stops`);
   }
 
   function disarm(why?: string) {
@@ -2177,16 +2220,16 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (!now) return;
     return inTurn(async () => {
       const shown = editor.shown();
-      if (!shown) return editor.say("the canvas waits for a source that compiles");
+      if (!shown) return editor.say(WAITING);
       try {
         const added: Added = click
           ? await stage.inserting(editor.source(), shown.state, now.n, s.from, editor.format())
           : await stage.drawing(editor.source(), shown.state, now.n, [s.from, s.at], s.shift, editor.format());
-        const [doing, done] = click ? ["inserting…", "inserted"] : ["drawing…", "drawn"];
-        await change(added.patch, doing, `${now.label} ${done} as ${added.id}, in ${shown.state}`, added.id);
+        const [doing, done] = click ? ["Inserting…", "inserted"] : ["Drawing…", "drawn"];
+        await change(added.patch, doing, `${sentence(`a ${now.label}`)} ${done} on this slide`, added.id);
         if (now.text && selected === added.id) await type(added.id, undefined, false, true);
       } catch (e) {
-        editor.say(`not ${click ? "inserted" : "drawn"}: ${said(e)}`);
+        editor.say(`Not ${click ? "inserted" : "drawn"}: ${said(e)}`);
       }
     });
   }
@@ -2198,9 +2241,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       if (!shown) return;
       try {
         const added = await stage.duplicating(editor.source(), shown.state, node, editor.format());
-        await change(added.patch, "duplicating…", `${node} copied as ${added.id}`, added.id);
+        await change(added.patch, "Duplicating…", `${Called(node)} duplicated`, added.id);
       } catch (e) {
-        editor.say(`not copied: ${said(e)}`);
+        editor.say(`Not duplicated: ${said(e)}`);
       }
     });
   }
@@ -2210,19 +2253,19 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
    * `on`, it unlocks where every one is locked by its own lock, and locks otherwise. */
   function lock(nodes: string[] = chosen(), on?: boolean) {
     return inTurn(async () => {
-      if (!nodes.length) return editor.say("nothing selected to lock");
+      if (!nodes.length) return editor.say("Nothing selected to lock");
       const own = (n: string) => box(n)?.locked === n;
       const locking = on ?? !nodes.every(own);
       const at = (n: string) => `/nodes/${n.replace(/~/g, "~0").replace(/\//g, "~1")}/locked`;
       const ops = locking
         ? nodes.filter((n) => !own(n)).map((n) => ({ op: "add", path: at(n), value: true }))
         : nodes.filter((n) => on === false || own(n)).map((n) => ({ op: "remove", path: at(n) }));
-      const names = nodes.join(", ");
+      const names = sentence(these(nodes));
       if (!ops.length) return editor.say(`${names} ${locking ? "locked" : "unlocked"} already`);
       const done = locking
         ? `${names} locked: the canvas passes over ${nodes.length === 1 ? "it" : "them"} · ${MOD}${SHIFT}L unlocks`
         : `${names} unlocked`;
-      await change(ops, locking ? "locking…" : "unlocking…", done, nodes.length === 1 && !box(nodes[0]) ? undefined : nodes);
+      await change(ops, locking ? "Locking…" : "Unlocking…", done, nodes.length === 1 && !box(nodes[0]) ? undefined : nodes);
     });
   }
 
@@ -2237,10 +2280,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         const ops = await stage.deleting(editor.source(), shown.state, node, everywhere);
         // A node no state shows once it is out of this one goes from the deck.
         const gone = ops.every((op) => (op as { op?: string }).op === "remove_node");
-        const done = gone ? `${node} ${how} from the deck` : `${node} ${how} from ${shown.state} on`;
-        await change(ops, `${how === "deleted" ? "deleting" : "cutting"}…`, done, null);
+        const done = gone ? `${Called(node)} ${how} from every slide` : `${Called(node)} ${how} from this slide on`;
+        await change(ops, `${how === "deleted" ? "Deleting" : "Cutting"}…`, done, null);
       } catch (e) {
-        editor.say(`not ${how}: ${said(e)}`);
+        editor.say(`Not ${how}: ${said(e)}`);
       }
     });
   }
@@ -2255,9 +2298,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       try {
         const source = editor.source();
         const ops = (await Promise.all(nodes.map((n) => stage.deleting(source, shown.state, n, everywhere)))).flat();
-        await change(ops, `${how === "deleted" ? "deleting" : "cutting"}…`, `${nodes.length} ${how}: ${nodes.join(", ")}`, null);
+        await change(ops, `${how === "deleted" ? "Deleting" : "Cutting"}…`, `${nodes.length} objects ${how}`, null);
       } catch (e) {
-        editor.say(`not ${how}: ${said(e)}`);
+        editor.say(`Not ${how}: ${said(e)}`);
       }
     });
   }
@@ -2272,10 +2315,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         const source = editor.source();
         const added = await Promise.all(nodes.map((n) => stage.duplicating(source, shown.state, n, editor.format())));
         const ids = added.map((a) => a.id);
-        if (new Set(ids).size !== ids.length) throw new Error(`two copies would take one id: ${ids.join(", ")}`);
-        await change(added.flatMap((a) => a.patch), "duplicating…", `${nodes.length} copied as ${ids.join(", ")}`, ids);
+        if (new Set(ids).size !== ids.length) throw new Error("two copies would be named alike");
+        await change(added.flatMap((a) => a.patch), "Duplicating…", `${nodes.length} objects duplicated`, ids);
       } catch (e) {
-        editor.say(`not copied: ${said(e)}`);
+        editor.say(`Not duplicated: ${said(e)}`);
       }
     });
   }
@@ -2288,9 +2331,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       if (!shown || !nodes.length) return;
       try {
         const grouped = await stage.grouping(editor.source(), shown.state, nodes);
-        await change(grouped.patch, "grouping…", `${nodes.join(", ")} grouped as ${grouped.id}`, grouped.id);
+        await change(grouped.patch, "Grouping…", `${sentence(these(nodes))} grouped`, grouped.id);
       } catch (e) {
-        editor.say(`not grouped: ${said(e)}`);
+        editor.say(`Not grouped: ${said(e)}`);
       }
     });
   }
@@ -2313,11 +2356,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   /** Pick the focal point of the image selected: the next press on it sets it to the point of the
    * image under the pointer, where its subject is (PLAN 2.45). Escape leaves it as it is. */
   function pick() {
-    if (selected === undefined || also.length) return editor.say("select one image to pick its focal point");
+    if (selected === undefined || also.length) return editor.say("Select one picture to pick its focal point");
     picking = selected;
     overlay.classList.add("picking");
     overlay.focus();
-    editor.say(`click ${selected} where its subject is · Escape leaves its focal point as it is`);
+    editor.say("Click the picture where its subject is · Escape leaves its focal point as it is");
   }
   const unpick = () => {
     picking = undefined;
@@ -2330,9 +2373,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       const shown = editor.shown();
       if (!shown) return;
       const focal = await stage.focalAt(editor.source(), shown.state, node, at, editor.format()).catch(() => null);
-      if (!focal) return editor.say(`${node} is not drawn there: its focal point is as it was`);
+      if (!focal) return editor.say(`${Called(node)} is not drawn there: its focal point is as it was`);
       const op = { op: "choose", node, prop: "focal", value: focal, state: shown.state };
-      await change([op], "choosing…", `${node}'s focal point: ${focal.join(", ")}`, node);
+      await change([op], "Choosing…", `${Called(node)}: its focal point at ${fractions(["x", "y"], focal)}`, node);
     });
   }
 
@@ -2357,7 +2400,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (note?.node === chart) {
       [noted, picked] = [{ state: shown.state, note }, undefined];
       draw();
-      editor.say(`${noteName(note)} of ${chart} selected: Delete takes it away${note.kind === "callout" ? ", a drag moves it" : ""}, a double click changes what it says`);
+      editor.say(`${sentence(noteName(note))} of ${called(chart)} selected: Delete takes it away${note.kind === "callout" ? ", a drag moves it" : ""}, a double click changes what it says`);
       return true;
     }
     const mark = await stage.markAt(shown.state, at, editor.format()).catch(() => undefined);
@@ -2365,7 +2408,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       [picked, noted] = [{ state: shown.state, mark }, undefined];
       draw();
       const what = mark.notes.axes ? "highlight it, call it out, rule its value, or band from it" : "highlight it";
-      editor.say(`${markName(mark)} of ${chart} picked: its menu will ${what}`);
+      editor.say(`${markName(mark)} of ${called(chart)} picked: its menu will ${what}`);
       return true;
     }
     if (picked || noted) [picked, noted] = [undefined, undefined];
@@ -2394,35 +2437,35 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     return inTurn(async () => {
       const shown = editor.shown();
       const p = picked;
-      if (!shown || !p || p.state !== shown.state || !p.mark.notes) return editor.say("pick a mark of a chart first: select the chart, then click the mark");
+      if (!shown || !p || p.state !== shown.state || !p.mark.notes) return editor.say("Pick a mark of a chart first: select the chart, then click the mark");
       const [node, n, name, fork] = [p.mark.node, p.mark.notes, markName(p.mark), keeping()];
       const one = (annotation: Record<string, unknown>) => [annotate(node, shown.state, annotation, undefined, fork)];
-      const kept = fork ? ` · kept to ${shown.state}` : "";
+      const kept = fork ? " · kept to this slide" : "";
       switch (how) {
         case "highlight":
-          return annotating(one(notes.highlight(n)), "highlighting…", `${name} highlighted in ${node}${kept}`);
+          return annotating(one(notes.highlight(n)), "Highlighting…", `${name} highlighted in ${called(node)}${kept}`);
         case "series":
-          if (n.series === null) return editor.say(`${node} has no series to highlight`);
-          return annotating(one(notes.highlightSeries(n)), "highlighting…", `${n.series} highlighted in ${node}${kept}`);
+          if (n.series === null) return editor.say(`${Called(node)} has no series to highlight`);
+          return annotating(one(notes.highlightSeries(n)), "Highlighting…", `${n.series} highlighted in ${called(node)}${kept}`);
         case "unhighlight":
-          if (!n.highlighted.length) return editor.say(`no highlight picks out ${name}`);
-          return annotating(notes.unhighlight(node, shown.state, n, fork), "taking the highlight away…", `${name} is no longer highlighted${kept}`);
+          if (!n.highlighted.length) return editor.say(`No highlight picks out ${name}`);
+          return annotating(notes.unhighlight(node, shown.state, n, fork), "Taking the highlight away…", `${name} is no longer highlighted${kept}`);
         case "rule":
-          if (!n.axes) return editor.say(`${node} has no axes to rule`);
-          return annotating(one(notes.rule(n)), "ruling…", `${node} ruled at ${name}'s value, ${n.value}${kept}`);
+          if (!n.axes) return editor.say(`${Called(node)} has no axes to rule`);
+          return annotating(one(notes.rule(n)), "Ruling…", `${Called(node)} ruled at ${name}'s value, ${n.value}${kept}`);
         case "band":
-          if (!n.axes) return editor.say(`${node} has no axes to band`);
+          if (!n.axes) return editor.say(`${Called(node)} has no axes to band`);
           banding = { state: shown.state, from: p.mark };
           draw();
-          return editor.say(`click the mark of ${node} the band from ${name} ends at · Escape stops`);
+          return editor.say(`Click the mark of ${called(node)} the band from ${name} ends at · Escape stops`);
         case "callout": {
-          if (!n.axes) return editor.say(`${node} takes highlights alone`);
+          if (!n.axes) return editor.say(`${Called(node)} takes highlights alone`);
           const r = overlay.getBoundingClientRect();
           const [x, y, w] = p.mark.rect;
           const top = onScreen(p.mark.transform ? apply(p.mark.transform, [x + w / 2, y]) : [x + w / 2, y]);
           const words = (await askWords([top[0], Math.max(top[1], r.top + 32)], "", `What the callout on ${name} says`))?.trim();
           if (!words) return editor.say(`${name} is not called out`);
-          return annotating(one(notes.callout(n, words)), "calling out…", `${name} called out: “${words}”${kept}`);
+          return annotating(one(notes.callout(n, words)), "Calling out…", `${name} called out: “${words}”${kept}`);
         }
       }
     });
@@ -2434,11 +2477,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       const shown = editor.shown();
       if (!b || !shown || b.state !== shown.state || !b.from.notes) return;
       const mark = await stage.markAt(shown.state, at, editor.format()).catch(() => undefined);
-      if (!mark?.notes || mark.node !== b.from.node) return editor.say(`click a mark of ${b.from.node} the band ends at · Escape stops`);
-      if (mark.key === b.from.key) return editor.say(`the band from ${markName(mark)} ends at another mark · Escape stops`);
+      if (!mark?.notes || mark.node !== b.from.node) return editor.say(`Click a mark of ${called(b.from.node)} the band ends at · Escape stops`);
+      if (mark.key === b.from.key) return editor.say(`The band from ${markName(mark)} ends at another mark · Escape stops`);
       banding = undefined;
       const op = annotate(b.from.node, shown.state, notes.band(b.from.notes, mark.notes), undefined, keeping());
-      await annotating([op], "banding…", `${b.from.node} banded from ${markName(b.from)} to ${markName(mark)}`);
+      await annotating([op], "Banding…", `${Called(b.from.node)} banded from ${markName(b.from)} to ${markName(mark)}`);
     });
   }
   /** The callout carried, let go at `at`: on the mark there, or at the value there. */
@@ -2451,10 +2494,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       if (!at) {
         noted = { state: c.state, note: c.note };
         draw();
-        return editor.say(`${noteName(c.note)} of ${c.note.node} stays where it is`);
+        return editor.say(`${sentence(noteName(c.note))} of ${called(c.note.node)} stays where it is`);
       }
       const op = annotate(c.note.node, shown.state, { at }, c.note.index, keeping(c.alt));
-      await annotating([op], "moving the callout…", `${noteName(c.note)} of ${c.note.node} moved${keeping(c.alt) ? ` · kept to ${shown.state}` : ""}`);
+      await annotating([op], "Moving the callout…", `${sentence(noteName(c.note))} of ${called(c.note.node)} moved${keeping(c.alt) ? " · kept to this slide" : ""}`);
     });
   }
   /** Change what the annotation selected says, in words asked for over it; none takes a rule's or a
@@ -2463,24 +2506,25 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   async function rewording() {
     const shown = editor.shown();
     const n = noted;
-    if (!shown || !n || n.state !== shown.state) return editor.say("select an annotation of a chart first");
+    if (!shown || !n || n.state !== shown.state) return editor.say("Select an annotation of a chart first");
     const [x, y, w] = n.note.rect;
     const top = onScreen(n.note.transform ? apply(n.note.transform, [x + w / 2, y]) : [x + w / 2, y]);
-    const words = await askWords(top, n.note.text ?? "", `What ${noteName(n.note)} of ${n.note.node} says`);
-    if (words === undefined || words.trim() === (n.note.text ?? "")) return editor.say(`${noteName(n.note)} says what it said`);
+    const words = await askWords(top, n.note.text ?? "", `What ${noteName(n.note)} of ${called(n.note.node)} says`);
+    if (words === undefined || words.trim() === (n.note.text ?? "")) return editor.say(`${sentence(noteName(n.note))} says what it said`);
     const text = words.trim();
-    if (!text && n.note.kind === "callout") return editor.say("a callout says something: Delete takes it away");
+    if (!text && n.note.kind === "callout") return editor.say("A callout says something: Delete takes it away");
     const op = annotate(n.note.node, shown.state, { text: text || null }, n.note.index, keeping());
-    await annotating([op], "rewording…", text ? `${noteName(n.note)} of ${n.note.node} says “${text}”` : `${noteName(n.note)} of ${n.note.node} says nothing`);
+    const of = `${sentence(noteName(n.note))} of ${called(n.note.node)}`;
+    await annotating([op], "Rewording…", text ? `${of} says “${text}”` : `${of} says nothing`);
   }
   /** Take the annotation selected away. */
   function unnote() {
     return inTurn(async () => {
       const shown = editor.shown();
       const n = noted;
-      if (!shown || !n || n.state !== shown.state) return editor.say("select an annotation of a chart first");
+      if (!shown || !n || n.state !== shown.state) return editor.say("Select an annotation of a chart first");
       const op = annotate(n.note.node, shown.state, null, n.note.index, keeping());
-      await annotating([op], "taking it away…", `${noteName(n.note)} of ${n.note.node} taken away`);
+      await annotating([op], "Taking it away…", `${sentence(noteName(n.note))} of ${called(n.note.node)} taken away`);
     });
   }
 
@@ -2499,7 +2543,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
    * a PNG of it (PLAN 2.96). */
   async function joining(at: [number, number], file: File, onto: boolean) {
     const shown = editor.shown();
-    if (!shown) return editor.say("the canvas waits for a source that compiles");
+    if (!shown) return editor.say(WAITING);
     if (DATA.test(file.name)) return attach(at, file);
     const readable = PICTURE.test(file.name) ? file : await asPng(file);
     // An image shows a PNG or a JPEG: anything else stays out of the bundle.
@@ -2511,15 +2555,16 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const choices = top && (await stage.choices(shown.state, top.node).catch(() => undefined));
     try {
       const path = await stage.drop(picture.name, await picture.arrayBuffer());
-      const kept = picture === file ? `kept as ${path}` : picture === readable ? `kept as a PNG, ${path}` : `kept as a smaller copy, ${path}`;
+      // What the bundle keeps, where it is not the file as it came.
+      const kept = picture === file ? "" : picture === readable ? " (as a PNG)" : " (as a smaller copy)";
       if (top && choices?.type === "image") {
         const op = { op: "choose", node: top.node, prop: "src", value: path, state: shown.state };
-        return void (await change([op], "replacing…", `${top.node} shows ${file.name}, ${kept}`, top.node));
+        return void (await change([op], "Replacing…", `${Called(top.node)} shows ${file.name}${kept}`, top.node));
       }
       offered = await stage.inserts();
-      await inserted(at, path, picture === file ? file.name : `${file.name}, ${kept}`, picture.name);
+      await inserted(at, path, `the picture ${file.name}${kept}`, picture.name);
     } catch (e) {
-      editor.say(`not added: ${said(e)}`);
+      editor.say(`Not added: ${said(e)}`);
     }
   }
   /** A data file dropped on the canvas joins the bundle as a source, as `data_attach` declares
@@ -2529,16 +2574,14 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const what = sheet ? `the ${sheet.rows} rows pasted` : file.name;
     try {
       const { path, data, attached, patch } = await stage.attaching(editor.source(), file.name, await file.arrayBuffer(), sheet?.schema);
-      let made = `${what} ${sheet ? "are" : "is"} @${data} already`;
+      let made = `${sentence(what)} ${sheet ? "are" : "is"} the data “${data}” already`;
       if (attached) {
         if (!patch.length) {
-          const why = attached.added.map((f) => `${f.code} ${f.message}`).join("; ");
-          return editor.say(`${what} not attached: ${why || "the deck would not validate with it"}`);
+          const errors = attached.added.filter((f) => f.severity === "error");
+          return editor.say(`${sentence(what)} not added: ${errors.length ? findings(words, errors) : "the deck would not open with it"}`);
         }
-        made = sheet
-          ? `${what} attached as @${data}, kept as ${path}`
-          : `${file.name} attached as @${data}, ${attached.rows} rows${path.endsWith(`/${file.name}`) ? "" : `, kept as ${path}`}`;
-        if (!(await change(patch, "attaching…", made, null))) return;
+        made = sheet ? `${sentence(what)} added as the data “${data}”` : `${file.name} added as the data “${data}”, ${attached.rows} rows`;
+        if (!(await change(patch, "Adding the data…", made, null))) return;
       }
       offered = await stage.inserts();
       // A sheet's cells come in as the table they were; a file's rows, as a chart of them.
@@ -2547,9 +2590,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       if (n < 0) return editor.say(sheet ? `${made}: Insert offers no table of it, since no column tells its rows apart` : `${made}: Insert offers a table of it, since its columns make no chart`);
       pointed = at;
       const columns = sheet?.columns.map((field, i) => (sheet.formats[i] ? { field, format: sheet.formats[i] } : { field }));
-      await inserting(n, `a ${kind} of @${data}`, undefined, columns && { columns });
+      await inserting(n, `a ${kind} of “${data}”`, undefined, columns && { columns });
     } catch (e) {
-      editor.say(`not attached: ${said(e)}`);
+      editor.say(`Not added: ${said(e)}`);
     }
   }
   /** An image of the bundle dragged from the Files panel (PLAN 2.59): over an image node, it takes
@@ -2558,21 +2601,21 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   function place(at: [number, number], path: string) {
     return inTurn(async () => {
       const shown = editor.shown();
-      if (!shown) return editor.say("the canvas waits for a source that compiles");
+      if (!shown) return editor.say(WAITING);
       const top = reached(await stage.hit(shown.state, at, editor.format()).catch(() => []));
       const choices = top && (await stage.choices(shown.state, top.node).catch(() => undefined));
       if (top && choices?.type === "image") {
         const op = { op: "choose", node: top.node, prop: "src", value: path, state: shown.state };
-        return change([op], "replacing…", `${top.node} shows ${path}`, top.node);
+        return change([op], "Replacing…", `${Called(top.node)} shows ${path.replace(/^.*\//, "")}`, top.node);
       }
-      await inserted(at, path, path);
+      await inserted(at, path, `the picture ${path.replace(/^.*\//, "")}`);
     });
   }
   /** The image of the bundle at `path` inserted at `at`, as Insert inserts it; `label` says what
    * it is, and `named`, the file dropped, names its node. */
   async function inserted(at: [number, number], path: string, label: string, named?: string) {
     const n = offered.findIndex((i) => i.node.type === "image" && (i.node as { src?: unknown }).src === path);
-    if (n < 0) return editor.say(`${path} is not an image the deck can insert: a PNG or a JPEG in the bundle`);
+    if (n < 0) return editor.say(`Not inserted: ${path.replace(/^.*\//, "")} isn't a PNG or a JPEG the deck holds`);
     pointed = at;
     await inserting(n, label, named);
   }
@@ -2597,12 +2640,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   function ungroup() {
     return inTurn(async () => {
       const node = selected;
-      if (node === undefined || also.length) return editor.say("select one group to take it apart");
+      if (node === undefined || also.length) return editor.say("Select one group to take it apart");
       const held = boxes.filter((b) => b.parent === node).map((b) => b.node);
       try {
-        await change([{ op: "ungroup", group: node }], "ungrouping…", `${node} taken apart: ${held.join(", ")}`, held);
+        await change([{ op: "ungroup", group: node }], "Ungrouping…", `The group taken apart: ${these(held)}`, held);
       } catch (e) {
-        editor.say(`not ungrouped: ${said(e)}`);
+        editor.say(`Not ungrouped: ${said(e)}`);
       }
     });
   }
@@ -2614,14 +2657,15 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       const shown = editor.shown();
       const nodes = chosen();
       if (!shown || !nodes.length) return;
-      const what = Object.entries(how)[0]?.join(" ") ?? "";
+      const what = arranged(how);
+      const them = sentence(these(nodes));
       try {
-        const arranged = await stage.arranging(shown.state, nodes, how, fork, editor.format());
-        if (!arranged?.patch.length) return editor.say(`${nodes.join(", ")}: ${what}, where they are already`);
+        const done = await stage.arranging(shown.state, nodes, how, fork, editor.format());
+        if (!done?.patch.length) return editor.say(`${them}: ${what} already`);
         // What is selected stays so: the canvas keeps it as the source changes.
-        await commit(arranged.patch, `${nodes.join(", ")}: ${what}`);
+        await commit(done.patch, `${them} ${what}`);
       } catch (e) {
-        editor.say(`not arranged: ${said(e)}`);
+        editor.say(`Not arranged: ${said(e)}`);
       }
     });
   }
@@ -2634,7 +2678,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (!copies() || !nodes.length || !shown) return;
     e.preventDefault();
     const at = held !== undefined && held.key === holding() ? held : undefined;
-    const them = nodes.length > 1 ? `${nodes.length} selected` : nodes[0];
+    const them = sentence(these(nodes));
     const done = () => editor.say(`${them} ${cut ? "cut" : "copied"}: ⌘V pastes ${nodes.length > 1 ? "them" : "it"}, in this deck or another`);
     if (at?.text !== undefined && e.clipboardData) {
       e.clipboardData.setData(CLIP, at.text);
@@ -2648,7 +2692,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         typeof ClipboardItem === "function"
           ? navigator.clipboard.write([new ClipboardItem({ "text/plain": blob })])
           : clip.then((t) => navigator.clipboard.writeText(t));
-      write.then(done, (err) => editor.say(`not ${cut ? "cut" : "copied"}: ${said(err)}`));
+      write.then(done, (err) => editor.say(`Not ${cut ? "cut" : "copied"}: ${said(err)}`));
     }
     if (cut) void (nodes.length > 1 ? removeAll(nodes, false, "cut") : remove(nodes[0], false, "cut"));
   }
@@ -2661,15 +2705,15 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   }
   async function pasting(clip: string) {
     const shown = editor.shown();
-    if (!shown) return editor.say("the canvas waits for a source that compiles");
+    if (!shown) return editor.say(WAITING);
     try {
       const pasted = await stage.pasting(editor.source(), shown.state, clip, landing(), editor.format());
       const lacked = pasted.findings.map((f) => `${f.message.replace(/, which has .*$/, "")}, ${f.hint ?? "taken out"}`);
       const ids = [pasted.id, ...(pasted.also ?? [])];
-      const done = [`${ids.join(", ")} pasted in ${shown.state}`, ...lacked].join("; ");
-      await change(pasted.patch, "pasting…", done, ids.length > 1 ? ids : pasted.id);
+      const done = [`${ids.length > 1 ? `${ids.length} objects pasted` : "Pasted"} on this slide`, ...lacked].join("; ");
+      await change(pasted.patch, "Pasting…", done, ids.length > 1 ? ids : pasted.id);
     } catch (e) {
-      editor.say(`not pasted: ${said(e)}`);
+      editor.say(`Not pasted: ${said(e)}`);
     }
   }
   /** Text from another app (PLAN 2.96): a sheet's cells, rows of cells split by tabs, become a
@@ -2692,25 +2736,20 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
 
   /** The look ⌥⌘C copied last (PLAN 2.58): what ⌥⌘V pastes, until another is copied. */
   let copiedLook: Look | undefined;
-  /** What a look sets, as the status says it: each value the deck sets, else the theme's. */
-  const lookSaid = (look: Look) => {
-    const set = look.props.flatMap((p) => (p.value === undefined ? [] : [`${p.prop} ${typeof p.value === "string" ? p.value : JSON.stringify(p.value)}`]));
-    return set.length ? set.join(", ") : "the theme's";
-  };
 
   /** ⌥⌘C: the look of the node selected, as the state shown shows it, copied for ⌥⌘V. */
   function copyLook() {
     return inTurn(async () => {
       const shown = editor.shown();
       const nodes = chosen();
-      if (!shown || nodes.length !== 1) return editor.say("select one node to copy its look");
+      if (!shown || nodes.length !== 1) return editor.say("Select one object to copy its look");
       try {
         const look = await stage.look(editor.source(), shown.state, nodes[0]);
-        if (!look.props.length) return editor.say(`a ${look.type} has no look of its own to copy`);
+        if (!look.props.length) return editor.say(`${sentence(`a ${(words?.types[look.type] ?? look.type).toLowerCase()}`)} has no look of its own to copy`);
         copiedLook = look;
-        editor.say(`${look.node}'s look copied (${lookSaid(look)}): ⌥⌘V pastes it on what is selected`);
+        editor.say(`The look of ${called(look.node)} copied: ⌥⌘V pastes it on what is selected`);
       } catch (e) {
-        editor.say(`no look copied: ${said(e)}`);
+        editor.say(`No look copied: ${said(e)}`);
       }
     });
   }
@@ -2723,17 +2762,17 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       const shown = editor.shown();
       const nodes = chosen();
       const look = copiedLook;
-      if (!look) return editor.say("no look is copied: ⌥⌘C copies the look of the node selected");
-      if (!shown || !nodes.length) return editor.say(`select what takes ${look.node}'s look`);
+      if (!look) return editor.say("No look is copied: ⌥⌘C copies the look of the object selected");
+      if (!shown || !nodes.length) return editor.say(`Select what takes the look of ${called(look.node)}`);
       try {
         const put = await stage.putting(editor.source(), shown.state, look, nodes);
-        const same = put.same.length ? [`${put.same.join(", ")} ${put.same.length > 1 ? "look" : "looks"} so already`] : [];
-        const others = [...same, ...put.refused.map((r) => `${r.node}: ${r.why}`)];
-        if (!put.patch.length) return editor.say(others.join("; ") || `nothing takes ${look.node}'s look`);
-        const done = [`${look.node}'s look pasted on ${put.took.join(", ")}`, ...others].join("; ");
-        await change(put.patch, "pasting the look…", done);
+        const same = put.same.length ? [`${sentence(these(put.same))} ${put.same.length > 1 ? "look" : "looks"} so already`] : [];
+        const others = [...same, ...put.refused.map((r) => `${Called(r.node)}: ${r.why}`)];
+        if (!put.patch.length) return editor.say(others.join("; ") || `Nothing takes the look of ${called(look.node)}`);
+        const done = [`The look of ${called(look.node)} pasted on ${these(put.took)}`, ...others].join("; ");
+        await change(put.patch, "Pasting the look…", done);
       } catch (e) {
-        editor.say(`no look pasted: ${said(e)}`);
+        editor.say(`No look pasted: ${said(e)}`);
       }
     });
   }
@@ -2815,20 +2854,20 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       try {
         const by: [number, number] = [to[0] - x, to[1] - y];
         const arranged = await stage.arranging(shown.state, nodes, { by, free: how === "free" }, fork, editor.format());
-        if (!arranged?.patch.length) return editor.say(`${nodes.length} selected stay where they are`);
-        return await commit(arranged.patch, `${nodes.length} selected moved together`);
+        if (!arranged?.patch.length) return editor.say(`The ${nodes.length} objects selected stay where they are`);
+        return await commit(arranged.patch, `The ${nodes.length} objects selected moved together${fork ? " · kept to this slide" : ""}`);
       } catch (e) {
-        return editor.say(`not placed: ${said(e)}`);
+        return editor.say(`Not placed: ${said(e)}`);
       }
     }
-    if (!how) return editor.say(`${node} is placed by name: drag it into another slot`);
-    if (!to) return editor.say(`${node} is at the edge`);
+    if (!how) return editor.say(`${Called(node)} sits in a slot: drag it into another`);
+    if (!to) return editor.say(`${Called(node)} is at the edge`);
     try {
       const { snapped } = await stage.drag(shown.state, node, { snap: { how, to, fork } }, editor.format());
-      if (!snapped?.patch.length) return editor.say(`${node} stays where it is`);
+      if (!snapped?.patch.length) return editor.say(`${Called(node)} stays where it is`);
       await commit(snapped.patch);
     } catch (e) {
-      editor.say(`not placed: ${said(e)}`);
+      editor.say(`Not placed: ${said(e)}`);
     }
   }
 
@@ -2896,7 +2935,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     }
     overlay.focus();
     const shown = editor.shown();
-    if (!shown || drag) return editor.say(shown ? "" : "the canvas waits for a source that compiles");
+    if (!shown || drag) return editor.say(shown ? "" : WAITING);
     overlay.setPointerCapture(e.pointerId);
     const client: [number, number] = [e.clientX, e.clientY];
     // An empty slot's words, which a press fills it from (PLAN 3.30).
@@ -3041,7 +3080,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       })
       .catch((err) => {
         starting = undefined;
-        editor.say(`error: ${said(err)}`);
+        editor.say(`Error: ${said(err)}`);
       });
   }
 
@@ -3092,7 +3131,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     overlay.focus();
     void inTurn(async () => {
       const shown = editor.shown();
-      if (!shown) return editor.say("the canvas waits for a source that compiles");
+      if (!shown) return editor.say(WAITING);
       const hits = await stage.hit(shown.state, at, editor.format()).catch(() => []);
       const top = reached(hits);
       // What is locked there, which the menu offers to unlock (PLAN 2.95).
@@ -3247,8 +3286,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       reshaping = cropping = undefined;
       draw();
     }
-    if (sketch) disarm("not drawn: the drag was cancelled");
-    if (drag) void still("the drag was cancelled");
+    if (sketch) disarm("Not drawn: the drag was cancelled");
+    if (drag) void still("The drag was cancelled");
   };
 
   overlay.onpointerleave = () => {
@@ -3287,9 +3326,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         const next = slotKeyed === undefined ? (e.shiftKey ? slots.length - 1 : 0) : slotKeyed + (e.shiftKey ? -1 : 1);
         slotKeyed = next < 0 || next >= slots.length ? undefined : next;
         draw();
-        if (slotKeyed === undefined) return editor.say("no slot keyed: the focus leaves the canvas");
+        if (slotKeyed === undefined) return editor.say("No slot chosen: the focus leaves the slide");
         e.preventDefault();
-        return editor.say(`slot ${slots[slotKeyed].name}, ${slotKeyed + 1} of ${slots.length} · an arrow moves it a track, Shift with one resizes it`);
+        return editor.say(`${sentence(slotSaid(slots[slotKeyed].name))}, ${slotKeyed + 1} of ${slots.length} · an arrow moves it a column or a row, Shift with one resizes it`);
       }
       const arrow = ({ ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] } as Record<string, Point>)[e.key];
       if (arrow && slotKeyed !== undefined && !mod && !slotDrag) {
@@ -3302,29 +3341,29 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       if (slotKeyed !== undefined && !slotDrag) {
         slotKeyed = undefined;
         draw();
-        return editor.say("no slot keyed: Escape again leaves the layout");
+        return editor.say("No slot chosen: Escape again leaves the layout");
       }
       if (slotDrag) {
         slotDrag = undefined;
         draw();
-        return editor.say("the slot stays where it was");
+        return editor.say("The slot stays where it was");
       }
       return void layoutMode(false);
     }
     if (picking !== undefined && e.key === "Escape") {
       e.preventDefault();
       unpick();
-      return editor.say("the focal point is as it was");
+      return editor.say("The focal point is as it was");
     }
     if (banding && e.key === "Escape") {
       e.preventDefault();
       banding = undefined;
       draw();
-      return editor.say("no band made");
+      return editor.say("No band made");
     }
     if (armed && e.key === "Escape") {
       e.preventDefault();
-      return disarm(sketch ? "not drawn" : "not drawing");
+      return disarm(sketch ? "Not drawn" : "Not drawing");
     }
     // T, R, O, L, and A arm the canvas to draw a text, a rectangle, an ellipse, a line, or an
     // arrow (PLAN 2.48); the same key again stops.
@@ -3365,7 +3404,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       if (inside.length && !also.length) {
         const into = selected;
         select(inside[0]);
-        return editor.say(`${inside[0]} selected, in ${into} · Tab goes on, Escape goes back out`);
+        return editor.say(`${Called(inside[0])} selected, in ${called(into)} · Tab goes on, Escape goes back out`);
       }
       // What is locked keeps its handles and its text (PLAN 2.95).
       if (locks([selected], "is edited on the canvas")) return;
@@ -3397,7 +3436,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       const level = selected === undefined ? null : (box(selected)?.parent ?? null);
       const all = readingOrder(level);
       selectAll(all);
-      return editor.say(`${all.length} selected${level ? ` in ${level}` : ""}`);
+      return editor.say(`${all.length ? sentence(these(all)) : "Nothing"} selected${level ? ` in ${called(level)}` : ""}`);
     }
     // ⌥⌘C copies the look of the node selected, and ⌥⌘V pastes it on what is selected (PLAN 2.58):
     // by the key's place, as Option makes ⌥C a character of its own.
@@ -3465,14 +3504,14 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         e.preventDefault();
         keyOn = undefined;
         draw();
-        return editor.say(`${chosen().length ? chosen().join(", ") : "nothing"} selected`);
+        return editor.say(`${chosen().length ? sentence(these(chosen())) : "Nothing"} selected`);
       }
       if (carrying) {
         e.preventDefault();
         const c = carrying;
         carrying = undefined;
         draw();
-        return editor.say(`${noteName(c.note)} of ${c.note.node} stays where it is`);
+        return editor.say(`${sentence(noteName(c.note))} of ${called(c.note.node)} stays where it is`);
       }
       // A point or a corner dragged is left as it was, and a point picked is let go before the shape
       // is (PLAN 2.68).
@@ -3481,56 +3520,56 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         const r = reshaping;
         reshaping = undefined;
         draw();
-        return editor.say(`${r.outline.node} stays as it is`);
+        return editor.say(`${Called(r.outline.node)} stays as it is`);
       }
       if (cropping) {
         e.preventDefault();
         const c = cropping;
         cropping = undefined;
         draw();
-        return editor.say(`${c.framing.node}'s crop and focal point stay as they are`);
+        return editor.say(`${Called(c.framing.node)}: its crop and focal point stay as they are`);
       }
       if (handling) {
         e.preventDefault();
         const node = handling.node;
         [handling, picked, noted] = [undefined, undefined, undefined];
         draw();
-        return editor.say(`${node} selected: its handles left`);
+        return editor.say(`${Called(node)} selected: its handles left`);
       }
       if (pointPicked !== undefined) {
         e.preventDefault();
         pointPicked = undefined;
         draw();
-        return editor.say(`${selected ?? "nothing"} selected`);
+        return editor.say(`${selected === undefined ? "Nothing" : Called(selected)} selected`);
       }
       // A mark picked, or an annotation selected, is let go before the chart is (PLAN 2.67).
       if (picked || noted) {
         e.preventDefault();
         [picked, noted] = [undefined, undefined];
         draw();
-        return editor.say(`${selected ?? "nothing"} selected`);
+        return editor.say(`${selected === undefined ? "Nothing" : Called(selected)} selected`);
       }
       if (turning) {
         e.preventDefault();
         const t = turning;
         turning = undefined;
         draw();
-        return editor.say(`${t.node} stays as it is`);
+        return editor.say(`${Called(t.node)} stays as it is`);
       }
       if (starting) {
         e.preventDefault();
         starting = undefined;
-        return editor.say("the drag was cancelled");
+        return editor.say("The drag was cancelled");
       }
       if (drag) {
         e.preventDefault();
-        return void still("the drag was cancelled");
+        return void still("The drag was cancelled");
       }
       if (selected !== undefined) {
         e.preventDefault();
         if (also.length) select(selected);
         else select(box(selected)?.parent ?? undefined);
-        if (selected === undefined) editor.say("nothing selected");
+        if (selected === undefined) editor.say("Nothing selected");
       }
       return;
     }
@@ -3539,13 +3578,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (!step || selected === undefined || drag || mod) return;
     e.preventDefault();
     const keyed = handling?.node === selected ? handleList(selected)[handling.index] : undefined;
-    if (keyed && (keyed.kind === "mark" || keyed.kind === "note")) return editor.say(`${keyed.label} does not move by the keys: pick another mark and call it out there`);
+    if (keyed && (keyed.kind === "mark" || keyed.kind === "note")) return editor.say(`${sentence(keyed.label)} does not move by the keys: pick another mark and call it out there`);
     if (keyed) {
       const [node, far, alt] = [selected, e.shiftKey, e.altKey];
       return void inTurn(() => nudgeHandle(node, keyed, step, far, alt));
     }
     const [node, grow, fork] = [selected, e.shiftKey, e.altKey];
-    if (also.length && grow) return editor.say("several move together; resize one at a time");
+    if (also.length && grow) return editor.say("Objects selected together move together; resize one at a time");
     void inTurn(() => nudge(node, step, grow, fork));
   };
 

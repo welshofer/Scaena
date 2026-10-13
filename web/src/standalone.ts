@@ -53,5 +53,5 @@ try {
     },
   );
 } catch (e) {
-  $("#status").textContent = `error: ${e instanceof Error ? e.message : String(e)}`;
+  $("#status").textContent = `Error: ${e instanceof Error ? e.message : String(e)}`;
 }

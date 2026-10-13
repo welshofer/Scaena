@@ -130,7 +130,7 @@ try {
   await page.waitForFunction(() => /table/.test(window.scaena.canvas.selected() ?? ""), null, { timeout: 30000 }).catch(() => {});
   const table = await selected();
   check(/table/.test(table ?? ""), `the table they were is inserted, selected: ${table}`);
-  check(await says("inserted as trail-visitors-revenue-table"), `the status says so: ${await status()}`);
+  check(await says("A table of “trail-visitors-revenue” inserted on this slide"), `the status says so: ${await status()}`);
   const scn = await source();
   for (const format of ['",d"', '"$,.2f"', '".1~%"']) check(scn.includes(format), `its columns print as copied: ${format}`);
   check(kept(scn) === kept(original), "the picture beside the cells stays out");
@@ -144,7 +144,7 @@ try {
   await press([960, 760]);
   check(await paste({}, [ridge]), "the canvas takes a screenshot");
   check(await changed(original), "the screenshot comes in");
-  check(await says("image.png inserted as image"), `as an image named for it: ${await status()}`);
+  check(await says("The picture image.png inserted on this slide"), `as an image named for it: ${await status()}`);
   check((await selected()) === "image", `selected: ${await selected()}`);
   check(kept(await source()) === kept(original) + 1, "its file joins the bundle, and the image shows it");
   check(await undo(original), "⌘Z takes it away");
@@ -152,7 +152,7 @@ try {
   // A WebP: a PNG of it.
   check(await paste({}, [{ name: "swatch.webp", type: "image/webp" }]), "the canvas takes a WebP");
   check(await changed(original), "the WebP comes in");
-  check(await says("kept as a PNG"), `as a PNG of it: ${await status()}`);
+  check(await says("(as a PNG) inserted on this slide"), `as a PNG of it: ${await status()}`);
   check((await selected()) === "swatch", `named for its file: ${await selected()}`);
   check(await undo(original), "⌘Z takes it away");
 

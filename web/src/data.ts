@@ -23,8 +23,9 @@
 //   under the table says what. A chart's mark, or a table's row, pointed at on the canvas chooses
 //   the rows it was made from, a group's every row, the first in view.
 import { type Key, MOD, SHIFT } from "./commands";
-import type { Edited, Quote, RowEdit, Sheet } from "./protocol";
+import type { Edited, Lexicon, Quote, RowEdit, Sheet } from "./protocol";
 import type { Stage } from "./stage";
+import { finding, object } from "./words";
 
 /** What a cell of the Data tab answers (PLAN 2.65), as the keys sheet lists it. */
 export const dataKeys = (): Key[] => [
@@ -32,7 +33,7 @@ export const dataKeys = (): Key[] => [
   { keys: `${SHIFT}Enter`, label: "Set it, and go to the cell above", group: "The data" },
   { keys: "↑ ↓", label: "Set it, and go up or down", group: "The data" },
   { keys: "Escape", label: "Put a cell changed back as it was", group: "The data" },
-  { keys: `${MOD}Z, ${MOD}${SHIFT}Z`, label: "In a cell as it was: undo or redo the source's last change", group: "The data" },
+  { keys: `${MOD}Z, ${MOD}${SHIFT}Z`, label: "In a cell as it was: undo or redo the last change to the data", group: "The data" },
 ];
 
 /** What the panel asks of the editor around it. */
@@ -55,6 +56,8 @@ export interface DataEditor {
   chose?(source: string, rows: number[]): void;
   /** Give the characters selected in the text typed in `quote`, said as `what` (PLAN 2.72). */
   quote?(quote: Quote, what: string): Promise<boolean>;
+  /** The words for the state shown (PLAN 2.99): its objects by what they show. */
+  words?(): Lexicon | undefined;
 }
 
 /** The quote of row `r`, column `c` of source `name`'s `sheet` (ADR-0019): its row by a column of
@@ -74,6 +77,8 @@ export function quoting(name: string, sheet: Sheet, r: number, c: number): Quote
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const html = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 const rows = (n: number) => (n === 1 ? "1 row" : `${n} rows`);
+/** A column's type as a person says it (PLAN 2.99). */
+const TYPES: Record<Sheet["columns"][number]["type"], string> = { number: "number", string: "text", boolean: "yes or no", date: "date" };
 
 /** The panel in `into`, over `stage`. */
 export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
@@ -125,7 +130,7 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
     } catch (e) {
       if (asked !== asking) return;
       shown = undefined;
-      where.textContent = `the data waits for a source that compiles: ${said(e)}`;
+      where.textContent = `The data shows once the source has no error to fix: ${said(e)}`;
       table.replaceChildren();
       problems.replaceChildren();
       return;
@@ -180,7 +185,7 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
   function draw() {
     if (!shown) return;
     const { sheet, file } = shown;
-    where.textContent = `${file ?? "rows written inline"} · ${rows(sheet.rows.length)}`;
+    where.textContent = `${file ? file.replace(/^.*\//, "") : "Written in the deck"} · ${rows(sheet.rows.length)}`;
     // The field focused, and what is typed in it not yet set: a redraw, after an edit of the deck,
     // keeps both.
     const active = document.activeElement as HTMLInputElement | null;
@@ -189,7 +194,7 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
         ? { r: +active.dataset.row!, c: +active.dataset.col!, typed: active.value !== active.defaultValue ? active.value : undefined }
         : undefined;
     const bad = new Map((sheet.problems ?? []).map((p) => [`${p.row} ${p.column}`, p.why]));
-    const head = sheet.columns.map((c) => `<th scope="col" class="${c.type}">${html(c.name)}<span class="type">${c.type}</span></th>`).join("");
+    const head = sheet.columns.map((c) => `<th scope="col" class="${c.type}">${html(c.name)}<span class="type">${TYPES[c.type] ?? c.type}</span></th>`).join("");
     const body = sheet.rows.map((cells, r) => {
       const fields = cells.map((value, c) => {
         const column = sheet.columns[c];
@@ -203,7 +208,7 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
       });
       return `<tr${chosen.includes(r) ? ' class="current"' : ""}><th scope="row" class="index">${r}</th>${fields.join("")}</tr>`;
     });
-    table.innerHTML = `<thead><tr><th scope="col" class="index">row</th>${head}</tr></thead><tbody>${body.join("")}</tbody>`;
+    table.innerHTML = `<thead><tr><th scope="col" class="index">Row</th>${head}</tr></thead><tbody>${body.join("")}</tbody>`;
     problems.innerHTML = (sheet.problems ?? [])
       .map((p) => {
         const c = sheet.columns.findIndex((col) => col.name === p.column);
@@ -223,25 +228,26 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
     const run = async () => {
       const name = shown?.name;
       if (name === undefined) return;
-      editor.say("editing the data…");
+      editor.say("Changing the data…");
       try {
         const { result, source, edited } = await stage.dataEdit(editor.source(), name, edits, editor.shown()?.index ?? 0, editor.format());
         if (result.refused) {
           undo?.();
           const why = result.added.find((f) => f.severity === "error") ?? result.added[0];
-          editor.say(`refused: ${why ? `${why.code} ${why.message}` : "the deck would not be valid"}`);
+          editor.say(`Not changed: ${why ? finding(editor.words?.(), why) : "the deck would not open with it"}`);
         } else if (source !== undefined && edited) {
           // Figures that quote the data, set again, are an edit of the deck's source too.
           const quoted = result.quoted ?? [];
           if (result.file && !quoted.length) editor.took(edited);
           else editor.apply(source, edited);
-          editor.say(quoted.length ? `${done}; what ${quoted.join(", ")} quotes set again` : done);
+          const figures = quoted.map((n) => object(editor.words?.(), n, true)).join(", ");
+          editor.say(quoted.length ? `${done}; what ${figures} quotes set again` : done);
         }
         shown = { name, file: result.file, sheet: result.sheet };
         draw();
       } catch (e) {
         undo?.();
-        editor.say(`not made: ${said(e)}`);
+        editor.say(`Not changed: ${said(e)}`);
       }
     };
     making = making.then(run, run);
@@ -256,7 +262,7 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
     field.defaultValue = field.value;
     const r = +field.dataset.row!;
     const column = shown.sheet.columns[+field.dataset.col!].name;
-    return make([{ op: "set", row: r, column, value: field.value }], `${column} of row ${r} set`, () => {
+    return make([{ op: "set", row: r, column, value: field.value }], `Row ${r}, ${column}: set`, () => {
       field.value = before;
       field.defaultValue = before;
     });
@@ -269,14 +275,14 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
     const run = async () => {
       try {
         const { name, edited } = await stage.dataUndo(editor.source(), redo, editor.shown()?.index ?? 0, editor.format());
-        if (name === undefined || !edited) return editor.say(redo ? "no data change to redo" : "no data change to undo");
+        if (name === undefined || !edited) return editor.say(redo ? "No change to the data to redo" : "No change to the data to undo");
         editor.took(edited);
-        editor.say(redo ? `made again: the last change to ${name}` : `undone: the last change to ${name}`);
+        editor.say(redo ? `Made again: the last change to ${name}` : `Undone: the last change to ${name}`);
         // A file the Files panel took out is put back by its path (PLAN 2.59): the source shown
         // stays.
         await refresh(name.includes("/") ? undefined : name);
       } catch (e) {
-        editor.say(`${redo ? "not made again" : "not undone"}: ${said(e)}`);
+        editor.say(`${redo ? "Not made again" : "Not undone"}: ${said(e)}`);
       }
     };
     making = making.then(run, run);
@@ -331,25 +337,25 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
     if (!shown) return;
     const at = row === undefined ? undefined : row + 1;
     const where = at === undefined ? shown.sheet.rows.length : at;
-    void make([at === undefined ? { op: "add" } : { op: "add", row: at }], `a row added at ${where}`).then(() => {
+    void make([at === undefined ? { op: "add" } : { op: "add", row: at }], `Row ${where} added`).then(() => {
       row = where;
       cell(where, 0)?.focus();
     });
   };
   into.querySelector<HTMLButtonElement>("[data-remove]")!.onclick = () => {
     if (!shown) return;
-    if (row === undefined || row >= shown.sheet.rows.length) return editor.say("focus a cell of the row to take away first");
+    if (row === undefined || row >= shown.sheet.rows.length) return editor.say("Click a cell of the row to take away first");
     const at = row;
-    void make([{ op: "remove", row: at }], `row ${at} taken away`).then(() => {
+    void make([{ op: "remove", row: at }], `Row ${at} taken away`).then(() => {
       if (shown && at >= shown.sheet.rows.length) row = shown.sheet.rows.length ? shown.sheet.rows.length - 1 : undefined;
     });
   };
   into.querySelector<HTMLButtonElement>("[data-quote]")!.onclick = () => {
     if (!shown || row === undefined || col === undefined || row >= shown.sheet.rows.length) {
-      return editor.say("focus the cell to quote first, with characters selected in a text typed in");
+      return editor.say("Click the cell to quote first, with characters selected in a text you're typing in");
     }
     const quote = quoting(shown.name, shown.sheet, row, col);
-    void editor.quote?.(quote, `quotes ${quote.column} of row ${row} of @${shown.name}`);
+    void editor.quote?.(quote, `quotes ${quote.column} of row ${row} of the data “${shown.name}”`);
   };
   into.querySelector<HTMLButtonElement>("[data-undo]")!.onclick = () => undo();
   into.querySelector<HTMLButtonElement>("[data-redo]")!.onclick = () => undo(true);

@@ -48,7 +48,9 @@ export function tools(names: string[]): Tool[] {
   ];
 }
 
-/** A line saying what a tool's result came to, for the page to show beside the call. */
+/** A line saying what a tool's result came to, for the page to show beside the call, in a
+ * person's words (PLAN 2.99): what lint finds counted, never its codes. `scaena_chat::tools::summary`
+ * says the same for the Mac. */
 export function summary(name: string, json: string, error: boolean): string {
   // A resource is its text, not JSON.
   if (name === "resource_read" && !error) return `${json.length} characters`;
@@ -58,52 +60,58 @@ export function summary(name: string, json: string, error: boolean): string {
   } catch {
     return json.slice(0, 200);
   }
-  if (error) return `stopped: ${r.message ?? json}`;
-  const codes = (findings: { code: string }[] | undefined) => [...new Set((findings ?? []).map((f) => f.code))].join(", ");
+  if (error) return `Stopped: ${r.message ?? json}`;
+  const many = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
   const delta = (p = r) => {
+    const [added, removed] = [p.added?.length ?? 0, p.removed?.length ?? 0];
     const parts = [];
-    if (p.added?.length) parts.push(`+${codes(p.added)}`);
-    if (p.removed?.length) parts.push(`−${codes(p.removed)}`);
-    return parts.length ? ` (${parts.join(" ")})` : "";
+    if (added) parts.push(`${added} new ${added === 1 ? "issue" : "issues"}`);
+    if (removed) parts.push(added ? `${removed} gone` : `${many(removed, "issue")} gone`);
+    return parts.length ? ` (${parts.join(", ")})` : "";
   };
   switch (name) {
     case "deck_patch":
     case "spine_update":
-      return (r.applied ? "applied" : r.added?.length ? "refused" : "not applied (a dry run)") + delta();
+      return (r.applied ? "Done" : r.added?.length ? "Refused" : "Tried, not made") + delta();
     case "deck_find": {
       const texts = r.found?.length ?? 0;
       const found = `${r.matches ?? 0} match${r.matches === 1 ? "" : "es"} in ${texts} text${texts === 1 ? "" : "s"}`;
       const p = r.replaced;
       if (!p) return found;
-      return `${found}; ${p.applied ? "replaced" : p.added?.length ? "refused" : "not replaced (a dry run)"}${delta(p)}`;
+      return `${found}; ${p.applied ? "replaced" : p.added?.length ? "refused" : "tried, not replaced"}${delta(p)}`;
     }
     case "data_attach":
-      return (r.attached ? `attached ${r.source}: ${r.rows} rows` : "refused") + delta();
+      return (r.attached ? `Added ${r.source}: ${r.rows} rows` : "Refused") + delta();
     case "data_edit": {
       const rows = r.sheet?.rows?.length ?? 0;
       const sheet = `${r.source}, ${rows} row${rows === 1 ? "" : "s"}`;
-      if (r.edited) return `edited ${sheet}${delta()}`;
-      if (r.refused) return `refused${delta()}`;
-      return r.added?.length || r.removed?.length ? `not written (a dry run)${delta()}` : `read ${sheet}`;
+      if (r.edited) return `Changed ${sheet}${delta()}`;
+      if (r.refused) return `Refused${delta()}`;
+      return r.added?.length || r.removed?.length ? `Tried, not written${delta()}` : `Read ${sheet}`;
     }
     case "theme_edit":
-      if (r.refused) return `refused${delta()}`;
-      return `${r.applied ? "edited" : "not written (a dry run)"} ${r.theme}: ${(r.paths ?? []).join(", ")}${delta()}`;
+      if (r.refused) return `Refused${delta()}`;
+      return `${r.applied ? "Changed" : "Tried changing"} ${r.theme}, ${many(r.paths?.length ?? 0, "value")}${delta()}`;
     case "deck_lint": {
-      const fixed = r.fixed?.length ? `fixed ${codes(r.fixed)}; ` : "";
+      const fixed = r.fixed?.length ? `Fixed ${many(r.fixed.length, "issue")}; ` : "";
+      const said: Record<string, string> = { error: "problem", warning: "warning", info: "note" };
       const counts = ["error", "warning", "info"].map((s) => [s, (r.findings ?? []).filter((f: { severity: string }) => f.severity === s).length] as const);
-      const found = counts.filter(([, n]) => n).map(([s, n]) => `${n} ${s}${n > 1 ? "s" : ""}`).join(", ");
-      return fixed + (found || "nothing found");
+      const found = counts.filter(([, n]) => n).map(([s, n]) => `${n} ${said[s]}${n > 1 ? "s" : ""}`).join(", ");
+      return fixed + (found || (fixed ? "no issues" : "No issues"));
     }
     case "deck_render":
-      return `${r.state}, ${r.size?.join("×")} px`;
+      return `${r.size?.join("×")} px`;
     case "deck_read":
-      return r.scn !== undefined ? `${r.scn.split("\n").length} lines of .scn` : "deck.json";
-    case "deck_inspect":
-      return `${r.states?.length ?? 0} state${r.states?.length === 1 ? "" : "s"}`;
-    case "deck_diff":
-      return `${Object.keys(r.changes ?? {}).length} nodes change`;
+      return r.scn !== undefined ? `The deck, ${r.scn.split("\n").length} lines` : "The deck";
+    case "deck_inspect": {
+      const n = r.states?.length ?? 0;
+      return n === 1 ? "1 slide" : `${n} slides and steps`;
+    }
+    case "deck_diff": {
+      const n = Object.keys(r.changes ?? {}).length;
+      return n === 1 ? "1 object changes" : `${n} objects change`;
+    }
     default:
-      return "done";
+      return "Done";
   }
 }
