@@ -30,11 +30,13 @@ final class OpeningTests: XCTestCase {
             app.buttons.matching(identifier: "BackButton").firstMatch.tap()
             XCTAssertTrue(wait(10) { !canvas.exists }, "the deck brought back did not close: \(app.debugDescription)")
         }
-        let prompting = app.buttons.matching(NSPredicate(format: "label == 'New from a Prompt…'")).firstMatch
+        // The buttons as the launch screen shows them, by their words: the screen also keeps a
+        // bare copy of each, out of sight, which a tap passes through.
+        let prompting = app.staticTexts.matching(NSPredicate(format: "label == 'New from a Prompt…'")).firstMatch
         XCTAssertTrue(
             prompting.waitForExistence(timeout: 30), "the launch screen offers no New from a Prompt…: \(app.debugDescription)")
         XCTAssertTrue(
-            app.buttons.matching(NSPredicate(format: "label == 'New Deck'")).firstMatch.exists,
+            app.staticTexts.matching(NSPredicate(format: "label == 'New Deck'")).firstMatch.exists,
             "the launch screen offers no New Deck: \(app.debugDescription)")
         prompting.tap()
         let topic = app.descendants(matching: .any).matching(identifier: "prompt-topic").firstMatch
