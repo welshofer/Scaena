@@ -386,6 +386,16 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     if (showing === drawn && !again) return false;
     drawn = showing;
     const focused = into.contains(document.activeElement) ? document.activeElement?.id : undefined;
+    // Words typed in a field and not yet taken (its change comes when it is left) outlast a
+    // render, which the deck changing under it brings: the field drawn again keeps them.
+    const active = document.activeElement;
+    const typing =
+      (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) &&
+      active.id &&
+      into.contains(active) &&
+      active.value !== active.defaultValue
+        ? { id: active.id, value: active.value, from: active.selectionStart, to: active.selectionEnd }
+        : undefined;
     const rows = offered.fields.map((f) => {
       const id = `look-${f.prop.replace(/\//g, "-")}`;
       return `<label for="${id}">${html(labeled(f))}</label><span class="control">${control(f, id)}</span><span>${note(f)}</span>`;
@@ -450,6 +460,24 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     if (wanted) pending = undefined;
     const focus = wanted ?? focused;
     if (focus) into.querySelector<HTMLElement>(`#${CSS.escape(focus)}`)?.focus();
+    if (typing) {
+      const field = into.querySelector<HTMLInputElement | HTMLTextAreaElement>(`#${CSS.escape(typing.id)}`);
+      if (field) {
+        field.value = typing.value;
+        if (typing.from !== null && typing.to !== null) field.setSelectionRange(typing.from, typing.to);
+        // A value set by a script is no change of the person's, which the field would say when
+        // it is left: it says so itself, unless more typing has it said already.
+        let said = false;
+        field.addEventListener("change", () => (said = true), { once: true });
+        field.addEventListener(
+          "blur",
+          () => {
+            if (!said && field.value !== field.defaultValue) field.dispatchEvent(new Event("change", { bubbles: true }));
+          },
+          { once: true },
+        );
+      }
+    }
     if (reading) void reads(nodes[0]);
     return true;
   }
