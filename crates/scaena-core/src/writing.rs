@@ -1,9 +1,10 @@
 //! What a model is asked to write for the person editing a deck (PLAN 2.101): a text's words
 //! proofread, tightened, or rewritten; a slide's notes drafted from how it reads; a finding
-//! explained. Each task is the instructions a model takes and the prompt it answers, on the
-//! device (Apple's Foundation Models) or with the person's own key (SPEC §11); the answer is
-//! offered, and taken as one patch or left. The browser, the Mac, and the iPad ask in these words,
-//! and take an answer by [`replacing`], so a text's runs keep their looks where the words stay.
+//! explained; a picture described for someone who cannot see it (PLAN 2.119). Each task is the
+//! instructions a model takes and the prompt it answers, on the device (Apple's Foundation
+//! Models) or with the person's own key (SPEC §11); the answer is offered, and taken as one patch
+//! or left. The browser, the Mac, and the iPad ask in these words, and take an answer by
+//! [`replacing`], so a text's runs keep their looks where the words stay.
 
 use serde::{Deserialize, Serialize};
 
@@ -26,6 +27,14 @@ pub enum Task {
     },
     /// What a finding of lint means for the slide, and what could be done.
     Explain(Explained),
+    /// A picture described for someone who cannot see it, as its description (`alt`): from the
+    /// picture itself, which the model is shown beside the prompt, and the slide's words around
+    /// it (PLAN 2.119). `text` is the description it has, if any.
+    Describe {
+        slide: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
+    },
 }
 
 /// A finding to explain: as the window says it, its code and severity, lint's hint, and the
@@ -50,14 +59,25 @@ impl Task {
             Task::Rewrite { .. } => "Rewritten",
             Task::Notes { .. } => "Presenter Notes",
             Task::Explain(_) => "About This Issue",
+            Task::Describe { .. } => "Description",
         }
     }
 
-    /// The text it works on, for a task on a text's words.
+    /// The text it works on, for a task on a text's words; for a picture, the description it has.
     pub fn text(&self) -> Option<&str> {
         match self {
             Task::Proofread { text } | Task::Tighten { text } | Task::Rewrite { text } => Some(text),
+            Task::Describe { text, .. } => text.as_deref(),
             _ => None,
+        }
+    }
+
+    /// What its answer takes the place of: a text's words, or a picture's description, none
+    /// where it has none.
+    fn replaces(&self) -> Option<&str> {
+        match self {
+            Task::Describe { text, .. } => Some(text.as_deref().unwrap_or_default()),
+            _ => self.text(),
         }
     }
 
@@ -94,6 +114,14 @@ impl Task {
                  or three plain sentences: what it means for their slide, and what they could do \
                  about it. Say nothing the finding does not support, and write no headings or lists."
             }
+            Task::Describe { .. } => {
+                "You describe a picture on a slide for someone who cannot see it, as its alternative \
+                 text: in one or two short sentences, what the picture shows that matters on this \
+                 slide, its subject first, and any words or numbers in it that the slide's own words \
+                 do not say. Write in the slide's language. Do not begin with \"An image of\" or \"A \
+                 picture of\", and say nothing you cannot see in the picture. Write only the \
+                 description, with no quotes and no comment."
+            }
         }
     }
 
@@ -118,15 +146,20 @@ impl Task {
                 }
                 out
             }
+            Task::Describe { slide, .. } if slide.trim().is_empty() => {
+                "Describe this picture. The slide it is on has no words of its own.".to_string()
+            }
+            Task::Describe { slide, .. } => format!("Describe this picture. The slide it is on reads:\n{slide}"),
         }
     }
 
     /// The model's answer as it is offered: its ends trimmed, its lines broken as `\n`, and, for
-    /// a text's words, the quotes a model may wrap it in taken off where the text had none.
+    /// a text's words or a picture's description, the quotes a model may wrap it in taken off
+    /// where what it replaces had none.
     pub fn taken(&self, answer: &str) -> String {
         let answer = answer.replace("\r\n", "\n").replace('\r', "\n");
         let mut out = answer.trim();
-        if let Some(text) = self.text() {
+        if let Some(text) = self.replaces() {
             for (open, close) in [('"', '"'), ('“', '”'), ('\'', '\''), ('‘', '’')] {
                 let quoted = out.chars().count() >= 2 && out.starts_with(open) && out.ends_with(close);
                 if quoted && !(text.trim_start().starts_with(open) && text.trim_end().ends_with(close)) {
@@ -323,6 +356,24 @@ mod tests {
         assert_eq!(quoted.taken("“Ship it,” she said."), "“Ship it,” she said.");
         let notes = Task::Notes { slide: "Title: Q3".into(), claim: None };
         assert_eq!(notes.taken("\"Q3 was good.\"\r\nThanks."), "\"Q3 was good.\"\nThanks.");
+    }
+
+    /// A picture is described from itself and the slide's words, and its answer taken without
+    /// the quotes a model wraps it in.
+    #[test]
+    fn a_picture_is_described_from_the_slide_it_is_on() {
+        let describe = Task::Describe { slide: "Title: Trails we rebuilt".into(), text: None };
+        assert_eq!(describe.title(), "Description");
+        assert_eq!(describe.prompt(), "Describe this picture. The slide it is on reads:\nTitle: Trails we rebuilt");
+        assert!(describe.instructions().starts_with("You describe a picture on a slide for someone who cannot see it"));
+        assert_eq!(describe.taken("“A trail crew sets stone steps.”\n"), "A trail crew sets stone steps.");
+        assert_eq!(describe.text(), None);
+        let alone = Task::Describe { slide: " ".into(), text: Some("Old words".into()) };
+        assert_eq!(alone.prompt(), "Describe this picture. The slide it is on has no words of its own.");
+        assert_eq!(alone.text(), Some("Old words"));
+        let json = serde_json::to_value(&describe).unwrap();
+        assert_eq!(json, serde_json::json!({ "kind": "describe", "slide": "Title: Trails we rebuilt" }));
+        assert_eq!(serde_json::from_value::<Task>(json).unwrap(), describe);
     }
 
     #[test]

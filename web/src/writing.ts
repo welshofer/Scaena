@@ -1,5 +1,6 @@
 // Writing tools (PLAN 2.101): a text's words proofread, tightened, or rewritten, a slide's notes
-// drafted, and an issue explained, by the model the assistant uses, with the user's own key. The
+// drafted, an issue explained, and a picture described from itself (PLAN 2.119), by the model the
+// assistant uses, with the user's own key. The
 // engine says what to ask, from the deck as it stands (`Player.writing`, `scaena_core::writing`),
 // in the words the Mac and the iPad ask in; the worker asks it once, with nothing to call
 // (`write`); and the answer is offered in a dialog, its words to edit before they are taken. Use
@@ -44,6 +45,7 @@ const TOOK: Record<WritingKind, (what: string) => string> = {
   rewrite: (what) => `Rewrote ${what}`,
   notes: (what) => `Drafted the notes of ${what}`,
   explain: (what) => `Explained ${what}`,
+  describe: (what) => `Described ${what}`,
 };
 
 /** What each tool is called before the engine names it, and where nothing is asked. */
@@ -53,6 +55,7 @@ export const TOOLS: Record<WritingKind, string> = {
   rewrite: "Rewrite",
   notes: "Draft Notes",
   explain: "Explain",
+  describe: "Describe",
 };
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -131,6 +134,7 @@ export function writer(stage: Stage, host: WritingHost) {
         base: who.base,
         instructions: writing.instructions,
         prompt: writing.prompt,
+        picture: writing.picture,
       }));
     } catch (e) {
       if (mine === turn) thinking.textContent = `No answer from ${who.name}: ${said(e)}`;
@@ -170,7 +174,7 @@ export function writer(stage: Stage, host: WritingHost) {
       // Words edited in the dialog are taken as they are edited.
       const taking = answer.value === written.text ? written : await stage.written(ask, answer.value);
       // A text by the words it now reads, as the canvas shows it; notes by their slide.
-      const what = ask.node !== undefined ? quote(taking.text) : host.slide(ask.state);
+      const what = ask.kind === "describe" ? "the picture" : ask.node !== undefined ? quote(taking.text) : host.slide(ask.state);
       if (!taking.patch?.length) return void host.say(`Nothing to change: ${what} already reads so`);
       const { source, edited } = await stage.make(host.source(), taking.patch, now.index, host.format());
       host.apply(source, edited);

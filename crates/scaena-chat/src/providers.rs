@@ -267,7 +267,16 @@ fn anthropic_headers(key: &str, browser: bool) -> BTreeMap<String, String> {
 
 fn anthropic(ask: &Ask) -> Request {
     let items = ask.messages.iter().map(|m| match m {
-        Message::User { text } => ("user", vec![json!({ "type": "text", "text": text })]),
+        Message::User { text, png } => {
+            let mut content = Vec::new();
+            if let Some(png) = png {
+                content.push(
+                    json!({ "type": "image", "source": { "type": "base64", "media_type": "image/png", "data": png } }),
+                );
+            }
+            content.push(json!({ "type": "text", "text": text }));
+            ("user", content)
+        }
         Message::Assistant { text, calls, .. } => {
             let mut content = if text.is_empty() { vec![] } else { vec![json!({ "type": "text", "text": text })] };
             for c in calls {
@@ -347,7 +356,11 @@ fn openai(ask: &Ask) -> Request {
     let mut messages = vec![json!({ "role": "system", "content": ask.system })];
     for m in ask.messages {
         match m {
-            Message::User { text } => messages.push(json!({ "role": "user", "content": text })),
+            Message::User { text, png: None } => messages.push(json!({ "role": "user", "content": text })),
+            Message::User { text, png: Some(png) } => messages.push(json!({ "role": "user", "content": [
+                { "type": "image_url", "image_url": { "url": format!("data:image/png;base64,{png}") } },
+                { "type": "text", "text": text },
+            ] })),
             Message::Assistant { text, calls, .. } => {
                 let mut message =
                     json!({ "role": "assistant", "content": if text.is_empty() { Value::Null } else { json!(text) } });
@@ -428,7 +441,14 @@ const LOCAL: &str = "local-";
 
 fn gemini(ask: &Ask) -> Request {
     let items = ask.messages.iter().map(|m| match m {
-        Message::User { text } => ("user", vec![json!({ "text": text })]),
+        Message::User { text, png } => {
+            let mut parts = Vec::new();
+            if let Some(png) = png {
+                parts.push(json!({ "inlineData": { "mimeType": "image/png", "data": png } }));
+            }
+            parts.push(json!({ "text": text }));
+            ("user", parts)
+        }
         Message::Assistant { text, calls, raw } => {
             if let Some(Value::Array(parts)) = raw {
                 return ("model", parts.clone());

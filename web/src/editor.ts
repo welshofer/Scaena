@@ -1721,6 +1721,13 @@ async function edit(source: Source) {
           run: () => write(kind, picked()[0]),
         }),
       ),
+      // A picture's description, from the picture itself, by the model the assistant uses (PLAN 2.119).
+      {
+        label: TOOLS.describe,
+        where: ["node"],
+        applies: () => one() && typeOf(picked()[0]) === "image",
+        run: () => write("describe", picked()[0]),
+      },
       // A picture made by the user's image model in the image's place (PLAN 2.107).
       { label: "Make a picture to replace it…", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "image", run: () => void picturing.open() },
       // A lock (PLAN 2.95): the canvas passes over what is locked, and moves and deletes nothing of it.

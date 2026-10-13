@@ -1,9 +1,10 @@
 import Foundation
 
 /// What a person asks a model to write (PLAN 2.101, `scaena_core::writing`): a text's words
-/// proofread, tightened, or rewritten; a slide's notes drafted; an issue explained.
+/// proofread, tightened, or rewritten; a slide's notes drafted; an issue explained; a picture
+/// described from itself (PLAN 2.119).
 public enum WritingKind: String, Codable, CaseIterable, Sendable {
-    case proofread, tighten, rewrite, notes, explain
+    case proofread, tighten, rewrite, notes, explain, describe
 }
 
 /// A writing tool asked of the deck as it stands: the task, the state shown, and the text it is
@@ -39,7 +40,9 @@ public struct WritingAsk: Sendable {
 }
 
 /// What a model is asked for a writing tool: what it is called where it is offered, and the
-/// instructions and the prompt it answers; with the words it works on, where it works on a text's.
+/// instructions and the prompt it answers; with the words it works on, where it works on a text's,
+/// or a picture's description; and, to describe a picture, the picture as the slide shows it, a
+/// PNG in base64, which the model is shown (PLAN 2.119).
 public struct Writing: Decodable, Sendable {
     public struct Task: Decodable, Sendable {
         public let kind: WritingKind
@@ -50,6 +53,7 @@ public struct Writing: Decodable, Sendable {
     public let title: String
     public let instructions: String
     public let prompt: String
+    public let picture: String?
 }
 
 /// An answer as it is offered, and the patch that takes it: none for one that is only read.

@@ -3417,6 +3417,7 @@ dependencies = [
 name = "scaena-session"
 version = "0.1.0"
 dependencies = [
+ "base64 0.23.1",
  "indexmap",
  "scaena-core",
  "scaena-engine",
