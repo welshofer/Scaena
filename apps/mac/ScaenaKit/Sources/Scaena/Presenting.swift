@@ -13,7 +13,10 @@ import SwiftUI
 /// browser's player paces a deck (`Show`, PLAN 2.2): → ↓ Page Down Space Return and a click go on,
 /// ← ↑ Page Up Delete go back, Home and End go to the first and the last state, and Escape ends.
 /// A state that holds goes on by itself once its cue and its hold are over. A click on a link at
-/// rest follows it (PLAN 2.70): a state is shown, a web address opens in the browser.
+/// rest follows it (PLAN 2.70): a state is shown, a web address opens in the browser. The
+/// presenter's keys are the browser's player's (PLAN 2.105): B or . a black screen and W or , a
+/// white one, until a key or a click brings the slide back; a slide's number then Return; L the
+/// laser, where the pointer is over the slide or the presenter's; and ? the keys, listed.
 @MainActor
 enum Presenting {
     private static var windows: [NSWindow] = []
@@ -33,6 +36,7 @@ enum Presenting {
         guard let screen = external ?? main else { return }
         let stage = StageWindow(screen: screen, content: StageView(showing: showing))
         windows = [stage]
+        showing.elsewhere = external != nil && main != nil
         if external != nil, let main {
             let presenter = NSWindow(
                 contentRect: main.visibleFrame, styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -59,6 +63,7 @@ enum Presenting {
 
     /// End the show: its windows close.
     static func end() {
+        Pointer.hidden(false)
         current = nil
         RemoteHost.shared.follow(nil)
         if let closing { NotificationCenter.default.removeObserver(closing) }
@@ -195,9 +200,20 @@ struct ShowHere: View {
 
 extension View {
     /// A touch's pace (PLAN 4.8): a swipe to the left goes on and one to the right goes back, as a
-    /// page turns, and a pinch closed ends the show.
-    func turns(_ showing: Showing) -> some View {
+    /// page turns, and a pinch closed ends the show. A touch held is the laser (PLAN 2.105), as
+    /// Keynote's: the dot under the finger while it stays down, `slide` saying where on the slide
+    /// a point of this view is; it turns no slide.
+    func turns(_ showing: Showing, slide: @escaping (CGPoint) -> CGPoint?) -> some View {
         self
+            // Beside the tap, which still turns a slide: a hold ended turns none (`lifting`).
+            .simultaneousGesture(
+                LongPressGesture(minimumDuration: 0.3)
+                    .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .local))
+                    .onChanged { held in
+                        if case .second(true, let drag?) = held { showing.hold(slide(drag.location)) }
+                    }
+                    .onEnded { _ in showing.hold(nil, ended: true) }
+            )
             .gesture(
                 DragGesture(minimumDistance: 24)
                     .onEnded { drag in
@@ -231,6 +247,17 @@ final class Showing {
     @ObservationIgnored private var readings: [String: String] = [:]
     /// The hold of a state come to rest, running until it gives way to the next.
     @ObservationIgnored private var holding: Task<Void, Never>?
+    /// The keys listed (PLAN 2.105), over the presenter's view, or the stage where there is none.
+    var listing = false
+    /// Whether the laser is on (PLAN 2.105), and where it points, as fractions of the slide, while
+    /// the pointer is over it or a touch is held on it.
+    var laser = false
+    var pointer: CGPoint?
+    /// What the keys say for a moment where a slide's number is typed: one the deck lacks.
+    var said: String?
+    @ObservationIgnored private var saying: Task<Void, Never>?
+    /// The number typed let go after four seconds with no key, as the browser's.
+    @ObservationIgnored private var typing: Task<Void, Never>?
 
     init(editor: DeckEditor, from state: String?) {
         self.editor = editor
@@ -239,6 +266,7 @@ final class Showing {
 
     /// Go on: a cue playing finishes, at rest the next state's plays.
     func on() {
+        if uncovered() { return }
         let finishing = show.playhead.playing
         holding?.cancel()
         show.on()
@@ -246,18 +274,145 @@ final class Showing {
     }
 
     func back() {
+        if uncovered() { return }
         holding?.cancel()
         show.back()
     }
 
     func first() {
+        if uncovered() { return }
         holding?.cancel()
         show.first()
     }
 
     func last() {
+        if uncovered() { return }
         holding?.cancel()
         show.last()
+    }
+
+    /// A key or a click while the screen is black or white brings the slide back, and does no
+    /// more (PLAN 2.105): whether it did.
+    private func uncovered() -> Bool {
+        guard show.blank != nil else { return false }
+        blanking(nil)
+        return true
+    }
+
+    /// The screen `to`, black or white, the show waiting where it was; the slide again for none, or
+    /// where the screen is that already. No hold runs while the slide is out of sight.
+    func blanking(_ to: Blank?) {
+        holding?.cancel()
+        if let to { show.blanking(to) } else { show.unblank() }
+        if show.blank == nil, !show.playhead.playing { rested() }
+    }
+
+    /// `digit` typed on a slide's number, let go after four seconds with no other.
+    func type(_ digit: Int) {
+        said = nil
+        show.type(digit)
+        typing?.cancel()
+        typing = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            self?.show.untype(all: true)
+        }
+    }
+
+    /// Return: the slide whose number is typed, said where the deck has none; else on.
+    func enter() {
+        guard !show.typed.isEmpty else { return on() }
+        typing?.cancel()
+        holding?.cancel()
+        let number = show.typed
+        if !show.goTyped() {
+            let slides = show.slides == 1 ? "1 slide" : "\(show.slides) slides"
+            say("No slide \(number): the deck has \(slides)")
+        }
+    }
+
+    /// Delete: the last digit typed taken back; with none typed, back.
+    func delete() {
+        if show.typed.isEmpty { back() } else { show.untype() }
+    }
+
+    /// Escape: the number typed let go, the keys put away, or the show ended.
+    func escape() {
+        if !show.typed.isEmpty {
+            show.untype(all: true)
+        } else if listing {
+            listing = false
+        } else {
+            ended()
+        }
+    }
+
+    /// `words` where the number is typed, for three seconds.
+    private func say(_ words: String) {
+        said = words
+        saying?.cancel()
+        saying = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            self?.said = nil
+        }
+    }
+
+    /// The laser on, or off.
+    func lasering() {
+        laser.toggle()
+        point(nil)
+    }
+
+    /// The pointer over the slide at `at`, fractions of it, or off it: the laser there while it is on.
+    func point(_ at: CGPoint?) {
+        pointer = laser ? at : nil
+        #if os(macOS)
+        Pointer.hidden(pointer != nil)
+        #endif
+    }
+
+    /// A touch held on the slide at `at`, or off it, or let go (`ended`): the laser while it stays
+    /// down, on or off.
+    func hold(_ at: CGPoint?, ended: Bool = false) {
+        pointer = ended ? nil : at
+        held = !ended
+        if ended { letGo = Date() }
+    }
+
+    /// A touch held as the laser, while it is down, and when it was let go.
+    @ObservationIgnored private var held = false
+    @ObservationIgnored private var letGo: Date?
+
+    /// Whether a tap now is the lifting of a touch held as the laser, which turns no slide.
+    var lifting: Bool { held || letGo.map { Date().timeIntervalSince($0) < 0.5 } == true }
+
+    /// Where `location` on a view `size` big that fits the canvas in its middle is on the slide, as
+    /// fractions of it; none off it.
+    func onSlide(_ location: CGPoint, in size: CGSize) -> CGPoint? {
+        let canvas = self.size
+        let scale = min(size.width / max(canvas.width, 1), size.height / max(canvas.height, 1))
+        guard scale > 0 else { return nil }
+        let w = canvas.width * scale
+        let h = canvas.height * scale
+        let x = (location.x - (size.width - w) / 2) / w
+        let y = (location.y - (size.height - h) / 2) / h
+        return (0...1).contains(x) && (0...1).contains(y) ? CGPoint(x: x, y: y) : nil
+    }
+
+    /// Where `point` on the slide, fractions of it, stands on a view `size` big that fits the
+    /// canvas in its middle.
+    func onStage(_ point: CGPoint, in size: CGSize) -> CGPoint {
+        let canvas = self.size
+        let scale = min(size.width / max(canvas.width, 1), size.height / max(canvas.height, 1))
+        let w = canvas.width * scale
+        let h = canvas.height * scale
+        return CGPoint(x: (size.width - w) / 2 + point.x * w, y: (size.height - h) / 2 + point.y * h)
+    }
+
+    /// What the keys say where a slide's number is typed: the number, or a slide the deck lacks.
+    var typedWords: String? {
+        show.typed.isEmpty ? said : "Slide \(show.typed) · Return goes there"
     }
 
     /// Where the stage's canvas says it is in the cue. A cue come to rest starts the state's hold.
@@ -282,6 +437,8 @@ final class Showing {
     /// A click at `location` on a stage `stage` points across: a link there at rest followed
     /// (PLAN 2.70), a state shown, a web address opened in the browser; else on, as any click.
     func click(at location: CGPoint, on stage: CGSize) {
+        if lifting { return }
+        if uncovered() { return }
         if let link = link(at: location, on: stage), follow(link) { return }
         on()
     }
@@ -338,9 +495,27 @@ final class Showing {
         return read
     }
 
-    /// Where the show is, for VoiceOver: "3 of 12".
-    var progress: String { "\(show.index + 1) of \(show.slots.count)" }
+    /// Where the show is, for VoiceOver: "3 of 12", and "3 of 12, black screen" while it is.
+    var progress: String {
+        let at = "\(show.index + 1) of \(show.slots.count)"
+        return show.blank.map { "\(at), \($0.rawValue) screen" } ?? at
+    }
 }
+
+#if os(macOS)
+/// The pointer hidden while the laser stands in for it over the slide (PLAN 2.105), and shown again
+/// as it leaves: each hide met by one show.
+@MainActor
+enum Pointer {
+    private static var hiding = false
+
+    static func hidden(_ hide: Bool) {
+        guard hide != hiding else { return }
+        hiding = hide
+        if hide { NSCursor.hide() } else { NSCursor.unhide() }
+    }
+}
+#endif
 
 #if os(macOS)
 /// A borderless window filling a screen above its menu bar, that takes the keys.
@@ -361,15 +536,26 @@ final class StageWindow: NSWindow {
 #endif
 
 extension View {
-    /// The player's keys (PLAN 2.2): on, back, the first and the last state, and Escape to end.
+    /// The player's keys (PLAN 2.2): on, back, the first and the last state, and Escape to end; and
+    /// the presenter's (PLAN 2.105), as the browser's player's: B or . a black screen, W or , a
+    /// white one, a slide's number then Return, L the laser, and ? the keys. Delete takes a digit
+    /// typed back, and Escape lets the number go or puts the keys away before it ends the show.
     func paces(_ showing: Showing) -> some View {
         self
-            .onKeyPress(keys: [.rightArrow, .downArrow, .pageDown, .space, .return]) { _ in
+            .onKeyPress(keys: [.rightArrow, .downArrow, .pageDown, .space]) { _ in
                 showing.on()
                 return .handled
             }
-            .onKeyPress(keys: [.leftArrow, .upArrow, .pageUp, .delete]) { _ in
+            .onKeyPress(.return) {
+                showing.enter()
+                return .handled
+            }
+            .onKeyPress(keys: [.leftArrow, .upArrow, .pageUp]) { _ in
                 showing.back()
+                return .handled
+            }
+            .onKeyPress(.delete) {
+                showing.delete()
                 return .handled
             }
             .onKeyPress(.home) {
@@ -381,13 +567,44 @@ extension View {
                 return .handled
             }
             .onKeyPress(.escape) {
-                showing.ended()
+                showing.escape()
+                return .handled
+            }
+            .onKeyPress(characters: CharacterSet(charactersIn: "bB.")) { press in
+                guard plain(press) else { return .ignored }
+                showing.blanking(.black)
+                return .handled
+            }
+            .onKeyPress(characters: CharacterSet(charactersIn: "wW,")) { press in
+                guard plain(press) else { return .ignored }
+                showing.blanking(.white)
+                return .handled
+            }
+            .onKeyPress(characters: CharacterSet(charactersIn: "lL")) { press in
+                guard plain(press) else { return .ignored }
+                showing.lasering()
+                return .handled
+            }
+            .onKeyPress(characters: CharacterSet(charactersIn: "?")) { press in
+                guard plain(press) else { return .ignored }
+                showing.listing.toggle()
+                return .handled
+            }
+            .onKeyPress(characters: .decimalDigits) { press in
+                guard plain(press), let digit = press.characters.first?.wholeNumberValue else { return .ignored }
+                showing.type(digit)
                 return .handled
             }
     }
 }
 
-/// The stage: the state shown, its cue played, on black.
+/// A key pressed alone, or with Shift or Caps Lock: a menu's command keys stay the menu's.
+private func plain(_ press: KeyPress) -> Bool {
+    press.modifiers.subtracting([.shift, .capsLock, .numericPad]).isEmpty
+}
+
+/// The stage: the state shown, its cue played, on black; black or white while the presenter has
+/// it so, and the laser's dot where it points (PLAN 2.105).
 struct StageView: View {
     let showing: Showing
     @FocusState private var focused: Bool
@@ -403,18 +620,35 @@ struct StageView: View {
                 )
                 .aspectRatio(size.width / max(size.height, 1), contentMode: .fit)
             }
+            // The screen black or white: the slide out of sight, the show waiting where it was.
+            if let blank = showing.show.blank {
+                blank == .black ? Color.black : Color.white
+            }
         }
         .ignoresSafeArea()
         .overlay {
             GeometryReader { geometry in
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture(coordinateSpace: .local) { location in
-                        showing.click(at: location, on: geometry.size)
+                ZStack {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture(coordinateSpace: .local) { location in
+                            showing.click(at: location, on: geometry.size)
+                        }
+                        // The pointer over the slide points the laser, while it is on.
+                        .onContinuousHover(coordinateSpace: .local) { phase in
+                            switch phase {
+                            case .active(let at): showing.point(showing.onSlide(at, in: geometry.size))
+                            case .ended: showing.point(nil)
+                            }
+                        }
+                        #if !os(macOS)
+                        .turns(showing) { showing.onSlide($0, in: geometry.size) }
+                        #endif
+                    if let at = showing.pointer, showing.show.blank == nil {
+                        Laser(across: min(geometry.size.width, geometry.size.height))
+                            .position(showing.onStage(at, in: geometry.size))
                     }
-                    #if !os(macOS)
-                    .turns(showing)
-                    #endif
+                }
             }
         }
         // One element, read as the slide reads; VoiceOver's swipes up and down go on and back,
@@ -431,6 +665,14 @@ struct StageView: View {
             }
         }
         .accessibilityAction(.escape) { showing.ended() }
+        // What the presenter's keys say, where no presenter's view says it: a slide's number typed,
+        // and the keys when ? lists them.
+        .overlay(alignment: .bottom) {
+            if !showing.elsewhere, let words = showing.typedWords { TypedWords(words: words) }
+        }
+        .overlay {
+            if !showing.elsewhere, showing.listing { KeyList() }
+        }
         .focusable()
         .focusEffectDisabled()
         .focused($focused)
@@ -439,11 +681,95 @@ struct StageView: View {
     }
 }
 
+/// The laser's dot (PLAN 2.105): red and glowing, as large as a room sees from its back, on a
+/// view `across` points at its shorter side.
+struct Laser: View {
+    let across: CGFloat
+
+    var body: some View {
+        let red = Color(red: 1, green: 0.17, blue: 0.17)
+        Circle()
+            .fill(red)
+            .frame(width: max(12, across * 0.014), height: max(12, across * 0.014))
+            .shadow(color: red.opacity(0.75), radius: 5)
+            .shadow(color: red.opacity(0.4), radius: 14)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
+/// A slide's number as the presenter types it, or a slide the deck lacks, at the foot of the view.
+struct TypedWords: View {
+    let words: String
+
+    var body: some View {
+        Text(words)
+            .font(.title2.monospacedDigit())
+            .foregroundStyle(.white)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 10)
+            .background(.black.opacity(0.85), in: RoundedRectangle(cornerRadius: 10))
+            .padding(.bottom, 28)
+            .accessibilityIdentifier("typed")
+    }
+}
+
+/// The presenter's keys, listed (PLAN 2.105), as the browser's player lists them: ? shows and hides
+/// them, and Escape puts them away.
+struct KeyList: View {
+    #if os(macOS)
+    private static let laser = "The laser, where the pointer is over the slide"
+    private static let back = "A key or a click brings back a black or white screen."
+    #else
+    private static let laser = "The laser, where the pointer is; or touch and hold the slide"
+    private static let back = "A key or a tap brings back a black or white screen."
+    #endif
+    private struct Row: Hashable {
+        let keys: String
+        let does: String
+    }
+    private static let rows = [
+        Row(keys: "→  Space  Return", does: "Go on: a cue playing finishes, then the next plays"),
+        Row(keys: "←  Delete", does: "Go back"),
+        Row(keys: "Home  End", does: "The first slide, the last"),
+        Row(keys: "A slide’s number, then Return", does: "That slide"),
+        Row(keys: "B or .", does: "A black screen, and the slide again"),
+        Row(keys: "W or ,", does: "A white screen, and the slide again"),
+        Row(keys: "L", does: laser),
+        Row(keys: "Escape", does: "End the show"),
+        Row(keys: "?", does: "These keys"),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Keys").font(.title2.bold())
+            Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 8) {
+                ForEach(Self.rows, id: \.self) { row in
+                    GridRow {
+                        Text(row.keys).fontWeight(.semibold)
+                        Text(row.does)
+                    }
+                }
+            }
+            Text(Self.back).foregroundStyle(.secondary)
+        }
+        .font(.title3)
+        .padding(24)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .environment(\.colorScheme, .dark)
+        .frame(maxWidth: 640)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("keys")
+    }
+}
+
 /// The presenter's view: the state shown as the audience sees it, the next at rest, the state's
 /// notes, where it is in the deck, and the time since the deck began. Side by side where it is
 /// wide; where it is tall, as an iPad held upright, the next and the notes under the state shown.
 /// A click or a tap on the state shown goes on, as one on the stage does; on the iPad, the stage's
-/// swipes and pinch work on it too, and End Show ends the show (PLAN 4.8).
+/// swipes and pinch work on it too, and End Show ends the show (PLAN 4.8). The presenter's keys
+/// say here what they do (PLAN 2.105): the room's screen black or white, said over the slide
+/// dimmed; the laser pointed from the slide here; a slide's number typed; and the keys, listed.
 struct PresenterView: View {
     let showing: Showing
     @FocusState private var focused: Bool
@@ -479,12 +805,30 @@ struct PresenterView: View {
                         .aspectRatio(size.width / max(size.height, 1), contentMode: .fit)
                         .clipShape(RoundedRectangle(cornerRadius: 6))
                         .overlay {
-                            Color.clear
-                                .contentShape(Rectangle())
-                                .onTapGesture { showing.on() }
-                                #if !os(macOS)
-                                .turns(showing)
-                                #endif
+                            GeometryReader { shown in
+                                ZStack {
+                                    Color.clear
+                                        .contentShape(Rectangle())
+                                        .onTapGesture { if !showing.lifting { showing.on() } }
+                                        // The pointer here points the laser on the room's slide.
+                                        .onContinuousHover(coordinateSpace: .local) { phase in
+                                            switch phase {
+                                            case .active(let at): showing.point(Self.fraction(at, of: shown.size))
+                                            case .ended: showing.point(nil)
+                                            }
+                                        }
+                                        #if !os(macOS)
+                                        .turns(showing) { Self.fraction($0, of: shown.size) }
+                                        #endif
+                                    if let blank = show.blank {
+                                        Blanked(blank: blank)
+                                    }
+                                    if let at = showing.pointer {
+                                        Laser(across: min(shown.size.width, shown.size.height))
+                                            .position(x: at.x * shown.size.width, y: at.y * shown.size.height)
+                                    }
+                                }
+                            }
                         }
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel(showing.reading)
@@ -527,6 +871,13 @@ struct PresenterView: View {
         .background(Color.black)
         .environment(\.colorScheme, .dark)
         #endif
+        // What the presenter's keys say: a slide's number typed, and the keys when ? lists them.
+        .overlay(alignment: .bottom) {
+            if let words = showing.typedWords { TypedWords(words: words) }
+        }
+        .overlay {
+            if showing.listing { KeyList() }
+        }
         .focusable()
         .focusEffectDisabled()
         .focused($focused)
@@ -541,5 +892,37 @@ struct PresenterView: View {
     private func elapsed(at now: Date) -> String {
         let seconds = max(Int(now.timeIntervalSince(showing.began)), 0)
         return String(format: "%ld:%02ld", seconds / 60, seconds % 60)
+    }
+
+    /// `location` on the slide shown here, `size` big, as fractions of it; none off it.
+    static func fraction(_ location: CGPoint, of size: CGSize) -> CGPoint? {
+        guard size.width > 0, size.height > 0 else { return nil }
+        let at = CGPoint(x: location.x / size.width, y: location.y / size.height)
+        return (0...1).contains(at.x) && (0...1).contains(at.y) ? at : nil
+    }
+}
+
+/// The presenter's slide while the room's screen is black or white (PLAN 2.105): dimmed, and said.
+struct Blanked: View {
+    let blank: Blank
+    #if os(macOS)
+    private static let back = "A key or a click brings the slide back."
+    #else
+    private static let back = "A key or a tap brings the slide back."
+    #endif
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.6)
+            Text("The room sees a \(blank.rawValue) screen. \(Self.back)")
+                .font(.title3)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.white)
+                .padding(16)
+                .background(.black.opacity(0.8), in: RoundedRectangle(cornerRadius: 10))
+                .padding(24)
+                .accessibilityIdentifier("blanked")
+        }
+        .allowsHitTesting(false)
     }
 }

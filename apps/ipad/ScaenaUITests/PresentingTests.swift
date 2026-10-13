@@ -2,7 +2,8 @@ import XCTest
 
 /// Play on the iPad alone (PLAN 4.8), on B1, its 40 states: the stage fills the iPad from the slide
 /// shown and reads as that slide does; a swipe to the left goes on and one to the right goes back,
-/// a tap goes on, and a pinch closed ends the show, the window as it was. With an external display
+/// a tap goes on, a touch held is the laser and turns no slide (PLAN 2.105), and a pinch closed
+/// ends the show, the window as it was. With an external display
 /// or an AirPlay screen the stage goes there and the iPad shows the presenter's view; a simulator
 /// driven by XCUITest attaches neither.
 final class PresentingTests: XCTestCase {
@@ -41,6 +42,20 @@ final class PresentingTests: XCTestCase {
         XCTContext.runActivity(named: "A tap goes on") { _ in
             stage.tap()
             XCTAssertTrue(wait(5) { shown() == "2 of 40" }, "the tap went to \(shown())")
+            settle()
+        }
+
+        XCTContext.runActivity(named: "A touch held is the laser, and turns no slide") { _ in
+            // Held, then dragged across the slide as a swipe would go: the laser follows the finger
+            // (PLAN 2.105), and the slide stays.
+            let from = stage.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5))
+            let to = stage.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5))
+            from.press(forDuration: 1.0, thenDragTo: to)
+            settle()
+            XCTAssertEqual(shown(), "2 of 40", "the touch held turned the slide")
+            // A quick swipe after it still turns it.
+            stage.swipeLeft()
+            XCTAssertTrue(wait(5) { shown() == "3 of 40" }, "a swipe after the laser went to \(shown())")
             settle()
         }
 
