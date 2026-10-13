@@ -1063,9 +1063,16 @@ fn containers(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
                 continue;
             }
             let kind = container.node_type;
-            if !matches!(kind, NodeType::Stack | NodeType::Grid | NodeType::Frame | NodeType::Group) {
+            if kind == NodeType::Shape {
+                // Words in a shape (PLAN 2.108): a shape holds one text, which it places.
+                if let Some((key, message)) = words_in(deck, snapshot, id, parent) {
+                    out.push(finding("E106", id, key, message));
+                    continue;
+                }
+            } else if !kind.is_container() {
                 let message = format!(
-                    "node `{id}` is placed in `{parent}`, {} node; a container is a stack, grid, frame, or group",
+                    "node `{id}` is placed in `{parent}`, {} node; a container is a stack, grid, frame, or group, \
+                     and a shape holds words",
                     article(&type_name(kind))
                 );
                 out.push(finding("E106", id, "parent", message));
@@ -1107,6 +1114,39 @@ fn containers(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
         }
     }
     out
+}
+
+/// Why `id` cannot be the words in shape `shape` as `snapshot` shows them, and the key of its
+/// `at` that says so, if it cannot (PLAN 2.108): a shape holds one text and places it, so the
+/// text names no place of its own; a line or an arrow holds none.
+fn words_in<'a>(deck: &Deck, snapshot: &'a Snapshot, id: &str, shape: &str) -> Option<(&'a str, String)> {
+    if deck.nodes[id].node_type != NodeType::Text {
+        let what = article(&type_name(deck.nodes[id].node_type));
+        return Some((
+            "parent",
+            format!("node `{id}`, {what} node, is placed in shape `{shape}`, which holds words alone"),
+        ));
+    }
+    let kind = snapshot.nodes[shape].get("kind").and_then(Value::as_str);
+    if let Some(kind @ ("line" | "arrow")) = kind {
+        return Some((
+            "parent",
+            format!("node `{id}` is placed in `{shape}`, {}; a line or an arrow holds no words", article(kind)),
+        ));
+    }
+    let held = |(other, props): (&String, &Props)| {
+        deck.nodes[other.as_str()].node_type == NodeType::Text
+            && props.get("at").and_then(|at| at.get("parent")).and_then(Value::as_str) == Some(shape)
+    };
+    if let Some((first, _)) = snapshot.nodes.iter().find(|&(k, v)| held((k, v)))
+        && first != id
+    {
+        return Some(("parent", format!("shape `{shape}` holds the words of `{first}`; a shape holds one text")));
+    }
+    let at = snapshot.nodes[id].get("at").and_then(Value::as_object)?;
+    let key = at.keys().find(|k| *k != "parent")?;
+    let message = format!("node `{id}` is the words in shape `{shape}`, which places them: take `at.{key}` away");
+    Some((key.as_str(), message))
 }
 
 /// E103 and E106: what each run's `quote` reads (ADR-0019): a row, a column, and a cell that are

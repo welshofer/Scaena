@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/deck-0.20.json",
+  "$id": "https://scaena.dev/schema/deck-0.21.json",
   "title": "Scaena deck document",
   "description": "Canonical deck.json. A deck is a scene graph (nodes) plus an ordered cue list (states) over a narrative spine, rendered against a theme. See docs/SPEC.md §3.",
   "type": "object",
@@ -10,7 +10,7 @@
     "scaena": {
       "description": "Format version (semver, major.minor[.patch]).",
       "type": "string",
-      "pattern": "^0\\.20(\\.[0-9]+)?$"
+      "pattern": "^0\\.21(\\.[0-9]+)?$"
     },
     "meta": { "$ref": "#/$defs/Meta" },
     "canvas": { "$ref": "#/$defs/Canvas" },
@@ -739,7 +739,7 @@
       "enum": ["normal", "multiply", "screen", "overlay", "darken", "lighten", "difference"]
     },
     "Placement": {
-      "description": "Where a node goes. One placement wins: `rect`, else `in`, else `col`/`row` (SPEC §3.4). Grid cells and slots are theme-managed; `rect` is an explicit override (lint W301 in template-managed states). In a container (`parent`), `col`/`row` and `area` are its grid's, `rect` is relative to a frame's padding, and a stack places its children itself.",
+      "description": "Where a node goes. One placement wins: `rect`, else `in`, else `col`/`row` (SPEC §3.4). Grid cells and slots are theme-managed; `rect` is an explicit override (lint W301 in template-managed states). In a container (`parent`), `col`/`row` and `area` are its grid's, `rect` is relative to a frame's padding, and a stack places its children itself, as a shape places its words.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -747,7 +747,7 @@
         "row": { "$ref": "#/$defs/Range" },
         "in": { "description": "Named slot in the state's layout template, or `canvas` or `grid`.", "type": "string" },
         "parent": {
-          "description": "The container this node is in: a `stack`, `grid`, `frame`, or `group` (ADR-0008).",
+          "description": "The container this node is in: a `stack`, `grid`, `frame`, or `group` (ADR-0008). A text's may be a shape, other than a line or an arrow: the text is the shape's words, which it places in the room inside it, with no other key of `at` (PLAN 2.108).",
           "$ref": "#/$defs/Id"
         },
         "index": {

@@ -620,6 +620,145 @@ fn stroke(theme: &Theme, s: &Value) -> Result<Stroke, EngineError> {
     Ok(Stroke { paint, width, cap, join, dash })
 }
 
+/// The room a shape gives the words it holds (PLAN 2.108), canvas units: a rect's box less what
+/// its rounded corners take, an ellipse's inscribed rectangle, or the largest rectangle that stays
+/// inside a polygon; then inset on every side by the theme's `space.4`, or a twelfth of what is
+/// left's shorter side where that is less.
+pub fn words_box(props: &Props, theme: &Theme, rect: Rect) -> Rect {
+    let path = props.get("path").and_then(Value::as_str);
+    let kind = props.get("kind").and_then(Value::as_str).unwrap_or(if path.is_some() { "path" } else { "rect" });
+    let [x, y, w, h] = rect;
+    let [fx, fy, fw, fh] = match kind {
+        "ellipse" => {
+            let m = (1.0 - std::f32::consts::FRAC_1_SQRT_2) / 2.0;
+            [m, m, 1.0 - 2.0 * m, 1.0 - 2.0 * m]
+        }
+        "polygon" => {
+            let points: Option<Vec<[f32; 2]>> =
+                props.get("points").and_then(|v| serde_json::from_value(v.clone()).ok());
+            match points {
+                Some(points) if points.len() >= 3 && w > 0.0 && h > 0.0 => inscribed(&points, w / h),
+                _ => [0.0, 0.0, 1.0, 1.0],
+            }
+        }
+        _ => [0.0, 0.0, 1.0, 1.0],
+    };
+    let (mut ix, mut iy, mut iw, mut ih) = (x + fx * w, y + fy * h, fw * w, fh * h);
+    if kind == "rect" {
+        let side = w.min(h);
+        let radius = props.get("radius").and_then(|r| theme.length(r, side).ok()).unwrap_or(0.0).clamp(0.0, side / 2.0);
+        let corner = radius * (1.0 - std::f32::consts::FRAC_1_SQRT_2);
+        (ix, iy, iw, ih) = (ix + corner, iy + corner, iw - 2.0 * corner, ih - 2.0 * corner);
+    }
+    let space = theme.tokens.space.scale.get(4).map_or(3.0 * theme.tokens.space.unit as f32, |s| s.0 as f32);
+    let pad = space.min(iw.min(ih).max(0.0) / 12.0);
+    [ix + pad, iy + pad, (iw - 2.0 * pad).max(0.0), (ih - 2.0 * pad).max(0.0)]
+}
+
+/// The largest rectangle inside the polygon `points` (fractions of a box `aspect` times as wide
+/// as it is tall), as `[x, y, w, h]` in fractions of the box: of rectangles of a few proportions
+/// about points across the polygon, the one of most area, each as large as fits by bisection, then
+/// grown side by side as far as each side goes.
+fn inscribed(points: &[[f32; 2]], aspect: f32) -> [f32; 4] {
+    // Measured where the box is as wide as it is: a unit of x is `aspect` units of y.
+    let poly: Vec<[f32; 2]> = points.iter().map(|p| [p[0] * aspect, p[1]]).collect();
+    let (lo, hi) = poly.iter().fold(([f32::MAX; 2], [f32::MIN; 2]), |(lo, hi), p| {
+        ([lo[0].min(p[0]), lo[1].min(p[1])], [hi[0].max(p[0]), hi[1].max(p[1])])
+    });
+    let (bw, bh) = (hi[0] - lo[0], hi[1] - lo[1]);
+    const AROUND: usize = 9;
+    const PROPORTIONS: [f32; 9] = [0.25, 0.4, 0.6, 0.8, 1.0, 1.25, 1.6, 2.5, 4.0];
+    let mut best = ([0.0f32; 4], 0.0f32);
+    for i in 1..AROUND {
+        for j in 1..AROUND {
+            let c = [lo[0] + bw * i as f32 / AROUND as f32, lo[1] + bh * j as f32 / AROUND as f32];
+            if !inside(c, &poly) {
+                continue;
+            }
+            for r in PROPORTIONS {
+                // Half its height: bisected between none and the box's.
+                let (mut fits_at, mut miss) = (0.0f32, bh.max(bw / r));
+                for _ in 0..16 {
+                    let s = 0.5 * (fits_at + miss);
+                    if holds(&poly, [c[0] - r * s, c[1] - s, c[0] + r * s, c[1] + s]) {
+                        fits_at = s;
+                    } else {
+                        miss = s;
+                    }
+                }
+                let area = 4.0 * r * fits_at * fits_at;
+                if area > best.1 {
+                    best = ([c[0] - r * fits_at, c[1] - fits_at, c[0] + r * fits_at, c[1] + fits_at], area);
+                }
+            }
+        }
+    }
+    if best.1 <= 0.0 {
+        return [0.0, 0.0, 1.0, 1.0];
+    }
+    // Then each side moved out as far as it goes, twice round: the search keeps to a few middles
+    // and proportions, and a polygon's room is seldom one of them.
+    let mut r = best.0;
+    let bounds = [lo[0], lo[1], hi[0], hi[1]];
+    for _ in 0..2 {
+        for side in 0..4 {
+            let (mut fits_to, mut miss) = (r[side], bounds[side]);
+            for _ in 0..16 {
+                let mid = 0.5 * (fits_to + miss);
+                let mut tried = r;
+                tried[side] = mid;
+                if holds(&poly, tried) {
+                    fits_to = mid;
+                } else {
+                    miss = mid;
+                }
+            }
+            r[side] = fits_to;
+        }
+    }
+    let [x0, y0, x1, y1] = r;
+    [x0 / aspect, y0, (x1 - x0) / aspect, y1 - y0]
+}
+
+/// Whether `p` is inside the polygon `poly`, by the even-odd rule.
+fn inside(p: [f32; 2], poly: &[[f32; 2]]) -> bool {
+    let mut odd = false;
+    for (i, a) in poly.iter().enumerate() {
+        let b = poly[(i + 1) % poly.len()];
+        if (a[1] > p[1]) != (b[1] > p[1]) && p[0] < a[0] + (p[1] - a[1]) * (b[0] - a[0]) / (b[1] - a[1]) {
+            odd = !odd;
+        }
+    }
+    odd
+}
+
+/// Whether the rectangle `[x0, y0, x1, y1]` lies inside the polygon `poly`: its corners inside,
+/// none of the polygon's corners within it, and no edge of the polygon crossing it.
+fn holds(poly: &[[f32; 2]], [x0, y0, x1, y1]: [f32; 4]) -> bool {
+    let e = 1e-4 * (x1 - x0).max(y1 - y0);
+    let corners = [[x0 + e, y0 + e], [x1 - e, y0 + e], [x1 - e, y1 - e], [x0 + e, y1 - e]];
+    if !corners.iter().all(|&c| inside(c, poly)) {
+        return false;
+    }
+    if poly.iter().any(|p| p[0] > x0 + e && p[0] < x1 - e && p[1] > y0 + e && p[1] < y1 - e) {
+        return false;
+    }
+    let sides =
+        [(corners[0], corners[1]), (corners[1], corners[2]), (corners[2], corners[3]), (corners[3], corners[0])];
+    !poly.iter().enumerate().any(|(i, &a)| {
+        let b = poly[(i + 1) % poly.len()];
+        sides.iter().any(|&(c, d)| crosses(a, b, c, d))
+    })
+}
+
+/// Whether segments `ab` and `cd` cross, each strictly between its ends.
+fn crosses(a: [f32; 2], b: [f32; 2], c: [f32; 2], d: [f32; 2]) -> bool {
+    let side = |p: [f32; 2], q: [f32; 2], r: [f32; 2]| (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+    let (d1, d2) = (side(c, d, a), side(c, d, b));
+    let (d3, d4) = (side(a, b, c), side(a, b, d));
+    ((d1 > 0.0 && d2 < 0.0) || (d1 < 0.0 && d2 > 0.0)) && ((d3 > 0.0 && d4 < 0.0) || (d3 < 0.0 && d4 > 0.0))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

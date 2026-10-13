@@ -267,6 +267,11 @@ public struct NodeBox: Decodable, Sendable {
     public let transform: [Double]?
     /// The node whose lock holds it, itself or what holds it (PLAN 2.95).
     public let locked: String?
+    /// A shape that takes words (PLAN 2.108): any but a line or an arrow.
+    public let takesWords: Bool?
+    /// The text that holds a shape's words (PLAN 2.108), which a click on them reaches as the
+    /// shape and a double click types in.
+    public let words: String?
 
     /// Its box's corners where it is drawn, clockwise from the top left, canvas units.
     public var corners: [CGPoint] { drawn(rect, through: transform) }
@@ -290,9 +295,12 @@ public struct NodeBox: Decodable, Sendable {
 extension [NodeBox] {
     /// What a click at `point` (canvas units) would select, read from the boxes alone, as the
     /// browser's canvas shows it under the pointer (PLAN 2.29, 4.5): the topmost that draws there
-    /// and no lock holds. Nothing is asked of the engine.
+    /// and no lock holds, a shape's words reached as the shape (PLAN 2.108). Nothing is asked of
+    /// the engine.
     public func under(_ point: CGPoint) -> String? {
-        last { $0.draws && $0.locked == nil && $0.holds(point) }?.node
+        guard let top = last(where: { $0.draws && $0.locked == nil && $0.holds(point) }) else { return nil }
+        guard let parent = top.parent, first(where: { $0.node == parent })?.words == top.node else { return top.node }
+        return parent
     }
 }
 

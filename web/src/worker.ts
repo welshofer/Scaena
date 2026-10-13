@@ -68,6 +68,7 @@ import type {
   ToHelper,
   ToWorker,
   Waiting,
+  Worded,
   Where,
   Writing,
   Written,
@@ -361,6 +362,9 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         current(data.source);
         layOut(data.format);
         return post({ type: "adding", id: data.id, added: JSON.parse(player.duplicating(data.state, data.node)) as Added });
+      case "wording":
+        current(data.source);
+        return post({ type: "worded", id: data.id, worded: JSON.parse(player.wording(data.shape)) as Worded });
       case "grouping":
         current(data.source);
         return post({ type: "grouped", id: data.id, grouped: JSON.parse(player.grouping(data.state, data.nodes)) as Grouped });

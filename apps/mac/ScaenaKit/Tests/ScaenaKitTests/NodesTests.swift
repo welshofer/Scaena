@@ -92,3 +92,32 @@ import Testing
     #expect(typing.carets?.text == "Scaen")
 }
 #endif
+
+/// Words in a shape (PLAN 2.108), as the browser gives them: a star takes words; the patch that
+/// gives it some adds an empty text inside it, one step to undo, which its box then names and the
+/// pointer over which shows the star; and a shape that holds words gives them back with nothing to
+/// add.
+@Test func aShapeIsGivenWordsThatStandInsideIt() throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    editor.shown = "cover"
+    let session = editor.session
+    let n = try #require(try session.inserts().firstIndex { $0.label == "Shape · star" })
+    let star = try session.inserting(state: "cover", n: n, at: CGPoint(x: 1500, y: 700))
+    try editor.make(star.patch)
+    func shape() throws -> NodeBox { try #require(try session.boxes(state: "cover").first { $0.node == star.id }) }
+    let bare = try shape()
+    #expect(bare.takesWords == true && bare.words == nil)
+    let given = try session.wording(shape: star.id)
+    #expect(given.id == "\(star.id)-words" && given.patch.count == 1)
+    let before = try editor.make(given.patch)
+    #expect(try shape().words == given.id)
+    let outer = try shape().rect
+    let inner = try #require(try session.boxes(state: "cover").first { $0.node == given.id }).rect
+    #expect(inner[0] > outer[0] && inner[1] > outer[1], "inside the star")
+    #expect(inner[0] + inner[2] < outer[0] + outer[2] && inner[1] + inner[3] < outer[1] + outer[3], "inside the star")
+    let middle = CGPoint(x: inner[0] + inner[2] / 2, y: inner[1] + inner[3] / 2)
+    #expect(try session.boxes(state: "cover").under(middle) == star.id, "the pointer over the words shows the star")
+    #expect(try session.wording(shape: star.id).patch.isEmpty, "given back, nothing added")
+    editor.restore(before)
+    #expect(try shape().words == nil, "one step to undo")
+}

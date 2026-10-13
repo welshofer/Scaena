@@ -52,6 +52,7 @@ Errors:
    - In a stack, text, tables, and images size to their content, and shapes and charts share the rest (`size: { w: "fill" }` gives equal shares). A table takes its rows, so a total band after it sits a `gap` under its last row.
    - A container with `fill` draws a panel with its `radius`. SPEC §3.4 has the rules.
    - An icon is a shape: find one with `scaena icons <words> --json` (`icon_find`), then `add_node` a `shape` with its `path`, its `view` (`[0, 0, 256, 256]`), `"fill": "accent"`, and `"semantic": "decoration"` beside a card's heading. Icons on one view keep one weight beside each other, so give a row of them one size.
+   - Words on a shape (a callout, a badge, a step in a row of chevrons) are a text with `at: { parent: <shape> }` and no other key of `at`: the shape places it in the room inside it, centered and shrunk to fit, and it comes and goes with the shape. On an `accent` fill, give it `"style": { "color": "onAccent" }`. A shape holds one text, and a line or an arrow none (SPEC §3.4).
 4. **States.**
    - One state per click. Set `layout`, then only what changes: text, `kind`, `at`, `remove`. Group builds with `slide`.
    - A state tracks the one before it, so a new slide keeps the last slide's nodes on screen unless it lists them in `remove`. Or it may set `mode: "absolute"` and list everything it shows, which keeps each slide self-contained.

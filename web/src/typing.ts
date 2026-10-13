@@ -69,6 +69,9 @@ export interface Around {
   /** Whether focus gone to `to` keeps typing on: the inspector, which gives the characters
    * selected a look. */
   keeps(to: EventTarget | null): boolean;
+  /** Typing in `node` has stopped: a shape's words give what is selected back to their shape
+   * (PLAN 2.108). */
+  left?(node: string): void;
 }
 
 /** Characters selected in a text typed in: from `from` to `to`, Unicode scalar values, as
@@ -551,6 +554,7 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
    * made once it is (`finish`). */
   function leave() {
     if (!open) return;
+    const was = open.node;
     if (sending && carets && area.value !== carets.text) finishing = { now: open, value: area.value, end: area.selectionEnd, bounds };
     open = carets = read = undefined;
     on = goal = anchor = bounds = undefined;
@@ -560,6 +564,7 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     wake();
     tell();
     around.draw();
+    around.left?.(was);
   }
 
   /** Make what was typed since the last change one more, on the source as it stands: one at a

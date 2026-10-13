@@ -84,6 +84,11 @@ export interface NodeBox {
   /** Locked (PLAN 2.95): the node whose lock holds it, itself or what holds it. The canvas passes
    * over it, and moves, resizes, turns, and deletes nothing of it. */
   locked?: string;
+  /** A shape that takes words (PLAN 2.108): any but a line or an arrow. */
+  takesWords?: boolean;
+  /** The text that holds a shape's words (PLAN 2.108), which a click on them reaches as the shape
+   * and a double click types in. */
+  words?: string;
 }
 
 /** A map of canvas points, `[a, b, c, d, e, f]`: `x' = a·x + c·y + e`, `y' = b·x + d·y + f`. */
@@ -571,6 +576,13 @@ export interface Added {
   patch: unknown[];
 }
 
+/** The words of a shape to type in (PLAN 2.108): the text that holds them, and the patch that
+ * adds it where the shape holds none, empty where it does. */
+export interface Worded {
+  id: string;
+  patch: unknown[];
+}
+
 /** What a paste makes (PLAN 2.37): the copy of the node copied, where it lands, and the patch;
  * the copies of the others copied with it (PLAN 2.42); the files the clip carried that the
  * bundle lacked, now in it; and what the copies named that the theme lacks, each taken out of
@@ -929,6 +941,7 @@ export type ToWorker =
    * 2.48). */
   | { type: "drawing"; id: number; source: string; state: string; n: number; from: [number, number]; to: [number, number]; free: boolean; format?: string }
   | { type: "duplicating"; id: number; source: string; state: string; node: string; format?: string }
+  | { type: "wording"; id: number; source: string; shape: string }
   | { type: "deleting"; id: number; source: string; state: string; node: string; everywhere: boolean }
   /** The patch that puts `nodes`, children of one container as `state` shows them, in a new group
    * where they stand, on the deck the editor's `source` compiles to (PLAN 2.43). */
@@ -1634,6 +1647,8 @@ export type FromWorker =
   | { type: "layers"; id: number; layers: Layer[] }
   /** The patch that adds a node: an insert, or a copy. */
   | { type: "adding"; id: number; added: Added }
+  /** The words of a shape to type in, given it where it has none (PLAN 2.108). */
+  | { type: "worded"; id: number; worded: Worded }
   /** The patch that takes a node away. */
   | { type: "deleting"; id: number; patch: unknown[] }
   /** A node as the clipboard holds it, and what pasting a clip makes. */

@@ -727,6 +727,41 @@ fn a_texts_characters_take_a_look_a_link_and_a_list() {
     unsafe { scaena_session_free(s) };
 }
 
+/// Words in a shape (PLAN 2.108), as the browser gives them: a star's box says it takes words; the
+/// patch that gives it some adds a text, empty, inside it, which its box then names; and a shape
+/// that holds words gives them back with nothing to add.
+#[test]
+fn a_shape_is_given_words_as_the_browser_gives_them() {
+    let s = open(B1);
+    let offered = call(s, "inserts", Value::Null);
+    let n = offered.as_array().unwrap().iter().position(|i| i["label"] == "Shape · star").expect("a star is offered");
+    let added = call(s, "inserting", json!({ "state": "cover", "n": n, "x": 1500, "y": 700 }));
+    let id = added["id"].as_str().unwrap().to_string();
+    assert_eq!(tool(s, "deck_patch", json!({ "ops": added["patch"] }))["edited"], true);
+    let boxed = |s, node: &str| {
+        let boxes = call(s, "boxes", json!({ "state": "cover" }));
+        boxes.as_array().unwrap().iter().find(|b| b["node"] == node).cloned()
+    };
+    let shape = |s| boxed(s, &id).expect("the star stands on the slide");
+    assert_eq!(shape(s)["takesWords"], true);
+    assert_eq!(shape(s).get("words"), None);
+    let given = call(s, "wording", json!({ "shape": id }));
+    assert_eq!(given["id"], format!("{id}-words"), "{given}");
+    assert_eq!(tool(s, "deck_patch", json!({ "ops": given["patch"] }))["edited"], true);
+    assert_eq!(shape(s)["words"], format!("{id}-words"));
+    // Empty, the words stand inside the star all the same, where a caret goes in them.
+    let rect = |b: Value| -> Vec<f64> { b["rect"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect() };
+    let (outer, inner) = (rect(shape(s)), rect(boxed(s, &format!("{id}-words")).expect("the words have a box")));
+    assert!(inner[0] > outer[0] && inner[1] > outer[1], "{inner:?} in {outer:?}");
+    assert!(
+        inner[0] + inner[2] < outer[0] + outer[2] && inner[1] + inner[3] < outer[1] + outer[3],
+        "{inner:?} in {outer:?}"
+    );
+    let again = call(s, "wording", json!({ "shape": id }));
+    assert_eq!(again["patch"], json!([]), "{again}");
+    unsafe { scaena_session_free(s) };
+}
+
 /// Nodes added and taken away (PLAN 3.11), as the browser's Insert menu, ⌘D, and Delete make them
 /// (PLAN 2.34, 2.79): what is offered, inserted about a point and entering in the state shown;
 /// a copy beside a node; and a node taken out of the state and those after, or out of the deck.

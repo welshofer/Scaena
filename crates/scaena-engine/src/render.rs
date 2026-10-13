@@ -593,7 +593,18 @@ impl Engine {
         let at = props.get("at");
         let mut spec = text_spec(deck, theme, props, Grid::slot_role(theme, template, at).as_deref())
             .map_err(|e| in_node(id, e))?;
-        let (align_x, align_y) = Grid::alignment(theme, template, props).map_err(|e| in_node(id, e))?;
+        // Words in a shape (PLAN 2.108) stand in its middle and shrink to fit it, unless they say
+        // otherwise, off the theme's baseline grid, which the shape is not on.
+        let in_shape = props
+            .get("at")
+            .and_then(|at| at.get("parent"))
+            .and_then(Value::as_str)
+            .is_some_and(|p| deck.nodes.get(p).is_some_and(|n| n.node_type == NodeType::Shape));
+        let lines = if in_shape { None } else { lines };
+        let (align_x, align_y) = match props.get("align") {
+            None if in_shape => (AlignX::Center, AlignY::Center),
+            _ => Grid::alignment(theme, template, props).map_err(|e| in_node(id, e))?,
+        };
         spec.align = match align_x {
             AlignX::Start | AlignX::Stretch => TextAlign::Start,
             AlignX::Center => TextAlign::Center,
@@ -605,7 +616,11 @@ impl Engine {
         };
         // The text's own fit, else its slot's (theme format 0.13), else it wraps.
         let slot_fit = || Grid::slot(theme, template, props.get("at")).and_then(|slot| slot.fit);
-        let fit = typed_prop::<TextFit>(props, "fit")?.or_else(slot_fit).unwrap_or(TextFit::Wrap);
+        let fit = typed_prop::<TextFit>(props, "fit")?.or_else(slot_fit).unwrap_or(if in_shape {
+            TextFit::Shrink
+        } else {
+            TextFit::Wrap
+        });
         let number = |key: &str| props.get(key).and_then(Value::as_f64).map(|v| v as f32);
         let max_lines = props
             .get("maxLines")

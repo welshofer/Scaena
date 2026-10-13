@@ -1159,6 +1159,56 @@ pub(crate) fn copied_layouts(
     }
 }
 
+/// What gives a shape its words to type in (PLAN 2.108).
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct Worded {
+    /// The text that holds its words.
+    pub id: String,
+    /// What adds that text where the shape holds none: one `add_node`, the text going where the
+    /// shape goes. Empty where it holds its words already.
+    pub patch: Vec<Value>,
+}
+
+/// The words of shape `shape` (PLAN 2.108): the text it holds, or one new to it, `<shape>-words`,
+/// empty, in the `body` role and in the theme's color that reads on the shape's fill where the
+/// theme names one (`onAccent` on `accent`). It goes where the shape goes. Refused for a node
+/// that is no shape, and for a line or an arrow, which hold no words.
+pub fn wording(deck: &Deck, theme: &Theme, shape: &str) -> Result<Worded, OpsError> {
+    let node = deck.nodes.get(shape).ok_or_else(|| OpsError::new(format!("no node `{shape}`")))?;
+    if node.node_type != NodeType::Shape {
+        return Err(OpsError::new(format!("`{shape}` is no shape: only a shape holds words")));
+    }
+    if let Some(kind @ ("line" | "arrow")) = node.props.get("kind").and_then(Value::as_str) {
+        return Err(OpsError::new(format!("`{shape}` is a {kind}: a line or an arrow holds no words")));
+    }
+    let held = deck.nodes.iter().find(|(_, n)| scaena_core::tracking::words_of(deck, n) == Some(shape));
+    if let Some((id, _)) = held {
+        return Ok(Worded { id: id.clone(), patch: Vec::new() });
+    }
+    let taken: Vec<String> = deck.nodes.keys().cloned().collect();
+    let id = free_id(&taken, &format!("{shape}-words"));
+    let mut words = serde_json::json!({ "type": "text", "role": "body", "text": "", "at": { "parent": shape } });
+    if let Some(color) = reads_on(theme, node.props.get("fill")) {
+        words["style"] = serde_json::json!({ "color": color });
+    }
+    let patch = vec![serde_json::json!({ "op": "add_node", "id": id, "node": words })];
+    Ok(Worded { id, patch })
+}
+
+/// The theme's color role that reads on a fill of `fill`, where the theme names one: `onAccent`
+/// on `accent`.
+fn reads_on(theme: &Theme, fill: Option<&Value>) -> Option<String> {
+    let fill = match fill? {
+        Value::String(s) => s.as_str(),
+        Value::Object(o) => o.get("solid")?.as_str()?,
+        _ => return None,
+    };
+    let mut letters = fill.chars();
+    let first = letters.next()?;
+    let on = format!("on{}{}", first.to_uppercase(), letters.as_str());
+    theme.tokens.roles.contains_key(&on).then_some(on)
+}
+
 /// The first of `base`, `base-2`, `base-3`, … not in `taken`.
 pub(crate) fn free_id(taken: &[String], base: &str) -> String {
     (1..)
@@ -1425,6 +1475,49 @@ mod tests {
             other => panic!("not a hide of `new`: {other:?}"),
         };
         hides.iter().map(state).collect()
+    }
+
+    #[test]
+    fn a_shape_is_given_words_that_go_where_it_goes() {
+        let theme = Theme::from_json(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();
+        let mut doc: Value = serde_json::from_str(REVENUE).unwrap();
+        let star = serde_json::json!({ "type": "shape", "kind": "polygon", "fill": "accent",
+            "points": [[0.5, 0], [1, 1], [0, 1]], "at": { "rect": [100, 100, 400, 300] } });
+        doc["nodes"]["star"] = star;
+        doc["nodes"]["rule"] = serde_json::json!({ "type": "shape", "kind": "line" });
+        doc["states"][1]["props"]["star"] = serde_json::json!({});
+        let deck = Deck::from_value(&doc).unwrap();
+        // A text new to it, empty, in the color that reads on the accent.
+        let given = wording(&deck, &theme, "star").unwrap();
+        assert_eq!(given.id, "star-words");
+        let words = serde_json::json!({ "type": "text", "role": "body", "text": "", "at": { "parent": "star" },
+            "style": { "color": "onAccent" } });
+        assert_eq!(given.patch, [serde_json::json!({ "op": "add_node", "id": "star-words", "node": words })]);
+        // Added, they are its words, in each state that shows it and no other.
+        struct Examples;
+        impl BundleFiles for Examples {
+            fn exists(&self, path: &str) -> bool {
+                std::path::Path::new("../../docs/examples").join(path).is_file()
+            }
+            fn read_text(&self, path: &str) -> Option<String> {
+                std::fs::read_to_string(std::path::Path::new("../../docs/examples").join(path)).ok()
+            }
+        }
+        let added = scaena_core::patch::compile(&doc, &given.patch, &Examples).unwrap();
+        let deck = Deck::from_value(&added.doc).unwrap();
+        assert_eq!(wording(&deck, &theme, "star").unwrap(), Worded { id: "star-words".into(), patch: Vec::new() });
+        let shown: Vec<String> = (scaena_core::resolve_states(&deck).unwrap().iter())
+            .filter(|s| s.nodes.contains_key("star-words"))
+            .map(|s| s.state_id.clone())
+            .collect();
+        let star: Vec<String> = (scaena_core::resolve_states(&deck).unwrap().iter())
+            .filter(|s| s.nodes.contains_key("star"))
+            .map(|s| s.state_id.clone())
+            .collect();
+        assert_eq!(shown, star);
+        // What is no shape, and a line, hold no words.
+        assert!(wording(&deck, &theme, "title").unwrap_err().to_string().contains("only a shape holds words"));
+        assert!(wording(&deck, &theme, "rule").unwrap_err().to_string().contains("a line or an arrow holds no words"));
     }
 
     #[test]
