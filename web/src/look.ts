@@ -126,6 +126,16 @@ function part(el: HTMLElement): { node: string; kind: string; says: string } {
       const rows = el.querySelectorAll("tr").length;
       return { node, kind: "table", says: `${label ? `${quoted(label)}, ` : ""}${rows} row${rows === 1 ? "" : "s"}` };
     }
+    case "DIV":
+      // A text whose paragraphs are a list's items (PLAN 2.69) reads as its list, item by item,
+      // each without the items under it; a figure is the `div` that is an image.
+      if (el.getAttribute("role") !== "img") {
+        const own = (li: Element) =>
+          [...li.childNodes].filter((n) => !(n instanceof HTMLElement && /^(UL|OL)$/.test(n.tagName))).map((n) => n.textContent ?? "").join("");
+        const items = [...el.querySelectorAll("li")].map((li) => own(li).trim()).filter(Boolean);
+        return { node, kind: "list", says: quoted(items.length ? items.join(" · ") : (el.textContent ?? "")) };
+      }
+      return { node, kind: "figure", says: label ? quoted(label) : "not described" };
     default:
       return { node, kind: "figure", says: label ? quoted(label) : "not described" };
   }
