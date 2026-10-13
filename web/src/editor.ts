@@ -1388,7 +1388,13 @@ async function edit(source: Source) {
     );
     void look.show(chosen, beside);
     const advance = cue && cue.hold > 0 ? `advances after ${seconds(cue.hold)}` : "advances on a click";
-    const transition = cue && cue.transition.duration > 0 ? `transition ${seconds(cue.transition.duration)}, Magic Move ${cue.transition.match === "id" ? "on" : "off"}` : "no transition";
+    const style = cue?.transition.style;
+    const transition =
+      cue && cue.transition.duration > 0
+        ? style
+          ? `${named(words, "transition/style", style)} transition ${seconds(cue.transition.duration)}, ${named(words, "transition/direction", cue.transition.direction ?? "left")}`
+          : `transition ${seconds(cue.transition.duration)}, Magic Move ${cue.transition.match === "id" ? "on" : "off"}`
+        : "no transition";
     listing.innerHTML = `
       <h2>${html(slideOf(found.state_id))}${found.layout ? ` · ${html(named(words, "layout", found.layout))}` : ""}</h2>
       ${cue ? `<p>Starts at ${seconds(cue.start)} · plays for ${seconds(cue.span)} · ${advance} · ${transition}</p>` : ""}

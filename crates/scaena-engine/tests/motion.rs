@@ -561,3 +561,71 @@ fn a_color_look_reaches_split_units() {
     );
     assert_ne!(first(&fx.dl("two", 200.0))[0], scaena_core::displaylist::Paint::Solid(accent));
 }
+
+#[test]
+fn a_slide_transition_moves_each_slide_whole() {
+    // Slide transitions (PLAN 2.111): the slide left, at rest, and the slide entered, each a layer
+    // with its own ground, nothing matched across them; the style moves, uncovers, or fades them.
+    let nodes = json!({ "a": text("Alpha", "case"), "b": text("Beta", "main") });
+    let deck_with = |transition: Value| {
+        let states = json!([
+            { "id": "one", "layout": "specimen", "props": { "a": {}, "b": {} } },
+            { "id": "two", "transition": transition, "remove": ["a"] }
+        ]);
+        Fx::new(deck(nodes.clone(), states), theme(|_| {}))
+    };
+    let linear = |style: &str, direction: Option<&str>| {
+        let mut t = json!({ "duration": 400, "ease": [0, 0, 1, 1], "style": style });
+        if let Some(d) = direction {
+            t["direction"] = json!(d);
+        }
+        t
+    };
+    // The two layers a quarter of the way through, each its transform, opacity, clip, and ops.
+    type Slid = ([f32; 6], f32, Option<scaena_core::displaylist::Path>, Vec<Op>);
+    let quarter = |fx: &mut Fx| -> [Slid; 2] {
+        let dl = fx.dl("two", 100.0);
+        let layers: Vec<Slid> = dl
+            .ops
+            .iter()
+            .map(|op| match op {
+                Op::Layer { node: None, transform, opacity, clip, ops, .. } => {
+                    (*transform, *opacity, clip.clone(), ops.clone())
+                }
+                other => panic!("a slide's layer, not {other:?}"),
+            })
+            .collect();
+        layers.try_into().unwrap_or_else(|l: Vec<Slid>| panic!("two layers, not {}", l.len()))
+    };
+    let holds =
+        |ops: &[Op], node: &str| ops.iter().any(|op| matches!(op, Op::Layer { node: Some(n), .. } if n == node));
+    let near = |a: f32, b: f32| (a - b).abs() < 0.01;
+
+    // Push, right to left: the slide left goes a quarter of the canvas left, the slide entered
+    // comes in from the right; each holds its own nodes, `b` in both, nothing morphing.
+    let mut fx = deck_with(linear("push", None));
+    let w = fx.dl("two", f64::INFINITY).viewport[0];
+    assert_eq!(fx.frame("two", f64::INFINITY).duration_ms, 400.0);
+    let [left, entered] = quarter(&mut fx);
+    assert!(near(left.0[4], -0.25 * w) && near(entered.0[4], 0.75 * w), "{:?} {:?}", left.0, entered.0);
+    assert!(holds(&left.3, "a") && holds(&left.3, "b") && !holds(&entered.3, "a") && holds(&entered.3, "b"));
+    assert_eq!((left.1, entered.1), (1.0, 1.0));
+    // Before it and once it ends, each slide as at rest.
+    assert_eq!(fx.dl("two", 0.0), fx.dl("one", f64::INFINITY));
+    assert_eq!(fx.dl("two", 400.0), fx.dl("two", f64::INFINITY));
+
+    // Move in from the top: the slide left stays; the slide entered comes down over it.
+    let [left, entered] = quarter(&mut deck_with(linear("cover", Some("down"))));
+    let h = fx.dl("two", f64::INFINITY).viewport[1];
+    assert!(near(left.0[5], 0.0) && near(entered.0[5], -0.75 * h), "{:?} {:?}", left.0, entered.0);
+    // Reveal, left to right: the slide entered lies still under the slide left, which goes right.
+    let [under, over] = quarter(&mut deck_with(linear("reveal", Some("right"))));
+    assert!(near(under.0[4], 0.0) && near(over.0[4], 0.25 * w) && holds(&over.3, "a"), "{:?}", over.0);
+    // Dissolve: the slide entered, a quarter opaque, over the slide left.
+    let [left, entered] = quarter(&mut deck_with(linear("dissolve", None)));
+    assert!(near(left.1, 1.0) && near(entered.1, 0.25) && left.0 == entered.0, "{} {}", left.1, entered.1);
+    // Wipe, bottom to top: the slide entered shows below an edge a quarter of the way up.
+    let [_, entered] = quarter(&mut deck_with(linear("wipe", Some("up"))));
+    let clip = entered.2.expect("a wipe clips the slide entered");
+    assert_eq!(clip, scaena_core::displaylist::Path::rect([0.0, 0.75 * h, w, 0.25 * h]));
+}

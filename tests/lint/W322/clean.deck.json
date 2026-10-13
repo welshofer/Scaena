@@ -1,6 +1,6 @@
 {
-  "scaena": "0.22",
-  "_comment": "W322 clean: the entrance in the state where the node enters.",
+  "scaena": "0.23",
+  "_comment": "W322 clean: the entrance in the state where the node enters; under a slide transition, every node enters.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",
   "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
@@ -9,6 +9,7 @@
   },
   "states": [
     {"id": "a", "layout": "full", "props": {"t": {}}, "choreography": [{"target": "t", "enter": "fade"}]},
-    {"id": "b", "layout": "full", "props": {"t": {"text": "Then changes"}}}
+    {"id": "b", "layout": "full", "props": {"t": {"text": "Then changes"}}},
+    {"id": "c", "layout": "full", "transition": {"style": "dissolve"}, "props": {"t": {"text": "And again"}}, "choreography": [{"target": "t", "enter": "fade"}]}
   ]
 }

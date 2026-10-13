@@ -1569,7 +1569,8 @@ export interface Cue {
   start: number;
   span: number;
   hold: number;
-  transition: { duration: number; match: string; curve: Curve };
+  /** Its transition; `style` and `direction` where it is a slide transition (PLAN 2.111). */
+  transition: { duration: number; match: string; curve: Curve; style?: string; direction?: string };
   motions: Motion[];
 }
 

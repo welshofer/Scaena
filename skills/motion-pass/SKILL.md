@@ -32,7 +32,7 @@ The theme names what you may use, under `motion` in the theme file the deck name
 2. **Transitions.** A state without `transition` cuts.
    - The forms are a duration, by name or in ms (`"transition": "fast"`); `{ "duration", "ease" }`; or a spring (`{ "spring": "snappy" }`). A spring's name alone is not a duration, and is E102.
    - Between states that share nodes, the transition is the motion: give it `standard` or `slow` when the change is the point (a number that grows, a chart that moves to the next period, a word that changes).
-   - Between slides that share nothing, keep it `fast` or cut, and bring the new slide's content in after it (step 4). Then the old slide clears before the new one builds.
+   - Between slides that share nothing, keep it `fast` or cut, and bring the new slide's content in after it (step 4). Then the old slide clears before the new one builds. Or give it a slide transition, which moves each slide whole rather than fading words under words: `{ "style": "push", "duration": "standard" }`, or `dissolve`, `cover`, `reveal`, or `wipe`, each with a `direction` (SPEC §3.9). Keep one style through a deck, for the turns between sections.
 3. **Entrances and exits.**
    - At most one `enter` per object that enters, from the theme's presets. An `exit` (from the state the node leaves) moves it out.
    - A node's own `enter` and `exit` run with the transition. A choreography item runs after it unless it says `timing: "with"`.

@@ -68,6 +68,8 @@ pub const LABELS: &[(&str, &str)] = &[
     ("transition/ease", "Easing"),
     ("transition/spring", "Spring"),
     ("transition/match", "Magic Move"),
+    ("transition/style", "Transition"),
+    ("transition/direction", "Direction"),
     ("hold", "Advance"),
     ("notes", "Presenter Notes"),
 ];
@@ -104,6 +106,15 @@ pub const WORDS: &[(&str, &str, &str)] = &[
     ("style/case", "smallcaps", "Small Caps"),
     ("transition/match", "id", "On"),
     ("transition/match", "none", "Off"),
+    ("transition/style", "dissolve", "Dissolve"),
+    ("transition/style", "push", "Push"),
+    ("transition/style", "cover", "Move In"),
+    ("transition/style", "reveal", "Reveal"),
+    ("transition/style", "wipe", "Wipe"),
+    ("transition/direction", "left", "Right to Left"),
+    ("transition/direction", "right", "Left to Right"),
+    ("transition/direction", "up", "Bottom to Top"),
+    ("transition/direction", "down", "Top to Bottom"),
     ("axis", "x", "Across"),
     ("axis", "y", "Down"),
     ("labels/show", "auto", "Automatic"),
@@ -618,6 +629,14 @@ pub fn lexicon(deck: &Deck, theme: &Theme, state: &str) -> Result<Lexicon, Strin
             said.insert(name, words);
         }
         names.insert(key, said);
+    }
+    // A slide transition's style and the way it moves, as the inspector says them (PLAN 2.111).
+    for prop in ["transition/style", "transition/direction"] {
+        let mut said = BTreeMap::new();
+        for (_, word, words) in WORDS.iter().filter(|(p, _, _)| *p == prop) {
+            said.insert(word.to_string(), words.to_string());
+        }
+        names.insert(prop.to_string(), said);
     }
     let mut motions = BTreeMap::new();
     for kind in ["enter", "exit", "emphasis", "anim"] {
