@@ -3586,7 +3586,7 @@ mod tests {
     fn a_chart_pressed_where_one_was_deleted_fills_its_place() {
         let mut s = revenue();
         let by = assistant::Caller { author: "user", at: None };
-        let gone = s.deleting("revenue", "rev", false).unwrap();
+        let gone = s.deleting("revenue", &["rev"], false).unwrap();
         s.tool("deck_patch", serde_json::json!({ "ops": gone }), by).unwrap();
         let slots = s.targets("revenue", "title").unwrap().slots.clone();
         let main = slots.iter().find(|(name, _)| name == "main").unwrap().1;
