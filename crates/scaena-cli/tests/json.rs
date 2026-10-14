@@ -426,6 +426,11 @@ fn inspect_says_what_may_be_inserted() {
         (&shader["start"]["slot"], &shader["node"]["z"]),
         (&serde_json::json!("canvas"), &serde_json::json!(-1))
     );
+    // A picture in its own proportions, read from its header: the 480 × 240 test card at its own
+    // pixels, on the 1920 × 1080 canvas.
+    let card = offered.iter().find(|i| i["node"]["src"] == "assets/test-card.png").unwrap();
+    let [w, h] = ["w", "h"].map(|s| card["start"]["box"][s].as_f64().unwrap());
+    assert!((w * 1920.0 - 480.0).abs() < 0.01 && (h * 1080.0 - 240.0).abs() < 0.01, "{card:#}");
 
     // It says what may be inserted in a state.
     assert_eq!(scaena(&["inspect", TORTURE, "--inserts"]).status.code(), Some(2));

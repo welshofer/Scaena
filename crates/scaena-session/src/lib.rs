@@ -1445,6 +1445,14 @@ impl Session {
                     [deck.canvas.width as f32, deck.canvas.height as f32]
                 };
                 let point = [at[0] / ow * w, at[1] / oh * h];
+                // As large there, in canvas units, as here, so a picture keeps its proportions:
+                // shares of that canvas, as much smaller as it takes to fit.
+                let mut insert = insert.clone();
+                if let scaena_core::inserts::Start::Box { w: bw, h: bh } = &mut insert.start {
+                    let [sw, sh] = [*bw * ow / w, *bh * oh / h];
+                    let fit = 1f32.min(1.0 / sw).min(1.0 / sh);
+                    (*bw, *bh) = (sw * fit, sh * fit);
+                }
                 let placed = s.inserting_here(state, &insert, point, named)?.patch.into_iter();
                 // A place there that is the one it has here, a slot that goes where the formats
                 // put it, is none of its own.
@@ -3599,10 +3607,6 @@ mod tests {
             .collect()
     }
 
-    /// A chart or a table fills a slot that waits for a figure, as a placeholder takes what is put
-    /// on it: placed in the slot, so it goes where the slot goes, in another theme too. Dropped on
-    /// a Chart slide's placeholder, the chart fills it, and re-themed in Ember, where the note
-    /// stands beside the slot, nothing lies over it.
     /// A chart deleted from its slide, and a chart of its data pressed into the figure's place it
     /// left: it fills the slot, at its size, as the browser's walk has it (web/insert.mjs).
     #[cfg(feature = "editor")]
@@ -3621,6 +3625,10 @@ mod tests {
         assert_eq!(added.cell, main);
     }
 
+    /// A chart or a table fills a slot that waits for a figure, as a placeholder takes what is put
+    /// on it: placed in the slot, so it goes where the slot goes, in another theme too. Dropped on
+    /// a Chart slide's placeholder, the chart fills it, and re-themed in Ember, where the note
+    /// stands beside the slot, nothing lies over it.
     #[cfg(feature = "editor")]
     #[test]
     fn a_chart_or_a_table_fills_the_slot_that_waits_for_it() {
@@ -3695,6 +3703,17 @@ mod tests {
         let [_, _, w, h] = added.cell;
         assert!((w / h / 1.5 - 1.0).abs() <= 0.05, "1500 × 1000 lands {w} × {h}");
         assert!(added.patch[1]["at"].get("col").is_some(), "on the grid: {:?}", added.patch);
+
+        // Put on the chart, it takes a place of its own in 9:16, where the chart fills the slide:
+        // there too in its own proportions.
+        let added = s.inserting("revenue", image, [1400.0, 500.0], None).unwrap();
+        let tall = added.patch.iter().find(|op| op["op"] == "place" && op["format"] == "9:16");
+        assert!(tall.is_some(), "a place of its own in 9:16: {:?}", added.patch);
+        let by = assistant::Caller { author: "user", at: None };
+        s.tool("deck_patch", serde_json::json!({ "ops": added.patch }), by).unwrap();
+        s.set_format(Some("9:16")).unwrap();
+        let [_, _, w, h] = s.boxes("revenue").unwrap().into_iter().find(|b| b.node == added.id).unwrap().rect;
+        assert!((w / h / 1.5 - 1.0).abs() <= 0.05, "in 9:16, 1500 × 1000 lands {w} × {h}");
     }
 
     /// A deck with no data inserts a chart and a table all the same, of a few rows made up for
@@ -3808,8 +3827,8 @@ mod tests {
         }
     }
 
-    /// A diagram drawn from a text inserted at its own two rows takes the rows its boxes need to
-    /// hold their words: lint finds none too small to fit (PLAN 2.110).
+    /// A hierarchy or a cycle drawn from a text inserted at its own two rows takes the rows its
+    /// boxes need to hold their words: lint finds none too small to fit (PLAN 2.110).
     #[cfg(feature = "editor")]
     #[test]
     fn a_diagram_takes_the_room_its_words_need() {
@@ -3833,6 +3852,27 @@ mod tests {
         let boxes = s.boxes(&state).unwrap();
         let line = s.theme.typography.roles["body"].size * s.theme.typography.roles["body"].leading;
         for id in ["body-hierarchy-1", "body-hierarchy-2", "body-hierarchy-3"] {
+            let rect = boxes.iter().find(|b| b.node == id).unwrap().rect;
+            assert!(f64::from(rect[3]) >= 2.0 * line - 0.5, "{id} two lines tall: {rect:?}");
+        }
+        assert_eq!(found(&mut s, &state, &["W203", "E100"]), Vec::<serde_json::Value>::new());
+
+        // A cycle of four steps from a text at its own two rows, the same.
+        let blank = s.starting(&state, None).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": blank.patch }), by).unwrap();
+        let state = blank.id;
+        let body = s.inserts().iter().position(|i| i.label == "Text · body").unwrap();
+        let added = s.inserting(&state, body, [960.0, 540.0], None).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": added.patch }), by).unwrap();
+        let text = serde_json::json!([
+            { "op": "replace", "path": format!("/nodes/{}/text", added.id), "value": "Research\nDesign\nBuild\nLaunch" }
+        ]);
+        s.tool("deck_patch", serde_json::json!({ "ops": text }), by).unwrap();
+        let made = s.diagramming(&state, &added.id, scaena_ops::diagrams::Diagram::Cycle).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": made.patch }), by).unwrap();
+        let boxes = s.boxes(&state).unwrap();
+        for k in 1..=4 {
+            let id = format!("{}-{k}", made.id);
             let rect = boxes.iter().find(|b| b.node == id).unwrap().rect;
             assert!(f64::from(rect[3]) >= 2.0 * line - 0.5, "{id} two lines tall: {rect:?}");
         }

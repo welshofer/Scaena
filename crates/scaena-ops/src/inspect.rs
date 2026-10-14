@@ -555,7 +555,16 @@ pub fn inspect(b: &Bundle, state: Option<&str>, views: Views) -> Result<Vec<Insp
     // list of the bundle's files.
     if let (true, Some(theme)) = (views.inserts, &theme) {
         let paths = b.files.list().context("the bundle's files")?;
-        let offered = inserts(&b.deck, theme, &paths, &files);
+        // A picture is offered in its own proportions, which its header gives, as an editor's
+        // session offers it.
+        let mut read = files.clone();
+        let view = crate::lint::View::of(b);
+        for path in paths.iter().filter(|p| scaena_core::inserts::picture(p)) {
+            if let Ok(bytes) = view.read(path) {
+                read.insert(path.clone(), bytes);
+            }
+        }
+        let offered = inserts(&b.deck, theme, &paths, &read);
         out.iter_mut().for_each(|i| i.inserts = Some(offered.clone()));
     }
     // The layouts a state may take are judged by lint, which reads the bundle's files.

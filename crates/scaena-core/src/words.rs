@@ -814,8 +814,9 @@ pub fn choices(choices: &mut Choices, deck: &Deck, theme: &Theme) {
 }
 
 /// A chart's channel as a presentation app labels it on a chart of `kind`: a donut's categories
-/// are its Slices and its values their Sizes; bars that run across name their categories down the
-/// side and their values across (PLAN 1.29). None where [`LABELS`] says it.
+/// are its Slices and their sizes its Values, as the Mac says them; bars that run across name
+/// their categories down the side and their values across (PLAN 1.29). None where [`LABELS`]
+/// says it.
 pub fn channel(prop: &str, kind: Option<&str>, horizontal: bool) -> Option<&'static str> {
     let horizontal = horizontal && matches!(kind, Some("bar" | "stackedBar"));
     CHANNELS
@@ -829,8 +830,8 @@ pub fn channel(prop: &str, kind: Option<&str>, horizontal: bool) -> Option<&'sta
 pub const CHANNELS: &[(&str, &str, &str)] = &[
     ("donut", "x/field", "Slices"),
     ("donut", "x/type", "Slices Are"),
-    ("donut", "y/field", "Sizes"),
-    ("donut", "y/type", "Sizes Are"),
+    ("donut", "y/field", "Values"),
+    ("donut", "y/type", "Values Are"),
     ("across", "x/field", "Down the Side"),
     ("across", "x/type", "Down the Side Are"),
     ("across", "y/field", "Across"),
@@ -1112,7 +1113,7 @@ mod tests {
     #[test]
     fn a_charts_channels_are_said_by_its_kind() {
         assert_eq!(channel("x/field", Some("donut"), false), Some("Slices"));
-        assert_eq!(channel("y/field", Some("donut"), false), Some("Sizes"));
+        assert_eq!(channel("y/field", Some("donut"), false), Some("Values"));
         assert_eq!(channel("x/field", Some("bar"), true), Some("Down the Side"));
         assert_eq!(channel("y/field", Some("bar"), true), Some("Across"));
         assert_eq!(channel("x/field", Some("bar"), false), None, "LABELS says it: Across");

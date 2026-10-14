@@ -879,5 +879,6 @@ fn a_shapes_words_show_themselves_centered() {
     doc["states"][1]["props"]["star"] = json!({});
     let words = field(&offered(&doc, "revenue", "star-words"), "align/x").clone();
     assert_eq!((words.value, words.theme), (None, Some(json!("center"))));
-    assert_eq!(field(&offered(&doc, "revenue", "title"), "align/x").theme, None);
+    // A text of its own shows where its slot sets its lines: from their start (PLAN 3.25).
+    assert_eq!(field(&offered(&doc, "revenue", "title"), "align/x").theme, Some(json!("start")));
 }

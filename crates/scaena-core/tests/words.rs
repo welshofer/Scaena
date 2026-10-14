@@ -32,6 +32,11 @@ fn table(rust: &[(&str, &str)]) -> BTreeSet<(String, String)> {
 fn the_mac_labels_each_property_as_the_browser_does() {
     let swift = dictionary(between(WORDS_SWIFT, "private static let labels", "]\n"));
     assert_eq!(swift, table(words::LABELS));
+    // A donut's channels, as its kind reads them: Slices and Values.
+    let donut = dictionary(between(WORDS_SWIFT, "private static let donut", "]\n"));
+    let rust: Vec<(&str, &str)> =
+        words::CHANNELS.iter().filter(|(kind, ..)| *kind == "donut").map(|(_, prop, said)| (*prop, *said)).collect();
+    assert_eq!(donut, table(&rust));
 }
 
 #[test]

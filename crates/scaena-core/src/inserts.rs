@@ -203,7 +203,6 @@ pub fn inserts_on(
             sample: None,
         });
     }
-    let picture = |p: &str| [".png", ".jpg", ".jpeg"].iter().any(|e| p.to_ascii_lowercase().ends_with(e));
     for path in files.iter().filter(|p| picture(p)) {
         let name = path.rsplit('/').next().unwrap_or(path);
         let stem = name.rsplit_once('.').map_or(name, |(stem, _)| stem);
@@ -276,6 +275,11 @@ pub fn inserts_on(
         });
     }
     out
+}
+
+/// Whether the bundle's file at `path` is a picture Insert offers: a PNG or a JPEG.
+pub fn picture(path: &str) -> bool {
+    [".png", ".jpg", ".jpeg"].iter().any(|e| path.to_ascii_lowercase().ends_with(e))
 }
 
 /// The roles `theme` sets only a chart's or a table's text in: each its `charts` and `tables` name

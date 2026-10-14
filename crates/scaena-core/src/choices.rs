@@ -400,7 +400,7 @@ pub fn choices(
             role_gives(theme, role, prop)
                 .or_else(|| slot_gives(theme, layout, shown.get("at"), prop))
                 .or_else(|| words.then(|| Value::from("center")))
-                .or_else(|| aligned(deck, theme, layout, &shown, prop))
+                .or_else(|| aligned(theme, layout, &shown, prop))
         };
         let theme = (node_type == NodeType::Text).then(gives).flatten();
         Some(Field { prop: prop.into(), takes, value: value.cloned(), lives, literal, theme, words: None })
@@ -439,18 +439,15 @@ fn slot_gives(theme: &Theme, layout: Option<&str>, at: Option<&Value>, prop: &st
 }
 
 /// Where a text's lines stand across its box where nothing in the deck says (`align/x`), as the
-/// engine sets them: as the slot it is placed in in `layout` aligns them, else from their start; in
-/// a shape, in its middle (PLAN 2.108). None for any other property.
-fn aligned(deck: &Deck, theme: &Theme, layout: Option<&str>, shown: &Props, prop: &str) -> Option<Value> {
+/// engine sets them: as the slot it is placed in in `layout` aligns them, else from their start
+/// (PLAN 3.25). A shape's words, which stand in its middle, are said before this is asked. None for
+/// any other property.
+fn aligned(theme: &Theme, layout: Option<&str>, shown: &Props, prop: &str) -> Option<Value> {
     if prop != "align/x" {
         return None;
     }
     let at = shown.get("at");
-    let parent = at.and_then(|a| a.get("parent")).and_then(Value::as_str);
-    if parent.and_then(|p| deck.nodes.get(p)).is_some_and(|n| n.node_type == NodeType::Shape) {
-        return Some(Value::from("center"));
-    }
-    let slot = at.and_then(|a| a.get("in")).and_then(Value::as_str).filter(|_| parent.is_none());
+    let slot = at.filter(|a| a.get("parent").is_none()).and_then(|a| a.get("in")).and_then(Value::as_str);
     let align = slot.and_then(|s| theme.layouts.get(layout?)?.slots.get(s)?.align.as_ref());
     let x = match align {
         Some(crate::model::values::Align::Both(x)) => Some(*x),
@@ -465,7 +462,8 @@ fn aligned(deck: &Deck, theme: &Theme, layout: Option<&str>, shown: &Props, prop
 /// Whether a chart of `kind`, its other props as `shown` gives them, can be drawn from `table`, as
 /// validation (E103) and the chart's layout judge it: a scatter's `x` reads numbers or dates; a
 /// donut keys each slice by its `x` (or `key`) alone, so those tell its rows apart; a slope compares
-/// two of its `x`'s values; and a range spans a series or each value's interval.
+/// two of its `x`'s values; and a range spans the series its `series` or `color` gives, or each
+/// value's `interval`.
 fn makes(kind: &str, table: &data::Table, shown: &Props) -> bool {
     let field = |c: &str| shown.get(c).and_then(|e| e.get("field")).and_then(Value::as_str);
     let column = |c: &str| field(c).and_then(|f| table.column(f));
@@ -480,7 +478,7 @@ fn makes(kind: &str, table: &data::Table, shown: &Props) -> bool {
             drawn().all(|row| seen.insert((panel.map(|p| row[p].label()), row[by].label())))
         }
         "slope" => crate::sort::set(drawn().map(|row| row[x].label())).len() == 2,
-        "range" => field("series").is_some() || shown.contains_key("interval"),
+        "range" => ["series", "color", "interval"].iter().any(|p| shown.contains_key(*p)),
         _ => true,
     }
 }
