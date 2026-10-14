@@ -70,5 +70,6 @@ private func differ(_ a: ScaenaSession.Pixels, _ b: ScaenaSession.Pixels) -> (fo
     #expect(editor.source == source)
     let other = try #require(footed.footing(to: " Board "))
     try editor.make(other)
-    #expect(editor.source.contains("footer: \"Board\""))
+    // The footer is the words trimmed, however the source writes them: one word goes unquoted.
+    #expect(try editor.session.stateChoices(state: "mix").furniture?.footer == "Board")
 }
