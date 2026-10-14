@@ -178,6 +178,8 @@ try {
   await page.locator("#overlay").focus();
   await page.keyboard.press("Control+z");
   check(await back(original), "one undo takes it back");
+  await page.selectOption("#state", "images");
+  await page.waitForFunction(() => window.scaena.canvas.boxed() === "images", null, { timeout: 30000 }).catch(() => {});
 
   // A picture its box shows as it is, filled: its focal point changes nothing, so no handle for it
   // stands in its middle, and a drag from its middle moves the picture.
