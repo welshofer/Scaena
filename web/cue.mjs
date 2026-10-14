@@ -39,6 +39,13 @@ try {
   const status = () => page.evaluate(() => document.querySelector("#status").textContent);
   const bars = () => page.evaluate(() => window.scaena.cue.bars());
   const bar = async (key) => (await bars()).find((b) => b.key === key);
+  /** Whether the cue draws the bar `key` within a while: the lanes are drawn from a timeline the
+   * worker reads once the source has made its trip, which a busy machine answers late. */
+  const barred = (key) =>
+    page.waitForFunction((k) => window.scaena.cue.bars().some((b) => b.key === k), key, { timeout: 30000, polling: 50 }).then(
+      () => true,
+      () => false,
+    );
   const trips = () => page.evaluate(() => window.scaena.trips().length);
   /** Once the status says `what`. */
   const says = (what) =>
@@ -227,7 +234,7 @@ try {
   await page.locator("#cue [data-add]").selectOption('["enter","bg","fade"]');
   check(await says("Fade added to") && (await status()).includes("as it enters"), `the menu adds a fade as the backdrop enters: ${await status()}`);
   await redrawn(n);
-  check((await bar("bg enter")) !== undefined, "and the cue has its bar");
+  check(await barred("bg enter"), "and the cue has its bar");
   await undo();
 
   // And the subtitle rises out as it leaves `intro`: the exit is written where it leaves from.
@@ -238,7 +245,7 @@ try {
   // A rise played out is said as a Build Out effect is: Sink.
   check(await says("Sink added to") && (await status()).includes("as it leaves"), `a rise as the subtitle leaves, said as Sink: ${await status()}`);
   await redrawn(n);
-  check((await bar("subtitle exit")) !== undefined, "the cue has its bar");
+  check(await barred("subtitle exit"), "the cue has its bar");
   const intro = (await source()).split("state revenue")[0];
   check(/subtitle[^\n]*exit:rise/.test(intro), "written in intro, which it leaves");
   await undo();
