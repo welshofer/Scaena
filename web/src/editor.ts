@@ -165,7 +165,7 @@ function reshown(before: [string, number][], after: [string, number][], index: n
   const at = (id: string | undefined) => after.findIndex(([state]) => state === id);
   if (at(before[index]?.[0]) >= 0) return at(before[index][0]);
   if (after.length < before.length) {
-    for (let i = index - 1; i >= 0; i--) if (at(before[i][0]) >= 0) return at(before[i][0]);
+    for (let i = Math.min(index, before.length) - 1; i >= 0; i--) if (at(before[i][0]) >= 0) return at(before[i][0]);
   }
   return Math.max(0, Math.min(index, after.length - 1));
 }
@@ -427,6 +427,11 @@ async function edit(source: Source, opened?: Stage) {
   const wholes: Linted[] = [];
   /** The state the preview and the inspector show, by index. */
   let shown = 0;
+  /** The states `shown` counts among: the table as it stood when the state was shown. A change
+   * drops from the table each state whose start it rewrote, until the source is compiled again,
+   * though it may put those states back as they were (an undo of a delete at two places far
+   * apart): the state shown is found again by its id here, not by its place in the table. */
+  let among: [string, number][] | undefined;
   /** The states shown so far, counted: a compile asked for before the last answers with the state the
    * worker showed then, and the one shown since stays. */
   let showings = 0;
@@ -1238,7 +1243,7 @@ async function edit(source: Source, opened?: Stage) {
         // then a redo back to the patch's source, compiles it again, even a redo made before
         // this answer comes. A patch taken meanwhile is the worker's after this, and stays.
         taken = undefined;
-        const [before, index] = [last?.states, shown];
+        const [before, index] = [among, shown];
         edited = await stage.edit(source, index, format());
         // The state shown stays shown by its id, wherever the edit put it; one taken out (an undo
         // of + Step) gives way to the state before it that stays, as its slide, not the next.
@@ -1258,7 +1263,7 @@ async function edit(source: Source, opened?: Stage) {
    * says, unless another was `moved` to since it was asked for. The findings, to mark in the
    * source. */
   function take(edited: Edited, source: string, read: number, moved = false): Finding[] {
-    const before = last?.states;
+    const before = among;
     last = edited;
     if (edited.valid) {
       // Each as a person counts it (PLAN 2.99): Slide 3, Slide 3, step 2.
@@ -1268,6 +1273,7 @@ async function edit(source: Source, opened?: Stage) {
       // A state picked since the edit was asked for, among the states before it: the same state
       // among those after it, wherever the edit put it.
       const picked = moved && before ? reshown(before, edited.states, shown) : shown;
+      among = edited.states;
       statesPicker.selectedIndex = shown;
       states.states(edited.slots, shown);
       // The strip's thumbnails as the deck opens, before every state is linted: each is painted
@@ -1457,6 +1463,7 @@ async function edit(source: Source, opened?: Stage) {
 
   async function show(index: number) {
     shown = index;
+    among = last?.states;
     showings++;
     statesPicker.selectedIndex = index;
     states.select(index);
