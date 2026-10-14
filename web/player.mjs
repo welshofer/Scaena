@@ -20,11 +20,16 @@
 //   deck waiting under it, a hold where it stood, and a key or a click brings the slide back; a
 //   slide's number then Return goes there, one the deck lacks said, 0 among them; L shows the laser
 //   where the pointer is over the slide; ? lists the keys.
+// - The end of the show (PLAN 2.120): going on past the last state turns the screen black and says
+//   the show has ended, the status too; ← shows the last slide again, and going on again, a click,
+//   or Escape leaves it, back on the last slide, and in fullscreen out of it.
 // - The presenter view follows the player, shows the state's notes (its beat's, where it has
 //   none), and steers it: on, back, and with End and Home to the last and the first; and its own
 //   presenter's keys steer the room's screen, its laser pointed from the slide it shows, and drawn
-//   on none of the room's black screen. At the last state it shows nothing as next. P again brings
-//   it to the front as it is, its clock running. Its notes scroll, long or short, and its buttons
+//   on none of the room's black screen. At the last state it shows nothing as next, and its → past
+//   it ends the room's show, which it says over its slide. Its timer pauses, runs on, and resets
+//   to 0:00, and the time of day stands beside it (PLAN 2.121). P again brings it to the front as
+//   it is, its clock running. Its notes scroll, long or short, and its buttons and its timer's
 //   stay in its window. With no player open, or once the player closes, it says so, and its
 //   buttons wait until one is.
 // - A link at rest shows a hand under the pointer.
@@ -268,6 +273,50 @@ try {
   await player.keyboard.press("?");
   await player.keyboard.press("Escape");
   check(!(await listed()).open, "and so does Escape");
+
+  // The end of the show (PLAN 2.120): → past the last state turns the screen black and says the
+  // show has ended; ← shows the last slide again; → again, a click, or Escape leaves it.
+  const ending = () =>
+    player.evaluate(() => {
+      const end = document.querySelector(".end");
+      return {
+        shown: !end.hidden,
+        color: getComputedStyle(end).backgroundColor,
+        words: end.textContent,
+        ended: window.scaena.ended(),
+        index: window.scaena.at().index,
+        status: document.querySelector("#status").textContent,
+      };
+    });
+  const last = slots.length - 1;
+  await player.keyboard.press("End");
+  await until(player, (last) => window.scaena.at().index === last && !window.scaena.at().playing, "End before the end of the show", last);
+  let end = await ending();
+  check(!end.shown && !end.ended, "the last state shows no end of the show");
+  await player.keyboard.press("ArrowRight");
+  end = await ending();
+  check(
+    end.shown && end.ended && end.color === "rgb(0, 0, 0)" && end.words.startsWith("The show has ended.") && end.index === last,
+    `→ past the last state shows the end of the show, the deck on the last under it: ${JSON.stringify(end)}`,
+  );
+  check(end.status.endsWith("end of the show"), `and the status says so: ${end.status}`);
+  await player.keyboard.press("ArrowLeft");
+  end = await ending();
+  check(!end.shown && !end.ended && end.index === last, `← shows the last slide again: ${JSON.stringify(end)}`);
+  await player.keyboard.press("ArrowRight");
+  check((await ending()).ended, "→ ends the show again");
+  await player.keyboard.press("ArrowRight");
+  end = await ending();
+  check(!end.shown && !end.ended && end.index === last && !end.status.endsWith("end of the show"), `and → again leaves it, on the last slide: ${JSON.stringify(end)}`);
+  await player.keyboard.press(" ");
+  check((await ending()).ended, "Space past the last ends the show too");
+  await player.mouse.click(960, 400);
+  end = await ending();
+  check(!end.ended && end.index === last, "a click on the end of the show leaves it");
+  await player.keyboard.press("ArrowRight");
+  await player.keyboard.press("Escape");
+  end = await ending();
+  check(!end.ended && end.index === last, "and so does Escape");
   await player.evaluate(() => window.scaena.seek(1));
 
   // The presenter view follows the player, shows the notes, and steers it.
@@ -285,6 +334,35 @@ try {
   check(followed, `the presenter view follows the player to ${states[1]}`);
   check((await presenter.textContent("#notes")) === notes(1), `it shows ${states[1]}'s notes, its beat's`);
   check((await presenter.textContent("#nextName")) === `Next: ${slots[2].said}`, `it shows ${states[2]} next, by its slide's number: ${await presenter.textContent("#nextName")}`);
+  // Its timer (PLAN 2.121): Pause stops it where it stands, Reset puts it back to 0:00, paused as it
+  // was, and Resume runs it on from there; the time of day stands beside it.
+  const timer = () => presenter.evaluate(() => window.scaena.timer());
+  const secondsOf = (shows) => shows.split(":").reduce((sum, part) => sum * 60 + Number(part), 0);
+  await presenter.waitForFunction(() => window.scaena.timer().shows !== "0:00", null, { timeout: 5000 }).catch(() => {});
+  await presenter.click("#pause");
+  const stopped = await timer();
+  await presenter.waitForTimeout(1500);
+  const stood = await timer();
+  check(
+    stopped.paused && secondsOf(stopped.shows) >= 1 && stood.shows === stopped.shows && (await presenter.textContent("#pause")) === "Resume",
+    `Pause stops the presenter view's timer where it stands, and offers Resume: ${stopped.shows}, then ${stood.shows}`,
+  );
+  await presenter.click("#reset");
+  const reset = await timer();
+  check(reset.shows === "0:00" && reset.paused, `Reset puts it back to 0:00, paused as it was: ${JSON.stringify(reset)}`);
+  await presenter.waitForTimeout(1200);
+  check((await timer()).shows === "0:00", "and it waits there");
+  await presenter.click("#pause");
+  await presenter.waitForFunction(() => window.scaena.timer().shows !== "0:00", null, { timeout: 5000 }).catch(() => {});
+  const resumed = await timer();
+  check(!resumed.paused && secondsOf(resumed.shows) >= 1 && secondsOf(resumed.shows) <= 3, `Resume runs it on from 0:00: ${resumed.shows}`);
+  // The time of day, as this machine's clock reads it: this minute, or the one before it where the
+  // minute turned between the view's tick and this read.
+  const day = await presenter.evaluate(() => {
+    const read = (ms) => new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    return { shown: window.scaena.timer().now, now: read(Date.now()), before: read(Date.now() - 1000) };
+  });
+  check(day.shown === day.now || day.shown === day.before, `the time of day stands beside it: ${JSON.stringify(day)}`);
   await presenter.click("#on");
   at = await until(player, () => window.scaena.at().index === 2, "the presenter view goes on");
   check(at.index === 2, `its ▶ steers the player on to ${states[2]}`);
@@ -306,6 +384,19 @@ try {
   };
   const atEnd = await nextShown(slots.length - 1);
   check(atEnd.name === "The end of the deck." && !atEnd.shown, `at the last state it says the deck ends there, and shows no slide as next: ${JSON.stringify(atEnd)}`);
+  // Its → past the last ends the room's show, and it says so over its slide; its ← brings the last
+  // slide back (PLAN 2.120).
+  await presenter.keyboard.press("ArrowRight");
+  const endedThere = await player.waitForFunction(() => window.scaena.ended(), null, { timeout: 5000 }).then(() => true, () => false);
+  const endSaid = await presenter
+    .waitForFunction(() => window.scaena.blanked(), null, { timeout: 5000 })
+    .then((h) => h.jsonValue(), () => null);
+  check(endedThere && endSaid?.startsWith("The room sees the end of the show"), `its → past the last ends the room's show, and it says so: ${endSaid}`);
+  await presenter.keyboard.press("ArrowLeft");
+  const backThere = await player.waitForFunction(() => !window.scaena.ended(), null, { timeout: 5000 }).then(() => true, () => false);
+  const unsaidEnd = await presenter.waitForFunction(() => window.scaena.blanked() === null, null, { timeout: 5000 }).then(() => true, () => false);
+  at = await player.evaluate(() => window.scaena.at());
+  check(backThere && unsaidEnd && at.index === slots.length - 1, "and its ← shows the room the last slide again, and says so no longer");
   await presenter.keyboard.press("Home");
   at = await until(player, () => window.scaena.at().index === 0, "the presenter view's Home", null, 2000);
   check(at.index === 0, `and its Home to ${states[0]}`);
@@ -410,7 +501,19 @@ try {
       Math.abs(centred.top - (centred.room - centred.height) / 2) <= 1 && centred.background === "rgb(0, 0, 0)",
       `in the middle of the screen, on black: ${JSON.stringify(centred)}`,
     );
-    await player.keyboard.press("f");
+    // At the end of the show, going on again leaves fullscreen, on the last slide (PLAN 2.120).
+    await player.keyboard.press("End");
+    await until(player, (last) => window.scaena.at().index === last && !window.scaena.at().playing, "End in fullscreen", slots.length - 1);
+    await player.keyboard.press("ArrowRight");
+    const endedFull = await player.evaluate(() => window.scaena.ended() && document.fullscreenElement !== null);
+    await player.keyboard.press("ArrowRight");
+    const left = await player.waitForFunction(() => document.fullscreenElement === null, null, { timeout: 5000 }).then(() => true, () => false);
+    at = await player.evaluate(() => window.scaena.at());
+    check(
+      endedFull && left && !(await player.evaluate(() => window.scaena.ended())) && at.index === slots.length - 1,
+      "in fullscreen, → past the last ends the show, and → again leaves fullscreen, on the last slide",
+    );
+    if (!left) await player.keyboard.press("f");
   }
   await player.close();
 
@@ -484,11 +587,14 @@ try {
     const seen = await longView.evaluate(() => {
       const bottom = (id) => Math.round(document.getElementById(id).getBoundingClientRect().bottom);
       const notes = document.querySelector("#notes");
-      return { height: innerHeight, back: bottom("back"), on: bottom("on"), notes: [notes.scrollHeight, notes.clientHeight] };
+      // The timer, its buttons, and the time of day, each inside the side column.
+      const side = document.querySelector("aside").getBoundingClientRect().right;
+      const clock = [...document.querySelector(".clock").children].map((e) => Math.round(e.getBoundingClientRect().right));
+      return { height: innerHeight, back: bottom("back"), on: bottom("on"), notes: [notes.scrollHeight, notes.clientHeight], side, clock };
     });
     check(
-      seen.back <= seen.height && seen.on <= seen.height && seen.notes[0] > seen.notes[1],
-      `at ${width} × ${height} the presenter view's notes scroll, and Back and Next stay in sight: ${JSON.stringify(seen)}`,
+      seen.back <= seen.height && seen.on <= seen.height && seen.notes[0] > seen.notes[1] && seen.clock.every((right) => right <= seen.side + 1),
+      `at ${width} × ${height} the presenter view's notes scroll, and Back and Next and the timer stay in sight: ${JSON.stringify(seen)}`,
     );
   }
   // The player closed, the view says so and its buttons wait; a player opened again, it follows.

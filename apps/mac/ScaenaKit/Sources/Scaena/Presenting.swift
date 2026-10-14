@@ -9,9 +9,11 @@ import SwiftUI
 #if os(macOS)
 /// The deck presented (PLAN 3.5): the stage fills the external display where there is one, and
 /// this one where there is not; with an external display, the presenter's window takes this one:
-/// the state shown, the next, its notes, and the time since the deck began. It is paced as the
-/// browser's player paces a deck (`Show`, PLAN 2.2): → ↓ Page Down Space Return and a click go on,
-/// ← ↑ Page Up Delete go back, Home and End go to the first and the last state, and Escape ends.
+/// the state shown, the next, its notes, a timer that pauses and resets, and the time of day
+/// (PLAN 2.121). It is paced as the browser's player paces a deck (`Show`, PLAN 2.2): → ↓ Page
+/// Down Space Return and a click go on, ← ↑ Page Up Delete go back, Home and End go to the first
+/// and the last state, and Escape ends. Going on past the last state, a black screen says the show
+/// has ended, and going on again ends it, as Keynote's and PowerPoint's do (PLAN 2.120).
 /// A state that holds goes on by itself once its cue and its hold are over. A click on a link at
 /// rest follows it (PLAN 2.70): a state is shown, a web address opens in the browser. The
 /// presenter's keys are the browser's player's (PLAN 2.105): B or . a black screen and W or , a
@@ -284,6 +286,8 @@ final class Showing {
     let editor: DeckEditor
     private(set) var show: Show
     let began = Date()
+    /// The presenter's timer (PLAN 2.121): the time since the show began, paused and reset there.
+    var stopwatch = Stopwatch()
     /// Ends the show: Escape's.
     @ObservationIgnored var ended: () -> Void = {}
     /// Whether the stage is on a display this one drives, so that this one shows the presenter's
@@ -310,9 +314,11 @@ final class Showing {
         show = Show(slots: editor.slots, from: state)
     }
 
-    /// Go on: a cue playing finishes, at rest the next state's plays.
+    /// Go on: a cue playing finishes, at rest the next state's plays; past the last, the show is
+    /// over, and on from there ends it (PLAN 2.120).
     func on() {
         if uncovered() { return }
+        if show.over { return ended() }
         let finishing = show.playhead.playing
         holding?.cancel()
         show.on()
@@ -506,9 +512,9 @@ final class Showing {
     }
 
     /// The link drawn at `location` on the stage, the state shown at rest: none while its cue
-    /// plays, as in the browser's player.
+    /// plays, as in the browser's player, nor once the show is over.
     private func link(at location: CGPoint, on stage: CGSize) -> LinkTarget? {
-        guard let slot = show.slot, !show.playhead.playing else { return nil }
+        guard let slot = show.slot, !show.playhead.playing, !show.over else { return nil }
         let size = self.size
         let scale = min(stage.width / max(size.width, 1), stage.height / max(size.height, 1))
         guard scale > 0 else { return nil }
@@ -557,9 +563,11 @@ final class Showing {
         return read
     }
 
-    /// Where the show is, for VoiceOver: "3 of 12", and "3 of 12, black screen" while it is.
+    /// Where the show is, for VoiceOver: "3 of 12", "3 of 12, black screen" while it is, and
+    /// "12 of 12, end of the show" once it is over.
     var progress: String {
         let at = "\(show.index + 1) of \(show.slots.count)"
+        if show.over { return "\(at), end of the show" }
         return show.blank.map { "\(at), \($0.rawValue) screen" } ?? at
     }
 }
@@ -666,7 +674,8 @@ private func plain(_ press: KeyPress) -> Bool {
 }
 
 /// The stage: the state shown, its cue played, on black; black or white while the presenter has
-/// it so, and the laser's dot where it points (PLAN 2.105).
+/// it so, and the laser's dot where it points (PLAN 2.105); and black, saying so, once the show is
+/// over (PLAN 2.120).
 struct StageView: View {
     let showing: Showing
     @FocusState private var focused: Bool
@@ -686,6 +695,8 @@ struct StageView: View {
             if let blank = showing.show.blank {
                 blank == .black ? Color.black : Color.white
             }
+            // Past the last slide: the show has ended, and says so.
+            if showing.show.over { ShowOver() }
         }
         .ignoresSafeArea()
         .overlay {
@@ -706,17 +717,17 @@ struct StageView: View {
                         #if !os(macOS)
                         .turns(showing) { showing.onSlide($0, in: geometry.size) }
                         #endif
-                    if let at = showing.pointer, showing.show.blank == nil {
+                    if let at = showing.pointer, showing.show.blank == nil, !showing.show.over {
                         Laser(across: min(geometry.size.width, geometry.size.height))
                             .position(showing.onStage(at, in: geometry.size))
                     }
                 }
             }
         }
-        // One element, read as the slide reads; VoiceOver's swipes up and down go on and back,
-        // and its escape ends the show.
+        // One element, read as the slide reads, or as the end of the show once it is over;
+        // VoiceOver's swipes up and down go on and back, and its escape ends the show.
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(showing.reading)
+        .accessibilityLabel(showing.show.over ? ShowOver.ended : showing.reading)
         .accessibilityValue(showing.progress)
         .accessibilityIdentifier("stage")
         .accessibilityAdjustableAction { direction in
@@ -740,6 +751,30 @@ struct StageView: View {
         .focused($focused)
         .paces(showing)
         .onAppear { focused = true }
+    }
+}
+
+/// The stage past the last slide (PLAN 2.120), as Keynote's and PowerPoint's end of show: black,
+/// saying the show has ended and how to leave it; going back shows the last slide.
+struct ShowOver: View {
+    static let ended = "The show has ended."
+    #if os(macOS)
+    private static let how = "Click to leave, or press ← for the last slide."
+    #else
+    private static let how = "Tap to leave, or swipe right for the last slide."
+    #endif
+
+    var body: some View {
+        ZStack {
+            Color.black
+            VStack(spacing: 12) {
+                Text(Self.ended).font(.title).foregroundStyle(.white)
+                Text(Self.how).font(.title3).foregroundStyle(.white.opacity(0.75))
+            }
+            .multilineTextAlignment(.center)
+            .padding(24)
+        }
+        .allowsHitTesting(false)
     }
 }
 
@@ -826,12 +861,14 @@ struct KeyList: View {
 }
 
 /// The presenter's view: the state shown as the audience sees it, the next at rest, the state's
-/// notes, where it is in the deck, and the time since the deck began. Side by side where it is
-/// wide; where it is tall, as an iPad held upright, the next and the notes under the state shown.
+/// notes, where it is in the deck, the time since the deck began, which Pause stops and runs on
+/// and Reset puts back to 0:00, and the time of day (PLAN 2.121). Side by side where it is wide;
+/// where it is tall, as an iPad held upright, the next and the notes under the state shown.
 /// A click or a tap on the state shown goes on, as one on the stage does; on the iPad, the stage's
 /// swipes and pinch work on it too, and End Show ends the show (PLAN 4.8). The presenter's keys
 /// say here what they do (PLAN 2.105): the room's screen black or white, said over the slide
 /// dimmed; the laser pointed from the slide here; a slide's number typed; and the keys, listed.
+/// The end of the show is said over the slide too (PLAN 2.120).
 struct PresenterView: View {
     let showing: Showing
     @FocusState private var focused: Bool
@@ -884,6 +921,8 @@ struct PresenterView: View {
                                         #endif
                                     if let blank = show.blank {
                                         Blanked(blank: blank)
+                                    } else if show.over {
+                                        Blanked(words: Blanked.over)
                                     }
                                     if let at = showing.pointer {
                                         Laser(across: min(shown.size.width, shown.size.height))
@@ -899,11 +938,34 @@ struct PresenterView: View {
                         .accessibilityAddTraits(.isButton)
                         .accessibilityAction { showing.on() }
                     }
-                    HStack {
+                    HStack(spacing: 12) {
                         Text(showing.progress)
                         Spacer()
+                        // The timer, paused and reset here, and beside it the time of day.
                         TimelineView(.periodic(from: .now, by: 1)) { context in
-                            Text(elapsed(at: context.date)).monospacedDigit()
+                            HStack(spacing: 12) {
+                                Text(showing.stopwatch.reads(at: context.date))
+                                    .monospacedDigit()
+                                    .foregroundStyle(showing.stopwatch.paused ? .secondary : .primary)
+                                    .accessibilityLabel("Timer")
+                                    .accessibilityValue(showing.stopwatch.reads(at: context.date))
+                                    .accessibilityIdentifier("timer")
+                                Button(showing.stopwatch.paused ? "Resume" : "Pause") {
+                                    showing.stopwatch.toggle()
+                                }
+                                .font(.body)
+                                .accessibilityIdentifier("pause-timer")
+                                Button("Reset") {
+                                    showing.stopwatch.reset()
+                                }
+                                .font(.body)
+                                .accessibilityIdentifier("reset-timer")
+                                Text(context.date, format: .dateTime.hour().minute())
+                                    .monospacedDigit()
+                                    .foregroundStyle(.secondary)
+                                    .accessibilityLabel("Time of day")
+                                    .accessibilityIdentifier("time-of-day")
+                            }
                         }
                     }
                     .font(.title2)
@@ -951,11 +1013,6 @@ struct PresenterView: View {
         }
     }
 
-    private func elapsed(at now: Date) -> String {
-        let seconds = max(Int(now.timeIntervalSince(showing.began)), 0)
-        return String(format: "%ld:%02ld", seconds / 60, seconds % 60)
-    }
-
     /// `location` on the slide shown here, `size` big, as fractions of it; none off it.
     static func fraction(_ location: CGPoint, of size: CGSize) -> CGPoint? {
         guard size.width > 0, size.height > 0 else { return nil }
@@ -964,19 +1021,30 @@ struct PresenterView: View {
     }
 }
 
-/// The presenter's slide while the room's screen is black or white (PLAN 2.105): dimmed, and said.
+/// The presenter's slide while the room's screen is black or white (PLAN 2.105), or the show is over
+/// (PLAN 2.120): dimmed, and said.
 struct Blanked: View {
-    let blank: Blank
+    let words: String
     #if os(macOS)
     private static let back = "A key or a click brings the slide back."
+    static let over = "The room sees the end of the show. A click or → leaves it, and ← shows the last slide."
     #else
     private static let back = "A key or a tap brings the slide back."
+    static let over = "The room sees the end of the show. A tap leaves it, and a swipe to the right shows the last slide."
     #endif
+
+    init(blank: Blank) {
+        words = "The room sees a \(blank.rawValue) screen. \(Self.back)"
+    }
+
+    init(words: String) {
+        self.words = words
+    }
 
     var body: some View {
         ZStack {
             Color.black.opacity(0.6)
-            Text("The room sees a \(blank.rawValue) screen. \(Self.back)")
+            Text(words)
                 .font(.title3)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.white)
