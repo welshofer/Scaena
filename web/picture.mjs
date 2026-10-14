@@ -229,6 +229,15 @@ try {
   await page.waitForFunction((id) => window.scaena.canvas.boxes()?.find((b) => b.node === id)?.locked, locked?.id, { timeout: 30000 }).catch(() => {});
   const lockedSource = await source();
   await page.evaluate((id) => window.scaena.canvas.select(id), locked?.id);
+  // The palette offers no picture to replace it.
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Control+k");
+  await page.waitForFunction(() => document.querySelector("#palette").open, null, { timeout: 10000 }).catch(() => {});
+  await page.keyboard.type("picture");
+  const offers = await page.evaluate(() => window.scaena.commands.shown());
+  check(offers.includes("Make a picture…") && !offers.includes("Make a picture to replace it…"), `the palette offers no picture in place of the one locked: ${offers.join(" · ")}`);
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => !document.querySelector("#palette").open, null, { timeout: 10000 }).catch(() => {});
   const elsewhere = await fromInsert();
   check(elsewhere.where === "It goes on this slide where you last clicked, square.", `the picture locked is not replaced, and the picture is framed square: ${elsewhere.where}`);
   await page.fill("#picturing-subject", "A brass compass");

@@ -4030,6 +4030,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     found: (findings: Finding[]) => pins.found(findings),
     /** The findings' marks shown, for a test. */
     marks: () => pins.shown(),
+    /** `node` as the canvas names it in a sentence, by the words of the state shown last asked
+     * for, for a test: “Revenue doubled”, the triangle. */
+    called,
     /** Select `node`, as a click on it does; nothing with `undefined`. */
     select,
     /** Select `nodes` at once, children of one container, as Shift+click and a marquee do. */

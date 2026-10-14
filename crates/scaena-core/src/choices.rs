@@ -313,12 +313,13 @@ pub fn choices(
         }
         // A shape's corners round where it is a rectangle, and it casts a shadow where it is a
         // rectangle or an oval (PLAN 2.115): a polygon of the library, a path, and a line draw
-        // neither.
-        let shape = node_type == NodeType::Shape;
-        if shape && prop == "radius" && kind != Some("rect") {
+        // neither. A shape of no kind draws as a rectangle, or as its path where it has one.
+        let drawn = (node_type == NodeType::Shape)
+            .then(|| kind.unwrap_or(if shown.contains_key("path") { "path" } else { "rect" }));
+        if prop == "radius" && drawn.is_some_and(|k| k != "rect") {
             return None;
         }
-        if shape && prop == "shadow" && !matches!(kind, Some("rect" | "ellipse")) {
+        if prop == "shadow" && drawn.is_some_and(|k| !matches!(k, "rect" | "ellipse")) {
             return None;
         }
         let takes = match source {

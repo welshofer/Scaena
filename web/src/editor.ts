@@ -1744,8 +1744,14 @@ async function edit(source: Source) {
         applies: () => one() && typeOf(picked()[0]) === "image",
         run: () => write("describe", picked()[0]),
       },
-      // A picture made by the user's image model in the image's place (PLAN 2.107).
-      { label: "Make a picture to replace it…", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "image", run: () => void picturing.open() },
+      // A picture made by the user's image model in the image's place (PLAN 2.107), unless a lock
+      // holds it (PLAN 2.95), which no picture replaces.
+      {
+        label: "Make a picture to replace it…",
+        where: ["node"],
+        applies: () => one() && typeOf(picked()[0]) === "image" && !board.lockedBy(picked()[0]),
+        run: () => void picturing.open(),
+      },
       // A lock (PLAN 2.95): the canvas passes over what is locked, and moves and deletes nothing of it.
       {
         label: any() && picked().every((n) => board.lockedBy(n) === n) ? "Unlock" : "Lock",
@@ -1864,11 +1870,12 @@ async function edit(source: Source) {
       ...inserts,
       icon,
       // A picture made by the user's image model (PLAN 2.107): in the slide's empty place for one,
-      // else where the pointer last pressed.
+      // else where the pointer last pressed; for an image selected, unless a lock holds it, the
+      // command that replaces it.
       {
         label: "Make a picture…",
         where: ["canvas"],
-        applies: () => ready() && !(picked().length === 1 && typeOf(picked()[0]) === "image"),
+        applies: () => ready() && !(picked().length === 1 && typeOf(picked()[0]) === "image" && !board.lockedBy(picked()[0])),
         run: () => void picturing.open(),
       },
       ...draws.map(
