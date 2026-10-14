@@ -65,6 +65,10 @@ pub struct ToolResult {
 pub enum Message {
     User {
         text: String,
+        /// A picture the question is about, a PNG in base64, shown before its words: the one a
+        /// description is asked of (PLAN 2.119).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        png: Option<String>,
     },
     Assistant {
         text: String,
@@ -102,7 +106,9 @@ pub fn recent(conversation: &[Message], frames: usize) -> Vec<Message> {
 }
 
 /// The request that asks a model `prompt` once, told `instructions`, with nothing to call: what a
-/// writing tool asks (PLAN 2.101, `scaena_core::writing`), `key` in its headers.
+/// writing tool asks (PLAN 2.101, `scaena_core::writing`), `key` in its headers; with `png`, a
+/// picture shown before the prompt, a PNG in base64, as Describe shows one (PLAN 2.119).
+#[allow(clippy::too_many_arguments)]
 pub fn once(
     provider: Provider,
     model: &str,
@@ -111,8 +117,9 @@ pub fn once(
     browser: bool,
     instructions: &str,
     prompt: &str,
+    png: Option<&str>,
 ) -> Request {
-    let messages = [Message::User { text: prompt.to_string() }];
+    let messages = [Message::User { text: prompt.to_string(), png: png.map(str::to_string) }];
     provider.turn(&Ask { model, key, base, system: instructions, tools: &[], messages: &messages, browser })
 }
 
@@ -169,7 +176,7 @@ impl Chat {
 
     /// Ask `text`, begun with what the editor shows ([`seen`]).
     pub fn ask(&mut self, text: &str) {
-        self.conversation.push(Message::User { text: text.to_string() });
+        self.conversation.push(Message::User { text: text.to_string(), png: None });
         self.taken = 0;
     }
 

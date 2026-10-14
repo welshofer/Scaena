@@ -85,13 +85,20 @@ struct Inspector: View {
                     FurnitureSection(furniture: furniture, make: make)
                 }
             }
-            if Writer.available, tab == .format, characters == nil, also.isEmpty {
+            // A picture is described by the assistant's model alone, which is shown it (PLAN 2.119).
+            let picture = choices?.type == "image"
+            if picture ? Writer.describes : Writer.available, tab == .format, characters == nil, also.isEmpty {
                 Section {
                     if let node = choices?.node {
                         if choices?.type == "text" {
                             Button("Proofread", systemImage: "checkmark.circle") { write(.proofread, node: node, in: state) }
                             Button("Tighten the Wording", systemImage: "sparkles") { write(.tighten, node: node, in: state) }
                             Button("Rewrite", systemImage: "wand.and.stars") { write(.rewrite, node: node, in: state) }
+                        } else if picture {
+                            Button("Describe the Picture", systemImage: "text.below.photo") {
+                                write(.describe, node: node, in: state)
+                            }
+                            .accessibilityIdentifier("describe-picture")
                         }
                     } else {
                         Button("Draft Presenter Notes", systemImage: "sparkles") { write(.notes, in: state) }
@@ -99,7 +106,9 @@ struct Inspector: View {
                 } header: {
                     Text("Writing")
                 } footer: {
-                    Text(OnDevice.available ? "Runs on this \(Words.device)" : "By the assistant's model, with your key")
+                    Text(
+                        OnDevice.available && !picture
+                            ? "Runs on this \(Words.device)" : "By the assistant's model, with your key")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }

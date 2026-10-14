@@ -10,6 +10,9 @@
 // - Draft Notes, with nothing selected, asks from the slide's words and its beat's claim, and
 //   writes the slide's notes.
 // - Explain, on a finding, says what it means for the slide, and only reads.
+// - Describe (PLAN 2.119), on the torture deck's black-and-white photo, shows the model the picture
+//   as the slide shows it, a PNG before the words, gray; Use it writes the picture's description,
+//   one patch; ⌘Z puts it back.
 //
 //   node web/writing.mjs     (after `just web`; from the repository's root)
 //
@@ -30,6 +33,7 @@ const ANSWERS = [
   ["You rewrite", "The business took a new shape this quarter."],
   ["You draft speaker notes", "Open on the quarter: the business changed shape, and the rest of the talk says how."],
   ["You explain", "The title's words run past the box its slot gives them. Shorten it, or let it shrink to fit."],
+  ["You describe a picture", "“A gray gradient, a dark block, and a lighter disc.”"],
 ];
 
 /** Anthropic's Messages API, scripted, on a port of its own: each request it took. */
@@ -180,6 +184,48 @@ try {
   check(/^Finding [EW]\d+ \((error|warning)\): /.test(why), `asked as the finding says it: ${JSON.stringify(why.split("\n")[0])}`);
   await page.click("#writing-leave");
   check(scripted.requests.length === 5, `one request for each of the five tools asked: ${scripted.requests.length}`);
+
+  // 7. Describe (PLAN 2.119): the picture as the slide shows it goes before the words.
+  await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&bundle=/tests/fixtures/torture.scaena/deck.json`);
+  await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
+  if ((await page.inputValue("#key").catch(() => "")) !== "writing-test-key") {
+    await page.selectOption("#provider", "anthropic");
+    await page.fill("#base", scripted.origin);
+    await page.fill("#key", "writing-test-key");
+    await page.waitForFunction(() => document.querySelector("#model").options.length > 0, null, { timeout: 30000 });
+  }
+  const index = await page.evaluate(() => window.scaena.opened.states.indexOf("adjust"));
+  const at = (await source()).indexOf("state adjust") + "state ".length;
+  await page.evaluate((offset) => window.scaena.cursor(offset), at);
+  await page.waitForFunction((i) => window.scaena.shown() === i, index, { timeout: 30000 });
+  await page.waitForFunction(() => window.scaena.canvas.boxed() === "adjust" && window.scaena.canvas.boxes().length > 0, null, { timeout: 30000 });
+  const tortured = await source();
+  await tool("describe", "adj-mono");
+  check(await answered("#writing-answer"), "Describe offers a description");
+  const described = await dialog();
+  check(described.title === "Description" && described.was === "The same picture in black and white.", `titled, with the description it has: ${described.title} · ${described.was}`);
+  check(described.answer === "A gray gradient, a dark block, and a lighter disc.", `the answer, its quotes off: ${described.answer}`);
+  const shown = scripted.requests.at(-1)?.body.messages?.[0]?.content ?? [];
+  check(shown[0]?.type === "image" && shown[0]?.source?.media_type === "image/png", `the picture goes first, a PNG: ${shown[0]?.type}`);
+  check(shown[1]?.text?.startsWith("Describe this picture. The slide it is on reads:"), `then the words: ${JSON.stringify(shown[1]?.text?.split("\n")[0])}`);
+  // As the slide shows it: in black and white.
+  const gray = await page.evaluate(async (data) => {
+    const bitmap = await createImageBitmap(new Blob([Uint8Array.from(atob(data), (c) => c.charCodeAt(0))], { type: "image/png" }));
+    const g = new OffscreenCanvas(bitmap.width, bitmap.height).getContext("2d");
+    g.drawImage(bitmap, 0, 0);
+    const px = g.getImageData(0, 0, bitmap.width, bitmap.height).data;
+    let most = 0;
+    for (let i = 0; i < px.length; i += 4) most = Math.max(most, Math.max(px[i], px[i + 1], px[i + 2]) - Math.min(px[i], px[i + 1], px[i + 2]));
+    return most;
+  }, shown[0]?.source?.data ?? "");
+  check(gray <= 2, `the picture as the slide shows it, in black and white: ${gray}`);
+  await page.click("#writing-use");
+  await page.evaluate(() => window.scaena.writing.settled());
+  check((await source()).includes("A gray gradient, a dark block, and a lighter disc."), "Use it writes the picture's description");
+  check((await status()).startsWith("Described the picture"), `and says so: ${await status()}`);
+  await page.focus("#tab-inspector");
+  await page.keyboard.press("Control+z");
+  check(await page.waitForFunction((o) => window.scaena.source() === o, tortured, { timeout: 10000 }).then(() => true, () => false), "one undo puts the description back");
 } finally {
   await browser.close();
   scripted.close();

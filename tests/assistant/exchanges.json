@@ -214,6 +214,50 @@
           ]
         }
       }
+    },
+    "picture": {
+      "request": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "headers": {
+          "anthropic-dangerous-direct-browser-access": "true",
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+          "x-api-key": "sk-test"
+        },
+        "body": {
+          "model": "a-model",
+          "max_tokens": 8192,
+          "system": [
+            {
+              "type": "text",
+              "text": "You describe a picture on a slide for someone who cannot see it.",
+              "cache_control": {
+                "type": "ephemeral"
+              }
+            }
+          ],
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "image",
+                  "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "Describe this picture. The slide it is on reads:\nTitle: Trails we rebuilt"
+                }
+              ]
+            }
+          ]
+        }
+      }
     }
   },
   "openai": {
@@ -392,6 +436,40 @@
             {
               "role": "user",
               "content": "We have made the decision to expand into three new markets this year"
+            }
+          ]
+        }
+      }
+    },
+    "picture": {
+      "request": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "headers": {
+          "authorization": "Bearer sk-test",
+          "content-type": "application/json"
+        },
+        "body": {
+          "model": "a-model",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You describe a picture on a slide for someone who cannot see it."
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "image_url",
+                  "image_url": {
+                    "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "Describe this picture. The slide it is on reads:\nTitle: Trails we rebuilt"
+                }
+              ]
             }
           ]
         }
@@ -615,6 +693,41 @@
               "parts": [
                 {
                   "text": "We have made the decision to expand into three new markets this year"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "picture": {
+      "request": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/a-model:generateContent",
+        "headers": {
+          "content-type": "application/json",
+          "x-goog-api-key": "sk-test"
+        },
+        "body": {
+          "systemInstruction": {
+            "parts": [
+              {
+                "text": "You describe a picture on a slide for someone who cannot see it."
+              }
+            ]
+          },
+          "contents": [
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "inlineData": {
+                    "mimeType": "image/png",
+                    "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+                  }
+                },
+                {
+                  "text": "Describe this picture. The slide it is on reads:\nTitle: Trails we rebuilt"
                 }
               ]
             }

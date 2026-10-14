@@ -346,5 +346,10 @@
   "once": {
     "system": "You tighten the words of one text on a slide: fewer words, the same meaning.",
     "prompt": "We have made the decision to expand into three new markets this year"
+  },
+  "picture": {
+    "system": "You describe a picture on a slide for someone who cannot see it.",
+    "prompt": "Describe this picture. The slide it is on reads:\nTitle: Trails we rebuilt",
+    "png": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
   }
 }

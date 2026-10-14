@@ -93,7 +93,8 @@ export async function ask(
 }
 
 /** Who writes: the provider, at its own address or at `base`, with the user's key, and the model
- * they picked; what it is told it does, `instructions`, and what it is asked, `prompt` (PLAN 2.101). */
+ * they picked; what it is told it does, `instructions`, and what it is asked, `prompt` (PLAN 2.101),
+ * with the picture it is about, a PNG in base64, where it describes one (PLAN 2.119). */
 export interface Writing {
   provider: ProviderId;
   model: string;
@@ -101,6 +102,7 @@ export interface Writing {
   base?: string;
   instructions: string;
   prompt: string;
+  picture?: string;
 }
 
 /** Ask a model `writing.prompt` once, told `writing.instructions`, with nothing to call: what a
@@ -113,7 +115,7 @@ export async function write(writing: Writing, signal?: AbortSignal): Promise<{ t
     base: writing.base,
     system: writing.instructions,
     tools: [],
-    messages: [{ role: "user", text: writing.prompt }],
+    messages: [{ role: "user", text: writing.prompt, ...(writing.picture && { png: writing.picture }) }],
     signal,
   });
   return { text: turn.text, usage: turn.usage };

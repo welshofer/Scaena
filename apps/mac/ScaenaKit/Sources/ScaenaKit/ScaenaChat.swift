@@ -36,15 +36,18 @@ public enum Provider: String, Codable, CaseIterable, Identifiable, Sendable {
     }
 
     /// The request that asks `model` `prompt` once, told `instructions`, with nothing to call: what
-    /// a writing tool asks (PLAN 2.101), which no conversation keeps.
+    /// a writing tool asks (PLAN 2.101), which no conversation keeps; with `picture`, a PNG in
+    /// base64 shown before the prompt, as Describe shows one (PLAN 2.119).
     public func onceRequest(
-        model: String, key: String, base: String? = nil, instructions: String, prompt: String
+        model: String, key: String, base: String? = nil, instructions: String, prompt: String,
+        picture: String? = nil
     ) throws -> ProviderRequest {
         var args: [String: JSONValue] = [
             "provider": .string(rawValue), "model": .string(model), "key": .string(key),
             "instructions": .string(instructions), "prompt": .string(prompt),
         ]
         if let base { args["base"] = .string(base) }
+        if let picture { args["png"] = .string(picture) }
         return try Self.call("once", .object(args))
     }
 
@@ -58,13 +61,15 @@ public enum Provider: String, Codable, CaseIterable, Identifiable, Sendable {
             ])
     }
 
-    /// Ask `model` `prompt` once with the user's `key`, told `instructions` (PLAN 2.101): the words
-    /// it answers. `send` makes the request, as the assistant's does.
+    /// Ask `model` `prompt` once with the user's `key`, told `instructions` (PLAN 2.101), shown
+    /// `picture` where there is one (PLAN 2.119): the words it answers. `send` makes the request, as
+    /// the assistant's does.
     public func write(
         model: String, key: String, base: String? = nil, instructions: String, prompt: String,
-        send: Assistant.Send = Assistant.urlSession
+        picture: String? = nil, send: Assistant.Send = Assistant.urlSession
     ) async throws -> String {
-        let request = try onceRequest(model: model, key: key, base: base, instructions: instructions, prompt: prompt)
+        let request = try onceRequest(
+            model: model, key: key, base: base, instructions: instructions, prompt: prompt, picture: picture)
         let (data, status) = try await send(request.urlRequest())
         return try answered(status: status, body: String(decoding: data, as: UTF8.self))
     }

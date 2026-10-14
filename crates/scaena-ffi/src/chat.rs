@@ -153,7 +153,8 @@ pub fn providers(method: &str, args: &Value) -> Result<Value, Failure> {
             json!(provider(args)?.read_models(status, status_text, key("body")?).map_err(said)?)
         }
         // A question asked once, told `instructions`, with nothing to call: a writing tool's
-        // (PLAN 2.101), which no conversation keeps.
+        // (PLAN 2.101), which no conversation keeps; with `png`, the picture Describe shows the
+        // model (PLAN 2.119).
         "once" => {
             let base = args.get("base").and_then(Value::as_str).filter(|b| !b.is_empty());
             let asked = scaena_chat::once(
@@ -164,6 +165,7 @@ pub fn providers(method: &str, args: &Value) -> Result<Value, Failure> {
                 false,
                 key("instructions")?,
                 key("prompt")?,
+                args.get("png").and_then(Value::as_str).filter(|p| !p.is_empty()),
             );
             request(asked)
         }

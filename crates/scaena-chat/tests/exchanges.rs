@@ -61,8 +61,23 @@ fn each_adapter_asks_and_reads_as_the_browsers_does() {
             true,
             once["system"].as_str().unwrap(),
             once["prompt"].as_str().unwrap(),
+            None,
         );
         assert_eq!(serde_json::to_value(asked).unwrap(), kept["once"]["request"], "{id}: a question asked once");
+
+        // One asked of a picture, shown before its words: Describe's (PLAN 2.119).
+        let picture = &conversation["picture"];
+        let asked = scaena_chat::once(
+            provider,
+            conversation["model"].as_str().unwrap(),
+            None,
+            key,
+            true,
+            picture["system"].as_str().unwrap(),
+            picture["prompt"].as_str().unwrap(),
+            picture["png"].as_str(),
+        );
+        assert_eq!(serde_json::to_value(asked).unwrap(), kept["picture"]["request"], "{id}: a picture asked about");
 
         let failure = &conversation["failures"][&id];
         let status = failure["status"].as_u64().unwrap() as u16;

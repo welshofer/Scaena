@@ -34,7 +34,9 @@ export interface Result {
 
 /** The conversation, in no provider's form. */
 export type Message =
-  | { role: "user"; text: string }
+  /** A question, and a picture it is about, a PNG in base64, shown before its words: the one a
+   * description is asked of (PLAN 2.119). */
+  | { role: "user"; text: string; png?: string }
   | { role: "assistant"; text: string; calls: Call[]; raw?: unknown }
   | { role: "tool"; results: Result[] };
 
@@ -136,7 +138,14 @@ export const anthropic: Provider = {
   async turn(ask) {
     const messages = runs(
       ask.messages.map((m) => {
-        if (m.role === "user") return { role: "user", content: [{ type: "text", text: m.text }] };
+        if (m.role === "user")
+          return {
+            role: "user",
+            content: [
+              ...(m.png ? [{ type: "image", source: { type: "base64", media_type: "image/png", data: m.png } }] : []),
+              { type: "text", text: m.text },
+            ],
+          };
         if (m.role === "assistant") {
           const content: unknown[] = m.text ? [{ type: "text", text: m.text }] : [];
           for (const c of m.calls) content.push({ type: "tool_use", id: c.id, name: c.name, input: c.args ?? {} });
@@ -206,7 +215,16 @@ export const openai: Provider = {
   async turn(ask) {
     const messages: unknown[] = [{ role: "system", content: ask.system }];
     for (const m of ask.messages) {
-      if (m.role === "user") messages.push({ role: "user", content: m.text });
+      if (m.role === "user")
+        messages.push({
+          role: "user",
+          content: m.png
+            ? [
+                { type: "image_url", image_url: { url: `data:image/png;base64,${m.png}` } },
+                { type: "text", text: m.text },
+              ]
+            : m.text,
+        });
       else if (m.role === "assistant") {
         messages.push({
           role: "assistant",
@@ -289,7 +307,8 @@ export const gemini: Provider = {
   async turn(ask) {
     const contents = runs(
       ask.messages.map((m) => {
-        if (m.role === "user") return { role: "user", parts: [{ text: m.text }] as unknown[] };
+        if (m.role === "user")
+          return { role: "user", parts: [...(m.png ? [{ inlineData: { mimeType: "image/png", data: m.png } }] : []), { text: m.text }] as unknown[] };
         if (m.role === "assistant") {
           if (Array.isArray(m.raw)) return { role: "model", parts: m.raw as unknown[] };
           const parts: unknown[] = m.text ? [{ text: m.text }] : [];

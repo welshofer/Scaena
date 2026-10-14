@@ -456,13 +456,17 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     const keeping = chars ? "" : `<p class="keep"><label><input type="checkbox" data-keep${keep ? " checked" : ""}> ${kept}</label></p>`;
     // How it reads: for one node or the state, never for several or for characters.
     const reading = !chars && nodes.length <= 1 ? `<section class="reads" aria-label="How it reads"></section>` : "";
-    // Writing (PLAN 2.101): one text's words, or the slide's notes, by the assistant's model.
+    // Writing (PLAN 2.101): one text's words, or the slide's notes, by the assistant's model; a
+    // picture's description, from the picture itself (PLAN 2.119).
     const text = !chars && nodes.length === 1 && "type" in offered && offered.type === "text";
+    const picture = !chars && nodes.length === 1 && "type" in offered && offered.type === "image";
     const writes = text
       ? WRITING.map(([kind, label, title]) => `<button type="button" data-write="${kind}" title="${html(title)}, by the assistant's model">${label}</button>`)
-      : !chars && !nodes.length
-        ? [`<button type="button" data-write="notes" title="What you say while it shows, drafted from its words by the assistant's model">Draft Notes</button>`]
-        : [];
+      : picture
+        ? [`<button type="button" data-write="describe" title="What it shows, said for someone who can’t see it, by the assistant's model, which is shown the picture">Describe</button>`]
+        : !chars && !nodes.length
+          ? [`<button type="button" data-write="notes" title="What you say while it shows, drafted from its words by the assistant's model">Draft Notes</button>`]
+          : [];
     const writing = writes.length
       ? `<div class="arrange writing"><span class="arrange-kind">Writing</span><span class="arrange-buttons" role="group" aria-label="Writing">${writes.join("")}</span></div>`
       : "";

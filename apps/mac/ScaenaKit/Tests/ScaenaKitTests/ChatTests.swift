@@ -211,3 +211,29 @@ private func keychainWritable() -> Bool {
     let drafted = try session.written(WritingAsk(kind: .notes, state: "cover"), answer: "Open on the name.")
     #expect(drafted.patch?.first?["op"]?.string == "set_state")
 }
+
+/// Describe the Picture (PLAN 2.119): the picture as the slide shows it goes with the question, a
+/// PNG shown before its words, as the browser sends one; and the answer is the picture's
+/// description, one `choose` of `alt`.
+@Test func aPictureIsDescribedFromItselfAsTheSlideShowsIt() throws {
+    let session = try ScaenaSession(directory: tortureDeck)
+    let ask = WritingAsk(kind: .describe, state: "adjust", node: "adj-mono")
+    let writing = try session.writing(ask)
+    #expect(writing.title == "Description")
+    #expect(writing.task.text == "The same picture in black and white.")
+    let picture = try #require(writing.picture)
+    #expect(Data(base64Encoded: picture)?.starts(with: [0x89, 0x50, 0x4E, 0x47]) == true, "a PNG")
+
+    let request = try Provider.anthropic.onceRequest(
+        model: "a-model", key: "sk-test", instructions: writing.instructions, prompt: writing.prompt,
+        picture: picture)
+    let sent = try JSONDecoder().decode(JSONValue.self, from: try #require(try request.urlRequest().httpBody))
+    let content = sent["messages"]?[0]?["content"]
+    #expect(content?[0]?["type"]?.string == "image" && content?[0]?["source"]?["data"]?.string == picture)
+    #expect(content?[1]?["text"]?.string == writing.prompt)
+
+    let written = try session.written(ask, answer: "“A gray gradient, a dark block, and a lighter disc.”")
+    #expect(written.text == "A gray gradient, a dark block, and a lighter disc.")
+    let op = try #require(written.patch?.first)
+    #expect(op["op"]?.string == "choose" && op["prop"]?.string == "alt" && op["node"]?.string == "adj-mono")
+}

@@ -64,11 +64,19 @@ enum Writer {
         return ""
     }
 
-    /// `writing` answered: on the device, or by the assistant's model with the user's key.
-    static func respond(instructions: String, prompt: String) async throws -> String {
-        if OnDevice.available { return try await OnDevice.respond(instructions: instructions, prompt: prompt) }
+    /// Whether a picture can be described (PLAN 2.119): the on-device model reads no pictures, so
+    /// only the assistant's model, with the user's key, is shown one.
+    static var describes: Bool { byKey() != nil }
+
+    /// `writing` answered: on the device, or by the assistant's model with the user's key; one
+    /// shown a `picture` by the assistant's model alone.
+    static func respond(instructions: String, prompt: String, picture: String? = nil) async throws -> String {
+        if OnDevice.available, picture == nil {
+            return try await OnDevice.respond(instructions: instructions, prompt: prompt)
+        }
         guard let who = byKey() else { throw OnDevice.Unavailable() }
-        return try await who.provider.write(model: who.model, key: who.key, instructions: instructions, prompt: prompt)
+        return try await who.provider.write(
+            model: who.model, key: who.key, instructions: instructions, prompt: prompt, picture: picture)
     }
 
     /// `ask` of the deck `session` holds, as the sheet offers it: what the model is asked, the
@@ -77,14 +85,16 @@ enum Writer {
     @MainActor
     static func asking(_ ask: WritingAsk, of session: ScaenaSession) -> Asked? {
         guard let writing = try? session.writing(ask) else { return nil }
-        let (instructions, prompt) = (writing.instructions, writing.prompt)
+        let (instructions, prompt, picture) = (writing.instructions, writing.prompt, writing.picture)
         let reads = ask.kind == .explain
+        // A picture goes to the assistant's model alone, which the sheet says.
+        let byKey = byKey().map { "Written by \($0.model), with your \($0.provider.name) key: it was shown the picture." }
         return Asked(
             title: writing.title,
-            ask: { try await Writer.respond(instructions: instructions, prompt: prompt) },
+            ask: { try await Writer.respond(instructions: instructions, prompt: prompt, picture: picture) },
             shown: { answer in (try? session.written(ask, answer: answer).text) ?? answer },
             take: reads ? nil : { answer in (try? session.written(ask, answer: answer).patch) ?? [] },
-            whence: whence)
+            whence: picture == nil ? whence : byKey ?? whence)
     }
 }
 
