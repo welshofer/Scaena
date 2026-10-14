@@ -718,8 +718,8 @@ export interface Compared {
   deck: Record<string, unknown>;
   /** The data files whose bytes changed. */
   files: string[];
-  /** Each text whose words changed, by state and node: its words before and after, which name it
-   * and show what changed. */
+  /** Each text whose words, or only their look, changed, by state and node: its words before and
+   * after, which name it and show what changed, alike where only the look did. */
   texts?: Record<string, Record<string, [string, string]>>;
 }
 

@@ -7,8 +7,8 @@
 //
 // - The tab lists the history's changes, the newest first, each by its author and when.
 // - A version chosen shows a state of it at rest, read only, and what changed from it to the deck
-//   now, in a person's words, a text whose words changed named by its words before; or, chosen,
-//   to another version.
+//   now, in a person's words, a text whose words changed named by its words before, and one whose
+//   words changed only their look said so; or, chosen, to another version.
 // - Restore makes it the deck again, with the data file it read, as one change: ⌘Z in the source
 //   puts the deck and the data file back as they were, ⇧⌘Z restores them again, and a save
 //   records the restore in the history, by the user.
@@ -234,6 +234,28 @@ try {
   const refused = await status();
   check(refused.startsWith(`Version ${photo.n} not restored: `) && !/\b[EWI]\d{3}\b/.test(refused), `a version whose image is gone is refused, with why, in a sentence: ${refused}`);
   check((await source()) === before, "and the deck stays as it is");
+
+  // Only the look of the subtitle's words changed, its first words set bold: compared with the
+  // first version, it is named by its words, and said as a look that changed, not as words now
+  // what they were.
+  await page.click(`#versions [data-id="${first.id}"]`);
+  await settled();
+  const plain = await source();
+  const bold = plain.replace(
+    'subtitle text role:title "This quarter changed the shape of the business."',
+    'subtitle text role:title runs:[{text: "This quarter", style: {weight: 700}}, {text: " changed the shape of the business."}]',
+  );
+  await page.evaluate((s) => window.scaena.type(s), bold);
+  await page
+    .waitForFunction(() => window.scaena.versions.changes().some((l) => l.includes("This quarter")), null, { timeout: 60000, polling: 100 })
+    .catch(() => {});
+  const looked = await changes();
+  check(
+    bold !== plain &&
+      looked.some((l) => l.includes("“This quarter changed the shape of the b…”: the look of its words changed")) &&
+      !looked.some((l) => /its words now “[^”]*business/.test(l)),
+    `a look alone changed is said so, the text named by its words: ${JSON.stringify(looked)}`,
+  );
   await context.close();
 } catch (e) {
   failures.push(String(e));

@@ -63,9 +63,10 @@ fn bytes(files: &BTreeMap<String, String>) -> BTreeMap<String, Vec<u8>> {
     scaena_core::sort::map(files.iter().map(|(path, text)| (path.clone(), text.clone().into_bytes())))
 }
 
-/// Each text whose words changed from `earlier` to `later` in `states`, by state and node: its
-/// words before and after. What an editor names it by and shows the change in (PLAN 2.99): its
-/// words now alone say neither which text it was nor what changed in it.
+/// Each text whose words, or only their look, changed from `earlier` to `later` in `states`, by
+/// state and node: its words before and after, alike where only the look changed. What an editor
+/// names it by and shows the change in (PLAN 2.99): its words now alone say neither which text it
+/// was nor what changed in it.
 fn retyped(earlier: &Deck, later: &Deck, states: &StateChanges) -> BTreeMap<String, BTreeMap<String, [String; 2]>> {
     let (Ok(was), Ok(is)) = (scaena_core::resolve_states(earlier), scaena_core::resolve_states(later)) else {
         return BTreeMap::new();
@@ -124,7 +125,7 @@ impl Session {
 
     /// What changed from `from` to `to`, or without it to the deck and its data files as they are
     /// now: `{ states, deck, files }`, as `scaena history --diff` says it, and `texts`, the words
-    /// before and after of each text whose words changed.
+    /// before and after of each text whose words, or only their look, changed.
     pub fn compare_versions(&self, from: &Held, to: Option<&Held>) -> Result<serde_json::Value, Error> {
         let earlier = deck(from)?;
         let (later, files) = match to {
@@ -253,6 +254,17 @@ mod tests {
         assert_eq!(changed["texts"]["intro"]["title"], serde_json::json!(["Revenue, as it was", "Q3 Review"]));
         assert_eq!(changed["texts"].get("revenue").and_then(|t| t.get("rev")), None, "only texts whose words changed");
         assert_eq!(changed["files"], serde_json::json!([CSV]));
+        // A text whose look alone changed has its words alike before and after: they name it, and
+        // the editor says its look changed, not that its words are now what they were.
+        let mut bold: serde_json::Value = serde_json::from_str(&then.deck).unwrap();
+        let words = "This quarter changed the shape of the business.";
+        bold["nodes"]["subtitle"]["runs"] = serde_json::json!([
+            { "text": "This quarter", "style": { "weight": 700 } },
+            { "text": " changed the shape of the business." }
+        ]);
+        bold["nodes"]["subtitle"].as_object_mut().unwrap().remove("text");
+        let looked = s.compare_versions(&Held { deck: bold.to_string(), ..then.clone() }, None).unwrap();
+        assert_eq!(looked["texts"]["intro"]["subtitle"], serde_json::json!([words, words]));
 
         let user = Caller { author: "user", at: None };
         let (restored, files) = s.restore_version(&then, version(1), user).unwrap();
