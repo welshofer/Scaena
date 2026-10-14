@@ -37,6 +37,15 @@ public struct LayoutSuggestion: Decodable, Sendable, Identifiable, Equatable {
         width = try c.decode(Int.self, forKey: .width)
         height = try c.decode(Int.self, forKey: .height)
     }
+
+    /// What this layout would leave to put right beyond what the slide has now, in `now`, the
+    /// layout it takes (PLAN 3.26): the errors more, and the warnings more, none fewer than none.
+    /// The layout the slide takes leaves none more: what it has to put right is marked on the
+    /// slide itself, and View › Issues lists it, so its picture marks nothing.
+    public func adds(over now: LayoutSuggestion?) -> (errors: Int, warnings: Int) {
+        guard !current else { return (0, 0) }
+        return (max(0, errors - (now?.errors ?? 0)), max(0, warnings - (now?.warnings ?? 0)))
+    }
 }
 
 extension ScaenaSession {

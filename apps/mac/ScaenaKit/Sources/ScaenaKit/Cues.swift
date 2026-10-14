@@ -64,6 +64,17 @@ extension Cue {
 }
 
 extension Cue {
+    /// Where a ruler across `scale` ms of the cue, `width` points wide, marks the time (PLAN
+    /// 3.14), as an animation pane's scale of seconds does: from 0 to `scale`, a round step apart
+    /// that keeps the marks some 48 points apart or more, room for each one's time.
+    public static func ticks(across scale: Double, width: Double) -> [Double] {
+        guard scale > 0, width > 0 else { return [] }
+        let most = max(1, (width / 48).rounded(.down))
+        let steps: [Double] = [100, 200, 250, 500, 1000, 2000, 5000, 10_000, 15_000, 30_000, 60_000]
+        let step = steps.first { scale / $0 <= most } ?? (scale / most / 1000).rounded(.up) * 1000
+        return Array(stride(from: 0, through: scale, by: step))
+    }
+
     /// Its bars: the transition, then each motion in the order the state lists them.
     public var bars: [Bar] {
         var seen: [String: Int] = [:]

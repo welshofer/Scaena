@@ -1,3 +1,6 @@
+#if os(macOS)
+import AppKit
+#endif
 import ScaenaKit
 import SwiftUI
 
@@ -145,3 +148,64 @@ struct InspectorColumn<Formatting: View, Animating: View>: View {
         }
     }
 }
+
+#if os(macOS)
+/// The inspector's tabs kept in the toolbar as the window narrows (PLAN 3.18, 3.27), as a
+/// presentation app keeps Format, Animate, and Document at its toolbar's end: the other items go
+/// into the toolbar's overflow first, so the toolbar always shows which tab the inspector is open
+/// at. SwiftUI says nothing of an item's priority, so the window's own toolbar items are given it,
+/// found by their ids or their titles, as the toolbar is made and as the window's size changes. It
+/// takes no press.
+struct ToolbarKeeps: NSViewRepresentable {
+    /// The ids of the items kept, and their titles.
+    let ids: [String]
+    let titles: [String]
+
+    func makeNSView(context: Context) -> KeepsView {
+        let view = KeepsView()
+        updateNSView(view, context: context)
+        return view
+    }
+
+    func updateNSView(_ view: KeepsView, context: Context) {
+        view.ids = Set(ids)
+        view.titles = Set(titles)
+        view.keep()
+    }
+
+    final class KeepsView: NSView {
+        var ids: Set<String> = []
+        var titles: Set<String> = []
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard window != nil else { return }
+            keep()
+            // The toolbar's items are made once the window shows: kept again then.
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(500))
+                self?.keep()
+            }
+        }
+
+        override func setFrameSize(_ newSize: NSSize) {
+            super.setFrameSize(newSize)
+            keep()
+        }
+
+        /// Each item kept made high in priority, so that the others overflow first.
+        func keep() {
+            for item in window?.toolbar?.items ?? [] where item.visibilityPriority != .high && keeps(item) {
+                item.visibilityPriority = .high
+            }
+        }
+
+        private func keeps(_ item: NSToolbarItem) -> Bool {
+            let id = item.itemIdentifier.rawValue
+            return ids.contains(id) || ids.contains { id.hasSuffix(".\($0)") } || titles.contains(item.label)
+        }
+    }
+}
+#endif

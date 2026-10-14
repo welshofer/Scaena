@@ -186,7 +186,7 @@ struct Inspector: View {
 
     /// A field's control, for what it takes, showing the value the slide shows.
     @ViewBuilder private func row(_ field: Field, in state: String) -> some View {
-        let label = Words.label(field.prop)
+        let label = Words.label(field.prop, chart: chartKind)
         let choose = { (value: JSONValue) in self.choose(field.prop, value, in: state) }
         Group {
             switch field.prop {
@@ -197,9 +197,12 @@ struct Inspector: View {
             case "style/weight":
                 WeightRow(value: field.value?.number, shows: field.theme?.number, choose: choose)
             case "transform/rotate":
-                NumberRow(label: label, value: field.value?.number, whole: false, unit: "°", choose: choose)
+                // Unturned where nothing turns it: 0°, as a presentation app shows it.
+                NumberRow(
+                    label: label, value: field.value?.number, whole: false, unit: "°", shows: 0, step: 1,
+                    id: "inspector-\(field.prop)", choose: choose)
             case "align/x":
-                AlignmentRow(value: field.value?.string, choose: choose)
+                AlignmentRow(value: field.value?.string, shows: field.theme?.string, choose: choose)
             case "layout" where choices?.node == nil:
                 LayoutsRow(editor: editor, state: state, look: look, make: make) {
                     if case .name(_, let names, _) = field.takes {
@@ -233,16 +236,17 @@ struct Inspector: View {
                     }
                     PickRow(
                         label: label, value: field.value, options: words.map(said), segmented: words.count <= 2,
-                        shows: field.theme?.string.map(said), choose: choose)
-                case .number(_, _, _, let whole):
+                        shows: (field.theme?.string ?? Self.unset[field.prop]).map(said), choose: choose)
+                case .number(let least, let above, let most, let whole):
                     if field.prop.hasPrefix("adjust/") {
                         AdjustRow(
                             label: label, value: field.value?.number ?? 0,
                             awayAtNone: field.lives == nil || field.lives == .node, choose: choose)
                     } else {
                         NumberRow(
-                            label: label, value: field.value?.number, whole: whole, unit: nil, shows: field.theme?.number,
-                            choose: choose)
+                            label: label, value: field.value?.number, whole: whole, unit: Self.unit[field.prop],
+                            shows: field.theme?.number, step: Self.step[field.prop] ?? 1, least: least, above: above,
+                            most: most, id: "inspector-\(field.prop)", choose: choose)
                     }
                 case .flag:
                     // Where the deck sets none, the theme's: an italic role reads as italic.
@@ -262,6 +266,24 @@ struct Inspector: View {
         }
         .help(lives(field))
     }
+
+    /// The kind of chart selected, which says what its channels are called: a donut's `x` is its
+    /// slices.
+    private var chartKind: String? {
+        guard choices?.type == "chart" else { return nil }
+        return choices?.fields.first { $0.prop == "kind" }?.value?.string
+    }
+
+    /// What a word the deck may leave unset is where it is: a stack runs down, a chart's bars run
+    /// up, and a chart puts its values where its kind does (SPEC §3.3, §3.7). The theme gives none
+    /// of these, so Default is called by it.
+    private static let unset: [String: String] = ["axis": "y", "orient": "vertical", "labels/show": "auto"]
+
+    /// What a number counts, said after it: a size in points, a turn in degrees.
+    private static let unit: [String: String] = ["style/size": "pt", "transform/rotate": "°"]
+
+    /// What a stepper's click moves a number by, where it is not 1: character spacing, in ems.
+    private static let step: [String: Double] = ["style/tracking": 0.01]
 
     /// A field the theme names the values of, picked by name.
     @ViewBuilder private func named(_ field: Field, label: String, choose: @escaping (JSONValue) -> Void) -> some View {
@@ -333,8 +355,11 @@ struct Inspector: View {
                             label: label, value: field.value,
                             options: words.map { Option(tag: $0, title: Words.word($0, of: field.prop, type: nil)) },
                             choose: choose)
-                    case .number(_, _, _, let whole):
-                        NumberRow(label: label, value: field.value?.number, whole: whole, unit: nil, choose: choose)
+                    case .number(let least, let above, let most, let whole):
+                        NumberRow(
+                            label: label, value: field.value?.number, whole: whole, unit: Self.unit[field.prop],
+                            step: Self.step[field.prop] ?? 1, least: least, above: above, most: most,
+                            id: "inspector-\(field.prop)", choose: choose)
                     case .flag:
                         Toggle(label, isOn: Binding(get: { field.value?.bool ?? false }, set: { choose(.bool($0)) }))
                     default:
@@ -596,7 +621,12 @@ private struct PickRow: View {
             }
         }
         if segmented {
-            picker.pickerStyle(.segmented)
+            // Its label over it, as the iPad's form shows a segmented control with no label of its
+            // own; and on the Mac, a row of them reads alike whether its segments are few or many.
+            VStack(alignment: .leading, spacing: 6) {
+                Text(label)
+                picker.pickerStyle(.segmented).labelsHidden()
+            }
         } else {
             picker
         }
@@ -609,8 +639,9 @@ private struct PickRow: View {
 }
 
 /// A color: the theme's, as swatches, a role's first and then each color no role names; Default
-/// takes the value away; and, where the property takes a color written out, any other, which
-/// goes in the deck's overrides once the picker rests.
+/// takes the value away; and, where the property takes a color written out, any other, from the
+/// well beside its name, as a presentation app's color well stands beside its swatches: it goes in
+/// the deck's overrides once the picker rests.
 private struct SwatchRow: View {
     let label: String
     let value: JSONValue?
@@ -631,24 +662,25 @@ private struct SwatchRow: View {
             HStack {
                 Text(label)
                 Spacer()
-                Text(said(current)).foregroundStyle(.secondary)
-            }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 26, maximum: 30), spacing: 6)], alignment: .leading, spacing: 6) {
-                if shows == nil { swatch(nil) }
-                ForEach(shown, id: \.self) { name in swatch(name) }
+                Text(said(current)).foregroundStyle(.secondary).lineLimit(1)
                 if any {
                     ColorPicker("Other Color", selection: other, supportsOpacity: true)
                         .labelsHidden()
                         .help("Any other color, written out on this object")
                 }
             }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 26, maximum: 30), spacing: 6)], alignment: .leading, spacing: 6) {
+                if shows == nil { swatch(nil) }
+                ForEach(shown, id: \.self) { name in swatch(name) }
+            }
         }
         .padding(.vertical, 2)
     }
 
     /// What the swatches offer: each name the theme gives a role, then each color no role names. A
-    /// color two names give (Background and Text on Accent, say) is one swatch: the first name's,
-    /// or the one picked.
+    /// color two names give (Background and Text on Accent, say) is one swatch, and so are two that
+    /// look alike at a swatch's size (Dusk's Background and Background 2): the first name's, or the
+    /// one picked.
     private var shown: [String] {
         guard let look else { return names }
         let roles = look.roles
@@ -656,16 +688,17 @@ private struct SwatchRow: View {
         let offered = names.filter { roles[$0] != nil } + names.filter { roles[$0] == nil && !named.contains($0) }
         let picked = current ?? shows
         var kept: [String] = []
-        var swatchOf: [String: Int] = [:]
+        // Each swatch kept, by its color as the theme writes it.
+        var colors: [(color: String, at: Int)] = []
         for name in offered {
             guard let color = look.written(name) else {
                 kept.append(name)
                 continue
             }
-            if let i = swatchOf[color] {
-                if name == picked { kept[i] = name }
+            if let alike = colors.first(where: { Swatch.looksAlike($0.color, color) }) {
+                if name == picked { kept[alike.at] = name }
             } else {
-                swatchOf[color] = kept.count
+                colors.append((color: color, at: kept.count))
                 kept.append(name)
             }
         }
@@ -735,33 +768,15 @@ private struct WeightRow: View {
     var shows: Double? = nil
     let choose: (JSONValue) -> Void
 
-    private struct Weight: Identifiable {
-        let value: Int
-        let name: String
-
-        var id: Int { value }
-    }
-
-    private static let weights = [
-        Weight(value: 100, name: "Thin"), Weight(value: 200, name: "Extra Light"), Weight(value: 300, name: "Light"),
-        Weight(value: 400, name: "Regular"), Weight(value: 500, name: "Medium"), Weight(value: 600, name: "Semibold"),
-        Weight(value: 700, name: "Bold"), Weight(value: 800, name: "Extra Bold"), Weight(value: 900, name: "Black"),
-    ]
-
-    /// A weight by its name, or by its number where it falls between two.
-    private static func name(_ value: Int) -> String {
-        weights.first { $0.value == value }?.name ?? "\(value)"
-    }
-
     var body: some View {
         let current = value.map { Int($0.rounded()) } ?? 0
         let theirs = shows.map { Int($0.rounded()) }
         Picker("Weight", selection: Binding(get: { current }, set: { picked in pick(picked, over: current) })) {
-            Text(theirs.map(Self.name) ?? "Default").tag(0)
-            if current != 0, !Self.weights.contains(where: { $0.value == current }) {
+            Text(theirs.map(Words.weight) ?? "Default").tag(0)
+            if current != 0, !Words.weights.contains(where: { $0.value == current }) {
                 Text("\(current)").tag(current)
             }
-            ForEach(Self.weights.filter { $0.value != theirs || $0.value == current }) { weight in
+            ForEach(Words.weights.filter { $0.value != theirs || $0.value == current }, id: \.value) { weight in
                 Text(weight.name).tag(weight.value)
             }
         }
@@ -785,9 +800,12 @@ private struct OpacityRow: View {
                 Slider(value: $shown, in: 0...1, onEditingChanged: { editing in
                     if !editing { commit() }
                 })
+                // On one line, however wide the iPad's type sets it.
                 Text(verbatim: "\(Int((shown * 100).rounded()))%")
                     .monospacedDigit()
-                    .frame(width: 44, alignment: .trailing)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .frame(minWidth: 44, alignment: .trailing)
             }
         }
         .onChange(of: value, initial: true) { _, now in shown = now ?? 1 }
@@ -801,26 +819,33 @@ private struct OpacityRow: View {
 }
 
 /// Where a text's lines stand across its box (PLAN 3.25), as a presentation app's alignment
-/// buttons: left, centered, or right. Where the text sets none, the slot's shows and none is
-/// picked.
+/// buttons: left, centered, or right, the way in effect picked, as a presentation app always shows
+/// one. Where the text sets none, the slot's shows, as the theme gives it, else its lines start at
+/// the left, as the engine sets them.
 private struct AlignmentRow: View {
     let value: String?
+    /// The way the slide sets its lines where the text sets none: the slot's.
+    var shows: String? = nil
     let choose: (JSONValue) -> Void
 
     var body: some View {
+        let current = value ?? shows ?? "start"
         LabeledContent("Alignment") {
-            Picker("Alignment", selection: Binding(get: { value }, set: { picked in
-                if let picked, picked != value { choose(.string(picked)) }
+            // A way picked is written as the text's own, even the one shown: where the slot's way
+            // is not given, Left shows, and a click on it still sets it.
+            Picker("Alignment", selection: Binding(get: { current }, set: { picked in
+                if picked != value { choose(.string(picked)) }
             })) {
                 ForEach(Self.ways, id: \.word) { way in
                     Image(systemName: way.symbol)
                         .accessibilityLabel(Words.word(way.word, of: "align/x", type: "text"))
-                        .tag(String?.some(way.word))
+                        .tag(way.word)
                 }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
             .fixedSize()
+            .accessibilityIdentifier("inspector-align/x")
         }
     }
 
@@ -832,7 +857,8 @@ private struct AlignmentRow: View {
 
 /// The layouts the slide may take (PLAN 3.26), as a presentation app's layout picker shows them:
 /// each drawn small, best first by what lint finds in the slide laid out in it, in every size the
-/// deck comes in, the one it takes now outlined and any with something to put right marked. The
+/// deck comes in, the one it takes now outlined, and any that would leave more to put right than
+/// the slide has now marked; what the slide has now is marked on the slide itself. The
 /// pointer over one shows the slide laid out in it on the canvas, nothing made; a click gives the
 /// slide that layout, one step to undo (PLAN 2.92). Above them, the layout it takes, named, opens
 /// the theme's layouts by their sections (PLAN 3.31).
@@ -899,9 +925,15 @@ private struct LayoutsRow<Named: View>: View {
         return all.map { Drawn(suggestion: $0.suggestion, image: $0.image) }
     }
 
+    /// The layout the slide takes now, which each other is judged beside.
+    private var now: LayoutSuggestion? {
+        drawn.first { $0.suggestion.current }?.suggestion
+    }
+
     private func tile(_ one: Drawn) -> some View {
         let s = one.suggestion
         let name = Words.name(s.layout, of: "layout", theme: look)
+        let more = s.adds(over: now)
         return Button {
             guard !s.current else { return }
             leave()
@@ -919,9 +951,9 @@ private struct LayoutsRow<Named: View>: View {
                                 lineWidth: s.current ? 2.5 : 1)
                     }
                 HStack(spacing: 3) {
-                    if s.errors + s.warnings > 0 {
+                    if more.errors + more.warnings > 0 {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(s.errors > 0 ? Color.red : Color.orange)
+                            .foregroundStyle(more.errors > 0 ? Color.red : Color.orange)
                             .imageScale(.small)
                     }
                     Text(name)
@@ -935,9 +967,9 @@ private struct LayoutsRow<Named: View>: View {
         }
         .buttonStyle(.plain)
         .onHover { inside in hover(s, inside) }
-        .help([name, Self.said(s, look: look)].joined(separator: ". "))
+        .help([name, Self.said(s, now: now, look: look)].joined(separator: ". "))
         .accessibilityLabel(name)
-        .accessibilityValue(Self.said(s, look: look))
+        .accessibilityValue(Self.said(s, now: now, look: look))
         .accessibilityAddTraits(s.current ? .isSelected : [])
     }
 
@@ -958,12 +990,19 @@ private struct LayoutsRow<Named: View>: View {
         editor.still()
     }
 
-    /// What a layout does, in a person's words: whether the slide takes it now, what there would be
-    /// to put right, the layouts that look the same, and how many slides and steps it changes.
-    private static func said(_ s: LayoutSuggestion, look: ThemeLook?) -> String {
+    /// What a layout does, in a person's words: whether the slide takes it now, what more there
+    /// would be to put right in it than the slide has now, the layouts that look the same, and how
+    /// many slides and steps it changes.
+    private static func said(_ s: LayoutSuggestion, now: LayoutSuggestion?, look: ThemeLook?) -> String {
         var parts = [s.current ? "The slide's layout now" : "Click to use it"]
-        let issues = s.errors + s.warnings
-        parts.append(issues == 0 ? "No issues" : issues == 1 ? "1 issue" : "\(issues) issues")
+        let more = s.adds(over: now)
+        let issues = more.errors + more.warnings
+        if s.current {
+            if s.errors + s.warnings > 0 { parts.append("What the slide has to put right is under View › Issues") }
+        } else {
+            let said = issues == 1 ? "1 more issue" : "\(issues) more issues"
+            parts.append(issues == 0 ? "Nothing more to put right" : "\(said) to put right than the slide has now")
+        }
         if !s.alike.isEmpty {
             let alike = s.alike.map { Words.name($0, of: "layout", theme: look) }
             parts.append("Looks the same as \(alike.formatted(.list(type: .or)))")
@@ -1124,50 +1163,106 @@ private struct Coordinate: View {
     }
 }
 
-/// A number, typed: chosen when typed and entered, or when the field is left; empty is Default,
-/// which shows the theme's number where it gives one.
+/// A number, as a presentation app's inspector shows a font's size: the number the slide shows in
+/// the field, the one set or else the theme's, what it counts after it, and a stepper. What is typed
+/// is chosen on Return or when the field is left, and a stepper's clicks once they rest, each one
+/// step to undo; the number shown already changes nothing, so the theme's stays the theme's.
+/// Emptied, it takes the number set away, and the theme's shows.
 private struct NumberRow: View {
     let label: String
     let value: Double?
     let whole: Bool
     let unit: String?
-    /// The number the slide shows where nothing sets one: the theme's, shown in the empty field.
+    /// The number the slide shows where nothing sets one: the theme's.
     var shows: Double? = nil
+    /// What a stepper's click moves it by.
+    var step: Double = 1
+    /// The least it takes; the number it must be more than; and the most it takes.
+    var least: Double? = nil
+    var above: Double? = nil
+    var most: Double? = nil
+    /// What a test finds the field by.
+    let id: String
     let choose: (JSONValue) -> Void
     @State private var text = ""
+    @State private var settling: Task<Void, Never>?
     @FocusState private var focused: Bool
 
+    /// The number the slide shows: the one set, else the theme's.
+    private var inEffect: Double? { value ?? shows }
+
     var body: some View {
+        // A width of its own, so where the row has no room the label stands over the field, as a
+        // form sets it on the iPad, rather than the field squeezing the label short.
         LabeledContent(label) {
             HStack(spacing: 4) {
-                TextField(label, text: $text, prompt: Text(shows.map(Words.number) ?? "Default"))
+                TextField(label, text: $text, prompt: Text("Default"))
                     .labelsHidden()
                     .textFieldStyle(.roundedBorder)
                     .multilineTextAlignment(.trailing)
                     .monospacedDigit()
-                    .frame(minWidth: 60, maxWidth: 90)
+                    .frame(width: 64)
                     .focused($focused)
                     .onSubmit(commit)
-                    .onChange(of: focused) { _, now in
-                        if !now { commit() }
-                    }
+                    #if !os(macOS)
+                    .keyboardType(.numbersAndPunctuation)
+                    #endif
+                    .accessibilityIdentifier(id)
                 if let unit { Text(unit).foregroundStyle(.secondary) }
+                Stepper(label, onIncrement: { nudge(step) }, onDecrement: { nudge(-step) })
+                    .labelsHidden()
+                    .accessibilityIdentifier("\(id)-stepper")
             }
         }
-        .onChange(of: value, initial: true) { _, now in
-            text = now.map(Words.number) ?? ""
+        .onChange(of: inEffect, initial: true) { _, now in
+            text = FieldNumber.shown(now)
+        }
+        .onChange(of: focused) { _, now in
+            if !now { commit() }
         }
     }
 
     private func commit() {
+        settling?.cancel()
+        settling = nil
         let typed = text.trimmingCharacters(in: .whitespaces)
-        if typed.isEmpty {
-            if value != nil { choose(.null) }
-        } else if let number = Double(typed) {
-            let chosen = whole ? number.rounded() : number
-            if chosen != value { choose(.number(chosen)) }
-        } else {
-            text = value.map(Words.number) ?? ""
+        guard !typed.isEmpty else {
+            // Emptied: the number set taken away, and the theme's shown again.
+            if value != nil { choose(.null) } else { text = FieldNumber.shown(inEffect) }
+            return
+        }
+        guard let read = FieldNumber.read(typed) else {
+            text = FieldNumber.shown(inEffect)
+            return
+        }
+        let number = kept(whole ? read.rounded() : read)
+        guard FieldNumber.shown(number) != FieldNumber.shown(inEffect) else {
+            text = FieldNumber.shown(inEffect)
+            return
+        }
+        choose(.number(number))
+    }
+
+    /// `number` within the least and the most it takes.
+    private func kept(_ number: Double) -> Double {
+        var n = number
+        if let least { n = max(n, least) }
+        if let most { n = min(n, most) }
+        return n
+    }
+
+    /// A stepper's click: the number moved `by`, shown at once and chosen once the clicks rest; one
+    /// that would go past what it takes, not moved.
+    private func nudge(_ by: Double) {
+        let from = FieldNumber.read(text) ?? inEffect ?? 0
+        let next = kept(FieldNumber.stepped(whole ? from.rounded() : from, by: by))
+        if let above, next <= above { return }
+        text = FieldNumber.shown(next)
+        settling?.cancel()
+        settling = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            commit()
         }
     }
 }
@@ -1204,7 +1299,8 @@ private struct AdjustRow: View {
                 )
                 .frame(minWidth: 90, maxWidth: 140)
                 .accessibilityValue(Text(said(moving ?? value)))
-                Text(said(moving ?? value)).monospacedDigit().foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
+                Text(said(moving ?? value)).monospacedDigit().foregroundStyle(.secondary).lineLimit(1).fixedSize()
+                    .frame(minWidth: 40, alignment: .trailing)
             }
         }
     }
@@ -1241,7 +1337,8 @@ private struct FurnitureSection: View {
             Picker("On This Slide", selection: Binding(get: { furniture.slide.map { $0 ? "shown" : "hidden" } ?? "" }, set: { picked in
                 make(furniture.showing(picked.isEmpty ? nil : picked == "shown"))
             })) {
-                Text("As the Layout Has Them").tag("")
+                // Short enough to read whole beside its label in the inspector's column.
+                Text("As Layout").tag("")
                 Text("Shown").tag("shown")
                 Text("Hidden").tag("hidden")
             }

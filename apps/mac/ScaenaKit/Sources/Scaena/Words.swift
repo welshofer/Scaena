@@ -43,6 +43,29 @@ enum Words {
         "hold": "Advance", "notes": "Presenter Notes",
     ]
 
+    /// A chart's property as its kind of chart reads it (`kind`, the chart's): a donut's `x` names
+    /// its slices and its `y` sizes them, where a chart with axes reads them across and up.
+    static func label(_ prop: String, chart kind: String?) -> String {
+        if kind == "donut", let said = donut[prop] { return said }
+        return label(prop)
+    }
+
+    /// A donut's channels, which no axis runs along.
+    private static let donut: [String: String] = [
+        "x/field": "Slices", "x/type": "Slices Are", "y/field": "Values", "y/type": "Values Are",
+    ]
+
+    /// A font's weights by their names, Thin to Black, as a presentation app names them.
+    static let weights: [(value: Int, name: String)] = [
+        (100, "Thin"), (200, "Extra Light"), (300, "Light"), (400, "Regular"), (500, "Medium"), (600, "Semibold"),
+        (700, "Bold"), (800, "Extra Bold"), (900, "Black"),
+    ]
+
+    /// A weight by its name, or by its number where it falls between two.
+    static func weight(_ value: Int) -> String {
+        weights.first { $0.value == value }?.name ?? "\(value)"
+    }
+
     /// One of the words a property takes, said: `cover` as an image's Fill.
     static func word(_ word: String, of prop: String, type: String?) -> String {
         switch (prop, word) {
