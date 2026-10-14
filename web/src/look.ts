@@ -175,6 +175,11 @@ function spoken(f: Field, v: unknown): string {
   return "Custom";
 }
 
+/** An adjustment from -1 to 1 as Adjust Image's slider reads it: "None", or a signed percent. */
+function adjustment(value: number): string {
+  return value === 0 ? "None" : `${value > 0 ? "+" : "−"}${Math.round(Math.abs(value) * 100)}`;
+}
+
 /** Where a value lives, as a person says it: on the slide shown (`shown`), on another (`slide`
  * says which), on the object, on the object on every slide, or the theme's. */
 function where(lives: Lives | undefined, shown: string | undefined, slide: (state: string) => string): string {
@@ -326,11 +331,14 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
           return `<input id="${id}" type="number" ${prop} step="1" value="${shown}" placeholder="0" aria-label="Rotation, degrees clockwise"> <span class="lives">°</span>`;
         }
         // An image's light and color (PLAN 2.117), as Adjust Image's sliders: from -1 to 1, set
-        // when let go; none is the picture as it is.
+        // when let go, the readout following the drag; none is the picture as it is. Let go at
+        // none, it takes away the object's own; written on a slide, it is written as none there,
+        // so that what the object or an earlier slide sets does not show through.
         if (f.prop.startsWith("adjust/")) {
           const now = typeof value === "number" ? value : 0;
-          const said = now === 0 ? "None" : `${now > 0 ? "+" : "−"}${Math.round(Math.abs(now) * 100)}`;
-          return `<input id="${id}" type="range" ${prop} min="-1" max="1" step="0.01" value="${now}" aria-label="${html(label)}" aria-valuetext="${said}"> <span class="lives">${said}</span>`;
+          const away = f.lives === undefined || f.lives === "node" ? " data-away-at-none" : "";
+          const said = adjustment(now);
+          return `<input id="${id}" type="range" ${prop}${away} min="-1" max="1" step="0.01" value="${now}" aria-label="${html(label)}" aria-valuetext="${said}"> <span class="lives">${said}</span>`;
         }
         // Tracking, in em after each character (PLAN 1.38): on a pair's first letter, the space
         // between the two, on top of the font's kerning.
@@ -765,9 +773,19 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     if (target instanceof HTMLInputElement && (target.type === "number" || target.type === "range") && value !== null) {
       value = Number(value) * Number(target.dataset.scale ?? 1);
     }
-    // An adjustment let go at none takes the adjustment away (PLAN 2.117).
-    if (target instanceof HTMLInputElement && target.type === "range" && value === 0) value = null;
+    // An adjustment let go at none takes the object's own away, and is written as none on a
+    // slide (PLAN 2.117).
+    if (target instanceof HTMLInputElement && target.type === "range" && value === 0 && target.dataset.awayAtNone !== undefined) value = null;
     void choose(prop, value);
+  });
+  // A slider's readout follows it as it is dragged, before it is let go.
+  into.addEventListener("input", (e) => {
+    const target = e.target;
+    if (!(target instanceof HTMLInputElement) || target.type !== "range") return;
+    const said = adjustment(Number(target.value));
+    target.setAttribute("aria-valuetext", said);
+    const readout = target.nextElementSibling;
+    if (readout?.classList.contains("lives")) readout.textContent = said;
   });
   into.addEventListener("click", (e) => {
     const away = (e.target as Element).closest<HTMLElement>("[data-away]");

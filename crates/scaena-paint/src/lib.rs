@@ -71,17 +71,45 @@ pub struct Assets {
     blobs: BTreeMap<String, Blob<u8>>,
     images: BTreeMap<String, Arc<Picture>>,
     /// Images' pixels adjusted (PLAN 2.117), by the asset id a display list names them by, made
-    /// the first time one does and kept for the frames after: the latest few, since each step
-    /// of an adjustment names other pixels.
+    /// the first time one does and kept for the frames after: those the last two frames named,
+    /// however many, and of the rest the latest few, since each step of an adjustment names
+    /// other pixels.
     adjusted: Arc<Mutex<Adjusted>>,
 }
 
-/// Adjusted pictures by asset id, the latest last.
-type Adjusted = VecDeque<(String, Arc<Picture>)>;
+/// Adjusted pictures, and the frames painted from them.
+#[derive(Debug, Default)]
+struct Adjusted {
+    /// How many frames [`Assets::frame`] has begun.
+    frame: u64,
+    /// By asset id, each with the last frame that named it: the least lately named first.
+    kept: VecDeque<(String, u64, Arc<Picture>)>,
+}
 
-/// The most adjusted pictures [`Assets`] keeps, and the most pixels among them.
+/// The most adjusted pictures [`Assets`] keeps, and the most pixels among them, past those the
+/// last two frames named.
 const ADJUSTED_KEPT: usize = 8;
 const ADJUSTED_PIXELS: u64 = 64 << 20;
+
+impl Adjusted {
+    /// Lets the least lately named go while more than [`ADJUSTED_KEPT`] are kept or their pixels
+    /// pass [`ADJUSTED_PIXELS`], never one this frame or the last named: a frame painted again
+    /// makes none of its pictures anew, however many it names. Where no frame was begun, the
+    /// least lately named goes first, whichever.
+    fn trim(&mut self) {
+        let pixels = |p: &Picture| u64::from(p.width) * u64::from(p.height);
+        let mut total: u64 = self.kept.iter().map(|(_, _, p)| pixels(p)).sum();
+        while self.kept.len() > 1 && (self.kept.len() > ADJUSTED_KEPT || total > ADJUSTED_PIXELS) {
+            let frame = self.frame;
+            let Some(at) = self.kept.iter().position(|&(_, named, _)| frame == 0 || named + 1 < frame) else {
+                break;
+            };
+            if let Some((_, _, p)) = self.kept.remove(at) {
+                total -= pixels(&p);
+            }
+        }
+    }
+}
 
 /// A decoded image: straight (unpremultiplied) sRGB RGBA8, row-major, as it is seen.
 #[derive(Debug)]
@@ -129,9 +157,15 @@ impl Assets {
         Ok(FontData::new(blob.clone(), font.index))
     }
 
+    /// Begins a frame: what a painter calls before it paints a display list, and an export before
+    /// each page, so that the adjusted pictures the frame names are kept for the next.
+    pub fn frame(&self) {
+        self.adjusted.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).frame += 1;
+    }
+
     /// The decoded image a display list names: by its content id, or by that id with how its
     /// pixels are adjusted after it (PLAN 2.117, [`Adjust::name`]), made from the image's own
-    /// the first time a frame names them.
+    /// the first time a frame names them and kept while the frames after name them.
     pub fn image(&self, id: &str) -> Result<Arc<Picture>, PaintError> {
         if let Some(picture) = self.images.get(id) {
             return Ok(picture.clone());
@@ -139,18 +173,17 @@ impl Assets {
         let missing = || PaintError::MissingImage(id.to_string());
         let (own, adjust) = Adjust::named(id).ok_or_else(missing)?;
         let source = self.images.get(own).ok_or_else(missing)?;
-        let mut kept = self.adjusted.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some((_, picture)) = kept.iter().find(|(name, _)| name == id) {
-            return Ok(picture.clone());
+        let mut adjusted = self.adjusted.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let frame = adjusted.frame;
+        if let Some(at) = adjusted.kept.iter().position(|(name, ..)| name == id)
+            && let Some((name, _, picture)) = adjusted.kept.remove(at)
+        {
+            adjusted.kept.push_back((name, frame, picture.clone()));
+            return Ok(picture);
         }
         let picture = Arc::new(source.adjusted(adjust));
-        let pixels = |p: &Picture| u64::from(p.width) * u64::from(p.height);
-        kept.push_back((id.to_string(), picture.clone()));
-        while kept.len() > 1
-            && (kept.len() > ADJUSTED_KEPT || kept.iter().map(|(_, p)| pixels(p)).sum::<u64>() > ADJUSTED_PIXELS)
-        {
-            kept.pop_front();
-        }
+        adjusted.kept.push_back((id.to_string(), frame, picture.clone()));
+        adjusted.trim();
         Ok(picture)
     }
 }
@@ -348,8 +381,40 @@ mod picture_tests {
         for e in 1..=(ADJUSTED_KEPT as i16 + 1) {
             assets.image(&Adjust { exposure: e, ..Adjust::default() }.name("sha256:ab")).unwrap();
         }
-        assert_eq!(assets.adjusted.lock().unwrap().len(), ADJUSTED_KEPT);
+        assert_eq!(assets.adjusted.lock().unwrap().kept.len(), ADJUSTED_KEPT);
         assert!(!Arc::ptr_eq(&picture, &assets.image(&id).unwrap()), "made again once let go");
+    }
+
+    /// A frame that names more adjusted pictures than are kept makes none of them anew when it is
+    /// painted again, nor when the next frame names one more, as a slider's step does; once two
+    /// frames have passed without naming them, the least lately named go first.
+    #[test]
+    fn a_frame_painted_again_makes_none_of_its_pictures_anew() {
+        let mut assets = Assets::new();
+        assets
+            .insert_image("sha256:ab", &png(png::ColorType::Rgba, png::BitDepth::Eight, 1, &[200, 40, 30, 255], None))
+            .unwrap();
+        let named = |e: i16| Adjust { exposure: e, ..Adjust::default() }.name("sha256:ab");
+        let many = ADJUSTED_KEPT as i16 * 2;
+        assets.frame();
+        let first: Vec<_> = (1..=many).map(|e| assets.image(&named(e)).unwrap()).collect();
+        for step in [-1, -2] {
+            assets.frame();
+            // The slider's next step first, then the rest.
+            assets.image(&named(step)).unwrap();
+            for (e, picture) in (1..=many).zip(&first) {
+                assert!(Arc::ptr_eq(picture, &assets.image(&named(e)).unwrap()), "{} made anew", named(e));
+            }
+        }
+        // Two frames that name only the first: the rest go, the least lately named first.
+        assets.frame();
+        assets.frame();
+        let kept = assets.image(&named(1)).unwrap();
+        assets.image(&named(-3)).unwrap();
+        let names: Vec<String> = assets.adjusted.lock().unwrap().kept.iter().map(|(n, ..)| n.clone()).collect();
+        assert_eq!(names.len(), ADJUSTED_KEPT, "{names:?}");
+        assert!(Arc::ptr_eq(&kept, &first[0]), "named in the last two frames: kept");
+        assert_eq!(names[ADJUSTED_KEPT - 2..], [named(1), named(-3)], "the latest last: {names:?}");
     }
 }
 
@@ -791,6 +856,7 @@ pub mod cpu {
             let ctx = self.kept.context(width, height, self.level);
             let mut resources = Resources::new();
             let shaded = shaded.into_iter();
+            fonts.frame();
             let mut cx = Cx { ctx: &mut *ctx, resources: &mut resources, store: fonts, fonts: &dl.fonts, shaded };
             cx.ops(&dl.ops, Affine::scale(f64::from(scale)))?;
             ctx.flush();
@@ -1361,6 +1427,7 @@ pub mod gpu {
     ) -> Result<Scene, PaintError> {
         check_version(dl)?;
         let (width, height) = raster_size(dl, scale)?;
+        fonts.frame();
         let mut cx = Cx {
             scene: Scene::new(),
             store: fonts,

@@ -10,6 +10,9 @@
 //   the deck is as it was.
 // - Border chosen (PLAN 2.118) is one `choose` of the photo's `stroke`, the accent drawn on the
 //   edge of the picture that shows; one undo, and the deck is as it was.
+// - A slider's readout follows it as it is dragged, before it is let go.
+// - On the next slide, where the warm photo is written cool, Warmth let go at none is none there:
+//   the photo's own warmth does not show through; one undo.
 // Exits 1 on any failure.
 import { launch, serve } from "./serve.mjs";
 
@@ -99,6 +102,14 @@ try {
   check(sliders.every((t) => t === "range"), `Exposure, Contrast, Saturation, and Warmth are sliders: ${sliders.join(", ")}`);
   const labels = await page.evaluate(() => document.querySelector("#look").textContent);
   check(["Exposure", "Contrast", "Saturation", "Warmth"].every((w) => labels.includes(w)), "each in a person's words");
+  const readout = await page.evaluate(() => {
+    const input = document.querySelector("#look-adjust-exposure");
+    input.value = "0.5";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    return [input.nextElementSibling.textContent, input.getAttribute("aria-valuetext")];
+  });
+  check(readout[0] === "+50" && readout[1] === "+50", `the readout follows the drag: ${readout.join(", ")}`);
+  check((await source()) === original, "and nothing is set until it is let go");
 
   // Where the photo is most colorful, on a grid across its box; and a point on the slide beside it.
   const [x, y, w, h] = await page.evaluate(() => window.scaena.canvas.boxes().find((b) => b.node === "adj-plain").rect);
@@ -151,6 +162,24 @@ try {
   check(edgeAfter > edgeBefore + 40, `the accent drawn on the picture's edge: ${edgeBefore} → ${edgeAfter}`);
   await undo();
   check((await source()) === original, "one undo takes the border away");
+
+  // The next slide writes the warm photo cool: Warmth let go at none there is none there, not the
+  // photo's own warmth showing through.
+  const next = await page.evaluate(() => window.scaena.opened.states.indexOf("adjust-next"));
+  await page.evaluate((offset) => window.scaena.cursor(offset), (await source()).indexOf("state adjust-next") + "state ".length);
+  await page.waitForFunction((i) => window.scaena.shown() === i && window.scaena.at().index === i, next, { timeout: 30000 });
+  await page.waitForFunction(() => window.scaena.canvas.boxed() === "adjust-next" && window.scaena.canvas.boxes().length > 0, null, { timeout: 30000 });
+  await choose("adj-warm");
+  await page.waitForSelector("#look-adjust-warmth", { timeout: 30000 });
+  const warmth = () => page.evaluate(() => [Number(document.querySelector("#look-adjust-warmth").value), document.querySelector("#look-adjust-warmth").nextElementSibling.textContent]);
+  check((await warmth())[0] === -0.8, `cool on the next slide: ${await warmth()}`);
+  await slide("#look-adjust-warmth", 0);
+  await page.waitForFunction(() => window.scaena.look.offered()?.node === "adj-warm", null, { timeout: 30000 });
+  await page.waitForSelector("#look-adjust-warmth", { timeout: 30000 });
+  const [none, said] = await warmth();
+  check(none === 0 && said === "None", `let go at none, it is none there, the photo's own +80 not showing through: ${none}, ${said}`);
+  await undo();
+  check((await source()) === original, "and one undo puts it back");
 } catch (e) {
   failures.push(`error: ${e.message}`);
 } finally {
