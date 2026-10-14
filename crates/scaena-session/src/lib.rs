@@ -3385,6 +3385,24 @@ mod tests {
     /// on it: placed in the slot, so it goes where the slot goes, in another theme too. Dropped on
     /// a Chart slide's placeholder, the chart fills it, and re-themed in Ember, where the note
     /// stands beside the slot, nothing lies over it.
+    /// A chart deleted from its slide, and a chart of its data pressed into the figure's place it
+    /// left: it fills the slot, at its size, as the browser's walk has it (web/insert.mjs).
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_chart_pressed_where_one_was_deleted_fills_its_place() {
+        let mut s = revenue();
+        let by = assistant::Caller { author: "user", at: None };
+        let gone = s.deleting("revenue", "rev", false).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": gone }), by).unwrap();
+        let slots = s.targets("revenue", "title").unwrap().slots.clone();
+        let main = slots.iter().find(|(name, _)| name == "main").unwrap().1;
+        let middle = [main[0] + main[2] / 2.0, main[1] + main[3] / 2.0];
+        let n = s.inserts().iter().position(|i| i.label == "Chart · q3").unwrap();
+        let added = s.inserting("revenue", n, middle, None).unwrap();
+        assert_eq!(added.patch[1]["at"], serde_json::json!({ "in": "main" }), "{:?}", added.patch);
+        assert_eq!(added.cell, main);
+    }
+
     #[cfg(feature = "editor")]
     #[test]
     fn a_chart_or_a_table_fills_the_slot_that_waits_for_it() {

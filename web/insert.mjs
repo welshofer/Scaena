@@ -178,6 +178,8 @@ try {
   await select("rev");
   await page.keyboard.press("Delete");
   check(await reads("\n  -rev"), "the chart deleted from `revenue` on");
+  // Pressed once the canvas draws the slide without it, so the press lands on the place it left.
+  await page.waitForFunction(() => !window.scaena.canvas.busy() && !window.scaena.canvas.boxes()?.some((b) => b.node === "rev"), null, { timeout: 30000 }).catch(() => {});
   const main = slots.main;
   await press([main[0] + main[2] / 2, main[1] + main[3] / 2]);
   await page.selectOption("#insert", { label: "q3" });
@@ -185,7 +187,8 @@ try {
   // Its declaration, with the lines its properties run on to.
   const q3 = /q3-chart chart:bar data:@q3[^\n]*(?:\n {4}[^\n]*)*/.exec(await source())?.[0] ?? "";
   check(q3.includes("at:in(main)"), `into the figure's place: ${q3.slice(-60)}`);
-  check(JSON.stringify(await box("q3-chart")) === JSON.stringify(main), `at its size: ${await box("q3-chart")}`);
+  const placed = await drawn("q3-chart");
+  check(JSON.stringify(placed) === JSON.stringify(main), `at its size: ${placed}`);
   await page.keyboard.press("Control+z");
   await page.keyboard.press("Control+z");
   check(await back(original), "two undos put the chart back");
