@@ -23,10 +23,14 @@ enum Presenting {
     private static var closing: NSObjectProtocol?
     /// The show that plays, if one does: what a remote drives (PLAN 4.10).
     private(set) static weak var current: Showing?
+    /// What is told, as the show ends, the state it stopped on.
+    private static var stopped: ((String) -> Void)?
 
-    /// Present `editor`'s deck from `state`, its cue first.
-    static func play(_ editor: DeckEditor, from state: String?) {
+    /// Present `editor`'s deck from `state`, its cue first; ended, `stopped` is told the state it
+    /// stopped on, which the window then shows, as a presentation app leaves you where you stopped.
+    static func play(_ editor: DeckEditor, from state: String?, stopped: ((String) -> Void)? = nil) {
         end()
+        Self.stopped = stopped
         let showing = Showing(editor: editor, from: state)
         showing.ended = { Presenting.end() }
         current = showing
@@ -61,8 +65,12 @@ enum Presenting {
         NSCursor.setHiddenUntilMouseMoves(true)
     }
 
-    /// End the show: its windows close.
+    /// End the show: its windows close, and the window that played it shows where it stopped.
     static func end() {
+        let reached = current?.show.slot?.state
+        let tell = stopped
+        stopped = nil
+        defer { if let reached { tell?(reached) } }
         Pointer.hidden(false)
         current = nil
         RemoteHost.shared.follow(nil)
@@ -92,9 +100,12 @@ enum Presenting {
     private static var watching: [NSObjectProtocol] = []
     /// The show that plays, if one does: what a remote drives (PLAN 4.10).
     static var current: Showing? { showing }
+    /// What is told, as the show ends, the state it stopped on.
+    private static var stopped: ((String) -> Void)?
 
-    /// Present `editor`'s deck from `state`, its cue first.
-    static func play(_ editor: DeckEditor, from state: String?) {
+    /// Present `editor`'s deck from `state`, its cue first; ended, `stopped` is told the state it
+    /// stopped on, which the window then shows, as a presentation app leaves you where you stopped.
+    static func play(_ editor: DeckEditor, from state: String?, stopped: ((String) -> Void)? = nil) {
         end()
         let scene = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
@@ -104,9 +115,12 @@ enum Presenting {
         let showing = Showing(editor: editor, from: state)
         showing.ended = { Presenting.end() }
         self.showing = showing
+        Self.stopped = stopped
         RemoteHost.shared.follow(showing)
         place()
-        let host = UIHostingController(rootView: ShowHere(showing: showing))
+        // The status bar and the home indicator out of the slide's way while it plays, as a
+        // presentation app's slideshow hides them.
+        let host = StageHost(rootView: ShowHere(showing: showing).statusBarHidden(true).persistentSystemOverlays(.hidden))
         host.modalPresentationStyle = .fullScreen
         host.view.backgroundColor = .black
         top.present(host, animated: true)
@@ -119,9 +133,13 @@ enum Presenting {
         }
     }
 
-    /// End the show: the stage and the presenter's view go, and the display the iPad drives shows
-    /// the iPad's screen again.
+    /// End the show: the stage and the presenter's view go, the display the iPad drives shows the
+    /// iPad's screen again, and the window that played it shows where it stopped.
     static func end() {
+        let reached = showing?.show.slot?.state
+        let tell = stopped
+        stopped = nil
+        defer { if let reached { tell?(reached) } }
         for token in watching { NotificationCenter.default.removeObserver(token) }
         watching = []
         leave()
@@ -166,6 +184,13 @@ enum Presenting {
         stage?.rootViewController = nil
         stage = nil
     }
+}
+
+/// What presents the deck on the iPad (PLAN 4.8): the status bar and the home indicator hidden
+/// while it plays, as a presentation app's slideshow hides them.
+final class StageHost<Content: View>: UIHostingController<Content> {
+    override var prefersStatusBarHidden: Bool { true }
+    override var prefersHomeIndicatorAutoHidden: Bool { true }
 }
 
 /// The scene the system makes for a display the iPad drives, an external display or an AirPlay

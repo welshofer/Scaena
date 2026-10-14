@@ -126,3 +126,24 @@ private func alike(_ a: CGRect, _ b: CGRect) -> Bool {
     #expect(asked == [.nextMatch, .showFindInterface])
 }
 #endif
+
+/// The Zoom menu says how large the slide is drawn against its own size, as a presentation app's
+/// does, whatever the desk: 100% a point to a canvas unit, not the slide fitted. Fitted at half its
+/// size on this desk, it reads 50%, and 200% draws it twice its own size, four times fitted. It
+/// offers what is closer than fitted, and no closer than eight times fitted.
+@Test func theZoomSaysTheSlidesSizeAgainstItsOwn() {
+    var zoom = Zoom(canvas: CGSize(width: 1920, height: 1080), desk: CGSize(width: 1016, height: 596))
+    #expect(zoom.percent == 50, "fitted at half its size: \(zoom.percent)%")
+    #expect(!zoom.offers(0.25) && !zoom.offers(0.5), "no farther than fitted")
+    #expect(zoom.offers(0.75) && zoom.offers(1) && zoom.offers(4))
+    zoom.zoom(toActual: 2)
+    #expect(zoom.level == 4 && zoom.percent == 200 && abs(zoom.slide.width - 3840) < 1e-6, "\(zoom.level)")
+    zoom.step(1)
+    #expect(zoom.percent == 300, "a step closer: \(zoom.percent)%")
+    // A smaller desk fits it smaller: fitted, it reads less, and eight times fitted is closer to it.
+    var small = Zoom(canvas: CGSize(width: 1920, height: 1080), desk: CGSize(width: 536, height: 326))
+    #expect(small.percent == 25, "\(small.percent)%")
+    #expect(small.offers(2) && !small.offers(3), "eight times fitted at most")
+    small.zoom(toActual: 1)
+    #expect(small.level == 4 && small.percent == 100)
+}

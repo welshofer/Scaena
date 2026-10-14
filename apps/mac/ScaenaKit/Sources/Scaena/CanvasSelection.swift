@@ -76,8 +76,9 @@ struct CanvasSelection: View {
     var pen: PenUp? = nil
     var penning: (() -> Void)? = nil
     var inked: (([CGPoint]) -> Void)? = nil
-    /// Make the patch a drag ended in: one step to undo.
-    let make: ([JSONValue]) -> Void
+    /// Make the patch a gesture ended in: one step to undo, named in the Edit menu as the gesture
+    /// is where it says more than the patch (a resize), else as the patch says what it does.
+    let make: ([JSONValue], String?) -> Void
     @State private var boxes: [NodeBox] = []
     /// The layout's slots with nothing in them, in the format shown, which a press on the words
     /// in each fills (PLAN 3.30).
@@ -112,6 +113,8 @@ struct CanvasSelection: View {
     /// The menu a long press or a right click asks for: a count, new with each ask, and where,
     /// view points (PLAN 3.23, 4.3).
     @State private var offering: (count: Int, at: CGPoint)?
+    /// Where what the menu is for stands, view points: what it stands clear of.
+    @State private var offeredAround: CGRect?
     #if !os(macOS)
     /// A finger held still, waiting to offer what is done to what it pressed (PLAN 4.3).
     @State private var lingering: Task<Void, Never>?
@@ -252,7 +255,7 @@ struct CanvasSelection: View {
                 // a long press does on the iPad (PLAN 3.23); in a text typed in, it is the text's.
                 CanvasRightClick { at in
                     guard !typing.typing else { return false }
-                    offer(at: fit.canvas(at), shown: at)
+                    offer(at: fit.canvas(at), shown: at, fit: fit)
                     return true
                 }
                 .allowsHitTesting(false)
@@ -269,7 +272,7 @@ struct CanvasSelection: View {
                     }
                     #if !os(macOS)
                     // A trackpad's or a mouse's right click offers what a long press offers (PLAN 4.5).
-                    .gesture(CanvasRightClick { at in offer(at: fit.canvas(at), shown: at) })
+                    .gesture(CanvasRightClick { at in offer(at: fit.canvas(at), shown: at, fit: fit) })
                     // Two fingers zoom and pan, as the Mac's pinch and wheel do (PLAN 4.3): the slide
                     // grows on the desk about the fingers, and moves with them where it is larger
                     // than the desk shows.
@@ -293,10 +296,17 @@ struct CanvasSelection: View {
                     ink(pen, fit: fit)
                         .allowsHitTesting(false)
                 }
-                // What a long press or a right click offers, over where it pressed (PLAN 3.23, 4.3).
+                // What a long press or a right click offers, over where it pressed (PLAN 3.23, 4.3);
+                // on the iPad, clear of what it is for.
+                #if os(macOS)
                 CanvasMenu(asked: offering, deck: actions, clip: clip)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .allowsHitTesting(false)
+                #else
+                CanvasMenu(asked: offering, deck: actions, clip: clip, around: offeredAround)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .allowsHitTesting(false)
+                #endif
                 // What a press would take under the pointer or the Pencil: a node outlined dashed, as
                 // the browser's canvas outlines it, or a handle ringed (PLAN 4.5).
                 if press == nil, pen == nil, let over = hovered?.node, let b = boxes.first(where: { $0.node == over }) {
@@ -379,14 +389,14 @@ struct CanvasSelection: View {
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel(Words.slide(state, in: editor.slots))
                 .accessibilityIdentifier("canvas")
-                // How close it is shown, where it is zoomed in (PLAN 3.16).
-                .accessibilityValue(zoom.level > 1 + 1e-9 ? "at \(Int((zoom.level * 100).rounded())) percent" : "")
+                // How close it is shown, where it is zoomed in (PLAN 3.16), against its own size.
+                .accessibilityValue(zoom.level > 1 + 1e-9 ? "at \(zoom.percent) percent" : "")
                 // What is wrong with an object, marked at its top right, a click saying what and
                 // offering the fix (PLAN 3.20); not while a drag, a handle, or typing goes on.
                 if drag == nil, holding == nil, pen == nil, !typing.typing {
                     ForEach(marks) { mark in
                         IssueBadge(issues: mark.issues, fix: fix)
-                            .position(fit.view(mark.at))
+                            .position(marked(mark, fit: fit))
                     }
                 }
                 // Each empty slot's words, which a press fills it from (PLAN 3.30); not while a drag,
@@ -394,23 +404,10 @@ struct CanvasSelection: View {
                 if drag == nil, holding == nil, pen == nil, !typing.typing {
                     waitingButtons(fit)
                 }
-                // What the canvas says, at the foot of the slide, clear of a title at its head.
-                if let words = told ?? typing.told ?? said {
-                    Text(words)
-                        .font(.callout)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(.regularMaterial, in: Capsule())
-                        .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
-                        // What the walk reads to know a text is typed in (PLAN 3.21).
-                        .accessibilityIdentifier("hint")
-                        .padding(12)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                        .allowsHitTesting(false)
-                }
             }
+            // What the canvas says, handed to the window, which shows it on the desk under the
+            // slide, not on it (`DeskHint`): never over the slide's words or a handle.
+            .preference(key: CanvasHint.Key.self, value: hint(fit))
         }
         .task(id: "\(state)\u{1f}\(editor.revision)") {
             boxes = (try? editor.session.boxes(state: state)) ?? []
@@ -467,6 +464,23 @@ struct CanvasSelection: View {
         .modifier(LinkQuestion(typing: typing))
     }
 
+    /// What the canvas says now, and where what is selected stands with its handles, view points:
+    /// a drag's or a handle's, the text typed in's, or what an edit came to.
+    private func hint(_ fit: Fit) -> CanvasHint? {
+        guard let words = told ?? typing.told ?? said else { return nil }
+        return CanvasHint(words: words, selected: selectedFrame(fit))
+    }
+
+    /// Where what is selected stands with its handles, view points: its frame, the handles a
+    /// little past it, and the rotate handle above it; none where nothing is selected.
+    private func selectedFrame(_ fit: Fit) -> CGRect? {
+        let held = boxes.filter { selection.contains($0.node) }
+        let corners = held.flatMap { framed($0, scale: fit.scale) }.map { fit.view($0) }
+        guard !corners.isEmpty else { return nil }
+        let r = Self.bounds(corners).insetBy(dx: -8, dy: -8)
+        return CGRect(x: r.minX, y: r.minY - HandleSpacing.arm, width: r.width, height: r.height + HandleSpacing.arm)
+    }
+
     /// Each empty slot's words, in the middle of it, which a press fills it from (PLAN 3.30); none
     /// where the slot is shown too small to read them.
     @ViewBuilder private func waitingButtons(_ fit: Fit) -> some View {
@@ -474,7 +488,7 @@ struct CanvasSelection: View {
             ForEach(waits) { slot in
                 let r = slot.rect.applying(fit.transform)
                 if r.width > 80, r.height > 24 {
-                    WaitingButton(slot: slot, width: r.width) { fill(slot) }
+                    WaitingButton(slot: slot, width: r.width, height: r.height) { fill(slot) }
                         .position(x: r.midX, y: r.midY)
                 }
             }
@@ -788,7 +802,7 @@ struct CanvasSelection: View {
                 said = nil
                 return
             }
-            make(Handling.turning(h.node, to: turn.now, in: state, fork: h.fork))
+            edit(Handling.turning(h.node, to: turn.now, in: state, fork: h.fork))
             said = "Rotated to \(Int(turn.now))°\(kept)"
         case .point(let index, let added):
             guard let o = shaped else { return }
@@ -802,7 +816,7 @@ struct CanvasSelection: View {
                 return
             }
             pointPicked = nil
-            make(Handling.reshaping(h.node, to: h.points, in: state, fork: h.fork))
+            edit(Handling.reshaping(h.node, to: h.points, in: state, fork: h.fork))
             said = added ? "Point added\(kept)" : "Point moved\(kept)"
         case .corner(let step):
             guard let o = shaped else { return }
@@ -810,7 +824,7 @@ struct CanvasSelection: View {
                 said = h.moved ? nil : "Drag the corner handle to round the corners"
                 return
             }
-            make(Handling.rounding(h.node, to: step, in: state, fork: h.fork))
+            edit(Handling.rounding(h.node, to: step, in: state, fork: h.fork))
             said = "Corners rounded\(kept)"
         case .crop:
             guard let f = imaged else { return }
@@ -818,7 +832,7 @@ struct CanvasSelection: View {
                 said = h.moved ? nil : "Drag a crop handle to crop the picture from that side"
                 return
             }
-            make(Handling.cropping(h.node, to: h.crop, in: state, fork: h.fork))
+            edit(Handling.cropping(h.node, to: h.crop, in: state, fork: h.fork))
             said = Framing.keepsWhole(h.crop) ? "Showing the whole picture\(kept)" : "Cropped\(kept)"
         case .focal:
             guard let f = imaged else { return }
@@ -826,7 +840,7 @@ struct CanvasSelection: View {
                 said = h.moved ? nil : "Drag the focal point to keep that part of the picture in view"
                 return
             }
-            make(Handling.focusing(h.node, on: h.focal, in: state, fork: h.fork))
+            edit(Handling.focusing(h.node, on: h.focal, in: state, fork: h.fork))
             said = "Focal point moved\(kept)"
         }
     }
@@ -841,7 +855,7 @@ struct CanvasSelection: View {
         }
         pointPicked = nil
         let fork = Held.option
-        make(Handling.reshaping(o.node, to: kept, in: state, fork: fork))
+        edit(Handling.reshaping(o.node, to: kept, in: state, fork: fork))
         said = "Point removed\(fork ? " · on this slide only" : "")"
     }
 
@@ -1070,8 +1084,26 @@ struct CanvasSelection: View {
         if let part, !part.text.isEmpty {
             return "“\(Words.node(nil, words: part.text))”"
         }
-        let named = part?.role == "table" ? "a table" : part?.role == "figure" ? "a figure" : "an object"
+        // What holds others is a group, as the inspector calls it, named by the words it holds first.
+        let named: String
+        if boxes.contains(where: { $0.parent == node }) {
+            let held = reads.first { !$0.text.isEmpty && holds(node, $0.node) }
+            named = held.map { "the group “\(Words.node(nil, words: $0.text))”" } ?? "a group"
+        } else {
+            named = part?.role == "table" ? "a table" : part?.role == "figure" ? "a figure" : "an object"
+        }
         return starting ? named.prefix(1).uppercased() + named.dropFirst() : named
+    }
+
+    /// Whether `holder` holds `node`, or what holds it does.
+    private func holds(_ holder: String, _ node: String) -> Bool {
+        var at = parent(of: node)
+        for _ in 0..<64 {
+            guard let up = at else { return false }
+            if up == holder { return true }
+            at = parent(of: up)
+        }
+        return false
     }
 
     private func handleSaid(_ node: String, _ h: KeyedHandle, _ n: Int, _ of: Int) -> String {
@@ -1221,7 +1253,7 @@ struct CanvasSelection: View {
             guard list.indices.contains(k) else { return true }
             let patch = list[k].nudged(
                 dx: dx, dy: dy, far: shift, outline: shaped, framing: imaged, state: state, fork: option)
-            if let patch { make(patch) } else { said = nil }
+            if let patch { edit(patch) } else { said = nil }
             return true
         }
         step(selected, dx, dy, grow: shift, fork: option)
@@ -1265,7 +1297,7 @@ struct CanvasSelection: View {
                     said = nil
                     return
                 }
-                make(arranged.patch)
+                edit(arranged.patch, as: "Move")
                 said = nil
                 return
             }
@@ -1275,7 +1307,7 @@ struct CanvasSelection: View {
                 said = nil
                 return
             }
-            make(snapped.patch)
+            edit(snapped.patch, as: grow ? "Resize" : "Move")
         } catch {
             said = "Not moved: \(error)"
         }
@@ -1292,7 +1324,7 @@ struct CanvasSelection: View {
         do {
             let start = try editor.session.turned(state: state, node: selected).rotate
             let now = ((start + by) * 1000).rounded() / 1000
-            make(Handling.turning(selected, to: now, in: state, fork: Held.option))
+            edit(Handling.turning(selected, to: now, in: state, fork: Held.option))
             said = "Rotated to \(now.formatted())°"
         } catch {
             said = "Can't be rotated: \(error)"
@@ -1306,7 +1338,7 @@ struct CanvasSelection: View {
         guard let selected = node, also.isEmpty, let k = keyed, let o = shaped, o.node == selected else { return false }
         let list = handles(of: selected)
         guard list.indices.contains(k), case .point(let i) = list[k] else { return false }
-        make(Handling.reshaping(o.node, to: o.adding(after: i), in: state, fork: option))
+        edit(Handling.reshaping(o.node, to: o.adding(after: i), in: state, fork: option))
         keyed = k + 1
         said = "Point added after point \(i + 1)"
         return true
@@ -1383,13 +1415,15 @@ struct CanvasSelection: View {
     /// where it draws there too, under another or not: the menu is for what the press was on, the
     /// node whose handles show, or the several selected together. A long press or a right click on
     /// the iPad (PLAN 4.3, 4.5), and a right click on the Mac (PLAN 3.23).
-    private func offer(at point: CGPoint, shown: CGPoint) {
+    private func offer(at point: CGPoint, shown: CGPoint, fit: Fit) {
         let hits = (try? editor.session.hits(state: state, at: point)) ?? []
         if !hits.contains(where: { selection.contains($0.node) }) {
             node = hits.first?.node
             also = []
         }
         pointed = point
+        // On the iPad the menu stands clear of what it is for, above it, as iPadOS's does.
+        offeredAround = selectedFrame(fit)
         offering = (count: (offering?.count ?? 0) + 1, at: shown)
     }
 
@@ -1402,7 +1436,7 @@ struct CanvasSelection: View {
             try? await Task.sleep(for: Self.lingers)
             guard !Task.isCancelled, case .pressing = press else { return }
             press = .offered
-            offer(at: fit.canvas(start), shown: start)
+            offer(at: fit.canvas(start), shown: start, fit: fit)
         }
     }
 
@@ -1582,7 +1616,13 @@ struct CanvasSelection: View {
         pausing?.cancel()
         editor.still()
         guard let d = drag, d.revision == editor.revision, !d.patch.isEmpty else { return }
-        make(d.patch)
+        edit(d.patch, as: d.edge == nil ? "Move" : "Resize")
+    }
+
+    /// Make `ops`, one step to undo, named `name` in the Edit menu where the gesture says more than
+    /// the patch does: a drag of a handle is a resize, where its patch only places the node.
+    private func edit(_ ops: [JSONValue], as name: String? = nil) {
+        make(ops, name)
     }
 
     /// The pointer, or the Pencil held over the screen, at `shown` (view points): what a press there
@@ -1673,6 +1713,14 @@ struct CanvasSelection: View {
         }
     }
 
+    /// Where `mark` stands on the view: at its box's top right corner; outside it, past the corner
+    /// handle, where that box is selected and its handles show, so the mark covers none of them.
+    private func marked(_ mark: Mark, fit: Fit) -> CGPoint {
+        let at = fit.view(mark.at)
+        guard mark.id == node, also.isEmpty else { return at }
+        return CGPoint(x: at.x + 18, y: at.y - 18)
+    }
+
     private func box(_ selected: NodeBox) -> CGRect? {
         guard selected.rect.count == 4 else { return nil }
         return CGRect(x: selected.rect[0], y: selected.rect[1], width: selected.rect[2], height: selected.rect[3])
@@ -1680,13 +1728,23 @@ struct CanvasSelection: View {
 
     /// `b`'s frame at rest, canvas units, where its outline and handles stand at `scale`: `clear`
     /// points outside its box, never past the canvas's edge, where what bleeds keeps its handles
-    /// on the canvas.
+    /// on the canvas, nor past half the room to a box beside it, so the frame of a title stays off
+    /// the words of the subtitle under it.
     private func frameBox(_ b: NodeBox, scale: CGFloat) -> CGRect? {
         guard let r = box(b) else { return nil }
         let c = Self.clear / Double(max(scale, 0.01))
-        let (left, top) = (min(c, max(0, Double(r.minX))), min(c, max(0, Double(r.minY))))
-        let right = min(c, max(0, Double(size.width - r.maxX)))
-        let bottom = min(c, max(0, Double(size.height - r.maxY)))
+        var (left, top) = (min(c, max(0, Double(r.minX))), min(c, max(0, Double(r.minY))))
+        var right = min(c, max(0, Double(size.width - r.maxX)))
+        var bottom = min(c, max(0, Double(size.height - r.maxY)))
+        for other in boxes where other.node != b.node && other.parent == b.parent {
+            guard let o = box(other) else { continue }
+            let across = o.maxX > r.minX && o.minX < r.maxX
+            let beside = o.maxY > r.minY && o.minY < r.maxY
+            if across, o.minY >= r.maxY - 0.5 { bottom = min(bottom, max(0, Double(o.minY - r.maxY) / 2)) }
+            if across, o.maxY <= r.minY + 0.5 { top = min(top, max(0, Double(r.minY - o.maxY) / 2)) }
+            if beside, o.minX >= r.maxX - 0.5 { right = min(right, max(0, Double(o.minX - r.maxX) / 2)) }
+            if beside, o.maxX <= r.minX + 0.5 { left = min(left, max(0, Double(r.minX - o.maxX) / 2)) }
+        }
         return CGRect(
             x: Double(r.minX) - left, y: Double(r.minY) - top, width: Double(r.width) + left + right,
             height: Double(r.height) + top + bottom)
@@ -1738,6 +1796,84 @@ struct CanvasSelection: View {
             }
             path.closeSubpath()
         }
+    }
+}
+
+/// What the canvas says (PLAN 3.18), and where on the canvas what is selected stands with its
+/// handles, view points: handed up to the window, which shows the words on the desk (`DeskHint`).
+struct CanvasHint: Equatable {
+    var words: String
+    var selected: CGRect?
+
+    /// How the canvas hands it up.
+    struct Key: PreferenceKey {
+        static var defaultValue: CanvasHint? { nil }
+
+        static func reduce(value: inout CanvasHint?, nextValue: () -> CanvasHint?) {
+            if value == nil { value = nextValue() }
+        }
+    }
+}
+
+/// What the canvas says, on the desk the slide sits on (PLAN 3.18): chrome under the slide, as a
+/// presentation app keeps its own words off a slide, never over the slide's words or a handle.
+/// Smaller where the desk leaves little room there; where it leaves none, the slide zoomed past the
+/// desk, a strip at the desk's foot, or at its head where what is selected stands at the foot. It
+/// takes no press.
+struct DeskHint: View {
+    let hint: CanvasHint?
+    /// The desk, points; the slide on it, and the part of the slide the canvas shows, desk points.
+    let desk: CGSize
+    let slide: CGRect
+    let visible: CGRect
+
+    /// The most of the desk under the slide, or over it, the words keep to, points: near the slide.
+    private static let near: CGFloat = 64
+    /// The least room a line of the words takes, points.
+    private static let line: CGFloat = 26
+    /// The strip at the desk's foot or head the words stand in where the slide leaves no room.
+    private static let strip: CGFloat = 56
+
+    var body: some View {
+        if let hint {
+            let room = band(hint)
+            let roomy = room.height >= 44
+            Text(hint.words)
+                .font(roomy ? .callout : .caption)
+                .lineLimit(room.height >= 60 ? 2 : 1)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, roomy ? 12 : 10)
+                .padding(.vertical, roomy ? 6 : 3)
+                .background(.regularMaterial, in: Capsule())
+                .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
+                // What the walk reads to know a text is typed in (PLAN 3.21).
+                .accessibilityIdentifier("hint")
+                .frame(maxWidth: max(desk.width - 24, 1))
+                .frame(width: max(desk.width, 1), height: max(room.height, 1))
+                .offset(y: room.minY)
+                .frame(width: max(desk.width, 1), height: max(desk.height, 1), alignment: .topLeading)
+                .allowsHitTesting(false)
+        }
+    }
+
+    /// Where on the desk the words stand, desk points: the room under the slide, or over it,
+    /// where a line fits; else a strip at the desk's foot, or at its head where what is selected
+    /// stands at the foot.
+    private func band(_ hint: CanvasHint) -> CGRect {
+        let under = desk.height - slide.maxY
+        if under >= Self.line {
+            return CGRect(x: 0, y: slide.maxY, width: desk.width, height: min(under, Self.near))
+        }
+        if slide.minY >= Self.line {
+            let over = min(slide.minY, Self.near)
+            return CGRect(x: 0, y: slide.minY - over, width: desk.width, height: over)
+        }
+        let tall = min(Self.strip, desk.height)
+        let foot = CGRect(x: 0, y: desk.height - tall, width: desk.width, height: tall)
+        guard let selected = hint.selected?.offsetBy(dx: visible.minX, dy: visible.minY), selected.intersects(foot) else {
+            return foot
+        }
+        return CGRect(x: 0, y: 0, width: desk.width, height: tall)
     }
 }
 

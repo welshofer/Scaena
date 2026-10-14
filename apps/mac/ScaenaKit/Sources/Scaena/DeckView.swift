@@ -124,7 +124,7 @@ struct DeckView: View {
     // The window's parts, each its own expression: one modifier chain over all of them is more
     // than the compiler type-checks in reasonable time.
     var body: some View {
-        presented(watched(window))
+        presented(watched(undoing(window)))
             .focusedSceneValue(\.deck, actions)
             .focusedSceneValue(\.canvasActions, canvasActions)
             .focusedSceneValue(\.panes, panes)
@@ -145,17 +145,7 @@ struct DeckView: View {
             detail.toolbar { toolbar }
             #endif
         }
-        .onChange(of: showsSlides) { _, shows in
-            if shows {
-                beforeTable = columns
-                columns = .detailOnly
-            } else if let before = beforeTable {
-                // `.automatic` leaves a side folded away folded, so the side comes back shown,
-                // unless it was folded away before the light table.
-                columns = before == .detailOnly ? .detailOnly : .all
-                beforeTable = nil
-            }
-        }
+        .onChange(of: showsSlides) { _, shows in tabled(shows) }
         #if os(macOS)
         .toolbar(id: "deck") { customizable }
         #endif
@@ -176,6 +166,30 @@ struct DeckView: View {
                 if let shown { insertIcon(icon, in: shown) }
             }
         }
+    }
+
+    /// The light table shown, or put away (PLAN 3.14). The canvas's selection is let go, so the
+    /// inspector shows the slide picked on the table, as a presentation app's does. On the Mac the
+    /// slides down the side fold away while it shows every slide, and come back after it, unless
+    /// they were folded away before. On the iPad they stay: folding them moved the toolbar's View,
+    /// Zoom, and Undo to its other end, and a presentation app's toolbar stays put.
+    private func tabled(_ shows: Bool) {
+        if shows {
+            if typing?.typing == true { typing?.leave() }
+            node = nil
+            also = []
+        }
+        #if os(macOS)
+        if shows {
+            beforeTable = columns
+            columns = .detailOnly
+        } else if let before = beforeTable {
+            // `.automatic` leaves a side folded away folded, so the side comes back shown,
+            // unless it was folded away before the light table.
+            columns = before == .detailOnly ? .detailOnly : .all
+            beforeTable = nil
+        }
+        #endif
     }
 
     /// The file at `url`, chosen, landed on the slide shown as a drop lands it.
@@ -254,13 +268,22 @@ struct DeckView: View {
         }
     }
 
-    /// The inspector under `tab`: the object selected, or the slide with none.
+    /// The inspector under `tab`: the object selected, or the slide with none; on the light table,
+    /// the slide picked there.
     private func inspecting(_ tab: InspectorTab) -> some View {
         Inspector(
-            editor: editor, state: shown, node: $node, also: $also, typing: typing, tab: tab, offer: { asked = $0 }
+            editor: editor, state: inspected, node: $node, also: $also, typing: typing, tab: tab, offer: { asked = $0 }
         ) { ops in
             perform { try document.make(ops, undo: undo) }
         }
+    }
+
+    /// The state the inspector edits: on the light table, the first state of the first slide
+    /// picked there, as a presentation app's inspector follows the slide selected; else the one shown.
+    private var inspected: String? {
+        guard showsSlides else { return shown }
+        let picked = Slide.of(editor.slots).first { slidesPicked.contains($0.id) }
+        return picked?.states.first ?? shown
     }
 
     /// The canvas and its cue; or the light table, or a rehearsal, in its place (PLAN 3.14).
@@ -281,7 +304,7 @@ struct DeckView: View {
             // The canvas takes the room the find bar, the other sizes, and the timeline leave.
             CanvasColumn {
                 if searching {
-                    FindBar(editor: editor, reveal: reveal, make: { ops in perform { try document.make(ops, undo: undo) } }) {
+                    FindBar(editor: editor, reveal: reveal, make: { ops in perform { try document.make(ops, undo: undo, named: "Replace") } }) {
                         searching = false
                     }
                     Divider()
@@ -365,13 +388,17 @@ struct DeckView: View {
 
     /// Play the slideshow from the slide shown.
     private var playing: some View {
-        Button {
-            Presenting.play(editor, from: shown)
-        } label: {
+        Button(action: play) {
             Label("Play", systemImage: "play.fill")
         }
         .help("Play the slideshow from this slide (⌥⌘P)")
         .disabled(editor.slots.isEmpty)
+    }
+
+    /// The slideshow played from the slide shown; ended, the window shows the slide it stopped on,
+    /// as a presentation app leaves you where you stopped presenting.
+    private func play() {
+        Presenting.play(editor, from: shown) { stopped in chosen = stopped }
     }
 
     /// A kind of thing the toolbar inserts.
@@ -451,14 +478,14 @@ struct DeckView: View {
         .help("The light table, and what the window shows beside the slide")
     }
 
-    /// How close the slide is shown: the whole of it, or closer.
+    /// How close the slide is shown: the whole of it, or closer, each size against the slide's own,
+    /// as a presentation app's zoom offers them: 100% is the slide at its actual size.
     private var zooming: some View {
         Menu {
             Button("Fit Slide") { zoom.fit() }
             Divider()
-            ForEach([1.5, 2, 3, 4], id: \.self) { level in
-                let percent = "\(Int(level * 100))%"
-                Button(percent) { zoom.zoom(to: level) }
+            ForEach(Zoom.actuals.filter { zoom.offers($0) }, id: \.self) { actual in
+                Button("\(Int((actual * 100).rounded()))%") { zoom.zoom(toActual: actual) }
             }
             Divider()
             Button("Zoom In") { zoom.step(1) }
@@ -472,13 +499,15 @@ struct DeckView: View {
         }
         .accessibilityLabel("Zoom")
         .accessibilityValue(zoomed)
+        .accessibilityIdentifier("zoom")
         .help("How close the slide is shown (⌘=, ⌘−, ⌘0)")
         .disabled(shown == nil || showsSlides)
     }
 
-    /// How close the slide is shown, as the Zoom menu says it.
+    /// How close the slide is shown, as the Zoom menu says it: fitted, or how large against the
+    /// slide's own size, whatever the desk.
     private var zoomed: String {
-        zoom.level > 1 + 1e-9 ? "\(Int((zoom.level * 100).rounded()))%" : "Fit"
+        zoom.level > 1 + 1e-9 ? "\(zoom.percent)%" : "Fit"
     }
 
     /// A slide added after the one shown, then shown, from the theme's layouts by their sections
@@ -545,7 +574,7 @@ struct DeckView: View {
             safeArea: $showsSafeArea, issues: $showsFindings, source: $showsSource, assistant: $showsAssistant,
             inspector: $showsInspector,
             tab: $tab,
-            play: editor.slots.isEmpty ? nil : { Presenting.play(editor, from: shown) },
+            play: editor.slots.isEmpty ? nil : { play() },
             rehearse: editor.slots.isEmpty || rehearsal != nil || !editor.valid ? nil : { rehearse() },
             remote: { remoting = true })
         // The Slide menu acts on the slide shown, as the slide list's menu acts on its slide.
@@ -561,8 +590,7 @@ struct DeckView: View {
     /// A copy of `slide` just after it, shown (PLAN 3.14): one step to undo.
     private func duplicateSlide(_ slide: String) {
         perform {
-            try document.make(Restaging.duplicateSlides([slide]), undo: undo)
-            undo?.setActionName("Duplicate Slide")
+            try document.make(Restaging.duplicateSlides([slide]), undo: undo, named: "Duplicate Slide")
             // The copy is the slide just after the one it copies.
             let slides = Slide.of(editor.slots)
             if let i = slides.firstIndex(where: { $0.id == slide }), i + 1 < slides.count,
@@ -581,8 +609,7 @@ struct DeckView: View {
         guard slides.count > 1, let i = slides.firstIndex(where: { $0.id == slide }) else { return }
         let next = i + 1 < slides.count ? slides[i + 1] : slides[i - 1]
         perform {
-            try document.make(Restaging.removeSlides([slide]), undo: undo)
-            undo?.setActionName("Delete Slide")
+            try document.make(Restaging.removeSlides([slide]), undo: undo, named: "Delete Slide")
             chosen = next.states.first
             said = "Slide deleted"
         }
@@ -613,7 +640,7 @@ struct DeckView: View {
         }
         perform {
             let filled = try editor.session.filling(state: state, slot: slot.slot)
-            try document.make(filled.patch, undo: undo)
+            try document.make(filled.patch, undo: undo, named: "Insert Text")
             node = filled.id
             also = []
             if let typing, typing.enter(filled.id, in: state, at: nil) {
@@ -643,7 +670,8 @@ struct DeckView: View {
                 typing?.sync(shown: now)
             }
             .task(id: said) {
-                // What the canvas says of an edit, a moment over the slide, then gone.
+                // What the canvas says of an edit, a moment on the desk under the slide, then gone,
+                // as a presentation app's tips fade once read.
                 guard said != nil else { return }
                 try? await Task.sleep(for: .seconds(6))
                 if !Task.isCancelled { said = nil }
@@ -676,18 +704,26 @@ struct DeckView: View {
                 // shows the node on no other slide.
                 if typing?.typing != true { elsewhere = shown.map { showsElsewhere(in: $0) } ?? false }
             }
-            .task(id: said) {
-                // What the canvas says of an edit fades once read, as a presentation app's tips do.
-                guard said != nil else { return }
-                try? await Task.sleep(for: .seconds(5))
-                if !Task.isCancelled { said = nil }
-            }
             .task(id: editor.revision) {
                 // Every state is linted once edits stop, as in the browser.
                 try? await Task.sleep(for: .milliseconds(700))
                 guard !Task.isCancelled, !editor.whole else { return }
                 editor.lintEvery()
             }
+    }
+
+    /// `view`, what the canvas said of an edit taken away as a step is undone or made again: it
+    /// was said of the edit, and an undo says nothing of its own, as a presentation app's does not.
+    private func undoing(_ view: some View) -> some View {
+        view
+            .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidUndoChange), perform: unsaid)
+            .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidRedoChange), perform: unsaid)
+    }
+
+    /// What the canvas says, taken away as this window's undo takes a step back or makes it again.
+    private func unsaid(_ note: Notification) {
+        guard let undo, (note.object as AnyObject?) === undo else { return }
+        said = nil
     }
 
     /// `view` with what the window shows over it: an export in Quick Look or to save, the
@@ -832,8 +868,8 @@ struct DeckView: View {
                                 pen: pen,
                                 penning: { takePen() },
                                 inked: { points in ink(points, in: shown) }
-                            ) { ops in
-                                perform { try document.make(ops, undo: undo) }
+                            ) { ops, name in
+                                perform { try document.make(ops, undo: undo, named: name) }
                             }
                         }
                     }
@@ -842,6 +878,10 @@ struct DeckView: View {
                 }
                 .frame(width: room.size.width, height: room.size.height)
                 .clipped()
+                // What the canvas says, on the desk under the slide, not on it (PLAN 3.18).
+                .overlayPreferenceValue(CanvasHint.Key.self) { hint in
+                    DeskHint(hint: hint, desk: room.size, slide: slide, visible: visible)
+                }
                 #if os(macOS)
                 // The wheel and a pinch anywhere on the desk, as the browser's preview takes them
                 // (PLAN 2.46): a pinch, or the wheel with ⌘, zooms about the pointer, and the wheel
@@ -862,7 +902,13 @@ struct DeckView: View {
                 .onChange(of: zoom.view) { _, now in editor.look(through: now) }
             }
             .frame(minWidth: 320, minHeight: 200)
+            #if os(macOS)
+            // The desk stops at the toolbar: run under it, it showed through the toolbar's band
+            // once the light table had been put away, gray over the canvas and white elsewhere.
+            .background(Desk.color, ignoresSafeAreaEdges: [])
+            #else
             .background(Desk.color)
+            #endif
         } else if let why = editor.unshown {
             // The deck opened, but its source is no deck yet: why, and where to mend it.
             ContentUnavailableView {
@@ -906,7 +952,7 @@ struct DeckView: View {
                 said = "Laid out on its own in \(format) already"
                 return
             }
-            try document.make(patch, undo: undo)
+            try document.make(patch, undo: undo, named: "Lay Out on Its Own")
             said = "Laid out on its own in \(format): a move here moves it here alone · ⌘Z undoes it"
         }
     }
@@ -1033,7 +1079,7 @@ struct DeckView: View {
             return
         }
         said = cut ? "Cut" : "Copied"
-        if cut { delete(false) }
+        if cut { remove(false, as: "Cut") }
     }
 
     /// ⌘V: what the pasteboard holds, where the pointer last pressed on the canvas, as Insert
@@ -1081,7 +1127,7 @@ struct DeckView: View {
     private func pasteText(_ text: String, in state: String, at: CGPoint, verb: String = "pasted") {
         perform {
             let pasted = try editor.session.pasting(text, state: state, at: at)
-            try document.make(pasted.patch, undo: undo)
+            try document.make(pasted.patch, undo: undo, named: verb == "pasted" ? "Paste" : "Insert")
             node = pasted.id
             also = pasted.also
             let done: String = verb.prefix(1).uppercased() + verb.dropFirst()
@@ -1123,7 +1169,7 @@ struct DeckView: View {
                 return
             }
             let added = try editor.session.inserting(state: state, n: n, at: at, named: name)
-            try document.make(added.patch, undo: undo)
+            try document.make(added.patch, undo: undo, named: verb == "pasted" ? "Paste" : "Insert Picture")
             node = added.id
             also = []
             said = "Picture \(verb)"
@@ -1152,7 +1198,8 @@ struct DeckView: View {
             }
             let with: JSONValue? = cells.map { ["columns": $0.tableColumns] }
             let added = try editor.session.inserting(state: state, n: n, at: at, with: with)
-            try document.make(added.patch, undo: undo)
+            let inserted = cells == nil ? "Insert Chart" : "Insert Table"
+            try document.make(added.patch, undo: undo, named: verb == "pasted" ? "Paste" : inserted)
             node = added.id
             also = []
             said = "A \(kind) of \(attaching.data) \(verb)"
@@ -1210,7 +1257,7 @@ struct DeckView: View {
             let op: JSONValue = [
                 "op": "choose", "node": .string(onto), "prop": "src", "value": .string(path), "state": .string(state),
             ]
-            try document.make([op], undo: undo)
+            try document.make([op], undo: undo, named: "Replace Picture")
             node = onto
             also = []
             said = "Picture replaced"
@@ -1242,7 +1289,7 @@ struct DeckView: View {
                 said = put.same.isEmpty ? (refused.first ?? "Nothing here takes that style") : "It has that style already"
                 return
             }
-            try document.make(put.patch, undo: undo)
+            try document.make(put.patch, undo: undo, named: "Paste Style")
             said = (["Style pasted"] + refused).joined(separator: "; ")
         }
     }
@@ -1257,7 +1304,7 @@ struct DeckView: View {
         let offered = inserts.indices.contains(n) ? inserts[n] : nil
         perform {
             let added = try editor.session.inserting(state: state, n: n, at: at)
-            try document.make(added.patch, undo: undo)
+            try document.make(added.patch, undo: undo, named: "Insert \(Words.kind(offered?.kind.lowercased()))")
             node = added.id
             also = []
             if offered?.kind == "Text", let typing, typing.enter(added.id, in: state, at: nil) {
@@ -1281,7 +1328,7 @@ struct DeckView: View {
     private func insertIcon(_ icon: Icon, in state: String) {
         if let swapped = iconSelected {
             perform {
-                try document.make(icon.swapping(swapped, in: state), undo: undo)
+                try document.make(icon.swapping(swapped, in: state), undo: undo, named: "Replace Icon")
                 said = "\(icon.said) icon in its place"
             }
             return
@@ -1290,7 +1337,7 @@ struct DeckView: View {
         let at = pointed ?? CGPoint(x: size.width / 2, y: size.height / 2)
         perform {
             let added = try editor.session.insertingIcon(state: state, icon: icon, at: at)
-            try document.make(added.patch, undo: undo)
+            try document.make(added.patch, undo: undo, named: "Insert Icon")
             node = added.id
             also = []
             said = "\(Words.icon(icon.name)) icon inserted"
@@ -1308,7 +1355,7 @@ struct DeckView: View {
                 said = "Not duplicated: two of the copies would have one name"
                 return
             }
-            try document.make(added.flatMap(\.patch), undo: undo)
+            try document.make(added.flatMap(\.patch), undo: undo, named: "Duplicate")
             node = ids.first
             also = Array(ids.dropFirst())
             said = "Duplicated"
@@ -1319,6 +1366,12 @@ struct DeckView: View {
     /// deck where no state shows them after; or, `everywhere`, out of the deck (Delete,
     /// Shift+Delete). Locked nodes are not taken: one patch, one step to undo.
     private func delete(_ everywhere: Bool) {
+        remove(everywhere, as: "Delete")
+    }
+
+    /// The nodes selected taken out as Delete takes them, the step to undo named `name`: Delete,
+    /// or Cut.
+    private func remove(_ everywhere: Bool, as name: String) {
         let nodes = selection
         guard let shown, !nodes.isEmpty else {
             said = "Nothing selected to delete"
@@ -1332,7 +1385,7 @@ struct DeckView: View {
         perform {
             let ops = try nodes.flatMap { try editor.session.deleting(state: shown, node: $0, everywhere: everywhere) }
             let gone = ops.allSatisfy { $0["op"]?.string == "remove_node" }
-            try document.make(ops, undo: undo)
+            try document.make(ops, undo: undo, named: name)
             node = nil
             also = []
             said = gone ? "Deleted from every slide · ⌘Z brings it back" : "Deleted · ⌘Z brings it back"
@@ -1360,7 +1413,7 @@ struct DeckView: View {
         let (ops, locks) = ScaenaKit.locking(nodes, own: { ownLocks.contains($0) })
         guard !ops.isEmpty else { return }
         perform {
-            try document.make(ops, undo: undo)
+            try document.make(ops, undo: undo, named: locks ? "Lock" : "Unlock")
             said = locks ? "Locked: a click passes over it · ⇧⌘L unlocks it" : "Unlocked"
         }
     }
@@ -1370,7 +1423,7 @@ struct DeckView: View {
         let nodes = selection
         perform {
             let grouping = try editor.session.grouping(state: state, nodes: nodes)
-            try document.make(grouping.patch, undo: undo)
+            try document.make(grouping.patch, undo: undo, named: "Group")
             node = grouping.id
             also = []
             said = "Grouped"
@@ -1384,7 +1437,7 @@ struct DeckView: View {
         guard ends.count == 2 else { return }
         perform {
             let connected = try editor.session.connecting(state: state, from: ends[0], to: ends[1], arrow: arrow)
-            try document.make(connected.patch, undo: undo)
+            try document.make(connected.patch, undo: undo, named: arrow ? "Connect with Arrow" : "Connect with Line")
             node = connected.id
             also = []
             said = arrow ? "Joined by an arrow" : "Joined by a line"
@@ -1410,7 +1463,7 @@ struct DeckView: View {
         perform {
             let added = try editor.session.inking(state: state, points: points, onto: pen?.onto)
             let more = added.id == pen?.onto
-            try document.make(added.patch, undo: undo)
+            try document.make(added.patch, undo: undo, named: "Draw")
             pen?.onto = added.id
             node = added.id
             also = []
@@ -1424,7 +1477,7 @@ struct DeckView: View {
         guard let text = node, also.isEmpty else { return }
         perform {
             let made = try editor.session.diagramming(state: state, node: text, kind: kind)
-            try document.make(made.patch, undo: undo)
+            try document.make(made.patch, undo: undo, named: "Diagram from Text")
             node = made.id
             also = []
             said = "Drawn as a \(kind.rawValue)"
@@ -1436,7 +1489,7 @@ struct DeckView: View {
         guard let group = node else { return }
         let held = ((try? editor.session.boxes(state: state)) ?? []).filter { $0.parent == group }.map(\.node)
         perform {
-            try document.make([["op": "ungroup", "group": .string(group)]], undo: undo)
+            try document.make([["op": "ungroup", "group": .string(group)]], undo: undo, named: "Ungroup")
             node = held.first
             also = Array(held.dropFirst())
             said = "Ungrouped"
@@ -1454,7 +1507,8 @@ struct DeckView: View {
                 said = how == "front" || how == "forward" ? "In front already" : "Behind already"
                 return
             }
-            try document.make(arranged.patch, undo: undo)
+            let named = ["front": "Bring to Front", "back": "Send to Back", "forward": "Bring Forward"][how]
+            try document.make(arranged.patch, undo: undo, named: named ?? "Send Backward")
             switch how {
             case "front": said = "Brought to front"
             case "back": said = "Sent to back"
@@ -1527,8 +1581,7 @@ struct DeckView: View {
         perform {
             let started = try editor.session.starting(after: state, layout: layout)
             fresh.insert(started.id)
-            try document.make(started.patch, undo: undo)
-            undo?.setActionName("New Slide")
+            try document.make(started.patch, undo: undo, named: "New Slide")
             chosen = started.id
             said = "Slide added"
         }
@@ -1539,7 +1592,7 @@ struct DeckView: View {
         perform {
             let added = try editor.session.addingState(after: state, as: what)
             if what == .slide { fresh.insert(added.id) }
-            try document.make(added.patch, undo: undo)
+            try document.make(added.patch, undo: undo, named: what == .step ? "New Step" : "New Slide")
             chosen = added.id
             said = what == .step ? "Step added" : "Slide added"
         }
@@ -1570,7 +1623,7 @@ struct DeckView: View {
         let holds = done.holds
         guard !holds.isEmpty else { return }
         perform {
-            try document.make(holds, undo: undo)
+            try document.make(holds, undo: undo, named: "Rehearsed Timing")
             said = "Kept the rehearsal's timing for \(holds.count) slide\(holds.count == 1 ? "" : "s")"
         }
     }
@@ -1591,8 +1644,7 @@ struct DeckView: View {
         guard let shown else { return }
         perform {
             let put = try editor.session.puttingPicture(made, at: target, in: shown)
-            try document.make(put.patch, undo: undo)
-            undo?.setActionName("Make Picture")
+            try document.make(put.patch, undo: undo, named: "Make Picture")
             node = put.node
             also = []
             said = put.said

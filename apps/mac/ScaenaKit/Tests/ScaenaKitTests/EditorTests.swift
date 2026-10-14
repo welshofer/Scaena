@@ -188,3 +188,24 @@ private func savedB1(in version: String) throws -> [String: Data] {
     let why = try #require(editor.unshown)
     #expect(why.contains("text role `nope` is not in the theme"))
 }
+
+/// Each step of undo is named by what it does (PLAN 3.28, 4.11), as the Edit menu says it after
+/// Undo and Redo and the iPad's Undo reads it: what the engine's own patches insert and delete, a
+/// move, a property chosen as the inspector calls it, a turn, words typed, a slide moved, and the
+/// slide's own property; a patch of nothing it knows is a change, never a step with no name.
+@Test func aStepOfUndoIsNamedByWhatItDoes() throws {
+    let session = try ScaenaSession(directory: b1)
+    let label = { (prop: String) in prop == "style/size" ? "Size" : prop }
+    let copied = try session.duplicating(state: "cover", node: "title").patch
+    let hidden = try session.deleting(state: "cover", node: "title")
+    let removed = try session.deleting(state: "cover", node: "title", everywhere: true)
+    #expect(StepName.of(copied, label: label) == "Insert")
+    #expect(StepName.of(hidden, label: label) == "Delete" && StepName.of(removed, label: label) == "Delete")
+    #expect(StepName.of([["op": "place", "node": "title", "state": "cover", "at": ["in": "grid"]]], label: label) == "Move")
+    #expect(StepName.of([["op": "choose", "node": "title", "prop": "style/size", "value": "xl"]], label: label) == "Change Size")
+    #expect(StepName.of([["op": "choose", "node": "title", "prop": "transform/rotate", "value": 15]], label: label) == "Rotate")
+    #expect(StepName.of([["op": "replace_text", "node": "title", "from": 0, "to": 0, "text": "A"]], label: label) == "Typing")
+    #expect(StepName.of([["op": "move_slide", "slide": "goal", "after": "cover"]], label: label) == "Move Slide")
+    #expect(StepName.of([["op": "set_state", "id": "cover", "prop": "layout", "value": "title"]], label: label) == "Change layout")
+    #expect(StepName.of([["op": "add", "path": "/nodes/title/locked", "value": true]], label: label) == "Change")
+}

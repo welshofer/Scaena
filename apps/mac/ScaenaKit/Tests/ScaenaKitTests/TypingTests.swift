@@ -122,6 +122,9 @@ private func carets(_ json: String) throws -> Carets {
 
     #expect(typing.enter("title", in: "cover", at: nil))
     #expect(view.selectedRange() == NSRange(location: 6, length: 0))
+    // The title shows on the closing slide too: the hint says so, and still how typing stops.
+    #expect(typing.told?.contains("1 other slide") == true, "\(typing.told ?? "")")
+    #expect(typing.told?.contains("Escape stops") == true, "\(typing.told ?? "")")
 
     view.insertText(" on the Mac", replacementRange: nowhere)
     view.doCommand(by: #selector(NSStandardKeyBindingResponding.deleteBackward(_:)))
