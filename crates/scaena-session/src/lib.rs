@@ -690,8 +690,9 @@ impl Session {
             None
         };
         let locked: Vec<Option<String>> = boxes.iter().map(|b| held(&b.node)).collect();
-        // Each shape's words (PLAN 2.108): the text it holds.
+        // Each shape's words (PLAN 2.108): the text it holds, where the state shows it.
         let words: std::collections::HashMap<&str, &str> = (self.deck.nodes.iter())
+            .filter(|(id, _)| boxes.iter().any(|b| b.node == **id))
             .filter_map(|(id, n)| Some((scaena_core::tracking::words_of(&self.deck, n)?, id.as_str())))
             .collect();
         let shapes: Vec<Option<(bool, Option<String>)>> = (boxes.iter())
@@ -1586,9 +1587,14 @@ impl Session {
     /// The patch that copies `node`, as `state` shows it, with what it holds there, beside it
     /// under an id new to the deck, clear of the rest where there is room (PLAN 2.34): in the
     /// format shown, and in each other the node lays out in, its own canvas and each format
-    /// where it has a layout of its own (ADR-0020), so the copy stands on it in none.
+    /// where it has a layout of its own (ADR-0020), so the copy stands on it in none. A shape's
+    /// words are copied with their shape, which holds one text (PLAN 2.108).
     #[cfg(feature = "editor")]
     pub fn duplicating(&mut self, state: &str, node: &str) -> Result<scaena_ops::inspect::Added, Error> {
+        let deck = &self.deck;
+        let shape = deck.nodes.get(node).and_then(|n| scaena_core::tracking::words_of(deck, n));
+        let node = shape.unwrap_or(node).to_string();
+        let node = node.as_str();
         let mut added = self.duplicating_here(state, node)?;
         let shown = self.format.clone();
         let anew: Vec<Option<String>> = (self.deck.nodes.get(node))
@@ -1613,11 +1619,46 @@ impl Session {
         done.map(|()| added)
     }
 
-    /// The words of `shape` to type in (PLAN 2.108): the text it holds, or the patch that gives it
-    /// one, empty, which goes where the shape goes.
+    /// The patch that copies each of `nodes`, as `state` shows them, beside it, as
+    /// [`Session::duplicating`] copies one (PLAN 2.42): one patch, the copies' ids those of the
+    /// nodes copied, in order, then those of the connectors among them that join two of them,
+    /// copied to join their copies (PLAN 2.109). A connector without both its ends goes where they
+    /// go, and is not copied; one alone is refused.
     #[cfg(feature = "editor")]
-    pub fn wording(&self, shape: &str) -> Result<scaena_ops::inspect::Worded, Error> {
-        scaena_ops::inspect::wording(&self.deck, &self.theme, shape).map_err(|e| Error::Ops(e.to_string()))
+    pub fn duplicating_all(&mut self, state: &str, nodes: &[&str]) -> Result<scaena_ops::inspect::Duplicated, Error> {
+        let joins = |n: &str| self.deck.nodes.get(n).and_then(scaena_core::tracking::connects_of).is_some();
+        let placed: Vec<String> = nodes.iter().filter(|n| !joins(n)).map(|n| n.to_string()).collect();
+        if placed.is_empty() {
+            return Err(Error::Ops(
+                "a connector follows what it joins, and a copy would lie on it: duplicate what it joins".into(),
+            ));
+        }
+        let (mut ids, mut patch, mut copies) = (Vec::new(), Vec::new(), indexmap::IndexMap::new());
+        for node in &placed {
+            let added = self.duplicating(state, node)?;
+            copies.extend(added.copies);
+            ids.push(added.id);
+            patch.extend(added.patch);
+        }
+        let taken: Vec<String> = copies.values().cloned().collect();
+        if (1..taken.len()).any(|i| taken[..i].contains(&taken[i])) {
+            return Err(Error::Ops("two of the copies would have one name".into()));
+        }
+        let joined = scaena_ops::inspect::rejoining(&self.deck, state, nodes, &copies, &taken)
+            .map_err(|e| Error::Ops(e.to_string()))?;
+        for (id, add) in joined {
+            ids.push(id);
+            patch.push(add);
+        }
+        Ok(scaena_ops::inspect::Duplicated { ids, patch })
+    }
+
+    /// The words of `shape` to type in in `state` (PLAN 2.108): the text it holds, or the patch
+    /// that gives it one, empty, which goes where the shape goes, or that brings back its words
+    /// where the state does not show them.
+    #[cfg(feature = "editor")]
+    pub fn wording(&self, state: &str, shape: &str) -> Result<scaena_ops::inspect::Worded, Error> {
+        scaena_ops::inspect::wording(&self.deck, &self.theme, shape, state).map_err(|e| Error::Ops(e.to_string()))
     }
 
     /// The patch that joins `from` to `to` in `state` with a line, or an arrow that points at `to`
@@ -1736,12 +1777,13 @@ impl Session {
         Grouping { id, patch }
     }
 
-    /// The patch that deletes `node` from `state`, with what it holds there (PLAN 2.34): each
-    /// leaves there and in the states after it, and one no state shows then goes from the deck;
-    /// or, `everywhere`, each goes from the deck.
+    /// The patch that deletes `nodes` from `state`, with what they hold there (PLAN 2.34, 2.42):
+    /// each leaves there and in the states after it, and one no state shows then goes from the
+    /// deck; or, `everywhere`, each goes from the deck. One patch for all of them, a connector
+    /// going with an end that goes (PLAN 2.109).
     #[cfg(feature = "editor")]
-    pub fn deleting(&self, state: &str, node: &str, everywhere: bool) -> Result<Vec<serde_json::Value>, Error> {
-        scaena_ops::inspect::deleting(&self.deck, &editor::Handed(&self.files), node, state, everywhere)
+    pub fn deleting(&self, state: &str, nodes: &[&str], everywhere: bool) -> Result<Vec<serde_json::Value>, Error> {
+        scaena_ops::inspect::deleting(&self.deck, &editor::Handed(&self.files), nodes, state, everywhere)
             .map_err(|e| Error::Ops(e.to_string()))
     }
 
@@ -1758,10 +1800,20 @@ impl Session {
                 Ok((node, rect(node).ok_or_else(|| Error::Ops(format!("`{node}` stands nowhere in `{state}`")))?))
             })
             .collect::<Result<Vec<_>, Error>>()?;
+        // Each connector's line, as fractions of its box (PLAN 2.109).
+        let scene = self.at_rest(state)?;
+        let lines: std::collections::HashMap<&str, Vec<[f32; 2]>> = (boxes.iter())
+            .filter_map(|b| {
+                let [x, y, w, h] = b.rect;
+                let line = scene.route(&b.node)?.into_iter().map(|p| [(p[0] - x) / w, (p[1] - y) / h]).collect();
+                Some((b.node.as_str(), line))
+            })
+            .collect();
+        let line = |node: &str| lines.get(node).cloned();
         let [w, h] = self.canvas_size()?;
         let files = Arc::clone(&self.files);
         let read = |p: &str| files.get(p).cloned();
-        scaena_ops::clipboard::copying(&self.deck, &self.theme, state, &copied, [w as f32, h as f32], &read)
+        scaena_ops::clipboard::copying(&self.deck, &self.theme, state, &copied, [w as f32, h as f32], &read, &line)
             .map_err(|e| Error::Ops(e.to_string()))
     }
 
@@ -2978,7 +3030,7 @@ mod tests {
         };
         assert_eq!(shape(&mut s)["takesWords"], true);
         assert!(shape(&mut s).get("words").is_none());
-        let given = s.wording(&star.id).unwrap();
+        let given = s.wording("revenue", &star.id).unwrap();
         assert_eq!(given.id, format!("{}-words", star.id));
         s.tool("deck_patch", serde_json::json!({ "ops": given.patch }), by()).unwrap();
         let path = format!("/nodes/{}/text", given.id);
@@ -2997,7 +3049,7 @@ mod tests {
         let held = layers.iter().find(|l| l.node == star.id).unwrap();
         assert_eq!(held.children.iter().map(|l| l.node.as_str()).collect::<Vec<_>>(), [given.id.as_str()]);
         // A shape holding words is given them back, nothing added.
-        assert!(s.wording(&star.id).unwrap().patch.is_empty());
+        assert!(s.wording("revenue", &star.id).unwrap().patch.is_empty());
         // A copy of the star copies its words, which the copy places.
         let copy = s.duplicating("revenue", &star.id).unwrap();
         let words = copy.patch.iter().find(|op| op["op"] == "add_node" && op["node"]["type"] == "text");
@@ -3175,15 +3227,157 @@ mod tests {
         let alone = s.copying("revenue", &[joined.id.as_str()]).unwrap();
         let line = s.pasting(&alone, "revenue", [300.0, 900.0]).unwrap();
         assert!(line.patch.iter().all(|op| op["node"].get("connect").is_none()), "a line that joins nothing");
+        // It runs as it ran: its points its route's, as fractions of its box.
+        let ran = boxes.iter().find(|b| b["node"] == joined.id.as_str()).unwrap();
+        let [x, y, w, h]: [f32; 4] = serde_json::from_value(ran["rect"].clone()).unwrap();
+        let ran: Vec<[f32; 2]> = route.iter().map(|p| [(p[0] - x) / w, (p[1] - y) / h]).collect();
+        let pasted = line.patch.iter().find(|op| op["op"] == "add_node").unwrap();
+        assert_eq!(pasted["node"]["points"], serde_json::json!(ran), "{pasted}");
         // ⌘D refuses it, an arrangement passes it by, and its end deleted from the deck takes it.
         assert!(s.duplicating("revenue", &joined.id).unwrap_err().to_string().contains("follows what it joins"));
         let nodes = ["title".to_string(), "note".to_string(), joined.id.clone()];
         let how = scaena_ops::arrange::How::Align(scaena_ops::arrange::Align::Left);
         let aligned = s.arranging("revenue", &nodes, how, false);
         assert!(aligned.as_ref().is_ok_and(|a| !format!("{a:?}").contains(&joined.id)), "{aligned:?}");
-        let gone = s.deleting("revenue", "rev", true).unwrap();
+        let gone = s.deleting("revenue", &["rev"], true).unwrap();
         s.tool("deck_patch", serde_json::json!({ "ops": gone }), by()).unwrap();
         assert!(!s.deck.nodes.contains_key(&joined.id), "the connector to what the deck lost goes with it");
+    }
+
+    /// Words in a shape copied (PLAN 2.108): on the revenue example's chart slide, which the next
+    /// slide carries on from, a star with words is duplicated, copied and pasted, and cut and
+    /// pasted, each patch taken, its copy and its words kept to the slide; and its words selected
+    /// alone duplicate the star with them.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_shape_with_words_is_copied_on_a_slide_the_next_carries_on_from() {
+        let mut s = revenue();
+        let by = || assistant::Caller { author: "user", at: None };
+        let n = s.inserts().iter().position(|i| i.label == "Shape · star").unwrap();
+        let star = s.inserting("revenue", n, [960.0, 540.0], None).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": star.patch }), by()).unwrap();
+        let given = s.wording("revenue", &star.id).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": given.patch }), by()).unwrap();
+        let taken = |s: &mut Session, patch: &[serde_json::Value]| {
+            let called = s.tool("deck_patch", serde_json::json!({ "ops": patch }), by());
+            assert!(called.as_ref().is_ok_and(|c| c.edited), "{:?}", called.map(|c| c.result));
+        };
+        let on = |s: &Session, state: &str, node: &str| {
+            let snaps = scaena_core::resolve_states(&s.deck).unwrap();
+            snaps.iter().any(|snap| snap.state_id == state && snap.nodes.contains_key(node))
+        };
+        // ⌘D: the copy and its words, on this slide and not the next.
+        let copy = s.duplicating("revenue", &star.id).unwrap();
+        taken(&mut s, &copy.patch);
+        let words = |s: &Session, shape: &str| {
+            let deck = &s.deck;
+            deck.nodes.iter().find(|(_, n)| scaena_core::tracking::words_of(deck, n) == Some(shape)).unwrap().0.clone()
+        };
+        let copied = words(&s, &copy.id);
+        assert!(on(&s, "mix", &copy.id) && on(&s, "mix", &copied));
+        assert!(!on(&s, "close", &copy.id) && !on(&s, "close", &copied), "kept to its slide");
+        // Copied and pasted.
+        let clip = s.copying("revenue", &[star.id.as_str()]).unwrap();
+        let pasted = s.pasting(&clip, "revenue", [300.0, 300.0]).unwrap();
+        taken(&mut s, &pasted.patch);
+        assert!(on(&s, "revenue", &words(&s, &pasted.id)) && !on(&s, "close", &pasted.id));
+        // The words alone, as Enter or the layers reach them: ⌘D copies the star with them.
+        let again = s.duplicating("revenue", &given.id).unwrap();
+        assert_eq!(s.deck.nodes[&star.id].node_type, scaena_core::document::NodeType::Shape);
+        taken(&mut s, &again.patch);
+        assert_eq!(s.deck.nodes[&again.id].node_type, scaena_core::document::NodeType::Shape, "{:?}", again.patch);
+        assert!(on(&s, "revenue", &words(&s, &again.id)));
+        // Cut, then pasted.
+        let cut = s.copying("revenue", &[star.id.as_str()]).unwrap();
+        let gone = s.deleting("revenue", &[star.id.as_str()], false).unwrap();
+        taken(&mut s, &gone);
+        assert!(!s.deck.nodes.contains_key(&star.id) && !s.deck.nodes.contains_key(&given.id));
+        let back = s.pasting(&cut, "revenue", [960.0, 540.0]).unwrap();
+        taken(&mut s, &back.patch);
+        assert!(on(&s, "revenue", &words(&s, &back.id)));
+    }
+
+    /// Connectors go where an object goes (PLAN 2.109): on the revenue example's chart slide, the
+    /// title joined to the chart by an arrow is deleted with them in one patch, and from this
+    /// slide on; grouped with them, the group holds the two and the arrow still joins them; and
+    /// duplicated with them, its copy joins their copies, one patch, the copies selected.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_connector_goes_with_what_it_joins_deleted_grouped_and_duplicated() {
+        let by = || assistant::Caller { author: "user", at: None };
+        let joined = |s: &mut Session| {
+            let joined = s.connecting("revenue", "title", "rev", true).unwrap();
+            s.tool("deck_patch", serde_json::json!({ "ops": joined.patch }), by()).unwrap();
+            joined.id
+        };
+        let taken = |s: &mut Session, patch: &[serde_json::Value]| {
+            let called = s.tool("deck_patch", serde_json::json!({ "ops": patch }), by());
+            assert!(called.as_ref().is_ok_and(|c| c.edited), "{:?}", called.map(|c| c.result));
+        };
+        // Delete, and Shift+Delete, with the connector selected last, as a marquee lists it.
+        for everywhere in [false, true] {
+            let mut s = revenue();
+            let arrow = joined(&mut s);
+            let gone = s.deleting("revenue", &["rev", "note", arrow.as_str()], everywhere).unwrap();
+            taken(&mut s, &gone);
+            let boxes = s.boxes_json("revenue").unwrap();
+            assert!(!boxes.iter().any(|b| b["node"] == "rev" || b["node"] == arrow.as_str()), "{everywhere}");
+            assert!(!s.deck.nodes.contains_key(&arrow), "shown nowhere after, it goes from the deck: {everywhere}");
+        }
+        // ⌘G: the group holds what it joins; the arrow, on the slide, still joins them.
+        let mut s = revenue();
+        let arrow = joined(&mut s);
+        let group = s.grouping("revenue", &["title".into(), "rev".into(), arrow.clone()]);
+        taken(&mut s, &group.patch);
+        let boxes = s.boxes_json("revenue").unwrap();
+        let parent = |node: &str| boxes.iter().find(|b| b["node"] == node).map(|b| b["parent"].clone());
+        assert_eq!(parent("title"), Some(serde_json::json!(group.id)));
+        assert_eq!(parent("rev"), Some(serde_json::json!(group.id)));
+        let line = boxes.iter().find(|b| b["node"] == arrow.as_str()).unwrap();
+        assert_eq!(
+            (line["parent"].clone(), line["joins"].clone()),
+            (serde_json::Value::Null, serde_json::json!(["title", "rev"]))
+        );
+        let alone = s.grouping("revenue", std::slice::from_ref(&arrow));
+        let refused = s.tool("deck_patch", serde_json::json!({ "ops": alone.patch }), by());
+        assert!(refused.is_err_and(|e| e.to_string().contains("group what it joins")));
+        // ⌘D: copies of the two, and of the arrow joining them.
+        let mut s = revenue();
+        let arrow = joined(&mut s);
+        let made = s.duplicating_all("revenue", &["title", "rev", arrow.as_str()]).unwrap();
+        assert_eq!(made.ids.len(), 3, "{:?}", made.ids);
+        taken(&mut s, &made.patch);
+        let boxes = s.boxes_json("revenue").unwrap();
+        let copy = boxes.iter().find(|b| b["node"] == made.ids[2].as_str()).unwrap();
+        assert_eq!(copy["joins"], serde_json::json!([made.ids[0], made.ids[1]]));
+        assert!(s.duplicating_all("revenue", &[arrow.as_str()]).is_err(), "a connector alone follows what it joins");
+    }
+
+    /// Words taken away on a step (PLAN 2.108): the shape's box names none there, and a double
+    /// click given them back there, one `show_node`.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn words_taken_away_on_a_step_are_given_back_there() {
+        let mut s = revenue();
+        let by = || assistant::Caller { author: "user", at: None };
+        let n = s.inserts().iter().position(|i| i.label == "Shape · star").unwrap();
+        let star = s.inserting("revenue", n, [960.0, 540.0], None).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": star.patch }), by()).unwrap();
+        let given = s.wording("revenue", &star.id).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": given.patch }), by()).unwrap();
+        let hide = s.deleting("mix", &[given.id.as_str()], false).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": hide }), by()).unwrap();
+        let named = |s: &mut Session, state: &str| {
+            let boxes = s.boxes_json(state).unwrap();
+            boxes.iter().find(|b| b["node"] == star.id.as_str()).unwrap().get("words").cloned()
+        };
+        assert_eq!(named(&mut s, "revenue"), Some(serde_json::json!(given.id)));
+        assert_eq!(named(&mut s, "mix"), None, "words the step does not show");
+        let back = s.wording("mix", &star.id).unwrap();
+        assert_eq!(back.id, given.id);
+        assert_eq!(back.patch, [serde_json::json!({ "op": "show_node", "node": given.id, "state": "mix" })]);
+        s.tool("deck_patch", serde_json::json!({ "ops": back.patch }), by()).unwrap();
+        assert_eq!(named(&mut s, "mix"), Some(serde_json::json!(given.id)));
     }
 
     /// The revenue example, its files handed over as a page hands them.
@@ -3751,7 +3945,7 @@ mod tests {
 
         // The title leaves `mix`; `close` shows it again, by its own delta.
         assert_eq!(shows(&s, "title"), ["intro", "revenue", "mix", "close"]);
-        let delete = s.deleting("mix", "title", false).unwrap();
+        let delete = s.deleting("mix", &["title"], false).unwrap();
         assert_eq!(ops(&delete), [r#"hide_node "title""#]);
         s.tool("deck_patch", serde_json::json!({ "ops": delete }), by).unwrap();
         assert_eq!(shows(&s, "title"), ["intro", "revenue", "close"]);
@@ -3760,17 +3954,17 @@ mod tests {
         let n = s.inserts().iter().position(|i| i.label == "Text · headline").unwrap();
         let added = s.inserting("revenue", n, [960.0, 540.0], None).unwrap();
         s.tool("deck_patch", serde_json::json!({ "ops": added.patch }), by).unwrap();
-        let delete = s.deleting("revenue", "headline", false).unwrap();
+        let delete = s.deleting("revenue", &["headline"], false).unwrap();
         assert_eq!(ops(&delete), [r#"remove_node "headline""#]);
         s.tool("deck_patch", serde_json::json!({ "ops": delete }), by).unwrap();
         assert!(!s.deck.nodes.contains_key("headline"));
 
         // Shift+Delete: the chart goes from the deck.
-        let delete = s.deleting("revenue", "rev", true).unwrap();
+        let delete = s.deleting("revenue", &["rev"], true).unwrap();
         assert_eq!(ops(&delete), [r#"remove_node "rev""#]);
         s.tool("deck_patch", serde_json::json!({ "ops": delete }), by).unwrap();
         assert!(!s.deck.nodes.contains_key("rev") && shows(&s, "rev").is_empty());
-        assert!(s.deleting("revenue", "rev", false).is_err(), "nothing is there to delete");
+        assert!(s.deleting("revenue", &["rev"], false).is_err(), "nothing is there to delete");
 
         // A copy of a container holds copies of what it holds.
         let mut t = torture();
@@ -3801,7 +3995,7 @@ mod tests {
         };
         assert!(!card.is_empty(), "the card holds nodes");
         for everywhere in [false, true] {
-            let delete = s.deleting("containers", "card", everywhere).unwrap();
+            let delete = s.deleting("containers", &["card"], everywhere).unwrap();
             let named: Vec<&str> =
                 delete.iter().map(|op| op.get("node").or(op.get("id")).unwrap().as_str().unwrap()).collect();
             assert_eq!(named.last(), Some(&"card"), "{named:?}");

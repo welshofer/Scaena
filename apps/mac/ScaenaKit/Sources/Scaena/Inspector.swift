@@ -821,8 +821,8 @@ private struct OpacityRow: View {
 
 /// Where a text's lines stand across its box (PLAN 3.25), as a presentation app's alignment
 /// buttons: left, centered, or right, the way in effect picked, as a presentation app always shows
-/// one. Where the text sets none, the slot's shows, as the theme gives it, else its lines start at
-/// the left, as the engine sets them.
+/// one. Where the text sets none, the slot's shows, as the theme gives it (a shape's words stand
+/// centered, PLAN 2.108), else its lines start at the left, as the engine sets them.
 private struct AlignmentRow: View {
     let value: String?
     /// The way the slide sets its lines where the text sets none: the slot's.

@@ -72,6 +72,7 @@ import type {
   Waiting,
   Worded,
   Connected,
+  Duplicated,
   Diagrammed,
   Where,
   Writing,
@@ -370,9 +371,13 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         current(data.source);
         layOut(data.format);
         return post({ type: "adding", id: data.id, added: JSON.parse(player.duplicating(data.state, data.node)) as Added });
+      case "duplicatingAll":
+        current(data.source);
+        layOut(data.format);
+        return post({ type: "duplicated", id: data.id, duplicated: JSON.parse(player.duplicatingAll(data.state, data.nodes)) as Duplicated });
       case "wording":
         current(data.source);
-        return post({ type: "worded", id: data.id, worded: JSON.parse(player.wording(data.shape)) as Worded });
+        return post({ type: "worded", id: data.id, worded: JSON.parse(player.wording(data.state, data.shape)) as Worded });
       case "connecting":
         current(data.source);
         return post({
@@ -430,7 +435,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return post({ type: "filling", id: data.id, filled: JSON.parse(player.filling(data.state, data.slot)) as { id: string; patch: unknown[] } });
       case "deleting":
         current(data.source);
-        return post({ type: "deleting", id: data.id, patch: JSON.parse(player.deleting(data.state, data.node, data.everywhere)) as unknown[] });
+        return post({ type: "deleting", id: data.id, patch: JSON.parse(player.deleting(data.state, data.nodes, data.everywhere)) as unknown[] });
       case "carets": {
         // The source as it stands, where the deck shown is not yet the one it compiles to: an
         // undo, or the source changed under the text.

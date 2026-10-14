@@ -158,8 +158,10 @@ char *scaena_picture(const uint8_t *bytes, size_t len);
 // taken away (PLAN 3.11): `inserting {state, n, x, y, named?, with?}`, the patch that inserts
 // what `inserts` offers `n`th about a point, or in the room nearest it, `with` properties of its
 // own set on it; `duplicating {state, node}`,
-// a copy beside it; each `{id, cell, patch}`; and `deleting {state, node, everywhere?}`, the
-// ops that take it out of the state and those after, or out of the deck. The clipboard (PLAN
+// a copy beside it; each `{id, cell, patch}`; `duplicatingAll {state, nodes}`, a copy of each
+// and of the connectors that join two of them, `{ids, patch}`; and `deleting {state, nodes |
+// node, everywhere?}`, the ops that take them out of the state and those after, or out of the
+// deck, a connector going with an end that goes. The clipboard (PLAN
 // 3.12): `copying {state, nodes}`, the clip as text; `pasting {text, state, x, y}`, the patch that
 // pastes a clip, or other text as a text, about a point, the files it carries handed over;
 // `look {state, node}` and `putting {state, look, nodes}`, a look copied and the patch that

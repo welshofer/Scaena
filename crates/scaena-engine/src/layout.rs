@@ -167,12 +167,23 @@ impl Grid {
     /// How a node aligns in its cell: the slot's default, then the node's `align`, then
     /// `at.align`, later wins; `start` on both axes when nobody says.
     pub fn alignment(theme: &Theme, template: Option<&str>, props: &Props) -> Result<(AlignX, AlignY), EngineError> {
+        Self::alignment_from(theme, template, props, (AlignX::Start, AlignY::Start))
+    }
+
+    /// [`Grid::alignment`] from `start` where nothing names an axis: a shape's words stand in its
+    /// middle both ways (PLAN 2.108), and an `align` that names one axis keeps the other there.
+    pub fn alignment_from(
+        theme: &Theme,
+        template: Option<&str>,
+        props: &Props,
+        start: (AlignX, AlignY),
+    ) -> Result<(AlignX, AlignY), EngineError> {
         let at = props.get("at");
         let slot = Self::slot(theme, template, at)
             .and_then(|s| s.align.as_ref())
             .map(|a| serde_json::to_value(a).expect("an alignment is JSON"));
         let sources = [slot.as_ref(), props.get("align"), at.and_then(|a| a.get("align"))];
-        let (mut x, mut y) = (AlignX::Start, AlignY::Start);
+        let (mut x, mut y) = start;
         for value in sources.into_iter().flatten() {
             match value {
                 // One keyword aligns both axes; the typographic anchors are vertical only.

@@ -12,6 +12,11 @@
 // - A drag that starts on it moves nothing, and says to move either end.
 // - A drag of the title off the grid moves the title, and the arrow runs from where it went.
 // - Undo takes back the drag, then the arrow.
+// - Joined again, ] turns it not, and says to move either end.
+// - The title, the note, and the arrow selected together: ⌘D copies the three, the copy of the
+//   arrow joining the copies; ⌘G groups the title and the note, the arrow still joining them from
+//   outside the group. The note and the arrow selected: Delete takes the two out. Each is one
+//   patch, one step to undo.
 // Exits 1 on any failure.
 import { launch, serve } from "./serve.mjs";
 
@@ -96,24 +101,50 @@ try {
   const original = await source();
   const [title, note] = [(await boxOf("title")).rect, (await boxOf("note")).rect];
 
-  // The title, then the note with Shift.
-  await page.mouse.click(...(await client(middle(title))));
-  check(await selects("title"), "a click selects the title");
-  await page.keyboard.down("Shift");
-  await page.mouse.click(...(await client(middle(note))));
-  await page.keyboard.up("Shift");
-  await page.waitForFunction(() => window.scaena.canvas.chosen().length === 2, null, { timeout: 10000 }).catch(() => {});
-  const chosen = await page.evaluate(() => window.scaena.canvas.chosen());
-  check(chosen.join(" ") === "title note", `Shift and a click select the note beside it: ${chosen}`);
+  /** `first`, the title unless it says, then each of `more` with Shift: what the canvas then has
+   * chosen. */
+  const chooseFrom = async (first, ...more) => {
+    await page.keyboard.press("Escape");
+    // In `revenue`, where an edit undone may have left the source's cursor elsewhere; the canvas's
+    // boxes as the source now has them, the title on the slide, in no group.
+    for (let tries = 0; tries < 5; tries++) {
+      await page.evaluate(() => window.scaena.cursor(window.scaena.source().indexOf("state revenue") + "state ".length));
+      const there = await page
+        .waitForFunction(() => window.scaena.shown() === 1 && window.scaena.canvas.boxed() === "revenue", null, { timeout: 5000 })
+        .then(() => true, () => false);
+      await page.waitForTimeout(300);
+      if (there && (await page.evaluate(() => window.scaena.shown())) === 1) break;
+    }
+    await page
+      .waitForFunction(() => window.scaena.canvas.boxes().some((b) => b.node === "title" && !b.parent) && !window.scaena.canvas.busy(), null, {
+        timeout: 10000,
+      })
+      .catch(() => {});
+    await page.mouse.click(...(await client(middle(first.rect))));
+    check(await selects(first.node), `a click selects the ${first.node}: ${await selected()}`);
+    await page.keyboard.down("Shift");
+    for (const at of more) await page.mouse.click(...(await client(at)));
+    await page.keyboard.up("Shift");
+    const n = more.length + 1;
+    await page.waitForFunction((n) => window.scaena.canvas.chosen().length === n, n, { timeout: 10000 }).catch(() => {});
+    return page.evaluate(() => window.scaena.canvas.chosen());
+  };
+  const choose = (...more) => chooseFrom({ node: "title", rect: title }, ...more);
+  /** The title joined to the note by the palette's Connect with an arrow. */
+  const connect = async () => {
+    const chosen = await choose(middle(note));
+    check(chosen.join(" ") === "title note", `Shift and a click select the note beside it: ${chosen}`);
+    await page.locator("#overlay").focus();
+    await page.keyboard.press("Control+k");
+    await page.waitForFunction(() => document.querySelector("#palette").open, null, { timeout: 10000 });
+    await page.keyboard.type("connect with an arrow");
+    const listed = await page.evaluate(() => window.scaena.commands.shown());
+    check(listed[0] === "Connect with an arrow", `the palette offers it first: ${listed.slice(0, 3)}`);
+    await page.keyboard.press("Enter");
+  };
 
-  // The palette's Connect with an arrow.
-  await page.locator("#overlay").focus();
-  await page.keyboard.press("Control+k");
-  await page.waitForFunction(() => document.querySelector("#palette").open, null, { timeout: 10000 });
-  await page.keyboard.type("connect with an arrow");
-  const listed = await page.evaluate(() => window.scaena.commands.shown());
-  check(listed[0] === "Connect with an arrow", `the palette offers it first: ${listed.slice(0, 3)}`);
-  await page.keyboard.press("Enter");
+  // The title, then the note with Shift; the palette's Connect with an arrow.
+  await connect();
   check(await reads("title-to-note"), `the title and the note are joined: ${await status()}`);
   const joined = await source();
   const arrow = declared(joined, "title-to-note");
@@ -159,6 +190,49 @@ try {
   await page.keyboard.press("Control+z");
   check(await back(original), "then the arrow");
   check(await page.evaluate(() => window.scaena.last().valid), "the source still compiles and validates");
+
+  // Joined again: ] turns it not.
+  await connect();
+  check(await reads("title-to-note"), `joined again: ${await status()}`);
+  const again = await source();
+  check(await selects("title-to-note"), `the arrow is selected: ${await selected()}`);
+  await page.keyboard.press("]");
+  await page.waitForTimeout(500);
+  check((await source()) === again && /move either/.test(await status()), `] turns it not, and says to move either end: ${await status()}`);
+
+  // The three together: duplicated, the copy of the arrow joining the copies.
+  const three = await choose(middle(note), along);
+  check(three.join(" ") === "title note title-to-note", `Shift and a click on its line select the arrow too: ${three}`);
+  await page.keyboard.press("Control+d");
+  check(await reads("title-2-to-note-2"), `⌘D copies the three, the arrow joining the copies: ${await status()}`);
+  const copy = declared(await source(), "title-2-to-note-2");
+  check(copy.includes("title-2") && copy.includes("note-2"), `its copy joins their copies: ${copy}`);
+  await page.keyboard.press("Control+z");
+  check(await back(again), "undo takes the copies back");
+
+  // Grouped: the group holds the title and the note, and the arrow still joins them from outside.
+  await choose(middle(note), along);
+  await page.keyboard.press("Control+g");
+  await page.waitForFunction((s) => window.scaena.source() !== s && !window.scaena.canvas.busy(), again, { timeout: 30000, polling: 50 }).catch(() => {});
+  await page.waitForTimeout(300);
+  const grouped = await source();
+  check(grouped !== again && /parent\(group/.test(declared(grouped, "title")), `⌘G groups the title: ${declared(grouped, "title")} · ${await status()}`);
+  check(declared(grouped, "title-to-note") === declared(again, "title-to-note"), `the arrow stays out of the group: ${declared(grouped, "title-to-note")}`);
+  check(Boolean((await boxOf("title-to-note"))?.route), "and still runs between them");
+  await page.keyboard.press("Control+z");
+  check(await back(again), "undo takes the group back");
+
+  // Deleted with the note: one patch, the arrow going with it.
+  const two = await chooseFrom({ node: "note", rect: note }, along);
+  check(two.join(" ") === "note title-to-note", `the note and the arrow selected: ${two}`);
+  await page.keyboard.press("Delete");
+  await page.waitForFunction((s) => window.scaena.source() !== s && !window.scaena.canvas.busy(), again, { timeout: 30000, polling: 50 }).catch(() => {});
+  await page.waitForTimeout(300);
+  const deleted = await source();
+  check(deleted !== again && !deleted.includes("title-to-note"), `Delete takes the two out: ${await status()}`);
+  check(!(await boxOf("note")) && Boolean(await boxOf("title")), "the note is gone from the slide, the title stays");
+  await page.keyboard.press("Control+z");
+  check(await back(again), "undo brings them back");
 } finally {
   await browser.close();
   await server.close();

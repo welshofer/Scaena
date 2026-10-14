@@ -737,3 +737,31 @@ fn a_donut_offers_no_series() {
     assert!(!props.contains(&"series/field") && !props.contains(&"color/field"), "{props:?}");
     assert!(props.contains(&"x/field") && props.contains(&"y/field"), "{props:?}");
 }
+
+/// A connector goes where what it joins goes (PLAN 2.109): an inspector offers it no turn, and
+/// nothing else of where it stands; its stroke and its paint, as any line's.
+#[test]
+fn a_connector_offers_no_turn() {
+    let mut doc = example();
+    doc["nodes"]["title-to-rev"] =
+        json!({ "type": "shape", "kind": "arrow", "connect": { "from": "title", "to": "rev" } });
+    doc["states"][1]["props"]["title-to-rev"] = json!({});
+    let arrow = offered(&doc, "revenue", "title-to-rev");
+    assert!(!arrow.fields.iter().any(|f| f.prop.starts_with("transform/")), "{:?}", arrow.fields);
+    field(&arrow, "stroke/paint");
+    field(&offered(&doc, "revenue", "title"), "transform/rotate");
+}
+
+/// A shape's words stand in its middle across it where they say nothing (PLAN 2.108): what an
+/// inspector shows for their alignment, as it shows what a role gives.
+#[test]
+fn a_shapes_words_show_themselves_centered() {
+    let mut doc = example();
+    doc["nodes"]["star"] = json!({ "type": "shape", "kind": "polygon", "points": [[0.5, 0], [1, 1], [0, 1]],
+        "at": { "rect": [100, 100, 400, 300] } });
+    doc["nodes"]["star-words"] = json!({ "type": "text", "role": "body", "text": "Hi", "at": { "parent": "star" } });
+    doc["states"][1]["props"]["star"] = json!({});
+    let words = field(&offered(&doc, "revenue", "star-words"), "align/x").clone();
+    assert_eq!((words.value, words.theme), (None, Some(json!("center"))));
+    assert_eq!(field(&offered(&doc, "revenue", "title"), "align/x").theme, None);
+}

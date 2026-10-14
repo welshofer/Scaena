@@ -745,7 +745,7 @@ fn a_shape_is_given_words_as_the_browser_gives_them() {
     let shape = |s| boxed(s, &id).expect("the star stands on the slide");
     assert_eq!(shape(s)["takesWords"], true);
     assert_eq!(shape(s).get("words"), None);
-    let given = call(s, "wording", json!({ "shape": id }));
+    let given = call(s, "wording", json!({ "state": "cover", "shape": id }));
     assert_eq!(given["id"], format!("{id}-words"), "{given}");
     assert_eq!(tool(s, "deck_patch", json!({ "ops": given["patch"] }))["edited"], true);
     assert_eq!(shape(s)["words"], format!("{id}-words"));
@@ -757,7 +757,7 @@ fn a_shape_is_given_words_as_the_browser_gives_them() {
         inner[0] + inner[2] < outer[0] + outer[2] && inner[1] + inner[3] < outer[1] + outer[3],
         "{inner:?} in {outer:?}"
     );
-    let again = call(s, "wording", json!({ "shape": id }));
+    let again = call(s, "wording", json!({ "state": "cover", "shape": id }));
     assert_eq!(again["patch"], json!([]), "{again}");
     unsafe { scaena_session_free(s) };
 }
@@ -787,6 +787,20 @@ fn two_nodes_are_connected_as_the_browser_connects_them() {
     let refused = answered(s, "connecting", &json!({ "state": "cover", "from": "title", "to": "title" }));
     let said = refused["error"]["message"].as_str().unwrap_or_default();
     assert!(said.contains("not one to itself"), "{refused}");
+    // Duplicated with what it joins, its copy joins their copies; deleted with them, it goes with
+    // them, each one patch.
+    let three = json!(["title", "subtitle", "title-to-subtitle"]);
+    let copied = call(s, "duplicatingAll", json!({ "state": "cover", "nodes": three }));
+    let ids: Vec<String> = serde_json::from_value(copied["ids"].clone()).unwrap();
+    assert_eq!(ids.len(), 3, "{copied}");
+    assert_eq!(tool(s, "deck_patch", json!({ "ops": copied["patch"] }))["edited"], true, "{copied}");
+    let boxes = call(s, "boxes", json!({ "state": "cover" }));
+    let copy = boxes.as_array().unwrap().iter().find(|b| b["node"] == ids[2].as_str()).cloned().unwrap();
+    assert_eq!(copy["joins"], json!([ids[0], ids[1]]), "{copy}");
+    let gone = call(s, "deleting", json!({ "state": "cover", "nodes": ids, "everywhere": true }));
+    assert_eq!(tool(s, "deck_patch", json!({ "ops": gone }))["edited"], true, "{gone}");
+    let boxes = call(s, "boxes", json!({ "state": "cover" }));
+    assert!(!boxes.as_array().unwrap().iter().any(|b| ids.contains(&b["node"].as_str().unwrap().to_string())));
     unsafe { scaena_session_free(s) };
 }
 

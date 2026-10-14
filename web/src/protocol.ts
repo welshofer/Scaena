@@ -588,7 +588,8 @@ export interface Added {
 }
 
 /** The words of a shape to type in (PLAN 2.108): the text that holds them, and the patch that
- * adds it where the shape holds none, empty where it does. */
+ * adds it where the shape holds none, or brings it back where the state does not show it, empty
+ * where it does. */
 export interface Worded {
   id: string;
   patch: unknown[];
@@ -597,6 +598,14 @@ export interface Worded {
 /** A connector made (PLAN 2.109): its id, and the patch that adds it. */
 export interface Connected {
   id: string;
+  patch: unknown[];
+}
+
+/** Copies of several nodes beside them (PLAN 2.42): each copy's id, those of the nodes copied
+ * first, then those of the connectors among them that join two of them, copied to join their
+ * copies (PLAN 2.109); and the patch that adds them all. */
+export interface Duplicated {
+  ids: string[];
   patch: unknown[];
 }
 
@@ -975,12 +984,15 @@ export type ToWorker =
    * more stroke of the drawing `onto` where the state shows it as one, else a new drawing. */
   | { type: "inking"; id: number; source: string; state: string; points: number[]; onto?: string; format?: string }
   | { type: "duplicating"; id: number; source: string; state: string; node: string; format?: string }
-  | { type: "wording"; id: number; source: string; shape: string }
+  /** A copy of each of `nodes` beside it, in one patch (PLAN 2.42). */
+  | { type: "duplicatingAll"; id: number; source: string; state: string; nodes: string[]; format?: string }
+  | { type: "wording"; id: number; source: string; state: string; shape: string }
   | { type: "connecting"; id: number; source: string; state: string; from: string; to: string; arrow: boolean }
   /** The patch that draws text `node`'s lines in `state` as a diagram of `kind` in its place, in
    * the format shown (PLAN 2.110). */
   | { type: "diagramming"; id: number; source: string; state: string; node: string; kind: Diagram; format?: string }
-  | { type: "deleting"; id: number; source: string; state: string; node: string; everywhere: boolean }
+  /** The patch that takes `nodes` away, in one patch (PLAN 2.34, 2.42). */
+  | { type: "deleting"; id: number; source: string; state: string; nodes: string[]; everywhere: boolean }
   /** The patch that puts `nodes`, children of one container as `state` shows them, in a new group
    * where they stand, on the deck the editor's `source` compiles to (PLAN 2.43). */
   | { type: "grouping"; id: number; source: string; state: string; nodes: string[] }
@@ -1696,13 +1708,15 @@ export type FromWorker =
   | { type: "layers"; id: number; layers: Layer[] }
   /** The patch that adds a node: an insert, or a copy. */
   | { type: "adding"; id: number; added: Added }
+  /** Copies of several nodes (PLAN 2.42). */
+  | { type: "duplicated"; id: number; duplicated: Duplicated }
   /** The words of a shape to type in, given it where it has none (PLAN 2.108). */
   | { type: "worded"; id: number; worded: Worded }
   /** A connector between two nodes (PLAN 2.109). */
   | { type: "connected"; id: number; connected: Connected }
   /** A text's lines drawn as a diagram (PLAN 2.110). */
   | { type: "diagrammed"; id: number; diagrammed: Diagrammed }
-  /** The patch that takes a node away. */
+  /** The patch that takes nodes away. */
   | { type: "deleting"; id: number; patch: unknown[] }
   /** A node as the clipboard holds it, and what pasting a clip makes. */
   | { type: "copied"; id: number; clip: string }

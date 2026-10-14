@@ -7,7 +7,7 @@
 use crate::inspect::{deleting, free_id, leaving, reads_on};
 use crate::{Context, OpsError};
 use scaena_core::Deck;
-use scaena_core::document::{NodeType, Props};
+use scaena_core::document::{Node, NodeType, Props};
 use scaena_core::model::theme::Vocabulary;
 use scaena_core::model::values::ListItem;
 use scaena_core::patch::SemanticOp;
@@ -255,7 +255,6 @@ pub fn diagramming(
 
     // The container, then each box, its words, and the connectors, each entering in `state`.
     let mut adds = vec![(id.clone(), holder)];
-    let mut words_ids = Vec::new();
     for (box_id, words, own) in &boxes {
         let lower = own.get("lower").and_then(Value::as_bool).unwrap_or(false);
         let fill = if lower { &look.lower } else { &look.fill };
@@ -281,10 +280,8 @@ pub fn diagramming(
         if let Some(color) = reads_on(theme, fill.as_ref().map(|f| json!(f)).as_ref()) {
             text["style"] = json!({ "color": color });
         }
-        words_ids.push(words_id.clone());
         adds.push((words_id, text));
     }
-    let mut joined = Vec::new();
     for (from, to) in &joins {
         let line = kind == Diagram::Hierarchy;
         let named = format!("{from}-to-{to}");
@@ -298,25 +295,20 @@ pub fn diagramming(
         if let Some(stroke) = &look.stroke {
             shape["stroke"] = stroke.clone();
         }
-        joined.push(joint.clone());
         adds.push((joint, shape));
     }
     let mut ops = Vec::with_capacity(adds.len());
+    let mut made = Vec::with_capacity(adds.len());
     for (add, node_value) in adds {
-        let node_value = serde_json::from_value(node_value).context("a diagram's node")?;
+        let node_value: Node = serde_json::from_value(node_value).context("a diagram's node")?;
+        made.push((add.clone(), node_value.clone()));
         ops.push(SemanticOp::AddNode { id: add, node: node_value, state: Some(state.into()), props: None });
     }
-    // Kept to the slide: each leaves before what it stands on, a connector before its ends, words
-    // before their box, a box before the container.
-    let leaves: Vec<String> = joined
-        .into_iter()
-        .chain(words_ids)
-        .chain(boxes.iter().map(|(b, _, _)| b.clone()))
-        .chain(std::iter::once(id.clone()))
-        .collect();
-    ops.extend(leaving(deck, state, &leaves));
+    // Kept to the slide: the container and its boxes leave, and the words and the connectors with
+    // them.
+    ops.extend(leaving(deck, state, &made));
     let mut patch: Vec<Value> = ops.iter().map(serde_json::to_value).collect::<Result<_, _>>().context("a patch")?;
-    patch.extend(deleting(deck, files, node, state, false)?);
+    patch.extend(deleting(deck, files, &[node], state, false)?);
     Ok(Diagrammed { id, patch })
 }
 

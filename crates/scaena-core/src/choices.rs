@@ -102,9 +102,9 @@ pub struct Field {
     pub literal: bool,
     /// What the theme gives a text's look where the deck sets none, which the state then shows:
     /// its role's family, weight, size, italic, case, tracking, or color; how its slot fits it
-    /// (theme format 0.13); and for characters selected, the text's own look where their run
-    /// sets none, its role and emphasis too. What an inspector shows in place of a blank. Absent
-    /// for any other property.
+    /// (theme format 0.13); where a shape's words stand across it, in its middle (PLAN 2.108);
+    /// and for characters selected, the text's own look where their run sets none, its role and
+    /// emphasis too. What an inspector shows in place of a blank. Absent for any other property.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub theme: Option<Value>,
     /// Its label and its values as a person says them (PLAN 2.99, [`crate::words::field`]):
@@ -327,6 +327,10 @@ pub fn choices(
                 return None;
             }
         }
+        // A connector goes where what it joins goes (PLAN 2.109): it turns with neither.
+        if prop.starts_with("transform/") && crate::tracking::connects_of(own_props).is_some() {
+            return None;
+        }
         let takes = match source {
             Data => Takes::Word { words: deck.data.keys().map(|name| format!("@{name}")).collect() },
             Columns => {
@@ -386,9 +390,12 @@ pub fn choices(
         let literal = value.is_some_and(|v| literal(prop, v));
         let role = shown.get("role").and_then(Value::as_str);
         let layout = snapshots[i].layout.as_deref();
+        // A shape's words stand in its middle across it where they say nothing (PLAN 2.108).
+        let words = crate::tracking::words_of(deck, own_props).is_some() && prop == "align/x";
         let gives = || {
             role_gives(theme, role, prop)
                 .or_else(|| slot_gives(theme, layout, shown.get("at"), prop))
+                .or_else(|| words.then(|| Value::from("center")))
                 .or_else(|| aligned(deck, theme, layout, &shown, prop))
         };
         let theme = (node_type == NodeType::Text).then(gives).flatten();

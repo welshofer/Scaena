@@ -180,7 +180,8 @@ pub enum SemanticOp {
     /// own `at` places them), and take the group as their container wherever that one is
     /// written. A group lays nothing out, so nothing moves. It sits where they sat, at the
     /// highest `z` among them (0 for one that sets none), last among what stands there; and
-    /// it shows in each state that shows one of them in it, and only there.
+    /// it shows in each state that shows one of them in it, and only there. A connector among
+    /// them stays out of it, placed by what it joins (PLAN 2.109).
     Group {
         #[schemars(with = "Id")]
         id: String,
