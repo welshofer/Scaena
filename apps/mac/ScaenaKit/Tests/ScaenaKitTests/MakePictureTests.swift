@@ -18,8 +18,8 @@ private actor Painted {
 /// place for one, asked once of what the person says it shows, framed wide as the place is, in the
 /// theme's palette; it joins the bundle and says what it shows, one patch. The image selected
 /// shows the next picture in its place, whole, one patch of its `src` and `alt` and its crop taken
-/// away. Locked, it is not replaced: the picture lands square where the pointer pressed. A refusal
-/// says why.
+/// away. Locked, it is not replaced: the picture lands where the pointer pressed, in its own
+/// proportions. A refusal says why.
 @MainActor
 @Test func aPictureMadeFillsItsPlaceOrTakesThePlaceOfTheOneSelected() async throws {
     let lighthouse = try Data(contentsOf: repository.appending(path: "tests/fixtures/jpeg/baseline-422.jpg"))
@@ -82,15 +82,16 @@ private actor Painted {
     #expect(whole == nil || whole == .null, "the whole picture shows")
 
     // Locked (PLAN 2.95), the image selected is not replaced: with no empty place on the slide,
-    // the picture goes where the pointer pressed, framed square as the box Insert gives a picture
-    // there, and lands in one as square.
+    // the picture goes where the pointer pressed, asked square as the room Insert finds there.
+    // It lands in its own proportions, as Insert places any picture: this one, the harbor made
+    // wide above, as wide as its 67 × 45 pixels.
     try editor.make(locking([put.node], own: { _ in false }).ops)
     let free = try session.pictureTarget(state: started.id, selected: [put.node], pressed: CGPoint(x: 480, y: 540))
     #expect(free.node == nil && free.slot == nil && free.frame == "square", "\(free)")
     let landed = try session.puttingPicture(next, at: free, in: started.id)
     try editor.make(landed.patch)
-    let square = try #require(try session.boxes(state: started.id).first { $0.node == landed.node }).rect
-    #expect(square[2] / square[3] > 0.84 && square[2] / square[3] < 1.2, "\(square)")
+    let shape = try #require(try session.boxes(state: started.id).first { $0.node == landed.node }).rect
+    #expect(abs(shape[2] / shape[3] / (67.0 / 45.0) - 1) < 0.05, "\(shape)")
     #expect(try alt() == "A harbor at night", "the image locked as it was")
 
     // Each asked once, wide, of the words given, the key in OpenAI's header alone.
