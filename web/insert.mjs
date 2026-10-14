@@ -16,7 +16,8 @@
 //   own delta.
 // - ⌘D copies the title beside it as `title-2`, selected, and Shift+Delete takes the copy out of
 //   the deck.
-// - A star from the shape library is a polygon of ten points in the accent, named Star.
+// - A star from the shape library is a polygon of ten points in the accent, named Star on the menu
+//   and in the layers.
 // - A shader preset fills the canvas under the rest, and the image dropped is inserted.
 // Exits 1 on any failure.
 import { readFile } from "node:fs/promises";
@@ -197,6 +198,11 @@ try {
   const corners = (/points:\[\[(.*?)\]\]/.exec(star)?.[1] ?? "").split("], [").length;
   check(corners === 10 && star.includes("fill:accent"), `its ten points, in the accent: ${star.slice(0, 90)}…`);
   check(await says("Star inserted on this slide"), `the status names it: ${await status()}`);
+  // The layers call it a Star, as the menu does.
+  const starLayer = await page
+    .waitForFunction(() => document.querySelector('#layers li[data-layer="star"] [data-pick]')?.textContent, null, { timeout: 10000 })
+    .then((h) => h.jsonValue(), () => undefined);
+  check(starLayer === "Star", `the layers call it a Star: ${starLayer}`);
   await page.keyboard.press("Control+z");
   check(await back(original), "one undo takes it back");
 

@@ -37,8 +37,9 @@ public struct MadePicture: Sendable, Equatable {
 /// Where a picture made for the slide shown goes (PLAN 2.107): the image `node`, which shows it in
 /// place of what it showed (`shows`, what that image says it shows); the empty place for a picture
 /// `slot`; or neither, inserted about `point`. Its place is `size`, canvas units, which frames the
-/// picture wide, tall, or square.
+/// picture wide, tall, or square; `state` is the state it was found in, which the picture goes to.
 public struct PictureTarget: Sendable, Equatable, Identifiable {
+    public let state: String
     public let node: String?
     public let slot: String?
     public let point: CGPoint
@@ -65,40 +66,49 @@ public struct PicturePut: Sendable {
 
 extension ScaenaSession {
     /// Where a picture made for `state` goes (PLAN 2.107), as the browser finds it: the image
-    /// `selected`, alone, which shows it in place of what it showed; else the first of the slide's
-    /// empty places for a picture; else about `pressed`, where the pointer last pressed, or the
-    /// middle, in the canvas's own shape.
+    /// `selected`, alone, unless a lock holds it (PLAN 2.95), which shows it in place of what it
+    /// showed; else the first of the slide's empty places for a picture; else about `pressed`, where
+    /// the pointer last pressed, or the middle, in the box Insert gives a picture there: a square a
+    /// third of the canvas wide.
     public func pictureTarget(state: String, selected: [String], pressed: CGPoint?) throws -> PictureTarget {
         if selected.count == 1, let node = selected.first,
-            let box = try boxes(state: state).first(where: { $0.node == node }), box.rect.count == 4,
+            let box = try boxes(state: state).first(where: { $0.node == node }), box.rect.count == 4, box.locked == nil,
             let offered = try? self.choices(state: state, node: node), offered.type == "image"
         {
             let r = box.rect
             let shows = offered.fields.first { $0.prop == "alt" }?.value?.string
             return PictureTarget(
-                node: node, slot: nil, point: CGPoint(x: r[0] + r[2] / 2, y: r[1] + r[3] / 2),
+                state: state, node: node, slot: nil, point: CGPoint(x: r[0] + r[2] / 2, y: r[1] + r[3] / 2),
                 size: CGSize(width: r[2], height: r[3]), shows: shows?.isEmpty == false ? shows : nil)
         }
         if let place = try waiting(state: state).first(where: \.picture) {
             return PictureTarget(
-                node: nil, slot: place.slot, point: CGPoint(x: place.rect.midX, y: place.rect.midY), size: place.rect.size,
-                shows: nil)
+                state: state, node: nil, slot: place.slot, point: CGPoint(x: place.rect.midX, y: place.rect.midY),
+                size: place.rect.size, shows: nil)
         }
         let size = try canvasSize()
         return PictureTarget(
-            node: nil, slot: nil, point: pressed ?? CGPoint(x: size.width / 2, y: size.height / 2), size: size, shows: nil)
+            state: state, node: nil, slot: nil, point: pressed ?? CGPoint(x: size.width / 2, y: size.height / 2),
+            size: CGSize(width: size.width / 3, height: size.width / 3), shows: nil)
     }
 
     /// The picture `made` put where `target` says in `state` (PLAN 2.107): it joins the bundle,
     /// named by its content, as one dropped does. The image it was made for shows it, saying what
-    /// it shows, one `choose` of `src` and one of `alt`; else it is inserted as Insert inserts a
-    /// picture, filling the empty place it was made for, saying what it shows.
+    /// it shows, one `choose` of `src` and one of `alt`, and the whole of it, framed for its box: a
+    /// crop or a focal point the image had, of the picture it showed, taken away where it lives.
+    /// Else it is inserted as Insert inserts a picture, filling the empty place it was made for,
+    /// saying what it shows.
     public func puttingPicture(_ made: MadePicture, at target: PictureTarget, in state: String) throws -> PicturePut {
         let path = try drop(made.bytes, named: made.name)
         let by = "made by \(made.model)"
         if let node = target.node {
-            let patch: [JSONValue] = [("src", path), ("alt", made.alt)].map { prop, value in
+            var patch: [JSONValue] = [("src", path), ("alt", made.alt)].map { prop, value in
                 ["op": "choose", "node": .string(node), "prop": .string(prop), "value": .string(value), "state": .string(state)]
+            }
+            let framed = try? choices(state: state, node: node)
+            for prop in ["crop", "focal"] {
+                guard let value = framed?.fields.first(where: { $0.prop == prop })?.value, value != .null else { continue }
+                patch.append(["op": "choose", "node": .string(node), "prop": .string(prop), "value": .null, "state": .string(state)])
             }
             return PicturePut(patch: patch, node: node, said: "Picture replaced with one of \(made.shows), \(by)")
         }

@@ -93,6 +93,9 @@ export interface Panel {
   transcript(): string[];
   /** Tokens in and out so far. */
   usage(): { input: number; output: number };
+  /** `provider` chosen, as the list chooses it: its key, its address, and its models in the form,
+   * and the one the assistant asks from then on. */
+  choose(provider: ProviderId): Promise<void>;
 }
 
 export function panel(stage: Stage, editor: Editor): Panel {
@@ -408,5 +411,6 @@ export function panel(stage: Stage, editor: Editor): Panel {
     },
     transcript: () => [...transcript.children].map((li) => `${li.className}: ${li.querySelector("summary")?.textContent ?? li.textContent}`),
     usage: () => ({ ...used }),
+    choose: (p: ProviderId) => choose(p).then(remember),
   };
 }

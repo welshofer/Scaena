@@ -24,6 +24,17 @@ extension ScaenaSession {
     /// How `state` at rest reads, a part for each node read, in turn, in the format shown (PLAN
     /// 3.17): what VoiceOver speaks of the canvas.
     public func reads(state: String) throws -> [ReadPart] { try call("reads", ["state": .string(state)]) }
+
+    /// What the browser's editor calls each node `state` shows (PLAN 2.99): by its kind as a person
+    /// names it, a shape of the library by its shape (PLAN 2.106), a connector an Arrow or a Line.
+    public func kinds(state: String) throws -> [String: String] {
+        try call("words", ["state": .string(state)], as: NodeKinds.self).kinds
+    }
+}
+
+/// The part of the words for a state (`scaena_core::words::Lexicon`) that names each node's kind.
+private struct NodeKinds: Decodable {
+    let kinds: [String: String]
 }
 
 /// The nodes of a state in reading order (PLAN 2.75), as the browser's Tab steps through them:

@@ -1639,12 +1639,11 @@ struct DeckView: View {
         }
     }
 
-    /// The picture made put where it was asked for on the slide shown: one patch, one step to
-    /// undo, the image it went to selected.
+    /// The picture made put where it was asked for, in the state it was asked for in: one patch,
+    /// one step to undo, the image it went to selected.
     private func putPicture(_ made: MadePicture, at target: PictureTarget) {
-        guard let shown else { return }
         perform {
-            let put = try editor.session.puttingPicture(made, at: target, in: shown)
+            let put = try editor.session.puttingPicture(made, at: target, in: target.state)
             try document.make(put.patch, undo: undo, named: "Make Picture")
             node = put.node
             also = []
