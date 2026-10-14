@@ -189,7 +189,7 @@ impl Session {
                     self.add_file(&path, text.into_bytes());
                 }
                 None => {
-                    std::sync::Arc::make_mut(&mut self.files).remove(&path);
+                    self.files_mut().remove(&path);
                     self.removed.insert(path);
                 }
             }

@@ -2000,18 +2000,11 @@ fn duplicate_slide(d: &Doc, slide: &str) -> Result<Vec<JsonOp>, String> {
         let mut state = deck.states[i].clone();
         state.id = ids[n].clone();
         if n == 0 {
-            // Each node it shows as the slide's first state shows it, but for what is the node's
-            // own in every state: its lock, a connector's ends, and its layout in its formats.
+            // Each node it shows as the slide's first state shows it ([`as_shown`]).
             state.mode = StateMode::Absolute;
             (state.from, state.slide, state.remove) = (None, None, Vec::new());
             state.props = (snaps[i].nodes.iter())
-                .map(|(id, props)| {
-                    let mut props = props.clone();
-                    for key in crate::validate::NODE_OWN {
-                        props.shift_remove(key);
-                    }
-                    (id.clone(), props)
-                })
+                .map(|(id, props)| (id.clone(), as_shown(deck.nodes.get(id).map(|n| &n.props), props)))
                 .collect();
             state.layout = snaps[i].layout.clone();
         } else {
@@ -2043,6 +2036,37 @@ fn duplicate_slide(d: &Doc, slide: &str) -> Result<Vec<JsonOp>, String> {
         }
     }
     Ok(ops)
+}
+
+/// What an absolute state sets of a node whose own props are `own` to show it as `shown`: each
+/// prop it shows, and `null` for each of its own it does not show, one level down in an object
+/// as [`merge_props`] merges one, so what a delta took away stays away; but nothing of what is
+/// the node's own in every state (its lock, a connector's ends, and its layout in its formats),
+/// which no state sets.
+fn as_shown(own: Option<&Props>, shown: &Props) -> Props {
+    let mut out = shown.clone();
+    for (key, was) in own.into_iter().flatten() {
+        match (was, out.get_mut(key)) {
+            (Value::Object(was), Some(Value::Object(now))) => {
+                for k in was.keys() {
+                    if !now.contains_key(k) {
+                        now.insert(k.clone(), Value::Null);
+                    }
+                }
+            }
+            (_, Some(_)) => {}
+            // Gone, unless the other way its words are written is shown, which takes it away.
+            (_, None) => {
+                if !other_spelling(key).is_some_and(|other| shown.contains_key(other)) {
+                    out.insert(key.clone(), Value::Null);
+                }
+            }
+        }
+    }
+    for key in crate::validate::NODE_OWN {
+        out.shift_remove(key);
+    }
+    out
 }
 
 fn remove_slide(d: &Doc, slide: &str) -> Result<Vec<JsonOp>, String> {
@@ -2138,7 +2162,9 @@ fn remove_state(d: &Doc, id: &str) -> Result<Vec<JsonOp>, String> {
     if let Some(states) = next.get_mut("states").and_then(Value::as_array_mut) {
         states.remove(i);
     }
-    ops.extend(left_behind(&typed(d)?, i..i + 1, &next));
+    if let Ok(deck) = typed(d) {
+        ops.extend(left_behind(&deck, i..i + 1, &next));
+    }
     Ok(ops)
 }
 

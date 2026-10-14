@@ -3,6 +3,7 @@
 
 use super::lex::{Line, Tok, Token};
 use super::{DslError, SourceMap};
+use indexmap::IndexMap;
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
 
@@ -39,8 +40,9 @@ struct Parser<'a> {
     states: Vec<Value>,
     overrides: Map<String, Value>,
     header: bool,
-    /// Where each part of the deck came from: a JSON pointer to a byte offset and length.
-    spans: HashMap<String, (usize, usize)>,
+    /// Where each part of the deck came from: a JSON pointer to a byte offset and length, in
+    /// the order the source marks them.
+    spans: IndexMap<String, (usize, usize)>,
 }
 
 /// One line's tokens, read in order.
@@ -190,13 +192,18 @@ impl<'a> Parser<'a> {
     }
 
     /// Moves what was recorded at `from`, and under it, to `to`: a part the deck holds
-    /// somewhere other than where the source wrote it.
-    fn move_marks(&mut self, from: &str, to: &str) {
-        let moved: Vec<String> =
-            self.spans.keys().filter(|k| k.as_str() == from || k.starts_with(&format!("{from}/"))).cloned().collect();
-        for key in moved {
-            let span = self.spans.remove(&key).expect("listed");
-            self.spans.insert(format!("{to}{}", &key[from.len()..]), span);
+    /// somewhere other than where the source wrote it. Only what was recorded since the
+    /// `since`th mark is looked at, which holds all of it: what was just read, so a deck's
+    /// every `at:` call costs what it marks, not what the deck has marked before it.
+    fn move_marks(&mut self, from: &str, to: &str, since: usize) {
+        let under = format!("{from}/");
+        let recent: Vec<(String, (usize, usize))> = self.spans.drain(since.min(self.spans.len())..).collect();
+        for (key, span) in recent {
+            let key = match key == from || key.starts_with(&under) {
+                true => format!("{to}{}", &key[from.len()..]),
+                false => key,
+            };
+            self.spans.insert(key, span);
         }
     }
 
@@ -346,6 +353,7 @@ impl<'a> Parser<'a> {
                 return Err(t.err(&format!("`{name}()` needs a value")));
             }
             let call = format!("{ptr}/{}", esc(&name));
+            let since = self.spans.len();
             loop {
                 let arg = match t.peek() {
                     Some(Tok::Range(a, b)) => {
@@ -367,7 +375,7 @@ impl<'a> Parser<'a> {
                     .pointer(format!("{ptr}/{}", esc(&name))));
             }
             if args.len() == 1 {
-                self.move_marks(&format!("{call}/0"), &call);
+                self.move_marks(&format!("{call}/0"), &call, since);
             }
             self.mark(&call, t.toks[start].start, t.last_end());
             let v = if args.len() == 1 { args.pop().expect("one") } else { Value::Array(args) };
@@ -466,6 +474,7 @@ impl<'a> Parser<'a> {
         if std::mem::replace(&mut self.header, true) {
             return Err(t.err_at(&self.line().tokens[0], "a file has one `deck` header"));
         }
+        let since = self.spans.len();
         let mut keys = Map::new();
         if let Some(c) = comment {
             keys.insert("_comment".into(), Value::String(c));
@@ -494,7 +503,7 @@ impl<'a> Parser<'a> {
             } else if DECK_KEYS.contains(&key.as_str()) {
                 self.deck.insert(key, value);
             } else {
-                self.move_marks(&format!("/{}", esc(&key)), &format!("/meta/{}", esc(&key)));
+                self.move_marks(&format!("/{}", esc(&key)), &format!("/meta/{}", esc(&key)), since);
                 meta.get_or_insert_with(Map::new).insert(key, value);
             }
         }
@@ -536,6 +545,7 @@ impl<'a> Parser<'a> {
         let start = t.i;
         let id = t.name("the data source's id")?;
         let ptr = format!("/data/{}", esc(&id));
+        let since = self.spans.len();
         self.mark_token(&ptr, &t.toks[start]);
         let mut source = Map::new();
         if let Some(path) = t.bare_string() {
@@ -549,7 +559,7 @@ impl<'a> Parser<'a> {
             if source.contains_key("source") {
                 return Err(t.err_at(&t.toks[start], "a data source is a file or `inline:`, not both").pointer(ptr));
             }
-            self.move_marks(&format!("{ptr}/inline"), &format!("{ptr}/source/inline"));
+            self.move_marks(&format!("{ptr}/inline"), &format!("{ptr}/source/inline"), since);
             if let Some(&(offset, len)) = self.spans.get(&format!("{ptr}/source/inline")) {
                 self.mark(&format!("{ptr}/source"), offset, offset + len);
             }
@@ -995,6 +1005,6 @@ impl<'a> Parser<'a> {
         if let Some(c) = deck_key(&mut self.deck, "_comment") {
             doc.insert("_comment".into(), c);
         }
-        Ok((Value::Object(doc), SourceMap(self.spans)))
+        Ok((Value::Object(doc), SourceMap(self.spans.into_iter().collect())))
     }
 }

@@ -995,7 +995,8 @@ fn drawn_from(deck: &Deck, theme: &Theme, data: &DataFiles) -> u64 {
 
 /// A hash of all state `i`'s span is worked out from: what every state is drawn from (`drawn`),
 /// the state as written (its transition and choreography), and what it and the state before it
-/// show, each node with its type and the deck's overrides, which its cue moves between.
+/// show, which its cue moves between: each node as the states write it, which its motions read,
+/// the deck's overrides over it, which a cue laid out reads too, and its type.
 fn span_key(drawn: u64, deck: &Deck, snapshots: &[Snapshot], i: usize) -> u64 {
     let mut h = std::hash::DefaultHasher::new();
     drawn.hash(&mut h);
@@ -1005,10 +1006,10 @@ fn span_key(drawn: u64, deck: &Deck, snapshots: &[Snapshot], i: usize) -> u64 {
             0u8.hash(&mut h);
             continue;
         };
-        let shown = cascade::with_overrides(deck, snap);
+        let over: Vec<Option<&Props>> = snap.nodes.keys().map(|id| deck.overrides.get(id)).collect();
         let types: Vec<Option<NodeType>> =
-            shown.nodes.keys().map(|id| deck.nodes.get(id).map(|n| n.node_type)).collect();
-        serde_json::to_vec(&(&shown.layout, &shown.nodes, &types)).unwrap_or_default().hash(&mut h);
+            snap.nodes.keys().map(|id| deck.nodes.get(id).map(|n| n.node_type)).collect();
+        serde_json::to_vec(&(&snap.layout, &snap.nodes, &over, &types)).unwrap_or_default().hash(&mut h);
     }
     h.finish()
 }
