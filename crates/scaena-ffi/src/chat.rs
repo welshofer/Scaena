@@ -206,8 +206,9 @@ fn skills(s: &Session) -> Vec<String> {
 }
 
 /// Run `call` on the session as the model's agent, at `at`: its result for the model, and what
-/// Swift shows of it: a line saying what it came to, the frame it drew, whether it changed the
-/// deck, and the files it wrote beside the deck before and after, for an undo. A call that
+/// Swift shows of it: a line saying what it came to, whether it did what its words say, the
+/// frame it drew, whether it changed the deck, and the files it wrote beside the deck before and
+/// after, for an undo. A call that
 /// fails says why to the model, as an MCP tool's error result does.
 fn run(s: &mut Session, model: &str, call: &Call, at: Option<i64>) -> (ToolResult, Value) {
     let (json, error, png, edited, rewritten) = if call.name == RESOURCE_READ {
@@ -232,6 +233,7 @@ fn run(s: &mut Session, model: &str, call: &Call, at: Option<i64>) -> (ToolResul
         "name": call.name,
         "error": error,
         "summary": scaena_chat::summary(&call.name, &json, error),
+        "made": scaena_chat::made(&call.name, &json, error),
         "json": json,
         "png": png,
         "edited": edited,

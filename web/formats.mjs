@@ -13,7 +13,8 @@
 //   too many lines in 9:16 alone counts on 9:16's figure, and on no other.
 // - A click on a figure, or Enter on one, opens the canvas in its format.
 // - An edit that takes a format out of the deck takes its figure away, and one that puts it back
-//   brings it back.
+//   brings it back. One that makes the canvas tall names the deck's own size 9:16, in the menu and
+//   on its figure, and offers 16:9 as a format of its own.
 // - Hidden, it asks the worker to paint none.
 // - axe-core finds nothing against WCAG 2.1 AA with the row shown.
 // Exits 1 on any failure.
@@ -203,6 +204,21 @@ try {
   await page.evaluate((s) => window.scaena.type(s), source);
   await page.waitForFunction(() => document.querySelectorAll("#formats button[data-format]").length === 2, null, { timeout: 30000 }).catch(() => {});
   check((await figures()).length === 2 && (await page.locator("#format option").allTextContents()).includes("9:16"), "put back, its figure and its menu item are back");
+
+  // The deck's canvas made tall: its own size is 9:16 now, named so in the menu and on its figure,
+  // and 16:9 is a format laid out anew, offered once.
+  const upright = source.replace("canvas:1920x1080", "canvas:1080x1920");
+  check(upright !== source, "the deck's canvas is in the source");
+  await page.evaluate((s) => window.scaena.type(s), upright);
+  await page.waitForFunction(() => document.querySelector("#format option")?.textContent === "9:16", null, { timeout: 30000 }).catch(() => {});
+  const turned = await page.locator("#format option").allTextContents();
+  check(JSON.stringify(turned) === JSON.stringify(["9:16", "16:9"]), `the format menu names the tall canvas 9:16, and offers 16:9: ${JSON.stringify(turned)}`);
+  const standing = await figures();
+  check(JSON.stringify(standing.map((f) => f.format)) === JSON.stringify(["", "16:9"]), `a figure for the tall canvas and one for 16:9: ${JSON.stringify(standing.map((f) => f.format))}`);
+  check(standing[0]?.label.startsWith("9:16:"), `the deck's own canvas named 9:16: ${standing[0]?.label}`);
+  await page.evaluate((s) => window.scaena.type(s), source);
+  await page.waitForFunction(() => document.querySelector("#format option")?.textContent === "16:9", null, { timeout: 30000 }).catch(() => {});
+  check(JSON.stringify(await page.locator("#format option").allTextContents()) === JSON.stringify(["16:9", "9:16"]), "put back, the menu is as it was");
 
   // Hidden again: none is painted.
   await page.click("#formats-open");

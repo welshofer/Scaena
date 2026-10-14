@@ -171,31 +171,33 @@ public final class Assistant {
 }
 
 /// What a call to each of the assistant's tools does, in a person's words (PLAN 3.18): what the
-/// assistant is doing while the call runs, and what it did once it has. No tool's name reaches the
-/// window.
+/// assistant is doing while the call runs, and what it did once it has, or that it did not. No
+/// tool's name reaches the window.
 public enum ToolWords {
     /// Each tool's words, as the MCP server names the tools (`docs/schema/mcp`): while it runs,
-    /// then once it has.
-    private static let words: [String: (doing: String, done: String)] = [
-        "data_attach": ("Adding data…", "Added data"),
-        "data_edit": ("Changing the data…", "Changed the data"),
-        "deck_create": ("Making a deck…", "Made a deck"),
-        "deck_diff": ("Comparing versions…", "Compared versions"),
-        "deck_export": ("Exporting the deck…", "Exported the deck"),
-        "deck_find": ("Searching the deck…", "Searched the deck"),
-        "deck_health": ("Reading the deck's story…", "Read the deck's story"),
-        "deck_history": ("Reading the history…", "Looked at the history"),
-        "deck_inspect": ("Looking over the deck…", "Looked over the deck"),
-        "deck_lint": ("Checking the deck…", "Checked the deck"),
-        "deck_patch": ("Editing the deck…", "Edited the deck"),
-        "deck_read": ("Reading the deck…", "Went through the deck"),
-        "deck_render": ("Looking at a slide…", "Looked at a slide"),
-        "icon_find": ("Finding an icon…", "Found an icon"),
-        "spine_read": ("Reading the outline…", "Went through the outline"),
-        "spine_update": ("Changing the outline…", "Changed the outline"),
-        "theme_apply": ("Changing the theme…", "Changed the theme"),
-        "theme_edit": ("Editing the theme…", "Edited the theme"),
-        "resource_read": ("Reading how decks are written…", "Read how decks are written"),
+    /// once it has, and where it did not (stopped, or an edit refused or only tried).
+    private static let words: [String: (doing: String, done: String, not: String)] = [
+        "data_attach": ("Adding data…", "Added data", "Didn't add data"),
+        "data_edit": ("Changing the data…", "Changed the data", "Didn't change the data"),
+        "deck_create": ("Making a deck…", "Made a deck", "Didn't make a deck"),
+        "deck_diff": ("Comparing versions…", "Compared versions", "Didn't compare versions"),
+        "deck_export": ("Exporting the deck…", "Exported the deck", "Didn't export the deck"),
+        "deck_find": ("Searching the deck…", "Searched the deck", "Didn't search the deck"),
+        "deck_health": ("Reading the deck's story…", "Read the deck's story", "Didn't read the deck's story"),
+        "deck_history": ("Reading the history…", "Looked at the history", "Didn't look at the history"),
+        "deck_inspect": ("Looking over the deck…", "Looked over the deck", "Didn't look over the deck"),
+        "deck_lint": ("Checking the deck…", "Checked the deck", "Didn't check the deck"),
+        "deck_patch": ("Editing the deck…", "Edited the deck", "Didn't edit the deck"),
+        "deck_read": ("Reading the deck…", "Went through the deck", "Didn't go through the deck"),
+        "deck_render": ("Looking at a slide…", "Looked at a slide", "Didn't look at a slide"),
+        "icon_find": ("Finding an icon…", "Found an icon", "Didn't find an icon"),
+        "spine_read": ("Reading the outline…", "Went through the outline", "Didn't go through the outline"),
+        "spine_update": ("Changing the outline…", "Changed the outline", "Didn't change the outline"),
+        "theme_apply": ("Changing the theme…", "Changed the theme", "Didn't change the theme"),
+        "theme_edit": ("Editing the theme…", "Edited the theme", "Didn't edit the theme"),
+        "resource_read": (
+            "Reading how decks are written…", "Read how decks are written", "Didn't read how decks are written"
+        ),
     ]
 
     /// What the assistant is doing while a call to `tool` runs.
@@ -203,6 +205,13 @@ public enum ToolWords {
 
     /// What a call to `tool` did, once it ran.
     public static func done(_ tool: String) -> String { words[tool]?.done ?? "Used a tool" }
+
+    /// What a call to `tool` did not do, once it ran and stopped, or its edit was refused or only
+    /// tried.
+    public static func undone(_ tool: String) -> String { words[tool]?.not ?? "Didn't use a tool" }
+
+    /// How a call `ran` is headed: what it did, or, where it did not do it, that it did not.
+    public static func ran(_ ran: Ran) -> String { ran.made ? done(ran.name) : undone(ran.name) }
 
     /// Whether `tool` has words of its own, not the ones any tool falls back on.
     public static func knows(_ tool: String) -> Bool { words[tool] != nil }

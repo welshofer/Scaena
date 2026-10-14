@@ -9,7 +9,9 @@
 // - An answer edited in the dialog is taken as edited; Leave it changes nothing.
 // - Draft Notes, with nothing selected, asks from the slide's words and its beat's claim, and
 //   writes the slide's notes.
-// - Explain, on a finding, says what it means for the slide, and only reads.
+// - No answer from the model offers nothing to take, and says so.
+// - Explain, on a finding, says what it means for the slide, and only reads; the source's own
+//   issue, while it does not compile, too.
 // - Describe (PLAN 2.119), on the torture deck's black-and-white photo, shows the model the picture
 //   as the slide shows it, a PNG before the words, gray; Use it writes the picture's description,
 //   one patch; ⌘Z puts it back.
@@ -36,6 +38,9 @@ const ANSWERS = [
   ["You describe a picture", "“A gray gradient, a dark block, and a lighter disc.”"],
 ];
 
+/** Words the scripted model, asked to rewrite them, answers nothing for. */
+const SILENT = "Q3 Review";
+
 /** Anthropic's Messages API, scripted, on a port of its own: each request it took. */
 async function provider() {
   const requests = [];
@@ -55,7 +60,9 @@ async function provider() {
     const body = JSON.parse(text);
     requests.push({ headers: req.headers, body });
     const system = body.system?.[0]?.text ?? "";
-    const answer = ANSWERS.find(([starts]) => system.startsWith(starts))?.[1] ?? "I do not know that task.";
+    const asked = body.messages?.[0]?.content?.find?.((c) => c.type === "text")?.text ?? "";
+    // The model answers nothing for the title's words, as one that refuses or runs out of room does.
+    const answer = system.startsWith("You rewrite") && asked === SILENT ? "" : (ANSWERS.find(([starts]) => system.startsWith(starts))?.[1] ?? "I do not know that task.");
     reply(200, { content: [{ type: "text", text: answer }], stop_reason: "end_turn", usage: { input_tokens: 120, output_tokens: 20 } });
   }).listen(0, "127.0.0.1");
   await new Promise((ok) => server.once("listening", ok));
@@ -171,6 +178,14 @@ try {
   await page.keyboard.press("Control+z");
   await page.waitForFunction((o) => window.scaena.source() === o, original, { timeout: 10000 }).catch(() => {});
 
+  // 5b. No answer from the model: nothing is offered to take, and it says so.
+  await tool("rewrite", "title");
+  await page.waitForFunction(() => /No answer/.test(document.querySelector("#writing-thinking").textContent), null, { timeout: 30000 }).catch(() => {});
+  const silent = await dialog();
+  check(/^No answer from Anthropic/.test(silent.thinking ?? "") && !silent.use && silent.answer === undefined, `no answer offers nothing to take: ${silent.thinking}`);
+  await page.click("#writing-leave");
+  check((await source()) === original, "and changes nothing");
+
   // 6. Explain, on a finding: what it means, only read.
   const long = "Q3 Review: the quarter that changed the shape of the business for good";
   // The slide's title, not the deck's, which the header names first.
@@ -183,7 +198,16 @@ try {
   const why = scripted.requests.at(-1)?.body.messages?.[0]?.content?.[0]?.text ?? "";
   check(/^Finding [EW]\d+ \((error|warning)\): /.test(why), `asked as the finding says it: ${JSON.stringify(why.split("\n")[0])}`);
   await page.click("#writing-leave");
-  check(scripted.requests.length === 5, `one request for each of the five tools asked: ${scripted.requests.length}`);
+  check(scripted.requests.length === 6, `one request for each tool asked: ${scripted.requests.length}`);
+
+  // 6b. The source's own issue, while it does not compile, is explained all the same.
+  await page.evaluate((s) => window.scaena.type(`${s}\nthis is not scn {`), await source());
+  await page.waitForFunction(() => window.scaena.last()?.error && document.querySelector("#problems li button.explain"), null, { timeout: 30000 }).catch(() => {});
+  await page.click("#problems li button.explain");
+  check(await answered("#writing-said"), "Explain says what the source's own issue means");
+  const compiling = await dialog();
+  check(compiling.title === "About This Issue" && scripted.requests.length === 7, `asked once, though the deck does not compile: ${compiling.title} · ${await status()}`);
+  await page.click("#writing-leave");
 
   // 7. Describe (PLAN 2.119): the picture as the slide shows it goes before the words.
   await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&bundle=/tests/fixtures/torture.scaena/deck.json`);

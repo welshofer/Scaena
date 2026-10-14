@@ -399,9 +399,11 @@ pub unsafe extern "C" fn scaena_picture(bytes: *const u8, len: usize) -> *mut c_
 /// files}`, the theme file written before and after for the undo; `bundleFiles` and `removeFile
 /// {path}`; `dataSources`, `dataSheet {name}`, `dataEdit {source, edits, at?}`, `{result,
 /// wrote}`, and `dataUndo {redo?, at?}`, the file an edit wrote or a removal took out put back or
-/// written again; and, from the bundle's history, `versions`, `viewVersion {version}`, its
-/// states, `compareVersions {from, to?}`, and `restoreVersion {version, at?}`, `{restored,
-/// files}`. Handles and views (PLAN 3.16): `outline {state, node}`, a shape's points and corner;
+/// written again; and, from the bundle's history, `versions`, each with what its change did
+/// and who made it in a person's words (`said`, `by`), `viewVersion {version}`, its states, and
+/// `versionSlides`, each as its slide list numbers it, `compareVersions {from, to?}`, and
+/// `restoreVersion {version, at?}`, `{restored, files}`. Handles and views (PLAN 3.16):
+/// `outline {state, node}`, a shape's points and corner;
 /// `framing {state, node}`, an image's crop and focal point; `focalAt {state, node, x, y}`, the
 /// point of an image under a press; `grid`, the theme's tracks and baselines; `setView {view?}`,
 /// the part of the canvas frames are painted through; and `find {query}` and `replacing {query,
@@ -1051,8 +1053,9 @@ pub unsafe extern "C" fn scaena_chat_new(args: *const c_char, error: *mut *mut c
 ///   usage}`, the calls to run, or `{"next": "done", text, stop, usage}`; a provider's refusal is
 ///   an error, and the conversation is as it was.
 /// - `run {index, at?}`: the last answer's call `index` run on the session by `agent:` and the
-///   model's name, at `at` (RFC 3339): `{id, name, error, summary, json, png?, edited,
-///   rewritten}`. A `call` `{id, name, args}` may be given in its place.
+///   model's name, at `at` (RFC 3339): `{id, name, error, summary, made, json, png?, edited,
+///   rewritten}`, `made` whether it did what its words say. A `call` `{id, name, args}` may be
+///   given in its place.
 /// - `next`: the calls' results handed to the model, every call answered (those not run, as
 ///   stopped): whether it may be asked again, or the question has taken its rounds.
 /// - `use {provider, model, base?}`: another model from the next request on, the conversation
@@ -1599,15 +1602,20 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             json!(s.replacing(&query, arg("with")?, one).map_err(said)?)
         }
         // The versions the bundle's history keeps (PLAN 2.60), read from it as `scaena history`
-        // reads them: listed; one shown read only in a session of its own, its states' ids (its
-        // states drawn by `scaena_export`'s `version`); one compared with another or with the deck
-        // now; and one made the deck again, with each file it wrote for the undo. A version is
-        // named by its number as listed, or its id.
-        "versions" => json!(history_of(s)?.1),
+        // reads them: listed, each change said in a person's words (PLAN 2.99); one shown read
+        // only in a session of its own, its states' ids (its states drawn by `scaena_export`'s
+        // `version`), and each as its own slide list numbers it; one compared with another or
+        // with the deck now; and one made the deck again, with each file it wrote for the undo. A
+        // version is named by its number as listed, or its id.
+        "versions" => {
+            let listed: Vec<scaena_session::versions::Listed> = history_of(s)?.1.into_iter().map(Into::into).collect();
+            json!(listed)
+        }
         "viewVersion" => {
             let held = held(s, arg("version")?)?;
             json!(s.view_version(&held).map_err(said)?)
         }
+        "versionSlides" => json!(s.version_slides()),
         "compareVersions" => {
             let from = held(s, arg("from")?)?;
             let to = optional("to").map(|to| held(s, to)).transpose()?;

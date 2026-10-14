@@ -177,9 +177,11 @@ char *scaena_picture(const uint8_t *bytes, size_t len);
 // files}`, the theme file written before and after for the undo; `bundleFiles` and `removeFile
 // {path}`; `dataSources`, `dataSheet {name}`, `dataEdit {source, edits, at?}`, `{result,
 // wrote}`, and `dataUndo {redo?, at?}`, the file an edit wrote or a removal took out put back or
-// written again; and, from the bundle's history, `versions`, `viewVersion {version}`, its
-// states, `compareVersions {from, to?}`, and `restoreVersion {version, at?}`, `{restored,
-// files}`. Handles and views (PLAN 3.16): `outline {state, node}`, a shape's points and corner;
+// written again; and, from the bundle's history, `versions`, each with what its change did
+// and who made it in a person's words (`said`, `by`), `viewVersion {version}`, its states, and
+// `versionSlides`, each as its slide list numbers it, `compareVersions {from, to?}`, and
+// `restoreVersion {version, at?}`, `{restored, files}`. Handles and views (PLAN 3.16):
+// `outline {state, node}`, a shape's points and corner;
 // `framing {state, node}`, an image's crop and focal point; `focalAt {state, node, x, y}`, the
 // point of an image under a press; `grid`, the theme's tracks and baselines; `setView {view?}`,
 // the part of the canvas frames are painted through; and `find {query}` and `replacing {query,
@@ -420,8 +422,9 @@ struct ScaenaChat *scaena_chat_new(const char *args, char **error);
 //   usage}`, the calls to run, or `{"next": "done", text, stop, usage}`; a provider's refusal is
 //   an error, and the conversation is as it was.
 // - `run {index, at?}`: the last answer's call `index` run on the session by `agent:` and the
-//   model's name, at `at` (RFC 3339): `{id, name, error, summary, json, png?, edited,
-//   rewritten}`. A `call` `{id, name, args}` may be given in its place.
+//   model's name, at `at` (RFC 3339): `{id, name, error, summary, made, json, png?, edited,
+//   rewritten}`, `made` whether it did what its words say. A `call` `{id, name, args}` may be
+//   given in its place.
 // - `next`: the calls' results handed to the model, every call answered (those not run, as
 //   stopped): whether it may be asked again, or the question has taken its rounds.
 // - `use {provider, model, base?}`: another model from the next request on, the conversation

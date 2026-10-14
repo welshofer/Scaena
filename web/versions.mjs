@@ -96,6 +96,19 @@ try {
     `the history's changes, oldest first: ${JSON.stringify(messages)}`,
   );
   check(versions.every((v, i) => v.n === i + 1 && v.author === "user" && v.at?.endsWith("Z")), "each numbered, by its author, and when");
+  // In the engine's words, as the Mac's Versions says them (PLAN 2.99): no operation's name, no author's id.
+  check(
+    JSON.stringify(versions.map((v) => [v.said, v.by])) ===
+      JSON.stringify([
+        ["The history begins", "you"],
+        ["Words changed", "you"],
+        ["The data “q3” changed", "you"],
+        ["A slide added", "you"],
+        ["An object added", "you"],
+        ["An object deleted", "you"],
+      ]),
+    `each said by the engine: ${JSON.stringify(versions.map((v) => [v.said, v.by]))}`,
+  );
   const rows = await page.locator("#versions [data-versions] button").allTextContents();
   check(rows.length === versions.length && rows[0].includes("An object deleted") && rows.at(-1).includes("The history begins"), `listed the newest first, in words: ${rows[0]} … ${rows.at(-1)}`);
   const summary = await page.locator("#versions [data-summary]").textContent();

@@ -518,7 +518,7 @@ fn the_assistant_asks_with_the_users_key_and_runs_each_call_on_the_bundle() {
     let next = step(chat, null_mut(), "answer", json!({ "status": 200, "body": answer }));
     let patched = step(chat, s, "run", json!({ "call": next["calls"][0], "at": at }));
     assert_eq!(patched["edited"], true, "{patched}");
-    assert_eq!(patched["summary"], "Done");
+    assert_eq!((&patched["summary"], &patched["made"]), (&json!("Done"), &json!(true)), "{patched}");
     assert!(call(s, "source", Value::Null).as_str().unwrap().contains("Loudly: "));
     step(chat, null_mut(), "next", Value::Null);
 
@@ -1278,9 +1278,18 @@ fn versions_are_listed_shown_compared_and_restored_from_the_history() {
     let versions = call(s, "versions", Value::Null);
     assert_eq!(versions.as_array().map(Vec::len), Some(2), "{versions}");
     assert_eq!((&versions[0]["n"], &versions[1]["n"]), (&json!(1), &json!(2)));
+    // Each change in a person's words, as the browser's Versions says it (PLAN 2.99): no
+    // operation's name, and no author's id.
+    assert_eq!((&versions[0]["said"], &versions[0]["by"]), (&json!("The history begins"), &json!("you")), "{versions}");
+    let said = versions[1]["said"].as_str().unwrap_or_default();
+    assert!(!said.is_empty() && !said.contains("patch:") && !said.contains('_'), "{versions}");
 
     let states = call(s, "viewVersion", json!({ "version": "1" }));
     assert_eq!(states[0], "cover", "{states}");
+    // Its slides as its own slide list numbers them.
+    let slides = call(s, "versionSlides", Value::Null);
+    assert_eq!(slides[0], "Slide 1", "{slides}");
+    assert_eq!(slides.as_array().map(Vec::len), states.as_array().map(Vec::len));
     let mut error = null_mut();
     let png = bytes_of(unsafe {
         scaena_export(s, c("version").as_ptr(), c(r#"{"state":"cover","width":320}"#).as_ptr(), &mut error)

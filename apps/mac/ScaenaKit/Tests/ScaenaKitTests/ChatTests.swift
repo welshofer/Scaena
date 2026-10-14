@@ -179,6 +179,23 @@ private func keychainWritable() -> Bool {
     #expect(ToolWords.doing("deck_patch") == "Editing the deck…")
     #expect(ToolWords.done("deck_patch") == "Edited the deck")
     #expect(ToolWords.doing("a_tool_to_come") == "Working…")
+    for tool in tools { #expect(!ToolWords.undone(tool).contains("_"), "\(tool)") }
+}
+
+/// A call refused is headed as not done (PLAN 2.99), as the browser heads it: a patch that would
+/// leave the deck invalid edits nothing, and the window does not say it edited the deck.
+@Test func aRefusedCallIsHeadedAsNotDone() throws {
+    let session = try ScaenaSession(directory: b1)
+    let chat = try ScaenaChat(provider: .anthropic, model: "a-model")
+    try chat.ask("Lay the cover out anew.", seeing: Seeing(state: "cover", nodes: []), on: session)
+    let patch = #"{"ops": [{"op": "set_state", "id": "cover", "prop": "layout", "value": "no-such-layout"}]}"#
+    guard case .calls = try chat.answer(status: 200, body: calling("Trying.", [("t1", "deck_patch", patch)])) else {
+        Issue.record("the model made a call")
+        return
+    }
+    let ran = try chat.run(0, on: session)
+    #expect(!ran.made && !ran.edited, "\(ran.summary)")
+    #expect(ToolWords.ran(ran) == "Didn't edit the deck")
 }
 
 /// The writing tools (PLAN 2.101): what a model is asked for a text and for a slide, from the deck
@@ -210,6 +227,34 @@ private func keychainWritable() -> Bool {
     #expect(!patch.isEmpty && patch.allSatisfy { $0["op"]?.string == "replace_text" })
     let drafted = try session.written(WritingAsk(kind: .notes, state: "cover"), answer: "Open on the name.")
     #expect(drafted.patch?.first?["op"]?.string == "set_state")
+
+    // Use it on an answer that changes nothing, or on no answer, takes nothing, which the window
+    // says, rather than a change that failed.
+    #expect(try session.taking(ask, answer: words) == nil, "the words it has already")
+    #expect(try session.taking(ask, answer: "  ") == nil, "no answer")
+    #expect(try session.taking(ask, answer: answer)?.isEmpty == false)
+}
+
+/// The inspector's writing tools are offered for what has words to write (PLAN 2.101), as the
+/// browser offers them: a text, a picture, or the slide; a shape has none.
+@Test func writingIsOfferedForATextAPictureOrTheSlide() throws {
+    let session = try ScaenaSession(directory: tortureDeck)
+    #expect(try session.choices(state: "shapes", node: "case").writes)
+    #expect(try !session.choices(state: "shapes", node: "shape-panel").writes)
+    #expect(try session.choices(state: "adjust", node: "adj-mono").writes)
+    #expect(try session.stateChoices(state: "shapes").writes)
+}
+
+/// An issue is explained as the window says it (PLAN 2.99, 2.101), as the browser asks: the model
+/// is asked the issue's sentence, not lint's own message.
+@Test func anIssueIsExplainedAsTheWindowSaysIt() throws {
+    let session = try ScaenaSession(directory: b1)
+    let compiled = try session.compile(try session.source() + "\nthis is not scn {")
+    let issue = try #require(compiled.error)
+    let said = try #require(issue.said)
+    let writing = try session.writing(WritingAsk(kind: .explain, state: "cover", finding: issue))
+    #expect(writing.prompt.contains(said), "\(writing.prompt)")
+    #expect(!writing.prompt.contains(issue.message), "\(writing.prompt)")
 }
 
 /// Describe the Picture (PLAN 2.119): the picture as the slide shows it goes with the question, a

@@ -9,7 +9,7 @@ import type { Rewritten, Seeing } from "../protocol";
 import { converse, type Event } from "./converse";
 import { type Call, type Message, type ProviderId, providers, type Result } from "./providers";
 import { type Listed, seen, system } from "./prompt";
-import { summary, tools } from "./tools";
+import { made, summary, tools } from "./tools";
 
 export type { Event } from "./converse";
 export { providers } from "./providers";
@@ -133,8 +133,8 @@ function facts(session: Session) {
   }
 }
 
-/** Run `call` on the session as `author`: what it returned, and a line saying what that came
- * to. A call that changes the deck, or the theme beside it, tells `edited` its source, and the
+/** Run `call` on the session as `author`: what it returned, a line saying what that came to,
+ * and whether it did what its words say. A call that changes the deck, or the theme beside it, tells `edited` its source, and the
  * file it wrote, before it returns. A call that fails says why to the model, as an MCP tool's
  * error result does: every call has an answer. */
 async function run(
@@ -142,13 +142,14 @@ async function run(
   call: Call,
   edited: (source: string, files: Rewritten[]) => Promise<void>,
   author: string,
-): Promise<{ result: Result; summary: string }> {
-  const answer = (json: string, error: boolean): { result: Result; summary: string } => ({
+): Promise<{ result: Result; summary: string; made: boolean }> {
+  const answer = (json: string, error: boolean): { result: Result; summary: string; made: boolean } => ({
     result: { id: call.id, name: call.name, json, error },
     summary: summary(call.name, json, error),
+    made: made(call.name, json, error),
   });
   if (call.name === "resource_read") return answer(...read(session, call.args));
-  let out: { result: Result; summary: string };
+  let out: { result: Result; summary: string; made: boolean };
   let changed: boolean;
   let files: Rewritten[] = [];
   let frame: { pixels: Uint8ClampedArray; width: number; height: number } | undefined;

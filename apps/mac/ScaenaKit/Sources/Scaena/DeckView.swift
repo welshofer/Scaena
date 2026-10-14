@@ -747,6 +747,11 @@ struct DeckView: View {
             }
             .sheet(item: $asked) { asked in
                 OfferSheet(title: asked.title, ask: asked.ask, shown: asked.shown, take: asked.take, whence: asked.whence) { ops in
+                    // An answer that changes nothing makes no change, and says so, as the browser does.
+                    guard let ops else {
+                        said = "Nothing to change: it already reads so"
+                        return
+                    }
                     perform { try document.make(ops, undo: undo) }
                 }
             }

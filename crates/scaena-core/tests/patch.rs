@@ -1040,6 +1040,39 @@ fn replace_text_keeps_runs_and_their_looks() {
     assert!(e.to_string().contains("overrides"), "{e}");
 }
 
+/// Characters typed over take the look of the first they replace, as a word processor's do, even
+/// where the range starts where two runs meet: a word put right keeps its emphasis and its link.
+/// What is typed where nothing is replaced goes into the run before, and a run deleted whole goes.
+#[test]
+fn replace_text_over_a_run_keeps_its_look() {
+    let doc = json!({
+        "scaena": "0.26", "canvas": { "width": 1920, "height": 1080 },
+        "nodes": {
+            "t": { "type": "text", "at": { "in": "title" },
+                   "runs": [{ "text": "This quarter " }, { "text": "chnaged", "emphasis": "high" }, { "text": " the shape." }] },
+            "u": { "type": "text", "at": { "in": "body" },
+                   "runs": [{ "text": "Sign up on " }, { "text": "teh", "link": { "href": "https://example.com" } }, { "text": " portal" }] },
+        },
+        "states": [{ "id": "a", "props": { "t": {}, "u": {} } }],
+    });
+    let runs = |c: &Compiled, node: &str| c.doc["nodes"][node]["runs"].clone();
+    let typed = |node: &str, from: u32, to: u32, text: &str| {
+        patch(&doc, json!([{ "op": "replace_text", "node": node, "state": "a", "from": from, "to": to, "text": text }]))
+            .unwrap()
+    };
+    assert_eq!(
+        runs(&typed("t", 13, 20, "changed"), "t"),
+        json!([{ "text": "This quarter " }, { "text": "changed", "emphasis": "high" }, { "text": " the shape." }])
+    );
+    assert_eq!(
+        runs(&typed("u", 11, 14, "the"), "u"),
+        json!([{ "text": "Sign up on " }, { "text": "the", "link": { "href": "https://example.com" } }, { "text": " portal" }])
+    );
+    // Typed where nothing is replaced, the run before takes it; deleted whole, the run goes.
+    assert_eq!(runs(&typed("t", 13, 13, "has "), "t")[0], json!({ "text": "This quarter has " }));
+    assert_eq!(runs(&typed("t", 13, 20, ""), "t"), json!([{ "text": "This quarter " }, { "text": " the shape." }]));
+}
+
 /// A choice of one axis where one keyword aligns both keeps the other as it showed (PLAN
 /// 3.25): the keyword is written out as each axis, the one chosen changed.
 #[test]

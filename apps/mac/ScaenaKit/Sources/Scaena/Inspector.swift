@@ -86,8 +86,11 @@ struct Inspector: View {
                 }
             }
             // A picture is described by the assistant's model alone, which is shown it (PLAN 2.119).
+            // Writing is offered for a text, a picture, or the slide, as the browser offers it: a
+            // shape, a chart, a table, or a group has no words to write.
             let picture = choices?.type == "image"
-            if picture ? Writer.describes : Writer.available, tab == .format, characters == nil, also.isEmpty {
+            let writes = (choices?.writes ?? true) && (picture ? Writer.describes : Writer.available)
+            if writes, tab == .format, characters == nil, also.isEmpty {
                 Section {
                     if let node = choices?.node {
                         if choices?.type == "text" {
@@ -511,9 +514,7 @@ struct Inspector: View {
     /// `kind` written for `node`, a text, or for `state`'s notes (PLAN 2.101): on the device, or by the
     /// assistant's model with the user's key, offered to take as one patch or to leave.
     private func write(_ kind: WritingKind, node: String? = nil, in state: String) {
-        if let asked = Writer.asking(WritingAsk(kind: kind, state: state, node: node), of: editor.session) {
-            offer(asked)
-        }
+        offer(Writer.asking(WritingAsk(kind: kind, state: state, node: node), of: editor.session))
     }
 
     /// Where a field's value lives, which is where a choice is written, as a person says it.

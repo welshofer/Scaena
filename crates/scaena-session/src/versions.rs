@@ -35,6 +35,25 @@ pub struct Written {
     pub text: Option<String>,
 }
 
+/// A version as the editors list it (PLAN 2.99): as the history keeps it, with what its change
+/// did (`said`) and who made it (`by`) in a person's words, as every editor says them
+/// (`scaena_core::words::change`, `author`).
+#[derive(Debug, Clone, Serialize)]
+pub struct Listed {
+    #[serde(flatten)]
+    pub version: Version,
+    pub said: String,
+    pub by: String,
+}
+
+impl From<Version> for Listed {
+    fn from(version: Version) -> Listed {
+        let said = scaena_core::words::change(version.message.as_deref().unwrap_or_default());
+        let by = scaena_core::words::author(version.author.as_deref().unwrap_or_default());
+        Listed { version, said, by }
+    }
+}
+
 fn deck(held: &Held) -> Result<Deck, Error> {
     Deck::from_json(&held.deck).map_err(|e| Error::Deck(e.to_string()))
 }

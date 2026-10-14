@@ -2236,6 +2236,12 @@ fn value_label(
     p: f32,
 ) {
     let ride = |l: &Label| l.value.expect("value labels carry their value");
+    // Where both sides set it, it stands between where each does: a first value moved off its
+    // point on one side alone slides there from where it stood, rather than jump.
+    let placed = |l: &Label| match (x, y) {
+        (Some(x), Some(y)) => between(ride(x), ride(y), p),
+        _ => ride(l),
+    };
     let at = |text: &TextLayout, v: ValueLabel| {
         let [cx, baseline] = v.anchor(shape);
         [cx - v.align * text.width, baseline - text.lines.first().map_or(0.0, |l| l.baseline)]
@@ -2249,7 +2255,7 @@ fn value_label(
     if let (Some(x), Some(y)) = (x, y)
         && x.text == y.text
     {
-        ops.push(layer(None, at(&y.text, ride(y)), opacity, text_ops(dl, &y.text)));
+        ops.push(layer(None, at(&y.text, placed(y)), opacity, text_ops(dl, &y.text)));
         return;
     }
     let start = x.map(|l| ride(l).value).or(marks.0.is_none().then_some(0.0));
@@ -2260,7 +2266,7 @@ fn value_label(
         && let count = numerals.count(start, end, p)
         && let Some((runs, width)) = numerals.compose(&count)
     {
-        let v = ride(label);
+        let v = placed(label);
         let [cx, baseline] = v.anchor(shape);
         let alpha = match marks {
             (None, _) => p,
@@ -2277,6 +2283,19 @@ fn value_label(
     }
     if let Some(y) = y {
         ops.push(layer(None, at(&y.text, ride(y)), p * y.opacity, text_ops(dl, &y.text)));
+    }
+}
+
+/// Where a value label stands `p` of the way from where `a` sets it to where `b` does: as far
+/// across from its point, along its mark, and down. Over or under its mark is `b`'s, and so is
+/// how far off its free end where the two differ in that.
+fn between(a: ValueLabel, b: ValueLabel, p: f32) -> ValueLabel {
+    ValueLabel {
+        beside: lerp(a.beside, b.beside, p),
+        align: lerp(a.align, b.align, p),
+        drop: lerp(a.drop, b.drop, p),
+        offset: if a.below == b.below { lerp(a.offset, b.offset, p) } else { b.offset },
+        ..b
     }
 }
 
