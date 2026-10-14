@@ -2110,7 +2110,9 @@ fn remove_state(d: &Doc, id: &str) -> Result<Vec<JsonOp>, String> {
     if let Some(states) = next.get_mut("states").and_then(Value::as_array_mut) {
         states.remove(i);
     }
-    ops.extend(left_behind(&typed(d)?, i..i + 1, &next));
+    if let Ok(deck) = typed(d) {
+        ops.extend(left_behind(&deck, i..i + 1, &next));
+    }
     Ok(ops)
 }
 
