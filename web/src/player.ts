@@ -294,6 +294,8 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     blank = to === blank ? undefined : to;
     curtain.hidden = !blank;
     curtain.dataset.blank = blank ?? "";
+    // The laser goes with the slide, and comes back with it.
+    drawDot();
     if (blank && !was) {
       const { index, t, playing } = stage.at;
       resume = playing ? { index, t } : undefined;
@@ -350,8 +352,10 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
   dot.hidden = true;
   dot.setAttribute("aria-hidden", "true");
   document.body.append(dot);
+  /** The dot where the laser points, none while the screen is black or white: the room sees no
+   * dot moving over it, as the Mac's and the iPad's stage show none. */
   const drawDot = () => {
-    dot.hidden = !laser || !point;
+    dot.hidden = !laser || !point || !!blank;
     if (!point) return;
     const r = stage.canvas.getBoundingClientRect();
     dot.style.left = `${r.left + point[0] * r.width}px`;

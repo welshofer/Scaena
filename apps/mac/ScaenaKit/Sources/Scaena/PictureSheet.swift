@@ -1,3 +1,6 @@
+#if os(macOS)
+import AppKit
+#endif
 import ScaenaKit
 import SwiftUI
 
@@ -5,8 +8,10 @@ import SwiftUI
 /// written in; as an illustration or a photograph; and who makes it, by the key kept for it. Make
 /// asks the best image model the key lists for it, in the theme's palette, framed as the place it
 /// goes is, as the browser's dialog does, and hands it to `put`: one step to undo. The sheet says
-/// why where none was made, and Cancel drops a picture still coming. With no key kept for the
-/// provider chosen, it says where one goes.
+/// why where none was made, and Cancel, or the sheet put away any other way (swiped down on the
+/// iPad), drops a picture still coming, as the browser's dialog closed does. With no key kept for
+/// the provider chosen, it says where one goes, and reads the keys again as the person comes back
+/// from keeping one.
 struct PictureSheet: View {
     let target: PictureTarget
     /// The deck's theme, its JSON: its palette colors the picture.
@@ -26,7 +31,8 @@ struct PictureSheet: View {
     @State private var provider: Provider = .openai
     @State private var status = ""
     @State private var making: Task<Void, Never>?
-    /// Bumped as the keys sheet closes, so that the keys are read again.
+    /// Bumped as the keys sheet closes, or, on the Mac, as a window comes back from Settings, so
+    /// that the keys are read again.
     @State private var keysChanged = 0
 
     private let keychain = Keychain()
@@ -95,7 +101,14 @@ struct PictureSheet: View {
         .onAppear {
             if !kept.contains(provider), let first = kept.first { provider = first }
         }
-        #if !os(macOS)
+        // Put away while a picture is coming: it is dropped, and nothing is put anywhere.
+        .onDisappear { making?.cancel() }
+        #if os(macOS)
+        // Back from Settings, where Add a Key… sent the person: the keys kept are read again.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+            keysChanged += 1
+        }
+        #else
         .sheet(isPresented: $keying, onDismiss: { keysChanged += 1 }) {
             NavigationStack {
                 KeysSettings()

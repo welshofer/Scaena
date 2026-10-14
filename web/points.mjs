@@ -147,6 +147,9 @@ try {
 
   // A point dragged past its box stays at its edge: above it, the apex goes nowhere.
   check(JSON.stringify((await outline("shape-tri", TRI)).points) === JSON.stringify(TRI), "the canvas holds the triangle as it was");
+  // Named by its points (PLAN 2.106), it is a triangle again once the canvas has the words of the
+  // deck undone, which it asks for after its boxes.
+  await page.waitForFunction(() => window.scaena.canvas.called("shape-tri") === "the triangle", null, { timeout: 30000 }).catch(() => {});
   const apex2 = await handle('[data-point="0"]');
   await drag(apex2, [apex2[0], apex2[1] - th]);
   check(await says("The triangle: point 1 stays where it is"), `a point dragged above its box stays at its edge: ${await status()}`);

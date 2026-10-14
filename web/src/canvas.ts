@@ -2899,13 +2899,15 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   }
 
   /** Where a picture made for the slide shown goes (PLAN 2.107), and the place it is framed for:
-   * the image selected, which shows it in place of what it showed, and says what it showed; else
-   * the first empty place for a picture on the slide, which it fills; else where the pointer last
-   * pressed, in the canvas's own shape. */
+   * the image selected, unless a lock holds it (PLAN 2.95), which shows it in place of what it
+   * showed, and says what it showed; else the first empty place for a picture on the slide, which
+   * it fills; else where the pointer last pressed, in the box Insert gives a picture there: a
+   * square a third of the canvas wide. */
   async function pictureTarget(): Promise<PictureTarget | undefined> {
     const shown = editor.shown();
     if (!shown) return undefined;
-    const one = selected !== undefined && !also.length ? box(selected) : undefined;
+    const picked = selected !== undefined && !also.length ? box(selected) : undefined;
+    const one = picked?.locked ? undefined : picked;
     const choices = one && (await stage.choices(shown.state, one.node).catch(() => undefined));
     if (one && choices?.type === "image") {
       const [x, y, w, h] = one.rect;
@@ -2917,14 +2919,15 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       const [x, y, w, h] = place.rect;
       return { slot: place.slot, at: [x + w / 2, y + h / 2], width: w, height: h };
     }
-    return { at: landing(), width: size[0], height: size[1] };
+    return { at: landing(), width: size[0] / 3, height: size[0] / 3 };
   }
 
   /** A picture made (PLAN 2.107) put where `target` says: it joins the bundle, named by its
    * SHA-256 as one dropped is. The image it was made for shows it, saying what it shows, one
-   * `choose` of `src` and one of `alt`, each written where it lives; else it is inserted as Insert
-   * inserts a picture, filling the empty place it was made for, saying what it shows. One patch,
-   * one step to undo. */
+   * `choose` of `src` and one of `alt`, each written where it lives, and the whole of it, framed
+   * for its box: a crop or a focal point the image had, of the picture it showed, taken away
+   * where it lives. Else it is inserted as Insert inserts a picture, filling the empty place it
+   * was made for, saying what it shows. One patch, one step to undo. */
   function putPicture(target: PictureTarget, made: MadePicture) {
     return inTurn(async () => {
       const shown = editor.shown();
@@ -2937,7 +2940,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       try {
         const path = await stage.drop(name, made.bytes);
         if (target.node !== undefined && box(target.node)) {
-          const ops = ["src", "alt"].map((prop) => ({ op: "choose", node: target.node, prop, value: prop === "src" ? path : made.alt, state: shown.state }));
+          const ops: unknown[] = ["src", "alt"].map((prop) => ({ op: "choose", node: target.node, prop, value: prop === "src" ? path : made.alt, state: shown.state }));
+          const framed = await stage.choices(shown.state, target.node).catch(() => undefined);
+          for (const prop of ["crop", "focal"]) {
+            const set = framed?.fields.find((f) => f.prop === prop)?.value;
+            if (set !== undefined && set !== null) ops.push({ op: "choose", node: target.node, prop, value: null, state: shown.state });
+          }
           return void (await change(ops, "Placing the picture…", `Replaced ${called(target.node)} with ${what} · ⌘Z undoes it`, target.node));
         }
         offered = await stage.inserts();
@@ -4047,6 +4055,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     found: (findings: Finding[]) => pins.found(findings),
     /** The findings' marks shown, for a test. */
     marks: () => pins.shown(),
+    /** `node` as the canvas names it in a sentence, by the words of the state shown last asked
+     * for, for a test: “Revenue doubled”, the triangle. */
+    called,
     /** Select `node`, as a click on it does; nothing with `undefined`. */
     select,
     /** Select `nodes` at once, children of one container, as Shift+click and a marquee do. */

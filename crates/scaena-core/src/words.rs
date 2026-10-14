@@ -1097,4 +1097,22 @@ mod tests {
         assert_eq!(exit.said["moveInLeft"], "Move Out to Left", "Build Out offers exits");
         assert_eq!(c.noun.as_deref(), Some("Chart"));
     }
+
+    /// A polygon of the shape library is named as Insert names it (PLAN 2.106), wherever an editor
+    /// names an object: a star is a Star. A polygon of its own is a Polygon, a rectangle a
+    /// Rectangle, and a description comes first.
+    #[test]
+    fn a_shape_of_the_library_is_named_by_its_shape() {
+        let props = |v: Value| -> Props { serde_json::from_value(v).unwrap() };
+        for (name, points, _) in crate::inserts::polygons() {
+            let drawn = props(serde_json::json!({ "kind": "polygon", "points": points, "fill": "accent" }));
+            assert_eq!(object(NodeType::Shape, &drawn), shape(name), "{name}");
+        }
+        let own = props(serde_json::json!({ "kind": "polygon", "points": [[0, 0], [1, 0], [0.4, 1]] }));
+        assert_eq!(object(NodeType::Shape, &own), "Polygon");
+        assert_eq!(object(NodeType::Shape, &props(serde_json::json!({ "kind": "rect" }))), "Rectangle");
+        let star = crate::inserts::polygons().into_iter().find(|(n, _, _)| *n == "star").unwrap().1;
+        let described = props(serde_json::json!({ "kind": "polygon", "points": star, "alt": "A gold star" }));
+        assert_eq!(object(NodeType::Shape, &described), "A gold star");
+    }
 }

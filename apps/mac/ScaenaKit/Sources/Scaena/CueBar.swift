@@ -158,11 +158,12 @@ struct CueBar: View {
             }
         }
         walk((try? session.layers(state: state)) ?? [])
+        let kinds = (try? session.kinds(state: state)) ?? [:]
         var names: [String: String] = [:]
         for motion in cue.motions where names[motion.node] == nil {
             let node = motion.node
             let text = words[node] ?? (types[node] == "text" ? (try? session.text(state: state, node: node)) ?? nil : nil)
-            names[node] = Words.node(types[node], words: text)
+            names[node] = Words.node(types[node], words: text, kind: kinds[node])
         }
         return names
     }

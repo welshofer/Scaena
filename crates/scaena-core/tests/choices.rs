@@ -156,6 +156,33 @@ fn each_node_type_offers_what_its_theme_names() {
     assert!(e.contains("not on screen in `intro`"), "{e}");
 }
 
+/// A shape offers corners and a shadow where it draws them (PLAN 2.106, 2.115): a rectangle both,
+/// an oval its shadow, and a polygon of the shape library neither. A shape of no kind draws as a
+/// rectangle, and offers both; one of no kind with a path draws the path, and offers neither.
+#[test]
+fn a_shape_offers_corners_and_a_shadow_where_it_draws_them() {
+    let mut doc = example();
+    let star = scaena_core::inserts::polygons().into_iter().find(|(name, _, _)| *name == "star").unwrap().1;
+    for (id, kind) in [("card", "rect"), ("dot", "ellipse"), ("star", "polygon"), ("plain", ""), ("mark", "")] {
+        doc["nodes"][id] =
+            json!({ "type": "shape", "kind": kind, "fill": "accent", "at": { "col": [1, 3], "row": [10, 11] } });
+        doc["states"][1]["props"][id] = json!({});
+    }
+    doc["nodes"]["star"]["points"] = json!(star);
+    for id in ["plain", "mark"] {
+        doc["nodes"][id].as_object_mut().unwrap().remove("kind");
+    }
+    doc["nodes"]["mark"]["path"] = json!("M0 0 L10 0 L5 10 Z");
+    let props = |id: &str| -> Vec<String> { offered(&doc, "revenue", id).fields.into_iter().map(|f| f.prop).collect() };
+    let has = |id: &str, prop: &str| props(id).iter().any(|p| p == prop);
+    assert!(has("card", "radius") && has("card", "shadow"), "{:?}", props("card"));
+    assert!(!has("dot", "radius") && has("dot", "shadow"), "{:?}", props("dot"));
+    assert!(!has("star", "radius") && !has("star", "shadow"), "{:?}", props("star"));
+    assert!(has("star", "fill") && has("star", "stroke/paint"), "{:?}", props("star"));
+    assert!(has("plain", "radius") && has("plain", "shadow"), "{:?}", props("plain"));
+    assert!(!has("mark", "radius") && !has("mark", "shadow"), "{:?}", props("mark"));
+}
+
 /// A picture's border and its adjustments (PLAN 2.118, 2.117): its border the theme's colors and
 /// strokes, as a shape's outline is, and each adjustment a number from -1 to 1, as written.
 #[test]
