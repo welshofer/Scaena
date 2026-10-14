@@ -68,6 +68,7 @@ import type {
   Themes,
   ToHelper,
   ToWorker,
+  Version,
   Waiting,
   Worded,
   Connected,
@@ -558,7 +559,9 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         if (!module) return post({ type: "versions", id: data.id, versions: null });
         const changes = JSON.parse(module.changes(player.file(HISTORY)!)) as Change[];
         const at = (s: number) => (s > 0 ? new Date(s * 1000).toISOString() : null);
-        const versions = changes.map((c, i) => ({ n: i + 1, id: c.id, author: c.author, message: c.message, at: at(c.timestamp), ops: c.ops }));
+        const listed = changes.map((c, i) => ({ n: i + 1, id: c.id, author: c.author, message: c.message, at: at(c.timestamp), ops: c.ops }));
+        // Each change in a person's words, as the engine says them on every platform (PLAN 2.99).
+        const versions = JSON.parse(Player.versionsSaid(JSON.stringify(listed))) as Version[];
         return post({ type: "versions", id: data.id, versions });
       }
       case "version": {
@@ -1322,6 +1325,7 @@ async function edit(source: string, index: number, at: string | undefined): Prom
     whole: linted?.whole ?? true,
     slots,
     formats: player.formats(),
+    own: (JSON.parse(player.sizes()) as { own: string | null }).own ?? undefined,
     at: where,
     ms: { compile: compiledAt - start, paint: paintedAt - compiledAt, lint: lintedAt - paintedAt },
   };

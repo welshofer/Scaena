@@ -309,23 +309,27 @@ async function edit(source: Source) {
   const scnOnDisk = "url" in source && source.serve && (await onDisk()).source ? new URL("deck.scn", source.url) : undefined;
   const fromDisk = async () => (await fetch(scnOnDisk!, { cache: "no-store" })).text();
   /** The deck's own size, named by its shape where a format is it (`16:9`); a format it lists of
-   * that shape is its own canvas, offered once. */
-  const own = () => stage.opened.own;
+   * that shape is its own canvas, offered once. An edit of the canvas renames it. */
+  let ownSize = stage.opened.own;
+  const own = () => ownSize;
   const sizes = (formats: string[]) => formats.filter((f) => f !== own());
   formatPicker.replaceChildren(new Option(own() ?? "Own size", ""));
   for (const format of sizes(stage.opened.formats)) formatPicker.add(new Option(format, format));
   const format = () => formatPicker.value || undefined;
-  /** The deck's formats as an edit leaves them: the format menu, and the formats side by side,
-   * follow. A format the deck no longer lists gives way to its own canvas, as the worker's does. */
-  function reformats(all: string[]) {
+  /** The deck's formats and its own size as an edit leaves them: the format menu, and the formats
+   * side by side, follow. A format the deck no longer lists, or one that is its own canvas now,
+   * gives way to its own canvas, as the worker's does. */
+  function reformats(all: string[], named: string | undefined) {
+    ownSize = named;
     const formats = sizes(all);
-    const listed = [...formatPicker.options].slice(1).map((o) => o.value);
-    if (listed.length !== formats.length || listed.some((f, i) => f !== formats[i])) {
+    const listed = [...formatPicker.options].map((o) => [o.value, o.text]);
+    const now = [["", own() ?? "Own size"], ...formats.map((f) => [f, f])];
+    if (listed.length !== now.length || listed.some(([v, t], i) => v !== now[i][0] || t !== now[i][1])) {
       const chosen = formatPicker.value;
-      formatPicker.replaceChildren(new Option(own() ?? "Own size", ""), ...formats.map((f) => new Option(f, f)));
+      formatPicker.replaceChildren(...now.map(([v, t]) => new Option(t, v)));
       formatPicker.value = formats.includes(chosen) ? chosen : "";
     }
-    formatting.formats(formats);
+    formatting.formats(formats, own());
   }
   /** The bundle's name, and where it is kept. */
   let { name, where } = stage.opened;
@@ -852,7 +856,7 @@ async function edit(source: Source) {
       formatPicker.dispatchEvent(new Event("change"));
     },
   });
-  formatting.formats(sizes(stage.opened.formats));
+  formatting.formats(sizes(stage.opened.formats), own());
   /** The deck played as presented, each state's time kept, and kept as its hold on request: one
    * patch, one step to undo (PLAN 2.63). */
   const rehearsing = rehearsal(stage, $("#rehearsing"), $<HTMLDialogElement>("#rehearsed"), $("#preview"), {
@@ -1165,7 +1169,7 @@ async function edit(source: Source) {
     if (edited.valid) {
       // Each as a person counts it (PLAN 2.99): Slide 3, Slide 3, step 2.
       statesPicker.replaceChildren(...edited.states.map(([id], i) => new Option(edited.slots[i]?.state === id ? (edited.slots[i].said ?? id) : (edited.slots.find((s) => s.state === id)?.said ?? id), id)));
-      reformats(edited.formats);
+      reformats(edited.formats, edited.own);
       if (edited.at && !moved) shown = edited.at.index;
       statesPicker.selectedIndex = shown;
       states.states(edited.slots, shown);
@@ -1619,14 +1623,17 @@ async function edit(source: Source) {
   });
   /** Ask the model the assistant uses to write `kind` for `node`, a text, or for the state shown. */
   function write(kind: WritingKind, node?: string) {
+    if (assisting) return say("Nothing asked: the assistant is at work on the deck");
     const now = showing();
     if (!now) return say("Nothing to write yet: the deck must compile first");
     void writing.offer({ kind, state: now.state, node });
   }
-  /** Explain `f` by the model the assistant uses: what it means for the slide, and what could be done. */
+  /** Explain `f` by the model the assistant uses: what it means for the slide, and what could be
+   * done. One no state holds, as the source's own when it does not compile, is explained all the
+   * same: a state only finds the words of what it is about. */
   function explain(f: Finding) {
+    if (assisting) return say("Nothing asked: the assistant is at work on the deck");
     const state = f.state ?? showing()?.state;
-    if (!state) return say("Nothing to explain yet: the deck must compile first");
     const { code, severity, message, said, hint, node } = f;
     void writing.offer({ kind: "explain", state, finding: { code, severity, message, said, hint, node } });
   }

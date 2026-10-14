@@ -260,13 +260,14 @@ private struct EntryRow: View {
         case .call(let name, _, let ran):
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Image(systemName: ran == nil ? "gearshape" : ran?.error == true ? "xmark.circle" : "checkmark.circle")
+                    Image(systemName: ran == nil ? "gearshape" : ran?.made == false ? "xmark.circle" : "checkmark.circle")
                         .foregroundStyle(ran?.error == true ? Color.red : Color.secondary)
-                    // What the call does, in a person's words: no tool's name reaches the window.
-                    if ran == nil {
-                        Text(ToolWords.doing(name)).font(.callout).modifier(Sweep())
+                    // What the call does, in a person's words: no tool's name reaches the window. A
+                    // call refused, only tried, or stopped is headed as not done.
+                    if let ran {
+                        Text(ToolWords.ran(ran)).font(.callout)
                     } else {
-                        Text(ToolWords.done(name)).font(.callout)
+                        Text(ToolWords.doing(name)).font(.callout).modifier(Sweep())
                     }
                     if let summary = ran?.summary {
                         Text(summary).font(.callout).foregroundStyle(.secondary).lineLimit(2)

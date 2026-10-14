@@ -99,7 +99,16 @@ private let torture = repository.appending(path: "tests/fixtures/torture.scaena"
 
     let versions = try session.versions()
     #expect(versions.map(\.n) == [1, 2])
-    #expect(try session.viewVersion("1").first == "cover")
+    // Each change in a person's words, as the browser's Versions says it (PLAN 2.99): no
+    // operation's name or author's id reaches the panel.
+    #expect(versions[0].said == "The history begins" && versions[0].by == "you")
+    #expect(!versions[1].said.isEmpty && !versions[1].said.contains("patch:") && !versions[1].said.contains("_"))
+    let states = try session.viewVersion("1")
+    #expect(states.first == "cover")
+    // Its slides as its own slide list numbers them.
+    let slides = try session.versionSlides()
+    #expect(slides.count == states.count)
+    #expect(Array(slides.prefix(3)) == ["Slide 1", "Slide 2", "Slide 2, step 2"])
     let png = try session.versionPNG("cover", width: 320)
     #expect(png.starts(with: [0x89, 0x50, 0x4E, 0x47]))
     let compared = try session.compareVersions(from: "1")

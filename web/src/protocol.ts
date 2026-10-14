@@ -679,6 +679,10 @@ export interface Version {
   /** When the change was made, in ISO 8601, UTC. */
   at?: string | null;
   ops: number;
+  /** What the change did, and who made it, in a person's words (PLAN 2.99,
+   * `scaena_core::words::change`, `author`), as the Mac's Versions says them. */
+  said: string;
+  by: string;
 }
 
 /** How a node changes from one version to another, as `deck_diff` says it: a prop gone is null. */
@@ -1258,7 +1262,8 @@ export type WritingKind = "proofread" | "tighten" | "rewrite" | "notes" | "expla
  * about, or the finding to explain, as the window says it (`said`). */
 export interface WritingAsk {
   kind: WritingKind;
-  state: string;
+  /** The state shown; none to explain an issue no state holds, as a source's that does not compile. */
+  state?: string;
   node?: string;
   finding?: { code: string; severity: string; message: string; said?: string; hint?: string; node?: string };
 }
@@ -1311,9 +1316,10 @@ export type AssistantEvent =
   | { kind: "text"; text: string }
   /** It calls tool `name`. */
   | { kind: "call"; id: string; name: string; args: unknown }
-  /** Call `id` returned: `summary` says what it came to; `json` is what the model is told,
-   * and `png` a frame it drew, in base64. */
-  | { kind: "result"; id: string; name: string; error: boolean; summary: string; json: string; png?: string }
+  /** Call `id` returned: `summary` says what it came to, and `made` whether it did what its
+   * words say (an edit refused, only tried, or stopped did not); `json` is what the model is
+   * told, and `png` a frame it drew, in base64. */
+  | { kind: "result"; id: string; name: string; error: boolean; summary: string; made: boolean; json: string; png?: string }
   /** The deck changed: its source now, which the editor takes, compiled, shown, and linted
    * as an edit of it would be: the worker does it as the change is made, so the editor asks
    * nothing of a source the assistant has moved past. `touched` are the nodes the question has
@@ -1543,6 +1549,9 @@ export interface Edited {
   slots: Slot[];
   /** The formats the deck lists now, besides its own canvas (PLAN 2.62). */
   formats: string[];
+  /** The deck's own canvas named by its shape now, where a format is it (`Opened.own`): an edit
+   * of the canvas changes it. */
+  own?: string;
   /** Where the deck is: the slot repainted at rest. */
   at?: At;
   /** How long each step took in the worker, ms. */

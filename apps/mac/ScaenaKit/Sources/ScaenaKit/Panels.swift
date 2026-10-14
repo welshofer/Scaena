@@ -232,6 +232,11 @@ public struct Version: Decodable, Identifiable, Equatable, Sendable {
     public let at: String?
     /// How many operations it holds: a character typed is one.
     public let ops: Int
+    /// What its change did, in a person's words (PLAN 2.99, `scaena_core::words::change`), as the
+    /// browser's Versions says it: An object added, an object moved.
+    public let said: String
+    /// Who made it, in a person's words: you, the assistant and its model, or outside Scaena.
+    public let by: String
 }
 
 /// What changed from one version to another, or to the deck now, as `scaena history --diff` says
@@ -365,6 +370,10 @@ extension ScaenaSession {
     public func viewVersion(_ version: String) throws -> [String] {
         try call("viewVersion", ["version": .string(version)])
     }
+
+    /// The states of the version `viewVersion` shows, in its order, as its own slide list numbers
+    /// them (PLAN 2.99): `Slide 3, step 2`.
+    public func versionSlides() throws -> [String] { try call("versionSlides") }
 
     /// `state` of the version `viewVersion` shows, at rest, as a PNG `width` pixels wide.
     public func versionPNG(_ state: String, width: Int) throws -> Data {

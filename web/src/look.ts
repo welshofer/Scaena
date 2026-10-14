@@ -415,9 +415,12 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     drawn = showing;
     const focused = into.contains(document.activeElement) ? document.activeElement?.id : undefined;
     // Words typed in a field and not yet taken (its change comes when it is left) outlast a
-    // render, which the deck changing under it brings: the field drawn again keeps them.
+    // render, which the deck changing under it brings: the field drawn again keeps them. A render
+    // that puts the controls back, as a change refused asks, keeps none: the field shows what the
+    // deck says, and leaving it sends nothing again.
     const active = document.activeElement;
     const typing =
+      !again &&
       (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) &&
       active.id &&
       into.contains(active) &&

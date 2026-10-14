@@ -10,7 +10,7 @@
 // - The versions are what the history holds: an edit is one once a save records it.
 import type { Compared, Lexicon, NodeChange, Restored, StateChange, Version } from "./protocol";
 import type { Stage } from "./stage";
-import { object, phrase, quote, sentence } from "./words";
+import { object, phrase, quote } from "./words";
 
 /** What the panel asks of the editor around it. */
 export interface VersionsEditor {
@@ -30,81 +30,6 @@ export interface VersionsEditor {
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const html = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
-
-/** What each change the history records did, by the operation's name (`patch: add_node`), as a
- * person says it (PLAN 2.99). */
-const OPS: Record<string, string> = {
-  add_node: "an object added",
-  remove_node: "an object deleted",
-  rename_node: "an object renamed",
-  set_prop: "an object changed",
-  set_text: "words changed",
-  replace_text: "words typed",
-  style_text: "characters given a look",
-  list: "a list made",
-  choose: "a look chosen",
-  place: "an object moved",
-  hide_node: "an object hidden",
-  show_node: "an object shown",
-  annotate: "a chart annotated",
-  group: "objects grouped",
-  ungroup: "a group taken apart",
-  apply_preset: "an animation added",
-  time_motion: "an animation timed",
-  bind_data: "a chart given data",
-  add_state: "a slide added",
-  set_state: "a slide changed",
-  move_state: "a slide moved",
-  rename_state: "a slide renamed",
-  remove_state: "a slide deleted",
-  duplicate_slide: "a slide copied",
-  move_slide: "a slide moved",
-  remove_slide: "a slide deleted",
-  retheme: "the theme changed",
-};
-
-/** A change's message, as the history records it, in a person's words (PLAN 2.99): `patch:
- * add_node, place` is An object added, an object moved. */
-export function told(message: string | null | undefined): string {
-  const m = (message ?? "").trim();
-  const patch = /^patch: (.*)$/.exec(m);
-  if (patch) return sentence([...new Set(patch[1].split(", ").map((op) => OPS[op] ?? "an edit"))].join(", "));
-  const said: [RegExp, (...g: string[]) => string][] = [
-    [/^$/, () => "A change"],
-    [/^history begins$/, () => "The history begins"],
-    [/^type$/, () => "Typing"],
-    [/^edit$/, () => "Edits"],
-    [/^save$/, () => "Saved"],
-    [/^deck_create$/, () => "The deck made"],
-    [/^data_attach (.*)$/, (n) => `The data “${n}” added`],
-    [/^data_edit ([^:]*)/, (n) => `The data “${n}” changed`],
-    [/^history --restore /, () => "A version restored"],
-    [/^theme --apply (.*)$/, (p) => `The theme ${phrase(p.replace(/^.*\//, "").replace(/\.theme\.json$|\.json$/, ""))} taken`],
-    [/^theme_edit: colors from (.*)$/, (p) => `The theme given the colors of ${p.replace(/^.*\//, "")}`],
-    [/^theme_edit/, () => "The theme changed"],
-    [/^lint --fix/, () => "Issues fixed"],
-    [/^(undo|redo) (.*)$/, (how, rest) => `${how === "undo" ? "Undone" : "Made again"}: ${told(rest).toLowerCase()}`],
-    [/^library: /, () => "The theme's layouts brought up to date"],
-    [/changed outside Scaena$/, () => "Changed outside Scaena"],
-  ];
-  for (const [pattern, say] of said) {
-    const found = pattern.exec(m);
-    if (found) return say(...found.slice(1));
-  }
-  return sentence(m);
-}
-
-/** Who made a change, as a person reads it (PLAN 2.99): you, the assistant and its model, or an
- * edit made outside Scaena; another author by the name the history keeps. */
-export function who(author: string | null | undefined): string {
-  if (!author || author === "user") return "you";
-  if (author === "fs") return "outside Scaena";
-  if (author.startsWith("agent:")) {
-    const model = author.slice("agent:".length);
-    return model && model !== "scripted" ? `the assistant (${model})` : "the assistant";
-  }
-  return author;
-}
 
 /** An object's property as what changed says it. */
 const PROPS: Record<string, string> = {
@@ -149,9 +74,10 @@ export function when(at: string | null | undefined): string {
   return date.toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-/** A version as a person reads it: what was done, by whom, and when. */
+/** A version as a person reads it: what was done, by whom, and when. What and who are the
+ * engine's words (`scaena_core::words::change`, `author`), as the Mac's Versions says them. */
 export function saying(v: Version): string {
-  return `${told(v.message)} · ${who(v.author)} · ${when(v.at)}`;
+  return `${v.said} · ${v.by} · ${when(v.at)}`;
 }
 
 /** What changed, a line each, in a person's words (PLAN 2.99): each slide, by its number in the
@@ -264,7 +190,7 @@ export function versionsPanel(stage: Stage, into: HTMLElement, editor: VersionsE
       .reverse()
       .map(
         (v) =>
-          `<li><button type="button" data-id="${html(v.id)}" aria-pressed="${v.id === chosen}"><span class="n">${v.n}</span> ${html(told(v.message))} <span class="by">${html(who(v.author))} · ${html(when(v.at))}</span></button></li>`,
+          `<li><button type="button" data-id="${html(v.id)}" aria-pressed="${v.id === chosen}"><span class="n">${v.n}</span> ${html(v.said)} <span class="by">${html(v.by)} · ${html(when(v.at))}</span></button></li>`,
       )
       .join("");
   }
@@ -283,7 +209,7 @@ export function versionsPanel(stage: Stage, into: HTMLElement, editor: VersionsE
     if (chosen !== id) {
       against.replaceChildren(
         new Option("the deck now", ""),
-        ...versions!.filter((x) => x.id !== id).map((x) => new Option(`version ${x.n}: ${told(x.message)}`, x.id)),
+        ...versions!.filter((x) => x.id !== id).map((x) => new Option(`version ${x.n}: ${x.said}`, x.id)),
       );
     }
     chosen = id;

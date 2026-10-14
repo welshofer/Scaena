@@ -1400,15 +1400,21 @@ fn unset(d: &Doc, node: &str, j: usize, name: &str, key: Option<&str>) -> Vec<Js
     diff(&format!("/states/{j}/props/{}", esc(node)), old, &new)
 }
 
-/// `runs` with the bytes `range` of their texts, end to end, replaced by `text`: typed into
-/// the run the range starts in, the one before where two meet, or the first at the start. A
-/// run the edit leaves with no text goes, unless it was typed into.
+/// `runs` with the bytes `range` of their texts, end to end, replaced by `text`: typed over
+/// characters, into the run of the first it replaces, as a word processor takes its look;
+/// typed where nothing is replaced, into the run the range starts in, the one before where two
+/// meet, or the first at the start. A run the edit leaves with no text goes, unless it was
+/// typed into.
 fn edit_runs(runs: &[Value], range: Range<usize>, text: &str) -> Vec<Value> {
     let texts: Vec<&str> = runs.iter().map(|r| r.get("text").and_then(Value::as_str).unwrap_or_default()).collect();
     let starts: Vec<usize> = texts.iter().scan(0, |at, t| Some(std::mem::replace(at, *at + t.len()))).collect();
-    let into = match range.start {
-        0 => 0,
-        start => (0..texts.len())
+    let over = (!range.is_empty() && !text.is_empty())
+        .then(|| (0..texts.len()).find(|&k| starts[k] <= range.start && range.start < starts[k] + texts[k].len()))
+        .flatten();
+    let into = match (over, range.start) {
+        (Some(k), _) => k,
+        (None, 0) => 0,
+        (None, start) => (0..texts.len())
             .find(|&k| starts[k] < start && start <= starts[k] + texts[k].len())
             .unwrap_or(texts.len().saturating_sub(1)),
     };

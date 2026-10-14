@@ -302,6 +302,119 @@ pub fn slide(deck: &Deck, state: &str) -> String {
     }
 }
 
+/// What each operation a patch made did, by its name, as a change of the history says it.
+const OPS: &[(&str, &str)] = &[
+    ("add_node", "an object added"),
+    ("remove_node", "an object deleted"),
+    ("rename_node", "an object renamed"),
+    ("set_prop", "an object changed"),
+    ("set_text", "words changed"),
+    ("replace_text", "words typed"),
+    ("style_text", "characters given a look"),
+    ("list", "a list made"),
+    ("choose", "a look chosen"),
+    ("place", "an object moved"),
+    ("hide_node", "an object hidden"),
+    ("show_node", "an object shown"),
+    ("annotate", "a chart annotated"),
+    ("group", "objects grouped"),
+    ("ungroup", "a group taken apart"),
+    ("apply_preset", "an animation added"),
+    ("time_motion", "an animation timed"),
+    ("bind_data", "a chart given data"),
+    ("add_state", "a slide added"),
+    ("set_state", "a slide changed"),
+    ("move_state", "a slide moved"),
+    ("rename_state", "a slide renamed"),
+    ("remove_state", "a slide deleted"),
+    ("duplicate_slide", "a slide copied"),
+    ("move_slide", "a slide moved"),
+    ("remove_slide", "a slide deleted"),
+    ("retheme", "the theme changed"),
+];
+
+/// What a change the deck's history keeps did, from the message it was recorded with, as a
+/// person says it (PLAN 2.99): `patch: add_node, place` as An object added, an object moved; a
+/// theme taken by its name; an undo by what it undid. Every editor's Versions lists a change so.
+pub fn change(message: &str) -> String {
+    let m = message.trim();
+    let file = |path: &str| path.rsplit('/').next().unwrap_or(path).to_string();
+    if let Some(ops) = m.strip_prefix("patch: ") {
+        let mut said: Vec<&str> = Vec::new();
+        for op in ops.split(", ") {
+            let did = OPS.iter().find(|(name, _)| *name == op).map_or("an edit", |(_, did)| did);
+            if !said.contains(&did) {
+                said.push(did);
+            }
+        }
+        return sentence(&said.join(", "));
+    }
+    if let Some((how, rest)) = m.split_once(' ').filter(|(how, _)| matches!(*how, "undo" | "redo")) {
+        let done = if how == "undo" { "Undone" } else { "Made again" };
+        return format!("{done}: {}", change(rest).to_lowercase());
+    }
+    match m {
+        "" => return "A change".into(),
+        "history begins" => return "The history begins".into(),
+        "type" => return "Typing".into(),
+        "edit" => return "Edits".into(),
+        "save" => return "Saved".into(),
+        "deck_create" => return "The deck made".into(),
+        _ => {}
+    }
+    if let Some(name) = m.strip_prefix("data_attach ") {
+        return format!("The data “{name}” added");
+    }
+    if let Some(name) = m.strip_prefix("data_edit ") {
+        return format!("The data “{}” changed", name.split(':').next().unwrap_or(name));
+    }
+    if m.starts_with("history --restore ") {
+        return "A version restored".into();
+    }
+    if let Some(path) = m.strip_prefix("theme --apply ") {
+        let name = file(path);
+        let name = name.strip_suffix(".theme.json").or_else(|| name.strip_suffix(".json")).unwrap_or(&name);
+        return format!("The theme {} taken", phrase(name));
+    }
+    if let Some(path) = m.strip_prefix("theme_edit: colors from ") {
+        return format!("The theme given the colors of {}", file(path));
+    }
+    if m.starts_with("theme_edit") {
+        return "The theme changed".into();
+    }
+    if m.starts_with("lint --fix") {
+        return "Issues fixed".into();
+    }
+    if m.starts_with("library: ") {
+        return "The theme's layouts brought up to date".into();
+    }
+    if m.ends_with("changed outside Scaena") {
+        return "Changed outside Scaena".into();
+    }
+    sentence(m)
+}
+
+/// Who made a change the deck's history keeps, as a person reads it (PLAN 2.99): `you`, `the
+/// assistant` and its model, or an edit made outside Scaena; another author by the name the
+/// history keeps.
+pub fn author(author: &str) -> String {
+    match author {
+        "" | "user" => "you".into(),
+        "fs" => "outside Scaena".into(),
+        _ => match author.strip_prefix("agent:") {
+            Some("") => "the assistant".into(),
+            Some(model) => format!("the assistant ({model})"),
+            None => author.into(),
+        },
+    }
+}
+
+/// `words` begun with a capital.
+fn sentence(words: &str) -> String {
+    let mut chars = words.chars();
+    chars.next().map_or_else(String::new, |first| first.to_uppercase().chain(chars).collect())
+}
+
 /// What a motion does, as a person says it: `enter` as Enters, and one split by words as Enters
 /// Word by Word.
 pub fn motion(kind: &str, split: Option<&str>) -> String {

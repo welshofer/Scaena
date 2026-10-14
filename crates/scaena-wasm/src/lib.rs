@@ -1172,6 +1172,16 @@ impl Player {
         serde_json::to_string(&self.0.version_slides()).map_err(js)
     }
 
+    /// The versions a history keeps, JSON as the history's module lists them, each with what its
+    /// change did (`said`) and who made it (`by`) in a person's words (PLAN 2.99), as the Mac's
+    /// Versions says them.
+    #[wasm_bindgen(js_name = versionsSaid)]
+    pub fn versions_said(versions: &str) -> Result<String, JsError> {
+        let versions: Vec<scaena_ops::history::Version> = serde_json::from_str(versions).map_err(js)?;
+        let listed: Vec<versions::Listed> = versions.into_iter().map(Into::into).collect();
+        serde_json::to_string(&listed).map_err(js)
+    }
+
     /// The version shown's `state` at rest, as a PNG `width` pixels wide.
     #[wasm_bindgen(js_name = versionPng)]
     pub fn version_png(&mut self, state: &str, width: u32) -> Result<Vec<u8>, JsError> {

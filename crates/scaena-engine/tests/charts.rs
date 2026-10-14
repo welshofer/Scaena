@@ -822,6 +822,53 @@ fn a_lines_first_value_stands_clear_of_the_category_label_under_its_point() {
 }
 
 #[test]
+fn a_first_value_moved_off_its_point_in_one_state_slides_to_where_the_next_sets_it() {
+    // The first state's lowest first value stands at the plot's foot, moved off its point; the
+    // next starts the axis well below it, so it keeps to its point there. The transition's first
+    // frame draws it where the first state left it, and it slides from there, not jumping.
+    let mut d = series_deck("line", json!({}));
+    let mut next: Value = serde_json::to_value(&d.states[0]).unwrap();
+    next["id"] = json!("t");
+    next["transition"] = json!({ "duration": 400, "ease": "linear" });
+    next["props"]["c"] = json!({ "y": { "field": "rev", "domain": [-40, 25] } });
+    d.states.push(serde_json::from_value(next).unwrap());
+    let [a, b] = <[ChartLayout; 2]>::try_from(scenes(&d)).unwrap();
+    let beside = |c: &ChartLayout, key: &str| c.labels.iter().find(|l| l.key == key).unwrap().value.unwrap().beside;
+    let moved = (a.paths.iter().map(|p| p.marks[0].clone()))
+        .find(|key| beside(&a, key) < 0.0)
+        .expect("a first value moved off its point");
+    assert_eq!(beside(&b, &moved), 0.0, "{moved} keeps to its point in the next state");
+    let text = a.labels.iter().find(|l| l.key == moved).unwrap().text.text.clone();
+    // Where each layer that sets `text` stands across.
+    let across = |dl: &scaena_core::displaylist::DisplayList| {
+        let mut out = Vec::new();
+        walk(&dl.ops, &mut |op| {
+            if let scaena_core::displaylist::Op::Layer { transform, ops, .. } = op
+                && ops.iter().any(|o| matches!(o, scaena_core::displaylist::Op::Glyphs { text: t, .. } if *t == text))
+            {
+                out.push(transform[4]);
+            }
+        });
+        out
+    };
+    let rest = across(&frame(&d, "s", 0.0));
+    let end = across(&frame(&d, "t", 400.0));
+    assert_eq!(rest.len(), 1, "{text}: {rest:?}");
+    assert!(end[0] > rest[0] + 10.0, "{text} ends at its point, {} from {}", end[0], rest[0]);
+    // A millisecond in, it stands where it stood at rest; half way, half way along.
+    let first = across(&frame(&d, "t", 1.0));
+    assert!(
+        (first[0] - rest[0]).abs() < 0.5,
+        "{text} stands at {} at rest, at {} as the cue begins",
+        rest[0],
+        first[0]
+    );
+    let half = across(&frame(&d, "t", 200.0));
+    let midway = 0.5 * (rest[0] + end[0]);
+    assert!((half[0] - midway).abs() < 0.5, "{text} half way stands at {}, not {midway}", half[0]);
+}
+
+#[test]
 fn a_lines_first_values_keep_their_room_where_the_names_narrow_the_plot() {
     // In a narrow chart, as a column of a portrait slide leaves one, the first values
     // are wider than half a band, and the names past the last points take a share of

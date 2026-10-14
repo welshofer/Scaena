@@ -48,6 +48,33 @@ export function tools(names: string[]): Tool[] {
   ];
 }
 
+/** Whether a call did what the conversation heads it as having done (`done`): not where it
+ * stopped, nor where an edit was refused or only tried, which it heads as not done.
+ * `scaena_chat::tools::made` says the same for the Mac. */
+export function made(name: string, json: string, error: boolean): boolean {
+  if (error) return false;
+  let r: any;
+  try {
+    r = JSON.parse(json);
+  } catch {
+    return true;
+  }
+  switch (name) {
+    case "deck_patch":
+    case "spine_update":
+    case "theme_apply":
+      return Boolean(r?.applied);
+    case "theme_edit":
+      return Boolean(r?.applied) && !r?.refused;
+    case "data_attach":
+      return Boolean(r?.attached);
+    case "data_edit":
+      return Boolean(r?.edited);
+    default:
+      return true;
+  }
+}
+
 /** A line saying what a tool's result came to, for the page to show beside the call, in a
  * person's words (PLAN 2.99): what lint finds counted, never its codes. `scaena_chat::tools::summary`
  * says the same for the Mac. */

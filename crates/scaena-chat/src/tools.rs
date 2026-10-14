@@ -194,6 +194,23 @@ pub fn summary(name: &str, json: &str, error: bool) -> String {
     }
 }
 
+/// Whether a call did what the window heads it as having done (the browser's `done`, the Mac's
+/// `ToolWords.done`): not where it stopped, nor where an edit was refused or only tried, which
+/// the window heads as not done, as the browser's `made` says it (`web/src/assistant/tools.ts`).
+pub fn made(name: &str, json: &str, error: bool) -> bool {
+    if error {
+        return false;
+    }
+    let Ok(r) = serde_json::from_str::<Value>(json) else { return true };
+    match name {
+        "deck_patch" | "spine_update" | "theme_apply" => truthy(&r["applied"]),
+        "theme_edit" => truthy(&r["applied"]) && !truthy(&r["refused"]),
+        "data_attach" => truthy(&r["attached"]),
+        "data_edit" => truthy(&r["edited"]),
+        _ => true,
+    }
+}
+
 /// `n` of `one`, made plural where it is not one.
 fn many(n: usize, one: &str) -> String {
     format!("{n} {one}{}", if n == 1 { "" } else { "s" })
@@ -317,5 +334,21 @@ mod tests {
         assert_eq!(summary("resource_read", "é𝄞", false), "3 characters");
         assert_eq!(summary("deck_lint", &"x".repeat(300), false), "x".repeat(200));
         assert_eq!(summary("spine_read", "{}", false), "Done");
+    }
+
+    /// A call is headed as done only where it did what its words say: an edit refused, only
+    /// tried, or stopped is not.
+    #[test]
+    fn a_call_refused_or_stopped_is_not_made() {
+        assert!(made("deck_patch", r#"{"applied":true}"#, false));
+        assert!(!made("deck_patch", r#"{"applied":false,"added":[{}]}"#, false), "refused");
+        assert!(!made("deck_patch", r#"{"applied":false}"#, false), "tried, not made");
+        assert!(!made("deck_patch", r#"{"message":"no such op"}"#, true), "stopped");
+        assert!(!made("theme_edit", r#"{"applied":false,"refused":true}"#, false));
+        assert!(!made("data_edit", r#"{"edited":false,"refused":true}"#, false));
+        assert!(!made("data_attach", r#"{"attached":false}"#, false));
+        assert!(made("deck_lint", r#"{"findings":[]}"#, false));
+        assert!(made("resource_read", "# A skill", false));
+        assert!(!made("deck_render", r#"{"message":"no state"}"#, true));
     }
 }
