@@ -1,6 +1,7 @@
 //! The values node properties are made of (SPEC §3.2–§3.9): ids, lengths, colors and
 //! paints, placement, motion references, chart encodings.
 
+use crate::document::NodeType;
 use indexmap::IndexMap;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -409,6 +410,32 @@ pub enum SplitUnit {
     Glyphs,
     Children,
     Marks,
+}
+
+impl SplitUnit {
+    /// Whether a node of `node_type` splits into these (SPEC §3.9): lines, words, and glyphs are
+    /// a text's, children a stack's, a grid's, a frame's, or a group's, and marks a chart's.
+    pub fn splits(self, node_type: NodeType) -> bool {
+        match self {
+            SplitUnit::Lines | SplitUnit::Words | SplitUnit::Glyphs => node_type == NodeType::Text,
+            SplitUnit::Children => {
+                matches!(node_type, NodeType::Stack | NodeType::Grid | NodeType::Frame | NodeType::Group)
+            }
+            SplitUnit::Marks => node_type == NodeType::Chart,
+        }
+    }
+
+    /// Whether a node of `node_type` takes a preset that splits into these as its own `enter` or
+    /// `exit`, or, with `emphasis`, as its own `emphasis`: where it splits so, save that a chart's
+    /// own entrance and exit move its marks whatever the preset splits, and that its marks enter
+    /// and leave but are not emphasized one by one.
+    pub fn owned(self, node_type: NodeType, emphasis: bool) -> bool {
+        match (node_type, emphasis) {
+            (NodeType::Chart, false) => true,
+            (_, true) if self == SplitUnit::Marks => false,
+            _ => self.splits(node_type),
+        }
+    }
 }
 
 /// What a text node's own `split` divides it into for motion.

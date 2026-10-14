@@ -124,9 +124,6 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
   let playing = false;
   /** One change at a time, each made on the source the one before left. */
   let making: Promise<unknown> = Promise.resolve();
-  /** The theme's motion presets as the inspector offers them (PLAN 2.116): those that enter and
-   * leave, and those that emphasize. */
-  let presets: { enter: string[]; emphasis: string[] } = { enter: [], emphasis: [] };
   /** The bar or end focused, to focus again once the lanes are drawn again. */
   let focused: string | undefined;
   /** What the canvas selects, and what that holds: whose bars stand out. */
@@ -392,7 +389,10 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
 
   /** The motions that may be added: for the node the canvas selects, its entrance where it enters
    * (or a chart, whose marks enter as its data changes) and an emphasis, each where it has none;
-   * and for each node that leaves, its exit. Each one of the theme's presets. */
+   * and for each node that leaves, its exit, save under a slide transition, which moves the slide
+   * left whole and plays none of its exits (SPEC §3.9). Each one of the theme's presets the node's
+   * inspector offers for it (PLAN 2.116): what leaves, as the state before shows it, since a build
+   * splits a node only into what it has (E106). */
   async function offer() {
     const at = editor.shown();
     const found = read;
@@ -402,29 +402,34 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
     };
     if (!at || !found?.timeline) return none();
     const node = editor.chosen();
-    const asked = node && found.nodes[node] ? node : Object.keys(found.nodes)[0];
-    if (asked) {
-      const choices = await stage.choices(at.state, asked).catch(() => undefined);
-      const enter = choices?.fields.find((f) => f.prop === "enter");
-      const emphasis = choices?.fields.find((f) => f.prop === "emphasis");
-      if (enter?.takes.kind === "name") presets.enter = enter.takes.names;
-      if (emphasis?.takes.kind === "name") presets.emphasis = emphasis.takes.names;
-    }
-    if (read !== found) return;
+    /** The presets `of`'s inspector offers for `prop` in `state`, its choices asked once. */
+    const asked = new Map<string, ReturnType<Stage["choices"]> | undefined>();
+    const offered = async (state: string | undefined, of: string, prop: string) => {
+      const key = `${state} ${of}`;
+      if (!asked.has(key)) asked.set(key, state ? stage.choices(state, of) : undefined);
+      const choices = await asked.get(key)?.catch(() => undefined);
+      const field = choices?.fields.find((f) => f.prop === prop);
+      return field?.takes.kind === "name" ? field.takes.names : [];
+    };
     const has = (n: string, kind: string) => found.timeline?.motions.some((m) => m.node === n && m.motion === kind);
     const groups: HTMLOptGroupElement[] = [];
-    const group = (label: string, kind: string, of: string) => {
+    const group = (label: string, kind: string, of: string, presets: string[]) => {
       const g = Object.assign(document.createElement("optgroup"), { label });
-      const offered = kind === "emphasis" ? presets.emphasis : presets.enter;
-      for (const p of offered) g.append(new Option(named(words, kind === "exit" ? "motion-exit" : "motion-preset", p), JSON.stringify([kind, of, p])));
-      if (offered.length) groups.push(g);
+      for (const p of presets) g.append(new Option(named(words, kind === "exit" ? "motion-exit" : "motion-preset", p), JSON.stringify([kind, of, p])));
+      if (presets.length) groups.push(g);
     };
     if (node && found.nodes[node]) {
       const enters = (found.entered ?? []).includes(node) || found.nodes[node].type === "chart";
-      if (enters && !has(node, "enter")) group(`${object(words, node)}, as it enters`, "enter", node);
-      if (!has(node, "emphasis")) group(`${object(words, node)}, for emphasis`, "emphasis", node);
+      if (enters && !has(node, "enter")) group(`${object(words, node)}, as it enters`, "enter", node, await offered(at.state, node, "enter"));
+      if (!has(node, "emphasis")) group(`${object(words, node)}, for emphasis`, "emphasis", node, await offered(at.state, node, "emphasis"));
     }
-    for (const gone of found.exited ?? []) if (!has(gone, "exit")) group(`${object(words, gone)}, as it leaves`, "exit", gone);
+    const states = editor.states();
+    const before = states[states.indexOf(at.state) - 1];
+    const slid = Boolean(found.timeline.transition.style);
+    for (const gone of slid ? [] : (found.exited ?? [])) {
+      if (!has(gone, "exit")) group(`${object(words, gone)}, as it leaves`, "exit", gone, await offered(before, gone, "exit"));
+    }
+    if (read !== found) return;
     adder.replaceChildren(new Option("Add an animation…", ""), ...groups);
     // With nothing to add, it says why: the canvas selects what an animation is for.
     adder.disabled = groups.length === 0;
