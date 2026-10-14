@@ -138,7 +138,7 @@ import Testing
     #expect(changed !== first)
 }
 
-/// PageDown and PageUp on the canvas (PLAN 4.12, as the browser's, PLAN 2.124): the next state on
+/// PageDown and PageUp on the canvas (PLAN 4.12, as the browser's, PLAN 2.126): the next state on
 /// the deck's timeline, a slide or a step of one, and the one before; none past either end, or
 /// from a state the deck lacks. B1's cover is its first slide, and its second, goal, has two steps.
 @Test func pageDownAndPageUpGoAlongTheDecksStates() throws {

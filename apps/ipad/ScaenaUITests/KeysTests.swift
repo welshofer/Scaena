@@ -179,7 +179,7 @@ final class KeysTests: XCTestCase {
     }
 
     /// Zoomed in, the arrows pan, and PageDown and PageUp turn the slides (PLAN 4.12, as the
-    /// browser's, PLAN 2.123, 2.124), on B1's cover with a hardware keyboard. The toolbar's Zoom In
+    /// browser's, PLAN 2.125, 2.126), on B1's cover with a hardware keyboard. The toolbar's Zoom In
     /// brings the slide a step closer, about its middle, and a tap where nothing draws gives the
     /// canvas the keyboard with nothing selected. Then → pans what shows a tenth of itself, the
     /// subtitle's end moving a tenth of the canvas's width to the left; ← pans it back; and Shift+→

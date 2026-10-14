@@ -34,7 +34,7 @@ import SwiftUI
 /// selects all beside it, and Space, then Tab and Space, build a selection; each node is an
 /// element VoiceOver reads as the reader hears it. Zoomed in with nothing selected, the arrows pan
 /// what shows, and what the keys select comes into view; PageDown and PageUp show the next slide
-/// or step and the one before (PLAN 4.12, as the browser's, PLAN 2.123, 2.124). On the iPad (PLAN
+/// or step and the one before (PLAN 4.12, as the browser's, PLAN 2.125, 2.126). On the iPad (PLAN
 /// 4.3), a finger makes each of these gestures' patches: a tap is a click and a double tap a
 /// double click; a handle is taken within 22 points; a long press offers what the Node menu and
 /// the clipboard do to what it pressed; and two fingers zoom the slide on the desk and pan it, a
@@ -1015,11 +1015,9 @@ struct CanvasSelection: View {
             return arrow(0, 1, shift: shift, option: option)
         case .keyboardUpArrow where !command:
             return arrow(0, -1, shift: shift, option: option)
-        // PageDown and PageUp: the next slide or step, and the one before (PLAN 4.12).
-        case .keyboardPageDown where !command && !option:
-            return page(1)
-        case .keyboardPageUp where !command && !option:
-            return page(-1)
+        // PageDown and PageUp are key commands of the canvas's own, ahead of the system's, as
+        // Escape and Return are (`commanded`, PLAN 4.12): a press of either goes on, so that the
+        // one key never turns two slides where both reach the canvas.
         case .keyboardSpacebar where !command && !option:
             return space()
         case .keyboardOpenBracket, .keyboardCloseBracket:
@@ -1061,10 +1059,16 @@ struct CanvasSelection: View {
     }
 
     /// Escape or Return on the canvas while no text is typed in (PLAN 4.6), which the system hands
-    /// it as a key command rather than a press: what a press of either does.
+    /// it as a key command rather than a press: what a press of either does. PageDown and PageUp
+    /// come so too: the next slide or step, and the one before (PLAN 4.12).
     private func commanded(_ input: String, _ flags: UIKeyModifierFlags) -> Bool {
         guard press == nil, flags.isDisjoint(with: [.command, .control]) else { return false }
-        return input == UIKeyCommand.inputEscape ? escape() : enter(option: flags.contains(.alternate))
+        switch input {
+        case UIKeyCommand.inputEscape: return escape()
+        case UIKeyCommand.inputPageDown: return page(1)
+        case UIKeyCommand.inputPageUp: return page(-1)
+        default: return enter(option: flags.contains(.alternate))
+        }
     }
     #endif
 
@@ -1267,7 +1271,7 @@ struct CanvasSelection: View {
     /// An arrow key: the handle the keys are on moved, as its drag moves it; else the node selected
     /// stepped a track, with Shift resized, kept to the state with Option, and several together.
     /// With nothing selected, zoomed in, what shows panned a tenth of itself, with Shift half,
-    /// selecting and changing nothing, as the browser's arrows pan (PLAN 4.12, 2.123); fitted, or
+    /// selecting and changing nothing, as the browser's arrows pan (PLAN 4.12, 2.125); fitted, or
     /// with Option, the key goes on.
     private func arrow(_ dx: Int, _ dy: Int, shift: Bool, option: Bool) -> Bool {
         guard let selected = node else { return !option && zoom.pan(dx, dy, far: shift) }
@@ -1385,7 +1389,7 @@ struct CanvasSelection: View {
         return true
     }
 
-    /// Zoomed in, `node` brought into view (PLAN 4.12, as the browser's, PLAN 2.123): the least pan
+    /// Zoomed in, `node` brought into view (PLAN 4.12, as the browser's, PLAN 2.125): the least pan
     /// that shows it whole where it is drawn, or, larger than what shows, the least that shows
     /// nothing but it. What Tab, Return, and a selection by keys select; fitted, nothing moves.
     private func reveal(_ node: String) {
@@ -1394,7 +1398,7 @@ struct CanvasSelection: View {
     }
 
     /// PageDown, `1`, or PageUp, `-1`, on the canvas (PLAN 4.12, as the browser's slide takes them,
-    /// PLAN 2.124): the next slide or step shown, or the one before, the window saying which; past
+    /// PLAN 2.126): the next slide or step shown, or the one before, the window saying which; past
     /// either end, that there is none. Whether the canvas took the key.
     private func page(_ by: Int) -> Bool {
         guard let showing else { return false }

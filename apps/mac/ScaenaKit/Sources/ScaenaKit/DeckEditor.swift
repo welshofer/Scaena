@@ -50,7 +50,7 @@ public final class DeckEditor {
     }
 
     /// The state `by` places from `state` along the deck's timeline, a slide or a step (PLAN 4.12,
-    /// as the browser's PageDown and PageUp go, PLAN 2.124): the next, `1`, or the one before, `-1`.
+    /// as the browser's PageDown and PageUp go, PLAN 2.126): the next, `1`, or the one before, `-1`.
     /// None past either end, or where the deck has no such state.
     public func state(from state: String, by: Int) -> String? {
         guard let at = slots.firstIndex(where: { $0.state == state }), slots.indices.contains(at + by) else {

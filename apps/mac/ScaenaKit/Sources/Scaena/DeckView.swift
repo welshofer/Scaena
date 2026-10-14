@@ -949,11 +949,12 @@ struct DeckView: View {
     }
 
     /// Zoomed in, `node` as `state` shows it brought into view (PLAN 4.12, as the browser's panels
-    /// bring what they select into view, PLAN 2.123): the least pan that shows it whole where it is
+    /// bring what they select into view, PLAN 2.125): the least pan that shows it whole where it is
     /// drawn, or, larger than what shows, the least that shows nothing but it. What the layers,
-    /// find, a finding, or the cue select; fitted, nothing moves.
+    /// find, a finding, or the cue select; fitted, nothing moves. Nor does it on the light table,
+    /// where the inspector's objects are the slide picked there, not the canvas's.
     private func bringIntoView(_ node: String, in state: String) {
-        guard zoom.level > 1 + 1e-9,
+        guard !showsSlides, zoom.level > 1 + 1e-9,
             let box = (try? editor.session.boxes(state: state))?.first(where: { $0.node == node })
         else { return }
         zoom.reveal(box.extent)

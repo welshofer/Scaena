@@ -71,7 +71,7 @@ private func alike(_ a: CGRect, _ b: CGRect) -> Bool {
     #expect(resized.placed(on: CGSize(width: 1216, height: 696)) == resized, "the same desk changes nothing")
 }
 
-/// The arrows with nothing selected (PLAN 4.12, as the browser's preview pans, PLAN 2.123): zoomed
+/// The arrows with nothing selected (PLAN 4.12, as the browser's preview pans, PLAN 2.125): zoomed
 /// in, what shows moves a tenth of itself, or half with Shift, across or down, the slide kept on the
 /// desk, so that at its edge an arrow goes no farther and is still the pan's, and the slide is as
 /// close as it was; fitted, the whole slide shows, and the arrows go on.
@@ -104,7 +104,7 @@ private func alike(_ a: CGRect, _ b: CGRect) -> Bool {
 }
 
 /// What Tab, Return, a selection by keys, or a panel selects comes into view (PLAN 4.12, as the
-/// browser's, PLAN 2.123): zoomed in, what shows moves the least that shows the box whole, and
+/// browser's, PLAN 2.125): zoomed in, what shows moves the least that shows the box whole, and
 /// nothing where it shows whole already; a box larger than what shows, the least that shows nothing
 /// but it; and of a box past the canvas's edge, what the slide draws. Fitted, nothing moves. B1's
 /// cover at four times fitted: its subtitle is wider than what shows, and its title larger both

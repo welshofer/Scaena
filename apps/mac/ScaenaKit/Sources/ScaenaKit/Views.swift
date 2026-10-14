@@ -142,7 +142,7 @@ public struct Zoom: Equatable, Sendable {
     }
 
     /// What shows moved by an arrow key while nothing is selected (PLAN 4.12, as the browser's
-    /// preview pans, PLAN 2.123): a tenth of what shows across (`dx`) and down (`dy`), each -1, 0,
+    /// preview pans, PLAN 2.125): a tenth of what shows across (`dx`) and down (`dy`), each -1, 0,
     /// or 1, or with `far` half of it, the slide kept on the desk, so that at its edge it goes no
     /// farther. Whether it is zoomed in, where the arrows pan and select nothing: fitted, the whole
     /// slide shows, and they go on.
@@ -157,7 +157,7 @@ public struct Zoom: Equatable, Sendable {
 
     /// What shows moved the least that shows `rect`, canvas units, whole, or, where it is larger
     /// than what the desk shows, the least that shows nothing but it (PLAN 4.12, as the browser's
-    /// preview brings what the keys or a panel select into view, PLAN 2.123). What of it lies past
+    /// preview brings what the keys or a panel select into view, PLAN 2.125). What of it lies past
     /// the canvas's edge is never drawn, and is not asked for. Fitted, the whole slide shows, and
     /// nothing moves. Whether it moved.
     @discardableResult

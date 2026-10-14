@@ -38,7 +38,20 @@ struct StateList: View {
         return places
     }
 
+    /// The list, the state chosen kept in view, as a presentation app's navigator keeps the slide
+    /// shown, however it came to be shown: PageDown or PageUp on the canvas (PLAN 4.12), find, or
+    /// a finding.
     var body: some View {
+        ScrollViewReader { scroller in
+            listed
+                .onChange(of: chosen) { _, now in
+                    if let now { scroller.scrollTo(now) }
+                }
+        }
+    }
+
+    /// Each state a row, chosen by a click or a tap, with the keys the row chosen takes.
+    @ViewBuilder private var listed: some View {
         let numbered = places
         let list = List(selection: $chosen) {
             ForEach(editor.slots, id: \.state) { slot in
