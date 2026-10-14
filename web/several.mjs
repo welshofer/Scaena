@@ -6,7 +6,8 @@
 // On the torture deck's `containers` case:
 // - Shift+click puts the card beside the tally that is selected: both are outlined, without
 //   handles, and the inspector says what is selected and offers to arrange it.
-// - A drag of the card moves both a row up: one patch, one step to undo.
+// - A drag of the card moves both a row up: one patch, one step to undo. With the tally alone
+//   selected, a Shift-drag that starts on the card puts it in the selection and moves both.
 // - The inspector's Left aligns the card on the tally's left edge: one patch.
 // - ⌘⇧] puts the card's photo in front of everything the card holds: its `z`.
 // - A drag across empty canvas selects the children of the canvas it encloses, the tally and
@@ -159,6 +160,28 @@ try {
   check((await placedAs("tally", "row 4")).includes("row 4"), `the tally a row up: ${await placedAs("tally", "row 4")}`);
   check((await placedAs("card", "rows 5–7")).includes("rows 5–7"), `the card with it: ${await placedAs("card", "rows 5–7")}`);
   check((await chosen()).join() === "tally,card", "both stay selected");
+  await undo();
+  check((await source()) === original, "one undo puts both back");
+
+  // With the tally alone selected, a Shift-drag that starts on the card puts the card in the
+  // selection, as Shift+click does, and moves both, with Shift off the grid.
+  await page.evaluate(() => window.scaena.canvas.select("tally"));
+  n = await trips();
+  const [kx, ky] = center(await box("card"));
+  const [px, py] = await client([kx, ky]);
+  const [qx, qy] = await client([kx, ky + 114]);
+  await page.keyboard.down("Shift");
+  await page.mouse.move(px, py);
+  await page.mouse.down();
+  await page.mouse.move(px + 8, py + 8, { steps: 2 });
+  await page.mouse.move(qx, qy, { steps: 8 });
+  await page.waitForFunction(() => document.querySelector("#status").textContent.includes("move together"), null, { timeout: 30000 }).catch(() => {});
+  await page.waitForTimeout(150);
+  await page.mouse.up();
+  await page.keyboard.up("Shift");
+  await settled(n);
+  check(await says("2 objects moved together"), `a Shift-drag from the card moves both: ${await status()}`);
+  check((await source()) !== original && JSON.stringify((await chosen()).sort()) === '["card","tally"]', `both selected, the deck changed: ${await chosen()}`);
   await undo();
   check((await source()) === original, "one undo puts both back");
 

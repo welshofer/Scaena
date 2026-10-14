@@ -2,7 +2,9 @@ import ScaenaKit
 import SwiftUI
 
 /// The versions the bundle's history keeps (PLAN 3.15, as the browser's Versions tab, PLAN 2.60),
-/// each change by its author and time. One chosen is drawn read only, a state of it at a time, and
+/// each change by what it did, who made it, and when, in the engine's words as the browser says
+/// them (PLAN 2.99). One chosen is drawn read only, a slide of it at a time, numbered as its own
+/// slide list numbers them, and
 /// compared with the deck now; Restore makes it the deck again with its data files and its theme,
 /// one step to undo, which writes the files back. Where the bundle keeps no history, Keep a History
 /// begins one with the next save (PLAN 2.87).
@@ -13,6 +15,8 @@ struct VersionsPanel: View {
     @State private var keeps = false
     @State private var chosen: String?
     @State private var states: [String] = []
+    /// Each of the version's states as its slide list numbers it: Slide 3, step 2.
+    @State private var slides: [String] = []
     @State private var state: String?
     @State private var drawing: Image?
     @State private var compared: Compared?
@@ -25,11 +29,8 @@ struct VersionsPanel: View {
             } else {
                 List(Array(versions.reversed()), selection: $chosen) { version in
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("#\(version.n) · \(version.author ?? "someone")")
-                        Text(Self.when(version)).font(.caption).foregroundStyle(.secondary)
-                        if let message = version.message {
-                            Text(message).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                        }
+                        Text(version.said).lineLimit(2)
+                        Text("\(version.by) · \(Self.when(version))").font(.caption).foregroundStyle(.secondary)
                     }
                     .tag(version.id)
                 }
@@ -62,8 +63,10 @@ struct VersionsPanel: View {
     private var shown: some View {
         VStack(alignment: .leading, spacing: 8) {
             if !states.isEmpty {
-                Picker("State", selection: $state) {
-                    ForEach(states, id: \.self) { Text($0).tag(Optional($0)) }
+                Picker("Slide", selection: $state) {
+                    ForEach(Array(states.enumerated()), id: \.offset) { i, id in
+                        Text(i < slides.count ? slides[i] : "Slide \(i + 1)").tag(Optional(id))
+                    }
                 }
             }
             if let drawing {
@@ -93,10 +96,12 @@ struct VersionsPanel: View {
         problem = nil
         guard let chosen else {
             states = []
+            slides = []
             return
         }
         do {
             states = try editor.session.viewVersion(chosen)
+            slides = try editor.session.versionSlides()
             if state == nil || !states.contains(state ?? "") { state = states.first }
             compared = try editor.session.compareVersions(from: chosen)
         } catch {

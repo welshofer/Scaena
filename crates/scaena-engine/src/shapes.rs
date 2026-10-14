@@ -718,7 +718,8 @@ impl Joint {
     /// that faces `to`, turns twice at right angles, and meets `to`'s facing side: down, or up,
     /// where one box is above the other, as an organization chart's lines run, even where it
     /// stands to one side too, and across where they stand side by side (PLAN 2.110). Boxes that
-    /// overlap are joined middle to middle.
+    /// overlap are joined middle to middle, and an elbow between boxes too close for it to leave
+    /// one and meet the other runs straight.
     pub fn route(&self, from: Rect, to: Rect) -> (Rect, Vec<[f32; 2]>) {
         let gap = self.gap;
         let middle = |r: Rect| [r[0] + r[2] / 2.0, r[1] + r[3] / 2.0];
@@ -727,18 +728,23 @@ impl Joint {
         let above = to[1] >= from[1] + from[3] || to[1] + to[3] <= from[1];
         let beside = to[0] >= from[0] + from[2] || to[0] + to[2] <= from[0];
         let across = if above || beside { !above } else { dx.abs() >= dy.abs() };
-        let points = if self.elbow && across {
+        let elbow = if !self.elbow {
+            None
+        } else if across {
             // Across: out of the side that faces the other box, a turn halfway, and in.
             let s = if dx < 0.0 { -1.0 } else { 1.0 };
             let (x0, x1) = (a[0] + s * (from[2] / 2.0 + gap), b[0] - s * (to[2] / 2.0 + gap));
             let xm = (x0 + x1) / 2.0;
-            vec![[x0, a[1]], [xm, a[1]], [xm, b[1]], [x1, b[1]]]
-        } else if self.elbow {
+            (s * (x1 - x0) > 0.0).then(|| vec![[x0, a[1]], [xm, a[1]], [xm, b[1]], [x1, b[1]]])
+        } else {
             // Down, or up, the same way.
             let s = if dy < 0.0 { -1.0 } else { 1.0 };
             let (y0, y1) = (a[1] + s * (from[3] / 2.0 + gap), b[1] - s * (to[3] / 2.0 + gap));
             let ym = (y0 + y1) / 2.0;
-            vec![[a[0], y0], [a[0], ym], [b[0], ym], [b[0], y1]]
+            (s * (y1 - y0) > 0.0).then(|| vec![[a[0], y0], [a[0], ym], [b[0], ym], [b[0], y1]])
+        };
+        let points = if let Some(elbow) = elbow {
+            elbow
         } else {
             let length = dx.hypot(dy);
             // How far along the line from a box's middle its edge is.
@@ -768,8 +774,8 @@ impl Joint {
 
 /// The room a shape gives the words it holds (PLAN 2.108), canvas units: a rect's box less what
 /// its rounded corners take, an ellipse's inscribed rectangle, or the largest rectangle that stays
-/// inside a polygon; then inset on every side by the theme's `space.4`, or a twelfth of what is
-/// left's shorter side where that is less.
+/// inside a polygon, or inside a path as it is drawn in its box; then inset on every side by the
+/// theme's `space.4`, or a twelfth of what is left's shorter side where that is less.
 pub fn words_box(props: &Props, theme: &Theme, rect: Rect) -> Rect {
     let path = props.get("path").and_then(Value::as_str);
     let kind = props.get("kind").and_then(Value::as_str).unwrap_or(if path.is_some() { "path" } else { "rect" });
@@ -783,10 +789,22 @@ pub fn words_box(props: &Props, theme: &Theme, rect: Rect) -> Rect {
             let points: Option<Vec<[f32; 2]>> =
                 props.get("points").and_then(|v| serde_json::from_value(v.clone()).ok());
             match points {
-                Some(points) if points.len() >= 3 && w > 0.0 && h > 0.0 => inscribed(&points, w / h),
+                Some(points) if points.len() >= 3 && w > 0.0 && h > 0.0 => inscribed(&[points], w / h),
                 _ => [0.0, 0.0, 1.0, 1.0],
             }
         }
+        "path" => match path.and_then(|d| kurbo::BezPath::from_svg(d).ok()) {
+            Some(bez) if w > 0.0 && h > 0.0 => {
+                let view = props.get("view").and_then(|v| serde_json::from_value::<[f64; 4]>(v.clone()).ok());
+                let frame = match view {
+                    Some([x, y, w, h]) if w > 0.0 && h > 0.0 => kurbo::Rect::new(x, y, x + w, y + h),
+                    _ => kurbo::Shape::bounding_box(&bez),
+                };
+                let rings = rings(&fit(&bez, frame, w, h), w, h);
+                if rings.is_empty() { [0.0, 0.0, 1.0, 1.0] } else { inscribed(&rings, w / h) }
+            }
+            _ => [0.0, 0.0, 1.0, 1.0],
+        },
         _ => [0.0, 0.0, 1.0, 1.0],
     };
     let (mut ix, mut iy, mut iw, mut ih) = (x + fx * w, y + fy * h, fw * w, fh * h);
@@ -801,14 +819,33 @@ pub fn words_box(props: &Props, theme: &Theme, rect: Rect) -> Rect {
     [ix + pad, iy + pad, (iw - 2.0 * pad).max(0.0), (ih - 2.0 * pad).max(0.0)]
 }
 
-/// The largest rectangle inside the polygon `points` (fractions of a box `aspect` times as wide
-/// as it is tall), as `[x, y, w, h]` in fractions of the box: of rectangles of a few proportions
-/// about points across the polygon, the one of most area, each as large as fits by bisection, then
-/// grown side by side as far as each side goes.
-fn inscribed(points: &[[f32; 2]], aspect: f32) -> [f32; 4] {
+/// The closed outlines a path drawn `w` × `h` makes, each a ring of points as fractions of its
+/// box: its curves flattened to within half a canvas unit, a ring of fewer than three points left
+/// out.
+fn rings(bez: &kurbo::BezPath, w: f32, h: f32) -> Vec<Vec<[f32; 2]>> {
+    let mut rings: Vec<Vec<[f32; 2]>> = Vec::new();
+    let at = |p: kurbo::Point| [p.x as f32 / w, p.y as f32 / h];
+    kurbo::flatten(bez.iter(), 0.5, |el| match el {
+        kurbo::PathEl::MoveTo(p) => rings.push(vec![at(p)]),
+        kurbo::PathEl::LineTo(p) => match rings.last_mut() {
+            Some(ring) => ring.push(at(p)),
+            None => rings.push(vec![at(p)]),
+        },
+        _ => {}
+    });
+    rings.retain(|ring| ring.len() >= 3);
+    rings
+}
+
+/// The largest rectangle inside the outlines `rings` (fractions of a box `aspect` times as wide
+/// as it is tall), each a polygon, that crosses none of them, as `[x, y, w, h]` in fractions of
+/// the box: of rectangles of a few proportions about points across them, the one of most area,
+/// each as large as fits by bisection, then grown side by side as far as each side goes.
+fn inscribed(rings: &[Vec<[f32; 2]>], aspect: f32) -> [f32; 4] {
     // Measured where the box is as wide as it is: a unit of x is `aspect` units of y.
-    let poly: Vec<[f32; 2]> = points.iter().map(|p| [p[0] * aspect, p[1]]).collect();
-    let (lo, hi) = poly.iter().fold(([f32::MAX; 2], [f32::MIN; 2]), |(lo, hi), p| {
+    let poly: Vec<Vec<[f32; 2]>> =
+        rings.iter().map(|ring| ring.iter().map(|p| [p[0] * aspect, p[1]]).collect()).collect();
+    let (lo, hi) = poly.iter().flatten().fold(([f32::MAX; 2], [f32::MIN; 2]), |(lo, hi), p| {
         ([lo[0].min(p[0]), lo[1].min(p[1])], [hi[0].max(p[0]), hi[1].max(p[1])])
     });
     let (bw, bh) = (hi[0] - lo[0], hi[1] - lo[1]);
@@ -866,35 +903,40 @@ fn inscribed(points: &[[f32; 2]], aspect: f32) -> [f32; 4] {
     [x0 / aspect, y0, (x1 - x0) / aspect, y1 - y0]
 }
 
-/// Whether `p` is inside the polygon `poly`, by the even-odd rule.
-fn inside(p: [f32; 2], poly: &[[f32; 2]]) -> bool {
-    let mut odd = false;
-    for (i, a) in poly.iter().enumerate() {
-        let b = poly[(i + 1) % poly.len()];
-        if (a[1] > p[1]) != (b[1] > p[1]) && p[0] < a[0] + (p[1] - a[1]) * (b[0] - a[0]) / (b[1] - a[1]) {
-            odd = !odd;
-        }
-    }
-    odd
+/// Each edge of the outlines `poly`, each ring closed.
+fn edges(poly: &[Vec<[f32; 2]>]) -> impl Iterator<Item = ([f32; 2], [f32; 2])> + '_ {
+    poly.iter().flat_map(|ring| ring.iter().enumerate().map(|(i, &a)| (a, ring[(i + 1) % ring.len()])))
 }
 
-/// Whether the rectangle `[x0, y0, x1, y1]` lies inside the polygon `poly`: its corners inside,
-/// none of the polygon's corners within it, and no edge of the polygon crossing it.
-fn holds(poly: &[[f32; 2]], [x0, y0, x1, y1]: [f32; 4]) -> bool {
+/// Whether `p` is inside the outlines `poly`: inside one of them, each by the even-odd rule. An
+/// outline inside another makes no hole in the room, so the room of an icon drawn in outline is
+/// inside its line, not in the band of the line itself.
+fn inside(p: [f32; 2], poly: &[Vec<[f32; 2]>]) -> bool {
+    poly.iter().any(|ring| {
+        let mut odd = false;
+        for (a, b) in edges(std::slice::from_ref(ring)) {
+            if (a[1] > p[1]) != (b[1] > p[1]) && p[0] < a[0] + (p[1] - a[1]) * (b[0] - a[0]) / (b[1] - a[1]) {
+                odd = !odd;
+            }
+        }
+        odd
+    })
+}
+
+/// Whether the rectangle `[x0, y0, x1, y1]` lies inside the outlines `poly`: its corners inside,
+/// none of their corners within it, and no edge of theirs crossing it.
+fn holds(poly: &[Vec<[f32; 2]>], [x0, y0, x1, y1]: [f32; 4]) -> bool {
     let e = 1e-4 * (x1 - x0).max(y1 - y0);
     let corners = [[x0 + e, y0 + e], [x1 - e, y0 + e], [x1 - e, y1 - e], [x0 + e, y1 - e]];
     if !corners.iter().all(|&c| inside(c, poly)) {
         return false;
     }
-    if poly.iter().any(|p| p[0] > x0 + e && p[0] < x1 - e && p[1] > y0 + e && p[1] < y1 - e) {
+    if poly.iter().flatten().any(|p| p[0] > x0 + e && p[0] < x1 - e && p[1] > y0 + e && p[1] < y1 - e) {
         return false;
     }
     let sides =
         [(corners[0], corners[1]), (corners[1], corners[2]), (corners[2], corners[3]), (corners[3], corners[0])];
-    !poly.iter().enumerate().any(|(i, &a)| {
-        let b = poly[(i + 1) % poly.len()];
-        sides.iter().any(|&(c, d)| crosses(a, b, c, d))
-    })
+    !edges(poly).any(|(a, b)| sides.iter().any(|&(c, d)| crosses(a, b, c, d)))
 }
 
 /// Whether segments `ab` and `cd` cross, each strictly between its ends.
@@ -1031,6 +1073,28 @@ mod tests {
         // 24 × 12 scaled ×100/24 to 100 × 50, centered vertically.
         assert_eq!(path.0[0], PathEl::MoveTo([0.0, 25.0]));
         assert_eq!(path.0[2], PathEl::LineTo([100.0, 75.0]));
+    }
+
+    #[test]
+    fn words_in_a_path_stand_inside_its_outline_as_in_a_polygon() {
+        // A diamond written as a path and as a polygon gives its words the same room (PLAN 2.108),
+        // a square inside it, not the box around it.
+        let theme = theme();
+        let rect = [100.0, 100.0, 400.0, 400.0];
+        let props = |v: Value| -> Props { serde_json::from_value(v).unwrap() };
+        let path = props(json!({ "kind": "path", "path": "M0.5 0 L1 0.5 L0.5 1 L0 0.5 Z", "view": [0, 0, 1, 1] }));
+        let polygon = props(json!({ "kind": "polygon", "points": [[0.5, 0], [1, 0.5], [0.5, 1], [0, 0.5]] }));
+        let (a, b) = (words_box(&path, &theme, rect), words_box(&polygon, &theme, rect));
+        assert!(a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1.0), "{a:?} as {b:?}");
+        assert!(a[2] < 250.0 && a[0] > 150.0, "inside the diamond: {a:?}");
+        // A square drawn in outline, as an icon's regular weight draws one, two outlines a line's
+        // width apart: its room is inside its line, crossing neither outline, not in the line.
+        let ring = props(json!({ "kind": "path", "view": [0, 0, 10, 10],
+            "path": "M0 0 H10 V10 H0 Z M1 1 H9 V9 H1 Z" }));
+        let r = words_box(&ring, &theme, rect);
+        let (x1, y1) = (r[0] + r[2], r[1] + r[3]);
+        assert!(r[0] >= 140.0 && r[1] >= 140.0 && x1 <= 460.0 && y1 <= 460.0, "inside the line: {r:?}");
+        assert!(r[2] > 250.0 && r[3] > 250.0, "the room inside the line, not the line: {r:?}");
     }
 
     #[test]

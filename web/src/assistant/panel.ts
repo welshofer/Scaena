@@ -48,31 +48,33 @@ const PROVIDERS: Record<ProviderId, { name: string; base: string; keys: string }
   gemini: { name: "Gemini", base: "https://generativelanguage.googleapis.com", keys: "aistudio.google.com" },
 };
 
-/** What each of the tools does, in a person's words (PLAN 2.99), while it runs and once it has:
- * no tool's name reaches the conversation, as ScaenaKit's `ToolWords` says them on the Mac. */
-const TOOL_WORDS: Record<string, [doing: string, done: string]> = {
-  data_attach: ["Adding data…", "Added data"],
-  data_edit: ["Changing the data…", "Changed the data"],
-  deck_create: ["Making a deck…", "Made a deck"],
-  deck_diff: ["Comparing versions…", "Compared versions"],
-  deck_export: ["Exporting the deck…", "Exported the deck"],
-  deck_find: ["Searching the deck…", "Searched the deck"],
-  deck_health: ["Reading the deck's story…", "Read the deck's story"],
-  deck_history: ["Reading the history…", "Looked at the history"],
-  deck_inspect: ["Looking over the deck…", "Looked over the deck"],
-  deck_lint: ["Checking the deck…", "Checked the deck"],
-  deck_patch: ["Editing the deck…", "Edited the deck"],
-  deck_read: ["Reading the deck…", "Went through the deck"],
-  deck_render: ["Looking at a slide…", "Looked at a slide"],
-  icon_find: ["Finding an icon…", "Found an icon"],
-  spine_read: ["Reading the outline…", "Went through the outline"],
-  spine_update: ["Changing the outline…", "Changed the outline"],
-  theme_apply: ["Changing the theme…", "Changed the theme"],
-  theme_edit: ["Editing the theme…", "Edited the theme"],
-  resource_read: ["Reading how decks are written…", "Read how decks are written"],
+/** What each of the tools does, in a person's words (PLAN 2.99), while it runs, once it has,
+ * and where it did not (stopped, or an edit refused or only tried): no tool's name reaches the
+ * conversation, as ScaenaKit's `ToolWords` says them on the Mac. */
+const TOOL_WORDS: Record<string, [doing: string, done: string, not: string]> = {
+  data_attach: ["Adding data…", "Added data", "Didn't add data"],
+  data_edit: ["Changing the data…", "Changed the data", "Didn't change the data"],
+  deck_create: ["Making a deck…", "Made a deck", "Didn't make a deck"],
+  deck_diff: ["Comparing versions…", "Compared versions", "Didn't compare versions"],
+  deck_export: ["Exporting the deck…", "Exported the deck", "Didn't export the deck"],
+  deck_find: ["Searching the deck…", "Searched the deck", "Didn't search the deck"],
+  deck_health: ["Reading the deck's story…", "Read the deck's story", "Didn't read the deck's story"],
+  deck_history: ["Reading the history…", "Looked at the history", "Didn't look at the history"],
+  deck_inspect: ["Looking over the deck…", "Looked over the deck", "Didn't look over the deck"],
+  deck_lint: ["Checking the deck…", "Checked the deck", "Didn't check the deck"],
+  deck_patch: ["Editing the deck…", "Edited the deck", "Didn't edit the deck"],
+  deck_read: ["Reading the deck…", "Went through the deck", "Didn't go through the deck"],
+  deck_render: ["Looking at a slide…", "Looked at a slide", "Didn't look at a slide"],
+  icon_find: ["Finding an icon…", "Found an icon", "Didn't find an icon"],
+  spine_read: ["Reading the outline…", "Went through the outline", "Didn't go through the outline"],
+  spine_update: ["Changing the outline…", "Changed the outline", "Didn't change the outline"],
+  theme_apply: ["Changing the theme…", "Changed the theme", "Didn't change the theme"],
+  theme_edit: ["Editing the theme…", "Edited the theme", "Didn't edit the theme"],
+  resource_read: ["Reading how decks are written…", "Read how decks are written", "Didn't read how decks are written"],
 };
 const doing = (tool: string) => TOOL_WORDS[tool]?.[0] ?? "Working…";
 const done = (tool: string) => TOOL_WORDS[tool]?.[1] ?? "Used a tool";
+const undone = (tool: string) => TOOL_WORDS[tool]?.[2] ?? "Didn't use a tool";
 
 /** What the conversation shows of each stop that is not the end of an answer. */
 const STOPS: Record<string, string> = {
@@ -91,6 +93,9 @@ export interface Panel {
   transcript(): string[];
   /** Tokens in and out so far. */
   usage(): { input: number; output: number };
+  /** `provider` chosen, as the list chooses it: its key, its address, and its models in the form,
+   * and the one the assistant asks from then on. */
+  choose(provider: ProviderId): Promise<void>;
 }
 
 export function panel(stage: Stage, editor: Editor): Panel {
@@ -271,8 +276,9 @@ export function panel(stage: Stage, editor: Editor): Panel {
       case "result": {
         const li = calls.get(event.id) ?? entry("call");
         li.classList.toggle("stopped", event.error);
+        // Headed by what it came to: an edit refused, only tried, or stopped did not edit.
         const said = li.querySelector(".doing");
-        if (said) said.textContent = done(event.name);
+        if (said) said.textContent = event.made ? done(event.name) : undone(event.name);
         li.querySelector(".outcome")!.textContent = event.summary;
         const result = document.createElement("pre");
         result.textContent = event.json.length > 4000 ? `${event.json.slice(0, 4000)}…` : event.json;
@@ -405,5 +411,6 @@ export function panel(stage: Stage, editor: Editor): Panel {
     },
     transcript: () => [...transcript.children].map((li) => `${li.className}: ${li.querySelector("summary")?.textContent ?? li.textContent}`),
     usage: () => ({ ...used }),
+    choose: (p: ProviderId) => choose(p).then(remember),
   };
 }

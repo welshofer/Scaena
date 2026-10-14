@@ -31,6 +31,8 @@ public struct WritingAsk: Sendable {
                 "code": .string(finding.code), "severity": .string(finding.severity.rawValue),
                 "message": .string(finding.message),
             ]
+            // Asked as the window says it, as the browser asks: no node's id reaches the model.
+            if let said = finding.said { f["said"] = .string(said) }
             if let hint = finding.hint { f["hint"] = .string(hint) }
             if let node = finding.node { f["node"] = .string(node) }
             out["finding"] = .object(f)
@@ -73,5 +75,13 @@ extension ScaenaSession {
     /// runs, or the state's notes. One patch, one step to undo.
     public func written(_ ask: WritingAsk, answer: String) throws -> Written {
         try call("written", ["ask": ask.json, "answer": .string(answer)])
+    }
+
+    /// The patch Use it makes of `answer` for `ask`: none where it changes nothing, the text or
+    /// the notes already reading so, or the model gave no answer; an error where it cannot be
+    /// taken, which says why.
+    public func taking(_ ask: WritingAsk, answer: String) throws -> [JSONValue]? {
+        let ops = try written(ask, answer: answer).patch ?? []
+        return ops.isEmpty ? nil : ops
     }
 }

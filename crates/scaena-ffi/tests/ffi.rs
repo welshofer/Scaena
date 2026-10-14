@@ -518,7 +518,7 @@ fn the_assistant_asks_with_the_users_key_and_runs_each_call_on_the_bundle() {
     let next = step(chat, null_mut(), "answer", json!({ "status": 200, "body": answer }));
     let patched = step(chat, s, "run", json!({ "call": next["calls"][0], "at": at }));
     assert_eq!(patched["edited"], true, "{patched}");
-    assert_eq!(patched["summary"], "Done");
+    assert_eq!((&patched["summary"], &patched["made"]), (&json!("Done"), &json!(true)), "{patched}");
     assert!(call(s, "source", Value::Null).as_str().unwrap().contains("Loudly: "));
     step(chat, null_mut(), "next", Value::Null);
 
@@ -745,7 +745,7 @@ fn a_shape_is_given_words_as_the_browser_gives_them() {
     let shape = |s| boxed(s, &id).expect("the star stands on the slide");
     assert_eq!(shape(s)["takesWords"], true);
     assert_eq!(shape(s).get("words"), None);
-    let given = call(s, "wording", json!({ "shape": id }));
+    let given = call(s, "wording", json!({ "state": "cover", "shape": id }));
     assert_eq!(given["id"], format!("{id}-words"), "{given}");
     assert_eq!(tool(s, "deck_patch", json!({ "ops": given["patch"] }))["edited"], true);
     assert_eq!(shape(s)["words"], format!("{id}-words"));
@@ -757,7 +757,7 @@ fn a_shape_is_given_words_as_the_browser_gives_them() {
         inner[0] + inner[2] < outer[0] + outer[2] && inner[1] + inner[3] < outer[1] + outer[3],
         "{inner:?} in {outer:?}"
     );
-    let again = call(s, "wording", json!({ "shape": id }));
+    let again = call(s, "wording", json!({ "state": "cover", "shape": id }));
     assert_eq!(again["patch"], json!([]), "{again}");
     unsafe { scaena_session_free(s) };
 }
@@ -787,6 +787,20 @@ fn two_nodes_are_connected_as_the_browser_connects_them() {
     let refused = answered(s, "connecting", &json!({ "state": "cover", "from": "title", "to": "title" }));
     let said = refused["error"]["message"].as_str().unwrap_or_default();
     assert!(said.contains("not one to itself"), "{refused}");
+    // Duplicated with what it joins, its copy joins their copies; deleted with them, it goes with
+    // them, each one patch.
+    let three = json!(["title", "subtitle", "title-to-subtitle"]);
+    let copied = call(s, "duplicatingAll", json!({ "state": "cover", "nodes": three }));
+    let ids: Vec<String> = serde_json::from_value(copied["ids"].clone()).unwrap();
+    assert_eq!(ids.len(), 3, "{copied}");
+    assert_eq!(tool(s, "deck_patch", json!({ "ops": copied["patch"] }))["edited"], true, "{copied}");
+    let boxes = call(s, "boxes", json!({ "state": "cover" }));
+    let copy = boxes.as_array().unwrap().iter().find(|b| b["node"] == ids[2].as_str()).cloned().unwrap();
+    assert_eq!(copy["joins"], json!([ids[0], ids[1]]), "{copy}");
+    let gone = call(s, "deleting", json!({ "state": "cover", "nodes": ids, "everywhere": true }));
+    assert_eq!(tool(s, "deck_patch", json!({ "ops": gone }))["edited"], true, "{gone}");
+    let boxes = call(s, "boxes", json!({ "state": "cover" }));
+    assert!(!boxes.as_array().unwrap().iter().any(|b| ids.contains(&b["node"].as_str().unwrap().to_string())));
     unsafe { scaena_session_free(s) };
 }
 
@@ -1278,9 +1292,18 @@ fn versions_are_listed_shown_compared_and_restored_from_the_history() {
     let versions = call(s, "versions", Value::Null);
     assert_eq!(versions.as_array().map(Vec::len), Some(2), "{versions}");
     assert_eq!((&versions[0]["n"], &versions[1]["n"]), (&json!(1), &json!(2)));
+    // Each change in a person's words, as the browser's Versions says it (PLAN 2.99): no
+    // operation's name, and no author's id.
+    assert_eq!((&versions[0]["said"], &versions[0]["by"]), (&json!("The history begins"), &json!("you")), "{versions}");
+    let said = versions[1]["said"].as_str().unwrap_or_default();
+    assert!(!said.is_empty() && !said.contains("patch:") && !said.contains('_'), "{versions}");
 
     let states = call(s, "viewVersion", json!({ "version": "1" }));
     assert_eq!(states[0], "cover", "{states}");
+    // Its slides as its own slide list numbers them.
+    let slides = call(s, "versionSlides", Value::Null);
+    assert_eq!(slides[0], "Slide 1", "{slides}");
+    assert_eq!(slides.as_array().map(Vec::len), states.as_array().map(Vec::len));
     let mut error = null_mut();
     let png = bytes_of(unsafe {
         scaena_export(s, c("version").as_ptr(), c(r#"{"state":"cover","width":320}"#).as_ptr(), &mut error)

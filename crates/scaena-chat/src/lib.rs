@@ -16,7 +16,7 @@ mod tools;
 
 pub use prompt::{Characters, Client, Facts, Listed, Seeing, Selected, seen, system, system_of};
 pub use providers::{Ask, Provider, Request, Stop, Turn, Usage, inlined};
-pub use tools::{RESOURCE_READ, resource_read, summary, tools};
+pub use tools::{RESOURCE_READ, made, resource_read, summary, tools};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

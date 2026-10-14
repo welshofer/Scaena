@@ -138,7 +138,7 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - Your bundle holds its own copy of a theme that ships, and your edits change that copy, never the theme that ships. Choose the theme that ships again from the menu, and it comes in beside your edited copy (`dusk-2.theme.json`) rather than over it.
 - **States.** The strip under the preview shows each state of the deck, small, and how long its cue runs. Click one, or use the arrow keys, to show it.
   - **+ Step** adds a state after the one shown that shows what it shows: change it, and the deck builds from one to the other. **+ Slide** adds an empty slide after the shown one's, in its layout, ready to fill from the Insert menu.
-  - Drag a state to move it, or hold Alt and press an arrow key. F2, or a double click on its name, renames it, and Delete removes it. A state another builds on stays; the status says which.
+  - Drag a state to move it, or hold Alt and press an arrow key. F2, or a double click on its name, renames it, and Delete removes it, and each object only it showed. A state another builds on stays; the status says which.
   - Each is one ⌘Z.
   - **Slides** shows the light table: every slide, large, in place of the preview. Select slides as you would files, then drag them, or press Alt with an arrow, to move them; ⌘D copies them and Delete takes them out. Each slide still shows what it showed, and a copy is its own: change it, and the slide it copies stays as it was. Enter shows a slide; Escape closes the table.
 - **A state's look.** With nothing selected (Escape, until the status says so), the inspector shows the state itself: its layout, how it comes in, how long it holds, and your notes.

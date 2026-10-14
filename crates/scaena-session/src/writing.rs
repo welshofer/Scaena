@@ -17,10 +17,12 @@ use serde_json::{Value, json};
 pub const SEEN: u32 = 768;
 
 /// What a client asks to have written: the task's `kind`, the state shown, and the text node it
-/// is about, or the finding to explain.
+/// is about, or the finding to explain. A finding is explained without a state where none holds
+/// it, as a source's that does not compile: its words are then not looked up.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Ask {
     pub kind: String,
+    #[serde(default)]
     pub state: String,
     #[serde(default)]
     pub node: Option<String>,
@@ -78,11 +80,16 @@ impl Session {
     /// `answer` as it is offered for `ask`, and the patch that takes it, made on the deck as it
     /// stands: the changes that make the text read as the answer, each a `replace_text` written
     /// where the text lives, the words it keeps keeping their runs; or the state's notes. One
-    /// patch, one step to undo.
+    /// patch, one step to undo. No answer, as a model that refuses or runs out of room gives,
+    /// changes nothing: it empties no text and no notes.
     pub fn written(&mut self, ask: &Ask, answer: &str) -> Result<Written, Error> {
         let task = self.task(ask)?;
         let text = task.taken(answer);
+        let none = text.trim().is_empty();
         let patch = match &task {
+            Task::Proofread { .. } | Task::Tighten { .. } | Task::Rewrite { .. } | Task::Notes { .. } if none => {
+                Some(Vec::new())
+            }
             Task::Proofread { text: before } | Task::Tighten { text: before } | Task::Rewrite { text: before } => {
                 let node = ask.node.as_deref().unwrap_or_default();
                 Some(
@@ -101,7 +108,7 @@ impl Session {
             // none, or the description it has.
             Task::Describe { text: was, .. } => {
                 let node = ask.node.as_deref().unwrap_or_default();
-                let same = text.trim().is_empty() || was.as_deref() == Some(text.as_str());
+                let same = none || was.as_deref() == Some(text.as_str());
                 Some(if same {
                     Vec::new()
                 } else {
@@ -164,7 +171,7 @@ impl Session {
                 let node = ask.node.as_deref().ok_or_else(|| Error::Ops(format!("{}: `node` is a text", ask.kind)))?;
                 let text = (words(self, node)?)
                     .filter(|t| !t.trim().is_empty())
-                    .ok_or_else(|| Error::Ops(format!("{node} has no words in {} to write", ask.state)))?;
+                    .ok_or_else(|| Error::Ops("the text has no words to write: type some first".into()))?;
                 match ask.kind.as_str() {
                     "proofread" => Task::Proofread { text },
                     "tighten" => Task::Tighten { text },
@@ -181,9 +188,10 @@ impl Session {
             "explain" => {
                 let f =
                     ask.finding.as_ref().ok_or_else(|| Error::Ops("explain: `finding` is what it explains".into()))?;
+                // The words of what it is about, as the state it holds in shows them.
                 let words = match f.node.as_deref() {
-                    Some(node) => words(self, node).unwrap_or_default(),
-                    None => None,
+                    Some(node) if !ask.state.is_empty() => words(self, node).unwrap_or_default(),
+                    _ => None,
                 };
                 Task::Explain(Explained {
                     code: f.code.clone(),
@@ -326,6 +334,92 @@ mod tests {
 
     fn ask(kind: &str, state: &str, node: Option<&str>) -> Ask {
         Ask { kind: kind.into(), state: state.into(), node: node.map(str::to_string), finding: None }
+    }
+
+    /// The revenue example, its subtitle set by `runs`.
+    fn revenue_runs(runs: Value) -> Session {
+        let dir = "../../docs/examples";
+        let mut deck: Value =
+            serde_json::from_str(&std::fs::read_to_string(format!("{dir}/revenue.deck.json")).unwrap()).unwrap();
+        let subtitle = deck["nodes"]["subtitle"].as_object_mut().unwrap();
+        subtitle.shift_remove("text");
+        subtitle.insert("runs".into(), runs);
+        let deck = deck.to_string();
+        let mut s =
+            Session::new(&deck, &std::fs::read_to_string(format!("{dir}/themes/dusk.theme.json")).unwrap()).unwrap();
+        let parsed = Deck::from_json(&deck).unwrap();
+        for font in &parsed.fonts {
+            s.add_file(&font.file, std::fs::read(format!("{dir}/{}", font.file)).unwrap());
+        }
+        for source in parsed.data.values() {
+            if let Value::String(path) = &source.source {
+                s.add_file(path, std::fs::read(format!("{dir}/{path}")).unwrap());
+            }
+        }
+        s
+    }
+
+    /// `answer` to `ask` taken, as Use it takes it; the subtitle's runs after.
+    fn taken(s: &mut Session, ask: &Ask, answer: &str) -> Value {
+        let patch = s.written(ask, answer).unwrap().patch.unwrap();
+        assert!(s.typed(&Value::Array(patch), None).unwrap());
+        s.deck().nodes["subtitle"].props["runs"].clone()
+    }
+
+    /// A word put right keeps its look: the change starts where the emphasized word does, and
+    /// the corrected word is still emphasized, not set in the run before it; a link still covers
+    /// its word. A clause in a script written without spaces keeps the runs of the characters
+    /// the answer keeps.
+    #[test]
+    fn a_word_put_right_keeps_the_look_of_its_run() {
+        let proofread = ask("proofread", "intro", Some("subtitle"));
+        let mut s = revenue_runs(json!([
+            { "text": "This quarter " }, { "text": "chnaged", "emphasis": "high" }, { "text": " the shape of the business." }
+        ]));
+        assert_eq!(
+            taken(&mut s, &proofread, "This quarter changed the shape of the business."),
+            json!([{ "text": "This quarter " }, { "text": "changed", "emphasis": "high" }, { "text": " the shape of the business." }])
+        );
+        let link = json!({ "href": "https://example.com" });
+        let mut s = revenue_runs(
+            json!([{ "text": "Sign up on " }, { "text": "teh", "link": link }, { "text": " portal today." }]),
+        );
+        assert_eq!(
+            taken(&mut s, &proofread, "Sign up on the portal today."),
+            json!([{ "text": "Sign up on " }, { "text": "the", "link": link }, { "text": " portal today." }])
+        );
+        let mut s = revenue_runs(json!([
+            { "text": "売上は" }, { "text": "前年比", "emphasis": "high" }, { "text": "で増加した。" }
+        ]));
+        assert_eq!(
+            taken(&mut s, &proofread, "売上は前年比で増加しました。"),
+            json!([{ "text": "売上は" }, { "text": "前年比", "emphasis": "high" }, { "text": "で増加しました。" }])
+        );
+    }
+
+    /// No answer from the model, or one of nothing but spaces, changes nothing: it deletes no
+    /// text's words and empties no notes.
+    #[test]
+    fn no_answer_changes_nothing() {
+        let mut s = revenue();
+        for kind in ["proofread", "tighten", "rewrite"] {
+            let written = s.written(&ask(kind, "intro", Some("subtitle")), "  \n").unwrap();
+            assert_eq!(written.patch, Some(vec![]), "{kind}");
+        }
+        assert_eq!(s.written(&ask("notes", "intro", None), "").unwrap().patch, Some(vec![]));
+    }
+
+    /// A finding no state holds, as a source that does not compile gives, is explained all the
+    /// same: an explanation needs no state but to find the words of what it is about.
+    #[test]
+    fn a_finding_of_no_state_is_explained() {
+        let mut s = revenue();
+        let explain: Ask = serde_json::from_value(json!({
+            "kind": "explain",
+            "finding": { "code": "E106", "severity": "error", "message": "line 3: expected a value", "said": "The source has a mistake." }
+        }))
+        .unwrap();
+        assert_eq!(s.writing(&explain).unwrap().prompt, "Finding E106 (error): The source has a mistake.");
     }
 
     /// A text's words as the state shows them, asked in the engine's words; an answer taken by the

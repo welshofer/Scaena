@@ -752,6 +752,11 @@ fn type_changes(deck: &Deck) -> Vec<Finding> {
     out
 }
 
+/// Every key that is a node's own in every state, which a state's delta never sets: its lock and
+/// a connector's ends (E104), and its layout in its formats (E106). What a state that writes out
+/// how a node shows leaves out (a slide copied whole, PLAN 2.97).
+pub const NODE_OWN: [&str; 3] = ["locked", "connect", "formats"];
+
 /// What is a node's own in every state, which neither a state nor the overrides set: each key,
 /// what E104 calls it, and what it says to do.
 const OWN: [(&str, &str, &str); 2] = [

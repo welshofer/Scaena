@@ -747,6 +747,11 @@ struct DeckView: View {
             }
             .sheet(item: $asked) { asked in
                 OfferSheet(title: asked.title, ask: asked.ask, shown: asked.shown, take: asked.take, whence: asked.whence) { ops in
+                    // An answer that changes nothing makes no change, and says so, as the browser does.
+                    guard let ops else {
+                        said = "Nothing to change: it already reads so"
+                        return
+                    }
                     perform { try document.make(ops, undo: undo) }
                 }
             }
@@ -1346,19 +1351,14 @@ struct DeckView: View {
     }
 
     /// A copy of each node selected beside it, the copies selected (⌘D, PLAN 2.42): one patch, one
-    /// step to undo.
+    /// step to undo, a connector between two of them copied to join their copies (PLAN 2.109).
     private func duplicate(in state: String) {
         let nodes = selection
         perform {
-            let added = try nodes.map { try editor.session.duplicating(state: state, node: $0) }
-            let ids = added.map(\.id)
-            guard Set(ids).count == ids.count else {
-                said = "Not duplicated: two of the copies would have one name"
-                return
-            }
-            try document.make(added.flatMap(\.patch), undo: undo, named: "Duplicate")
-            node = ids.first
-            also = Array(ids.dropFirst())
+            let made = try editor.session.duplicating(state: state, nodes: nodes)
+            try document.make(made.patch, undo: undo, named: "Duplicate")
+            node = made.ids.first
+            also = Array(made.ids.dropFirst())
             said = "Duplicated"
         }
     }
@@ -1384,7 +1384,7 @@ struct DeckView: View {
             return
         }
         perform {
-            let ops = try nodes.flatMap { try editor.session.deleting(state: shown, node: $0, everywhere: everywhere) }
+            let ops = try editor.session.deleting(state: shown, nodes: nodes, everywhere: everywhere)
             let gone = ops.allSatisfy { $0["op"]?.string == "remove_node" }
             try document.make(ops, undo: undo, named: name)
             node = nil
@@ -1402,7 +1402,7 @@ struct DeckView: View {
         }
         let here = Set(editor.slots.filter { $0.slide == slide }.map(\.state))
         let session = editor.session
-        let ops = (try? nodes.flatMap { try session.deleting(state: state, node: $0, everywhere: true) }) ?? []
+        let ops = (try? session.deleting(state: state, nodes: nodes, everywhere: true)) ?? []
         guard !ops.isEmpty, let reached = try? session.reach(ops) else { return false }
         return reached.contains { !here.contains($0) }
     }
@@ -1645,12 +1645,11 @@ struct DeckView: View {
         }
     }
 
-    /// The picture made put where it was asked for on the slide shown: one patch, one step to
-    /// undo, the image it went to selected.
+    /// The picture made put where it was asked for, in the state it was asked for in: one patch,
+    /// one step to undo, the image it went to selected.
     private func putPicture(_ made: MadePicture, at target: PictureTarget) {
-        guard let shown else { return }
         perform {
-            let put = try editor.session.puttingPicture(made, at: target, in: shown)
+            let put = try editor.session.puttingPicture(made, at: target, in: target.state)
             try document.make(put.patch, undo: undo, named: "Make Picture")
             node = put.node
             also = []

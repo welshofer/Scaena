@@ -121,7 +121,18 @@ pub fn lint_with(
     theme: Option<&str>,
     layout: impl FnOnce(&Theme) -> Result<Vec<Finding>, OpsError>,
 ) -> Result<Linted, OpsError> {
-    let mut found = scaena_core::validate::validate_bundle(&deck.to_json()?, files)?;
+    let found = scaena_core::validate::validate_bundle(&deck.to_json()?, files)?;
+    lint_validated(deck, found, theme, layout)
+}
+
+/// [`lint_with`] on a deck validated already, `found` what validation found: what a patch
+/// checks the deck it makes against before it lints it (SPEC §7.3).
+pub(crate) fn lint_validated(
+    deck: &Deck,
+    mut found: Vec<Finding>,
+    theme: Option<&str>,
+    layout: impl FnOnce(&Theme) -> Result<Vec<Finding>, OpsError>,
+) -> Result<Linted, OpsError> {
     // Read once, for the document rules and the layout rules both.
     let read = theme.map(Theme::from_json);
     let model = read.as_ref().and_then(|t| t.as_ref().ok()).map(|t| &**t);
@@ -150,6 +161,21 @@ pub fn layout_rules(
         Some(state) => scaena_engine::lint::lint_state(engine, deck, theme, data, Some(&mut backdrop), state)?,
         None => scaena_engine::lint::lint(engine, deck, theme, data, Some(&mut backdrop))?,
     })
+}
+
+/// The layout rules on `states` of `deck` alone, each laid out after the state before it, in
+/// its own format and each of its `formats`, and the figures its texts quote: what a patch
+/// changes, judged before and after it by an editor that keeps its engine (SPEC §7.3).
+pub fn layout_rules_on(
+    engine: &mut Engine,
+    deck: &Deck,
+    theme: &Theme,
+    data: &DataFiles,
+    assets: &Assets,
+    states: &[&str],
+) -> Result<Vec<Finding>, OpsError> {
+    let mut backdrop = scaena_paint::Backdrop { painter: CpuPainter::default(), assets };
+    Ok(scaena_engine::lint::lint_states(engine, deck, theme, data, Some(&mut backdrop), states)?)
 }
 
 /// What `lint --fix` did: the findings whose fixes it applied, and what lint finds after.

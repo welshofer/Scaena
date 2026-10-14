@@ -1364,6 +1364,12 @@ struct CanvasSelection: View {
             said = "It is locked: ⇧⌘L unlocks it"
             return true
         }
+        // A connector goes where what it joins goes (PLAN 2.109): it turns with neither, the keys
+        // turning either instead.
+        if boxes.first(where: { $0.node == selected })?.joins != nil {
+            said = "\(name(selected, starting: true)) follows what it joins: move either"
+            return true
+        }
         do {
             let start = try editor.session.turned(state: state, node: selected).rotate
             let now = ((start + by) * 1000).rounded() / 1000
@@ -1422,12 +1428,10 @@ struct CanvasSelection: View {
     }
 
     /// What a press on `hit` reaches (PLAN 2.108): a shape's words, reached as the shape, which a
-    /// click selects and a drag moves; anything else as itself.
+    /// click selects, a drag moves, and a right click offers what is done to; anything else as
+    /// itself.
     private func reached(_ hit: String) -> String {
-        guard let parent = boxes.first(where: { $0.node == hit })?.parent,
-            boxes.first(where: { $0.node == parent })?.words == hit
-        else { return hit }
-        return parent
+        boxes.reached(hit)
     }
 
     /// Type in `node` where `point` is (PLAN 3.9), kept to the state with Option; in a shape, in
@@ -1442,7 +1446,7 @@ struct CanvasSelection: View {
             return typing.enter(words, in: state, at: point, fork: Held.option)
         }
         do {
-            let worded = try editor.session.wording(shape: node)
+            let worded = try editor.session.wording(state: state, shape: node)
             try editor.make(worded.patch)
             self.node = worded.id
             return typing.enter(worded.id, in: state, at: nil, fork: false)
@@ -1461,7 +1465,7 @@ struct CanvasSelection: View {
     private func offer(at point: CGPoint, shown: CGPoint, fit: Fit) {
         let hits = (try? editor.session.hits(state: state, at: point)) ?? []
         if !hits.contains(where: { selection.contains($0.node) }) {
-            node = hits.first?.node
+            node = hits.first.map { reached($0.node) }
             also = []
         }
         pointed = point

@@ -107,3 +107,23 @@ fn every_lint_code_is_said_in_a_sentence() {
     assert_eq!(all.len(), set.len(), "a code said twice");
     assert_eq!(set.len(), codes.len(), "a code said that the catalog has not: {set:?}");
 }
+
+/// A change the history keeps reads as what was done and who did it (PLAN 2.99), in the words
+/// every editor's Versions lists it in: no operation's name, and no author's id.
+#[test]
+fn a_change_of_the_history_is_said_as_a_person_says_it() {
+    assert_eq!(words::change("patch: add_node, place, place"), "An object added, an object moved");
+    assert_eq!(words::change("patch: a_new_op"), "An edit");
+    assert_eq!(words::change(""), "A change");
+    assert_eq!(words::change("history begins"), "The history begins");
+    assert_eq!(words::change("data_edit sales: 2 cells"), "The data “sales” changed");
+    assert_eq!(words::change("theme --apply themes/daybreak.theme.json"), "The theme Daybreak taken");
+    assert_eq!(words::change("theme_edit: colors from assets/photo.jpg"), "The theme given the colors of photo.jpg");
+    assert_eq!(words::change("undo patch: replace_text"), "Undone: words typed");
+    assert_eq!(words::change("deck.json changed outside Scaena"), "Changed outside Scaena");
+    assert_eq!(words::author("user"), "you");
+    assert_eq!(words::author("fs"), "outside Scaena");
+    assert_eq!(words::author("agent:claude-sonnet"), "the assistant (claude-sonnet)");
+    assert_eq!(words::author("agent:"), "the assistant");
+    assert_eq!(words::author("jay"), "jay");
+}

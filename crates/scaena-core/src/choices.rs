@@ -19,6 +19,7 @@ use crate::lint::literal;
 use crate::looks::{casts, rounds, see_through};
 use crate::model::check::Checker;
 use crate::model::theme::{Theme, Vocabulary};
+use crate::model::values::SplitUnit;
 use crate::tracking::{Lives, layout_lives, layout_takers, lives, merge_props, resolve_states};
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -102,9 +103,9 @@ pub struct Field {
     pub literal: bool,
     /// What the theme gives a text's look where the deck sets none, which the state then shows:
     /// its role's family, weight, size, italic, case, tracking, or color; how its slot fits it
-    /// (theme format 0.13); and for characters selected, the text's own look where their run
-    /// sets none, its role and emphasis too. What an inspector shows in place of a blank. Absent
-    /// for any other property.
+    /// (theme format 0.13); where a shape's words stand across it, in its middle (PLAN 2.108);
+    /// and for characters selected, the text's own look where their run sets none, its role and
+    /// emphasis too. What an inspector shows in place of a blank. Absent for any other property.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub theme: Option<Value>,
     /// Its label and its values as a person says them (PLAN 2.99, [`crate::words::field`]):
@@ -318,6 +319,10 @@ pub fn choices(
         if prop.starts_with("interval/") && kind != Some("range") {
             return None;
         }
+        // A connector goes where what it joins goes (PLAN 2.109): it turns with neither.
+        if prop.starts_with("transform/") && crate::tracking::connects_of(own_props).is_some() {
+            return None;
+        }
         let takes = match source {
             Data => Takes::Word { words: deck.data.keys().map(|name| format!("@{name}")).collect() },
             Columns => {
@@ -339,12 +344,21 @@ pub fn choices(
                 }
                 // An entrance and an exit take the presets that start from a look, and emphasis
                 // those that go to one and back (PLAN 2.116): Fade enters, Pulse emphasizes, and
-                // Pop, Drop, and Swing do both.
+                // Pop, Drop, and Swing do both. One that moves a text's words, letters, or lines
+                // one at a time is a text's, and one that moves a chart's marks a chart's, as the
+                // engine splits them.
                 if of == V::MotionPreset {
                     let presets = &theme.motion.presets;
                     let emphasis = prop == "emphasis";
+                    let splits = |split: Option<SplitUnit>| match split {
+                        Some(SplitUnit::Lines | SplitUnit::Words | SplitUnit::Glyphs) => node_type == NodeType::Text,
+                        Some(SplitUnit::Marks) => node_type == NodeType::Chart,
+                        Some(SplitUnit::Children) | None => true,
+                    };
                     names.retain(|n| {
-                        presets.get(n).is_some_and(|p| if emphasis { p.to.is_some() } else { p.from.is_some() })
+                        presets.get(n).is_some_and(|p| {
+                            splits(p.split) && if emphasis { p.to.is_some() } else { p.from.is_some() }
+                        })
                     });
                 }
                 Takes::Name { of, names, overrides }
@@ -370,7 +384,12 @@ pub fn choices(
         let literal = value.is_some_and(|v| literal(prop, v));
         let role = shown.get("role").and_then(Value::as_str);
         let layout = snapshots[i].layout.as_deref();
-        let gives = || role_gives(theme, role, prop).or_else(|| slot_gives(theme, layout, shown.get("at"), prop));
+        // A shape's words stand in its middle across it where they say nothing (PLAN 2.108).
+        let words = crate::tracking::words_of(deck, own_props).is_some() && prop == "align/x";
+        let gives = || {
+            (role_gives(theme, role, prop).or_else(|| slot_gives(theme, layout, shown.get("at"), prop)))
+                .or_else(|| words.then(|| Value::from("center")))
+        };
         let theme = (node_type == NodeType::Text).then(gives).flatten();
         Some(Field { prop: prop.into(), takes, value: value.cloned(), lives, literal, theme, words: None })
     });

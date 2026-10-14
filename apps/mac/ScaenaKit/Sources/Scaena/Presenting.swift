@@ -229,16 +229,37 @@ extension View {
     /// Keynote's: the dot under the finger while it stays down, `slide` saying where on the slide
     /// a point of this view is; it turns no slide.
     func turns(_ showing: Showing, slide: @escaping (CGPoint) -> CGPoint?) -> some View {
-        self
+        modifier(Turns(showing: showing, slide: slide))
+    }
+}
+
+/// What `turns` does. A touch held whose gesture is cancelled, which calls no `onEnded`, is let go
+/// all the same: SwiftUI puts `touching` back when the system takes the touch, and the view going,
+/// as when a display comes and the presenter's view takes the stage's place, ends it too. Else the
+/// dot would stay, and no tap turn a slide.
+private struct Turns: ViewModifier {
+    let showing: Showing
+    let slide: (CGPoint) -> CGPoint?
+    @GestureState private var touching = false
+
+    func body(content: Content) -> some View {
+        content
             // Beside the tap, which still turns a slide: a hold ended turns none (`lifting`).
             .simultaneousGesture(
                 LongPressGesture(minimumDuration: 0.3)
                     .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .local))
+                    .updating($touching) { held, touching, _ in
+                        if case .second(true, _) = held { touching = true }
+                    }
                     .onChanged { held in
                         if case .second(true, let drag?) = held { showing.hold(slide(drag.location)) }
                     }
                     .onEnded { _ in showing.hold(nil, ended: true) }
             )
+            .onChange(of: touching) { _, now in
+                if !now { showing.cancelHold() }
+            }
+            .onDisappear { showing.cancelHold() }
             .gesture(
                 DragGesture(minimumDistance: 24)
                     .onEnded { drag in
@@ -325,11 +346,13 @@ final class Showing {
     }
 
     /// The screen `to`, black or white, the show waiting where it was; the slide again for none, or
-    /// where the screen is that already. No hold runs while the slide is out of sight.
+    /// where the screen is that already. No hold runs while the slide is out of sight: the slide
+    /// back, one the screen stopped runs on with what was left of it, as the browser's player's
+    /// does, and none starts that was not running.
     func blanking(_ to: Blank?) {
         holding?.cancel()
         if let to { show.blanking(to) } else { show.unblank() }
-        if show.blank == nil, !show.playhead.playing { rested() }
+        if let left = show.holding() { waits(left) }
     }
 
     /// `digit` typed on a slide's number, let go after four seconds with no other.
@@ -344,13 +367,15 @@ final class Showing {
         }
     }
 
-    /// Return: the slide whose number is typed, said where the deck has none; else on.
+    /// Return: the slide whose number is typed, said where the deck has none, and the show going on
+    /// as it was, a hold that runs still running; else on.
     func enter() {
         guard !show.typed.isEmpty else { return on() }
         typing?.cancel()
-        holding?.cancel()
         let number = show.typed
-        if !show.goTyped() {
+        if show.goTyped() {
+            holding?.cancel()
+        } else {
             let slides = show.slides == 1 ? "1 slide" : "\(show.slides) slides"
             say("No slide \(number): the deck has \(slides)")
         }
@@ -400,17 +425,23 @@ final class Showing {
     /// A touch held on the slide at `at`, or off it, or let go (`ended`): the laser while it stays
     /// down, on or off.
     func hold(_ at: CGPoint?, ended: Bool = false) {
-        pointer = ended ? nil : at
-        held = !ended
-        if ended { letGo = Date() }
+        if ended { touch.lift() } else { touch.hold(at) }
+        pointer = touch.at
     }
 
-    /// A touch held as the laser, while it is down, and when it was let go.
-    @ObservationIgnored private var held = false
-    @ObservationIgnored private var letGo: Date?
+    /// A touch held as the laser whose gesture ended without its lifting: cancelled, as when its
+    /// view goes or the system takes the touch. The dot goes, and a tap turns a slide again.
+    func cancelHold() {
+        guard touch.down else { return }
+        touch.cancel()
+        pointer = nil
+    }
+
+    /// A touch held as the laser, while it is down, and when it was lifted.
+    @ObservationIgnored private var touch = HeldTouch()
 
     /// Whether a tap now is the lifting of a touch held as the laser, which turns no slide.
-    var lifting: Bool { held || letGo.map { Date().timeIntervalSince($0) < 0.5 } == true }
+    var lifting: Bool { touch.lifting() }
 
     /// Where `location` on a view `size` big that fits the canvas in its middle is on the slide, as
     /// fractions of it; none off it.
@@ -450,7 +481,13 @@ final class Showing {
     /// The state shown at rest: where it holds, it goes on by itself once its hold is over.
     private func rested() {
         holding?.cancel()
-        guard let hold = show.holds else { return }
+        guard let hold = show.rested() else { return }
+        waits(hold)
+    }
+
+    /// The state shown gives way to the next by itself once `hold`, ms, is over, where it is still
+    /// shown, at rest.
+    private func waits(_ hold: Double) {
         let index = show.index
         holding = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(Int(hold.rounded())))

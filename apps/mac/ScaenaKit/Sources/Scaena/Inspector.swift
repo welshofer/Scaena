@@ -35,6 +35,8 @@ struct Inspector: View {
     @State private var look: ThemeLook?
     /// Each node's words, as a reader hears them: what names it.
     @State private var words: [String: String] = [:]
+    /// Each node's kind, as the engine names it: a shape of the library by its shape (PLAN 2.106).
+    @State private var kinds: [String: String] = [:]
     /// The box the node selected is placed by, canvas units, where a position typed can move it.
     @State private var placed: CGRect?
     @State private var showsObjects = false
@@ -86,8 +88,11 @@ struct Inspector: View {
                 }
             }
             // A picture is described by the assistant's model alone, which is shown it (PLAN 2.119).
+            // Writing is offered for a text, a picture, or the slide, as the browser offers it: a
+            // shape, a chart, a table, or a group has no words to write.
             let picture = choices?.type == "image"
-            if picture ? Writer.describes : Writer.available, tab == .format, characters == nil, also.isEmpty {
+            let writes = (choices?.writes ?? true) && (picture ? Writer.describes : Writer.available)
+            if writes, tab == .format, characters == nil, also.isEmpty {
                 Section {
                     if let node = choices?.node {
                         if choices?.type == "text" {
@@ -304,7 +309,8 @@ struct Inspector: View {
             DisclosureGroup("Objects on This Slide", isExpanded: $showsObjects) {
                 ForEach(rows, id: \.layer.node) { row in
                     ObjectRow(
-                        layer: row.layer, name: Words.node(row.layer.type, words: words[row.layer.node]),
+                        layer: row.layer,
+                        name: Words.node(row.layer.type, words: words[row.layer.node], kind: kinds[row.layer.node]),
                         depth: row.depth, selected: row.layer.node == node, lock: { lock(row.layer) }
                     ) {
                         node = row.layer.node
@@ -466,6 +472,7 @@ struct Inspector: View {
         for part in (try? session.reads(state: state)) ?? [] where !part.text.isEmpty {
             words[part.node] = part.text
         }
+        kinds = (try? session.kinds(state: state)) ?? [:]
         placed = nil
         if !also.isEmpty {
             shared = Field.shared(selected.compactMap { try? session.choices(state: state, node: $0) })
@@ -511,9 +518,7 @@ struct Inspector: View {
     /// `kind` written for `node`, a text, or for `state`'s notes (PLAN 2.101): on the device, or by the
     /// assistant's model with the user's key, offered to take as one patch or to leave.
     private func write(_ kind: WritingKind, node: String? = nil, in state: String) {
-        if let asked = Writer.asking(WritingAsk(kind: kind, state: state, node: node), of: editor.session) {
-            offer(asked)
-        }
+        offer(Writer.asking(WritingAsk(kind: kind, state: state, node: node), of: editor.session))
     }
 
     /// Where a field's value lives, which is where a choice is written, as a person says it.
@@ -820,8 +825,8 @@ private struct OpacityRow: View {
 
 /// Where a text's lines stand across its box (PLAN 3.25), as a presentation app's alignment
 /// buttons: left, centered, or right, the way in effect picked, as a presentation app always shows
-/// one. Where the text sets none, the slot's shows, as the theme gives it, else its lines start at
-/// the left, as the engine sets them.
+/// one. Where the text sets none, the slot's shows, as the theme gives it (a shape's words stand
+/// centered, PLAN 2.108), else its lines start at the left, as the engine sets them.
 private struct AlignmentRow: View {
     let value: String?
     /// The way the slide sets its lines where the text sets none: the slot's.

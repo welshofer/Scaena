@@ -79,12 +79,32 @@ enum Writer {
             model: who.model, key: who.key, instructions: instructions, prompt: prompt, picture: picture)
     }
 
+    /// What each tool is called before the engine names it, and where nothing is asked, as the
+    /// browser's writing tools call them.
+    static func named(_ kind: WritingKind) -> String {
+        switch kind {
+        case .proofread: "Proofread"
+        case .tighten: "Tighten"
+        case .rewrite: "Rewrite"
+        case .notes: "Draft Notes"
+        case .explain: "Explain"
+        case .describe: "Describe"
+        }
+    }
+
     /// `ask` of the deck `session` holds, as the sheet offers it: what the model is asked, the
-    /// answer shown as it is offered, and the patch that takes it, edited or not; none for an
-    /// answer only read. Nil where there is nothing to ask.
+    /// answer shown as it is offered, and the patch that takes it, edited or not, none where it
+    /// changes nothing; none for an answer only read. Where nothing can be asked, as of a text box
+    /// with no words, the sheet says why.
     @MainActor
-    static func asking(_ ask: WritingAsk, of session: ScaenaSession) -> Asked? {
-        guard let writing = try? session.writing(ask) else { return nil }
+    static func asking(_ ask: WritingAsk, of session: ScaenaSession) -> Asked {
+        let writing: Writing
+        do {
+            writing = try session.writing(ask)
+        } catch {
+            let why = "Nothing to ask: \(error)"
+            return Asked(title: named(ask.kind), ask: { throw Unasked(errorDescription: why) }, take: nil)
+        }
         let (instructions, prompt, picture) = (writing.instructions, writing.prompt, writing.picture)
         let reads = ask.kind == .explain
         // A picture goes to the assistant's model alone, which the sheet says.
@@ -93,8 +113,13 @@ enum Writer {
             title: writing.title,
             ask: { try await Writer.respond(instructions: instructions, prompt: prompt, picture: picture) },
             shown: { answer in (try? session.written(ask, answer: answer).text) ?? answer },
-            take: reads ? nil : { answer in (try? session.written(ask, answer: answer).patch) ?? [] },
+            take: reads ? nil : { answer in try session.taking(ask, answer: answer) },
             whence: picture == nil ? whence : byKey ?? whence)
+    }
+
+    /// Why nothing was asked.
+    struct Unasked: LocalizedError {
+        var errorDescription: String?
     }
 }
 
@@ -105,7 +130,8 @@ struct Asked: Identifiable {
     let ask: () async throws -> String
     /// The model's answer as it is offered.
     var shown: (String) -> String = { $0 }
-    let take: ((String) -> [JSONValue])?
+    /// The patch that takes the answer, edited or not: none where it changes nothing.
+    let take: ((String) throws -> [JSONValue]?)?
     /// Where the answer comes from.
     var whence = Writer.whence
 }
@@ -116,14 +142,18 @@ struct OfferSheet: View {
     let ask: () async throws -> String
     /// The model's answer as it is offered.
     var shown: (String) -> String = { $0 }
-    /// The patch that takes the answer, edited or not; none where it is only read.
-    let take: ((String) -> [JSONValue])?
+    /// The patch that takes the answer, edited or not, none where it changes nothing; no taking
+    /// where it is only read.
+    let take: ((String) throws -> [JSONValue]?)?
     /// Where the answer comes from.
     var whence = Writer.whence
-    let make: ([JSONValue]) -> Void
+    /// The answer taken: its patch, or none where it changes nothing.
+    let make: ([JSONValue]?) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var answer: String?
     @State private var failure: String?
+    /// Why the answer was not taken.
+    @State private var refused: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -144,6 +174,7 @@ struct OfferSheet: View {
             } else {
                 ProgressView(OnDevice.available ? "Thinking on this \(Words.device)…" : "Asking…")
             }
+            if let refused { Text(refused).font(.callout).foregroundStyle(.red) }
             Text(whence).font(.caption).foregroundStyle(.secondary)
             HStack {
                 Spacer()
@@ -151,8 +182,12 @@ struct OfferSheet: View {
                     Button("Leave it") { dismiss() }
                         .keyboardShortcut(.cancelAction)
                     Button("Use it") {
-                        make(take(answer))
-                        dismiss()
+                        do {
+                            make(try take(answer))
+                            dismiss()
+                        } catch {
+                            refused = "Not changed: \(error)"
+                        }
                     }
                     .keyboardShortcut(.defaultAction)
                 } else {
@@ -165,7 +200,13 @@ struct OfferSheet: View {
         .frame(width: 420)
         .task {
             do {
-                answer = shown(try await ask())
+                let said = shown(try await ask())
+                // No answer, as a model that refuses or runs out of room gives: nothing to take.
+                if said.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    failure = "No answer from the model: it wrote nothing. Ask again, or try another model."
+                } else {
+                    answer = said
+                }
             } catch {
                 failure = error.localizedDescription
             }

@@ -3,7 +3,8 @@
 //
 //   node web/image.mjs     (after `just web`; from the repository's root)
 //
-// - The inspector offers an image's fit, its focal point and crop as fractions, and its radius.
+// - The inspector offers an image's fit, its focal point and crop as shares of the picture in
+//   percent, each part captioned, and its radius.
 // - Pick, then a click on the image, sets its focal point to the point of the image drawn there:
 //   one `choose`, and one undo. Escape leaves it as it was.
 // - Its crop and its fit, chosen in the inspector, are each one patch; a crop is kept inside the image.
@@ -86,6 +87,14 @@ try {
   check(["fit", "focal", "crop", "radius"].every((p) => props.includes(p)), `an image's fields: ${props}`);
   check((await page.locator('#look input[data-prop="focal"][data-part]').count()) === 2, "its focal point, x and y");
   check((await page.locator('#look input[data-prop="crop"][data-part]').count()) === 4, "its crop, x, y, w, and h");
+  // Each part of the crop and the focal point under a caption a person reads, in percent.
+  const captions = await page.evaluate(() =>
+    [...document.querySelectorAll('#look label.part')].map((l) => `${l.querySelector("span").textContent} ${l.querySelector("input").value}%`),
+  );
+  check(
+    JSON.stringify([...captions].sort()) === JSON.stringify(["Across 50%", "Down 50%", "Height 100%", "Left 0%", "Top 0%", "Width 100%"]),
+    `the focal point and the crop captioned, in percent: ${captions.join(", ")}`,
+  );
 
   // Pick, then a click on the image a quarter of the way across: the point of the image drawn there.
   const rect = await page.evaluate(() => window.scaena.canvas.boxes().find((b) => b.node === "image-cover").rect);
@@ -125,7 +134,7 @@ try {
   // As the inspector's own test sets a value: once, so no later blur sends it again.
   await page.evaluate(() => {
     const input = document.querySelector('#look input[data-prop="crop"][data-part="2"]');
-    input.value = "0.5";
+    input.value = "50";
     input.dispatchEvent(new Event("change", { bubbles: true }));
   });
   check(await says("Crop: 50% wide, 100% high, from 0% across and 0% down · on this slide"), `the crop is chosen, said in shares: ${await status()}`);
@@ -139,7 +148,7 @@ try {
   n = await trips();
   await page.evaluate(() => {
     const input = document.querySelector('#look input[data-prop="crop"][data-part="0"]');
-    input.value = "0.6";
+    input.value = "60";
     input.dispatchEvent(new Event("change", { bubbles: true }));
   });
   await settled(n);

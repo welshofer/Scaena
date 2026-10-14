@@ -14,7 +14,7 @@
 //!   refused for it. A text keeps a role: one the theme lacks gives way to the role every
 //!   theme has that was nearest it in size where it was copied from.
 
-use crate::inspect::{copied_layouts, empty_slot, free_id, held, leaving};
+use crate::inspect::{copied_layouts, empty_slot, free_id, held_down, leaving};
 use crate::{Context, OpsError};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
@@ -89,7 +89,9 @@ pub struct Also {
 /// files those and their images read, from `read`. Each comes with its box at rest in
 /// `state`, on a canvas `canvas` wide and high; the first is the node copied, and one that
 /// another of them holds comes with that one. A shader set by a preset of `theme`'s names the
-/// preset's kind too, so that it draws in a theme without the preset.
+/// preset's kind too, so that it draws in a theme without the preset. A connector copied without
+/// both its ends keeps its line as `lines` gives it at rest in `state`, its points as fractions of
+/// its box, so that it pastes as a line that runs as it ran (PLAN 2.109).
 pub fn copying(
     deck: &Deck,
     theme: &Theme,
@@ -97,6 +99,7 @@ pub fn copying(
     copied: &[(&str, [f32; 4])],
     canvas: [f32; 2],
     read: &dyn Fn(&str) -> Option<Vec<u8>>,
+    lines: &dyn Fn(&str) -> Option<Vec<[f32; 2]>>,
 ) -> Result<Clip, OpsError> {
     let snaps = scaena_core::resolve_states(deck).context("tracking")?;
     let snap =
@@ -108,9 +111,9 @@ pub fn copying(
         return Err(OpsError::new(format!("`{node}` is not on screen in `{state}`")));
     }
     let doc = deck.to_value().context("the deck")?;
-    // Each node copied, then what it holds, each before what it holds in turn; one that another
-    // of them holds comes with that one.
-    let under: Vec<Vec<String>> = copied.iter().map(|(node, _)| held(&[snap], node)).collect();
+    // Each node copied, then what it holds, each before what it holds in turn and in the order
+    // the deck declares them; one that another of them holds comes with that one.
+    let under: Vec<Vec<String>> = copied.iter().map(|(node, _)| held_down(&[snap], node)).collect();
     let mut roots: Vec<(&str, [f32; 4])> = Vec::new();
     let mut ids: Vec<String> = Vec::new();
     for (i, &(node, rect)) in copied.iter().enumerate() {
@@ -119,7 +122,7 @@ pub fn copying(
             continue;
         }
         roots.push((node, rect));
-        ids.extend(under[i].iter().rev().cloned());
+        ids.extend(under[i].iter().cloned());
     }
     if roots.is_empty() {
         return Err(OpsError::new("each node copied holds another of them: what holds what goes round"));
@@ -152,6 +155,12 @@ pub fn copying(
         }
         if let Some(theirs) = doc["overrides"].get(id) {
             overrides.insert(id.clone(), theirs.clone());
+        }
+        let ends = deck.nodes.get(id).and_then(scaena_core::tracking::connects_of);
+        if ends.is_some_and(|(from, to)| !(ids.iter().any(|i| i == from) && ids.iter().any(|i| i == to)))
+            && let Some(points) = lines(id)
+        {
+            props.insert("points".into(), json!(points));
         }
         nodes.insert(id.clone(), Value::Object(props));
     }
@@ -447,8 +456,11 @@ pub fn pasting(
         .collect::<Option<_>>()
         .ok_or_else(|| OpsError::new("the theme's grid has no tracks to place it on"))?;
     let cell = targets[0].cell;
-    // A connector among them leaves with what it joins.
-    let copies: Vec<String> = nodes.keys().filter(|id| !joined.contains(id)).cloned().collect();
+    // A connector among them leaves with what it joins, and words with their shape.
+    let copies = (nodes.iter())
+        .map(|(id, props)| Ok((id.clone(), serde_json::from_value(Value::Object(props.clone()))?)))
+        .collect::<Result<Vec<_>, serde_json::Error>>()
+        .context("a copied node")?;
     let placed = targets.iter().filter(|t| !t.spots.iter().any(|(node, _)| joined.contains(node)));
     let placing = placed.flat_map(|t| t.ops(Some(state), false)).chain(leaving(deck, state, &copies));
     let place: Vec<Value> = placing.map(serde_json::to_value).collect::<Result<_, _>>().context("a patch")?;

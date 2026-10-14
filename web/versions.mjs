@@ -7,7 +7,8 @@
 //
 // - The tab lists the history's changes, the newest first, each by its author and when.
 // - A version chosen shows a state of it at rest, read only, and what changed from it to the deck
-//   now; or, chosen, to another version.
+//   now, in a person's words, a text whose words changed named by its words before; or, chosen,
+//   to another version.
 // - Restore makes it the deck again, with the data file it read, as one change: ⌘Z in the source
 //   puts the deck and the data file back as they were, ⇧⌘Z restores them again, and a save
 //   records the restore in the history, by the user.
@@ -96,6 +97,19 @@ try {
     `the history's changes, oldest first: ${JSON.stringify(messages)}`,
   );
   check(versions.every((v, i) => v.n === i + 1 && v.author === "user" && v.at?.endsWith("Z")), "each numbered, by its author, and when");
+  // In the engine's words, as the Mac's Versions says them (PLAN 2.99): no operation's name, no author's id.
+  check(
+    JSON.stringify(versions.map((v) => [v.said, v.by])) ===
+      JSON.stringify([
+        ["The history begins", "you"],
+        ["Words changed", "you"],
+        ["The data “q3” changed", "you"],
+        ["A slide added", "you"],
+        ["An object added", "you"],
+        ["An object deleted", "you"],
+      ]),
+    `each said by the engine: ${JSON.stringify(versions.map((v) => [v.said, v.by]))}`,
+  );
   const rows = await page.locator("#versions [data-versions] button").allTextContents();
   check(rows.length === versions.length && rows[0].includes("An object deleted") && rows.at(-1).includes("The history begins"), `listed the newest first, in words: ${rows[0]} … ${rows.at(-1)}`);
   const summary = await page.locator("#versions [data-summary]").textContent();
@@ -124,6 +138,10 @@ try {
       now.includes("q3-revenue.csv changed"),
     `what changed from it to the deck now: ${JSON.stringify(now)}`,
   );
+  // A text whose words changed is named by its words before, which tells two texts apart, and the
+  // deck's own fields in a person's words: its spine is its story.
+  check(now.some((l) => l.includes("“Q3 Review”: its words now “Revenue tripled”")), `the title named by its words before: ${JSON.stringify(now)}`);
+  check(!now.some((l) => /spine|the text:/.test(l)), `no word of the format's: ${JSON.stringify(now)}`);
   await page.selectOption("#versions [data-state]", "mix");
   await settled();
   const mix = await drawn();
