@@ -795,6 +795,11 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
     $("#now").textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   };
   const pause = $<HTMLButtonElement>("#pause");
+  const reset = $<HTMLButtonElement>("#reset");
+  // A press on Pause or Reset leaves the keys where they were, as a presentation app's timer
+  // does: Space and Return go on after it, and do not press it again. Tab reaches each, and then
+  // its own keys press it.
+  for (const button of [pause, reset]) button.onmousedown = (e) => e.preventDefault();
   pause.onclick = () => {
     if (since === undefined) since = performance.now();
     else [counted, since] = [elapsed(), undefined];
@@ -803,7 +808,7 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
     document.body.classList.toggle("paused", since === undefined);
     clock();
   };
-  $("#reset").onclick = () => {
+  reset.onclick = () => {
     counted = 0;
     if (since !== undefined) since = performance.now();
     clock();

@@ -28,10 +28,10 @@
 //   presenter's keys steer the room's screen, its laser pointed from the slide it shows, and drawn
 //   on none of the room's black screen. At the last state it shows nothing as next, and its → past
 //   it ends the room's show, which it says over its slide. Its timer pauses, runs on, and resets
-//   to 0:00, and the time of day stands beside it (PLAN 2.121). P again brings it to the front as
-//   it is, its clock running. Its notes scroll, long or short, and its buttons and its timer's
-//   stay in its window. With no player open, or once the player closes, it says so, and its
-//   buttons wait until one is.
+//   to 0:00, and the time of day stands beside it (PLAN 2.121); after a press on Resume, Space
+//   goes on and presses it no more. P again brings it to the front as it is, its clock running.
+//   Its notes scroll, long or short, and its buttons and its timer's stay in its window. With no
+//   player open, or once the player closes, it says so, and its buttons wait until one is.
 // - A link at rest shows a hand under the pointer.
 // - With `?fps`, the frame meter reads a played cue's frames: frames a second, the worst frame,
 //   late frames, and the mean paint (gate 2, criterion 1).
@@ -356,6 +356,14 @@ try {
   await presenter.waitForFunction(() => window.scaena.timer().shows !== "0:00", null, { timeout: 5000 }).catch(() => {});
   const resumed = await timer();
   check(!resumed.paused && secondsOf(resumed.shows) >= 1 && secondsOf(resumed.shows) <= 3, `Resume runs it on from 0:00: ${resumed.shows}`);
+  // A press on its buttons leaves the keys where they were: Space then goes on, and presses
+  // Resume no more. ← brings the player back.
+  await presenter.keyboard.press(" ");
+  at = await until(player, () => window.scaena.at().index === 2, "Space after a press on Resume");
+  const going = await timer();
+  check(at.index === 2 && !going.paused, `Space after a press on Resume goes on, and the timer runs on: ${JSON.stringify(going)}`);
+  await presenter.keyboard.press("ArrowLeft");
+  await until(player, () => window.scaena.at().index === 1 && !window.scaena.at().playing, "← after Space");
   // The time of day, as this machine's clock reads it: this minute, or the one before it where the
   // minute turned between the view's tick and this read.
   const day = await presenter.evaluate(() => {
