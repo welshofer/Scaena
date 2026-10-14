@@ -7,7 +7,7 @@
 //   let go, it is drawn over the grid's cells it covered, each edge on the nearest track's, in the
 //   state shown, selected: one patch, one undo. The canvas draws one at a time.
 // - L draws a line the way the drag went; A, nearly level from right to left, an arrow pointing
-//   left.
+//   left. Each is said with the article it takes: an arrow, an oval.
 // - With Shift, it is drawn off the grid, where the drag went: a `rect`.
 // - T draws a text, which takes the caret with its words selected: what is typed takes their
 //   place.
@@ -140,15 +140,19 @@ try {
   // A, nearly level, from right to left: an arrow pointing left.
   await restore(original);
   check(await arms("a"), "A, an arrow");
+  check(await says("Drawing an arrow"), `said with the article it takes: ${await status()}`);
   await drag([1200, 500], [400, 480]);
   check(await reads("arrow shape"), "A draws an arrow");
+  check(await says("An arrow drawn on this slide"), `and so is what was drawn: ${await status()}`);
   check(/points:\[\[1(\.0)?, 0\.5\], \[0(\.0)?, 0\.5\]\]/.test(await declared("arrow")), `level, pointing left: ${await declared("arrow")}`);
 
   // With Shift, off the grid, where the drag went.
   await restore(original);
   check(await arms("o"), "O, an ellipse");
+  check(await says("Drawing an oval"), `said with the article it takes: ${await status()}`);
   await drag([300, 200], [700, 520], true);
   check(await reads("ellipse shape"), "O draws an ellipse");
+  check(await says("An oval drawn on this slide"), `and so is what was drawn: ${await status()}`);
   check(/at:rect\(300(\.0)?, 200(\.0)?, 400(\.0)?, 320(\.0)?\)/.test(await declared("ellipse")), `with Shift, where the drag went: ${await declared("ellipse")}`);
   // Once the canvas has the state's boxes again, which a busy machine takes longer to give.
   await page.waitForFunction(() => window.scaena.canvas.boxes().some((b) => b.node === "ellipse"), null, { timeout: 30000 }).catch(() => {});

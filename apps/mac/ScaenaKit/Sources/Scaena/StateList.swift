@@ -1,5 +1,8 @@
 import ScaenaKit
 import SwiftUI
+#if !os(macOS)
+import UIKit
+#endif
 
 /// The slides down the side (PLAN 3.4), as a presentation app's navigator (PLAN 3.18): each slide
 /// numbered and drawn small at rest by the engine, painted again only when its drawing changes, as
@@ -40,7 +43,9 @@ struct StateList: View {
         let list = List(selection: $chosen) {
             ForEach(editor.slots, id: \.state) { slot in
                 let place = numbered[slot.state] ?? (slide: 0, step: 1)
-                StateRow(editor: editor, slot: slot, number: place.slide, step: place.step, revision: editor.revision)
+                StateRow(
+                    editor: editor, slot: slot, number: place.slide, step: place.step, revision: editor.revision,
+                    picked: chosen == slot.state)
                     .contextMenu { menu(slot) }
             }
             .onMove(perform: move)
@@ -143,6 +148,8 @@ private struct StateRow: View {
     /// Its place among its slide's steps, from 1: the slide itself is 1.
     let step: Int
     let revision: Int
+    /// Whether it is the state chosen, which a presentation app's navigator outlines.
+    let picked: Bool
     @State private var drawing: CGImage?
     @Environment(\.displayScale) private var scale
 
@@ -153,7 +160,13 @@ private struct StateRow: View {
         HStack(alignment: .top, spacing: 6) {
             Text(step > 1 ? "" : "\(number)")
                 .font(.caption.monospacedDigit())
+                #if os(macOS)
                 .foregroundStyle(.secondary)
+                #else
+                // The label's own gray, not the row's: on the iPad the row chosen tints a style
+                // drawn from its own, and its number went pale blue on the gray.
+                .foregroundStyle(Color(uiColor: .secondaryLabel))
+                #endif
                 .frame(width: 20, alignment: .trailing)
                 .padding(.top, 2)
             Group {
@@ -166,6 +179,15 @@ private struct StateRow: View {
             .frame(maxWidth: width)
             .clipShape(RoundedRectangle(cornerRadius: 4))
             .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(.separator))
+            #if !os(macOS)
+            // The slide chosen outlined in the accent, as a presentation app's navigator on the
+            // iPad marks it.
+            .overlay {
+                if picked {
+                    RoundedRectangle(cornerRadius: 5).strokeBorder(Color.accentColor, lineWidth: 2.5).padding(-2)
+                }
+            }
+            #endif
             .padding(.leading, step > 1 ? 24 : 0)
         }
         .padding(.vertical, step > 1 ? 1 : 4)

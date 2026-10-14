@@ -165,6 +165,9 @@ public struct Ran: Decodable, Sendable {
     public let error: Bool
     /// A line saying what it came to.
     public let summary: String
+    /// Whether it did what its words say (`scaena_chat::made`): an edit refused, only tried, or
+    /// stopped did not, and the window heads it so.
+    public let made: Bool
     /// What the model is told: the tool's result, as JSON, or a resource's text.
     public let json: String
     /// The frame `deck_render` drew, a PNG in base64.

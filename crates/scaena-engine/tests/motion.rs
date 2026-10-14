@@ -7,7 +7,7 @@ use scaena_core::displaylist::{DisplayList, Op};
 use scaena_engine::data::DataFiles;
 use scaena_engine::fonts::BundleFonts;
 use scaena_engine::theme::Theme;
-use scaena_engine::{Engine, Frame, FrameRequest};
+use scaena_engine::{Engine, Frame, FrameRequest, Timed};
 use serde_json::{Value, json};
 
 const BUNDLE: &str = "../../tests/fixtures/torture.scaena";
@@ -711,4 +711,41 @@ fn the_shipped_builds_move_as_a_presentation_apps_do() {
         let span = fx.frame("two", f64::INFINITY).duration_ms;
         assert_eq!(fx.dl("two", span), fx.dl("two", f64::INFINITY), "{build} rests");
     }
+}
+
+/// An engine keeps each state's span by what it is worked out from: a deck an edit changed in one
+/// state is timed as a fresh engine times it, that state worked out again and the rest kept.
+#[test]
+fn an_edited_deck_is_timed_as_a_fresh_engine_times_it() {
+    let split = |s: &str| {
+        json!({
+            "id": s, "layout": "specimen", "mode": "absolute", "props": { "t": {} },
+            "choreography": [{ "target": "t", "split": "words", "enter": "rise", "stagger": 100, "timing": "with" }]
+        })
+    };
+    let nodes = json!({ "t": text("One two three", "main") });
+    let mut fx = Fx::new(deck(nodes.clone(), json!([split("a"), split("b"), split("c")])), theme(|_| {}));
+    // An editor's engine keeps each state's span; one made for a render keeps none.
+    fx.engine = std::mem::replace(&mut fx.engine, Engine::new(BundleFonts::new())).with_timed(Timed::default());
+    let spans = |timeline: &scaena_core::timeline::Timeline| -> Vec<(f64, f64)> {
+        timeline.slots.iter().map(|s| (s.start, s.span)).collect()
+    };
+    assert_eq!(
+        spans(&fx.engine.timeline(&fx.deck, &fx.theme, &fx.data).unwrap()),
+        [(0.0, 620.0), (620.0, 620.0), (1240.0, 620.0)]
+    );
+    // `b` says two words more: it runs 200 ms longer, and `c` starts 200 ms later.
+    let mut states = json!([split("a"), split("b"), split("c")]);
+    states[1]["props"]["t"] = json!({ "text": "One two three four five" });
+    let edited = deck(nodes, states);
+    let kept = fx.engine.timeline(&edited, &fx.theme, &fx.data).unwrap();
+    let mut fresh = Fx::new(edited.clone(), theme(|_| {}));
+    let anew = fresh.engine.timeline(&edited, &fresh.theme, &fresh.data).unwrap();
+    assert_eq!(spans(&kept), spans(&anew));
+    assert_eq!(spans(&kept), [(0.0, 620.0), (620.0, 820.0), (1440.0, 620.0)]);
+    // And back: the deck as it was, timed as it was.
+    assert_eq!(
+        spans(&fx.engine.timeline(&fx.deck, &fx.theme, &fx.data).unwrap()),
+        [(0.0, 620.0), (620.0, 620.0), (1240.0, 620.0)]
+    );
 }

@@ -151,6 +151,14 @@ impl Assets {
         Ok(())
     }
 
+    /// Keep the image `id` names as `from` decoded it, decoding nothing: what a store made again
+    /// for a deck that names other images takes from the one it replaces. Whether `from` held it.
+    pub fn take_image(&mut self, id: &str, from: &Assets) -> bool {
+        let Some(picture) = from.images.get(id) else { return false };
+        self.images.insert(id.to_string(), picture.clone());
+        true
+    }
+
     /// The font a display list names: its bytes and its face index.
     pub fn font_data(&self, font: &FontRef) -> Result<FontData, PaintError> {
         let blob = self.blobs.get(&font.id).ok_or_else(|| PaintError::MissingFont(font.id.clone()))?;

@@ -11,7 +11,8 @@ use crate::lint::literal;
 use crate::model::theme::Theme;
 use crate::model::values::{Annotation, Duration, ListItem};
 use crate::tracking::{
-    Lives, Snapshot, keep_looks, layout_lives, lives, merge_props, other_spelling, resolve_states, tracks_from,
+    Lives, NON_TRACKING_KEYS, Snapshot, keep_looks, layout_lives, lives, merge_props, other_spelling, resolve_states,
+    tracks_from, words_of,
 };
 use crate::validate::BundleFiles;
 use serde_json::{Map, Value};
@@ -1086,10 +1087,25 @@ fn choose(
         });
     }
     let at = match d.showing(node, state)? {
-        Some((i, _)) => {
+        Some((i, shown)) => {
             let (deck, _) = d.snapshots()?;
             let keys: Vec<&str> = key.iter().map(String::as_str).collect();
-            match if fork { Lives::State(i) } else { lives(&deck, i, node, &name, &keys) } {
+            let lives = match fork {
+                true => Lives::State(i),
+                // What belongs to one state alone, a motion's emphasis or keys (§2.2), is the
+                // state's own: written there, it plays in that state's cue, as `apply_preset`
+                // writes it. Only one the node's own props show there, as it enters, is taken
+                // away from them.
+                false if NON_TRACKING_KEYS.contains(&name.as_str()) => {
+                    let delta = deck.states[i].props.get(node).is_some_and(|delta| delta.contains_key(&name));
+                    match value.is_null() && !delta && shown.contains_key(&name) {
+                        true => Lives::Node,
+                        false => Lives::State(i),
+                    }
+                }
+                false => lives(&deck, i, node, &name, &keys),
+            };
+            match lives {
                 Lives::State(j) => Some(j),
                 Lives::Node => None,
             }
@@ -1384,15 +1400,21 @@ fn unset(d: &Doc, node: &str, j: usize, name: &str, key: Option<&str>) -> Vec<Js
     diff(&format!("/states/{j}/props/{}", esc(node)), old, &new)
 }
 
-/// `runs` with the bytes `range` of their texts, end to end, replaced by `text`: typed into
-/// the run the range starts in, the one before where two meet, or the first at the start. A
-/// run the edit leaves with no text goes, unless it was typed into.
+/// `runs` with the bytes `range` of their texts, end to end, replaced by `text`: typed over
+/// characters, into the run of the first it replaces, as a word processor takes its look;
+/// typed where nothing is replaced, into the run the range starts in, the one before where two
+/// meet, or the first at the start. A run the edit leaves with no text goes, unless it was
+/// typed into.
 fn edit_runs(runs: &[Value], range: Range<usize>, text: &str) -> Vec<Value> {
     let texts: Vec<&str> = runs.iter().map(|r| r.get("text").and_then(Value::as_str).unwrap_or_default()).collect();
     let starts: Vec<usize> = texts.iter().scan(0, |at, t| Some(std::mem::replace(at, *at + t.len()))).collect();
-    let into = match range.start {
-        0 => 0,
-        start => (0..texts.len())
+    let over = (!range.is_empty() && !text.is_empty())
+        .then(|| (0..texts.len()).find(|&k| starts[k] <= range.start && range.start < starts[k] + texts[k].len()))
+        .flatten();
+    let into = match (over, range.start) {
+        (Some(k), _) => k,
+        (None, 0) => 0,
+        (None, start) => (0..texts.len())
             .find(|&k| starts[k] < start && start <= starts[k] + texts[k].len())
             .unwrap_or(texts.len().saturating_sub(1)),
     };
@@ -1567,20 +1589,20 @@ fn remove_node(d: &Doc, id: &str) -> Result<Vec<JsonOp>, String> {
     if !held.is_empty() {
         return Err(format!("`{id}` holds {}: remove them first, or move them out of it (`at.parent`)", list(held)));
     }
-    Ok(removal(d, id))
+    Ok(removal(d, &[id]))
 }
 
-/// The ops that take node `id` out of the deck, with everything that names it: its deltas,
-/// its exits, its choreography, and its overrides; and each connector that joins it, which would
-/// join what the deck lacks, goes with it the same way (PLAN 2.109).
-fn removal(d: &Doc, id: &str) -> Vec<JsonOp> {
+/// The ops that take nodes `ids` out of the deck, with everything that names them: their
+/// deltas, their exits, their choreography, and their overrides; and each connector that joins
+/// one, which would join what the deck lacks, goes with them the same way (PLAN 2.109).
+fn removal(d: &Doc, ids: &[&str]) -> Vec<JsonOp> {
     let joins = |node: &Value| {
         let end = |key: &str| node.get("connect").and_then(|c| c.get(key)).and_then(Value::as_str);
-        end("from") == Some(id) || end("to") == Some(id)
+        [end("from"), end("to")].into_iter().flatten().any(|end| ids.contains(&end))
     };
     let mut gone: Vec<&str> =
-        d.nodes().filter(|(n, node)| n.as_str() != id && joins(node)).map(|(n, _)| n.as_str()).collect();
-    gone.push(id);
+        d.nodes().filter(|(n, node)| !ids.contains(&n.as_str()) && joins(node)).map(|(n, _)| n.as_str()).collect();
+    gone.extend(ids.iter().copied().filter(|id| d.0.get("nodes").and_then(|n| n.get(*id)).is_some()));
     let mut ops = Vec::new();
     for (i, state) in d.states().iter().enumerate() {
         for g in &gone {
@@ -1632,13 +1654,22 @@ fn parent_of(props: &Map<String, Value>) -> Option<&str> {
 /// [`SemanticOp::Group`].
 fn group(d: &Doc, id: &str, nodes: &[String], state: Option<&str>) -> Result<Vec<JsonOp>, String> {
     d.free("node", id, d.node(id).is_ok())?;
-    let Some(first) = nodes.first() else { return Err("a group holds one node or more: name them in `nodes`".into()) };
+    if nodes.is_empty() {
+        return Err("a group holds one node or more: name them in `nodes`".into());
+    }
     for (i, node) in nodes.iter().enumerate() {
         d.node(node)?;
         if nodes[..i].contains(node) {
             return Err(format!("`{node}` is named twice"));
         }
     }
+    // A connector goes where what it joins goes (PLAN 2.109): it stays out of the group, and
+    // follows what it joins into it.
+    let connector = |n: &String| d.kind(n) == Ok("shape") && d.node(n).is_ok_and(|p| p.contains_key("connect"));
+    let nodes: Vec<String> = nodes.iter().filter(|n| !connector(n)).cloned().collect();
+    let Some(first) = nodes.first() else {
+        return Err("a connector goes where what it joins goes: group what it joins".into());
+    };
     // Their container: as `state` shows them, else as their own `at` places them.
     let (deck, snapshots) = d.snapshots()?;
     let shown = state.map(|s| d.state(s)).transpose()?;
@@ -1694,7 +1725,7 @@ fn group(d: &Doc, id: &str, nodes: &[String], state: Option<&str>) -> Result<Vec
             }
         }
         None => {
-            for node in nodes {
+            for node in &nodes {
                 let at = d.node(node)?.get("at");
                 ops.push(match at {
                     Some(Value::Object(_)) => {
@@ -1762,7 +1793,7 @@ fn ungroup(d: &Doc, group: &str) -> Result<Vec<JsonOp>, String> {
             }
         }
     }
-    ops.extend(removal(d, group));
+    ops.extend(removal(d, &[group]));
     Ok(ops)
 }
 
@@ -1793,6 +1824,15 @@ fn rename_node(d: &Doc, id: &str, to: &str) -> Result<Vec<JsonOp>, String> {
     }
     for (path, _, _) in d.parents().into_iter().filter(|(_, n, p)| *p == id && *n != id) {
         ops.push(JsonOp::Replace { path, value: Value::String(to.into()) });
+    }
+    // Each connector that joins it joins it by its new name (PLAN 2.109).
+    for (node, props) in d.nodes().filter(|(n, _)| n.as_str() != id) {
+        for end in ["from", "to"] {
+            if props.get("connect").and_then(|c| c.get(end)).and_then(Value::as_str) == Some(id) {
+                let path = format!("/nodes/{}/connect/{end}", esc(node));
+                ops.push(JsonOp::Replace { path, value: Value::String(to.into()) });
+            }
+        }
     }
     Ok(ops)
 }
@@ -1832,10 +1872,14 @@ fn hide_node(d: &Doc, node: &str, state: &str) -> Result<Vec<JsonOp>, String> {
         ops.push(JsonOp::Remove { path: format!("/states/{i}/props/{}", esc(node)) });
     }
     // On screen in the state it tracks from: it exits here, unless it does already (and
-    // the delta had it enter again). Else it entered here, by that delta, and is gone with it.
+    // the delta had it enter again). Else it entered here, by that delta, and is gone with it;
+    // or, a shape's words, with their shape, which brings them in here unless they exit
+    // (PLAN 2.108).
     let exits = d.states()[i].get("remove").and_then(Value::as_array);
     let listed = exits.is_some_and(|e| e.iter().any(|x| x.as_str() == Some(node)));
-    if !listed && tracks_from(&deck, i).is_some_and(|j| snapshots[j].nodes.contains_key(node)) {
+    let tracked = |n: &str| tracks_from(&deck, i).is_some_and(|j| snapshots[j].nodes.contains_key(n));
+    let shape = deck.nodes.get(node).and_then(|n| words_of(&deck, n));
+    if !listed && (tracked(node) || shape.is_some_and(|shape| !tracked(shape))) {
         let value = Value::String(node.into());
         ops.push(match exits {
             Some(_) => JsonOp::Add { path: format!("/states/{i}/remove/-"), value },
@@ -1956,14 +2000,16 @@ fn duplicate_slide(d: &Doc, slide: &str) -> Result<Vec<JsonOp>, String> {
         let mut state = deck.states[i].clone();
         state.id = ids[n].clone();
         if n == 0 {
-            // Each node it shows as the slide's first state shows it, the node's lock aside,
-            // which is the node's own (E104).
+            // Each node it shows as the slide's first state shows it, but for what is the node's
+            // own in every state: its lock, a connector's ends, and its layout in its formats.
             state.mode = StateMode::Absolute;
             (state.from, state.slide, state.remove) = (None, None, Vec::new());
             state.props = (snaps[i].nodes.iter())
                 .map(|(id, props)| {
                     let mut props = props.clone();
-                    props.shift_remove("locked");
+                    for key in crate::validate::NODE_OWN {
+                        props.shift_remove(key);
+                    }
                     (id.clone(), props)
                 })
                 .collect();
@@ -2030,7 +2076,26 @@ fn remove_slide(d: &Doc, slide: &str) -> Result<Vec<JsonOp>, String> {
             ops.push(JsonOp::Remove { path });
         }
     }
+    ops.extend(left_behind(&deck, range, &next));
     Ok(ops)
+}
+
+/// The ops that take out of the deck each node the states at `gone` of `deck` show that no state
+/// of `next`, the deck with them taken out, shows: what a slide deleted takes with it, as a
+/// presentation app's slide takes its objects. A node no state showed before stays; and so does
+/// every node where either deck does not resolve, which validation then reports.
+fn left_behind(deck: &Deck, gone: Range<usize>, next: &Value) -> Vec<JsonOp> {
+    let (Ok(snaps), Ok(after)) = (resolve_states(deck), typed(&Doc(next))) else { return Vec::new() };
+    let Ok(shown) = resolve_states(&after) else { return Vec::new() };
+    let mut left: Vec<&str> = Vec::new();
+    for snap in snaps.get(gone).unwrap_or_default() {
+        for id in snap.nodes.keys() {
+            if !left.contains(&id.as_str()) && !shown.iter().any(|s| s.nodes.contains_key(id)) {
+                left.push(id);
+            }
+        }
+    }
+    if left.is_empty() { Vec::new() } else { removal(&Doc(next), &left) }
 }
 
 fn remove_state(d: &Doc, id: &str) -> Result<Vec<JsonOp>, String> {
@@ -2068,6 +2133,12 @@ fn remove_state(d: &Doc, id: &str) -> Result<Vec<JsonOp>, String> {
         ops.push(JsonOp::Remove { path });
     }
     ops.push(JsonOp::Remove { path: format!("/states/{i}") });
+    // What it alone showed goes with it.
+    let mut next = d.0.clone();
+    if let Some(states) = next.get_mut("states").and_then(Value::as_array_mut) {
+        states.remove(i);
+    }
+    ops.extend(left_behind(&typed(d)?, i..i + 1, &next));
     Ok(ops)
 }
 

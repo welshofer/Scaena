@@ -13,6 +13,8 @@
 //   engine says what was pressed start it.
 // - With Alt, the move is kept to the state shown, and the other states keep the node where it was.
 // - With Shift, the node goes off the grid, placed by a `rect`, and the inspector flags it.
+// - A click on the desk around the slide selects nothing, the inspector showing the slide's
+//   settings; and a Shift-drag after a click on the page's words selects none of them.
 // On the torture deck's `containers` case:
 // - The arrow keys move a node a track, Shift with an arrow resizes it a track, and an arrow moves
 //   a stack's child a place along it.
@@ -211,7 +213,7 @@ try {
   const mixNote = await box(page, "note");
   await click(page, center(mixNote));
   n = await trips(page);
-  const kept = await drag(page, center(mixNote), [center(mixNote)[0] + shift[0], center(mixNote)[1] + shift[1]], ["Alt"], { says: "kept to" });
+  const kept = await drag(page, center(mixNote), [center(mixNote)[0] + shift[0], center(mixNote)[1] + shift[1]], ["Alt"], { says: "on this slide" });
   check(kept.includes("on this slide") && kept.includes("kept to this slide"), `with Alt, the move is kept to the slide shown: ${kept}`);
   await settled(page, n);
   check((await placedAs(page, "note", "in the Kicker slot")).includes("in the Kicker slot"), "in `mix`, the note is in the kicker slot");
@@ -238,6 +240,46 @@ try {
   await page.locator("#overlay").focus();
   await page.keyboard.press("Control+z");
   await settled(page, n);
+
+  // A press on the desk around the slide selects nothing, as a click off a slide does in a
+  // presentation app: the inspector shows the slide's own settings.
+  await click(page, center(note));
+  await page.waitForFunction(() => window.scaena.canvas.selected() === "note" && !window.scaena.canvas.busy(), null, { timeout: 30000 }).catch(() => {});
+  await page.waitForTimeout(300);
+  const desk = await page.evaluate(() => {
+    const r = document.querySelector("#preview").getBoundingClientRect();
+    return [r.left - 24, r.top + r.height / 2];
+  });
+  await page.mouse.click(desk[0], desk[1]);
+  const offSlide = await page
+    .waitForFunction(() => window.scaena.canvas.selected() === undefined && document.querySelector('#look [data-prop^="transition/"]'), null, { timeout: 30000 })
+    .then(() => true)
+    .catch(() => false);
+  check(offSlide, `a click on the desk selects nothing, and the inspector shows the slide's settings: ${await page.evaluate(() => window.scaena.canvas.selected())}`);
+  check((await page.evaluate(() => document.activeElement?.id)) === "overlay", "and the canvas keeps the keys");
+
+  // A Shift-drag on the canvas after a click on the page's words selects none of them: the canvas
+  // takes the press.
+  await page.click("#look h2");
+  n = await trips(page);
+  const [sx, sy] = await client(page, center(note));
+  await page.keyboard.down("Shift");
+  await page.mouse.move(sx, sy);
+  await page.mouse.down();
+  await page.mouse.move(sx + 10, sy + 10, { steps: 2 });
+  await page.mouse.move(sx + 40, sy + 60, { steps: 6 });
+  await page.waitForTimeout(300);
+  const picked = await page.evaluate(() => getSelection()?.toString() ?? "");
+  await page.mouse.up();
+  await page.keyboard.up("Shift");
+  check(picked === "", `a Shift-drag selects none of the page's words: ${JSON.stringify(picked.slice(0, 60))}`);
+  await settled(page, n).catch(() => {});
+  if ((await source(page)) !== original) {
+    n = await trips(page);
+    await page.locator("#overlay").focus();
+    await page.keyboard.press("Control+z");
+    await settled(page, n);
+  }
   await page.close();
 
   // The torture deck's containers: the arrow keys, a stack's order, a handle.

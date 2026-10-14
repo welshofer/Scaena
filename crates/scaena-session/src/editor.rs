@@ -11,10 +11,12 @@ use crate::{Error, Session};
 use scaena_core::model::Format;
 use scaena_core::validate::BundleFiles;
 use scaena_core::{Deck, Finding, Severity, resolve_states};
-use scaena_engine::FrameRequest;
+use scaena_engine::data::DataFiles;
+use scaena_engine::theme::Theme;
+use scaena_engine::{Engine, FrameRequest};
 use scaena_ops::compile::{Compiled, compile_renamed, line_col};
 use scaena_ops::inspect::{Inspected, Views, inspect_deck};
-use scaena_ops::lint::{layout_rules, lint_with};
+use scaena_ops::lint::{layout_rules, layout_rules_on, lint_with};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -282,6 +284,34 @@ impl Session {
         edit.findings = linted.findings;
         let at = |f| every.locate(&edit.source, &edit.compiled, f, layout.contains(f));
         Ok(Linting { findings: edit.findings.iter().map(at).collect(), laid: linted.laid, whole: only.is_none() })
+    }
+
+    /// The layout rules on `states` of `deck`, the deck a patch is made on or the one it makes,
+    /// in `theme` (SPEC §7.3): laid out by the session's engine where `deck` is drawn from the
+    /// fonts, images, data, and theme the session's deck is, else by an engine made for it, which
+    /// takes each picture the session has decoded and decodes only the others, and each state's
+    /// span the session's engine has worked out.
+    pub(crate) fn judge(&mut self, deck: &Deck, theme: &Theme, states: &[&str]) -> Result<Vec<Finding>, Error> {
+        let own = crate::drawn_from(deck) == crate::drawn_from(&self.deck)
+            && crate::read_from(deck) == crate::read_from(&self.deck)
+            && deck.theme == self.deck.theme;
+        let found = if own {
+            self.build()?;
+            let Session { engine, store, data, .. } = self;
+            let engine = engine.as_mut().expect("built above");
+            layout_rules_on(engine, deck, theme, data, store, states)
+        } else {
+            let (engine, store) = crate::engine_for(deck, theme, &self.files, &self.store)?;
+            let timed = self.engine.as_ref().map_or_else(|| self.timed.clone(), Engine::timed);
+            let mut engine = engine.with_timed(timed);
+            let mut data = DataFiles::new();
+            for path in crate::read_from(deck) {
+                let bytes = self.files.get(path).ok_or_else(|| Error::Missing(path.to_string()))?;
+                data.insert(path, bytes.clone());
+            }
+            layout_rules_on(&mut engine, deck, theme, &data, &store, states)
+        };
+        found.map_err(|e| Error::Ops(e.message))
     }
 
     /// Whether the deck with `patch` made lays `state` out in its own format and in each it

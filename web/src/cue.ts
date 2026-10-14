@@ -60,7 +60,10 @@ export const cueKeys = (): Key[] => [
 interface Bar {
   /** Which bar it is, kept across a redraw: `transition`, or the motion's node and kind. */
   key: string;
+  /** What the lane is called: what it plays first, the preset by name, then its object. */
   label: string;
+  /** All it is, as the label's title says it where the lane cuts the label short. */
+  full?: string;
   motion?: Motion;
   /** When it starts to change and when it rests, ms into the cue. */
   from: number;
@@ -74,7 +77,9 @@ interface Bar {
 }
 
 /** The bars of `cue`: its transition, then its motions in the order the state lists them, each
- * named by its object and what it does, as `words` says them. */
+ * named by what it plays, its preset where it plays one (Fade, Pulse), then by its object, as
+ * `words` says them: what tells two lanes of one object apart comes first, before the lane cuts
+ * the label short. */
 function bars(cue: Cue, words: Lexicon | undefined): Bar[] {
   const seen = new Map<string, number>();
   const motions = cue.motions.map((m): Bar => {
@@ -82,9 +87,12 @@ function bars(cue: Cue, words: Lexicon | undefined): Bar[] {
     const n = (seen.get(name) ?? 0) + 1;
     seen.set(name, n);
     const span = m.moving[1] - m.moving[0] - (m.units - 1) * m.stagger;
+    const does = moving(words, m.motion, m.split);
+    const plays = m.preset === undefined ? undefined : named(words, m.motion === "exit" ? "motion-exit" : "motion-preset", m.preset);
     return {
       key: n === 1 ? name : `${name} ${n}`,
-      label: `${object(words, m.node)} · ${moving(words, m.motion, m.split)}`,
+      label: `${plays ?? does} · ${object(words, m.node)}`,
+      full: `${object(words, m.node)} · ${does}${plays && !does.includes(plays) ? ` · ${plays}` : ""}`,
       motion: m,
       from: m.moving[0],
       to: m.moving[1],
@@ -160,7 +168,7 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
         const end = b.sprung
           ? ""
           : `<div class="end" data-bar="${i}" data-part="duration" role="slider" tabindex="0" aria-label="${html(b.label)}: how long it lasts" aria-valuemin="0" aria-valuenow="${Math.round(b.duration)}" aria-valuetext="${seconds(b.duration)}${b.motion && b.motion.units > 1 ? " each" : ""}" title="Drag to change how long it lasts" style="left:${pct(b.to)}"></div>`;
-        const tip = b.sprung ? "On a spring: it lasts as long as it takes to settle" : b.motion ? "A press selects it" : "";
+        const tip = b.sprung ? `${b.full ?? b.label}: on a spring, it lasts as long as it takes to settle` : b.motion ? `${b.full ?? b.label}: a press selects it` : "";
         const node = b.motion ? ` data-node="${html(b.motion.node)}"` : "";
         return `<span class="label" data-bar="${i}"${node} style="grid-row:${row}"${tip ? ` title="${html(tip)}"` : ""}>${html(b.label)}</span><div class="track" data-bar="${i}"${node} style="grid-row:${row}">${body}${end}</div>`;
       })
@@ -408,7 +416,7 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
     const group = (label: string, kind: string, of: string) => {
       const g = Object.assign(document.createElement("optgroup"), { label });
       const offered = kind === "emphasis" ? presets.emphasis : presets.enter;
-      for (const p of offered) g.append(new Option(named(words, "motion-preset", p), JSON.stringify([kind, of, p])));
+      for (const p of offered) g.append(new Option(named(words, kind === "exit" ? "motion-exit" : "motion-preset", p), JSON.stringify([kind, of, p])));
       if (offered.length) groups.push(g);
     };
     if (node && found.nodes[node]) {
@@ -436,7 +444,7 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
     const it = object(words, node, true);
     if (!state) return editor.say(`${it[0].toUpperCase()}${it.slice(1)} leaves no slide before this one`);
     const verb = { enter: "as it enters", emphasis: "for emphasis", exit: "as it leaves" }[motion];
-    void make({ op: "apply_preset", node, preset, motion, state }, "Adding…", `${named(words, "motion-preset", preset)} added to ${it} ${verb}`);
+    void make({ op: "apply_preset", node, preset, motion, state }, "Adding…", `${named(words, motion === "exit" ? "motion-exit" : "motion-preset", preset)} added to ${it} ${verb}`);
   };
 
   return {

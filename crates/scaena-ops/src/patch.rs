@@ -2,7 +2,7 @@
 //! deck, checked as `validate` checks a bundle, and written canonically unless that adds a
 //! validation finding.
 
-use crate::lint::{View, Why, Write, errors, lint, lint_in, write};
+use crate::lint::{View, Why, Write, errors, lint, lint_in, lint_validated, write};
 use crate::{Bundle, Context, OpsError};
 use scaena_core::lint::{Delta, delta};
 use scaena_core::model::theme::Furniture;
@@ -10,6 +10,7 @@ use scaena_core::patch::{JsonOp, Renamed};
 use scaena_core::validate::{BundleFiles, validate_bundle};
 use scaena_core::{Deck, Finding};
 use scaena_engine::cascade::with_overrides;
+use scaena_engine::theme::Theme;
 use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::Value;
@@ -58,7 +59,25 @@ pub(crate) fn patch_as(b: &Bundle, ops: &Value, dry_run: bool, what: Option<&str
 /// (the web page's assistant, PLAN 2.6). `what` names the change in the bundle's history;
 /// without it, its ops' names do.
 pub fn patching(b: &Bundle, ops: &Value, what: Option<&str>) -> Result<(Patched, Option<Write>), OpsError> {
-    made(b, ops, what, true)
+    made(b, ops, what, Judge::Whole)
+}
+
+/// [`patching`] in an editor that keeps its engine between edits (ADR-0021): checked, and
+/// refused, as a patch is, with validation and the document rules on the whole deck, and the
+/// layout rules on the states the patch reaches alone, laid out by `layout` (a deck, its theme,
+/// and the states' ids): each state it changes, and each whose cue starts from one it changes
+/// or from another state than it did, before it and after. So `added`, `removed`, and `errors`
+/// say what lint finds in those states, which every other state shows as it did, and an edit
+/// costs what the states it changes cost, however long the deck. A patch that changes what the
+/// deck holds besides its states and nodes (its theme, canvas, formats, fonts, data, or
+/// furniture) reaches every state.
+pub fn editing(
+    b: &Bundle,
+    ops: &Value,
+    what: Option<&str>,
+    mut layout: impl FnMut(&Deck, &Theme, &[&str]) -> Result<Vec<Finding>, OpsError>,
+) -> Result<(Patched, Option<Write>), OpsError> {
+    made(b, ops, what, Judge::Reached(&mut layout))
 }
 
 /// [`patching`] for an edit made as it is typed, a keystroke at a time (ADR-0013, PLAN
@@ -66,10 +85,25 @@ pub fn patching(b: &Bundle, ops: &Value, what: Option<&str>) -> Result<(Patched,
 /// say only what validation finds. The editor lints the state it shows once the deck is
 /// written, as it does after a keystroke in the source.
 pub fn typing(b: &Bundle, ops: &Value, what: Option<&str>) -> Result<(Patched, Option<Write>), OpsError> {
-    made(b, ops, what, false)
+    made(b, ops, what, Judge::Valid)
 }
 
-fn made(b: &Bundle, ops: &Value, what: Option<&str>, linted: bool) -> Result<(Patched, Option<Write>), OpsError> {
+/// What lays out the states a patch reaches, in a deck and its theme: what the layout rules find
+/// there.
+type Layout<'a> = dyn FnMut(&Deck, &Theme, &[&str]) -> Result<Vec<Finding>, OpsError> + 'a;
+
+/// What a patch's findings are judged by, before it and after.
+enum Judge<'a> {
+    /// Validation alone: an edit as it is typed.
+    Valid,
+    /// Validation, the document rules, and the layout rules on every state.
+    Whole,
+    /// Validation and the document rules, and the layout rules on the states the patch
+    /// reaches, laid out by an editor's engine ([`editing`]).
+    Reached(&'a mut Layout<'a>),
+}
+
+fn made(b: &Bundle, ops: &Value, what: Option<&str>, judge: Judge) -> Result<(Patched, Option<Write>), OpsError> {
     let Some(list) = ops.as_array() else {
         return Err(OpsError::new("a patch is a JSON array of ops (SPEC §7.3, docs/schema/patch.schema.json)"));
     };
@@ -95,9 +129,20 @@ fn made(b: &Bundle, ops: &Value, what: Option<&str>, linted: bool) -> Result<(Pa
     } else {
         let next = Deck::from_json(&text).context("the patched deck")?;
         states = changed(&b.deck, &next, placed(b.theme_json.as_deref(), &b.deck, &next).as_ref())?;
-        let (before, after) = match linted {
-            true => (lint(b)?.findings, lint_in(&next, &View::of(b))?.findings),
-            false => (invalid, invalid_after),
+        let (before, after) = match judge {
+            Judge::Valid => (invalid, invalid_after),
+            Judge::Whole => (lint(b)?.findings, lint_in(&next, &View::of(b))?.findings),
+            Judge::Reached(layout) => {
+                let (then, now) = reached((&b.deck, &doc), (&next, &compiled.doc), &states, &compiled.renamed);
+                let files = View::of(b);
+                let (then, now): (Vec<&str>, Vec<&str>) =
+                    (then.iter().map(String::as_str).collect(), now.iter().map(String::as_str).collect());
+                let theme = files.theme(&b.deck)?;
+                let before = lint_validated(&b.deck, invalid, theme.as_deref(), |t| layout(&b.deck, t, &then))?;
+                let theme = files.theme(&next)?;
+                let after = lint_validated(&next, invalid_after, theme.as_deref(), |t| layout(&next, t, &now))?;
+                (before.findings, after.findings)
+            }
         };
         if compiled.doc != doc {
             let mut names: Vec<&str> = list.iter().filter_map(|op| op.get("op").and_then(Value::as_str)).collect();
@@ -153,6 +198,62 @@ pub(crate) fn placed(theme: Option<&str>, before: &Deck, after: &Deck) -> Option
     }
     let theme: Value = serde_json::from_str(theme?).ok()?;
     serde_json::from_value(theme.get("furniture")?.clone()).ok()
+}
+
+/// The states a patch reaches, by id, before it and after: each it changes (`changed`, ids of
+/// `after`), and each whose cue starts from one it changes or from another state than it did,
+/// in the order each deck has them; and before it, each it takes away. Every state, where it
+/// changes what the deck holds besides its states and nodes, which every state is drawn from.
+fn reached(
+    (before, was): (&Deck, &Value),
+    (after, is): (&Deck, &Value),
+    changed: &[String],
+    renamed: &[Renamed],
+) -> (Vec<String>, Vec<String>) {
+    // What a state's snapshot does not say: the deck's theme, canvas, formats, fonts, data, and
+    // furniture.
+    let drawn = |doc: &Value| {
+        let mut doc = doc.clone();
+        if let Some(doc) = doc.as_object_mut() {
+            for key in ["nodes", "states", "overrides", "spine", "comment"] {
+                doc.remove(key);
+            }
+        }
+        doc
+    };
+    let every = drawn(was) != drawn(is);
+    // The id a state of `after` had in `before`.
+    let then = |id: &str| -> String {
+        (renamed.iter().rev()).fold(id.to_string(), |id, r| match r {
+            Renamed::State { from, to } if *to == id => from.clone(),
+            _ => id,
+        })
+    };
+    let had: Vec<&str> = before.states.iter().map(|s| s.id.as_str()).collect();
+    let before_it = |id: &str| -> Option<&str> {
+        let at = had.iter().position(|h| *h == id)?;
+        at.checked_sub(1).map(|p| had[p])
+    };
+    let mut now = Vec::new();
+    for (i, s) in after.states.iter().enumerate() {
+        let prior = i.checked_sub(1).map(|p| after.states[p].id.as_str());
+        let reaches = every
+            || changed.contains(&s.id)
+            || prior.is_some_and(|p| changed.iter().any(|c| c == p))
+            || prior.map(then) != before_it(&then(&s.id)).map(String::from);
+        if reaches {
+            now.push(s.id.clone());
+        }
+    }
+    let kept: Vec<String> = after.states.iter().map(|s| then(&s.id)).collect();
+    let mut was_reached: Vec<String> = Vec::new();
+    for id in had {
+        let reaches = every || !kept.iter().any(|k| k == id) || now.iter().any(|n| then(n) == id);
+        if reaches {
+            was_reached.push(id.to_string());
+        }
+    }
+    (was_reached, now)
 }
 
 /// The states of `after` that show otherwise than the same state of `before`, and those

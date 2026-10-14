@@ -76,17 +76,11 @@ pub fn polygons() -> Vec<(&'static str, Vec<[f64; 2]>, f64)> {
     // sin 18° over sin 54° of the way out.
     let inner = (std::f64::consts::PI / 10.0).sin() / (3.0 * std::f64::consts::PI / 10.0).sin();
     let (star, star_aspect) = round(10, &|i| if i % 2 == 0 { 1.0 } else { inner });
+    // A regular octagon's corners cut 1 - 1/√2 of the way along each side of its square: its
+    // straight sides and its cut ones each √2 - 1 long.
     let s = 1.0 - std::f64::consts::FRAC_1_SQRT_2;
-    let octagon = [
-        [s / 2.0, 0.0],
-        [1.0 - s / 2.0, 0.0],
-        [1.0, s / 2.0],
-        [1.0, 1.0 - s / 2.0],
-        [1.0 - s / 2.0, 1.0],
-        [s / 2.0, 1.0],
-        [0.0, 1.0 - s / 2.0],
-        [0.0, s / 2.0],
-    ];
+    let octagon =
+        [[s, 0.0], [1.0 - s, 0.0], [1.0, s], [1.0, 1.0 - s], [1.0 - s, 1.0], [s, 1.0], [0.0, 1.0 - s], [0.0, s]];
     let right = [[0.0, 0.3], [0.6, 0.3], [0.6, 0.0], [1.0, 0.5], [0.6, 1.0], [0.6, 0.7], [0.0, 0.7]];
     let flip = |p: &[[f64; 2]], f: &dyn Fn([f64; 2]) -> [f64; 2]| p.iter().map(|q| f(*q)).collect::<Vec<_>>();
     vec![
@@ -135,9 +129,23 @@ pub fn polygons() -> Vec<(&'static str, Vec<[f64; 2]>, f64)> {
 }
 
 /// Everything `deck` may have inserted, `theme` its theme, `files` its bundle's paths, and
-/// `sources` its files' bytes, for its data sources' columns.
+/// `sources` its files' bytes, for its data sources' columns; each box a share of the deck's own
+/// canvas.
 pub fn inserts(deck: &Deck, theme: &Theme, files: &[String], sources: &dyn SourceFiles) -> Vec<Insert> {
-    let [w, h] = [deck.canvas.width as f32, deck.canvas.height as f32];
+    inserts_on(deck, [deck.canvas.width, deck.canvas.height], theme, files, sources)
+}
+
+/// [`inserts`], each box a share of `canvas`, `[width, height]`: the canvas of the format an
+/// editor shows (SPEC §3.4), so that a square starts square there, and a shape of the library in
+/// the box its shape takes.
+pub fn inserts_on(
+    deck: &Deck,
+    canvas: [f64; 2],
+    theme: &Theme,
+    files: &[String],
+    sources: &dyn SourceFiles,
+) -> Vec<Insert> {
+    let [w, h] = canvas.map(|v| v as f32);
     let mut out = Vec::new();
     for (role, look) in &theme.typography.roles {
         let tall = (2.0 * look.size * look.leading) as f32 / h;
@@ -285,13 +293,14 @@ pub struct Icon {
     pub view: [f64; 4],
 }
 
-/// What inserts `icon` in `deck`, `theme` its theme (PLAN 2.104): a path shape on the icon's
+/// What inserts `icon` in a deck, `theme` its theme (PLAN 2.104): a path shape on the icon's
 /// view, so icons beside each other keep one weight, filled with the theme's accent (or its
 /// first color), as decoration a reader passes over, named by the icon (`alt`, `airplane-tilt` as
-/// "Airplane tilt"), as an editor names an object. It starts a twelfth of the canvas wide and as
-/// tall, a square.
-pub fn icon(deck: &Deck, theme: &Theme, icon: &Icon) -> Insert {
-    let [w, h] = [deck.canvas.width as f32, deck.canvas.height as f32];
+/// "Airplane tilt"), as an editor names an object. It starts a twelfth of `canvas` wide and as
+/// tall, a square: `canvas` is `[width, height]`, the deck's, or that of the format an editor
+/// shows (SPEC §3.4).
+pub fn icon(canvas: [f64; 2], theme: &Theme, icon: &Icon) -> Insert {
+    let [w, h] = canvas.map(|v| v as f32);
     let colors = theme.names(Vocabulary::Color);
     let fill = colors.iter().find(|c| *c == "accent").or(colors.first());
     let mut node = icon_node(&icon.name, &icon.path, icon.view, fill.map_or("", String::as_str));
@@ -481,6 +490,25 @@ mod tests {
         assert!((start("chevron") - 1.6).abs() < 1e-3 && (start("up-arrow") - 0.625).abs() < 1e-3);
         assert!((start("star") - 1.0515).abs() < 1e-3, "{}", start("star"));
         assert_eq!(crate::words::shape("right-arrow"), "Right Arrow");
+    }
+
+    /// The regular polygons are regular in the box their aspect makes: every side of a pentagon,
+    /// a hexagon, an octagon, and the star as long as the next.
+    #[test]
+    fn the_regular_polygons_have_sides_all_one_length() {
+        for (name, points, aspect) in polygons() {
+            if !["pentagon", "hexagon", "octagon", "star"].contains(&name) {
+                continue;
+            }
+            let sides: Vec<f64> = (0..points.len())
+                .map(|i| {
+                    let (a, b) = (points[i], points[(i + 1) % points.len()]);
+                    ((b[0] - a[0]) * aspect).hypot(b[1] - a[1])
+                })
+                .collect();
+            let (short, long) = sides.iter().fold((f64::MAX, f64::MIN), |(lo, hi), s| (lo.min(*s), hi.max(*s)));
+            assert!(long - short < 1e-3, "{name}'s sides: {sides:?}");
+        }
     }
 
     /// A data source offers a chart and a table of it (PLAN 2.41), from its columns: the

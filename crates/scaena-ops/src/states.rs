@@ -105,17 +105,19 @@ pub fn starting(deck: &Deck, theme: &Theme, shown: &str, layout: Option<&str>) -
     }
     let mut patch = vec![added(deck, after, state.clone())];
     let mut ids: Vec<String> = Vec::new();
+    let mut nodes = Vec::new();
     for (slot, s) in template.into_iter().flat_map(|t| &t.slots) {
         // Words that say what goes in a slot with no role, a picture or a figure: it waits.
         let Some(node) = slot_node(slot, s) else { continue };
         let node_id = named(deck, &format!("{id}-{}", slug(slot, "slot")), &ids);
+        nodes.push((node_id.clone(), serde_json::from_value(node.clone()).context("a slot's node")?));
         patch.push(json!({ "op": "add_node", "id": node_id, "node": node, "state": id }));
         ids.push(node_id);
     }
     // Each stays on the slide: where it leaves, read with the slide in the deck.
     let mut made = deck.clone();
     made.states.insert(after + 1, serde_json::from_value(state).context("a slide")?);
-    for op in crate::inspect::leaving(&made, &id, &ids) {
+    for op in crate::inspect::leaving(&made, &id, &nodes) {
         patch.push(serde_json::to_value(op).context("a patch")?);
     }
     Ok(AddedState { id, patch })
@@ -360,8 +362,9 @@ pub fn filling(deck: &Deck, theme: &Theme, state: &str, slot: &str) -> Result<Fi
     let i = deck.state_index(state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
     let slide = deck.slide_of(&deck.states[i]);
     let id = named(deck, &format!("{slide}-{}", slug(slot, "slot")), &[]);
+    let made = [(id.clone(), serde_json::from_value(node.clone()).context("a slot's node")?)];
     let mut patch = vec![json!({ "op": "add_node", "id": id, "node": node, "state": state })];
-    for op in crate::inspect::leaving(deck, state, std::slice::from_ref(&id)) {
+    for op in crate::inspect::leaving(deck, state, &made) {
         patch.push(serde_json::to_value(op).context("a patch")?);
     }
     Ok(Filled { id, patch })
@@ -509,7 +512,7 @@ mod tests {
                 json!({ "op": "add_node", "id": "bullets-header", "state": "bullets", "node": {
                     "type": "text", "role": "headline", "text": "What this slide says", "at": { "in": "header" } } }),
                 json!({ "op": "add_node", "id": "bullets-body", "state": "bullets", "node": {
-                    "type": "text", "role": "body", "text": "The first point\nThe second point\nThe third point",
+                    "type": "text", "role": "lede", "text": "The first point\nThe second point\nThe third point",
                     "at": { "in": "body" }, "list": [bullet, bullet, bullet] } }),
                 // `close` tracks from the state before it, now the new slide: they leave there.
                 json!({ "op": "hide_node", "node": "bullets-header", "state": "close" }),

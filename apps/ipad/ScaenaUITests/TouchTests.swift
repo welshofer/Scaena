@@ -4,9 +4,10 @@ import XCTest
 /// patch the Mac's pointer makes for it: a tap selects the title, a pinch zooms and another takes
 /// the whole canvas back, a double tap types in it and the keys type there (PLAN 4.4), a drag
 /// moves it, and a long press offers what is done to it, whose Duplicate copies it; then, in the
-/// light table, a slide dragged onto another moves after it. The move and the copy are each one
-/// step that the toolbar's Undo takes back by touch, and a long press on Undo offers Redo, which
-/// makes the copy again (PLAN 4.11).
+/// light table, a slide dragged onto another moves after it, the inspector showing the slide, not
+/// what the canvas had selected. The move and the copy are each one step that the toolbar's Undo
+/// takes back by touch, and a long press on Undo offers Redo, named for the step it makes again as
+/// the Edit menu names it, which makes the copy again (PLAN 4.11).
 final class TouchTests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -33,6 +34,14 @@ final class TouchTests: XCTestCase {
         XCTContext.runActivity(named: "A tap selects the title") { _ in
             title.tap()
             XCTAssertTrue(wait(5) { title.isSelected }, "the title is not selected: \(app.debugDescription)")
+            // Where the inspector shows the title's turn, it shows it as a number, 0, as a
+            // presentation app does, not as a hint in an empty field (PLAN 3.28).
+            let rotation = app.textFields.matching(identifier: "inspector-transform/rotate").firstMatch
+            if rotation.waitForExistence(timeout: 5) {
+                XCTAssertTrue(
+                    wait(5) { rotation.value as? String == "0" },
+                    "the title's rotation reads \(rotation.value ?? "nothing"), not 0")
+            }
         }
 
         try XCTContext.runActivity(named: "A pinch zooms, and another shows the whole canvas") { _ in
@@ -116,6 +125,7 @@ final class TouchTests: XCTestCase {
                 throw Unseen(description: "a long press on Undo offered no Redo: \(app.debugDescription)")
             }
             keep(app, as: "redo-offered")
+            XCTAssertEqual(redo.label, "Redo Duplicate", "Redo does not name the step it makes again")
             redo.tap()
             guard wait(5, { titles.count == 2 }) else {
                 throw Unseen(description: "Redo made no copy again: \(app.debugDescription)")
@@ -145,6 +155,10 @@ final class TouchTests: XCTestCase {
                 throw Unseen(description: "the light table shows no cover and belief-1: \(app.debugDescription)")
             }
             keep(app, as: "slides")
+            // The inspector shows the slide, as a presentation app's light table does: not the
+            // copy the canvas had selected, which the table does not show.
+            let slideInspector = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'layout-choose'")).firstMatch
+            XCTAssertTrue(slideInspector.waitForExistence(timeout: 5), "the inspector does not show the slide: \(app.debugDescription)")
             // A slide lifts once held, as any drag on the iPad does, and lands where it is let go.
             cover.press(forDuration: 1.5, thenDragTo: third, withVelocity: .slow, thenHoldForDuration: 1)
             let moved = cells.matching(NSPredicate(format: "identifier == 'slide-cover' AND label BEGINSWITH 'Slide 3'")).firstMatch

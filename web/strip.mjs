@@ -14,13 +14,15 @@
 // - + Slide opens Dusk's layouts by their sections (PLAN 3.30, 3.31): the 13 down the side as tabs,
 //   128 layouts in all, Titles first, each drawn as it is used and named as a person calls it; a
 //   tab clicked or the down arrow shows another, and the field finds a layout in any section.
+//   Among the layouts, → goes to the next and ↓ to the one below, as they stand in the grid.
 //   Bullets starts a slide after `mix` with its headline and its
 //   points in their slots, one undo; a double click on its headline selects its words whole, so
 //   typing replaces them; its headline deleted, a press on the header's words puts a headline back
 //   in the slot. Photo starts one whose picture, edge to edge, the canvas outlines
 //   with its words, and a press on them asks for a picture, which goes in that slot, one undo;
 //   where it outlines nothing on `intro`, a title slide the deck opened with no picture and no
-//   kicker. Blank adds an empty slide after `mix`. Alt with an arrow key moves it, and so
+//   kicker. Bullets deleted from the strip takes its headline and points with it, the source as
+//   it was. Blank adds an empty slide after `mix`. Alt with an arrow key moves it, and so
 //   does a drag; Delete removes it, and the source is as it was.
 // - A deck whose bundle took Dusk before its library grew, 11 layouts in no section, opens with the
 //   library Dusk ships now (PLAN 3.31): + Slide offers the 13 sections and 128 layouts.
@@ -239,6 +241,18 @@ try {
   const titles = await drawn();
   const want = "Title,Section,Title over Photo,Title Only,Centered Title,Title beside Photo,Section and Photo,Section Number";
   check(titles.join() === want, `each drawn, by its name: ${titles.join(", ")}`);
+  // The arrows go among the layouts as they stand in the grid: → the next, ↓ the one below.
+  await tile("Title").focus();
+  await page.keyboard.press("ArrowRight");
+  const focused = () => page.evaluate(() => document.activeElement?.querySelector("span")?.textContent);
+  check((await focused()) === "Section", `→ goes to the next layout: ${await focused()}`);
+  const below = await page.evaluate(() => {
+    const all = [...document.querySelectorAll("#starting .starters button[data-start]")];
+    const across = all.filter((b) => b.offsetTop === all[0].offsetTop).length;
+    return all[1 + across]?.querySelector("span").textContent;
+  });
+  await page.keyboard.press("ArrowDown");
+  check(below !== undefined && (await focused()) === below, `↓ goes to the one below: ${await focused()}, ${below}`);
   await tab("Frameworks").click();
   const frameworks = await drawn();
   check(["SWOT", "OKRs", "RACI", "Venn Diagram", "Two-by-Two Matrix"].every((n) => frameworks.includes(n)), `Frameworks: ${frameworks.join(", ")}`);
@@ -310,6 +324,16 @@ try {
     await undo();
     check(await back(started), "two undos take the headline and the Delete back");
   }
+  // Deleted from the strip, the slide takes what it alone showed with it, as a presentation app's
+  // does: the source is as it was, and nothing is left that no slide shows.
+  await item("bullets").focus();
+  await page.keyboard.press("Delete");
+  check(await holds(["intro", "revenue", "mix", "close"]), `Delete removes the Bullets slide: ${await order()}`);
+  const left = (await source()).split("\n").filter((l) => l.includes("bullets-"));
+  check(await back(original), `and its headline and points with it: ${left.join(" | ")}`);
+  check(!(await status()).includes("note"), `with nothing left to note: ${await status()}`);
+  await undo();
+  check(await back(started), "one undo puts the slide back");
   await undo();
   check(await back(original), "one undo takes it back");
 

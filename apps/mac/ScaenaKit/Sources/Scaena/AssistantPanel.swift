@@ -55,10 +55,7 @@ struct AssistantPanel: View {
         }
         #if !os(macOS)
         .sheet(isPresented: $keying, onDismiss: { keysChanged += 1 }) {
-            NavigationStack {
-                KeysSettings()
-                    .toolbar { Button("Done") { keying = false } }
-            }
+            KeysSheet { keying = false }
         }
         #endif
     }
@@ -73,15 +70,21 @@ struct AssistantPanel: View {
             }
             .labelsHidden()
             .fixedSize()
-            Picker("Model", selection: model) {
-                if !models.contains(model.wrappedValue) {
-                    Text(model.wrappedValue.isEmpty ? "Choose a model" : model.wrappedValue).tag(model.wrappedValue)
+            // A model to choose once a key is kept: with none, there is none to choose, and the
+            // panel offers to add one. Its name on one line, as the provider's is.
+            if !keyless {
+                Picker("Model", selection: model) {
+                    if !models.contains(model.wrappedValue) {
+                        Text(model.wrappedValue.isEmpty ? "Choose a model" : model.wrappedValue).tag(model.wrappedValue)
+                    }
+                    ForEach(models, id: \.self) { name in
+                        Text(name).tag(name)
+                    }
                 }
-                ForEach(models, id: \.self) { name in
-                    Text(name).tag(name)
-                }
+                .labelsHidden()
+                .lineLimit(1)
+                .truncationMode(.middle)
             }
-            .labelsHidden()
             Spacer(minLength: 0)
             Menu {
                 Button("New conversation") { assistant.forget() }
@@ -257,13 +260,14 @@ private struct EntryRow: View {
         case .call(let name, _, let ran):
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Image(systemName: ran == nil ? "gearshape" : ran?.error == true ? "xmark.circle" : "checkmark.circle")
+                    Image(systemName: ran == nil ? "gearshape" : ran?.made == false ? "xmark.circle" : "checkmark.circle")
                         .foregroundStyle(ran?.error == true ? Color.red : Color.secondary)
-                    // What the call does, in a person's words: no tool's name reaches the window.
-                    if ran == nil {
-                        Text(ToolWords.doing(name)).font(.callout).modifier(Sweep())
+                    // What the call does, in a person's words: no tool's name reaches the window. A
+                    // call refused, only tried, or stopped is headed as not done.
+                    if let ran {
+                        Text(ToolWords.ran(ran)).font(.callout)
                     } else {
-                        Text(ToolWords.done(name)).font(.callout)
+                        Text(ToolWords.doing(name)).font(.callout).modifier(Sweep())
                     }
                     if let summary = ran?.summary {
                         Text(summary).font(.callout).foregroundStyle(.secondary).lineLimit(2)

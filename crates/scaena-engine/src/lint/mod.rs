@@ -113,7 +113,7 @@ pub fn lint(
     data: &DataFiles,
     backdrop: Option<&mut dyn Backdrop>,
 ) -> Result<Vec<Finding>, EngineError> {
-    lint_in(engine, deck, theme, data, backdrop, None)
+    lint_in(engine, deck, theme, data, backdrop, None, true)
 }
 
 /// What the layout-level rules find in one state of `deck`, in every format, laid out
@@ -128,7 +128,23 @@ pub fn lint_state(
     backdrop: Option<&mut dyn Backdrop>,
     state: &str,
 ) -> Result<Vec<Finding>, EngineError> {
-    lint_in(engine, deck, theme, data, backdrop, Some(state))
+    lint_in(engine, deck, theme, data, backdrop, Some(&[state]), false)
+}
+
+/// What the layout-level rules find in `states` of `deck`, in every format, each laid out after
+/// the state before it, as [`lint_state`] lays one out; and what is judged once for the deck,
+/// the figures its texts quote: what a patch changes, judged before and after it (SPEC §7.3).
+/// A finding that holds across several of them is reported at the first, as [`lint`] reports
+/// it.
+pub fn lint_states(
+    engine: &mut Engine,
+    deck: &Deck,
+    theme: &Theme,
+    data: &DataFiles,
+    backdrop: Option<&mut dyn Backdrop>,
+    states: &[&str],
+) -> Result<Vec<Finding>, EngineError> {
+    lint_in(engine, deck, theme, data, backdrop, Some(states), true)
 }
 
 fn lint_in(
@@ -137,7 +153,8 @@ fn lint_in(
     theme: &Theme,
     data: &DataFiles,
     mut backdrop: Option<&mut dyn Backdrop>,
-    only: Option<&str>,
+    only: Option<&[&str]>,
+    quotes: bool,
 ) -> Result<Vec<Finding>, EngineError> {
     engine.lenient = true;
     // What a font's license allows is the same in every format: judged once.
@@ -157,13 +174,21 @@ fn lint_in(
                 continue;
             }
             let only = match only {
-                Some(id) => match d.states.iter().position(|s| s.id == id) {
-                    Some(i) => Some(i),
-                    None => return Err(EngineError::Layout(format!("no state `{id}`"))),
-                },
+                Some(ids) => {
+                    let mut at = Vec::with_capacity(ids.len());
+                    for id in ids {
+                        match d.states.iter().position(|s| s.id == *id) {
+                            Some(i) => at.push(i),
+                            None => return Err(EngineError::Layout(format!("no state `{id}`"))),
+                        }
+                    }
+                    at.sort_unstable();
+                    at.dedup();
+                    Some(at)
+                }
                 None => None,
             };
-            let (states, timeline) = lay_out(engine, &d, &t, data, only)?;
+            let (states, timeline) = lay_out(engine, &d, &t, data, only.as_deref())?;
             timelines.push((format, timeline));
             let cx = Cx { deck: &d, theme: &t, format, states: &states };
             for rule in rules() {
@@ -188,7 +213,7 @@ fn lint_in(
         None => Ok(()),
     });
     // Quoted figures are the same in every format: judged once, and each fix is the figure.
-    if result.is_ok() && only.is_none() {
+    if result.is_ok() && (only.is_none() || quotes) {
         out.extend(w427(deck, data));
     }
     engine.lenient = false;
@@ -269,20 +294,23 @@ fn verify(
     Ok(())
 }
 
-/// Every state of the (projected) deck, or only state `only`, laid out, with its slot and
-/// its cue; and the deck's timeline.
+/// Every state of the (projected) deck, or only the states at `only`, in order, laid out, with
+/// its slot and its cue; and the deck's timeline.
 fn lay_out(
     engine: &mut Engine,
     deck: &Deck,
     theme: &Theme,
     data: &DataFiles,
-    only: Option<usize>,
+    only: Option<&[usize]>,
 ) -> Result<(Vec<Laid>, Timeline), EngineError> {
     let snapshots = scaena_core::resolve_states(deck)?;
     let timeline = engine.timeline(deck, theme, data)?;
-    let range = only.map_or(0..snapshots.len(), |i| i..i + 1);
-    let mut out: Vec<Laid> = Vec::with_capacity(range.len());
-    for i in range {
+    let every: Vec<usize> = match only {
+        Some(at) => at.to_vec(),
+        None => (0..snapshots.len()).collect(),
+    };
+    let mut out: Vec<Laid> = Vec::with_capacity(every.len());
+    for i in every {
         let snap = &snapshots[i];
         let scene = engine.scene(deck, theme, data, snap)?;
         let state = &deck.states[i];
@@ -291,8 +319,8 @@ fn lay_out(
         let items = cues::items(deck, theme, state, before, snap, timing.matched)?;
         // The state before, as laid out already, or laid out for the cue into this one.
         let from = match (i.checked_sub(1), out.last()) {
-            (Some(_), Some(laid)) => Some(laid.scene.clone()),
-            (Some(p), None) => Some(engine.scene(deck, theme, data, &snapshots[p])?),
+            (Some(p), Some(laid)) if laid.index == p => Some(laid.scene.clone()),
+            (Some(p), _) => Some(engine.scene(deck, theme, data, &snapshots[p])?),
             (None, _) => None,
         };
         let schedule = Transition::new(from, scene.clone(), timing, &items, 0.0)?.schedule().clone();

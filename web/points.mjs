@@ -138,7 +138,7 @@ try {
 
   // Its apex dragged a quarter of the box left: one `choose` of its points, on the triangle.
   await drag(apex, [apex[0] - tw / 4, apex[1]]);
-  check(await says("The shape: point 1 moved"), `the status says the point moved: ${await status()}`);
+  check(await says("The triangle: point 1 moved"), `the status says the point moved: ${await status()}`);
   await comes("points:[[0.25, 0], [1, 1], [0, 1]]");
   check(declared(await source(), "shape-tri").includes("points:[[0.25, 0], [1, 1], [0, 1]]"), `written on the triangle: ${declared(await source(), "shape-tri")}`);
   await undo();
@@ -146,15 +146,18 @@ try {
 
   // A point dragged past its box stays at its edge: above it, the apex goes nowhere.
   check(JSON.stringify((await outline("shape-tri", TRI)).points) === JSON.stringify(TRI), "the canvas holds the triangle as it was");
+  // Named by its points (PLAN 2.106), it is a triangle again once the canvas has the words of the
+  // deck undone, which it asks for after its boxes.
+  await page.waitForFunction(() => window.scaena.canvas.called("shape-tri") === "the triangle", null, { timeout: 30000 }).catch(() => {});
   const apex2 = await handle('[data-point="0"]');
   await drag(apex2, [apex2[0], apex2[1] - th]);
-  check(await says("The shape: point 1 stays where it is"), `a point dragged above its box stays at its edge: ${await status()}`);
+  check(await says("The triangle: point 1 stays where it is"), `a point dragged above its box stays at its edge: ${await status()}`);
   check((await source()) === original, "and nothing changes");
 
   // A point added at an edge's middle, then picked and taken away.
   const mid = await handle('[data-add="0"]');
   await click(mid);
-  check(await says("The shape: a point added"), `a click on an edge's middle adds a point there: ${await status()}`);
+  check(await says("The triangle: a point added"), `a click on an edge's middle adds a point there: ${await status()}`);
   await comes("points:[[0.5, 0], [0.75, 0.5], [1, 1], [0, 1]]");
   check(declared(await source(), "shape-tri").includes("points:[[0.5, 0], [0.75, 0.5], [1, 1], [0, 1]]"), `between its neighbors: ${declared(await source(), "shape-tri")}`);
   await outline("shape-tri", 4);

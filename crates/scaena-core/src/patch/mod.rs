@@ -180,7 +180,8 @@ pub enum SemanticOp {
     /// own `at` places them), and take the group as their container wherever that one is
     /// written. A group lays nothing out, so nothing moves. It sits where they sat, at the
     /// highest `z` among them (0 for one that sets none), last among what stands there; and
-    /// it shows in each state that shows one of them in it, and only there.
+    /// it shows in each state that shows one of them in it, and only there. A connector among
+    /// them stays out of it, placed by what it joins (PLAN 2.109).
     Group {
         #[schemars(with = "Id")]
         id: String,
@@ -255,12 +256,12 @@ pub enum SemanticOp {
     /// Text typed into a text node where it stands (ADR-0013): the characters from `from` to
     /// `to` of its text as `state` shows it (its `text`, or its runs' texts end to end, as the
     /// deck's `overrides` leave them) become `text`. Offsets count characters (Unicode scalar
-    /// values). Runs keep their looks: what is typed takes the look of the run it is typed
-    /// into, the one before where two meet, and a run the edit leaves with no text goes. It is
-    /// written where the
-    /// text lives: in the deck's `overrides` if they set it; else in the latest delta that
-    /// sets it, from `state` back along what it tracks; else in the node's own. Without
-    /// `state`, in the node's own unless the overrides set it.
+    /// values). Runs keep their looks: what replaces characters takes the look of the first it
+    /// replaces; what is typed where nothing is replaced takes the look of the run it is typed
+    /// into, the one before where two meet; and a run the edit leaves with no text goes. It is
+    /// written where the text lives: in the deck's `overrides` if they set it; else in the
+    /// latest delta that sets it, from `state` back along what it tracks; else in the node's
+    /// own. Without `state`, in the node's own unless the overrides set it.
     ReplaceText {
         #[schemars(with = "Id")]
         node: String,

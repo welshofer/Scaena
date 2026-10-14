@@ -243,7 +243,8 @@ impl Painting {
     }
 
     /// The pictures made, by their slides, each at the path the bundle keeps it at and with what
-    /// it shows; their bytes, by those paths; and the reason each picture not made was not.
+    /// it shows; their bytes, by those paths; and the reason each picture not made was not, by its
+    /// slide where it was asked for one.
     pub fn finish(self) -> (Pictures, BTreeMap<String, Vec<u8>>, Vec<String>) {
         let mut placed = Pictures::new();
         let mut assets = BTreeMap::new();
@@ -259,7 +260,7 @@ impl Painting {
                     let why = (self.why[i].clone())
                         .or_else(|| self.stopped.clone())
                         .unwrap_or_else(|| "it was not asked for".into());
-                    unmade.push(format!("slide {}: {why}", a.slide + 1));
+                    unmade.push(if a.alone { why } else { format!("slide {}: {why}", a.slide + 1) });
                 }
             }
         }
@@ -1361,6 +1362,10 @@ pub struct Asked {
     pub prompt: String,
     pub frame: Frame,
     pub alt: String,
+    /// The one picture a person asks for in an editor (PLAN 2.107), for no slide of a made deck:
+    /// why it was not made is said without one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub alone: bool,
 }
 
 /// One picture a person asks for in an editor (PLAN 2.107): of `subject`, in their words, made as
@@ -1371,7 +1376,7 @@ pub fn asked_one(theme: &Theme, subject: &str, look: Look, width: f64, height: f
     let style = pictures::style(look, &palette(theme));
     let frame = Frame::of(width, height);
     let prompt = pictures::prompt(look, &style, subject, pictures::composition(""), frame);
-    Asked { slide: 0, prompt, frame, alt: subject.to_string() }
+    Asked { slide: 0, prompt, frame, alt: subject.to_string(), alone: true }
 }
 
 /// The pictures `narrative` asks for in `theme`, made as `look`: one for each slide that wants
@@ -1391,7 +1396,7 @@ pub fn asking(narrative: &Narrative, theme: &Theme, look: Look) -> Vec<Asked> {
             let frame = frame_of(theme, slot);
             let subject = pictures::subject(slide);
             let prompt = pictures::prompt(look, &style, &subject, pictures::composition(identities[i]), frame);
-            Some(Asked { slide: i, prompt, frame, alt: subject })
+            Some(Asked { slide: i, prompt, frame, alt: subject, alone: false })
         })
         .collect()
 }

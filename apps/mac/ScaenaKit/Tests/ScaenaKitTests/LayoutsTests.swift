@@ -55,3 +55,32 @@ import Testing
     #expect(kept.last?.image === first.first?.image)
     #expect(editor.startersKept(["swot"], height: 120).isEmpty, "another height draws them again")
 }
+
+/// A layout's picture is marked only where the slide laid out in it would leave more to put right
+/// than it has now (PLAN 3.26): the layout it takes marks nothing, whatever lint finds in it, since
+/// the slide marks that itself; one as good marks nothing either.
+@Test func aLayoutIsMarkedOnlyWhereItWouldLeaveMoreToPutRight() throws {
+    let suggestion = { (json: String) in try JSONDecoder().decode(LayoutSuggestion.self, from: Data(json.utf8)) }
+    let now = try suggestion(
+        #"{"layout":"title","current":true,"errors":0,"warnings":2,"reach":[],"patch":[],"width":160,"height":90}"#)
+    let alike = try suggestion(
+        #"{"layout":"centered","errors":0,"warnings":2,"reach":[],"patch":[],"width":160,"height":90}"#)
+    let worse = try suggestion(
+        #"{"layout":"photo","errors":1,"warnings":1,"reach":[],"patch":[],"width":160,"height":90}"#)
+    let better = try suggestion(
+        #"{"layout":"plain","errors":0,"warnings":0,"reach":[],"patch":[],"width":160,"height":90}"#)
+    #expect(now.adds(over: now).errors == 0 && now.adds(over: now).warnings == 0)
+    #expect(alike.adds(over: now).errors == 0 && alike.adds(over: now).warnings == 0)
+    #expect(worse.adds(over: now).errors == 1 && worse.adds(over: now).warnings == 0)
+    #expect(better.adds(over: now).errors == 0 && better.adds(over: now).warnings == 0)
+    #expect(worse.adds(over: nil).errors == 1 && worse.adds(over: nil).warnings == 1)
+
+    // Revenue's: the layout it takes finds nothing, and each other an error more.
+    let session = try ScaenaSession(files: example("revenue"))
+    _ = try session.layoutsBegin(state: "revenue")
+    while try session.layoutsStep() {}
+    let drawn = try session.layoutsDrawn(height: 90).map(\.suggestion)
+    let current = drawn.first { $0.current }
+    #expect(current?.adds(over: current).errors == 0)
+    #expect(drawn.filter { !$0.current }.allSatisfy { $0.adds(over: current).errors > 0 })
+}

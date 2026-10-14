@@ -68,6 +68,7 @@ import type {
   Waiting,
   Worded,
   Connected,
+  Duplicated,
   Diagram,
   Diagrammed,
   Writing,
@@ -153,6 +154,7 @@ type Reply = Extract<
       | "inserts"
       | "layers"
       | "adding"
+      | "duplicated"
       | "worded"
       | "connected"
       | "diagrammed"
@@ -759,10 +761,19 @@ export class Stage {
     return this.request<"adding">({ type: "duplicating", id: ++this.asked, source, state, node, format }).then(({ added }) => added);
   }
 
-  /** The words of `shape` to type in (PLAN 2.108): the text that holds them, and the patch that
-   * gives it one where it holds none. */
-  wording(source: string, shape: string): Promise<Worded> {
-    return this.request<"worded">({ type: "wording", id: ++this.asked, source, shape }).then(({ worded }) => worded);
+  /** The patch that copies each of `nodes` beside it in `state`, on the deck `source` compiles to
+   * (PLAN 2.42): the copies' ids, and the connectors among them copied to join their copies. */
+  duplicatingAll(source: string, state: string, nodes: string[], format?: string): Promise<Duplicated> {
+    return this.request<"duplicated">({ type: "duplicatingAll", id: ++this.asked, source, state, nodes, format }).then(
+      ({ duplicated }) => duplicated,
+    );
+  }
+
+  /** The words of `shape` to type in in `state` (PLAN 2.108): the text that holds them, and the
+   * patch that gives it one where it holds none, or brings them back where the state does not
+   * show them. */
+  wording(source: string, state: string, shape: string): Promise<Worded> {
+    return this.request<"worded">({ type: "wording", id: ++this.asked, source, state, shape }).then(({ worded }) => worded);
   }
 
   /** The patch that joins `from` to `to` in `state` with an arrow, or a line (PLAN 2.109). */
@@ -844,10 +855,11 @@ export class Stage {
     return this.request<"waiting">({ type: "waiting", id: ++this.asked, state, format }).then(({ waiting }) => waiting);
   }
 
-  /** The patch that takes `node`, with what it holds, out of `state` and the states after it, or,
-   * `everywhere`, out of the deck, on the deck `source` compiles to. */
-  deleting(source: string, state: string, node: string, everywhere: boolean): Promise<unknown[]> {
-    return this.request<"deleting">({ type: "deleting", id: ++this.asked, source, state, node, everywhere }).then(({ patch }) => patch);
+  /** The patch that takes `nodes`, with what they hold, out of `state` and the states after it,
+   * or, `everywhere`, out of the deck, on the deck `source` compiles to: one patch, a connector
+   * going with an end that goes. */
+  deleting(source: string, state: string, nodes: string[], everywhere: boolean): Promise<unknown[]> {
+    return this.request<"deleting">({ type: "deleting", id: ++this.asked, source, state, nodes, everywhere }).then(({ patch }) => patch);
   }
 
   /** Make `ops`, typed on the canvas, by the user on the deck `source` compiles to, and show slot
@@ -1061,6 +1073,7 @@ export class Stage {
       case "inserts":
       case "layers":
       case "adding":
+      case "duplicated":
       case "worded":
       case "connected":
       case "diagrammed":

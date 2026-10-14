@@ -19,7 +19,8 @@
 //   pointer is over the slide; ? lists the keys.
 // - The presenter view follows the player, shows the state's notes (its beat's, where it has
 //   none), and steers it: on, back, and with End and Home to the last and the first; and its own
-//   presenter's keys steer the room's screen, its laser pointed from the slide it shows.
+//   presenter's keys steer the room's screen, its laser pointed from the slide it shows, and drawn
+//   on none of the room's black screen.
 // - With `?fps`, the frame meter reads a played cue's frames: frames a second, the worst frame,
 //   late frames, and the mean paint (gate 2, criterion 1).
 // Exits 1 on any failure.
@@ -304,6 +305,19 @@ try {
     .waitForFunction(() => window.scaena.pointed(), null, { timeout: 5000 })
     .then((h) => h.jsonValue(), () => null);
   check(centered(mirrored), `and it draws the dot where it points: ${mirrored}`);
+  // A black screen takes the dot with the slide, though the presenter's pointer still points over
+  // its slide, clear of what it says in the middle, and the slide back brings it back there.
+  await presenter.keyboard.press("b");
+  await player.waitForFunction(() => window.scaena.blank() === "black", null, { timeout: 5000 }).catch(() => {});
+  await presenter.mouse.move(shownBox.x + shownBox.width / 4, shownBox.y + shownBox.height / 4, { steps: 3 });
+  const quarter = (p) => p && Math.abs(p[0] - 0.25) < 0.01 && Math.abs(p[1] - 0.25) < 0.01;
+  await player.waitForFunction(() => window.scaena.laser().point?.[0] < 0.3, null, { timeout: 5000 }).catch(() => {});
+  dot = await laser();
+  check(dot.on && quarter(dot.point) && dot.hidden, `the room's black screen shows no dot where it points: ${JSON.stringify(dot)}`);
+  await presenter.keyboard.press("ArrowRight");
+  await player.waitForFunction(() => window.scaena.blank() === null, null, { timeout: 5000 }).catch(() => {});
+  dot = await laser();
+  check(dot.on && !dot.hidden && quarter(dot.point), `and the slide back shows it where it points: ${JSON.stringify(dot)}`);
   await presenter.keyboard.press("l");
   await player.waitForFunction(() => !window.scaena.laser().on, null, { timeout: 5000 }).catch(() => {});
   check((await laser()).hidden, "its L again puts the laser away");
