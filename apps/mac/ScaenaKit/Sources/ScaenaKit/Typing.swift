@@ -671,7 +671,9 @@ public final class Typing {
         if fork {
             whereTold = "Editing on this slide only · \(Self.stops)"
         } else if others > 0 {
-            whereTold = "Editing · it changes on \(others) other slide\(others == 1 ? "" : "s") too\(Self.keeping)"
+            // How it stops, before how to keep it here: on an iPad with no keyboard, a tap off the
+            // text is the only way out.
+            whereTold = "Editing · it changes on \(others) other slide\(others == 1 ? "" : "s") too · \(Self.stops)\(Self.keeping)"
         } else {
             whereTold = "Editing · \(Self.stops)"
         }

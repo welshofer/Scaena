@@ -208,10 +208,12 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   else
     echo "no slide found: $sx $sy $sw $sh"
   fi
-  # Tab: the next object in reading order.
+  # Tab: the next object in reading order. What the canvas says of it stands on the desk under
+  # the slide, off its words and its handles.
   events 'key code 48'
   sleep 2
   shot tabbed
+  echo "Tab: the canvas says \"$(frames value hint)\" at $(frames find hint); the slide at $(frames find canvas)"
 
   # A text from the toolbar's Text: typed in, its words selected (PLAN 3.21), and what is typed
   # takes their place.
@@ -271,7 +273,7 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   events 'keystroke "=" using command down'
   sleep 2
   shot zoomed
-  echo "zoomed twice, the canvas: $(frames find canvas || true)"
+  echo "zoomed twice, the canvas: $(frames find canvas || true); the zoom reads $(frames value zoom), against the slide's own size"
   events 'keystroke "0" using command down'
   sleep 2
   echo "fitted again, the canvas: $(frames find canvas || true)"
@@ -350,6 +352,8 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   events 'keystroke "z" using command down'
   echo "⌘Z, the canvas shows: $(reads "$before" same)"
   shot slide-menu-undone
+  # Said of the slide added, the canvas's words go with it: an undo says nothing of its own.
+  echo "⌘Z, the canvas says: $(frames value hint)"
 
   # The cue and the canvas select together (PLAN 3.14): Funding's title, chart, and words each
   # enter in turn. With the timeline shown, a click on the chart's lane selects the chart, and its

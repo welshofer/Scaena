@@ -3,7 +3,7 @@ import XCTest
 /// Play on the iPad alone (PLAN 4.8), on B1, its 40 states: the stage fills the iPad from the slide
 /// shown and reads as that slide does; a swipe to the left goes on and one to the right goes back,
 /// a tap goes on, a touch held is the laser and turns no slide (PLAN 2.105), and a pinch closed
-/// ends the show, the window as it was. With an external display
+/// ends the show, the window showing the slide it stopped on. With an external display
 /// or an AirPlay screen the stage goes there and the iPad shows the presenter's view; a simulator
 /// driven by XCUITest attaches neither.
 final class PresentingTests: XCTestCase {
@@ -64,6 +64,8 @@ final class PresentingTests: XCTestCase {
             XCTAssertTrue(wait(10) { !stage.exists }, "the stage stayed: \(app.debugDescription)")
             let canvas = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'canvas'")).firstMatch
             XCTAssertTrue(canvas.waitForExistence(timeout: 10), "the window is not back: \(app.debugDescription)")
+            // The show stopped on slide 2, as a presentation app leaves you where you stopped.
+            XCTAssertTrue(wait(10) { canvas.label.hasPrefix("Slide 2") }, "the window shows \(canvas.label), not slide 2")
             keep(app, as: "ended")
         }
     }

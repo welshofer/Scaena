@@ -317,29 +317,40 @@ struct WaitingOverlay: View {
 /// words selected, or a picture asked for and put there.
 struct WaitingButton: View {
     let slot: WaitingSlot
-    /// How wide the slot is drawn, points: the words wrap to a second line within it, and a slot
-    /// too narrow for them shows the icon alone, its words in its help.
+    /// How wide and how tall the slot is drawn, points: the words wrap to a second line within it,
+    /// a short slot keeps them to a line, smaller, and a slot too narrow for any shows the icon
+    /// alone, as small as the slot is short, its words in its help.
     let width: CGFloat
+    let height: CGFloat
     let fill: () -> Void
 
     var body: some View {
         let icon = slot.typed ? "text.cursor" : "photo.badge.plus"
+        let short = height < 44
+        // A short slot's words smaller and on one line, and its icon smaller, inside its outline.
+        let iconFont: Font = short ? .caption : .body
+        let iconPadding: CGFloat = short ? 4 : 7
+        let wordsFont: Font = short ? .caption2 : .caption
+        let lines: Int = short ? 1 : 2
+        let across: CGFloat = short ? 6 : 8
+        let down: CGFloat = short ? 2 : 4
+        let corner: CGFloat = short ? 6 : 8
         Button(action: fill) {
-            if width < 150 {
+            if width < 90 {
                 Image(systemName: icon)
-                    .font(.body)
-                    .padding(7)
+                    .font(iconFont)
+                    .padding(iconPadding)
                     .background(.thinMaterial, in: Circle())
                     .foregroundStyle(.secondary)
                     .contentShape(Circle())
             } else {
-                let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+                let shape = RoundedRectangle(cornerRadius: corner, style: .continuous)
                 Label(slot.words, systemImage: icon)
-                    .font(.caption)
-                    .lineLimit(2)
+                    .font(wordsFont)
+                    .lineLimit(lines)
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, across)
+                    .padding(.vertical, down)
                     .background(.thinMaterial, in: shape)
                     .foregroundStyle(.secondary)
                     .contentShape(shape)

@@ -161,22 +161,26 @@ final class ScaenaDocument: ReferenceFileDocument {
     }
 
     /// Make `ops`, a patch, as the user, as the browser's gestures do (ADR-0013): one step to
-    /// undo, which makes the deck its source again.
-    func make(_ ops: [JSONValue], undo: UndoManager?) throws {
+    /// undo, which makes the deck its source again, named in the Edit menu as `named` says, or as
+    /// the patch says what it does (PLAN 3.28, 4.11): Undo Move, Redo Duplicate.
+    func make(_ ops: [JSONValue], undo: UndoManager?, named: String? = nil) throws {
         let before = try editor.make(ops)
         keep(before, undo: undo)
+        undo?.setActionName(named ?? StepName.of(ops, label: Words.label))
     }
 
     /// Compile `typed`, the source pane's text: where it becomes the deck, one step to undo.
     func type(_ typed: String, undo: UndoManager?) {
         guard let before = editor.type(typed) else { return }
         keep(before, undo: undo)
+        undo?.setActionName("Typing")
     }
 
     /// Apply `finding`'s fix: one step to undo.
     func fix(_ finding: Finding, undo: UndoManager?) throws {
         let before = try editor.fix(finding)
         keep(before, undo: undo)
+        undo?.setActionName("Fix")
     }
 
     /// Take text typed in place on the canvas (PLAN 3.9): `before`, the source the change replaced.
@@ -185,6 +189,7 @@ final class ScaenaDocument: ReferenceFileDocument {
     func typedInPlace(_ before: String, joins: Bool, undo: UndoManager?) {
         guard !joins else { return }
         keep(before, undo: undo)
+        undo?.setActionName("Typing")
     }
 
     /// Take an edit the assistant made on the deck (PLAN 3.6): `before`, the source it replaced,
@@ -192,6 +197,7 @@ final class ScaenaDocument: ReferenceFileDocument {
     /// as the user's own edit is: the source made the deck again, and the files written back.
     func took(_ before: String, files: [Rewritten], undo: UndoManager?) {
         keep(before, files: files, undo: undo)
+        undo?.setActionName("Assistant’s Edit")
     }
 
     /// An edit a panel makes on the session beside the source (PLAN 3.15): the theme edited or

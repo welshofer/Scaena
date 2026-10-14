@@ -55,10 +55,7 @@ struct AssistantPanel: View {
         }
         #if !os(macOS)
         .sheet(isPresented: $keying, onDismiss: { keysChanged += 1 }) {
-            NavigationStack {
-                KeysSettings()
-                    .toolbar { Button("Done") { keying = false } }
-            }
+            KeysSheet { keying = false }
         }
         #endif
     }
@@ -73,15 +70,21 @@ struct AssistantPanel: View {
             }
             .labelsHidden()
             .fixedSize()
-            Picker("Model", selection: model) {
-                if !models.contains(model.wrappedValue) {
-                    Text(model.wrappedValue.isEmpty ? "Choose a model" : model.wrappedValue).tag(model.wrappedValue)
+            // A model to choose once a key is kept: with none, there is none to choose, and the
+            // panel offers to add one. Its name on one line, as the provider's is.
+            if !keyless {
+                Picker("Model", selection: model) {
+                    if !models.contains(model.wrappedValue) {
+                        Text(model.wrappedValue.isEmpty ? "Choose a model" : model.wrappedValue).tag(model.wrappedValue)
+                    }
+                    ForEach(models, id: \.self) { name in
+                        Text(name).tag(name)
+                    }
                 }
-                ForEach(models, id: \.self) { name in
-                    Text(name).tag(name)
-                }
+                .labelsHidden()
+                .lineLimit(1)
+                .truncationMode(.middle)
             }
-            .labelsHidden()
             Spacer(minLength: 0)
             Menu {
                 Button("New conversation") { assistant.forget() }

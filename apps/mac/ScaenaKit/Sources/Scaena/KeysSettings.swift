@@ -42,6 +42,28 @@ struct KeysSettings: View {
     }
 }
 
+#if !os(macOS)
+/// The keys as a sheet on the iPad (PLAN 4.9), as a presentation app's settings sheet: its title
+/// and Done alone. Nothing comes before it, so it has no way back: the document's own way back to
+/// the browser showed a second way out beside Done.
+struct KeysSheet: View {
+    let done: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            KeysSettings()
+                .navigationBarTitleDisplayMode(.inline)
+                .navigationBarBackButtonHidden(true)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done", action: done)
+                    }
+                }
+        }
+    }
+}
+#endif
+
 /// One provider's key: whether it works, the key masked or a field to give one, and what is done
 /// with it.
 private struct ProviderKey: View {

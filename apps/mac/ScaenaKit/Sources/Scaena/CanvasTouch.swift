@@ -164,6 +164,9 @@ struct CanvasMenu: UIViewRepresentable {
     let asked: (count: Int, at: CGPoint)?
     let deck: DeckActions?
     let clip: (Clipping) -> Void
+    /// Where what it is for stands, view points: the menu stands clear of it, above it where there
+    /// is room, as iPadOS puts an edit menu over what it acts on. None where it is for the slide.
+    var around: CGRect? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -180,6 +183,7 @@ struct CanvasMenu: UIViewRepresentable {
         let held = context.coordinator
         held.deck = deck
         held.clip = clip
+        held.around = around
         guard let asked, asked.count != held.shown else { return }
         held.shown = asked.count
         held.menus?.presentEditMenu(with: UIEditMenuConfiguration(identifier: nil, sourcePoint: asked.at))
@@ -189,6 +193,8 @@ struct CanvasMenu: UIViewRepresentable {
         var menus: UIEditMenuInteraction?
         var deck: DeckActions?
         var clip: (Clipping) -> Void = { _ in }
+        /// Where what the menu is for stands, view points.
+        var around: CGRect?
         /// The ask last shown.
         var shown = 0
 
@@ -197,6 +203,17 @@ struct CanvasMenu: UIViewRepresentable {
             suggestedActions: [UIMenuElement]
         ) -> UIMenu? {
             UIMenu(children: CanvasMenu.items(deck, clip: clip))
+        }
+
+        /// The menu stands clear of what it is for, as much of it as the canvas shows; at the press
+        /// where it is for the slide.
+        func editMenuInteraction(
+            _ interaction: UIEditMenuInteraction, targetRectFor configuration: UIEditMenuConfiguration
+        ) -> CGRect {
+            let pressed = CGRect(origin: configuration.sourcePoint, size: .zero)
+            guard let around, let view = interaction.view else { return pressed }
+            let shown = around.intersection(view.bounds)
+            return shown.isNull || shown.isEmpty ? pressed : shown
         }
     }
 

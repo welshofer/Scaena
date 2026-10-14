@@ -47,6 +47,30 @@ public struct Zoom: Equatable, Sendable {
     /// Points on the desk to a canvas unit.
     public var scale: CGFloat { fitted.width * CGFloat(level) / max(canvas.width, 1) }
 
+    /// The sizes the Zoom menu offers, against the slide's own (a point to a canvas unit), as a
+    /// presentation app's zoom says them: 100% is the slide at its actual size, not fitted.
+    public static let actuals: [Double] = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4]
+
+    /// How large the slide is drawn against its actual size, a point to a canvas unit, in percent:
+    /// what the Zoom menu says, whatever the desk.
+    public var percent: Int { Int((Double(scale) * 100).rounded()) }
+
+    /// The level that draws the slide `actual` times its own size: 1 a point to a canvas unit.
+    private func closeness(_ actual: Double) -> Double {
+        actual * Double(canvas.width) / Double(max(fitted.width, 1))
+    }
+
+    /// Whether the Zoom menu offers `actual`: closer than fitted, and no closer than it goes.
+    public func offers(_ actual: Double) -> Bool {
+        let at = closeness(actual)
+        return at > 1 + 1e-6 && at <= Self.most + 1e-6
+    }
+
+    /// As close as draws the slide `actual` times its own size, about `about` on the desk.
+    public mutating func zoom(toActual actual: Double, about: CGPoint? = nil) {
+        zoom(to: closeness(actual), about: about)
+    }
+
     /// The slide on the desk, points: the whole of it, whether it all shows or not.
     public var slide: CGRect {
         CGRect(origin: corner, size: CGSize(width: canvas.width * scale, height: canvas.height * scale))
