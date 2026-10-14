@@ -153,6 +153,12 @@ try {
     await page.waitForFunction((s) => document.querySelector("#state").value === s, state, { timeout: 10000 }).catch(() => {});
     return (await stateShown()) === state;
   };
+  // From the revenue slide, with the grid hidden again first: the slide shown follows the source's
+  // cursor, which the ? typed above left wherever its click landed, and the grid's word for its key
+  // would come after PageDown's.
+  await page.waitForFunction(() => !window.scaena.canvas.ruled(), null, { timeout: 5000 }).catch(() => {});
+  await page.selectOption("#state", "revenue");
+  await page.waitForFunction(() => window.scaena.canvas.boxed() === "revenue", null, { timeout: 30000 }).catch(() => {});
   await page.locator("#overlay").focus();
   await page.keyboard.press("PageDown");
   check(await showsNow("mix"), `PageDown on the slide shows the next slide or step: ${await stateShown()}`);
