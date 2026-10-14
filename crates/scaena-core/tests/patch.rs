@@ -1040,6 +1040,39 @@ fn replace_text_keeps_runs_and_their_looks() {
     assert!(e.to_string().contains("overrides"), "{e}");
 }
 
+/// Characters typed over take the look of the first they replace, as a word processor's do, even
+/// where the range starts where two runs meet: a word put right keeps its emphasis and its link.
+/// What is typed where nothing is replaced goes into the run before, and a run deleted whole goes.
+#[test]
+fn replace_text_over_a_run_keeps_its_look() {
+    let doc = json!({
+        "scaena": "0.26", "canvas": { "width": 1920, "height": 1080 },
+        "nodes": {
+            "t": { "type": "text", "at": { "in": "title" },
+                   "runs": [{ "text": "This quarter " }, { "text": "chnaged", "emphasis": "high" }, { "text": " the shape." }] },
+            "u": { "type": "text", "at": { "in": "body" },
+                   "runs": [{ "text": "Sign up on " }, { "text": "teh", "link": { "href": "https://example.com" } }, { "text": " portal" }] },
+        },
+        "states": [{ "id": "a", "props": { "t": {}, "u": {} } }],
+    });
+    let runs = |c: &Compiled, node: &str| c.doc["nodes"][node]["runs"].clone();
+    let typed = |node: &str, from: u32, to: u32, text: &str| {
+        patch(&doc, json!([{ "op": "replace_text", "node": node, "state": "a", "from": from, "to": to, "text": text }]))
+            .unwrap()
+    };
+    assert_eq!(
+        runs(&typed("t", 13, 20, "changed"), "t"),
+        json!([{ "text": "This quarter " }, { "text": "changed", "emphasis": "high" }, { "text": " the shape." }])
+    );
+    assert_eq!(
+        runs(&typed("u", 11, 14, "the"), "u"),
+        json!([{ "text": "Sign up on " }, { "text": "the", "link": { "href": "https://example.com" } }, { "text": " portal" }])
+    );
+    // Typed where nothing is replaced, the run before takes it; deleted whole, the run goes.
+    assert_eq!(runs(&typed("t", 13, 13, "has "), "t")[0], json!({ "text": "This quarter has " }));
+    assert_eq!(runs(&typed("t", 13, 20, ""), "t"), json!([{ "text": "This quarter " }, { "text": " the shape." }]));
+}
+
 /// A choice of one axis where one keyword aligns both keeps the other as it showed (PLAN
 /// 3.25): the keyword is written out as each axis, the one chosen changed.
 #[test]
@@ -1875,4 +1908,84 @@ fn place_in_a_format_writes_the_nodes_layout_there() {
     let own = json!([{ "op": "place", "node": "note", "at": { "in": "kicker" }, "format": "16:9", "anew": true }]);
     let err = patch(&example(), own).unwrap_err().to_string();
     assert!(err.contains("not a format the deck lays out anew"), "{err}");
+}
+
+/// A slide copied whole (PLAN 2.97) writes each node as its first state shows it, but for what is
+/// the node's own in every state, which no state sets: on the trails deck, whose words have
+/// layouts of their own in its formats, a copy of every slide is a deck that validates.
+#[test]
+fn every_slide_copies_whole_keeping_what_is_each_nodes_own() {
+    let doc: Value = serde_json::from_str(include_str!("../../../docs/examples/trails.deck.json")).unwrap();
+    assert_eq!(errors(&doc), Vec::<String>::new(), "trails validates as it is");
+    let count = doc["states"].as_array().unwrap().len();
+    for state in doc["states"].as_array().unwrap() {
+        let slide = state["id"].as_str().unwrap();
+        let c = patch(&doc, json!([{ "op": "duplicate_slide", "slide": slide }])).unwrap();
+        assert_eq!(errors(&c.doc), Vec::<String>::new(), "{slide}'s copy");
+        assert_eq!(c.doc["states"].as_array().unwrap().len(), count + 1, "{slide}");
+        let copy = &c.doc["states"].as_array().unwrap().iter().find(|s| s["id"] == format!("{slide}-2")).unwrap();
+        for (node, props) in copy["props"].as_object().unwrap() {
+            for own in scaena_core::validate::NODE_OWN {
+                assert!(props.get(own).is_none(), "{slide}-2 sets {node}'s {own}");
+            }
+        }
+    }
+}
+
+/// A slide deleted takes with it each object it alone showed, as a presentation app's does, and
+/// leaves every other node: one another slide shows, and one no slide showed before.
+#[test]
+fn a_slide_deleted_takes_what_it_alone_showed() {
+    let mut doc = example();
+    doc["nodes"]["aside"] = json!({ "type": "text", "text": "Never shown", "role": "body" });
+    let nodes = |doc: &Value| -> Vec<String> { keys(&doc["nodes"]).into_iter().map(String::from).collect() };
+    // `revenue`'s states alone show the chart and its note.
+    let c = patch(&doc, json!([{ "op": "remove_slide", "slide": "revenue" }])).unwrap();
+    assert_eq!(nodes(&c.doc), ["bg", "title", "subtitle", "aside"]);
+    assert!(!c.doc.to_string().contains("\"rev\""), "nothing names the chart: {}", c.doc);
+    assert_eq!(errors(&c.doc), Vec::<String>::new());
+    // `close` shows what `intro` shows too: it goes alone.
+    let c = patch(&doc, json!([{ "op": "remove_state", "id": "close" }])).unwrap();
+    assert_eq!(nodes(&c.doc), nodes(&doc));
+    // A slide added with a node of its own, then deleted, leaves the deck as it was.
+    let added = patch(
+        &doc,
+        json!([
+            { "op": "add_state", "state": { "id": "extra", "mode": "absolute", "layout": "title" }, "after": "close" },
+            { "op": "add_node", "id": "extra-title", "node": { "type": "text", "text": "More", "role": "display", "at": { "in": "title" } }, "state": "extra" }
+        ]),
+    )
+    .unwrap();
+    assert!(nodes(&added.doc).contains(&"extra-title".to_string()));
+    let gone = patch(&added.doc, json!([{ "op": "remove_state", "id": "extra" }])).unwrap();
+    assert_eq!(gone.doc, doc, "the slide and its title, and nothing else");
+    // A copy of a slide shows what the slide does: deleting either takes nothing else.
+    let copied = patch(&doc, json!([{ "op": "duplicate_slide", "slide": "revenue" }])).unwrap();
+    let c = patch(&copied.doc, json!([{ "op": "remove_slide", "slide": "revenue-2" }])).unwrap();
+    assert_eq!(nodes(&c.doc), nodes(&doc));
+}
+
+/// A motion's emphasis belongs to one state (§2.2): chosen in a step, it is written in that step,
+/// where it plays, as `apply_preset` writes it, not on the node, which plays it where it enters.
+#[test]
+fn emphasis_chosen_in_a_step_is_the_steps_own() {
+    let c = patch(
+        &example(),
+        json!([{ "op": "choose", "node": "rev", "prop": "emphasis", "value": "pulse", "state": "mix" }]),
+    )
+    .unwrap();
+    assert_eq!(rfc(&c), json!([{ "op": "add", "path": "/states/2/props/rev/emphasis", "value": "pulse" }]));
+    let snaps = scaena_core::resolve_states(&deck(&c.doc)).unwrap();
+    let emphasis =
+        |state: &str| snaps.iter().find(|s| s.state_id == state).unwrap().nodes["rev"].get("emphasis").cloned();
+    assert_eq!(emphasis("mix"), Some(json!("pulse")));
+    assert_eq!(emphasis("revenue"), None, "the slide's first state plays nothing");
+    assert_eq!(errors(&c.doc), Vec::<String>::new());
+    // Taken away where the node's own props show it, as it enters, it goes from them.
+    let mut doc = example();
+    doc["nodes"]["rev"]["emphasis"] = json!("pulse");
+    let c =
+        patch(&doc, json!([{ "op": "choose", "node": "rev", "prop": "emphasis", "value": null, "state": "revenue" }]))
+            .unwrap();
+    assert_eq!(rfc(&c), json!([{ "op": "remove", "path": "/nodes/rev/emphasis" }]));
 }

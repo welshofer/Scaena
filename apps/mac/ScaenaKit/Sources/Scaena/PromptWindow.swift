@@ -221,7 +221,7 @@ struct PromptView: View {
                     TextField("What it is about", text: $topic, prompt: Text("A deck about…"), axis: .vertical)
                         .lineLimit(2...5)
                         .accessibilityIdentifier("prompt-topic")
-                    TextField("Audience", text: $audience, prompt: Text(choices?.defaults.audience ?? "Colleagues"))
+                    field("Audience", text: $audience, prompt: choices?.defaults.audience ?? "Colleagues")
                     Picker("Goal", selection: $goal) {
                         ForEach(choices?.goals ?? [], id: \.self) { Text($0).tag($0) }
                     }
@@ -235,7 +235,7 @@ struct PromptView: View {
                         Text("Gallery").tag("gallery")
                     }
                 }
-                Section("Written by") {
+                Section {
                     Picker("Provider", selection: $provider) {
                         ForEach(Provider.allCases) { Text($0.name).tag($0) }
                     }
@@ -254,6 +254,13 @@ struct PromptView: View {
                     if let listing {
                         Text(listing).font(.caption).foregroundStyle(.secondary)
                     }
+                } header: {
+                    Text("Written by")
+                } footer: {
+                    #if !os(macOS)
+                    // Under the section it is about, in line with the form, on the iPad.
+                    Text(who)
+                    #endif
                 }
                 Section("Pictures") {
                     Picker("Made by", selection: $pictures) {
@@ -300,16 +307,18 @@ struct PromptView: View {
                             ForEach(choices?.arcs ?? [], id: \.self) { Text($0).tag($0) }
                         }
                         TextField("What it should achieve", text: $outcome)
-                        TextField("Language", text: $language, prompt: Text("English"))
-                        TextField("Voice", text: $voice, prompt: Text("Plain, confident, no jargon"))
-                        TextField("Your email, for SEC", text: $secContact, prompt: Text("SEC asks each request to name who makes it"))
-                        SecureField("GitHub token", text: $token, prompt: Text("For a private repository"))
+                        field("Language", text: $language, prompt: "English")
+                        field("Voice", text: $voice, prompt: "Plain, confident, no jargon")
+                        field("Your email, for SEC", text: $secContact, prompt: "SEC asks each request to name who makes it")
+                        field("GitHub token", text: $token, prompt: "For a private repository", secure: true)
                     }
                 }
             }
             .formStyle(.grouped)
             .disabled(running != nil)
+            #if os(macOS)
             Text(who).font(.caption).foregroundStyle(.secondary).padding(.horizontal)
+            #endif
             if !steps.isEmpty {
                 ScrollViewReader { scroller in
                     ScrollView {
@@ -331,28 +340,25 @@ struct PromptView: View {
                 .padding(.horizontal)
                 .accessibilityIdentifier("prompt-progress")
             }
+            #if os(macOS)
             HStack {
                 Spacer()
-                Button("Cancel") {
-                    running?.cancel()
-                    running = nil
-                    #if os(macOS)
-                    dismissWindow(id: PromptWindow.id)
-                    #else
-                    finish(nil)
-                    #endif
-                }
-                .keyboardShortcut(.cancelAction)
-                .accessibilityIdentifier("prompt-cancel")
-                Button(running == nil ? "Generate" : "Generating…", action: generate)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(!ready)
-                    .accessibilityIdentifier("prompt-generate")
+                cancelling
+                generating
             }
             .padding([.horizontal, .bottom])
+            #endif
         }
         #if os(macOS)
         .frame(minWidth: 520, idealWidth: 600, minHeight: 560, idealHeight: 720)
+        #else
+        // Cancel at the bar's start and Generate at its end, as an iPad's full-screen sheet has
+        // them.
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) { cancelling }
+            ToolbarItem(placement: .confirmationAction) { generating }
+        }
+        .navigationBarTitleDisplayMode(.inline)
         #endif
         .navigationTitle("New from a Prompt")
         .fileImporter(
@@ -367,10 +373,7 @@ struct PromptView: View {
         #else
         .task(id: keysChanged) { readKeys() }
         .sheet(isPresented: $keying, onDismiss: { keysChanged += 1 }) {
-            NavigationStack {
-                KeysSettings()
-                    .toolbar { Button("Done") { keying = false } }
-            }
+            KeysSheet { keying = false }
         }
         #endif
         .task(id: "\(provider.rawValue)\u{1f}\(keyed)") { await list() }
@@ -379,6 +382,55 @@ struct PromptView: View {
             if length.isEmpty { length = choices?.defaults.length ?? "" }
             if modality.isEmpty { modality = choices?.modalities.first?.id ?? "" }
         }
+    }
+
+    /// Cancel: what is under way stopped, and the brief put away.
+    private var cancelling: some View {
+        Button("Cancel") {
+            running?.cancel()
+            running = nil
+            #if os(macOS)
+            dismissWindow(id: PromptWindow.id)
+            #else
+            finish(nil)
+            #endif
+        }
+        .keyboardShortcut(.cancelAction)
+        .accessibilityIdentifier("prompt-cancel")
+    }
+
+    /// Generate: the deck written, once it has something to be about and a key to write it with.
+    private var generating: some View {
+        Button(running == nil ? "Generate" : "Generating…", action: generate)
+            .keyboardShortcut(.defaultAction)
+            .disabled(!ready)
+            .accessibilityIdentifier("prompt-generate")
+    }
+
+    /// A field with its label beside it, and what it asks for in it: on the iPad, a form shows a
+    /// field's prompt alone, and one that is an example read as filled in. There the label is its
+    /// own words at the row's start, which VoiceOver reads apart from the field; the field takes
+    /// the rest of the row, its words at its end, as a settings row has them.
+    @ViewBuilder private func field(_ label: String, text: Binding<String>, prompt: String, secure: Bool = false) -> some View {
+        #if os(macOS)
+        if secure {
+            SecureField(label, text: text, prompt: Text(prompt))
+        } else {
+            TextField(label, text: text, prompt: Text(prompt))
+        }
+        #else
+        HStack {
+            Text(label)
+            Group {
+                if secure {
+                    SecureField(label, text: text, prompt: Text(prompt))
+                } else {
+                    TextField(label, text: text, prompt: Text(prompt))
+                }
+            }
+            .multilineTextAlignment(.trailing)
+        }
+        #endif
     }
 
     /// Whether Generate can be pressed: a topic, a key, a model, and nothing under way.

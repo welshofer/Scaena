@@ -187,6 +187,9 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
     pointer click "$cx" "$cy"
     sleep 2
     shot clicked
+    # The inspector shows the numbers in effect, each in its field (PLAN 3.28): an unturned
+    # object's rotation as 0, and a text's size as its style gives it.
+    echo "the inspector's rotation: $(frames value inspector-transform/rotate); size: $(frames value inspector-style/size)"
     # Dragged a little right and down, it lands where it is let go (PLAN 3.19); then undone. The
     # drop has landed once the objects the canvas holds stand otherwise: on CI's virtual Mac the
     # drag's guides were still drawn two seconds after it was let go.
@@ -205,10 +208,12 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   else
     echo "no slide found: $sx $sy $sw $sh"
   fi
-  # Tab: the next object in reading order.
+  # Tab: the next object in reading order. What the canvas says of it stands on the desk under
+  # the slide, off its words and its handles.
   events 'key code 48'
   sleep 2
   shot tabbed
+  echo "Tab: the canvas says \"$(frames value hint)\" at $(frames find hint); the slide at $(frames find canvas)"
 
   # A text from the toolbar's Text: typed in, its words selected (PLAN 3.21), and what is typed
   # takes their place.
@@ -268,7 +273,7 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   events 'keystroke "=" using command down'
   sleep 2
   shot zoomed
-  echo "zoomed twice, the canvas: $(frames find canvas || true)"
+  echo "zoomed twice, the canvas: $(frames find canvas || true); the zoom reads $(frames value zoom), against the slide's own size"
   events 'keystroke "0" using command down'
   sleep 2
   echo "fitted again, the canvas: $(frames find canvas || true)"
@@ -347,6 +352,8 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   events 'keystroke "z" using command down'
   echo "⌘Z, the canvas shows: $(reads "$before" same)"
   shot slide-menu-undone
+  # Said of the slide added, the canvas's words go with it: an undo says nothing of its own.
+  echo "⌘Z, the canvas says: $(frames value hint)"
 
   # The cue and the canvas select together (PLAN 3.14): Funding's title, chart, and words each
   # enter in turn. With the timeline shown, a click on the chart's lane selects the chart, and its
@@ -407,6 +414,8 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   menu View Document
   sleep 2
   shot theme
+  # The inspector's tabs stay in the toolbar, the rest of it overflowing first (PLAN 3.18).
+  echo "the toolbar's Format: $(frames find tab-format); Animate: $(frames find tab-animate); Document: $(frames find tab-document)"
   read -r px py pw ph <<<"$(frames find theme-color-paper)" || true
   if [[ "${ph:-}" =~ ^[0-9]+$ ]]; then
     echo "the theme's paper: $px $py $pw $ph, $(frames value theme-color-paper)"
@@ -491,6 +500,23 @@ echo "New from a Prompt: the windows $(app 'get name of every window' | tr '\n' 
 app 'key code 53' >/dev/null
 sleep 2
 echo "Escape: the windows $(app 'get name of every window' | tr '\n' ' ')"
+
+# The keys (PR #325): Settings (⌘,) shows a section for each provider, whether its key works, and a
+# masked field to give one. CI's Mac keeps no key, so each says No Key. A key of Gemini's form
+# typed in Anthropic's field is said so as it is typed; nothing is kept, nothing sent.
+events 'keystroke "," using command down'
+sleep 3
+shot settings-keys
+echo "Settings: the windows $(app 'get name of every window' | tr '\n' ' '); Anthropic's field $(frames find key-anthropic)"
+read -r kx ky kw kh <<<"$(frames find key-anthropic)" || true
+if [[ "${kh:-}" =~ ^[0-9]+$ ]]; then
+  pointer click $((kx + kw / 2)) $((ky + kh / 2))
+  sleep 1
+  events 'keystroke "AIzaSyA-a-key-of-geminis-form"'
+  sleep 1
+  shot settings-key-typed
+  echo "a key of Gemini's form in Anthropic's field: the hint $(frames find hint-anthropic)"
+fi
 
 # The deck is edited now: no saving it, so no asking.
 pkill -x Scaena || true

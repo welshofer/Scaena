@@ -55,10 +55,7 @@ struct AssistantPanel: View {
         }
         #if !os(macOS)
         .sheet(isPresented: $keying, onDismiss: { keysChanged += 1 }) {
-            NavigationStack {
-                KeysSettings()
-                    .toolbar { Button("Done") { keying = false } }
-            }
+            KeysSheet { keying = false }
         }
         #endif
     }
@@ -73,15 +70,21 @@ struct AssistantPanel: View {
             }
             .labelsHidden()
             .fixedSize()
-            Picker("Model", selection: model) {
-                if !models.contains(model.wrappedValue) {
-                    Text(model.wrappedValue.isEmpty ? "Choose a model" : model.wrappedValue).tag(model.wrappedValue)
+            // A model to choose once a key is kept: with none, there is none to choose, and the
+            // panel offers to add one. Its name on one line, as the provider's is.
+            if !keyless {
+                Picker("Model", selection: model) {
+                    if !models.contains(model.wrappedValue) {
+                        Text(model.wrappedValue.isEmpty ? "Choose a model" : model.wrappedValue).tag(model.wrappedValue)
+                    }
+                    ForEach(models, id: \.self) { name in
+                        Text(name).tag(name)
+                    }
                 }
-                ForEach(models, id: \.self) { name in
-                    Text(name).tag(name)
-                }
+                .labelsHidden()
+                .lineLimit(1)
+                .truncationMode(.middle)
             }
-            .labelsHidden()
             Spacer(minLength: 0)
             Menu {
                 Button("New conversation") { assistant.forget() }
@@ -257,13 +260,14 @@ private struct EntryRow: View {
         case .call(let name, _, let ran):
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Image(systemName: ran == nil ? "gearshape" : ran?.error == true ? "xmark.circle" : "checkmark.circle")
+                    Image(systemName: ran == nil ? "gearshape" : ran?.made == false ? "xmark.circle" : "checkmark.circle")
                         .foregroundStyle(ran?.error == true ? Color.red : Color.secondary)
-                    // What the call does, in a person's words: no tool's name reaches the window.
-                    if ran == nil {
-                        Text(ToolWords.doing(name)).font(.callout).modifier(Sweep())
+                    // What the call does, in a person's words: no tool's name reaches the window. A
+                    // call refused, only tried, or stopped is headed as not done.
+                    if let ran {
+                        Text(ToolWords.ran(ran)).font(.callout)
                     } else {
-                        Text(ToolWords.done(name)).font(.callout)
+                        Text(ToolWords.doing(name)).font(.callout).modifier(Sweep())
                     }
                     if let summary = ran?.summary {
                         Text(summary).font(.callout).foregroundStyle(.secondary).lineLimit(2)
@@ -300,75 +304,6 @@ private struct EntryRow: View {
         case "steps": "Stopped after 32 rounds of calls: ask again to go on."
         case "length": "The answer ran out of room."
         default: "Stopped: \(why)."
-        }
-    }
-}
-
-/// The keys, in Settings: one for each provider, kept in the Keychain and sent to their provider
-/// alone (ADR-0006).
-struct KeysSettings: View {
-    private let keychain = Keychain()
-    @State private var typed: [Provider: String] = [:]
-    @State private var kept: Set<Provider> = []
-    @State private var failure: String?
-
-    var body: some View {
-        Form {
-            Section {
-                ForEach(Provider.allCases) { provider in
-                    HStack {
-                        #if !os(macOS)
-                        // A form on the iPad shows a field's prompt, not its name.
-                        Text(provider.name).frame(minWidth: 84, alignment: .leading)
-                        #endif
-                        SecureField(
-                            provider.name,
-                            text: Binding(get: { typed[provider] ?? "" }, set: { typed[provider] = $0 }),
-                            prompt: Text(kept.contains(provider) ? "Kept in the Keychain" : "Paste a key")
-                        )
-                        .accessibilityIdentifier("key-\(provider.rawValue)")
-                        Button("Keep") { keep(typed[provider], for: provider) }
-                            .disabled((typed[provider] ?? "").isEmpty)
-                            .accessibilityIdentifier("keep-\(provider.rawValue)")
-                        Button("Remove") { keep(nil, for: provider) }
-                            .disabled(!kept.contains(provider))
-                            .accessibilityIdentifier("remove-\(provider.rawValue)")
-                    }
-                    #if !os(macOS)
-                    // A row of a form on the iPad takes a tap as every button's in it, Keep's and
-                    // Remove's at once, unless each is borderless.
-                    .buttonStyle(.borderless)
-                    #endif
-                }
-            } header: {
-                Text("The assistant's keys")
-            } footer: {
-                Text(
-                    "Each key stays in your Keychain and goes only to its provider. It is never written into a deck."
-                )
-                .foregroundStyle(.secondary)
-            }
-            if let failure {
-                Text(failure).foregroundStyle(.red)
-            }
-        }
-        .formStyle(.grouped)
-        #if os(macOS)
-        .frame(width: 480)
-        #else
-        .navigationTitle("Keys")
-        #endif
-        .onAppear { kept = Set(keychain.providers) }
-    }
-
-    private func keep(_ key: String?, for provider: Provider) {
-        do {
-            try keychain.set(key?.trimmingCharacters(in: .whitespacesAndNewlines), for: provider)
-            typed[provider] = nil
-            kept = Set(keychain.providers)
-            failure = nil
-        } catch {
-            failure = "\(error)"
         }
     }
 }

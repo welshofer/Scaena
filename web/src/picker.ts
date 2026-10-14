@@ -185,7 +185,7 @@ export function layoutPicker(stage: Stage, dialog: HTMLDialogElement) {
     return new Promise((resolve) => {
       let chosen: string | null | undefined;
       const done = () => {
-        tabs.onclick = tabs.onkeydown = box.onclick = find.oninput = find.onkeydown = blank.onclick = null;
+        tabs.onclick = tabs.onkeydown = box.onclick = box.onkeydown = find.oninput = find.onkeydown = blank.onclick = null;
         resolve(chosen);
       };
       dialog.addEventListener("close", done, { once: true });
@@ -210,6 +210,21 @@ export function layoutPicker(stage: Stage, dialog: HTMLDialogElement) {
         if (!tile?.dataset.start) return;
         chosen = tile.dataset.start;
         dialog.close();
+      };
+      // The arrows go among the layouts as they stand in the grid, a row at a time up and down, as
+      // a presentation app's layout chooser and the icon picker do; up from the first row goes
+      // back to the field.
+      box.onkeydown = (e) => {
+        const tiles = [...box.querySelectorAll<HTMLButtonElement>("button[data-start]")];
+        const at = tiles.indexOf(document.activeElement as HTMLButtonElement);
+        if (at < 0) return;
+        const top = tiles[0]?.offsetTop;
+        const across = Math.max(1, tiles.filter((t) => t.offsetTop === top).length);
+        const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -across, ArrowDown: across, Home: -at, End: tiles.length - 1 - at }[e.key];
+        if (step === undefined) return;
+        e.preventDefault();
+        if (e.key === "ArrowUp" && at < across) return find.focus();
+        tiles[Math.min(Math.max(at + step, 0), tiles.length - 1)]?.focus();
       };
       blank.onclick = () => {
         chosen = null;

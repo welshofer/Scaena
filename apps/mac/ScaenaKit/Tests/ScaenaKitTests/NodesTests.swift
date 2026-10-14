@@ -107,7 +107,9 @@ import Testing
     func shape() throws -> NodeBox { try #require(try session.boxes(state: "cover").first { $0.node == star.id }) }
     let bare = try shape()
     #expect(bare.takesWords == true && bare.words == nil)
-    let given = try session.wording(shape: star.id)
+    // Named as Insert names it (PLAN 2.106), as the browser's layers name it.
+    #expect(try session.kinds(state: "cover")[star.id] == "Star")
+    let given = try session.wording(state: "cover", shape: star.id)
     #expect(given.id == "\(star.id)-words" && given.patch.count == 1)
     let before = try editor.make(given.patch)
     #expect(try shape().words == given.id)
@@ -117,7 +119,9 @@ import Testing
     #expect(inner[0] + inner[2] < outer[0] + outer[2] && inner[1] + inner[3] < outer[1] + outer[3], "inside the star")
     let middle = CGPoint(x: inner[0] + inner[2] / 2, y: inner[1] + inner[3] / 2)
     #expect(try session.boxes(state: "cover").under(middle) == star.id, "the pointer over the words shows the star")
-    #expect(try session.wording(shape: star.id).patch.isEmpty, "given back, nothing added")
+    #expect(try session.boxes(state: "cover").reached(given.id) == star.id, "a press on the words reaches the star")
+    #expect(try session.boxes(state: "cover").reached(star.id) == star.id)
+    #expect(try session.wording(state: "cover", shape: star.id).patch.isEmpty, "given back, nothing added")
     editor.restore(before)
     #expect(try shape().words == nil, "one step to undo")
 }
@@ -141,6 +145,26 @@ import Testing
     #expect(!arrow.holds(CGPoint(x: middle.x + 40, y: middle.y)), "off its line")
     editor.restore(before)
     #expect(try session.boxes(state: "cover").first { $0.node == joined.id } == nil, "one step to undo")
+}
+
+/// Connectors go where what they join goes (PLAN 2.109), as the browser's canvas takes them: B1's
+/// title, its subtitle, and the arrow joining them duplicated together, the copy of the arrow
+/// joining the copies; then the copies deleted together, the copy of the arrow with them; each one
+/// patch.
+@Test func aConnectorIsDuplicatedAndDeletedWithWhatItJoins() throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    editor.shown = "cover"
+    let session = editor.session
+    let joined = try session.connecting(state: "cover", from: "title", to: "subtitle", arrow: true)
+    try editor.make(joined.patch)
+    let made = try session.duplicating(state: "cover", nodes: ["title", "subtitle", joined.id])
+    #expect(made.ids.count == 3)
+    try editor.make(made.patch)
+    let copy = try #require(try session.boxes(state: "cover").first { $0.node == made.ids[2] })
+    #expect(copy.joins == [made.ids[0], made.ids[1]], "the copy of the arrow joins the copies")
+    let gone = try session.deleting(state: "cover", nodes: made.ids)
+    try editor.make(gone)
+    #expect(try !session.boxes(state: "cover").contains { made.ids.contains($0.node) })
 }
 
 /// Diagrams (PLAN 2.110), as the browser's canvas draws them: B1's subtitle, given three lines,

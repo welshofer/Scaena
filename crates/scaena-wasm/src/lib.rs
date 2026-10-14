@@ -772,10 +772,18 @@ impl Player {
         serde_json::to_string(&self.0.duplicating(state, node).map_err(js)?).map_err(js)
     }
 
-    /// The words of `shape` to type in, as JSON: `{ id, patch }`, the patch empty where it holds
-    /// them already (PLAN 2.108).
-    pub fn wording(&self, shape: &str) -> Result<String, JsError> {
-        serde_json::to_string(&self.0.wording(shape).map_err(js)?).map_err(js)
+    /// The patch that copies each of `nodes` beside it in `state`, as JSON: `{ ids, patch }`, the
+    /// connectors among them that join two of them copied to join their copies (PLAN 2.42, 2.109).
+    #[wasm_bindgen(js_name = duplicatingAll)]
+    pub fn duplicating_all(&mut self, state: &str, nodes: Vec<String>) -> Result<String, JsError> {
+        let nodes: Vec<&str> = nodes.iter().map(String::as_str).collect();
+        serde_json::to_string(&self.0.duplicating_all(state, &nodes).map_err(js)?).map_err(js)
+    }
+
+    /// The words of `shape` to type in in `state`, as JSON: `{ id, patch }`, the patch empty where
+    /// the state shows them already (PLAN 2.108).
+    pub fn wording(&self, state: &str, shape: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.wording(state, shape).map_err(js)?).map_err(js)
     }
 
     /// The patch that joins `from` to `to` in `state` with a line, or with an arrow that points
@@ -825,11 +833,13 @@ impl Player {
         serde_json::to_string(&self.0.pasting(&clip, state, [x, y]).map_err(js)?).map_err(js)
     }
 
-    /// The patch that deletes `node` from `state`, with what it holds there, as JSON: `hide_node`
+    /// The patch that deletes `nodes` from `state`, with what they hold there, as JSON: `hide_node`
     /// for each, or `remove_node` for one no state shows after; with `everywhere`, `remove_node`
-    /// for each (PLAN 2.34).
-    pub fn deleting(&self, state: &str, node: &str, everywhere: bool) -> Result<String, JsError> {
-        serde_json::to_string(&self.0.deleting(state, node, everywhere).map_err(js)?).map_err(js)
+    /// for each (PLAN 2.34, 2.42). One patch for all of them, a connector going with an end that
+    /// goes (PLAN 2.109).
+    pub fn deleting(&self, state: &str, nodes: Vec<String>, everywhere: bool) -> Result<String, JsError> {
+        let nodes: Vec<&str> = nodes.iter().map(String::as_str).collect();
+        serde_json::to_string(&self.0.deleting(state, &nodes, everywhere).map_err(js)?).map_err(js)
     }
 
     /// The patch that adds a state after `state`, the state shown, as JSON: `{ id, patch }`,
@@ -1180,6 +1190,16 @@ impl Player {
     #[wasm_bindgen(js_name = versionSlides)]
     pub fn version_slides(&self) -> Result<String, JsError> {
         serde_json::to_string(&self.0.version_slides()).map_err(js)
+    }
+
+    /// The versions a history keeps, JSON as the history's module lists them, each with what its
+    /// change did (`said`) and who made it (`by`) in a person's words (PLAN 2.99), as the Mac's
+    /// Versions says them.
+    #[wasm_bindgen(js_name = versionsSaid)]
+    pub fn versions_said(versions: &str) -> Result<String, JsError> {
+        let versions: Vec<scaena_ops::history::Version> = serde_json::from_str(versions).map_err(js)?;
+        let listed: Vec<versions::Listed> = versions.into_iter().map(Into::into).collect();
+        serde_json::to_string(&listed).map_err(js)
     }
 
     /// The version shown's `state` at rest, as a PNG `width` pixels wide.

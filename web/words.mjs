@@ -10,6 +10,8 @@
 // - What is typed stands inside the star; Escape, and a click on the words, select the star.
 // - A drag that starts on the words moves the star, and the words go with it, still placed by it.
 // - A double click on the star again types in the words it holds: no second text is made.
+// - ⌘D copies the star with its words, kept to this slide though the next carries on from it;
+//   undo takes the copy back.
 // - Undo takes back the drag, the typing, the words, and the star, each one step.
 // Exits 1 on any failure.
 import { launch, serve } from "./serve.mjs";
@@ -156,6 +158,17 @@ try {
   check((await typing()) === "star-words", `a double click on the star types in the words it holds: ${await typing()}`);
   await leave();
   check(!(await source()).includes("star-words-2"), "no second text is made");
+
+  // ⌘D copies the star with its words, though the next slide carries on from this one.
+  const held = await source();
+  await page.locator("#overlay").focus();
+  if ((await page.evaluate(() => window.scaena.canvas.selected())) !== "star") await page.mouse.click(...(await client(middle(star2))));
+  check(await selects("star"), `the star is selected: ${await page.evaluate(() => window.scaena.canvas.selected())}`);
+  await page.keyboard.press("Control+d");
+  check(await reads("star-words-2"), `⌘D copies the star with its words: ${await status()}`);
+  check(declared(await source(), "star-words-2").includes("star-2"), `placed by the copy: ${declared(await source(), "star-words-2")}`);
+  await page.keyboard.press("Control+z");
+  check(await back(held), "undo takes the copy back");
 
   // Each step undone.
   await page.keyboard.press("Control+z");

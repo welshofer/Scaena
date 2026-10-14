@@ -238,13 +238,17 @@ pub fn replacing(before: &str, after: &str) -> Vec<Replacement> {
         .collect()
 }
 
-/// `text` as words, runs of spaces, and each other mark alone.
+/// `text` as words, runs of spaces, and each other mark alone. A script written without spaces
+/// between its words (Chinese, Japanese, Thai, …) is a character at a time, as a mark is: its
+/// clause is no one word.
 fn tokens(text: &str) -> Vec<&str> {
     let mut out = Vec::new();
     let mut start = 0;
     let mut kind: Option<u8> = None;
     for (i, c) in text.char_indices() {
-        let k = if c.is_alphanumeric() || c == '\'' || c == '’' {
+        let k = if unspaced(c) {
+            2
+        } else if c.is_alphanumeric() || c == '\'' || c == '’' {
             0
         } else if c.is_whitespace() && c != '\n' {
             1
@@ -263,6 +267,23 @@ fn tokens(text: &str) -> Vec<&str> {
         out.push(&text[start..]);
     }
     out
+}
+
+/// Whether `c` is of a script written without spaces between its words: Han, kana, Thai, Lao,
+/// Khmer, Myanmar.
+fn unspaced(c: char) -> bool {
+    matches!(c,
+        '\u{0E00}'..='\u{0EFF}' // Thai, Lao
+        | '\u{1000}'..='\u{109F}' // Myanmar
+        | '\u{1780}'..='\u{17FF}' // Khmer
+        | '\u{3040}'..='\u{30FF}' // Hiragana, Katakana
+        | '\u{31F0}'..='\u{31FF}' // Katakana's small letters
+        | '\u{3400}'..='\u{4DBF}' // CJK, Extension A
+        | '\u{4E00}'..='\u{9FFF}' // CJK
+        | '\u{F900}'..='\u{FAFF}' // CJK compatibility ideographs
+        | '\u{FF66}'..='\u{FF9F}' // half-width Katakana
+        | '\u{20000}'..='\u{3134F}' // CJK, Extensions B–G
+    )
 }
 
 /// The spans of `a` and `b` that differ, in order, as `(a from, a to, b from, b to)`: what is
@@ -345,6 +366,21 @@ mod tests {
         let changes = replacing(before, after);
         assert_eq!(applied(before, &changes), after);
         assert_eq!(changes, vec![Replacement { from: 23, to: 23, text: "yet ".into() }]);
+    }
+
+    /// A script written without spaces is changed a character at a time, not a clause: the
+    /// characters the answer keeps stay as they were, with their runs.
+    #[test]
+    fn a_script_without_spaces_changes_only_the_characters_that_differ() {
+        let before = "売上は前年比で増加した。";
+        let after = "売上は前年比で増加しました。";
+        let changes = replacing(before, after);
+        assert_eq!(applied(before, &changes), after);
+        assert_eq!(changes, vec![Replacement { from: 10, to: 10, text: "まし".into() }]);
+        let (before, after) = ("รายได้เพิ่มขึ้นมาก", "รายได้ลดลงมาก");
+        let changes = replacing(before, after);
+        assert_eq!(applied(before, &changes), after);
+        assert!(changes.iter().all(|c| c.from >= 6), "รายได้ is kept: {changes:?}");
     }
 
     #[test]

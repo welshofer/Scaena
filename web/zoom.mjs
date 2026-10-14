@@ -5,6 +5,7 @@
 //
 // - ⌘+ zooms a step about the middle of what is shown, painted at the size shown: the canvas keeps
 //   its pixels and shows less of the deck in them. The control says how close.
+// - Zoomed in, the grid and the outlines draw within the slide's frame, none of it on the desk.
 // - A click selects what is under it through the view, and a drag moves it by what the pointer
 //   moved, in canvas units through the view: twice as far on the screen twice as close lands
 //   where the drag at the whole canvas did. One patch, one undo.
@@ -123,6 +124,25 @@ try {
   check(!zoomedShot.equals(whole), "the preview shows less of the deck, closer");
   const after = await page.evaluate(() => [document.querySelector("#stage").width, document.querySelector("#stage").height]);
   check(after[0] === pixels[0] && after[1] === pixels[1], `in the same pixels, painted at the size shown: ${after}`);
+
+  // Zoomed in, the grid draws within the slide's frame, over no toolbar or timeline: the desk
+  // beside the slide looks the same with the grid drawn as without it.
+  const beside = async () => {
+    const clip = await page.evaluate(() => {
+      const p = document.querySelector("#preview").getBoundingClientRect();
+      const x = Math.max(0, p.left - 48);
+      return { x, y: p.top + 16, width: Math.min(32, p.left - 12 - x), height: p.height - 32 };
+    });
+    return page.screenshot({ clip });
+  };
+  const bare = await beside();
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Control+Quote");
+  await page.waitForFunction(() => document.querySelector("#overlay svg .grid-track"), null, { timeout: 10000 }).catch(() => {});
+  const ruled = await beside();
+  check((await page.locator("#overlay svg .grid-track").count()) > 0 && bare.equals(ruled), "zoomed in, the grid draws within the slide's frame, none of it on the desk");
+  await page.keyboard.press("Control+Quote");
+  await page.waitForFunction(() => !document.querySelector("#overlay svg .grid-track"), null, { timeout: 10000 }).catch(() => {});
 
   // A click selects what is under it through the view.
   const [px, py] = await client([cx + cw / 2, cy + ch / 2]);

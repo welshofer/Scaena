@@ -46,7 +46,7 @@ struct ThemePanel: View {
             Section("Colors") {
                 ForEach(entries(theme?["tokens"]?["color"])) { entry in
                     let name = Words.name(entry.key, of: "color", theme: nil)
-                    ColorRow(key: entry.key, name: name, value: entry.value.string ?? "") { value in
+                    ColorRow(key: entry.key, name: name, uses: uses(entry.key), value: entry.value.string ?? "") { value in
                         let path = "/tokens/color/\(escaped(entry.key))"
                         return edit([put(path, .string(value), over: entry.value)], "\(name) Color")
                     }
@@ -162,6 +162,17 @@ struct ThemePanel: View {
         ["op": .string(old == nil ? "add" : "replace"), "path": .string(path), "value": value]
     }
 
+    /// What the theme gives color `key` to, as the inspector names it there: `Text` for Dusk's ink,
+    /// so the color a text is set in is found here by the name the inspector says it by, as the
+    /// browser's Theme tab says it beside the color. None where no role takes it, or only the one
+    /// its own name says (Dusk's accent, Accent).
+    private func uses(_ key: String) -> String? {
+        let roles = (theme?["tokens"]?["roles"]?.object ?? [:]).filter { $0.value.string == key }.map(\.key)
+        let own = Words.name(key, of: "color", theme: nil)
+        let said = roles.map { Words.name($0, of: "color", theme: nil) }.filter { $0 != own }.sorted()
+        return said.isEmpty ? nil : said.joined(separator: ", ")
+    }
+
     /// `key` as one step of a JSON Pointer.
     private func escaped(_ key: String) -> String {
         key.replacingOccurrences(of: "~", with: "~0").replacingOccurrences(of: "/", with: "~1")
@@ -199,6 +210,9 @@ private struct ColorRow: View {
     let key: String
     /// The color's name, as a person reads it.
     let name: String
+    /// What the theme gives it to, as the inspector names it: `Text`, or `Background, Text on
+    /// Accent`.
+    let uses: String?
     let value: String
     /// Set the color: whether it was.
     let set: (String) -> Bool
@@ -212,8 +226,17 @@ private struct ColorRow: View {
         HStack(spacing: 8) {
             ColorPicker(name, selection: swatch, supportsOpacity: true)
                 .labelsHidden()
-            Text(name)
-                .lineLimit(1)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(name)
+                    .lineLimit(1)
+                if let uses {
+                    Text(uses)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .help("What the theme sets in it")
+                }
+            }
             Spacer()
             TextField(name, text: $typed)
                 .labelsHidden()
@@ -294,10 +317,16 @@ private struct RoleRow: View {
     var body: some View {
         DisclosureGroup {
             ForEach(RoleField.all) { field in
-                NumberRow(
-                    label: field.label, id: "theme-\(key)-\(field.key)", step: field.step, unit: field.unit,
-                    value: role[field.key]?.number
-                ) { set(field, $0) }
+                if field.key == "weight" {
+                    RoleWeight(
+                        label: field.label, id: "theme-\(key)-\(field.key)", value: role[field.key]?.number
+                    ) { set(field, $0) }
+                } else {
+                    NumberRow(
+                        label: field.label, id: "theme-\(key)-\(field.key)", step: field.step, unit: field.unit,
+                        value: role[field.key]?.number
+                    ) { set(field, $0) }
+                }
             }
         } label: {
             HStack {
@@ -308,6 +337,32 @@ private struct RoleRow: View {
                 }
             }
         }
+    }
+}
+
+/// A type role's weight by its name, Thin to Black, as the Format tab names a text's weight; one
+/// between two by its number. One chosen is set at once, one step to undo.
+private struct RoleWeight: View {
+    let label: String
+    /// What a test finds the picker by.
+    let id: String
+    let value: Double?
+    /// Set the weight: whether it was.
+    let set: (Double) -> Bool
+
+    var body: some View {
+        let current = Int((value ?? 400).rounded())
+        Picker(label, selection: Binding(get: { current }, set: { picked in
+            if picked != current { _ = set(Double(picked)) }
+        })) {
+            if !Words.weights.contains(where: { $0.value == current }) {
+                Text(Words.weight(current)).tag(current)
+            }
+            ForEach(Words.weights, id: \.value) { weight in
+                Text(weight.name).tag(weight.value)
+            }
+        }
+        .accessibilityIdentifier(id)
     }
 }
 
@@ -370,12 +425,13 @@ private struct NumberRow: View {
                     }
                     #endif
                     .accessibilityIdentifier(id)
-                Stepper(label, onIncrement: { nudge(step) }, onDecrement: { nudge(-step) })
-                    .labelsHidden()
-                    .accessibilityIdentifier("\(id)-stepper")
+                // What it counts, beside the number it counts, as a presentation app writes it.
                 if let unit {
                     Text(unit).foregroundStyle(.secondary)
                 }
+                Stepper(label, onIncrement: { nudge(step) }, onDecrement: { nudge(-step) })
+                    .labelsHidden()
+                    .accessibilityIdentifier("\(id)-stepper")
             }
         }
         .onChange(of: value, initial: true) { _, now in

@@ -156,9 +156,25 @@ impl Session {
     /// `req` made by `by`, as `data_edit` makes it, linted before and after if `linted`, else only
     /// validated, as for a value typed in a cell: what it did, and whether it wrote.
     pub fn data_edit(&mut self, req: &DataEdit, linted: bool, by: Caller) -> Result<(DataEdited, bool), Error> {
-        let (edited, made) = scaena_ops::data::editing(&self.bundle(), req, linted)?;
+        let (edited, made) = scaena_ops::data::editing(&self.bundle(), req, linted).map_err(|e| self.unfit(req, e))?;
         let wrote = self.write(made, by)?;
         Ok((edited, wrote))
+    }
+
+    /// Why `req` stopped, as an editor says it (PLAN 2.99): a value its column does not read,
+    /// the column named as the sheet heads it; else as `data_edit` says it.
+    fn unfit(&self, req: &DataEdit, e: scaena_ops::OpsError) -> Error {
+        use scaena_core::data::edit::{RowEdit, unfit};
+        let typed: Vec<(&String, &String)> = match e.op.and_then(|i| req.edits.get(i)) {
+            Some(RowEdit::Set { column, value, .. }) => vec![(column, value)],
+            Some(RowEdit::Add { values, .. }) => values.iter().collect(),
+            _ => Vec::new(),
+        };
+        let name = req.source.as_str();
+        let refused = typed.into_iter().find_map(|(column, value)| {
+            Some(scaena_core::words::unfit(column, unfit(&self.deck, &*self.files, name, column, value)?, value))
+        });
+        refused.map_or(Error::Tool(e), Error::Ops)
     }
 
     /// The file the user's last edit wrote, or took out, put back as it was, by `by`, and an

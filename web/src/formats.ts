@@ -34,8 +34,10 @@ const html = (text: string) => text.replace(/[&<>"]/g, (c) => `&${{ "&": "amp", 
 
 /** The row in `into`, over `stage`, shown and hidden by `toggle`. */
 export function formatsRow(stage: Stage, into: HTMLElement, toggle: HTMLButtonElement, editor: FormatsEditor) {
-  /** The formats the deck lists besides its own canvas, as the figures show them. */
+  /** The formats the deck lists besides its own canvas, as the figures show them, and the name
+   * its own canvas's figure was given. */
   let formats: string[] = [];
+  let named = editor.own();
   /** What lint found last. */
   let findings: Finding[] = [];
   /** What the figures last showed: the state, `t` ms into its cue. */
@@ -110,10 +112,12 @@ export function formatsRow(stage: Stage, into: HTMLElement, toggle: HTMLButtonEl
     show,
     /** Whether the row is shown. */
     open,
-    /** The deck's formats, as an edit leaves them: the figures follow where they changed. */
-    formats(next: string[]) {
-      if (next.length === formats.length && next.every((f, i) => f === formats[i])) return;
+    /** The deck's formats, and its own canvas's name, as an edit leaves them: the figures follow
+     * where they changed. */
+    formats(next: string[], own: string | undefined) {
+      if (next.length === formats.length && next.every((f, i) => f === formats[i]) && own === named) return;
       formats = [...next];
+      named = own;
       build();
     },
     /** What lint found now. */

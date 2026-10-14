@@ -196,6 +196,9 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
         : undefined;
     const bad = new Map((sheet.problems ?? []).map((p) => [`${p.row} ${p.column}`, p.why]));
     const head = sheet.columns.map((c) => `<th scope="col" class="${c.type}">${html(c.name)}<span class="type">${TYPES[c.type] ?? c.type}</span></th>`).join("");
+    // Each column as wide as its name and its longest value, in characters, within bounds: short
+    // figures take little room, so that the columns of a small table fit the panel.
+    const width = sheet.columns.map((c, i) => Math.min(24, Math.max(4, [...c.name].length, ...sheet.rows.map((cells) => [...(cells[i] ?? "")].length))));
     const body = sheet.rows.map((cells, r) => {
       const fields = cells.map((value, c) => {
         const column = sheet.columns[c];
@@ -203,7 +206,7 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
         // A field holds one line: a value with a line break in it is edited in its file.
         const lines = /[\r\n]/.test(value);
         const title = why ?? (lines ? "It holds a line break: edit it in its file" : "");
-        return `<td class="${column.type}"><input data-row="${r}" data-col="${c}" value="${html(value)}" spellcheck="false" aria-label="${html(`${column.name}, row ${r}`)}"${
+        return `<td class="${column.type}"><input data-row="${r}" data-col="${c}" value="${html(value)}" style="width:calc(${width[c]}ch + 14px)" spellcheck="false" aria-label="${html(`${column.name}, row ${r}`)}"${
           why ? ' aria-invalid="true"' : ""
         }${lines ? " readonly" : ""}${title ? ` title="${html(title)}"` : ""} /></td>`;
       });

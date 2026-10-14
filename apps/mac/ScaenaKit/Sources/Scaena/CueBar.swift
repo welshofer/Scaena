@@ -2,8 +2,9 @@ import ScaenaKit
 import SwiftUI
 
 /// The cue of the state shown, under the canvas (PLAN 3.4, 3.14, as the browser's, PLAN 2.44):
-/// Play, a ruler that scrubs it, and a lane for its transition and each motion, where the timeline
-/// places them, each named by its object and what it does. A motion's bar dragged moves its start,
+/// Play and the time over the names, a ruler of seconds that scrubs it, and a lane for its
+/// transition and each motion, where the timeline places them, each named by its object and what it
+/// does, the names given room to be read. A motion's bar dragged moves its start,
 /// and its end its duration; the transition's end moves its duration; each one patch, to a whole
 /// ten of ms, which the engine places again. A spring's end does not move: it lasts as long as it
 /// takes to settle. The canvas and the cue select together: the bars of what the canvas selects,
@@ -30,37 +31,50 @@ struct CueBar: View {
     /// The bar dragged, which part of it, and how far, ms.
     @State private var dragging: Lane.Dragging?
 
+    /// How wide the names stand: room for an object's words and what it does, as an animation
+    /// pane's list gives them, the lanes the rest.
+    private static let nameWidth: CGFloat = 190
+
     var body: some View {
         let span = cue?.span ?? 0
         let scale = lanes(cue)
-        HStack(spacing: 10) {
-            Button(action: toggle) {
-                Image(systemName: playhead.playing ? "pause.fill" : "play.fill").frame(width: 16)
-            }
-            .buttonStyle(.borderless)
-            .help(playhead.playing ? "Pause the cue" : "Play the cue")
-            .disabled(span <= 0)
-            adding
-            Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 3) {
-                GridRow {
-                    Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+        Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 3) {
+            GridRow {
+                // Play, Add Motion, and the time, over the names, so the lanes have the width.
+                HStack(spacing: 8) {
+                    Button(action: toggle) {
+                        Image(systemName: playhead.playing ? "pause.fill" : "play.fill").frame(width: 16)
+                    }
+                    .buttonStyle(.borderless)
+                    .help(playhead.playing ? "Pause the cue" : "Play the cue")
+                    .disabled(span <= 0)
+                    adding
+                    Spacer(minLength: 4)
+                    Text(time(span))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .fixedSize()
+                }
+                .frame(width: Self.nameWidth, alignment: .leading)
+                VStack(spacing: 1) {
+                    Ruler(scale: scale)
                     Slider(value: scrubbed(span, scale), in: 0...scale)
                         .controlSize(.small)
                 }
-                if let cue {
-                    ForEach(cue.bars) { bar in
-                        let stands = chosen.contains(bar.id)
-                        GridRow {
-                            label(bar, chosen: stands)
-                            Lane(
-                                bar: bar, named: named(bar), scale: scale, chosen: stands,
-                                dimmed: !stands && !chosen.isEmpty && bar.node != nil, dragging: $dragging, time: timed,
-                                select: select)
-                        }
+            }
+            if let cue {
+                ForEach(cue.bars) { bar in
+                    let stands = chosen.contains(bar.id)
+                    GridRow {
+                        label(bar, chosen: stands)
+                        Lane(
+                            bar: bar, named: named(bar), scale: scale, chosen: stands,
+                            dimmed: !stands && !chosen.isEmpty && bar.node != nil, dragging: $dragging, time: timed,
+                            select: select)
                     }
                 }
             }
-            Text(time(span)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 96, alignment: .trailing)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
@@ -113,9 +127,11 @@ struct CueBar: View {
         }
         .font(.caption2.weight(chosen ? .semibold : .regular))
         .foregroundStyle(chosen ? HierarchicalShapeStyle.primary : .secondary)
-        .frame(width: 150, alignment: .leading)
+        .frame(width: Self.nameWidth, alignment: .leading)
         .contentShape(Rectangle())
         .onTapGesture { if let node = bar.node { select(node) } }
+        // The whole name, where the column cuts a long one short.
+        .help(named(bar))
         // The lane says it, to VoiceOver.
         .accessibilityHidden(true)
     }
@@ -142,11 +158,12 @@ struct CueBar: View {
             }
         }
         walk((try? session.layers(state: state)) ?? [])
+        let kinds = (try? session.kinds(state: state)) ?? [:]
         var names: [String: String] = [:]
         for motion in cue.motions where names[motion.node] == nil {
             let node = motion.node
             let text = words[node] ?? (types[node] == "text" ? (try? session.text(state: state, node: node)) ?? nil : nil)
-            names[node] = Words.node(types[node], words: text)
+            names[node] = Words.node(types[node], words: text, kind: kinds[node])
         }
         return names
     }
@@ -191,6 +208,39 @@ struct CueBar: View {
             return make([], "It isn't on the slide before this one")
         }
         make(patch, "\(Words.phrase(preset)) added \(verb)")
+    }
+}
+
+/// The seconds across the lanes, as an animation pane's scale: a mark a round step apart (`Cue.ticks`)
+/// and, where there is room for it, its time, over the ruler that scrubs the cue.
+private struct Ruler: View {
+    /// How many ms the lanes span.
+    let scale: Double
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = max(geometry.size.width, 1)
+            ForEach(Cue.ticks(across: scale, width: Double(width)), id: \.self) { ms in
+                let x = CGFloat(ms / scale) * width
+                Rectangle()
+                    .fill(Color.secondary.opacity(0.6))
+                    .frame(width: 1, height: 4)
+                    .position(x: min(x + 0.5, width - 0.5), y: 12)
+                // Its time from the mark on, where it has the room before the lanes' end.
+                if x <= width - 30 {
+                    Text(Words.seconds(ms))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .frame(width: 40, alignment: .leading)
+                        .position(x: x + 22, y: 5)
+                }
+            }
+        }
+        .frame(height: 14)
+        // The scrubber says the time; the marks only show it.
+        .accessibilityHidden(true)
     }
 }
 

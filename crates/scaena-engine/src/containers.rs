@@ -1101,6 +1101,31 @@ mod tests {
     }
 
     #[test]
+    fn an_elbow_between_boxes_too_close_to_turn_runs_straight() {
+        // Side by side 5 apart, or one over the other, an elbow has no room to leave one and meet
+        // the other (PLAN 2.109): it never runs back toward where it began.
+        let placement = place_deck(&deck(json!({
+            "a": { "type": "shape", "kind": "rect", "at": { "rect": [100, 100, 200, 100] } },
+            "b": { "type": "shape", "kind": "rect", "at": { "rect": [305, 150, 200, 100] } },
+            "c": { "type": "shape", "kind": "rect", "at": { "rect": [120, 205, 200, 100] } },
+            "ab": { "type": "shape", "kind": "arrow", "connect": { "from": "a", "to": "b", "route": "elbow" } },
+            "ac": { "type": "shape", "kind": "arrow", "connect": { "from": "a", "to": "c", "route": "elbow" } }
+        })))
+        .unwrap();
+        let drawn = |id: &str| -> Vec<[f32; 2]> {
+            let [x, y, w, h] = placement.boxes[id];
+            placement.joined[id].iter().map(|p| [x + p[0] * w, y + p[1] * h]).collect()
+        };
+        for (id, axis) in [("ab", 0), ("ac", 1)] {
+            let route = drawn(id);
+            assert!(route.windows(2).all(|w| w[1][axis] >= w[0][axis] - 0.01), "{id} runs back: {route:?}");
+            let last = route[route.len() - 1];
+            let inside = last[0] > 100.0 && last[0] < 300.0 && last[1] > 100.0 && last[1] < 200.0;
+            assert!(!inside, "{id} ends inside where it began: {route:?}");
+        }
+    }
+
+    #[test]
     fn a_shape_holds_words_alone() {
         let err = |nodes: Value| place_deck(&deck(nodes)).unwrap_err().to_string();
         let e = err(json!({ "s": { "type": "shape" }, "i": { "type": "shape", "at": { "parent": "s" } } }));

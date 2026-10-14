@@ -43,7 +43,7 @@ import {
 } from "@codemirror/commands";
 import { syntaxHighlighting } from "@codemirror/language";
 import { type Diagnostic, forceLinting, lintGutter, lintKeymap, linter, nextDiagnostic, openLintPanel, previousDiagnostic, setDiagnostics } from "@codemirror/lint";
-import { Compartment, EditorState, StateEffect } from "@codemirror/state";
+import { Compartment, EditorState, MapMode, StateEffect } from "@codemirror/state";
 import {
   drawSelection,
   EditorView,
@@ -349,23 +349,27 @@ async function edit(source: Source, opened?: Stage) {
   const scnOnDisk = "url" in source && source.serve && (await onDisk()).source ? new URL("deck.scn", source.url) : undefined;
   const fromDisk = async () => (await fetch(scnOnDisk!, { cache: "no-store" })).text();
   /** The deck's own size, named by its shape where a format is it (`16:9`); a format it lists of
-   * that shape is its own canvas, offered once. */
-  const own = () => stage.opened.own;
+   * that shape is its own canvas, offered once. An edit of the canvas renames it. */
+  let ownSize = stage.opened.own;
+  const own = () => ownSize;
   const sizes = (formats: string[]) => formats.filter((f) => f !== own());
   formatPicker.replaceChildren(new Option(own() ?? "Own size", ""));
   for (const format of sizes(stage.opened.formats)) formatPicker.add(new Option(format, format));
   const format = () => formatPicker.value || undefined;
-  /** The deck's formats as an edit leaves them: the format menu, and the formats side by side,
-   * follow. A format the deck no longer lists gives way to its own canvas, as the worker's does. */
-  function reformats(all: string[]) {
+  /** The deck's formats and its own size as an edit leaves them: the format menu, and the formats
+   * side by side, follow. A format the deck no longer lists, or one that is its own canvas now,
+   * gives way to its own canvas, as the worker's does. */
+  function reformats(all: string[], named: string | undefined) {
+    ownSize = named;
     const formats = sizes(all);
-    const listed = [...formatPicker.options].slice(1).map((o) => o.value);
-    if (listed.length !== formats.length || listed.some((f, i) => f !== formats[i])) {
+    const listed = [...formatPicker.options].map((o) => [o.value, o.text]);
+    const now = [["", own() ?? "Own size"], ...formats.map((f) => [f, f])];
+    if (listed.length !== now.length || listed.some(([v, t], i) => v !== now[i][0] || t !== now[i][1])) {
       const chosen = formatPicker.value;
-      formatPicker.replaceChildren(new Option(own() ?? "Own size", ""), ...formats.map((f) => new Option(f, f)));
+      formatPicker.replaceChildren(...now.map(([v, t]) => new Option(t, v)));
       formatPicker.value = formats.includes(chosen) ? chosen : "";
     }
-    formatting.formats(formats);
+    formatting.formats(formats, own());
   }
   /** The bundle's name, and where it is kept. */
   let { name, where } = stage.opened;
@@ -476,8 +480,15 @@ async function edit(source: Source, opened?: Stage) {
             version++;
             clearTimeout(pending);
             // Where each state starts moves with the change until the source is compiled again:
-            // the cursor an undo puts back is in the state it was in.
-            if (last) last = { ...last, states: last.states.map(([id, at]) => [id, update.changes.mapPos(at, 1)]) };
+            // the cursor an undo puts back is in the state it was in. A state whose start the
+            // change took away is gone, so the states after it count as the worker counts them.
+            if (last) {
+              const states = last.states.flatMap(([id, at]): [string, number][] => {
+                const to = update.changes.mapPos(at, 1, MapMode.TrackAfter);
+                return to === null ? [] : [[id, to]];
+              });
+              last = { ...last, states };
+            }
             tell();
           }
           // An undo or a redo of a restore or a theme edit writes its files back, before the deck
@@ -563,6 +574,10 @@ async function edit(source: Source, opened?: Stage) {
   fold((new URLSearchParams(location.search).get("source") ?? remembered) === "open", false);
   const folded = () => framed.classList.contains("folded");
   sourceToggle.onclick = () => fold(folded());
+  /** The inspector's column, or the animations under the canvas, hidden to give the slide their
+   * room, as a presentation app's View menu hides them, or shown again. */
+  const hiding = (what: "panel" | "cue", hide: boolean) => framed.classList.toggle(what === "panel" ? "bare" : "still", hide);
+  const hidden = (what: "panel" | "cue") => framed.classList.contains(what === "panel" ? "bare" : "still");
 
   /** What the last gesture on the canvas or choice in the inspector said: it stays in the status,
    * what lint finds after it, until the source is edited by hand. */
@@ -651,6 +666,7 @@ async function edit(source: Source, opened?: Stage) {
     source: () => view.state.doc.toString(),
     version: () => version,
     at: (node) => inspected?.nodes[node]?.at as Record<string, unknown> | undefined,
+    type: (node) => typeOf(node),
     transform: (node) => inspected?.nodes[node]?.transform as { rotate?: number; anchor?: [number, number] } | undefined,
     apply: made,
     unsay,
@@ -924,7 +940,7 @@ async function edit(source: Source, opened?: Stage) {
       formatPicker.dispatchEvent(new Event("change"));
     },
   });
-  formatting.formats(sizes(stage.opened.formats));
+  formatting.formats(sizes(stage.opened.formats), own());
   /** The deck played as presented, each state's time kept, and kept as its hold on request: one
    * patch, one step to undo (PLAN 2.63). */
   const rehearsing = rehearsal(stage, $("#rehearsing"), $<HTMLDialogElement>("#rehearsed"), $("#preview"), {
@@ -1052,6 +1068,9 @@ async function edit(source: Source, opened?: Stage) {
     format,
     source: () => view.state.doc.toString(),
     show: (index) => {
+      // The slide shown, clicked again, is the slide itself: nothing on it is selected, and the
+      // inspector shows its own settings.
+      if (index === shown) board.select(undefined);
       const start = last?.states[index]?.[1];
       if (start !== undefined) view.dispatch({ selection: { anchor: start }, scrollIntoView: true });
       void show(index);
@@ -1244,7 +1263,7 @@ async function edit(source: Source, opened?: Stage) {
     if (edited.valid) {
       // Each as a person counts it (PLAN 2.99): Slide 3, Slide 3, step 2.
       statesPicker.replaceChildren(...edited.states.map(([id], i) => new Option(edited.slots[i]?.state === id ? (edited.slots[i].said ?? id) : (edited.slots.find((s) => s.state === id)?.said ?? id), id)));
-      reformats(edited.formats);
+      reformats(edited.formats, edited.own);
       if (edited.at && !moved) shown = edited.at.index;
       // A state picked since the edit was asked for, among the states before it: the same state
       // among those after it, wherever the edit put it.
@@ -1727,21 +1746,26 @@ async function edit(source: Source, opened?: Stage) {
     },
     put: (target, made) => board.putPicture(target, made),
     say,
-    keys: () => {
+    // The assistant on the provider whose key the picture wants, so the key pasted is kept as its.
+    keys: async (provider) => {
       tab("assistant");
+      await assistant.choose(provider);
       $("#key").focus();
     },
   });
   /** Ask the model the assistant uses to write `kind` for `node`, a text, or for the state shown. */
   function write(kind: WritingKind, node?: string) {
+    if (assisting) return say("Nothing asked: the assistant is at work on the deck");
     const now = showing();
     if (!now) return say("Nothing to write yet: the deck must compile first");
     void writing.offer({ kind, state: now.state, node });
   }
-  /** Explain `f` by the model the assistant uses: what it means for the slide, and what could be done. */
+  /** Explain `f` by the model the assistant uses: what it means for the slide, and what could be
+   * done. One no state holds, as the source's own when it does not compile, is explained all the
+   * same: a state only finds the words of what it is about. */
   function explain(f: Finding) {
+    if (assisting) return say("Nothing asked: the assistant is at work on the deck");
     const state = f.state ?? showing()?.state;
-    if (!state) return say("Nothing to explain yet: the deck must compile first");
     const { code, severity, message, said, hint, node } = f;
     void writing.offer({ kind: "explain", state, finding: { code, severity, message, said, hint, node } });
   }
@@ -1800,6 +1824,8 @@ async function edit(source: Source, opened?: Stage) {
   const typeOf = (node: string) => layering.type(node, showing()?.state ?? "");
   /** Show the tab `id` under the preview, as a click on it does. */
   const tab = (id: "inspector" | "layers" | "data" | "theming" | "files" | "versions" | "story" | "assistant") => {
+    // A tab asked for shows the inspector's column, hidden or not.
+    hiding("panel", false);
     const button = $<HTMLButtonElement>(`#tab-${id}`);
     button.click();
     return button;
@@ -1850,8 +1876,14 @@ async function edit(source: Source, opened?: Stage) {
         applies: () => one() && typeOf(picked()[0]) === "image",
         run: () => write("describe", picked()[0]),
       },
-      // A picture made by the user's image model in the image's place (PLAN 2.107).
-      { label: "Make a picture to replace it…", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "image", run: () => void picturing.open() },
+      // A picture made by the user's image model in the image's place (PLAN 2.107), unless a lock
+      // holds it (PLAN 2.95), which no picture replaces.
+      {
+        label: "Make a picture to replace it…",
+        where: ["node"],
+        applies: () => one() && typeOf(picked()[0]) === "image" && !board.lockedBy(picked()[0]),
+        run: () => void picturing.open(),
+      },
       // A lock (PLAN 2.95): the canvas passes over what is locked, and moves and deletes nothing of it.
       {
         label: any() && picked().every((n) => board.lockedBy(n) === n) ? "Unlock" : "Lock",
@@ -1970,11 +2002,12 @@ async function edit(source: Source, opened?: Stage) {
       ...inserts,
       icon,
       // A picture made by the user's image model (PLAN 2.107): in the slide's empty place for one,
-      // else where the pointer last pressed.
+      // else where the pointer last pressed; for an image selected, unless a lock holds it, the
+      // command that replaces it.
       {
         label: "Make a picture…",
         where: ["canvas"],
-        applies: () => ready() && !(picked().length === 1 && typeOf(picked()[0]) === "image"),
+        applies: () => ready() && !(picked().length === 1 && typeOf(picked()[0]) === "image" && !board.lockedBy(picked()[0])),
         run: () => void picturing.open(),
       },
       ...draws.map(
@@ -2046,6 +2079,8 @@ async function edit(source: Source, opened?: Stage) {
       { label: "Open a .scaena file…", run: () => $("#open-file").click() },
       { label: "Open a folder…", applies: () => !$("#open-folder").hidden, run: () => $("#open-folder").click() },
       { label: "Show the inspector", run: () => tab("inspector").focus() },
+      { label: "Hide the inspector", applies: () => !hidden("panel"), run: () => hiding("panel", true) },
+      { label: hidden("cue") ? "Show the animations" : "Hide the animations", run: () => hiding("cue", !hidden("cue")) },
       { label: "Show the layers", run: () => tab("layers").focus() },
       { label: "Show the data", run: () => tab("data").focus() },
       { label: "Edit the theme", run: () => tab("theming").focus() },

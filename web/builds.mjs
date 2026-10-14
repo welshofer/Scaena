@@ -4,10 +4,12 @@
 //   node web/builds.mjs     (after `just web`; from the repository's root)
 //
 // - In `close`, the backdrop selected: the menu offers the shipped builds as a presentation app
-//   names them (Appear, Typewriter, Pop, Drop, Move In from Left, Spin, Flip, Blink, Jiggle).
+//   names them (Appear, Pop, Drop, Move In from Left, Spin, Flip, Blink, Jiggle), and none that
+//   plays a text's letters or words (Typewriter, Word by Word).
 // - Each kind offers its own (PLAN 2.116): an entrance and an exit the builds that start from a
 //   look, emphasis those that go to one and back. Fade enters and Pulse emphasizes, never the other
 //   way round, and Pop does both.
+// - Its bar moved later by a key makes it a call to Pop that waits, and Build In still says Pop.
 // - Pop chosen is one `apply_preset` patch: the backdrop enters on Pop, its bar in the cue, on the
 //   bouncy spring's time.
 // - Jiggle for emphasis is another, its own bar.
@@ -60,10 +62,10 @@ try {
     timeout: 30000,
   });
   const offered = await page.evaluate(() => [...document.querySelectorAll("#cue [data-add] option")].map((o) => o.textContent));
-  const wanted = ["Appear", "Typewriter", "Pop", "Fade and Scale", "Drop", "Move In from Left", "Move In from Bottom", "Spin", "Swing", "Flip", "Blink", "Jiggle"];
+  const wanted = ["Appear", "Pop", "Fade and Scale", "Drop", "Move In from Left", "Move In from Bottom", "Spin", "Swing", "Flip", "Blink", "Jiggle"];
   check(
-    wanted.every((w) => offered.includes(w)),
-    `the menu offers a presentation app's builds, in its words: ${wanted.filter((w) => !offered.includes(w)).join(", ") || "all of them"}`,
+    wanted.every((w) => offered.includes(w)) && !offered.includes("Typewriter") && !offered.includes("Word by Word"),
+    `the menu offers a presentation app's builds, in its words, and none that plays a text's letters or words: ${wanted.filter((w) => !offered.includes(w)).join(", ") || "all of them"}`,
   );
   const kinds = await page.evaluate(() => {
     const by = { enter: [], emphasis: [], exit: [] };
@@ -96,6 +98,23 @@ try {
   check(popped?.sprung && span > 300 && span < 1500, `on the bouncy spring's time: ${span} ms`);
   check(/bg[^\n]*enter:pop/.test(await source()), "written as the backdrop's entrance");
   const added = await source();
+
+  // Its bar moved later by a key: the entrance is a call to Pop with a wait, and the inspector's
+  // Build In still says Pop, not Custom.
+  const at = (await bars()).findIndex((b) => b.key === "bg enter");
+  n = await trips();
+  await page.locator(`#cue .bar[data-bar="${at}"]`).focus();
+  await page.keyboard.press("Shift+ArrowRight");
+  await redrawn(n);
+  check(/bg[^\n]*enter:\{preset: ?pop, ?delay: ?100\}/.test(await source()), `written as a call to Pop that waits: ${(await source()).match(/bg [^\n]*/)?.[0]}`);
+  await page.evaluate(() => window.scaena.canvas.select("bg"));
+  const build = await page
+    .waitForFunction(() => document.querySelector("#look-enter")?.selectedOptions[0]?.textContent, null, { timeout: 30000 })
+    .then((h) => h.jsonValue())
+    .catch(() => undefined);
+  check(build === "Pop", `Build In still says Pop: ${build}`);
+  await undo();
+  check((await source()) === added, "one undo takes the wait back");
 
   // Jiggle, for emphasis.
   await page.waitForFunction(() => [...document.querySelectorAll("#cue [data-add] option")].some((o) => o.value.includes('"emphasis","bg","jiggle"')), null, {

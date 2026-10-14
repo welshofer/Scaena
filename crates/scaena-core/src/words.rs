@@ -171,6 +171,23 @@ pub const PRESETS: &[(&str, &str)] = &[
     ("moveInBottom", "Move In from Bottom"),
 ];
 
+/// An entrance that moves in from a side, said as it leaves (PLAN 2.116): an exit plays an
+/// entrance back, so what moves in from the left moves out to it.
+pub const EXITS: &[(&str, &str)] = &[
+    ("moveInLeft", "Move Out to Left"),
+    ("moveInRight", "Move Out to Right"),
+    ("moveInTop", "Move Out to Top"),
+    ("moveInBottom", "Move Out to Bottom"),
+];
+
+/// Motion preset `name` of `theme` as Build Out names it: played back, as it leaves.
+pub fn leaving(name: &str, theme: &Theme) -> String {
+    EXITS
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map_or_else(|| named(Vocabulary::MotionPreset, name, theme), |(_, said)| said.to_string())
+}
+
 /// One of `theme`'s names of a kind, said: a color by what it is for, a font by its family, a
 /// duration with its seconds, a step of a scale by its size, a layout by what the theme calls it.
 pub fn named(of: Vocabulary, name: &str, theme: &Theme) -> String {
@@ -247,13 +264,25 @@ pub fn kind(t: Option<NodeType>) -> &'static str {
 const NAMED: usize = 40;
 
 /// A node's kind as `props` show it, as a person names it: a connector is an Arrow or a Line
-/// (PLAN 2.109), and anything else its type's kind.
+/// (PLAN 2.109), a polygon of the shape library is its shape, a Star (PLAN 2.106), and anything
+/// else its type's kind.
 pub fn kind_of(t: NodeType, props: &Props) -> &'static str {
     match props.get("kind").and_then(Value::as_str) {
         Some("arrow") if t == NodeType::Shape && props.contains_key("connect") => "Arrow",
         Some("line") if t == NodeType::Shape && props.contains_key("connect") => "Line",
+        Some("polygon") if t == NodeType::Shape => library(props).unwrap_or(kind(Some(t))),
         _ => kind(Some(t)),
     }
+}
+
+/// The shape of the library a polygon is, as Insert names it (PLAN 2.106): one whose `points` are
+/// a library shape's, to the four places each is written to.
+fn library(props: &Props) -> Option<&'static str> {
+    let points: Vec<[f64; 2]> = serde_json::from_value(props.get("points")?.clone()).ok()?;
+    let near = |a: &[f64; 2], b: &[f64; 2]| (a[0] - b[0]).abs() < 1e-3 && (a[1] - b[1]).abs() < 1e-3;
+    let (name, _, _) = (crate::inserts::polygons().into_iter())
+        .find(|(_, shape, _)| shape.len() == points.len() && shape.iter().zip(&points).all(|(a, b)| near(a, b)))?;
+    SHAPES.iter().find(|(kind, _)| *kind == name).map(|(_, said)| *said)
 }
 
 /// A node as a person names it, as `props` show it: a text by its words, anything else by its
@@ -300,6 +329,119 @@ pub fn slide(deck: &Deck, state: &str) -> String {
         Some(i) => slides(deck).swap_remove(i),
         None => "Slide".into(),
     }
+}
+
+/// What each operation a patch made did, by its name, as a change of the history says it.
+const OPS: &[(&str, &str)] = &[
+    ("add_node", "an object added"),
+    ("remove_node", "an object deleted"),
+    ("rename_node", "an object renamed"),
+    ("set_prop", "an object changed"),
+    ("set_text", "words changed"),
+    ("replace_text", "words typed"),
+    ("style_text", "characters given a look"),
+    ("list", "a list made"),
+    ("choose", "a look chosen"),
+    ("place", "an object moved"),
+    ("hide_node", "an object hidden"),
+    ("show_node", "an object shown"),
+    ("annotate", "a chart annotated"),
+    ("group", "objects grouped"),
+    ("ungroup", "a group taken apart"),
+    ("apply_preset", "an animation added"),
+    ("time_motion", "an animation timed"),
+    ("bind_data", "a chart given data"),
+    ("add_state", "a slide added"),
+    ("set_state", "a slide changed"),
+    ("move_state", "a slide moved"),
+    ("rename_state", "a slide renamed"),
+    ("remove_state", "a slide deleted"),
+    ("duplicate_slide", "a slide copied"),
+    ("move_slide", "a slide moved"),
+    ("remove_slide", "a slide deleted"),
+    ("retheme", "the theme changed"),
+];
+
+/// What a change the deck's history keeps did, from the message it was recorded with, as a
+/// person says it (PLAN 2.99): `patch: add_node, place` as An object added, an object moved; a
+/// theme taken by its name; an undo by what it undid. Every editor's Versions lists a change so.
+pub fn change(message: &str) -> String {
+    let m = message.trim();
+    let file = |path: &str| path.rsplit('/').next().unwrap_or(path).to_string();
+    if let Some(ops) = m.strip_prefix("patch: ") {
+        let mut said: Vec<&str> = Vec::new();
+        for op in ops.split(", ") {
+            let did = OPS.iter().find(|(name, _)| *name == op).map_or("an edit", |(_, did)| did);
+            if !said.contains(&did) {
+                said.push(did);
+            }
+        }
+        return sentence(&said.join(", "));
+    }
+    if let Some((how, rest)) = m.split_once(' ').filter(|(how, _)| matches!(*how, "undo" | "redo")) {
+        let done = if how == "undo" { "Undone" } else { "Made again" };
+        return format!("{done}: {}", change(rest).to_lowercase());
+    }
+    match m {
+        "" => return "A change".into(),
+        "history begins" => return "The history begins".into(),
+        "type" => return "Typing".into(),
+        "edit" => return "Edits".into(),
+        "save" => return "Saved".into(),
+        "deck_create" => return "The deck made".into(),
+        _ => {}
+    }
+    if let Some(name) = m.strip_prefix("data_attach ") {
+        return format!("The data “{name}” added");
+    }
+    if let Some(name) = m.strip_prefix("data_edit ") {
+        return format!("The data “{}” changed", name.split(':').next().unwrap_or(name));
+    }
+    if m.starts_with("history --restore ") {
+        return "A version restored".into();
+    }
+    if let Some(path) = m.strip_prefix("theme --apply ") {
+        let name = file(path);
+        let name = name.strip_suffix(".theme.json").or_else(|| name.strip_suffix(".json")).unwrap_or(&name);
+        return format!("The theme {} taken", phrase(name));
+    }
+    if let Some(path) = m.strip_prefix("theme_edit: colors from ") {
+        return format!("The theme given the colors of {}", file(path));
+    }
+    if m.starts_with("theme_edit") {
+        return "The theme changed".into();
+    }
+    if m.starts_with("lint --fix") {
+        return "Issues fixed".into();
+    }
+    if m.starts_with("library: ") {
+        return "The theme's layouts brought up to date".into();
+    }
+    if m.ends_with("changed outside Scaena") {
+        return "Changed outside Scaena".into();
+    }
+    sentence(m)
+}
+
+/// Who made a change the deck's history keeps, as a person reads it (PLAN 2.99): `you`, `the
+/// assistant` and its model, or an edit made outside Scaena; another author by the name the
+/// history keeps.
+pub fn author(author: &str) -> String {
+    match author {
+        "" | "user" => "you".into(),
+        "fs" => "outside Scaena".into(),
+        _ => match author.strip_prefix("agent:") {
+            Some("") => "the assistant".into(),
+            Some(model) => format!("the assistant ({model})"),
+            None => author.into(),
+        },
+    }
+}
+
+/// `words` begun with a capital.
+fn sentence(words: &str) -> String {
+    let mut chars = words.chars();
+    chars.next().map_or_else(String::new, |first| first.to_uppercase().chain(chars).collect())
 }
 
 /// What a motion does, as a person says it: `enter` as Enters, and one split by words as Enters
@@ -481,6 +623,20 @@ pub fn phrase(name: &str) -> String {
     words.iter().map(capital).collect::<Vec<_>>().join(" ")
 }
 
+/// A value typed in a data source's cell that its column does not read, in a sentence (PLAN
+/// 2.99), the column named as the sheet heads it: The revenue column takes a number: “four” is
+/// not one.
+pub fn unfit(column: &str, kind: crate::data::ColumnType, value: &str) -> String {
+    use crate::data::ColumnType;
+    let typed = value.trim();
+    match kind {
+        ColumnType::Number => format!("The {column} column takes a number: “{typed}” is not one"),
+        ColumnType::Date => format!("The {column} column takes a date: “{typed}” is not one it reads"),
+        ColumnType::Boolean => format!("The {column} column takes true or false: “{typed}” is neither"),
+        ColumnType::String => format!("The {column} column does not take “{typed}”"),
+    }
+}
+
 /// A property's words, as an editor shows them (PLAN 2.99): its label, and each name or word it
 /// offers, the value, and the theme's, said.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -490,11 +646,30 @@ pub struct FieldWords {
     /// Each name or word offered, and the value and the theme's where they are one, said:
     /// `onSurface` as `Text`, `fast` as `Fast (0.18 s)`, `cover` as `Fill`; a weight by its name.
     pub said: BTreeMap<String, String>,
+    /// For a color, each of the theme's names offered, and the value and the theme's where they
+    /// are one, as the color it is, `#rrggbb`: what a color well shows beside the name.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub colors: BTreeMap<String, String>,
+}
+
+/// The color `name` is in `theme`, `#rrggbb` (its alpha left off): a color role through the
+/// token it names, a token, or a color written out. None for a name the theme lacks, or a
+/// gradient.
+pub fn hex(name: &str, theme: &Theme) -> Option<String> {
+    let tokens = &theme.tokens;
+    let literal = match name.starts_with('#') || name.starts_with("oklch(") || name.starts_with("oklab(") {
+        true => name,
+        false => &tokens.color.get(name).or_else(|| tokens.color.get(tokens.roles.get(name)?))?.0,
+    };
+    let [r, g, b, _] = crate::color::parse(literal).ok()?.0;
+    Some(format!("#{r:02x}{g:02x}{b:02x}"))
 }
 
 /// `field`'s words, its names said as `theme` has them.
 pub fn field(field: &Field, theme: &Theme) -> FieldWords {
     let say = |key: &str| match &field.takes {
+        // Build Out offers the entrances played back, each named as it leaves.
+        Takes::Name { of: Vocabulary::MotionPreset, .. } if field.prop == "exit" => leaving(key, theme),
         Takes::Name { of, .. } => named(*of, key, theme),
         _ => word(&field.prop, key),
     };
@@ -519,6 +694,16 @@ pub fn field(field: &Field, theme: &Theme) -> FieldWords {
             }
         }
     }
+    // A color well shows the color each name is, and the value's and the theme's.
+    let mut colors = BTreeMap::new();
+    if let Takes::Name { of: Vocabulary::Color, names, .. } = &field.takes {
+        let values = shown.into_iter().flatten().filter_map(Value::as_str);
+        for name in names.iter().map(String::as_str).chain(values) {
+            if let Some(hex) = hex(name, theme) {
+                colors.insert(name.to_string(), hex);
+            }
+        }
+    }
     if field.prop == "style/weight" {
         for (w, name) in WEIGHTS {
             said.insert(w.to_string(), name.to_string());
@@ -529,7 +714,7 @@ pub fn field(field: &Field, theme: &Theme) -> FieldWords {
             }
         }
     }
-    FieldWords { label: label(&field.prop), said }
+    FieldWords { label: label(&field.prop), said, colors }
 }
 
 /// `choices` worded: the node named by what it shows (`said`) and by its kind (`noun`), each field
@@ -593,7 +778,7 @@ pub struct Lexicon {
     /// Each node, by its id: its kind ([`kind`]).
     pub kinds: BTreeMap<String, String>,
     /// Each of the theme's names said ([`named`]), by its kind of name: `color`, `text-role`,
-    /// `layout`, `motion-preset`, …
+    /// `layout`, `motion-preset`, … and `motion-exit`, each preset as Build Out names it.
     pub names: BTreeMap<String, BTreeMap<String, String>>,
     /// What a motion does: `enter` is Enters.
     pub motions: BTreeMap<String, String>,
@@ -650,6 +835,9 @@ pub fn lexicon(deck: &Deck, theme: &Theme, state: &str) -> Result<Lexicon, Strin
         }
         names.insert(key, said);
     }
+    // Each motion preset as Build Out names it, played back as it leaves (PLAN 2.116).
+    let exits = theme.names(Vocabulary::MotionPreset).into_iter().map(|n| (leaving(&n, theme), n));
+    names.insert("motion-exit".to_string(), crate::sort::map(exits.map(|(said, name)| (name, said))));
     // A slide transition's style and the way it moves, as the inspector says them (PLAN 2.111).
     for prop in ["transition/style", "transition/direction"] {
         let mut said = BTreeMap::new();
@@ -741,5 +929,23 @@ mod tests {
         assert_eq!(weight(650.0), "650");
         assert_eq!(theme("themes/dusk.theme.json"), "Dusk");
         assert_eq!(theme("themes/dusk-2.theme.json"), "Dusk 2");
+    }
+
+    /// A polygon of the shape library is named as Insert names it (PLAN 2.106), wherever an editor
+    /// names an object: a star is a Star. A polygon of its own, and a rectangle, are a Shape, and
+    /// a description comes first.
+    #[test]
+    fn a_shape_of_the_library_is_named_by_its_shape() {
+        let props = |v: Value| -> Props { serde_json::from_value(v).unwrap() };
+        for (name, points, _) in crate::inserts::polygons() {
+            let drawn = props(serde_json::json!({ "kind": "polygon", "points": points, "fill": "accent" }));
+            assert_eq!(object(NodeType::Shape, &drawn), shape(name), "{name}");
+        }
+        let own = props(serde_json::json!({ "kind": "polygon", "points": [[0, 0], [1, 0], [0.4, 1]] }));
+        assert_eq!(object(NodeType::Shape, &own), "Shape");
+        assert_eq!(object(NodeType::Shape, &props(serde_json::json!({ "kind": "rect" }))), "Shape");
+        let star = crate::inserts::polygons().into_iter().find(|(n, _, _)| *n == "star").unwrap().1;
+        let described = props(serde_json::json!({ "kind": "polygon", "points": star, "alt": "A gold star" }));
+        assert_eq!(object(NodeType::Shape, &described), "A gold star");
     }
 }

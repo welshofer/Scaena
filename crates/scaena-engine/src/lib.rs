@@ -50,6 +50,6 @@ pub mod text;
 pub mod theme;
 
 pub use error::EngineError;
-pub use render::{Engine, Frame, FrameRequest, PlacedText, project};
+pub use render::{Engine, Frame, FrameRequest, PlacedText, Timed, project};
 /// A slide's number and footer (ADR-0028): the core's, which the engine lays out and draws.
 pub use scaena_core::furniture;

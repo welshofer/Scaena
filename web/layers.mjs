@@ -136,7 +136,8 @@ try {
   await undo();
   check(await back(original), "one undo hides it again");
   await row("subtitle").locator("[data-eye]").click();
-  check(await says("Not changed: the deck refuses it: slot `subtitle` is not in layout `figure`"), `one the deck refuses says why: ${await status()}`);
+  check(await says("Not changed: the deck would not open with it."), `one the deck refuses says why: ${await status()}`);
+  check(!(await status()).includes("`"), `in a person's words, no id: ${await status()}`);
   check((await source()) === original, "and nothing changes");
 
   // No id is shown, so none is renamed here: a double click on a name opens no field.

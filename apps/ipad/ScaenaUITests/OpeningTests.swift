@@ -45,6 +45,9 @@ final class OpeningTests: XCTestCase {
         XCTAssertTrue(generate.exists, "the brief has no Generate: \(app.debugDescription)")
         XCTAssertFalse(generate.isEnabled, "Generate is offered with nothing to write about")
         settle()
+        // Each of the brief's fields says what it asks for beside it, not only an example in it.
+        let audience = app.staticTexts.matching(NSPredicate(format: "label == 'Audience'")).firstMatch
+        XCTAssertTrue(audience.exists, "the audience field has no label: \(app.debugDescription)")
         keep(app, as: "prompt")
         app.buttons["prompt-cancel"].tap()
         XCTAssertTrue(wait(10) { !topic.exists }, "Cancel left the brief up: \(app.debugDescription)")

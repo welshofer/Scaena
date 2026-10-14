@@ -20,8 +20,14 @@
       /* The canvas first (PLAN 2.80): the source a pane at the left that folds away, the work in the
          middle, and the tabs at the right. Folded, the middle takes the source's room. */
       main { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) minmax(340px, 1.2fr); height: 100vh; }
-      main.folded { grid-template-columns: minmax(0, 1fr) minmax(360px, 420px); }
+      /* The inspector gives way to the slide in a narrow window, and hides (main.bare) or the
+         animations under the canvas do (main.still), as a presentation app's View menu has them. */
+      main.folded { grid-template-columns: minmax(0, 1fr) clamp(280px, 28vw, 420px); }
       main.folded #source { display: none; }
+      main.bare { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
+      main.folded.bare { grid-template-columns: minmax(0, 1fr); }
+      main.bare #panel { display: none; }
+      main.still #cue { display: none !important; }
       #source { display: grid; grid-template-rows: minmax(0, 1fr); border-right: 1px solid var(--line); min-height: 0; }
       #source-toggle[aria-pressed="true"] { border-color: var(--info); }
       #code { min-height: 0; overflow: hidden; }
@@ -61,6 +67,7 @@
       #overlay { position: absolute; inset: 0; outline: none; touch-action: none; }
       #overlay:focus-visible { outline: 2px solid var(--info); outline-offset: -2px; }
       #overlay svg { display: block; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+      #overlay.zoomed svg { overflow: clip; overflow-clip-margin: 8px; }
       #overlay rect, #overlay line { vector-effect: non-scaling-stroke; }
       #overlay .selected { fill: none; stroke: var(--info); stroke-width: 1.5; }
       #overlay .hover { fill: none; stroke: var(--info); stroke-width: 1; stroke-dasharray: 4 3; opacity: 0.7; }
@@ -77,6 +84,8 @@
       #overlay.panning { cursor: grab; }
       #zoom output { display: inline-block; min-width: 3.2em; text-align: center; font-variant-numeric: tabular-nums; }
       #look .fraction { width: 4.2em; }
+      #look label.part { display: inline-flex; flex-direction: column; font-size: 12px; color: var(--muted); margin-right: 4px; }
+      #look label.part span { line-height: 1.4; }
       #overlay .ink { fill: none; stroke-linecap: round; stroke-linejoin: round; }
       #overlay .marquee { fill: rgb(156 196 228 / 0.1); stroke: var(--info); stroke-width: 1; stroke-dasharray: 4 3; }
       #overlay .landing-line { stroke: var(--info); stroke-width: 3; }
@@ -257,6 +266,11 @@
       /* A thumbnail keeps its place and shows as one waiting until it is painted: the canvas
          shown's shape, in the line's gray, not a black slide. */
       #strip canvas { display: block; height: 54px; width: auto; aspect-ratio: var(--aspect, 1.7778); background: var(--line); }
+      /* A short window gives the slide the height the animations and the strip keep in a tall one. */
+      @media (max-height: 760px) {
+        #cue .lanes { height: 74px; }
+        #strip canvas { height: 40px; }
+      }
       #strip .id { max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #strip .cue { color: var(--muted); font-variant-numeric: tabular-nums; }
       #strip input { width: 90px; font: inherit; font-size: 11px; background: var(--surface); color: var(--ink); border: 1px solid var(--info); border-radius: 3px; }
@@ -266,12 +280,14 @@
       /* The light table (PLAN 2.97): the deck's slides in a grid, in place of the preview. */
       /* It scrolls itself, the panels under it staying put; a slide brought into view stands clear
          of the slider at its foot. */
-      #slides { flex: 1 1 0; min-height: 0; overflow: auto; padding: 12px; scroll-padding-bottom: 56px; }
+      /* The slides scroll above the slider, which stands at the light table's foot below them,
+         clear of every slide: nothing scrolls under it or shows past it. */
+      #slides { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; padding: 12px 12px 0; }
       #slides[hidden] { display: none; }
       #work.tabled #desk, #work.tabled #formats, #work.tabled #cue { display: none !important; }
-      #slides ol { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--slide, 240px), 1fr)); gap: 14px; margin: 0; padding: 4px; list-style: none; }
+      #slides ol { flex: 1 1 auto; min-height: 0; overflow: auto; align-content: start; display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--slide, 240px), 1fr)); gap: 14px; margin: 0; padding: 4px 4px 12px; list-style: none; }
       /* The slider at its foot that makes the slides larger or smaller, as many to a row as fit. */
-      #slides .sizing { position: sticky; bottom: 0; display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin: 8px 0 0; padding: 6px 4px; background: var(--surface); color: var(--muted); }
+      #slides .sizing { flex: none; display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin: 0; padding: 6px 4px; border-top: 1px solid var(--line); background: var(--surface); color: var(--muted); }
       #slides .sizing input { width: 180px; }
       #slides .sizing .small { font-size: 10px; }
       #slides .sizing .large { font-size: 20px; }
@@ -474,7 +490,7 @@
       #data th.index, #data tbody th { color: var(--muted); text-align: right; padding: 0 6px; position: static; border-bottom: none; }
       #data thead th.index { position: sticky; }
       #data td { padding: 0; border-bottom: 1px solid var(--line); }
-      #data td input { width: 9em; box-sizing: border-box; font: inherit; background: transparent; color: var(--ink); border: 1px solid transparent; padding: 3px 6px; }
+      #data td input { box-sizing: border-box; font: inherit; background: transparent; color: var(--ink); border: 1px solid transparent; padding: 3px 6px; }
       #data td.number input { text-align: right; }
       #data td input:focus { outline: none; border-color: var(--info); background: var(--surface); }
       #data td input[aria-invalid="true"] { border-color: var(--error); color: var(--error); }
@@ -491,7 +507,27 @@
       #assistant[hidden] { display: none; }
       #assistant input, #assistant textarea { font: inherit; font-size: 13px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; }
       #who { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-      #who #key { flex: 1 1 10em; min-width: 8em; }
+      #who .keyfield { flex: 1 1 12em; min-width: 9em; display: flex; position: relative; }
+      #who .keyfield #key { flex: 1; min-width: 0; padding-right: 30px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: 0.02em; }
+      #who .keyfield .reveal { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); display: grid; place-items: center; width: 26px; height: 22px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--muted); cursor: pointer; }
+      #who .keyfield .reveal:hover { color: var(--ink); background: var(--line); }
+      #who .keyfield .reveal:focus-visible { outline: 2px solid var(--info); outline-offset: 0; }
+      #who .keyfield .reveal .slash { display: none; }
+      #who .keyfield .reveal[aria-pressed="true"] .slash { display: inline; }
+      .keysaid { display: grid; gap: 4px; }
+      #assistant .keysaid p { padding: 0 12px; }
+      #assistant .keysaid p[hidden] { display: none; }
+      .keysaid:not(:has(> p:not([hidden]):not(:empty))) { display: none; }
+      .keystatus { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; color: var(--muted); }
+      .keystatus:empty { display: none; }
+      .keystatus::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+      .keystatus[data-state="checking"]::before { background: none; border: 1.5px solid currentColor; border-right-color: transparent; animation: keyspin 0.8s linear infinite; }
+      .keystatus[data-state="works"] { color: #7fcf9a; }
+      .keystatus[data-state="refused"] { color: var(--error); }
+      .keystatus[data-state="unreachable"] { color: var(--warning); }
+      .keyhint { margin: 0; font-size: 12px; color: var(--warning); }
+      @keyframes keyspin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) { .keystatus[data-state="checking"]::before { animation: none; } }
       #who #model { max-width: 16em; }
       #who #base { width: 100%; }
       .note { color: var(--muted); font-size: 12px; margin: 0; }
@@ -793,11 +829,18 @@
               <option value="openai">OpenAI</option>
               <option value="gemini">Gemini</option>
             </select>
-            <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="your API key" aria-label="API key" />
+            <span class="keyfield">
+              <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your API key" aria-label="API key" aria-describedby="keystatus keyhint" />
+              <button id="reveal-key" type="button" class="reveal" aria-pressed="false" aria-label="Show the key" title="Show the key"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path class="eye" d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path class="slash" d="M4 20 20 4" stroke="currentColor" stroke-width="1.8"/></svg></button>
+            </span>
             <select id="model" aria-label="Model"></select>
             <label class="note"><input id="keep-key" type="checkbox" /> keep on this device</label>
             <button id="forget-key" type="button" title="Forget this provider's key">Forget key</button>
             <input id="base" type="url" spellcheck="false" aria-label="The API's address" />
+          </div>
+          <div class="keysaid">
+            <p id="keyhint" class="keyhint" hidden></p>
+            <p id="keystatus" class="keystatus" role="status" aria-live="polite" data-state="none"></p>
           </div>
           <p class="note" id="keynote"></p>
           <ol id="transcript" aria-label="Conversation" aria-live="polite"></ol>

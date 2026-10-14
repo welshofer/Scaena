@@ -34,6 +34,9 @@ public struct Finding: Decodable, Equatable, Sendable {
     public let code: String
     public let severity: Severity
     public let message: String
+    /// What it finds, in a sentence a person would say (PLAN 2.99, `scaena_core::words::issue`),
+    /// as the window shows it; none for a finding with no sentence of its own.
+    public let said: String?
     /// A JSON pointer into `deck.json`.
     public let path: String?
     public let state: String?
@@ -97,6 +100,11 @@ public struct Choices: Decodable, Sendable {
     /// The node's kind as a person names it: `Text`, `Chart`, or `Icon` for a path on a view, which
     /// the icon picker replaces (PLAN G.23).
     public let noun: String?
+
+    /// Whether the writing tools have words to write for what is offered (PLAN 2.101): a text's, a
+    /// picture's description, or the slide's notes. A shape, a chart, a table, or a group has none,
+    /// and the inspector offers it no writing, as the browser's offers none.
+    public var writes: Bool { node == nil || type == "text" || type == "image" }
 }
 
 /// What an inspector offers of a slide's number and footer (ADR-0028): the deck's, which
@@ -315,7 +323,15 @@ extension [NodeBox] {
     /// the engine.
     public func under(_ point: CGPoint) -> String? {
         guard let top = last(where: { $0.draws && $0.locked == nil && $0.holds(point) }) else { return nil }
-        guard let parent = top.parent, first(where: { $0.node == parent })?.words == top.node else { return top.node }
+        return reached(top.node)
+    }
+
+    /// What a press on `node` reaches (PLAN 2.108): a shape's words, reached as the shape, which a
+    /// click selects, a drag moves, and a right click or a long press offers what is done to, as
+    /// the browser's canvas reaches them; anything else as itself.
+    public func reached(_ node: String) -> String {
+        guard let parent = first(where: { $0.node == node })?.parent, first(where: { $0.node == parent })?.words == node
+        else { return node }
         return parent
     }
 }

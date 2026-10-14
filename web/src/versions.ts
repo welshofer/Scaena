@@ -11,7 +11,7 @@
 import { listen, observing } from "./life";
 import type { Compared, Lexicon, NodeChange, Restored, StateChange, Version } from "./protocol";
 import type { Stage } from "./stage";
-import { object, phrase, quote, sentence } from "./words";
+import { object, phrase, quote } from "./words";
 
 /** What the panel asks of the editor around it. */
 export interface VersionsEditor {
@@ -31,81 +31,6 @@ export interface VersionsEditor {
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const html = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
-
-/** What each change the history records did, by the operation's name (`patch: add_node`), as a
- * person says it (PLAN 2.99). */
-const OPS: Record<string, string> = {
-  add_node: "an object added",
-  remove_node: "an object deleted",
-  rename_node: "an object renamed",
-  set_prop: "an object changed",
-  set_text: "words changed",
-  replace_text: "words typed",
-  style_text: "characters given a look",
-  list: "a list made",
-  choose: "a look chosen",
-  place: "an object moved",
-  hide_node: "an object hidden",
-  show_node: "an object shown",
-  annotate: "a chart annotated",
-  group: "objects grouped",
-  ungroup: "a group taken apart",
-  apply_preset: "an animation added",
-  time_motion: "an animation timed",
-  bind_data: "a chart given data",
-  add_state: "a slide added",
-  set_state: "a slide changed",
-  move_state: "a slide moved",
-  rename_state: "a slide renamed",
-  remove_state: "a slide deleted",
-  duplicate_slide: "a slide copied",
-  move_slide: "a slide moved",
-  remove_slide: "a slide deleted",
-  retheme: "the theme changed",
-};
-
-/** A change's message, as the history records it, in a person's words (PLAN 2.99): `patch:
- * add_node, place` is An object added, an object moved. */
-export function told(message: string | null | undefined): string {
-  const m = (message ?? "").trim();
-  const patch = /^patch: (.*)$/.exec(m);
-  if (patch) return sentence([...new Set(patch[1].split(", ").map((op) => OPS[op] ?? "an edit"))].join(", "));
-  const said: [RegExp, (...g: string[]) => string][] = [
-    [/^$/, () => "A change"],
-    [/^history begins$/, () => "The history begins"],
-    [/^type$/, () => "Typing"],
-    [/^edit$/, () => "Edits"],
-    [/^save$/, () => "Saved"],
-    [/^deck_create$/, () => "The deck made"],
-    [/^data_attach (.*)$/, (n) => `The data “${n}” added`],
-    [/^data_edit ([^:]*)/, (n) => `The data “${n}” changed`],
-    [/^history --restore /, () => "A version restored"],
-    [/^theme --apply (.*)$/, (p) => `The theme ${phrase(p.replace(/^.*\//, "").replace(/\.theme\.json$|\.json$/, ""))} taken`],
-    [/^theme_edit: colors from (.*)$/, (p) => `The theme given the colors of ${p.replace(/^.*\//, "")}`],
-    [/^theme_edit/, () => "The theme changed"],
-    [/^lint --fix/, () => "Issues fixed"],
-    [/^(undo|redo) (.*)$/, (how, rest) => `${how === "undo" ? "Undone" : "Made again"}: ${told(rest).toLowerCase()}`],
-    [/^library: /, () => "The theme's layouts brought up to date"],
-    [/changed outside Scaena$/, () => "Changed outside Scaena"],
-  ];
-  for (const [pattern, say] of said) {
-    const found = pattern.exec(m);
-    if (found) return say(...found.slice(1));
-  }
-  return sentence(m);
-}
-
-/** Who made a change, as a person reads it (PLAN 2.99): you, the assistant and its model, or an
- * edit made outside Scaena; another author by the name the history keeps. */
-export function who(author: string | null | undefined): string {
-  if (!author || author === "user") return "you";
-  if (author === "fs") return "outside Scaena";
-  if (author.startsWith("agent:")) {
-    const model = author.slice("agent:".length);
-    return model && model !== "scripted" ? `the assistant (${model})` : "the assistant";
-  }
-  return author;
-}
 
 /** An object's property as what changed says it. */
 const PROPS: Record<string, string> = {
@@ -141,6 +66,31 @@ const PROPS: Record<string, string> = {
 };
 /** A state's own field as what changed says it. */
 const FIELDS: Record<string, string> = { layout: "layout", transition: "transition", hold: "advance", notes: "presenter notes" };
+/** The deck's own field as what changed says it: its spine is its story, as the Story tab has it. */
+const DECK: Record<string, string> = {
+  spine: "story",
+  canvas: "slide size",
+  formats: "other sizes",
+  data: "data sources",
+  meta: "details",
+  furniture: "slide numbers and footer",
+};
+
+/** Words that changed from `before` to `after`, quoted as they read now: the part that differs,
+ * with a few characters either side, cut with an ellipsis where the text goes on, so that a
+ * change at the end of a long text shows. */
+export function retyped(before: string, after: string): string {
+  const [was, now] = [[...before.trim()], [...after.trim()]];
+  let head = 0;
+  while (head < was.length && head < now.length && was[head] === now[head]) head++;
+  let tail = 0;
+  while (tail < was.length - head && tail < now.length - head && was[was.length - 1 - tail] === now[now.length - 1 - tail]) tail++;
+  const around = 12;
+  const from = Math.max(0, head - around);
+  const to = Math.min(now.length, Math.max(now.length - tail + around, from + 40));
+  const cut = now.slice(from, to).join("").replace(/\s+/g, " ").trim();
+  return `“${from > 0 ? "…" : ""}${cut}${to < now.length ? "…" : ""}”`;
+}
 
 /** When a version was made, as a person reads it, in this browser's time zone. */
 export function when(at: string | null | undefined): string {
@@ -150,9 +100,10 @@ export function when(at: string | null | undefined): string {
   return date.toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-/** A version as a person reads it: what was done, by whom, and when. */
+/** A version as a person reads it: what was done, by whom, and when. What and who are the
+ * engine's words (`scaena_core::words::change`, `author`), as the Mac's Versions says them. */
 export function saying(v: Version): string {
-  return `${told(v.message)} · ${who(v.author)} · ${when(v.at)}`;
+  return `${v.said} · ${v.by} · ${when(v.at)}`;
 }
 
 /** What changed, a line each, in a person's words (PLAN 2.99): each slide, by its number in the
@@ -160,35 +111,41 @@ export function saying(v: Version): string {
  * deck's own settings, then the files. */
 export function changes(c: Compared, words?: Lexicon, slide: (state: string) => string | undefined = () => undefined): string[] {
   const out: string[] = [];
-  // An object by what it shows now; one whose words changed, by its kind, which names it either side.
+  // An object by what it shows now; one whose words changed, by its words before, which tells two
+  // texts apart, and the words that changed as they read now; else by its kind.
   const named = (n: string) => (words?.objects[n] === undefined ? "an object" : object(words, n, true));
   const kind = (n: string) => `the ${(words?.kinds[n] ?? "object").toLowerCase()}`;
-  const parts = (p: Record<string, unknown>) =>
+  const parts = (p: Record<string, unknown>, typed?: [string, string]) =>
     [
       ...new Set(
         Object.entries(p).map(([k, v]) =>
-          k === "text" && typeof v === "string" ? `its words now ${quote(v)}` : `its ${PROPS[k] ?? phrase(k).toLowerCase()} changed`,
+          (k === "text" || k === "runs") && typed
+            ? `its words now ${retyped(typed[0], typed[1])}`
+            : k === "text" && typeof v === "string"
+              ? `its words now ${quote(v)}`
+              : `its ${PROPS[k] ?? phrase(k).toLowerCase()} changed`,
         ),
       ),
     ].join(", ");
-  const node = (n: string, how: NodeChange) =>
-    "enter" in how
-      ? `${named(n)} added`
-      : "exit" in how
-        ? `${named(n)} taken off`
-        : `${"text" in how.change || "runs" in how.change ? kind(n) : named(n)}: ${parts(how.change)}`;
+  const node = (state: string, n: string, how: NodeChange) => {
+    if ("enter" in how) return `${named(n)} added`;
+    if ("exit" in how) return `${named(n)} taken off`;
+    if (!("text" in how.change || "runs" in how.change)) return `${named(n)}: ${parts(how.change)}`;
+    const typed = c.texts?.[state]?.[n];
+    return `${typed?.[0].trim() ? quote(typed[0]) : kind(n)}: ${parts(how.change, typed)}`;
+  };
   for (const [id, s] of Object.entries(c.states) as [string, StateChange][]) {
     const which = slide(id);
     if ("added" in s) out.push(`${which ?? "A slide"} added`);
     else if ("removed" in s) out.push(which ? `${which} taken out` : "A slide taken out");
     else {
       const fields = Object.keys(s.changed.fields ?? {}).map((k) => `its ${FIELDS[k] ?? phrase(k).toLowerCase()} changed`);
-      const nodes = Object.entries(s.changed.nodes ?? {}).map(([n, how]) => node(n, how));
+      const nodes = Object.entries(s.changed.nodes ?? {}).map(([n, how]) => node(id, n, how));
       out.push(`${which ?? "A slide"}: ${[...fields, ...nodes].join("; ")}`);
     }
   }
   for (const field of Object.keys(c.deck)) {
-    out.push(field === "order" ? "The slides' order changed" : `The deck's ${phrase(field).toLowerCase()} changed`);
+    out.push(field === "order" ? "The slides' order changed" : `The deck's ${DECK[field] ?? phrase(field).toLowerCase()} changed`);
   }
   for (const path of c.files) out.push(`${path.replace(/^.*\//, "")} changed`);
   return out;
@@ -265,7 +222,7 @@ export function versionsPanel(stage: Stage, into: HTMLElement, editor: VersionsE
       .reverse()
       .map(
         (v) =>
-          `<li><button type="button" data-id="${html(v.id)}" aria-pressed="${v.id === chosen}"><span class="n">${v.n}</span> ${html(told(v.message))} <span class="by">${html(who(v.author))} · ${html(when(v.at))}</span></button></li>`,
+          `<li><button type="button" data-id="${html(v.id)}" aria-pressed="${v.id === chosen}"><span class="n">${v.n}</span> ${html(v.said)} <span class="by">${html(v.by)} · ${html(when(v.at))}</span></button></li>`,
       )
       .join("");
   }
@@ -284,7 +241,7 @@ export function versionsPanel(stage: Stage, into: HTMLElement, editor: VersionsE
     if (chosen !== id) {
       against.replaceChildren(
         new Option("the deck now", ""),
-        ...versions!.filter((x) => x.id !== id).map((x) => new Option(`version ${x.n}: ${told(x.message)}`, x.id)),
+        ...versions!.filter((x) => x.id !== id).map((x) => new Option(`version ${x.n}: ${x.said}`, x.id)),
       );
     }
     chosen = id;

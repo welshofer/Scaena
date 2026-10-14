@@ -16,8 +16,9 @@ export interface Options {
   tools: Tool[];
   /** The conversation so far, the user's question last; the loop adds to it. */
   conversation: Message[];
-  /** Run a call on the bundle: its result, and a line saying what it came to. */
-  call(call: Call): Promise<{ result: Result; summary: string }>;
+  /** Run a call on the bundle: its result, a line saying what it came to, and whether it did
+   * what its words say. */
+  call(call: Call): Promise<{ result: Result; summary: string; made: boolean }>;
   emit(event: Event): void;
   signal: AbortSignal;
   /** The most rounds of calls one question may take. */
@@ -82,9 +83,9 @@ export async function converse(o: Options): Promise<void> {
         continue;
       }
       o.emit({ kind: "call", id: call.id, name: call.name, args: call.args });
-      const { result, summary } = await o.call(call);
+      const { result, summary, made } = await o.call(call);
       results.push(result);
-      o.emit({ kind: "result", id: call.id, name: call.name, error: result.error, summary, json: result.json, png: result.png });
+      o.emit({ kind: "result", id: call.id, name: call.name, error: result.error, summary, made, json: result.json, png: result.png });
     }
     o.conversation.push({ role: "tool", results });
   }

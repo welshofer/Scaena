@@ -18,7 +18,8 @@
 //   own delta.
 // - ⌘D copies the title beside it as `title-2`, selected, and Shift+Delete takes the copy out of
 //   the deck.
-// - A star from the shape library is a polygon of ten points in the accent, named Star.
+// - A star from the shape library is a polygon of ten points in the accent, named Star on the menu
+//   and in the layers.
 // - A shader preset fills the canvas under the rest, and the image dropped is inserted.
 // Exits 1 on any failure.
 import { readFile } from "node:fs/promises";
@@ -57,6 +58,11 @@ try {
     await page.waitForFunction((n) => window.scaena.canvas.boxes().some((b) => b.node === n), node, { timeout: 10000 }).catch(() => {});
     return page.evaluate((n) => window.scaena.canvas.boxes().find((b) => b.node === n)?.rect, node);
   };
+  /** `node`'s box once the canvas has drawn it, which it does once the edit that made it is shown. */
+  const drawn = (node) =>
+    page
+      .waitForFunction((n) => window.scaena.canvas.boxes()?.find((b) => b.node === n)?.rect, node, { timeout: 10000 })
+      .then((h) => h.jsonValue(), () => undefined);
   /** Once the source holds `text` (or, with `absent`, does not), and the canvas has caught up. */
   const reads = async (text, absent = false) => {
     await page
@@ -155,7 +161,7 @@ try {
   await page.selectOption("#insert", { label: "Headline" });
   check(await reads("headline text role:headline"), "the headline is inserted into the source");
   check((await source()).includes('headline text role:headline "Headline" at:col('), "on the grid's cells");
-  const cell = await box("headline");
+  const cell = await drawn("headline");
   const overlaps = await page.evaluate(() => window.scaena.last().findings.filter((f) => f.code === "E101" && f.message.includes("`headline`")).map((f) => f.message));
   const on = Boolean(cell) && cell[0] <= at[0] && at[0] <= cell[0] + cell[2] && cell[1] <= at[1] && at[1] <= cell[1] + cell[3];
   check(Boolean(cell) && !on && overlaps.length === 0, `off the chart, in the room nearest the point: ${cell} · ${overlaps.join("; ") || "no overlap lint finds"}`);
@@ -208,6 +214,11 @@ try {
   const corners = (/points:\[\[(.*?)\]\]/.exec(star)?.[1] ?? "").split("], [").length;
   check(corners === 10 && star.includes("fill:accent"), `its ten points, in the accent: ${star.slice(0, 90)}…`);
   check(await says("Star inserted on this slide"), `the status names it: ${await status()}`);
+  // The layers call it a Star, as the menu does.
+  const starLayer = await page
+    .waitForFunction(() => document.querySelector('#layers li[data-layer="star"] [data-pick]')?.textContent, null, { timeout: 10000 })
+    .then((h) => h.jsonValue(), () => undefined);
+  check(starLayer === "Star", `the layers call it a Star: ${starLayer}`);
   await page.keyboard.press("Control+z");
   check(await back(original), "one undo takes it back");
 
@@ -217,7 +228,7 @@ try {
   const named = preset.toLowerCase();
   await page.selectOption("#insert", { label: preset });
   check(await reads(`${named} shader:`), `the ${preset} preset is inserted`);
-  const filled = await box(named);
+  const filled = await drawn(named);
   const [w, h] = await page.evaluate(() => window.scaena.canvas.size());
   check(JSON.stringify(filled) === JSON.stringify([0, 0, w, h]), `it fills the canvas: ${filled}`);
   check((await source()).includes("z:-1"), "under what is there");

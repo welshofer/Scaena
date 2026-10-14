@@ -7,11 +7,13 @@ struct Unseen: Error, CustomStringConvertible {
 
 /// What every test of the app does first: launch it, open B1, and keep what it shows.
 extension XCTestCase {
-    /// The app launched, the iPad held landscape, as a deck is edited.
+    /// The app launched, the iPad held landscape, as a deck is edited, with `environment` among
+    /// its environment's variables.
     @MainActor
-    func launched() -> XCUIApplication {
+    func launched(environment: [String: String] = [:]) -> XCUIApplication {
         XCUIDevice.shared.orientation = .landscapeLeft
         let app = XCUIApplication()
+        app.launchEnvironment.merge(environment) { _, given in given }
         app.launch()
         return app
     }

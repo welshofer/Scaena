@@ -133,6 +133,8 @@ struct LayoutPicker: View {
         }
         .frame(width: 190)
         .focusable()
+        // The section chosen shows which, as a sidebar's row does: no ring round the whole list.
+        .focusEffectDisabled()
         .onKeyPress(.upArrow) { move(by: -1) }
         .onKeyPress(.downArrow) { move(by: 1) }
         .accessibilityElement(children: .contain)
