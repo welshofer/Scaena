@@ -31,7 +31,8 @@ impl Curve {
         }
     }
 
-    /// How long a motion along this curve runs, ms: a spring's settle time, else `eased`.
+    /// How long a motion along this curve runs, ms: a spring's settle time, or the time it first
+    /// arrives ([`Curve::arriving`]); else `eased`.
     pub fn duration(&self, eased: f64) -> f64 {
         match *self {
             Curve::Ease(_) => eased,

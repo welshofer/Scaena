@@ -11,8 +11,8 @@ use crate::lint::literal;
 use crate::model::theme::Theme;
 use crate::model::values::{Annotation, Duration, ListItem};
 use crate::tracking::{
-    Lives, Snapshot, keep_looks, layout_lives, lives, lives_shown, merge_props, other_spelling,
-    resolve_states, tracks_from, words_of,
+    Lives, Snapshot, keep_looks, layout_lives, lives, lives_shown, merge_props, other_spelling, resolve_states,
+    tracks_from, words_of,
 };
 use crate::validate::BundleFiles;
 use serde_json::{Map, Value};

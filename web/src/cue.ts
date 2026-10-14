@@ -381,9 +381,10 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
 
   /** The motions that may be added: for the node the canvas selects, its entrance where it enters
    * (or a chart, whose marks enter as its data changes) and an emphasis, each where it has none;
-   * and for each node that leaves, its exit. Each one of the theme's presets the node's inspector
-   * offers for it (PLAN 2.116): what leaves, as the state before shows it, since a build splits a
-   * node only into what it has (E106). */
+   * and for each node that leaves, its exit, save under a slide transition, which moves the slide
+   * left whole and plays none of its exits (SPEC §3.9). Each one of the theme's presets the node's
+   * inspector offers for it (PLAN 2.116): what leaves, as the state before shows it, since a build
+   * splits a node only into what it has (E106). */
   async function offer() {
     const at = editor.shown();
     const found = read;
@@ -393,9 +394,12 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
     };
     if (!at || !found?.timeline) return none();
     const node = editor.chosen();
-    /** The presets `of`'s inspector offers for `prop` in `state`. */
+    /** The presets `of`'s inspector offers for `prop` in `state`, its choices asked once. */
+    const asked = new Map<string, ReturnType<Stage["choices"]> | undefined>();
     const offered = async (state: string | undefined, of: string, prop: string) => {
-      const choices = state ? await stage.choices(state, of).catch(() => undefined) : undefined;
+      const key = `${state} ${of}`;
+      if (!asked.has(key)) asked.set(key, state ? stage.choices(state, of) : undefined);
+      const choices = await asked.get(key)?.catch(() => undefined);
       const field = choices?.fields.find((f) => f.prop === prop);
       return field?.takes.kind === "name" ? field.takes.names : [];
     };
@@ -413,7 +417,8 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
     }
     const states = editor.states();
     const before = states[states.indexOf(at.state) - 1];
-    for (const gone of found.exited ?? []) {
+    const slid = Boolean(found.timeline.transition.style);
+    for (const gone of slid ? [] : (found.exited ?? [])) {
       if (!has(gone, "exit")) group(`${object(words, gone)}, as it leaves`, "exit", gone, await offered(before, gone, "exit"));
     }
     if (read !== found) return;

@@ -154,9 +154,11 @@ public struct MotionOffer: Identifiable, Equatable, Sendable {
 extension ScaenaSession {
     /// What the cue of `state` may add (PLAN 2.44), as the browser's cue offers it: for `node`, the
     /// node selected, as it enters, where it enters there or is a chart, and for emphasis, each
-    /// where it has none; and for each node that leaves, as it leaves, where it has no exit. Each
-    /// with the theme's motion presets its node's inspector offers (PLAN 2.116), which split it only
-    /// into what it has (E106): what leaves, as the state before shows it. None where there are none.
+    /// where it has none; and for each node that leaves, as it leaves, where it has no exit, save
+    /// under a slide transition, which moves the slide left whole and plays none of its exits (SPEC
+    /// §3.9). Each with the theme's motion presets its node's inspector offers (PLAN 2.116), which
+    /// split it only into what it has (E106): what leaves, as the state before shows it. None where
+    /// there are none.
     public func motionOffers(state: String, node: String?) throws -> [MotionOffer] {
         let inspected: Inspected = try call("inspect", ["state": .string(state)])
         guard let cue = inspected.timeline else { return [] }
@@ -178,7 +180,8 @@ extension ScaenaSession {
         let all = (try? states()) ?? []
         var before: String?
         if let i = all.firstIndex(of: state), i > 0 { before = all[i - 1] }
-        for gone in inspected.exited where !has(gone, "exit") {
+        let exited = cue.transition.style == nil ? inspected.exited : []
+        for gone in exited where !has(gone, "exit") {
             let theirs = before.flatMap { try? choices(state: $0, node: gone) }
             let exits = Self.presets(theirs, "exit")
             if !exits.isEmpty {
