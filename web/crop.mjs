@@ -8,7 +8,7 @@
 // - A crop handle dragged shows the whole image outlined, and the part the crop keeps, its edge at
 //   the pointer, as it goes; let go, the picture's edge has come in that far and the rest of it is
 //   where it was: the crop and its box, one patch, one step to undo. Escape through a drag leaves
-//   it as it was, and Alt keeps it to the state shown.
+//   it as it was, and Alt keeps it to the state shown, which its undo leaves shown.
 // - The focal point dragged is one `choose` of `focal`. Where it changes nothing, a picture filling
 //   its box, no handle for it stands in the picture's middle, and a drag from there moves it.
 // - axe-core finds nothing with the handles shown, and the keys sheet lists the gestures.
@@ -161,8 +161,12 @@ try {
   await page.locator("#overlay").focus();
   await page.keyboard.press("Control+z");
   await back(original);
-  // The undo puts the cursor where the change was, which may be another state: images again.
-  await page.selectOption("#state", "images");
+  // The undo writes over where images starts in the source, which takes it out of the editor's
+  // table of states until the source is compiled again: the slide shown stays images all along,
+  // read once the table has it again.
+  await page.waitForFunction(() => window.scaena.last().states.some(([id]) => id === "images"), null, { timeout: 30000 }).catch(() => {});
+  const after = await page.evaluate(() => window.scaena.last().states[window.scaena.shown()]?.[0]);
+  check(after === "images", `one undo takes it back on its slide, still shown: ${after}`);
   await page.waitForFunction(() => window.scaena.canvas.boxed() === "images", null, { timeout: 30000 }).catch(() => {});
 
   // The focal point, dragged to the left edge of what shows: the image's left in view.

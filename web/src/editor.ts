@@ -432,6 +432,13 @@ async function edit(source: Source, opened?: Stage) {
    * though it may put those states back as they were (an undo of a delete at two places far
    * apart): the state shown is found again by its id here, not by its place in the table. */
   let among: [string, number][] | undefined;
+  /** The states as the source last compiled them, which the picker lists: all of them, where a
+   * change since may have taken some out of `last`. */
+  let listed: [string, number][] = [];
+  /** The cursor moved while a change had taken states out of the table, which cannot say which
+   * state it is in: the preview follows it once the source is compiled again, unless a slide is
+   * shown meanwhile. */
+  let unfollowed = false;
   /** The states shown so far, counted: a compile asked for before the last answers with the state the
    * worker showed then, and the one shown since stays. */
   let showings = 0;
@@ -618,6 +625,7 @@ async function edit(source: Source, opened?: Stage) {
   /** Take `source`, a patch made on the canvas or in the inspector: one change, one step to undo. */
   const made = (source: string, edited: Edited) => {
     taken = { source, edited, showings };
+    anchor();
     const changes = change(view.state.doc.toString(), source);
     view.dispatch({ changes, userEvent: "input.canvas", annotations: isolateHistory.of("full") });
   };
@@ -677,6 +685,7 @@ async function edit(source: Source, opened?: Stage) {
     unsay,
     typed: (source, edited, joins) => {
       taken = { source, edited, showings };
+      if (!joins) anchor();
       const changes = change(view.state.doc.toString(), source);
       // A burst of typing is one step to undo. CodeMirror's history joins a change to the one
       // before it when both are `input.type.compose`; the burst's first starts a step of its own.
@@ -839,6 +848,7 @@ async function edit(source: Source, opened?: Stage) {
     took: wrote,
     // A file taken out is a change that leaves the source as it is, in its one history (PLAN 2.59).
     removed: (path, edited) => {
+      anchor();
       view.dispatch({ effects: fileTaken.of({ path, out: true }), annotations: isolateHistory.of("full") });
       wrote(edited);
     },
@@ -914,6 +924,7 @@ async function edit(source: Source, opened?: Stage) {
         }
         // One change, which carries the data files the restore wrote for its undo.
         const effects = filesWritten.of(done.files);
+        anchor();
         if (done.source === view.state.doc.toString()) {
           view.dispatch({ effects, annotations: isolateHistory.of("full") });
           wrote(done.edited);
@@ -985,9 +996,11 @@ async function edit(source: Source, opened?: Stage) {
       const effects = done.files.length ? [filesWritten.of(done.files)] : [];
       if (done.source === view.state.doc.toString()) {
         if (!effects.length) return void say(`Theme: ${what}, as it was`);
+        anchor();
         view.dispatch({ effects, annotations: isolateHistory.of("full") });
         wrote(done.edited);
       } else {
+        anchor();
         taken = { source: done.source, edited: done.edited, showings };
         const changes = change(view.state.doc.toString(), done.source);
         view.dispatch({ changes, effects, userEvent: "input.theme", annotations: isolateHistory.of("full") });
@@ -1274,6 +1287,7 @@ async function edit(source: Source, opened?: Stage) {
       // among those after it, wherever the edit put it.
       const picked = moved && before ? reshown(before, edited.states, shown) : shown;
       among = edited.states;
+      listed = edited.states;
       statesPicker.selectedIndex = shown;
       states.states(edited.slots, shown);
       // The strip's thumbnails as the deck opens, before every state is linted: each is painted
@@ -1295,6 +1309,8 @@ async function edit(source: Source, opened?: Stage) {
       void offer();
       void offerThemes();
       if (picked !== shown) void show(picked);
+      // A cursor the table could not place while this source compiled: placed now.
+      if (unfollowed && source === view.state.doc.toString()) follow();
     }
     const findings = edited.error ? [edited.error] : edited.findings;
     report(findings, edited);
@@ -1449,22 +1465,49 @@ async function edit(source: Source, opened?: Stage) {
     board.selectAll(shown.filter((node) => holder(node) === holder(shown[0])));
   }
 
-  /** Show the state the cursor is in: the last whose declaration starts at or before it. */
-  function follow() {
-    if (!last?.valid) return;
+  /** The state the cursor is in: the last whose declaration starts at or before it. */
+  function cursorIn(): number {
     const at = view.state.selection.main.head;
     let index = -1;
-    last.states.forEach(([, start], i) => {
+    last?.states.forEach(([, start], i) => {
       if (start <= at) index = i;
     });
+    return index;
+  }
+
+  /** Show the state the cursor is in. A change that wrote over states' starts takes them out of
+   * the table until the source is compiled again, and meanwhile the table cannot say which state
+   * the cursor is in: an undo that puts the cursor back in such a state would show the one before
+   * it. The preview follows the cursor once the source is compiled (`take`), unless a slide is
+   * shown meanwhile (`show`). */
+  function follow() {
+    if (!last?.valid) return;
+    unfollowed = last.states.length < listed.length;
+    if (unfollowed) return;
+    const index = cursorIn();
     if (index < 0 || index === shown) return;
     show(index);
+  }
+
+  /** Put the cursor in the state shown, where it stands in another, before a change made outside
+   * the source goes in its history: an undo puts back the cursor the change found, and the preview
+   * follows the cursor, so the change is undone on the slide it was made on. Find, Rehearse, the
+   * assistant, and a step or a slide added each show a slide and leave the cursor where it was. */
+  function anchor() {
+    const states = last?.states;
+    if (!last?.valid || !states?.[shown] || states[shown][0] !== among?.[shown]?.[0]) return;
+    const at = cursorIn();
+    if (at < 0 || at === shown) return;
+    view.dispatch({ selection: { anchor: Math.min(states[shown][1], view.state.doc.length) } });
   }
 
   async function show(index: number) {
     shown = index;
     among = last?.states;
     showings++;
+    // The slide asked for: a cursor the table could not place before it no longer moves the
+    // preview once the source is compiled.
+    unfollowed = false;
     statesPicker.selectedIndex = index;
     states.select(index);
     formatting.shown();
@@ -1706,9 +1749,13 @@ async function edit(source: Source, opened?: Stage) {
       // An edit that leaves the source as it is wrote a file beside it: a data file (`data_edit`),
       // or the theme (`theme_edit`).
       if (source === view.state.doc.toString()) {
-        if (effects.length) view.dispatch({ effects, annotations: isolateHistory.of("full") });
+        if (effects.length) {
+          anchor();
+          view.dispatch({ effects, annotations: isolateHistory.of("full") });
+        }
         return wrote(edited);
       }
+      anchor();
       taken = { source, edited, showings };
       view.dispatch({ changes: change(view.state.doc.toString(), source), effects, userEvent: "input.assistant" });
     },

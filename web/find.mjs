@@ -10,7 +10,8 @@
 //   node selected, its characters marked on the canvas; a description's node selected; and the
 //   status says where each is.
 // - Replace replaces the match shown, one patch, where its text lives, and shows the next after
-//   what it put in, which the query may still find; one undo takes it back.
+//   what it put in, which the query may still find; one undo takes it back, on the slide it was
+//   made on, though the source's cursor stood in another.
 // - Replace All replaces every match in one patch, one step to undo: the claim and the
 //   description with the texts.
 // - Match case and Whole words, as asked; Escape closes the bar and takes the mark away, and the
@@ -131,6 +132,28 @@ try {
   await page.keyboard.press("Control+z");
   await settled(n);
   check((await source()) === original, "one undo takes all of it back");
+
+  // A match on another slide than the one the source's cursor is in (the strip put it in intro),
+  // shown by Find and replaced there: one undo takes it back on that slide, which stays shown.
+  await page.locator('#strip li[data-state="intro"]').click();
+  await page.waitForFunction(() => window.scaena.last().states[window.scaena.shown()][0] === "intro", null, { timeout: 30000 }).catch(() => {});
+  await page.keyboard.press("Control+f");
+  await page.locator('#find input[name="find"]').fill("shifted");
+  check(await saying("1 match"), `“shifted”: ${await says()}`);
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => window.scaena.last().states[window.scaena.shown()][0] === "mix", null, { timeout: 30000 }).catch(() => {});
+  check((await shownState()) === "mix", `its slide shown: ${await shownState()}`);
+  await page.locator('#find input[name="replace"]').fill("turned");
+  n = await trips();
+  await page.locator('#find [data-find="replace"]').click();
+  await settled(n);
+  // Once the bar has asked again what the query finds, the replace is done: the undo comes after.
+  check((await source()).includes("the mix turned") && (await saying("no match")), `Replace changes it there: ${await says()}`);
+  await page.locator("#overlay").focus();
+  n = await trips();
+  await page.keyboard.press("Control+z");
+  await settled(n);
+  check((await source()) === original && (await shownState()) === "mix", `one undo takes it back on its slide, still shown: ${await shownState()}`);
 
   // Case apart: only the chart's description says “revenue” in lower case.
   await page.keyboard.press("Control+f");

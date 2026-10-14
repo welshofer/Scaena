@@ -1299,7 +1299,7 @@ function layOut(next: string | undefined, again = false) {
 
 /** Compile `source`. Once it validates, repaint slot `index` at rest from the new deck, then
  * lint it: the editor's round trip (PLAN 2.3), each step timed. */
-async function edit(source: string, index: number, at: string | undefined): Promise<Edited> {
+async function edit(source: string, index: number, at: string | undefined, read?: () => void): Promise<Edited> {
   const start = performance.now();
   const compiled = JSON.parse(player.compile(source)) as {
     error?: Finding;
@@ -1313,6 +1313,11 @@ async function edit(source: string, index: number, at: string | undefined): Prom
   if (compiled.valid) {
     // A format the deck no longer lists falls back to its own canvas.
     layOut(at !== undefined && player.formats().includes(at) ? at : undefined, true);
+  }
+  // What the caller reads of the deck as compiled, before the frame's wait lets another message
+  // compile another source.
+  read?.();
+  if (compiled.valid) {
     const i = Math.min(index, slots.length - 1);
     const slot = slots[i];
     if (slot) {
@@ -1498,11 +1503,12 @@ async function type(
   latest++;
   shown = { index, format: at };
   const next = player.source();
-  // Where a caret stands in the text as typed, read before the frame is painted: what the page
-  // asks meanwhile may compile another source, and the next change is made on these.
-  layOut(at !== undefined && player.formats().includes(at) ? at : undefined, true);
-  const carets = JSON.parse(player.carets(state, node)) as Carets | null;
-  return { source: next, edited: await edit(next, index, at), carets };
+  // Where a caret stands in the text as typed, read once it is compiled and before the frame is
+  // painted: what the page asks meanwhile may compile another source, and the next change is made
+  // on these.
+  let carets: Carets | null = null;
+  const edited = await edit(next, index, at, () => (carets = JSON.parse(player.carets(state, node)) as Carets | null));
+  return { source: next, edited, carets };
 }
 
 /** What the preview last painted: what a new view paints again (PLAN 2.46). */
