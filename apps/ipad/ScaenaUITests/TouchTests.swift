@@ -37,7 +37,9 @@ final class TouchTests: XCTestCase {
             // presentation app does, not as a hint in an empty field (PLAN 3.28).
             let rotation = app.textFields.matching(identifier: "inspector-transform/rotate").firstMatch
             if rotation.waitForExistence(timeout: 5) {
-                XCTAssertEqual(rotation.value as? String, "0", "the title's rotation reads as no number")
+                XCTAssertTrue(
+                    wait(5) { rotation.value as? String == "0" },
+                    "the title's rotation reads \(rotation.value ?? "nothing"), not 0")
             }
         }
 

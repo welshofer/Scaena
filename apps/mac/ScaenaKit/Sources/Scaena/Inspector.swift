@@ -829,7 +829,10 @@ private struct AlignmentRow: View {
     let choose: (JSONValue) -> Void
 
     var body: some View {
-        let current = value ?? shows ?? "start"
+        // A way the buttons do not show, `stretch`, sets a text's lines from the left, as the
+        // engine sets them, so Left shows.
+        let way = value ?? shows ?? "start"
+        let current = Self.ways.contains(where: { $0.word == way }) ? way : "start"
         LabeledContent("Alignment") {
             // A way picked is written as the text's own, even the one shown: where the slot's way
             // is not given, Left shows, and a click on it still sets it.
@@ -1236,6 +1239,11 @@ private struct NumberRow: View {
             return
         }
         let number = kept(whole ? read.rounded() : read)
+        // One it must be more than is not taken, and the number shown already changes nothing.
+        if let above, number <= above {
+            text = FieldNumber.shown(inEffect)
+            return
+        }
         guard FieldNumber.shown(number) != FieldNumber.shown(inEffect) else {
             text = FieldNumber.shown(inEffect)
             return

@@ -176,12 +176,24 @@ struct ToolbarKeeps: NSViewRepresentable {
     final class KeepsView: NSView {
         var ids: Set<String> = []
         var titles: Set<String> = []
+        /// What hears the toolbar take an item, while the view is in a window.
+        private var adding: NSObjectProtocol?
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            let center = NotificationCenter.default
+            if let adding { center.removeObserver(adding) }
+            adding = nil
             guard window != nil else { return }
+            // An item the toolbar takes after this is given its priority before the toolbar lays
+            // it out, so the toolbar never lays the tabs out in its overflow first.
+            let added = NSToolbar.willAddItemNotification
+            adding = center.addObserver(forName: added, object: nil, queue: .main) { [weak self] note in
+                guard let item = note.userInfo?["item"] as? NSToolbarItem else { return }
+                MainActor.assumeIsolated { self?.keep(item) }
+            }
             keep()
             // The toolbar's items are made once the window shows: kept again then.
             Task { @MainActor [weak self] in
@@ -197,9 +209,12 @@ struct ToolbarKeeps: NSViewRepresentable {
 
         /// Each item kept made high in priority, so that the others overflow first.
         func keep() {
-            for item in window?.toolbar?.items ?? [] where item.visibilityPriority != .high && keeps(item) {
-                item.visibilityPriority = .high
-            }
+            for item in window?.toolbar?.items ?? [] { keep(item) }
+        }
+
+        /// `item` made high in priority where it is one kept.
+        private func keep(_ item: NSToolbarItem) {
+            if item.visibilityPriority != .high && keeps(item) { item.visibilityPriority = .high }
         }
 
         private func keeps(_ item: NSToolbarItem) -> Bool {
