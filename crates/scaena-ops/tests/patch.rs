@@ -99,14 +99,19 @@ fn a_state_an_edit_leaves_showing_for_no_time_is_found_where_the_whole_lint_find
 #[test]
 fn a_hold_that_makes_the_deck_run_on_its_own_reaches_every_state() {
     let b = scaena_ops::open(Path::new("../../docs/examples/revenue.deck.json")).unwrap();
-    let unheld: Vec<Value> =
-        (b.deck.states.iter()).map(|s| json!({ "op": "set_state", "id": s.id, "prop": "hold", "value": null })).collect();
+    let unheld: Vec<Value> = (b.deck.states.iter())
+        .map(|s| json!({ "op": "set_state", "id": s.id, "prop": "hold", "value": null }))
+        .collect();
     let (_, write) = patching(&b, &Value::Array(unheld), None).unwrap();
     let live = scaena_ops::Bundle { deck: write.unwrap().deck, ..b.clone() };
     let ops = json!([{ "op": "set_state", "id": "intro", "prop": "hold", "value": 4000 }]);
     let (scoped, asked) = edited(&live, &ops);
     assert!(asked.iter().all(|states| states.len() == live.deck.states.len()), "{asked:?}");
     let (whole, _) = patching(&live, &ops, None).unwrap();
-    assert!(said(&whole.added).iter().any(|f| f.starts_with("W323") && f.contains("close")), "{:?}", said(&whole.added));
+    assert!(
+        said(&whole.added).iter().any(|f| f.starts_with("W323") && f.contains("close")),
+        "{:?}",
+        said(&whole.added)
+    );
     assert_eq!(said(&scoped.added), said(&whole.added));
 }

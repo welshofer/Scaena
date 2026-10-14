@@ -386,6 +386,9 @@ async function edit(source: Source) {
    * how many states had been shown then (`showings`): one shown since is where the lint leaves
    * the canvas, since what the worker found names the state shown when the edit was made. */
   let taken: { source: string; edited: Edited; showings: number } | undefined;
+  /** The sources the worker compiled lately, the latest first, each with where its states start:
+   * an undo or a redo makes one of them the source again. */
+  const compiled: { source: string; states: [string, number][] }[] = [];
   /** The state shown, inspected: each node's placement, which the canvas reads. */
   let inspected: Inspected | undefined;
   /** The node the canvas has selected, and those selected beside it (PLAN 2.42). */
@@ -424,14 +427,22 @@ async function edit(source: Source) {
             // Where each state starts moves with the change until the source is compiled again:
             // the cursor an undo puts back is in the state it was in. The source the worker made
             // (a patch, the assistant's edit), which it holds, has its states where it says, those
-            // the patch added or took away too. Elsewhere a state whose start the change took away
-            // is gone, and one it brings back waits for the worker to compile the source, so the
-            // cursor never asks the worker for a state it does not hold.
+            // the patch added or took away too. A source it compiled lately, which an undo or a
+            // redo makes the source again, has its states where it found them, though the change
+            // wrote a state's first line again, but for one the worker does not hold now.
+            // Elsewhere a state whose start the change took away is gone, and one it brings back
+            // waits for the worker to compile the source, so the cursor never asks the worker for
+            // a state it does not hold.
             if (last) {
               const doc = update.state.doc;
-              const made = taken?.edited.valid && taken.source.length === doc.length && taken.source === doc.toString() ? taken.edited : undefined;
+              let text: string | undefined;
+              const is = (source: string) => source.length === doc.length && source === (text ??= doc.toString());
+              const held = new Set(last.states.map(([id]) => id));
+              const made = taken?.edited.valid && is(taken.source) ? taken.edited.states : undefined;
+              const again = made ? undefined : compiled.find((c) => is(c.source))?.states.filter(([id]) => held.has(id));
               const states =
-                made?.states ??
+                made ??
+                again ??
                 last.states.flatMap(([id, at]): [string, number][] => {
                   const to = update.changes.mapPos(at, 1, MapMode.TrackAfter);
                   return to === null ? [] : [[id, to]];
@@ -1182,6 +1193,11 @@ async function edit(source: Source) {
   function take(edited: Edited, source: string, read: number, moved = false): Finding[] {
     last = edited;
     if (edited.valid) {
+      // Kept for an undo or a redo back to this source, with the seven compiled before it.
+      const was = compiled.findIndex((c) => c.source === source);
+      if (was >= 0) compiled.splice(was, 1);
+      compiled.unshift({ source, states: edited.states });
+      compiled.length = Math.min(compiled.length, 8);
       // Each as a person counts it (PLAN 2.99): Slide 3, Slide 3, step 2.
       statesPicker.replaceChildren(...edited.states.map(([id], i) => new Option(edited.slots[i]?.state === id ? (edited.slots[i].said ?? id) : (edited.slots.find((s) => s.state === id)?.said ?? id), id)));
       reformats(edited.formats, edited.own);

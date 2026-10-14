@@ -23,9 +23,9 @@
 //   where it outlines nothing on `intro`, a title slide the deck opened with no picture and no
 //   kicker. Bullets deleted from the strip takes its headline and points with it, the source as
 //   it was, and the editor counts the states as the patch left them before the source compiles
-//   again, as it does after the title is taken out of every slide that writes it. Blank adds an
-//   empty slide after `mix`. Alt with an arrow key moves it, and so does a drag; Delete removes
-//   it, and the source is as it was.
+//   again, as it does after the title is taken out of every slide that writes it and after the
+//   undo that puts it back. Blank adds an empty slide after `mix`. Alt with an arrow key moves it,
+//   and so does a drag; Delete removes it, and the source is as it was.
 // - A deck whose bundle took Dusk before its library grew, 11 layouts in no section, opens with the
 //   library Dusk ships now (PLAN 3.31): + Slide offers the 13 sections and 128 layouts.
 // - Each is named as a person counts it (PLAN 2.99): Slide 2, Step 2; no id names one. A state
@@ -353,7 +353,10 @@ try {
   const across = counted(await source());
   await page.keyboard.press("Shift+Delete");
   check((await across) === "intro revenue mix close", `and after a patch across several, before the source compiles: ${await across}`);
+  // Its undo writes each slide's first line between them again: the editor still counts them.
+  const restored = counted(await source());
   await undo();
+  check((await restored) === "intro revenue mix close", `and after its undo, before the source compiles: ${await restored}`);
   check(await back(original), "one undo puts the title back");
 
   // Photo: its picture waits, edge to edge, outlined with its words.
