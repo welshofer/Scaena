@@ -13,6 +13,10 @@
 // - The palette names Show the keys, with ?, and runs it; so does the Keys button.
 // - What the sheet says is what the keys do: the grid's key draws the grid, and F8 and Shift+F8 go
 //   to the next finding in the source and back.
+// - Slides by keys (PLAN 2.124): PageDown and PageUp on the slide show the next slide or step and
+//   the one before, as the sheet and the palette say; Ctrl+Alt+Shift+C puts the focus on the slide
+//   from the source, and Ctrl+Alt+Shift+F on the slide shown among the slides. A page's first Tab
+//   is Go to the slide, which Enter takes. Zoomed in, the arrows pan: the sheet says so (PLAN 2.123).
 // - axe-core finds nothing against WCAG 2.1 AA with the sheet open.
 // Exits 1 on any failure.
 import { createRequire } from "node:module";
@@ -138,6 +142,45 @@ try {
   await page.waitForFunction(() => window.scaena.canvas.ruled(), null, { timeout: 5000 }).catch(() => {});
   check(await page.evaluate(() => window.scaena.canvas.ruled()), `${grid}, as the sheet says, shows the grid`);
   await page.keyboard.press(grid.replace("Ctrl+", "Control+"));
+
+  // Slides by keys (PLAN 2.124), as the sheet lists them.
+  check(rowsOf("Slides").some((r) => r.label === "Show the next slide or step" && r.keys === "PageDown") && rowsOf("Slides").some((r) => r.label === "Show the slide or step before" && r.keys === "PageUp"), "the sheet lists PageDown and PageUp for the next slide and the one before");
+  check(listed("The editor", "Go to the slide", "Ctrl+Alt+Shift+C") && listed("The editor", "Go to the slides and their steps", "Ctrl+Alt+Shift+F"), "and the keys that go to the slide and to the slides");
+  check(rowsOf("See").some((r) => r.keys === "← ↑ → ↓" && r.label.startsWith("Zoomed in with nothing selected, pan")), "and that the arrows pan what is zoomed in (PLAN 2.123)");
+  const stateShown = () => page.evaluate(() => document.querySelector("#state").value);
+  const showsNow = async (state) => {
+    await page.waitForFunction((s) => document.querySelector("#state").value === s, state, { timeout: 10000 }).catch(() => {});
+    return (await stateShown()) === state;
+  };
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("PageDown");
+  check(await showsNow("mix"), `PageDown on the slide shows the next slide or step: ${await stateShown()}`);
+  check((await page.evaluate(() => document.querySelector("#status").textContent)).includes("Slide 2, step 2"), `and says which: ${await page.evaluate(() => document.querySelector("#status").textContent)}`);
+  await page.keyboard.press("PageUp");
+  check(await showsNow("revenue"), `PageUp the one before: ${await stateShown()}`);
+  await page.keyboard.press("Control+k");
+  await page.keyboard.type("next slide");
+  const nextNamed = await page.locator("#palette li").first().textContent();
+  check(nextNamed === "Show the next slide or stepPageDown", `the palette names it with its key: ${nextNamed}`);
+  await page.keyboard.press("Escape");
+  await page.locator(".cm-content").click();
+  await page.keyboard.press("Control+Alt+Shift+C");
+  check(await page.evaluate(() => document.activeElement?.id === "overlay"), "Ctrl+Alt+Shift+C puts the focus on the slide, from the source");
+  await page.keyboard.press("Control+Alt+Shift+F");
+  check(await page.evaluate(() => document.activeElement?.closest("#strip")?.getAttribute?.("id") === "strip" && document.activeElement.dataset.state === document.querySelector("#state").value), `Ctrl+Alt+Shift+F on the slide shown among the slides: ${await page.evaluate(() => document.activeElement?.id)}`);
+  {
+    // A page's first Tab: Go to the slide, which Enter takes.
+    const fresh = await context.newPage();
+    fresh.on("pageerror", (e) => failures.push(`page: ${e.message}`));
+    await fresh.goto(`${site.origin}/web/dist/editor.html?painter=cpu&bundle=/docs/examples/revenue.deck.json`);
+    await fresh.waitForFunction(() => window.scaena?.last()?.valid && window.scaena.canvas.boxes().length, null, { timeout: 120000 });
+    await fresh.keyboard.press("Tab");
+    const first = await fresh.evaluate(() => [document.activeElement?.id, document.activeElement?.textContent]);
+    check(first[0] === "skip" && first[1] === "Go to the slide", `a page's first Tab is Go to the slide: ${first}`);
+    await fresh.keyboard.press("Enter");
+    check(await fresh.evaluate(() => document.activeElement?.id === "overlay"), "and Enter puts the focus on the slide");
+    await fresh.close();
+  }
 
   // F8 and Shift+F8, as the sheet says: to the next finding in the source, and back. A headline
   // too long and forty-five words on screen are two.

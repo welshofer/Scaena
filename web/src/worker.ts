@@ -15,7 +15,7 @@
 // is one.
 import { hyphenation } from "@scaena/hyphenation";
 import init, { Canvas, Player, engineModule, setHyphenation, shaderRows } from "@scaena/wasm";
-import { keptBundle, newBundle, readAll, remove, write } from "./folders";
+import { deleteKept, keptBundle, newBundle, readAll, remove, renameKept, write } from "./folders";
 import { finding } from "./words";
 import type {
   Added,
@@ -490,6 +490,20 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
           ({ home, name } = was);
           throw e;
         }
+      }
+      case "rekeep": {
+        const open = home?.where.kind === "opfs" && home.where.name === data.from;
+        if (data.to === undefined) {
+          if (open) throw new Error(`${data.from} is the deck open here: open another to delete it`);
+          await deleteKept(data.from);
+        } else {
+          await renameKept(data.from, data.to);
+          if (open) {
+            home = keptIn(await keptBundle(data.to), "opfs");
+            name = data.to;
+          }
+        }
+        return post({ type: "rekept", id: data.id, where: home?.where });
       }
       case "zip": {
         saveable(data.source);
@@ -1012,6 +1026,9 @@ async function exporting(what: Export): Promise<Uint8Array> {
     case "png":
       layOut(what.format);
       return player.png(what.state, what.width);
+    case "slides":
+      layOut(what.format);
+      return player.slidesPng(what.width, what.name);
     case "pdf": {
       const laid = player.pdfLaidOut();
       const module = await import("@scaena/pdf");

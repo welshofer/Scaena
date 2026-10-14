@@ -10,6 +10,10 @@
 //   asked, within SPEC §13.5 of `scaena export --format png --size` of that state. The CPU painter
 //   runs in WASM SIMD in the browser and natively there (ADR-0004 finding 15).
 // - At 960 pixels wide, the state is 960 × 540, and within §13.5 of the CLI's at that size.
+// - Every slide, as PNGs in one .zip (PLAN 2.120): the note counts the slides, and Export
+//   downloads `<deck> - Slides.zip`, a PNG for each slide named by its number, each the slide once
+//   its steps have played (`mix` for the revenue slide), the width asked, within §13.5 of
+//   `scaena export --format png` of that state. The palette offers it too.
 // - The deck as a PDF, from the palette: the PDF's own module loads then, and not before, and the
 //   PDF is the one `scaena export --format pdf` writes, byte for byte.
 // - The deck as one HTML file, from Export…: the one `scaena export --format html` writes, byte for
@@ -18,6 +22,7 @@
 // - A source that does not compile is not exported: the status says why, and nothing downloads.
 // Exits 1 on any failure.
 import { execFileSync } from "node:child_process";
+import { inflateRawSync } from "node:zlib";
 import { createRequire } from "node:module";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -38,6 +43,23 @@ const check = (ok, what) => {
   if (!ok) failures.push(what);
 };
 const axe = createRequire(import.meta.url).resolve("axe-core/axe.min.js");
+/** The files of a zip, by name, from its central directory: each stored or deflated. */
+const unzip = (zip) => {
+  const files = new Map();
+  let end = zip.length - 22;
+  while (end > 0 && zip.readUInt32LE(end) !== 0x06054b50) end--;
+  let at = zip.readUInt32LE(end + 16);
+  for (let i = 0; i < zip.readUInt16LE(end + 10); i++) {
+    const [method, size, local] = [zip.readUInt16LE(at + 10), zip.readUInt32LE(at + 20), zip.readUInt32LE(at + 42)];
+    const [named, extra, comment] = [28, 30, 32].map((o) => zip.readUInt16LE(at + o));
+    const name = zip.toString("utf8", at + 46, at + 46 + named);
+    const start = local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28);
+    const raw = zip.subarray(start, start + size);
+    files.set(name, method === 8 ? inflateRawSync(raw) : raw);
+    at += 46 + named + extra + comment;
+  }
+  return files;
+};
 
 const browser = await launch();
 try {
@@ -95,6 +117,34 @@ try {
   const small = decode((await downloaded(() => page.click("#exporting-go"))).bytes);
   const narrow = compare(cliPng("960x540"), small);
   check(small.width === 960 && small.height === 540 && narrow.passes, `at 960 wide, ${small.width} × ${small.height}, within §13.5 of the CLI's: ${narrow.said}`);
+
+  // Every slide, as PNGs in one .zip (PLAN 2.120): each slide once its steps have played, named by
+  // its number.
+  await page.click("#export");
+  await page.check("#exporting input[name=as][value=slides]");
+  await page.fill("#exporting-width", "960");
+  const slidesNote = await page.evaluate(() => [document.querySelector("#exporting-note").textContent, document.querySelector("#exporting-size").hidden]);
+  check(slidesNote[0].startsWith("3 slides") && slidesNote[0].includes("960 × 540 pixels") && !slidesNote[1], `the note counts the slides, at the width asked: ${slidesNote[0]}`);
+  const zipped = await downloaded(() => page.click("#exporting-go"));
+  const files = unzip(zipped.bytes);
+  const slides = [["revenue - Slide 1.png", "intro"], ["revenue - Slide 2.png", "mix"], ["revenue - Slide 3.png", "close"]];
+  check(zipped.name === "revenue - Slides.zip" && JSON.stringify([...files.keys()].sort()) === JSON.stringify(slides.map(([f]) => f)), `Export downloads ${zipped.name}, a PNG for each slide by its number: ${[...files.keys()]}`);
+  for (const [file, shows] of slides) {
+    const dir = join(out, `slides-${shows}`);
+    scaena("export", bundle, "--format", "png", "--states", shows, "--size", "960x540", "--out", dir);
+    const [ours, theirs] = [decode(files.get(file) ?? Buffer.alloc(0)), decode(readFileSync(join(dir, `${shows}.png`)))];
+    const alike = compare(theirs, ours);
+    check(ours.width === 960 && ours.height === 540 && alike.passes, `${file} is ${shows} at rest, 960 × 540, within §13.5 of the CLI's: ${alike.said}`);
+  }
+  check((await status()).startsWith(`Downloaded ${zipped.name}`), `the status says what was downloaded: ${await status()}`);
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Control+k");
+  await page.keyboard.type("every slide");
+  const everySlide = await page.evaluate(() => window.scaena.commands.shown());
+  await page.keyboard.press("Enter");
+  const fromPalette = await page.evaluate(() => document.querySelector("#exporting").open && document.querySelector("#exporting input[name=as]:checked").value);
+  check(everySlide[0] === "Export every slide as PNGs…" && fromPalette === "slides", `the palette offers it, and opens Export… on it: ${JSON.stringify(everySlide)}, ${fromPalette}`);
+  await page.keyboard.press("Escape");
 
   // The deck as a PDF, from the palette: its module loads then.
   const pdfModule = () => fetched.filter((u) => /scaena_pdf_bg[^/]*\.wasm$/.test(u)).length;

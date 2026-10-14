@@ -15,3 +15,12 @@ import Testing
     #expect(throws: ScaenaError.self) { try session.png("cover", width: 0) }
     #expect(throws: ScaenaError.self) { try session.png("no-such-state", width: 100) }
 }
+
+/// Every slide as PNGs in one zip, each named by its number (PLAN 2.120), as Share offers it.
+@Test func everySlideExportsAsPNGsInOneZip() throws {
+    let session = try ScaenaSession(directory: b1)
+    let zipped = try session.slides(width: 320, name: "B1")
+    #expect(zipped.starts(with: [0x50, 0x4B, 0x03, 0x04]), "a zip")
+    #expect(zipped.range(of: Data("B1 - Slide 1.png".utf8)) != nil, "its first slide, by its number")
+    #expect(throws: ScaenaError.self) { try session.slides(width: 0, name: "B1") }
+}

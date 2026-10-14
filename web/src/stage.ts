@@ -66,6 +66,7 @@ import type {
   Starter,
   Version,
   Waiting,
+  Where,
   Worded,
   Connected,
   Duplicated,
@@ -93,6 +94,7 @@ type Reply = Extract<
       | "fixed"
       | "inspected"
       | "saved"
+      | "rekept"
       | "zipped"
       | "exported"
       | "sheet"
@@ -894,6 +896,12 @@ export class Stage {
     return this.request<"saved">({ type: "saveAs", id: ++this.asked, source, to });
   }
 
+  /** Rename the bundle the browser keeps as `from` to `to`, or with no `to` delete it (PLAN
+   * 2.122); where the open bundle is kept then. */
+  rekeep(from: string, to?: string): Promise<Where | undefined> {
+    return this.request<"rekept">({ type: "rekeep", id: ++this.asked, from, to }).then(({ where }) => where);
+  }
+
   /** The bundle with the deck `source` compiles to, as a `.scaena` zip with its fonts subset. */
   zip(source: string): Promise<{ bytes: ArrayBuffer; subset: [string, number, number][] }> {
     return this.request<"zipped">({ type: "zip", id: ++this.asked, source });
@@ -1015,6 +1023,7 @@ export class Stage {
       case "fixed":
       case "inspected":
       case "saved":
+      case "rekept":
       case "zipped":
       case "exported":
       case "dropped":

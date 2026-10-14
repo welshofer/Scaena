@@ -197,6 +197,21 @@ impl Session {
         laid.to_bytes().map_err(|e| Error::Ops(e.to_string()))
     }
 
+    /// Every slide as a PNG `width` pixels wide, in one zip (PLAN 2.120), as Keynote's Export To ›
+    /// Images and PowerPoint's Save as PNG › All Slides make them: each slide once its steps have
+    /// played, at rest in the format shown, as [`Session::png`] paints it, named by its number,
+    /// `{name} - Slide 3.png`. The zip is made as a `.scaena`'s is, the same bytes for the same
+    /// slides.
+    pub fn slides_png(&mut self, width: u32, name: &str) -> Result<Vec<u8>, Error> {
+        let last = scaena_core::words::last_steps(&self.deck);
+        let last: Vec<(usize, String)> = last.into_iter().map(|(n, state)| (n, state.to_string())).collect();
+        let mut files = BTreeMap::new();
+        for (n, state) in last {
+            files.insert(format!("{name} - Slide {n}.png"), self.png(&state, width)?);
+        }
+        scaena_store::zip(&files).map_err(|e| Error::Ops(e.to_string()))
+    }
+
     /// The deck as one HTML file that plays offline (PLAN 2.54): `page`, the single-file player's
     /// page, filled in with the bundle as `scaena export --format html` fills it, named `name`:
     /// the bundle as a save that subsets writes it, its fonts the subsets handed over
@@ -541,6 +556,29 @@ pub(crate) mod tests {
         let (cli, _) =
             scaena_ops::export::standalone_with(&disk, None, page, "b1", &Progress::default(), saved).unwrap();
         assert!(s.standalone(page, "b1").unwrap() == cli, "the single file differs from the CLI's");
+    }
+
+    /// Every slide as PNGs (PLAN 2.120): one zip, a file to a slide named by its number, each the
+    /// slide once its steps have played, as the PNG of that state alone paints it.
+    #[test]
+    fn every_slide_is_a_png_named_by_its_number() {
+        use std::io::Read;
+        let mut s = Session::open(revenue()).unwrap();
+        let zipped = s.slides_png(480, "Q3 review").unwrap();
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&zipped)).unwrap();
+        // `mix` is the revenue slide's second step: its slide is drawn as `mix` leaves it.
+        let slides = [
+            ("Q3 review - Slide 1.png", "intro"),
+            ("Q3 review - Slide 2.png", "mix"),
+            ("Q3 review - Slide 3.png", "close"),
+        ];
+        assert_eq!(zip.len(), slides.len(), "a file to a slide");
+        for (file, state) in slides {
+            let mut bytes = Vec::new();
+            zip.by_name(file).unwrap().read_to_end(&mut bytes).unwrap();
+            assert!(bytes == s.png(state, 480).unwrap(), "{file} is {state} at rest");
+        }
+        assert!(s.slides_png(480, "Q3 review").unwrap() == zipped, "the same bytes for the same slides");
     }
 
     #[test]

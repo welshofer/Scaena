@@ -1009,6 +1009,13 @@ impl Player {
         self.0.png(state, width).map_err(js)
     }
 
+    /// Every slide once its steps have played, in the format shown, as PNGs `width` pixels wide
+    /// in one zip, each named by its number, `{name} - Slide 3.png` (PLAN 2.120).
+    #[wasm_bindgen(js_name = slidesPng)]
+    pub fn slides_png(&mut self, width: u32, name: &str) -> Result<Vec<u8>, JsError> {
+        self.0.slides_png(width, name).map_err(js)
+    }
+
     /// The deck's pages laid out for its PDF, as bytes the PDF's own module (`scaena-pdf`)
     /// draws: the PDF `scaena export --format pdf` writes (PLAN 2.54).
     #[wasm_bindgen(js_name = pdfLaidOut)]

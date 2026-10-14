@@ -32,12 +32,15 @@ export type SaveTo = { folder: FileSystemDirectoryHandle } | { opfs: string };
 /** What the editor exports (PLAN 2.54, SPEC §10), each as `scaena export` writes it:
  * - `png`: `state` at rest in `format` (the deck's canvas without one), `width` pixels wide, the
  *   height keeping the canvas's aspect, painted by the CPU painter;
+ * - `slides`: every slide once its steps have played, each as `png` paints it, in one zip, named
+ *   by its number, `{name} - Slide 3.png` (PLAN 2.120);
  * - `pdf`: the deck, each slide at its last state, drawn by the PDF's own module, which the
  *   worker loads the first time a PDF is asked for;
  * - `html`: the deck as one file that plays offline, named `name`: `page`, the single-file
  *   player's page, filled in with the bundle, its fonts subset. */
 export type Export =
   | { kind: "png"; state: string; width: number; format?: string }
+  | { kind: "slides"; width: number; format?: string; name: string }
   | { kind: "pdf" }
   | { kind: "html"; page: string; name: string };
 
@@ -1044,6 +1047,9 @@ export type ToWorker =
   /** The bundle with the deck `source` compiles to, saved as a `.scaena` zip, fonts subset to
    * what the deck draws. */
   | { type: "zip"; id: number; source: string }
+  /** The bundle the browser keeps as `from` renamed `to`, or with no `to` deleted (PLAN 2.122):
+   * the open bundle, kept there, follows its rename, and is not deleted. */
+  | { type: "rekeep"; id: number; from: string; to?: string }
   /** Export the deck `source` compiles to (PLAN 2.54), made here for the page to download:
    * nothing is sent anywhere. A source that does not compile, or a deck that does not validate,
    * is not exported. */
@@ -1732,10 +1738,12 @@ export type FromWorker =
   /** The bundle is saved `where`, and the session goes on from it: the files the save
    * renamed, from and to, each a path the source may name; and how many files it wrote. */
   | { type: "saved"; id: number; where: Where; renamed: [string, string][]; files: number; recorded: boolean }
+  /** A bundle the browser keeps is renamed or deleted, and the open bundle is kept `where`. */
+  | { type: "rekept"; id: number; where?: Where }
   /** The bundle as a `.scaena` zip, and each font subset: its path, and its size before and
    * after, bytes. */
   | { type: "zipped"; id: number; bytes: ArrayBuffer; subset: [string, number, number][] }
-  /** What `export` made: a PNG, a PDF, or an HTML file's bytes. */
+  /** What `export` made: a PNG, a zip of PNGs, a PDF, or an HTML file's bytes. */
   | { type: "exported"; id: number; bytes: ArrayBuffer }
   /** The dropped file is in the bundle at `path`. */
   | { type: "dropped"; id: number; path: string }

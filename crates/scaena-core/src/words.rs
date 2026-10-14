@@ -294,6 +294,23 @@ pub fn slides(deck: &Deck) -> Vec<String> {
     out
 }
 
+/// Each of `deck`'s slides as it stands once its steps have played: its number, as [`slides`]
+/// counts it, and its last state, in the deck's order. What a picture of every slide shows, a
+/// file to a slide (PLAN 2.120).
+pub fn last_steps(deck: &Deck) -> Vec<(usize, &str)> {
+    let mut out: Vec<(usize, &str)> = Vec::new();
+    let mut slide: Option<&str> = None;
+    for state in &deck.states {
+        let of = deck.slide_of(state);
+        match out.last_mut() {
+            Some(last) if slide == Some(of) => last.1 = &state.id,
+            _ => out.push((out.len() + 1, &state.id)),
+        }
+        slide = Some(of);
+    }
+    out
+}
+
 /// `state` as [`slides`] numbers it: `Slide 3, step 2`; a state the deck has not, `Slide`.
 pub fn slide(deck: &Deck, state: &str) -> String {
     match deck.states.iter().position(|s| s.id == state) {
@@ -824,6 +841,14 @@ mod tests {
         assert_eq!(phrase("q3_revenue"), "Q3 Revenue");
         assert_eq!(phrase("h2Title"), "H2 Title");
         assert_eq!(phrase(""), "");
+    }
+
+    #[test]
+    fn each_slide_ends_at_its_last_step() {
+        let deck = Deck::from_json(include_str!("../../../docs/examples/revenue.deck.json")).unwrap();
+        // `mix` is the revenue slide's second step.
+        assert_eq!(slides(&deck), ["Slide 1", "Slide 2", "Slide 2, step 2", "Slide 3"]);
+        assert_eq!(last_steps(&deck), [(1, "intro"), (2, "mix"), (3, "close")]);
     }
 
     #[test]
