@@ -89,3 +89,42 @@ export function keep(s: Settings) {
     // Storage refused: the settings last for this page.
   }
 }
+
+/** How each provider's keys start, and its name after an article, as a sentence says it. */
+const FORMS: Record<ProviderId, { start: string; is: (key: string) => boolean; named: string; name: string }> = {
+  anthropic: { start: "sk-ant-", is: (k) => k.startsWith("sk-ant-"), named: "an Anthropic", name: "Anthropic" },
+  openai: { start: "sk-", is: (k) => k.startsWith("sk-") && !k.startsWith("sk-ant-"), named: "an OpenAI", name: "OpenAI" },
+  gemini: { start: "AIza", is: (k) => k.startsWith("AIza"), named: "a Gemini", name: "Gemini" },
+};
+
+/** What looks wrong with `key` as `provider`'s before it is sent, in a sentence; none where it
+ * looks right. A key of another form may still work, as a server that speaks OpenAI's API gives
+ * one, so this warns and refuses nothing. The Mac's and the iPad's `KeyCheck.hint` say the same. */
+export function hint(provider: ProviderId, key: string): string | undefined {
+  const k = key.trim();
+  if (!k) return undefined;
+  if (/\s/.test(k)) return "A key has no spaces or line breaks in it.";
+  const form = FORMS[provider];
+  if (form.is(k)) return k.length < 20 ? `That is shorter than ${form.name}'s keys are.` : undefined;
+  const other = (Object.keys(FORMS) as ProviderId[]).find((p) => p !== provider && FORMS[p].is(k));
+  if (other) return `This looks like ${FORMS[other].named} key.`;
+  return `${form.name}'s keys start with ${form.start}.`;
+}
+
+/** What a provider's answer to the request that lists its models says of the key: it works, the
+ * provider refused it (an answer of 401 or 403, or Gemini's 400 that names the key), or it could
+ * not be checked; with the sentence that says so. */
+export function verdict(provider: ProviderId, listed: string[] | Error): { state: "works" | "refused" | "unreachable"; said: string } {
+  const name = FORMS[provider].name;
+  if (!(listed instanceof Error)) return { state: "works", said: `The key works: ${listed.length === 1 ? "1 model" : `${listed.length} models`} to choose from.` };
+  // The adapters' errors read "401 Unauthorized: what the provider said" (`json` in providers.ts);
+  // over HTTP/2 there is no status text.
+  const message = listed.message;
+  const answered = /\b([1-5]\d\d)\b[^:]*:\s*([\s\S]*)$/.exec(message);
+  const status = Number(answered?.[1] ?? 0);
+  const words = (answered?.[2] ?? "").trim();
+  if (status === 401 || status === 403 || (status === 400 && /key/i.test(words)))
+    return { state: "refused", said: words ? `${name} refused this key: ${words}` : `${name} refused this key.` };
+  if (status === 429) return { state: "works", said: `The key works; ${name} says it is busy for now.` };
+  return { state: "unreachable", said: `The key couldn't be checked: ${message}` };
+}
