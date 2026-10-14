@@ -60,7 +60,8 @@ export const cueKeys = (): Key[] => [
 interface Bar {
   /** Which bar it is, kept across a redraw: `transition`, or the motion's node and kind. */
   key: string;
-  /** What the lane is called: what it plays first, the preset by name, then its object. */
+  /** What the lane is called: what it does first and the preset it plays, by name, then its
+   * object. */
   label: string;
   /** All it is, as the label's title says it where the lane cuts the label short. */
   full?: string;
@@ -77,9 +78,10 @@ interface Bar {
 }
 
 /** The bars of `cue`: its transition, then its motions in the order the state lists them, each
- * named by what it plays, its preset where it plays one (Fade, Pulse), then by its object, as
- * `words` says them: what tells two lanes of one object apart comes first, before the lane cuts
- * the label short. */
+ * named by what it does and the preset it plays where it plays one (Enters · Fade, Leaves · Fade,
+ * Emphasis · Pulse), then by its object, as `words` says them: what tells two lanes apart comes
+ * first, before the lane cuts the label short, and an entrance reads otherwise than an exit
+ * without its bar's color. */
 function bars(cue: Cue, words: Lexicon | undefined): Bar[] {
   const seen = new Map<string, number>();
   const motions = cue.motions.map((m): Bar => {
@@ -89,10 +91,11 @@ function bars(cue: Cue, words: Lexicon | undefined): Bar[] {
     const span = m.moving[1] - m.moving[0] - (m.units - 1) * m.stagger;
     const does = moving(words, m.motion, m.split);
     const plays = m.preset === undefined ? undefined : named(words, m.motion === "exit" ? "motion-exit" : "motion-preset", m.preset);
+    const what = `${does}${plays && !does.includes(plays) ? ` · ${plays}` : ""}`;
     return {
       key: n === 1 ? name : `${name} ${n}`,
-      label: `${plays ?? does} · ${object(words, m.node)}`,
-      full: `${object(words, m.node)} · ${does}${plays && !does.includes(plays) ? ` · ${plays}` : ""}`,
+      label: `${what} · ${object(words, m.node)}`,
+      full: `${object(words, m.node)} · ${what}`,
       motion: m,
       from: m.moving[0],
       to: m.moving[1],

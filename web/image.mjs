@@ -4,7 +4,7 @@
 //   node web/image.mjs     (after `just web`; from the repository's root)
 //
 // - The inspector offers an image's fit, its focal point and crop as shares of the picture in
-//   percent, each part captioned, and its radius.
+//   percent, each part captioned over its field with its % beside it, and its radius.
 // - Pick, then a click on the image, sets its focal point to the point of the image drawn there:
 //   one `choose`, and one undo. Escape leaves it as it was.
 // - Its crop and its fit, chosen in the inspector, are each one patch; a crop is kept inside the image.
@@ -95,6 +95,18 @@ try {
     JSON.stringify([...captions].sort()) === JSON.stringify(["Across 50%", "Down 50%", "Height 100%", "Left 0%", "Top 0%", "Width 100%"]),
     `the focal point and the crop captioned, in percent: ${captions.join(", ")}`,
   );
+  // Each caption over its field, and the % on the field's line, beside it.
+  const laid = await page.evaluate(() =>
+    [...document.querySelectorAll("#look label.part")].map((l) => {
+      const [caption, field] = [l.querySelector("span").getBoundingClientRect(), l.querySelector("input").getBoundingClientRect()];
+      const range = document.createRange();
+      range.selectNodeContents(l.lastChild);
+      const percent = range.getBoundingClientRect();
+      const middle = (r) => r.top + r.height / 2;
+      return caption.bottom <= field.top + 1 && Math.abs(middle(percent) - middle(field)) < 4 && percent.left >= field.right - 1;
+    }),
+  );
+  check(laid.length === 6 && laid.every(Boolean), `each caption over its field, its % beside it: ${JSON.stringify(laid)}`);
 
   // Pick, then a click on the image a quarter of the way across: the point of the image drawn there.
   const rect = await page.evaluate(() => window.scaena.canvas.boxes().find((b) => b.node === "image-cover").rect);
