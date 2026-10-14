@@ -130,8 +130,31 @@ extension ScaenaSession {
     /// The ops that take `node`, with what it holds, out of `state` and the states after it, and
     /// out of the deck where no state shows it after; or, `everywhere`, out of the deck (PLAN 2.34).
     public func deleting(state: String, node: String, everywhere: Bool = false) throws -> [JSONValue] {
-        try call("deleting", ["state": .string(state), "node": .string(node), "everywhere": .bool(everywhere)])
+        try deleting(state: state, nodes: [node], everywhere: everywhere)
     }
+
+    /// The ops that take `nodes`, with what they hold, out of `state` and the states after it, as
+    /// `deleting(state:node:)` takes one (PLAN 2.42): one patch, a connector going with an end
+    /// that goes (PLAN 2.109).
+    public func deleting(state: String, nodes: [String], everywhere: Bool = false) throws -> [JSONValue] {
+        try call(
+            "deleting",
+            ["state": .string(state), "nodes": .array(nodes.map { .string($0) }), "everywhere": .bool(everywhere)])
+    }
+
+    /// The patch that adds a copy of each of `nodes` beside it in `state`, as
+    /// `duplicating(state:node:)` adds one (PLAN 2.42): one patch, a connector between two of them
+    /// copied to join their copies (PLAN 2.109).
+    public func duplicating(state: String, nodes: [String]) throws -> Duplicated {
+        try call("duplicatingAll", ["state": .string(state), "nodes": .array(nodes.map { .string($0) })])
+    }
+}
+
+/// Copies of several nodes beside them (PLAN 2.42): each copy's id, those of the nodes copied first,
+/// then those of the connectors copied to join their copies; and the patch that adds them all.
+public struct Duplicated: Decodable, Sendable {
+    public let ids: [String]
+    public let patch: [JSONValue]
 }
 
 /// The patch that locks `nodes` (PLAN 2.95), each by its own `locked`, which holds in every state;
@@ -152,18 +175,19 @@ public func locking(_ nodes: [String], own: (String) -> Bool, on: Bool? = nil) -
 }
 
 /// The words of a shape to type in (PLAN 2.108): the text that holds them, and the patch that gives
-/// the shape one where it holds none, empty where it does.
+/// the shape one where it holds none, or brings them back where the state does not show them, empty
+/// where it does.
 public struct Worded: Decodable, Sendable {
     public let id: String
     public let patch: [JSONValue]
 }
 
 extension ScaenaSession {
-    /// The words of `shape` to type in (PLAN 2.108), as the browser's canvas gives them: the text
-    /// it holds, or a patch that adds one, empty, in the color that reads on its fill, which goes
-    /// where the shape goes.
-    public func wording(shape: String) throws -> Worded {
-        try call("wording", ["shape": .string(shape)])
+    /// The words of `shape` to type in in `state` (PLAN 2.108), as the browser's canvas gives them:
+    /// the text it holds, or a patch that adds one, empty, in the color that reads on its fill, which
+    /// goes where the shape goes, or that brings back its words where `state` does not show them.
+    public func wording(state: String, shape: String) throws -> Worded {
+        try call("wording", ["state": .string(state), "shape": .string(shape)])
     }
 }
 

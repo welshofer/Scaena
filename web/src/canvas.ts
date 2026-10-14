@@ -828,9 +828,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     // A shape types in its words, which it is given first where it holds none (PLAN 2.108).
     const b = box(node);
     if (b?.takesWords && b.words === undefined) {
-      if (!editor.shown()) return editor.say(WAITING);
+      const shown = editor.shown();
+      if (!shown) return editor.say(WAITING);
       try {
-        const worded = await stage.wording(editor.source(), node);
+        const worded = await stage.wording(editor.source(), shown.state, node);
         if (!(await change(worded.patch, "Giving it words…", `${Called(node)} takes words: type them`, worded.id))) return;
         // Words just given are the shape's wherever it stands: what is typed is theirs, kept to
         // no state.
@@ -1777,6 +1778,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   /** What is selected turned `by` degrees, as its round handle turns it: one `choose`. */
   async function turnBy(node: string, by: number) {
     if (locks([node], "turns")) return;
+    // A connector goes where what it joins goes (PLAN 2.109): the keys turn neither it nor them.
+    const joins = box(node)?.joins;
+    if (joins) return editor.say(`${Called(node)} runs from ${called(joins[0])} to ${called(joins[1])}: move either, and it follows`);
     const t = editor.transform(node);
     const start = typeof t?.rotate === "number" ? t.rotate : 0;
     const now = Math.round((start + by) * 1000) / 1000;
@@ -2496,7 +2500,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       const shown = editor.shown();
       if (!shown) return;
       try {
-        const ops = await stage.deleting(editor.source(), shown.state, node, everywhere);
+        const ops = await stage.deleting(editor.source(), shown.state, [node], everywhere);
         // A node no state shows once it is out of this one goes from the deck.
         const gone = ops.every((op) => (op as { op?: string }).op === "remove_node");
         const done = gone ? `${Called(node)} ${how} from every slide` : `${Called(node)} ${how} from this slide on`;
@@ -2515,8 +2519,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       const shown = editor.shown();
       if (!shown) return;
       try {
-        const source = editor.source();
-        const ops = (await Promise.all(nodes.map((n) => stage.deleting(source, shown.state, n, everywhere)))).flat();
+        const ops = await stage.deleting(editor.source(), shown.state, nodes, everywhere);
         await change(ops, `${how === "deleted" ? "Deleting" : "Cutting"}…`, `${nodes.length} objects ${how}`, null);
       } catch (e) {
         editor.say(`Not ${how}: ${said(e)}`);
@@ -2525,17 +2528,14 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   }
 
   /** A copy of each of `nodes` beside it, as ⌘D makes one (PLAN 2.42): one patch, the copies
-   * selected. */
+   * selected, a connector between two of them copied to join their copies (PLAN 2.109). */
   function duplicateAll(nodes: string[]) {
     return inTurn(async () => {
       const shown = editor.shown();
       if (!shown) return;
       try {
-        const source = editor.source();
-        const added = await Promise.all(nodes.map((n) => stage.duplicating(source, shown.state, n, editor.format())));
-        const ids = added.map((a) => a.id);
-        if (new Set(ids).size !== ids.length) throw new Error("two copies would be named alike");
-        await change(added.flatMap((a) => a.patch), "Duplicating…", `${nodes.length} objects duplicated`, ids);
+        const made = await stage.duplicatingAll(editor.source(), shown.state, nodes, editor.format());
+        await change(made.patch, "Duplicating…", `${made.ids.length} objects duplicated`, made.ids);
       } catch (e) {
         editor.say(`Not duplicated: ${said(e)}`);
       }

@@ -9,7 +9,7 @@ use crate::lint::{data_files, engine_with};
 use crate::{Bundle, Context, OpsError};
 use indexmap::IndexMap;
 use scaena_core::choices::{Choices, StateChoices, choices, state_choices};
-use scaena_core::document::{NodeType, Props};
+use scaena_core::document::{Node, NodeType, Props};
 use scaena_core::inserts::{Insert, Start, inserts};
 use scaena_core::layers::{Layer, layers};
 use scaena_core::looks::{self, Put};
@@ -850,6 +850,9 @@ pub struct Added {
     /// `add_node`, the node entering in the state named, then the `place` ops that put it
     /// there, then the `hide_node`s that keep it to that state's slide (PLAN 3.26).
     pub patch: Vec<Value>,
+    /// Where it copies nodes (PLAN 2.34): each node copied, and what it holds, by its copy's id.
+    #[serde(skip)]
+    pub copies: IndexMap<String, String>,
 }
 
 /// The patch that inserts `insert` in `state` as `room`'s node (PLAN 2.34): `add_node`, the
@@ -997,21 +1000,23 @@ pub(crate) fn added(
     target: Option<scaena_engine::geometry::Target>,
 ) -> Result<Added, OpsError> {
     let target = target.ok_or_else(|| OpsError::new("the theme's grid has no tracks to place it on"))?;
-    let node = serde_json::from_value(node).context("an inserted node")?;
+    let node: Node = serde_json::from_value(node).context("an inserted node")?;
+    let leaves = leaving(deck, state, &[(room.node.clone(), node.clone())]);
     let add = SemanticOp::AddNode { id: room.node.clone(), node, state: Some(state.into()), props: None };
-    let ops: Vec<SemanticOp> = std::iter::once(add)
-        .chain(target.ops(Some(state), false))
-        .chain(leaving(deck, state, std::slice::from_ref(&room.node)))
-        .collect();
+    let ops: Vec<SemanticOp> = std::iter::once(add).chain(target.ops(Some(state), false)).chain(leaves).collect();
     let patch = ops.iter().map(serde_json::to_value).collect::<Result<_, _>>().context("a patch")?;
-    Ok(Added { id: room.node.clone(), cell: target.cell, patch })
+    Ok(Added { id: room.node.clone(), cell: target.cell, patch, copies: IndexMap::new() })
 }
 
 /// Where nodes new in `state` leave, so that they stay on its slide as a slide's own do (PLAN
 /// 3.26): a `hide_node` for each in each state of another slide that would show them, one that
 /// tracks from a state of `state`'s slide that shows them. Where each state tracks from the one
-/// before, that is the next slide's first state; the last slide's leave nowhere.
-pub(crate) fn leaving(deck: &Deck, state: &str, ids: &[String]) -> Vec<SemanticOp> {
+/// before, that is the next slide's first state; the last slide's leave nowhere. `new` is each
+/// node by its id, as its `add_node` adds it, entering in `state`. Where they leave is read on the
+/// deck with them in it: one gone there already, as a connector goes with either end, is not
+/// hidden there, nor is one that goes with another hidden there, a shape's words with their shape
+/// and a connector with its end (PLAN 2.108, 2.109).
+pub(crate) fn leaving(deck: &Deck, state: &str, new: &[(String, Node)]) -> Vec<SemanticOp> {
     let Some(s) = deck.state_index(state) else { return Vec::new() };
     let slide = deck.slide_of(&deck.states[s]);
     // Whether what enters in `s` shows in each state from it on, once it has left.
@@ -1023,12 +1028,36 @@ pub(crate) fn leaving(deck: &Deck, state: &str, ids: &[String]) -> Vec<SemanticO
         shows[k] = from.is_some_and(|j| shows[j]);
         if shows[k] && deck.slide_of(&deck.states[k]) != slide {
             shows[k] = false;
-            leaves.push(deck.states[k].id.clone());
+            leaves.push(k);
         }
     }
-    let hide =
-        |state: String| ids.iter().map(move |id| SemanticOp::HideNode { node: id.clone(), state: state.clone() });
-    leaves.into_iter().flat_map(hide).collect()
+    if leaves.is_empty() {
+        return Vec::new();
+    }
+    // The deck with them in it. No state they leave in tracks from another, so what each shows of
+    // them is what it shows once they are hidden in the others.
+    let mut made = deck.clone();
+    for (id, node) in new {
+        made.nodes.insert(id.clone(), node.clone());
+        made.states[s].props.entry(id.clone()).or_default();
+    }
+    let snaps = scaena_core::resolve_states(&made).ok();
+    let mut out = Vec::new();
+    for k in leaves {
+        let shown = |id: &str| snaps.as_ref().is_none_or(|snaps| snaps[k].nodes.contains_key(id));
+        let hidden: Vec<&str> = new.iter().map(|(id, _)| id.as_str()).filter(|id| shown(id)).collect();
+        let carried = |node: &Node| {
+            let words = scaena_core::tracking::words_of(&made, node).is_some_and(|shape| hidden.contains(&shape));
+            let ends = scaena_core::tracking::connects_of(node);
+            words || ends.is_some_and(|(from, to)| hidden.contains(&from) || hidden.contains(&to))
+        };
+        for (id, node) in new {
+            if hidden.contains(&id.as_str()) && !carried(node) {
+                out.push(SemanticOp::HideNode { node: id.clone(), state: deck.states[k].id.clone() });
+            }
+        }
+    }
+    out
 }
 
 /// The smallest of the template's slots under `at` that no node `state` shows is placed in and
@@ -1150,10 +1179,15 @@ pub fn duplicating(
         _ => None,
     };
     ops.extend(target.iter().flat_map(|t| t.ops(Some(state), false)));
-    let copies: Vec<String> = ids.values().cloned().collect();
+    let copies: Vec<(String, Node)> = (ops.iter())
+        .filter_map(|op| match op {
+            SemanticOp::AddNode { id, node, .. } => Some((id.clone(), node.clone())),
+            _ => None,
+        })
+        .collect();
     ops.extend(leaving(deck, state, &copies));
     let patch = ops.iter().map(serde_json::to_value).collect::<Result<_, _>>().context("a patch")?;
-    Ok(Added { id: found.node.clone(), cell: target.map_or(found.cell, |t| t.cell), patch })
+    Ok(Added { id: found.node.clone(), cell: target.map_or(found.cell, |t| t.cell), patch, copies: ids })
 }
 
 /// A copy's layouts in the deck's formats (ADR-0020), from the props it was copied with: only
@@ -1185,21 +1219,71 @@ pub(crate) fn copied_layouts(
     }
 }
 
+/// Copies of several nodes beside them (PLAN 2.42): each copy's id, the copies of the nodes
+/// copied first, and the patch that adds them all.
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct Duplicated {
+    pub ids: Vec<String>,
+    pub patch: Vec<Value>,
+}
+
+/// The patch that joins copies as the nodes they copy are joined (PLAN 2.109): for each connector
+/// among `nodes` both of whose ends `copies` names a copy of, a copy of it as `state` shows it,
+/// joining those copies, entering in `state` and going where they go. Each is named for what it
+/// joins, as Connect names one, under an id that neither the deck nor `taken` holds: its id, and
+/// its `add_node`.
+pub fn rejoining(
+    deck: &Deck,
+    state: &str,
+    nodes: &[&str],
+    copies: &IndexMap<String, String>,
+    taken: &[String],
+) -> Result<Vec<(String, Value)>, OpsError> {
+    let snaps = scaena_core::resolve_states(deck).context("tracking")?;
+    let snap =
+        snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+    let mut taken: Vec<String> = deck.nodes.keys().cloned().chain(taken.iter().cloned()).collect();
+    let mut out = Vec::new();
+    for node in nodes {
+        let Some((from, to)) = deck.nodes.get(*node).and_then(scaena_core::tracking::connects_of) else { continue };
+        let (Some(from), Some(to), Some(shown)) = (copies.get(from), copies.get(to), snap.nodes.get(*node)) else {
+            continue;
+        };
+        let mut props = serde_json::Map::new();
+        props.insert("type".into(), serde_json::to_value(deck.nodes[*node].node_type).context("a node's type")?);
+        props.extend(shown.iter().map(|(k, v)| (k.clone(), v.clone())));
+        if let Some(Value::Object(connect)) = props.get_mut("connect") {
+            connect.insert("from".into(), Value::String(from.clone()));
+            connect.insert("to".into(), Value::String(to.clone()));
+        }
+        let kind = props.get("kind").and_then(Value::as_str).unwrap_or("line").to_string();
+        let named = format!("{from}-to-{to}");
+        let id = free_id(&taken, if named.len() <= 56 { &named } else { &kind });
+        taken.push(id.clone());
+        let add = serde_json::json!({ "op": "add_node", "id": id, "node": props, "state": state });
+        out.push((id, add));
+    }
+    Ok(out)
+}
+
 /// What gives a shape its words to type in (PLAN 2.108).
 #[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
 pub struct Worded {
     /// The text that holds its words.
     pub id: String,
     /// What adds that text where the shape holds none: one `add_node`, the text going where the
-    /// shape goes. Empty where it holds its words already.
+    /// shape goes; or brings back its words where the state does not show them, one `show_node`.
+    /// Empty where the state shows its words already.
     pub patch: Vec<Value>,
 }
 
-/// The words of shape `shape` (PLAN 2.108): the text it holds, or one new to it, `<shape>-words`,
-/// empty, in the `body` role and in the theme's color that reads on the shape's fill where the
-/// theme names one (`onAccent` on `accent`). It goes where the shape goes. Refused for a node
-/// that is no shape, and for a line or an arrow, which hold no words.
-pub fn wording(deck: &Deck, theme: &Theme, shape: &str) -> Result<Worded, OpsError> {
+/// The words of shape `shape` in `state` (PLAN 2.108): the text it holds, or one new to it,
+/// `<shape>-words`, empty, in the `body` role and in the theme's color that reads on the shape's
+/// fill where the theme names one (`onAccent` on `accent`). It goes where the shape goes. Words
+/// it holds that `state` does not show, taken away there or before, come back there by a
+/// `show_node`. Refused for a node that is no shape, and for a line or an arrow, which hold no
+/// words.
+pub fn wording(deck: &Deck, theme: &Theme, shape: &str, state: &str) -> Result<Worded, OpsError> {
     let node = deck.nodes.get(shape).ok_or_else(|| OpsError::new(format!("no node `{shape}`")))?;
     if node.node_type != NodeType::Shape {
         return Err(OpsError::new(format!("`{shape}` is no shape: only a shape holds words")));
@@ -1209,7 +1293,12 @@ pub fn wording(deck: &Deck, theme: &Theme, shape: &str) -> Result<Worded, OpsErr
     }
     let held = deck.nodes.iter().find(|(_, n)| scaena_core::tracking::words_of(deck, n) == Some(shape));
     if let Some((id, _)) = held {
-        return Ok(Worded { id: id.clone(), patch: Vec::new() });
+        let snaps = scaena_core::resolve_states(deck).context("tracking")?;
+        let snap = (snaps.iter().find(|s| s.state_id == state))
+            .ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+        let hidden = snap.nodes.contains_key(shape) && !snap.nodes.contains_key(id);
+        let show = serde_json::json!({ "op": "show_node", "node": id, "state": state });
+        return Ok(Worded { id: id.clone(), patch: if hidden { vec![show] } else { Vec::new() } });
     }
     let taken: Vec<String> = deck.nodes.keys().cloned().collect();
     let id = free_id(&taken, &format!("{shape}-words"));
@@ -1259,15 +1348,11 @@ pub fn connecting(deck: &Deck, state: &str, from: &str, to: &str, arrow: bool) -
     let named = format!("{from}-to-{to}");
     let id = free_id(&taken, if named.len() <= 56 { &named } else { kind });
     let node = serde_json::json!({ "type": "shape", "kind": kind, "connect": { "from": from, "to": to } });
-    let node = serde_json::from_value(node).context("a connector")?;
-    let add = SemanticOp::AddNode { id: id.clone(), node, state: Some(state.into()), props: None };
+    let node: Node = serde_json::from_value(node).context("a connector")?;
     // It leaves another slide's state where both ends show there; where either is gone, it is
     // gone with it.
-    let both =
-        |at: &str| snaps.iter().any(|s| s.state_id == at && s.nodes.contains_key(from) && s.nodes.contains_key(to));
-    let leaves = leaving(deck, state, std::slice::from_ref(&id))
-        .into_iter()
-        .filter(|op| !matches!(op, SemanticOp::HideNode { state, .. } if !both(state)));
+    let leaves = leaving(deck, state, &[(id.clone(), node.clone())]);
+    let add = SemanticOp::AddNode { id: id.clone(), node, state: Some(state.into()), props: None };
     let ops: Vec<SemanticOp> = std::iter::once(add).chain(leaves).collect();
     let patch = ops.iter().map(serde_json::to_value).collect::<Result<_, _>>().context("a patch")?;
     Ok(Connected { id, patch })
@@ -1295,26 +1380,38 @@ pub(crate) fn free_id(taken: &[String], base: &str) -> String {
         .expect("some number is free")
 }
 
-/// The patch that deletes `node` from `state` (PLAN 2.34), with each node it holds there: each
-/// leaves there and in the states after it (`hide_node`), and one that no state shows then goes
-/// from the deck (`remove_node`), so a node inserted and deleted leaves nothing behind. With
-/// `everywhere`, each goes from the deck, with each node it holds in any state. A node goes
-/// before what holds it. `files` is the bundle's, which the patch is made on.
+/// The patch that deletes `nodes` from `state` (PLAN 2.34, 2.42), with each node they hold
+/// there: each leaves there and in the states after it (`hide_node`), and one that no state shows
+/// then goes from the deck (`remove_node`), so a node inserted and deleted leaves nothing behind.
+/// With `everywhere`, each goes from the deck, with each node it holds in any state. A node goes
+/// before what holds it, and each goes once. A connector one of whose ends goes is left to go
+/// with it, as tracking and `remove_node` take it, and goes from the deck where no state shows it
+/// then (PLAN 2.109). `files` is the bundle's, which the patch is made on.
 pub fn deleting(
     deck: &Deck,
     files: &dyn BundleFiles,
-    node: &str,
+    nodes: &[&str],
     state: &str,
     everywhere: bool,
 ) -> Result<Vec<Value>, OpsError> {
     let snaps = scaena_core::resolve_states(deck).context("tracking")?;
     let snap =
         snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
-    if !snap.nodes.contains_key(node) {
+    if let Some(node) = nodes.iter().find(|node| !snap.nodes.contains_key(**node)) {
         return Err(OpsError::new(format!("`{node}` is not on screen in `{state}`")));
     }
     let holding: Vec<&Snapshot> = if everywhere { snaps.iter().collect() } else { vec![snap] };
-    let gone = held(&holding, node);
+    let mut gone: Vec<String> = Vec::new();
+    for node in nodes {
+        for id in held(&holding, node) {
+            if !gone.contains(&id) {
+                gone.push(id);
+            }
+        }
+    }
+    let ends = |id: &String| deck.nodes.get(id).and_then(scaena_core::tracking::connects_of);
+    let with_end = |id: &String| ends(id).is_some_and(|(from, to)| gone.iter().any(|g| g == from || g == to));
+    let (joined, gone): (Vec<String>, Vec<String>) = gone.iter().cloned().partition(with_end);
     let remove = |id: &String| serde_json::json!({ "op": "remove_node", "id": id });
     if everywhere {
         return Ok(gone.iter().map(remove).collect());
@@ -1326,7 +1423,9 @@ pub fn deleting(
     let after = Deck::from_value(&hidden.doc).map_err(OpsError::new)?;
     let after = scaena_core::resolve_states(&after).context("tracking")?;
     let shown = |id: &String| after.iter().any(|s| s.nodes.contains_key(id));
-    Ok(gone.iter().zip(hide).map(|(id, hide)| if shown(id) { hide } else { remove(id) }).collect())
+    // A connector deleted with its end, which no state shows then, goes from the deck first.
+    let left = joined.iter().filter(|id| !shown(id)).map(remove);
+    Ok(left.chain(gone.iter().zip(hide).map(|(id, hide)| if shown(id) { hide } else { remove(id) })).collect())
 }
 
 /// `node` and each node it holds in `snaps`, at any depth: the deepest first, `node` last.
@@ -1564,7 +1663,8 @@ mod tests {
         let mut doc: Value = serde_json::from_str(REVENUE).unwrap();
         edit(&mut doc);
         let deck = Deck::from_value(&doc).unwrap();
-        let hides = leaving(&deck, state, &["new".to_string()]);
+        let node: Node = serde_json::from_value(serde_json::json!({ "type": "text", "text": "New" })).unwrap();
+        let hides = leaving(&deck, state, &[("new".to_string(), node)]);
         let state = |op: &SemanticOp| match op {
             SemanticOp::HideNode { node, state } if node == "new" => state.clone(),
             other => panic!("not a hide of `new`: {other:?}"),
@@ -1583,7 +1683,7 @@ mod tests {
         doc["states"][1]["props"]["star"] = serde_json::json!({});
         let deck = Deck::from_value(&doc).unwrap();
         // A text new to it, empty, in the color that reads on the accent.
-        let given = wording(&deck, &theme, "star").unwrap();
+        let given = wording(&deck, &theme, "star", "revenue").unwrap();
         assert_eq!(given.id, "star-words");
         let words = serde_json::json!({ "type": "text", "role": "body", "text": "", "at": { "parent": "star" },
             "style": { "color": "onAccent" } });
@@ -1600,7 +1700,10 @@ mod tests {
         }
         let added = scaena_core::patch::compile(&doc, &given.patch, &Examples).unwrap();
         let deck = Deck::from_value(&added.doc).unwrap();
-        assert_eq!(wording(&deck, &theme, "star").unwrap(), Worded { id: "star-words".into(), patch: Vec::new() });
+        assert_eq!(
+            wording(&deck, &theme, "star", "revenue").unwrap(),
+            Worded { id: "star-words".into(), patch: Vec::new() }
+        );
         let shown: Vec<String> = (scaena_core::resolve_states(&deck).unwrap().iter())
             .filter(|s| s.nodes.contains_key("star-words"))
             .map(|s| s.state_id.clone())
@@ -1610,9 +1713,21 @@ mod tests {
             .map(|s| s.state_id.clone())
             .collect();
         assert_eq!(shown, star);
+        // Taken away on the next step, they are given back there, one `show_node`, and shown.
+        let hide = [serde_json::json!({ "op": "hide_node", "node": "star-words", "state": "mix" })];
+        let hidden = scaena_core::patch::compile(&added.doc, &hide, &Examples).unwrap();
+        let deck = Deck::from_value(&hidden.doc).unwrap();
+        let back = wording(&deck, &theme, "star", "mix").unwrap();
+        let show = serde_json::json!({ "op": "show_node", "node": "star-words", "state": "mix" });
+        assert_eq!(back, Worded { id: "star-words".into(), patch: vec![show] });
+        let shown = scaena_core::patch::compile(&hidden.doc, &back.patch, &Examples).unwrap();
+        let mix = scaena_core::resolve_states(&Deck::from_value(&shown.doc).unwrap()).unwrap();
+        assert!(mix.iter().any(|s| s.state_id == "mix" && s.nodes.contains_key("star-words")));
         // What is no shape, and a line, hold no words.
-        assert!(wording(&deck, &theme, "title").unwrap_err().to_string().contains("only a shape holds words"));
-        assert!(wording(&deck, &theme, "rule").unwrap_err().to_string().contains("a line or an arrow holds no words"));
+        let title = wording(&deck, &theme, "title", "revenue").unwrap_err();
+        assert!(title.to_string().contains("only a shape holds words"));
+        let rule = wording(&deck, &theme, "rule", "revenue").unwrap_err();
+        assert!(rule.to_string().contains("a line or an arrow holds no words"));
     }
 
     #[test]
@@ -1655,6 +1770,21 @@ mod tests {
         assert!(connecting(&deck, "nowhere", "title", "rev", true).unwrap_err().to_string().contains("unknown state"));
         // A second connector between the same two is named apart.
         assert_eq!(connecting(&deck, "revenue", "title", "rev", true).unwrap().id, "title-to-rev-2");
+        // An end that leaves on a step and comes back on the next slide takes the connector with it
+        // as it leaves, and does not bring it back: nothing to hide there.
+        let mut doc: Value = serde_json::from_str(REVENUE).unwrap();
+        doc["states"][2]["remove"] = serde_json::json!(["note"]);
+        doc["states"][3]["props"]["note"] = serde_json::json!({});
+        let deck = Deck::from_value(&doc).unwrap();
+        let joined = connecting(&deck, "revenue", "title", "note", true).unwrap();
+        assert_eq!(joined.patch.len(), 1, "{:?}", joined.patch);
+        let added = scaena_core::patch::compile(&doc, &joined.patch, &Examples).unwrap();
+        let deck = Deck::from_value(&added.doc).unwrap();
+        let shown: Vec<String> = (scaena_core::resolve_states(&deck).unwrap().iter())
+            .filter(|s| s.nodes.contains_key("title-to-note"))
+            .map(|s| s.state_id.clone())
+            .collect();
+        assert_eq!(shown, ["revenue"]);
     }
 
     #[test]

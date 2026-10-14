@@ -380,8 +380,10 @@ pub unsafe extern "C" fn scaena_picture(bytes: *const u8, len: usize) -> *mut c_
 /// taken away (PLAN 3.11): `inserting {state, n, x, y, named?, with?}`, the patch that inserts
 /// what `inserts` offers `n`th about a point, or in the room nearest it, `with` properties of its
 /// own set on it; `duplicating {state, node}`,
-/// a copy beside it; each `{id, cell, patch}`; and `deleting {state, node, everywhere?}`, the
-/// ops that take it out of the state and those after, or out of the deck. The clipboard (PLAN
+/// a copy beside it; each `{id, cell, patch}`; `duplicatingAll {state, nodes}`, a copy of each
+/// and of the connectors that join two of them, `{ids, patch}`; and `deleting {state, nodes |
+/// node, everywhere?}`, the ops that take them out of the state and those after, or out of the
+/// deck, a connector going with an end that goes. The clipboard (PLAN
 /// 3.12): `copying {state, nodes}`, the clip as text; `pasting {text, state, x, y}`, the patch that
 /// pastes a clip, or other text as a text, about a point, the files it carries handed over;
 /// `look {state, node}` and `putting {state, look, nodes}`, a look copied and the patch that
@@ -1467,8 +1469,15 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             value(serde_json::to_value(s.inserting_icon(arg("state")?, &icon, at).map_err(said)?))?
         }
         "duplicating" => value(serde_json::to_value(s.duplicating(arg("state")?, arg("node")?).map_err(said)?))?,
+        // Several copied at once (PLAN 2.42): `{ids, patch}`, the connectors among them that join two
+        // of them copied to join their copies (PLAN 2.109).
+        "duplicatingAll" => {
+            let nodes = strings("nodes")?;
+            let nodes: Vec<&str> = nodes.iter().map(String::as_str).collect();
+            value(serde_json::to_value(s.duplicating_all(arg("state")?, &nodes).map_err(said)?))?
+        }
         // The words of a shape to type in (PLAN 2.108): `{id, patch}`.
-        "wording" => value(serde_json::to_value(s.wording(arg("shape")?).map_err(said)?))?,
+        "wording" => value(serde_json::to_value(s.wording(arg("state")?, arg("shape")?).map_err(said)?))?,
         // A line, or an arrow, joining two nodes (PLAN 2.109): `{id, patch}`.
         "connecting" => {
             let arrow = args.get("arrow").and_then(Value::as_bool).unwrap_or(true);
@@ -1629,9 +1638,15 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             let (restored, files) = s.restore_version(&held, version, user()).map_err(said)?;
             json!({ "restored": restored, "files": files })
         }
+        // What Delete takes out (PLAN 2.34, 2.42): `nodes`, or one `node`, in one patch.
         "deleting" => {
             let everywhere = args.get("everywhere").and_then(Value::as_bool).unwrap_or(false);
-            json!(s.deleting(arg("state")?, arg("node")?, everywhere).map_err(said)?)
+            let nodes = match optional("node") {
+                Some(node) => vec![node.to_string()],
+                None => strings("nodes")?,
+            };
+            let nodes: Vec<&str> = nodes.iter().map(String::as_str).collect();
+            json!(s.deleting(arg("state")?, &nodes, everywhere).map_err(said)?)
         }
         // Several selected (PLAN 2.42, 2.43, 3.13): moved together as a drag moves the first, the
         // guides the box around them meets; arranged; grouped.

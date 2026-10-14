@@ -281,7 +281,7 @@ impl Scene {
     }
 
     /// Each connector that joins what `held` names, and is not itself held, run again between
-    /// its ends as they stand with those held moved `by`, canvas units (PLAN 2.109): routed,
+    /// its ends as they are drawn with those held moved `by`, canvas units (PLAN 2.109): routed,
     /// nothing laid out.
     fn rerouted(&self, held: &[&str], by: [f32; 2]) -> HashMap<&str, SceneNode> {
         let mut out = HashMap::new();
@@ -291,8 +291,9 @@ impl Scene {
             if moves(&node.id) || !(moves(&joint.from) || moves(&joint.to)) {
                 continue;
             }
+            // Where each end is drawn, its transforms and its containers' turning it (SPEC §3.3).
             let at = |id: &str| {
-                let [x, y, w, h] = self.tree.get(id)?.rect;
+                let [x, y, w, h] = self.drawn_box(id)?;
                 Some(if moves(id) { [x + by[0], y + by[1], w, h] } else { [x, y, w, h] })
             };
             let (Some(from), Some(to)) = (at(&joint.from), at(&joint.to)) else { continue };
