@@ -29,7 +29,7 @@ export async function unkeepable(name: string): Promise<string | undefined> {
   if ((await keptNames()).includes(name)) return `this browser keeps a deck named ${name} already`;
 }
 
-/** Rename the bundle the browser keeps as `from` to `to` (PLAN 2.122): every file of it written
+/** Rename the bundle the browser keeps as `from` to `to` (PLAN 2.124): every file of it written
  * under the new name, then the old folder taken away, so a rename that fails leaves it as it
  * was. */
 export async function renameKept(from: string, to: string) {
@@ -54,7 +54,7 @@ export async function renameKept(from: string, to: string) {
   await (await kept()).removeEntry(from, { recursive: true });
 }
 
-/** Delete the bundle the browser keeps as `name`, and every file of it (PLAN 2.122). */
+/** Delete the bundle the browser keeps as `name`, and every file of it (PLAN 2.124). */
 export async function deleteKept(name: string) {
   await keptBundle(name);
   await (await kept()).removeEntry(name, { recursive: true });

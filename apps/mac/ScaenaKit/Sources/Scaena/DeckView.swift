@@ -547,7 +547,7 @@ struct DeckView: View {
                 Button("Share This Slide as PNG…") { export(png(shown), sharing: true) }
                 Button("Save This Slide as PNG…") { save(png(shown)) }
             }
-            // Every slide, each a PNG named by its number (PLAN 2.120).
+            // Every slide, each a PNG named by its number (PLAN 2.122).
             Divider()
             Button("Share All Slides as PNGs…") { export(allSlides, sharing: true) }
             Button("Save All Slides as PNGs…") { save(allSlides) }

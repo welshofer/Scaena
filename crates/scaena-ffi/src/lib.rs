@@ -953,7 +953,7 @@ pub unsafe extern "C" fn scaena_surface_free(surface: *mut ScaenaSurface) {
 /// session lays out; or `png`, `args` `{state, width}`, the state at rest painted by the CPU
 /// painter that wide, as the editor's PNG export paints it; or `slides`, `args` `{width, name}`,
 /// every slide once its steps have played, as PNGs that wide in one zip, each `{name} - Slide
-/// 3.png` (PLAN 2.120); or `version`, the same as `png` of the version `viewVersion` shows (PLAN
+/// 3.png` (PLAN 2.122); or `version`, the same as `png` of the version `viewVersion` shows (PLAN
 /// 3.15). Null bytes where it cannot be made, `*error` then saying why.
 ///
 /// # Safety

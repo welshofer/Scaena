@@ -9,7 +9,7 @@ import UniformTypeIdentifiers
 
 /// The deck's exports (PLAN 3.8): the PDF `scaena export` writes, a page for each slide at its
 /// last state, the state shown as a PNG, and every slide as PNGs in one zip, each named by its
-/// number (PLAN 2.120), as the editor's Export… makes them. Each is written
+/// number (PLAN 2.122), as the editor's Export… makes them. Each is written
 /// when it is asked for, into a folder of its own, then shared through the Share sheet, shown in
 /// Quick Look, or saved where the user says.
 enum Exporting {

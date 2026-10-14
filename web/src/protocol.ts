@@ -33,7 +33,7 @@ export type SaveTo = { folder: FileSystemDirectoryHandle } | { opfs: string };
  * - `png`: `state` at rest in `format` (the deck's canvas without one), `width` pixels wide, the
  *   height keeping the canvas's aspect, painted by the CPU painter;
  * - `slides`: every slide once its steps have played, each as `png` paints it, in one zip, named
- *   by its number, `{name} - Slide 3.png` (PLAN 2.120);
+ *   by its number, `{name} - Slide 3.png` (PLAN 2.122);
  * - `pdf`: the deck, each slide at its last state, drawn by the PDF's own module, which the
  *   worker loads the first time a PDF is asked for;
  * - `html`: the deck as one file that plays offline, named `name`: `page`, the single-file
@@ -1050,7 +1050,7 @@ export type ToWorker =
   /** The bundle with the deck `source` compiles to, saved as a `.scaena` zip, fonts subset to
    * what the deck draws. */
   | { type: "zip"; id: number; source: string }
-  /** The bundle the browser keeps as `from` renamed `to`, or with no `to` deleted (PLAN 2.122):
+  /** The bundle the browser keeps as `from` renamed `to`, or with no `to` deleted (PLAN 2.124):
    * the open bundle, kept there, follows its rename, and is not deleted. */
   | { type: "rekeep"; id: number; from: string; to?: string }
   /** Export the deck `source` compiles to (PLAN 2.54), made here for the page to download:

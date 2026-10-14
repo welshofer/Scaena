@@ -934,7 +934,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   /** The whole canvas again. */
   const fit = () => look([0, 0, size[0], size[1]]);
   /** Zoomed in, what is shown moved the least that shows `node` whole, or, where it is larger
-   * than what is shown, the least that shows nothing but it (PLAN 2.123): what the keys or a
+   * than what is shown, the least that shows nothing but it (PLAN 2.125): what the keys or a
    * panel select comes into view. */
   function reveal(node: string | undefined) {
     const rect = box(node)?.rect;
@@ -4037,7 +4037,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     }
     const steps: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
     const step = steps[e.key];
-    // Zoomed in with nothing selected, the arrows pan what is shown (PLAN 2.123): a tenth of it,
+    // Zoomed in with nothing selected, the arrows pan what is shown (PLAN 2.125): a tenth of it,
     // with Shift half.
     if (step && selected === undefined && zoom() > 1 && !drag && !mod && !e.altKey) {
       e.preventDefault();
@@ -4146,7 +4146,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
      * for, for a test: “Revenue doubled”, the triangle. */
     called,
     /** Select `node`, as a click on it does; nothing with `undefined`. Zoomed in, what a panel
-     * selects comes into view (PLAN 2.123). */
+     * selects comes into view (PLAN 2.125). */
     select: (node: string | undefined) => {
       select(node);
       reveal(node);

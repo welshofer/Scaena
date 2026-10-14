@@ -197,7 +197,7 @@ impl Session {
         laid.to_bytes().map_err(|e| Error::Ops(e.to_string()))
     }
 
-    /// Every slide as a PNG `width` pixels wide, in one zip (PLAN 2.120), as Keynote's Export To ›
+    /// Every slide as a PNG `width` pixels wide, in one zip (PLAN 2.122), as Keynote's Export To ›
     /// Images and PowerPoint's Save as PNG › All Slides make them: each slide once its steps have
     /// played, at rest in the format shown, as [`Session::png`] paints it, named by its number,
     /// `{name} - Slide 3.png`. The zip is made as a `.scaena`'s is, the same bytes for the same
@@ -558,7 +558,7 @@ pub(crate) mod tests {
         assert!(s.standalone(page, "b1").unwrap() == cli, "the single file differs from the CLI's");
     }
 
-    /// Every slide as PNGs (PLAN 2.120): one zip, a file to a slide named by its number, each the
+    /// Every slide as PNGs (PLAN 2.122): one zip, a file to a slide named by its number, each the
     /// slide once its steps have played, as the PNG of that state alone paints it.
     #[test]
     fn every_slide_is_a_png_named_by_its_number() {

@@ -15,7 +15,7 @@
 //   which names it, and once it is whole again the next download goes through.
 // - A folder (any directory handle; here one in the browser's storage) opens and saves in
 //   place: the save names its fonts by their content and removes the old names.
-// - Kept in this browser… lists the decks the browser keeps (PLAN 2.122), and axe-core finds
+// - Kept in this browser… lists the decks the browser keeps (PLAN 2.124), and axe-core finds
 //   nothing in it against WCAG 2.1 AA: one is renamed in its row, every file of it under the new
 //   name and none under the old; a name another deck has, or one with a slash, is refused, saying
 //   why; one is deleted, asked first, and is gone. The deck open here is marked, is not deleted,
@@ -239,7 +239,7 @@ try {
   check(inPlace?.renamed.length === 6, `a save names its fonts by their content: ${JSON.stringify(inPlace?.renamed)}`);
   check(!("fonts/Inter-VF.ttf" in plain) && Object.keys(plain).some((p) => /^fonts\/Inter-[0-9a-f]{16}\.ttf$/.test(p)), `and removes the old names: ${Object.keys(plain)}`);
 
-  // Kept in this browser…: each deck opened, renamed, or deleted from the list (PLAN 2.122).
+  // Kept in this browser…: each deck opened, renamed, or deleted from the list (PLAN 2.124).
   const keeps = () => page.evaluate(async () => {
     const names = [];
     for await (const [name, handle] of (await (await navigator.storage.getDirectory()).getDirectoryHandle("bundles")).entries()) if (handle.kind === "directory") names.push(name);

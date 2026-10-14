@@ -144,9 +144,9 @@ const sourceKeys = (): Key[] => {
 /** What the editor answers anywhere beyond its commands' keys (PLAN 2.65). */
 const editorKeys = (): Key[] => [{ keys: `${MOD}K`, label: "Commands by name, and words for the assistant", group: "The editor" }];
 /** The keys held with C or F that put the focus on the slide or in the strip, as Google Slides'
- * do (PLAN 2.124): ⌥⇧⌘ on a Mac, Ctrl+Alt+Shift elsewhere. */
+ * do (PLAN 2.126): ⌥⇧⌘ on a Mac, Ctrl+Alt+Shift elsewhere. */
 const GO = MOD === "⌘" ? "⌥⇧⌘" : "Ctrl+Alt+Shift+";
-/** The draw tools (PLAN 2.48, 2.114): each its key on the slide, what Insert calls it (PLAN 2.121),
+/** The draw tools (PLAN 2.48, 2.114): each its key on the slide, what Insert calls it (PLAN 2.123),
  * and what the palette calls drawing with it. */
 const DRAWING = [
   { key: "t", tool: "Text", label: "Draw a text" },
@@ -193,7 +193,7 @@ function folders<T>(mode: IDBTransactionMode, act: (store: IDBObjectStore) => ID
 /** What the editor has open, to close when it opens another bundle; `say` puts a line in its
  * status that stays, before what lint finds, until the source is edited by hand. `kept` is the
  * name the browser keeps it under, if it does, and `rekeep` renames a bundle the browser keeps, or
- * deletes it, through the bundle's worker, which writes where the page may not (PLAN 2.122). */
+ * deletes it, through the bundle's worker, which writes where the page may not (PLAN 2.124). */
 let current:
   | {
       close: () => void;
@@ -223,7 +223,7 @@ function address(where: Where | undefined) {
   window.history.replaceState(null, "", url);
 }
 
-/** The bundles the browser keeps, in Kept in this browser (PLAN 2.4, 2.122), as a document
+/** The bundles the browser keeps, in Kept in this browser (PLAN 2.4, 2.124), as a document
  * browser lists them: each opened by its name, renamed, or deleted, asked first. The deck open
  * here is marked, and is not deleted. Listed again after each save and each open, which can add
  * one. */
@@ -1161,7 +1161,7 @@ async function edit(source: Source) {
    * each edit, since the theme and the bundle's images change. */
   const inserter = $<HTMLSelectElement>("#insert");
   /** The Insert menu's own choices beside what the deck offers: a picture made (PLAN 2.107), and
-   * a draw tool by its key (PLAN 2.121). */
+   * a draw tool by its key (PLAN 2.123). */
   const MAKE_PICTURE = "make-picture";
   const DRAW = "draw:";
   let offered = "";
@@ -1191,7 +1191,7 @@ async function edit(source: Source) {
     // picture made by the user's image model (PLAN 2.107) comes after what the deck offers.
     const icon = Object.assign(document.createElement("optgroup"), { label: "Icon" });
     icon.append(new Option("Icon…", "icon"));
-    // The draw tools, each with its key (PLAN 2.121): a drag on the slide draws what each draws.
+    // The draw tools, each with its key (PLAN 2.123): a drag on the slide draws what each draws.
     const draw = Object.assign(document.createElement("optgroup"), { label: "Draw" });
     draw.append(...DRAWING.map(({ key, tool }) => new Option(`${tool} (${key.toUpperCase()})`, `${DRAW}${key}`)));
     inserter.replaceChildren(
@@ -1639,7 +1639,7 @@ async function edit(source: Source) {
   /** Export (PLAN 2.54) the deck the source compiles to, as `scaena export` writes it, and
    * download it: `png`, the state shown at rest in the format shown, `width` pixels wide;
    * `slides`, every slide once its steps have played, so, in one zip, each named by its number
-   * (PLAN 2.120); `pdf`, each slide at its last state; `html`, the deck as one file that plays
+   * (PLAN 2.122); `pdf`, each slide at its last state; `html`, the deck as one file that plays
    * offline, the single-file player's page beside this one filled in. Each is made in the worker:
    * nothing is sent anywhere. */
   async function exportAs(as: "png" | "slides" | "pdf" | "html", width?: number): Promise<{ file: string; bytes: ArrayBuffer } | undefined> {
@@ -1854,7 +1854,7 @@ async function edit(source: Source) {
     if (start !== undefined) view.dispatch({ selection: { anchor: start }, scrollIntoView: true });
     void show(index);
   };
-  /** The focus on the slide, from anywhere on the page (PLAN 2.124): the light table, shown in its
+  /** The focus on the slide, from anywhere on the page (PLAN 2.126): the light table, shown in its
    * place, gives way to it. */
   function toSlide() {
     if (table.open()) table.toggle(false);
@@ -2072,7 +2072,7 @@ async function edit(source: Source) {
       { label: "Draft its notes", where: ["state"], applies: () => now() !== undefined, run: () => write("notes") },
       { label: "Show the light table", applies: () => now() !== undefined && !table.open(), run: () => table.toggle(true) },
       { label: "Close the light table", applies: () => table.open(), run: () => table.toggle(false) },
-      // Page Down and Page Up on the slide (PLAN 2.124).
+      // Page Down and Page Up on the slide (PLAN 2.126).
       { label: "Show the next slide or step", keys: "PageDown", group: "Slides", applies: () => last?.valid === true && shown < count() - 1, run: () => goTo(shown + 1) },
       { label: "Show the slide or step before", keys: "PageUp", group: "Slides", applies: () => last?.valid === true && shown > 0, run: () => goTo(shown - 1) },
       { label: "Go to the slide", keys: `${GO}C`, group: "The editor", run: toSlide },
@@ -2252,7 +2252,7 @@ async function edit(source: Source) {
     await saveAs({ folder }).catch(failed);
   };
   $<HTMLButtonElement>("#download").onclick = () => void download().catch(failed);
-  // Export…: the state shown as a PNG at a width asked, every slide so in one zip (PLAN 2.120), or
+  // Export…: the state shown as a PNG at a width asked, every slide so in one zip (PLAN 2.122), or
   // the deck as a PDF or one HTML file.
   const exporting = $<HTMLDialogElement>("#exporting");
   const exportWidth = $<HTMLInputElement>("#exporting-width");
@@ -2324,7 +2324,7 @@ async function edit(source: Source) {
       }
     }
     // Page Down and Page Up on the slide show the next slide or step and the one before (PLAN
-    // 2.124); a text typed in keeps them.
+    // 2.126); a text typed in keeps them.
     if ((e.key === "PageDown" || e.key === "PageUp") && !e.metaKey && !e.ctrlKey && !e.altKey && !e.defaultPrevented && e.target === $("#overlay")) {
       e.preventDefault();
       const to = shown + (e.key === "PageDown" ? 1 : -1);
@@ -2335,7 +2335,7 @@ async function edit(source: Source) {
         say(`${slideOf(last.states[to][0])} shown`);
       } else say(e.key === "PageDown" ? "This is the last slide" : "This is the first slide");
     }
-    // ⌥⇧⌘C puts the focus on the slide, and ⌥⇧⌘F among the slides (PLAN 2.124), over no dialog;
+    // ⌥⇧⌘C puts the focus on the slide, and ⌥⇧⌘F among the slides (PLAN 2.126), over no dialog;
     // by the keys' places, as Option makes ⌥C a character of its own. AltGr, which Windows gives
     // as Ctrl and Alt, types a character with them (AltGr+Shift+C is Ć on a Polish keyboard): it
     // stays the character.
@@ -2410,7 +2410,7 @@ async function edit(source: Source) {
       saveAs,
       download,
       /** Export (PLAN 2.54): `png` (the state shown, `width` pixels wide), `slides` (every slide so,
-       * in one zip, PLAN 2.120), `pdf`, or `html`, as the Export dialog does; the file's name and
+       * in one zip, PLAN 2.122), `pdf`, or `html`, as the Export dialog does; the file's name and
        * bytes, also downloaded. */
       exportAs,
       /** Drop a file named `name` at `at` in the source (the cursor by default). */

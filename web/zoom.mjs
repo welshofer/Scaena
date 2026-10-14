@@ -13,7 +13,7 @@
 //   put; Space and a drag pan, selecting and changing nothing.
 // - With nothing selected, the arrow keys pan a tenth of what is shown, and with Shift half,
 //   changing nothing; and Tab, zoomed in on the middle, selects each object in reading order and
-//   brings it into view: the least move that shows it whole (PLAN 2.123).
+//   brings it into view: the least move that shows it whole (PLAN 2.125).
 // - A text is typed in where it stands zoomed in.
 // - ⌘0 shows the whole canvas again, and another format does too.
 // Exits 1 on any failure.
@@ -192,7 +192,7 @@ try {
   check(to[0] > from[0] && to[1] > from[1], `Space and a drag pan: ${from.slice(0, 2).map(Math.round)} → ${to.slice(0, 2).map(Math.round)}`);
   check((await page.evaluate(() => window.scaena.canvas.selected())) === selectedBefore && (await trips()) === unchanged, "selecting and changing nothing");
 
-  // With nothing selected, the arrow keys pan (PLAN 2.123): about the middle at 400%, a tenth of
+  // With nothing selected, the arrow keys pan (PLAN 2.125): about the middle at 400%, a tenth of
   // what is shown, and with Shift half.
   await page.evaluate(([w, h]) => window.scaena.canvas.zoom(4, [w / 2, h / 2]), [W, H]);
   await page.locator("#overlay").focus();

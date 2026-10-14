@@ -16,7 +16,7 @@ import Testing
     #expect(throws: ScaenaError.self) { try session.png("no-such-state", width: 100) }
 }
 
-/// Every slide as PNGs in one zip, each named by its number (PLAN 2.120), as Share offers it.
+/// Every slide as PNGs in one zip, each named by its number (PLAN 2.122), as Share offers it.
 @Test func everySlideExportsAsPNGsInOneZip() throws {
     let session = try ScaenaSession(directory: b1)
     let zipped = try session.slides(width: 320, name: "B1")

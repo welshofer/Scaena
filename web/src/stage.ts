@@ -897,7 +897,7 @@ export class Stage {
   }
 
   /** Rename the bundle the browser keeps as `from` to `to`, or with no `to` delete it (PLAN
-   * 2.122); where the open bundle is kept then. */
+   * 2.124); where the open bundle is kept then. */
   rekeep(from: string, to?: string): Promise<Where | undefined> {
     return this.request<"rekept">({ type: "rekeep", id: ++this.asked, from, to }).then(({ where }) => where);
   }

@@ -10,7 +10,7 @@
 //   asked, within SPEC §13.5 of `scaena export --format png --size` of that state. The CPU painter
 //   runs in WASM SIMD in the browser and natively there (ADR-0004 finding 15).
 // - At 960 pixels wide, the state is 960 × 540, and within §13.5 of the CLI's at that size.
-// - Every slide, as PNGs in one .zip (PLAN 2.120): the note counts the slides, and Export
+// - Every slide, as PNGs in one .zip (PLAN 2.122): the note counts the slides, and Export
 //   downloads `<deck> - Slides.zip`, a PNG for each slide named by its number, each the slide once
 //   its steps have played (`mix` for the revenue slide), the width asked, within §13.5 of
 //   `scaena export --format png` of that state. The palette offers it too.
@@ -118,7 +118,7 @@ try {
   const narrow = compare(cliPng("960x540"), small);
   check(small.width === 960 && small.height === 540 && narrow.passes, `at 960 wide, ${small.width} × ${small.height}, within §13.5 of the CLI's: ${narrow.said}`);
 
-  // Every slide, as PNGs in one .zip (PLAN 2.120): each slide once its steps have played, named by
+  // Every slide, as PNGs in one .zip (PLAN 2.122): each slide once its steps have played, named by
   // its number.
   await page.click("#export");
   await page.check("#exporting input[name=as][value=slides]");

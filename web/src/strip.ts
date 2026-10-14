@@ -108,7 +108,7 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
 
   /** `item` scrolled into the strip's view, as `scrollIntoView` scrolls it to the nearest edge, by
    * the strip's own scroll: Chromium starts the page's next Tab at what `scrollIntoView` scrolls
-   * to, which would take a page's first Tab past the bar into the strip (PLAN 2.124). */
+   * to, which would take a page's first Tab past the bar into the strip (PLAN 2.126). */
   function inView(item: HTMLElement | undefined) {
     if (!item) return;
     const [strip, at] = [list.getBoundingClientRect(), item.getBoundingClientRect()];

@@ -325,7 +325,7 @@ pub fn slides(deck: &Deck) -> Vec<String> {
 
 /// Each of `deck`'s slides as it stands once its steps have played: its number, as [`slides`]
 /// counts it, and its last state, in the deck's order. What a picture of every slide shows, a
-/// file to a slide (PLAN 2.120).
+/// file to a slide (PLAN 2.122).
 pub fn last_steps(deck: &Deck) -> Vec<(usize, &str)> {
     let mut out: Vec<(usize, &str)> = Vec::new();
     let mut slide: Option<&str> = None;

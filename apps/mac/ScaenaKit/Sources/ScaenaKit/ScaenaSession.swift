@@ -199,7 +199,7 @@ public final class ScaenaSession {
     }
 
     /// Every slide once its steps have played, as PNGs `width` pixels wide in one zip, each named
-    /// by its number, `name - Slide 3.png` (PLAN 2.120), as the editor's Export makes it.
+    /// by its number, `name - Slide 3.png` (PLAN 2.122), as the editor's Export makes it.
     public func slides(width: Int, name: String) throws -> Data {
         let asked: JSONValue = ["width": .number(Double(width)), "name": .string(name)]
         let args = String(decoding: try JSONEncoder().encode(asked), as: UTF8.self)

@@ -7,7 +7,7 @@
 // - The Insert menu offers what Dusk and the bundle name: a text in each of the theme's roles, the
 //   shapes and the shape library's polygons (PLAN 2.106), and the theme's two shader presets; once
 //   a PNG is dropped into the bundle, the image. Under Draw, the draw tools with their keys (PLAN
-//   2.121): each chosen does what its key does, Rectangle arming the canvas as R does and Pen
+//   2.123): each chosen does what its key does, Rectangle arming the canvas as R does and Pen
 //   taking up the pen as P does.
 // - A kicker inserted where the canvas was last pressed, in the template's `kicker` slot, which
 //   nothing fills in `revenue`, fills it, and enters in `revenue`, selected: one patch, one undo.
@@ -127,7 +127,7 @@ try {
   check(offered["Background Effect"]?.length === 2, `the theme's shader presets: ${offered["Background Effect"]}`);
   check(!offered.Image, "no image: the bundle holds no PNG");
 
-  // The draw tools, each with its key, each its key's gesture (PLAN 2.121).
+  // The draw tools, each with its key, each its key's gesture (PLAN 2.123).
   const tools = ["Text (T)", "Rectangle (R)", "Oval (O)", "Line (L)", "Arrow (A)", "Pen (P)"];
   check(JSON.stringify(offered.Draw) === JSON.stringify(tools), `Draw lists the draw tools with their keys: ${offered.Draw}`);
   await page.selectOption("#insert", { label: "Rectangle (R)" });

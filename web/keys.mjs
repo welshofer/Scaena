@@ -13,11 +13,11 @@
 // - The palette names Show the keys, with ?, and runs it; so does the Keys button.
 // - What the sheet says is what the keys do: the grid's key draws the grid, and F8 and Shift+F8 go
 //   to the next finding in the source and back.
-// - Slides by keys (PLAN 2.124): PageDown and PageUp on the slide show the next slide or step and
+// - Slides by keys (PLAN 2.126): PageDown and PageUp on the slide show the next slide or step and
 //   the one before, as the sheet and the palette say; Ctrl+Alt+Shift+C puts the focus on the slide
 //   from the source, and Ctrl+Alt+Shift+F on the slide shown among the slides; AltGr with Shift and
 //   C, a character on some keyboards, stays one. A page's first Tab is Go to the slide, which Enter
-//   takes. Zoomed in, the arrows pan: the sheet says so (PLAN 2.123).
+//   takes. Zoomed in, the arrows pan: the sheet says so (PLAN 2.125).
 // - axe-core finds nothing against WCAG 2.1 AA with the sheet open.
 // Exits 1 on any failure.
 import { createRequire } from "node:module";
@@ -144,10 +144,10 @@ try {
   check(await page.evaluate(() => window.scaena.canvas.ruled()), `${grid}, as the sheet says, shows the grid`);
   await page.keyboard.press(grid.replace("Ctrl+", "Control+"));
 
-  // Slides by keys (PLAN 2.124), as the sheet lists them.
+  // Slides by keys (PLAN 2.126), as the sheet lists them.
   check(rowsOf("Slides").some((r) => r.label === "Show the next slide or step" && r.keys === "PageDown") && rowsOf("Slides").some((r) => r.label === "Show the slide or step before" && r.keys === "PageUp"), "the sheet lists PageDown and PageUp for the next slide and the one before");
   check(listed("The editor", "Go to the slide", "Ctrl+Alt+Shift+C") && listed("The editor", "Go to the slides and their steps", "Ctrl+Alt+Shift+F"), "and the keys that go to the slide and to the slides");
-  check(rowsOf("See").some((r) => r.keys === "← ↑ → ↓" && r.label.startsWith("Zoomed in with nothing selected, pan")), "and that the arrows pan what is zoomed in (PLAN 2.123)");
+  check(rowsOf("See").some((r) => r.keys === "← ↑ → ↓" && r.label.startsWith("Zoomed in with nothing selected, pan")), "and that the arrows pan what is zoomed in (PLAN 2.125)");
   const stateShown = () => page.evaluate(() => document.querySelector("#state").value);
   const showsNow = async (state) => {
     await page.waitForFunction((s) => document.querySelector("#state").value === s, state, { timeout: 10000 }).catch(() => {});

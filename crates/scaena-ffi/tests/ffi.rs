@@ -1438,7 +1438,7 @@ fn an_export_is_the_bytes_scaena_export_writes() {
     assert!(png.starts_with(&[0x89, b'P', b'N', b'G']), "a PNG");
     assert_eq!(u32::from_be_bytes(png[16..20].try_into().unwrap()), 640, "640 pixels wide");
 
-    // Every slide as PNGs in one zip, each named by its number (PLAN 2.120).
+    // Every slide as PNGs in one zip, each named by its number (PLAN 2.122).
     let slides = bytes_of(unsafe {
         scaena_export(s, c("slides").as_ptr(), c(r#"{"width":320,"name":"B1"}"#).as_ptr(), &mut error)
     })
