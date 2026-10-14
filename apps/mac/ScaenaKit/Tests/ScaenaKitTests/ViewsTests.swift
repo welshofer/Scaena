@@ -71,6 +71,99 @@ private func alike(_ a: CGRect, _ b: CGRect) -> Bool {
     #expect(resized.placed(on: CGSize(width: 1216, height: 696)) == resized, "the same desk changes nothing")
 }
 
+/// The arrows with nothing selected (PLAN 4.12, as the browser's preview pans, PLAN 2.125): zoomed
+/// in, what shows moves a tenth of itself, or half with Shift, across or down, the slide kept on the
+/// desk, so that at its edge an arrow goes no farther and is still the pan's, and the slide is as
+/// close as it was; fitted, the whole slide shows, and the arrows go on.
+@Test func theArrowsPanATenthOfWhatShowsOrHalfWithShift() {
+    var zoom = Zoom(canvas: CGSize(width: 1920, height: 1080), desk: CGSize(width: 1016, height: 596))
+    // Each pan made before it is expected: a mutating call in `#expect` would be made on a copy.
+    let fitted = zoom.pan(1, 0, far: false)
+    #expect(!fitted, "fitted, the arrows go on")
+    #expect(zoom.level == 1 && zoom.view == nil)
+    zoom.zoom(to: 4)
+    let middle = zoom.shown
+    #expect(alike(middle, CGRect(x: 706, y: 391, width: 508, height: 298)), "\(middle)")
+    let across = zoom.pan(1, 0, far: false)
+    #expect(across)
+    #expect(alike(zoom.shown, middle.offsetBy(dx: middle.width / 10, dy: 0)), "a tenth across: \(zoom.shown)")
+    let down = zoom.pan(0, 1, far: true)
+    #expect(down)
+    let half = middle.offsetBy(dx: middle.width / 10, dy: middle.height / 2)
+    #expect(alike(zoom.shown, half), "half down: \(zoom.shown)")
+    zoom.pan(-1, 0, far: false)
+    zoom.pan(0, -1, far: true)
+    #expect(alike(zoom.shown, middle), "and back: \(zoom.shown)")
+    #expect(zoom.level == 4, "as close as it was")
+    // At the edge, no farther: the slide's edge the margin in from the desk's, and the key still
+    // the pan's.
+    for _ in 0..<8 { zoom.pan(1, 0, far: true) }
+    let past = zoom.pan(1, 0, far: true)
+    #expect(past)
+    #expect(abs(zoom.shown.maxX - 1920) < 1e-6 && abs(zoom.slide.maxX - (1016 - Zoom.margin)) < 1e-6, "\(zoom.slide)")
+}
+
+/// What Tab, Return, a selection by keys, or a panel selects comes into view (PLAN 4.12, as the
+/// browser's, PLAN 2.125): zoomed in, what shows moves the least that shows the box whole, and
+/// nothing where it shows whole already; a box larger than what shows, the least that shows nothing
+/// but it; and of a box past the canvas's edge, what the slide draws. Fitted, nothing moves. B1's
+/// cover at four times fitted: its subtitle is wider than what shows, and its title larger both
+/// ways. A box is taken where it is drawn: a turned one about its corners.
+@Test func whatIsSelectedComesIntoViewTheLeastWay() throws {
+    let boxes = try ScaenaSession(directory: b1).boxes(state: "cover")
+    let title = try #require(boxes.first { $0.node == "title" })
+    let subtitle = try #require(boxes.first { $0.node == "subtitle" })
+    #expect(title.extent == CGRect(x: title.rect[0], y: title.rect[1], width: title.rect[2], height: title.rect[3]))
+    let turned = try JSONDecoder().decode(
+        NodeBox.self, from: Data(#"{"node": "a", "rect": [0, 0, 100, 50], "draws": true, "transform": [0, 1, -1, 0, 100, 0]}"#.utf8))
+    #expect(turned.extent == CGRect(x: 50, y: 0, width: 50, height: 100), "about its corners: \(turned.extent)")
+
+    var zoom = Zoom(canvas: CGSize(width: 1920, height: 1080), desk: CGSize(width: 1016, height: 596))
+    // Each reveal made before it is expected: a mutating call in `#expect` would be made on a copy.
+    let fitted = zoom.reveal(subtitle.extent)
+    #expect(!fitted, "fitted, the whole slide shows")
+    zoom.zoom(to: 4)
+    let middle = zoom.shown
+    let whole = zoom.reveal(CGRect(x: 800, y: 450, width: 100, height: 100))
+    #expect(!whole, "shown whole already")
+    #expect(alike(zoom.shown, middle))
+    // Out of view to the right and below: just far enough that its far corner shows.
+    let far = zoom.reveal(CGRect(x: 1300, y: 700, width: 100, height: 50))
+    #expect(far)
+    #expect(alike(zoom.shown, CGRect(x: 892, y: 452, width: 508, height: 298)), "\(zoom.shown)")
+    // To the left and above: its near corner.
+    let near = zoom.reveal(CGRect(x: 200, y: 100, width: 100, height: 50))
+    #expect(near)
+    #expect(alike(zoom.shown, CGRect(x: 200, y: 100, width: 508, height: 298)), "\(zoom.shown)")
+    // The subtitle, wider than what shows, which lies across it already: down, the least move that
+    // shows it whole, its foot at the foot of what shows.
+    let words = subtitle.extent
+    #expect(words.width > middle.width && words.height < middle.height)
+    let down = zoom.reveal(words)
+    #expect(down)
+    #expect(abs(zoom.shown.minX - 200) < 1e-6 && abs(zoom.shown.maxY - words.maxY) < 1e-6, "\(zoom.shown)")
+    // The title, larger both ways: what shows comes to lie within it, moved the least way, up to
+    // its foot; then nothing but it shows already.
+    let heading = title.extent
+    #expect(heading.width > middle.width && heading.height > middle.height)
+    let up = zoom.reveal(heading)
+    #expect(up)
+    #expect(heading.contains(zoom.shown) && abs(zoom.shown.maxY - heading.maxY) < 1e-6, "\(zoom.shown)")
+    let again = zoom.reveal(heading)
+    #expect(!again, "nothing but it shows already")
+    // Larger than what shows and out of view to the right: its near edge at the edge of what shows.
+    let larger = zoom.reveal(CGRect(x: 1000, y: 300, width: 800, height: 500))
+    #expect(larger)
+    #expect(abs(zoom.shown.minX - 1000) < 1e-6, "\(zoom.shown)")
+    // Past the canvas's edge: what the slide draws of it.
+    let past = zoom.reveal(CGRect(x: 1800, y: 900, width: 400, height: 400))
+    #expect(past)
+    #expect(abs(zoom.shown.maxX - 1920) < 1e-6 && abs(zoom.shown.maxY - 1080) < 1e-6, "\(zoom.shown)")
+    let beyond = zoom.reveal(CGRect(x: 2000, y: 0, width: 100, height: 100))
+    #expect(!beyond, "wholly past it: nothing")
+    #expect(zoom.level == 4, "as close as it was")
+}
+
 /// The formats side by side (PLAN 3.16, as the browser's, PLAN 2.62, 2.85): the canvas shown in
 /// 9:16 and back, one the deck does not list refused; a node given a layout of its own there,
 /// once; and each finding saying the formats it holds in.
