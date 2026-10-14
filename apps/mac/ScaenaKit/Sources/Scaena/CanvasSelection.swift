@@ -653,7 +653,7 @@ struct CanvasSelection: View {
                     typing.focus?()
                     pointed = at
                     said = nil
-                    clicks = presses.began(at: value.startLocation)
+                    clicks = presses.began(at: value.startLocation, time: value.time)
                     // Typing: a press in the text puts the caret there, one outside it stops typing.
                     let typed = typing.typing
                     if typed {
