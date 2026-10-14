@@ -33,6 +33,14 @@ final class TouchTests: XCTestCase {
         XCTContext.runActivity(named: "A tap selects the title") { _ in
             title.tap()
             XCTAssertTrue(wait(5) { title.isSelected }, "the title is not selected: \(app.debugDescription)")
+            // Where the inspector shows the title's turn, it shows it as a number, 0, as a
+            // presentation app does, not as a hint in an empty field (PLAN 3.28).
+            let rotation = app.textFields.matching(identifier: "inspector-transform/rotate").firstMatch
+            if rotation.waitForExistence(timeout: 5) {
+                XCTAssertTrue(
+                    wait(5) { rotation.value as? String == "0" },
+                    "the title's rotation reads \(rotation.value ?? "nothing"), not 0")
+            }
         }
 
         try XCTContext.runActivity(named: "A pinch zooms, and another shows the whole canvas") { _ in

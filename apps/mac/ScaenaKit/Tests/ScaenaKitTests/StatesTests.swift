@@ -193,3 +193,19 @@ private func playing(_ editor: DeckEditor) -> [String] {
     #expect(try !session.prompted(state: started.id, node: "nowhere"))
     #expect(throws: ScaenaError.self) { try session.filling(state: started.id, slot: "nowhere") }
 }
+
+/// The timeline's ruler (PLAN 3.14), as an animation pane's scale of seconds: marks a round step
+/// apart, from the cue's start to the lanes' end, never closer than there is room for each one's
+/// time.
+@Test func theTimelinesRulerMarksTheSeconds() {
+    #expect(Cue.ticks(across: 2000, width: 300) == [0, 500, 1000, 1500, 2000])
+    #expect(Cue.ticks(across: 2100, width: 150) == [0, 1000, 2000])
+    #expect(Cue.ticks(across: 1000, width: 600) == [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000])
+    #expect(Cue.ticks(across: 90_000, width: 100) == [0, 60_000])
+    #expect(Cue.ticks(across: 0, width: 300).isEmpty)
+    for (scale, width) in [(1300.0, 250.0), (5000.0, 480.0), (12_500.0, 200.0)] {
+        let marks = Cue.ticks(across: scale, width: width)
+        #expect(marks.first == 0 && (marks.last ?? .infinity) <= scale)
+        #expect(zip(marks, marks.dropFirst()).allSatisfy { ($1 - $0) / scale * width >= 47.99 })
+    }
+}

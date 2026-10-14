@@ -133,3 +133,18 @@ private let torture = repository.appending(path: "tests/fixtures/torture.scaena"
     #expect(FieldNumber.stepped(333, by: 100) == 433)
     #expect(FieldNumber.shown(FieldNumber.stepped(0.1, by: 0.2)) == "0.3")
 }
+
+/// The inspector's swatches (PLAN 3.18): two colors a person cannot tell apart at a swatch's size
+/// are one swatch, as Dusk's two near-black backgrounds are; its line color, darker than the text
+/// and lighter than the backgrounds, is a swatch of its own.
+@Test func colorsThatLookAlikeInASwatchAreOne() {
+    #expect(Swatch.looksAlike("#101014", "#17171D"))
+    #expect(Swatch.looksAlike("#17171d", "#17171D"), "as the theme writes it, either case")
+    #expect(!Swatch.looksAlike("#101014", "#2A2A33"))
+    #expect(!Swatch.looksAlike("#17171D", "#2A2A33"))
+    #expect(!Swatch.looksAlike("#FF6A3D", "#FFC857"))
+    #expect(Swatch.looksAlike("#101014", "#101014FF"), "opaque either way")
+    #expect(!Swatch.looksAlike("#101014", "#10101480"), "half as opaque")
+    #expect(Swatch.looksAlike("oklch(0.5 0.1 30)", "OKLCH(0.5 0.1 30)"))
+    #expect(!Swatch.looksAlike("oklch(0.5 0.1 30)", "#808080"))
+}

@@ -422,3 +422,29 @@ public enum FieldNumber {
         shown(value).split(separator: ".").dropFirst().first?.count ?? 0
     }
 }
+
+/// The theme's colors as an inspector's swatches show them (PLAN 3.18): two a person cannot tell
+/// apart at a swatch's size are one swatch, as two names that give one color are.
+public enum Swatch {
+    /// How far apart, of 255, two colors' channels may be and still look alike in a swatch: the
+    /// near-blacks a dark theme sets its two backgrounds in, say, `#101014` and `#17171D`.
+    public static let alike = 12
+
+    /// Whether the colors `a` and `b`, as the theme writes them (`#rrggbb` or `#rrggbbaa`), look
+    /// alike in a swatch: none of their channels, alpha too, more than `alike` apart. Colors
+    /// written otherwise (`oklch(…)`) look alike only where they are written alike.
+    public static func looksAlike(_ a: String, _ b: String) -> Bool {
+        guard let x = channels(a), let y = channels(b) else { return a.lowercased() == b.lowercased() }
+        return zip(x, y).allSatisfy { abs($0 - $1) <= alike }
+    }
+
+    /// `#rrggbb` or `#rrggbbaa` as its red, green, blue, and alpha, each of 255; none for another
+    /// kind.
+    private static func channels(_ color: String) -> [Int]? {
+        guard color.hasPrefix("#"), color.count == 7 || color.count == 9,
+            let n = UInt64(color.dropFirst(), radix: 16)
+        else { return nil }
+        let rgba = color.count == 9 ? n : n << 8 | 0xFF
+        return [24, 16, 8, 0].map { Int((rgba >> UInt64($0)) & 0xFF) }
+    }
+}

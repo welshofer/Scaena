@@ -207,6 +207,8 @@ struct DeckView: View {
                     .background(Color(nsColor: .windowBackgroundColor))
             }
         }
+        // The inspector's tabs stay in the toolbar as the window narrows, the rest overflowing first.
+        .background(ToolbarKeeps(ids: InspectorTab.allCases.map(\.rawValue), titles: InspectorTab.allCases.map(\.title)))
         #else
         // A column as wide as the Mac's, which no finger resizes: a slide zoomed past the desk
         // runs to the inspector's edge, and a pinch there would take the edge with it (PLAN 3.16).
@@ -423,6 +425,7 @@ struct DeckView: View {
             Label(tab.title, systemImage: tab.symbol)
         }
         .help(tab.help)
+        .accessibilityIdentifier("tab-\(tab.rawValue)")
     }
 
     /// What the window shows: the slide, or every slide on the light table; and, off until asked

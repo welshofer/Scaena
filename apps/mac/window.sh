@@ -187,6 +187,9 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
     pointer click "$cx" "$cy"
     sleep 2
     shot clicked
+    # The inspector shows the numbers in effect, each in its field (PLAN 3.28): an unturned
+    # object's rotation as 0, and a text's size as its style gives it.
+    echo "the inspector's rotation: $(frames value inspector-transform/rotate); size: $(frames value inspector-style/size)"
     # Dragged a little right and down, it lands where it is let go (PLAN 3.19); then undone. The
     # drop has landed once the objects the canvas holds stand otherwise: on CI's virtual Mac the
     # drag's guides were still drawn two seconds after it was let go.
@@ -407,6 +410,8 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   menu View Document
   sleep 2
   shot theme
+  # The inspector's tabs stay in the toolbar, the rest of it overflowing first (PLAN 3.18).
+  echo "the toolbar's Format: $(frames find tab-format); Animate: $(frames find tab-animate); Document: $(frames find tab-document)"
   read -r px py pw ph <<<"$(frames find theme-color-paper)" || true
   if [[ "${ph:-}" =~ ^[0-9]+$ ]]; then
     echo "the theme's paper: $px $py $pw $ph, $(frames value theme-color-paper)"
