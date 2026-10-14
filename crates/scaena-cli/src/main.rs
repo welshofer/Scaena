@@ -1731,8 +1731,13 @@ fn print_targets(t: &scaena_ops::inspect::Targets) {
 fn print_cue(cue: &serde_json::Value) {
     let ms = |v: &serde_json::Value| num(v.as_f64().unwrap_or_default());
     let t = &cue["transition"];
-    let transition = match t["duration"].as_f64() {
-        Some(d) if d > 0.0 => {
+    let transition = match (t["duration"].as_f64(), t["style"].as_str()) {
+        // A slide transition (PLAN 2.111) by its style and the way it goes, which matches nothing.
+        (Some(d), Some(style)) if d > 0.0 => {
+            let way = t["direction"].as_str().map(|w| format!(" {w}")).unwrap_or_default();
+            format!("{style}{way} transition {} ms, {}", num(d), curve_words(&t["curve"]))
+        }
+        (Some(d), None) if d > 0.0 => {
             let unmatched = if t["match"] == "none" { ", match none" } else { "" };
             format!("transition {} ms, {}{unmatched}", num(d), curve_words(&t["curve"]))
         }

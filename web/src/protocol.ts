@@ -428,7 +428,7 @@ export interface Field {
   theme?: unknown;
   /** Its label, and each name or word it offers, its value, and the theme's, said as a person says
    * them (PLAN 2.99): `style/family` is Font, `onSurface` Text, `fast` Fast (0.18 s). */
-  words?: { label: string; said: Record<string, string> };
+  words?: { label: string; said: Record<string, string>; colors?: Record<string, string> };
 }
 
 /** What a property takes: one of the theme's names of a kind (with `overrides`, or a value written
@@ -583,7 +583,8 @@ export interface Added {
 }
 
 /** The words of a shape to type in (PLAN 2.108): the text that holds them, and the patch that
- * adds it where the shape holds none, empty where it does. */
+ * adds it where the shape holds none, or brings it back where the state does not show it, empty
+ * where it does. */
 export interface Worded {
   id: string;
   patch: unknown[];
@@ -592,6 +593,14 @@ export interface Worded {
 /** A connector made (PLAN 2.109): its id, and the patch that adds it. */
 export interface Connected {
   id: string;
+  patch: unknown[];
+}
+
+/** Copies of several nodes beside them (PLAN 2.42): each copy's id, those of the nodes copied
+ * first, then those of the connectors among them that join two of them, copied to join their
+ * copies (PLAN 2.109); and the patch that adds them all. */
+export interface Duplicated {
+  ids: string[];
   patch: unknown[];
 }
 
@@ -679,6 +688,10 @@ export interface Version {
   /** When the change was made, in ISO 8601, UTC. */
   at?: string | null;
   ops: number;
+  /** What the change did, and who made it, in a person's words (PLAN 2.99,
+   * `scaena_core::words::change`, `author`), as the Mac's Versions says them. */
+  said: string;
+  by: string;
 }
 
 /** How a node changes from one version to another, as `deck_diff` says it: a prop gone is null. */
@@ -697,6 +710,9 @@ export interface Compared {
   deck: Record<string, unknown>;
   /** The data files whose bytes changed. */
   files: string[];
+  /** Each text whose words changed, by state and node: its words before and after, which name it
+   * and show what changed. */
+  texts?: Record<string, Record<string, [string, string]>>;
 }
 
 /** What restoring a version did, as `scaena history --restore` says it. */
@@ -966,12 +982,15 @@ export type ToWorker =
    * more stroke of the drawing `onto` where the state shows it as one, else a new drawing. */
   | { type: "inking"; id: number; source: string; state: string; points: number[]; onto?: string; format?: string }
   | { type: "duplicating"; id: number; source: string; state: string; node: string; format?: string }
-  | { type: "wording"; id: number; source: string; shape: string }
+  /** A copy of each of `nodes` beside it, in one patch (PLAN 2.42). */
+  | { type: "duplicatingAll"; id: number; source: string; state: string; nodes: string[]; format?: string }
+  | { type: "wording"; id: number; source: string; state: string; shape: string }
   | { type: "connecting"; id: number; source: string; state: string; from: string; to: string; arrow: boolean }
   /** The patch that draws text `node`'s lines in `state` as a diagram of `kind` in its place, in
    * the format shown (PLAN 2.110). */
   | { type: "diagramming"; id: number; source: string; state: string; node: string; kind: Diagram; format?: string }
-  | { type: "deleting"; id: number; source: string; state: string; node: string; everywhere: boolean }
+  /** The patch that takes `nodes` away, in one patch (PLAN 2.34, 2.42). */
+  | { type: "deleting"; id: number; source: string; state: string; nodes: string[]; everywhere: boolean }
   /** The patch that puts `nodes`, children of one container as `state` shows them, in a new group
    * where they stand, on the deck the editor's `source` compiles to (PLAN 2.43). */
   | { type: "grouping"; id: number; source: string; state: string; nodes: string[] }
@@ -1258,7 +1277,8 @@ export type WritingKind = "proofread" | "tighten" | "rewrite" | "notes" | "expla
  * about, or the finding to explain, as the window says it (`said`). */
 export interface WritingAsk {
   kind: WritingKind;
-  state: string;
+  /** The state shown; none to explain an issue no state holds, as a source's that does not compile. */
+  state?: string;
   node?: string;
   finding?: { code: string; severity: string; message: string; said?: string; hint?: string; node?: string };
 }
@@ -1311,9 +1331,10 @@ export type AssistantEvent =
   | { kind: "text"; text: string }
   /** It calls tool `name`. */
   | { kind: "call"; id: string; name: string; args: unknown }
-  /** Call `id` returned: `summary` says what it came to; `json` is what the model is told,
-   * and `png` a frame it drew, in base64. */
-  | { kind: "result"; id: string; name: string; error: boolean; summary: string; json: string; png?: string }
+  /** Call `id` returned: `summary` says what it came to, and `made` whether it did what its
+   * words say (an edit refused, only tried, or stopped did not); `json` is what the model is
+   * told, and `png` a frame it drew, in base64. */
+  | { kind: "result"; id: string; name: string; error: boolean; summary: string; made: boolean; json: string; png?: string }
   /** The deck changed: its source now, which the editor takes, compiled, shown, and linted
    * as an edit of it would be: the worker does it as the change is made, so the editor asks
    * nothing of a source the assistant has moved past. `touched` are the nodes the question has
@@ -1342,6 +1363,9 @@ export type AssistantEvent =
 export interface Opened {
   /** The bundle's name: its folder's, or its deck file's without `.deck.json`. */
   name: string;
+  /** The deck's title (`meta.title`), where it has one: what the player's windows are called,
+   * as a single file's page is. */
+  title?: string;
   /** Where it is kept, if anywhere. */
   where?: Where;
   states: string[];
@@ -1543,6 +1567,9 @@ export interface Edited {
   slots: Slot[];
   /** The formats the deck lists now, besides its own canvas (PLAN 2.62). */
   formats: string[];
+  /** The deck's own canvas named by its shape now, where a format is it (`Opened.own`): an edit
+   * of the canvas changes it. */
+  own?: string;
   /** Where the deck is: the slot repainted at rest. */
   at?: At;
   /** How long each step took in the worker, ms. */
@@ -1577,7 +1604,8 @@ export interface Cue {
   start: number;
   span: number;
   hold: number;
-  /** Its transition; `style` and `direction` where it is a slide transition (PLAN 2.111). */
+  /** Its transition; `style` and `direction` where it is a slide transition (PLAN 2.111), and no
+   * `direction` for a dissolve, which goes no way. */
   transition: { duration: number; match: string; curve: Curve; style?: string; direction?: string };
   motions: Motion[];
 }
@@ -1605,6 +1633,8 @@ export interface Motion {
   delay: number;
   /** Where it is written: a JSON pointer into the deck. */
   written?: string;
+  /** The theme's preset it plays, where it is written as one. */
+  preset?: string;
   curve: Curve;
 }
 
@@ -1682,13 +1712,15 @@ export type FromWorker =
   | { type: "layers"; id: number; layers: Layer[] }
   /** The patch that adds a node: an insert, or a copy. */
   | { type: "adding"; id: number; added: Added }
+  /** Copies of several nodes (PLAN 2.42). */
+  | { type: "duplicated"; id: number; duplicated: Duplicated }
   /** The words of a shape to type in, given it where it has none (PLAN 2.108). */
   | { type: "worded"; id: number; worded: Worded }
   /** A connector between two nodes (PLAN 2.109). */
   | { type: "connected"; id: number; connected: Connected }
   /** A text's lines drawn as a diagram (PLAN 2.110). */
   | { type: "diagrammed"; id: number; diagrammed: Diagrammed }
-  /** The patch that takes a node away. */
+  /** The patch that takes nodes away. */
   | { type: "deleting"; id: number; patch: unknown[] }
   /** A node as the clipboard holds it, and what pasting a clip makes. */
   | { type: "copied"; id: number; clip: string }

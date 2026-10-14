@@ -149,6 +149,12 @@ export function writer(stage: Stage, host: WritingHost) {
       return;
     }
     if (mine !== turn || !dialog.open) return;
+    // No answer, as a model that refuses or runs out of room gives: nothing to take.
+    if (!written.text.trim()) {
+      thinking.textContent = `No answer from ${who.name}: the model wrote nothing. Ask again, or try another model.`;
+      leave.textContent = "Close";
+      return;
+    }
     thinking.hidden = true;
     if (written.patch === null) {
       read.textContent = written.text;
@@ -174,7 +180,7 @@ export function writer(stage: Stage, host: WritingHost) {
       // Words edited in the dialog are taken as they are edited.
       const taking = answer.value === written.text ? written : await stage.written(ask, answer.value);
       // A text by the words it now reads, as the canvas shows it; notes by their slide.
-      const what = ask.kind === "describe" ? "the picture" : ask.node !== undefined ? quote(taking.text) : host.slide(ask.state);
+      const what = ask.kind === "describe" ? "the picture" : ask.node !== undefined ? quote(taking.text) : host.slide(ask.state ?? now.state);
       if (!taking.patch?.length) return void host.say(`Nothing to change: ${what} already reads so`);
       const { source, edited } = await stage.make(host.source(), taking.patch, now.index, host.format());
       host.apply(source, edited);

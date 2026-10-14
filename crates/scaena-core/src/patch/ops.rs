@@ -11,8 +11,8 @@ use crate::lint::literal;
 use crate::model::theme::Theme;
 use crate::model::values::{Annotation, Duration, ListItem};
 use crate::tracking::{
-    Lives, NON_TRACKING_KEYS, Snapshot, keep_looks, layout_lives, lives, merge_props, other_spelling, resolve_states,
-    tracks_from,
+    Lives, Snapshot, keep_looks, layout_lives, lives, lives_shown, merge_props, other_spelling, resolve_states,
+    tracks_from, words_of,
 };
 use crate::validate::BundleFiles;
 use serde_json::{Map, Value};
@@ -1053,8 +1053,9 @@ fn with_text(run: &Value, text: &str) -> Value {
 /// inspector sets it. A literal where the theme has names (W300's) goes in the deck's
 /// `overrides`, the only place it is legal, as does any value where the overrides set the
 /// property. Else it is written where the value lives: the latest delta that sets it, from
-/// `state` back, else the node's own; or, to `fork` it, in `state`'s own delta. `null` takes
-/// it away where it lives, so what is under it shows.
+/// `state` back, else the node's own; or, to `fork` it, in `state`'s own delta. What never
+/// tracks (`emphasis`) is `state`'s own, or the node's where it enters with it
+/// ([`lives_shown`]). `null` takes it away where it lives, so what is under it shows.
 fn choose(
     d: &Doc,
     node: &str,
@@ -1090,22 +1091,7 @@ fn choose(
         Some((i, shown)) => {
             let (deck, _) = d.snapshots()?;
             let keys: Vec<&str> = key.iter().map(String::as_str).collect();
-            let lives = match fork {
-                true => Lives::State(i),
-                // What belongs to one state alone, a motion's emphasis or keys (§2.2), is the
-                // state's own: written there, it plays in that state's cue, as `apply_preset`
-                // writes it. Only one the node's own props show there, as it enters, is taken
-                // away from them.
-                false if NON_TRACKING_KEYS.contains(&name.as_str()) => {
-                    let delta = deck.states[i].props.get(node).is_some_and(|delta| delta.contains_key(&name));
-                    match value.is_null() && !delta && shown.contains_key(&name) {
-                        true => Lives::Node,
-                        false => Lives::State(i),
-                    }
-                }
-                false => lives(&deck, i, node, &name, &keys),
-            };
-            match lives {
+            match if fork { Lives::State(i) } else { lives_shown(&deck, i, node, Some(&shown), &name, &keys) } {
                 Lives::State(j) => Some(j),
                 Lives::Node => None,
             }
@@ -1400,15 +1386,21 @@ fn unset(d: &Doc, node: &str, j: usize, name: &str, key: Option<&str>) -> Vec<Js
     diff(&format!("/states/{j}/props/{}", esc(node)), old, &new)
 }
 
-/// `runs` with the bytes `range` of their texts, end to end, replaced by `text`: typed into
-/// the run the range starts in, the one before where two meet, or the first at the start. A
-/// run the edit leaves with no text goes, unless it was typed into.
+/// `runs` with the bytes `range` of their texts, end to end, replaced by `text`: typed over
+/// characters, into the run of the first it replaces, as a word processor takes its look;
+/// typed where nothing is replaced, into the run the range starts in, the one before where two
+/// meet, or the first at the start. A run the edit leaves with no text goes, unless it was
+/// typed into.
 fn edit_runs(runs: &[Value], range: Range<usize>, text: &str) -> Vec<Value> {
     let texts: Vec<&str> = runs.iter().map(|r| r.get("text").and_then(Value::as_str).unwrap_or_default()).collect();
     let starts: Vec<usize> = texts.iter().scan(0, |at, t| Some(std::mem::replace(at, *at + t.len()))).collect();
-    let into = match range.start {
-        0 => 0,
-        start => (0..texts.len())
+    let over = (!range.is_empty() && !text.is_empty())
+        .then(|| (0..texts.len()).find(|&k| starts[k] <= range.start && range.start < starts[k] + texts[k].len()))
+        .flatten();
+    let into = match (over, range.start) {
+        (Some(k), _) => k,
+        (None, 0) => 0,
+        (None, start) => (0..texts.len())
             .find(|&k| starts[k] < start && start <= starts[k] + texts[k].len())
             .unwrap_or(texts.len().saturating_sub(1)),
     };
@@ -1648,13 +1640,22 @@ fn parent_of(props: &Map<String, Value>) -> Option<&str> {
 /// [`SemanticOp::Group`].
 fn group(d: &Doc, id: &str, nodes: &[String], state: Option<&str>) -> Result<Vec<JsonOp>, String> {
     d.free("node", id, d.node(id).is_ok())?;
-    let Some(first) = nodes.first() else { return Err("a group holds one node or more: name them in `nodes`".into()) };
+    if nodes.is_empty() {
+        return Err("a group holds one node or more: name them in `nodes`".into());
+    }
     for (i, node) in nodes.iter().enumerate() {
         d.node(node)?;
         if nodes[..i].contains(node) {
             return Err(format!("`{node}` is named twice"));
         }
     }
+    // A connector goes where what it joins goes (PLAN 2.109): it stays out of the group, and
+    // follows what it joins into it.
+    let connector = |n: &String| d.kind(n) == Ok("shape") && d.node(n).is_ok_and(|p| p.contains_key("connect"));
+    let nodes: Vec<String> = nodes.iter().filter(|n| !connector(n)).cloned().collect();
+    let Some(first) = nodes.first() else {
+        return Err("a connector goes where what it joins goes: group what it joins".into());
+    };
     // Their container: as `state` shows them, else as their own `at` places them.
     let (deck, snapshots) = d.snapshots()?;
     let shown = state.map(|s| d.state(s)).transpose()?;
@@ -1710,7 +1711,7 @@ fn group(d: &Doc, id: &str, nodes: &[String], state: Option<&str>) -> Result<Vec
             }
         }
         None => {
-            for node in nodes {
+            for node in &nodes {
                 let at = d.node(node)?.get("at");
                 ops.push(match at {
                     Some(Value::Object(_)) => {
@@ -1810,6 +1811,15 @@ fn rename_node(d: &Doc, id: &str, to: &str) -> Result<Vec<JsonOp>, String> {
     for (path, _, _) in d.parents().into_iter().filter(|(_, n, p)| *p == id && *n != id) {
         ops.push(JsonOp::Replace { path, value: Value::String(to.into()) });
     }
+    // Each connector that joins it joins it by its new name (PLAN 2.109).
+    for (node, props) in d.nodes().filter(|(n, _)| n.as_str() != id) {
+        for end in ["from", "to"] {
+            if props.get("connect").and_then(|c| c.get(end)).and_then(Value::as_str) == Some(id) {
+                let path = format!("/nodes/{}/connect/{end}", esc(node));
+                ops.push(JsonOp::Replace { path, value: Value::String(to.into()) });
+            }
+        }
+    }
     Ok(ops)
 }
 
@@ -1848,10 +1858,14 @@ fn hide_node(d: &Doc, node: &str, state: &str) -> Result<Vec<JsonOp>, String> {
         ops.push(JsonOp::Remove { path: format!("/states/{i}/props/{}", esc(node)) });
     }
     // On screen in the state it tracks from: it exits here, unless it does already (and
-    // the delta had it enter again). Else it entered here, by that delta, and is gone with it.
+    // the delta had it enter again). Else it entered here, by that delta, and is gone with it;
+    // or, a shape's words, with their shape, which brings them in here unless they exit
+    // (PLAN 2.108).
     let exits = d.states()[i].get("remove").and_then(Value::as_array);
     let listed = exits.is_some_and(|e| e.iter().any(|x| x.as_str() == Some(node)));
-    if !listed && tracks_from(&deck, i).is_some_and(|j| snapshots[j].nodes.contains_key(node)) {
+    let tracked = |n: &str| tracks_from(&deck, i).is_some_and(|j| snapshots[j].nodes.contains_key(n));
+    let shape = deck.nodes.get(node).and_then(|n| words_of(&deck, n));
+    if !listed && (tracked(node) || shape.is_some_and(|shape| !tracked(shape))) {
         let value = Value::String(node.into());
         ops.push(match exits {
             Some(_) => JsonOp::Add { path: format!("/states/{i}/remove/-"), value },
@@ -2376,15 +2390,8 @@ fn locate<'a>(d: &Doc<'a>, i: usize, node: &str, motion: Timed, what: &str) -> R
         };
         return Err(format!("{what} is not there to time{how}"));
     };
-    let lives = match motion {
-        Timed::Enter | Timed::Exit => lives(&deck, j, node, key, &[]),
-        // What never tracks is the state's own, or the node's as it enters.
-        Timed::Emphasis | Timed::Anim => {
-            let delta = deck.states[j].props.get(node).and_then(|p| p.get(key));
-            if delta.is_some() { Lives::State(j) } else { Lives::Node }
-        }
-    };
-    let (path, old) = match lives {
+    // What never tracks is the state's own, or the node's as it enters.
+    let (path, old) = match lives_shown(&deck, j, node, snapshots[j].nodes.get(node), key, &[]) {
         Lives::State(k) => {
             let old = d.states()[k].get("props").and_then(|p| p.get(node)).and_then(Value::as_object);
             (format!("/states/{k}/props/{}", esc(node)), old.ok_or_else(|| format!("{what} is not where it lives"))?)
@@ -2605,6 +2612,32 @@ fn rename_state(d: &Doc, id: &str, to: &str) -> Result<Vec<JsonOp>, String> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// The patch schema takes each key of a transition that `set_state` sets (PLAN 2.111): what an
+    /// agent reads as the op's schema is what the op does.
+    #[test]
+    fn the_patch_schema_takes_each_key_of_a_transition() {
+        fn set_state(v: &Value) -> Option<&Value> {
+            match v {
+                Value::Object(o)
+                    if o.get("properties").and_then(|p| p.get("op")).and_then(|op| op.get("const"))
+                        == Some(&json!("set_state")) =>
+                {
+                    Some(v)
+                }
+                Value::Object(o) => o.values().find_map(set_state),
+                Value::Array(a) => a.iter().find_map(set_state),
+                _ => None,
+            }
+        }
+        let schema = crate::model::patch_schema();
+        let pattern = set_state(&schema).and_then(|op| op["properties"]["prop"]["pattern"].as_str()).unwrap();
+        let takes = regex_lite::Regex::new(pattern).unwrap();
+        for key in TRANSITION {
+            assert!(takes.is_match(&format!("transition/{key}")), "transition/{key} against {pattern}");
+        }
+        assert!(!takes.is_match("transition/speed"), "{pattern}");
+    }
 
     #[test]
     fn choreography_ops_land_where_the_rewrite_does() {

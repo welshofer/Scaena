@@ -10,6 +10,7 @@
 //   delta), and the status says which states it changes; one undo takes it back.
 // - "Only in revenue" keeps a choice to the state: the note's role goes into its delta there, and
 //   the node keeps its own.
+// - A color well shows the color in use, a theme's name as the color it is (Dusk's Text, #f2f0e9).
 // - A color written out is an override: it goes in the deck's `overrides` and shows as one; a
 //   theme name chosen then is written there too; the × takes it away.
 // - What cannot be kept to one state (a value written out) is refused, and says why.
@@ -86,6 +87,9 @@ try {
   check(where?.includes("Set on this slide"), `and says where it lives: ${where}`);
   const words = await page.evaluate(() => document.querySelector("#look")?.textContent ?? "");
   check(!/style\/|transform\/|\bms\b|\brevenue\b/.test(words), `no property path, id, or millisecond in the inspector: ${words.replace(/\s+/g, " ").slice(0, 400)}`);
+  // Its color well shows the color it is set in, the theme's Text where it sets none: Dusk's ink.
+  const well = await page.inputValue("#look-style-color-written");
+  check(well === "#f2f0e9", `the color well shows the color in use, not black: ${well}`);
 
   // Choosing a role: one patch, written where the role lives, and the states it reaches.
   await page.selectOption("#look-role", "title");
@@ -260,6 +264,26 @@ try {
   await page.waitForFunction(() => window.scaena.last().slots.find((s) => s.state === "mix").hold === 4500, null, { timeout: 30000 }).catch(() => {});
   check((await slot()).hold === 4500, `a hold in seconds holds the state: ${(await slot()).hold} ms`);
   check((await status()).startsWith("Advance: after 4.5 s"), `the status says it in seconds: ${await status()}`);
+  // A hold below zero is refused: the field shows the deck's hold again, and leaving it sends
+  // nothing a second time.
+  const hold = page.locator("#look-hold");
+  const held = await hold.inputValue();
+  await hold.fill("-1");
+  await hold.press("Enter");
+  await page.waitForFunction(() => document.querySelector("#status").textContent.startsWith("Not changed"), null, { timeout: 30000 }).catch(() => {});
+  check((await status()).startsWith("Not changed"), `a hold below zero is refused: ${await status()}`);
+  await page.evaluate(() => window.scaena.look.settled());
+  const put = await hold.evaluate((i) => ({ value: i.value, was: i.defaultValue }));
+  check(put.value === held && put.value === put.was, `the field shows the deck's hold again: ${JSON.stringify(put)}, the deck's ${held}`);
+  await page.evaluate(() => {
+    window.holdChanges = 0;
+    document.querySelector("#look").addEventListener("change", (e) => e.target.id === "look-hold" && window.holdChanges++);
+  });
+  await page.locator("#overlay").focus();
+  await page.evaluate(() => window.scaena.look.settled());
+  await page.waitForTimeout(500);
+  const again = await page.evaluate(() => window.holdChanges);
+  check(again === 0, `leaving the field sends nothing again: ${again} more change(s), ${await status()}`);
   await page.fill("#look-notes", "Let the stack land.");
   await page.locator("#overlay").focus();
   check(await reads('notes "Let the stack land."'), "notes written in the inspector are the state's");

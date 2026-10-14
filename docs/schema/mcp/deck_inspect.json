@@ -386,6 +386,10 @@
             "description": "Where it is written, a JSON pointer into the deck: the choreography item\n(`/states/2/choreography/0`), or the node's own property where it lives\n(`/states/1/props/title/enter`, `/nodes/title/exit`).",
             "type": ["string", "null"]
           },
+          "preset": {
+            "description": "The theme's preset it plays, by name, where it is written as one: what an editor names its\nbar by (`fade`, Fade).",
+            "type": ["string", "null"]
+          },
           "curve": { "$ref": "#/$defs/Curve" },
           "from": {
             "description": "An entrance's look before it: what it changes from rest.",
@@ -691,7 +695,7 @@
             "type": "boolean"
           },
           "theme": {
-            "description": "What the theme gives a text's look where the deck sets none, which the state then shows:\nits role's family, weight, size, italic, case, tracking, or color; how its slot fits it\n(theme format 0.13); and for characters selected, the text's own look where their run\nsets none, its role and emphasis too. What an inspector shows in place of a blank. Absent\nfor any other property."
+            "description": "What the theme gives a text's look where the deck sets none, which the state then shows:\nits role's family, weight, size, italic, case, tracking, or color; how its slot fits it\n(theme format 0.13); where a shape's words stand across it, in its middle (PLAN 2.108);\nand for characters selected, the text's own look where their run sets none, its role and\nemphasis too. What an inspector shows in place of a blank. Absent for any other property."
           }
         },
         "required": ["prop", "takes"]

@@ -10,7 +10,8 @@
 //   the deck is as it was.
 // - Border chosen (PLAN 2.118) is one `choose` of the photo's `stroke`, the accent drawn on the
 //   edge of the picture that shows; one undo, and the deck is as it was.
-// - A slider's readout follows it as it is dragged, before it is let go.
+// - A slider's readout follows it as it is dragged, before it is let go, in percent, and the
+//   status says a value let go as the readout does.
 // - On the next slide, where the warm photo is written cool, Warmth let go at none is none there:
 //   the photo's own warmth does not show through; one undo.
 // Exits 1 on any failure.
@@ -108,7 +109,7 @@ try {
     input.dispatchEvent(new Event("input", { bubbles: true }));
     return [input.nextElementSibling.textContent, input.getAttribute("aria-valuetext")];
   });
-  check(readout[0] === "+50" && readout[1] === "+50", `the readout follows the drag: ${readout.join(", ")}`);
+  check(readout[0] === "+50%" && readout[1] === "+50%", `the readout follows the drag, in percent: ${readout.join(", ")}`);
   check((await source()) === original, "and nothing is set until it is let go");
 
   // Where the photo is most colorful, on a grid across its box; and a point on the slide beside it.
@@ -125,7 +126,7 @@ try {
   // Saturation at its least: one `choose`, written on the photo, and the color is gone.
   await slide("#look-adjust-saturation", -1);
   check(/\bsaturation:\s*-1\b/.test(declared(await source(), "adj-plain")), `written on the photo: ${declared(await source(), "adj-plain")}`);
-  check((await status()).length > 0, `the status says what changed: ${await status()}`);
+  check((await status()).includes("Saturation: −100%"), `the status says what changed as the slider reads it: ${await status()}`);
   await page.waitForTimeout(300);
   const [gray, besideAfter] = await pixels([spot, beside]);
   check(color(gray) <= 6, `where it was most colorful it is gray: ${before[most]} → ${gray}`);

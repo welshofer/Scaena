@@ -11,7 +11,7 @@ use crate::ids::is_valid_id;
 use crate::lint::{Finding, Severity};
 use crate::model::check::{Checker, Kind, Violation};
 use crate::model::theme::{Grid, Vocabulary};
-use crate::model::values::{Annotation, Duration, Easing, Range};
+use crate::model::values::{Annotation, Duration, Easing, Range, SplitUnit};
 use crate::model::{Format, Theme};
 use crate::tracking::{Snapshot, resolve_states};
 use crate::transform;
@@ -1884,8 +1884,10 @@ fn shader_presets(deck: &Deck, snapshots: &[Snapshot], theme: &LoadedTheme) -> V
 
 /// E106: a choreography item that names no motion, or more than one, or splits a target
 /// into what its type does not have: lines, words, and glyphs are text's, children a
-/// container's, marks a chart's (SPEC §3.9). An item's split is its own, else its preset
-/// call's, else its theme preset's.
+/// container's, marks a chart's (SPEC §3.9, [`SplitUnit::splits`]). An item's split is its own,
+/// else its preset call's, else its theme preset's. So for a node's own `enter`, `exit`, and
+/// `emphasis`, as its own props and each state's delta write them ([`SplitUnit::owned`]): a
+/// chart's own entrance and exit move its marks.
 fn cues(deck: &Deck, theme: Option<&LoadedTheme>) -> Vec<Finding> {
     let mut out = Vec::new();
     for (i, state) in deck.states.iter().enumerate() {
@@ -1893,7 +1895,69 @@ fn cues(deck: &Deck, theme: Option<&LoadedTheme>) -> Vec<Finding> {
             cue(deck, theme, item, &format!("/states/{i}/choreography/{j}"), &state.id, &mut out);
         }
     }
+    let Some(theme) = theme else { return out };
+    for (id, node) in &deck.nodes {
+        own_cues(theme, id, node.node_type, &node.props, &format!("/nodes/{}", esc(id)), None, &mut out);
+    }
+    for (i, state) in deck.states.iter().enumerate() {
+        for (id, delta) in &state.props {
+            let Some(node) = deck.nodes.get(id) else { continue };
+            let at = format!("/states/{i}/props/{}", esc(id));
+            own_cues(theme, id, node.node_type, delta, &at, Some(&state.id), &mut out);
+        }
+    }
     out
+}
+
+/// The split each of a node's own motions in `props` asks of it, which it must have (E106): its
+/// preset call's, else its theme preset's.
+fn own_cues(
+    theme: &LoadedTheme,
+    id: &str,
+    node_type: NodeType,
+    props: &Props,
+    at: &str,
+    state: Option<&str>,
+    out: &mut Vec<Finding>,
+) {
+    for key in ["enter", "exit", "emphasis"] {
+        let Some(call) = props.get(key) else { continue };
+        let named = call.as_str().or_else(|| call.get("preset").and_then(Value::as_str));
+        let preset = named.and_then(|n| theme.theme.motion.presets.get(n));
+        let (split, path) = match call.get("split") {
+            Some(split) => (serde_json::from_value(split.clone()).ok(), format!("{at}/{key}/split")),
+            None => (preset.and_then(|p| p.split), format!("{at}/{key}")),
+        };
+        let Some(split): Option<SplitUnit> = split else { continue };
+        let emphasis = key == "emphasis";
+        if split.owned(node_type, emphasis) {
+            continue;
+        }
+        let kind = type_name(node_type);
+        let takes = match split {
+            SplitUnit::Marks if node_type == NodeType::Chart => {
+                "a chart's marks enter and leave one by one, but are emphasized whole"
+            }
+            _ => takes(split),
+        };
+        let name = named.map_or_else(|| key.to_string(), |n| format!("`{n}`"));
+        let unit = serde_json::to_value(split).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
+        let message = format!("`{id}`'s {key} {name} splits it, {} node, into {unit}: {takes}", article(&kind));
+        let mut finding = Finding::new("E106", Severity::Error, message).at(path).node(id.to_string());
+        if let Some(state) = state {
+            finding = finding.state(state.to_string());
+        }
+        out.push(finding);
+    }
+}
+
+/// What splits into `split`, said where a node does not (E106).
+fn takes(split: SplitUnit) -> &'static str {
+    match split {
+        SplitUnit::Lines | SplitUnit::Words | SplitUnit::Glyphs => "only text splits into lines, words, and glyphs",
+        SplitUnit::Children => "only a stack, grid, frame, or group splits into its children",
+        SplitUnit::Marks => "only a chart splits into its marks",
+    }
 }
 
 fn cue(deck: &Deck, theme: Option<&LoadedTheme>, item: &Value, at: &str, state: &str, out: &mut Vec<Finding>) {
@@ -1929,19 +1993,12 @@ fn cue(deck: &Deck, theme: Option<&LoadedTheme>, item: &Value, at: &str, state: 
             None => return,
         },
     };
-    let (fits, takes): (fn(NodeType) -> bool, &str) = match split.as_str() {
-        "lines" | "words" | "glyphs" => (|t| t == NodeType::Text, "only text splits into lines, words, and glyphs"),
-        "children" => (
-            |t| matches!(t, NodeType::Stack | NodeType::Grid | NodeType::Frame | NodeType::Group),
-            "only a stack, grid, frame, or group splits into its children",
-        ),
-        "marks" => (|t| t == NodeType::Chart, "only a chart splits into its marks"),
-        _ => return,
-    };
+    let Ok(unit) = serde_json::from_value::<SplitUnit>(Value::String(split.clone())) else { return };
     for target in choreo_targets(item) {
         let Some(node) = deck.nodes.get(&target) else { continue };
-        if !fits(node.node_type) {
+        if !unit.splits(node.node_type) {
             let kind = type_name(node.node_type);
+            let takes = takes(unit);
             let message =
                 format!("choreography in `{state}` splits `{target}`, {} node, into {split}: {takes}", article(&kind));
             out.push(

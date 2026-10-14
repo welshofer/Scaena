@@ -276,6 +276,15 @@ pub enum Edited {
     Inline(Vec<Value>),
 }
 
+/// The type of `column` of source `name` where `value`, as typed, does not read as it: what an
+/// editor words a refused value by (PLAN 2.99). None where it reads, or where the source has no
+/// such column.
+pub fn unfit(deck: &Deck, files: &dyn SourceFiles, name: &str, column: &str, value: &str) -> Option<ColumnType> {
+    let raw = raw(deck, files, name).ok()?;
+    let kind = raw.types[raw.columns.iter().position(|c| c == column)?];
+    Reader::new(deck, name).read(column, kind, Value::String(value.to_string())).is_err().then_some(kind)
+}
+
 /// Source `name` with `edit` made: the file it writes, or the patch of rows written inline; why
 /// not, where a row or a column is not the source's, or a value does not fit its column. A cell
 /// that does not read elsewhere in the source is no reason not to: an edit may be what fixes it.

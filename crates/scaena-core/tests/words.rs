@@ -8,6 +8,8 @@ use std::collections::BTreeSet;
 
 const WORDS_SWIFT: &str = include_str!("../../../apps/mac/ScaenaKit/Sources/Scaena/Words.swift");
 const ISSUES_SWIFT: &str = include_str!("../../../apps/mac/ScaenaKit/Sources/Scaena/IssueBadges.swift");
+const CUE_SWIFT: &str = include_str!("../../../apps/mac/ScaenaKit/Sources/Scaena/CueBar.swift");
+const INSPECTOR_SWIFT: &str = include_str!("../../../apps/mac/ScaenaKit/Sources/Scaena/Inspector.swift");
 
 /// The Swift source between `from` and the first `until` after it.
 fn between<'a>(source: &'a str, from: &str, until: &str) -> &'a str {
@@ -70,6 +72,28 @@ fn the_mac_names_colors_easings_presets_shapes_and_kinds_as_the_browser_does() {
     }
 }
 
+/// The Mac's Add Motion names each build as the browser's menu does (PLAN 2.112, 3.18): by its name,
+/// `Move In from Left`, under its object's words, never by the theme's key or the node's id.
+#[test]
+fn the_mac_names_each_build_it_offers_as_the_browser_does() {
+    let adding = between(CUE_SWIFT, "private var adding: some View", ".menuStyle(");
+    assert!(adding.contains(r#"Button(Words.name(preset, of: "motion-preset", theme: nil))"#), "{adding}");
+    assert!(!adding.contains("Button(preset)") && !adding.contains("offer.label"), "{adding}");
+    let add = between(CUE_SWIFT, "private func add(_ preset: String", "\n    }\n");
+    assert!(add.contains(r#"Words.name(preset, of: "motion-preset", theme: nil)"#) && !add.contains("phrase"), "{add}");
+}
+
+/// A build the inspector keeps but no longer offers for its kind reads as its name, as the browser
+/// says it (PLAN 2.116): Pulse, not Custom, which is for a value written out.
+#[test]
+fn the_mac_says_a_build_it_keeps_by_its_name() {
+    let pick = between(INSPECTOR_SWIFT, "private struct PickRow", "\n}\n");
+    assert!(pick.contains("Text(Self.kept(value, said: said)).tag(current)"), "{pick}");
+    assert!(!pick.contains(r#"Text("Custom").tag(current)"#), "{pick}");
+    let named = between(INSPECTOR_SWIFT, "case .name(let of, let names, _):", "case .word(");
+    assert!(named.contains("said: { Words.name($0, of: of, theme: look) }"), "{named}");
+}
+
 #[test]
 fn the_mac_says_each_issue_and_its_fix_as_the_browser_does() {
     let said = Regex::new(r#"case ((?:"[EWI]\d+"(?:, )?)+): "([^"]+)""#).unwrap();
@@ -106,4 +130,24 @@ fn every_lint_code_is_said_in_a_sentence() {
     let set: BTreeSet<&str> = all.iter().copied().collect();
     assert_eq!(all.len(), set.len(), "a code said twice");
     assert_eq!(set.len(), codes.len(), "a code said that the catalog has not: {set:?}");
+}
+
+/// A change the history keeps reads as what was done and who did it (PLAN 2.99), in the words
+/// every editor's Versions lists it in: no operation's name, and no author's id.
+#[test]
+fn a_change_of_the_history_is_said_as_a_person_says_it() {
+    assert_eq!(words::change("patch: add_node, place, place"), "An object added, an object moved");
+    assert_eq!(words::change("patch: a_new_op"), "An edit");
+    assert_eq!(words::change(""), "A change");
+    assert_eq!(words::change("history begins"), "The history begins");
+    assert_eq!(words::change("data_edit sales: 2 cells"), "The data “sales” changed");
+    assert_eq!(words::change("theme --apply themes/daybreak.theme.json"), "The theme Daybreak taken");
+    assert_eq!(words::change("theme_edit: colors from assets/photo.jpg"), "The theme given the colors of photo.jpg");
+    assert_eq!(words::change("undo patch: replace_text"), "Undone: words typed");
+    assert_eq!(words::change("deck.json changed outside Scaena"), "Changed outside Scaena");
+    assert_eq!(words::author("user"), "you");
+    assert_eq!(words::author("fs"), "outside Scaena");
+    assert_eq!(words::author("agent:claude-sonnet"), "the assistant (claude-sonnet)");
+    assert_eq!(words::author("agent:"), "the assistant");
+    assert_eq!(words::author("jay"), "jay");
 }

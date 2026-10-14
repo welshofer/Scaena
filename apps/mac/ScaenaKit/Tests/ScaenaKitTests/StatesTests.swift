@@ -136,6 +136,12 @@ private func playing(_ editor: DeckEditor) -> [String] {
     #expect(exits.first?.applying("fade", in: "cover", states: b1States) == nil, "no state before the first")
     try b1Editor.make(exit)
     #expect(try b1Editor.session.cue(state: "goal").bars.map(\.id) == ["transition", "title exit"])
+
+    // A push into the goal moves the cover whole (SPEC §3.9): its exits play none, and none is offered.
+    let push: JSONValue = ["op": "set_state", "id": "goal", "prop": "transition/style", "value": "push"]
+    try b1Editor.make([push])
+    #expect(try b1Editor.session.cue(state: "goal").bars.map(\.id) == ["transition"])
+    #expect(try b1Editor.session.motionOffers(state: "goal", node: nil).isEmpty, "no exit under a slide transition")
 }
 
 /// The canvas and the cue select together, as the browser's: the bars of what the canvas selects

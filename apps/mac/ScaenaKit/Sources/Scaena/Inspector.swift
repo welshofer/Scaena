@@ -35,6 +35,8 @@ struct Inspector: View {
     @State private var look: ThemeLook?
     /// Each node's words, as a reader hears them: what names it.
     @State private var words: [String: String] = [:]
+    /// Each node's kind, as the engine names it: a shape of the library by its shape (PLAN 2.106).
+    @State private var kinds: [String: String] = [:]
     /// The box the node selected is placed by, canvas units, where a position typed can move it.
     @State private var placed: CGRect?
     @State private var showsObjects = false
@@ -86,8 +88,11 @@ struct Inspector: View {
                 }
             }
             // A picture is described by the assistant's model alone, which is shown it (PLAN 2.119).
+            // Writing is offered for a text, a picture, or the slide, as the browser offers it: a
+            // shape, a chart, a table, or a group has no words to write.
             let picture = choices?.type == "image"
-            if picture ? Writer.describes : Writer.available, tab == .format, characters == nil, also.isEmpty {
+            let writes = (choices?.writes ?? true) && (picture ? Writer.describes : Writer.available)
+            if writes, tab == .format, characters == nil, also.isEmpty {
                 Section {
                     if let node = choices?.node {
                         if choices?.type == "text" {
@@ -229,7 +234,7 @@ struct Inspector: View {
                     let said = { (name: String) in Option(tag: name, title: Words.name(name, of: of, theme: look)) }
                     PickRow(
                         label: label, value: field.value, options: names.map(said), shows: field.theme?.string.map(said),
-                        choose: choose)
+                        said: { Words.name($0, of: of, theme: look) }, choose: choose)
                 case .word(let words):
                     let said = { (word: String) in
                         Option(tag: word, title: Words.word(word, of: field.prop, type: choices?.type))
@@ -304,7 +309,8 @@ struct Inspector: View {
             DisclosureGroup("Objects on This Slide", isExpanded: $showsObjects) {
                 ForEach(rows, id: \.layer.node) { row in
                     ObjectRow(
-                        layer: row.layer, name: Words.node(row.layer.type, words: words[row.layer.node]),
+                        layer: row.layer,
+                        name: Words.node(row.layer.type, words: words[row.layer.node], kind: kinds[row.layer.node]),
                         depth: row.depth, selected: row.layer.node == node, lock: { lock(row.layer) }
                     ) {
                         node = row.layer.node
@@ -466,6 +472,7 @@ struct Inspector: View {
         for part in (try? session.reads(state: state)) ?? [] where !part.text.isEmpty {
             words[part.node] = part.text
         }
+        kinds = (try? session.kinds(state: state)) ?? [:]
         placed = nil
         if !also.isEmpty {
             shared = Field.shared(selected.compactMap { try? session.choices(state: state, node: $0) })
@@ -511,9 +518,7 @@ struct Inspector: View {
     /// `kind` written for `node`, a text, or for `state`'s notes (PLAN 2.101): on the device, or by the
     /// assistant's model with the user's key, offered to take as one patch or to leave.
     private func write(_ kind: WritingKind, node: String? = nil, in state: String) {
-        if let asked = Writer.asking(WritingAsk(kind: kind, state: state, node: node), of: editor.session) {
-            offer(asked)
-        }
+        offer(Writer.asking(WritingAsk(kind: kind, state: state, node: node), of: editor.session))
     }
 
     /// Where a field's value lives, which is where a choice is written, as a person says it.
@@ -598,8 +603,11 @@ private struct Option: Identifiable {
 }
 
 /// One of the theme's names, or one of the words a property takes; Default takes the value away,
-/// and a value written out shows as Custom. Where the theme gives a value (`shows`), Default is
-/// called by it, the Fraunces a headline is set in, say, and is not offered again beside it.
+/// and a value written out shows as Custom. A name it keeps but no longer offers is said as the
+/// options are (`said`): a build an older deck gave a node, which its kind no longer offers there
+/// (PLAN 2.116), by its name, as the browser says it. Where the theme gives a value (`shows`),
+/// Default is called by it, the Fraunces a headline is set in, say, and is not offered again
+/// beside it.
 private struct PickRow: View {
     let label: String
     let value: JSONValue?
@@ -607,6 +615,8 @@ private struct PickRow: View {
     var segmented = false
     /// What the slide shows where nothing sets it: the theme's, by its name.
     var shows: Option? = nil
+    /// How a name is said, as the options are.
+    var said: ((String) -> String)? = nil
     let choose: (JSONValue) -> Void
 
     var body: some View {
@@ -614,7 +624,7 @@ private struct PickRow: View {
         let picker = Picker(label, selection: Binding(get: { current }, set: { picked in pick(picked, over: current) })) {
             Text(shows?.title ?? "Default").tag("")
             if !current.isEmpty, !options.contains(where: { $0.tag == current }) {
-                Text("Custom").tag(current)
+                Text(Self.kept(value, said: said)).tag(current)
             }
             ForEach(options.filter { $0.tag != shows?.tag || $0.tag == current }) { option in
                 Text(option.title).tag(option.tag)
@@ -635,6 +645,13 @@ private struct PickRow: View {
     private func pick(_ picked: String, over current: String) {
         guard picked != current else { return }
         choose(picked.isEmpty ? .null : .string(picked))
+    }
+
+    /// What a value it keeps but does not offer is called: a name, said as `said` says the
+    /// options; else Custom, a value written out.
+    static func kept(_ value: JSONValue?, said: ((String) -> String)?) -> String {
+        guard let name = value?.string, let said else { return "Custom" }
+        return said(name)
     }
 }
 
@@ -820,8 +837,8 @@ private struct OpacityRow: View {
 
 /// Where a text's lines stand across its box (PLAN 3.25), as a presentation app's alignment
 /// buttons: left, centered, or right, the way in effect picked, as a presentation app always shows
-/// one. Where the text sets none, the slot's shows, as the theme gives it, else its lines start at
-/// the left, as the engine sets them.
+/// one. Where the text sets none, the slot's shows, as the theme gives it (a shape's words stand
+/// centered, PLAN 2.108), else its lines start at the left, as the engine sets them.
 private struct AlignmentRow: View {
     let value: String?
     /// The way the slide sets its lines where the text sets none: the slot's.

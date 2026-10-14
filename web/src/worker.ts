@@ -68,9 +68,11 @@ import type {
   Themes,
   ToHelper,
   ToWorker,
+  Version,
   Waiting,
   Worded,
   Connected,
+  Duplicated,
   Diagrammed,
   Where,
   Writing,
@@ -369,9 +371,13 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         current(data.source);
         layOut(data.format);
         return post({ type: "adding", id: data.id, added: JSON.parse(player.duplicating(data.state, data.node)) as Added });
+      case "duplicatingAll":
+        current(data.source);
+        layOut(data.format);
+        return post({ type: "duplicated", id: data.id, duplicated: JSON.parse(player.duplicatingAll(data.state, data.nodes)) as Duplicated });
       case "wording":
         current(data.source);
-        return post({ type: "worded", id: data.id, worded: JSON.parse(player.wording(data.shape)) as Worded });
+        return post({ type: "worded", id: data.id, worded: JSON.parse(player.wording(data.state, data.shape)) as Worded });
       case "connecting":
         current(data.source);
         return post({
@@ -429,7 +435,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return post({ type: "filling", id: data.id, filled: JSON.parse(player.filling(data.state, data.slot)) as { id: string; patch: unknown[] } });
       case "deleting":
         current(data.source);
-        return post({ type: "deleting", id: data.id, patch: JSON.parse(player.deleting(data.state, data.node, data.everywhere)) as unknown[] });
+        return post({ type: "deleting", id: data.id, patch: JSON.parse(player.deleting(data.state, data.nodes, data.everywhere)) as unknown[] });
       case "carets": {
         // The source as it stands, where the deck shown is not yet the one it compiles to: an
         // undo, or the source changed under the text.
@@ -558,7 +564,9 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         if (!module) return post({ type: "versions", id: data.id, versions: null });
         const changes = JSON.parse(module.changes(player.file(HISTORY)!)) as Change[];
         const at = (s: number) => (s > 0 ? new Date(s * 1000).toISOString() : null);
-        const versions = changes.map((c, i) => ({ n: i + 1, id: c.id, author: c.author, message: c.message, at: at(c.timestamp), ops: c.ops }));
+        const listed = changes.map((c, i) => ({ n: i + 1, id: c.id, author: c.author, message: c.message, at: at(c.timestamp), ops: c.ops }));
+        // Each change in a person's words, as the engine says them on every platform (PLAN 2.99).
+        const versions = JSON.parse(Player.versionsSaid(JSON.stringify(listed))) as Version[];
         return post({ type: "versions", id: data.id, versions });
       }
       case "version": {
@@ -683,6 +691,7 @@ function patterns(code: string): Uint8Array | undefined {
 }
 
 interface DeckFiles {
+  meta?: { title?: string };
   theme: string;
   fonts?: { file: string }[];
   data?: Record<string, { source?: unknown }>;
@@ -746,6 +755,7 @@ function opened(): Opened {
   const noted = notes(deck);
   return {
     name,
+    title: deck.meta?.title || undefined,
     where: home?.where,
     states: slots.map((slot) => slot.state),
     formats: player.formats(),
@@ -1322,6 +1332,7 @@ async function edit(source: string, index: number, at: string | undefined): Prom
     whole: linted?.whole ?? true,
     slots,
     formats: player.formats(),
+    own: (JSON.parse(player.sizes()) as { own: string | null }).own ?? undefined,
     at: where,
     ms: { compile: compiledAt - start, paint: paintedAt - compiledAt, lint: lintedAt - paintedAt },
   };

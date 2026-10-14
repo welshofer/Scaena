@@ -317,7 +317,9 @@ fn a_picture_asked_for_in_an_editor_is_painted_and_handed_back() {
     step(g, "painted", json!({ "status": 400, "statusText": "Bad Request" }), refused);
     step(g, "round", json!({}), &[]);
     let none = answered(g, "pictureMade", &json!({}), &[]);
-    assert!(none["error"]["message"].as_str().unwrap().contains("safety system"), "{none}");
+    let why = none["error"]["message"].as_str().unwrap();
+    assert!(why.contains("safety system"), "{none}");
+    assert!(!why.starts_with("slide"), "a picture asked for in an editor is for no slide of a made deck: {why}");
     // A picture of nothing is not asked for.
     let blank = answered(g, "picture", &picture("  "), &[]);
     assert!(blank["error"]["message"].as_str().unwrap().contains("say what the picture shows"), "{blank}");
