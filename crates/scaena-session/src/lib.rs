@@ -3689,6 +3689,15 @@ mod tests {
         let topmost = s.hit(&state, [note[0] + 10.0, note[1] + note[3] / 2.0]).unwrap();
         assert!(topmost.first().is_some_and(|h| h.node.ends_with("-note")), "{topmost:?}");
         assert!(found(&mut s, &state, &["E101"]).is_empty());
+
+        // A background effect inserted after it goes under what is there, the picture with it,
+        // which it would otherwise cover.
+        let backdrop = s.inserts().iter().position(|i| i.node["type"] == "shader").unwrap();
+        let effect = s.inserting(&state, backdrop, [960.0, 300.0], None).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": effect.patch }), by).unwrap();
+        let drawn: Vec<String> = s.hit(&state, [960.0, 300.0]).unwrap().into_iter().map(|h| h.node).collect();
+        let at = |id: &str| drawn.iter().position(|n| n == id);
+        assert!(at(&added.id).is_some_and(|p| Some(p) < at(&effect.id)), "the picture over the background: {drawn:?}");
     }
 
     /// A picture inserted keeps its own proportions (PLAN 2.34): a 3:2 photo lands on cells of the

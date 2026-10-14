@@ -32,11 +32,27 @@ fn table(rust: &[(&str, &str)]) -> BTreeSet<(String, String)> {
 fn the_mac_labels_each_property_as_the_browser_does() {
     let swift = dictionary(between(WORDS_SWIFT, "private static let labels", "]\n"));
     assert_eq!(swift, table(words::LABELS));
-    // A donut's channels, as its kind reads them: Slices and Values.
-    let donut = dictionary(between(WORDS_SWIFT, "private static let donut", "]\n"));
-    let rust: Vec<(&str, &str)> =
-        words::CHANNELS.iter().filter(|(kind, ..)| *kind == "donut").map(|(_, prop, said)| (*prop, *said)).collect();
-    assert_eq!(donut, table(&rust));
+    // A chart's channels as its kind reads them: a donut's Slices and Values, and those of bars
+    // that run across, Down the Side and Across (PLAN 1.29), which the inspector asks for where the
+    // chart's bars run across.
+    let channels = |kind: &str| -> BTreeSet<(String, String)> {
+        let rust: Vec<(&str, &str)> =
+            words::CHANNELS.iter().filter(|(k, ..)| *k == kind).map(|(_, prop, said)| (*prop, *said)).collect();
+        table(&rust)
+    };
+    assert_eq!(dictionary(between(WORDS_SWIFT, "private static let donut", "]\n")), channels("donut"));
+    assert_eq!(dictionary(between(WORDS_SWIFT, "private static let across", "]\n")), channels("across"));
+    let row = between(INSPECTOR_SWIFT, "@ViewBuilder private func row(", "\n        Group {");
+    assert!(row.contains("Words.label(field.prop, chart: chartKind, horizontal: barsAcross)"), "{row}");
+}
+
+/// The Mac's inspector heads a node as the browser's does (PLAN 2.99): by its kind as the engine
+/// says it, a Star, a Card, a Drawing (`noun`), not by its type alone.
+#[test]
+fn the_mac_heads_a_node_by_its_kind_as_the_browser_does() {
+    let title = between(INSPECTOR_SWIFT, "private func title(", "case .adjust:");
+    assert!(title.contains("node ? (noun ?? Words.kind(type)) : \"Slide\""), "{title}");
+    assert!(INSPECTOR_SWIFT.contains("title(part, type: type, noun: choices.noun, node: isNode)"));
 }
 
 #[test]
@@ -58,6 +74,8 @@ fn the_mac_names_colors_easings_presets_shapes_and_kinds_as_the_browser_does() {
     assert_eq!(dictionary(between(WORDS_SWIFT, "private static let colors", "]\n")), table(words::COLORS));
     assert_eq!(dictionary(between(WORDS_SWIFT, "private static let easings", "]\n")), table(words::EASINGS));
     assert_eq!(dictionary(between(WORDS_SWIFT, "private static let presets", "]\n")), table(words::PRESETS));
+    // Build Out's names, each build as it leaves (PLAN 2.116).
+    assert_eq!(dictionary(between(WORDS_SWIFT, "private static let exits", "]\n")), table(words::EXITS));
     assert_eq!(dictionary(between(WORDS_SWIFT, "private static let shapes", "]\n")), table(words::SHAPES));
     let kinds = Regex::new(r#"case "([a-z]+)": "([^"]+)""#).unwrap();
     let source = between(WORDS_SWIFT, "static func kind(", "default:");
@@ -78,14 +96,19 @@ fn the_mac_names_colors_easings_presets_shapes_and_kinds_as_the_browser_does() {
 }
 
 /// The Mac's Add Motion names each build as the browser's menu does (PLAN 2.112, 3.18): by its name,
-/// `Move In from Left`, under its object's words, never by the theme's key or the node's id.
+/// `Move In from Left`, and as its object leaves by Build Out's, `Move Out to Left` (PLAN 2.116),
+/// under its object's words, never by the theme's key or the node's id.
 #[test]
 fn the_mac_names_each_build_it_offers_as_the_browser_does() {
     let adding = between(CUE_SWIFT, "private var adding: some View", ".menuStyle(");
-    assert!(adding.contains(r#"Button(Words.name(preset, of: "motion-preset", theme: nil))"#), "{adding}");
+    assert!(adding.contains("Button(Words.build(preset, as: offer.motion))"), "{adding}");
     assert!(!adding.contains("Button(preset)") && !adding.contains("offer.label"), "{adding}");
     let add = between(CUE_SWIFT, "private func add(_ preset: String", "\n    }\n");
-    assert!(add.contains(r#"Words.name(preset, of: "motion-preset", theme: nil)"#) && !add.contains("phrase"), "{add}");
+    assert!(add.contains("Words.build(preset, as: offer.motion)") && !add.contains("phrase"), "{add}");
+    // A build is said by Build Out's name where its object leaves, else by its own.
+    let build = between(WORDS_SWIFT, "static func build(", "\n    }\n");
+    assert!(build.contains(r#"if motion == "exit", let said = exits[preset] { return said }"#), "{build}");
+    assert!(build.contains(r#"return name(preset, of: "motion-preset", theme: nil)"#), "{build}");
 }
 
 /// A build the inspector keeps but no longer offers for its kind reads as its name, as the browser
@@ -95,8 +118,17 @@ fn the_mac_says_a_build_it_keeps_by_its_name() {
     let pick = between(INSPECTOR_SWIFT, "private struct PickRow", "\n}\n");
     assert!(pick.contains("Text(Self.kept(value, said: said)).tag(current)"), "{pick}");
     assert!(!pick.contains(r#"Text("Custom").tag(current)"#), "{pick}");
-    let named = between(INSPECTOR_SWIFT, "case .name(let of, let names, _):", "case .word(");
-    assert!(named.contains("said: { Words.name($0, of: of, theme: look) }"), "{named}");
+    // Build Out's pick says each build as its object leaves (PLAN 2.116), as the browser's does:
+    // with one object selected, and with several (PLAN 3.13).
+    let several = between(INSPECTOR_SWIFT, "private func several(", "\n    }\n");
+    for picks in [INSPECTOR_SWIFT, several] {
+        let named = between(picks, "case .name(let of, let names, _):", "case .word(");
+        assert!(
+            named.contains("? Words.build(name, as: field.prop) : Words.name(name, of: of, theme: look)"),
+            "{named}"
+        );
+        assert!(named.contains("said: say, choose: choose"), "{named}");
+    }
 }
 
 #[test]

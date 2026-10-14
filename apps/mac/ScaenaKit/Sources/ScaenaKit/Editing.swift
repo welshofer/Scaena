@@ -97,8 +97,9 @@ public struct Choices: Decodable, Sendable {
     public let fields: [Field]
     /// The slide's number and footer (ADR-0028): offered with the state's own fields.
     public let furniture: FurnitureChoice?
-    /// The node's kind as a person names it: `Text`, `Chart`, or `Icon` for a filled path on a view,
-    /// which the icon picker replaces (PLAN G.23); a pen's drawing, stroked, is a `Shape`.
+    /// The node's kind as a person names it: `Text`, `Chart`, a shape by its kind (`Rectangle`, a
+    /// `Star`), a container with a panel of its own a `Card`; `Icon` for a filled path on a view,
+    /// which the icon picker replaces (PLAN G.23), and a pen's drawing, stroked, a `Drawing`.
     public let noun: String?
 
     /// Whether the writing tools have words to write for what is offered (PLAN 2.101): a text's, a

@@ -22,7 +22,8 @@
 // - A handle resizes it the same way, by tracks. While it is dragged, the text keeps its old
 //   wrapping; when the pointer pauses, the preview shows it laid out as the patch would make it.
 //   A picture's corner keeps its proportions, where it lands, as a presentation app scales a
-//   picture (`kept`); with Shift, its edges go to the tracks as another node's do.
+//   picture (`kept`), no guide drawing one of its edges alone; with Shift, its edges go to the
+//   tracks as another node's do.
 // - The arrow keys move it a track, or a place along its stack; off the grid, a canvas unit. With
 //   Shift, they resize it the same.
 // - Before a patch is made, the status says which states it changes ("in 3 states"). It changes
@@ -772,9 +773,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   };
   /** Canvas units to a CSS pixel: what handles and lines are sized in. */
   const unit = () => view[2] / Math.max(1, overlay.getBoundingClientRect().width);
+  /** Whether `d` drags a picture's corner in the proportions its box has: without Shift, where
+   * what holds it lets it go off the grid. */
+  const keeps = (d: Drag) => d.keep !== undefined && !d.shift && (d.targets.by === "grid" || d.targets.by === "frame");
   /** How near, canvas units, an edge `d` moves off the grid goes onto another's: a few pixels;
-   * none with ⌘ or Ctrl held. */
-  const reach = (d: Drag) => (d.loose ? 0 : REACH * unit());
+   * none with ⌘ or Ctrl held, nor for a picture's corner, whose edges would go each its own way
+   * out of its proportions. */
+  const reach = (d: Drag) => (d.loose || keeps(d) ? 0 : REACH * unit());
   const inside = ([x, y, w, h]: Rect, [px, py]: [number, number]) => px >= x && px <= x + w && py >= y && py <= y + h;
   /** Whether `p` stands within 12 canvas units of the line through `points`: where a connector is
    * pointed at (PLAN 2.109), as the engine's hit takes it. */
@@ -2117,9 +2122,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const to = d.kind === "move" ? moved(d.targets.cell, held) : resized(d.targets.cell, d.edge!, across(box(d.node)?.transform, by));
     // A picture's corner keeps its proportions, where it lands (a `rect`), as a presentation app
     // scales a picture; Shift frees it to the grid's tracks.
-    const free = d.targets.by === "grid" || d.targets.by === "frame";
-    if (d.keep !== undefined && !d.shift && free && how !== undefined) {
-      return { how: "free", to: kept(d.targets.cell, to, d.edge!, d.keep), by, held };
+    if (keeps(d) && how !== undefined) {
+      return { how: "free", to: kept(d.targets.cell, to, d.edge!, d.keep!), by, held };
     }
     return { how, to, by, held };
   }

@@ -190,6 +190,9 @@ struct CanvasSelection: View {
         /// The handle a resize holds: none for a move.
         let edge: Edge?
         let revision: Int
+        /// A picture's width over its height, which a drag of its corner keeps, as a presentation
+        /// app scales a picture; Shift frees it.
+        var keep: Double?
         var by = CGVector.zero
         var how: SnapMode?
         var fork = false
@@ -1536,10 +1539,15 @@ struct CanvasSelection: View {
         do {
             let targets = try editor.session.targets(state: state, node: held.node)
             editor.still()
-            press = .dragging(
-                Drag(
-                    node: held.node, together: [held.node], targets: targets, at: placements[held.node], edge: held.edge,
-                    revision: editor.revision))
+            var drag = Drag(
+                node: held.node, together: [held.node], targets: targets, at: placements[held.node], edge: held.edge,
+                revision: editor.revision)
+            // A picture's corner keeps the proportions its box has (`imaged`: the image selected).
+            let corner = held.edge.map { ($0.east || $0.west) && ($0.north || $0.south) } ?? false
+            if corner, imaged?.node == held.node, targets.cell.width > 0, targets.cell.height > 0 {
+                drag.keep = Double(targets.cell.width / targets.cell.height)
+            }
+            press = .dragging(drag)
         } catch {
             press = .refused("\(held.node) cannot be moved: \(error)")
         }
@@ -1577,14 +1585,21 @@ struct CanvasSelection: View {
         d.by = CGVector(dx: value.translation.width / scale, dy: value.translation.height / scale)
         d.fork = Held.option
         d.how = d.targets.dragged(at: d.at, resize: d.edge != nil, shift: Held.shift)
+        // A picture's corner keeps its proportions, where it lands, as a presentation app scales a
+        // picture: no magnet draws one of its edges alone. Shift frees it to the grid's tracks.
+        let keeps = d.keep != nil && !Held.shift && (d.targets.by == "grid" || d.targets.by == "frame")
         // ⌘ holds the magnets off (PLAN 3.19).
-        let reach = Held.command ? 0 : Self.reach / max(scale, 0.01)
+        let reach = Held.command || keeps ? 0 : Self.reach / max(scale, 0.01)
         // As what holds it lays it out, through whatever turns or scales that; a resize along the
         // node's own sides (PLAN 2.51).
         let held = across(transform(of: parent(of: d.node)), d.by)
-        let to =
+        var to =
             d.edge.map { resized(d.targets.cell, $0, across(transform(of: d.node), d.by)) }
             ?? d.targets.cell.offsetBy(dx: held.dx, dy: held.dy)
+        if keeps, let edge = d.edge, let keep = d.keep {
+            to = d.targets.kept(to, west: edge.west, north: edge.north, keep: keep)
+            d.how = .free
+        }
         if d.edge == nil { editor.move(d.together, by: d.by) }
         if d.together.count > 1 {
             // Moved together: the first snapped as it would be alone, the rest as far as it went.
@@ -1594,7 +1609,7 @@ struct CanvasSelection: View {
         } else if let how = d.how {
             d.snapped = try? editor.session.snap(
                 state: state, node: d.node, how: how, to: to, fork: d.fork, reach: reach,
-                grid: how == .free && d.targets.by == "grid")
+                grid: how == .free && d.targets.by == "grid" && !keeps)
         } else {
             d.snapped = nil
         }

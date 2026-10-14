@@ -20,7 +20,7 @@
 // - A star from the shape library is a polygon of ten points in the accent, named Star on the menu
 //   and in the layers.
 // - A shader preset fills the canvas under the rest, and the image dropped is inserted in its own
-//   proportions, which a drag of its corner keeps.
+//   proportions, which a drag of its corner keeps, let go beside another's edge too.
 // Exits 1 on any failure.
 import { readFile } from "node:fs/promises";
 import { launch, serve } from "./serve.mjs";
@@ -308,6 +308,49 @@ try {
       `a corner dragged scales it in the proportions it has: ${scaled}`,
     );
     await page.keyboard.press("Control+z");
+    // Let go a few units past another box's edge, within a guide's reach, its corner stays where it
+    // was let go, in its proportions: no guide draws its right edge alone onto that edge, out of them.
+    await page
+      .waitForFunction(
+        ([n, r]) => !window.scaena.canvas.busy() && JSON.stringify(window.scaena.canvas.boxes()?.find((b) => b.node === n)?.rect) === r,
+        [id, JSON.stringify(inserted)],
+        { timeout: 30000 },
+      )
+      .catch(() => {});
+    const [x0, , w0, h0] = inserted;
+    const PAST = 6;
+    const stops = await page.evaluate((n) => {
+      const [cw] = window.scaena.canvas.size();
+      const rects = window.scaena.canvas.boxes().filter((b) => b.node !== n && b.draws).map((b) => b.rect);
+      return [0, cw / 2, cw, ...rects.flatMap(([x, , w]) => [x, x + w / 2, x + w])];
+    }, id);
+    // An edge no other lies near, the nearest a drag of its corner can bring its right edge to,
+    // in or out: the canvas's middle, or another box's edge or middle.
+    const lone = (s) => stops.every((t) => t === s || Math.abs(t - s - PAST) > 16);
+    const right = x0 + w0;
+    const edge = stops
+      .filter((s) => Math.abs(s + PAST - right) > 24 && s + PAST > x0 + 0.3 * w0 && s + PAST < x0 + 1.5 * w0 && lone(s))
+      .sort((a, b) => Math.abs(a - right) - Math.abs(b - right))[0];
+    if (edge === undefined) check(false, `an edge to let the picture's corner go beside: ${stops.join(", ")}`);
+    else {
+      // Across more than down, so its width leads and its height follows.
+      const across = edge + PAST - right;
+      const [at, past] = [await clientOf(corner), await clientOf([corner[0] + across, corner[1] + (across * h0) / w0 / 2])];
+      const was = await source();
+      await page.mouse.move(...at);
+      await page.mouse.down();
+      for (let k = 1; k <= 8; k++) await page.mouse.move(at[0] + ((past[0] - at[0]) * k) / 8, at[1] + ((past[1] - at[1]) * k) / 8);
+      await page.waitForTimeout(400);
+      await page.mouse.up();
+      await page.waitForFunction((s) => window.scaena.source() !== s && !window.scaena.canvas.busy(), was, { timeout: 30000 }).catch(() => {});
+      await page.waitForTimeout(300);
+      const beside = await box(id);
+      check(
+        Boolean(beside) && Math.abs(beside[0] + beside[2] - (edge + PAST)) <= 2.5 && Math.abs(ratio(beside) / ratio(inserted) - 1) <= 0.01,
+        `let go ${PAST} past an edge at ${edge}, it stays there in its proportions: ${beside}`,
+      );
+      await page.keyboard.press("Control+z");
+    }
     await page.locator("#overlay").focus();
     await page.keyboard.press("Delete");
     check(await back(original), "Delete takes it out again");

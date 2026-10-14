@@ -889,11 +889,12 @@ pub struct Crowd {
 /// `Slot::takes`), and under what the layout lays over the slot ([`under`]). Anything else, or
 /// one with no such slot free, takes the box it starts as, about `at`, snapped to the theme's
 /// grid as a drop snaps; a picture keeps its own proportions there, on cells that keep them or
-/// off the grid ([`fitted`]); a shader fills the slot it names. What draws content (a text, an
-/// image, a chart, a table) and would overlap what is `crowded` there goes instead to the
-/// place on the grid clear of it whose middle is nearest `at` ([`roomy`]) (PLAN 2.79). `room`
-/// is the engine's for the new node in `deck` (`Engine::room`), its cell the box `insert`
-/// starts as. What it reads that the deck has not (`sample`) is added to the deck first.
+/// off the grid ([`fitted`]); a shader fills the slot it names, under what is there
+/// ([`beneath`]). What draws content (a text, an image, a chart, a table) and would overlap what
+/// is `crowded` there goes instead to the place on the grid clear of it whose middle is nearest
+/// `at` ([`roomy`]) (PLAN 2.79). `room` is the engine's for the new node in `deck`
+/// (`Engine::room`), its cell the box `insert` starts as. What it reads that the deck has not
+/// (`sample`) is added to the deck first.
 pub fn inserting(
     deck: &Deck,
     theme: &scaena_core::model::theme::Theme,
@@ -954,12 +955,34 @@ pub fn inserting(
         Start::Slot(name) => {
             let slot = room.slots.iter().find(|(n, _)| n == name);
             let (_, rect) = slot.ok_or_else(|| OpsError::new(format!("the state has no slot `{name}`")))?;
+            let own = node.get("z").and_then(Value::as_i64).unwrap_or(0);
+            if let Some(z) = beneath(deck, state, own)? {
+                node["z"] = serde_json::json!(z);
+            }
             room.snap(Snap::Slot, *rect)
         }
     };
     let mut added = added(deck, room, node, state, target)?;
     sampled(deck, insert, &mut added);
     Ok(added)
+}
+
+/// The `z` that lays a background (a shader filling its slot), its own `own`, under every node
+/// `state` shows at the root but another background, a picture laid under a layout's words
+/// ([`under`]) among them: one below the lowest of them, where that one lies at `own` or below.
+/// None where `own` lays it under them already.
+fn beneath(deck: &Deck, state: &str, own: i64) -> Result<Option<i64>, OpsError> {
+    let snaps = scaena_core::resolve_states(deck).context("tracking")?;
+    let snap =
+        snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+    let lowest = (snap.nodes.iter())
+        .filter(|(id, p)| {
+            p.get("at").and_then(|a| a.get("parent")).is_none()
+                && deck.nodes.get(id.as_str()).is_some_and(|n| n.node_type != NodeType::Shader)
+        })
+        .map(|(_, p)| p.get("z").and_then(Value::as_i64).unwrap_or(0))
+        .min();
+    Ok(lowest.filter(|z| *z <= own).map(|z| z - 1))
 }
 
 /// The cells, columns by rows, a picture whose start box is `room`'s cell lands on, keeping its

@@ -26,7 +26,8 @@ extension ScaenaSession {
     public func reads(state: String) throws -> [ReadPart] { try call("reads", ["state": .string(state)]) }
 
     /// What the browser's editor calls each node `state` shows (PLAN 2.99): by its kind as a person
-    /// names it, a shape of the library by its shape (PLAN 2.106), a connector an Arrow or a Line.
+    /// names it, a shape by its kind (a Rectangle, the library's by its shape, a Star, PLAN 2.106), a
+    /// connector an Arrow or a Line, and a container with a panel of its own a Card.
     public func kinds(state: String) throws -> [String: String] {
         try call("words", ["state": .string(state)], as: NodeKinds.self).kinds
     }
