@@ -149,7 +149,7 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - Each choice is one ⌘Z.
 - **See.** The preview on the right shows the state the cursor is in, at rest.
   - **Play** opens the player in a new tab, with the motion, on the deck as last saved. A folder opened from disk has no Play: the player cannot open it. A new deck has none until its first save.
-  - In the player, → and ← step, and F is fullscreen. **Presenter** opens your notes, the next state, and a clock in a second window, and **Edit** goes back to the editor.
+  - In the player, → and ← step, and F is fullscreen. Past the last slide, a black screen says the show has ended, and → again leaves it. **Presenter** opens your notes, the next state, a timer you can pause and reset, and the time of day in a second window, and **Edit** goes back to the editor.
 - **Check.** Each edit lints the state shown, and every state once you stop typing.
   - Findings stand in the gutter at the line they are about, and in the list under the source. F8 goes to the next one.
   - On the preview, a mark at the corner of an object counts the findings about it, red for an error, yellow for a warning. A mark at the top left counts those about the state itself. The strip counts each state's. Click a mark to read its findings and take a fix; "In the source" goes to the line.
@@ -604,7 +604,7 @@ For tables, stats, rows of cards, other chart kinds, and shader backgrounds, see
 
 ## Present and export
 
-- **Present** from the player: → and ← step, F goes fullscreen, and **Presenter** opens the presenter view. B blacks the screen until a key brings the slide back, a slide's number then Return goes there, L is the laser, and ? lists the keys. `?fps` in the player's address shows its frame rate.
+- **Present** from the player: → and ← step, F goes fullscreen, and **Presenter** opens the presenter view, its timer paused and reset by its Pause and Reset, the time of day beside it. B blacks the screen until a key brings the slide back, a slide's number then Return goes there, L is the laser, and ? lists the keys. Past the last slide, a black screen says the show has ended: → or Escape leaves it, out of fullscreen, and ← shows the last slide. `?fps` in the player's address shows its frame rate.
 - **One file that plays anywhere, offline:** `scaena export talk --format html --out talk.html`. It is the player and the deck in one HTML file, for a USB stick or an email.
 - **PDF:** `scaena export talk --format pdf --out talk.pdf`. It draws each slide at its last state, in spine order, with real text a reader can copy.
 - **Images and video:** `--format png` or `--format svg` write each state into a directory. `--format mp4` plays the timeline, cues and holds, at `--fps`, with a chapter per beat.
