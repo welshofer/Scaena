@@ -26,6 +26,8 @@ struct CueBar: View {
     @State private var offers: [MotionOffer] = []
     /// Each motion's object, as a person names it.
     @State private var names: [String: String] = [:]
+    /// Each object Add Motion offers a motion for, as a person names it, where it shows.
+    @State private var offered: [String: Named] = [:]
     /// The bars that stand out, by id.
     @State private var chosen: Set<String> = []
     /// The bar dragged, which part of it, and how far, ms.
@@ -86,18 +88,20 @@ struct CueBar: View {
         .task(id: "\(state)\u{1f}\(editor.revision)\u{1f}\(selection.joined(separator: "\u{1f}"))") {
             let session = editor.session
             offers = (try? session.motionOffers(state: state, node: selection.first)) ?? []
+            offered = Self.naming(offers, in: state, states: editor.slots.map(\.state), session: session)
             let boxes = (try? session.boxes(state: state)) ?? []
             chosen = (try? session.cue(state: state))?.chosen(selection, boxes: boxes) ?? []
         }
     }
 
-    /// Add Motion: the theme's presets, for each motion the cue may add.
+    /// Add Motion: the theme's presets, for each motion the cue may add, each by its name and
+    /// under its object's, as the browser's menu says them (PLAN 3.18).
     private var adding: some View {
         Menu {
             ForEach(offers) { offer in
-                Section(offer.label) {
+                Section("\(offered[offer.node]?.name ?? Words.kind(nil)), \(Self.verb(offer.motion))") {
                     ForEach(offer.presets, id: \.self) { preset in
-                        Button(preset) { add(preset, as: offer) }
+                        Button(Words.name(preset, of: "motion-preset", theme: nil)) { add(preset, as: offer) }
                     }
                 }
             }
@@ -146,6 +150,30 @@ struct CueBar: View {
     /// leaves is named by its words in the state it leaves.
     private static func naming(_ cue: Cue?, in state: String, session: ScaenaSession) -> [String: String] {
         guard let cue, !cue.motions.isEmpty else { return [:] }
+        return objects(cue.motions.map(\.node), in: state, session: session).mapValues(\.name)
+    }
+
+    /// Each object an offer is for, named where it shows: in `state`, or, where it leaves, in the
+    /// state before, as `states` lists them.
+    private static func naming(
+        _ offers: [MotionOffer], in state: String, states: [String], session: ScaenaSession
+    ) -> [String: Named] {
+        var names = objects(offers.filter { $0.motion != "exit" }.map(\.node), in: state, session: session)
+        if let i = states.firstIndex(of: state), i > 0 {
+            let gone = objects(offers.filter { $0.motion == "exit" }.map(\.node), in: states[i - 1], session: session)
+            names.merge(gone) { here, _ in here }
+        }
+        return names
+    }
+
+    /// What a motion does, after its object's name: `as it enters`.
+    private static func verb(_ motion: String) -> String {
+        ["enter": "as it enters", "exit": "as it leaves"][motion] ?? "for emphasis"
+    }
+
+    /// Each of `nodes` named as the layers name it in `state`: its words, else its kind.
+    private static func objects(_ nodes: [String], in state: String, session: ScaenaSession) -> [String: Named] {
+        guard !nodes.isEmpty else { return [:] }
         var words: [String: String] = [:]
         for part in (try? session.reads(state: state)) ?? [] where !part.text.isEmpty {
             words[part.node] = part.text
@@ -158,11 +186,10 @@ struct CueBar: View {
             }
         }
         walk((try? session.layers(state: state)) ?? [])
-        var names: [String: String] = [:]
-        for motion in cue.motions where names[motion.node] == nil {
-            let node = motion.node
+        var names: [String: Named] = [:]
+        for node in nodes where names[node] == nil {
             let text = words[node] ?? (types[node] == "text" ? (try? session.text(state: state, node: node)) ?? nil : nil)
-            names[node] = Words.node(types[node], words: text)
+            names[node] = Named(type: types[node], words: text)
         }
         return names
     }
@@ -200,13 +227,25 @@ struct CueBar: View {
         make(timing.patch, timing.said)
     }
 
-    /// `preset` added as `offer`'s motion.
+    /// `preset` added as `offer`'s motion, said as the browser says it.
     private func add(_ preset: String, as offer: MotionOffer) {
-        let verb = ["enter": "as it enters", "exit": "as it leaves"][offer.motion] ?? "for emphasis"
         guard let patch = offer.applying(preset, in: state, states: editor.slots.map(\.state)) else {
             return make([], "It isn't on the slide before this one")
         }
-        make(patch, "\(Words.phrase(preset)) added \(verb)")
+        let it = offered[offer.node]?.quoted ?? "it"
+        make(patch, "\(Words.name(preset, of: "motion-preset", theme: nil)) added to \(it) \(Self.verb(offer.motion))")
+    }
+}
+
+/// An object as a person names it (PLAN 3.18): its words where it has any, else its kind; and as a
+/// sentence quotes it, its words in quotation marks, else `the` and its kind.
+private struct Named {
+    let name: String
+    let quoted: String
+
+    init(type: String?, words: String?) {
+        name = Words.node(type, words: words)
+        quoted = name == Words.kind(type) ? "the \(name.lowercased())" : "\u{201C}\(name)\u{201D}"
     }
 }
 

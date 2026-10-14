@@ -11,8 +11,8 @@ use crate::lint::literal;
 use crate::model::theme::Theme;
 use crate::model::values::{Annotation, Duration, ListItem};
 use crate::tracking::{
-    Lives, NON_TRACKING_KEYS, Snapshot, keep_looks, layout_lives, lives, merge_props, other_spelling, resolve_states,
-    tracks_from, words_of,
+    Lives, Snapshot, keep_looks, layout_lives, lives, lives_shown, merge_props, other_spelling,
+    resolve_states, tracks_from, words_of,
 };
 use crate::validate::BundleFiles;
 use serde_json::{Map, Value};
@@ -1053,8 +1053,9 @@ fn with_text(run: &Value, text: &str) -> Value {
 /// inspector sets it. A literal where the theme has names (W300's) goes in the deck's
 /// `overrides`, the only place it is legal, as does any value where the overrides set the
 /// property. Else it is written where the value lives: the latest delta that sets it, from
-/// `state` back, else the node's own; or, to `fork` it, in `state`'s own delta. `null` takes
-/// it away where it lives, so what is under it shows.
+/// `state` back, else the node's own; or, to `fork` it, in `state`'s own delta. What never
+/// tracks (`emphasis`) is `state`'s own, or the node's where it enters with it
+/// ([`lives_shown`]). `null` takes it away where it lives, so what is under it shows.
 fn choose(
     d: &Doc,
     node: &str,
@@ -1090,22 +1091,7 @@ fn choose(
         Some((i, shown)) => {
             let (deck, _) = d.snapshots()?;
             let keys: Vec<&str> = key.iter().map(String::as_str).collect();
-            let lives = match fork {
-                true => Lives::State(i),
-                // What belongs to one state alone, a motion's emphasis or keys (§2.2), is the
-                // state's own: written there, it plays in that state's cue, as `apply_preset`
-                // writes it. Only one the node's own props show there, as it enters, is taken
-                // away from them.
-                false if NON_TRACKING_KEYS.contains(&name.as_str()) => {
-                    let delta = deck.states[i].props.get(node).is_some_and(|delta| delta.contains_key(&name));
-                    match value.is_null() && !delta && shown.contains_key(&name) {
-                        true => Lives::Node,
-                        false => Lives::State(i),
-                    }
-                }
-                false => lives(&deck, i, node, &name, &keys),
-            };
-            match lives {
+            match if fork { Lives::State(i) } else { lives_shown(&deck, i, node, Some(&shown), &name, &keys) } {
                 Lives::State(j) => Some(j),
                 Lives::Node => None,
             }
@@ -2402,15 +2388,8 @@ fn locate<'a>(d: &Doc<'a>, i: usize, node: &str, motion: Timed, what: &str) -> R
         };
         return Err(format!("{what} is not there to time{how}"));
     };
-    let lives = match motion {
-        Timed::Enter | Timed::Exit => lives(&deck, j, node, key, &[]),
-        // What never tracks is the state's own, or the node's as it enters.
-        Timed::Emphasis | Timed::Anim => {
-            let delta = deck.states[j].props.get(node).and_then(|p| p.get(key));
-            if delta.is_some() { Lives::State(j) } else { Lives::Node }
-        }
-    };
-    let (path, old) = match lives {
+    // What never tracks is the state's own, or the node's as it enters.
+    let (path, old) = match lives_shown(&deck, j, node, snapshots[j].nodes.get(node), key, &[]) {
         Lives::State(k) => {
             let old = d.states()[k].get("props").and_then(|p| p.get(node)).and_then(Value::as_object);
             (format!("/states/{k}/props/{}", esc(node)), old.ok_or_else(|| format!("{what} is not where it lives"))?)
@@ -2631,6 +2610,32 @@ fn rename_state(d: &Doc, id: &str, to: &str) -> Result<Vec<JsonOp>, String> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// The patch schema takes each key of a transition that `set_state` sets (PLAN 2.111): what an
+    /// agent reads as the op's schema is what the op does.
+    #[test]
+    fn the_patch_schema_takes_each_key_of_a_transition() {
+        fn set_state(v: &Value) -> Option<&Value> {
+            match v {
+                Value::Object(o)
+                    if o.get("properties").and_then(|p| p.get("op")).and_then(|op| op.get("const"))
+                        == Some(&json!("set_state")) =>
+                {
+                    Some(v)
+                }
+                Value::Object(o) => o.values().find_map(set_state),
+                Value::Array(a) => a.iter().find_map(set_state),
+                _ => None,
+            }
+        }
+        let schema = crate::model::patch_schema();
+        let pattern = set_state(&schema).and_then(|op| op["properties"]["prop"]["pattern"].as_str()).unwrap();
+        let takes = regex_lite::Regex::new(pattern).unwrap();
+        for key in TRANSITION {
+            assert!(takes.is_match(&format!("transition/{key}")), "transition/{key} against {pattern}");
+        }
+        assert!(!takes.is_match("transition/speed"), "{pattern}");
+    }
 
     #[test]
     fn choreography_ops_land_where_the_rewrite_does() {

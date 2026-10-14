@@ -232,7 +232,7 @@ struct Inspector: View {
                     let said = { (name: String) in Option(tag: name, title: Words.name(name, of: of, theme: look)) }
                     PickRow(
                         label: label, value: field.value, options: names.map(said), shows: field.theme?.string.map(said),
-                        choose: choose)
+                        said: { Words.name($0, of: of, theme: look) }, choose: choose)
                 case .word(let words):
                     let said = { (word: String) in
                         Option(tag: word, title: Words.word(word, of: field.prop, type: choices?.type))
@@ -599,8 +599,11 @@ private struct Option: Identifiable {
 }
 
 /// One of the theme's names, or one of the words a property takes; Default takes the value away,
-/// and a value written out shows as Custom. Where the theme gives a value (`shows`), Default is
-/// called by it, the Fraunces a headline is set in, say, and is not offered again beside it.
+/// and a value written out shows as Custom. A name it keeps but no longer offers is said as the
+/// options are (`said`): a build an older deck gave a node, which its kind no longer offers there
+/// (PLAN 2.116), by its name, as the browser says it. Where the theme gives a value (`shows`),
+/// Default is called by it, the Fraunces a headline is set in, say, and is not offered again
+/// beside it.
 private struct PickRow: View {
     let label: String
     let value: JSONValue?
@@ -608,6 +611,8 @@ private struct PickRow: View {
     var segmented = false
     /// What the slide shows where nothing sets it: the theme's, by its name.
     var shows: Option? = nil
+    /// How a name is said, as the options are.
+    var said: ((String) -> String)? = nil
     let choose: (JSONValue) -> Void
 
     var body: some View {
@@ -615,7 +620,7 @@ private struct PickRow: View {
         let picker = Picker(label, selection: Binding(get: { current }, set: { picked in pick(picked, over: current) })) {
             Text(shows?.title ?? "Default").tag("")
             if !current.isEmpty, !options.contains(where: { $0.tag == current }) {
-                Text("Custom").tag(current)
+                Text(Self.kept(value, said: said)).tag(current)
             }
             ForEach(options.filter { $0.tag != shows?.tag || $0.tag == current }) { option in
                 Text(option.title).tag(option.tag)
@@ -636,6 +641,13 @@ private struct PickRow: View {
     private func pick(_ picked: String, over current: String) {
         guard picked != current else { return }
         choose(picked.isEmpty ? .null : .string(picked))
+    }
+
+    /// What a value it keeps but does not offer is called: a name, said as `said` says the
+    /// options; else Custom, a value written out.
+    static func kept(_ value: JSONValue?, said: ((String) -> String)?) -> String {
+        guard let name = value?.string, let said else { return "Custom" }
+        return said(name)
     }
 }
 

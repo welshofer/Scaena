@@ -4,7 +4,9 @@
 //   node web/builds.mjs     (after `just web`; from the repository's root)
 //
 // - In `close`, the backdrop selected: the menu offers the shipped builds as a presentation app
-//   names them (Appear, Typewriter, Pop, Drop, Move In from Left, Spin, Flip, Blink, Jiggle).
+//   names them (Appear, Pop, Drop, Move In from Left, Spin, Flip, Blink, Jiggle).
+// - Each build splits a node only into what it has (E106): the backdrop does not type out, nor
+//   grow by its marks, while the note that leaves types out and the chart that leaves takes Grow.
 // - Each kind offers its own (PLAN 2.116): an entrance and an exit the builds that start from a
 //   look, emphasis those that go to one and back. Fade enters and Pulse emphasizes, never the other
 //   way round, and Pop does both.
@@ -60,11 +62,19 @@ try {
     timeout: 30000,
   });
   const offered = await page.evaluate(() => [...document.querySelectorAll("#cue [data-add] option")].map((o) => o.textContent));
-  const wanted = ["Appear", "Typewriter", "Pop", "Fade and Scale", "Drop", "Move In from Left", "Move In from Bottom", "Spin", "Swing", "Flip", "Blink", "Jiggle"];
+  const wanted = ["Appear", "Pop", "Fade and Scale", "Drop", "Move In from Left", "Move In from Bottom", "Spin", "Swing", "Flip", "Blink", "Jiggle"];
   check(
     wanted.every((w) => offered.includes(w)),
     `the menu offers a presentation app's builds, in its words: ${wanted.filter((w) => !offered.includes(w)).join(", ") || "all of them"}`,
   );
+  const values = await page.evaluate(() => [...document.querySelectorAll("#cue [data-add] option")].map((o) => o.value));
+  const offers = (kind, node, preset) => values.includes(JSON.stringify([kind, node, preset]));
+  check(
+    !["typewriter", "words", "grow"].some((p) => offers("enter", "bg", p)),
+    "the backdrop neither types out, nor comes in word by word, nor grows by its marks",
+  );
+  check(offers("exit", "note", "typewriter") && offers("exit", "note", "words"), "the note that leaves types out, as text does");
+  check(offers("exit", "rev", "grow"), "and the chart that leaves takes Grow on its marks");
   const kinds = await page.evaluate(() => {
     const by = { enter: [], emphasis: [], exit: [] };
     for (const o of document.querySelectorAll("#cue [data-add] option")) {

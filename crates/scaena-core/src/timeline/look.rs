@@ -10,7 +10,8 @@ use crate::displaylist::Color;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Curve {
     Ease(CubicBezier),
-    /// A spring, and the seconds it takes to settle: a motion on it lasts that long.
+    /// A spring, and the seconds it runs: its settle time, or, [`Curve::arriving`], until it
+    /// first reaches its end. A motion on it lasts that long.
     Spring(Spring, f64),
 }
 
@@ -18,6 +19,16 @@ impl Curve {
     /// A spring's curve, which lasts its settle time.
     pub fn spring(spring: Spring) -> Curve {
         Curve::Spring(spring, spring.settle_time(0.0))
+    }
+
+    /// This curve stopped where it first reaches its end: a spring that would swing past it and
+    /// back runs until it gets there, and stays. An easing, and a spring that only nears its end
+    /// before it settles, are as they were.
+    pub fn arriving(self) -> Curve {
+        match self {
+            Curve::Spring(s, settle) => Curve::Spring(s, s.arrival().map_or(settle, |t| t.min(settle))),
+            eased => eased,
+        }
     }
 
     /// How long a motion along this curve runs, ms: a spring's settle time, else `eased`.
@@ -315,6 +326,25 @@ mod tests {
         assert!(most > 1.0, "snappy overshoots: {most}");
         let instant = Clock { start: 50.0, duration: 0.0, curve: LINEAR };
         assert_eq!((instant.progress(49.0), instant.progress(50.0)), (0.0, 1.0));
+    }
+
+    #[test]
+    fn an_exit_on_a_spring_that_arrives_stays_gone() {
+        // Bouncy reaches the look it leaves by in about 114 ms; it does not swing past it and back,
+        // so nothing it hid shows again.
+        let bouncy = Curve::spring(Spring { stiffness: 400.0, damping: 18.0, mass: 1.0 }).arriving();
+        let clock = Clock { start: 0.0, duration: bouncy.duration(0.0), curve: bouncy };
+        assert!(clock.duration > 100.0 && clock.duration < 130.0, "{}", clock.duration);
+        let exit = Motion::Exit(Look { opacity: 0.0, scale: [0.5, 0.5], ..Look::REST });
+        let looks: Vec<Option<Look>> = (0..1000).map(|t| exit.look(&clock, f64::from(t))).collect();
+        let gone = looks.iter().position(|l| l.is_none_or(|l| l.opacity == 0.0)).unwrap();
+        assert!(looks[gone..].iter().all(|l| l.is_none_or(|l| l.opacity == 0.0)), "it stays gone from {gone} ms");
+        let scales = looks.iter().flatten().map(|l| l.scale[0]);
+        assert!(scales.clone().all(|s| (0.5..=1.0).contains(&s)), "{:?}", scales.collect::<Vec<_>>());
+        // A spring that only nears its end, and an easing, run as they did.
+        assert_eq!(OUT.arriving(), OUT);
+        let heavy = Curve::spring(Spring { stiffness: 100.0, damping: 40.0, mass: 1.0 });
+        assert_eq!(heavy.arriving(), heavy);
     }
 
     #[test]

@@ -155,40 +155,41 @@ extension ScaenaSession {
     /// What the cue of `state` may add (PLAN 2.44), as the browser's cue offers it: for `node`, the
     /// node selected, as it enters, where it enters there or is a chart, and for emphasis, each
     /// where it has none; and for each node that leaves, as it leaves, where it has no exit. Each
-    /// with the theme's motion presets; none where the theme has none.
+    /// with the theme's motion presets its node's inspector offers (PLAN 2.116), which split it only
+    /// into what it has (E106): what leaves, as the state before shows it. None where there are none.
     public func motionOffers(state: String, node: String?) throws -> [MotionOffer] {
         let inspected: Inspected = try call("inspect", ["state": .string(state)])
         guard let cue = inspected.timeline else { return [] }
         let shown = node.flatMap { inspected.nodes.contains($0) ? $0 : nil }
-        // The presets are the theme's: what any node's inspector offers as it enters, and for
-        // emphasis (PLAN 2.116).
-        let chosen = shown.flatMap { try? choices(state: state, node: $0) }
-        var presets = Self.presets(chosen, "enter")
-        var emphases = Self.presets(chosen, "emphasis")
-        for other in inspected.nodes where presets.isEmpty {
-            let theirs = try? choices(state: state, node: other)
-            (presets, emphases) = (Self.presets(theirs, "enter"), Self.presets(theirs, "emphasis"))
-        }
-        guard !presets.isEmpty else { return [] }
         let has = { (n: String, kind: String) in cue.motions.contains { $0.node == n && $0.motion == kind } }
         var offers: [MotionOffer] = []
         if let shown {
+            let chosen = try? choices(state: state, node: shown)
+            let presets = Self.presets(chosen, "enter")
+            let emphases = Self.presets(chosen, "emphasis")
             let enters = inspected.entered.contains(shown) || chosen?.type == "chart"
-            if enters && !has(shown, "enter") {
+            if enters && !has(shown, "enter") && !presets.isEmpty {
                 offers.append(MotionOffer(node: shown, motion: "enter", presets: presets))
             }
             if !has(shown, "emphasis") && !emphases.isEmpty {
                 offers.append(MotionOffer(node: shown, motion: "emphasis", presets: emphases))
             }
         }
+        let all = (try? states()) ?? []
+        var before: String?
+        if let i = all.firstIndex(of: state), i > 0 { before = all[i - 1] }
         for gone in inspected.exited where !has(gone, "exit") {
-            offers.append(MotionOffer(node: gone, motion: "exit", presets: presets))
+            let theirs = before.flatMap { try? choices(state: $0, node: gone) }
+            let exits = Self.presets(theirs, "exit")
+            if !exits.isEmpty {
+                offers.append(MotionOffer(node: gone, motion: "exit", presets: exits))
+            }
         }
         return offers
     }
 
-    /// The motion presets an inspector offers for `prop`, `enter` or `emphasis`: the theme's of
-    /// that kind (PLAN 2.116).
+    /// The motion presets an inspector offers for `prop`, `enter`, `emphasis`, or `exit`: the
+    /// theme's of that kind (PLAN 2.116).
     private static func presets(_ choices: Choices?, _ prop: String) -> [String] {
         let field = choices?.fields.first { $0.prop == prop }
         guard case .name(_, let names, _) = field?.takes else { return [] }
