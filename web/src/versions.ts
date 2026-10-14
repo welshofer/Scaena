@@ -111,7 +111,8 @@ export function saying(v: Version): string {
 export function changes(c: Compared, words?: Lexicon, slide: (state: string) => string | undefined = () => undefined): string[] {
   const out: string[] = [];
   // An object by what it shows now; one whose words changed, by its words before, which tells two
-  // texts apart, and the words that changed as they read now; else by its kind.
+  // texts apart, and the words that changed as they read now, or, where only their look changed,
+  // so; else by its kind.
   const named = (n: string) => (words?.objects[n] === undefined ? "an object" : object(words, n, true));
   const kind = (n: string) => `the ${(words?.kinds[n] ?? "object").toLowerCase()}`;
   const parts = (p: Record<string, unknown>, typed?: [string, string]) =>
@@ -119,7 +120,9 @@ export function changes(c: Compared, words?: Lexicon, slide: (state: string) => 
       ...new Set(
         Object.entries(p).map(([k, v]) =>
           (k === "text" || k === "runs") && typed
-            ? `its words now ${retyped(typed[0], typed[1])}`
+            ? typed[0] === typed[1]
+              ? "the look of its words changed"
+              : `its words now ${retyped(typed[0], typed[1])}`
             : k === "text" && typeof v === "string"
               ? `its words now ${quote(v)}`
               : `its ${PROPS[k] ?? phrase(k).toLowerCase()} changed`,

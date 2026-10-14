@@ -13,6 +13,8 @@
 //   on a spring, so its end does not move.
 // - A press on the ruler shows the cue at that time; a press on the canvas brings it back to rest;
 //   Play plays the cue and comes to rest at its end, in the same state.
+// - Each lane is named by what it does and the preset it plays, then its object: an exit's lane
+//   and its bar say it leaves.
 // - Add a motion: a fade for the backdrop as it enters `close`, and a rise for the subtitle as it
 //   leaves `intro`, written in `intro`.
 // - Undone, the deck is as it was, and it validates.
@@ -97,12 +99,12 @@ try {
   await show("intro");
   const keys = (await bars()).map((b) => b.key);
   check(JSON.stringify(keys) === JSON.stringify(["transition", "title enter", "subtitle enter"]), `intro's cue, a bar each: ${keys}`);
-  // Each lane named by what it plays, the preset first, then its object, so that a lane cut
+  // Each lane named by what it does and the preset it plays, then its object, so that a lane cut
   // short still tells two of one object apart; its title says all of it (PLAN 2.99).
   const lanes = await page.evaluate(() => [...document.querySelectorAll("#cue .label")].map((l) => [l.textContent, l.title]).filter(([t]) => t));
   check(
-    lanes[0][0] === "Transition" && /^Word by Word · Q3 Review/.test(lanes[1]?.[0] ?? "") && /^Rise · /.test(lanes[2]?.[0] ?? ""),
-    `each lane named by what it plays, then its object: ${lanes.map(([t]) => t).join(" | ")}`,
+    lanes[0][0] === "Transition" && /^Enters Word by Word · Q3 Review/.test(lanes[1]?.[0] ?? "") && /^Enters · Rise · /.test(lanes[2]?.[0] ?? ""),
+    `each lane named by what it does and plays, then its object: ${lanes.map(([t]) => t).join(" | ")}`,
   );
   check(
     /^Q3 Review · Enters Word by Word:/.test(lanes[1]?.[1] ?? "") && /^This quarter .* · Enters · Rise:/.test(lanes[2]?.[1] ?? ""),
@@ -246,6 +248,13 @@ try {
   check(await says("Sink added to") && (await status()).includes("as it leaves"), `a rise as the subtitle leaves, said as Sink: ${await status()}`);
   await redrawn(n);
   check(await barred("subtitle exit"), "the cue has its bar");
+  // Its lane, and its bar as a screen reader hears it, say it leaves, not only its bar's color,
+  // and name the exit as the menu does.
+  const leaving = await page.evaluate(() => {
+    const i = window.scaena.cue.bars().findIndex((b) => b.key === "subtitle exit");
+    return [document.querySelector(`#cue .label[data-bar="${i}"]`)?.textContent, document.querySelector(`#cue .bar[data-bar="${i}"]`)?.getAttribute("aria-label")];
+  });
+  check(/^Leaves · Sink · This quarter/.test(leaving[0] ?? "") && /^Leaves · Sink · .*: when it starts$/.test(leaving[1] ?? ""), `its lane and its bar say it leaves: ${leaving.join(" | ")}`);
   const intro = (await source()).split("state revenue")[0];
   check(/subtitle[^\n]*exit:rise/.test(intro), "written in intro, which it leaves");
   await undo();
