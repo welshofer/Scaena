@@ -194,9 +194,17 @@ final class TouchTests: XCTestCase {
             let slideInspector = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'layout-choose'")).firstMatch
             XCTAssertTrue(slideInspector.waitForExistence(timeout: 5), "the inspector does not show the slide: \(app.debugDescription)")
             // A slide lifts once held, as any drag on the iPad does, and lands where it is let go.
-            cover.press(forDuration: 1.5, thenDragTo: third, withVelocity: .slow, thenHoldForDuration: 1)
+            // The simulator can lift the slide and lose the drag's movement, its system gesture
+            // gate timing out, so the slide drops back where it was: only then is the drag made
+            // again, and the slide must still land after belief-1.
             let moved = cells.matching(NSPredicate(format: "identifier == 'slide-cover' AND label BEGINSWITH 'Slide 3'")).firstMatch
-            guard moved.waitForExistence(timeout: 5) else {
+            for attempt in 1...2 where !moved.exists && cover.label.hasPrefix("Slide 1") {
+                cover.press(forDuration: 1.5, thenDragTo: third, withVelocity: .slow, thenHoldForDuration: 1)
+                if !moved.waitForExistence(timeout: 5), attempt == 1 {
+                    keep(app, as: "slide-dropped-back")
+                }
+            }
+            guard moved.exists else {
                 throw Unseen(description: "the cover did not move after belief-1: \(app.debugDescription)")
             }
             keep(app, as: "slide-moved")
