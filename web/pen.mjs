@@ -150,7 +150,8 @@ try {
   check(await settled(() => window.scaena.source().includes("drawing shape")), "the pen draws another drawing");
   await key("Escape");
   await settled(() => window.scaena.canvas.pen() === undefined);
-  check((await selected()) === "drawing", "put down, the pen leaves the drawing selected");
+  // The canvas selects the drawing once it has drawn the slide with it, after the source shows it.
+  check(await settled(() => window.scaena.canvas.selected() === "drawing"), `put down, the pen leaves the drawing selected: ${await selected()}`);
   const strokesDrawn = (await declared("drawing")).match(/path:"([^"]*)"/)?.[1];
   await page.selectOption("#insert", "icon");
   await page.waitForSelector("#iconing[open] .icons button.icon", { timeout: 30000 });
