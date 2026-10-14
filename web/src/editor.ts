@@ -43,7 +43,7 @@ import {
 } from "@codemirror/commands";
 import { syntaxHighlighting } from "@codemirror/language";
 import { type Diagnostic, forceLinting, lintGutter, lintKeymap, linter, nextDiagnostic, openLintPanel, previousDiagnostic, setDiagnostics } from "@codemirror/lint";
-import { Compartment, EditorState, StateEffect } from "@codemirror/state";
+import { Compartment, EditorState, MapMode, StateEffect } from "@codemirror/state";
 import {
   drawSelection,
   EditorView,
@@ -418,8 +418,15 @@ async function edit(source: Source) {
             version++;
             clearTimeout(pending);
             // Where each state starts moves with the change until the source is compiled again:
-            // the cursor an undo puts back is in the state it was in.
-            if (last) last = { ...last, states: last.states.map(([id, at]) => [id, update.changes.mapPos(at, 1)]) };
+            // the cursor an undo puts back is in the state it was in. A state whose start the
+            // change took away is gone, so the states after it count as the worker counts them.
+            if (last) {
+              const states = last.states.flatMap(([id, at]): [string, number][] => {
+                const to = update.changes.mapPos(at, 1, MapMode.TrackAfter);
+                return to === null ? [] : [[id, to]];
+              });
+              last = { ...last, states };
+            }
             if (!quiet) {
               edits++;
               tell();

@@ -112,14 +112,43 @@ pub struct Engine {
     /// The global timeline's states as far as last worked out, and a hash of the deck,
     /// theme, and data they were worked out from.
     timeline: Option<(u64, Spans)>,
+    /// Each state's span, ms, by a hash of all it is worked out from ([`span_key`]): kept from
+    /// deck to deck, so a deck an edit changed in a few states works out only theirs again.
+    spans: HashMap<u64, f64>,
     /// Lay out what a frame refuses (text under `fit: error` that does not fit, a table
     /// whose rows do not), for lint to report: set only while lint runs.
     pub(crate) lenient: bool,
 }
 
+/// What an engine has worked out of the global timeline: each state's span by all it is worked
+/// out from ([`Engine::timeline`]). An engine made again from files that read as they did takes
+/// it ([`Engine::with_timed`]), and works out again only the states an edit changed.
+#[derive(Debug, Clone, Default)]
+pub struct Timed(HashMap<u64, f64>);
+
 impl Engine {
+    /// What this engine has worked out of the global timeline, for an engine made again from the
+    /// same files.
+    pub fn timed(&self) -> Timed {
+        Timed(self.spans.clone())
+    }
+
+    /// This engine, with what an engine made from the same files worked out of the global
+    /// timeline ([`Engine::timed`]).
+    pub fn with_timed(mut self, timed: Timed) -> Self {
+        self.spans = timed.0;
+        self
+    }
+
     pub fn new(fonts: BundleFonts) -> Self {
-        Self { fonts, images: BundleImages::new(), text: TextEngine::new(), timeline: None, lenient: false }
+        Self {
+            fonts,
+            images: BundleImages::new(),
+            text: TextEngine::new(),
+            timeline: None,
+            spans: HashMap::new(),
+            lenient: false,
+        }
     }
 
     /// The bundle's images, which image nodes name.
@@ -223,7 +252,16 @@ impl Engine {
             _ => Vec::new(),
         };
         let snapshots = if states.len() <= last { scaena_core::resolve_states(deck)? } else { Vec::new() };
+        let drawn = if states.len() <= last { drawn_from(deck, theme, data) } else { 0 };
+        if self.spans.len() > SPANS_KEPT {
+            self.spans.clear();
+        }
         for (i, state) in deck.states.iter().enumerate().take(last + 1).skip(states.len()) {
+            let key = span_key(drawn, deck, &snapshots, i);
+            if let Some(&span) = self.spans.get(&key) {
+                states.push((state.id.clone(), span, state.hold.unwrap_or(0.0)));
+                continue;
+            }
             let timing = Timing::parse(theme, state.transition.as_ref())?;
             let before = i.checked_sub(1).map(|p| &snapshots[p]);
             let items = motion::items(deck, theme, state, before, &snapshots[i], timing.matched)?;
@@ -237,6 +275,7 @@ impl Engine {
                 };
                 scaena_core::timeline::schedule(timing.clock(), &items, &mut units).span
             };
+            self.spans.insert(key, span);
             states.push((state.id.clone(), span, state.hold.unwrap_or(0.0)));
         }
         let timeline = Timeline::new(states.iter().take(last + 1).cloned());
@@ -920,6 +959,45 @@ fn tree(deck: &Deck, snap: &Snapshot, placement: &Placement) -> Result<HashMap<S
         tree.get_mut(id).expect("every visible node has a place").rect = union.unwrap_or([0.0; 4]);
     }
     Ok(tree)
+}
+
+/// The most states' spans an engine keeps ([`Engine::timeline`]): past it, it lets them all go.
+const SPANS_KEPT: usize = 4096;
+
+/// A hash of what every state of `deck` is drawn from, which a state's snapshot does not say: the
+/// deck but for its nodes, states, overrides, and spine, the theme, and the data.
+fn drawn_from(deck: &Deck, theme: &Theme, data: &DataFiles) -> u64 {
+    let mut doc = serde_json::to_value(deck).unwrap_or_default();
+    if let Some(doc) = doc.as_object_mut() {
+        for key in ["nodes", "states", "overrides", "spine", "comment"] {
+            doc.remove(key);
+        }
+    }
+    let mut h = std::hash::DefaultHasher::new();
+    serde_json::to_vec(&doc).unwrap_or_default().hash(&mut h);
+    serde_json::to_vec(&**theme).unwrap_or_default().hash(&mut h);
+    data.hash(&mut h);
+    h.finish()
+}
+
+/// A hash of all state `i`'s span is worked out from: what every state is drawn from (`drawn`),
+/// the state as written (its transition and choreography), and what it and the state before it
+/// show, each node with its type and the deck's overrides, which its cue moves between.
+fn span_key(drawn: u64, deck: &Deck, snapshots: &[Snapshot], i: usize) -> u64 {
+    let mut h = std::hash::DefaultHasher::new();
+    drawn.hash(&mut h);
+    serde_json::to_vec(&deck.states[i]).unwrap_or_default().hash(&mut h);
+    for snap in [i.checked_sub(1).map(|p| &snapshots[p]), Some(&snapshots[i])] {
+        let Some(snap) = snap else {
+            0u8.hash(&mut h);
+            continue;
+        };
+        let shown = cascade::with_overrides(deck, snap);
+        let types: Vec<Option<NodeType>> =
+            shown.nodes.keys().map(|id| deck.nodes.get(id).map(|n| n.node_type)).collect();
+        serde_json::to_vec(&(&shown.layout, &shown.nodes, &types)).unwrap_or_default().hash(&mut h);
+    }
+    h.finish()
 }
 
 /// A hash of everything the global timeline is worked out from.

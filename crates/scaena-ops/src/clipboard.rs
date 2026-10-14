@@ -14,7 +14,7 @@
 //!   refused for it. A text keeps a role: one the theme lacks gives way to the role every
 //!   theme has that was nearest it in size where it was copied from.
 
-use crate::inspect::{copied_layouts, empty_slot, free_id, held, leaving};
+use crate::inspect::{copied_layouts, empty_slot, free_id, held_down, leaving};
 use crate::{Context, OpsError};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
@@ -108,9 +108,9 @@ pub fn copying(
         return Err(OpsError::new(format!("`{node}` is not on screen in `{state}`")));
     }
     let doc = deck.to_value().context("the deck")?;
-    // Each node copied, then what it holds, each before what it holds in turn; one that another
-    // of them holds comes with that one.
-    let under: Vec<Vec<String>> = copied.iter().map(|(node, _)| held(&[snap], node)).collect();
+    // Each node copied, then what it holds, each before what it holds in turn and in the order
+    // the deck declares them; one that another of them holds comes with that one.
+    let under: Vec<Vec<String>> = copied.iter().map(|(node, _)| held_down(&[snap], node)).collect();
     let mut roots: Vec<(&str, [f32; 4])> = Vec::new();
     let mut ids: Vec<String> = Vec::new();
     for (i, &(node, rect)) in copied.iter().enumerate() {
@@ -119,7 +119,7 @@ pub fn copying(
             continue;
         }
         roots.push((node, rect));
-        ids.extend(under[i].iter().rev().cloned());
+        ids.extend(under[i].iter().cloned());
     }
     if roots.is_empty() {
         return Err(OpsError::new("each node copied holds another of them: what holds what goes round"));

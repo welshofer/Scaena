@@ -16,6 +16,7 @@
 import { hyphenation } from "@scaena/hyphenation";
 import init, { Canvas, Player, engineModule, setHyphenation, shaderRows } from "@scaena/wasm";
 import { keptBundle, newBundle, readAll, remove, write } from "./folders";
+import { finding } from "./words";
 import type {
   Added,
   Asking,
@@ -1385,7 +1386,16 @@ async function make(source: string, ops: unknown[], index: number, at: string | 
   if (failed) throw new Error((JSON.parse(json) as { message?: string }).message ?? json);
   if (!changed) {
     const why = (JSON.parse(json) as { added?: Finding[] }).added?.find((f) => f.severity === "error");
-    throw new Error(why ? `the deck refuses it: ${why.message}` : "it is there already");
+    if (!why) throw new Error("it is there already");
+    // Said as the findings are, in a person's words, of the object it is about (PLAN 2.99).
+    const state = slots[index]?.state;
+    let words: Lexicon | undefined;
+    try {
+      words = state === undefined ? undefined : (JSON.parse(player.words(state)) as Lexicon);
+    } catch {
+      words = undefined;
+    }
+    throw new Error(`the deck would not open with it. ${finding(words, why)}`);
   }
   latest++;
   shown = { index, format: at };

@@ -91,6 +91,9 @@ pub struct Session {
     /// The layout engine, built on the first frame from the fonts and images the deck
     /// names, and again on the first frame after it names others.
     engine: Option<Engine>,
+    /// What the engine let go had worked out of the global timeline, for the one built again:
+    /// none once a file it read is handed over again with other bytes.
+    timed: scaena_engine::Timed,
     /// The transition last sampled, so the frames of one transition lay out once.
     transition: Option<(String, Transition)>,
     /// The state last asked what stands where, laid out at rest, so a pointer's every move
@@ -221,12 +224,39 @@ struct Shader {
 }
 
 /// The files a deck's engine is built from: its fonts and its images.
-fn drawn_from(deck: &Deck) -> (Vec<&str>, Vec<String>) {
+pub(crate) fn drawn_from(deck: &Deck) -> (Vec<&str>, Vec<String>) {
     (deck.fonts.iter().map(|f| f.file.as_str()).collect(), deck.image_files())
 }
 
+/// An engine for `deck` in `theme`, built from the fonts and images it names among `files`, and
+/// the store painters read them from: each picture `kept` holds decoded already is taken from
+/// it, so only those it does not hold are decoded.
+pub(crate) fn engine_for(
+    deck: &Deck,
+    theme: &Theme,
+    files: &BTreeMap<String, Vec<u8>>,
+    kept: &Assets,
+) -> Result<(Engine, Assets), Error> {
+    let file = |path: &str| files.get(path).ok_or_else(|| Error::Missing(path.to_string()));
+    let (mut fonts, mut images, mut store) = (BundleFonts::new(), BundleImages::new(), Assets::new());
+    for font in &deck.fonts {
+        let bytes = file(&font.file)?;
+        fonts.register(&font.file, bytes.clone())?;
+        store.insert_font(&font.file, bytes.clone());
+    }
+    for path in deck.image_files() {
+        let bytes = file(&path)?;
+        let info = images.register(&path, bytes)?;
+        if !store.take_image(&info.id, kept) {
+            store.insert_image(&info.id, bytes)?;
+        }
+    }
+    fonts.check_theme(theme)?;
+    Ok((Engine::new(fonts).with_images(images), store))
+}
+
 /// The files a deck reads its data from: its sources that name one.
-fn read_from(deck: &Deck) -> Vec<&str> {
+pub(crate) fn read_from(deck: &Deck) -> Vec<&str> {
     deck.data.values().filter_map(|s| s.source.as_str()).collect()
 }
 
@@ -285,6 +315,7 @@ impl Session {
             files: Arc::new(files),
             data: DataFiles::new(),
             engine: None,
+            timed: scaena_engine::Timed::default(),
             transition: None,
             rest: None,
             targets: Vec::new(),
@@ -341,7 +372,7 @@ impl Session {
             self.format = None;
         }
         if drawn_from(&deck) != drawn_from(&self.deck) {
-            self.engine = None;
+            self.let_engine_go();
         }
         if read_from(&deck) != read_from(&self.deck) {
             self.data = DataFiles::new();
@@ -372,7 +403,7 @@ impl Session {
         let Some(theme) = text.as_deref().and_then(|text| Theme::from_json(text).ok()) else { return };
         self.theme = theme;
         // The engine checks the theme against the fonts it is built from.
-        self.engine = None;
+        self.let_engine_go();
         #[cfg(feature = "editor")]
         if let Some(text) = text {
             self.theme_json = text;
@@ -387,6 +418,11 @@ impl Session {
         let (fonts, images) = drawn_from(&self.deck);
         if fonts.contains(&path) || images.iter().any(|p| p == path) {
             self.engine = None;
+        }
+        // A file that reads otherwise than it did times nothing as it did.
+        if self.files.get(path).is_some_and(|was| *was != bytes) {
+            self.engine = None;
+            self.timed = scaena_engine::Timed::default();
         }
         if read_from(&self.deck).contains(&path) {
             self.data.insert(path, bytes.clone());
@@ -461,23 +497,18 @@ impl Session {
     }
 
     /// Build the engine from the fonts and images the deck names, if it is not built yet.
+    /// Let the engine go, to be built again on the next frame from what the deck names now,
+    /// keeping what it worked out of the global timeline: the files it read read as they did.
+    fn let_engine_go(&mut self) {
+        if let Some(engine) = self.engine.take() {
+            self.timed = engine.timed();
+        }
+    }
+
     fn build(&mut self) -> Result<&mut Engine, Error> {
         if self.engine.is_none() {
-            let files = &self.files;
-            let file = |path: &str| files.get(path).ok_or_else(|| Error::Missing(path.to_string()));
-            let (mut fonts, mut images, mut store) = (BundleFonts::new(), BundleImages::new(), Assets::new());
-            for font in &self.deck.fonts {
-                let bytes = file(&font.file)?;
-                fonts.register(&font.file, bytes.clone())?;
-                store.insert_font(&font.file, bytes.clone());
-            }
-            for path in self.deck.image_files() {
-                let bytes = file(&path)?;
-                let info = images.register(&path, bytes)?;
-                store.insert_image(&info.id, bytes)?;
-            }
-            fonts.check_theme(&self.theme)?;
-            self.engine = Some(Engine::new(fonts).with_images(images));
+            let (engine, store) = engine_for(&self.deck, &self.theme, &self.files, &self.store)?;
+            self.engine = Some(engine.with_timed(std::mem::take(&mut self.timed)));
             self.store = Arc::new(store);
             self.forget();
         }
@@ -4057,5 +4088,181 @@ mod tests {
             let found = s.mark_at("revenue", [x + w / 2.0, y + h / 2.0]).unwrap().unwrap();
             assert_eq!(found.rows, [row]);
         }
+    }
+}
+
+/// What the editor's gestures make (ADR-0013): each patch as a presentation app makes the edit,
+/// on the decks in `docs/examples/`, and what a gesture costs on a long one.
+#[cfg(all(test, feature = "editor"))]
+mod gestures {
+    use super::*;
+    use scaena_ops::arrange::{Align, How};
+    use scaena_ops::inspect::SnapMode;
+    use serde_json::{Value, json};
+
+    const EXAMPLES: &str = "../../docs/examples";
+
+    /// The deck `docs/examples/{name}.deck.json` with every file it names handed over: its
+    /// theme, its fonts, its pictures, and its data.
+    fn example(name: &str) -> Session {
+        let deck = std::fs::read_to_string(format!("{EXAMPLES}/{name}.deck.json")).unwrap();
+        let json: Value = serde_json::from_str(&deck).unwrap();
+        let theme_path = json["theme"].as_str().unwrap().to_string();
+        let theme = std::fs::read_to_string(format!("{EXAMPLES}/{theme_path}")).unwrap();
+        let mut s = Session::new(&deck, &theme).unwrap();
+        s.add_file(&theme_path, theme.into_bytes());
+        let fonts = json["fonts"].as_array().into_iter().flatten().filter_map(|f| f["file"].as_str());
+        let data = json["data"].as_object().into_iter().flatten().filter_map(|(_, d)| d["source"].as_str());
+        let named: Vec<String> = fonts.chain(data).map(String::from).chain(s.image_files()).collect();
+        for path in named {
+            s.add_file(&path, std::fs::read(format!("{EXAMPLES}/{path}")).unwrap());
+        }
+        s
+    }
+
+    /// The torture deck, with every file it names.
+    fn torture() -> Session {
+        let bundle = "../../tests/fixtures/torture.scaena";
+        let read = |p: &str| std::fs::read_to_string(format!("{bundle}/{p}")).unwrap();
+        let mut s = Session::new(&read("deck.json"), &read("theme.json")).unwrap();
+        let deck: Value = serde_json::from_str(&read("deck.json")).unwrap();
+        let fonts = deck["fonts"].as_array().into_iter().flatten().filter_map(|f| f["file"].as_str());
+        let data = deck["data"].as_object().into_iter().flatten().filter_map(|(_, d)| d["source"].as_str());
+        let named: Vec<String> = fonts.chain(data).map(String::from).chain(s.image_files()).collect();
+        for path in named {
+            s.add_file(&path, std::fs::read(format!("{bundle}/{path}")).unwrap());
+        }
+        s
+    }
+
+    fn by() -> assistant::Caller<'static> {
+        assistant::Caller { author: "user", at: None }
+    }
+
+    fn said(findings: &[Value]) -> Vec<String> {
+        findings.iter().map(|f| format!("{} {} {} {}", f["code"], f["state"], f["node"], f["message"])).collect()
+    }
+
+    /// A gesture on a deck of 38 states (higher-ed) is linted with the session's engine on the
+    /// states it reaches: what it adds there is what the whole deck's lint adds, and it costs what
+    /// those states cost, a fraction of what linting the whole deck before and after costs.
+    #[test]
+    fn a_gesture_on_a_long_deck_costs_what_the_states_it_changes_cost() {
+        let mut s = example("higher-ed");
+        assert_eq!(s.states().len(), 38);
+        // The canvas has drawn the cover: the engine is built, its pictures decoded.
+        s.frame("cover", f64::INFINITY).unwrap();
+        let made = |s: &mut Session, ops: &Value| {
+            let started = std::time::Instant::now();
+            let (whole, _) = scaena_ops::patch::patching(&s.bundle(), ops, None).unwrap();
+            let whole_took = started.elapsed();
+            let source = s.source();
+            let started = std::time::Instant::now();
+            let called = s.tool("deck_patch", json!({ "ops": ops }), by()).unwrap();
+            let took = started.elapsed();
+            assert!(called.edited);
+            s.compile(&source);
+            (
+                serde_json::from_str::<Value>(&called.result).unwrap(),
+                serde_json::to_value(&whole).unwrap(),
+                took,
+                whole_took,
+            )
+        };
+        // The subtitle moved down a row, as an arrow key moves it.
+        let [x, y, w, h] = s.targets("cover", "cover-sub").unwrap().cell;
+        let moved = s.snap("cover", "cover-sub", SnapMode::Move, [x, y + 80.0, w, h], false).unwrap().unwrap();
+        let (scoped, whole, took, whole_took) = made(&mut s, &json!(moved.patch));
+        assert_eq!(scoped["states"], json!(["cover"]));
+        assert_eq!(said(scoped["added"].as_array().unwrap()), said(whole["added"].as_array().unwrap()));
+        eprintln!("a move on higher-ed's cover: {took:?} in the session, {whole_took:?} linting the whole deck twice");
+        assert!(took * 4 < whole_took, "{took:?} against {whole_took:?}");
+        // Its words too long for its box: what the whole deck's lint adds, and nothing else.
+        let long = json!([{ "op": "set_text", "node": "cover-sub", "text": "W".repeat(400) }]);
+        let (scoped, whole, _, _) = made(&mut s, &long);
+        assert!(said(whole["added"].as_array().unwrap()).iter().any(|f| f.starts_with("\"E100\"")), "{whole}");
+        assert_eq!(said(scoped["added"].as_array().unwrap()), said(whole["added"].as_array().unwrap()));
+        assert_eq!(said(scoped["removed"].as_array().unwrap()), said(whole["removed"].as_array().unwrap()));
+    }
+
+    /// A card copied or duplicated declares what it holds in the order the card does, so its copy
+    /// stacks and draws as the card: the tag's label over the tag, not under it.
+    #[test]
+    fn a_copy_holds_what_it_holds_in_the_order_the_node_does() {
+        let mut t = torture();
+        let declared = |s: &Session, of: &[&str]| -> Vec<String> {
+            s.deck.nodes.keys().filter(|id| of.contains(&id.as_str())).cloned().collect()
+        };
+        let card = declared(&t, &["card", "card-photo", "card-tag", "card-tag-label"]);
+        assert_eq!(card[0], "card");
+        let clip = t.copying("containers", &["card"]).unwrap();
+        assert_eq!(clip.nodes.keys().cloned().collect::<Vec<_>>(), card);
+        let copy = t.duplicating("containers", "card").unwrap();
+        assert!(t.typed(&json!(copy.patch), None).unwrap(), "the deck takes {:?}", copy.patch);
+        let copies: Vec<String> = card.iter().map(|id| format!("{id}-2")).collect();
+        let copies: Vec<&str> = copies.iter().map(String::as_str).collect();
+        assert_eq!(declared(&t, &copies), copies, "declared as the card's are");
+        // In higher-ed's risk cards, a stack, the copy's name stands over its sentence.
+        let mut s = example("higher-ed");
+        let state = s.deck.states.iter().find(|st| st.props.contains_key("risk-c1")).unwrap().id.clone();
+        let copy = s.duplicating(&state, "risk-c1").unwrap();
+        s.tool("deck_patch", json!({ "ops": copy.patch }), by()).unwrap();
+        let boxes = s.boxes(&state).unwrap();
+        let top = |n: &str| boxes.iter().find(|b| b.node == n).unwrap().rect[1];
+        assert!(top("risk-c1-name") < top("risk-c1-what"), "the card as it was");
+        assert!(top("risk-c1-name-2") < top("risk-c1-what-2"), "and its copy");
+    }
+
+    /// Several aligned on their middles share one line, though the grid's tracks would leave a box
+    /// an odd number of columns wide half a column off it: higher-ed's cover.
+    #[test]
+    fn several_aligned_on_their_middles_share_one_line() {
+        let mut s = example("higher-ed");
+        let nodes = ["cover-title".to_string(), "cover-art".to_string(), "cover-sub".to_string()];
+        for (edge, axis) in [(Align::Center, 0), (Align::Middle, 1)] {
+            let arranged = s.arranging("cover", &nodes, How::Align(edge), false).unwrap().unwrap();
+            let lines: Vec<f32> = arranged.landed.iter().map(|l| l.cell[axis] + l.cell[axis + 2] / 2.0).collect();
+            assert!(lines.iter().all(|l| (l - lines[0]).abs() <= 1.0), "{edge:?}: {lines:?}");
+            let source = s.source();
+            s.tool("deck_patch", json!({ "ops": arranged.patch }), by()).unwrap();
+            let boxes = s.boxes("cover").unwrap();
+            let drawn: Vec<f32> = (nodes.iter())
+                .map(|n| boxes.iter().find(|b| &b.node == n).map(|b| b.rect[axis] + b.rect[axis + 2] / 2.0).unwrap())
+                .collect();
+            assert!(drawn.iter().all(|l| (l - drawn[0]).abs() <= 1.0), "{edge:?} drawn: {drawn:?}");
+            s.compile(&source);
+        }
+    }
+
+    /// A copy of a title as wide as the grid goes where it covers the least of the title, so the
+    /// two read apart, not a column or two across with its words on the title's.
+    #[test]
+    fn a_wide_title_duplicated_goes_where_it_covers_the_least_of_it() {
+        let examples = std::path::Path::new(EXAMPLES);
+        let fonts: BTreeMap<String, Vec<u8>> = (std::fs::read_dir(examples.join("fonts")).unwrap())
+            .filter_map(|f| f.ok().map(|f| f.path()))
+            .filter(|p| p.extension().is_some_and(|e| e == "ttf"))
+            .map(|p| (format!("fonts/{}", p.file_name().unwrap().to_str().unwrap()), std::fs::read(p).unwrap()))
+            .collect();
+        let dusk = std::fs::read_to_string(examples.join("themes/dusk.theme.json")).unwrap();
+        let mut s = Session::create("dusk.theme.json", &dusk, &fonts, "Scaena!").unwrap();
+        let blank = s.states()[0].clone();
+        let started = s.starting(&blank, Some("title")).unwrap();
+        let mut ops = started.patch.clone();
+        ops.push(json!({ "op": "remove_state", "id": blank }));
+        s.tool("deck_patch", json!({ "ops": ops }), by()).unwrap();
+        let state = started.id;
+        let snaps = scaena_core::resolve_states(&s.deck).unwrap();
+        let title = (snaps[0].nodes.iter())
+            .find(|(_, p)| p.get("at").and_then(|a| a.get("in")) == Some(&json!("title")))
+            .map(|(id, _)| id.clone())
+            .unwrap();
+        let [x, y, w, h] = s.targets(&state, &title).unwrap().cell;
+        let copy = s.duplicating(&state, &title).unwrap();
+        let c = copy.cell;
+        let over =
+            ((c[0] + c[2]).min(x + w) - c[0].max(x)).max(0.0) * ((c[1] + c[3]).min(y + h) - c[1].max(y)).max(0.0);
+        assert!(over < 0.5 * w * h, "{c:?} covers {:.0}% of the title at {:?}", 100.0 * over / (w * h), [x, y, w, h]);
+        assert!(c[1] > y, "it goes down: {c:?}");
     }
 }

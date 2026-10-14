@@ -11,7 +11,8 @@
 //! the next save to record in the bundle's history (PLAN 2.9, `store`).
 
 use crate::{Error, Session};
-use scaena_core::{Finding, Severity};
+use scaena_core::{Deck, Finding, Severity};
+use scaena_engine::theme::Theme;
 use scaena_ops::OpsError;
 use scaena_ops::inspect::Views;
 use scaena_ops::lint::Write;
@@ -300,7 +301,11 @@ impl Session {
             "deck_patch" => {
                 let a: DeckPatch = args(name, a)?;
                 let ops = Value::Array(a.ops.into_iter().map(Value::Object).collect());
-                let (mut patched, deck) = scaena_ops::patch::patching(&b, &ops, None)?;
+                // Linted as an edit is, with the session's engine, on the states it reaches.
+                let judge = |deck: &Deck, theme: &Theme, states: &[&str]| {
+                    self.judge(deck, theme, states).map_err(|e| scaena_ops::OpsError::new(e.to_string()))
+                };
+                let (mut patched, deck) = scaena_ops::patch::editing(&b, &ops, None, judge)?;
                 patched.applied &= !a.dry_run;
                 let edited = self.write(deck.filter(|_| !a.dry_run), by)?;
                 Ok(Called { edited, ..Called::of(patched)? })

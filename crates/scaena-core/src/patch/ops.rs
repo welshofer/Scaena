@@ -11,7 +11,8 @@ use crate::lint::literal;
 use crate::model::theme::Theme;
 use crate::model::values::{Annotation, Duration, ListItem};
 use crate::tracking::{
-    Lives, Snapshot, keep_looks, layout_lives, lives, merge_props, other_spelling, resolve_states, tracks_from,
+    Lives, NON_TRACKING_KEYS, Snapshot, keep_looks, layout_lives, lives, merge_props, other_spelling, resolve_states,
+    tracks_from,
 };
 use crate::validate::BundleFiles;
 use serde_json::{Map, Value};
@@ -1086,10 +1087,25 @@ fn choose(
         });
     }
     let at = match d.showing(node, state)? {
-        Some((i, _)) => {
+        Some((i, shown)) => {
             let (deck, _) = d.snapshots()?;
             let keys: Vec<&str> = key.iter().map(String::as_str).collect();
-            match if fork { Lives::State(i) } else { lives(&deck, i, node, &name, &keys) } {
+            let lives = match fork {
+                true => Lives::State(i),
+                // What belongs to one state alone, a motion's emphasis or keys (§2.2), is the
+                // state's own: written there, it plays in that state's cue, as `apply_preset`
+                // writes it. Only one the node's own props show there, as it enters, is taken
+                // away from them.
+                false if NON_TRACKING_KEYS.contains(&name.as_str()) => {
+                    let delta = deck.states[i].props.get(node).is_some_and(|delta| delta.contains_key(&name));
+                    match value.is_null() && !delta && shown.contains_key(&name) {
+                        true => Lives::Node,
+                        false => Lives::State(i),
+                    }
+                }
+                false => lives(&deck, i, node, &name, &keys),
+            };
+            match lives {
                 Lives::State(j) => Some(j),
                 Lives::Node => None,
             }
@@ -1567,20 +1583,20 @@ fn remove_node(d: &Doc, id: &str) -> Result<Vec<JsonOp>, String> {
     if !held.is_empty() {
         return Err(format!("`{id}` holds {}: remove them first, or move them out of it (`at.parent`)", list(held)));
     }
-    Ok(removal(d, id))
+    Ok(removal(d, &[id]))
 }
 
-/// The ops that take node `id` out of the deck, with everything that names it: its deltas,
-/// its exits, its choreography, and its overrides; and each connector that joins it, which would
-/// join what the deck lacks, goes with it the same way (PLAN 2.109).
-fn removal(d: &Doc, id: &str) -> Vec<JsonOp> {
+/// The ops that take nodes `ids` out of the deck, with everything that names them: their
+/// deltas, their exits, their choreography, and their overrides; and each connector that joins
+/// one, which would join what the deck lacks, goes with them the same way (PLAN 2.109).
+fn removal(d: &Doc, ids: &[&str]) -> Vec<JsonOp> {
     let joins = |node: &Value| {
         let end = |key: &str| node.get("connect").and_then(|c| c.get(key)).and_then(Value::as_str);
-        end("from") == Some(id) || end("to") == Some(id)
+        [end("from"), end("to")].into_iter().flatten().any(|end| ids.contains(&end))
     };
     let mut gone: Vec<&str> =
-        d.nodes().filter(|(n, node)| n.as_str() != id && joins(node)).map(|(n, _)| n.as_str()).collect();
-    gone.push(id);
+        d.nodes().filter(|(n, node)| !ids.contains(&n.as_str()) && joins(node)).map(|(n, _)| n.as_str()).collect();
+    gone.extend(ids.iter().copied().filter(|id| d.0.get("nodes").and_then(|n| n.get(*id)).is_some()));
     let mut ops = Vec::new();
     for (i, state) in d.states().iter().enumerate() {
         for g in &gone {
@@ -1762,7 +1778,7 @@ fn ungroup(d: &Doc, group: &str) -> Result<Vec<JsonOp>, String> {
             }
         }
     }
-    ops.extend(removal(d, group));
+    ops.extend(removal(d, &[group]));
     Ok(ops)
 }
 
@@ -1956,14 +1972,16 @@ fn duplicate_slide(d: &Doc, slide: &str) -> Result<Vec<JsonOp>, String> {
         let mut state = deck.states[i].clone();
         state.id = ids[n].clone();
         if n == 0 {
-            // Each node it shows as the slide's first state shows it, the node's lock aside,
-            // which is the node's own (E104).
+            // Each node it shows as the slide's first state shows it, but for what is the node's
+            // own in every state: its lock, a connector's ends, and its layout in its formats.
             state.mode = StateMode::Absolute;
             (state.from, state.slide, state.remove) = (None, None, Vec::new());
             state.props = (snaps[i].nodes.iter())
                 .map(|(id, props)| {
                     let mut props = props.clone();
-                    props.shift_remove("locked");
+                    for key in crate::validate::NODE_OWN {
+                        props.shift_remove(key);
+                    }
                     (id.clone(), props)
                 })
                 .collect();
@@ -2030,7 +2048,26 @@ fn remove_slide(d: &Doc, slide: &str) -> Result<Vec<JsonOp>, String> {
             ops.push(JsonOp::Remove { path });
         }
     }
+    ops.extend(left_behind(&deck, range, &next));
     Ok(ops)
+}
+
+/// The ops that take out of the deck each node the states at `gone` of `deck` show that no state
+/// of `next`, the deck with them taken out, shows: what a slide deleted takes with it, as a
+/// presentation app's slide takes its objects. A node no state showed before stays; and so does
+/// every node where either deck does not resolve, which validation then reports.
+fn left_behind(deck: &Deck, gone: Range<usize>, next: &Value) -> Vec<JsonOp> {
+    let (Ok(snaps), Ok(after)) = (resolve_states(deck), typed(&Doc(next))) else { return Vec::new() };
+    let Ok(shown) = resolve_states(&after) else { return Vec::new() };
+    let mut left: Vec<&str> = Vec::new();
+    for snap in snaps.get(gone).unwrap_or_default() {
+        for id in snap.nodes.keys() {
+            if !left.contains(&id.as_str()) && !shown.iter().any(|s| s.nodes.contains_key(id)) {
+                left.push(id);
+            }
+        }
+    }
+    if left.is_empty() { Vec::new() } else { removal(&Doc(next), &left) }
 }
 
 fn remove_state(d: &Doc, id: &str) -> Result<Vec<JsonOp>, String> {
@@ -2068,6 +2105,12 @@ fn remove_state(d: &Doc, id: &str) -> Result<Vec<JsonOp>, String> {
         ops.push(JsonOp::Remove { path });
     }
     ops.push(JsonOp::Remove { path: format!("/states/{i}") });
+    // What it alone showed goes with it.
+    let mut next = d.0.clone();
+    if let Some(states) = next.get_mut("states").and_then(Value::as_array_mut) {
+        states.remove(i);
+    }
+    ops.extend(left_behind(&typed(d)?, i..i + 1, &next));
     Ok(ops)
 }
 
