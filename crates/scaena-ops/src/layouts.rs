@@ -92,7 +92,7 @@ pub fn candidates(
                 Deck::from_value(&compiled.doc).map_err(OpsError::new)?
             }
         };
-        let reach = if current { Vec::new() } else { changed(deck, &made)? };
+        let reach = if current { Vec::new() } else { changed(deck, &made, theme.furniture.as_ref())? };
         let (errors, warnings, alike) = (0, 0, Vec::new());
         let suggestion = Suggestion { layout: layout.clone(), current, errors, warnings, alike, reach, patch };
         found.push(Candidate { suggestion, deck: made });

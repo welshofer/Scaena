@@ -55,3 +55,21 @@ private func differ(_ a: ScaenaSession.Pixels, _ b: ScaenaSession.Pixels) -> (fo
     #expect(!editor.source.contains("furniture:false"))
     #expect(throws: ScaenaError.self) { try editor.make(FurnitureChoice.footing("")) }
 }
+
+/// A footer left with a space added, or a space typed in an empty one, changes nothing: no patch is
+/// made, so nothing fails, and the deck stays as it was. Other words set it, trimmed.
+@Test func aFooterLeftAsItWasMakesNoPatch() throws {
+    let editor = DeckEditor(session: try ScaenaSession(files: example("revenue")))
+    editor.shown = "mix"
+    let none = try #require(try editor.session.stateChoices(state: "mix").furniture)
+    #expect(none.footing(to: " ") == nil, "a space in an empty footer")
+    try editor.make(FurnitureChoice.footing("Q3 Review · Board"))
+    let footed = try #require(try editor.session.stateChoices(state: "mix").furniture)
+    let source = editor.source
+    #expect(footed.footing(to: "Q3 Review · Board ") == nil, "a space added")
+    #expect(editor.source == source)
+    let other = try #require(footed.footing(to: " Board "))
+    try editor.make(other)
+    // The footer is the words trimmed, however the source writes them: one word goes unquoted.
+    #expect(try editor.session.stateChoices(state: "mix").furniture?.footer == "Board")
+}

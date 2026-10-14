@@ -190,6 +190,8 @@ struct OfferSheet: View {
                         }
                     }
                     .keyboardShortcut(.defaultAction)
+                    // An answer with no words left in it is nothing to take, as no answer is.
+                    .disabled(answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 } else {
                     Button("Done") { dismiss() }
                         .keyboardShortcut(.defaultAction)

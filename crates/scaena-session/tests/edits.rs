@@ -530,6 +530,11 @@ fn tool_call(r: &mut Rng, b: &Bundle, states: &[String], values: &BTreeMap<Strin
             set!("ops", if r.below(6) == 0 { junk(r) } else { theme_ops(r, &theme, values) });
             set!("dry_run", flag(r));
         }
+        "icon_find" => {
+            set!("query", json!(r.pick(&["rocket", "", "-", "arrow up", "\u{1F680}", "zzqx"])));
+            set!("weight", json!(r.pick(&["regular", "fill", "bold", ""])));
+            set!("limit", r.pick(&[json!(0), json!(3), json!(u64::MAX), json!(-1), json!(null)]).clone());
+        }
         _ => set!("state", state(r)),
     }
     if r.below(12) == 0 {

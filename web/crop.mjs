@@ -46,10 +46,21 @@ try {
       .waitForFunction((s) => window.scaena.source() === s, to, { timeout: 30000, polling: 50 })
       .then(() => true)
       .catch(() => false);
-  /** `node` selected, once its framing has come. */
-  const choose = async (node) => {
+  /** `node` selected, once its framing has come: with `shown`, the framing whose part shown that
+   * is. After an undo the canvas asks for the framing again, and until the answer comes it keys its
+   * handles on the one it holds, the crop's, whose box came in with it, so no focal point stood in it. */
+  const choose = async (node, shown) => {
     await page.evaluate((n) => window.scaena.canvas.select(n), node);
-    await page.waitForFunction((n) => window.scaena.canvas.framing()?.node === n && document.querySelector("#overlay svg [data-crop]"), node, { timeout: 30000 }).catch(() => {});
+    await page
+      .waitForFunction(
+        ([n, s]) => {
+          const f = window.scaena.canvas.framing();
+          return f?.node === n && (s === undefined || JSON.stringify(f.shown) === s) && document.querySelector("#overlay svg [data-crop]");
+        },
+        [node, shown && JSON.stringify(shown)],
+        { timeout: 30000 },
+      )
+      .catch(() => {});
     return page.evaluate(() => window.scaena.canvas.framing());
   };
   /** A point of the overlay, canvas units, on the page. */
@@ -166,7 +177,7 @@ try {
   await page.waitForFunction(() => window.scaena.canvas.boxed() === "images", null, { timeout: 30000 }).catch(() => {});
 
   // The focal point, dragged to the left edge of what shows: the image's left in view.
-  const framing = await choose("image-cover");
+  const framing = await choose("image-cover", cover.shown);
   const focal = await handle(".handle.focal");
   await drag(focal, [framing.shown[0] + 1, focal[1]]);
   const moved = await page
