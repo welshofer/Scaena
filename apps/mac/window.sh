@@ -492,5 +492,22 @@ app 'key code 53' >/dev/null
 sleep 2
 echo "Escape: the windows $(app 'get name of every window' | tr '\n' ' ')"
 
+# The keys (PR #325): Settings (⌘,) shows a section for each provider, whether its key works, and a
+# masked field to give one. CI's Mac keeps no key, so each says No Key. A key of Gemini's form
+# typed in Anthropic's field is said so as it is typed; nothing is kept, nothing sent.
+events 'keystroke "," using command down'
+sleep 3
+shot settings-keys
+echo "Settings: the windows $(app 'get name of every window' | tr '\n' ' '); Anthropic's field $(frames find key-anthropic)"
+read -r kx ky kw kh <<<"$(frames find key-anthropic)" || true
+if [[ "${kh:-}" =~ ^[0-9]+$ ]]; then
+  pointer click $((kx + kw / 2)) $((ky + kh / 2))
+  sleep 1
+  events 'keystroke "AIzaSyA-a-key-of-geminis-form"'
+  sleep 1
+  shot settings-key-typed
+  echo "a key of Gemini's form in Anthropic's field: the hint $(frames find hint-anthropic)"
+fi
+
 # The deck is edited now: no saving it, so no asking.
 pkill -x Scaena || true
