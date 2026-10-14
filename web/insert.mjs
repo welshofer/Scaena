@@ -51,6 +51,11 @@ try {
       .waitForFunction((n) => window.scaena.canvas.selected() === n, id, { timeout: 10000 })
       .then(() => true, () => false);
   const box = (node) => page.evaluate((n) => window.scaena.canvas.boxes().find((b) => b.node === n)?.rect, node);
+  /** `node`'s box once the canvas has drawn it, which it does once the edit that made it is shown. */
+  const drawn = (node) =>
+    page
+      .waitForFunction((n) => window.scaena.canvas.boxes()?.find((b) => b.node === n)?.rect, node, { timeout: 10000 })
+      .then((h) => h.jsonValue(), () => undefined);
   /** Once the source holds `text` (or, with `absent`, does not), and the canvas has caught up. */
   const reads = async (text, absent = false) => {
     await page
@@ -141,7 +146,7 @@ try {
   await page.selectOption("#insert", { label: "Headline" });
   check(await reads("headline text role:headline"), "the headline is inserted into the source");
   check((await source()).includes('headline text role:headline "Headline" at:col('), "on the grid's cells");
-  const cell = await box("headline");
+  const cell = await drawn("headline");
   const overlaps = await page.evaluate(() => window.scaena.last().findings.filter((f) => f.code === "E101" && f.message.includes("`headline`")).map((f) => f.message));
   const on = Boolean(cell) && cell[0] <= at[0] && at[0] <= cell[0] + cell[2] && cell[1] <= at[1] && at[1] <= cell[1] + cell[3];
   check(Boolean(cell) && !on && overlaps.length === 0, `off the chart, in the room nearest the point: ${cell} · ${overlaps.join("; ") || "no overlap lint finds"}`);
@@ -201,7 +206,7 @@ try {
   const named = preset.toLowerCase();
   await page.selectOption("#insert", { label: preset });
   check(await reads(`${named} shader:`), `the ${preset} preset is inserted`);
-  const filled = await box(named);
+  const filled = await drawn(named);
   const [w, h] = await page.evaluate(() => window.scaena.canvas.size());
   check(JSON.stringify(filled) === JSON.stringify([0, 0, w, h]), `it fills the canvas: ${filled}`);
   check((await source()).includes("z:-1"), "under what is there");

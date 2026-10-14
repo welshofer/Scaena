@@ -15,6 +15,8 @@
 //   what it said of itself in the status goes with it.
 // - The slider at its foot makes the slides larger, fewer to a row, each painted larger.
 // - axe-core finds nothing against WCAG 2.1 AA in the light table.
+// - On the trails deck, whose texts have layouts of their own in its other sizes, ⌘D copies its
+//   photo slide too, and the status says so with no id.
 // Exits 1 on any failure.
 import { createRequire } from "node:module";
 import { launch, serve } from "./serve.mjs";
@@ -163,6 +165,20 @@ try {
   check(await page.locator("#slides").isHidden(), "Escape closes it");
   check(!(await status()).includes("Enter shows one"), `and what it said goes with it: ${await status()}`);
   check((await source()) === original, "the deck is as it was");
+
+  // On the trails deck, whose words have layouts of their own in its other sizes, ⌘D copies the
+  // photo slide as it copies any: the copy writes each object as the slide shows it, but for its
+  // layout in each size, which is the object's own.
+  await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&bundle=/docs/examples/trails.deck.json`);
+  await page.waitForFunction(() => window.scaena?.last()?.valid, null, { timeout: 120000 });
+  await page.click("#slides-open");
+  await page.waitForFunction(() => window.scaena.slides.drawn() === 15, null, { timeout: 120000 }).catch(() => {});
+  const trails = await source();
+  await tile("storm").click();
+  await page.keyboard.press("Control+d");
+  await changed(trails);
+  check((await slides()).length === 16 && (await order()).includes("storm storm-2"), `⌘D copies trails' photo slide after itself: ${await order()}`);
+  check(!(await status()).includes("`") && !(await status()).startsWith("Not changed"), `the status says so in a person's words: ${await status()}`);
 } finally {
   await browser.close();
   await site.close();

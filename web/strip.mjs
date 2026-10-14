@@ -20,7 +20,8 @@
 //   in the slot. Photo starts one whose picture, edge to edge, the canvas outlines
 //   with its words, and a press on them asks for a picture, which goes in that slot, one undo;
 //   where it outlines nothing on `intro`, a title slide the deck opened with no picture and no
-//   kicker. Blank adds an empty slide after `mix`. Alt with an arrow key moves it, and so
+//   kicker. Bullets deleted from the strip takes its headline and points with it, the source as
+//   it was. Blank adds an empty slide after `mix`. Alt with an arrow key moves it, and so
 //   does a drag; Delete removes it, and the source is as it was.
 // - A deck whose bundle took Dusk before its library grew, 11 layouts in no section, opens with the
 //   library Dusk ships now (PLAN 3.31): + Slide offers the 13 sections and 128 layouts.
@@ -310,6 +311,16 @@ try {
     await undo();
     check(await back(started), "two undos take the headline and the Delete back");
   }
+  // Deleted from the strip, the slide takes what it alone showed with it, as a presentation app's
+  // does: the source is as it was, and nothing is left that no slide shows.
+  await item("bullets").focus();
+  await page.keyboard.press("Delete");
+  check(await holds(["intro", "revenue", "mix", "close"]), `Delete removes the Bullets slide: ${await order()}`);
+  const left = (await source()).split("\n").filter((l) => l.includes("bullets-"));
+  check(await back(original), `and its headline and points with it: ${left.join(" | ")}`);
+  check(!(await status()).includes("note"), `with nothing left to note: ${await status()}`);
+  await undo();
+  check(await back(started), "one undo puts the slide back");
   await undo();
   check(await back(original), "one undo takes it back");
 

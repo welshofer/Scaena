@@ -6,7 +6,10 @@
 //!   it or a frame holds it. One in a stack stays where it is.
 //! - **Aligned.** Each node's box takes the edge, or the middle, that the boxes of all of them
 //!   share at its extreme: the leftmost left, the rightmost right, the middle of them all; each
-//!   snapped as a move snaps, so on a grid they line up on its tracks.
+//!   snapped as a move snaps, so on a grid they line up on its tracks. Where the tracks leave
+//!   them on lines apart (a box an odd number of columns wide cannot center where an even one
+//!   does), they share the line most of them land on, and each the tracks hold off it goes
+//!   onto it off the grid, by a `rect`, as a drag with Shift places it.
 //! - **Spread.** The first and the last stay; the ones between move so that the gaps between
 //!   them all are equal, as near as the tracks allow.
 //! - **Ordered.** A node is painted after its container's other children by `z`, then by where
@@ -184,7 +187,10 @@ pub fn together(
 }
 
 /// `members` aligned on `edge` (PLAN 2.42): each box takes the edge all of them reach
-/// farthest, or the middle of them all.
+/// farthest, or the middle of them all, snapped as a move snaps. Where that leaves them on
+/// lines apart, they share the line most of them land on (of two as many land on, the nearer
+/// the one they were aligned to), and each the tracks hold off it goes onto it off the grid, by
+/// a `rect`, where one can place it.
 pub fn aligning(members: &[Member], edge: Align, state: &str, fork: bool) -> Result<Arranged, OpsError> {
     if members.len() < 2 {
         return Err(OpsError::new("aligning takes two nodes or more"));
@@ -193,17 +199,47 @@ pub fn aligning(members: &[Member], edge: Align, state: &str, fork: bool) -> Res
     let low = |i: usize| cells.iter().map(|c| c[i]).fold(f32::INFINITY, f32::min);
     let high = |i: usize| cells.iter().map(|c| c[i] + c[i + 2]).fold(f32::NEG_INFINITY, f32::max);
     let (left, right, top, bottom) = (low(0), high(0), low(1), high(1));
+    // The line a box stands on, and the box moved onto a line.
+    let line = |[x, y, w, h]: Rect| match edge {
+        Align::Left => x,
+        Align::Center => x + w / 2.0,
+        Align::Right => x + w,
+        Align::Top => y,
+        Align::Middle => y + h / 2.0,
+        Align::Bottom => y + h,
+    };
+    let onto = |[x, y, w, h]: Rect, at: f32| match edge {
+        Align::Left => [at, y, w, h],
+        Align::Center => [at - w / 2.0, y, w, h],
+        Align::Right => [at - w, y, w, h],
+        Align::Top => [x, at, w, h],
+        Align::Middle => [x, at - h / 2.0, w, h],
+        Align::Bottom => [x, at - h, w, h],
+    };
+    let exact = line([left, top, right - left, bottom - top]);
+    let goes: Vec<Rect> = cells.iter().map(|&c| onto(c, exact)).collect();
+    let snapped: Vec<Rect> = (members.iter().zip(&goes))
+        .map(|(m, &to)| way(m, false).and_then(|how| m.targets.snap(how, to)).map_or(m.targets.cell, |t| t.cell))
+        .collect();
+    let on = |c: Rect, at: f32| (line(c) - at).abs() < 0.5;
+    // The line most land on; of those most land on, the nearest the edge they were aligned on.
+    let lines: Vec<f32> = snapped.iter().map(|&c| line(c)).collect();
+    let count = |at: f32| snapped.iter().filter(|&&c| on(c, at)).count();
+    let shared = lines.iter().copied().fold(exact, |best, at| {
+        let (n, m) = (count(at), count(best));
+        if n > m || (n == m && (at - exact).abs() < (best - exact).abs()) { at } else { best }
+    });
     let mut landing = Landing::default();
-    for (m, &[x, y, w, h]) in members.iter().zip(&cells) {
-        let to = match edge {
-            Align::Left => [left, y, w, h],
-            Align::Center => [(left + right - w) / 2.0, y, w, h],
-            Align::Right => [right - w, y, w, h],
-            Align::Top => [x, top, w, h],
-            Align::Middle => [x, (top + bottom - h) / 2.0, w, h],
-            Align::Bottom => [x, bottom - h, w, h],
+    for ((m, &cell), &snap) in members.iter().zip(&cells).zip(&snapped) {
+        let (how, to) = match on(snap, shared) {
+            true => (way(m, false), onto(cell, exact)),
+            // Off the line the rest share: onto it, by a `rect` where one can place it.
+            false => match m.targets.by {
+                By::Grid | By::Frame { .. } => (Some(Snap::Free), onto(cell, shared)),
+                _ => (way(m, false), onto(cell, exact)),
+            },
         };
-        landing.land(m, way(m, false), to);
+        landing.land(m, how, to);
     }
     landing.arranged(state, fork)
 }

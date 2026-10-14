@@ -1064,10 +1064,11 @@ pub(crate) fn empty_slot(
 /// holds under the next id free, held by the copy; then `place`: the span the copy takes on the
 /// theme's grid, or a grid container's, moved one span right, down, left, or up. It goes to the
 /// first of those clear of the node and of what else draws there in front of the background
-/// (`boxes`, what stands where in `state`), or else the first clear of the node, or else the
-/// first that moves it at all, the grid's edge holding it in; elsewhere it takes the node's own
-/// placement. Then each copy leaves where it would show on another slide, so the copy stays on
-/// this one (PLAN 3.26). `found` is where `node` may go, its node the copy's id.
+/// (`boxes`, what stands where in `state`), or else the first clear of the node, or else, the
+/// grid's edges holding each of them over the node, the one that covers the least of it;
+/// elsewhere it takes the node's own placement. What it holds is added in the order the deck
+/// declares it. Then each copy leaves where it would show on another slide, so the copy stays
+/// on this one (PLAN 3.26). `found` is where `node` may go, its node the copy's id.
 pub fn duplicating(
     deck: &Deck,
     found: &scaena_engine::geometry::Targets,
@@ -1087,9 +1088,9 @@ pub fn duplicating(
             "`{node}` follows what it joins, and a copy would lie on it: copy it with what it joins, and paste them"
         )));
     }
-    // The node first, then what it holds, each before what it holds in turn.
-    let mut copying = held(&[snap], node);
-    copying.reverse();
+    // The node first, then what it holds, each before what it holds in turn, and what one
+    // holds in the order the deck declares it, so a stack's copy lays out as it does.
+    let copying = held_down(&[snap], node);
     let mut taken: Vec<String> = deck.nodes.keys().cloned().chain([found.node.clone()]).collect();
     let mut ids: IndexMap<String, String> = IndexMap::new();
     for id in &copying {
@@ -1130,7 +1131,21 @@ pub fn duplicating(
             let alone = |c: &[f32; 4]| apart(c) && others.iter().all(|o| clear_of(c, *o));
             let moved = |c: &[f32; 4]| c[..2] != found.cell[..2];
             let first = |keep: &dyn Fn(&[f32; 4]) -> bool| tried.iter().flatten().find(|t| keep(&t.cell)).cloned();
-            first(&alone).or_else(|| first(&apart)).or_else(|| first(&moved))
+            // Where the grid's edges hold every one of them over the node, the one that covers
+            // the least of it, so its words read beside the copy's: a title as wide as the grid
+            // goes down, not a column or two across.
+            let over = |c: &[f32; 4]| {
+                let [bx, by, bw, bh] = found.cell;
+                let across = (c[0] + c[2]).min(bx + bw) - c[0].max(bx);
+                let down = (c[1] + c[3]).min(by + bh) - c[1].max(by);
+                across.max(0.0) * down.max(0.0)
+            };
+            let least = || {
+                let mut moving = tried.iter().flatten().filter(|t| moved(&t.cell));
+                let first = moving.next()?;
+                Some(moving.fold(first, |best, t| if over(&t.cell) < over(&best.cell) { t } else { best }).clone())
+            };
+            first(&alone).or_else(|| first(&apart)).or_else(least)
         }
         _ => None,
     };
@@ -1316,6 +1331,23 @@ pub fn deleting(
 
 /// `node` and each node it holds in `snaps`, at any depth: the deepest first, `node` last.
 pub(crate) fn held(snaps: &[&Snapshot], node: &str) -> Vec<String> {
+    let mut ids = depths(snaps, node);
+    scaena_core::sort::by_key(&mut ids, |(_, depth)| std::cmp::Reverse(*depth));
+    ids.into_iter().map(|(id, _)| id).chain(std::iter::once(node.to_string())).collect()
+}
+
+/// `node` and each node it holds in `snaps`, at any depth: `node` first, then each before
+/// what it holds, and the nodes one holds in the order the deck declares them, which is the
+/// order a stack lays them out in and nodes of one `z` are drawn in. What a copy adds them in.
+pub(crate) fn held_down(snaps: &[&Snapshot], node: &str) -> Vec<String> {
+    let mut ids = depths(snaps, node);
+    scaena_core::sort::by_key(&mut ids, |(_, depth)| *depth);
+    std::iter::once(node.to_string()).chain(ids.into_iter().map(|(id, _)| id)).collect()
+}
+
+/// Each node `node` holds in `snaps`, at any depth, with how deep: in the order `snaps` declare
+/// them.
+fn depths(snaps: &[&Snapshot], node: &str) -> Vec<(String, usize)> {
     let mut depth: IndexMap<String, usize> = IndexMap::new();
     for snap in snaps {
         let parent = |id: &str| snap.nodes.get(id)?.get("at")?.get("parent")?.as_str().map(String::from);
@@ -1331,9 +1363,7 @@ pub(crate) fn held(snaps: &[&Snapshot], node: &str) -> Vec<String> {
             }
         }
     }
-    let mut ids: Vec<(String, usize)> = depth.into_iter().collect();
-    scaena_core::sort::by_key(&mut ids, |(_, depth)| std::cmp::Reverse(*depth));
-    ids.into_iter().map(|(id, _)| id).chain(std::iter::once(node.to_string())).collect()
+    depth.into_iter().collect()
 }
 
 /// State `state`'s cue, each motion with where `doc`, the deck as written, writes it.

@@ -165,6 +165,8 @@ try {
   await press(page, [960, 540]);
   check(await paste(page, { "text/plain": "Margins held.\n" }), "the canvas takes text");
   check(await reads(page, 'body text role:body "Margins held."'), "it is pasted as a text in the body role");
+  // Selected once the canvas has the boxes the paste drew, just after the source takes it.
+  await page.waitForFunction(() => window.scaena.canvas.selected() === "body", null, { timeout: 30000 }).catch(() => {});
   check((await selected(page)) === "body", "selected");
   await page.keyboard.press("Control+z");
   check(await back(page, original), "one undo takes it back");
