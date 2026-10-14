@@ -125,6 +125,10 @@ struct CanvasSelection: View {
     /// show yet (PLAN 2.114).
     @State private var stroke: [CGPoint] = []
     @State private var wet: [[CGPoint]] = []
+    /// Where the pen's drag under way began, view points; and where one two fingers stopped began,
+    /// which draws nothing until it ends (PLAN 4.3).
+    @State private var inkStart: CGPoint?
+    @State private var inkStopped: CGPoint?
 
     /// How long a resize pauses before the canvas shows its text reflowed (as the browser's).
     private static let pause = Duration.milliseconds(300)
@@ -293,6 +297,17 @@ struct CanvasSelection: View {
                     Color.clear
                         .contentShape(Rectangle())
                         .gesture(inking(fit))
+                        #if !os(macOS)
+                        // Two fingers zoom and pan with the pen up too, and draw nothing (PLAN 2.114,
+                        // 4.3).
+                        .gesture(
+                            CanvasPinch(
+                                level: { zoom.level }, zoom: { to, at in zoom.zoom(to: to, about: at) },
+                                fingers: fingers))
+                        .gesture(
+                            CanvasPan(
+                                pan: { by in _ = zoom.pan(by: CGVector(dx: -by.dx, dy: -by.dy)) }, fingers: fingers))
+                        #endif
                     ink(pen, fit: fit)
                         .allowsHitTesting(false)
                 }
@@ -461,6 +476,15 @@ struct CanvasSelection: View {
             pointPicked = nil
             keyed = nil
         }
+        .onChange(of: pen != nil, initial: true) { _, up in
+            // The pen up (PLAN 2.114): the Pencil draws and writes in no text, typing stops, and
+            // the canvas takes the keyboard, so P and Escape put the pen down, however it was taken
+            // up.
+            typing.inking = up
+            guard up else { return }
+            if typing.typing { typing.leave() }
+            typing.focus?()
+        }
         .modifier(LinkQuestion(typing: typing))
     }
 
@@ -604,10 +628,29 @@ struct CanvasSelection: View {
     private func inking(_ fit: Fit) -> some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .local)
             .onChanged { value in
-                if stroke.isEmpty { stroke = [fit.canvas(value.startLocation)] }
+                // A drag two fingers stopped draws nothing more (PLAN 4.3); the next is a stroke.
+                if let stopped = inkStopped {
+                    if stopped == value.startLocation { return }
+                    inkStopped = nil
+                }
+                if stroke.isEmpty {
+                    // A stroke begins as a press does: typing stops, and the canvas takes the
+                    // keyboard, so P and Escape put the pen down.
+                    if typing.typing { typing.leave() }
+                    typing.focus?()
+                    keyOn = nil
+                    pointed = fit.canvas(value.startLocation)
+                    inkStart = value.startLocation
+                    stroke = [fit.canvas(value.startLocation)]
+                }
                 stroke.append(fit.canvas(value.location))
             }
             .onEnded { value in
+                if inkStopped == value.startLocation {
+                    inkStopped = nil
+                    stroke = []
+                    return
+                }
                 var points = stroke.isEmpty ? [fit.canvas(value.startLocation)] : stroke
                 points.append(fit.canvas(value.location))
                 stroke = []
@@ -1451,7 +1494,9 @@ struct CanvasSelection: View {
         pausing?.cancel()
         if case .dragging = press { editor.still() }
         press = .fingers
-        // A second finger stops the pen's stroke too (PLAN 2.114).
+        // A second finger stops the pen's stroke too, until its drag ends, which draws nothing
+        // (PLAN 2.114).
+        if !stroke.isEmpty { inkStopped = inkStart }
         stroke = []
     }
     #endif

@@ -998,7 +998,7 @@ pub(crate) fn added(
 ) -> Result<Added, OpsError> {
     let target = target.ok_or_else(|| OpsError::new("the theme's grid has no tracks to place it on"))?;
     let node = serde_json::from_value(node).context("an inserted node")?;
-    let add = SemanticOp::AddNode { id: room.node.clone(), node, state: Some(state.into()), props: None };
+    let add = SemanticOp::AddNode { id: room.node.clone(), node, state: Some(state.into()), props: None, after: None };
     let ops: Vec<SemanticOp> = std::iter::once(add)
         .chain(target.ops(Some(state), false))
         .chain(leaving(deck, state, std::slice::from_ref(&room.node)))
@@ -1109,7 +1109,13 @@ pub fn duplicating(
         }
         copied_layouts(&mut props, deck, &ids, false);
         let node_value = serde_json::from_value(Value::Object(props)).context("a copied node")?;
-        ops.push(SemanticOp::AddNode { id: copy.clone(), node: node_value, state: Some(state.into()), props: None });
+        ops.push(SemanticOp::AddNode {
+            id: copy.clone(),
+            node: node_value,
+            state: Some(state.into()),
+            props: None,
+            after: None,
+        });
     }
     let [x, y, w, h] = found.cell;
     let clear_of = |c: &[f32; 4], [bx, by, bw, bh]: [f32; 4]| {
@@ -1245,7 +1251,7 @@ pub fn connecting(deck: &Deck, state: &str, from: &str, to: &str, arrow: bool) -
     let id = free_id(&taken, if named.len() <= 56 { &named } else { kind });
     let node = serde_json::json!({ "type": "shape", "kind": kind, "connect": { "from": from, "to": to } });
     let node = serde_json::from_value(node).context("a connector")?;
-    let add = SemanticOp::AddNode { id: id.clone(), node, state: Some(state.into()), props: None };
+    let add = SemanticOp::AddNode { id: id.clone(), node, state: Some(state.into()), props: None, after: None };
     // It leaves another slide's state where both ends show there; where either is gone, it is
     // gone with it.
     let both =

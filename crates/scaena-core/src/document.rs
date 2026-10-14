@@ -402,9 +402,28 @@ impl Deck {
         out
     }
 
-    /// Parse a `deck.json` string.
+    /// Parse a `deck.json` string. A deck saved before a shadow drew reads without its
+    /// `shadow`s, as it drew (`crate::version`).
     pub fn from_json(s: &str) -> Result<Deck, serde_json::Error> {
-        serde_json::from_str(s)
+        let mut deck: Deck = serde_json::from_str(s)?;
+        let mut cast = (deck.nodes.values_mut().map(|n| &mut n.props))
+            .chain(deck.states.iter_mut().flat_map(|s| s.props.values_mut()))
+            .chain(deck.overrides.values_mut())
+            .filter(|p| p.contains_key("shadow"))
+            .peekable();
+        if cast.peek().is_some() {
+            // The format as saved, which reading it as the current one wrote over.
+            #[derive(Deserialize)]
+            struct Saved {
+                scaena: String,
+            }
+            if crate::version::unshadows(&serde_json::from_str::<Saved>(s)?.scaena) {
+                cast.for_each(|p| {
+                    p.shift_remove("shadow");
+                });
+            }
+        }
+        Ok(deck)
     }
 
     /// Serialize canonically (pretty, key order preserved).
@@ -452,6 +471,19 @@ mod tests {
         let again: Deck = serde_json::from_str(&deck.to_json().unwrap()).unwrap();
         assert_eq!(again.states[2].slide.as_deref(), Some("revenue"));
         assert_eq!(serde_json::to_value(&again).unwrap(), serde_json::to_value(&deck).unwrap());
+    }
+
+    #[test]
+    fn a_deck_saved_before_shadows_drew_reads_without_them() {
+        let mut v: Value = serde_json::from_str(EXAMPLE).unwrap();
+        let id = v["nodes"].as_object().unwrap().keys().next().unwrap().clone();
+        v["nodes"][&id]["shadow"] = serde_json::json!({ "y": 8, "blur": 20, "spread": 4 });
+        v["scaena"] = "0.24".into();
+        let old = Deck::from_json(&v.to_string()).unwrap();
+        assert_eq!(old.scaena, crate::FORMAT_VERSION);
+        assert!(!old.nodes[&id].props.contains_key("shadow"));
+        v["scaena"] = crate::FORMAT_VERSION.into();
+        assert!(Deck::from_json(&v.to_string()).unwrap().nodes[&id].props.contains_key("shadow"));
     }
 
     #[test]

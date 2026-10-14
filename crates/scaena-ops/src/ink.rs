@@ -132,6 +132,17 @@ pub fn inking(
     }
 }
 
+/// Where a drawing laid out at `rect` on `view` stands once its view is `to` (PLAN 2.114): the box
+/// that draws `to` at the scale and place `view` drew at in `rect`, so what it drew there stays
+/// where it was. What a stroke drawn in one format makes of its box in another (ADR-0020).
+pub fn regrown(view: [f32; 4], rect: [f32; 4], to: [f32; 4]) -> [f32; 4] {
+    let (s, [ox, oy]) = Drawing { id: String::new(), path: String::new(), view, rect, width: 0.0 }.frame();
+    if !(s.is_finite() && s > 0.0) {
+        return rect;
+    }
+    [ox + to[0] * s, oy + to[1] * s, to[2] * s, to[3] * s].map(|v| (v * 100.0).round() / 100.0)
+}
+
 /// The width a new drawing's stroke draws at, canvas units: as [`insert`] names it, else the
 /// engine's own for a stroke that names none.
 fn new_width(theme: &Theme) -> f32 {

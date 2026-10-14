@@ -666,3 +666,58 @@ fn one_keyword_shows_as_each_axis() {
     doc["nodes"]["note"]["align"] = json!({ "y": "end" });
     assert_eq!(field(&offered(&doc, "revenue", "note"), "align/x").value, None, "it sets no `x`");
 }
+
+/// A PNG's header, its pixels of color type `color`: 2 in color, 6 in color with alpha.
+fn png(color: u8) -> Vec<u8> {
+    let mut b = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+    b.extend(400u32.to_be_bytes());
+    b.extend(200u32.to_be_bytes());
+    b.extend([8, color, 0, 0, 0]);
+    b
+}
+
+/// Corners and a shadow are offered where they draw (PLAN 2.68, 2.113, 2.115): corners on a
+/// rectangle and on a picture under no mask, and a shadow from a filled rectangle, a picture that
+/// hides what is under it under no mask or an oval, and a container with a panel. A line, an
+/// outline, a picture under a star or one that lets what is under it show, and a bare stack cast
+/// none, and a mask takes the corners' place.
+#[test]
+fn corners_and_a_shadow_are_offered_where_they_draw() {
+    let mut doc = example();
+    let nodes = [
+        ("card", json!({ "type": "shape", "kind": "rect", "fill": "accent" })),
+        ("outline", json!({ "type": "shape", "kind": "rect", "stroke": { "paint": "accent" } })),
+        ("rule", json!({ "type": "shape", "kind": "line" })),
+        ("photo", json!({ "type": "image", "src": "images/photo.png" })),
+        ("starred", json!({ "type": "image", "src": "images/photo.png", "mask": "star" })),
+        ("oval", json!({ "type": "image", "src": "images/photo.png", "mask": "ellipse" })),
+        ("logo", json!({ "type": "image", "src": "images/logo.png" })),
+        ("bare", json!({ "type": "stack" })),
+        ("panel", json!({ "type": "stack", "fill": "surface-2" })),
+    ];
+    for (id, mut node) in nodes {
+        node["at"] = json!({ "col": [1, 3], "row": [10, 11] });
+        doc["nodes"][id] = node;
+        doc["states"][1]["props"][id] = json!({});
+    }
+    let files = std::collections::BTreeMap::from([
+        ("images/photo.png".to_string(), png(2)),
+        ("images/logo.png".to_string(), png(6)),
+    ]);
+    let deck: Deck = serde_json::from_value(doc).unwrap();
+    let theme = Theme::from_json(DUSK).unwrap();
+    let props = |id: &str| -> Vec<String> {
+        choices(&deck, &theme, "revenue", id, &files).unwrap().fields.into_iter().map(|f| f.prop).collect()
+    };
+    let has = |id: &str, prop: &str| props(id).iter().any(|p| p == prop);
+    let offers = |id: &str| (has(id, "radius"), has(id, "shadow"));
+    assert_eq!(offers("card"), (true, true), "{:?}", props("card"));
+    assert_eq!(offers("outline"), (true, false), "an outline casts none: {:?}", props("outline"));
+    assert_eq!(offers("rule"), (false, false), "{:?}", props("rule"));
+    assert_eq!(offers("photo"), (true, true), "{:?}", props("photo"));
+    assert_eq!(offers("starred"), (false, false), "{:?}", props("starred"));
+    assert_eq!(offers("oval"), (false, true), "{:?}", props("oval"));
+    assert_eq!(offers("logo"), (true, false), "a PNG with alpha casts none: {:?}", props("logo"));
+    assert!(!has("bare", "shadow") && has("panel", "shadow"), "{:?}", props("panel"));
+    assert!(has("rule", "stroke/paint") && has("starred", "mask"), "the rest is offered as before");
+}
