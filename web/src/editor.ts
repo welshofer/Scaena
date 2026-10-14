@@ -1616,8 +1616,10 @@ async function edit(source: Source) {
     },
     put: (target, made) => board.putPicture(target, made),
     say,
-    keys: () => {
+    // The assistant on the provider whose key the picture wants, so the key pasted is kept as its.
+    keys: async (provider) => {
       tab("assistant");
+      await assistant.choose(provider);
       $("#key").focus();
     },
   });

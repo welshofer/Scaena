@@ -2,14 +2,17 @@
 // image model played by a scripted server that speaks OpenAI's Images API. On the revenue example:
 //
 // - With no OpenAI or Gemini key kept, nothing is asked: the dialog says where a key goes, and
-//   Add a key… opens the assistant on its key.
+//   Add a key… opens the assistant on the key of the provider it chose, whatever the assistant
+//   asked before.
 // - On a slide started in Photo, with nothing selected, the picture fills the empty place for one,
 //   framed wide as that place is: asked once, the key in OpenAI's header alone, of the subject in
 //   the person's words, in the theme's palette. It joins the bundle, says what it shows, and is
 //   selected; one undo takes it back, and the place waits again.
 // - The picture selected, Make a picture to replace it (its right click) asks again with what it
-//   shows written in, and the same image shows the new picture and says what it shows: one patch,
-//   which one undo takes back.
+//   shows written in, and the same image shows the new picture whole and says what it shows, the
+//   old one's crop taken away: one patch, which one undo takes back.
+// - A picture locked, selected, is not replaced: with no empty place on the slide, the picture
+//   goes where the pointer last pressed, asked for square as the box Insert gives it there is.
 // - A provider that refuses says why in the dialog, and nothing changes.
 //
 //   node web/picture.mjs     (after `just web`; from the repository's root)
@@ -127,14 +130,16 @@ try {
   check(keyless.open && keyless.key && !keyless.make, `with no key, the dialog offers Add a key… and makes nothing: ${JSON.stringify(keyless)}`);
   check(/No OpenAI key is kept: keep one in the Assistant tab/.test(keyless.who), `and says where one goes: ${keyless.who}`);
   await page.click("#picturing-key");
+  await page.waitForFunction(() => document.activeElement?.id === "key", null, { timeout: 10000 }).catch(() => {});
   check(
     await page.evaluate(() => !document.querySelector("#picturing").open && document.activeElement?.id === "key"),
     "Add a key… opens the assistant on its key",
   );
+  const keyFor = await page.evaluate(() => document.querySelector("#provider").value);
+  check(keyFor === "openai", `the key it opens on is OpenAI's, the provider the dialog chose, not the assistant's own: ${keyFor}`);
   check(scripted.painted.length === 0, "nothing was asked");
 
-  // An OpenAI key, at the scripted server.
-  await page.selectOption("#provider", "openai");
+  // An OpenAI key, at the scripted server, pasted where Add a key… put the focus.
   await page.fill("#base", scripted.origin);
   await page.fill("#key", "picture-test-key");
   await page.waitForFunction(() => document.querySelector("#model").options.length > 0, null, { timeout: 30000 });
@@ -184,7 +189,11 @@ try {
     "and the slide draws it again, its place filled",
   );
 
-  // 3. The picture selected: its right click makes another in its place.
+  // 3. The picture selected: its right click makes another in its place, whole, though the old
+  // one showed a crop of its picture: the middle half of it.
+  const cropped = pictured.replace('alt:"A lighthouse at dusk" at:in(art)', 'alt:"A lighthouse at dusk" at:in(art) crop:[0.25, 0, 0.5, 1]');
+  await page.evaluate((text) => window.scaena.type(text), cropped);
+  await page.waitForFunction(() => window.scaena.last()?.valid && /crop:\[0\.25/.test(window.scaena.source()), null, { timeout: 30000 }).catch(() => {});
   const first = await imageShowing("A lighthouse at dusk");
   await page.evaluate((id) => window.scaena.canvas.select(id), first?.id);
   const [cx, cy] = await page.evaluate(() => {
@@ -205,9 +214,37 @@ try {
   const second = await imageShowing("A harbor at night");
   check(second?.id === first?.id && second?.rect.join() === first?.rect.join(), `the same image shows it, where it stood: ${JSON.stringify(second)}`);
   check(second?.srcs.length === 1 && second.srcs[0] !== first?.srcs[0] && !(await source()).includes('alt:"A lighthouse at dusk"'), "the new picture, and what it shows, in place of the old");
+  check(!(await source()).includes("crop:"), "shown whole, framed for its box: the old picture's crop taken away");
   check(await says("Replaced “A lighthouse at dusk” with a picture of a harbor at night, made by gpt-image-1"), `the status says so: ${await status()}`);
   await undo();
-  check(await back(pictured), "one undo takes the new picture back, and what it said it showed");
+  check(await back(cropped), "one undo takes the new picture back, what it said it showed, and its crop");
+  await undo();
+  check(await back(pictured), "and the crop set before it goes with the next");
+
+  // A picture locked (PLAN 2.95), selected from its layers, is not replaced: with no empty place
+  // for one, the picture goes where the pointer last pressed, framed square as the box Insert
+  // gives a picture there, and lands in one.
+  const locked = await imageShowing("A lighthouse at dusk");
+  await page.evaluate((id) => window.scaena.canvas.lock([id], true), locked?.id);
+  await page.waitForFunction((id) => window.scaena.canvas.boxes()?.find((b) => b.node === id)?.locked, locked?.id, { timeout: 30000 }).catch(() => {});
+  const lockedSource = await source();
+  await page.evaluate((id) => window.scaena.canvas.select(id), locked?.id);
+  const elsewhere = await fromInsert();
+  check(elsewhere.where === "It goes on this slide where you last clicked, square.", `the picture locked is not replaced, and the picture is framed square: ${elsewhere.where}`);
+  await page.fill("#picturing-subject", "A brass compass");
+  await page.click("#picturing-make");
+  await page.evaluate(() => window.scaena.picturing.settled());
+  check(scripted.painted.at(-1)?.body.size === "1024x1024", `asked for square: ${scripted.painted.at(-1)?.body.size}`);
+  const compass = await page
+    .waitForFunction(() => window.scaena.source().includes('alt:"A brass compass"') && window.scaena.canvas.boxes()?.find((b) => b.node.startsWith("a-brass-compass"))?.rect, null, { timeout: 30000 })
+    .then((h) => h.jsonValue(), () => undefined);
+  const ratio = compass ? compass[2] / compass[3] : 0;
+  check(ratio > 0.84 && ratio < 1.2, `and lands in a box as square: ${compass}`);
+  check((await source()).includes('alt:"A lighthouse at dusk"'), "the picture locked stays as it was");
+  await undo();
+  check(await back(lockedSource), "one undo takes the picture back");
+  await undo();
+  check(await back(pictured), "and another the lock");
 
   // 4. Refused: the dialog says why, and nothing changes.
   const asked4 = scripted.painted.length;
@@ -218,6 +255,7 @@ try {
   await page.evaluate(() => window.scaena.picturing.settled());
   const refused = await dialog();
   check(refused.open && /^No picture: .*rejected by the safety system/.test(refused.status), `a refusal is said in the dialog: ${refused.status}`);
+  check(!/^No picture: slide/.test(refused.status), "and names no slide of a made deck: the picture was for the slide shown");
   check(refused.make, "which asks again");
   check(scripted.painted.length === asked4 + 1, "asked once");
   check((await source()) === pictured, "and nothing changed");

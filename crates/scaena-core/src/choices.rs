@@ -311,6 +311,16 @@ pub fn choices(
         if prop.starts_with("transform/") && crate::tracking::connects_of(own_props).is_some() {
             return None;
         }
+        // A shape's corners round where it is a rectangle, and it casts a shadow where it is a
+        // rectangle or an oval (PLAN 2.115): a polygon of the library, a path, and a line draw
+        // neither.
+        let shape = node_type == NodeType::Shape;
+        if shape && prop == "radius" && kind != Some("rect") {
+            return None;
+        }
+        if shape && prop == "shadow" && !matches!(kind, Some("rect" | "ellipse")) {
+            return None;
+        }
         let takes = match source {
             Data => Takes::Word { words: deck.data.keys().map(|name| format!("@{name}")).collect() },
             Columns => {
