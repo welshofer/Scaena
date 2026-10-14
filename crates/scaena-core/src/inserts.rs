@@ -448,6 +448,15 @@ pub fn icon_node(name: &str, path: &str, view: [f64; 4], fill: &str) -> Value {
     })
 }
 
+/// Whether a shape of these props, each by its key, is an icon (PLAN 2.104, G.23), as
+/// [`icon_node`] makes one: a path on its view, filled, and unstroked. A pen's drawing (PLAN 2.114)
+/// is a path on its view too, stroked and unfilled, and no icon: what the icon picker would
+/// replace, and what an empty place for an icon takes.
+pub fn is_icon<'a>(prop: impl Fn(&str) -> Option<&'a Value>) -> bool {
+    let set = |key: &str| prop(key).is_some_and(|v| !v.is_null());
+    prop("kind").and_then(Value::as_str) == Some("path") && set("view") && set("fill") && !set("stroke")
+}
+
 /// The first of `base`, `base-2`, `base-3`, … that names no node of `deck`.
 pub fn fresh(deck: &Deck, base: &str) -> String {
     (1..)

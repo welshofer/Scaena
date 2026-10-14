@@ -436,9 +436,13 @@ pub fn pasting(
 
     // Where the copy of the node copied goes: as Insert places a node; and several, about `at`.
     let targets = if roots.len() == 1 {
+        // An icon goes in an empty place for one, as Insert puts it there (PLAN G.23).
         let slot = match serde_json::from_value(first["type"].clone()) {
             Ok(content @ (NodeType::Text | NodeType::Image | NodeType::Chart | NodeType::Table)) => {
                 empty_slot(deck, theme, room, state, at, content)?
+            }
+            Ok(NodeType::Shape) if scaena_core::inserts::is_icon(|key| first.get(key)) => {
+                empty_slot(deck, theme, room, state, at, NodeType::Shape)?
             }
             _ => None,
         };

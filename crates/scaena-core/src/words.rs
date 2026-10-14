@@ -273,15 +273,15 @@ pub fn kind(t: Option<NodeType>) -> &'static str {
 const NAMED: usize = 40;
 
 /// A node's kind as `props` show it, as a person names it: a shape by its kind, as Insert offers
-/// it (PLAN 2.106), a polygon of the shape library by its name; a path on a view an Icon (PLAN
-/// 2.104), and the pen's a Drawing (PLAN 2.114); a container with a panel of its own a Card; and
-/// anything else its type's kind.
+/// it (PLAN 2.106), a polygon of the shape library by its name; a filled path on a view an Icon
+/// (PLAN 2.104, [`crate::inserts::is_icon`]), and the pen's, stroked, a Drawing (PLAN 2.114); a
+/// container with a panel of its own a Card; and anything else its type's kind.
 pub fn kind_of(t: NodeType, props: &Props) -> &'static str {
     match t {
         NodeType::Shape => {
             let path = props.contains_key("path");
             match props.get("kind").and_then(Value::as_str).unwrap_or(if path { "path" } else { "rect" }) {
-                "path" if icon(props) => "Icon",
+                "path" if crate::inserts::is_icon(|key| props.get(key)) => "Icon",
                 "path" => "Drawing",
                 "polygon" => library(props).unwrap_or("Polygon"),
                 other => SHAPES.iter().find(|(k, _)| *k == other).map_or("Shape", |(_, said)| said),
@@ -290,15 +290,6 @@ pub fn kind_of(t: NodeType, props: &Props) -> &'static str {
         NodeType::Stack | NodeType::Grid | NodeType::Frame if props.contains_key("fill") => "Card",
         _ => kind(Some(t)),
     }
-}
-
-/// Whether a shape, as `props` show it, is an icon (PLAN 2.104): a path on a view, as decoration
-/// a reader passes over, or filled and unstroked as the icons that ship are. The pen's drawing is
-/// a stroked path, which no reader passes over.
-pub fn icon(props: &Props) -> bool {
-    let path = props.get("kind").and_then(Value::as_str).is_none_or(|k| k == "path") && props.contains_key("path");
-    let decoration = props.get("semantic").and_then(Value::as_str) == Some("decoration");
-    path && props.contains_key("view") && (decoration || (props.contains_key("fill") && !props.contains_key("stroke")))
 }
 
 /// The shape library's name for a polygon whose points, as `props` show them, are one of its
@@ -574,6 +565,7 @@ pub const MARKED: &[(&str, &str)] = &[
     ("W202", "It runs to more lines than its style allows."),
     ("W203", "It doesn't fit, even at its smallest size."),
     ("W231", "Its font has no italic, so it's set upright."),
+    ("W232", "Its font has no bold, so it's set in its own weight."),
     ("W303", "The slide's number or footer is drawn over it."),
     ("W310", "Some of the chart's labels overlap."),
     ("W311", "A background effect is behind this chart."),
@@ -797,8 +789,9 @@ pub fn choices(choices: &mut Choices, deck: &Deck, theme: &Theme) {
         Some(nodes) => object_in(deck, nodes, &choices.node),
         None => kind(Some(choices.node_type)).to_string(),
     });
-    // Its kind as the state shows it: a shape by its kind, and a path on a view an Icon (PLAN
-    // 2.104), as Insert names it, which the picker replaces; the pen's is a Drawing (PLAN 2.114).
+    // Its kind as the state shows it: a shape by its kind, and a filled path on a view an Icon
+    // (PLAN 2.104), as Insert makes one, which the picker replaces; the pen's, stroked, is a
+    // Drawing (PLAN 2.114).
     let props = shown.as_ref().and_then(|nodes| nodes.get(&choices.node));
     choices.noun = Some(props.map_or(kind(Some(choices.node_type)), |p| kind_of(choices.node_type, p)).to_string());
     let chart =
