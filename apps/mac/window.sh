@@ -470,6 +470,33 @@ else
   echo "no canvas to paste on: $px $py $pw $ph"
 fi
 
+# The pen (PLAN 2.114): taken up from the Insert menu while the slides down the side have the
+# keyboard, a stroke drawn on the slide gives the canvas the keyboard, as a press does, so Escape
+# puts the pen down, and the Insert menu offers Drawing again, not Stop Drawing. ⌘Z takes the stroke
+# back.
+read -r lx ly lw lh <<<"$(frames find state-cover)" || true
+read -r px py pw ph <<<"$(frames find canvas)" || true
+if [[ "${lh:-}" =~ ^[0-9]+$ && "${ph:-}" =~ ^[0-9]+$ ]]; then
+  pointer click $((lx + lw / 2)) $((ly + lh / 2))
+  sleep 1
+  menu Insert "Drawing"
+  sleep 1
+  pointer drag $((px + pw / 4)) $((py + ph * 3 / 4)) $((px + pw / 2)) $((py + ph * 4 / 5))
+  sleep 2
+  shot pen-stroke
+  events 'key code 53'
+  sleep 1
+  offered=$(app 'get name of every menu item of menu 1 of menu bar item "Insert" of menu bar 1' | tr ',' '\n' | grep -o 'Stop Drawing\|Drawing' | head -1 || true)
+  echo "the pen after a stroke and Escape: the Insert menu offers ${offered:-neither} (Drawing: the pen is down)"
+  # Put down by its menu where Escape did not, so the walk goes on with the pen down.
+  if [[ "${offered:-}" == "Stop Drawing" ]]; then menu Insert "Stop Drawing"; fi
+  # ⌘Z: the Edit menu names the step it takes back (Undo Draw), so it is pressed, not chosen.
+  events 'keystroke "z" using command down'
+  sleep 2
+else
+  echo "no slide or canvas for the pen: $lx $ly $lw $lh, $px $py $pw $ph"
+fi
+
 # The light table (PLAN 3.14), as a presentation app's: every slide in a grid that fills the
 # window, the slides down the side folded away, and a slider at its foot that makes the slides
 # larger, fewer to a row. Where the first slides stand says how many fit across.

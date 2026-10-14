@@ -1476,6 +1476,12 @@ struct DeckView: View {
     /// the diagram selected.
     private func diagram(_ kind: DiagramKind, in state: String) {
         guard let text = node, also.isEmpty else { return }
+        // The text goes, and nothing of a locked node is deleted (PLAN 2.95).
+        let boxes = (try? editor.session.boxes(state: state)) ?? []
+        if let held = boxes.first(where: { $0.node == text }), let holder = held.locked {
+            said = holder == held.node ? "It is locked: ⇧⌘L unlocks it" : "What holds it is locked: unlock that first"
+            return
+        }
         perform {
             let made = try editor.session.diagramming(state: state, node: text, kind: kind)
             try document.make(made.patch, undo: undo, named: "Diagram from Text")

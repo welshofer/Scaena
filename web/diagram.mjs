@@ -11,6 +11,8 @@
 // - A right click on the subtitle offers Make a cycle diagram: the three boxes on a ring, joined by
 //   three arrows. One undo takes it back.
 // - Make a hierarchy diagram refuses lines at one level, and says to indent them.
+// - The process is listed where the subtitle was, before the chart, so it paints and reads in the
+//   subtitle's turn; and a locked subtitle is drawn as no diagram, the status saying why (PLAN 2.95).
 // Exits 1 on any failure.
 import { launch, serve } from "./serve.mjs";
 
@@ -59,6 +61,11 @@ try {
   const says = (words) =>
     page
       .waitForFunction((w) => document.querySelector("#status").textContent.includes(w), words, { timeout: 30000, polling: 50 })
+      .then(() => true, () => false);
+  /** Once the canvas draws `node` again: whether it does within the wait. */
+  const drawsAgain = (node) =>
+    page
+      .waitForFunction((n) => window.scaena.canvas.boxes()?.some((b) => b.node === n), node, { timeout: 30000, polling: 50 })
       .then(() => true, () => false);
   /** The client point at the middle of `node`'s box. */
   const middle = (node) =>
@@ -126,9 +133,12 @@ try {
   const arrows = shown.filter((b) => b.joins?.every((j) => held.includes(j)));
   check(arrows.length === 2, `joined by two arrows: ${arrows.map((a) => a.node)}`);
   check(!shown.some((b) => b.node === "subtitle"), "the subtitle gone from the slide");
+  const line = (node) => drawn.split("\n").findIndex((l) => l.trimStart().startsWith(`${node} `) || l.startsWith(`node ${node} `));
+  check(line("subtitle-process") >= 0 && line("subtitle-process") < line("rev"), `listed in the subtitle's turn, before the chart: ${line("subtitle-process")} ${line("rev")}`);
   await page.locator("#overlay").focus();
   await page.keyboard.press("Control+z");
   check(await back(lines), "one undo takes the diagram back");
+  check(await drawsAgain("subtitle"), "and the subtitle stands on the slide again");
 
   // A cycle, from a right click on the subtitle.
   await page.mouse.click(...(await middle("subtitle")), { button: "right" });
@@ -144,6 +154,7 @@ try {
   await page.locator("#overlay").focus();
   await page.keyboard.press("Control+z");
   check(await back(lines), "one undo takes it back");
+  check(await drawsAgain("subtitle"), "and the subtitle stands there again");
 
   // A hierarchy, refused for lines at one level.
   await page.mouse.click(...(await middle("subtitle")));
@@ -152,6 +163,16 @@ try {
   check(await says("lines under others"), `a hierarchy says to indent the lines under others: ${await status()}`);
   check((await source()) === lines, "and draws nothing");
   check(await page.evaluate(() => window.scaena.last().valid), "the source still compiles and validates");
+
+  // Locked, the subtitle is drawn as no diagram: the canvas deletes nothing of what is locked.
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Control+Shift+L");
+  check(await reads("locked"), `⇧⌘L locks the subtitle: ${await status()}`);
+  const locked = await source();
+  await command("Make a process diagram");
+  check(await says("locked"), `a locked subtitle says why it is drawn as no diagram: ${await status()}`);
+  await page.waitForTimeout(500);
+  check((await source()) === locked, "and nothing is drawn");
 } finally {
   await browser.close();
   await server.close();
