@@ -91,13 +91,10 @@
     {"layer":{"node":"sh-photo","cell":null,"transform":[1.0,0.0,0.0,1.0,96.0,666.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"shadow":{"rect":[0.0,12.0,560.0,318.0],"radius":32.0,"blur":18.0,"color":"#0000003D"}},
       {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":"M32 0L528 0C545.6719 0 560 14.328125 560 32L560 286C560 303.67188 545.6719 318 528 318L32 318C14.328125 318 0 303.67188 0 286L0 32C0 14.328125 14.328125 0 32 0Z","ops":[
-        {"image":{"asset":"sha256:7130f10a4aa0167a731f7735296b6079436f52e077fd5f2ea988d8c180ac2923","src":[28.671875,0.0,422.64062,240.0],"dst":[0.0,0.0,560.0,318.0],"quality":"high"}}
+        {"image":{"asset":"sha256:0bb10505f460b67561b45f17aea560fed32b73a5b12662d5909049bcac9231e4","src":[0.0,3.484375,67.0,38.046875],"dst":[0.0,0.0,560.0,318.0],"quality":"high"}}
       ]}}
     ]}},
     {"layer":{"node":"sh-photo-oval","cell":null,"transform":[1.0,0.0,0.0,1.0,680.0,666.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-      {"layer":{"node":null,"cell":null,"transform":[2.0,0.0,0.0,1.0,0.0,55.5],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-        {"shadow":{"rect":[0.0,6.0,207.0,207.0],"radius":103.5,"blur":10.0,"color":"#0000002E"}}
-      ]}},
       {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":"M414 159C414 216.15625 321.32813 262.5 207 262.5C92.671875 262.5 0 216.15625 0 159C0 101.84375 92.671875 55.5 207 55.5C321.32813 55.5 414 101.84375 414 159","ops":[
         {"image":{"asset":"sha256:7130f10a4aa0167a731f7735296b6079436f52e077fd5f2ea988d8c180ac2923","src":[0.0,0.0,480.0,240.0],"dst":[0.0,55.5,414.0,207.0],"quality":"high"}}
       ]}}

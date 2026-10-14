@@ -2627,6 +2627,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
    * words, joined by connectors, in a container placed as the text was; one patch, the diagram
    * selected. */
   function diagram(node: string, kind: Diagram) {
+    // The text goes: nothing of a locked node is deleted (PLAN 2.95).
+    if (locks([node], `is drawn as a ${kind}`)) return Promise.resolve();
     return inTurn(async () => {
       const shown = editor.shown();
       if (!shown) return editor.say(WAITING);

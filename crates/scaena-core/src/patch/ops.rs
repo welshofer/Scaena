@@ -28,13 +28,27 @@ pub(super) fn compile(doc: &Value, op: &SemanticOp, files: &dyn BundleFiles) -> 
     let d = Doc(doc);
     let mut renamed = Vec::new();
     let ops = match op {
-        SemanticOp::AddNode { id, node, state, props } => {
+        SemanticOp::AddNode { id, node, state, props, after } => {
             d.free("node", id, d.node(id).is_ok())?;
             if props.is_some() && state.is_none() {
                 return Err("`props` is the node's delta in the state it enters: name the `state`".into());
             }
             let value = serde_json::to_value(node).map_err(|e| e.to_string())?;
-            let mut ops = vec![JsonOp::Add { path: format!("/nodes/{}", esc(id)), value }];
+            let mut ops = match after {
+                None => vec![JsonOp::Add { path: format!("/nodes/{}", esc(id)), value }],
+                // The scene graph again, the node listed just after `after`.
+                Some(after) => {
+                    d.node(after)?;
+                    let mut nodes = Map::new();
+                    for (other, v) in d.nodes() {
+                        nodes.insert(other.clone(), v.clone());
+                        if other == after {
+                            nodes.insert(id.clone(), value.clone());
+                        }
+                    }
+                    vec![JsonOp::Replace { path: "/nodes".into(), value: Value::Object(nodes) }]
+                }
+            };
             if let Some(state) = state {
                 ops.push(enter(&d, d.state(state)?, id, props.clone().unwrap_or_default()));
             }

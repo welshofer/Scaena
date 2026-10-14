@@ -12,6 +12,7 @@ use scaena_core::model::theme::Vocabulary;
 use scaena_core::model::values::ListItem;
 use scaena_core::patch::SemanticOp;
 use scaena_core::validate::BundleFiles;
+use scaena_engine::geometry::NodeBox;
 use scaena_engine::theme::Theme;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -73,19 +74,30 @@ impl Item {
     }
 }
 
+/// Where a diagram's text stands at rest in one way the deck lays out (PLAN 2.110): on its own
+/// canvas (`format` none), or in a format it lays out anew (ADR-0020), with every node's box there.
+pub struct Laid<'a> {
+    pub format: Option<&'a str>,
+    pub boxes: &'a [NodeBox],
+}
+
 /// The patch that draws text `node`'s lines in `state` as a diagram of `kind` (PLAN 2.110), in
-/// the place the text takes there: a container placed as the text is, holding a box for each step
-/// with its words, and the connectors between them. `rest` is the text's box at rest there, canvas
-/// units, which sizes a process's boxes and sets a hierarchy's to one column's width.
+/// the place the text takes there: a container placed as the text is, listed where the text is
+/// (so it lays out, paints, and reads where the text did), holding a box for each step with its
+/// words, and the connectors between them. `laid` is the state at rest on the deck's own canvas,
+/// first, and in each format it lays out anew: the text's box in each sizes a process's boxes and
+/// sets which way it runs, and sets a hierarchy's boxes to one column's width, there. A text in a
+/// stack with no size of its own takes the share of the stack's room its box did, and its shape.
 ///
 /// Each line that holds words is a step, at its list level: a process's or a cycle's steps are its
 /// shallowest lines, each deeper line joining the box above it as a line of its own; a hierarchy's
 /// boxes stand under the nearest shallower line above them. The boxes are filled with the theme's
 /// accent (a hierarchy's below its top with `surface-2`), their words in `body`, centered, shrunk
 /// to fit, in the color that reads on the fill. Refused for a node that is no text, or a shape's
-/// words, and for lines a diagram of `kind` cannot draw: one step, a cycle of two, more steps than
-/// fit, or a hierarchy with no line under another. `files` is the bundle's, which the patch is
-/// made on.
+/// words, for one that is locked or held by what is (PLAN 2.95), which nothing deletes, and for
+/// lines a diagram of `kind` cannot draw: one step, a cycle of two, more steps than fit, or a
+/// hierarchy with no line under another. `files` is the bundle's, which the patch is made on.
+#[allow(clippy::too_many_arguments)]
 pub fn diagramming(
     deck: &Deck,
     theme: &Theme,
@@ -93,7 +105,7 @@ pub fn diagramming(
     state: &str,
     node: &str,
     kind: Diagram,
-    rest: [f32; 4],
+    laid: &[Laid<'_>],
 ) -> Result<Diagrammed, OpsError> {
     let snaps = scaena_core::resolve_states(deck).context("tracking")?;
     let snap =
@@ -106,6 +118,27 @@ pub fn diagramming(
     if scaena_core::tracking::words_of(deck, found).is_some() {
         return Err(OpsError::new(format!("`{node}` is a shape's words: a diagram is drawn from a text of its own")));
     }
+    // The text goes, and nothing deletes what is locked, or held by what is (PLAN 2.95).
+    let parent_of = |id: &str| snap.nodes.get(id)?.get("at")?.get("parent")?.as_str();
+    let mut up = Some(node);
+    for _ in 0..=deck.nodes.len() {
+        let Some(id) = up else { break };
+        if deck.nodes.get(id).and_then(|n| n.props.get("locked")).and_then(Value::as_bool) == Some(true) {
+            return Err(OpsError::new(if id == node {
+                format!("`{node}` is locked: unlock it, then draw its lines as a diagram")
+            } else {
+                format!("`{node}` is in `{id}`, which is locked: unlock it, then draw its lines as a diagram")
+            }));
+        }
+        up = parent_of(id);
+    }
+    // Where the text stands on the deck's own canvas, and in each format laid out anew.
+    let stands = |boxes: &[NodeBox]| boxes.iter().find(|b| b.node == node).map(|b| b.rect);
+    let rest = (laid.iter().find(|l| l.format.is_none()))
+        .and_then(|l| stands(l.boxes))
+        .ok_or_else(|| OpsError::new(format!("`{node}` stands nowhere in `{state}`")))?;
+    let elsewhere: Vec<(&str, [f32; 4], &[NodeBox])> =
+        laid.iter().filter_map(|l| Some((l.format?, stands(l.boxes)?, l.boxes))).collect();
     let lines = lines(props);
     if lines.len() < 2 {
         return Err(OpsError::new("a diagram takes two lines or more: put each step on a line of its own"));
@@ -125,32 +158,67 @@ pub fn diagramming(
     };
     let id = name(format!("{node}-{container}"));
     let mut holder = json!({ "type": if kind == Diagram::Process { "stack" } else { "grid" }, "name": title });
-    // In the text's place, as the text is placed there, in each format too.
+    // In the text's place, as the text is placed there, in each format too. A text's `at.align`
+    // places its lines in its cell and sizes nothing: the container fills the cell.
+    let placed = |key: &str, v: &Value| {
+        let mut v = v.clone();
+        if let (Some(at), "at") = (v.as_object_mut(), key) {
+            at.remove("align");
+        }
+        v
+    };
     for key in ["at", "size", "z", "transform"] {
         if let Some(v) = props.get(key) {
-            holder[key] = v.clone();
+            holder[key] = placed(key, v);
         }
     }
-    if let Some(Value::Object(formats)) = props.get("formats") {
-        let placed: serde_json::Map<String, Value> = formats
-            .iter()
-            .filter_map(|(format, layout)| {
-                let kept: serde_json::Map<String, Value> = ["at", "size", "transform"]
-                    .iter()
-                    .filter_map(|k| layout.get(*k).map(|v| (k.to_string(), v.clone())))
-                    .collect();
-                (!kept.is_empty()).then(|| (format.clone(), Value::Object(kept)))
-            })
-            .collect();
-        if !placed.is_empty() {
-            holder["formats"] = Value::Object(placed);
+    let theirs = |format: &str| props.get("formats").and_then(|f| f.get(format));
+    for (format, layout) in props.get("formats").and_then(Value::as_object).into_iter().flatten() {
+        for key in ["at", "size", "transform"] {
+            if let Some(v) = layout.get(key) {
+                holder["formats"][format][key] = placed(key, v);
+            }
+        }
+    }
+    // A text in a stack with no size of its own is as large as its lines; a container has none,
+    // so it takes the share of the stack's room the text's box took, along the stack, and the
+    // box's shape, so it is as large across it, and along a stack as large as what it holds.
+    let stack = parent_of(node).filter(|p| deck.nodes.get(*p).is_some_and(|n| n.node_type == NodeType::Stack));
+    let share = |format: Option<&str>, boxes: &[NodeBox], rest: [f32; 4]| -> Option<Value> {
+        let stack = stack?;
+        let held = snap.nodes.get(stack)?;
+        let own = |key: &str| format.and_then(|f| held.get("formats")?.get(f)?.get(key)).or(held.get(key));
+        let mut laid_out = held.clone();
+        if let Some(padding) = own("padding") {
+            laid_out.insert("padding".into(), padding.clone());
+        }
+        let [top, right, bottom, left] = scaena_engine::containers::padding(theme, &laid_out).ok()?;
+        let outer = boxes.iter().find(|b| b.node == stack)?.rect;
+        let across = own("axis").and_then(Value::as_str) == Some("x");
+        let (part, room, key) =
+            if across { (rest[2], outer[2] - left - right, "w") } else { (rest[3], outer[3] - top - bottom, "h") };
+        let hundredths = |v: f32| (v * 100.0).round() / 100.0;
+        let shape = format!("{}:{}", hundredths(rest[2]), hundredths(rest[3]));
+        (room > 0.0 && part > 0.0 && rest[2] > 0.0 && rest[3] > 0.0)
+            .then(|| json!({ key: format!("{}%", hundredths(100.0 * part / room)), "aspect": shape }))
+    };
+    if props.get("size").is_none() {
+        let base = laid.iter().find(|l| l.format.is_none()).map_or(&[][..], |l| l.boxes);
+        let size = share(None, base, rest);
+        if let Some(size) = &size {
+            holder["size"] = size.clone();
+        }
+        for (format, there, boxes) in &elsewhere {
+            let sized = theirs(format).is_some_and(|l| l.get("size").is_some());
+            if let Some(other) = share(Some(format), boxes, *there).filter(|s| !sized && Some(s) != size.as_ref()) {
+                holder["formats"][*format]["size"] = other;
+            }
         }
     }
 
     // Each box, as `(id, words, its own props)`, and each connector, `(from, to)`.
     let mut boxes: Vec<(String, String, Value)> = Vec::new();
     let mut joins: Vec<(String, String)> = Vec::new();
-    let [_, _, w, h] = rest;
     match kind {
         Diagram::Process | Diagram::Cycle => {
             let steps = steps(&lines);
@@ -171,17 +239,37 @@ pub fn diagramming(
             }
             let ids: Vec<String> = (1..=n).map(|k| name(format!("{id}-{k}"))).collect();
             if kind == Diagram::Process {
-                let across = w >= h;
-                holder["axis"] = json!(if across { "x" } else { "y" });
+                // Across where the text's place is wider than tall, each box as tall as four thirds
+                // of its width where the place has the room; down where it is taller.
+                let runs = |[_, _, w, h]: [f32; 4]| -> (&str, Value) {
+                    if w < h {
+                        return ("y", json!({}));
+                    }
+                    let wide = (w - (n - 1) as f32 * look.gap_length) / n as f32;
+                    let tall = (100.0 * 0.75 * wide / h.max(1.0)).clamp(10.0, 100.0).round();
+                    ("x", json!({ "h": format!("{tall}%") }))
+                };
+                let (axis, size) = runs(rest);
+                holder["axis"] = json!(axis);
                 holder["gap"] = json!(look.gap);
+                // In a format where the place is otherwise, it runs as that place does.
+                let other: Vec<(&str, &str, Value)> = (elsewhere.iter())
+                    .map(|(format, there, _)| (*format, runs(*there)))
+                    .filter(|(_, (a, s))| (*a, s) != (axis, &size))
+                    .map(|(format, (a, s))| (format, a, s))
+                    .collect();
+                for (format, a, _) in &other {
+                    if *a != axis {
+                        holder["formats"][*format]["axis"] = json!(a);
+                    }
+                }
                 for (box_id, words) in ids.iter().zip(steps) {
-                    let mut own = json!({ "at": { "parent": id } });
-                    if across {
-                        // As tall as four thirds of its width, where the text's place has the room.
-                        let wide = (w - (n - 1) as f32 * look.gap_length) / n as f32;
-                        let tall = (100.0 * 0.75 * wide / h.max(1.0)).clamp(10.0, 100.0).round();
-                        own["size"] = json!({ "h": format!("{tall}%") });
-                        own["at"]["align"] = json!({ "y": "center" });
+                    let mut own = json!({ "at": { "parent": id, "align": { "y": "center" } } });
+                    if axis == "x" {
+                        own["size"] = size.clone();
+                    }
+                    for (format, _, s) in &other {
+                        own["formats"][*format]["size"] = s.clone();
                     }
                     boxes.push((box_id.clone(), words, own));
                 }
@@ -218,9 +306,13 @@ pub fn diagramming(
             holder["cols"] = json!(wide);
             holder["rows"] = json!(levels);
             holder["gap"] = json!(look.gap);
-            // One column's width, as a share of a box's columns with the gaps between them.
-            let column = (w - (wide - 1) as f32 * look.gap_length) / wide as f32;
-            let mut placed = Placed { id: &id, look: &look, column, boxes: &mut boxes, joins: &mut joins };
+            // One column's width, as a share of a box's columns with the gaps between them: on the
+            // deck's own canvas, and in each format laid out anew.
+            let column = |[_, _, w, _]: [f32; 4]| (w - (wide - 1) as f32 * look.gap_length) / wide as f32;
+            let columns: Vec<(Option<&str>, f32)> = std::iter::once((None, column(rest)))
+                .chain(elsewhere.iter().map(|(format, there, _)| (Some(*format), column(*there))))
+                .collect();
+            let mut placed = Placed { id: &id, look: &look, columns, boxes: &mut boxes, joins: &mut joins };
             let mut first = 1;
             for root in &roots {
                 placed.place(root, 0, first, None, &mut name);
@@ -273,7 +365,9 @@ pub fn diagramming(
     for (add, node_value) in adds {
         let node_value: Node = serde_json::from_value(node_value).context("a diagram's node")?;
         made.push((add.clone(), node_value.clone()));
-        ops.push(SemanticOp::AddNode { id: add, node: node_value, state: Some(state.into()), props: None });
+        // The container listed just after the text, which it takes the place of in its order.
+        let after = (add == id).then(|| node.to_string());
+        ops.push(SemanticOp::AddNode { id: add, node: node_value, state: Some(state.into()), props: None, after });
     }
     // Kept to the slide: the container and its boxes leave, and the words and the connectors with
     // them.
@@ -332,8 +426,9 @@ impl Look {
 struct Placed<'a> {
     id: &'a str,
     look: &'a Look,
-    /// One column's width, canvas units.
-    column: f32,
+    /// One column's width, canvas units: on the deck's own canvas first, then in each format laid
+    /// out anew.
+    columns: Vec<(Option<&'a str>, f32)>,
     boxes: &'a mut Vec<(String, String, Value)>,
     joins: &'a mut Vec<(String, String)>,
 }
@@ -352,10 +447,21 @@ impl Placed<'_> {
         let mut own =
             json!({ "at": { "parent": self.id, "col": [first, first + span - 1], "row": [level + 1, level + 1] } });
         if span > 1 {
-            // A share of the box's columns and the gaps between them that is one column.
-            let whole = span as f32 * self.column + (span - 1) as f32 * self.look.gap_length;
-            let share = (100.0 * self.column / whole.max(1.0) * 100.0).round() / 100.0;
-            own["size"] = json!({ "w": format!("{share}%") });
+            // A share of the box's columns and the gaps between them that is one column, in a
+            // format where it is otherwise that format's.
+            let share = |column: f32| {
+                let whole = span as f32 * column + (span - 1) as f32 * self.look.gap_length;
+                let share = (100.0 * column / whole.max(1.0) * 100.0).round() / 100.0;
+                json!({ "w": format!("{share}%") })
+            };
+            let base = self.columns.first().map_or(json!({}), |(_, column)| share(*column));
+            for (format, column) in &self.columns[1..] {
+                let there = share(*column);
+                if let (Some(format), true) = (format, there != base) {
+                    own["formats"][*format]["size"] = there;
+                }
+            }
+            own["size"] = base;
             own["at"]["align"] = json!({ "x": "center" });
         }
         if level > 0 {
@@ -492,7 +598,10 @@ mod tests {
         let doc = listed();
         let deck = Deck::from_value(&doc).unwrap();
         let rest = [120.0, 700.0, 1680.0, 240.0];
-        let draw = |kind| diagramming(&deck, &theme, &Examples, "intro", "subtitle", kind, rest);
+        let stood = |node: &str| NodeBox { node: node.into(), rect: rest, parent: None, draws: true, transform: None };
+        let boxes = [stood("subtitle"), stood("title"), stood("rev")];
+        let laid = [Laid { format: None, boxes: &boxes }];
+        let draw = |kind| diagramming(&deck, &theme, &Examples, "intro", "subtitle", kind, &laid);
         let ops = |made: &Diagrammed, op: &str| -> Vec<Value> {
             made.patch.iter().filter(|o| o["op"] == op).cloned().collect()
         };
@@ -561,7 +670,7 @@ mod tests {
 
         // Refused: one line, a hierarchy of lines at one level, a cycle of two, what is no text.
         let refused = |node: &str, kind| {
-            diagramming(&deck, &theme, &Examples, "intro", node, kind, rest).unwrap_err().to_string()
+            diagramming(&deck, &theme, &Examples, "intro", node, kind, &laid).unwrap_err().to_string()
         };
         assert!(refused("title", Diagram::Process).contains("two lines or more"));
         let mut flat = listed();
@@ -570,10 +679,10 @@ mod tests {
         flat["nodes"]["subtitle"]["text"] = json!("Plan\nBuild");
         let flat = Deck::from_value(&flat).unwrap();
         let said =
-            |kind| diagramming(&flat, &theme, &Examples, "intro", "subtitle", kind, rest).unwrap_err().to_string();
+            |kind| diagramming(&flat, &theme, &Examples, "intro", "subtitle", kind, &laid).unwrap_err().to_string();
         assert!(said(Diagram::Hierarchy).contains("lines under others"));
         assert!(said(Diagram::Cycle).contains("three steps or more"));
-        let chart = diagramming(&deck, &theme, &Examples, "revenue", "rev", Diagram::Process, rest).unwrap_err();
+        let chart = diagramming(&deck, &theme, &Examples, "revenue", "rev", Diagram::Process, &laid).unwrap_err();
         assert!(chart.to_string().contains("no text"), "{chart}");
     }
 

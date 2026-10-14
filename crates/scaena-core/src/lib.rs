@@ -89,8 +89,9 @@ pub const THEME_FORMAT_VERSION: &str = "0.16";
 
 /// The oldest deck format this crate reads (SPEC §3.1, [`version`]). Every format since has only
 /// added to what a deck may say, so a deck saved in one reads as the current format. A format
-/// that takes anything away, or narrows what a value may be, raises it: 0.4 moved a container's
-/// `children` to each child's `at.parent`.
+/// that takes anything away, or narrows what a value may be, raises it, or reads the older ones as
+/// they drew ([`version`]): 0.4 moved a container's `children` to each child's `at.parent`, and a
+/// deck saved before 0.25 reads without its `shadow`s, which drew nothing then.
 pub const OLDEST_FORMAT_VERSION: &str = "0.4";
 
 /// The oldest theme format this crate reads, as [`OLDEST_FORMAT_VERSION`] is a deck's: 0.5 gave

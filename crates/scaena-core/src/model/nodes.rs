@@ -307,7 +307,31 @@ node! {
 #[serde(untagged)]
 pub enum ShadowRef {
     Named(String),
-    Written(IndexMap<String, Value>),
+    Written(WrittenShadow),
+}
+
+/// A shadow written out (PLAN 2.115): these keys and no others, so one written as CSS writes
+/// one (`spread`) is an error at the key, where it is written.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct WrittenShadow {
+    /// How far right of the node it falls; left where it is negative. None by default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x: Option<Length>,
+    /// How far below the node it falls; above where it is negative. None by default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub y: Option<Length>,
+    /// How soft its edge is: the blur's radius, twice the deviation of the Gaussian it is
+    /// drawn with. None by default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blur: Option<Length>,
+    /// A theme color: black by default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<Color>,
+    /// How dark it is, from 0 to 1: 1 by default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0, max = 1))]
+    pub opacity: Option<f64>,
 }
 
 /// What a connector joins (PLAN 2.109): the node it runs from, the node it runs to, and how.
