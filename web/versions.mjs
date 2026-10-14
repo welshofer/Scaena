@@ -7,7 +7,8 @@
 //
 // - The tab lists the history's changes, the newest first, each by its author and when.
 // - A version chosen shows a state of it at rest, read only, and what changed from it to the deck
-//   now; or, chosen, to another version.
+//   now, in a person's words, a text whose words changed named by its words before; or, chosen,
+//   to another version.
 // - Restore makes it the deck again, with the data file it read, as one change: ⌘Z in the source
 //   puts the deck and the data file back as they were, ⇧⌘Z restores them again, and a save
 //   records the restore in the history, by the user.
@@ -137,6 +138,10 @@ try {
       now.includes("q3-revenue.csv changed"),
     `what changed from it to the deck now: ${JSON.stringify(now)}`,
   );
+  // A text whose words changed is named by its words before, which tells two texts apart, and the
+  // deck's own fields in a person's words: its spine is its story.
+  check(now.some((l) => l.includes("“Q3 Review”: its words now “Revenue tripled”")), `the title named by its words before: ${JSON.stringify(now)}`);
+  check(!now.some((l) => /spine|the text:/.test(l)), `no word of the format's: ${JSON.stringify(now)}`);
   await page.selectOption("#versions [data-state]", "mix");
   await settled();
   const mix = await drawn();

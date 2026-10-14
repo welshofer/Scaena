@@ -115,3 +115,20 @@ fn every_shipped_layout_draws_its_example_in_each_slot_that_waits() {
     }
     assert!(drawn > 150, "examples drawn: {drawn}");
 }
+
+/// A list's points are read from the back of the room: each shipped theme's list layouts set them
+/// in a role larger than its body, as Statements' credo sets its own, so three of them do not sit
+/// small in the top of the slot.
+#[test]
+fn a_lists_points_are_set_larger_than_the_body() {
+    for (name, path) in SHIPPED {
+        let theme = scaena_core::model::Theme::from_json(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let size = |role: &str| theme.typography.roles[role].size;
+        for (layout, slot) in
+            [("bullets", "body"), ("numbered", "body"), ("bullets-photo", "body"), ("agenda-photo", "body")]
+        {
+            let role = theme.layouts[layout].slots[slot].role.clone().unwrap();
+            assert!(size(&role) > size("body"), "{name}'s {layout} sets its points in {role}, no larger than the body");
+        }
+    }
+}
