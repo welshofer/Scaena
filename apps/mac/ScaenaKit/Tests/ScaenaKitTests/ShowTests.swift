@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import ScaenaKit
 import Testing
@@ -106,4 +107,56 @@ private func slots() throws -> [ScaenaSession.Slot] {
     show.type(3)
     show.untype(all: true)
     #expect(show.typed.isEmpty)
+}
+
+/// A hold runs as the browser's player runs one (PLAN 2.105): the screen black or white stops it
+/// where it stands, and the slide back runs on with what was left of it; a slide's number the deck
+/// lacks leaves it running; and the slide back where no hold ran, as after going back, runs none.
+@Test func aHoldStopsUnderABlackScreenAndRunsOnWithWhatWasLeft() throws {
+    let start = Date(timeIntervalSinceReferenceDate: 0)
+    let at = { (seconds: Double) in start.addingTimeInterval(seconds) }
+    var show = Show(slots: try slots(), from: "why")
+    show.playhead = .rest
+    let hold = show.rested(at: start)
+    #expect(hold == 1000)
+    #expect(show.holding(at: at(0.25)) == 750)
+    show.blanking(.black, at: at(0.25))
+    #expect(show.holding(at: at(5)) == nil, "no hold runs under a black screen")
+    show.blanking(.white, at: at(6))
+    #expect(show.holding(at: at(7)) == nil, "nor under a white one")
+    show.unblank(at: at(10))
+    #expect(show.holding(at: at(10)) == 750, "the slide back runs on with what was left")
+    #expect(show.holding(at: at(10.5)) == 250)
+
+    // A number the deck lacks leaves the show as it was, its hold running.
+    show.type(9)
+    let nowhere = show.goTyped()
+    #expect(!nowhere && show.holding(at: at(10.5)) == 250)
+
+    // Back onto a state that holds, it waits to be told: the slide back after a black screen runs
+    // no hold there, where none ran.
+    show.on()
+    #expect(show.slot?.state == "end" && show.holding(at: at(11)) == nil)
+    show.back()
+    #expect(show.slot?.state == "why" && show.holding(at: at(11)) == nil)
+    show.blanking(.black, at: at(12))
+    show.unblank(at: at(13))
+    #expect(show.holding(at: at(13)) == nil, "the slide back starts no hold that was not running")
+}
+
+/// A touch held as the laser (PLAN 2.105): it points while it is down, and its lifting turns no
+/// slide for half a second after; one whose gesture is cancelled, as when its view goes, points no
+/// more, and the next tap turns a slide.
+@Test func aTouchHeldAsTheLaserIsLetGoWhenItsGestureIsCancelled() {
+    let start = Date(timeIntervalSinceReferenceDate: 0)
+    var touch = HeldTouch()
+    #expect(!touch.lifting(at: start) && touch.at == nil)
+    touch.hold(CGPoint(x: 0.5, y: 0.5))
+    #expect(touch.down && touch.at == CGPoint(x: 0.5, y: 0.5) && touch.lifting(at: start))
+    touch.lift(at: start)
+    #expect(touch.at == nil && touch.lifting(at: start.addingTimeInterval(0.25)))
+    #expect(!touch.lifting(at: start.addingTimeInterval(1)))
+    touch.hold(CGPoint(x: 0.25, y: 0.75))
+    touch.cancel()
+    #expect(!touch.down && touch.at == nil && !touch.lifting(at: start.addingTimeInterval(5)))
 }

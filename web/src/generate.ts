@@ -316,7 +316,7 @@ export async function picture(
   });
   if (!made) throw new Error(why ?? "no picture was made");
   const [path, bytes] = [...made.bytes][0] ?? [];
-  if (!path || !bytes) throw new Error((why ?? "no picture was made").replace(/^slide 1: /, ""));
+  if (!path || !bytes) throw new Error(why ?? "no picture was made");
   const alt = (JSON.parse(made.placed) as Record<string, { alt: string }>)["0"]?.alt ?? job.subject.trim();
   return { bytes, ext: path.replace(/^.*\./, ""), alt, model: made.model };
 }

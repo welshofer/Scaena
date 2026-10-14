@@ -35,6 +35,8 @@ struct Inspector: View {
     @State private var look: ThemeLook?
     /// Each node's words, as a reader hears them: what names it.
     @State private var words: [String: String] = [:]
+    /// Each node's kind, as the engine names it: a shape of the library by its shape (PLAN 2.106).
+    @State private var kinds: [String: String] = [:]
     /// The box the node selected is placed by, canvas units, where a position typed can move it.
     @State private var placed: CGRect?
     @State private var showsObjects = false
@@ -307,7 +309,8 @@ struct Inspector: View {
             DisclosureGroup("Objects on This Slide", isExpanded: $showsObjects) {
                 ForEach(rows, id: \.layer.node) { row in
                     ObjectRow(
-                        layer: row.layer, name: Words.node(row.layer.type, words: words[row.layer.node]),
+                        layer: row.layer,
+                        name: Words.node(row.layer.type, words: words[row.layer.node], kind: kinds[row.layer.node]),
                         depth: row.depth, selected: row.layer.node == node, lock: { lock(row.layer) }
                     ) {
                         node = row.layer.node
@@ -469,6 +472,7 @@ struct Inspector: View {
         for part in (try? session.reads(state: state)) ?? [] where !part.text.isEmpty {
             words[part.node] = part.text
         }
+        kinds = (try? session.kinds(state: state)) ?? [:]
         placed = nil
         if !also.isEmpty {
             shared = Field.shared(selected.compactMap { try? session.choices(state: state, node: $0) })

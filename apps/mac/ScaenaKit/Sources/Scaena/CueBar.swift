@@ -186,10 +186,11 @@ struct CueBar: View {
             }
         }
         walk((try? session.layers(state: state)) ?? [])
+        let kinds = (try? session.kinds(state: state)) ?? [:]
         var names: [String: Named] = [:]
         for node in nodes where names[node] == nil {
             let text = words[node] ?? (types[node] == "text" ? (try? session.text(state: state, node: node)) ?? nil : nil)
-            names[node] = Named(type: types[node], words: text)
+            names[node] = Named(type: types[node], words: text, kind: kinds[node])
         }
         return names
     }
@@ -243,9 +244,9 @@ private struct Named {
     let name: String
     let quoted: String
 
-    init(type: String?, words: String?) {
-        name = Words.node(type, words: words)
-        quoted = name == Words.kind(type) ? "the \(name.lowercased())" : "\u{201C}\(name)\u{201D}"
+    init(type: String?, words: String?, kind: String? = nil) {
+        name = Words.node(type, words: words, kind: kind)
+        quoted = name == (kind ?? Words.kind(type)) ? "the \(name.lowercased())" : "\u{201C}\(name)\u{201D}"
     }
 }
 
