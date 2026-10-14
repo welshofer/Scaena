@@ -112,9 +112,11 @@ pub struct Engine {
     /// The global timeline's states as far as last worked out, and a hash of the deck,
     /// theme, and data they were worked out from.
     timeline: Option<(u64, Spans)>,
-    /// Each state's span, ms, by a hash of all it is worked out from ([`span_key`]): kept from
-    /// deck to deck, so a deck an edit changed in a few states works out only theirs again.
-    spans: HashMap<u64, f64>,
+    /// Each state's span, ms, by a hash of all it is worked out from ([`span_key`]), where the
+    /// engine keeps them ([`Engine::with_timed`]): kept from deck to deck, so a deck an edit
+    /// changed in a few states works out only theirs again. An engine made for one deck, as a
+    /// render or an export makes one, keeps none: the hashes would cost it and buy nothing.
+    spans: Option<HashMap<u64, f64>>,
     /// Lay out what a frame refuses (text under `fit: error` that does not fit, a table
     /// whose rows do not), for lint to report: set only while lint runs.
     pub(crate) lenient: bool,
@@ -130,13 +132,13 @@ impl Engine {
     /// What this engine has worked out of the global timeline, for an engine made again from the
     /// same files.
     pub fn timed(&self) -> Timed {
-        Timed(self.spans.clone())
+        Timed(self.spans.clone().unwrap_or_default())
     }
 
     /// This engine, with what an engine made from the same files worked out of the global
-    /// timeline ([`Engine::timed`]).
+    /// timeline ([`Engine::timed`]), keeping each state's span from here on as an editor's does.
     pub fn with_timed(mut self, timed: Timed) -> Self {
-        self.spans = timed.0;
+        self.spans = Some(timed.0);
         self
     }
 
@@ -146,7 +148,7 @@ impl Engine {
             images: BundleImages::new(),
             text: TextEngine::new(),
             timeline: None,
-            spans: HashMap::new(),
+            spans: None,
             lenient: false,
         }
     }
@@ -252,13 +254,18 @@ impl Engine {
             _ => Vec::new(),
         };
         let snapshots = if states.len() <= last { scaena_core::resolve_states(deck)? } else { Vec::new() };
-        let drawn = if states.len() <= last { drawn_from(deck, theme, data) } else { 0 };
-        if self.spans.len() > SPANS_KEPT {
-            self.spans.clear();
+        let keep = self.spans.is_some() && states.len() <= last;
+        let drawn = if keep { drawn_from(deck, theme, data) } else { 0 };
+        if let Some(spans) = &mut self.spans
+            && spans.len() > SPANS_KEPT
+        {
+            spans.clear();
         }
         for (i, state) in deck.states.iter().enumerate().take(last + 1).skip(states.len()) {
-            let key = span_key(drawn, deck, &snapshots, i);
-            if let Some(&span) = self.spans.get(&key) {
+            let key = keep.then(|| span_key(drawn, deck, &snapshots, i));
+            if let (Some(key), Some(spans)) = (key, &self.spans)
+                && let Some(&span) = spans.get(&key)
+            {
                 states.push((state.id.clone(), span, state.hold.unwrap_or(0.0)));
                 continue;
             }
@@ -275,7 +282,9 @@ impl Engine {
                 };
                 scaena_core::timeline::schedule(timing.clock(), &items, &mut units).span
             };
-            self.spans.insert(key, span);
+            if let (Some(key), Some(spans)) = (key, &mut self.spans) {
+                spans.insert(key, span);
+            }
             states.push((state.id.clone(), span, state.hold.unwrap_or(0.0)));
         }
         let timeline = Timeline::new(states.iter().take(last + 1).cloned());

@@ -7,7 +7,7 @@ use scaena_core::displaylist::{DisplayList, Op};
 use scaena_engine::data::DataFiles;
 use scaena_engine::fonts::BundleFonts;
 use scaena_engine::theme::Theme;
-use scaena_engine::{Engine, Frame, FrameRequest};
+use scaena_engine::{Engine, Frame, FrameRequest, Timed};
 use serde_json::{Value, json};
 
 const BUNDLE: &str = "../../tests/fixtures/torture.scaena";
@@ -725,6 +725,8 @@ fn an_edited_deck_is_timed_as_a_fresh_engine_times_it() {
     };
     let nodes = json!({ "t": text("One two three", "main") });
     let mut fx = Fx::new(deck(nodes.clone(), json!([split("a"), split("b"), split("c")])), theme(|_| {}));
+    // An editor's engine keeps each state's span; one made for a render keeps none.
+    fx.engine = std::mem::replace(&mut fx.engine, Engine::new(BundleFonts::new())).with_timed(Timed::default());
     let spans = |timeline: &scaena_core::timeline::Timeline| -> Vec<(f64, f64)> {
         timeline.slots.iter().map(|s| (s.start, s.span)).collect()
     };
