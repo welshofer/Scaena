@@ -78,6 +78,8 @@ patch_accept = {
     'a test of the whole document': ops({'op': 'test', 'path': '', 'value': {}}),
     'a state added with its deltas': ops({'op': 'add_state', 'state': {'id': 'b', 'props': {'t': {'at': {'in': None}}}}}),
     'a theme inline': ops({'op': 'retheme', 'theme': {'scaena-theme': '0.14'}}),
+    "a slide transition's style": ops({'op': 'set_state', 'id': 'mix', 'prop': 'transition/style', 'value': 'push'}),
+    "a slide transition's direction": ops({'op': 'set_state', 'id': 'mix', 'prop': 'transition/direction', 'value': 'up'}),
 }
 for name, inst in patch_reject.items():
     assert list(Draft202012Validator(patch_schema).iter_errors(inst)), f"patch schema failed to reject {name}"

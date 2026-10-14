@@ -168,6 +168,22 @@ impl Spring {
         }
     }
 
+    /// The time in seconds it first reaches its target from rest, where an under-damped spring
+    /// swings on past it: the first zero of [`Spring::position`]'s displacement,
+    /// `(π − atan(ω_d / ζω₀)) / ω_d`. `None` for a spring damped enough that it only nears it.
+    pub fn arrival(&self) -> Option<f64> {
+        let m = self.mass.max(1e-9);
+        let k = self.stiffness.max(1e-9);
+        let c = self.damping.max(0.0);
+        let w0 = (k / m).sqrt();
+        let zeta = c / (2.0 * (k * m).sqrt());
+        if zeta >= 1.0 || (zeta - 1.0).abs() < 1e-9 {
+            return None;
+        }
+        let wd = w0 * (1.0 - zeta * zeta).sqrt();
+        Some((core::f64::consts::PI - libm::atan2(wd, zeta * w0)) / wd)
+    }
+
     /// Velocity at time `t` seconds (numerical derivative; adequate for settle checks).
     pub fn velocity(&self, t: f64, v0: f64) -> f64 {
         let h = 1e-4;
@@ -242,6 +258,18 @@ mod tests {
         assert!(heavy.settle_time(0.0) < 3.0);
         let crit = Spring { stiffness: 100.0, damping: 20.0, mass: 1.0 };
         assert!((crit.position(5.0, 0.0) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn an_underdamped_spring_arrives_before_it_swings_past() {
+        let bouncy = Spring { stiffness: 400.0, damping: 18.0, mass: 1.0 };
+        let t = bouncy.arrival().unwrap();
+        assert!((bouncy.position(t, 0.0) - 1.0).abs() < 1e-9, "at its target at {t} s");
+        assert!(bouncy.position(t - 0.005, 0.0) < 1.0 && bouncy.position(t + 0.005, 0.0) > 1.0);
+        assert!((0..1000).map(|i| t * i as f64 / 1000.0).all(|s| bouncy.position(s, 0.0) <= 1.0));
+        assert!(t < bouncy.settle_time(0.0));
+        assert_eq!(Spring { stiffness: 100.0, damping: 20.0, mass: 1.0 }.arrival(), None, "critically damped");
+        assert_eq!(Spring { stiffness: 100.0, damping: 40.0, mass: 1.0 }.arrival(), None, "overdamped");
     }
 
     #[test]

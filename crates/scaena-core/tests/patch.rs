@@ -1206,6 +1206,79 @@ fn choose_writes_a_choice_where_the_property_lives() {
     assert!(e.contains("not a property"), "{e}");
 }
 
+/// What never tracks (`emphasis`, SPEC §2.2) is chosen in the state shown: a step that tracks the
+/// one before it gets its own, the one before keeps its own, and a node that enters with its own
+/// has it changed there.
+#[test]
+fn choose_writes_what_never_tracks_in_the_state_shown() {
+    let emphasis = |doc: &Value, i: usize| {
+        let snaps = scaena_core::resolve_states(&deck(doc)).unwrap();
+        snaps[i].nodes["note"].get("emphasis").cloned()
+    };
+    let choose = |doc: &Value, value: Value, state: &str| {
+        let op = json!({ "op": "choose", "node": "note", "prop": "emphasis", "value": value, "state": state });
+        patch(doc, json!([op])).unwrap()
+    };
+    // The note enters in `revenue`, and `mix` tracks it: Pulse chosen in `mix` is `mix`'s own.
+    let c = choose(&example(), json!("pulse"), "mix");
+    assert_eq!(rfc(&c), json!([{ "op": "add", "path": "/states/2/props/note", "value": { "emphasis": "pulse" } }]));
+    assert_eq!((emphasis(&c.doc, 1), emphasis(&c.doc, 2)), (None, Some(json!("pulse"))));
+    assert!(errors(&c.doc).is_empty(), "{:?}", errors(&c.doc));
+
+    // `revenue`'s Pulse stays where it is when Blink is chosen in `mix`.
+    let pulsed = choose(&example(), json!("pulse"), "revenue");
+    assert_eq!(rfc(&pulsed), json!([{ "op": "add", "path": "/states/1/props/note/emphasis", "value": "pulse" }]));
+    let c = choose(&pulsed.doc, json!("blink"), "mix");
+    assert_eq!(rfc(&c), json!([{ "op": "add", "path": "/states/2/props/note", "value": { "emphasis": "blink" } }]));
+    assert_eq!((emphasis(&c.doc, 1), emphasis(&c.doc, 2)), (Some(json!("pulse")), Some(json!("blink"))));
+    // Taken away in `mix`, it goes from there alone.
+    let c = choose(&c.doc, Value::Null, "mix");
+    assert_eq!(rfc(&c), json!([{ "op": "remove", "path": "/states/2/props/note/emphasis" }]));
+    assert_eq!((emphasis(&c.doc, 1), emphasis(&c.doc, 2)), (Some(json!("pulse")), None));
+
+    // A node that enters with its own has it changed on the node, where it enters; a step after
+    // gets its own.
+    let mut own = example();
+    own["nodes"]["note"]["emphasis"] = json!("pulse");
+    let c = choose(&own, json!("blink"), "revenue");
+    assert_eq!(rfc(&c), json!([{ "op": "add", "path": "/nodes/note/emphasis", "value": "blink" }]));
+    let c = choose(&own, Value::Null, "revenue");
+    assert_eq!(rfc(&c), json!([{ "op": "remove", "path": "/nodes/note/emphasis" }]));
+    let c = choose(&own, json!("blink"), "mix");
+    assert_eq!(rfc(&c), json!([{ "op": "add", "path": "/states/2/props/note", "value": { "emphasis": "blink" } }]));
+    assert_eq!((emphasis(&c.doc, 1), emphasis(&c.doc, 2)), (Some(json!("pulse")), Some(json!("blink"))));
+}
+
+/// A build splits a node only into what it has (E106, SPEC §3.9): a node's own entrance on a
+/// preset that types a backdrop out letter by letter is the deck's error, as choreography's is.
+#[test]
+fn a_nodes_own_build_splits_only_what_it_has() {
+    let c = patch(
+        &example(),
+        json!([{ "op": "apply_preset", "node": "bg", "preset": "typewriter", "motion": "enter", "state": "close" }]),
+    )
+    .unwrap();
+    let found = errors(&c.doc);
+    assert!(
+        found.iter().any(|e| e.starts_with("E106 `bg`'s enter `typewriter` splits it, a shader node, into glyphs")),
+        "{found:?}"
+    );
+    // A text types out, and a chart's own entrance moves its marks whatever the build splits.
+    let c = patch(
+        &example(),
+        json!([
+            { "op": "apply_preset", "node": "title", "preset": "typewriter", "motion": "enter", "state": "close" },
+            { "op": "apply_preset", "node": "rev", "preset": "words", "motion": "enter", "state": "revenue" },
+        ]),
+    )
+    .unwrap();
+    assert_eq!(errors(&c.doc), Vec::<String>::new());
+    // A chart's marks are not emphasized one by one.
+    let call = json!({ "preset": "pop", "split": "marks" });
+    let c = patch(&example(), json!([{ "op": "add", "path": "/states/1/props/rev/emphasis", "value": call }])).unwrap();
+    assert!(errors(&c.doc).iter().any(|e| e.starts_with("E106 `rev`'s emphasis `pop`")), "{:?}", errors(&c.doc));
+}
+
 #[test]
 fn set_state_writes_a_layout_where_it_lives_and_the_rest_in_the_state() {
     let layouts = |doc: &Value| -> Vec<Option<String>> {

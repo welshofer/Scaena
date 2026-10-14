@@ -1411,7 +1411,7 @@ async function edit(source: Source) {
     const transition =
       cue && cue.transition.duration > 0
         ? style
-          ? `${named(words, "transition/style", style)} transition ${seconds(cue.transition.duration)}, ${named(words, "transition/direction", cue.transition.direction ?? "left")}`
+          ? `${named(words, "transition/style", style)} transition ${seconds(cue.transition.duration)}${cue.transition.direction ? `, ${named(words, "transition/direction", cue.transition.direction)}` : ""}`
           : `transition ${seconds(cue.transition.duration)}, Magic Move ${cue.transition.match === "id" ? "on" : "off"}`
         : "no transition";
     listing.innerHTML = `
