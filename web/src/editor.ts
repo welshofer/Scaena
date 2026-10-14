@@ -632,6 +632,10 @@ async function edit(source: Source) {
   fold((new URLSearchParams(location.search).get("source") ?? remembered) === "open", false);
   const folded = () => framed.classList.contains("folded");
   sourceToggle.onclick = () => fold(folded());
+  /** The inspector's column, or the animations under the canvas, hidden to give the slide their
+   * room, as a presentation app's View menu hides them, or shown again. */
+  const hiding = (what: "panel" | "cue", hide: boolean) => framed.classList.toggle(what === "panel" ? "bare" : "still", hide);
+  const hidden = (what: "panel" | "cue") => framed.classList.contains(what === "panel" ? "bare" : "still");
 
   /** What the last gesture on the canvas or choice in the inspector said: it stays in the status,
    * what lint finds after it, until the source is edited by hand. */
@@ -718,6 +722,7 @@ async function edit(source: Source) {
     source: () => view.state.doc.toString(),
     version: () => version,
     at: (node) => inspected?.nodes[node]?.at as Record<string, unknown> | undefined,
+    type: (node) => typeOf(node),
     transform: (node) => inspected?.nodes[node]?.transform as { rotate?: number; anchor?: [number, number] } | undefined,
     apply: made,
     typed: (source, edited, joins) => {
@@ -1106,6 +1111,9 @@ async function edit(source: Source) {
     format,
     source: () => view.state.doc.toString(),
     show: (index) => {
+      // The slide shown, clicked again, is the slide itself: nothing on it is selected, and the
+      // inspector shows its own settings.
+      if (index === shown) board.select(undefined);
       const start = last?.states[index]?.[1];
       if (start !== undefined) view.dispatch({ selection: { anchor: start }, scrollIntoView: true });
       void show(index);
@@ -1756,8 +1764,10 @@ async function edit(source: Source) {
     },
     put: (target, made) => board.putPicture(target, made),
     say,
-    keys: () => {
+    // The assistant on the provider whose key the picture wants, so the key pasted is kept as its.
+    keys: async (provider) => {
       tab("assistant");
+      await assistant.choose(provider);
       $("#key").focus();
     },
   });
@@ -1832,6 +1842,8 @@ async function edit(source: Source) {
   const typeOf = (node: string) => layering.type(node, showing()?.state ?? "");
   /** Show the tab `id` under the preview, as a click on it does. */
   const tab = (id: "inspector" | "layers" | "data" | "theming" | "files" | "versions" | "story" | "assistant") => {
+    // A tab asked for shows the inspector's column, hidden or not.
+    hiding("panel", false);
     const button = $<HTMLButtonElement>(`#tab-${id}`);
     button.click();
     return button;
@@ -1899,8 +1911,14 @@ async function edit(source: Source) {
         applies: () => one() && typeOf(picked()[0]) === "image",
         run: () => write("describe", picked()[0]),
       },
-      // A picture made by the user's image model in the image's place (PLAN 2.107).
-      { label: "Make a picture to replace it…", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "image", run: () => void picturing.open() },
+      // A picture made by the user's image model in the image's place (PLAN 2.107), unless a lock
+      // holds it (PLAN 2.95), which no picture replaces.
+      {
+        label: "Make a picture to replace it…",
+        where: ["node"],
+        applies: () => one() && typeOf(picked()[0]) === "image" && !board.lockedBy(picked()[0]),
+        run: () => void picturing.open(),
+      },
       // A lock (PLAN 2.95): the canvas passes over what is locked, and moves and deletes nothing of it.
       {
         label: any() && picked().every((n) => board.lockedBy(n) === n) ? "Unlock" : "Lock",
@@ -2012,11 +2030,12 @@ async function edit(source: Source) {
       ...inserts,
       icon,
       // A picture made by the user's image model (PLAN 2.107): in the slide's empty place for one,
-      // else where the pointer last pressed.
+      // else where the pointer last pressed; for an image selected, unless a lock holds it, the
+      // command that replaces it.
       {
         label: "Make a picture…",
         where: ["canvas"],
-        applies: () => ready() && !(picked().length === 1 && typeOf(picked()[0]) === "image"),
+        applies: () => ready() && !(picked().length === 1 && typeOf(picked()[0]) === "image" && !board.lockedBy(picked()[0])),
         run: () => void picturing.open(),
       },
       ...DRAWING.filter(({ key }) => key !== "p").map(
@@ -2093,6 +2112,8 @@ async function edit(source: Source) {
       { label: "Open a folder…", applies: () => !$("#open-folder").hidden, run: () => $("#open-folder").click() },
       { label: "Decks kept in this browser…", run: () => $("#kept").click() },
       { label: "Show the inspector", run: () => tab("inspector").focus() },
+      { label: "Hide the inspector", applies: () => !hidden("panel"), run: () => hiding("panel", true) },
+      { label: hidden("cue") ? "Show the animations" : "Hide the animations", run: () => hiding("cue", !hidden("cue")) },
       { label: "Show the layers", run: () => tab("layers").focus() },
       { label: "Show the data", run: () => tab("data").focus() },
       { label: "Edit the theme", run: () => tab("theming").focus() },

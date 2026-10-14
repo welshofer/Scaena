@@ -16,8 +16,8 @@ export interface PicturingHost {
   /** The picture made, put where it was asked for: one patch, one step to undo. */
   put(target: PictureTarget, made: MadePicture): Promise<void>;
   say(text: string): void;
-  /** Show the assistant, its key in focus: where a key goes. */
-  keys(): void;
+  /** Show the assistant on `provider`, its key in focus: where a key for it goes. */
+  keys(provider: "openai" | "gemini"): void;
 }
 
 type Painter = "openai" | "gemini";
@@ -137,7 +137,7 @@ export function picturer(stage: Stage, host: PicturingHost) {
   $<HTMLButtonElement>("#picturing-cancel").onclick = () => dialog.close();
   key.onclick = () => {
     dialog.close();
-    host.keys();
+    host.keys(by.value as Painter);
   };
   // Closed, by Cancel or Escape: a picture still coming is dropped.
   dialog.addEventListener("close", () => {

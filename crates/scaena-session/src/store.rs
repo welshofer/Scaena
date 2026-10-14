@@ -885,6 +885,26 @@ pub(crate) mod tests {
         assert_eq!(s.file(CSV).unwrap(), original.as_slice());
     }
 
+    /// A value typed in a cell that its column does not read is refused in a person's words (PLAN
+    /// 2.99), the column named as the sheet heads it: no source's name, no backticks; nothing is
+    /// written. The assistant's tool says it as `scaena data` does.
+    #[test]
+    fn a_value_its_column_does_not_read_is_refused_in_words() {
+        let mut s = Session::open(revenue()).unwrap();
+        let original = s.file(CSV).unwrap().to_vec();
+        let user = Caller { author: USER, at: None };
+        let four = q3(json!([{ "op": "set", "row": 2, "column": "revenue", "value": "four" }]));
+        let e = s.data_edit(&four, false, user).unwrap_err().to_string();
+        assert_eq!(e, "The revenue column takes a number: “four” is not one");
+        let added = q3(json!([{ "op": "add", "values": { "quarter": "2026-Q4", "customers": "many" } }]));
+        let e = s.data_edit(&added, false, user).unwrap_err().to_string();
+        assert_eq!(e, "The customers column takes a number: “many” is not one");
+        // What is not a value its column refuses is said as before.
+        let gone = q3(json!([{ "op": "set", "row": 99, "column": "revenue", "value": "1" }]));
+        assert!(s.data_edit(&gone, false, user).unwrap_err().to_string().contains("there is no row 99"));
+        assert_eq!(s.file(CSV).unwrap(), original.as_slice(), "nothing written");
+    }
+
     /// An editor undoes its own changes, never a file's (SPEC §8.2): the Data panel undoes the
     /// assistant's edit of a file, as the source's undo does its edits of the deck, then the
     /// user's; a file changed by other means, dropped on the page, has nothing left to undo.

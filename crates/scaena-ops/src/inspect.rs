@@ -439,6 +439,10 @@ pub struct Motion {
     /// (`/states/1/props/title/enter`, `/nodes/title/exit`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub written: Option<String>,
+    /// The theme's preset it plays, by name, where it is written as one: what an editor names its
+    /// bar by (`fade`, Fade).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preset: Option<String>,
     pub curve: Curve,
     /// An entrance's look before it: what it changes from rest.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1496,6 +1500,7 @@ fn motion(p: &timeline::Placed, doc: &Value, state: &str) -> Motion {
         moving: [ms(p.start), ms(p.end())],
         delay: 0.0,
         written: None,
+        preset: None,
         curve: curve(&p.curve),
         from: None,
         to: None,
@@ -1529,9 +1534,23 @@ fn motion(p: &timeline::Placed, doc: &Value, state: &str) -> Motion {
         }
     };
     if let Ok(written) = scaena_core::patch::written(doc, state, &p.node, timed) {
+        m.preset = doc.pointer(&written.pointer).and_then(|v| preset(v, &m.motion));
         (m.delay, m.written) = (ms(written.delay), Some(written.pointer));
     }
     m
+}
+
+/// The preset a motion written as `v` plays: a preset by name, a call to one (`{ preset, delay }`),
+/// or a choreography item's `kind` of motion, either way.
+fn preset(v: &Value, kind: &str) -> Option<String> {
+    match v {
+        Value::String(name) => Some(name.clone()),
+        Value::Object(o) => match o.get("preset") {
+            Some(Value::String(name)) => Some(name.clone()),
+            _ => o.get(kind).and_then(|v| preset(v, kind)),
+        },
+        _ => None,
+    }
 }
 
 fn change(l: &Look) -> LookChange {
@@ -1670,6 +1689,25 @@ mod tests {
             other => panic!("not a hide of `new`: {other:?}"),
         };
         hides.iter().map(state).collect()
+    }
+
+    /// A cue's bar is named by the preset it plays (PLAN 2.44), however its motion is written: a
+    /// preset by name, a call to one that `time_motion` wrote, or a choreography item's.
+    #[test]
+    fn a_motion_says_the_preset_it_plays() {
+        let b = crate::open(std::path::Path::new("../../docs/examples/revenue.deck.json")).unwrap();
+        let views = Views { timeline: true, ..Views::default() };
+        let seen = inspect(&b, Some("revenue"), views).unwrap();
+        let cue = seen[0].timeline.as_ref().unwrap();
+        let played: Vec<(&str, Option<&str>)> =
+            cue.motions.iter().map(|m| (m.node.as_str(), m.preset.as_deref())).collect();
+        assert_eq!(played, [("rev", Some("grow")), ("note", Some("fade"))]);
+        assert_eq!(preset(&serde_json::json!({ "preset": "fade", "delay": 300 }), "enter").as_deref(), Some("fade"));
+        assert_eq!(
+            preset(&serde_json::json!({ "target": "a", "emphasis": "pulse" }), "emphasis").as_deref(),
+            Some("pulse")
+        );
+        assert_eq!(preset(&serde_json::json!({ "opacity": [[0, 0], [400, 1]] }), "anim"), None);
     }
 
     #[test]

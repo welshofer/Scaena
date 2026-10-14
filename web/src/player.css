@@ -1,36 +1,51 @@
 /* The player's page (PLAN 2.1–2.2): the web player's and a single-file export's (PLAN 2.5). */
 :root { color-scheme: dark; --bar: 44px; }
-body { margin: 0; background: #1d1c1a; color: #ddd; font: 14px system-ui, sans-serif; }
+/* The page is a column: the slide, then the bar at the window's foot. */
+body { margin: 0; background: #1d1c1a; color: #ddd; font: 14px system-ui, sans-serif; display: flex; flex-direction: column; min-height: 100vh; }
 button, select { font: inherit; }
-/* At its own size where it fits, scaled down to fit where it does not. */
-#stage { display: block; margin: 0 auto; max-width: 100vw; max-height: calc(100vh - var(--bar)); touch-action: none; }
-.bar { display: flex; gap: 8px; align-items: center; height: var(--bar); padding: 0 12px; box-sizing: border-box; }
-.bar input[type="range"] { flex: 1; min-width: 80px; }
+/* At its own size where it fits, scaled down to fit where it does not, and in the middle of the
+ * room the bar leaves, a window of another shape than the slide's showing it whole. */
+#stage { display: block; margin: auto; max-width: 100vw; max-height: calc(100vh - var(--bar)); touch-action: none; }
+/* Each control stays in the window: the state picker no wider than the room leaves, the status
+ * kept to its words, and in a narrow window the bar goes on to another line. */
+.bar { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; min-height: var(--bar); padding: 4px 12px; box-sizing: border-box; }
+.bar input[type="range"] { flex: 1 1 80px; min-width: 80px; }
+.bar #state { flex: 0 1 auto; min-width: 7em; max-width: 30vw; }
 .bar a { color: inherit; }
-#status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; min-width: 9em; }
 .offline { font-size: 12px; opacity: 0.8; white-space: nowrap; }
 #meter { white-space: nowrap; font-variant-numeric: tabular-nums; opacity: 0.8; }
 /* `scaena serve`'s word that deck.scn does not compile (PLAN 2.11), over the slide's top. */
 .served { position: fixed; top: 0; left: 0; right: 0; margin: 0; padding: 8px 12px; background: #5c1f1a; color: #fff; font: 13px ui-monospace, Menlo, monospace; white-space: pre-wrap; }
-/* Fullscreen is the slide alone. */
+/* Fullscreen is the slide alone, in the middle of the screen on black, as a presentation app
+ * shows a slide of another shape than the screen's. */
 :fullscreen .bar { display: none; }
-:fullscreen #stage { max-height: 100vh; }
+:fullscreen body:not(.presenter) { background: #000; }
+:fullscreen body:not(.presenter) #stage { max-height: 100vh; }
 /* The presenter view: the slide as the room sees it, and beside it what comes next. */
-body.presenter { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; height: 100vh; padding: 16px; box-sizing: border-box; }
+body.presenter { display: grid; grid-template-columns: 2fr 1fr; grid-template-rows: minmax(0, 1fr); gap: 16px; height: 100vh; padding: 16px; box-sizing: border-box; }
 .presenter main { display: flex; align-items: center; justify-content: center; min-width: 0; }
 .presenter #stage { max-width: 100%; max-height: calc(100vh - 32px); }
-.presenter aside { display: flex; flex-direction: column; gap: 12px; min-width: 0; overflow: auto; }
-.presenter #upnext { display: block; width: 100%; height: auto; opacity: 0.85; }
+/* The side column is the window's height: the notes scroll in it, long or short, and the clock
+ * and the buttons stay in sight. */
+.presenter aside { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; overflow: hidden; }
+.presenter #upnext { display: block; width: 100%; height: auto; max-height: 35vh; object-fit: contain; opacity: 0.85; }
+.presenter #upnext[hidden] { display: none; }
 .presenter .clock { font-size: 28px; font-variant-numeric: tabular-nums; margin: 0; }
-.presenter .notes { font-size: 20px; line-height: 1.4; white-space: pre-wrap; flex: 1; }
+/* Where the player is, after the clock, once there is a player to follow. */
+.presenter #where:not(:empty)::before { content: " · "; }
+.presenter .notes { font-size: 20px; line-height: 1.4; white-space: pre-wrap; flex: 1; min-height: 0; overflow: auto; }
+.presenter #status a { color: #8ab4f8; }
 .presenter p { margin: 0; }
 /* Back and Next, large enough to take a hand in the dark of a room, Next the larger. */
 .presenter .buttons { display: grid; grid-template-columns: 1fr 2fr; gap: 12px; }
 .presenter .buttons button { font-size: 20px; padding: 14px 18px; border-radius: 10px; border: 1px solid #555; background: #2b2a27; color: inherit; cursor: pointer; }
-.presenter .buttons button:hover { background: #36342f; }
+.presenter .buttons button:hover:enabled { background: #36342f; }
+/* With no player to steer, they wait. */
+.presenter .buttons button:disabled { opacity: 0.45; cursor: default; }
 .presenter .buttons button:focus-visible { outline: 3px solid #8ab4f8; outline-offset: 2px; }
 .presenter #on { background: #3a5f8f; border-color: #4f78ad; }
-.presenter #on:hover { background: #46709f; }
+.presenter #on:hover:enabled { background: #46709f; }
 /* How the state shown reads, for a screen reader (PLAN 2.5): there, and not seen. */
 .reading { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 /* The presenter's keys (PLAN 2.105). The screen black or white, over the whole page: a click

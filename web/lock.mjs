@@ -57,7 +57,8 @@ try {
   // A point on the photo clear of the slide's texts: four fifths across, halfway down.
   const [px, py] = await client(1920 * 0.8, 1080 * 0.5);
   await page.mouse.click(px, py);
-  await page.waitForTimeout(300);
+  // The engine says what was pressed once it has linted the slide shown: wait for its answer.
+  await page.waitForFunction(() => window.scaena.canvas.selected() === "storm-photo", null, { timeout: 10000 }).catch(() => {});
   check((await selected()) === "storm-photo", `unlocked, a click on the photo selects it: ${await selected()}`);
 
   // The lock in the layers.
@@ -84,6 +85,7 @@ try {
   await page.mouse.down();
   await page.mouse.move(bx, by, { steps: 8 });
   await page.mouse.up();
+  await page.waitForFunction(() => (window.scaena.canvas.chosen?.() ?? []).length > 0, null, { timeout: 10000 }).catch(() => {});
   await page.waitForTimeout(300);
   const marqueed = (await chosen()).sort();
   check(marqueed.join() === "storm-note,storm-title", `the marquee takes the title and the caption, not the photo: ${marqueed.join(", ")}`);

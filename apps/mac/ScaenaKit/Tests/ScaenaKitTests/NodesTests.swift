@@ -107,6 +107,8 @@ import Testing
     func shape() throws -> NodeBox { try #require(try session.boxes(state: "cover").first { $0.node == star.id }) }
     let bare = try shape()
     #expect(bare.takesWords == true && bare.words == nil)
+    // Named as Insert names it (PLAN 2.106), as the browser's layers name it.
+    #expect(try session.kinds(state: "cover")[star.id] == "Star")
     let given = try session.wording(state: "cover", shape: star.id)
     #expect(given.id == "\(star.id)-words" && given.patch.count == 1)
     let before = try editor.make(given.patch)

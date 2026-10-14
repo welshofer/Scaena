@@ -705,6 +705,7 @@ function patterns(code: string): Uint8Array | undefined {
 }
 
 interface DeckFiles {
+  meta?: { title?: string };
   theme: string;
   fonts?: { file: string }[];
   data?: Record<string, { source?: unknown }>;
@@ -768,6 +769,7 @@ function opened(): Opened {
   const noted = notes(deck);
   return {
     name,
+    title: deck.meta?.title || undefined,
     where: home?.where,
     states: slots.map((slot) => slot.state),
     formats: player.formats(),
