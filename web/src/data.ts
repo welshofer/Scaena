@@ -186,12 +186,20 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
     if (!shown) return;
     const { sheet, file } = shown;
     where.textContent = `${file ? file.replace(/^.*\//, "") : "Written in the deck"} · ${rows(sheet.rows.length)}`;
-    // The field focused, and what is typed in it not yet set: a redraw, after an edit of the deck,
-    // keeps both.
+    // The field focused, what is typed in it not yet set, and what of it is selected: a redraw,
+    // after an edit of the deck, keeps all three, so that what is typed next replaces what was
+    // selected rather than going in before it.
     const active = document.activeElement as HTMLInputElement | null;
     const focus =
       active?.matches("input[data-row]") && table.contains(active)
-        ? { r: +active.dataset.row!, c: +active.dataset.col!, typed: active.value !== active.defaultValue ? active.value : undefined }
+        ? {
+            r: +active.dataset.row!,
+            c: +active.dataset.col!,
+            typed: active.value !== active.defaultValue ? active.value : undefined,
+            from: active.selectionStart,
+            to: active.selectionEnd,
+            way: active.selectionDirection ?? undefined,
+          }
         : undefined;
     const bad = new Map((sheet.problems ?? []).map((p) => [`${p.row} ${p.column}`, p.why]));
     const head = sheet.columns.map((c) => `<th scope="col" class="${c.type}">${html(c.name)}<span class="type">${TYPES[c.type] ?? c.type}</span></th>`).join("");
@@ -223,6 +231,7 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
     const field = cell(Math.min(focus.r, sheet.rows.length - 1), focus.c);
     if (field && focus.typed !== undefined && focus.r < sheet.rows.length) field.value = focus.typed;
     field?.focus();
+    if (field && focus.from !== null && focus.to !== null) field.setSelectionRange(focus.from, focus.to, focus.way);
   }
 
   /** Make `edits` of the source shown, by the user: one change, then say `done`. Refused, `undo`
