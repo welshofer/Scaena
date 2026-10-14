@@ -13,7 +13,7 @@ crate-type = ["staticlib", "rlib"]
 
 [dependencies]
 # With the bundle a deck made from a prompt becomes (PLAN G.6).
-scaena-session = { workspace = true, features = ["generate"] }
+scaena-session = { workspace = true, features = ["generate", "shipped"] }
 # Narrato's requests and answers, the sources read, and the theme a deck is made in (PLAN G.6).
 scaena-narrato.workspace = true
 scaena-sources.workspace = true

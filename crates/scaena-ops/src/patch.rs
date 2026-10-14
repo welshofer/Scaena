@@ -5,6 +5,7 @@
 use crate::lint::{View, Why, Write, errors, lint, lint_in, lint_validated, write};
 use crate::{Bundle, Context, OpsError};
 use scaena_core::lint::{Delta, delta};
+use scaena_core::model::theme::Furniture;
 use scaena_core::patch::{JsonOp, Renamed};
 use scaena_core::validate::{BundleFiles, validate_bundle};
 use scaena_core::{Deck, Finding};
@@ -28,8 +29,8 @@ pub struct Patched {
     /// The findings that are errors, after.
     pub errors: usize,
     /// The states it changes, by id: each whose nodes, resolved with the deck's overrides,
-    /// or whose layout, transition, choreography, hold, or notes are not as they were, and
-    /// each it adds. None when it is refused.
+    /// or whose layout, transition, choreography, hold, notes, or slide number and footer are
+    /// not as they were, and each it adds. None when it is refused.
     pub states: Vec<String>,
     /// Refused: the patch would have added a validation finding (in `added`).
     #[serde(skip)]
@@ -127,7 +128,7 @@ fn made(b: &Bundle, ops: &Value, what: Option<&str>, judge: Judge) -> Result<(Pa
         (invalid, invalid_after)
     } else {
         let next = Deck::from_json(&text).context("the patched deck")?;
-        states = changed(&b.deck, &next)?;
+        states = changed(&b.deck, &next, placed(b.theme_json.as_deref(), &b.deck, &next).as_ref())?;
         let (before, after) = match judge {
             Judge::Valid => (invalid, invalid_after),
             Judge::Whole => (lint(b)?.findings, lint_in(&next, &View::of(b))?.findings),
@@ -172,15 +173,31 @@ fn made(b: &Bundle, ops: &Value, what: Option<&str>, judge: Judge) -> Result<(Pa
 
 /// The states `ops` would change what shows in, by id, as [`Patched::states`] says, with
 /// nothing validated, linted, or written: what an editor says of a drag before it is dropped
-/// ("in 3 states", ADR-0013). `files` is the bundle, for the ops that read the theme.
-pub fn reach(deck: &Deck, files: &dyn BundleFiles, ops: &[Value]) -> Result<Vec<String>, OpsError> {
+/// ("in 3 states", ADR-0013). `files` is the bundle, for the ops that read the theme, and
+/// `places` the theme's furniture, where it places the slides' numbers and footers.
+pub fn reach(
+    deck: &Deck,
+    files: &dyn BundleFiles,
+    places: Option<&Furniture>,
+    ops: &[Value],
+) -> Result<Vec<String>, OpsError> {
     let doc = deck.to_value()?;
     let compiled = scaena_core::patch::compile(&doc, ops, files).map_err(|e| OpsError {
         message: e.to_string(),
         plan: None,
         op: Some(e.index),
     })?;
-    changed(deck, &Deck::from_value(&compiled.doc).map_err(OpsError::new)?)
+    changed(deck, &Deck::from_value(&compiled.doc).map_err(OpsError::new)?, places)
+}
+
+/// The furniture `theme`, a theme's JSON, places (ADR-0028), read only where `before` or `after`
+/// shows a slide's number or footer.
+pub(crate) fn placed(theme: Option<&str>, before: &Deck, after: &Deck) -> Option<Furniture> {
+    if before.furniture.is_none() && after.furniture.is_none() {
+        return None;
+    }
+    let theme: Value = serde_json::from_str(theme?).ok()?;
+    serde_json::from_value(theme.get("furniture")?.clone()).ok()
 }
 
 /// The states a patch reaches, by id, before it and after: each it changes (`changed`, ids of
@@ -241,8 +258,10 @@ fn reached(
 
 /// The states of `after` that show otherwise than the same state of `before`, and those
 /// `before` does not have, in `after`'s order: its nodes, resolved with the overrides, or its
-/// layout; or how it comes in and holds, its own transition, choreography, hold, and notes.
-pub(crate) fn changed(before: &Deck, after: &Deck) -> Result<Vec<String>, OpsError> {
+/// layout; or how it comes in and holds, its own transition, choreography, hold, and notes; or
+/// what its slide draws at its foot, its number and footer, where `places`, the theme's
+/// furniture, puts them (ADR-0028).
+pub(crate) fn changed(before: &Deck, after: &Deck, places: Option<&Furniture>) -> Result<Vec<String>, OpsError> {
     let was = scaena_core::resolve_states(before).context("tracking")?;
     let is = scaena_core::resolve_states(after).context("tracking")?;
     let own = |deck: &Deck, id: &str| {
@@ -254,8 +273,53 @@ pub(crate) fn changed(before: &Deck, after: &Deck) -> Result<Vec<String>, OpsErr
         then.is_none_or(|w| {
             w.layout != s.layout
                 || own(before, &w.state_id) != own(after, &s.state_id)
+                || furnished(before, places, w) != furnished(after, places, s)
                 || with_overrides(before, w).nodes != with_overrides(after, s).nodes
         })
     };
     Ok(is.iter().filter(|s| differs(s)).map(|s| s.state_id.clone()).collect())
+}
+
+/// What the state `snap` draws at its slide's foot, as the engine draws it (ADR-0028): its
+/// number, as `places` writes it, and the deck's footer, each where the theme places one and
+/// the slide shows them.
+fn furnished(
+    deck: &Deck,
+    places: Option<&Furniture>,
+    snap: &scaena_core::Snapshot,
+) -> (Option<String>, Option<String>) {
+    let (Some(wants), Some(places)) = (deck.furniture.as_ref(), places) else { return (None, None) };
+    let Some(slide) = scaena_core::furniture::slide(deck, &snap.state_id) else { return (None, None) };
+    if !slide.shown(places, snap.layout.as_deref()) {
+        return (None, None);
+    }
+    let number = (places.number.as_ref()).filter(|_| wants.number).map(|item| slide.written(item.pattern.as_deref()));
+    let footer = wants.footer.clone().filter(|_| places.footer.is_some());
+    (number, footer)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// A patch that numbers the slides, sets their footer, or hides a slide's, changes what each
+    /// state of a slide that shows them draws at its foot (ADR-0028), and `states` says so; a
+    /// state in a layout the theme leaves them off is not among them.
+    #[test]
+    fn a_patch_that_furnishes_the_slides_changes_the_states_that_draw_it() {
+        let b = crate::open(std::path::Path::new("../../docs/examples/revenue.deck.json")).unwrap();
+        let states = |b: &Bundle, ops: Value| patching(b, &ops, None).unwrap().0.states;
+        assert_eq!(states(&b, json!([{ "op": "furnish", "number": true }])), ["revenue", "mix"]);
+        assert_eq!(states(&b, json!([{ "op": "furnish", "footer": "Board" }])), ["revenue", "mix"]);
+        // On a deck that draws neither, a slide that hides them changes nothing drawn.
+        let hide = json!([{ "op": "set_state", "id": "revenue", "prop": "furniture", "value": false }]);
+        assert!(states(&b, hide.clone()).is_empty());
+        let (_, write) = patching(&b, &json!([{ "op": "furnish", "number": true }]), None).unwrap();
+        let numbered = Bundle { deck: write.unwrap().deck, ..b.clone() };
+        assert_eq!(states(&numbered, hide), ["revenue", "mix"]);
+        // The title slide, which Dusk leaves them off, draws them when it asks.
+        let show = json!([{ "op": "set_state", "id": "intro", "prop": "furniture", "value": true }]);
+        assert_eq!(states(&numbered, show), ["intro"]);
+    }
 }
