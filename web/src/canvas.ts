@@ -3255,6 +3255,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     try {
       const { snapped } = await stage.drag(shown.state, node, { snap: { how, to, fork } }, editor.format());
       if (!snapped?.patch.length) return editor.say(`${Called(node)} stays where it is`);
+      // A step past the grid's last track is kept to the grid, where the node stands: nothing
+      // moves, and a node in a slot stays in it rather than coming out onto the cells it covers.
+      if (snapped.cell.every((v, i) => Math.abs(v - t.cell[i]) < 0.5)) {
+        return editor.say(grow && sx + sy < 0 ? `${Called(node)} is as small as it goes` : `${Called(node)} is at the edge`);
+      }
       await commit(snapped.patch);
     } catch (e) {
       editor.say(`Not placed: ${said(e)}`);
