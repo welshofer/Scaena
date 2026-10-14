@@ -325,7 +325,7 @@ pub struct TextLayout {
     /// line wider than this holds a word that cannot break (lint W201).
     pub measure: f32,
     /// The weight its look sets it in, before any span's own: what makes it bold text
-    /// for contrast (lint E110, E111).
+    /// for contrast (lint E110, E111), unless it is set lighter ([`TextLayout::lighter`]).
     pub weight: f32,
     /// Its spans as written, in order, and the weight each is set in: what ⌘B reads
     /// (ADR-0013, PLAN 2.38).

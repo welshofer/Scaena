@@ -289,6 +289,31 @@ fn contrast_reads_the_pixels_under_the_glyphs_not_the_line_box() {
     assert_eq!(contrast(&found).len(), 1, "a line through the glyphs is: {found:#?}");
 }
 
+/// Text at 20 px asks for weight 700, in a color that reads at 3.7:1 over the surface: display
+/// text, judged at 3:1, where its family draws it bold; body text, judged at 4.5:1, where a family
+/// of one weight sets it in its own (W232), as WCAG judges the text that is drawn.
+#[test]
+fn bold_asked_of_a_family_of_one_weight_is_judged_as_drawn() {
+    let text = serde_json::json!({
+        "type": "text", "role": "label", "text": "Set in bold",
+        "style": { "weight": 700, "color": "onSurfaceMuted" }, "at": { "in": "main" },
+    });
+    let mut d = deck(serde_json::json!({}), serde_json::json!({ "t": text }));
+    let muted = |t: &mut Value| t["tokens"]["color"]["muted"] = serde_json::json!("#6E6E6E");
+    let (_, found) = lint(&bundle("bold-drawn", &d, muted));
+    assert!(contrast(&found).is_empty(), "bold, it is display text: {found:#?}");
+
+    let serif = serde_json::json!({ "family": "Instrument Serif", "file": "fonts/InstrumentSerif-Regular.ttf" });
+    d["fonts"][0] = serif.clone();
+    let (_, found) = lint(&bundle("bold-lighter", &d, |t| {
+        muted(t);
+        t["type"]["families"]["serif"] = serif;
+    }));
+    assert!(found.iter().any(|f| f["code"] == "W232"), "{found:#?}");
+    let read: Vec<&str> = contrast(&found).iter().map(|f| f["code"].as_str().unwrap()).collect();
+    assert_eq!(read, ["E110"], "set in its own weight, it is body text: {found:#?}");
+}
+
 #[test]
 fn errors_exit_1_and_a_fix_is_kept_only_where_it_works() {
     // E100's title fits once it shrinks within its role's minSize: the fix is offered.

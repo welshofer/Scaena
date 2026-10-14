@@ -38,7 +38,8 @@ pub struct Choices {
     #[schemars(skip)]
     pub said: Option<String>,
     /// Its kind as a person names it, `Text` or `Chart` ([`crate::words::kind`]), as `said` is;
-    /// `Icon` for a path on a view (PLAN 2.104), which the icon picker replaces (PLAN G.23).
+    /// `Icon` for a filled path on a view (PLAN 2.104, [`crate::inserts::is_icon`]), which the
+    /// icon picker replaces (PLAN G.23); a pen's drawing, stroked, is a `Shape`.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(skip)]
     pub noun: Option<String>,
