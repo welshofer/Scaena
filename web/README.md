@@ -21,7 +21,7 @@ The page reads these parameters:
 | `painter` | `gpu` or `cpu`. By default, WebGPU where the browser has an adapter, and the CPU painter elsewhere. |
 | `helpers` | the most workers the CPU painter shares a shader's rows with (PLAN 2.28), `0` for none. By default, one fewer than the browser's cores, at most 7. |
 | `state` | the state to open on; the first by default. |
-| `view` | `presenter` for the presenter view. The player opens it with P. |
+| `view` | `presenter` for the presenter view. The player opens it with P. Opened with no player, it says so and links to one. |
 | `motion` | `reduce` for cuts in place of cues, `full` for the cues whatever the system asks. By default, the system's `prefers-reduced-motion`. |
 | `serve` | the page is `scaena serve`'s (PLAN 2.11): it shows each change to the bundle's folder on disk, and the editor saves back to the folder. See "Serve a folder". |
 
@@ -32,17 +32,17 @@ The page reads these parameters:
 | → ↓ PageDown Space Enter, a click or a tap, a swipe left | go on: play the next state's cue, or finish the one playing |
 | ← ↑ PageUp Backspace, a swipe right | go back: the state before, at rest |
 | Home, End | the first state, the last |
-| F | fullscreen, the slide alone |
-| P | the presenter view, in a second window |
+| F | fullscreen, the slide alone, in the middle of the screen on black |
+| P | the presenter view, in a second window; with it open, it comes to the front as it is, its clock running |
 | B or . | a black screen, the deck waiting where it was; a key or a click brings the slide back (PLAN 2.105) |
 | W or , | a white screen, the same way |
-| a slide's number, then Return | that slide; Backspace takes a digit back, and Escape lets the number go |
+| a slide's number, then Return | that slide; Backspace takes a digit back, and Escape lets the number go; a number the deck has no slide for, 0 among them, is said |
 | L | the laser: a red dot where the pointer is over the slide |
 | ? | the keys, listed |
 
 A state with a `hold` goes on to the next by itself once its cue and hold are over; one without, and the last, waits (SPEC §2.4). The state scrubber gives each state an equal step and runs through its cue within it. Picking a state plays its cue; picking a format lays the deck out again in it.
 
-Edit opens the editor on the bundle.
+Edit opens the editor on the bundle. A pointer over a button of the bar says what it does and its key. The window is the deck's, by its title. The slide stands in the middle of the room the bar leaves at the window's foot, and the bar keeps every control in the window, going on to another line where the window is narrow. The pointer over a link on the slide at rest is a hand: a click there follows it.
 
 For a screen reader (PLAN 2.8), the canvas is hidden, and the page keeps how the state shown reads in a polite live region, out of sight: each heading, paragraph, figure (by its alt text), and table, in paint order, as a single file reads it (SPEC §3.12). What reads as it did stays put, so a screen reader says what each state changed. The state picker is the spine's outline: a group for each section, each state named with its beat's claim.
 
@@ -54,7 +54,7 @@ The CPU painter works a shader out on every core (PLAN 2.28). The engine's modul
 
 `?fps` shows a frame meter beside the status, for gate 2's first criterion: while the deck plays, its frames a second over the run so far, its worst frame, how many frames came more than 25 ms after the one before (late for a 60 Hz display), and the mean paint. The worker times each frame of a run by the display's clock. `docs/gate-2.md` says how to read it on a real machine, and `just fps chrome` (`fps.mjs`) plays a deck state by state in a browser with a window and prints the meter's reading for each.
 
-The presenter view follows the player frame by frame. It shows the state's notes (its beat's, where it has none), the next state at rest, and a clock, and its ◀ ▶ and keys steer the player: on, back, and Home and End; B, W, a slide's number, and L too, what it types said there and not to the room, its pointer over its slide pointing the laser on the player's, and the room's screen black or white said over its slide. The two talk on a `BroadcastChannel` named for the deck.
+The presenter view follows the player frame by frame. It shows the state's notes (its beat's, where it has none), the next state at rest (none after the last), and a clock, and its ◀ ▶ and keys steer the player: on, back, and Home and End; B, W, a slide's number, and L too, what it types said there and not to the room, its pointer over its slide pointing the laser on the player's, and the room's screen black or white said over its slide. Its notes scroll in their own pane, and the clock and the buttons stay in its window. Its window is called "Presenter view · " and the deck's title, so a window shared with the room is told from it. The two talk on a `BroadcastChannel` named for the deck: the player says where it is, and that it has gone when its page closes. With no player to follow, the view says so, with a link that opens one, and its buttons wait until it hears one.
 
 ## Edit with it
 
@@ -209,7 +209,7 @@ just site tests/bench/b1.scaena  # another demo deck: a bundle's directory or a 
   A place in the deck is a state and a time into its cue, never a place on the global timeline: states with no transition and no hold all stand at one instant, as 23 of the torture deck's do at 0 ms. Each request names a format, one of the deck's `formats`, or none for the deck's own canvas.
 - `serve.mjs` serves the repository (or a directory, at a path), launches headless Chromium, and shows and screenshots the golden frames (`shoot`) for the checks:
   - `smoke.mjs` opens the built player with each painter, shows every frame the golden rasters hold, and saves its screenshots under `target/web-smoke/`. The parity harness (`crates/scaena-paint/tests/parity.rs`) holds them to the goldens within SPEC §13.5.
-  - `player.mjs` drives the controls, the presenter's keys (PLAN 2.105), and the presenter view on the CPU painter. Headless Chromium composites WebGPU on SwiftShader at about a frame a second, and the clock keeps the display's frames. With `?fps`, the meter reads a played cue's frames; without it, there is none.
+  - `player.mjs` drives the controls, the presenter's keys (PLAN 2.105), and the presenter view on the CPU painter: the window's title, the bar at 1024 × 768, the slide in the middle of the window and of the screen, a link's hand, and the presenter view's next at the end, its notes and buttons in its window, its clock through P again, and its word with no player. Headless Chromium composites WebGPU on SwiftShader at about a frame a second, and the clock keeps the display's frames. With `?fps`, the meter reads a played cue's frames; without it, there is none.
   - `editor.mjs` types into the editor on the revenue example: an overflow, its fix, a source that does not compile, the cursor leading the preview and the inspector, and a copy of the chart put in and undone, which no finding names once it is undone. Then it times an edit's round trip on B1, which gate 2 holds under 200 ms, and the lint of every state that follows.
   - `storage.mjs` saves the revenue example into the browser's storage and reloads it, plays it from there, drops an image into it, downloads it with its fonts subset and opens the download, and saves a folder in place.
   - `new.mjs` starts a deck from New's dialog (a title and Daybreak): its theme, fonts, and one empty state, linting with no error, kept nowhere and named for its title, with Play waiting for a save. Its first save puts it in the browser's storage under that name; Save as keeps it under another name, then in a folder (a directory handle), which a save then writes and a reload opens. Each theme that ships makes a deck with no error, and a single file carries no themes.

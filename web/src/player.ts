@@ -22,7 +22,7 @@
 // On a page `scaena serve` serves (`?serve`, PLAN 2.11), each change to the bundle on disk shows
 // as it is made: the deck is read again and shown where it was. A `deck.scn` that does not
 // compile says so, at its line, and the deck stays as it was until it does.
-import type { At, Painter, Section, Slot, Source } from "./protocol";
+import type { At, LinkTarget, Painter, Section, Slot, Source } from "./protocol";
 import { reader } from "./reading";
 import { line, listen, served } from "./served";
 import { type Engine, Stage } from "./stage";
@@ -52,6 +52,8 @@ type Follow = { type: "at"; format?: string; blank?: Blank; laser?: boolean } & 
 /** Where the laser points, as the player tells the presenter view: none where it is off, or off
  * the slide. */
 type Pointed = { type: "pointed"; laser: boolean; point: Point | null };
+/** That the player's page is gone, as it tells the presenter view: closed, or loaded anew. */
+type Gone = { type: "gone" };
 /** What the presenter view asks of the player: on, back, the first or the last state, or where
  * it is; the screen black or white, a slide by its number, the laser, and where it points. */
 type Steer =
@@ -128,8 +130,9 @@ function numbering(go?: (number: number) => void) {
     key(key: string): boolean {
       if (!go) return false;
       if (/^[0-9]$/.test(key)) {
-        // No slide is numbered 0, nor begins with it.
-        typed = `${typed}${key}`.replace(/^0+/, "").slice(0, 4);
+        // No slide's number begins with 0: a 0 before another digit goes, and a 0 alone stays, a
+        // number the deck has no slide for, which Return says.
+        typed = `${typed}${key}`.replace(/^0+(?=\d)/, "").slice(0, 4);
       } else if (!typed) {
         return false;
       } else if (key === "Backspace") {
@@ -228,6 +231,9 @@ function meter(): ((at: At) => void) | undefined {
   };
 }
 
+/** What a deck's windows are called: its title, else its bundle's name. */
+const titled = (opened: { title?: string; name: string }) => opened.title ?? opened.name;
+
 const fullscreen = () =>
   (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(
     () => {},
@@ -241,6 +247,8 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
   const scrub = $<HTMLInputElement>("#scrub");
   const stage = await Stage.open($("#stage"), deck, how.painter, how.engine);
   stage.onError = (e) => (status.textContent = `Error: ${e.message}`);
+  // The window is the deck's, by its title, as a single file's page is.
+  document.title = titled(stage.opened);
   const format = () => formatPicker.value || undefined;
   let slots: Slot[] = await stage.timeline();
   const region = document.querySelector("#reading");
@@ -258,6 +266,31 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
   /** Whether the laser is on, and where it points on the slide while the pointer is over it. */
   let laser = false;
   let point: Point | undefined;
+
+  // A link on the slide at rest shows a hand under the pointer, as a click there follows it and
+  // does not go on (PLAN 2.70); the laser hides the pointer instead. One question at a time: an
+  // answer the pointer, the deck, or the laser has moved on from asks again.
+  let pointer: Point | undefined;
+  let asking = false;
+  const resting = (at: At) => !at.playing || at.t >= (slots[at.index]?.span ?? 0);
+  const hovered = () => JSON.stringify([pointer, stage.at.index, resting(stage.at), laser, format()]);
+  const hover = async () => {
+    if (asking) return;
+    asking = true;
+    let link: LinkTarget | undefined;
+    let asked: string;
+    try {
+      do {
+        asked = hovered();
+        const at = pointer;
+        const shown = !laser && resting(stage.at) && slots[stage.at.index];
+        link = at && shown ? await stage.linkAt(shown.state, at, format()).catch(() => undefined) : undefined;
+      } while (asked !== hovered());
+    } finally {
+      asking = false;
+    }
+    stage.canvas.style.cursor = link ? "pointer" : "";
+  };
   /** Say where the deck is: in the controls, to the presenter view, and to the page. */
   const report = (at: At) => {
     // Where the deck is, as a person counts its slides (PLAN 2.99); what paints it is said on a
@@ -274,9 +307,17 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     void read?.(slots[at.index].state, format());
   };
   const measure = meter();
+  /** The state shown, and whether it is at rest: where it changes, the pointer's link is asked
+   * again. */
+  let rested = "";
   stage.onAt = (at) => {
     report(at);
     measure?.(at);
+    const now = `${at.index} ${resting(at)}`;
+    if (now !== rested) {
+      rested = now;
+      void hover();
+    }
   };
 
   // The screen black or white (PLAN 2.105): over the page, the slide out of sight, and the deck
@@ -337,11 +378,29 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     if (blank) void blanking();
     stage.run(to, 0, format(), still());
   };
+  /** The presenter view's window, once this page opens it. */
+  let view: Window | null = null;
+  /** The presenter view, in a window of its own; one open already comes to the front as it is,
+   * its clock running, since opening its address again would load it anew. */
   const present = () => {
+    if (view && !view.closed) return view.focus();
     const url = new URL(location.href);
     url.searchParams.set("view", "presenter");
-    open(url, "scaena-presenter", "popup,width=1280,height=800");
+    // By its name alone, which finds a window of that name without loading it again, as one this
+    // page opened before it was loaded again; a new one is blank, and goes to the view.
+    view = open("", "scaena-presenter", "popup,width=1280,height=800");
+    if (!view) return;
+    let there = false;
+    try {
+      there = view.location.href === url.href;
+    } catch {
+      // Another page's window, out of reach: the view is loaded there.
+    }
+    if (there) view.focus();
+    else view.location.href = url.href;
   };
+  // The presenter view hears that the player is gone (PLAN 2.2), and says so.
+  addEventListener("pagehide", () => channel.postMessage({ type: "gone" } satisfies Gone));
 
   // The laser (PLAN 2.105): a red dot where the pointer is over the slide, the pointer hidden
   // there; the presenter view's points it too, from its own slide.
@@ -368,13 +427,22 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     document.body.classList.toggle("lasering", laser);
     pointAt(undefined);
     report(stage.at);
+    void hover();
   };
   const over = (e: PointerEvent): Point => {
     const r = stage.canvas.getBoundingClientRect();
     return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height];
   };
-  stage.canvas.addEventListener("pointermove", (e) => laser && pointAt(over(e)));
-  stage.canvas.addEventListener("pointerleave", () => laser && pointAt(undefined));
+  stage.canvas.addEventListener("pointermove", (e) => {
+    pointer = over(e);
+    if (laser) pointAt(pointer);
+    void hover();
+  });
+  stage.canvas.addEventListener("pointerleave", () => {
+    pointer = undefined;
+    if (laser) pointAt(undefined);
+    void hover();
+  });
   addEventListener("resize", drawDot);
 
   outline(statesPicker, slots, stage.opened.outline);
@@ -467,6 +535,7 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
   const reload = async () => {
     const state = slots[stage.at.index]?.state;
     await stage.reload();
+    document.title = titled(stage.opened);
     const chosen = formatPicker.value;
     const own = stage.opened.own;
     const formats = stage.opened.formats.filter((f) => f !== own);
@@ -550,9 +619,9 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
     <main><canvas id="stage"></canvas><p id="blanked" class="blanked" hidden></p></main>
     <aside>
       <div class="next"><canvas id="upnext"></canvas><p id="nextName"></p></div>
-      <p class="clock"><span id="clock">0:00</span> · <span id="where"></span></p>
+      <p class="clock"><span id="clock">0:00</span><span id="where"></span></p>
       <div id="notes" class="notes"></div>
-      <p class="buttons"><button id="back" aria-label="Back"><span aria-hidden="true">◀</span> Back</button><button id="on" aria-label="Next"><span aria-hidden="true">▶</span> Next</button></p>
+      <p class="buttons"><button id="back" aria-label="Back" disabled><span aria-hidden="true">◀</span> Back</button><button id="on" aria-label="Next" disabled><span aria-hidden="true">▶</span> Next</button></p>
       <p id="status" role="status">Loading…</p>
     </aside>`;
   const status = $("#status");
@@ -561,6 +630,10 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
     Stage.open($("#upnext"), deck, how.painter, how.engine),
   ]);
   let { states, notes } = now.opened;
+  // The window is the deck's, marked as the presenter's, so that a window shared with the room
+  // is told from it.
+  const title = () => (document.title = `Presenter view · ${titled(now.opened)}`);
+  title();
   // Each state as a person counts it (PLAN 2.99).
   let slots: Slot[] = await now.timeline();
   const steer = (message: Steer) => channel.postMessage(message);
@@ -580,6 +653,27 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
   });
   $("#on").onclick = () => steer({ type: "on" });
   $("#back").onclick = () => steer({ type: "back" });
+  // Without a player to follow, this view says so, and how to have one: none answered its hello,
+  // or the one it followed is gone. Its buttons wait until a player is heard.
+  const buttons = [$<HTMLButtonElement>("#back"), $<HTMLButtonElement>("#on")];
+  let heard = false;
+  const alone = (words: string, again: string) => {
+    if (heard) return;
+    for (const button of buttons) button.disabled = true;
+    const player = new URL(location.href);
+    player.searchParams.delete("view");
+    const link = document.createElement("a");
+    link.href = player.href;
+    link.target = "_blank";
+    link.textContent = again;
+    status.replaceChildren(`${words} `, link, ", and this view follows it.");
+  };
+  /** Ask where the player is; with no answer in `ms`, say `words`. */
+  const hello = (words: string, again: string, ms: number) => {
+    heard = false;
+    steer({ type: "hello" });
+    setTimeout(() => alone(words, again), ms);
+  };
   // The laser as the player draws it on the room's screen, drawn here on the slide this view shows;
   // with it on, the pointer over that slide points it.
   const canvas = $<HTMLCanvasElement>("#stage");
@@ -631,6 +725,8 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
           next = at.index;
           const coming = states[at.index + 1];
           $("#nextName").textContent = coming ? `Next: ${slots[at.index + 1]?.said ?? coming}` : "The end of the deck.";
+          // After the last state nothing comes: no slide stands where the next would.
+          $("#upnext").hidden = !coming;
           if (coming) await upNext.show(coming, undefined, at.format);
         }
         status.textContent = "";
@@ -641,12 +737,18 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
       painting = false;
     }
   };
-  channel.onmessage = ({ data }: MessageEvent<Follow | Pointed>) => {
+  channel.onmessage = ({ data }: MessageEvent<Follow | Pointed | Gone>) => {
     if (data.type === "pointed") {
       ({ laser, point } = data);
       return drawDot();
     }
+    // The player closed, or is loading again: another player of the deck answers, or none does.
+    if (data.type === "gone") return hello("The player has closed.", "Open it again", 1000);
     if (data.type !== "at") return;
+    if (!heard) {
+      heard = true;
+      for (const button of buttons) button.disabled = false;
+    }
     // What the room sees while its screen is black or white, said over the slide shown here.
     blanked.hidden = !data.blank;
     blanked.textContent = data.blank ? `The room sees a ${data.blank} screen. A key or a click brings the slide back.` : "";
@@ -663,13 +765,14 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
         if (!paths.some((path) => path !== "deck.scn")) return;
         void Promise.all([now.reload(), upNext.reload()]).then(async () => {
           ({ states, notes } = now.opened);
+          title();
           slots = await now.timeline();
           next = -1;
           steer({ type: "hello" });
         });
       },
     });
-  steer({ type: "hello" });
+  hello("The player is not open.", "Open it", 2000);
   Object.assign(window, {
     scaena: {
       ...now.opened,
