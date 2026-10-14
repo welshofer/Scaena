@@ -8,7 +8,8 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// The deck's exports (PLAN 3.8): the PDF `scaena export` writes, a page for each slide at its
-/// last state, and the state shown as a PNG, as the editor's Export… makes them. Each is written
+/// last state, the state shown as a PNG, and every slide as PNGs in one zip, each named by its
+/// number (PLAN 2.122), as the editor's Export… makes them. Each is written
 /// when it is asked for, into a folder of its own, then shared through the Share sheet, shown in
 /// Quick Look, or saved where the user says.
 enum Exporting {
@@ -18,11 +19,14 @@ enum Exporting {
         case pdf
         /// A state at rest as a PNG, this many pixels wide.
         case png(state: String, width: Int)
+        /// Every slide once its steps have played, as PNGs this many pixels wide in one zip.
+        case slides(width: Int)
 
         var type: UTType {
             switch self {
             case .pdf: .pdf
             case .png: .png
+            case .slides: .zip
             }
         }
     }
@@ -34,6 +38,8 @@ enum Exporting {
             return try editor.session.pdf()
         case .png(let state, let width):
             return try editor.session.png(state, width: width)
+        case .slides(let width):
+            return try editor.session.slides(width: width, name: title(of: editor))
         }
     }
 
@@ -49,13 +55,19 @@ enum Exporting {
 
     /// The export's file name: the deck's title, and for a PNG its state.
     static func name(_ kind: Kind, of editor: DeckEditor) -> String {
-        let read = try? editor.session.tool("deck_read", [:])
-        let title = read?.result["deck"]?["meta"]?["title"]?.string ?? "Deck"
-        let safe = title.components(separatedBy: CharacterSet(charactersIn: "/:\\?%*|\"<>")).joined(separator: "-")
+        let safe = title(of: editor)
         switch kind {
         case .pdf: return "\(safe).pdf"
         case .png(let state, _): return "\(safe) – \(state).png"
+        case .slides: return "\(safe) - Slides.zip"
         }
+    }
+
+    /// The deck's title, as a file's name may hold it.
+    static func title(of editor: DeckEditor) -> String {
+        let read = try? editor.session.tool("deck_read", [:])
+        let title = read?.result["deck"]?["meta"]?["title"]?.string ?? "Deck"
+        return title.components(separatedBy: CharacterSet(charactersIn: "/:\\?%*|\"<>")).joined(separator: "-")
     }
 
     /// `url` offered through the Share sheet, from the window's top right.
@@ -82,7 +94,7 @@ enum Exporting {
 
 /// An export's bytes, as a save panel writes them.
 struct ExportedFile: FileDocument {
-    static var readableContentTypes: [UTType] { [.pdf, .png] }
+    static var readableContentTypes: [UTType] { [.pdf, .png, .zip] }
     let data: Data
 
     init(data: Data) {

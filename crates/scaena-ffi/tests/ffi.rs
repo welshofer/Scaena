@@ -1438,7 +1438,23 @@ fn an_export_is_the_bytes_scaena_export_writes() {
     assert!(png.starts_with(&[0x89, b'P', b'N', b'G']), "a PNG");
     assert_eq!(u32::from_be_bytes(png[16..20].try_into().unwrap()), 640, "640 pixels wide");
 
-    for (format, args) in [("png", r#"{"state":"cover","width":0}"#), ("png", r#"{"width":10}"#), ("docx", "{}")] {
+    // Every slide as PNGs in one zip, each named by its number (PLAN 2.122).
+    let slides = bytes_of(unsafe {
+        scaena_export(s, c("slides").as_ptr(), c(r#"{"width":320,"name":"B1"}"#).as_ptr(), &mut error)
+    })
+    .expect("a zip");
+    let named = |file: &str| slides.windows(file.len()).any(|w| w == file.as_bytes());
+    assert!(
+        slides.starts_with(b"PK\x03\x04") && named("B1 - Slide 1.png") && named("B1 - Slide 2.png"),
+        "a zip of the slides"
+    );
+
+    for (format, args) in [
+        ("png", r#"{"state":"cover","width":0}"#),
+        ("png", r#"{"width":10}"#),
+        ("slides", r#"{"width":0}"#),
+        ("docx", "{}"),
+    ] {
         let mut error = null_mut();
         let none = bytes_of(unsafe { scaena_export(s, c(format).as_ptr(), c(args).as_ptr(), &mut error) });
         assert!(none.is_none(), "{format} {args}");

@@ -535,7 +535,8 @@ struct DeckView: View {
         }
     }
 
-    /// The deck as a PDF, or the slide shown as a PNG: shared, looked at, or saved.
+    /// The deck as a PDF, the slide shown as a PNG, or every slide as PNGs in one zip: shared,
+    /// looked at, or saved.
     private var sharing: some View {
         Menu {
             Button("Share as PDF…") { export(.pdf, sharing: true) }
@@ -546,11 +547,15 @@ struct DeckView: View {
                 Button("Share This Slide as PNG…") { export(png(shown), sharing: true) }
                 Button("Save This Slide as PNG…") { save(png(shown)) }
             }
+            // Every slide, each a PNG named by its number (PLAN 2.122).
+            Divider()
+            Button("Share All Slides as PNGs…") { export(allSlides, sharing: true) }
+            Button("Save All Slides as PNGs…") { save(allSlides) }
         } label: {
             Label("Share", systemImage: "square.and.arrow.up")
         }
         .accessibilityLabel("Share")
-        .help("The deck as a PDF, or this slide as a picture")
+        .help("The deck as a PDF, this slide as a picture, or every slide as pictures")
         .disabled(editor.slots.isEmpty)
     }
 
@@ -985,6 +990,12 @@ struct DeckView: View {
     private func png(_ state: String) -> Exporting.Kind {
         let size = (try? editor.session.canvasSize()) ?? CGSize(width: 1920, height: 1080)
         return .png(state: state, width: Int(size.width.rounded()))
+    }
+
+    /// Every slide as PNGs the canvas's width, a pixel to the unit, in one zip.
+    private var allSlides: Exporting.Kind {
+        let size = (try? editor.session.canvasSize()) ?? CGSize(width: 1920, height: 1080)
+        return .slides(width: Int(size.width.rounded()))
     }
 
     /// Write `kind` and share it, or show it in Quick Look.
