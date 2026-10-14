@@ -1718,8 +1718,19 @@ struct CanvasSelection: View {
     private func marked(_ mark: Mark, fit: Fit) -> CGPoint {
         let at = fit.view(mark.at)
         guard mark.id == node, also.isEmpty else { return at }
-        return CGPoint(x: at.x + 18, y: at.y - 18)
+        return CGPoint(x: at.x + Self.aside, y: at.y - Self.aside)
     }
+
+    #if os(macOS)
+    /// How far, in points across and up, a mark stands from the corner of the box selected: clear
+    /// of the corner handle a pointer takes.
+    private static let aside: CGFloat = 18
+    #else
+    /// How far, in points across and up, a mark stands from the corner of the box selected: clear
+    /// of the 22 points about the corner handle a finger takes it within (`grab`), so a finger on
+    /// the handle meets no mark.
+    private static let aside: CGFloat = 28
+    #endif
 
     private func box(_ selected: NodeBox) -> CGRect? {
         guard selected.rect.count == 4 else { return nil }
@@ -1829,8 +1840,12 @@ struct DeskHint: View {
 
     /// The most of the desk under the slide, or over it, the words keep to, points: near the slide.
     private static let near: CGFloat = 64
-    /// The least room a line of the words takes, points.
-    private static let line: CGFloat = 26
+    /// The least room a line of the words takes, points: a line of the smaller words, with the room
+    /// about them, fits the 28 points the desk keeps under a slide fitted to it (`Zoom.margin`).
+    private static let line: CGFloat = 22
+    /// How far the words keep from the slide's edge, points: clear of the half of a handle drawn
+    /// past it, on what is selected at the slide's foot.
+    private static let gap: CGFloat = 4
     /// The strip at the desk's foot or head the words stand in where the slide leaves no room.
     private static let strip: CGFloat = 56
 
@@ -1838,12 +1853,16 @@ struct DeskHint: View {
         if let hint {
             let room = band(hint)
             let roomy = room.height >= 44
+            let font: Font = roomy ? .callout : .caption
+            let lines: Int = room.height >= 60 ? 2 : 1
+            let across: CGFloat = roomy ? 12 : 10
+            let down: CGFloat = roomy ? 6 : 3
             Text(hint.words)
-                .font(roomy ? .callout : .caption)
-                .lineLimit(room.height >= 60 ? 2 : 1)
+                .font(font)
+                .lineLimit(lines)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, roomy ? 12 : 10)
-                .padding(.vertical, roomy ? 6 : 3)
+                .padding(.horizontal, across)
+                .padding(.vertical, down)
                 .background(.regularMaterial, in: Capsule())
                 .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
                 // What the walk reads to know a text is typed in (PLAN 3.21).
@@ -1860,13 +1879,14 @@ struct DeskHint: View {
     /// where a line fits; else a strip at the desk's foot, or at its head where what is selected
     /// stands at the foot.
     private func band(_ hint: CanvasHint) -> CGRect {
-        let under = desk.height - slide.maxY
+        let under = desk.height - slide.maxY - Self.gap
         if under >= Self.line {
-            return CGRect(x: 0, y: slide.maxY, width: desk.width, height: min(under, Self.near))
+            return CGRect(x: 0, y: slide.maxY + Self.gap, width: desk.width, height: min(under, Self.near))
         }
-        if slide.minY >= Self.line {
-            let over = min(slide.minY, Self.near)
-            return CGRect(x: 0, y: slide.minY - over, width: desk.width, height: over)
+        let over = slide.minY - Self.gap
+        if over >= Self.line {
+            let high = min(over, Self.near)
+            return CGRect(x: 0, y: over - high, width: desk.width, height: high)
         }
         let tall = min(Self.strip, desk.height)
         let foot = CGRect(x: 0, y: desk.height - tall, width: desk.width, height: tall)

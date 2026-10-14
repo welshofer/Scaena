@@ -408,7 +408,9 @@ struct PromptView: View {
     }
 
     /// A field with its label beside it, and what it asks for in it: on the iPad, a form shows a
-    /// field's prompt alone, and one that is an example read as filled in.
+    /// field's prompt alone, and one that is an example read as filled in. There the label is its
+    /// own words at the row's start, which VoiceOver reads apart from the field; the field takes
+    /// the rest of the row, its words at its end, as a settings row has them.
     @ViewBuilder private func field(_ label: String, text: Binding<String>, prompt: String, secure: Bool = false) -> some View {
         #if os(macOS)
         if secure {
@@ -417,7 +419,8 @@ struct PromptView: View {
             TextField(label, text: text, prompt: Text(prompt))
         }
         #else
-        LabeledContent(label) {
+        HStack {
+            Text(label)
             Group {
                 if secure {
                     SecureField(label, text: text, prompt: Text(prompt))

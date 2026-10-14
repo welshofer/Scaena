@@ -485,7 +485,8 @@ struct DeckView: View {
             Button("Fit Slide") { zoom.fit() }
             Divider()
             ForEach(Zoom.actuals.filter { zoom.offers($0) }, id: \.self) { actual in
-                Button("\(Int((actual * 100).rounded()))%") { zoom.zoom(toActual: actual) }
+                let percent = "\(Int((actual * 100).rounded()))%"
+                Button(percent) { zoom.zoom(toActual: actual) }
             }
             Divider()
             Button("Zoom In") { zoom.step(1) }

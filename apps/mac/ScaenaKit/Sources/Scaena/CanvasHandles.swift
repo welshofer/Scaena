@@ -327,22 +327,30 @@ struct WaitingButton: View {
     var body: some View {
         let icon = slot.typed ? "text.cursor" : "photo.badge.plus"
         let short = height < 44
+        // A short slot's words smaller and on one line, and its icon smaller, inside its outline.
+        let iconFont: Font = short ? .caption : .body
+        let iconPadding: CGFloat = short ? 4 : 7
+        let wordsFont: Font = short ? .caption2 : .caption
+        let lines: Int = short ? 1 : 2
+        let across: CGFloat = short ? 6 : 8
+        let down: CGFloat = short ? 2 : 4
+        let corner: CGFloat = short ? 6 : 8
         Button(action: fill) {
             if width < 90 {
                 Image(systemName: icon)
-                    .font(short ? .caption : .body)
-                    .padding(short ? 4 : 7)
+                    .font(iconFont)
+                    .padding(iconPadding)
                     .background(.thinMaterial, in: Circle())
                     .foregroundStyle(.secondary)
                     .contentShape(Circle())
             } else {
-                let shape = RoundedRectangle(cornerRadius: short ? 6 : 8, style: .continuous)
+                let shape = RoundedRectangle(cornerRadius: corner, style: .continuous)
                 Label(slot.words, systemImage: icon)
-                    .font(short ? .caption2 : .caption)
-                    .lineLimit(short ? 1 : 2)
+                    .font(wordsFont)
+                    .lineLimit(lines)
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, short ? 6 : 8)
-                    .padding(.vertical, short ? 2 : 4)
+                    .padding(.horizontal, across)
+                    .padding(.vertical, down)
                     .background(.thinMaterial, in: shape)
                     .foregroundStyle(.secondary)
                     .contentShape(shape)
