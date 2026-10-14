@@ -831,13 +831,14 @@ public struct CanvasKeysHost: UIViewRepresentable {
 
 /// The canvas's own keys on the iPad while no text is typed in (PLAN 4.6), as the Mac's
 /// `CanvasKeys` takes them then (PLAN 3.17): a hardware keyboard's Tab, Return, Escape, the arrows,
-/// Space, the brackets, +, and Delete, each handed to the canvas first (`pressed`), which says
-/// whether it took it. One it does not take goes on, so Tab past either end leaves the slide, and
-/// the app's commands keep their keys. Escape and Return reach it as no press, the iPad's UI tests'
-/// key log says: the system answers them first. So they are key commands of the canvas's own,
-/// ahead of the system's (`commanded`), which a sheet or a popover over the canvas leaves it. The
-/// Edit menu's Copy, Cut, Paste, and Select All are the canvas's (`clipping`, `selectingAll`). It
-/// is no text input, so no software keyboard comes with it, and it takes no touch.
+/// Space, the brackets, +, Delete, and PageDown and PageUp (PLAN 4.12), each handed to the canvas
+/// first (`pressed`), which says whether it took it. One it does not take goes on, so Tab past
+/// either end leaves the slide, and the app's commands keep their keys. Escape and Return reach it
+/// as no press, the iPad's UI tests' key log says: the system answers them first. So they are key
+/// commands of the canvas's own, ahead of the system's (`commanded`), which a sheet or a popover
+/// over the canvas leaves it. The Edit menu's Copy, Cut, Paste, and Select All are the canvas's
+/// (`clipping`, `selectingAll`). It is no text input, so no software keyboard comes with it, and
+/// it takes no touch.
 ///
 /// A command run by its key can take the keyboard from it with nothing taking it in its place:
 /// ⌘Z's Undo ends editing in the window first. The keyboard comes back once the command has run,

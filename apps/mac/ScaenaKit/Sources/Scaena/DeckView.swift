@@ -272,7 +272,8 @@ struct DeckView: View {
     /// the slide picked there.
     private func inspecting(_ tab: InspectorTab) -> some View {
         Inspector(
-            editor: editor, state: inspected, node: $node, also: $also, typing: typing, tab: tab, offer: { asked = $0 }
+            editor: editor, state: inspected, node: $node, also: $also, typing: typing, tab: tab, offer: { asked = $0 },
+            reveal: { picked in if let shown { bringIntoView(picked, in: shown) } }
         ) { ops in
             perform { try document.make(ops, undo: undo) }
         }
@@ -322,6 +323,7 @@ struct DeckView: View {
                     ) { picked in
                         node = picked
                         also = []
+                        bringIntoView(picked, in: shown)
                     }
                 }
             }
@@ -666,6 +668,8 @@ struct DeckView: View {
                 editor.shown = now
                 node = arriving
                 also = []
+                // What find or a finding went to comes into view where the slide is zoomed in.
+                if let arrived = arriving, let now { bringIntoView(arrived, in: now) }
                 arriving = nil
                 playhead = Playhead()
                 typing?.sync(shown: now)
@@ -873,7 +877,8 @@ struct DeckView: View {
                                 fill: filling(shown),
                                 pen: pen,
                                 penning: { takePen() },
-                                inked: { points in ink(points, in: shown) }
+                                inked: { points in ink(points, in: shown) },
+                                showing: { state in chosen = state }
                             ) { ops, name in
                                 perform { try document.make(ops, undo: undo, named: name) }
                             }
@@ -930,7 +935,8 @@ struct DeckView: View {
         }
     }
 
-    /// Show a match the find bar found (PLAN 3.16): its state, and its node selected.
+    /// Show a match the find bar found (PLAN 3.16): its state, and its node selected, brought into
+    /// view where the slide is zoomed in (PLAN 4.12).
     private func reveal(_ state: String?, _ found: String?) {
         if let state, state != shown {
             arriving = found
@@ -938,7 +944,19 @@ struct DeckView: View {
         } else {
             node = found
             also = []
+            if let found, let shown { bringIntoView(found, in: shown) }
         }
+    }
+
+    /// Zoomed in, `node` as `state` shows it brought into view (PLAN 4.12, as the browser's panels
+    /// bring what they select into view, PLAN 2.123): the least pan that shows it whole where it is
+    /// drawn, or, larger than what shows, the least that shows nothing but it. What the layers,
+    /// find, a finding, or the cue select; fitted, nothing moves.
+    private func bringIntoView(_ node: String, in state: String) {
+        guard zoom.level > 1 + 1e-9,
+            let box = (try? editor.session.boxes(state: state))?.first(where: { $0.node == node })
+        else { return }
+        zoom.reveal(box.extent)
     }
 
     /// Lay the canvas out in `format`, or on the deck's own canvas (PLAN 3.16, as the browser's
@@ -970,7 +988,8 @@ struct DeckView: View {
             zoom: { by in zoom.step(by) }, fit: { zoom.fit() }, zoomed: zoom.level > 1, find: { searching = true })
     }
 
-    /// Show what `finding` is about: its state, and its node selected.
+    /// Show what `finding` is about: its state, and its node selected, brought into view where the
+    /// slide is zoomed in (PLAN 4.12).
     private func go(_ finding: Finding) {
         if let state = finding.state, state != shown {
             arriving = finding.node
@@ -978,6 +997,7 @@ struct DeckView: View {
         } else {
             node = finding.node
             also = []
+            if let about = finding.node, let shown { bringIntoView(about, in: shown) }
         }
     }
 

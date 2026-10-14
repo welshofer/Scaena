@@ -274,6 +274,26 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   sleep 2
   shot zoomed
   echo "zoomed twice, the canvas: $(frames find canvas || true); the zoom reads $(frames value zoom), against the slide's own size"
+  # Zoomed in with nothing selected (Escape stops typing in the text inserted, then selects what
+  # holds it, the slide), → pans a tenth of what shows and Shift+→ half, what the canvas holds
+  # standing elsewhere each time; PageDown shows the next slide or step, the canvas saying so, and
+  # PageUp the slide before again (PLAN 4.12).
+  events 'key code 53'
+  events 'key code 53'
+  sleep 1
+  before=$(holds canvas)
+  events 'key code 124'
+  echo "zoomed in, nothing selected, → pans: $(changed holds canvas "$before"); the canvas reads $(named canvas)"
+  before=$(holds canvas)
+  events 'key code 124 using shift down'
+  echo "Shift+→ pans: $(changed holds canvas "$before")"
+  shot panned
+  before=$(named canvas)
+  events 'key code 121'
+  echo "PageDown, the canvas shows: $(reads "$before"), and says \"$(frames value hint)\""
+  shot paged-down
+  events 'key code 116'
+  echo "PageUp, the canvas shows: $(reads "$before" same), and says \"$(frames value hint)\""
   events 'keystroke "0" using command down'
   sleep 2
   echo "fitted again, the canvas: $(frames find canvas || true)"

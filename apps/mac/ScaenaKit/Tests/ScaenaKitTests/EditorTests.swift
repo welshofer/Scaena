@@ -138,6 +138,24 @@ import Testing
     #expect(changed !== first)
 }
 
+/// PageDown and PageUp on the canvas (PLAN 4.12, as the browser's, PLAN 2.124): the next state on
+/// the deck's timeline, a slide or a step of one, and the one before; none past either end, or
+/// from a state the deck lacks. B1's cover is its first slide, and its second, goal, has two steps.
+@Test func pageDownAndPageUpGoAlongTheDecksStates() throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let states = editor.slots.map(\.state)
+    #expect(Array(states.prefix(4)) == ["cover", "goal", "goal-why", "goal-bar"])
+    #expect(editor.state(from: "cover", by: 1) == "goal", "the next slide")
+    #expect(editor.state(from: "goal", by: 1) == "goal-why", "a step of it")
+    #expect(editor.state(from: "goal-bar", by: 1) == "belief-1", "the slide after its steps")
+    #expect(editor.state(from: "goal-why", by: -1) == "goal", "the one before")
+    #expect(editor.state(from: "cover", by: -1) == nil, "none before the first")
+    let last = try #require(states.last)
+    #expect(editor.state(from: last, by: 1) == nil, "none past the last")
+    #expect(editor.state(from: last, by: -1) == states[states.count - 2])
+    #expect(editor.state(from: "nowhere", by: 1) == nil, "none from a state the deck lacks")
+}
+
 /// B1's files by their paths in it, `deck.json` changed by `edit`.
 private func b1Files(_ edit: (String) throws -> String) throws -> [String: Data] {
     let root = b1.resolvingSymlinksInPath()

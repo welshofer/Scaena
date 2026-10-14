@@ -32,11 +32,14 @@ import SwiftUI
 /// in reading order, Return goes into a container or onto a node's handles, the arrows step a node
 /// a track (with Shift resize it) or move the handle the keys are on, `[` and `]` turn it, ⌘A
 /// selects all beside it, and Space, then Tab and Space, build a selection; each node is an
-/// element VoiceOver reads as the reader hears it. On the iPad (PLAN 4.3), a finger makes each of
-/// these gestures' patches: a tap is a click and a double tap a double click; a handle is taken
-/// within 22 points; a long press offers what the Node menu and the clipboard do to what it
-/// pressed; and two fingers zoom the slide on the desk and pan it, a second finger stopping the
-/// first's press as it touches down. Every box and caret is the engine's, at rest; nothing here lays out.
+/// element VoiceOver reads as the reader hears it. Zoomed in with nothing selected, the arrows pan
+/// what shows, and what the keys select comes into view; PageDown and PageUp show the next slide
+/// or step and the one before (PLAN 4.12, as the browser's, PLAN 2.123, 2.124). On the iPad (PLAN
+/// 4.3), a finger makes each of these gestures' patches: a tap is a click and a double tap a
+/// double click; a handle is taken within 22 points; a long press offers what the Node menu and
+/// the clipboard do to what it pressed; and two fingers zoom the slide on the desk and pan it, a
+/// second finger stopping the first's press as it touches down. Every box and caret is the
+/// engine's, at rest; nothing here lays out.
 struct CanvasSelection: View {
     let editor: DeckEditor
     let state: String
@@ -76,6 +79,9 @@ struct CanvasSelection: View {
     var pen: PenUp? = nil
     var penning: (() -> Void)? = nil
     var inked: (([CGPoint]) -> Void)? = nil
+    /// Show another state, a slide or a step: where PageDown and PageUp go (PLAN 4.12). None where
+    /// the window shows no other.
+    var showing: ((String) -> Void)? = nil
     /// Make the patch a gesture ended in: one step to undo, named in the Edit menu as the gesture
     /// is where it says more than the patch (a resize), else as the patch says what it does.
     let make: ([JSONValue], String?) -> Void
@@ -949,6 +955,12 @@ struct CanvasSelection: View {
             return arrow(0, 1, shift: shift, option: option)
         case 126 where !command:
             return arrow(0, -1, shift: shift, option: option)
+        // PageDown and PageUp (fn with ↓ and ↑ where a keyboard has neither): the next slide or
+        // step, and the one before (PLAN 4.12).
+        case 121 where !command && !option:
+            return page(1)
+        case 116 where !command && !option:
+            return page(-1)
         case 49 where !command && !option:
             return space()
         case 33, 30:
@@ -1003,6 +1015,11 @@ struct CanvasSelection: View {
             return arrow(0, 1, shift: shift, option: option)
         case .keyboardUpArrow where !command:
             return arrow(0, -1, shift: shift, option: option)
+        // PageDown and PageUp: the next slide or step, and the one before (PLAN 4.12).
+        case .keyboardPageDown where !command && !option:
+            return page(1)
+        case .keyboardPageUp where !command && !option:
+            return page(-1)
         case .keyboardSpacebar where !command && !option:
             return space()
         case .keyboardOpenBracket, .keyboardCloseBracket:
@@ -1134,6 +1151,7 @@ struct CanvasSelection: View {
                 return false
             }
             keyOn = order[next]
+            reveal(order[next])
             let inIt = selection.contains(order[next])
             said =
                 "\(name(order[next], starting: true)), \(next + 1) of \(order.count)\(inIt ? ", selected" : "") · Space "
@@ -1152,6 +1170,7 @@ struct CanvasSelection: View {
         }
         node = order[next]
         also = []
+        reveal(order[next])
         // What Return does is said the first time only: after that, what is selected is enough.
         let hint = toldReturn ? "" : " · Return goes into it or its handles"
         toldReturn = true
@@ -1172,6 +1191,7 @@ struct CanvasSelection: View {
         let inside = readingOrder(boxes, in: selected)
         if also.isEmpty, let first = inside.first {
             node = first
+            reveal(first)
             said = "\(name(first, starting: true)) selected, in \(name(selected)) · Tab goes on, Escape goes back out"
             return true
         }
@@ -1246,8 +1266,11 @@ struct CanvasSelection: View {
 
     /// An arrow key: the handle the keys are on moved, as its drag moves it; else the node selected
     /// stepped a track, with Shift resized, kept to the state with Option, and several together.
+    /// With nothing selected, zoomed in, what shows panned a tenth of itself, with Shift half,
+    /// selecting and changing nothing, as the browser's arrows pan (PLAN 4.12, 2.123); fitted, or
+    /// with Option, the key goes on.
     private func arrow(_ dx: Int, _ dy: Int, shift: Bool, option: Bool) -> Bool {
-        guard let selected = node else { return false }
+        guard let selected = node else { return !option && zoom.pan(dx, dy, far: shift) }
         if also.isEmpty, let k = keyed {
             let list = handles(of: selected)
             guard list.indices.contains(k) else { return true }
@@ -1359,6 +1382,31 @@ struct CanvasSelection: View {
         node = first
         also = Array(all.dropFirst())
         said = "\(all.count) selected"
+        return true
+    }
+
+    /// Zoomed in, `node` brought into view (PLAN 4.12, as the browser's, PLAN 2.123): the least pan
+    /// that shows it whole where it is drawn, or, larger than what shows, the least that shows
+    /// nothing but it. What Tab, Return, and a selection by keys select; fitted, nothing moves.
+    private func reveal(_ node: String) {
+        guard let b = boxes.first(where: { $0.node == node }) else { return }
+        zoom.reveal(b.extent)
+    }
+
+    /// PageDown, `1`, or PageUp, `-1`, on the canvas (PLAN 4.12, as the browser's slide takes them,
+    /// PLAN 2.124): the next slide or step shown, or the one before, the window saying which; past
+    /// either end, that there is none. Whether the canvas took the key.
+    private func page(_ by: Int) -> Bool {
+        guard let showing else { return false }
+        guard let to = editor.state(from: state, by: by) else {
+            said = by > 0 ? "This is the last slide" : "This is the first slide"
+            return true
+        }
+        // A selection built by keys stops with the slide it was built on.
+        keyOn = nil
+        keyed = nil
+        showing(to)
+        said = "\(Words.slide(to, in: editor.slots)) shown"
         return true
     }
 

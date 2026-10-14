@@ -49,6 +49,16 @@ public final class DeckEditor {
             ?? "Its source does not compile."
     }
 
+    /// The state `by` places from `state` along the deck's timeline, a slide or a step (PLAN 4.12,
+    /// as the browser's PageDown and PageUp go, PLAN 2.124): the next, `1`, or the one before, `-1`.
+    /// None past either end, or where the deck has no such state.
+    public func state(from state: String, by: Int) -> String? {
+        guard let at = slots.firstIndex(where: { $0.state == state }), slots.indices.contains(at + by) else {
+            return nil
+        }
+        return slots[at + by].state
+    }
+
     /// The source the deck was made from last: what an undo of the next edit makes it again.
     @ObservationIgnored private var made = ""
     /// Each state drawn small, by the digest of its drawing at rest and the width asked.

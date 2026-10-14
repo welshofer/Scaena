@@ -146,7 +146,7 @@ The iPad client (SPEC §9.4, ADR-0023), started on Jay's call on 2026-10-09 with
 - **Xcode builds it.** The app is an Xcode project that XcodeGen makes from `apps/ipad/project.yml`, and a build phase builds the engine with cargo for the platform Xcode builds for.
 - **A touch is the Mac's gesture.** Each makes the patch the Mac's pointer makes, through the same ScaenaKit functions.
 
-The tasks are PLAN 4.1–4.11: the remote (SPEC §9.5), then Undo by touch, which gate 4 found missing; gate 4's criteria are PLAN's.
+The tasks are PLAN 4.1–4.12: the remote (SPEC §9.5), then Undo by touch, which gate 4 found missing, and the keys that pan and turn the slides, which the gap hunt found missing; gate 4's criteria are PLAN's.
 
 ScaenaKit builds for iPadOS 26 (PLAN 4.1). `ScaenaView` is one class over `NSView` or `UIView`, its layer a `CAMetalLayer` and its display link asking for 120 Hz on both. `ScaenaCanvas` is a `UIViewRepresentable` on the iPad. The pasteboard reads `UIPasteboard` as it reads `NSPasteboard` on the Mac, and ImageIO makes a PNG of a picture on both. The canvas's keys stay the Mac's until 4.4. `apps/ipad/engine.sh` builds the engine for the iPad's simulator or an iPad and writes `Engine.xcconfig`, which the project XcodeGen makes from `apps/ipad/project.yml` links. `just ipad-test` runs ScaenaKit's tests with xcodebuild on an iPad simulator, and CI's `ipad` job runs them wherever macOS runs.
 
@@ -169,6 +169,8 @@ The assistant (PLAN 4.9) is the Mac's on the iPad. Its keys are kept in the iPad
 The remote (PLAN 4.10, SPEC §9.5, ADR-0025). `ScaenaRemote` is a library of the ScaenaKit package with no engine in it. Remote… in the Play menu offers the deck by Bonjour (`RemoteServer`, `RemoteHost`), and its sheet shows a code of four digits in the editor; TLS's pre-shared key is derived from the code. A remote finds the presenter (`RemoteBrowser`) and joins with the code (`RemoteClient`). Then the presenter sends each place: a state, its time into its cue or at rest, its notes, and it and the next as PNGs. The remote sends play, on, back, first, last, or end. `RemoteView` is the iPhone's Remote app (`apps/ipad/Remote`, `RemoteApp`), and the iPad's Control a Presentation… window. ScaenaKit's `RemoteTests` join over the loopback.
 
 Undo by touch (PLAN 4.11): the iPad's toolbar has Undo beside View and Zoom (`UndoButton`), as a presentation app's does there, since an iPad without a keyboard has no ⌘Z. A tap takes back the last step, and a long press offers Redo. It reads as the step it takes back, as the Edit menu names it (`UndoSteps`), and the iPad's `TouchTests` undo a drag and a Duplicate with it.
+
+The keys that pan and turn the slides (PLAN 4.12) are the browser's (PLAN 2.123, 2.124), on the Mac and the iPad alike. Zoomed in with nothing selected, the arrows pan a tenth of what the desk shows, and with Shift half (`Zoom.pan`); what Tab, Return, a selection by keys, the objects on the slide, find, a finding, or the cue selects comes into view by the least pan that shows it whole, or, larger than what shows, nothing but it (`Zoom.reveal`, `NodeBox.extent`). On the canvas, PageDown and PageUp show the next slide or step and the one before (`DeckEditor.state(from:by:)`), the desk saying which. The iPad's `KeysTests` press them on B1.
 
 ## Deck generation
 

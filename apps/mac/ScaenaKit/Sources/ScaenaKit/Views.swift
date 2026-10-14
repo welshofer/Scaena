@@ -141,6 +141,41 @@ public struct Zoom: Equatable, Sendable {
         return true
     }
 
+    /// What shows moved by an arrow key while nothing is selected (PLAN 4.12, as the browser's
+    /// preview pans, PLAN 2.123): a tenth of what shows across (`dx`) and down (`dy`), each -1, 0,
+    /// or 1, or with `far` half of it, the slide kept on the desk, so that at its edge it goes no
+    /// farther. Whether it is zoomed in, where the arrows pan and select nothing: fitted, the whole
+    /// slide shows, and they go on.
+    @discardableResult
+    public mutating func pan(_ dx: Int, _ dy: Int, far: Bool) -> Bool {
+        guard level > 1 + 1e-9 else { return false }
+        let part: CGFloat = far ? 0.5 : 0.1
+        let v = visible
+        pan(by: CGVector(dx: CGFloat(dx) * v.width * part, dy: CGFloat(dy) * v.height * part))
+        return true
+    }
+
+    /// What shows moved the least that shows `rect`, canvas units, whole, or, where it is larger
+    /// than what the desk shows, the least that shows nothing but it (PLAN 4.12, as the browser's
+    /// preview brings what the keys or a panel select into view, PLAN 2.123). What of it lies past
+    /// the canvas's edge is never drawn, and is not asked for. Fitted, the whole slide shows, and
+    /// nothing moves. Whether it moved.
+    @discardableResult
+    public mutating func reveal(_ rect: CGRect) -> Bool {
+        guard level > 1 + 1e-9, !rect.isNull else { return false }
+        let (x0, x1) = (max(rect.minX, 0), min(rect.maxX, canvas.width))
+        let (y0, y1) = (max(rect.minY, 0), min(rect.maxY, canvas.height))
+        guard x0 <= x1, y0 <= y1 else { return false }
+        let s = scale
+        let dx = Self.into(corner.x + x0 * s, (x1 - x0) * s, room: desk.width)
+        let dy = Self.into(corner.y + y0 * s, (y1 - y0) * s, room: desk.height)
+        guard abs(dx) > 1e-9 || abs(dy) > 1e-9 else { return false }
+        let was = corner
+        corner = CGPoint(x: corner.x + dx, y: corner.y + dy)
+        settle()
+        return corner != was
+    }
+
     /// The slide fitted to the desk again, in its middle.
     public mutating func fit() {
         level = 1
@@ -180,6 +215,13 @@ public struct Zoom: Equatable, Sendable {
     private static func kept(_ at: CGFloat, _ length: CGFloat, on room: CGFloat) -> CGFloat {
         if length + 2 * margin <= room + 0.5 { return (room - length) / 2 }
         return min(margin, max(room - margin - length, at))
+    }
+
+    /// How far a span `length` long from `at` moves the least that puts it wholly in a room from 0
+    /// to `room`, or, longer than the room, the least that fills the room with it.
+    private static func into(_ at: CGFloat, _ length: CGFloat, room: CGFloat) -> CGFloat {
+        let (start, end) = (-at, room - at - length)
+        return min(max(0, min(start, end)), max(start, end))
     }
 }
 

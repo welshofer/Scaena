@@ -178,6 +178,106 @@ final class KeysTests: XCTestCase {
         }
     }
 
+    /// Zoomed in, the arrows pan, and PageDown and PageUp turn the slides (PLAN 4.12, as the
+    /// browser's, PLAN 2.123, 2.124), on B1's cover with a hardware keyboard. The toolbar's Zoom In
+    /// brings the slide a step closer, about its middle, and a tap where nothing draws gives the
+    /// canvas the keyboard with nothing selected. Then → pans what shows a tenth of itself, the
+    /// subtitle's end moving a tenth of the canvas's width to the left; ← pans it back; and Shift+→
+    /// pans farther. None selects anything, and the canvas still reads as the cover. PageDown shows
+    /// the second slide, the desk under it saying so, PageUp the first again, and PageUp there says
+    /// it is the first. A key the canvas does not hear is said, and the test fails at its end saying
+    /// every such key.
+    @MainActor
+    func testTheKeysPanWhatIsZoomedInAndTurnTheSlides() throws {
+        let app = launched()
+        try openB1(in: app)
+        let canvas = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'canvas'")).firstMatch
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "no canvas: \(app.debugDescription)")
+        let title = canvas.descendants(matching: .any).matching(NSPredicate(format: "label == 'Scaena'")).firstMatch
+        let subtitle = canvas.descendants(matching: .any)
+            .matching(NSPredicate(format: "label BEGINSWITH 'Why this exists'")).firstMatch
+        guard title.waitForExistence(timeout: 10), subtitle.exists else {
+            throw Unseen(description: "the cover reads no title and subtitle: \(app.debugDescription)")
+        }
+        // What the canvas says, on the desk under the slide.
+        let hint = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'hint'")).firstMatch
+        let said = { hint.exists ? hint.label : "nothing" }
+        settle()
+        var unheard: [String] = []
+
+        try XCTContext.runActivity(named: "The toolbar's Zoom In brings the slide a step closer") { _ in
+            let zoom = app.buttons.matching(NSPredicate(format: "identifier == 'zoom'")).firstMatch
+            guard zoom.waitForExistence(timeout: 5) else {
+                throw Unseen(description: "no Zoom in the toolbar: \(app.debugDescription)")
+            }
+            zoom.tap()
+            let closer = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Zoom In'")).firstMatch
+            guard closer.waitForExistence(timeout: 5) else {
+                keep(app, as: "zoom-menu")
+                throw Unseen(description: "the Zoom menu offers no Zoom In: \(app.debugDescription)")
+            }
+            closer.tap()
+            guard wait(5, { !(canvas.value as? String ?? "").isEmpty }) else {
+                throw Unseen(description: "Zoom In zoomed nothing: \(app.debugDescription)")
+            }
+            // A tap where nothing draws, past the subtitle's end and under it: nothing selected,
+            // and the canvas has the keyboard.
+            canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.97)).tap()
+            XCTAssertTrue(wait(5) { !title.isSelected && !subtitle.isSelected }, "the tap selected something")
+            settle(1)
+            keep(app, as: "zoomed-in")
+        }
+
+        try XCTContext.runActivity(named: "With nothing selected, → pans a tenth of what shows, ← back, and Shift+→ farther") { _ in
+            let (was, wide) = (subtitle.frame, canvas.frame.width)
+            app.typeKey(XCUIKeyboardKey.rightArrow, modifierFlags: [])
+            guard wait(5, { abs(subtitle.frame.maxX - was.maxX) > 1 }) else {
+                keep(app, as: "arrow-panned-nothing")
+                throw Unseen(description: "→ panned nothing: the subtitle at \(was), then \(subtitle.frame)")
+            }
+            settle(1)
+            let moved = was.maxX - subtitle.frame.maxX
+            XCTAssertEqual(
+                moved, wide / 10, accuracy: 2, "→ moved the subtitle \(moved) points, not a tenth of the \(wide) shown")
+            XCTAssertFalse(title.isSelected || subtitle.isSelected, "→ selected something")
+            XCTAssertEqual(canvas.label, "Slide 1", "→ showed another slide")
+            keep(app, as: "panned")
+            app.typeKey(XCUIKeyboardKey.leftArrow, modifierFlags: [])
+            XCTAssertTrue(
+                wait(5) { abs(subtitle.frame.maxX - was.maxX) < 1 }, "← did not pan back: \(was) → \(subtitle.frame)")
+            app.typeKey(XCUIKeyboardKey.rightArrow, modifierFlags: .shift)
+            XCTAssertTrue(
+                wait(5) { was.maxX - subtitle.frame.maxX > moved + 2 },
+                "Shift+→ panned no farther than →: \(was) → \(subtitle.frame)")
+            XCTAssertFalse(title.isSelected || subtitle.isSelected, "Shift+→ selected something")
+            keep(app, as: "panned-farther")
+        }
+
+        XCTContext.runActivity(named: "PageDown shows the next slide and PageUp the one before, the desk saying which") { _ in
+            app.typeKey(XCUIKeyboardKey.pageDown, modifierFlags: [])
+            guard wait(5, { canvas.label == "Slide 2" }) else {
+                keep(app, as: "page-down-unheard")
+                unheard.append("PageDown showed no next slide: the canvas reads \(canvas.label)")
+                return
+            }
+            XCTAssertTrue(wait(5) { said() == "Slide 2 shown" }, "the desk says \(said()) of PageDown")
+            keep(app, as: "paged-down")
+            app.typeKey(XCUIKeyboardKey.pageUp, modifierFlags: [])
+            guard wait(5, { canvas.label == "Slide 1" }) else {
+                unheard.append("PageUp showed no slide before: the canvas reads \(canvas.label)")
+                return
+            }
+            XCTAssertTrue(wait(5) { said() == "Slide 1 shown" }, "the desk says \(said()) of PageUp")
+            app.typeKey(XCUIKeyboardKey.pageUp, modifierFlags: [])
+            XCTAssertTrue(wait(5) { said() == "This is the first slide" }, "PageUp on the first slide says \(said())")
+            XCTAssertEqual(canvas.label, "Slide 1", "PageUp went before the first slide")
+        }
+
+        if !unheard.isEmpty {
+            throw Unseen(description: "keys the canvas did not hear: " + unheard.joined(separator: "; "))
+        }
+    }
+
     /// What was heard of the canvas's Escape (PLAN 4.6).
     private enum Cancel {
         case escape, commandPeriod, neither
