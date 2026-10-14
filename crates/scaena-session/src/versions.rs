@@ -6,7 +6,8 @@
 use crate::assistant::Caller;
 use crate::{Error, Session};
 use scaena_core::Deck;
-use scaena_ops::history::{Restored, Version, compare, differing, restored};
+use scaena_ops::history::{Restored, StateChange, StateChanges, Version, compare, differing, restored};
+use scaena_ops::inspect::Change;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -62,6 +63,33 @@ fn bytes(files: &BTreeMap<String, String>) -> BTreeMap<String, Vec<u8>> {
     scaena_core::sort::map(files.iter().map(|(path, text)| (path.clone(), text.clone().into_bytes())))
 }
 
+/// Each text whose words changed from `earlier` to `later` in `states`, by state and node: its
+/// words before and after. What an editor names it by and shows the change in (PLAN 2.99): its
+/// words now alone say neither which text it was nor what changed in it.
+fn retyped(earlier: &Deck, later: &Deck, states: &StateChanges) -> BTreeMap<String, BTreeMap<String, [String; 2]>> {
+    let (Ok(was), Ok(is)) = (scaena_core::resolve_states(earlier), scaena_core::resolve_states(later)) else {
+        return BTreeMap::new();
+    };
+    let words = |snaps: &[scaena_core::Snapshot], state: &str, node: &str| {
+        let snap = snaps.iter().find(|s| s.state_id == state)?;
+        snap.nodes.get(node).map(scaena_core::reading::words)
+    };
+    let mut out: BTreeMap<String, BTreeMap<String, [String; 2]>> = BTreeMap::new();
+    for (state, change) in states {
+        let StateChange::Changed(changed) = change else { continue };
+        for (node, how) in &changed.nodes {
+            let Change::Change(delta) = how else { continue };
+            if !delta.contains_key("text") && !delta.contains_key("runs") {
+                continue;
+            }
+            if let (Some(before), Some(after)) = (words(&was, state, node), words(&is, state, node)) {
+                out.entry(state.clone()).or_default().insert(node.clone(), [before, after]);
+            }
+        }
+    }
+    out
+}
+
 impl Session {
     /// Show version `held` read-only, in a session of its own: the bundle with its deck and its
     /// data files as they were, the rest as it is now. Its states' ids, in order.
@@ -95,7 +123,8 @@ impl Session {
     }
 
     /// What changed from `from` to `to`, or without it to the deck and its data files as they are
-    /// now: `{ states, deck, files }`, as `scaena history --diff` says it.
+    /// now: `{ states, deck, files }`, as `scaena history --diff` says it, and `texts`, the words
+    /// before and after of each text whose words changed.
     pub fn compare_versions(&self, from: &Held, to: Option<&Held>) -> Result<serde_json::Value, Error> {
         let earlier = deck(from)?;
         let (later, files) = match to {
@@ -108,7 +137,8 @@ impl Session {
         };
         let (states, fields) = compare(&earlier, &later).map_err(|e| Error::Ops(e.to_string()))?;
         let files = differing((&earlier, &bytes(&from.files)), (&later, &files));
-        Ok(serde_json::json!({ "states": states, "deck": fields, "files": files }))
+        let texts = retyped(&earlier, &later, &states);
+        Ok(serde_json::json!({ "states": states, "deck": fields, "files": files, "texts": texts }))
     }
 
     /// Make version `held`, `version` as listed, the deck again, with its data files, as `scaena
@@ -218,6 +248,10 @@ mod tests {
 
         let changed = s.compare_versions(&then, None).unwrap();
         assert_eq!(changed["states"]["intro"]["changed"]["nodes"]["title"]["change"]["text"], "Q3 Review");
+        // A text whose words changed has its words before and after, which name it and show what
+        // changed (PLAN 2.99).
+        assert_eq!(changed["texts"]["intro"]["title"], serde_json::json!(["Revenue, as it was", "Q3 Review"]));
+        assert_eq!(changed["texts"].get("revenue").and_then(|t| t.get("rev")), None, "only texts whose words changed");
         assert_eq!(changed["files"], serde_json::json!([CSV]));
 
         let user = Caller { author: "user", at: None };

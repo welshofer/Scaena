@@ -5,10 +5,12 @@
 //
 // - An image selected has a crop handle inside each side of what shows, and its focal point where
 //   it is drawn.
-// - A crop handle dragged shows the whole image outlined, and the part the crop keeps, as it goes;
-//   let go, it is one `choose` of `crop`, one step to undo. Escape through a drag leaves it as it
-//   was, and Alt keeps it to the state shown.
-// - The focal point dragged is one `choose` of `focal`.
+// - A crop handle dragged shows the whole image outlined, and the part the crop keeps, its edge at
+//   the pointer, as it goes; let go, the picture's edge has come in that far and the rest of it is
+//   where it was: the crop and its box, one patch, one step to undo. Escape through a drag leaves
+//   it as it was, and Alt keeps it to the state shown.
+// - The focal point dragged is one `choose` of `focal`. Where it changes nothing, a picture filling
+//   its box, no handle for it stands in the picture's middle, and a drag from there moves it.
 // - axe-core finds nothing with the handles shown, and the keys sheet lists the gestures.
 // Exits 1 on any failure.
 import { createRequire } from "node:module";
@@ -99,20 +101,46 @@ try {
   });
   check(!found.length, `axe finds nothing with the handles shown${found.length ? `:\n    ${found.join("\n    ")}` : ""}`);
 
-  // The right side's handle, a quarter of the whole image's width in: the crop keeps three quarters.
+  // The right side's handle, dragged in a quarter of what shows: the picture's right edge comes in
+  // with the pointer, from where the handle stood, and the rest of it stays where it was drawn,
+  // as a presentation app's crop does: the crop and the box, one patch.
   const right = await handle('[data-crop="e"]');
+  const by = cover.shown[2] / 4;
   let during = null;
-  await drag(right, [right[0] - cover.whole[2] / 4, right[1]], {
+  await drag(right, [right[0] - by, right[1]], {
     mid: async () => {
-      during = await page.evaluate(() => [document.querySelectorAll("#overlay svg .cropping .image-whole").length, document.querySelectorAll("#overlay svg .cropping .crop-frame").length]);
+      during = await page.evaluate(() => {
+        const frame = document.querySelector("#overlay svg .cropping .crop-frame");
+        return [document.querySelectorAll("#overlay svg .cropping .image-whole").length, frame ? frame.getBBox().x + frame.getBBox().width : null];
+      });
     },
   });
-  check(JSON.stringify(during) === "[1,1]", `as it is dragged, the whole image is outlined, and the part the crop keeps: ${JSON.stringify(during)}`);
-  check(await comes("crop:[0, 0, 0.75, 1]"), `let go, the crop keeps three quarters of the image: ${(await source()).match(/image-cover[^\n]*/)?.[0]}`);
-  check(await says("cropped to 75% wide, 100% high, from 0% across and 0% down"), `the status says so: ${await status()}`);
+  check(during?.[0] === 1 && Math.abs(during[1] - (cover.shown[0] + cover.shown[2] - by)) < 3, `as it is dragged, the whole image is outlined, and the kept part's edge follows the pointer: ${JSON.stringify(during)}`);
+  const trimmed = await page
+    .waitForFunction((w) => { const f = window.scaena.canvas.framing(); return f?.node === "image-cover" && Math.abs(f.shown[2] - w) > 2 ? f : null; }, cover.shown[2], { timeout: 30000 })
+    .then((h) => h.jsonValue())
+    .catch(() => null);
+  const near = (a, b) => a.every((v, i) => Math.abs(v - b[i]) < 2.5);
+  check(
+    trimmed !== null && Math.abs(trimmed.shown[0] - cover.shown[0]) < 2.5 && Math.abs(trimmed.shown[0] + trimmed.shown[2] - (cover.shown[0] + cover.shown[2] - by)) < 2.5,
+    `let go, the right edge of what shows came in ${Math.round(by)} units, the left where it was: ${JSON.stringify(cover.shown)} → ${JSON.stringify(trimmed?.shown)}`,
+  );
+  check(trimmed !== null && near(trimmed.whole, cover.whole), `the rest of the picture stays where it was drawn: ${JSON.stringify(cover.whole)} → ${JSON.stringify(trimmed?.whole)}`);
+  // The node's declaration, its first line and those set deeper after it.
+  const declared = (scn, node) => {
+    const lines = scn.split("\n");
+    const first = lines.findIndex((l) => l.trim().startsWith(`${node} `));
+    if (first < 0) return "";
+    let last = first + 1;
+    while (last < lines.length && lines[last].search(/\S/) > lines[first].search(/\S/)) last++;
+    return lines.slice(first, last).join(" ");
+  };
+  const line = declared(await source(), "image-cover");
+  check(/crop:\[/.test(line) && /rect\(/.test(line), `the crop and its box written: ${line}`);
+  check(await says("cropped to"), `the status says so: ${await status()}`);
   await page.locator("#overlay").focus();
   await page.keyboard.press("Control+z");
-  check(await back(original), "one undo takes it back");
+  check(await back(original), "one undo takes back the crop and the box together");
 
   // Escape through a drag: as it was.
   const top = await handle('[data-crop="n"]');
@@ -124,7 +152,12 @@ try {
   await choose("image-cover");
   const left = await handle('[data-crop="w"]');
   await drag(left, [left[0] + cover.whole[2] / 10, left[1]], { alt: true });
-  check(await says("kept to this slide"), `with Alt, kept to the slide shown: ${await status()}`);
+  // The drag's own words say it too: the patch is in once the source has it.
+  const forked = await page
+    .waitForFunction((was) => window.scaena.source() !== was, original, { timeout: 30000, polling: 50 })
+    .then(() => true)
+    .catch(() => false);
+  check(forked && (await says("kept to this slide")) && /images[\s\S]*image-cover crop:/.test(await source()), `with Alt, kept to the slide shown: ${await status()}`);
   await page.locator("#overlay").focus();
   await page.keyboard.press("Control+z");
   await back(original);
@@ -142,6 +175,23 @@ try {
     .catch(() => null);
   check(moved !== null && Math.abs(moved[1] - 0.5) < 0.01, `the focal point moves where it is dropped: ${JSON.stringify(moved)} · ${await status()}`);
   check((await source()).includes(`focal:[${moved?.join(", ")}]`), "one choose of focal");
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Control+z");
+  check(await back(original), "one undo takes it back");
+  await page.selectOption("#state", "images");
+  await page.waitForFunction(() => window.scaena.canvas.boxed() === "images", null, { timeout: 30000 }).catch(() => {});
+
+  // A picture its box shows as it is, filled: its focal point changes nothing, so no handle for it
+  // stands in its middle, and a drag from its middle moves the picture.
+  const fill = await choose("image-fill");
+  check((await page.locator("#overlay svg .handle.focal").count()) === 0, `no focal point where it changes nothing: ${fill?.fit}`);
+  const [fx, fy, fw, fh] = fill.rect;
+  await drag([fx + fw / 2, fy + fh / 2], [fx + fw / 2, fy + fh / 2 + 200]);
+  const placed = await page
+    .waitForFunction((was) => (window.scaena.canvas.boxes().find((b) => b.node === "image-fill")?.rect[1] ?? was) !== was, fy, { timeout: 30000 })
+    .then(() => true)
+    .catch(() => false);
+  check(placed && !/image-fill[^\n]*focal/.test(await source()), `a drag from its middle moves the picture: ${await status()}`);
   await page.locator("#overlay").focus();
   await page.keyboard.press("Control+z");
   check(await back(original), "one undo takes it back");

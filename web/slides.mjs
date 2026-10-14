@@ -13,7 +13,10 @@
 // - Delete takes `revenue` out, its step too; `close` reads as it read.
 // - Enter shows a slide's first state in the canvas, and the preview back; Escape closes it, and
 //   what it said of itself in the status goes with it.
-// - The slider at its foot makes the slides larger, fewer to a row, each painted larger.
+// - The slider at its foot makes the slides larger, fewer to a row, each painted larger; in a
+//   window of 1024 × 700 it stands below every slide, none showing under it or past it.
+// - In that window the inspector gives way to the slide, and the palette's Hide the inspector and
+//   Hide the animations give the slide their room; Show the inspector shows it again.
 // - axe-core finds nothing against WCAG 2.1 AA in the light table.
 // - On the trails deck, whose texts have layouts of their own in its other sizes, ⌘D copies its
 //   photo slide too, and the status says so with no id.
@@ -161,10 +164,55 @@ try {
   await page.click("#slides-open");
   await page.waitForFunction(() => !document.querySelector("#slides").hidden, null, { timeout: 10000 });
   check(await says("Enter shows one"), `opened, it says how it works: ${await status()}`);
+  // In a short window, the slider stands at the light table's foot, below every slide: none shows
+  // under it or past it.
+  await page.setViewportSize({ width: 1024, height: 700 });
+  await page.waitForTimeout(400);
+  const foot = await page.evaluate(() => {
+    const sizing = document.querySelector("#slides .sizing").getBoundingClientRect();
+    const table = document.querySelector("#slides").getBoundingClientRect();
+    const shown = document.querySelector("#slides ol").getBoundingClientRect();
+    const under = [...document.querySelectorAll("#slides li")].some((li) => {
+      const r = li.getBoundingClientRect();
+      const top = Math.max(r.top, shown.top);
+      const bottom = Math.min(r.bottom, shown.bottom);
+      return bottom > top && bottom > sizing.top + 0.5 && top < sizing.bottom - 0.5;
+    });
+    return { under, gap: Math.round(table.bottom - sizing.bottom) };
+  });
+  check(!foot.under && foot.gap <= 1, `at 1024 × 700 the slider is at the foot, over no slide: ${JSON.stringify(foot)}`);
   await page.keyboard.press("Escape");
   check(await page.locator("#slides").isHidden(), "Escape closes it");
   check(!(await status()).includes("Enter shows one"), `and what it said goes with it: ${await status()}`);
   check((await source()) === original, "the deck is as it was");
+
+  // In that window the inspector gives way to the slide, and the palette hides it, or the
+  // animations under the canvas, to give the slide their room, as a presentation app's View menu
+  // does; a tab asked for shows it again.
+  const area = () =>
+    page.evaluate(() => {
+      const r = document.querySelector("#preview").getBoundingClientRect();
+      return { width: Math.round(r.width), share: (r.width * r.height) / (innerWidth * innerHeight) };
+    });
+  const small = await area();
+  check(small.share >= 0.15, `at 1024 × 700 the slide has room: ${JSON.stringify(small)}`);
+  const run = async (words) => {
+    await page.locator("#overlay").focus();
+    await page.keyboard.press("Control+k");
+    await page.waitForFunction(() => document.querySelector("#palette").open, null, { timeout: 10000 });
+    await page.keyboard.type(words);
+    await page.keyboard.press("Enter");
+    await page.waitForTimeout(400);
+  };
+  await run("Hide the inspector");
+  await run("Hide the animations");
+  const roomy = await area();
+  check(await page.locator("#panel").isHidden(), "Hide the inspector hides it");
+  check(roomy.width > small.width * 1.4, `and the slide takes their room: ${small.width} → ${roomy.width}`);
+  await run("Show the inspector");
+  check(!(await page.locator("#panel").isHidden()), "Show the inspector shows it again");
+  await run("Show the animations");
+  await page.setViewportSize({ width: 1600, height: 1000 });
 
   // On the trails deck, whose words have layouts of their own in its other sizes, ⌘D copies the
   // photo slide as it copies any: the copy writes each object as the slide shows it, but for its

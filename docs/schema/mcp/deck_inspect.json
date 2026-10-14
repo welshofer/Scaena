@@ -386,6 +386,10 @@
             "description": "Where it is written, a JSON pointer into the deck: the choreography item\n(`/states/2/choreography/0`), or the node's own property where it lives\n(`/states/1/props/title/enter`, `/nodes/title/exit`).",
             "type": ["string", "null"]
           },
+          "preset": {
+            "description": "The theme's preset it plays, by name, where it is written as one: what an editor names its\nbar by (`fade`, Fade).",
+            "type": ["string", "null"]
+          },
           "curve": { "$ref": "#/$defs/Curve" },
           "from": {
             "description": "An entrance's look before it: what it changes from rest.",
