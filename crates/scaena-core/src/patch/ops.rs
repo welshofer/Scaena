@@ -12,7 +12,7 @@ use crate::model::theme::Theme;
 use crate::model::values::{Annotation, Duration, ListItem};
 use crate::tracking::{
     Lives, NON_TRACKING_KEYS, Snapshot, keep_looks, layout_lives, lives, merge_props, other_spelling, resolve_states,
-    tracks_from,
+    tracks_from, words_of,
 };
 use crate::validate::BundleFiles;
 use serde_json::{Map, Value};
@@ -1654,13 +1654,22 @@ fn parent_of(props: &Map<String, Value>) -> Option<&str> {
 /// [`SemanticOp::Group`].
 fn group(d: &Doc, id: &str, nodes: &[String], state: Option<&str>) -> Result<Vec<JsonOp>, String> {
     d.free("node", id, d.node(id).is_ok())?;
-    let Some(first) = nodes.first() else { return Err("a group holds one node or more: name them in `nodes`".into()) };
+    if nodes.is_empty() {
+        return Err("a group holds one node or more: name them in `nodes`".into());
+    }
     for (i, node) in nodes.iter().enumerate() {
         d.node(node)?;
         if nodes[..i].contains(node) {
             return Err(format!("`{node}` is named twice"));
         }
     }
+    // A connector goes where what it joins goes (PLAN 2.109): it stays out of the group, and
+    // follows what it joins into it.
+    let connector = |n: &String| d.kind(n) == Ok("shape") && d.node(n).is_ok_and(|p| p.contains_key("connect"));
+    let nodes: Vec<String> = nodes.iter().filter(|n| !connector(n)).cloned().collect();
+    let Some(first) = nodes.first() else {
+        return Err("a connector goes where what it joins goes: group what it joins".into());
+    };
     // Their container: as `state` shows them, else as their own `at` places them.
     let (deck, snapshots) = d.snapshots()?;
     let shown = state.map(|s| d.state(s)).transpose()?;
@@ -1716,7 +1725,7 @@ fn group(d: &Doc, id: &str, nodes: &[String], state: Option<&str>) -> Result<Vec
             }
         }
         None => {
-            for node in nodes {
+            for node in &nodes {
                 let at = d.node(node)?.get("at");
                 ops.push(match at {
                     Some(Value::Object(_)) => {
@@ -1816,6 +1825,15 @@ fn rename_node(d: &Doc, id: &str, to: &str) -> Result<Vec<JsonOp>, String> {
     for (path, _, _) in d.parents().into_iter().filter(|(_, n, p)| *p == id && *n != id) {
         ops.push(JsonOp::Replace { path, value: Value::String(to.into()) });
     }
+    // Each connector that joins it joins it by its new name (PLAN 2.109).
+    for (node, props) in d.nodes().filter(|(n, _)| n.as_str() != id) {
+        for end in ["from", "to"] {
+            if props.get("connect").and_then(|c| c.get(end)).and_then(Value::as_str) == Some(id) {
+                let path = format!("/nodes/{}/connect/{end}", esc(node));
+                ops.push(JsonOp::Replace { path, value: Value::String(to.into()) });
+            }
+        }
+    }
     Ok(ops)
 }
 
@@ -1854,10 +1872,14 @@ fn hide_node(d: &Doc, node: &str, state: &str) -> Result<Vec<JsonOp>, String> {
         ops.push(JsonOp::Remove { path: format!("/states/{i}/props/{}", esc(node)) });
     }
     // On screen in the state it tracks from: it exits here, unless it does already (and
-    // the delta had it enter again). Else it entered here, by that delta, and is gone with it.
+    // the delta had it enter again). Else it entered here, by that delta, and is gone with it;
+    // or, a shape's words, with their shape, which brings them in here unless they exit
+    // (PLAN 2.108).
     let exits = d.states()[i].get("remove").and_then(Value::as_array);
     let listed = exits.is_some_and(|e| e.iter().any(|x| x.as_str() == Some(node)));
-    if !listed && tracks_from(&deck, i).is_some_and(|j| snapshots[j].nodes.contains_key(node)) {
+    let tracked = |n: &str| tracks_from(&deck, i).is_some_and(|j| snapshots[j].nodes.contains_key(n));
+    let shape = deck.nodes.get(node).and_then(|n| words_of(&deck, n));
+    if !listed && (tracked(node) || shape.is_some_and(|shape| !tracked(shape))) {
         let value = Value::String(node.into());
         ops.push(match exits {
             Some(_) => JsonOp::Add { path: format!("/states/{i}/remove/-"), value },

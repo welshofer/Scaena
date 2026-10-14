@@ -127,7 +127,7 @@ pub fn inking(
             for op in target.ops(Some(state), false) {
                 patch.push(serde_json::to_value(op).context("a patch")?);
             }
-            Ok(Added { id: d.id.clone(), cell: target.cell, patch })
+            Ok(Added { id: d.id.clone(), cell: target.cell, patch, copies: Default::default() })
         }
     }
 }

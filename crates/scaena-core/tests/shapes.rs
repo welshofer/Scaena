@@ -226,3 +226,67 @@ fn a_connector_leaves_wherever_either_end_does() {
     // It goes with b, and b coming back does not bring it: a state enters it, as any node.
     assert_eq!(shown, ["one: a b ab", "two: a", "three: a b"]);
 }
+
+/// Words that entered with their shape (PLAN 2.108) leave by `hide_node` where they entered: the
+/// state takes them away, the shape staying.
+#[test]
+fn words_hidden_where_they_entered_with_their_shape_leave_there() {
+    let nodes = json!({ "star": star(), "words": { "type": "text", "text": "Hi", "at": { "parent": "star" } } });
+    let d = deck(nodes, json!([{ "id": "a", "shows": ["star"] }, { "id": "b", "shows": [] }]));
+    let doc = serde_json::to_value(&d).unwrap();
+    let hide = [json!({ "op": "hide_node", "node": "words", "state": "a" })];
+    let hidden = scaena_core::patch::compile(&doc, &hide, &Bare).unwrap();
+    assert!(!hidden.patch.is_empty(), "a patch that does something");
+    let d: Deck = serde_json::from_value(hidden.doc).unwrap();
+    let shown: Vec<Vec<String>> =
+        resolve_states(&d).unwrap().iter().map(|s| s.nodes.keys().cloned().collect()).collect();
+    assert_eq!(shown, [vec!["star".to_string()], vec!["star".to_string()]]);
+}
+
+/// Where a shape's words get a property (ADR-0013, PLAN 2.108): a state that takes their shape away
+/// takes them with it, so they come back with their own, not with what a state before it gave them.
+/// A connector likewise leaves with either end (PLAN 2.109).
+#[test]
+fn words_that_left_with_their_shape_come_back_with_their_own() {
+    use scaena_core::tracking::{Lives, lives};
+    let nodes = json!({
+        "star": star(),
+        "words": { "type": "text", "text": "Hi", "at": { "parent": "star" } },
+        "a": { "type": "text", "text": "A" },
+        "ab": { "type": "shape", "kind": "arrow", "connect": { "from": "a", "to": "star" } }
+    });
+    let mut d = deck(
+        nodes,
+        json!([
+            { "id": "a1", "shows": ["star", "a", "ab"] },
+            { "id": "a2", "shows": [] },
+            { "id": "b1", "mode": "delta", "shows": ["-star"] },
+            { "id": "b2", "mode": "delta", "shows": ["star", "ab"] }
+        ]),
+    );
+    // A step gives the words their text, and the arrow its stroke.
+    d.states[1].props.insert("words".into(), serde_json::from_value(json!({ "text": "Step" })).unwrap());
+    d.states[1].props.insert("ab".into(), serde_json::from_value(json!({ "stroke": "accent" })).unwrap());
+    assert_eq!(lives(&d, 1, "words", "text", &[]), Lives::State(1));
+    assert_eq!(lives(&d, 3, "words", "text", &[]), Lives::Node, "the words came back with the star");
+    assert_eq!(lives(&d, 3, "ab", "stroke", &[]), Lives::Node, "the arrow came back by a state of its own");
+}
+
+/// A connector's ends renamed (PLAN 2.109): `rename_node` renames what each connector joins, and
+/// the deck stays valid.
+#[test]
+fn a_connector_joins_what_its_ends_are_renamed_to() {
+    let nodes = json!({
+        "a": { "type": "text", "text": "A" },
+        "b": { "type": "text", "text": "B" },
+        "ab": { "type": "shape", "kind": "arrow", "connect": { "from": "a", "to": "b" } },
+        "ba": { "type": "shape", "kind": "line", "connect": { "from": "b", "to": "a" } }
+    });
+    let d = deck(nodes, json!([{ "id": "s", "shows": ["a", "b", "ab", "ba"] }]));
+    let doc = serde_json::to_value(&d).unwrap();
+    let renamed = scaena_core::patch::compile(&doc, &[json!({ "op": "rename_node", "id": "a", "to": "z" })], &Bare);
+    let renamed = renamed.unwrap().doc;
+    assert_eq!(renamed["nodes"]["ab"]["connect"], json!({ "from": "z", "to": "b" }));
+    assert_eq!(renamed["nodes"]["ba"]["connect"], json!({ "from": "b", "to": "z" }));
+    assert_eq!(joined(&serde_json::from_value(renamed).unwrap()), Vec::<String>::new());
+}

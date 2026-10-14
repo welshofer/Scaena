@@ -402,8 +402,9 @@ impl Engine {
         let canvas = canvas(deck);
         let grid = Grid::from_theme(theme, canvas)?;
         let snap = &cascade::with_overrides(deck, snap);
-        let placement = self.place(deck, theme, data, &grid, snap)?;
-        let tree = tree(deck, snap, &placement)?;
+        let mut placement = self.place(deck, theme, data, &grid, snap)?;
+        let mut tree = tree(deck, snap, &placement)?;
+        rejoin(theme, snap, &mut placement, &mut tree);
         let mut nodes = Vec::with_capacity(snap.nodes.len());
         // Every state's props, read once, for what each chart colors across the deck.
         let mut every: Option<Vec<Snapshot>> = None;
@@ -671,10 +672,8 @@ impl Engine {
             .and_then(Value::as_str)
             .is_some_and(|p| deck.nodes.get(p).is_some_and(|n| n.node_type == NodeType::Shape));
         let lines = if in_shape { None } else { lines };
-        let (align_x, align_y) = match props.get("align") {
-            None if in_shape => (AlignX::Center, AlignY::Center),
-            _ => Grid::alignment(theme, template, props).map_err(|e| in_node(id, e))?,
-        };
+        let start = if in_shape { (AlignX::Center, AlignY::Center) } else { (AlignX::Start, AlignY::Start) };
+        let (align_x, align_y) = Grid::alignment_from(theme, template, props, start).map_err(|e| in_node(id, e))?;
         spec.align = match align_x {
             AlignX::Start | AlignX::Stretch => TextAlign::Start,
             AlignX::Center => TextAlign::Center,
@@ -951,7 +950,9 @@ fn tree(deck: &Deck, snap: &Snapshot, placement: &Placement) -> Result<HashMap<S
         let children = children(deck, snap, id).into_iter().map(String::from).collect();
         let composite = placement.is_group(id).then(|| placement.opacity(snap, id));
         let transform = typed_prop::<Transform>(&snap.nodes[id], "transform").map_err(|e| in_node(id, e))?;
-        let pose = transform.map(|t| Pose::from(&t)).filter(|p| !p.is_rest());
+        // A connector runs where what it joins is drawn (PLAN 2.109): it turns with neither.
+        let joins = placement.joined.contains_key(id);
+        let pose = transform.map(|t| Pose::from(&t)).filter(|p| !p.is_rest() && !joins);
         tree.insert(id.clone(), Place { parent, rect, children, composite, pose });
     }
     // A group's box spans what its members draw, nested groups included.
@@ -1007,6 +1008,30 @@ fn span_key(drawn: u64, deck: &Deck, snapshots: &[Snapshot], i: usize) -> u64 {
         serde_json::to_vec(&(&shown.layout, &shown.nodes, &types)).unwrap_or_default().hash(&mut h);
     }
     h.finish()
+}
+
+/// Each connector routed again between where its ends are drawn (PLAN 2.109), where a transform
+/// of theirs or of what holds them moves them (SPEC §3.3): their boxes through those, so it meets
+/// the edge of what is drawn.
+fn rejoin(theme: &Theme, snap: &Snapshot, placement: &mut Placement, tree: &mut HashMap<String, Place>) {
+    let joined: Vec<String> = placement.joined.keys().cloned().collect();
+    for id in joined {
+        let Some(joint) = snap.nodes.get(&id).and_then(|props| crate::shapes::Joint::of(props, theme)) else {
+            continue;
+        };
+        let moved = |end: &str| crate::sample::posed(tree, end, true) != [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+        if !(moved(&joint.from) || moved(&joint.to)) {
+            continue;
+        }
+        let ends = (crate::sample::drawn_box(tree, &joint.from), crate::sample::drawn_box(tree, &joint.to));
+        let (Some(from), Some(to)) = ends else { continue };
+        let (rect, points) = joint.route(from, to);
+        placement.boxes.insert(id.clone(), rect);
+        placement.joined.insert(id.clone(), points);
+        if let Some(place) = tree.get_mut(&id) {
+            place.rect = rect;
+        }
+    }
 }
 
 /// A hash of everything the global timeline is worked out from.

@@ -180,19 +180,28 @@ impl Scene {
     /// (SPEC §3.3), each about its own box, the innermost first: up to the group whose layer
     /// it is drawn in, which takes the group's own, or with `all` every one, as it is drawn.
     pub fn posed(&self, id: &str, all: bool) -> [f64; 6] {
-        let mut map = Seen::REST.map;
-        let mut at = Some(id);
-        while let Some(n) = at {
-            let Some(place) = self.tree.get(n) else { break };
-            if n != id && place.composite.is_some() && !all {
-                break;
-            }
-            if let Some(pose) = place.pose {
-                map = compose(pose.affine(place.rect), map);
-            }
-            at = place.parent.as_deref();
-        }
-        map
+        posed(&self.tree, id, all)
+    }
+
+    /// The box `id` is drawn in at rest, canvas units: its box through every transform of its own
+    /// and of what holds it (SPEC §3.3), the bounds of where its corners go.
+    pub fn drawn_box(&self, id: &str) -> Option<Rect> {
+        drawn_box(&self.tree, id)
+    }
+
+    /// Connector `id`'s route `geo` of the way through a move from `from` to this state (PLAN
+    /// 2.109): between its ends' boxes as drawn, each that far from where it was drawn in `from`
+    /// to where it is drawn here, nothing laid out.
+    fn rejoined(&self, from: Option<&Scene>, id: &str, geo: f32) -> Option<(Rect, Vec<[f32; 2]>)> {
+        let joint = self.joins.get(id)?;
+        let at = |end: &str| {
+            let to = self.drawn_box(end)?;
+            Some(match from.and_then(|s| s.drawn_box(end)) {
+                Some(was) => [0, 1, 2, 3].map(|k| lerp(was[k], to[k], geo)),
+                None => to,
+            })
+        };
+        Some(joint.route(at(&joint.from)?, at(&joint.to)?))
     }
 
     /// The groups `id` sits in, outermost first.
@@ -581,6 +590,31 @@ fn tint(op: &mut Op, color: Color, q: f32) {
         },
         _ => {}
     }
+}
+
+/// The map of canvas points the transforms of `id` and of what holds it in `tree` make at rest, as
+/// [`Scene::posed`] says.
+pub(crate) fn posed(tree: &HashMap<String, Place>, id: &str, all: bool) -> [f64; 6] {
+    let mut map = Seen::REST.map;
+    let mut at = Some(id);
+    while let Some(n) = at {
+        let Some(place) = tree.get(n) else { break };
+        if n != id && place.composite.is_some() && !all {
+            break;
+        }
+        if let Some(pose) = place.pose {
+            map = compose(pose.affine(place.rect), map);
+        }
+        at = place.parent.as_deref();
+    }
+    map
+}
+
+/// The box `id` is drawn in at rest in `tree`, as [`Scene::drawn_box`] says.
+pub(crate) fn drawn_box(tree: &HashMap<String, Place>, id: &str) -> Option<Rect> {
+    let rect = tree.get(id)?.rect;
+    let map = posed(tree, id, true);
+    Some(if map == Seen::REST.map { rect } else { scaena_core::pose::bounds(&map, rect) })
 }
 
 /// `a ∘ b`: the map that applies `b`, then `a`.
@@ -1060,7 +1094,12 @@ impl Transition {
                             layer(Some(&to[*j].id), [shader.rect[0], shader.rect[1]], opacity, vec![shader.op(time)])
                         }
                         (Content::Shape(a), Content::Shape(b)) => {
-                            let shape = ShapeNode::lerp(a, b, geo, p).drawn(seen.progress as f32);
+                            let mut shape = ShapeNode::lerp(a, b, geo, p);
+                            // A connector runs between its ends as this frame draws them (PLAN 2.109).
+                            if let Some((rect, points)) = self.to.rejoined(self.from.as_ref(), &to[*j].id, geo) {
+                                shape = shape.routed(rect, points);
+                            }
+                            let shape = shape.drawn(seen.progress as f32);
                             layer(Some(&to[*j].id), [shape.rect[0], shape.rect[1]], opacity, shape.ops())
                         }
                         (Content::Image(a), Content::Image(b)) => {

@@ -95,8 +95,11 @@ pub enum Lives {
 /// from state `i` back along what it tracks, else the node's own properties. With `keys`, an
 /// object property is set by a delta that sets any of those keys of it, or sets it whole. A
 /// node that leaves comes back with its own properties, and an absolute state starts from
-/// them. The deck's `overrides`, which win over every state, are not asked.
+/// them: one leaves where it is taken away, and a shape's words where their shape is, a
+/// connector where either end is (PLAN 2.108, 2.109). The deck's `overrides`, which win over
+/// every state, are not asked.
 pub fn lives(deck: &Deck, i: usize, node: &str, prop: &str, keys: &[&str]) -> Lives {
+    let with = carriers(deck, node);
     let mut at = Some(i);
     while let Some(j) = at {
         let state = &deck.states[j];
@@ -112,9 +115,25 @@ pub fn lives(deck: &Deck, i: usize, node: &str, prop: &str, keys: &[&str]) -> Li
         if state.remove.iter().any(|id| id == node) {
             return Lives::Node;
         }
+        // What takes it with it, taken away and not brought back by the same state.
+        if state.remove.iter().any(|id| with.contains(&id.as_str()) && !state.props.contains_key(id)) {
+            return Lives::Node;
+        }
         at = tracks_from(deck, j);
     }
     Lives::Node
+}
+
+/// What takes `node` with it where it leaves: the shape it is the words of (PLAN 2.108), and each
+/// end of a connector, with the shape of an end that is a shape's words (PLAN 2.109).
+fn carriers<'a>(deck: &'a Deck, node: &str) -> Vec<&'a str> {
+    let Some(node) = deck.nodes.get(node) else { return Vec::new() };
+    let mut out: Vec<&str> = words_of(deck, node).into_iter().collect();
+    for end in connects_of(node).into_iter().flat_map(|(from, to)| [from, to]) {
+        out.push(end);
+        out.extend(deck.nodes.get(end).and_then(|n| words_of(deck, n)));
+    }
+    out
 }
 
 /// Where `deck.states[i]` gets its layout template from, which tracks like a property: the

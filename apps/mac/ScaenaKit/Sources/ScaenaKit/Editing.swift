@@ -323,7 +323,15 @@ extension [NodeBox] {
     /// the engine.
     public func under(_ point: CGPoint) -> String? {
         guard let top = last(where: { $0.draws && $0.locked == nil && $0.holds(point) }) else { return nil }
-        guard let parent = top.parent, first(where: { $0.node == parent })?.words == top.node else { return top.node }
+        return reached(top.node)
+    }
+
+    /// What a press on `node` reaches (PLAN 2.108): a shape's words, reached as the shape, which a
+    /// click selects, a drag moves, and a right click or a long press offers what is done to, as
+    /// the browser's canvas reaches them; anything else as itself.
+    public func reached(_ node: String) -> String {
+        guard let parent = first(where: { $0.node == node })?.parent, first(where: { $0.node == parent })?.words == node
+        else { return node }
         return parent
     }
 }
