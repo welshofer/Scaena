@@ -1198,7 +1198,7 @@ pub(crate) fn added(
     let target = target.ok_or_else(|| OpsError::new("the theme's grid has no tracks to place it on"))?;
     let node: Node = serde_json::from_value(node).context("an inserted node")?;
     let leaves = leaving(deck, state, &[(room.node.clone(), node.clone())]);
-    let add = SemanticOp::AddNode { id: room.node.clone(), node, state: Some(state.into()), props: None };
+    let add = SemanticOp::AddNode { id: room.node.clone(), node, state: Some(state.into()), props: None, after: None };
     let ops: Vec<SemanticOp> = std::iter::once(add).chain(target.ops(Some(state), false)).chain(leaves).collect();
     let patch = ops.iter().map(serde_json::to_value).collect::<Result<_, _>>().context("a patch")?;
     Ok(Added { id: room.node.clone(), cell: target.cell, patch, copies: IndexMap::new() })
@@ -1351,7 +1351,13 @@ pub fn duplicating(
         }
         copied_layouts(&mut props, deck, &ids, false);
         let node_value = serde_json::from_value(Value::Object(props)).context("a copied node")?;
-        ops.push(SemanticOp::AddNode { id: copy.clone(), node: node_value, state: Some(state.into()), props: None });
+        ops.push(SemanticOp::AddNode {
+            id: copy.clone(),
+            node: node_value,
+            state: Some(state.into()),
+            props: None,
+            after: None,
+        });
     }
     let [x, y, w, h] = found.cell;
     let clear_of = |c: &[f32; 4], [bx, by, bw, bh]: [f32; 4]| {
@@ -1564,7 +1570,7 @@ pub fn connecting(deck: &Deck, state: &str, from: &str, to: &str, arrow: bool) -
     // It leaves another slide's state where both ends show there; where either is gone, it is
     // gone with it.
     let leaves = leaving(deck, state, &[(id.clone(), node.clone())]);
-    let add = SemanticOp::AddNode { id: id.clone(), node, state: Some(state.into()), props: None };
+    let add = SemanticOp::AddNode { id: id.clone(), node, state: Some(state.into()), props: None, after: None };
     let ops: Vec<SemanticOp> = std::iter::once(add).chain(leaves).collect();
     let patch = ops.iter().map(serde_json::to_value).collect::<Result<_, _>>().context("a patch")?;
     Ok(Connected { id, patch })

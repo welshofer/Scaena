@@ -131,7 +131,9 @@ pub enum JsonOp {
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SemanticOp {
     /// A node new to the scene graph, last in its order (painted over the others at its
-    /// `z`). With `state`, it enters there, `props` its delta in that state.
+    /// `z`), or, `after` a node, listed just after that one, so it lays out in a stack, paints,
+    /// and reads where that one does (PLAN 2.110). With `state`, it enters there, `props` its
+    /// delta in that state.
     AddNode {
         #[schemars(with = "Id")]
         id: String,
@@ -142,6 +144,9 @@ pub enum SemanticOp {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[schemars(with = "Option<StateDeltaRef>")]
         props: Option<Props>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "Option<Id>")]
+        after: Option<String>,
     },
     /// A node, and everything that names it: its deltas, its exits, its choreography, and
     /// its overrides. A container must be emptied first.

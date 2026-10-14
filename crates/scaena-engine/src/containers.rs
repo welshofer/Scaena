@@ -681,7 +681,7 @@ fn dimension(theme: &Theme, v: &Value) -> Result<Extent, String> {
 }
 
 /// `padding` as `[top, right, bottom, left]`, CSS shorthand.
-pub(crate) fn padding(theme: &Theme, props: &Props) -> Result<[f32; 4], String> {
+pub fn padding(theme: &Theme, props: &Props) -> Result<[f32; 4], String> {
     let Some(v) = props.get("padding") else { return Ok([0.0; 4]) };
     let one = |v: &Value| theme.length(v, 0.0).map_err(|e| e.to_string());
     let sides: Vec<f32> = match v {

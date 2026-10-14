@@ -21,6 +21,45 @@ export async function keptBundle(name: string): Promise<FileSystemDirectoryHandl
   });
 }
 
+/** Why `name` cannot name a bundle the browser keeps, if it cannot: a folder's name in its
+ * storage, which holds no slash and does not start with a dot, and one no other bundle has. */
+export async function unkeepable(name: string): Promise<string | undefined> {
+  if (!name) return "a deck needs a name";
+  if (/[/\\]/.test(name) || name.startsWith(".")) return `“${name}” cannot name a deck: no slash, and not a dot first`;
+  if ((await keptNames()).includes(name)) return `this browser keeps a deck named ${name} already`;
+}
+
+/** Rename the bundle the browser keeps as `from` to `to` (PLAN 2.124): every file of it written
+ * under the new name, then the old folder taken away, so a rename that fails leaves it as it
+ * was. */
+export async function renameKept(from: string, to: string) {
+  const refused = await unkeepable(to);
+  if (refused) throw new Error(refused);
+  const old = await keptBundle(from);
+  const files: [string, Uint8Array][] = [];
+  const walk = async (dir: FileSystemDirectoryHandle, prefix: string) => {
+    for await (const [name, handle] of dir.entries()) {
+      if (handle.kind === "directory") await walk(handle, `${prefix}${name}/`);
+      else files.push([prefix + name, new Uint8Array(await (await handle.getFile()).arrayBuffer())]);
+    }
+  };
+  await walk(old, "");
+  const made = await (await kept()).getDirectoryHandle(to, { create: true });
+  try {
+    for (const [path, bytes] of files) await write(made, path, bytes);
+  } catch (e) {
+    await (await kept()).removeEntry(to, { recursive: true }).catch(() => {});
+    throw e;
+  }
+  await (await kept()).removeEntry(from, { recursive: true });
+}
+
+/** Delete the bundle the browser keeps as `name`, and every file of it (PLAN 2.124). */
+export async function deleteKept(name: string) {
+  await keptBundle(name);
+  await (await kept()).removeEntry(name, { recursive: true });
+}
+
 /** A new bundle in the browser's storage: `name`, or `name-2`, `name-3`, … where that is
  * taken. */
 export async function newBundle(name: string): Promise<FileSystemDirectoryHandle> {

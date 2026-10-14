@@ -198,6 +198,15 @@ public final class ScaenaSession {
         return try Self.take(scaena_export(handle, "png", args, &error), error)
     }
 
+    /// Every slide once its steps have played, as PNGs `width` pixels wide in one zip, each named
+    /// by its number, `name - Slide 3.png` (PLAN 2.122), as the editor's Export makes it.
+    public func slides(width: Int, name: String) throws -> Data {
+        let asked: JSONValue = ["width": .number(Double(width)), "name": .string(name)]
+        let args = String(decoding: try JSONEncoder().encode(asked), as: UTF8.self)
+        var error: UnsafeMutablePointer<CChar>?
+        return try Self.take(scaena_export(handle, "slides", args, &error), error)
+    }
+
     /// A save: the bundle's files as saved, to write where it is kept, then to adopt.
     public final class Saved {
         fileprivate let handle: OpaquePointer

@@ -25,8 +25,8 @@ public final class CanvasKeys: NSView {
     /// deck's find bar opened, or its next or previous match shown.
     public var finding: (@MainActor (NSTextFinder.Action) -> Void)?
     /// What the canvas does with a key while no text is typed in, before the input system makes a
-    /// command of it (PLAN 3.17): Tab, Return, Escape, the arrows, Space, the brackets, and +, as
-    /// the browser's canvas reads them. Whether it took the key.
+    /// command of it (PLAN 3.17): Tab, Return, Escape, the arrows, Space, the brackets, +, and
+    /// PageDown and PageUp (PLAN 4.12), as the browser's canvas reads them. Whether it took the key.
     public var pressed: (@MainActor (NSEvent) -> Bool)?
     /// What the canvas does with a command the keys make while no text is typed in: whether it did
     /// anything with it.

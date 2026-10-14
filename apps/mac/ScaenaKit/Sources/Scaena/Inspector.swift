@@ -26,6 +26,9 @@ struct Inspector: View {
     let tab: InspectorTab
     /// Ask a model, its answer offered.
     let offer: (Asked) -> Void
+    /// Bring an object the list of objects on the slide selects into view, where the slide is
+    /// zoomed in (PLAN 4.12).
+    var reveal: ((String) -> Void)? = nil
     let make: ([JSONValue]) -> Void
     @State private var layers: [Layer] = []
     @State private var choices: Choices?
@@ -317,7 +320,8 @@ struct Inspector: View {
     }
 
     /// The objects on the slide, the topmost first, each named by what it shows: a click selects
-    /// one, and the lock beside it locks it, or unlocks it (PLAN 2.95).
+    /// one, brought into view where the slide is zoomed in (PLAN 4.12), and the lock beside it
+    /// locks it, or unlocks it (PLAN 2.95).
     private var objects: some View {
         Section {
             DisclosureGroup("Objects on This Slide", isExpanded: $showsObjects) {
@@ -329,6 +333,7 @@ struct Inspector: View {
                     ) {
                         node = row.layer.node
                         also = []
+                        reveal?(row.layer.node)
                     }
                 }
             }
