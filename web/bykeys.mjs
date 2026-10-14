@@ -158,7 +158,12 @@ try {
   await undo(page);
   check(await back(page, original), "one undo takes it back");
   await page.evaluate(() => window.scaena.canvas.select("image-cover"));
-  await page.waitForFunction(() => window.scaena.canvas.framing()?.node === "image-cover", null, { timeout: 30000 }).catch(() => {});
+  // The canvas asks the image's framing again once the undo lands, and keys its handles on what it
+  // has: until then, the cropped one, whose box came in with the crop, so no focal point stood in it.
+  const uncropped = JSON.stringify(f.shown);
+  await page
+    .waitForFunction((s) => JSON.stringify(window.scaena.canvas.framing()?.shown) === s, uncropped, { timeout: 30000 })
+    .catch(() => {});
   await page.locator("#overlay").focus();
   await press(page, "Escape");
   await press(page, "Enter");
