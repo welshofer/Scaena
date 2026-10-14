@@ -14,7 +14,10 @@
 //   copied into the browser's storage and edits as it was. A damaged font stops a download,
 //   which names it, and once it is whole again the next download goes through.
 // - A folder (any directory handle; here one in the browser's storage) opens and saves in
-//   place: the save names its fonts by their content and removes the old names.
+//   place: the save names its fonts by their content and removes the old names. Notes typed, then
+//   ⌘S from their field: the save holds them.
+// - A file that is no bundle, opened, is refused by its name, and the bundle open stays open, on
+//   its own canvas, and saves.
 // Exits 1 on any failure.
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -224,6 +227,32 @@ try {
   const plain = await listing(page, "plain");
   check(inPlace?.renamed.length === 6, `a save names its fonts by their content: ${JSON.stringify(inPlace?.renamed)}`);
   check(!("fonts/Inter-VF.ttf" in plain) && Object.keys(plain).some((p) => /^fonts\/Inter-[0-9a-f]{16}\.ttf$/.test(p)), `and removes the old names: ${Object.keys(plain)}`);
+
+  // Words typed in the presenter notes, then ⌘S with the caret still in the field: the save holds
+  // them, as leaving the field takes them, and nothing is left to save.
+  const notes = page.locator('textarea[data-prop="notes"]').first();
+  await notes.waitFor({ timeout: 30000 });
+  await notes.click();
+  await page.keyboard.press("End");
+  await page.keyboard.type(" Smile at the board.");
+  await page.keyboard.press("Control+s");
+  let noted = false;
+  for (const end = Date.now() + 30000; !noted && Date.now() < end; await page.waitForTimeout(200))
+    noted = (await listing(page, "plain", "deck.json")).includes("Smile at the board.");
+  check(noted, "notes typed, then ⌘S from the field: the save holds them");
+  await page.waitForFunction(() => !window.scaena.where().dirty, null, { timeout: 30000 }).catch(() => {});
+  const focused = await page.evaluate(() => document.activeElement?.id);
+  check(!(await where()).dirty && focused === "look-notes", `nothing is left to save, and the caret stays in the field: ${JSON.stringify(await where())}, ${focused}`);
+
+  // A file that is no bundle: refused by its name, and the bundle open stays open, in use.
+  await page.evaluate(() => (document.querySelector("#stage").kept = true));
+  await page.locator("#open-file").setInputFiles({ name: "Board deck.scaena", mimeType: "application/octet-stream", buffer: Buffer.from("Not a zip, just words.\n".repeat(20)) });
+  await page.waitForFunction(() => document.querySelector("#status").textContent.includes("can't be opened"), null, { timeout: 60000 }).catch(() => {});
+  const why = await page.locator("#status").textContent();
+  check(why.startsWith("Board deck.scaena can't be opened: it isn't a Scaena file, or it is damaged"), `a file that is no bundle is refused by its name: ${why}`);
+  check((await where()).name === "plain" && (await page.evaluate(() => document.querySelector("#stage").kept === true)), "the bundle open stays open, on its own canvas");
+  const still = await page.evaluate(() => Promise.race([window.scaena.save().then((d) => d?.where.name), new Promise((r) => setTimeout(() => r("no answer"), 20000))]));
+  check(still === "plain", `and saves: ${still}`);
 } catch (e) {
   failures.push(String(e));
 } finally {

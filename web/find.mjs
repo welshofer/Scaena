@@ -13,7 +13,8 @@
 //   what it put in, which the query may still find; one undo takes it back.
 // - Replace All replaces every match in one patch, one step to undo: the claim and the
 //   description with the texts.
-// - Match case and Whole words, as asked; Escape closes the bar and takes the mark away.
+// - Match case and Whole words, as asked; Escape closes the bar and takes the mark away, and the
+//   keys go back to the slide, what the match selected still selected.
 // Exits 1 on any failure.
 import { launch, serve } from "./serve.mjs";
 
@@ -147,6 +148,8 @@ try {
   await page.waitForFunction(() => document.querySelector("#find").hidden, null, { timeout: 10000 }).catch(() => {});
   check(await page.evaluate(() => document.querySelector("#find").hidden), "Escape closes the bar");
   check((await marks()) === 0, "and takes the mark away");
+  const back = await page.evaluate(() => ({ focus: document.activeElement?.id, selected: window.scaena.canvas.selected() }));
+  check(back.focus === "overlay" && !!back.selected, `the keys go back to the slide, the match's node still selected: ${JSON.stringify(back)}`);
   check((await source()) === original, "the deck is as it was");
 } catch (e) {
   failures.push(`error: ${e.message}`);

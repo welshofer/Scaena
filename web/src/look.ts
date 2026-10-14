@@ -40,6 +40,7 @@
 // a run's role, emphasis, family, weight, italic (PLAN 2.40), and color, each the first
 // character's. Each choice is one `style_text`, written where the text lives; × takes the run's
 // own away, so the text's look shows there. A run takes the theme's names only.
+import { listen } from "./life";
 import type { Arrange, Choices, Edited, Field, LayoutSuggestion, Lives, StateChoices, WritingKind } from "./protocol";
 import type { Stage } from "./stage";
 import type { Selected } from "./typing";
@@ -727,7 +728,7 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     });
   }
 
-  into.addEventListener("change", (e) => {
+  listen(into, "change", (e) => {
     const target = e.target as HTMLInputElement | HTMLSelectElement;
     const furnishing = target.dataset.furnish;
     if (furnishing && offered && "furniture" in offered) {
@@ -779,7 +780,7 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     void choose(prop, value);
   });
   // A slider's readout follows it as it is dragged, before it is let go.
-  into.addEventListener("input", (e) => {
+  listen(into, "input", (e) => {
     const target = e.target;
     if (!(target instanceof HTMLInputElement) || target.type !== "range") return;
     const said = adjustment(Number(target.value));
@@ -787,7 +788,7 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     const readout = target.nextElementSibling;
     if (readout?.classList.contains("lives")) readout.textContent = said;
   });
-  into.addEventListener("click", (e) => {
+  listen(into, "click", (e) => {
     const away = (e.target as Element).closest<HTMLElement>("[data-away]");
     if (away?.dataset.away) void choose(away.dataset.away, null);
     const arranging = (e.target as Element).closest<HTMLElement>("[data-arrange]");
@@ -809,18 +810,18 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
   // leaves the layouts (PLAN 2.92).
   const suggestion = (target: EventTarget | null) => (target instanceof Element ? target.closest<HTMLElement>(".layouts [data-layout]") : null);
   const away = (target: EventTarget | null) => !(target instanceof Element && target.closest(".layouts"));
-  into.addEventListener("pointerover", (e) => {
+  listen(into, "pointerover", (e) => {
     const over = suggestion(e.target);
     if (over) preview(over.dataset.layout);
   });
-  into.addEventListener("pointerout", (e) => {
+  listen(into, "pointerout", (e) => {
     if (suggestion(e.target) && away(e.relatedTarget) && previewing !== undefined) preview(undefined);
   });
-  into.addEventListener("focusin", (e) => {
+  listen(into, "focusin", (e) => {
     const on = suggestion(e.target);
     if (on) preview(on.dataset.layout);
   });
-  into.addEventListener("focusout", (e) => {
+  listen(into, "focusout", (e) => {
     if (suggestion(e.target) && away(e.relatedTarget) && previewing !== undefined) preview(undefined);
   });
 

@@ -23,6 +23,7 @@
 //   under the table says what. A chart's mark, or a table's row, pointed at on the canvas chooses
 //   the rows it was made from, a group's every row, the first in view.
 import { type Key, MOD, SHIFT } from "./commands";
+import { listen, observing } from "./life";
 import type { Edited, Lexicon, Quote, RowEdit, Sheet } from "./protocol";
 import type { Stage } from "./stage";
 import { finding, object } from "./words";
@@ -292,7 +293,7 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
     wanted = picker.value;
     void refresh(picker.value);
   };
-  table.addEventListener("focusin", (e) => {
+  listen(table, "focusin", (e) => {
     const field = (e.target as Element).closest<HTMLInputElement>("input[data-row]");
     if (!field) return;
     row = +field.dataset.row!;
@@ -301,11 +302,11 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
     chosen = [row];
     told();
   });
-  table.addEventListener("change", (e) => {
+  listen(table, "change", (e) => {
     const field = (e.target as Element).closest<HTMLInputElement>("input[data-row]");
     if (field) void commit(field);
   });
-  table.addEventListener("keydown", (e) => {
+  listen(table, "keydown", (e) => {
     const field = (e.target as Element).closest<HTMLInputElement>("input[data-row]");
     if (!field) return;
     const [r, c] = [+field.dataset.row!, +field.dataset.col!];
@@ -360,9 +361,11 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
   into.querySelector<HTMLButtonElement>("[data-undo]")!.onclick = () => undo();
   into.querySelector<HTMLButtonElement>("[data-redo]")!.onclick = () => undo(true);
   // Read again each time the tab is shown.
-  new MutationObserver(() => {
-    if (!into.hidden) void refresh();
-  }).observe(into, { attributes: true, attributeFilter: ["hidden"] });
+  observing(
+    new MutationObserver(() => {
+      if (!into.hidden) void refresh();
+    }),
+  ).observe(into, { attributes: true, attributeFilter: ["hidden"] });
 
   return {
     /** Read the source shown again, as the deck now has it: after an edit of the deck. */

@@ -10,6 +10,7 @@
 //   worst, as the strip counts a state's (PLAN 2.49).
 // - A click on one, or Enter, opens the canvas in its format, as the format menu does; the one the
 //   canvas shows is pressed.
+import { listen } from "./life";
 import { counted, worst } from "./marks";
 import type { Finding } from "./protocol";
 import type { Stage } from "./stage";
@@ -96,7 +97,7 @@ export function formatsRow(stage: Stage, into: HTMLElement, toggle: HTMLButtonEl
     }
   }
 
-  toggle.addEventListener("click", () => show(!open()));
+  listen(toggle, "click", () => show(!open()));
 
   /** Show the row, or hide it. */
   function show(on: boolean) {

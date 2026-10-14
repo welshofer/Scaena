@@ -68,6 +68,7 @@ import { finder, findKeys } from "./find";
 import { keptNames } from "./folders";
 import { formatsRow } from "./formats";
 import { layerKeys, layers } from "./layers";
+import { ended, listen as heed, observing } from "./life";
 import { looks } from "./look";
 import { layoutPicker } from "./picker";
 import { iconPicker } from "./icons";
@@ -157,6 +158,18 @@ function change(from: string, to: string): { from: number; to: number; insert: s
   return { from: start, to: from.length - end, insert: to.slice(start, to.length - end) };
 }
 
+/** Where the state shown at `index` of `before` stands among `after`, the states an edit left: the
+ * same state, by its id; else, where states were taken out, the nearest before it that stays (a
+ * slide whose step an undo took out); else, a state renamed, the same place. */
+function reshown(before: [string, number][], after: [string, number][], index: number): number {
+  const at = (id: string | undefined) => after.findIndex(([state]) => state === id);
+  if (at(before[index]?.[0]) >= 0) return at(before[index][0]);
+  if (after.length < before.length) {
+    for (let i = index - 1; i >= 0; i--) if (at(before[i][0]) >= 0) return at(before[i][0]);
+  }
+  return Math.max(0, Math.min(index, after.length - 1));
+}
+
 /** `source` with each path a save renamed, quoted as the source quotes paths, renamed. */
 function renamedIn(source: string, renamed: [string, string][]): string {
   return renamed.reduce((text, [from, to]) => text.split(JSON.stringify(from)).join(JSON.stringify(to)), source);
@@ -181,14 +194,34 @@ function folders<T>(mode: IDBTransactionMode, act: (store: IDBObjectStore) => ID
  * status that stays, before what lint finds, until the source is edited by hand. */
 let current: { close: () => void; dirty: () => boolean; say: (text: string) => void } | undefined;
 
-/** Open the bundle at `source`, closing what is open; `asked` where changes not saved were asked
- * about already. */
+/** A bundle as a person names it when it does not open: its file, its folder, or its name. */
+function namedFor(source: Source): string {
+  if ("zip" in source) return `${source.name}.scaena`;
+  if ("opfs" in source) return source.opfs;
+  if ("folder" in source) return source.folder.name;
+  if ("create" in source) return `“${source.create.title}”`;
+  if ("files" in source) return source.name;
+  return decodeURIComponent(new URL(source.url, location.href).pathname.replace(/\/$/, "").replace(/^.*\//, ""));
+}
+
+/** Open the bundle at `source`, closing what is open once it opens; `asked` where changes not saved
+ * were asked about already. One that does not open leaves the bundle open as it was, in use, and
+ * the status says why, by the file's name. */
 async function open(source: Source, asked = false) {
   if (!asked && current?.dirty() && !confirm("The bundle has changes not saved. Open another and lose them?")) return;
+  $("#status").textContent = "Opening…";
+  let stage: Stage;
+  try {
+    stage = await Stage.open($<HTMLCanvasElement>("#stage"), source, painter, worker);
+  } catch (e) {
+    const why = `${namedFor(source)} can't be opened: ${said(e)}`;
+    if (current) current.say(why);
+    else $("#status").textContent = why;
+    return;
+  }
   current?.close();
   current = undefined;
-  $("#status").textContent = "Opening…";
-  await edit(source);
+  await edit(source, stage);
 }
 
 /** The page's address names where the bundle is kept, so a reload opens it there. A served
@@ -224,6 +257,8 @@ async function controls() {
     await open({ folder: handle }).catch(failed);
   };
   const file = $<HTMLInputElement>("#open-file");
+  // A button the keys reach, which opens the file chooser the input stands for (WCAG 2.1.1).
+  $<HTMLButtonElement>("#open-scaena").onclick = () => file.click();
   file.onchange = async () => {
     const zip = file.files?.[0];
     file.value = "";
@@ -291,11 +326,16 @@ const filesWritten = StateEffect.define<Rewritten[]>();
 const rewrites = invertedEffects.of((tr) =>
   tr.effects.filter((e) => e.is(filesWritten)).map((e) => filesWritten.of(e.value.map(({ path, before, after }) => ({ path, before: after, after: before })))),
 );
+/** A file the Files panel took out (PLAN 2.59), carried by a change that leaves the source as it
+ * is: its undo puts the file back, in the one history the source keeps, and its redo takes it out
+ * again, so a node an undo brings back finds the file it draws. */
+const fileTaken = StateEffect.define<{ path: string; out: boolean }>();
+const takes = invertedEffects.of((tr) => tr.effects.filter((e) => e.is(fileTaken)).map((e) => fileTaken.of({ ...e.value, out: !e.value.out })));
 
-async function edit(source: Source) {
+async function edit(source: Source, opened?: Stage) {
   const status = $("#status");
   // A status too long for its two lines says the rest in its title.
-  new MutationObserver(() => (status.title = status.textContent ?? "")).observe(status, { childList: true, characterData: true, subtree: true });
+  observing(new MutationObserver(() => (status.title = status.textContent ?? ""))).observe(status, { childList: true, characterData: true, subtree: true });
   const statesPicker = $<HTMLSelectElement>("#state");
   const formatPicker = $<HTMLSelectElement>("#format");
   const problems = $<HTMLUListElement>("#problems");
@@ -303,7 +343,7 @@ async function edit(source: Source) {
   const listing = $("#listing");
   const whereLine = $("#where");
   const play = $<HTMLAnchorElement>("#play");
-  const stage = await Stage.open($<HTMLCanvasElement>("#stage"), source, painter, worker);
+  const stage = opened ?? (await Stage.open($<HTMLCanvasElement>("#stage"), source, painter, worker));
   stage.onError = failed;
   /** On a served page, the deck's source on disk, where the folder keeps one (PLAN 2.11). */
   const scnOnDisk = "url" in source && source.serve && (await onDisk()).source ? new URL("deck.scn", source.url) : undefined;
@@ -329,12 +369,27 @@ async function edit(source: Source) {
   }
   /** The bundle's name, and where it is kept. */
   let { name, where } = stage.opened;
-  /** Changes typed, fixed, or dropped, and how many of them the last save holds. */
-  let edits = 0;
-  let saved = 0;
-  const dirty = () => edits !== saved;
-  /** A change the editor makes itself, which is not an edit to save. */
-  let quiet = false;
+  /** The source as the bundle opened or the last save held it; and the edits of the bundle's files
+   * beside it that the source does not show (a data file written, a file taken out), made and
+   * saved. An undo back to what was saved leaves nothing to save. */
+  let savedSource: string | undefined;
+  let filed = 0;
+  let filedSaved = 0;
+  const dirty = () => filed !== filedSaved || (savedSource !== undefined && view.state.doc.toString() !== savedSource);
+  /** The Files panel's Undo and Redo are the editor's: with nothing to undo or redo, they wait. */
+  const undoable = (state: EditorState) => {
+    $<HTMLButtonElement>("#files [data-undo]").disabled = undoDepth(state) === 0;
+    $<HTMLButtonElement>("#files [data-redo]").disabled = redoDepth(state) === 0;
+  };
+  /** The deck's title, as its source's header says it: what the tab names. */
+  const titled = () => {
+    const header = savedSource === undefined ? null : /^deck\s+("(?:[^"\\\n]|\\.)*")/m.exec(view.state.doc.toString());
+    try {
+      return header ? (JSON.parse(header[1]) as string) : undefined;
+    } catch {
+      return undefined;
+    }
+  };
   const tell = () => {
     const kinds = {
       folder: `In the folder ${where?.name}`,
@@ -343,6 +398,8 @@ async function edit(source: Source) {
     };
     const kept = where ? kinds[where.kind] : `${name}, not saved`;
     whereLine.textContent = `${kept}${dirty() ? " · edited" : ""}`;
+    // The tab names the deck, as a window's title does, and says when it has changes not saved.
+    document.title = `${titled() || name}${dirty() ? " — edited" : ""} · Scaena`;
     // The player opens a bundle by its address or from the browser's storage, not a folder.
     const playing =
       where?.kind === "serve"
@@ -402,6 +459,7 @@ async function edit(source: Source) {
         highlightActiveLineGutter(),
         history(),
         rewrites,
+        takes,
         drawSelection(),
         highlightActiveLine(),
         keymap.of([...defaultKeymap, ...historyKeymap, ...findingKeys, indentWithTab]),
@@ -420,10 +478,7 @@ async function edit(source: Source) {
             // Where each state starts moves with the change until the source is compiled again:
             // the cursor an undo puts back is in the state it was in.
             if (last) last = { ...last, states: last.states.map(([id, at]) => [id, update.changes.mapPos(at, 1)]) };
-            if (!quiet) {
-              edits++;
-              tell();
-            }
+            tell();
           }
           // An undo or a redo of a restore or a theme edit writes its files back, before the deck
           // is compiled again (PLAN 2.60, 2.61).
@@ -431,7 +486,13 @@ async function edit(source: Source) {
             tr.isUserEvent("undo") || tr.isUserEvent("redo") ? tr.effects.filter((e) => e.is(filesWritten)).flatMap((e) => e.value) : [],
           );
           if (written.length) rewrite(written, update.docChanged ? undefined : update.state.doc.toString());
+          // An undo or a redo of a file taken out puts it back, or takes it out again (PLAN 2.59).
+          for (const tr of update.transactions) {
+            if (!tr.isUserEvent("undo") && !tr.isUserEvent("redo")) continue;
+            for (const e of tr.effects) if (e.is(fileTaken)) void filing.taken(e.value.path, e.value.out, tr.isUserEvent("redo"));
+          }
           if (update.selectionSet) follow();
+          undoable(update.state);
         }),
         // A file dropped on the source joins the bundle; its path goes where it was dropped.
         EditorView.domEventHandlers({
@@ -462,6 +523,10 @@ async function edit(source: Source) {
       ],
     }),
   });
+
+  savedSource = view.state.doc.toString();
+  tell();
+  undoable(view.state);
 
   // The canvas first (PLAN 2.80): the source is a pane that folds away. It opens as the address
   // asks (`?source=open` or `folded`), else as this browser last left it, else folded.
@@ -512,8 +577,10 @@ async function edit(source: Source) {
     toldOf = undefined;
     status.textContent = text;
   };
-  const unsay = (text: string) => {
+  /** Take back `text`, if the status still says it: `instead` in its place, or what lint said. */
+  const unsay = (text: string, instead?: string) => {
     if (told !== text) return;
+    if (instead !== undefined) return say(instead);
     told = undefined;
     status.textContent = reported;
   };
@@ -586,6 +653,7 @@ async function edit(source: Source) {
     at: (node) => inspected?.nodes[node]?.at as Record<string, unknown> | undefined,
     transform: (node) => inspected?.nodes[node]?.transform as { rotate?: number; anchor?: [number, number] } | undefined,
     apply: made,
+    unsay,
     typed: (source, edited, joins) => {
       taken = { source, edited, showings };
       const changes = change(view.state.doc.toString(), source);
@@ -697,7 +765,7 @@ async function edit(source: Source) {
   const wrote = (edited: Edited) => {
     const source = view.state.doc.toString();
     taken = { source, edited, showings };
-    edits++;
+    filed++;
     tell();
     // The source is as it was, so CodeMirror lints nothing: the edit is shown here.
     const findings = take(edited, source, version);
@@ -740,7 +808,7 @@ async function edit(source: Source) {
     const draws = chosen.rows.length === 1 ? "draws" : "draw";
     data.drawn(what.length ? `On this slide, ${rowsSaid(chosen.rows)} ${draws} ${what.join(", ")}.` : `On this slide, nothing draws ${rowsSaid(chosen.rows)}.`);
   }
-  new MutationObserver(() => void outlineRows()).observe($("#data"), { attributes: true, attributeFilter: ["hidden"] });
+  observing(new MutationObserver(() => void outlineRows())).observe($("#data"), { attributes: true, attributeFilter: ["hidden"] });
   /** The bundle's files (PLAN 2.59): its images, fonts, and data, what uses each in which states,
    * and those nothing names taken out, each one change the panel's undo takes back. */
   const filing = filesPanel(stage, $("#files"), {
@@ -748,6 +816,17 @@ async function edit(source: Source) {
     format,
     source: () => view.state.doc.toString(),
     took: wrote,
+    // A file taken out is a change that leaves the source as it is, in its one history (PLAN 2.59).
+    removed: (path, edited) => {
+      view.dispatch({ effects: fileTaken.of({ path, out: true }), annotations: isolateHistory.of("full") });
+      wrote(edited);
+    },
+    undo: () => {
+      if (undo(view)) forceLinting(view);
+    },
+    redo: () => {
+      if (redo(view)) forceLinting(view);
+    },
     // The cursor goes into the state, as the strip puts it there: the preview stays on it.
     show: async (state, node) => {
       const index = last?.states.findIndex(([id]) => id === state) ?? -1;
@@ -865,7 +944,7 @@ async function edit(source: Source) {
     },
     say,
   });
-  $("#rehearse-open").addEventListener("click", () => void rehearsing.start());
+  heed($("#rehearse-open"), "click", () => void rehearsing.start());
   /** The deck's theme, edited (PLAN 2.61, ADR-0016): its colors, type roles, and spacing, each
    * change one edit of the theme the deck names, the deck drawn in it. Refused, it says why; else
    * the source's history takes it as a change that carries the theme's text before and after, so
@@ -963,6 +1042,7 @@ async function edit(source: Source) {
     unmark: () => void board.mark(),
     words: () => lexicon,
     slide: slideOf,
+    home: () => $("#overlay").focus(),
   });
   $("#find-open").onclick = () => finding?.open();
   /** The state strip (PLAN 2.35): the deck's states, each a thumbnail, and the patches that add,
@@ -1003,7 +1083,7 @@ async function edit(source: Source) {
   // ⌘Z, ⇧⌘Z, and ⌘Y where nothing on the page takes them itself (PLAN 2.77): the strip, the layers,
   // the inspector's choices, a button. A field keeps its own typing's undo; the source, the canvas,
   // the text typed in, the Data tab, and the Files tab answer them first.
-  document.addEventListener("keydown", (e) => {
+  heed(document, "keydown", (e) => {
     if (e.defaultPrevented || !(e.metaKey || e.ctrlKey) || e.altKey) return;
     const key = e.key.toLowerCase();
     if (key !== "z" && key !== "y") return;
@@ -1139,7 +1219,12 @@ async function edit(source: Source) {
         // then a redo back to the patch's source, compiles it again, even a redo made before
         // this answer comes. A patch taken meanwhile is the worker's after this, and stays.
         taken = undefined;
-        edited = await stage.edit(source, shown, format());
+        const [before, index] = [last?.states, shown];
+        edited = await stage.edit(source, index, format());
+        // The state shown stays shown by its id, wherever the edit put it; one taken out (an undo
+        // of + Step) gives way to the state before it that stays, as its slide, not the next.
+        const want = before && edited.valid && edited.at && asked === showings ? reshown(before, edited.states, index) : undefined;
+        if (want !== undefined && want !== edited.at?.index) edited = { ...edited, at: await stage.seek(want, undefined, format()) };
       }
     } catch (e) {
       status.textContent = `Error: ${said(e)}`;
@@ -1154,14 +1239,24 @@ async function edit(source: Source) {
    * says, unless another was `moved` to since it was asked for. The findings, to mark in the
    * source. */
   function take(edited: Edited, source: string, read: number, moved = false): Finding[] {
+    const before = last?.states;
     last = edited;
     if (edited.valid) {
       // Each as a person counts it (PLAN 2.99): Slide 3, Slide 3, step 2.
       statesPicker.replaceChildren(...edited.states.map(([id], i) => new Option(edited.slots[i]?.state === id ? (edited.slots[i].said ?? id) : (edited.slots.find((s) => s.state === id)?.said ?? id), id)));
       reformats(edited.formats);
       if (edited.at && !moved) shown = edited.at.index;
+      // A state picked since the edit was asked for, among the states before it: the same state
+      // among those after it, wherever the edit put it.
+      const picked = moved && before ? reshown(before, edited.states, shown) : shown;
       statesPicker.selectedIndex = shown;
       states.states(edited.slots, shown);
+      // The strip's thumbnails as the deck opens, before every state is linted: each is painted
+      // again once lint has laid them all out.
+      if (!thumbed) {
+        thumbed = true;
+        void states.paint();
+      }
       table.states(edited.slots);
       void inspect();
       void layering.refresh();
@@ -1174,6 +1269,7 @@ async function edit(source: Source) {
       finding?.changed();
       void offer();
       void offerThemes();
+      if (picked !== shown) void show(picked);
     }
     const findings = edited.error ? [edited.error] : edited.findings;
     report(findings, edited);
@@ -1183,6 +1279,9 @@ async function edit(source: Source) {
     }
     return findings;
   }
+
+  /** Whether the strip has asked for its thumbnails yet. */
+  let thumbed = false;
 
   /** Lint every state of the deck compiled from version `read`, and show what it finds if
    * the source is still that version. */
@@ -1408,16 +1507,36 @@ async function edit(source: Source) {
    * renamed are renamed in the source too, and nothing else in it changes. With `keep`, a bundle
    * that keeps no history begins one with this save (PLAN 2.87). */
   async function save(keep = false) {
-    const at = edits;
     status.textContent = "Saving…";
+    await settled();
+    const [sent, files] = [view.state.doc.toString(), filed];
     let done: Extract<FromWorker, { type: "saved" }>;
     try {
-      done = await stage.save(view.state.doc.toString(), keep);
+      done = await stage.save(sent, keep);
     } catch (e) {
       status.textContent = `Not saved: ${said(e)}`;
       return;
     }
-    return took(done, at);
+    return took(done, sent, files);
+  }
+
+  /** What a save, a download, or an export holds made first: what is typed in a text on the canvas,
+   * and a field in the inspector typed in and not yet left, taken as leaving it takes it. The focus
+   * stays in that field. */
+  async function settled() {
+    const field = document.activeElement;
+    const typing = (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) && $("#look").contains(field);
+    if (typing && field.value !== field.defaultValue) {
+      // Leaving it makes its change, as the inspector takes it; the field then holds what the deck
+      // reads, as one drawn again would.
+      field.blur();
+      await look.settled();
+      const again = field.id ? document.getElementById(field.id) : null;
+      if (!again || again === field) field.defaultValue = field.value;
+      (again ?? field).focus({ preventScroll: true });
+    }
+    await board.idle();
+    await look.settled();
   }
 
   /** Save as (PLAN 2.12): the source as it stands, saved `to` a place of its own, where the
@@ -1425,27 +1544,27 @@ async function edit(source: Source) {
    * browser's storage under a name (`name-2`, … where that is taken). */
   async function saveAs(to: SaveTo) {
     if (where?.kind === "serve") throw new Error("a served bundle saves to the folder scaena serve serves it from");
-    const at = edits;
     status.textContent = "Saving…";
+    await settled();
+    const [sent, files] = [view.state.doc.toString(), filed];
     let done: Extract<FromWorker, { type: "saved" }>;
     try {
-      done = await stage.saveAs(view.state.doc.toString(), to);
+      done = await stage.saveAs(sent, to);
     } catch (e) {
       status.textContent = `Not saved: ${said(e)}`;
       return;
     }
     if ("folder" in to) await folders("readwrite", (store) => store.put(to.folder, to.folder.name));
-    return took(done, at);
+    return took(done, sent, files);
   }
 
-  /** A save `done` of the source as it stood at `at` edits: the bundle kept where it went, the
-   * paths the save renamed renamed in the source, and the page's address naming it. */
-  async function took(done: Extract<FromWorker, { type: "saved" }>, at: number) {
+  /** A save `done` of `sent`, the source as it stood, and of the bundle's files as `files` edits of
+   * them left them: the bundle kept where it went, the paths the save renamed renamed in the source,
+   * and the page's address naming it. */
+  async function took(done: Extract<FromWorker, { type: "saved" }>, sent: string, files: number) {
     where = done.where;
     name = done.where.name;
-    quiet = true;
     view.dispatch({ changes: change(view.state.doc.toString(), renamedIn(view.state.doc.toString(), done.renamed)) });
-    quiet = false;
     // The folder keeps the deck's source too: it is what the editor shows, renamed as the save
     // renamed files.
     if (scnOnDisk) {
@@ -1453,19 +1572,21 @@ async function edit(source: Source) {
       const response = await fetch(scnOnDisk, { method: "PUT", body: view.state.doc.toString(), headers });
       if (!response.ok) throw new Error(`deck.scn: ${(await response.text()).trim() || response.status}`);
     }
-    saved = at;
+    savedSource = renamedIn(sent, done.renamed);
+    filedSaved = files;
     address(where);
     tell();
     void listKept();
     // The save recorded the edits since the last: they are versions now.
     void versioning.refresh();
-    status.textContent = `Saved, ${many(done.files, "file")}${done.recorded ? ", and the changes kept in its history" : ""}`;
+    say(`Saved, ${many(done.files, "file")}${done.recorded ? ", and the changes kept in its history" : ""}`);
     return done;
   }
 
   /** Download the source as it stands as a `.scaena` zip, its fonts subset to what the deck
    * draws. */
   async function download() {
+    await settled();
     let zipped: { bytes: ArrayBuffer; subset: [string, number, number][] };
     try {
       zipped = await stage.zip(view.state.doc.toString());
@@ -1488,6 +1609,7 @@ async function edit(source: Source) {
    * single-file player's page beside this one filled in. Each is made in the worker: nothing is
    * sent anywhere. */
   async function exportAs(as: "png" | "pdf" | "html", width?: number): Promise<{ file: string; bytes: ArrayBuffer } | undefined> {
+    await settled();
     let what: Export;
     let file: string;
     if (as === "png") {
@@ -1986,7 +2108,7 @@ async function edit(source: Source) {
     return inside ? [e.clientX, e.clientY] : [r.left, r.bottom];
   };
   // A right click on a state in the strip shows it, then offers what is done to it.
-  $("#strip ol").addEventListener("contextmenu", (e) => {
+  heed($("#strip ol"), "contextmenu", (e) => {
     const li = (e.target as Element).closest<HTMLElement>("li[data-state]");
     if (!li) return;
     e.preventDefault();
@@ -1996,7 +2118,7 @@ async function edit(source: Source) {
     menu(x, y, stateCommands().filter((c) => c.where?.includes("state")), li);
   });
   // A right click on a layer selects its node where it is shown, then offers what is done to it.
-  $("#layers ul").addEventListener("contextmenu", (e) => {
+  heed($("#layers ul"), "contextmenu", (e) => {
     const li = (e.target as Element).closest<HTMLElement>("li[data-layer]");
     if (!li) return;
     e.preventDefault();
@@ -2018,10 +2140,9 @@ async function edit(source: Source) {
       again.hidden = true;
       if (paths.some((path) => path !== "deck.scn")) await stage.reload();
       const text = scnOnDisk ? await fromDisk() : await stage.source();
-      quiet = true;
       view.dispatch({ changes: change(view.state.doc.toString(), text) });
-      quiet = false;
-      saved = edits;
+      savedSource = view.state.doc.toString();
+      filedSaved = filed;
       tell();
       status.textContent = `Read again from disk: ${paths.join(", ")}`;
     };
@@ -2076,8 +2197,9 @@ async function edit(source: Source) {
     const width = Number(exportWidth.value);
     const now = showing()?.state;
     exportNote.textContent = {
+      // The slide as a person counts it (PLAN 2.99), as the file is named.
       png: Number.isInteger(width) && width > 0
-        ? `${now ?? "The state shown"} at rest${format() ? ` in ${format()}` : ""}: ${width} × ${Math.round((h * width) / w)} pixels, painted by the CPU painter.`
+        ? `${now === undefined ? "The slide shown" : slideOf(now)}${format() ? ` in ${format()}` : ""}: ${width} × ${Math.round((h * width) / w)} pixels.`
         : "A width in whole pixels: the height keeps the canvas's aspect.",
       pdf: "A page for each slide at its last state: vector paths, text in subset fonts that copies and searches as the deck reads, tagged for a screen reader.",
       html: "The player and the deck in one file that plays in a browser with no network, its fonts subset to what the deck draws.",
@@ -2123,6 +2245,12 @@ async function edit(source: Source) {
         keying.toggle();
       }
     }
+    // The canvas's zoom (PLAN 2.46) wherever the focus is, never the page's: the canvas, and a text
+    // typed in on it, take these keys first.
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && ["=", "+", "-", "_", "0"].includes(e.key) && !e.defaultPrevented) {
+      e.preventDefault();
+      void board.zoom(e.key === "0" ? "fit" : e.key === "-" || e.key === "_" ? "out" : "in");
+    }
     // ⌘F finds in the deck's texts (PLAN 2.47); in the source, the browser's find stays.
     if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "f" && !(e.target instanceof Element && e.target.closest(".cm-editor"))) {
       e.preventDefault();
@@ -2130,7 +2258,12 @@ async function edit(source: Source) {
     }
   };
   onbeforeunload = (e) => {
-    if (dirty()) e.preventDefault();
+    // Changes not saved, among them what is typed and not yet made, and a field in the inspector
+    // typed in and not yet left.
+    const field = document.activeElement;
+    const unsettled =
+      board.unsettled() || ((field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) && $("#look").contains(field) && field.value !== field.defaultValue);
+    if (dirty() || unsettled) e.preventDefault();
   };
   current = {
     close: () => {
@@ -2139,6 +2272,8 @@ async function edit(source: Source) {
       board.close();
       view.destroy();
       stage.close();
+      // What it listened for on the page goes with it: the bundle opened next hears each key once.
+      ended();
     },
     dirty,
     say: (text) => {
@@ -2147,10 +2282,15 @@ async function edit(source: Source) {
     },
   };
 
+  // A state picked by its id, not its place among the options: an edit not yet compiled, such as
+  // an undo of + Step, may have moved it, and the edit's answer shows it where the edit put it.
   statesPicker.onchange = () => {
-    const start = last?.states[statesPicker.selectedIndex]?.[1];
+    const id = statesPicker.value;
+    const index = last?.states.findIndex(([state]) => state === id) ?? -1;
+    if (index < 0) return void (statesPicker.selectedIndex = shown);
+    const start = last?.states[index]?.[1];
     if (start !== undefined) view.dispatch({ selection: { anchor: start }, scrollIntoView: true });
-    void show(statesPicker.selectedIndex);
+    void show(index);
   };
   formatPicker.onchange = () => {
     void show(shown);

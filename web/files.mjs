@@ -9,7 +9,9 @@
 //   a data file by its source; and the nodes drawn from each, a button that shows the first state
 //   that shows it so, the node selected.
 // - The image nothing names says so; Remove takes it out, one change: the panel's Undo puts it
-//   back, and Redo takes it out again. One something names cannot be taken out.
+//   back, and Redo takes it out again. One something names cannot be taken out. Taken out after
+//   the picture that drew it was deleted, ⌘Z on the canvas puts it back, and the next brings the
+//   picture back, drawn from it: one undo for the deck and its files.
 // - An image dragged from the list carries its path. Dropped on an image node, the node shows it
 //   (`choose` of `src`); dropped on empty canvas, it is inserted there; Insert does the same from
 //   the keyboard. Each is one patch, one step to undo. Dropped on the source, its path goes
@@ -191,6 +193,39 @@ try {
   await page.keyboard.press("Control+z");
   await page.waitForFunction((s) => window.scaena.source() === s, original, { timeout: 30000 }).catch(() => {});
   check((await source()) === original, "and the source's undo takes it back");
+
+  // Taken out after the picture that drew it was deleted, the file comes back with ⌘Z on the
+  // canvas, as anywhere on the page: its removal is a step in the one undo, so the picture the
+  // next undo brings back finds the file it draws (PLAN 2.59).
+  const unpictured = await source();
+  await page.locator(`#files [data-path="${stray}"] [data-insert]`).click();
+  await page.waitForFunction((s) => window.scaena.source() !== s && !window.scaena.canvas.busy(), unpictured, { timeout: 30000 }).catch(() => {});
+  await says("inserted on this slide");
+  const picture = await page.evaluate(() => window.scaena.canvas.selected());
+  const shown = await source();
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Shift+Delete");
+  await page.waitForFunction((s) => window.scaena.source() !== s, shown, { timeout: 30000 }).catch(() => {});
+  await page.waitForFunction((p) => window.scaena.files.listed().find((f) => f.path === p)?.named.length === 0, stray, { timeout: 30000 }).catch(() => {});
+  await page.locator(`#files [data-path="${stray}"] [data-remove]`).click();
+  await says("taken out of the deck");
+  check(!(await file(stray)), `the picture deleted, its file is taken out: ${await status()}`);
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Control+z");
+  await page.waitForFunction((p) => window.scaena.files.listed().some((f) => f.path === p), stray, { timeout: 30000 }).catch(() => {});
+  check(Boolean(await file(stray)), `⌘Z on the canvas puts the file back: ${await status()}`);
+  await page.keyboard.press("Control+z");
+  await page.waitForFunction((s) => window.scaena.source() === s, shown, { timeout: 30000, polling: 50 }).catch(() => {});
+  await page.waitForFunction(() => window.scaena.last()?.valid !== undefined, null, { timeout: 30000 });
+  const missing = await page.evaluate(() => window.scaena.last().findings.filter((f) => f.code === "E102").map((f) => f.message));
+  check((await source()) === shown && (await page.evaluate(() => window.scaena.last().valid)) && !missing.length, `the next brings the picture back, drawn from it: ${missing}`);
+  const drawn = await page
+    .waitForFunction((n) => window.scaena.canvas.boxes().some((b) => b.node === n), picture, { timeout: 10000 })
+    .then(() => true, () => false);
+  check(drawn, "and the canvas draws it");
+  const undone = await page.evaluate(() => [document.querySelector("#files [data-undo]").disabled, document.querySelector("#files [data-redo]").disabled]);
+  check(!undone[0] && !undone[1], `the panel's Undo and Redo are the page's, each with a step to take: ${undone}`);
+  check(await undo(original), "and one more takes the picture's insert back");
 } catch (e) {
   failures.push(String(e));
 } finally {

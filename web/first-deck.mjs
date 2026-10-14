@@ -362,8 +362,8 @@ try {
     const kept = await page.evaluate(() => window.scaena.last().states.map((s) => s[0]).join());
     await page.goto(editor);
     await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
-    // The input is hidden in its label, which is what a person clicks.
-    const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.click("label:has(#open-file)")]);
+    // The input is hidden; its button is what a person clicks, or presses Enter on.
+    const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.click("#open-scaena")]);
     await chooser.setFiles({ name: zip.name, mimeType: "application/zip", buffer: zip.bytes });
     // The browser keeps what it opens, under a name of its own beside the deck kept there already.
     await page.waitForFunction(() => /^trail-report/.test(window.scaena.where().name ?? "") && window.scaena.last(), null, { timeout: 120000 });

@@ -133,18 +133,20 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
   async function paint(): Promise<boolean> {
     const asked = ++painting;
     const known = Object.fromEntries([...thumbs].map(([id, t]) => [id, t.digest]));
+    const take = (t: Thumb) => {
+      if (!t.pixels || !t.width || !t.height) return;
+      thumbs.set(t.state, { digest: t.digest, image: new ImageData(new Uint8ClampedArray(t.pixels), t.width, t.height) });
+      draw(t.state);
+    };
     let got: Thumb[];
     try {
-      got = await stage.thumbnails(high(), known, editor.format());
+      // Each drawn as it is painted, first to last, the strip's first ones seen first.
+      got = await stage.thumbnails(high(), known, editor.format(), undefined, (t) => asked === painting && take(t));
     } catch {
       return true;
     }
     if (asked !== painting) return false;
-    for (const t of got) {
-      if (!t.pixels || !t.width || !t.height) continue;
-      thumbs.set(t.state, { digest: t.digest, image: new ImageData(new Uint8ClampedArray(t.pixels), t.width, t.height) });
-      draw(t.state);
-    }
+    for (const t of got) take(t);
     return true;
   }
 

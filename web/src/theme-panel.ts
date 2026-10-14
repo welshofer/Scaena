@@ -15,6 +15,7 @@
 //   written back.
 // - The panel shows the theme frames are drawn in: an undo, a re-theme, or the assistant's edit
 //   shows here as it does on the canvas.
+import { observing } from "./life";
 import type { BundleFile, Lexicon, ThemeEdited } from "./protocol";
 import type { Stage } from "./stage";
 import { named, object as objectSaid } from "./words";
@@ -296,9 +297,11 @@ export function themePanel(stage: Stage, into: HTMLElement, editor: ThemeEditor)
     spacing.replaceChildren(...fields);
   }
 
-  new MutationObserver(() => {
-    if (!into.hidden) void refresh();
-  }).observe(into, { attributes: true, attributeFilter: ["hidden"] });
+  observing(
+    new MutationObserver(() => {
+      if (!into.hidden) void refresh();
+    }),
+  ).observe(into, { attributes: true, attributeFilter: ["hidden"] });
 
   return {
     refresh,

@@ -147,6 +147,7 @@ try {
   // With Shift, off the grid, where the drag went.
   await restore(original);
   check(await arms("o"), "O, an ellipse");
+  check(await says("Drawing an oval"), `said as a person says it: ${await status()}`);
   await drag([300, 200], [700, 520], true);
   check(await reads("ellipse shape"), "O draws an ellipse");
   check(/at:rect\(300(\.0)?, 200(\.0)?, 400(\.0)?, 320(\.0)?\)/.test(await declared("ellipse")), `with Shift, where the drag went: ${await declared("ellipse")}`);

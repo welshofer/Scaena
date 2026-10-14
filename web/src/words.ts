@@ -89,6 +89,9 @@ export function place(slots: { state: string; slide?: string; said?: string }[],
 /** `words` begun as a sentence begins: its first letter a capital. */
 export const sentence = (words: string) => words.charAt(0).toUpperCase() + words.slice(1);
 
+/** `words` after the article a person says before them: an oval, a line. */
+export const an = (words: string) => `${/^[aeiou]/i.test(words) ? "an" : "a"} ${words}`;
+
 /** Each part of an image a fraction gives, said. */
 export const PARTS: Record<string, string> = { x: "across", y: "down", w: "width", h: "height" };
 

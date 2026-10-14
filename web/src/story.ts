@@ -11,6 +11,7 @@
 //   one change that ⌘Z takes back; and Ask puts its questions to the assistant, its tab shown and
 //   the question in its box, to send or change.
 // - It is read again whenever the deck changes while the tab is shown, the last answer winning.
+import { observing } from "./life";
 import type { Health, HealthFinding } from "./protocol";
 import type { Stage } from "./stage";
 
@@ -200,7 +201,7 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     return li;
   }
 
-  new MutationObserver(() => void refresh()).observe(into, { attributes: true, attributeFilter: ["hidden"] });
+  observing(new MutationObserver(() => void refresh())).observe(into, { attributes: true, attributeFilter: ["hidden"] });
   return {
     refresh,
     /** What the panel last read. */

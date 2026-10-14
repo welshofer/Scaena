@@ -245,6 +245,8 @@ export interface Carets {
   lines: CaretLine[];
   /** Its paragraphs as a list's items (ADR-0018, PLAN 2.69), by paragraph; none past the last. */
   items?: (ListMark | null)[];
+  /** Each stretch of it a link goes from (PLAN 2.70): its start and end, and where it goes. */
+  links?: [number, number, LinkTarget][];
   /** Its words still as its slot's prompt put them (PLAN 3.30): typing begins with them all
    * selected, so it replaces them. Asked as typing begins, not after each change. */
   prompt?: boolean;
@@ -984,8 +986,9 @@ export type ToWorker =
   | { type: "pasting"; id: number; source: string; state: string; clip: string; at: [number, number]; format?: string }
   /** Each state at rest in `format`, painted by the CPU painter `height` pixels high, for the
    * state strip (PLAN 2.35): only those whose drawing is not the one `known` holds (each state's
-   * digest, as the strip last had it) come with pixels. */
-  | { type: "thumbnails"; id: number; height: number; known: Record<string, string>; format?: string; states?: string[] }
+   * digest, as the strip last had it) come with pixels. With `each`, each painted is sent as it is
+   * (`thumbed`), and the answer holds the rest. */
+  | { type: "thumbnails"; id: number; height: number; known: Record<string, string>; format?: string; states?: string[]; each?: boolean }
   /** The patch that adds a state after `state`, on the deck the editor's `source` compiles to: a
    * `step` of its slide, or a `slide` of its own (PLAN 2.35). */
   | { type: "addingState"; id: number; source: string; state: string; what: "step" | "slide" }
@@ -1066,6 +1069,9 @@ export type ToWorker =
   | { type: "makePicture"; id: number; picture: PictureJob }
   /** `path` taken out of the bundle, by the user: one nothing names (PLAN 2.59). */
   | { type: "removeFile"; id: number; source: string; path: string; index: number; format?: string }
+  /** `path`, taken out, put back by its path: the undo of its removal in the editor's one undo
+   * (PLAN 2.59). Answered as `removeFile` is. */
+  | { type: "putBack"; id: number; source: string; path: string; index: number; format?: string }
   /** The bundle's versions (PLAN 2.60), read from its history by the history's own module: none
    * where it keeps no history. */
   | { type: "versions"; id: number }
@@ -1695,6 +1701,8 @@ export type FromWorker =
   | { type: "pasted"; id: number; pasted: Pasted }
   | { type: "grouped"; id: number; grouped: Grouped }
   | { type: "thumbnails"; id: number; thumbs: Thumb[] }
+  /** A thumbnail painted while the rest are, for a request that asked for each as it is. */
+  | { type: "thumbed"; id: number; thumb: Thumb }
   /** The patch that adds a state, and the state's id. */
   | { type: "addingState"; id: number; added: { id: string; patch: unknown[] } }
   /** The slides a person may start, each with its picture. */

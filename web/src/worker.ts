@@ -399,7 +399,8 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return post({ type: "pasted", id: data.id, pasted: JSON.parse(player.pasting(data.clip, data.state, ...data.at)) as Pasted });
       case "thumbnails": {
         layOut(data.format);
-        const thumbs = await thumbnails(data.height, data.known, data.states);
+        const each = data.each ? (thumb: Thumb) => post({ type: "thumbed", id: data.id, thumb }, thumb.pixels ? [thumb.pixels] : []) : undefined;
+        const thumbs = await thumbnails(data.height, data.known, data.states, each);
         return post({ type: "thumbnails", id: data.id, thumbs }, thumbs.flatMap((t) => (t.pixels ? [t.pixels] : [])));
       }
       case "addingState":
@@ -462,11 +463,8 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         const look = JSON.parse(player.italicizing(data.state, data.node, data.from, data.to)) as Record<string, unknown>;
         return post({ type: "italicizing", id: data.id, look });
       }
-      case "type": {
-        const typed = await type(data.source, data.ops, data.index, data.format);
-        const carets = JSON.parse(player.carets(data.state, data.node)) as Carets | null;
-        return post({ type: "typed", id: data.id, ...typed, carets });
-      }
+      case "type":
+        return post({ type: "typed", id: data.id, ...(await type(data.source, data.ops, data.index, data.format, data.state, data.node)) });
       case "save":
         saveable(data.source);
         if (data.keep) player.keepHistory();
@@ -545,9 +543,11 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         const bytes = made.bytes.slice().buffer as ArrayBuffer;
         return post({ type: "pictureMade", id: data.id, bytes, ext: made.ext, alt: made.alt, model: made.model }, [bytes]);
       }
-      case "removeFile": {
+      case "removeFile":
+      case "putBack": {
         compiles(data.source);
-        player.removeFile(data.path);
+        if (data.type === "putBack") player.putBack(data.path);
+        else player.removeFile(data.path);
         latest++;
         shown = { index: data.index, format: data.format };
         return post({ type: "removed", id: data.id, edited: await edit(player.source(), data.index, data.format) });
@@ -1218,8 +1218,10 @@ const thumbing = { all: 0, some: 0 };
 /** Each state of the timeline at rest, `height` pixels high, for the state strip (PLAN 2.35):
  * pixels for each whose drawing (its display list's digest) is not the one `known` holds. A
  * state at a time, the worker answering what else is asked between them; a newer request stops
- * it with what it has. A state the deck no longer has, changed meanwhile, is left out. */
-async function thumbnails(height: number, known: Record<string, string>, only?: string[]): Promise<Thumb[]> {
+ * it with what it has. A state the deck no longer has, changed meanwhile, is left out. With
+ * `each`, each painted goes to it at once, so the first are seen while the rest are painted,
+ * and the answer holds the rest. */
+async function thumbnails(height: number, known: Record<string, string>, only?: string[], each?: (thumb: Thumb) => void): Promise<Thumb[]> {
   const kind = only ? "some" : "all";
   const mine = ++thumbing[kind];
   const [w, h] = player.canvasSize();
@@ -1235,7 +1237,9 @@ async function thumbnails(height: number, known: Record<string, string>, only?: 
         continue;
       }
       const pixels = player.pixels(state, Infinity, width);
-      thumbs.push({ state, digest, width, height: pixels.length / 4 / width, pixels: pixels.buffer as ArrayBuffer });
+      const thumb = { state, digest, width, height: pixels.length / 4 / width, pixels: pixels.buffer as ArrayBuffer };
+      if (each) each(thumb);
+      else thumbs.push(thumb);
     } catch {
       continue;
     }
@@ -1456,8 +1460,16 @@ async function dataUndo(source: string, redo: boolean, index: number, at: string
 
 /** Make `ops`, text typed on the editor's canvas (PLAN 2.32), by the user, on the deck `source`
  * compiles to, which must validate: validated as a patch is, but not linted. The deck's source
- * after is compiled, shown at slot `index`, and linted, as an edit of it is. */
-async function type(source: string, ops: unknown[], index: number, at: string | undefined): Promise<{ source: string; edited: Edited }> {
+ * after is compiled, shown at slot `index`, and linted, as an edit of it is; with it, where a
+ * caret stands in `node`'s text in `state` now. */
+async function type(
+  source: string,
+  ops: unknown[],
+  index: number,
+  at: string | undefined,
+  state: string,
+  node: string,
+): Promise<{ source: string; edited: Edited; carets: Carets | null }> {
   saveable(source);
   player.setMoving([], 0, 0);
   player.preview(undefined);
@@ -1465,7 +1477,11 @@ async function type(source: string, ops: unknown[], index: number, at: string | 
   latest++;
   shown = { index, format: at };
   const next = player.source();
-  return { source: next, edited: await edit(next, index, at) };
+  // Where a caret stands in the text as typed, read before the frame is painted: what the page
+  // asks meanwhile may compile another source, and the next change is made on these.
+  layOut(at !== undefined && player.formats().includes(at) ? at : undefined, true);
+  const carets = JSON.parse(player.carets(state, node)) as Carets | null;
+  return { source: next, edited: await edit(next, index, at), carets };
 }
 
 /** What the preview last painted: what a new view paints again (PLAN 2.46). */

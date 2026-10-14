@@ -65,6 +65,24 @@ impl Session {
         Ok(())
     }
 
+    /// `path`, a file [taken out](Session::remove_file), put back as it was: the undo of its
+    /// removal in an editor whose one undo holds the deck's changes and its files' (the
+    /// browser's, PLAN 2.59), whatever came after it. The removal leaves the steps `data_undo`
+    /// takes back, so nothing puts the file back twice. Nothing to do where the bundle holds it.
+    pub fn put_back(&mut self, path: &str) -> Result<(), Error> {
+        if self.files.contains_key(path) {
+            return Ok(());
+        }
+        let taken = self.done.iter().rposition(|s| s.path == path && s.after.is_none() && s.before.is_some());
+        let Some(at) = taken else {
+            return Err(Error::Ops(format!("{path} was not taken out here: nothing puts it back")));
+        };
+        let step = self.done.remove(at);
+        self.removed.remove(path);
+        self.add_file(path, step.before.expect("a removal keeps the file"));
+        Ok(())
+    }
+
     /// Where a data file dropped on the canvas goes (PLAN 2.76): where `place` puts it, under
     /// `data/` by its own name, unless the bundle holds other bytes there; then `-2`, `-3`, …
     /// before its extension, so no source the deck declares reads other rows than it did.

@@ -11,7 +11,8 @@
 // - The wheel pans; ⌘ or Ctrl with the wheel zooms about the pointer, the point under it staying
 //   put; Space and a drag pan, selecting and changing nothing.
 // - A text is typed in where it stands zoomed in.
-// - ⌘0 shows the whole canvas again, and another format does too.
+// - ⌘0 shows the whole canvas again, and another format does too. ⌘+ and ⌘0 zoom the slide from a
+//   slide focused in the strip too, never the browser's page.
 // Exits 1 on any failure.
 import { launch, serve } from "./serve.mjs";
 
@@ -208,6 +209,20 @@ try {
     again = await shot();
   }
   check(again.equals(whole), "painted as it was");
+
+  // ⌘+ and ⌘0 zoom the slide from anywhere on the page that does not take them itself, as from a
+  // slide focused in the strip: not the browser's zoom of the whole page.
+  await page.locator("#strip li").first().focus();
+  // Heard once the page's own handlers have had it: whether one took it from the browser.
+  await page.evaluate(() => addEventListener("keydown", (e) => e.key === "=" && (window.heardTaken ??= e.defaultPrevented)));
+  await page.keyboard.press("Control+Equal");
+  await page.waitForFunction(() => window.heardTaken !== undefined, null, { timeout: 5000 }).catch(() => {});
+  check((await page.evaluate(() => window.heardTaken)) === true, "⌘+ in the strip is the editor's, not the browser's");
+  await page.waitForFunction(() => window.scaena.canvas.zoomed() === 1.5, null, { timeout: 10000 }).catch(() => {});
+  check((await zoomed()) === 1.5 && (await shows()) === "150%", `⌘+ in the strip zooms the slide: ${await shows()}`);
+  await page.keyboard.press("Control+0");
+  await page.waitForFunction(() => window.scaena.canvas.zoomed() === 1, null, { timeout: 10000 }).catch(() => {});
+  check((await zoomed()) === 1 && (await shows()) === "100%", `and ⌘0 there shows the whole canvas: ${await shows()}`);
 
   // Another format shows all of its canvas.
   await page.evaluate(() => window.scaena.canvas.zoom(2));

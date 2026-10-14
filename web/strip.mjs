@@ -10,7 +10,8 @@
 //   just after an edit on the canvas stays shown once the editor lints the source.
 // - + Step adds `revenue-2` after `revenue`, in its slide: it shows what `revenue` shows, its
 //   thumbnail the same drawing, and it is shown; the source, opened, opens at it. One undo takes
-//   it back.
+//   it back, its slide shown and named in the picker, and a slide picked there straight after the
+//   undo is the one shown.
 // - + Slide opens Dusk's layouts by their sections (PLAN 3.30, 3.31): the 13 down the side as tabs,
 //   128 layouts in all, Titles first, each drawn as it is used and named as a person calls it; a
 //   tab clicked or the down arrow shows another, and the field finds a layout in any section.
@@ -28,6 +29,8 @@
 //   another builds on is not removed, and the status says why.
 // - The state shown, taken away, leaves no error on the page, and ⌘Z and ⇧⌘Z with the strip
 //   focused undo and redo (PLAN 2.77).
+// On the trails example, the strip draws each thumbnail as it is painted, the first before every
+// state is linted.
 // Exits 1 on any failure.
 import { readFile } from "node:fs/promises";
 import { launch, serve } from "./serve.mjs";
@@ -204,6 +207,22 @@ try {
   await undo();
   check(await back(original), "one undo takes it back");
   check(await holds(["intro", "revenue", "mix", "close"]), "and the strip with it");
+  const label = () => page.evaluate(() => document.querySelector("#state").selectedOptions[0]?.textContent);
+  check((await shows(1)) && (await label()) === "Slide 2", `its slide is shown, and the picker names it: ${await page.evaluate(() => window.scaena.shown())}, ${await label()}`);
+  // A slide picked in the picker straight after the undo, before the source is compiled again, is
+  // the one shown, and stays shown.
+  await page.click("#strip [data-add=step]");
+  await holds(["intro", "revenue", "revenue-2", "mix", "close"]);
+  await shows(2);
+  await undo();
+  await page.selectOption("#state", "mix");
+  await page.waitForTimeout(1500);
+  const picked = () => page.evaluate(() => document.querySelector("#state").value);
+  check(
+    (await shows(2)) && (await selected()) === "mix" && (await picked()) === "mix" && (await label()) === "Slide 2, step 2",
+    `mix, picked at once, is shown: ${await page.evaluate(() => window.scaena.shown())}, ${await selected()}, ${await picked()}, ${await label()}`,
+  );
+  check(await back(original), "and the step is undone");
 
   // + Slide opens the theme's layouts by their sections, each a slide started in it (PLAN 3.30,
   // 3.31): a section's tiles drawn as they are shown, a few at a time.
@@ -438,6 +457,25 @@ try {
   await item("mix").focus();
   await page.keyboard.press("Control+Shift+z");
   check(await holds(["intro", "revenue", "mix"]), `⇧⌘Z in the strip takes it away again: ${await order()}`);
+
+  // A deck of many states, opened: the strip draws its thumbnails as they are painted, the first
+  // before every state is linted.
+  const trails = await context.newPage();
+  trails.on("pageerror", (e) => failures.push(`trails: ${e.message}`));
+  await trails.goto(url("/docs/examples/trails.deck.json"));
+  const first = await trails.evaluate(
+    () =>
+      new Promise((done) => {
+        const poll = () => {
+          const painted = Object.keys(window.scaena?.strip?.digests() ?? {}).length;
+          if (painted) return done({ painted, linted: window.scaena.wholes().length });
+          setTimeout(poll, 20);
+        };
+        poll();
+        setTimeout(() => done({ painted: 0 }), 60000);
+      }),
+  );
+  check(first.painted > 0 && first.linted === 0, `the first thumbnails are drawn before every state is linted: ${JSON.stringify(first)}`);
 } finally {
   await browser.close();
   await server.close();

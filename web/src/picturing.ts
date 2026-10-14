@@ -7,6 +7,7 @@
 // nothing is asked: the dialog says where one goes. Cancel drops an answer still coming.
 import { load, settings } from "./assistant/keys";
 import type { MadePicture, PictureTarget } from "./canvas";
+import { listen } from "./life";
 import type { Stage } from "./stage";
 
 /** What the dialog asks of the editor around it. */
@@ -130,7 +131,7 @@ export function picturer(stage: Stage, host: PicturingHost) {
     await host.put(place, made);
   }
 
-  form.addEventListener("submit", (e) => {
+  listen(form, "submit", (e) => {
     e.preventDefault();
     settled = making();
   });
@@ -140,7 +141,7 @@ export function picturer(stage: Stage, host: PicturingHost) {
     host.keys();
   };
   // Closed, by Cancel or Escape: a picture still coming is dropped.
-  dialog.addEventListener("close", () => {
+  listen(dialog, "close", () => {
     ++turn;
     busy(false);
   });
