@@ -119,6 +119,7 @@ export const canvasKeys = (): Key[] => [
   { keys: "Double-click a text", label: "Type in it where it was clicked", group: "Type" },
   { keys: `${ALT}Double-click, ${ALT}Enter`, label: "Type in it, what is typed kept to this slide", group: "Type" },
   { keys: "Space Drag, Wheel", label: "Pan what is zoomed in", group: "See" },
+  { keys: "← ↑ → ↓", label: "Zoomed in with nothing selected, pan a tenth of what is shown; with Shift, half", group: "See" },
   { keys: `${MOD}Wheel, Pinch`, label: "Zoom about the pointer", group: "See" },
   { keys: "Click a chart's mark", label: "With the Data tab shown, choose the rows it was made from", group: "The data" },
   { keys: "Double-click a chart's mark", label: "Open the Data tab on its rows", group: "The data" },
@@ -937,6 +938,19 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   }
   /** The whole canvas again. */
   const fit = () => look([0, 0, size[0], size[1]]);
+  /** Zoomed in, what is shown moved the least that shows `node` whole, or, where it is larger
+   * than what is shown, the least that shows nothing but it (PLAN 2.125): what the keys or a
+   * panel select comes into view. */
+  function reveal(node: string | undefined) {
+    const rect = box(node)?.rect;
+    if (!rect || zoom() <= 1) return;
+    const along = (start: number, span: number, at: number, length: number) => {
+      const [lo, hi] = [Math.min(at, at + length - span), Math.max(at, at + length - span)];
+      return Math.min(Math.max(start, lo), hi);
+    };
+    const [x, y] = [along(view[0], view[2], rect[0], rect[2]), along(view[1], view[3], rect[1], rect[3])];
+    if (x !== view[0] || y !== view[1]) void look([x, y, view[2], view[3]]);
+  }
 
   function select(node: string | undefined) {
     if (node === selected && also.length === 0) return;
@@ -1667,6 +1681,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       return false;
     }
     select(order[next]);
+    reveal(order[next]);
     editor.say(`${Called(order[next])} selected, ${next + 1} of ${order.length}${level ? ` in ${called(level)}` : ""} · Enter goes into it or its handles`);
     return true;
   }
@@ -1685,6 +1700,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       return false;
     }
     keyOn = order[next];
+    reveal(keyOn);
     draw();
     const inIt = chosen().includes(keyOn);
     editor.say(`${Called(keyOn)}, ${next + 1} of ${order.length}${inIt ? ", selected" : ""} · Space ${inIt ? "takes it out of" : "puts it in"} the selection · Tab the next · Escape stops`);
@@ -2619,6 +2635,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
    * words, joined by connectors, in a container placed as the text was; one patch, the diagram
    * selected. */
   function diagram(node: string, kind: Diagram) {
+    // The text goes: nothing of a locked node is deleted (PLAN 2.95).
+    if (locks([node], `is drawn as a ${kind}`)) return Promise.resolve();
     return inTurn(async () => {
       const shown = editor.shown();
       if (!shown) return editor.say(WAITING);
@@ -3245,6 +3263,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     try {
       const { snapped } = await stage.drag(shown.state, node, { snap: { how, to, fork } }, editor.format());
       if (!snapped?.patch.length) return editor.say(`${Called(node)} stays where it is`);
+      // A step past the grid's last track is kept to the grid, where the node stands: nothing
+      // moves, and a node in a slot stays in it rather than coming out onto the cells it covers.
+      if (snapped.cell.every((v, i) => Math.abs(v - t.cell[i]) < 0.5)) {
+        return editor.say(grow && sx + sy < 0 ? `${Called(node)} is as small as it goes` : `${Called(node)} is at the edge`);
+      }
       await commit(snapped.patch);
     } catch (e) {
       editor.say(`Not placed: ${said(e)}`);
@@ -3857,6 +3880,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       if (inside.length && !also.length) {
         const into = selected;
         select(inside[0]);
+        reveal(inside[0]);
         return editor.say(`${Called(inside[0])} selected, in ${called(into)} · Tab goes on, Escape goes back out`);
       }
       // What is locked keeps its handles and its text (PLAN 2.95).
@@ -4028,6 +4052,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     }
     const steps: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
     const step = steps[e.key];
+    // Zoomed in with nothing selected, the arrows pan what is shown (PLAN 2.125): a tenth of it,
+    // with Shift half.
+    if (step && selected === undefined && zoom() > 1 && !drag && !mod && !e.altKey) {
+      e.preventDefault();
+      const by = e.shiftKey ? 0.5 : 0.1;
+      return void look([view[0] + step[0] * view[2] * by, view[1] + step[1] * view[3] * by, view[2], view[3]]);
+    }
     if (!step || selected === undefined || drag || mod) return;
     e.preventDefault();
     const keyed = handling?.node === selected ? handleList(selected)[handling.index] : undefined;
@@ -4130,8 +4161,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     /** `node` as the canvas names it in a sentence, by the words of the state shown last asked
      * for, for a test: “Revenue doubled”, the triangle. */
     called,
-    /** Select `node`, as a click on it does; nothing with `undefined`. */
-    select,
+    /** Select `node`, as a click on it does; nothing with `undefined`. Zoomed in, what a panel
+     * selects comes into view (PLAN 2.125). */
+    select: (node: string | undefined) => {
+      select(node);
+      reveal(node);
+    },
     /** Select `nodes` at once, children of one container, as Shift+click and a marquee do. */
     selectAll,
     /** Mark characters of a text in the state shown, as a find shows its match, and select it;

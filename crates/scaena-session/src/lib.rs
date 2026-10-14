@@ -136,6 +136,11 @@ pub struct Session {
     /// The source the editor compiled last (PLAN 2.3).
     #[cfg(feature = "editor")]
     edit: Option<editor::Edit>,
+    /// What validation found in the deck shown, where a compile found it valid against the files
+    /// as they are since: what a patch made on it and a lint of it take, rather than validate it
+    /// again. Gone once the deck or a file changes.
+    #[cfg(feature = "editor")]
+    validated: Option<Vec<scaena_core::Finding>>,
     /// What the layout rules found in every state the last time they ran on all of them:
     /// kept for the states a lint of one state does not lay out.
     #[cfg(feature = "editor")]
@@ -340,6 +345,8 @@ impl Session {
             #[cfg(feature = "editor")]
             edit: None,
             #[cfg(feature = "editor")]
+            validated: None,
+            #[cfg(feature = "editor")]
             laid: editor::Laid::default(),
             #[cfg(feature = "editor")]
             subsets: BTreeMap::new(),
@@ -372,6 +379,10 @@ impl Session {
     /// format the deck no longer lists falls back to its own canvas. A deck that names other
     /// fonts or images builds the engine again on the next frame.
     pub fn set_deck(&mut self, deck: Deck) {
+        #[cfg(feature = "editor")]
+        {
+            self.validated = None;
+        }
         if self.format.as_ref().is_some_and(|f| !deck.formats.contains(f)) {
             self.format = None;
         }
@@ -432,7 +443,7 @@ impl Session {
             self.data.insert(path, bytes.clone());
             self.forget();
         }
-        Arc::make_mut(&mut self.files).insert(path.to_string(), bytes);
+        self.files_mut().insert(path.to_string(), bytes);
         // The theme the deck names, edited (ADR-0016): frames are drawn in it from now on.
         if self.deck.theme.as_ref().and_then(|t| t.as_str()) == Some(path) {
             self.follow_theme(&self.deck.clone());
@@ -500,7 +511,6 @@ impl Session {
         }
     }
 
-    /// Build the engine from the fonts and images the deck names, if it is not built yet.
     /// Let the engine go, to be built again on the next frame from what the deck names now,
     /// keeping what it worked out of the global timeline: the files it read read as they did.
     fn let_engine_go(&mut self) {
@@ -509,6 +519,16 @@ impl Session {
         }
     }
 
+    /// The bundle's files, to change: what validation found in the deck shown no longer holds.
+    fn files_mut(&mut self) -> &mut BTreeMap<String, Vec<u8>> {
+        #[cfg(feature = "editor")]
+        {
+            self.validated = None;
+        }
+        Arc::make_mut(&mut self.files)
+    }
+
+    /// Build the engine from the fonts and images the deck names, if it is not built yet.
     fn build(&mut self) -> Result<&mut Engine, Error> {
         if self.engine.is_none() {
             let (engine, store) = engine_for(&self.deck, &self.theme, &self.files, &self.store)?;
@@ -763,6 +783,21 @@ impl Session {
     /// locked container or group holds is locked with it, as the canvas reads it.
     pub fn locked(&self, node: &str) -> bool {
         self.deck.nodes.get(node).and_then(|n| n.props.get("locked")).and_then(serde_json::Value::as_bool) == Some(true)
+    }
+
+    /// What locks `node` laid out as `boxes` (PLAN 2.95): the node itself, or the innermost
+    /// container or group it sits in that is locked, however deep.
+    #[cfg(feature = "editor")]
+    fn lock_on(&self, boxes: &[scaena_engine::geometry::NodeBox], node: &str) -> Option<String> {
+        let mut at = Some(node);
+        for _ in 0..=boxes.len() {
+            let n = at?;
+            if self.locked(n) {
+                return Some(n.to_string());
+            }
+            at = boxes.iter().find(|b| b.node == n).and_then(|b| b.parent.as_deref());
+        }
+        None
     }
 
     /// The chart mark or table row drawn at `point` (canvas units) in `state` at rest, in the
@@ -1630,7 +1665,9 @@ impl Session {
 
     /// The patch that draws text `node`'s lines in `state` as a diagram of `kind` in the text's
     /// place (PLAN 2.110): a container of boxes, each with its words, joined by connectors, kept
-    /// to the state's slide, and the text deleted from the state on.
+    /// to the state's slide, and the text deleted from the state on. The state is laid out on the
+    /// deck's own canvas and in each format it lays out anew, so the diagram runs as its place
+    /// does in each (ADR-0020). Refused for a text locked, or held by what is (PLAN 2.95).
     #[cfg(feature = "editor")]
     pub fn diagramming(
         &mut self,
@@ -1638,18 +1675,35 @@ impl Session {
         node: &str,
         kind: scaena_ops::diagrams::Diagram,
     ) -> Result<scaena_ops::diagrams::Diagrammed, Error> {
-        let boxes = self.boxes(state)?;
-        let rest = (boxes.iter().find(|b| b.node == node).map(|b| b.rect))
-            .ok_or_else(|| Error::Ops(format!("`{node}` stands nowhere in `{state}`")))?;
+        let shown = self.format.clone();
+        let formats: Vec<Option<String>> =
+            std::iter::once(None).chain(self.deck.anew().into_iter().map(|f| Some(f.to_string()))).collect();
+        let mut laid = Vec::with_capacity(formats.len());
+        let mut each = || -> Result<(), Error> {
+            for format in &formats {
+                self.set_format(format.as_deref())?;
+                laid.push((format.clone(), self.boxes(state)?));
+            }
+            Ok(())
+        };
+        let done = each();
+        self.set_format(shown.as_deref())?;
+        done?;
+        let laid: Vec<scaena_ops::diagrams::Laid> = (laid.iter())
+            .map(|(format, boxes)| scaena_ops::diagrams::Laid { format: format.as_deref(), boxes })
+            .collect();
         let files = editor::Handed(&self.files);
-        scaena_ops::diagrams::diagramming(&self.deck, &self.theme, &files, state, node, kind, rest)
+        scaena_ops::diagrams::diagramming(&self.deck, &self.theme, &files, state, node, kind, &laid)
             .map_err(|e| Error::Ops(e.to_string()))
     }
 
     /// The patch that draws a stroke of the pen in `state` (PLAN 2.114), `points` in canvas units
     /// as the pointer gave them: one more stroke of the drawing `onto` where it is one this state
     /// shows ([`Session::drawing_of`]), else a new drawing where the stroke was drawn, kept to the
-    /// state's slide.
+    /// state's slide. In a format the deck lays out anew (ADR-0020), a new drawing is placed anew
+    /// there, and on the deck's own canvas at the same share of it; and a stroke that grows a
+    /// drawing's view grows its box in each other way the deck lays it out alike, so what it drew
+    /// stays where it was in every format.
     #[cfg(feature = "editor")]
     pub fn inking(
         &mut self,
@@ -1665,8 +1719,72 @@ impl Session {
             Some(drawing) => self.targets(state, &drawing.id)?.clone(),
             None => self.room_for(state, &scaena_ops::ink::insert(&self.theme), None, None)?,
         };
-        scaena_ops::ink::inking(&self.deck, &self.theme, &room, state, points, joined.as_ref())
-            .map_err(|e| Error::Ops(e.to_string()))
+        let mut added = scaena_ops::ink::inking(&self.deck, &self.theme, &room, state, points, joined.as_ref())
+            .map_err(|e| Error::Ops(e.to_string()))?;
+        let shown = self.format.clone().filter(|f| self.deck.anew().contains(&f.as_str()));
+        let own = |op: &serde_json::Value, id: &str| op["op"] == "place" && op["node"] == id;
+        match &joined {
+            None => {
+                let Some(format) = shown else { return Ok(added) };
+                // Its box on the deck's own canvas: the same share of it as of the format's.
+                let [w, h] = self.canvas_size()?.map(|v| v as f32);
+                let [cw, ch] = [self.deck.canvas.width as f32, self.deck.canvas.height as f32];
+                let mut patch = Vec::with_capacity(added.patch.len() + 1);
+                for mut op in std::mem::take(&mut added.patch) {
+                    let rect = serde_json::from_value::<[f32; 4]>(op["at"]["rect"].clone()).ok();
+                    if let (true, Some([x, y, rw, rh])) = (own(&op, &added.id), rect) {
+                        let mut there = op.clone();
+                        there["format"] = serde_json::json!(format);
+                        there["anew"] = serde_json::json!(true);
+                        let mapped =
+                            [x * cw / w, y * ch / h, rw * cw / w, rh * ch / h].map(|v| (v * 100.0).round() / 100.0);
+                        op["at"]["rect"] = serde_json::json!(mapped);
+                        patch.push(op);
+                        patch.push(there);
+                    } else {
+                        patch.push(op);
+                    }
+                }
+                added.patch = patch;
+            }
+            Some(drawing) => {
+                // Where the stroke's `place` wrote: the drawing's own layout in the format shown,
+                // or its own placement. Each other it has, it grows alike.
+                let laid = |f: &str| self.deck.nodes[&drawing.id].props.get("formats").and_then(|l| l.get(f)).is_some();
+                let written = shown.filter(|f| laid(f));
+                let to = (added.patch.iter())
+                    .find(|op| op["op"] == "replace" && op["path"].as_str().is_some_and(|p| p.ends_with("/view")))
+                    .and_then(|op| serde_json::from_value::<[f32; 4]>(op["value"].clone()).ok());
+                let others: Vec<Option<String>> = std::iter::once(None)
+                    .chain(self.deck.anew().into_iter().filter(|f| laid(f)).map(|f| Some(f.to_string())))
+                    .filter(|f| *f != written)
+                    .collect();
+                let (Some(to), false) = (to, others.is_empty()) else { return Ok(added) };
+                let before = self.format.clone();
+                let mut grown = Vec::new();
+                let mut each = || -> Result<(), Error> {
+                    for format in &others {
+                        self.set_format(format.as_deref())?;
+                        let boxes = self.boxes(state)?;
+                        let Some(rect) = boxes.iter().find(|b| b.node == drawing.id).map(|b| b.rect) else { continue };
+                        let rect = scaena_ops::ink::regrown(drawing.view, rect, to);
+                        grown.push(serde_json::json!({ "op": "place", "node": drawing.id, "at": { "rect": rect },
+                            "state": state, "format": format }));
+                    }
+                    Ok(())
+                };
+                let done = each();
+                self.set_format(before.as_deref())?;
+                done?;
+                added.patch.extend(grown.into_iter().map(|mut op| {
+                    if op["format"].is_null() {
+                        op.as_object_mut().map(|o| o.remove("format"));
+                    }
+                    op
+                }));
+            }
+        }
+        Ok(added)
     }
 
     /// `id` as a drawing a stroke of the pen joins in `state` (PLAN 2.114): a path shape on a view
@@ -1696,6 +1814,11 @@ impl Session {
             return Ok(None);
         }
         let boxes = self.boxes(state)?;
+        // A locked drawing, or one held by what is, takes no stroke: the canvas changes nothing of
+        // it (PLAN 2.95).
+        if self.lock_on(&boxes, id).is_some() {
+            return Ok(None);
+        }
         let Some(rect) = boxes.iter().find(|b| b.node == id && b.transform.is_none()).map(|b| b.rect) else {
             return Ok(None);
         };
@@ -1871,7 +1994,8 @@ impl Session {
         // A text typed past the foot of its cells grows to hold its lines, in the same change.
         let grown = if typing { self.growing(ops)? } else { None };
         let ops = grown.as_ref().unwrap_or(ops);
-        let (patched, write) = scaena_ops::patch::typing(&self.bundle(), ops, typing.then_some(store::TYPED))?;
+        let what = typing.then_some(store::TYPED);
+        let (patched, write) = scaena_ops::patch::typing(&self.bundle(), ops, what, self.validated.clone())?;
         if patched.refused {
             let why = patched.added.iter().find(|f| f.severity == scaena_core::lint::Severity::Error);
             return Err(Error::Ops(format!("the deck refuses it: {}", why.map_or("", |f| f.message.as_str()))));
@@ -3100,6 +3224,15 @@ mod tests {
         let other = s.inking("revenue", &line, Some("title")).unwrap();
         assert_eq!(other.id, "drawing-2");
         assert!(s.inking("revenue", &[], None).is_err(), "a stroke of no point");
+        // Locked while the pen is up, it takes no stroke: the stroke starts another (PLAN 2.95).
+        let lock = serde_json::json!([{ "op": "add", "path": "/nodes/drawing/locked", "value": true }]);
+        s.tool("deck_patch", serde_json::json!({ "ops": lock }), by()).unwrap();
+        let path = s.deck.nodes["drawing"].props["path"].clone();
+        let onto_locked = s.inking("revenue", &line, Some("drawing")).unwrap();
+        assert_eq!(onto_locked.id, "drawing-2", "{:?}", onto_locked.patch);
+        s.tool("deck_patch", serde_json::json!({ "ops": onto_locked.patch }), by()).unwrap();
+        assert_eq!(s.deck.nodes["drawing"].props["path"], path, "the locked drawing's strokes are as they were");
+        assert_eq!(rect(&mut s, "drawing"), last, "and it stands where it stood");
     }
 
     /// Connectors (PLAN 2.109): two nodes joined by an arrow, which its box names with the line a
@@ -3151,6 +3284,192 @@ mod tests {
             "down from its foot to their top: {route:?}"
         );
         assert!(!boxes.iter().any(|b| b["node"] == "subtitle"), "the subtitle gone from the intro");
+    }
+
+    /// A stroke of the pen drawn while the canvas shows a format the deck lays out anew (PLAN
+    /// 2.114, ADR-0020): the drawing is placed anew there, where it was drawn, and on the deck's own
+    /// canvas at the same share of it, on the slide in both. A stroke added there keeps what it
+    /// drew first where it was on the deck's own canvas too.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_stroke_drawn_in_another_format_stands_on_the_slide_in_each() {
+        let mut s = revenue();
+        let by = || assistant::Caller { author: "user", at: None };
+        let rect = |s: &mut Session| -> [f32; 4] {
+            let boxes = s.boxes_json("revenue").unwrap();
+            let b = boxes.iter().find(|b| b["node"] == "drawing").unwrap_or_else(|| panic!("no drawing"));
+            serde_json::from_value(b["rect"].clone()).unwrap()
+        };
+        s.set_format(Some("9:16")).unwrap();
+        let wave: Vec<[f32; 2]> =
+            (0..=40).map(|i| [300.0 + i as f32 * 10.0, 1600.0 + 40.0 * (i as f32 / 4.0).sin()]).collect();
+        let drawn = s.inking("revenue", &wave, None).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": drawn.patch }), by()).unwrap();
+        let there = rect(&mut s);
+        assert!(there[1] > 1500.0 && there[1] + there[3] < 1700.0, "where it was drawn in 9:16: {there:?}");
+        s.set_format(None).unwrap();
+        let own = rect(&mut s);
+        assert!(own[1] >= 0.0 && own[1] + own[3] <= 1080.0 && own[0] + own[2] <= 1920.0, "on the slide: {own:?}");
+        assert!((own[1] / 1080.0 - there[1] / 1920.0).abs() < 0.01, "at the same share of it: {own:?} {there:?}");
+        // Another stroke in 9:16 grows the drawing there; on 16:9 what it drew first stays put.
+        s.set_format(Some("9:16")).unwrap();
+        let line: Vec<[f32; 2]> = (0..=10).map(|i| [300.0 + i as f32 * 20.0, 1750.0]).collect();
+        let second = s.inking("revenue", &line, Some("drawing")).unwrap();
+        assert_eq!(second.id, "drawing");
+        s.tool("deck_patch", serde_json::json!({ "ops": second.patch }), by()).unwrap();
+        s.set_format(None).unwrap();
+        // The box squeezed from 9:16 drew the wave across its middle: the box grown is that drawing
+        // at the same scale and place, and the second stroke's height below it.
+        let grown = rect(&mut s);
+        assert!((grown[1] - own[1]).abs() < 1.0, "{grown:?} {own:?}");
+        assert!(grown[0] >= own[0] && grown[0] + grown[2] <= own[0] + own[2] + 1.0, "{grown:?} {own:?}");
+        assert!(grown[3] > own[3], "grown to take the second stroke in: {grown:?} {own:?}");
+    }
+
+    /// A diagram takes its text's place (PLAN 2.110): the box the text had, though the text was
+    /// aligned in its slot, which sizes nothing, and in a stack its share of the stack's room;
+    /// listed where the text was, so it lays out, paints, and reads in the text's turn. Each step
+    /// has room for its words.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_diagram_takes_its_texts_place_and_turn() {
+        use scaena_ops::diagrams::Diagram;
+        let by = || assistant::Caller { author: "user", at: None };
+        let rect = |s: &mut Session, state: &str, node: &str| -> [f32; 4] {
+            let boxes = s.boxes_json(state).unwrap();
+            let b = boxes.iter().find(|b| b["node"] == node).unwrap_or_else(|| panic!("no box for {node}"));
+            serde_json::from_value(b["rect"].clone()).unwrap()
+        };
+        let steps = |s: &mut Session, state: &str, id: &str| -> Vec<[f32; 4]> {
+            (1..=3).map(|k| rect(s, state, &format!("{id}-{k}"))).collect()
+        };
+
+        // Aligned to the foot of its slot.
+        let mut s = revenue();
+        let lines = serde_json::json!([
+            { "op": "replace", "path": "/nodes/subtitle/text", "value": "Plan\nBuild\nShip" },
+            { "op": "replace", "path": "/nodes/subtitle/at", "value": { "in": "subtitle", "align": { "y": "end" } } }
+        ]);
+        s.tool("deck_patch", serde_json::json!({ "ops": lines }), by()).unwrap();
+        let was = rect(&mut s, "intro", "subtitle");
+        let made = s.diagramming("intro", "subtitle", Diagram::Process).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": made.patch }), by()).unwrap();
+        assert_eq!(rect(&mut s, "intro", &made.id), was, "the box the subtitle had");
+        for step in steps(&mut s, "intro", &made.id) {
+            assert!(step[2] > 40.0 && step[3] > 40.0, "a step with room for its words: {step:?}");
+        }
+
+        // In a column stack, between two texts, none with an index of its own: one that fills its
+        // cells, and one in another stack, as tall as what it holds.
+        let cells = serde_json::json!({ "col": [2, 11], "row": [3, 11] });
+        for (outer, at) in [(None, cells.clone()), (Some(cells), serde_json::json!({ "parent": "outer" }))] {
+            let mut s = revenue();
+            let mut card = vec![
+                serde_json::json!({ "op": "add", "path": "/nodes/card", "value": { "type": "stack", "axis": "y", "at": at } }),
+                serde_json::json!({ "op": "add", "path": "/states/0/props/card", "value": {} }),
+            ];
+            if let Some(cells) = outer {
+                card.push(serde_json::json!({ "op": "add", "path": "/nodes/outer",
+                    "value": { "type": "stack", "axis": "y", "at": cells } }));
+                card.push(serde_json::json!({ "op": "add", "path": "/states/0/props/outer", "value": {} }));
+            }
+            card.extend([
+                serde_json::json!({ "op": "replace", "path": "/nodes/title/at", "value": { "parent": "card" } }),
+                serde_json::json!({ "op": "replace", "path": "/nodes/subtitle/text", "value": "Plan\nBuild\nShip" }),
+                serde_json::json!({ "op": "replace", "path": "/nodes/subtitle/at", "value": { "parent": "card" } }),
+                serde_json::json!({ "op": "add", "path": "/nodes/tail",
+                    "value": { "type": "text", "role": "body", "text": "Last", "at": { "parent": "card" } } }),
+                serde_json::json!({ "op": "add", "path": "/states/0/props/tail", "value": {} }),
+            ]);
+            s.tool("deck_patch", serde_json::json!({ "ops": card }), by()).unwrap();
+            let was = rect(&mut s, "intro", "subtitle");
+            let made = s.diagramming("intro", "subtitle", Diagram::Process).unwrap();
+            s.tool("deck_patch", serde_json::json!({ "ops": made.patch }), by()).unwrap();
+            let (title, holder, tail) =
+                (rect(&mut s, "intro", "title"), rect(&mut s, "intro", &made.id), rect(&mut s, "intro", "tail"));
+            assert!((holder[3] - was[3]).abs() < 1.0, "the subtitle's share of the stack: {holder:?} {was:?}");
+            assert!(
+                title[1] < holder[1] && holder[1] < tail[1],
+                "in the subtitle's turn: {title:?} {holder:?} {tail:?}"
+            );
+            for step in steps(&mut s, "intro", &made.id) {
+                assert!(step[2] > 40.0 && step[3] > 10.0, "a step with room for its words: {step:?}");
+            }
+        }
+
+        // The trails example's hours: the steps read where the meaning did, before the aside.
+        let mut s = trails();
+        let lines =
+            serde_json::json!([{ "op": "replace", "path": "/nodes/hours-meaning/text", "value": "Plan\nBuild\nShip" }]);
+        s.tool("deck_patch", serde_json::json!({ "ops": lines }), by()).unwrap();
+        let made = s.diagramming("hours", "hours-meaning", Diagram::Process).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": made.patch }), by()).unwrap();
+        let read: Vec<String> = s.reads("hours").unwrap().into_iter().map(|p| p.node).collect();
+        let at = |node: &str| read.iter().position(|n| n == node).unwrap_or_else(|| panic!("{node} unread: {read:?}"));
+        assert!(at(&format!("{}-3-words", made.id)) < at("hours-aside"), "{read:?}");
+        for step in steps(&mut s, "hours", &made.id) {
+            assert!(step[2] > 40.0 && step[3] > 40.0, "each step shows: {step:?}");
+        }
+    }
+
+    /// A diagram deletes its text, and nothing deletes what is locked (PLAN 2.95): a locked text,
+    /// or one in a locked container, is not drawn as a diagram, and says why.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_locked_text_is_not_drawn_as_a_diagram() {
+        use scaena_ops::diagrams::Diagram;
+        let by = || assistant::Caller { author: "user", at: None };
+        let mut s = revenue();
+        let locked = serde_json::json!([
+            { "op": "replace", "path": "/nodes/subtitle/text", "value": "Plan\nBuild\nShip" },
+            { "op": "add", "path": "/nodes/subtitle/locked", "value": true }
+        ]);
+        s.tool("deck_patch", serde_json::json!({ "ops": locked }), by()).unwrap();
+        let refused = s.diagramming("intro", "subtitle", Diagram::Process).unwrap_err().to_string();
+        assert!(refused.contains("locked"), "{refused}");
+        let unlocked = serde_json::json!([{ "op": "remove", "path": "/nodes/subtitle/locked" }]);
+        s.tool("deck_patch", serde_json::json!({ "ops": unlocked }), by()).unwrap();
+        assert!(s.diagramming("intro", "subtitle", Diagram::Process).is_ok());
+    }
+
+    /// A process runs as its place does in each of the deck's formats (ADR-0020, PLAN 2.110): made
+    /// while 9:16 shows, where split's body is wider than tall, it runs across there, each step
+    /// about as tall as wide, and down on the deck's own 16:9 canvas, where the body is taller,
+    /// each step as wide as the body.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_process_runs_as_its_place_does_in_each_format() {
+        use scaena_ops::diagrams::Diagram;
+        let by = || assistant::Caller { author: "user", at: None };
+        let mut s = revenue();
+        let split = serde_json::json!([
+            { "op": "replace", "path": "/states/0/layout", "value": "split" },
+            { "op": "replace", "path": "/nodes/title/at", "value": { "in": "main" } },
+            { "op": "replace", "path": "/nodes/subtitle/text", "value": "Plan\nBuild\nShip" },
+            { "op": "replace", "path": "/nodes/subtitle/at", "value": { "in": "body" } }
+        ]);
+        let r = s.tool("deck_patch", serde_json::json!({ "ops": split }), by()).unwrap();
+        assert_eq!(s.deck.states[0].layout.as_deref(), Some("split"), "{r:?}");
+        s.set_format(Some("9:16")).unwrap();
+        let made = s.diagramming("intro", "subtitle", Diagram::Process).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": made.patch }), by()).unwrap();
+        let holder = &s.deck.nodes[&made.id].props;
+        assert_eq!(holder.get("axis"), Some(&serde_json::json!("y")), "down on the deck's own canvas");
+        assert_eq!(holder["formats"]["9:16"]["axis"], "x", "across in 9:16");
+        for format in [Some("9:16"), None] {
+            s.set_format(format).unwrap();
+            let boxes = s.boxes_json("intro").unwrap();
+            for k in 1..=3 {
+                let b = boxes.iter().find(|b| b["node"] == format!("{}-{k}", made.id)).unwrap();
+                let [_, _, w, h]: [f32; 4] = serde_json::from_value(b["rect"].clone()).unwrap();
+                match format {
+                    // Across, each about as tall as wide.
+                    Some(_) => assert!(w / h > 0.5 && w / h < 2.0, "{format:?}: step {k} is {w} × {h}"),
+                    // Down, each the body's width, a third of its height: no sliver.
+                    None => assert!(w >= h && h > 200.0, "{format:?}: step {k} is {w} × {h}"),
+                }
+            }
+        }
     }
 
     #[cfg(feature = "editor")]
@@ -3985,6 +4304,50 @@ mod tests {
         assert_eq!(parent("card-2"), None, "pasted at the root, where the pointer pressed");
     }
 
+    /// A shadow the theme lacks is taken out of a paste and said in its findings, as a role is,
+    /// and a theme that lacks the deck's shadows is refused, saying so, as one that lacks a role
+    /// is: neither fails with an error from the engine (PLAN 2.115).
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_shadow_the_theme_lacks_is_taken_out_of_a_paste_and_refuses_a_theme() {
+        let dir = "../../docs/examples";
+        let read = |p: &str| std::fs::read_to_string(format!("{dir}/{p}")).unwrap();
+        let mut s = revenue();
+        let card = serde_json::json!({ "type": "shape", "kind": "rect", "fill": "accent", "shadow": "raised",
+            "at": { "rect": [120, 760, 360, 200] } });
+        let add = serde_json::json!([
+            { "op": "add", "path": "/nodes/card", "value": card },
+            { "op": "add", "path": "/states/1/props/card", "value": {} }
+        ]);
+        assert!(s.typed(&add, None).unwrap(), "the deck takes the card");
+        let clip = s.copying("revenue", &["card"]).unwrap();
+        assert_eq!(clip.nodes["card"]["shadow"], "raised");
+
+        // Dusk with no shadows.
+        let mut bare: serde_json::Value = serde_json::from_str(&read("themes/dusk.theme.json")).unwrap();
+        bare["tokens"].as_object_mut().unwrap().remove("shadow");
+        let bare = bare.to_string();
+        let mut t = Session::new(&read("revenue.deck.json"), &bare).unwrap();
+        for (path, bytes) in s.files.iter().filter(|(p, _)| p.starts_with("fonts/") || p.starts_with("data/")) {
+            t.add_file(path, bytes.clone());
+        }
+        let pasted = t.pasting(&clip, "revenue", [700.0, 600.0]).unwrap();
+        let found: Vec<(&str, Option<&str>)> =
+            pasted.findings.iter().map(|f| (f.code.as_str(), f.path.as_deref())).collect();
+        assert_eq!(found, [("E102", Some("/nodes/card/shadow"))], "{:?}", pasted.findings);
+        assert!(pasted.findings[0].message.contains("shadow `raised`"), "{:?}", pasted.findings);
+        assert!(pasted.findings[0].hint.as_deref().is_some_and(|h| h.contains("taken out")), "{:?}", pasted.findings);
+        assert!(pasted.patch[0]["node"].get("shadow").is_none(), "{:?}", pasted.patch);
+        assert!(t.typed(&serde_json::json!(pasted.patch), None).unwrap(), "the deck takes {:?}", pasted.patch);
+
+        // The deck with the card, in the theme with no shadows: refused, with the shadow it names.
+        let themed = s.retheme("themes/bare.theme.json", Some(&bare), BTreeMap::new(), None).unwrap();
+        assert!(themed.refused && !themed.applied, "{themed:?}");
+        let worse: Vec<(&str, Option<&str>)> =
+            themed.added.iter().map(|f| (f.code.as_str(), f.path.as_deref())).collect();
+        assert!(worse.contains(&("E102", Some("/nodes/card/shadow"))), "{worse:?}");
+    }
+
     /// ⌘G's patch groups the nodes selected under an id new to the deck, where they stand,
     /// and `ungroup` gives the deck back as it was (PLAN 2.43).
     #[cfg(feature = "editor")]
@@ -4616,5 +4979,41 @@ mod gestures {
             ((c[0] + c[2]).min(x + w) - c[0].max(x)).max(0.0) * ((c[1] + c[3]).min(y + h) - c[1].max(y)).max(0.0);
         assert!(over < 0.5 * w * h, "{c:?} covers {:.0}% of the title at {:?}", 100.0 * over / (w * h), [x, y, w, h]);
         assert!(c[1] > y, "it goes down: {c:?}");
+    }
+
+    /// A deck compiled valid is validated once: what the compile found is what validation finds
+    /// in the deck shown, so a gesture's patch and the lint after it take that, and a patch made
+    /// so says what one that validates the deck again says. A file handed over or taken out, or
+    /// another deck shown, lets it go.
+    #[test]
+    fn a_deck_compiled_valid_is_validated_once() {
+        let decks = ["higher-ed", "trails", "revenue", "charts", "ridgeline"].map(|name| (name, example(name)));
+        for (name, mut s) in decks.into_iter().chain([("torture", torture())]) {
+            let source = s.source();
+            assert!(s.compile(&source).valid, "{name}");
+            let json = s.deck.to_json().unwrap();
+            let fresh = scaena_core::validate::validate_bundle(&json, &editor::Handed(&s.files)).unwrap();
+            assert_eq!(s.validated.as_ref(), Some(&fresh), "{name}");
+            let state = s.deck.states[0].id.clone();
+            let shown = scaena_core::resolve_states(&s.deck).unwrap().swap_remove(0).nodes;
+            let text = |id: &&String| s.deck.nodes[*id].node_type == scaena_core::document::NodeType::Text;
+            let node = shown.keys().find(text).unwrap().clone();
+            let ops = json!([{ "op": "set_text", "node": node, "text": "W".repeat(400) }, { "op": "hide_node", "node": node, "state": state }]);
+            let (kept, _) = scaena_ops::patch::typing(&s.bundle(), &ops, None, s.validated.clone()).unwrap();
+            let (again, _) = scaena_ops::patch::typing(&s.bundle(), &ops, None, None).unwrap();
+            assert_eq!(serde_json::to_value(&kept).unwrap(), serde_json::to_value(&again).unwrap(), "{name}");
+        }
+        let mut s = example("higher-ed");
+        let source = s.source();
+        s.compile(&source);
+        let picture = s.files[&s.image_files()[0]].clone();
+        s.add_file("assets/spare.png", picture);
+        assert_eq!(s.validated, None, "a file handed over");
+        s.compile(&source);
+        s.remove_file("assets/spare.png").unwrap();
+        assert_eq!(s.validated, None, "a file taken out");
+        s.compile(&source);
+        s.set_deck(s.deck.clone());
+        assert_eq!(s.validated, None, "a deck shown");
     }
 }

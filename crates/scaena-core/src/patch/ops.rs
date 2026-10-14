@@ -28,13 +28,27 @@ pub(super) fn compile(doc: &Value, op: &SemanticOp, files: &dyn BundleFiles) -> 
     let d = Doc(doc);
     let mut renamed = Vec::new();
     let ops = match op {
-        SemanticOp::AddNode { id, node, state, props } => {
+        SemanticOp::AddNode { id, node, state, props, after } => {
             d.free("node", id, d.node(id).is_ok())?;
             if props.is_some() && state.is_none() {
                 return Err("`props` is the node's delta in the state it enters: name the `state`".into());
             }
             let value = serde_json::to_value(node).map_err(|e| e.to_string())?;
-            let mut ops = vec![JsonOp::Add { path: format!("/nodes/{}", esc(id)), value }];
+            let mut ops = match after {
+                None => vec![JsonOp::Add { path: format!("/nodes/{}", esc(id)), value }],
+                // The scene graph again, the node listed just after `after`.
+                Some(after) => {
+                    d.node(after)?;
+                    let mut nodes = Map::new();
+                    for (other, v) in d.nodes() {
+                        nodes.insert(other.clone(), v.clone());
+                        if other == after {
+                            nodes.insert(id.clone(), value.clone());
+                        }
+                    }
+                    vec![JsonOp::Replace { path: "/nodes".into(), value: Value::Object(nodes) }]
+                }
+            };
             if let Some(state) = state {
                 ops.push(enter(&d, d.state(state)?, id, props.clone().unwrap_or_default()));
             }
@@ -1986,18 +2000,11 @@ fn duplicate_slide(d: &Doc, slide: &str) -> Result<Vec<JsonOp>, String> {
         let mut state = deck.states[i].clone();
         state.id = ids[n].clone();
         if n == 0 {
-            // Each node it shows as the slide's first state shows it, but for what is the node's
-            // own in every state: its lock, a connector's ends, and its layout in its formats.
+            // Each node it shows as the slide's first state shows it ([`as_shown`]).
             state.mode = StateMode::Absolute;
             (state.from, state.slide, state.remove) = (None, None, Vec::new());
             state.props = (snaps[i].nodes.iter())
-                .map(|(id, props)| {
-                    let mut props = props.clone();
-                    for key in crate::validate::NODE_OWN {
-                        props.shift_remove(key);
-                    }
-                    (id.clone(), props)
-                })
+                .map(|(id, props)| (id.clone(), as_shown(deck.nodes.get(id).map(|n| &n.props), props)))
                 .collect();
             state.layout = snaps[i].layout.clone();
         } else {
@@ -2029,6 +2036,37 @@ fn duplicate_slide(d: &Doc, slide: &str) -> Result<Vec<JsonOp>, String> {
         }
     }
     Ok(ops)
+}
+
+/// What an absolute state sets of a node whose own props are `own` to show it as `shown`: each
+/// prop it shows, and `null` for each of its own it does not show, one level down in an object
+/// as [`merge_props`] merges one, so what a delta took away stays away; but nothing of what is
+/// the node's own in every state (its lock, a connector's ends, and its layout in its formats),
+/// which no state sets.
+fn as_shown(own: Option<&Props>, shown: &Props) -> Props {
+    let mut out = shown.clone();
+    for (key, was) in own.into_iter().flatten() {
+        match (was, out.get_mut(key)) {
+            (Value::Object(was), Some(Value::Object(now))) => {
+                for k in was.keys() {
+                    if !now.contains_key(k) {
+                        now.insert(k.clone(), Value::Null);
+                    }
+                }
+            }
+            (_, Some(_)) => {}
+            // Gone, unless the other way its words are written is shown, which takes it away.
+            (_, None) => {
+                if !other_spelling(key).is_some_and(|other| shown.contains_key(other)) {
+                    out.insert(key.clone(), Value::Null);
+                }
+            }
+        }
+    }
+    for key in crate::validate::NODE_OWN {
+        out.shift_remove(key);
+    }
+    out
 }
 
 fn remove_slide(d: &Doc, slide: &str) -> Result<Vec<JsonOp>, String> {
@@ -2124,7 +2162,9 @@ fn remove_state(d: &Doc, id: &str) -> Result<Vec<JsonOp>, String> {
     if let Some(states) = next.get_mut("states").and_then(Value::as_array_mut) {
         states.remove(i);
     }
-    ops.extend(left_behind(&typed(d)?, i..i + 1, &next));
+    if let Ok(deck) = typed(d) {
+        ops.extend(left_behind(&deck, i..i + 1, &next));
+    }
     Ok(ops)
 }
 

@@ -80,7 +80,7 @@
       "description": "What an author means, compiled to RFC 6902 against the deck as the ops before it leave it (SPEC §7.3). `state` names the state an op acts in, from it on; without one, an op acts on the node's own properties, its defaults. An op on a node in a state needs the node on screen there.",
       "oneOf": [
         {
-          "description": "A node new to the scene graph, last in its order (painted over the others at its `z`). With `state`, it enters there, `props` its delta in that state.",
+          "description": "A node new to the scene graph, last in its order (painted over the others at its `z`), or, `after` a node, listed just after that one, so it lays out in a stack, paints, and reads where that one does (PLAN 2.110). With `state`, it enters there, `props` its delta in that state.",
           "type": "object",
           "required": ["op", "id", "node"],
           "additionalProperties": false,
@@ -89,6 +89,7 @@
             "node": { "$ref": "#/$defs/Node" },
             "state": { "$ref": "#/$defs/Id" },
             "props": { "$ref": "#/$defs/StateDelta" },
+            "after": { "$ref": "#/$defs/Id" },
             "op": { "type": "string", "const": "add_node" }
           }
         },
@@ -258,7 +259,7 @@
           }
         },
         {
-          "description": "One property of a node (`prop`: a property, or one key of an object property, `style/color`), as an inspector chooses it (ADR-0013): `value` is written where the property lives. A value written out where the theme has names (a color, a text size, a length in canvas units: lint W300's) goes in the deck's `overrides`, the only place it is legal, and so does any value where the overrides set the property, since they win in every state. Else it goes in the latest delta that sets it, from `state` back along what it tracks, else in the node's own; without `state`, in the node's own. `null` takes it away where it lives, so what is under it shows.",
+          "description": "One property of a node (`prop`: a property, or one key of an object property, `style/color`), as an inspector chooses it (ADR-0013): `value` is written where the property lives. A value written out where the theme has names (a color, a text size, a length in canvas units: lint W300's) goes in the deck's `overrides`, the only place it is legal, and so does any value where the overrides set the property, since they win in every state. Else it goes in the latest delta that sets it, from `state` back along what it tracks, else in the node's own; without `state`, in the node's own. What never tracks (`emphasis`, `anim`) is `state`'s own: written in its props, where it plays, or on the node where the node enters there with its own. `null` takes it away where it lives, so what is under it shows.",
           "type": "object",
           "required": ["op", "node", "prop", "value"],
           "additionalProperties": false,
@@ -357,7 +358,7 @@
           }
         },
         {
-          "description": "A state, and its place in the spine's beats. The state after it tracks from the one before it. A state that others build on (`slide`) or track from (`from`) stays.",
+          "description": "A state, and its place in the spine's beats. The state after it tracks from the one before it. Each node it shows that no other state shows then goes with it, as a presentation app's slide takes its objects. A state that others build on (`slide`) or track from (`from`) stays.",
           "type": "object",
           "required": ["op", "id"],
           "additionalProperties": false,
@@ -376,14 +377,14 @@
           }
         },
         {
-          "description": "A copy of a slide just after it (PLAN 2.97): each of its states under an id new to the deck, its first `-2`, `-3`, … after the slide's. The copy's first state is absolute and sets each property of each node it shows, so an edit to either slide leaves the other; it shows the same nodes, so the slide morphs into it. Every other state shows what it showed.",
+          "description": "A copy of a slide just after it (PLAN 2.97): each of its states under an id new to the deck, its first `-2`, `-3`, … after the slide's. The copy's first state is absolute and sets each property of each node it shows but what is the node's own in every state (its lock, a connector's ends, and its layout in its formats), and `null` for each of the node's own that the slide takes away, so an edit to either slide leaves the other; it shows the same nodes, so the slide morphs into it. Every other state shows what it showed.",
           "type": "object",
           "required": ["op", "slide"],
           "additionalProperties": false,
           "properties": { "slide": { "$ref": "#/$defs/Id" }, "op": { "type": "string", "const": "duplicate_slide" } }
         },
         {
-          "description": "A slide's states taken out, and their places in the spine's beats and the links to them (PLAN 2.97). Every other state shows what it showed: the state after the slide, and one that tracked from a state of it, are written again to resolve as they did.",
+          "description": "A slide's states taken out, and their places in the spine's beats and the links to them (PLAN 2.97), and each node they show that no other state shows then. Every other state shows what it showed: the state after the slide, and one that tracked from a state of it, are written again to resolve as they did.",
           "type": "object",
           "required": ["op", "slide"],
           "additionalProperties": false,
@@ -1089,7 +1090,33 @@
     "NonNegative": { "description": "A number at or above 0.", "type": "number", "minimum": 0 },
     "ShadowRef": {
       "description": "The shadow a node casts (PLAN 2.115): the theme's shadow of this name (`tokens.shadow`), or one written out, an override: `x`, `y`, and `blur` in canvas units, a `color`, and an `opacity`. A filled rectangle or ellipse, an image, and a container's panel cast one.",
-      "anyOf": [{ "type": "string" }, { "type": "object", "additionalProperties": true }]
+      "anyOf": [{ "type": "string" }, { "$ref": "#/$defs/WrittenShadow" }]
+    },
+    "WrittenShadow": {
+      "description": "A shadow written out (PLAN 2.115): these keys and no others, so one written as CSS writes one (`spread`) is an error at the key, where it is written.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "x": {
+          "description": "How far right of the node it falls; left where it is negative. None by default.",
+          "$ref": "#/$defs/Length"
+        },
+        "y": {
+          "description": "How far below the node it falls; above where it is negative. None by default.",
+          "$ref": "#/$defs/Length"
+        },
+        "blur": {
+          "description": "How soft its edge is: the blur's radius, twice the deviation of the Gaussian it is drawn with. None by default.",
+          "$ref": "#/$defs/Length"
+        },
+        "color": { "description": "A theme color: black by default.", "$ref": "#/$defs/Color" },
+        "opacity": {
+          "description": "How dark it is, from 0 to 1: 1 by default.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
     },
     "Clip": {
       "description": "Clip to the node's box, or to SVG path data.",
@@ -1811,7 +1838,7 @@
         "fill": { "anyOf": [{ "$ref": "#/$defs/PaintDelta" }, { "type": "null" }] },
         "stroke": { "anyOf": [{ "$ref": "#/$defs/StrokeDelta" }, { "type": "null" }] },
         "blur": { "anyOf": [{ "$ref": "#/$defs/NonNegative" }, { "type": "null" }] },
-        "shadow": { "anyOf": [{ "$ref": "#/$defs/ShadowRef" }, { "type": "null" }] },
+        "shadow": { "anyOf": [{ "$ref": "#/$defs/ShadowRefDelta" }, { "type": "null" }] },
         "clip": { "anyOf": [{ "$ref": "#/$defs/Clip" }, { "type": "null" }] },
         "blend": { "anyOf": [{ "$ref": "#/$defs/Blend" }, { "type": "null" }] },
         "at": { "anyOf": [{ "$ref": "#/$defs/PlacementDelta" }, { "type": "null" }] },
@@ -2010,6 +2037,22 @@
         "cap": { "anyOf": [{ "$ref": "#/$defs/Cap" }, { "type": "null" }] },
         "join": { "anyOf": [{ "$ref": "#/$defs/Join" }, { "type": "null" }] },
         "dash": { "anyOf": [{ "type": "array", "items": { "$ref": "#/$defs/NonNegative" } }, { "type": "null" }] }
+      }
+    },
+    "ShadowRefDelta": {
+      "description": "`ShadowRef` in a state's delta: a whole value, or an object that merges one level into the tracked one (SPEC §2.2).",
+      "anyOf": [{ "type": "string" }, { "$ref": "#/$defs/WrittenShadowDelta" }]
+    },
+    "WrittenShadowDelta": {
+      "description": "`WrittenShadow` in a state's delta: it merges one level into the tracked value, so every key is optional and null deletes one (SPEC §2.2).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "x": { "anyOf": [{ "$ref": "#/$defs/Length" }, { "type": "null" }] },
+        "y": { "anyOf": [{ "$ref": "#/$defs/Length" }, { "type": "null" }] },
+        "blur": { "anyOf": [{ "$ref": "#/$defs/Length" }, { "type": "null" }] },
+        "color": { "anyOf": [{ "$ref": "#/$defs/Color" }, { "type": "null" }] },
+        "opacity": { "anyOf": [{ "maximum": 1, "type": "number", "minimum": 0 }, { "type": "null" }] }
       }
     },
     "PlacementDelta": {

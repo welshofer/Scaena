@@ -255,7 +255,7 @@ pub fn validate_bundle(deck_json: &str, files: &dyn BundleFiles) -> Result<Vec<F
     let mut doc: Value = serde_json::from_str(deck_json)?;
     // A deck, or a theme written in it, saved in an older format this build reads is checked as
     // the current one, as it reads (SPEC §3.1).
-    version::DECK.as_read(&mut doc, "scaena");
+    version::deck_as_read(&mut doc);
     if let Some(theme @ Value::Object(_)) = doc.get_mut("theme") {
         version::THEME.as_read(theme, "scaena-theme");
     }
@@ -593,6 +593,7 @@ impl LoadedTheme {
             "duration" => Vocabulary::Duration,
             "easing" => Vocabulary::Easing,
             "spring" => Vocabulary::Spring,
+            "shadow" => Vocabulary::Shadow,
             _ => return String::new(),
         };
         let names = self.theme.names(of);
@@ -2094,6 +2095,20 @@ impl Names<'_> {
         }
         if let Some(paint) = props.get("stroke").and_then(|s| s.get("paint")) {
             self.paint(paint, &format!("{at}/stroke/paint"), state, node_);
+        }
+        // The theme's shadow by name, or the color of one written out (PLAN 2.115).
+        match props.get("shadow") {
+            Some(Value::String(name)) => {
+                let defined = t.tokens.shadow.as_ref().is_some_and(|s| s.contains_key(name));
+                self.need(defined, "shadow", name, format!("{at}/shadow"), state, node_);
+            }
+            Some(written) => {
+                if let Some(color) = written.get("color").and_then(Value::as_str) {
+                    let defined = self.theme.color(color);
+                    self.need(defined, "color", color, format!("{at}/shadow/color"), state, node_);
+                }
+            }
+            None => {}
         }
     }
 

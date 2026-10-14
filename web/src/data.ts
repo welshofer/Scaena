@@ -255,6 +255,10 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
           else editor.apply(source, edited);
           const figures = quoted.map((n) => object(editor.words?.(), n, true)).join(", ");
           editor.say(quoted.length ? `${done}; what ${figures} quotes set again` : done);
+        } else {
+          // Nothing written: the data says so already, as when a cell set is committed again
+          // across a redraw. It is set, and the status says so rather than "Changing the data…".
+          editor.say(done);
         }
         shown = { name, file: result.file, sheet: result.sheet };
         draw();

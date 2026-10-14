@@ -15,7 +15,7 @@ private func slots() throws -> [ScaenaSession.Slot] {
 
 /// The browser player's pace (PLAN 2.2, 3.5): going on during a cue finishes it, then plays the
 /// next state's; going back shows the state before at rest; a state that holds goes on by itself,
-/// and the last waits.
+/// and the last waits; going on past it, the show is over (PLAN 2.120).
 @Test func aShowGoesOnAsTheBrowsersPlayerDoes() throws {
     var show = Show(slots: try slots())
     #expect(show.slot?.state == "cover" && show.playhead == Playhead())
@@ -29,14 +29,17 @@ private func slots() throws -> [ScaenaSession.Slot] {
     #expect(show.slot?.state == "why" && show.playhead == Playhead())
     #expect(show.holds == 1000)
 
-    // The last holds, but nothing comes after it: it waits, and going on stays.
+    // The last holds, but nothing comes after it: it waits, and going on past it ends the show,
+    // which going back takes back to the last at rest.
     show.playhead = .rest
     show.on()
     #expect(show.slot?.state == "end")
-    #expect(show.holds == nil && show.next == nil)
+    #expect(show.holds == nil && show.next == nil && !show.over)
     show.playhead = .rest
     show.on()
-    #expect(show.slot?.state == "end" && show.playhead == .rest)
+    #expect(show.slot?.state == "end" && show.playhead == .rest && show.over)
+    show.back()
+    #expect(show.slot?.state == "end" && show.playhead == .rest && !show.over)
 
     // Back is the state before at rest, never past the first.
     show.back()
@@ -159,4 +162,72 @@ private func slots() throws -> [ScaenaSession.Slot] {
     touch.hold(CGPoint(x: 0.25, y: 0.75))
     touch.cancel()
     #expect(!touch.down && touch.at == nil && !touch.lifting(at: start.addingTimeInterval(5)))
+}
+
+/// The end of the show (PLAN 2.120), as Keynote's and PowerPoint's: going on past the last state at
+/// rest, and only then, the show is over; going back shows the last state again; and the first, the
+/// last, a link, a slide's number, or a black screen each put the end away for what they show.
+@Test func goingOnPastTheLastStateEndsTheShow() throws {
+    var show = Show(slots: try slots(), from: "end")
+    // During the last state's cue, going on finishes it: the show is not over yet.
+    show.on()
+    #expect(show.slot?.state == "end" && show.playhead == .rest && !show.over)
+    show.on()
+    #expect(show.over && show.slot?.state == "end")
+    // Going on again stays over: leaving is the window's to do.
+    show.on()
+    #expect(show.over && show.slot?.state == "end")
+    show.back()
+    #expect(!show.over && show.slot?.state == "end" && show.playhead == .rest)
+
+    show.on()
+    show.first()
+    #expect(!show.over && show.slot?.state == "cover")
+    show.last()
+    show.on()
+    show.last()
+    #expect(!show.over && show.slot?.state == "end")
+    show.on()
+    let went = show.go(to: "why")
+    #expect(went && !show.over && show.slot?.state == "why")
+    show.last()
+    show.on()
+    show.type(1)
+    let typed = show.goTyped()
+    #expect(typed && !show.over && show.slot?.state == "cover")
+    show.last()
+    show.on()
+    show.blanking(.black)
+    #expect(!show.over && show.blank == .black)
+    show.unblank()
+    #expect(!show.over && show.slot?.state == "end")
+
+    // A deck with no states has no end to come to.
+    var none = Show(slots: [])
+    none.on()
+    none.on()
+    #expect(!none.over)
+}
+
+/// The presenter's timer (PLAN 2.121): it counts from when it began, pauses where it stands and runs
+/// on from there, and goes back to 0:00 running or paused as it was.
+@Test func thePresentersTimerPausesAndResets() {
+    let start = Date(timeIntervalSinceReferenceDate: 0)
+    let at = { (seconds: Double) in start.addingTimeInterval(seconds) }
+    var timer = Stopwatch(at: start)
+    #expect(!timer.paused && timer.elapsed(at: at(65)) == 65)
+    #expect(timer.reads(at: at(65.9)) == "1:05")
+    timer.toggle(at: at(70))
+    #expect(timer.paused && timer.elapsed(at: at(100)) == 70, "paused, it stands still")
+    timer.toggle(at: at(100))
+    #expect(!timer.paused && timer.elapsed(at: at(105)) == 75, "and runs on from where it stood")
+    timer.reset(at: at(110))
+    #expect(!timer.paused && timer.elapsed(at: at(110)) == 0 && timer.elapsed(at: at(112)) == 2)
+    #expect(timer.reads(at: at(112)) == "0:02")
+    timer.toggle(at: at(120))
+    timer.reset(at: at(130))
+    #expect(timer.paused && timer.elapsed(at: at(200)) == 0, "reset while paused, it waits at 0:00")
+    #expect(timer.reads(at: at(200)) == "0:00")
+    timer.toggle(at: at(200))
+    #expect(timer.elapsed(at: at(3_725)) == 3_525 && timer.reads(at: at(3_725)) == "58:45")
 }

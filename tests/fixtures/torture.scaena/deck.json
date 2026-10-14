@@ -4599,10 +4599,10 @@
     },
     "sh-photo": {
       "type": "image",
-      "src": "assets/test-card.png",
+      "src": "assets/baseline-420.jpg",
       "radius": "radius.4",
       "shadow": "raised",
-      "alt": "The test card, rounded, raised on its shadow.",
+      "alt": "A photo, rounded, raised on its shadow.",
       "semantic": "evidence",
       "at": {
         "col": [
@@ -4621,7 +4621,7 @@
       "fit": "contain",
       "mask": "ellipse",
       "shadow": "soft",
-      "alt": "The test card in an oval, on its shadow.",
+      "alt": "The test card in an oval, which casts no shadow: it may let what is under it show.",
       "semantic": "evidence",
       "at": {
         "col": [

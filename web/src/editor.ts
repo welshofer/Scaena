@@ -65,7 +65,7 @@ import { dataKeys, sheets } from "./data";
 import { filesPanel } from "./files";
 import { storyPanel } from "./story";
 import { finder, findKeys } from "./find";
-import { keptNames } from "./folders";
+import { deleteKept, keptNames, renameKept } from "./folders";
 import { formatsRow } from "./formats";
 import { layerKeys, layers } from "./layers";
 import { ended, listen as heed, observing } from "./life";
@@ -144,6 +144,19 @@ const sourceKeys = (): Key[] => {
 };
 /** What the editor answers anywhere beyond its commands' keys (PLAN 2.65). */
 const editorKeys = (): Key[] => [{ keys: `${MOD}K`, label: "Commands by name, and words for the assistant", group: "The editor" }];
+/** The keys held with C or F that put the focus on the slide or in the strip, as Google Slides'
+ * do (PLAN 2.126): ⌥⇧⌘ on a Mac, Ctrl+Alt+Shift elsewhere. */
+const GO = MOD === "⌘" ? "⌥⇧⌘" : "Ctrl+Alt+Shift+";
+/** The draw tools (PLAN 2.48, 2.114): each its key on the slide, what Insert calls it (PLAN 2.123),
+ * and what the palette calls drawing with it. */
+const DRAWING = [
+  { key: "t", tool: "Text", label: "Draw a text" },
+  { key: "r", tool: "Rectangle", label: "Draw a rectangle" },
+  { key: "o", tool: "Oval", label: "Draw an oval" },
+  { key: "l", tool: "Line", label: "Draw a line" },
+  { key: "a", tool: "Arrow", label: "Draw an arrow" },
+  { key: "p", tool: "Pen", label: "Draw with the pen" },
+];
 /** Whether `at` takes what is typed: a field, or the source. */
 const typingIn = (at: EventTarget | null) =>
   at instanceof Element && Boolean(at.closest("input, textarea, select, [contenteditable]:not([contenteditable='false']), .cm-editor"));
@@ -191,8 +204,18 @@ function folders<T>(mode: IDBTransactionMode, act: (store: IDBObjectStore) => ID
 }
 
 /** What the editor has open, to close when it opens another bundle; `say` puts a line in its
- * status that stays, before what lint finds, until the source is edited by hand. */
-let current: { close: () => void; dirty: () => boolean; say: (text: string) => void } | undefined;
+ * status that stays, before what lint finds, until the source is edited by hand. `kept` is the
+ * name the browser keeps it under, if it does, and `rekeep` renames a bundle the browser keeps, or
+ * deletes it, through the bundle's worker, which writes where the page may not (PLAN 2.124). */
+let current:
+  | {
+      close: () => void;
+      dirty: () => boolean;
+      say: (text: string) => void;
+      kept: () => string | undefined;
+      rekeep: (from: string, to?: string) => Promise<void>;
+    }
+  | undefined;
 
 /** A bundle as a person names it when it does not open: its file, its folder, or its name. */
 function namedFor(source: Source): string {
@@ -233,21 +256,121 @@ function address(where: Where | undefined) {
   window.history.replaceState(null, "", url);
 }
 
-/** The bundles the browser keeps, in the picker that opens them: listed again after each save
- * and each open, which can add one. */
+/** The bundles the browser keeps, in Kept in this browser (PLAN 2.4, 2.124), as a document
+ * browser lists them: each opened by its name, renamed, or deleted, asked first. The deck open
+ * here is marked, and is not deleted. Listed again after each save and each open, which can add
+ * one. */
 async function listKept() {
   const names = await keptNames().catch(() => []);
-  $<HTMLSelectElement>("#kept").replaceChildren(new Option("Kept in this browser…", ""), ...names.map((n) => new Option(n, n)));
+  const here = current?.kept();
+  const keeping = $<HTMLDialogElement>("#keeping");
+  const button = (text: string, label: string, act: () => unknown) => {
+    const b = Object.assign(document.createElement("button"), { type: "button", textContent: text });
+    b.setAttribute("aria-label", label);
+    b.onclick = () => void act();
+    return b;
+  };
+  const row = (name: string) => {
+    const li = document.createElement("li");
+    li.dataset.name = name;
+    const opening = button(name, name === here ? `${name}, open here` : `Open ${name}`, () => {
+      keeping.close();
+      if (name !== here) void open({ opfs: name }).catch(failed);
+    });
+    opening.dataset.open = "";
+    li.append(opening);
+    if (name === here) li.append(Object.assign(document.createElement("span"), { className: "here", textContent: "open here" }));
+    const deleting = button("Delete…", `Delete ${name}`, () => unkeep(name));
+    deleting.dataset.delete = "";
+    if (name === here) {
+      deleting.disabled = true;
+      deleting.title = "This deck is open here: open another to delete it";
+    }
+    const renaming = button("Rename…", `Rename ${name}`, () => rename(li, name));
+    renaming.dataset.rename = "";
+    li.append(renaming, deleting);
+    return li;
+  };
+  $("#keeping ul").replaceChildren(...names.map(row));
+  $("#keeping [data-none]").hidden = names.length > 0;
+}
+
+/** Say `text` in Kept in this browser, over the page, and in the status under it. */
+const keptSaid = (text: string) => {
+  $("#keeping [data-said]").textContent = text;
+  $("#status").textContent = text;
+};
+
+/** Rename `from` to `to`, or with no `to` delete it, where the browser keeps it: through the open
+ * bundle's worker, or here where no bundle is open. */
+async function rekeep(from: string, to?: string) {
+  if (current) return current.rekeep(from, to);
+  await (to === undefined ? deleteKept(from) : renameKept(from, to));
+}
+
+/** The deck the browser keeps as `name`, renamed in its row: Enter or leaving the field renames
+ * it, and Escape leaves it as it was. */
+function rename(li: HTMLLIElement, name: string) {
+  const field = Object.assign(document.createElement("input"), { value: name, autocomplete: "off", spellcheck: false });
+  field.setAttribute("aria-label", `New name for ${name}`);
+  li.querySelector("[data-open]")!.replaceWith(field);
+  field.select();
+  let done = false;
+  const finish = async (take: boolean) => {
+    if (done) return;
+    done = true;
+    const to = field.value.trim();
+    if (take && to && to !== name) {
+      try {
+        await rekeep(name, to);
+        keptSaid(`Renamed ${name} to ${to}`);
+      } catch (e) {
+        keptSaid(`Not renamed: ${said(e)}`);
+      }
+    }
+    await listKept();
+    $<HTMLButtonElement>(`#keeping li[data-name="${CSS.escape(take && to ? to : name)}"] [data-rename]`)?.focus();
+  };
+  field.onkeydown = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void finish(true);
+    } else if (e.key === "Escape") {
+      // The field's own: the list stays open.
+      e.preventDefault();
+      e.stopPropagation();
+      void finish(false);
+    }
+  };
+  field.onblur = () => void finish(true);
+}
+
+/** The deck the browser keeps as `name`, deleted, and every file of it, asked first. */
+async function unkeep(name: string) {
+  if (!confirm(`Delete “${name}” from this browser? Its files go with it, and it cannot be undone.`)) return;
+  try {
+    await rekeep(name);
+    keptSaid(`Deleted ${name} from this browser`);
+  } catch (e) {
+    keptSaid(`Not deleted: ${said(e)}`);
+  }
+  await listKept();
+  $<HTMLButtonElement>("#keeping li [data-open]")?.focus();
 }
 
 /** The bundle controls: open a folder, a `.scaena` file, or a bundle the browser keeps. */
 async function controls() {
-  const kept = $<HTMLSelectElement>("#kept");
-  await listKept();
-  kept.onchange = () => {
-    if (kept.value) void open({ opfs: kept.value }).catch(failed);
-    kept.value = "";
+  const keeping = $<HTMLDialogElement>("#keeping");
+  $<HTMLButtonElement>("#kept").onclick = async () => {
+    $("#keeping [data-said]").textContent = "";
+    await listKept();
+    keeping.showModal();
+    $<HTMLButtonElement>("#keeping li [data-open]")?.focus();
   };
+  // Escape in a name being changed leaves the name as it was, and the list open.
+  keeping.addEventListener("cancel", (e) => {
+    if (document.activeElement instanceof HTMLInputElement && keeping.contains(document.activeElement)) e.preventDefault();
+  });
   const folder = $<HTMLButtonElement>("#open-folder");
   folder.hidden = !window.showDirectoryPicker;
   folder.onclick = async () => {
@@ -455,6 +578,9 @@ async function edit(source: Source, opened?: Stage) {
    * how many states had been shown then (`showings`): one shown since is where the lint leaves
    * the canvas, since what the worker found names the state shown when the edit was made. */
   let taken: { source: string; edited: Edited; showings: number } | undefined;
+  /** The sources the worker compiled lately, the latest first, each with where its states start:
+   * an undo or a redo makes one of them the source again. */
+  const compiled: { source: string; states: [string, number][] }[] = [];
   /** The state shown, inspected: each node's placement, which the canvas reads. */
   let inspected: Inspected | undefined;
   /** The node the canvas has selected, and those selected beside it (PLAN 2.42). */
@@ -492,13 +618,28 @@ async function edit(source: Source, opened?: Stage) {
             version++;
             clearTimeout(pending);
             // Where each state starts moves with the change until the source is compiled again:
-            // the cursor an undo puts back is in the state it was in. A state whose start the
-            // change took away is gone, so the states after it count as the worker counts them.
+            // the cursor an undo puts back is in the state it was in. The source the worker made
+            // (a patch, the assistant's edit), which it holds, has its states where it says, those
+            // the patch added or took away too. A source it compiled lately, which an undo or a
+            // redo makes the source again, has its states where it found them, though the change
+            // wrote a state's first line again, but for one the worker does not hold now.
+            // Elsewhere a state whose start the change took away is gone, and one it brings back
+            // waits for the worker to compile the source, so the cursor never asks the worker for
+            // a state it does not hold.
             if (last) {
-              const states = last.states.flatMap(([id, at]): [string, number][] => {
-                const to = update.changes.mapPos(at, 1, MapMode.TrackAfter);
-                return to === null ? [] : [[id, to]];
-              });
+              const doc = update.state.doc;
+              let text: string | undefined;
+              const is = (source: string) => source.length === doc.length && source === (text ??= doc.toString());
+              const held = new Set(last.states.map(([id]) => id));
+              const made = taken?.edited.valid && is(taken.source) ? taken.edited.states : undefined;
+              const again = made ? undefined : compiled.find((c) => is(c.source))?.states.filter(([id]) => held.has(id));
+              const states =
+                made ??
+                again ??
+                last.states.flatMap(([id, at]): [string, number][] => {
+                  const to = update.changes.mapPos(at, 1, MapMode.TrackAfter);
+                  return to === null ? [] : [[id, to]];
+                });
               last = { ...last, states };
             }
             tell();
@@ -1135,8 +1276,10 @@ async function edit(source: Source, opened?: Stage) {
   /** What may be inserted (PLAN 2.34), grouped by type, as the deck offers it: asked again after
    * each edit, since the theme and the bundle's images change. */
   const inserter = $<HTMLSelectElement>("#insert");
-  /** The Insert menu's own choice beside what the deck offers: a picture made (PLAN 2.107). */
+  /** The Insert menu's own choices beside what the deck offers: a picture made (PLAN 2.107), and
+   * a draw tool by its key (PLAN 2.123). */
   const MAKE_PICTURE = "make-picture";
+  const DRAW = "draw:";
   let offered = "";
   /** What may be inserted, by label, as the deck last offered it: what the palette lists. */
   let insertable: string[] = [];
@@ -1164,10 +1307,14 @@ async function edit(source: Source, opened?: Stage) {
     // picture made by the user's image model (PLAN 2.107) comes after what the deck offers.
     const icon = Object.assign(document.createElement("optgroup"), { label: "Icon" });
     icon.append(new Option("Icon…", "icon"));
+    // The draw tools, each with its key (PLAN 2.123): a drag on the slide draws what each draws.
+    const draw = Object.assign(document.createElement("optgroup"), { label: "Draw" });
+    draw.append(...DRAWING.map(({ key, tool }) => new Option(`${tool} (${key.toUpperCase()})`, `${DRAW}${key}`)));
     inserter.replaceChildren(
       new Option("Insert…", ""),
       ...groups.values(),
       icon,
+      draw,
       new Option("Make a picture…", MAKE_PICTURE),
     );
   }
@@ -1177,6 +1324,12 @@ async function edit(source: Source, opened?: Stage) {
     if (!chosen?.value) return;
     if (chosen.value === "icon") return void insertIcon();
     if (chosen.value === MAKE_PICTURE) return void picturing.open();
+    // A draw tool is its key's gesture: chosen again while it is taken up, it stays so.
+    if (chosen.value.startsWith(DRAW)) {
+      const key = chosen.value.slice(DRAW.length);
+      if (key === "p" ? board.pen() : board.armed()?.key === key) return void $("#overlay").focus();
+      return press(key);
+    }
     void board.insert(Number(chosen.value), chosen.textContent ?? undefined);
     $("#overlay").focus();
   };
@@ -1279,6 +1432,11 @@ async function edit(source: Source, opened?: Stage) {
     const before = among;
     last = edited;
     if (edited.valid) {
+      // Kept for an undo or a redo back to this source, with the seven compiled before it.
+      const was = compiled.findIndex((c) => c.source === source);
+      if (was >= 0) compiled.splice(was, 1);
+      compiled.unshift({ source, states: edited.states });
+      compiled.length = Math.min(compiled.length, 8);
       // Each as a person counts it (PLAN 2.99): Slide 3, Slide 3, step 2.
       statesPicker.replaceChildren(...edited.states.map(([id], i) => new Option(edited.slots[i]?.state === id ? (edited.slots[i].said ?? id) : (edited.slots.find((s) => s.state === id)?.said ?? id), id)));
       reformats(edited.formats, edited.own);
@@ -1673,15 +1831,20 @@ async function edit(source: Source, opened?: Stage) {
   }
 
   /** Export (PLAN 2.54) the deck the source compiles to, as `scaena export` writes it, and
-   * download it: `png`, the state shown at rest in the format shown, `width` pixels wide; `pdf`,
-   * each slide at its last state; `html`, the deck as one file that plays offline, the
-   * single-file player's page beside this one filled in. Each is made in the worker: nothing is
-   * sent anywhere. */
-  async function exportAs(as: "png" | "pdf" | "html", width?: number): Promise<{ file: string; bytes: ArrayBuffer } | undefined> {
+   * download it: `png`, the state shown at rest in the format shown, `width` pixels wide;
+   * `slides`, every slide once its steps have played, so, in one zip, each named by its number
+   * (PLAN 2.122); `pdf`, each slide at its last state; `html`, the deck as one file that plays
+   * offline, the single-file player's page beside this one filled in. Each is made in the worker:
+   * nothing is sent anywhere. */
+  async function exportAs(as: "png" | "slides" | "pdf" | "html", width?: number): Promise<{ file: string; bytes: ArrayBuffer } | undefined> {
     await settled();
     let what: Export;
     let file: string;
-    if (as === "png") {
+    if (as === "slides") {
+      const shownIn = format();
+      what = { kind: "slides", width: width ?? board.size()[0], format: shownIn, name };
+      file = `${name} - Slides${shownIn ? ` (${shownIn.replace(/[^\w.-]+/g, "x")})` : ""}.zip`;
+    } else if (as === "png") {
       const now = showing();
       if (!now) {
         say("Not exported: no slide is shown");
@@ -1712,7 +1875,7 @@ async function edit(source: Source, opened?: Stage) {
       say(`Not exported: ${said(e)}`);
       return;
     }
-    const type = { png: "image/png", pdf: "application/pdf", html: "text/html" }[as];
+    const type = { png: "image/png", slides: "application/zip", pdf: "application/pdf", html: "text/html" }[as];
     const url = URL.createObjectURL(new Blob([bytes], { type }));
     Object.assign(document.createElement("a"), { href: url, download: file }).click();
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
@@ -1890,6 +2053,23 @@ async function edit(source: Source, opened?: Stage) {
     if (start !== undefined) view.dispatch({ selection: { anchor: start }, scrollIntoView: true });
     void show(index);
   };
+  /** The focus on the slide, from anywhere on the page (PLAN 2.126): the light table, shown in its
+   * place, gives way to it. */
+  function toSlide() {
+    if (table.open()) table.toggle(false);
+    $("#overlay").focus();
+    say(`${showing() ? slideOf(showing()!.state) : "The slide"}: Tab selects its objects`);
+  }
+  // The page's first stop for the keys goes to the slide, past the bar (WCAG 2.4.1).
+  $<HTMLAnchorElement>("#skip").onclick = (e) => {
+    e.preventDefault();
+    toSlide();
+  };
+  /** The focus on the slide shown among the slides and their steps, or on the light table's. */
+  function toStrip() {
+    const at = table.open() ? "#slides [role=option][tabindex='0']" : "#strip li[tabindex='0']";
+    document.querySelector<HTMLElement>(at)?.focus();
+  }
 
   /** What is done to the nodes selected: each its key on the canvas. */
   function nodeCommands(): Command[] {
@@ -2040,13 +2220,6 @@ async function edit(source: Source, opened?: Stage) {
   /** What is done on the canvas where nothing is: what goes there, and how close it is shown. In a
    * menu, Insert opens the palette on what may be inserted; the palette lists each. */
   function canvasCommands(inMenu: boolean): Command[] {
-    const draws: [string, string][] = [
-      ["t", "Draw a text"],
-      ["r", "Draw a rectangle"],
-      ["o", "Draw an ellipse"],
-      ["l", "Draw a line"],
-      ["a", "Draw an arrow"],
-    ];
     const inserts: Command[] = inMenu
       ? [{ label: "Insert…", where: ["canvas"], applies: () => ready() && insertable.length > 0, run: () => commanding.open("insert ") }]
       : insertable.map((label, n) => ({ label: `Insert ${label}`, applies: ready, run: () => board.insert(n, label.split(" · ").at(-1)) }));
@@ -2064,8 +2237,8 @@ async function edit(source: Source, opened?: Stage) {
         applies: () => ready() && !(picked().length === 1 && typeOf(picked()[0]) === "image" && !board.lockedBy(picked()[0])),
         run: () => void picturing.open(),
       },
-      ...draws.map(
-        ([key, label]): Command => ({ label, keys: key.toUpperCase(), group: "Draw and insert", where: ["canvas"], applies: () => ready() && board.armed()?.key !== key, run: () => press(key) }),
+      ...DRAWING.filter(({ key }) => key !== "p").map(
+        ({ key, label }): Command => ({ label, keys: key.toUpperCase(), group: "Draw and insert", where: ["canvas"], applies: () => ready() && board.armed()?.key !== key, run: () => press(key) }),
       ),
       // The pen (PLAN 2.114): each drag a stroke, the strokes one drawing, until it is put down.
       { label: board.pen() ? "Put the pen down" : "Draw with the pen", keys: "P", group: "Draw and insert", where: ["canvas"], applies: ready, run: () => press("p") },
@@ -2098,8 +2271,11 @@ async function edit(source: Source, opened?: Stage) {
       { label: "Draft its notes", where: ["state"], applies: () => now() !== undefined, run: () => write("notes") },
       { label: "Show the light table", applies: () => now() !== undefined && !table.open(), run: () => table.toggle(true) },
       { label: "Close the light table", applies: () => table.open(), run: () => table.toggle(false) },
-      { label: "Show the next slide or step", applies: () => last?.valid === true && shown < count() - 1, run: () => goTo(shown + 1) },
-      { label: "Show the slide or step before", applies: () => last?.valid === true && shown > 0, run: () => goTo(shown - 1) },
+      // Page Down and Page Up on the slide (PLAN 2.126).
+      { label: "Show the next slide or step", keys: "PageDown", group: "Slides", applies: () => last?.valid === true && shown < count() - 1, run: () => goTo(shown + 1) },
+      { label: "Show the slide or step before", keys: "PageUp", group: "Slides", applies: () => last?.valid === true && shown > 0, run: () => goTo(shown - 1) },
+      { label: "Go to the slide", keys: `${GO}C`, group: "The editor", run: toSlide },
+      { label: "Go to the slides and their steps", keys: `${GO}F`, group: "The editor", run: toStrip },
     ];
   }
 
@@ -2125,6 +2301,7 @@ async function edit(source: Source, opened?: Stage) {
       { label: "Save as…", applies: () => !$("#save-as").hidden, run: () => $("#save-as").click() },
       { label: "Download .scaena", run: () => download().catch(failed) },
       { label: "Export this slide as a PNG…", applies: () => showing() !== undefined, run: () => openExport("png") },
+      { label: "Export every slide as PNGs…", applies: () => showing() !== undefined, run: () => openExport("slides") },
       { label: "Export the deck as a PDF", applies: () => last?.valid === true, run: () => exportAs("pdf").catch(failed) },
       { label: "Export the deck as one HTML file", applies: () => last?.valid === true, run: () => exportAs("html").catch(failed) },
       { label: "Play", applies: () => !play.hidden, run: () => play.click() },
@@ -2132,6 +2309,7 @@ async function edit(source: Source, opened?: Stage) {
       { label: "New deck from a prompt…", run: () => $("#new-prompt").click() },
       { label: "Open a .scaena file…", run: () => $("#open-file").click() },
       { label: "Open a folder…", applies: () => !$("#open-folder").hidden, run: () => $("#open-folder").click() },
+      { label: "Decks kept in this browser…", run: () => $("#kept").click() },
       { label: "Show the inspector", run: () => tab("inspector").focus() },
       { label: "Hide the inspector", applies: () => !hidden("panel"), run: () => hiding("panel", true) },
       { label: hidden("cue") ? "Show the animations" : "Hide the animations", run: () => hiding("cue", !hidden("cue")) },
@@ -2272,23 +2450,33 @@ async function edit(source: Source, opened?: Stage) {
     await saveAs({ folder }).catch(failed);
   };
   $<HTMLButtonElement>("#download").onclick = () => void download().catch(failed);
-  // Export…: the state shown as a PNG at a width asked, or the deck as a PDF or one HTML file.
+  // Export…: the state shown as a PNG at a width asked, every slide so in one zip (PLAN 2.122), or
+  // the deck as a PDF or one HTML file.
   const exporting = $<HTMLDialogElement>("#exporting");
   const exportWidth = $<HTMLInputElement>("#exporting-width");
   const exportNote = $("#exporting-note");
-  const chosenExport = () => exporting.querySelector<HTMLInputElement>("input[name=as]:checked")!.value as "png" | "pdf" | "html";
+  type ExportAs = "png" | "slides" | "pdf" | "html";
+  const chosenExport = () => exporting.querySelector<HTMLInputElement>("input[name=as]:checked")!.value as ExportAs;
   /** What the export chosen makes, said under the choices. */
   const noteExport = () => {
     const as = chosenExport();
-    $("#exporting-size").hidden = as !== "png";
-    exportWidth.disabled = as !== "png";
+    const sized = as === "png" || as === "slides";
+    $("#exporting-size").hidden = !sized;
+    exportWidth.disabled = !sized;
     const [w, h] = board.size();
     const width = Number(exportWidth.value);
+    const pixels = `${width} × ${Math.round((h * width) / w)} pixels`;
     const now = showing()?.state;
+    // A slide is counted where its first state is: its steps share its number.
+    const slides = last?.states.filter(([state]) => !slideOf(state).includes(", step ")).length ?? 0;
+    const whole = Number.isInteger(width) && width > 0;
     exportNote.textContent = {
       // The slide as a person counts it (PLAN 2.99), as the file is named.
-      png: Number.isInteger(width) && width > 0
-        ? `${now === undefined ? "The slide shown" : slideOf(now)}${format() ? ` in ${format()}` : ""}: ${width} × ${Math.round((h * width) / w)} pixels.`
+      png: whole
+        ? `${now === undefined ? "The slide shown" : slideOf(now)}${format() ? ` in ${format()}` : ""}: ${pixels}.`
+        : "A width in whole pixels: the height keeps the canvas's aspect.",
+      slides: whole
+        ? `${slides} slide${slides === 1 ? "" : "s"}, each as it stands once its steps have played${format() ? `, in ${format()}` : ""}: a PNG of ${pixels} named by its number, all in one .zip.`
         : "A width in whole pixels: the height keeps the canvas's aspect.",
       pdf: "A page for each slide at its last state: vector paths, text in subset fonts that copies and searches as the deck reads, tagged for a screen reader.",
       html: "The player and the deck in one file that plays in a browser with no network, its fonts subset to what the deck draws.",
@@ -2296,19 +2484,19 @@ async function edit(source: Source, opened?: Stage) {
   };
   exporting.oninput = noteExport;
   /** Open Export…, `as` chosen. */
-  const openExport = (as: "png" | "pdf" | "html" = "png") => {
+  const openExport = (as: ExportAs = "png") => {
     exporting.querySelector<HTMLInputElement>(`input[name=as][value=${as}]`)!.checked = true;
     exportWidth.value = String(Math.round(board.size()[0]));
     noteExport();
     exporting.returnValue = "";
     exporting.showModal();
-    (as === "png" ? exportWidth : $<HTMLButtonElement>("#exporting-go")).focus();
+    (as === "png" || as === "slides" ? exportWidth : $<HTMLButtonElement>("#exporting-go")).focus();
   };
   $<HTMLButtonElement>("#export").onclick = () => openExport();
   exporting.onclose = () => {
     if (exporting.returnValue !== "export") return;
     const as = chosenExport();
-    void exportAs(as, as === "png" ? Number(exportWidth.value) : undefined).catch(failed);
+    void exportAs(as, as === "png" || as === "slides" ? Number(exportWidth.value) : undefined).catch(failed);
   };
   onkeydown = (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
@@ -2340,6 +2528,28 @@ async function edit(source: Source, opened?: Stage) {
       e.preventDefault();
       void board.zoom(e.key === "0" ? "fit" : e.key === "-" || e.key === "_" ? "out" : "in");
     }
+    // Page Down and Page Up on the slide show the next slide or step and the one before (PLAN
+    // 2.126); a text typed in keeps them.
+    if ((e.key === "PageDown" || e.key === "PageUp") && !e.metaKey && !e.ctrlKey && !e.altKey && !e.defaultPrevented && e.target === $("#overlay")) {
+      e.preventDefault();
+      const to = shown + (e.key === "PageDown" ? 1 : -1);
+      // A source that does not compile shows no other slide, as the palette's commands have it.
+      if (!last?.valid) return;
+      if (to >= 0 && to < last.states.length) {
+        goTo(to);
+        say(`${slideOf(last.states[to][0])} shown`);
+      } else say(e.key === "PageDown" ? "This is the last slide" : "This is the first slide");
+    }
+    // ⌥⇧⌘C puts the focus on the slide, and ⌥⇧⌘F among the slides (PLAN 2.126), over no dialog;
+    // by the keys' places, as Option makes ⌥C a character of its own. AltGr, which Windows gives
+    // as Ctrl and Alt, types a character with them (AltGr+Shift+C is Ć on a Polish keyboard): it
+    // stays the character.
+    const altGr = e.getModifierState("AltGraph");
+    if ((e.metaKey || e.ctrlKey) && e.altKey && e.shiftKey && !altGr && (e.code === "KeyC" || e.code === "KeyF") && !document.querySelector("dialog[open]")) {
+      e.preventDefault();
+      if (e.code === "KeyC") toSlide();
+      else toStrip();
+    }
     // ⌘F finds in the deck's texts (PLAN 2.47); in the source, the browser's find stays.
     if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "f" && !(e.target instanceof Element && e.target.closest(".cm-editor"))) {
       e.preventDefault();
@@ -2368,6 +2578,18 @@ async function edit(source: Source, opened?: Stage) {
     say: (text) => {
       say(text);
       toldOf = view.state.doc.toString();
+    },
+    kept: () => (where?.kind === "opfs" ? where.name : undefined),
+    // The deck open here, renamed where the browser keeps it, is kept under its new name: the
+    // address and the bar follow.
+    rekeep: async (from, to) => {
+      const kept = await stage.rekeep(from, to);
+      if (kept && where?.kind === "opfs" && where.name === from && kept.name !== from) {
+        where = kept;
+        name = kept.name;
+        address(where);
+        tell();
+      }
     },
   };
 
@@ -2404,8 +2626,9 @@ async function edit(source: Source, opened?: Stage) {
       /** Save as: `{ opfs: name }`, or `{ folder }` (any directory handle). */
       saveAs,
       download,
-      /** Export (PLAN 2.54): `png` (the state shown, `width` pixels wide), `pdf`, or `html`, as the
-       * Export dialog does; the file's name and bytes, also downloaded. */
+      /** Export (PLAN 2.54): `png` (the state shown, `width` pixels wide), `slides` (every slide so,
+       * in one zip, PLAN 2.122), `pdf`, or `html`, as the Export dialog does; the file's name and
+       * bytes, also downloaded. */
       exportAs,
       /** Drop a file named `name` at `at` in the source (the cursor by default). */
       drop: (name: string, bytes: ArrayBuffer, at?: number) => drop([new File([bytes], name)], at ?? view.state.selection.main.head),

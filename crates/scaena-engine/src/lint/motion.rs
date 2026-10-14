@@ -109,7 +109,9 @@ impl Rule for W323Skipped {
         Severity::Warning
     }
     fn check(&self, cx: &Cx) -> Vec<Finding> {
-        if !cx.states.iter().any(|s| s.slot.hold > 0.0) {
+        // Whether the deck runs on its own is the deck's, however few of its states are laid
+        // out: a patch's lint lays out the states it reaches alone (SPEC §7.3).
+        if !cx.deck.states.iter().any(|s| s.hold.is_some_and(|hold| hold > 0.0)) {
             return vec![];
         }
         let mut out = Vec::new();

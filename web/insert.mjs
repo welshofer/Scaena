@@ -6,7 +6,9 @@
 // On the revenue example:
 // - The Insert menu offers what Dusk and the bundle name: a text in each of the theme's roles, the
 //   shapes and the shape library's polygons (PLAN 2.106), and the theme's two shader presets; once
-//   a PNG is dropped into the bundle, the image.
+//   a PNG is dropped into the bundle, the image. Under Draw, the draw tools with their keys (PLAN
+//   2.123): each chosen does what its key does, Rectangle arming the canvas as R does and Pen
+//   taking up the pen as P does.
 // - A kicker inserted where the canvas was last pressed, in the template's `kicker` slot, which
 //   nothing fills in `revenue`, fills it, and enters in `revenue`, selected: one patch, one undo.
 //   It is typed in at once, its words selected, so what is typed takes their place (PLAN 3.21),
@@ -130,6 +132,26 @@ try {
   check(JSON.stringify(offered.Shape) === JSON.stringify(shapes), `the shapes, by their names: ${offered.Shape}`);
   check(offered["Background Effect"]?.length === 2, `the theme's shader presets: ${offered["Background Effect"]}`);
   check(!offered.Image, "no image: the bundle holds no PNG");
+
+  // The draw tools, each with its key, each its key's gesture (PLAN 2.123).
+  const tools = ["Text (T)", "Rectangle (R)", "Oval (O)", "Line (L)", "Arrow (A)", "Pen (P)"];
+  check(JSON.stringify(offered.Draw) === JSON.stringify(tools), `Draw lists the draw tools with their keys: ${offered.Draw}`);
+  await page.selectOption("#insert", { label: "Rectangle (R)" });
+  await page.waitForFunction(() => window.scaena.canvas.armed()?.key === "r", null, { timeout: 10000 }).catch(() => {});
+  check((await page.evaluate(() => window.scaena.canvas.armed()?.key)) === "r" && (await says("Drawing a rectangle")), `Rectangle arms the canvas as R does: ${await status()}`);
+  check(await page.evaluate(() => document.activeElement?.id === "overlay"), "and the slide has the keys, for the drag and for Escape");
+  await page.selectOption("#insert", { label: "Oval (O)" });
+  await page.waitForFunction(() => window.scaena.canvas.armed()?.key === "o", null, { timeout: 10000 }).catch(() => {});
+  check(await says("Drawing an oval"), `Oval arms it for an oval instead: ${await status()}`);
+  await page.keyboard.press("Escape");
+  check((await page.evaluate(() => window.scaena.canvas.armed())) === undefined, "Escape stops, as after O");
+  await page.selectOption("#insert", { label: "Pen (P)" });
+  await page.waitForFunction(() => window.scaena.canvas.pen() !== undefined, null, { timeout: 10000 }).catch(() => {});
+  check((await page.evaluate(() => window.scaena.canvas.pen())) !== undefined && (await says("Drawing with the pen")), `Pen takes up the pen as P does: ${await status()}`);
+  await page.selectOption("#insert", { label: "Pen (P)" });
+  check((await page.evaluate(() => window.scaena.canvas.pen())) !== undefined, "chosen again, it stays taken up");
+  await page.keyboard.press("Escape");
+  check((await page.evaluate(() => window.scaena.canvas.pen())) === undefined && (await source()) === original, "Escape puts it down, and nothing is drawn");
 
   // A kicker in the `kicker` slot, which nothing fills in `revenue`: it fills the slot.
   const slots = (await page.evaluate(() => window.scaena.canvas.targets("title"))).slots ?? {};

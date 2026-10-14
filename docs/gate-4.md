@@ -1,6 +1,6 @@
 # Gate 4
 
-Phase 4's exit criteria (PLAN, "Exit criteria (gate 4)"), each with its evidence so far. Every task of Phase 4 has landed (4.1–4.11). What the gate still needs is a real iPad. CI's iPad is a simulator on a virtual Mac: its GPU lacks what vello needs, so it paints with the CPU painter, and its timings are a virtual machine's.
+Phase 4's exit criteria (PLAN, "Exit criteria (gate 4)"), each with its evidence so far. Every task of Phase 4 has landed (4.1–4.12). What the gate still needs is a real iPad. CI's iPad is a simulator on a virtual Mac: its GPU lacks what vello needs, so it paints with the CPU painter, and its timings are a virtual machine's.
 
 **Where it stands:**
 - **Criterion 1** (same pixels as the web player, on an iPad's GPU). The same frame is met on CI's simulator: the torture deck's display lists there are the goldens'. The same pixels on an iPad's GPU wait on an iPad, since vello never runs on the simulator.
@@ -86,7 +86,7 @@ On the iPad it prints `gate 4, criterion 2: …`, and where the time went. As on
   - `ThemeTests`: a theme value typed, and a stepper's tap, each one step (PLAN 3.28);
   - ScaenaKit's tests: a drag's patch keeps the source it replaced, for the window's undo, and a burst of typing is one step.
 - **Undo by touch** came from writing this gate. An iPad without a keyboard had no Undo to touch: no ⌘Z, and the menu bar a swipe from the top away. So the toolbar has Undo beside View and Zoom, as Keynote's does on the iPad (PLAN 4.11).
-- **The Pencil.** Its hover outlines what a press would take, read from the boxes the pointer's hover reads (PLAN 4.5). On the simulator, a pointer stands in for it. The Pencil itself waits on an iPad, as do Scribble, the software keyboard, and dictation (PLAN 4.4).
+- **The Pencil.** Its hover outlines what a press would take, read from the boxes the pointer's hover reads (PLAN 4.5). On the simulator, a pointer stands in for it. The Pencil itself waits on an iPad, as do Scribble, the software keyboard, and dictation (PLAN 4.4), and PageDown and PageUp from a keyboard (PLAN 4.12): the simulator's keyboard sends neither, so `KeysTests` turns the slides by them only on an iPad, and ScaenaKit's `pageDownAndPageUpAreTheIPadCanvassOwnKeyCommands` holds the commands and what they do.
 
 ## The run on an iPad
 

@@ -14,7 +14,8 @@
 //   selection by keys, a node at a time, and Escape stops (PLAN 2.89).
 // - In a layout shown, Tab keys a slot and an arrow moves it a track: one theme edit.
 // - A node in a slot, the revenue cover's title: an arrow steps it a track onto the grid, and
-//   Shift with one resizes it; neither says it is at the edge.
+//   Shift with one resizes it; neither says it is at the edge. One on the grid's last rows, the
+//   note, stays in its slot when ↓ would take it past them, and says it is at the edge.
 // - The keys sheet lists the keys, and axe-core finds nothing with a handle keyed.
 // Exits 1 on any failure.
 import { createRequire } from "node:module";
@@ -277,6 +278,24 @@ try {
   check(grown && !/at the edge|sits in a slot/.test(await status(rev)), `Shift+→ resizes it a track: ${await status(rev)}`);
   await undo(rev);
   check(await back(rev, plain), "one undo takes it back");
+
+  // In a slot on the grid's last rows, the revenue slide's note: ↓ goes past the grid, which keeps
+  // it where it stands, so it says it is at the edge and stays in its slot; nothing is written.
+  await show(rev, "revenue");
+  await rev.evaluate(() => window.scaena.canvas.select("note"));
+  await rev.locator("#overlay").focus();
+  await press(rev, "ArrowDown");
+  const edge = await rev
+    .waitForFunction(() => /at the edge|placed/.test(document.querySelector("#status").textContent), null, { timeout: 30000, polling: 50 })
+    .then(() => true)
+    .catch(() => false);
+  await rev.waitForTimeout(300);
+  const after = await rev.evaluate(() => window.scaena.source());
+  check(edge && (await status(rev)).includes("is at the edge") && after === plain, `↓ at the grid's foot leaves the note in its slot: ${await status(rev)}`);
+  if (after !== plain) {
+    await undo(rev);
+    await back(rev, plain);
+  }
 
   // The keys sheet.
   await press(rev, "?");

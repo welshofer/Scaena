@@ -59,7 +59,7 @@ pub(crate) fn patch_as(b: &Bundle, ops: &Value, dry_run: bool, what: Option<&str
 /// (the web page's assistant, PLAN 2.6). `what` names the change in the bundle's history;
 /// without it, its ops' names do.
 pub fn patching(b: &Bundle, ops: &Value, what: Option<&str>) -> Result<(Patched, Option<Write>), OpsError> {
-    made(b, ops, what, Judge::Whole)
+    made(b, ops, what, Judge::Whole, None)
 }
 
 /// [`patching`] in an editor that keeps its engine between edits (ADR-0021): checked, and
@@ -70,22 +70,30 @@ pub fn patching(b: &Bundle, ops: &Value, what: Option<&str>) -> Result<(Patched,
 /// say what lint finds in those states, which every other state shows as it did, and an edit
 /// costs what the states it changes cost, however long the deck. A patch that changes what the
 /// deck holds besides its states and nodes (its theme, canvas, formats, fonts, data, or
-/// furniture) reaches every state.
+/// furniture), or whether it runs on its own, reaches every state. `validated` is what
+/// validation found in `b`'s deck where the editor knows it already, having compiled that deck
+/// against these files: it is not validated again.
 pub fn editing(
     b: &Bundle,
     ops: &Value,
     what: Option<&str>,
+    validated: Option<Vec<Finding>>,
     mut layout: impl FnMut(&Deck, &Theme, &[&str]) -> Result<Vec<Finding>, OpsError>,
 ) -> Result<(Patched, Option<Write>), OpsError> {
-    made(b, ops, what, Judge::Reached(&mut layout))
+    made(b, ops, what, Judge::Reached(&mut layout), validated)
 }
 
 /// [`patching`] for an edit made as it is typed, a keystroke at a time (ADR-0013, PLAN
 /// 2.32): validated, and refused as a patch is, but not linted, so `added` and `removed`
 /// say only what validation finds. The editor lints the state it shows once the deck is
-/// written, as it does after a keystroke in the source.
-pub fn typing(b: &Bundle, ops: &Value, what: Option<&str>) -> Result<(Patched, Option<Write>), OpsError> {
-    made(b, ops, what, Judge::Valid)
+/// written, as it does after a keystroke in the source. `validated` is as [`editing`] takes it.
+pub fn typing(
+    b: &Bundle,
+    ops: &Value,
+    what: Option<&str>,
+    validated: Option<Vec<Finding>>,
+) -> Result<(Patched, Option<Write>), OpsError> {
+    made(b, ops, what, Judge::Valid, validated)
 }
 
 /// What lays out the states a patch reaches, in a deck and its theme: what the layout rules find
@@ -103,7 +111,13 @@ enum Judge<'a> {
     Reached(&'a mut Layout<'a>),
 }
 
-fn made(b: &Bundle, ops: &Value, what: Option<&str>, judge: Judge) -> Result<(Patched, Option<Write>), OpsError> {
+fn made(
+    b: &Bundle,
+    ops: &Value,
+    what: Option<&str>,
+    judge: Judge,
+    validated: Option<Vec<Finding>>,
+) -> Result<(Patched, Option<Write>), OpsError> {
     let Some(list) = ops.as_array() else {
         return Err(OpsError::new("a patch is a JSON array of ops (SPEC §7.3, docs/schema/patch.schema.json)"));
     };
@@ -119,7 +133,10 @@ fn made(b: &Bundle, ops: &Value, what: Option<&str>, judge: Judge) -> Result<(Pa
     // The deck it makes, checked as `validate` checks a bundle: a validation error it adds
     // refuses the whole patch.
     let text = serde_json::to_string_pretty(&compiled.doc)?;
-    let invalid = validate_bundle(&b.deck.to_json()?, &b.files)?;
+    let invalid = match validated {
+        Some(found) => found,
+        None => validate_bundle(&b.deck.to_json()?, &b.files)?,
+    };
     let invalid_after = validate_bundle(&text, &b.files)?;
     let refused = !delta(&invalid, &was, &invalid_after, &is, &compiled.renamed).added.is_empty();
     let mut write = None;
@@ -203,7 +220,8 @@ pub(crate) fn placed(theme: Option<&str>, before: &Deck, after: &Deck) -> Option
 /// The states a patch reaches, by id, before it and after: each it changes (`changed`, ids of
 /// `after`), and each whose cue starts from one it changes or from another state than it did,
 /// in the order each deck has them; and before it, each it takes away. Every state, where it
-/// changes what the deck holds besides its states and nodes, which every state is drawn from.
+/// changes what the deck holds besides its states and nodes, which every state is drawn from,
+/// or whether the deck runs on its own, which every state is judged by (W323, SPEC §2.4).
 fn reached(
     (before, was): (&Deck, &Value),
     (after, is): (&Deck, &Value),
@@ -221,7 +239,9 @@ fn reached(
         }
         doc
     };
-    let every = drawn(was) != drawn(is);
+    // Whether a deck runs on its own: one of its states holds.
+    let runs = |deck: &Deck| deck.states.iter().any(|s| s.hold.is_some_and(|hold| hold > 0.0));
+    let every = drawn(was) != drawn(is) || runs(before) != runs(after);
     // The id a state of `after` had in `before`.
     let then = |id: &str| -> String {
         (renamed.iter().rev()).fold(id.to_string(), |id, r| match r {

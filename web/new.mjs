@@ -130,8 +130,11 @@ try {
   await page.waitForFunction(() => window.scaena.where().where?.name === "season copy" && !window.scaena.where().dirty, null, { timeout: 60000 });
   check((await listing(page, "bundles/season copy")).includes("deck.json"), "Save as keeps a copy in the browser under the new name");
   check(new URL(page.url()).searchParams.get("bundle") === "opfs:season copy", `the address names the copy: ${page.url()}`);
-  const kinds = await page.locator("#kept option").allTextContents();
+  await page.click("#kept");
+  await page.waitForFunction(() => document.querySelectorAll("#keeping li").length > 1, null, { timeout: 10000 }).catch(() => {});
+  const kinds = await page.locator("#keeping li").evaluateAll((rows) => rows.map((li) => li.dataset.name));
   check(kinds.includes("season copy") && kinds.includes("field-notes-whats-next"), `the browser keeps both: ${kinds}`);
+  await page.keyboard.press("Escape");
 
   // Save as a folder: written there, kept there.
   const asFolder = await page.evaluate(async () => {
