@@ -415,17 +415,14 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     drawn = showing;
     const focused = into.contains(document.activeElement) ? document.activeElement?.id : undefined;
     // Words typed in a field and not yet taken (its change comes when it is left) outlast a
-    // render, which the deck changing under it brings: the field drawn again keeps them. A render
-    // that puts the controls back, as a change refused asks, keeps none: the field shows what the
-    // deck says, and leaving it sends nothing again.
+    // render, which the deck changing under it brings: the field drawn again keeps them. So does
+    // what is selected in it, so what is typed next replaces the selection. A render that puts the
+    // controls back, as a change refused asks, keeps none: the field shows what the deck says, and
+    // leaving it sends nothing again.
     const active = document.activeElement;
     const typing =
-      !again &&
-      (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) &&
-      active.id &&
-      into.contains(active) &&
-      active.value !== active.defaultValue
-        ? { id: active.id, value: active.value, from: active.selectionStart, to: active.selectionEnd }
+      !again && (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) && active.id && into.contains(active)
+        ? { id: active.id, value: active.value, typed: active.value !== active.defaultValue, from: active.selectionStart, to: active.selectionEnd }
         : undefined;
     const rows = offered.fields.map((f) => {
       const id = `look-${f.prop.replace(/\//g, "-")}`;
@@ -521,9 +518,8 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     if (focus) into.querySelector<HTMLElement>(`#${CSS.escape(focus)}`)?.focus();
     if (typing) {
       const field = into.querySelector<HTMLInputElement | HTMLTextAreaElement>(`#${CSS.escape(typing.id)}`);
-      if (field) {
+      if (field && typing.typed) {
         field.value = typing.value;
-        if (typing.from !== null && typing.to !== null) field.setSelectionRange(typing.from, typing.to);
         // A value set by a script is no change of the person's, which the field would say when
         // it is left: it says so itself, unless more typing has it said already.
         let said = false;
@@ -536,6 +532,7 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
           { once: true },
         );
       }
+      if (field && field.value === typing.value && typing.from !== null && typing.to !== null) field.setSelectionRange(typing.from, typing.to);
     }
     if (reading) void reads(nodes[0]);
     return true;
