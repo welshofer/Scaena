@@ -1363,6 +1363,9 @@ export type AssistantEvent =
 export interface Opened {
   /** The bundle's name: its folder's, or its deck file's without `.deck.json`. */
   name: string;
+  /** The deck's title (`meta.title`), where it has one: what the player's windows are called,
+   * as a single file's page is. */
+  title?: string;
   /** Where it is kept, if anywhere. */
   where?: Where;
   states: string[];
