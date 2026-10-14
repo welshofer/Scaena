@@ -158,9 +158,13 @@ try {
   await page.keyboard.press("Control+z");
   await page.waitForFunction((o) => window.scaena.source() === o, original, { timeout: 10000 }).catch(() => {});
 
-  // 4. Leave it changes nothing.
+  // 4. Leave it changes nothing. An answer emptied in the dialog is nothing to take, as no answer is.
   await tool("rewrite", "subtitle");
   check(await answered("#writing-answer"), "Rewrite offers an answer");
+  await page.fill("#writing-answer", " \n ");
+  check(await page.locator("#writing-use").isDisabled(), "an answer emptied in the dialog offers nothing to take");
+  await page.fill("#writing-answer", "This quarter changed the business.");
+  check(await page.locator("#writing-use").isEnabled(), "and one with words again does");
   await page.click("#writing-leave");
   await page.evaluate(() => window.scaena.writing.settled());
   check((await source()) === original && !(await dialog()).open, "Leave it changes nothing");
