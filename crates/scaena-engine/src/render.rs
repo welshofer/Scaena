@@ -159,6 +159,12 @@ impl Engine {
         self
     }
 
+    /// An image file the bundle has gained, at `path`, so a deck that names it lays out: what
+    /// the engine draws now is drawn as before.
+    pub fn add_image(&mut self, path: &str, bytes: &[u8]) -> Result<crate::images::ImageInfo, EngineError> {
+        self.images.register(path, bytes)
+    }
+
     /// The bundle's fonts, as registered.
     pub fn fonts(&self) -> &BundleFonts {
         &self.fonts
@@ -483,7 +489,9 @@ impl Engine {
         let furniture = self.furniture(deck, theme, &grid, snap)?;
         // What each connector joins, which a drag of either end runs it between again (PLAN 2.109).
         let joins = (placement.joined.keys())
-            .filter_map(|id| Some((id.clone(), crate::shapes::Joint::of(snap.nodes.get(id.as_str())?, theme)?)))
+            .filter_map(|id| {
+                Some((id.clone(), crate::shapes::Joint::of(snap.nodes.get(id.as_str())?, theme, &snap.nodes)?))
+            })
             .collect();
         Ok(Scene {
             state: snap.state_id.clone(),

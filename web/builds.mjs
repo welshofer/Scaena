@@ -7,7 +7,7 @@
 //   names them (Appear, Typewriter, Pop, Drop, Move In from Left, Spin, Flip, Blink, Jiggle).
 // - Each kind offers its own (PLAN 2.116): an entrance and an exit the builds that start from a
 //   look, emphasis those that go to one and back. Fade enters and Pulse emphasizes, never the other
-//   way round, and Pop does both.
+//   way round, and Pop does both. Build Out names each as an exit: Move Out to Left, Disappear.
 // - Pop chosen is one `apply_preset` patch: the backdrop enters on Pop, its bar in the cue, on the
 //   bouncy spring's time.
 // - Jiggle for emphasis is another, its own bar.
@@ -84,6 +84,14 @@ try {
     `Pulse, Blink, and Jiggle emphasize, and neither enter nor leave: ${kinds.enter.join(", ")}`,
   );
   check(has("enter", "pop") && has("emphasis", "pop"), "and Pop does both");
+  // An exit is named as a Build Out effect is, in the inspector and the cue alike: the entrance
+  // played back.
+  await page.waitForSelector("#look-exit option", { state: "attached", timeout: 30000 }).catch(() => {});
+  const exits = await page.evaluate(() => [...document.querySelectorAll("#look-exit option")].map((o) => o.textContent));
+  check(
+    exits.includes("Move Out to Left") && exits.includes("Disappear") && !exits.includes("Move In from Left"),
+    `Build Out names exits: ${exits.join(", ")}`,
+  );
 
   // Pop, as it enters.
   let n = await trips();

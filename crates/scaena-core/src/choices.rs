@@ -32,13 +32,14 @@ pub struct Choices {
     pub state: String,
     /// Each property the inspector edits: the node type's own, then those every node has.
     pub fields: Vec<Field>,
-    /// The node as a person names it, by what it shows (PLAN 2.99, [`crate::words::object`]):
+    /// The node as a person names it, by what it shows (PLAN 2.99, [`crate::words::object_in`]):
     /// what the session words its answers with for an editor, absent elsewhere.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(skip)]
     pub said: Option<String>,
-    /// Its kind as a person names it, `Text` or `Chart` ([`crate::words::kind`]), as `said` is;
-    /// `Icon` for a path on a view (PLAN 2.104), which the icon picker replaces (PLAN G.23).
+    /// Its kind as a person names it, `Text`, `Chart`, or a shape's, `Star` ([`crate::words::kind_of`]),
+    /// as `said` is; `Icon` for a path on a view (PLAN 2.104), which the icon picker replaces (PLAN
+    /// G.23), and `Drawing` for the pen's (PLAN 2.114), which it does not.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(skip)]
     pub noun: Option<String>,
@@ -307,6 +308,25 @@ pub fn choices(
         if prop.starts_with("interval/") && kind != Some("range") {
             return None;
         }
+        // A donut colors its slices by category and keys them by it alone: it has no series.
+        if matches!(prop, "series/field" | "color/field") && kind == Some("donut") {
+            return None;
+        }
+        // A shape offers what its kind draws (PLAN 2.106, 2.115): corners on a rectangle; a fill
+        // on what closes, not a line or an arrow; a shadow under a rectangle or an ellipse.
+        if node_type == NodeType::Shape {
+            let path = shown.contains_key("path");
+            let kind = kind.unwrap_or(if path { "path" } else { "rect" });
+            let draws = match prop {
+                "radius" => kind == "rect",
+                "fill" => !matches!(kind, "line" | "arrow"),
+                "shadow" => matches!(kind, "rect" | "ellipse"),
+                _ => true,
+            };
+            if !draws {
+                return None;
+            }
+        }
         let takes = match source {
             Data => Takes::Word { words: deck.data.keys().map(|name| format!("@{name}")).collect() },
             Columns => {
@@ -344,6 +364,13 @@ pub fn choices(
                     words.retain(|w| w != "stretch");
                     Takes::Word { words }
                 }
+                // A chart takes the kinds its data makes, and the one it is.
+                Takes::Word { mut words } if node_type == NodeType::Chart && prop == "kind" => {
+                    if let Some(table) = &table {
+                        words.retain(|w| kind == Some(w.as_str()) || makes(w, table, &shown));
+                    }
+                    Takes::Word { words }
+                }
                 takes => takes,
             },
             Fractions(names) => Takes::Fractions { names: names.iter().map(|n| n.to_string()).collect() },
@@ -359,7 +386,11 @@ pub fn choices(
         let literal = value.is_some_and(|v| literal(prop, v));
         let role = shown.get("role").and_then(Value::as_str);
         let layout = snapshots[i].layout.as_deref();
-        let gives = || role_gives(theme, role, prop).or_else(|| slot_gives(theme, layout, shown.get("at"), prop));
+        let gives = || {
+            role_gives(theme, role, prop)
+                .or_else(|| slot_gives(theme, layout, shown.get("at"), prop))
+                .or_else(|| aligned(deck, theme, layout, &shown, prop))
+        };
         let theme = (node_type == NodeType::Text).then(gives).flatten();
         Some(Field { prop: prop.into(), takes, value: value.cloned(), lives, literal, theme, words: None })
     });
@@ -394,6 +425,53 @@ fn slot_gives(theme: &Theme, layout: Option<&str>, at: Option<&Value>, prop: &st
     }
     let slot = at?.get("in")?.as_str()?;
     serde_json::to_value(theme.layouts.get(layout?)?.slots.get(slot)?.fit?).ok()
+}
+
+/// Where a text's lines stand across its box where nothing in the deck says (`align/x`), as the
+/// engine sets them: as the slot it is placed in in `layout` aligns them, else from their start; in
+/// a shape, in its middle (PLAN 2.108). None for any other property.
+fn aligned(deck: &Deck, theme: &Theme, layout: Option<&str>, shown: &Props, prop: &str) -> Option<Value> {
+    if prop != "align/x" {
+        return None;
+    }
+    let at = shown.get("at");
+    let parent = at.and_then(|a| a.get("parent")).and_then(Value::as_str);
+    if parent.and_then(|p| deck.nodes.get(p)).is_some_and(|n| n.node_type == NodeType::Shape) {
+        return Some(Value::from("center"));
+    }
+    let slot = at.and_then(|a| a.get("in")).and_then(Value::as_str).filter(|_| parent.is_none());
+    let align = slot.and_then(|s| theme.layouts.get(layout?)?.slots.get(s)?.align.as_ref());
+    let x = match align {
+        Some(crate::model::values::Align::Both(x)) => Some(*x),
+        Some(crate::model::values::Align::Axes(axes)) => axes.x,
+        None => None,
+    };
+    // A text set to stretch is set from its start.
+    let x = x.filter(|x| *x != crate::model::values::AlignX::Stretch);
+    Some(x.and_then(|x| serde_json::to_value(x).ok()).unwrap_or_else(|| Value::from("start")))
+}
+
+/// Whether a chart of `kind`, its other props as `shown` gives them, can be drawn from `table`, as
+/// validation (E103) and the chart's layout judge it: a scatter's `x` reads numbers or dates; a
+/// donut keys each slice by its `x` (or `key`) alone, so those tell its rows apart; a slope compares
+/// two of its `x`'s values; and a range spans a series or each value's interval.
+fn makes(kind: &str, table: &data::Table, shown: &Props) -> bool {
+    let field = |c: &str| shown.get(c).and_then(|e| e.get("field")).and_then(Value::as_str);
+    let column = |c: &str| field(c).and_then(|f| table.column(f));
+    let (Some(x), Some(y)) = (column("x"), column("y")) else { return true };
+    let drawn = || table.rows.iter().filter(move |row| row[y] != data::Datum::Null);
+    match kind {
+        "scatter" => matches!(table.types[x], data::ColumnType::Number | data::ColumnType::Date),
+        "donut" => {
+            let by = shown.get("key").and_then(Value::as_str).and_then(|k| table.column(k)).unwrap_or(x);
+            let panel = column("facet");
+            let mut seen = std::collections::HashSet::new();
+            drawn().all(|row| seen.insert((panel.map(|p| row[p].label()), row[by].label())))
+        }
+        "slope" => crate::sort::set(drawn().map(|row| row[x].label())).len() == 2,
+        "range" => field("series").is_some() || shown.contains_key("interval"),
+        _ => true,
+    }
 }
 
 /// What an inspector edits on characters selected in a text (PLAN 2.38): a run's own, which

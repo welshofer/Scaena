@@ -55,7 +55,7 @@ pub fn insert(theme: &Theme) -> Insert {
         stroke["width"] = json!(width);
     }
     let node = json!({ "type": "shape", "kind": "path", "alt": "Drawing", "stroke": stroke });
-    Insert { label: "Drawing".into(), node, id: "drawing".into(), start: Start::Box { w: 0.25, h: 0.25 } }
+    Insert { label: "Drawing".into(), node, id: "drawing".into(), start: Start::Box { w: 0.25, h: 0.25 }, sample: None }
 }
 
 /// The patch that draws `stroke`, the points a pen gave in canvas units in the order it gave them,

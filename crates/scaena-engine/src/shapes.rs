@@ -695,27 +695,103 @@ pub struct Joint {
     pub to: String,
     /// It leaves `from` by the side that faces `to` and turns at right angles.
     pub elbow: bool,
-    /// How far each end stands off its box, canvas units: the theme's `space.2`, so an
+    /// How far each end stands off what it joins, canvas units: the theme's `space.2`, so an
     /// arrowhead points at a box rather than into it.
     pub gap: f32,
+    /// The outlines of `from` and `to`, which a straight one meets.
+    pub ends: [Outline; 2],
+}
+
+/// The outline a connector meets at one of its ends (PLAN 2.109): what that end draws, an oval
+/// or a polygon, as a presentation app's connection line meets a shape; else its box.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum Outline {
+    #[default]
+    Box,
+    Ellipse,
+    /// Its points, fractions of its box.
+    Polygon(Vec<[f32; 2]>),
+}
+
+impl Outline {
+    /// The outline of a node as `props` show it: a shape's oval or polygon; anything else its box.
+    pub fn of(props: Option<&Props>) -> Outline {
+        let Some(props) = props.filter(|p| p.contains_key("kind") && !p.contains_key("data")) else {
+            return Outline::Box;
+        };
+        match props.get("kind").and_then(Value::as_str) {
+            Some("ellipse") => Outline::Ellipse,
+            Some("polygon") => {
+                let points: Option<Vec<[f32; 2]>> =
+                    props.get("points").and_then(|v| serde_json::from_value(v.clone()).ok());
+                points.filter(|p| p.len() >= 3).map_or(Outline::Box, Outline::Polygon)
+            }
+            _ => Outline::Box,
+        }
+    }
+
+    /// How far from the middle of `r`, along the unit `u`, this outline lies: where a line from
+    /// outside toward the middle first meets it.
+    fn reach(&self, r: Rect, u: [f32; 2]) -> f32 {
+        let boxed = || {
+            let across = if u[0].abs() > 1e-6 { r[2] / 2.0 / u[0].abs() } else { f32::INFINITY };
+            let down = if u[1].abs() > 1e-6 { r[3] / 2.0 / u[1].abs() } else { f32::INFINITY };
+            across.min(down)
+        };
+        match self {
+            Outline::Box => boxed(),
+            Outline::Ellipse => {
+                let (rx, ry) = (r[2] / 2.0, r[3] / 2.0);
+                if rx <= 0.0 || ry <= 0.0 {
+                    return boxed();
+                }
+                1.0 / ((u[0] / rx).powi(2) + (u[1] / ry).powi(2)).sqrt()
+            }
+            Outline::Polygon(points) => {
+                let m = [r[0] + r[2] / 2.0, r[1] + r[3] / 2.0];
+                let at = |p: &[f32; 2]| [r[0] + p[0] * r[2], r[1] + p[1] * r[3]];
+                let cross = |a: [f32; 2], b: [f32; 2]| a[0] * b[1] - a[1] * b[0];
+                // The farthest the ray from the middle crosses an edge: the last it leaves by.
+                let far = (0..points.len())
+                    .filter_map(|i| {
+                        let (p, q) = (at(&points[i]), at(&points[(i + 1) % points.len()]));
+                        let e = [q[0] - p[0], q[1] - p[1]];
+                        let d = cross(u, e);
+                        if d.abs() < 1e-9 {
+                            return None;
+                        }
+                        let w = [p[0] - m[0], p[1] - m[1]];
+                        let (t, s) = (cross(w, e) / d, cross(w, u) / d);
+                        (t >= 0.0 && (-1e-6..=1.0 + 1e-6).contains(&s)).then_some(t)
+                    })
+                    .fold(None, |most: Option<f32>, t| Some(most.map_or(t, |m| m.max(t))));
+                far.unwrap_or_else(boxed)
+            }
+        }
+    }
 }
 
 impl Joint {
-    /// The joint a node's `props` make, if they are a connector's.
-    pub fn of(props: &Props, theme: &Theme) -> Option<Joint> {
+    /// The joint a node's `props` make, if they are a connector's; `nodes` are the state's, which
+    /// give the outlines of what it joins.
+    pub fn of(props: &Props, theme: &Theme, nodes: &indexmap::IndexMap<String, Props>) -> Option<Joint> {
         let connect = props.get("connect")?;
         let end = |key: &str| connect.get(key).and_then(Value::as_str).map(str::to_string);
+        let (from, to) = (end("from")?, end("to")?);
+        let ends = [Outline::of(nodes.get(&from)), Outline::of(nodes.get(&to))];
         Some(Joint {
-            from: end("from")?,
-            to: end("to")?,
+            from,
+            to,
             elbow: connect.get("route").and_then(Value::as_str) == Some("elbow"),
             gap: theme.tokens.space.scale.get(2).map_or(theme.tokens.space.unit as f32, |s| s.0 as f32),
+            ends,
         })
     }
 
     /// Its route between the boxes `from` and `to`, canvas units: its box, and its points as
     /// fractions of that box. A straight one runs along the line between the boxes' middles,
-    /// from where it leaves `from` to where it meets `to`; an elbow leaves `from` by the side
+    /// from where it leaves `from`'s outline to where it meets `to`'s (its oval, or its polygon,
+    /// else its box); an elbow leaves `from` by the side
     /// that faces `to`, turns twice at right angles, and meets `to`'s facing side: down, or up,
     /// where one box is above the other, as an organization chart's lines run, even where it
     /// stands to one side too, and across where they stand side by side (PLAN 2.110). Boxes that
@@ -742,14 +818,9 @@ impl Joint {
             vec![[a[0], y0], [a[0], ym], [b[0], ym], [b[0], y1]]
         } else {
             let length = dx.hypot(dy);
-            // How far along the line from a box's middle its edge is.
-            let edge = |r: Rect, u: [f32; 2]| {
-                let across = if u[0].abs() > 1e-6 { r[2] / 2.0 / u[0].abs() } else { f32::INFINITY };
-                let down = if u[1].abs() > 1e-6 { r[3] / 2.0 / u[1].abs() } else { f32::INFINITY };
-                across.min(down)
-            };
             let u = if length > 1e-3 { [dx / length, dy / length] } else { [1.0, 0.0] };
-            let (ta, tb) = (edge(from, u) + gap, edge(to, u) + gap);
+            // How far along the line from each end's middle its outline is.
+            let (ta, tb) = (self.ends[0].reach(from, u) + gap, self.ends[1].reach(to, [-u[0], -u[1]]) + gap);
             if length <= 1e-3 || ta + tb >= length {
                 vec![a, b]
             } else {

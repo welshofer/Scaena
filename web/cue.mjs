@@ -227,7 +227,8 @@ try {
   await page.waitForFunction(() => [...document.querySelectorAll("#cue [data-add] option")].some((o) => o.value.includes('"exit","subtitle","rise"')), null, { timeout: 30000 });
   n = await trips();
   await page.locator("#cue [data-add]").selectOption('["exit","subtitle","rise"]');
-  check(await says("Rise added to") && (await status()).includes("as it leaves"), `a rise as the subtitle leaves: ${await status()}`);
+  // A rise played out is said as a Build Out effect is: Sink.
+  check(await says("Sink added to") && (await status()).includes("as it leaves"), `a rise as the subtitle leaves, said as Sink: ${await status()}`);
   await redrawn(n);
   check((await bar("subtitle exit")) !== undefined, "the cue has its bar");
   const intro = (await source()).split("state revenue")[0];

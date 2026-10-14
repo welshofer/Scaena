@@ -115,3 +115,25 @@ fn every_shipped_layout_draws_its_example_in_each_slot_that_waits() {
     }
     assert!(drawn > 150, "examples drawn: {drawn}");
 }
+
+/// A title slide's byline (its `kicker`) stands under the title and the line on what the talk is
+/// about, or along the top, in every shipped theme: never under the picture beside them, where it
+/// reads as the picture's caption.
+#[test]
+fn a_title_slides_byline_is_no_caption_of_its_picture() {
+    for (name, theme) in SHIPPED {
+        let t: scaena_core::model::theme::Theme =
+            serde_json::from_str(&std::fs::read_to_string(theme).unwrap()).unwrap();
+        let slots = &t.layouts["title"].slots;
+        let span = |slot: &str| -> [u64; 2] {
+            let col = serde_json::to_value(slots[slot].col).unwrap();
+            match col {
+                serde_json::Value::Array(ab) => [ab[0].as_u64().unwrap(), ab[1].as_u64().unwrap()],
+                one => [one.as_u64().unwrap(); 2],
+            }
+        };
+        let (kicker, art, title) = (span("kicker"), span("art"), span("title"));
+        assert!(kicker[1] < art[0] || kicker[0] > art[1], "{name}: the byline {kicker:?} under the picture {art:?}");
+        assert_eq!(kicker[0], title[0], "{name}: the byline starts where the title does");
+    }
+}

@@ -408,7 +408,9 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
     const group = (label: string, kind: string, of: string) => {
       const g = Object.assign(document.createElement("optgroup"), { label });
       const offered = kind === "emphasis" ? presets.emphasis : presets.enter;
-      for (const p of offered) g.append(new Option(named(words, "motion-preset", p), JSON.stringify([kind, of, p])));
+      // An exit is named as a Build Out effect is: Move Out to Left (the lexicon's `exit`).
+      const said = (p: string) => named(words, kind === "exit" ? "exit" : "motion-preset", p);
+      for (const p of offered) g.append(new Option(said(p), JSON.stringify([kind, of, p])));
       if (offered.length) groups.push(g);
     };
     if (node && found.nodes[node]) {
@@ -436,7 +438,7 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
     const it = object(words, node, true);
     if (!state) return editor.say(`${it[0].toUpperCase()}${it.slice(1)} leaves no slide before this one`);
     const verb = { enter: "as it enters", emphasis: "for emphasis", exit: "as it leaves" }[motion];
-    void make({ op: "apply_preset", node, preset, motion, state }, "Adding…", `${named(words, "motion-preset", preset)} added to ${it} ${verb}`);
+    void make({ op: "apply_preset", node, preset, motion, state }, "Adding…", `${named(words, motion === "exit" ? "exit" : "motion-preset", preset)} added to ${it} ${verb}`);
   };
 
   return {

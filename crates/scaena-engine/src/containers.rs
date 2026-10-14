@@ -259,7 +259,7 @@ pub fn place(
     // A connector runs between what it joins (PLAN 2.109), wherever each was placed: its box is
     // its route's, and its points the route's, as fractions of that box.
     for (id, props) in &snap.nodes {
-        let Some(joint) = crate::shapes::Joint::of(props, theme) else { continue };
+        let Some(joint) = crate::shapes::Joint::of(props, theme, &snap.nodes) else { continue };
         let (Some(&from), Some(&to)) = (placement.boxes.get(&joint.from), placement.boxes.get(&joint.to)) else {
             continue;
         };
@@ -1098,6 +1098,35 @@ mod tests {
         let ad = drawn("ad");
         let elbow = [[308.0, 150.0], [450.0, 150.0], [450.0, 200.0], [592.0, 200.0]];
         assert!(ad.len() == 4 && ad.iter().zip(elbow).all(|(p, q)| near(*p, q)), "{ad:?}");
+    }
+
+    #[test]
+    fn a_connector_meets_an_ovals_outline_and_a_polygons() {
+        // A connector meets what its ends draw (PLAN 2.109), `space.2` (8) clear of it, as a
+        // presentation app's connection line meets a shape: an oval's curve, a star's point, not
+        // the corner of the box either stands in.
+        let star = scaena_core::inserts::polygons().into_iter().find(|(name, ..)| *name == "star").unwrap().1;
+        let placement = place_deck(&deck(json!({
+            "a": { "type": "shape", "kind": "ellipse", "at": { "rect": [100, 100, 200, 200] } },
+            "b": { "type": "shape", "kind": "ellipse", "at": { "rect": [700, 700, 200, 200] } },
+            "s": { "type": "shape", "kind": "polygon", "points": star, "at": { "rect": [1200, 100, 200, 200] } },
+            "ab": { "type": "shape", "kind": "line", "connect": { "from": "a", "to": "b" } },
+            "as": { "type": "shape", "kind": "line", "connect": { "from": "a", "to": "s" } }
+        })))
+        .unwrap();
+        let drawn = |id: &str| -> Vec<[f32; 2]> {
+            let [x, y, w, h] = placement.boxes[id];
+            placement.joined[id].iter().map(|p| [x + p[0] * w, y + p[1] * h]).collect()
+        };
+        // Each end 100 + 8 from its circle's middle along the diagonal, not at its box's corner.
+        let ab = drawn("ab");
+        let off = |p: [f32; 2], m: [f32; 2]| (p[0] - m[0]).hypot(p[1] - m[1]);
+        assert!((off(ab[0], [200.0, 200.0]) - 108.0).abs() < 0.5, "{ab:?}");
+        assert!((off(ab[1], [800.0, 800.0]) - 108.0).abs() < 0.5, "{ab:?}");
+        // To the star across, it meets the star's left arm, inside the box's side.
+        let to_star = drawn("as")[1];
+        let left = 1200.0 + star.iter().map(|p| p[0]).fold(f64::MAX, f64::min) as f32 * 200.0;
+        assert!(to_star[0] > left - 8.5 && to_star[0] > 1192.5, "{to_star:?}, the star's left {left}");
     }
 
     #[test]
