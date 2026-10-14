@@ -132,6 +132,11 @@ pub struct Session {
     /// The source the editor compiled last (PLAN 2.3).
     #[cfg(feature = "editor")]
     edit: Option<editor::Edit>,
+    /// What validation found in the deck shown, where a compile found it valid against the files
+    /// as they are since: what a patch made on it and a lint of it take, rather than validate it
+    /// again. Gone once the deck or a file changes.
+    #[cfg(feature = "editor")]
+    validated: Option<Vec<scaena_core::Finding>>,
     /// What the layout rules found in every state the last time they ran on all of them:
     /// kept for the states a lint of one state does not lay out.
     #[cfg(feature = "editor")]
@@ -336,6 +341,8 @@ impl Session {
             #[cfg(feature = "editor")]
             edit: None,
             #[cfg(feature = "editor")]
+            validated: None,
+            #[cfg(feature = "editor")]
             laid: editor::Laid::default(),
             #[cfg(feature = "editor")]
             subsets: BTreeMap::new(),
@@ -368,6 +375,10 @@ impl Session {
     /// format the deck no longer lists falls back to its own canvas. A deck that names other
     /// fonts or images builds the engine again on the next frame.
     pub fn set_deck(&mut self, deck: Deck) {
+        #[cfg(feature = "editor")]
+        {
+            self.validated = None;
+        }
         if self.format.as_ref().is_some_and(|f| !deck.formats.contains(f)) {
             self.format = None;
         }
@@ -428,7 +439,7 @@ impl Session {
             self.data.insert(path, bytes.clone());
             self.forget();
         }
-        Arc::make_mut(&mut self.files).insert(path.to_string(), bytes);
+        self.files_mut().insert(path.to_string(), bytes);
         // The theme the deck names, edited (ADR-0016): frames are drawn in it from now on.
         if self.deck.theme.as_ref().and_then(|t| t.as_str()) == Some(path) {
             self.follow_theme(&self.deck.clone());
@@ -496,7 +507,6 @@ impl Session {
         }
     }
 
-    /// Build the engine from the fonts and images the deck names, if it is not built yet.
     /// Let the engine go, to be built again on the next frame from what the deck names now,
     /// keeping what it worked out of the global timeline: the files it read read as they did.
     fn let_engine_go(&mut self) {
@@ -505,6 +515,16 @@ impl Session {
         }
     }
 
+    /// The bundle's files, to change: what validation found in the deck shown no longer holds.
+    fn files_mut(&mut self) -> &mut BTreeMap<String, Vec<u8>> {
+        #[cfg(feature = "editor")]
+        {
+            self.validated = None;
+        }
+        Arc::make_mut(&mut self.files)
+    }
+
+    /// Build the engine from the fonts and images the deck names, if it is not built yet.
     fn build(&mut self) -> Result<&mut Engine, Error> {
         if self.engine.is_none() {
             let (engine, store) = engine_for(&self.deck, &self.theme, &self.files, &self.store)?;
@@ -1960,7 +1980,8 @@ impl Session {
         // A text typed past the foot of its cells grows to hold its lines, in the same change.
         let grown = if typing { self.growing(ops)? } else { None };
         let ops = grown.as_ref().unwrap_or(ops);
-        let (patched, write) = scaena_ops::patch::typing(&self.bundle(), ops, typing.then_some(store::TYPED))?;
+        let what = typing.then_some(store::TYPED);
+        let (patched, write) = scaena_ops::patch::typing(&self.bundle(), ops, what, self.validated.clone())?;
         if patched.refused {
             let why = patched.added.iter().find(|f| f.severity == scaena_core::lint::Severity::Error);
             return Err(Error::Ops(format!("the deck refuses it: {}", why.map_or("", |f| f.message.as_str()))));
@@ -4924,5 +4945,41 @@ mod gestures {
             ((c[0] + c[2]).min(x + w) - c[0].max(x)).max(0.0) * ((c[1] + c[3]).min(y + h) - c[1].max(y)).max(0.0);
         assert!(over < 0.5 * w * h, "{c:?} covers {:.0}% of the title at {:?}", 100.0 * over / (w * h), [x, y, w, h]);
         assert!(c[1] > y, "it goes down: {c:?}");
+    }
+
+    /// A deck compiled valid is validated once: what the compile found is what validation finds
+    /// in the deck shown, so a gesture's patch and the lint after it take that, and a patch made
+    /// so says what one that validates the deck again says. A file handed over or taken out, or
+    /// another deck shown, lets it go.
+    #[test]
+    fn a_deck_compiled_valid_is_validated_once() {
+        let decks = ["higher-ed", "trails", "revenue", "charts", "ridgeline"].map(|name| (name, example(name)));
+        for (name, mut s) in decks.into_iter().chain([("torture", torture())]) {
+            let source = s.source();
+            assert!(s.compile(&source).valid, "{name}");
+            let json = s.deck.to_json().unwrap();
+            let fresh = scaena_core::validate::validate_bundle(&json, &editor::Handed(&s.files)).unwrap();
+            assert_eq!(s.validated.as_ref(), Some(&fresh), "{name}");
+            let state = s.deck.states[0].id.clone();
+            let shown = scaena_core::resolve_states(&s.deck).unwrap().swap_remove(0).nodes;
+            let text = |id: &&String| s.deck.nodes[*id].node_type == scaena_core::document::NodeType::Text;
+            let node = shown.keys().find(text).unwrap().clone();
+            let ops = json!([{ "op": "set_text", "node": node, "text": "W".repeat(400) }, { "op": "hide_node", "node": node, "state": state }]);
+            let (kept, _) = scaena_ops::patch::typing(&s.bundle(), &ops, None, s.validated.clone()).unwrap();
+            let (again, _) = scaena_ops::patch::typing(&s.bundle(), &ops, None, None).unwrap();
+            assert_eq!(serde_json::to_value(&kept).unwrap(), serde_json::to_value(&again).unwrap(), "{name}");
+        }
+        let mut s = example("higher-ed");
+        let source = s.source();
+        s.compile(&source);
+        let picture = s.files[&s.image_files()[0]].clone();
+        s.add_file("assets/spare.png", picture);
+        assert_eq!(s.validated, None, "a file handed over");
+        s.compile(&source);
+        s.remove_file("assets/spare.png").unwrap();
+        assert_eq!(s.validated, None, "a file taken out");
+        s.compile(&source);
+        s.set_deck(s.deck.clone());
+        assert_eq!(s.validated, None, "a deck shown");
     }
 }

@@ -2005,6 +2005,28 @@ fn every_slide_copies_whole_keeping_what_is_each_nodes_own() {
     }
 }
 
+/// A slide whose state takes away what a node's own props set (a delta's `null`, on the node or
+/// one level down in an object) copies as it shows, not refused: the copy takes it away too, so
+/// the node's own look does not come back in it.
+#[test]
+fn a_slide_that_takes_a_nodes_own_look_away_copies_as_it_shows() {
+    let mut doc = example();
+    doc["states"][1]["props"]["note"] = json!({ "semantic": null });
+    doc["states"][1]["props"]["rev"] = json!({ "y": { "title": null } });
+    let c = patch(&doc, json!([{ "op": "duplicate_slide", "slide": "revenue" }])).unwrap();
+    assert_eq!(errors(&c.doc), Vec::<String>::new());
+    let snaps = scaena_core::resolve_states(&deck(&c.doc)).unwrap();
+    let shown = |state: &str| snaps.iter().find(|s| s.state_id == state).unwrap().nodes.clone();
+    assert_eq!(shown("revenue-2"), shown("revenue"));
+    assert_eq!(shown("mix-2"), shown("mix"));
+    let copy = &c.doc["states"][2]["props"];
+    assert_eq!((&copy["note"]["semantic"], &copy["rev"]["y"]["title"]), (&Value::Null, &Value::Null), "{copy}");
+    // An editor writes the deck out as its source and compiles that: the copy reads the same.
+    let copied = deck(&c.doc);
+    let back = scaena_core::dsl::compile(&scaena_core::dsl::decompile(&copied)).unwrap();
+    assert_eq!(back.to_json().unwrap(), copied.to_json().unwrap());
+}
+
 /// A slide deleted takes with it each object it alone showed, as a presentation app's does, and
 /// leaves every other node: one another slide shows, and one no slide showed before.
 #[test]
@@ -2036,6 +2058,13 @@ fn a_slide_deleted_takes_what_it_alone_showed() {
     let copied = patch(&doc, json!([{ "op": "duplicate_slide", "slide": "revenue" }])).unwrap();
     let c = patch(&copied.doc, json!([{ "op": "remove_slide", "slide": "revenue-2" }])).unwrap();
     assert_eq!(nodes(&c.doc), nodes(&doc));
+    // In a deck that does not read as typed, a state still goes, and every node stays: validation
+    // says what is wrong.
+    let mut broken = doc.clone();
+    broken["states"][0]["hold"] = json!("long");
+    let c = patch(&broken, json!([{ "op": "remove_state", "id": "mix" }])).unwrap();
+    assert_eq!(c.doc["states"].as_array().unwrap().len(), 3);
+    assert_eq!(nodes(&c.doc), nodes(&broken));
 }
 
 /// A motion's emphasis belongs to one state (§2.2): chosen in a step, it is written in that step,

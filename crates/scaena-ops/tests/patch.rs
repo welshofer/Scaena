@@ -22,7 +22,7 @@ fn edited(b: &scaena_ops::Bundle, ops: &Value) -> (scaena_ops::patch::Patched, V
         let mut engine = engine_in(deck, &files, theme, Some(&mut assets))?;
         layout_rules_on(&mut engine, deck, theme, &data_in(deck, &files)?, &assets, states)
     };
-    let (patched, _) = editing(b, ops, None, layout).unwrap();
+    let (patched, _) = editing(b, ops, None, None, layout).unwrap();
     (patched, asked)
 }
 
@@ -77,4 +77,41 @@ fn a_state_removed_is_judged_before_and_the_state_after_it_on_both_sides() {
     assert!(asked[0].contains(&gone.to_string()) && asked[0].contains(&next.to_string()), "{:?}", asked[0]);
     assert!(asked[1].contains(&next.to_string()) && !asked[1].contains(&gone.to_string()), "{:?}", asked[1]);
     assert!(asked.iter().all(|states| states.len() < 5), "{asked:?}");
+}
+
+/// Whether a deck runs on its own is the deck's: a state an edit leaves showing for no time in a
+/// deck whose other states hold is W323 in what the edit adds, as the whole deck's lint finds it,
+/// though the edit lays out that state alone.
+#[test]
+fn a_state_an_edit_leaves_showing_for_no_time_is_found_where_the_whole_lint_finds_it() {
+    let b = scaena_ops::open(Path::new("../../docs/examples/revenue.deck.json")).unwrap();
+    let ops = json!([{ "op": "set_state", "id": "close", "prop": "hold", "value": null }]);
+    let (scoped, asked) = edited(&b, &ops);
+    assert!(asked.iter().all(|states| states == &["close"]), "{asked:?}");
+    let (whole, _) = patching(&b, &ops, None).unwrap();
+    assert!(said(&whole.added).iter().any(|f| f.starts_with("W323")), "{:?}", said(&whole.added));
+    assert_eq!(said(&scoped.added), said(&whole.added));
+}
+
+/// A hold given to a deck that held nowhere makes it run on its own, which every state is judged
+/// by: the edit reaches every state, and each other that shows for no time is W323 in what it
+/// adds, as the whole deck's lint finds it.
+#[test]
+fn a_hold_that_makes_the_deck_run_on_its_own_reaches_every_state() {
+    let b = scaena_ops::open(Path::new("../../docs/examples/revenue.deck.json")).unwrap();
+    let unheld: Vec<Value> = (b.deck.states.iter())
+        .map(|s| json!({ "op": "set_state", "id": s.id, "prop": "hold", "value": null }))
+        .collect();
+    let (_, write) = patching(&b, &Value::Array(unheld), None).unwrap();
+    let live = scaena_ops::Bundle { deck: write.unwrap().deck, ..b.clone() };
+    let ops = json!([{ "op": "set_state", "id": "intro", "prop": "hold", "value": 4000 }]);
+    let (scoped, asked) = edited(&live, &ops);
+    assert!(asked.iter().all(|states| states.len() == live.deck.states.len()), "{asked:?}");
+    let (whole, _) = patching(&live, &ops, None).unwrap();
+    assert!(
+        said(&whole.added).iter().any(|f| f.starts_with("W323") && f.contains("close")),
+        "{:?}",
+        said(&whole.added)
+    );
+    assert_eq!(said(&scoped.added), said(&whole.added));
 }
