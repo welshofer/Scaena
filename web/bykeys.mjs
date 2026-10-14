@@ -13,6 +13,8 @@
 // - [ and ] turn what is selected; ⌘A selects all beside it. Space, Tab, and Space build a
 //   selection by keys, a node at a time, and Escape stops (PLAN 2.89).
 // - In a layout shown, Tab keys a slot and an arrow moves it a track: one theme edit.
+// - A node in a slot, the revenue cover's title: an arrow steps it a track onto the grid, and
+//   Shift with one resizes it; neither says it is at the edge.
 // - The keys sheet lists the keys, and axe-core finds nothing with a handle keyed.
 // Exits 1 on any failure.
 import { createRequire } from "node:module";
@@ -147,8 +149,12 @@ try {
   });
   check(!found.length, `axe finds nothing with a handle keyed${found.length ? `:\n    ${found.join("\n    ")}` : ""}`);
   check((await page.locator("#overlay svg .keyed").count()) === 1, "the handle keyed is marked");
+  // The crop starts from what shows, its right side a hundredth of the picture in.
+  const f = await page.evaluate(() => window.scaena.canvas.framing());
+  const th = (v) => String(Math.round(v * 1000) / 1000).replace(".", "\\.");
+  const kept = `crop:\\[${th((f.shown[0] - f.whole[0]) / f.whole[2])}, 0, ${th(f.shown[2] / f.whole[2] - 0.01)}, 1\\]`;
   await press(page, "ArrowLeft");
-  check(await comes(page, "crop:\\[0, 0, 0\\.99, 1\\]"), "← crops a hundredth from the right");
+  check(await comes(page, kept), `← crops a hundredth from the right of what shows: ${kept}`);
   await undo(page);
   check(await back(page, original), "one undo takes it back");
   await page.evaluate(() => window.scaena.canvas.select("image-cover"));
@@ -241,6 +247,31 @@ try {
   await press(rev, "Control+z");
   await press(rev, "Escape");
   await press(rev, "Escape");
+
+  // A node in a slot, the cover's title: → steps it a track onto the grid, as a presentation app's
+  // arrow nudges any object, and Shift+→ makes it a track wider; neither says it is at the edge.
+  await show(rev, "intro");
+  const plain = await rev.evaluate(() => window.scaena.source());
+  await rev.evaluate(() => window.scaena.canvas.select("title"));
+  await rev.locator("#overlay").focus();
+  await press(rev, "ArrowRight");
+  const stepped = await rev
+    .waitForFunction((was) => window.scaena.source() !== was, plain, { timeout: 30000, polling: 50 })
+    .then(() => true)
+    .catch(() => false);
+  check(stepped && !(await status(rev)).includes("at the edge"), `→ moves the title out of its slot a track: ${await status(rev)}`);
+  await undo(rev);
+  check(await back(rev, plain), "one undo takes it back");
+  await rev.evaluate(() => window.scaena.canvas.select("title"));
+  await rev.locator("#overlay").focus();
+  await press(rev, "Shift+ArrowRight");
+  const grown = await rev
+    .waitForFunction((was) => window.scaena.source() !== was, plain, { timeout: 30000, polling: 50 })
+    .then(() => true)
+    .catch(() => false);
+  check(grown && !/at the edge|sits in a slot/.test(await status(rev)), `Shift+→ resizes it a track: ${await status(rev)}`);
+  await undo(rev);
+  check(await back(rev, plain), "one undo takes it back");
 
   // The keys sheet.
   await press(rev, "?");

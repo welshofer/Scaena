@@ -18,6 +18,7 @@ use crate::document::{Deck, NodeType, Props};
 use crate::lint::literal;
 use crate::model::check::Checker;
 use crate::model::theme::{Theme, Vocabulary};
+use crate::model::values::SplitUnit;
 use crate::tracking::{Lives, layout_lives, layout_takers, lives, merge_props, resolve_states};
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -332,12 +333,21 @@ pub fn choices(
                 }
                 // An entrance and an exit take the presets that start from a look, and emphasis
                 // those that go to one and back (PLAN 2.116): Fade enters, Pulse emphasizes, and
-                // Pop, Drop, and Swing do both.
+                // Pop, Drop, and Swing do both. One that moves a text's words, letters, or lines
+                // one at a time is a text's, and one that moves a chart's marks a chart's, as the
+                // engine splits them.
                 if of == V::MotionPreset {
                     let presets = &theme.motion.presets;
                     let emphasis = prop == "emphasis";
+                    let splits = |split: Option<SplitUnit>| match split {
+                        Some(SplitUnit::Lines | SplitUnit::Words | SplitUnit::Glyphs) => node_type == NodeType::Text,
+                        Some(SplitUnit::Marks) => node_type == NodeType::Chart,
+                        Some(SplitUnit::Children) | None => true,
+                    };
                     names.retain(|n| {
-                        presets.get(n).is_some_and(|p| if emphasis { p.to.is_some() } else { p.from.is_some() })
+                        presets.get(n).is_some_and(|p| {
+                            splits(p.split) && if emphasis { p.to.is_some() } else { p.from.is_some() }
+                        })
                     });
                 }
                 Takes::Name { of, names, overrides }

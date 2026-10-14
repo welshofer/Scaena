@@ -179,6 +179,56 @@ fn an_image_offers_its_border_and_its_adjustments() {
     assert_eq!((saturation.value.clone(), saturation.lives.clone()), (Some(json!(-1)), Some(Where::Node)));
 }
 
+/// A picture's builds are those a picture plays (PLAN 2.116): none that moves a text's words or
+/// letters, or a chart's marks, one at a time; and Build Out names each as it leaves, the
+/// entrance played back, so what moves in from the left moves out to it.
+#[test]
+fn an_image_offers_the_builds_it_plays_and_names_its_exits_as_they_leave() {
+    let mut doc = example();
+    doc["nodes"]["photo"] = json!({ "type": "image", "src": "assets/photo.jpg", "at": { "rect": [96, 96, 640, 360] } });
+    doc["states"][0]["props"]["photo"] = json!({});
+    let mut c = offered(&doc, "intro", "photo");
+    for prop in ["enter", "exit"] {
+        let Takes::Name { names, .. } = &field(&c, prop).takes else { panic!() };
+        for text in ["words", "typewriter", "grow"] {
+            assert!(!names.iter().any(|n| n == text), "{prop} offers {text} on a picture: {names:?}");
+        }
+        assert!(names.iter().any(|n| n == "moveInLeft") && names.iter().any(|n| n == "fade"), "{names:?}");
+    }
+    // A text still takes its own.
+    let title = offered(&example(), "intro", "title");
+    let Takes::Name { names, .. } = &field(&title, "enter").takes else { panic!() };
+    assert!(names.iter().any(|n| n == "words") && names.iter().any(|n| n == "typewriter"), "{names:?}");
+
+    let deck: Deck = serde_json::from_value(doc).unwrap();
+    scaena_core::words::choices(&mut c, &deck, &Theme::from_json(DUSK).unwrap());
+    let said = |prop: &str, name: &str| field(&c, prop).words.as_ref().unwrap().said[name].clone();
+    assert_eq!(said("enter", "moveInLeft"), "Move In from Left");
+    assert_eq!(said("exit", "moveInLeft"), "Move Out to Left");
+    assert_eq!(said("exit", "moveInBottom"), "Move Out to Bottom");
+    assert!(field(&c, "exit").words.as_ref().unwrap().said.values().all(|w| !w.contains("In from")));
+}
+
+/// A color well shows the color a name is (PLAN 2.99): each of the theme's names offered, the
+/// value, and the theme's, as `#rrggbb`, a role through the token it names. A text that sets
+/// none shows the theme's Text, not black.
+#[test]
+fn a_color_says_the_color_each_name_is() {
+    let theme = Theme::from_json(DUSK).unwrap();
+    let mut c = offered(&example(), "revenue", "title");
+    let deck: Deck = serde_json::from_value(example()).unwrap();
+    scaena_core::words::choices(&mut c, &deck, &theme);
+    let color = field(&c, "style/color");
+    let colors = &color.words.as_ref().unwrap().colors;
+    assert_eq!(color.value, None, "the title sets no color of its own");
+    assert_eq!(color.theme, Some(json!("onSurface")));
+    assert_eq!(colors["onSurface"], "#f2f0e9");
+    assert_eq!(colors["accent"], "#ff6a3d");
+    assert_eq!(colors["paper-2"], "#17171d");
+    // Only a color offers them.
+    assert!(field(&c, "role").words.as_ref().unwrap().colors.is_empty());
+}
+
 /// What a chart reads, and how, from its data (PLAN 2.41): its source, from the deck's; each
 /// channel's field, from the columns of the table it reads that the channel can read; the
 /// type it reads it as; and its key.
