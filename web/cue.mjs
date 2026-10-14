@@ -248,12 +248,13 @@ try {
   check(await says("Sink added to") && (await status()).includes("as it leaves"), `a rise as the subtitle leaves, said as Sink: ${await status()}`);
   await redrawn(n);
   check(await barred("subtitle exit"), "the cue has its bar");
-  // Its lane, and its bar as a screen reader hears it, say it leaves, not only its bar's color.
+  // Its lane, and its bar as a screen reader hears it, say it leaves, not only its bar's color,
+  // and name the exit as the menu does.
   const leaving = await page.evaluate(() => {
     const i = window.scaena.cue.bars().findIndex((b) => b.key === "subtitle exit");
     return [document.querySelector(`#cue .label[data-bar="${i}"]`)?.textContent, document.querySelector(`#cue .bar[data-bar="${i}"]`)?.getAttribute("aria-label")];
   });
-  check(/^Leaves · Rise · This quarter/.test(leaving[0] ?? "") && /^Leaves · Rise · .*: when it starts$/.test(leaving[1] ?? ""), `its lane and its bar say it leaves: ${leaving.join(" | ")}`);
+  check(/^Leaves · Sink · This quarter/.test(leaving[0] ?? "") && /^Leaves · Sink · .*: when it starts$/.test(leaving[1] ?? ""), `its lane and its bar say it leaves: ${leaving.join(" | ")}`);
   const intro = (await source()).split("state revenue")[0];
   check(/subtitle[^\n]*exit:rise/.test(intro), "written in intro, which it leaves");
   await undo();
