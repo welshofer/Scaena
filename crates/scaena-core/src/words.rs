@@ -247,13 +247,25 @@ pub fn kind(t: Option<NodeType>) -> &'static str {
 const NAMED: usize = 40;
 
 /// A node's kind as `props` show it, as a person names it: a connector is an Arrow or a Line
-/// (PLAN 2.109), and anything else its type's kind.
+/// (PLAN 2.109), a polygon of the shape library is its shape, a Star (PLAN 2.106), and anything
+/// else its type's kind.
 pub fn kind_of(t: NodeType, props: &Props) -> &'static str {
     match props.get("kind").and_then(Value::as_str) {
         Some("arrow") if t == NodeType::Shape && props.contains_key("connect") => "Arrow",
         Some("line") if t == NodeType::Shape && props.contains_key("connect") => "Line",
+        Some("polygon") if t == NodeType::Shape => library(props).unwrap_or(kind(Some(t))),
         _ => kind(Some(t)),
     }
+}
+
+/// The shape of the library a polygon is, as Insert names it (PLAN 2.106): one whose `points` are
+/// a library shape's, to the four places each is written to.
+fn library(props: &Props) -> Option<&'static str> {
+    let points: Vec<[f64; 2]> = serde_json::from_value(props.get("points")?.clone()).ok()?;
+    let near = |a: &[f64; 2], b: &[f64; 2]| (a[0] - b[0]).abs() < 1e-3 && (a[1] - b[1]).abs() < 1e-3;
+    let (name, _, _) = (crate::inserts::polygons().into_iter())
+        .find(|(_, shape, _)| shape.len() == points.len() && shape.iter().zip(&points).all(|(a, b)| near(a, b)))?;
+    SHAPES.iter().find(|(kind, _)| *kind == name).map(|(_, said)| *said)
 }
 
 /// A node as a person names it, as `props` show it: a text by its words, anything else by its
@@ -854,5 +866,23 @@ mod tests {
         assert_eq!(weight(650.0), "650");
         assert_eq!(theme("themes/dusk.theme.json"), "Dusk");
         assert_eq!(theme("themes/dusk-2.theme.json"), "Dusk 2");
+    }
+
+    /// A polygon of the shape library is named as Insert names it (PLAN 2.106), wherever an editor
+    /// names an object: a star is a Star. A polygon of its own, and a rectangle, are a Shape, and
+    /// a description comes first.
+    #[test]
+    fn a_shape_of_the_library_is_named_by_its_shape() {
+        let props = |v: Value| -> Props { serde_json::from_value(v).unwrap() };
+        for (name, points, _) in crate::inserts::polygons() {
+            let drawn = props(serde_json::json!({ "kind": "polygon", "points": points, "fill": "accent" }));
+            assert_eq!(object(NodeType::Shape, &drawn), shape(name), "{name}");
+        }
+        let own = props(serde_json::json!({ "kind": "polygon", "points": [[0, 0], [1, 0], [0.4, 1]] }));
+        assert_eq!(object(NodeType::Shape, &own), "Shape");
+        assert_eq!(object(NodeType::Shape, &props(serde_json::json!({ "kind": "rect" }))), "Shape");
+        let star = crate::inserts::polygons().into_iter().find(|(n, _, _)| *n == "star").unwrap().1;
+        let described = props(serde_json::json!({ "kind": "polygon", "points": star, "alt": "A gold star" }));
+        assert_eq!(object(NodeType::Shape, &described), "A gold star");
     }
 }
