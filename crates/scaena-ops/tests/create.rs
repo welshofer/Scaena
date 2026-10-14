@@ -144,3 +144,25 @@ fn nothing_is_written_that_does_not_validate() {
     let err = attach(&b, &q3()).unwrap_err();
     assert!(err.message.contains("has a data source `q3` already"), "{err}");
 }
+
+/// A build that splits a node into what it does not have is the deck's error (E106, PLAN 2.112),
+/// refused as any patch that would make the deck invalid is, with the finding that says why: a
+/// backdrop does not type out letter by letter.
+#[test]
+fn a_build_a_node_cannot_take_is_refused_with_why() {
+    let dir = scratch("builds").join("revenue");
+    let deck: Value =
+        serde_json::from_str(&std::fs::read_to_string(Path::new(EXAMPLES).join("revenue.deck.json")).unwrap()).unwrap();
+    let made =
+        create(&dir, &Create { theme: dusk(), deck: Some(deck), data: vec![q3()], ..Create::default() }).unwrap();
+    assert!(made.created, "{made:#?}");
+    let b = scaena_ops::open(&dir).unwrap();
+    let typed =
+        json!([{ "op": "apply_preset", "node": "bg", "preset": "typewriter", "motion": "enter", "state": "close" }]);
+    let patched = scaena_ops::patch::patch(&b, &typed, false).unwrap();
+    assert!(!patched.applied && patched.added.iter().any(|f| f.code == "E106"), "{patched:#?}");
+    // A build it can take is applied, and the state still lays out and lints.
+    let popped = json!([{ "op": "apply_preset", "node": "bg", "preset": "pop", "motion": "enter", "state": "close" }]);
+    let patched = scaena_ops::patch::patch(&b, &popped, false).unwrap();
+    assert!(patched.applied, "{patched:#?}");
+}

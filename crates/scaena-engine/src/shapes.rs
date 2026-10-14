@@ -892,12 +892,12 @@ pub fn words_box(props: &Props, theme: &Theme, rect: Rect) -> Rect {
 }
 
 /// The closed outlines a path drawn `w` × `h` makes, each a ring of points as fractions of its
-/// box: its curves flattened to within a tenth of a canvas unit, a ring of fewer than three points
-/// left out.
+/// box: its curves flattened to within half a canvas unit, a ring of fewer than three points left
+/// out.
 fn rings(bez: &kurbo::BezPath, w: f32, h: f32) -> Vec<Vec<[f32; 2]>> {
     let mut rings: Vec<Vec<[f32; 2]>> = Vec::new();
     let at = |p: kurbo::Point| [p.x as f32 / w, p.y as f32 / h];
-    kurbo::flatten(bez.iter(), 0.1, |el| match el {
+    kurbo::flatten(bez.iter(), 0.5, |el| match el {
         kurbo::PathEl::MoveTo(p) => rings.push(vec![at(p)]),
         kurbo::PathEl::LineTo(p) => match rings.last_mut() {
             Some(ring) => ring.push(at(p)),
@@ -910,7 +910,7 @@ fn rings(bez: &kurbo::BezPath, w: f32, h: f32) -> Vec<Vec<[f32; 2]>> {
 }
 
 /// The largest rectangle inside the outlines `rings` (fractions of a box `aspect` times as wide
-/// as it is tall), each a polygon, inside by the even-odd rule, as `[x, y, w, h]` in fractions of
+/// as it is tall), each a polygon, that crosses none of them, as `[x, y, w, h]` in fractions of
 /// the box: of rectangles of a few proportions about points across them, the one of most area,
 /// each as large as fits by bisection, then grown side by side as far as each side goes.
 fn inscribed(rings: &[Vec<[f32; 2]>], aspect: f32) -> [f32; 4] {
@@ -980,15 +980,19 @@ fn edges(poly: &[Vec<[f32; 2]>]) -> impl Iterator<Item = ([f32; 2], [f32; 2])> +
     poly.iter().flat_map(|ring| ring.iter().enumerate().map(|(i, &a)| (a, ring[(i + 1) % ring.len()])))
 }
 
-/// Whether `p` is inside the outlines `poly`, by the even-odd rule.
+/// Whether `p` is inside the outlines `poly`: inside one of them, each by the even-odd rule. An
+/// outline inside another makes no hole in the room, so the room of an icon drawn in outline is
+/// inside its line, not in the band of the line itself.
 fn inside(p: [f32; 2], poly: &[Vec<[f32; 2]>]) -> bool {
-    let mut odd = false;
-    for (a, b) in edges(poly) {
-        if (a[1] > p[1]) != (b[1] > p[1]) && p[0] < a[0] + (p[1] - a[1]) * (b[0] - a[0]) / (b[1] - a[1]) {
-            odd = !odd;
+    poly.iter().any(|ring| {
+        let mut odd = false;
+        for (a, b) in edges(std::slice::from_ref(ring)) {
+            if (a[1] > p[1]) != (b[1] > p[1]) && p[0] < a[0] + (p[1] - a[1]) * (b[0] - a[0]) / (b[1] - a[1]) {
+                odd = !odd;
+            }
         }
-    }
-    odd
+        odd
+    })
 }
 
 /// Whether the rectangle `[x0, y0, x1, y1]` lies inside the outlines `poly`: its corners inside,
@@ -1155,14 +1159,14 @@ mod tests {
         let (a, b) = (words_box(&path, &theme, rect), words_box(&polygon, &theme, rect));
         assert!(a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1.0), "{a:?} as {b:?}");
         assert!(a[2] < 250.0 && a[0] > 150.0, "inside the diamond: {a:?}");
-        // A path of two outlines, a ring, has its room in the band between them, not the hole.
+        // A square drawn in outline, as an icon's regular weight draws one, two outlines a line's
+        // width apart: its room is inside its line, crossing neither outline, not in the line.
         let ring = props(json!({ "kind": "path", "view": [0, 0, 10, 10],
-            "path": "M0 0 H10 V10 H0 Z M2 2 H8 V8 H2 Z" }));
+            "path": "M0 0 H10 V10 H0 Z M1 1 H9 V9 H1 Z" }));
         let r = words_box(&ring, &theme, rect);
-        let hole = [180.0, 180.0, 240.0, 240.0];
-        let overlaps =
-            r[0] < hole[0] + hole[2] && hole[0] < r[0] + r[2] && r[1] < hole[1] + hole[3] && hole[1] < r[1] + r[3];
-        assert!(!overlaps, "{r:?} keeps out of the hole");
+        let (x1, y1) = (r[0] + r[2], r[1] + r[3]);
+        assert!(r[0] >= 140.0 && r[1] >= 140.0 && x1 <= 460.0 && y1 <= 460.0, "inside the line: {r:?}");
+        assert!(r[2] > 250.0 && r[3] > 250.0, "the room inside the line, not the line: {r:?}");
     }
 
     #[test]

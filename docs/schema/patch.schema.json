@@ -409,7 +409,7 @@
             "id": { "$ref": "#/$defs/Id" },
             "prop": {
               "type": "string",
-              "pattern": "^(layout|hold|notes|furniture|transition(/(duration|ease|spring|match))?)$"
+              "pattern": "^(layout|hold|notes|furniture|transition(/(duration|ease|spring|match|style|direction))?)$"
             },
             "value": true,
             "fork": {

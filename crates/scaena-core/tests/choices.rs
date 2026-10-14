@@ -156,6 +156,45 @@ fn each_node_type_offers_what_its_theme_names() {
     assert!(e.contains("not on screen in `intro`"), "{e}");
 }
 
+/// A build splits a node only into what it has (E106, PLAN 2.112): Typewriter and Word by Word are
+/// a text's, Grow a chart's, and a picture or a backdrop takes neither; a chart's own entrance and
+/// exit move its marks, whatever the build splits.
+#[test]
+fn each_build_offered_splits_only_what_its_node_has() {
+    let mut doc = example();
+    doc["nodes"]["photo"] = json!({ "type": "image", "src": "assets/photo.jpg", "at": { "rect": [96, 96, 640, 360] } });
+    doc["states"][0]["props"]["photo"] = json!({});
+    let names = |state: &str, node: &str, prop: &str| match &field(&offered(&doc, state, node), prop).takes {
+        Takes::Name { of: Vocabulary::MotionPreset, names, .. } => names.clone(),
+        takes => panic!("{node} {prop}: {takes:?}"),
+    };
+    let has = |names: &[String], name: &str| names.iter().any(|n| n == name);
+    for prop in ["enter", "exit"] {
+        for (state, node) in [("intro", "photo"), ("intro", "bg")] {
+            let offered = names(state, node, prop);
+            let splitting =
+                ["typewriter", "words", "grow"].into_iter().filter(|p| has(&offered, p)).collect::<Vec<_>>();
+            assert!(splitting.is_empty() && has(&offered, "pop"), "{node} {prop}: {offered:?}");
+        }
+        let title = names("intro", "title", prop);
+        assert!(has(&title, "typewriter") && has(&title, "words") && !has(&title, "grow"), "{prop}: {title:?}");
+        let rev = names("revenue", "rev", prop);
+        assert!(["typewriter", "words", "grow"].iter().all(|p| has(&rev, p)), "{prop}: {rev:?}");
+    }
+}
+
+/// What never tracks is the state's own (SPEC §2.2): an emphasis chosen in a step lives there,
+/// and the step before shows none.
+#[test]
+fn an_emphasis_lives_in_the_state_that_shows_it() {
+    let op = json!({ "op": "choose", "node": "note", "prop": "emphasis", "value": "pulse", "state": "mix" });
+    let c = compile(&example(), &[op], &Examples).unwrap();
+    let mix = field(&offered(&c.doc, "mix", "note"), "emphasis").clone();
+    assert_eq!((mix.value, mix.lives), (Some(json!("pulse")), Some(Where::State("mix".into()))));
+    let revenue = field(&offered(&c.doc, "revenue", "note"), "emphasis").clone();
+    assert_eq!((revenue.value, revenue.lives), (None, None));
+}
+
 /// A shape offers corners and a shadow where it draws them (PLAN 2.106, 2.115): a rectangle both,
 /// an oval its shadow, and a polygon of the shape library neither. A shape of no kind draws as a
 /// rectangle, and offers both; one of no kind with a path draws the path, and offers neither.
@@ -207,6 +246,56 @@ fn an_image_offers_its_border_and_its_adjustments() {
     );
     let saturation = field(&c, "adjust/saturation");
     assert_eq!((saturation.value.clone(), saturation.lives.clone()), (Some(json!(-1)), Some(Where::Node)));
+}
+
+/// A picture's builds are those a picture plays (PLAN 2.116): none that moves a text's words or
+/// letters, or a chart's marks, one at a time; and Build Out names each as it leaves, the
+/// entrance played back, so what moves in from the left moves out to it.
+#[test]
+fn an_image_offers_the_builds_it_plays_and_names_its_exits_as_they_leave() {
+    let mut doc = example();
+    doc["nodes"]["photo"] = json!({ "type": "image", "src": "assets/photo.jpg", "at": { "rect": [96, 96, 640, 360] } });
+    doc["states"][0]["props"]["photo"] = json!({});
+    let mut c = offered(&doc, "intro", "photo");
+    for prop in ["enter", "exit"] {
+        let Takes::Name { names, .. } = &field(&c, prop).takes else { panic!() };
+        for text in ["words", "typewriter", "grow"] {
+            assert!(!names.iter().any(|n| n == text), "{prop} offers {text} on a picture: {names:?}");
+        }
+        assert!(names.iter().any(|n| n == "moveInLeft") && names.iter().any(|n| n == "fade"), "{names:?}");
+    }
+    // A text still takes its own.
+    let title = offered(&example(), "intro", "title");
+    let Takes::Name { names, .. } = &field(&title, "enter").takes else { panic!() };
+    assert!(names.iter().any(|n| n == "words") && names.iter().any(|n| n == "typewriter"), "{names:?}");
+
+    let deck: Deck = serde_json::from_value(doc).unwrap();
+    scaena_core::words::choices(&mut c, &deck, &Theme::from_json(DUSK).unwrap());
+    let said = |prop: &str, name: &str| field(&c, prop).words.as_ref().unwrap().said[name].clone();
+    assert_eq!(said("enter", "moveInLeft"), "Move In from Left");
+    assert_eq!(said("exit", "moveInLeft"), "Move Out to Left");
+    assert_eq!(said("exit", "moveInBottom"), "Move Out to Bottom");
+    assert!(field(&c, "exit").words.as_ref().unwrap().said.values().all(|w| !w.contains("In from")));
+}
+
+/// A color well shows the color a name is (PLAN 2.99): each of the theme's names offered, the
+/// value, and the theme's, as `#rrggbb`, a role through the token it names. A text that sets
+/// none shows the theme's Text, not black.
+#[test]
+fn a_color_says_the_color_each_name_is() {
+    let theme = Theme::from_json(DUSK).unwrap();
+    let mut c = offered(&example(), "revenue", "title");
+    let deck: Deck = serde_json::from_value(example()).unwrap();
+    scaena_core::words::choices(&mut c, &deck, &theme);
+    let color = field(&c, "style/color");
+    let colors = &color.words.as_ref().unwrap().colors;
+    assert_eq!(color.value, None, "the title sets no color of its own");
+    assert_eq!(color.theme, Some(json!("onSurface")));
+    assert_eq!(colors["onSurface"], "#f2f0e9");
+    assert_eq!(colors["accent"], "#ff6a3d");
+    assert_eq!(colors["paper-2"], "#17171d");
+    // Only a color offers them.
+    assert!(field(&c, "role").words.as_ref().unwrap().colors.is_empty());
 }
 
 /// What a chart reads, and how, from its data (PLAN 2.41): its source, from the deck's; each

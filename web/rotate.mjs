@@ -12,6 +12,8 @@
 //   writes `transform/rotate` 90 (one `choose`, where it lives), and one undo takes it back. With
 //   Shift it goes by 15°, and Escape leaves it as it was.
 // - The inspector shows the angle, and one typed there turns the node.
+// - On the revenue example, `]` on the title, written for every slide, says it turns on 3 slides;
+//   with "Only on Slide 2" ticked it is written on that slide, and reaches none before it.
 // - A double click on a turned headline's words types in it where the click was, read back
 //   through the turn, and the caret is drawn turned with it.
 // Exits 1 on any failure.
@@ -231,6 +233,41 @@ try {
   await page.waitForFunction(() => window.scaena.canvas.typing() === undefined, null, { timeout: 30000 }).catch(() => {});
   await undo();
   check(await back(original), "one undo takes the turn back");
+
+  // On the revenue example, the title is written once for every slide that shows it: `]` turns it
+  // where it lives, and the status says on which slides, as a move's does. "Only on Slide 2" writes
+  // the turn on the slide shown.
+  await page.goto(`${server.origin}/web/dist/editor.html?painter=cpu&bundle=/docs/examples/revenue.deck.json`);
+  await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
+  await page.selectOption("#state", "revenue");
+  await page.waitForFunction(() => window.scaena.canvas.boxed() === "revenue", null, { timeout: 30000 }).catch(() => {});
+  const plain = await source();
+  const bracket = async () => {
+    await page.evaluate(() => window.scaena.canvas.select("title"));
+    await page.locator("#overlay").focus();
+    await page.keyboard.press("]");
+  };
+  await bracket();
+  check(await says("turned to 15° on 3 slides"), `a turn of the title says it reaches every slide it is on: ${await status()}`);
+  check((await status()).includes("Alt keeps it to this slide"), `and how to keep it to this one: ${await status()}`);
+  await undo();
+  check(await back(plain), "one undo takes it back");
+  await page.evaluate(() => window.scaena.canvas.select("title"));
+  await page.waitForSelector("#look [data-keep]", { timeout: 30000 });
+  await page.check("#look [data-keep]");
+  await bracket();
+  await page.waitForFunction((was) => window.scaena.source() !== was, plain, { timeout: 30000 }).catch(() => {});
+  await page
+    .waitForFunction(() => document.querySelector("#status").textContent.includes("turned to 15° on"), null, { timeout: 30000 })
+    .catch(() => {});
+  const kept = await source();
+  // Written on Slide 2, it reaches no slide before it: the slides after it that track from it
+  // carry it on, and the status says so.
+  check(/turned to 15° on /.test(await status()) && !/on 3 slides/.test(await status()), `"Only on Slide 2" keeps the turn from the slides before it: ${await status()}`);
+  check(kept.includes("rotate: 15") && !declared(kept, "title").includes("rotate"), `written on the slide, not on the title: ${JSON.stringify(declared(kept, "title"))}`);
+  await page.uncheck("#look [data-keep]");
+  await undo();
+  check(await back(plain), "one undo takes it back");
 } finally {
   await browser.close();
   await server.close();

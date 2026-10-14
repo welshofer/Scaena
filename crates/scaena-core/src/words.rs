@@ -171,6 +171,32 @@ pub const PRESETS: &[(&str, &str)] = &[
     ("moveInBottom", "Move In from Bottom"),
 ];
 
+/// An entrance said as it leaves, as a presentation app names its Build Out effects (PLAN 2.116):
+/// an exit plays an entrance back, so what moves in from the left moves out to it, and what
+/// appears disappears. One not here, Pop or Spin, is said as it enters.
+pub const EXITS: &[(&str, &str)] = &[
+    ("appear", "Disappear"),
+    ("fade", "Fade Out"),
+    ("rise", "Sink"),
+    ("words", "Word by Word Out"),
+    ("typewriter", "Typewriter Out"),
+    ("scale", "Scale Down"),
+    ("grow", "Shrink"),
+    ("draw", "Erase"),
+    ("moveInLeft", "Move Out to Left"),
+    ("moveInRight", "Move Out to Right"),
+    ("moveInTop", "Move Out to Top"),
+    ("moveInBottom", "Move Out to Bottom"),
+];
+
+/// Motion preset `name` of `theme` as Build Out names it: played back, as it leaves ([`EXITS`]).
+pub fn leaving(name: &str, theme: &Theme) -> String {
+    EXITS
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map_or_else(|| named(Vocabulary::MotionPreset, name, theme), |(_, said)| said.to_string())
+}
+
 /// One of `theme`'s names of a kind, said: a color by what it is for, a font by its family, a
 /// duration with its seconds, a step of a scale by its size, a layout by what the theme calls it.
 pub fn named(of: Vocabulary, name: &str, theme: &Theme) -> String {
@@ -665,6 +691,20 @@ pub fn phrase(name: &str) -> String {
     words.iter().map(capital).collect::<Vec<_>>().join(" ")
 }
 
+/// A value typed in a data source's cell that its column does not read, in a sentence (PLAN
+/// 2.99), the column named as the sheet heads it: The revenue column takes a number: “four” is
+/// not one.
+pub fn unfit(column: &str, kind: crate::data::ColumnType, value: &str) -> String {
+    use crate::data::ColumnType;
+    let typed = value.trim();
+    match kind {
+        ColumnType::Number => format!("The {column} column takes a number: “{typed}” is not one"),
+        ColumnType::Date => format!("The {column} column takes a date: “{typed}” is not one it reads"),
+        ColumnType::Boolean => format!("The {column} column takes true or false: “{typed}” is neither"),
+        ColumnType::String => format!("The {column} column does not take “{typed}”"),
+    }
+}
+
 /// A property's words, as an editor shows them (PLAN 2.99): its label, and each name or word it
 /// offers, the value, and the theme's, said.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -674,11 +714,30 @@ pub struct FieldWords {
     /// Each name or word offered, and the value and the theme's where they are one, said:
     /// `onSurface` as `Text`, `fast` as `Fast (0.18 s)`, `cover` as `Fill`; a weight by its name.
     pub said: BTreeMap<String, String>,
+    /// For a color, each of the theme's names offered, and the value and the theme's where they
+    /// are one, as the color it is, `#rrggbb`: what a color well shows beside the name.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub colors: BTreeMap<String, String>,
+}
+
+/// The color `name` is in `theme`, `#rrggbb` (its alpha left off): a color role through the
+/// token it names, a token, or a color written out. None for a name the theme lacks, or a
+/// gradient.
+pub fn hex(name: &str, theme: &Theme) -> Option<String> {
+    let tokens = &theme.tokens;
+    let literal = match name.starts_with('#') || name.starts_with("oklch(") || name.starts_with("oklab(") {
+        true => name,
+        false => &tokens.color.get(name).or_else(|| tokens.color.get(tokens.roles.get(name)?))?.0,
+    };
+    let [r, g, b, _] = crate::color::parse(literal).ok()?.0;
+    Some(format!("#{r:02x}{g:02x}{b:02x}"))
 }
 
 /// `field`'s words, its names said as `theme` has them.
 pub fn field(field: &Field, theme: &Theme) -> FieldWords {
     let say = |key: &str| match &field.takes {
+        // Build Out offers the entrances played back, each named as it leaves.
+        Takes::Name { of: Vocabulary::MotionPreset, .. } if field.prop == "exit" => leaving(key, theme),
         Takes::Name { of, .. } => named(*of, key, theme),
         _ => word(&field.prop, key),
     };
@@ -703,6 +762,16 @@ pub fn field(field: &Field, theme: &Theme) -> FieldWords {
             }
         }
     }
+    // A color well shows the color each name is, and the value's and the theme's.
+    let mut colors = BTreeMap::new();
+    if let Takes::Name { of: Vocabulary::Color, names, .. } = &field.takes {
+        let values = shown.into_iter().flatten().filter_map(Value::as_str);
+        for name in names.iter().map(String::as_str).chain(values) {
+            if let Some(hex) = hex(name, theme) {
+                colors.insert(name.to_string(), hex);
+            }
+        }
+    }
     if field.prop == "style/weight" {
         for (w, name) in WEIGHTS {
             said.insert(w.to_string(), name.to_string());
@@ -713,7 +782,7 @@ pub fn field(field: &Field, theme: &Theme) -> FieldWords {
             }
         }
     }
-    FieldWords { label: label(&field.prop), said }
+    FieldWords { label: label(&field.prop), said, colors }
 }
 
 /// `choices` worded: the node named by what it shows (`said`) and by its kind (`noun`), each field
@@ -739,11 +808,6 @@ pub fn choices(choices: &mut Choices, deck: &Deck, theme: &Theme) {
         let mut words = field(f, theme);
         if let Some(said) = channel(&f.prop, chart, horizontal) {
             words.label = said.to_string();
-        }
-        if f.prop == "exit" {
-            for (name, said) in words.said.iter_mut() {
-                *said = exit(name, theme);
-            }
         }
         f.words = Some(words);
     }
@@ -772,32 +836,6 @@ pub const CHANNELS: &[(&str, &str, &str)] = &[
     ("across", "y/field", "Across"),
     ("across", "y/type", "Across Are"),
 ];
-
-/// A motion preset as an exit, as a presentation app names its Build Out effects: the entrance
-/// played back, `moveInLeft` as Move Out to Left. Those without a name of their own are said as
-/// they read, then Out.
-pub const EXITS: &[(&str, &str)] = &[
-    ("appear", "Disappear"),
-    ("fade", "Fade Out"),
-    ("rise", "Sink"),
-    ("words", "Word by Word Out"),
-    ("typewriter", "Typewriter Out"),
-    ("scale", "Scale Down"),
-    ("grow", "Shrink"),
-    ("draw", "Erase"),
-    ("moveInLeft", "Move Out to Left"),
-    ("moveInRight", "Move Out to Right"),
-    ("moveInTop", "Move Out to Top"),
-    ("moveInBottom", "Move Out to Bottom"),
-];
-
-/// Motion preset `name` of `theme` said as an exit ([`EXITS`]).
-pub fn exit(name: &str, theme: &Theme) -> String {
-    match EXITS.iter().find(|(n, _)| *n == name) {
-        Some((_, said)) => said.to_string(),
-        None => format!("{} Out", named(Vocabulary::MotionPreset, name, theme)),
-    }
-}
 
 /// `choices` of a state worded: the state as its slide's number says it (`said`), and each field
 /// labeled and its values said, in `theme`.
@@ -838,7 +876,7 @@ pub struct Lexicon {
     /// Each node, by its id: its kind ([`kind_of`]).
     pub kinds: BTreeMap<String, String>,
     /// Each of the theme's names said ([`named`]), by its kind of name: `color`, `text-role`,
-    /// `layout`, `motion-preset`, …; and `exit`, each motion preset as an exit ([`exit`]).
+    /// `layout`, `motion-preset`, … and `motion-exit`, each preset as Build Out names it.
     pub names: BTreeMap<String, BTreeMap<String, String>>,
     /// What a motion does: `enter` is Enters.
     pub motions: BTreeMap<String, String>,
@@ -895,13 +933,9 @@ pub fn lexicon(deck: &Deck, theme: &Theme, state: &str) -> Result<Lexicon, Strin
         }
         names.insert(key, said);
     }
-    // Each motion preset as an exit, as Build Out and the cue's exits say them.
-    let mut exits = BTreeMap::new();
-    for name in theme.names(Vocabulary::MotionPreset) {
-        let said = exit(&name, theme);
-        exits.insert(name, said);
-    }
-    names.insert("exit".to_string(), exits);
+    // Each motion preset as Build Out names it, played back as it leaves (PLAN 2.116).
+    let exits = theme.names(Vocabulary::MotionPreset).into_iter().map(|n| (leaving(&n, theme), n));
+    names.insert("motion-exit".to_string(), crate::sort::map(exits.map(|(said, name)| (name, said))));
     // A slide transition's style and the way it moves, as the inspector says them (PLAN 2.111).
     for prop in ["transition/style", "transition/direction"] {
         let mut said = BTreeMap::new();
@@ -1055,18 +1089,21 @@ mod tests {
     }
 
     /// An exit is said as a presentation app names its Build Out effects: the entrance played
-    /// back, `moveInLeft` as Move Out to Left.
+    /// back, `moveInLeft` as Move Out to Left and `appear` as Disappear; one that plays the same
+    /// both ways, Pop, as it enters.
     #[test]
     fn an_exit_is_said_as_one() {
         let theme: Theme = serde_json::from_str(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();
-        assert_eq!(exit("moveInLeft", &theme), "Move Out to Left");
-        assert_eq!(exit("appear", &theme), "Disappear");
-        assert_eq!(exit("fade", &theme), "Fade Out");
-        assert_eq!(exit("pop", &theme), "Pop Out");
-        assert_eq!(exit("fadeScale", &theme), "Fade and Scale Out");
+        assert_eq!(leaving("moveInLeft", &theme), "Move Out to Left");
+        assert_eq!(leaving("appear", &theme), "Disappear");
+        assert_eq!(leaving("fade", &theme), "Fade Out");
+        assert_eq!(leaving("rise", &theme), "Sink");
+        assert_eq!(leaving("pop", &theme), "Pop");
+        assert_eq!(leaving("fadeScale", &theme), "Fade and Scale");
         let deck = Deck::from_json(include_str!("../../../docs/examples/revenue.deck.json")).unwrap();
         let said = lexicon(&deck, &theme, "intro").unwrap();
-        assert_eq!(said.names["exit"]["moveInRight"], "Move Out to Right");
+        assert_eq!(said.names["motion-exit"]["moveInRight"], "Move Out to Right");
+        assert_eq!(said.names["motion-exit"]["appear"], "Disappear");
         assert_eq!(said.names["motion-preset"]["moveInRight"], "Move In from Right", "an entrance as it was");
     }
 

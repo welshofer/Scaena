@@ -341,7 +341,7 @@ export interface FurnitureChoice {
 
 /** The words an editor shows for a state (PLAN 2.99): each object it shows named by what it
  * shows and by its kind, each of the theme's names said by its kind of name (`color`,
- * `text-role`, `layout`, …, and `exit`, each motion preset as a Build Out effect), and how a
+ * `text-role`, `layout`, …, and `motion-exit`, each motion preset as a Build Out effect), and how a
  * motion, its split, and a shape are said. */
 export interface Lexicon {
   objects: Record<string, string>;
@@ -430,7 +430,7 @@ export interface Field {
   theme?: unknown;
   /** Its label, and each name or word it offers, its value, and the theme's, said as a person says
    * them (PLAN 2.99): `style/family` is Font, `onSurface` Text, `fast` Fast (0.18 s). */
-  words?: { label: string; said: Record<string, string> };
+  words?: { label: string; said: Record<string, string>; colors?: Record<string, string> };
 }
 
 /** What a property takes: one of the theme's names of a kind (with `overrides`, or a value written
@@ -715,6 +715,9 @@ export interface Compared {
   deck: Record<string, unknown>;
   /** The data files whose bytes changed. */
   files: string[];
+  /** Each text whose words changed, by state and node: its words before and after, which name it
+   * and show what changed. */
+  texts?: Record<string, Record<string, [string, string]>>;
 }
 
 /** What restoring a version did, as `scaena history --restore` says it. */
@@ -1365,6 +1368,9 @@ export type AssistantEvent =
 export interface Opened {
   /** The bundle's name: its folder's, or its deck file's without `.deck.json`. */
   name: string;
+  /** The deck's title (`meta.title`), where it has one: what the player's windows are called,
+   * as a single file's page is. */
+  title?: string;
   /** Where it is kept, if anywhere. */
   where?: Where;
   states: string[];
@@ -1603,7 +1609,8 @@ export interface Cue {
   start: number;
   span: number;
   hold: number;
-  /** Its transition; `style` and `direction` where it is a slide transition (PLAN 2.111). */
+  /** Its transition; `style` and `direction` where it is a slide transition (PLAN 2.111), and no
+   * `direction` for a dissolve, which goes no way. */
   transition: { duration: number; match: string; curve: Curve; style?: string; direction?: string };
   motions: Motion[];
 }
@@ -1631,6 +1638,8 @@ export interface Motion {
   delay: number;
   /** Where it is written: a JSON pointer into the deck. */
   written?: string;
+  /** The theme's preset it plays, where it is written as one. */
+  preset?: string;
   curve: Curve;
 }
 

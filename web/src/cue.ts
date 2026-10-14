@@ -60,7 +60,10 @@ export const cueKeys = (): Key[] => [
 interface Bar {
   /** Which bar it is, kept across a redraw: `transition`, or the motion's node and kind. */
   key: string;
+  /** What the lane is called: what it plays first, the preset by name, then its object. */
   label: string;
+  /** All it is, as the label's title says it where the lane cuts the label short. */
+  full?: string;
   motion?: Motion;
   /** When it starts to change and when it rests, ms into the cue. */
   from: number;
@@ -74,7 +77,9 @@ interface Bar {
 }
 
 /** The bars of `cue`: its transition, then its motions in the order the state lists them, each
- * named by its object and what it does, as `words` says them. */
+ * named by what it plays, its preset where it plays one (Fade, Pulse), then by its object, as
+ * `words` says them: what tells two lanes of one object apart comes first, before the lane cuts
+ * the label short. */
 function bars(cue: Cue, words: Lexicon | undefined): Bar[] {
   const seen = new Map<string, number>();
   const motions = cue.motions.map((m): Bar => {
@@ -82,9 +87,12 @@ function bars(cue: Cue, words: Lexicon | undefined): Bar[] {
     const n = (seen.get(name) ?? 0) + 1;
     seen.set(name, n);
     const span = m.moving[1] - m.moving[0] - (m.units - 1) * m.stagger;
+    const does = moving(words, m.motion, m.split);
+    const plays = m.preset === undefined ? undefined : named(words, m.motion === "exit" ? "motion-exit" : "motion-preset", m.preset);
     return {
       key: n === 1 ? name : `${name} ${n}`,
-      label: `${object(words, m.node)} · ${moving(words, m.motion, m.split)}`,
+      label: `${plays ?? does} · ${object(words, m.node)}`,
+      full: `${object(words, m.node)} · ${does}${plays && !does.includes(plays) ? ` · ${plays}` : ""}`,
       motion: m,
       from: m.moving[0],
       to: m.moving[1],
@@ -116,9 +124,6 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
   let playing = false;
   /** One change at a time, each made on the source the one before left. */
   let making: Promise<unknown> = Promise.resolve();
-  /** The theme's motion presets as the inspector offers them (PLAN 2.116): those that enter and
-   * leave, and those that emphasize. */
-  let presets: { enter: string[]; emphasis: string[] } = { enter: [], emphasis: [] };
   /** The bar or end focused, to focus again once the lanes are drawn again. */
   let focused: string | undefined;
   /** What the canvas selects, and what that holds: whose bars stand out. */
@@ -160,7 +165,7 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
         const end = b.sprung
           ? ""
           : `<div class="end" data-bar="${i}" data-part="duration" role="slider" tabindex="0" aria-label="${html(b.label)}: how long it lasts" aria-valuemin="0" aria-valuenow="${Math.round(b.duration)}" aria-valuetext="${seconds(b.duration)}${b.motion && b.motion.units > 1 ? " each" : ""}" title="Drag to change how long it lasts" style="left:${pct(b.to)}"></div>`;
-        const tip = b.sprung ? "On a spring: it lasts as long as it takes to settle" : b.motion ? "A press selects it" : "";
+        const tip = b.sprung ? `${b.full ?? b.label}: on a spring, it lasts as long as it takes to settle` : b.motion ? `${b.full ?? b.label}: a press selects it` : "";
         const node = b.motion ? ` data-node="${html(b.motion.node)}"` : "";
         return `<span class="label" data-bar="${i}"${node} style="grid-row:${row}"${tip ? ` title="${html(tip)}"` : ""}>${html(b.label)}</span><div class="track" data-bar="${i}"${node} style="grid-row:${row}">${body}${end}</div>`;
       })
@@ -384,7 +389,10 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
 
   /** The motions that may be added: for the node the canvas selects, its entrance where it enters
    * (or a chart, whose marks enter as its data changes) and an emphasis, each where it has none;
-   * and for each node that leaves, its exit. Each one of the theme's presets. */
+   * and for each node that leaves, its exit, save under a slide transition, which moves the slide
+   * left whole and plays none of its exits (SPEC §3.9). Each one of the theme's presets the node's
+   * inspector offers for it (PLAN 2.116): what leaves, as the state before shows it, since a build
+   * splits a node only into what it has (E106). */
   async function offer() {
     const at = editor.shown();
     const found = read;
@@ -394,31 +402,34 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
     };
     if (!at || !found?.timeline) return none();
     const node = editor.chosen();
-    const asked = node && found.nodes[node] ? node : Object.keys(found.nodes)[0];
-    if (asked) {
-      const choices = await stage.choices(at.state, asked).catch(() => undefined);
-      const enter = choices?.fields.find((f) => f.prop === "enter");
-      const emphasis = choices?.fields.find((f) => f.prop === "emphasis");
-      if (enter?.takes.kind === "name") presets.enter = enter.takes.names;
-      if (emphasis?.takes.kind === "name") presets.emphasis = emphasis.takes.names;
-    }
-    if (read !== found) return;
+    /** The presets `of`'s inspector offers for `prop` in `state`, its choices asked once. */
+    const asked = new Map<string, ReturnType<Stage["choices"]> | undefined>();
+    const offered = async (state: string | undefined, of: string, prop: string) => {
+      const key = `${state} ${of}`;
+      if (!asked.has(key)) asked.set(key, state ? stage.choices(state, of) : undefined);
+      const choices = await asked.get(key)?.catch(() => undefined);
+      const field = choices?.fields.find((f) => f.prop === prop);
+      return field?.takes.kind === "name" ? field.takes.names : [];
+    };
     const has = (n: string, kind: string) => found.timeline?.motions.some((m) => m.node === n && m.motion === kind);
     const groups: HTMLOptGroupElement[] = [];
-    const group = (label: string, kind: string, of: string) => {
+    const group = (label: string, kind: string, of: string, presets: string[]) => {
       const g = Object.assign(document.createElement("optgroup"), { label });
-      const offered = kind === "emphasis" ? presets.emphasis : presets.enter;
-      // An exit is named as a Build Out effect is: Move Out to Left (the lexicon's `exit`).
-      const said = (p: string) => named(words, kind === "exit" ? "exit" : "motion-preset", p);
-      for (const p of offered) g.append(new Option(said(p), JSON.stringify([kind, of, p])));
-      if (offered.length) groups.push(g);
+      for (const p of presets) g.append(new Option(named(words, kind === "exit" ? "motion-exit" : "motion-preset", p), JSON.stringify([kind, of, p])));
+      if (presets.length) groups.push(g);
     };
     if (node && found.nodes[node]) {
       const enters = (found.entered ?? []).includes(node) || found.nodes[node].type === "chart";
-      if (enters && !has(node, "enter")) group(`${object(words, node)}, as it enters`, "enter", node);
-      if (!has(node, "emphasis")) group(`${object(words, node)}, for emphasis`, "emphasis", node);
+      if (enters && !has(node, "enter")) group(`${object(words, node)}, as it enters`, "enter", node, await offered(at.state, node, "enter"));
+      if (!has(node, "emphasis")) group(`${object(words, node)}, for emphasis`, "emphasis", node, await offered(at.state, node, "emphasis"));
     }
-    for (const gone of found.exited ?? []) if (!has(gone, "exit")) group(`${object(words, gone)}, as it leaves`, "exit", gone);
+    const states = editor.states();
+    const before = states[states.indexOf(at.state) - 1];
+    const slid = Boolean(found.timeline.transition.style);
+    for (const gone of slid ? [] : (found.exited ?? [])) {
+      if (!has(gone, "exit")) group(`${object(words, gone)}, as it leaves`, "exit", gone, await offered(before, gone, "exit"));
+    }
+    if (read !== found) return;
     adder.replaceChildren(new Option("Add an animation…", ""), ...groups);
     // With nothing to add, it says why: the canvas selects what an animation is for.
     adder.disabled = groups.length === 0;
@@ -438,7 +449,7 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
     const it = object(words, node, true);
     if (!state) return editor.say(`${it[0].toUpperCase()}${it.slice(1)} leaves no slide before this one`);
     const verb = { enter: "as it enters", emphasis: "for emphasis", exit: "as it leaves" }[motion];
-    void make({ op: "apply_preset", node, preset, motion, state }, "Adding…", `${named(words, motion === "exit" ? "exit" : "motion-preset", preset)} added to ${it} ${verb}`);
+    void make({ op: "apply_preset", node, preset, motion, state }, "Adding…", `${named(words, motion === "exit" ? "motion-exit" : "motion-preset", preset)} added to ${it} ${verb}`);
   };
 
   return {

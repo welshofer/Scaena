@@ -512,7 +512,7 @@ mod tests {
                 json!({ "op": "add_node", "id": "bullets-header", "state": "bullets", "node": {
                     "type": "text", "role": "headline", "text": "What this slide says", "at": { "in": "header" } } }),
                 json!({ "op": "add_node", "id": "bullets-body", "state": "bullets", "node": {
-                    "type": "text", "role": "body", "text": "The first point\nThe second point\nThe third point",
+                    "type": "text", "role": "lede", "text": "The first point\nThe second point\nThe third point",
                     "at": { "in": "body" }, "list": [bullet, bullet, bullet] } }),
                 // `close` tracks from the state before it, now the new slide: they leave there.
                 json!({ "op": "hide_node", "node": "bullets-header", "state": "close" }),

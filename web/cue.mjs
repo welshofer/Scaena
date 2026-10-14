@@ -90,9 +90,17 @@ try {
   await show("intro");
   const keys = (await bars()).map((b) => b.key);
   check(JSON.stringify(keys) === JSON.stringify(["transition", "title enter", "subtitle enter"]), `intro's cue, a bar each: ${keys}`);
-  // Each lane named by its object and what it does, the clock in seconds (PLAN 2.99).
-  const lanes = await page.evaluate(() => [...document.querySelectorAll("#cue .label")].map((l) => l.textContent).filter(Boolean));
-  check(lanes[0] === "Transition" && lanes.slice(1).every((l) => / · Enters/.test(l)), `each lane named by its object and what it does: ${lanes.join(" | ")}`);
+  // Each lane named by what it plays, the preset first, then its object, so that a lane cut
+  // short still tells two of one object apart; its title says all of it (PLAN 2.99).
+  const lanes = await page.evaluate(() => [...document.querySelectorAll("#cue .label")].map((l) => [l.textContent, l.title]).filter(([t]) => t));
+  check(
+    lanes[0][0] === "Transition" && /^Word by Word · Q3 Review/.test(lanes[1]?.[0] ?? "") && /^Rise · /.test(lanes[2]?.[0] ?? ""),
+    `each lane named by what it plays, then its object: ${lanes.map(([t]) => t).join(" | ")}`,
+  );
+  check(
+    /^Q3 Review · Enters Word by Word:/.test(lanes[1]?.[1] ?? "") && /^This quarter .* · Enters · Rise:/.test(lanes[2]?.[1] ?? ""),
+    `its title says its object, what it does, and what it plays, once: ${lanes.map(([, t]) => t).join(" | ")}`,
+  );
   const clock = await page.textContent("#cue .clock");
   check(/^\d+(\.\d+)? s, at rest$/.test(clock ?? ""), `the clock in seconds: ${clock}`);
   const rise = await bar("subtitle enter");

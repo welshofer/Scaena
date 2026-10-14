@@ -10,6 +10,7 @@
 //   delta), and the status says which states it changes; one undo takes it back.
 // - "Only in revenue" keeps a choice to the state: the note's role goes into its delta there, and
 //   the node keeps its own.
+// - A color well shows the color in use, a theme's name as the color it is (Dusk's Text, #f2f0e9).
 // - A color written out is an override: it goes in the deck's `overrides` and shows as one; a
 //   theme name chosen then is written there too; the × takes it away.
 // - What cannot be kept to one state (a value written out) is refused, and says why.
@@ -90,6 +91,9 @@ try {
   check(where?.includes("Set on this slide"), `and says where it lives: ${where}`);
   const words = await page.evaluate(() => document.querySelector("#look")?.textContent ?? "");
   check(!/style\/|transform\/|\bms\b|\brevenue\b/.test(words), `no property path, id, or millisecond in the inspector: ${words.replace(/\s+/g, " ").slice(0, 400)}`);
+  // Its color well shows the color it is set in, the theme's Text where it sets none: Dusk's ink.
+  const well = await page.inputValue("#look-style-color-written");
+  check(well === "#f2f0e9", `the color well shows the color in use, not black: ${well}`);
 
   // Choosing a role: one patch, written where the role lives, and the states it reaches.
   await page.selectOption("#look-role", "title");

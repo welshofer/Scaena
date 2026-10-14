@@ -14,6 +14,7 @@
 // - + Slide opens Dusk's layouts by their sections (PLAN 3.30, 3.31): the 13 down the side as tabs,
 //   128 layouts in all, Titles first, each drawn as it is used and named as a person calls it; a
 //   tab clicked or the down arrow shows another, and the field finds a layout in any section.
+//   Among the layouts, → goes to the next and ↓ to the one below, as they stand in the grid.
 //   Bullets starts a slide after `mix` with its headline and its
 //   points in their slots, one undo; a double click on its headline selects its words whole, so
 //   typing replaces them; its headline deleted, a press on the header's words puts a headline back
@@ -240,6 +241,18 @@ try {
   const titles = await drawn();
   const want = "Title,Section,Title over Photo,Title Only,Centered Title,Title beside Photo,Section and Photo,Section Number";
   check(titles.join() === want, `each drawn, by its name: ${titles.join(", ")}`);
+  // The arrows go among the layouts as they stand in the grid: → the next, ↓ the one below.
+  await tile("Title").focus();
+  await page.keyboard.press("ArrowRight");
+  const focused = () => page.evaluate(() => document.activeElement?.querySelector("span")?.textContent);
+  check((await focused()) === "Section", `→ goes to the next layout: ${await focused()}`);
+  const below = await page.evaluate(() => {
+    const all = [...document.querySelectorAll("#starting .starters button[data-start]")];
+    const across = all.filter((b) => b.offsetTop === all[0].offsetTop).length;
+    return all[1 + across]?.querySelector("span").textContent;
+  });
+  await page.keyboard.press("ArrowDown");
+  check(below !== undefined && (await focused()) === below, `↓ goes to the one below: ${await focused()}, ${below}`);
   await tab("Frameworks").click();
   const frameworks = await drawn();
   check(["SWOT", "OKRs", "RACI", "Venn Diagram", "Two-by-Two Matrix"].every((n) => frameworks.includes(n)), `Frameworks: ${frameworks.join(", ")}`);
