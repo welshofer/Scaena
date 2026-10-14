@@ -100,6 +100,9 @@ export function panel(stage: Stage, editor: Editor): Panel {
   const kept = $<HTMLInputElement>("#keep-key");
   const base = $<HTMLInputElement>("#base");
   const note = $("#keynote");
+  const status = $("#keystatus");
+  const hintLine = $("#keyhint");
+  const reveal = $<HTMLButtonElement>("#reveal-key");
   const transcript = $<HTMLOListElement>("#transcript");
   const question = $<HTMLTextAreaElement>("#question");
   const askButton = $<HTMLButtonElement>("#ask");
@@ -112,6 +115,29 @@ export function panel(stage: Stage, editor: Editor): Panel {
 
   const which = () => provider.value as ProviderId;
   const tell = (text: string) => (note.textContent = text);
+  /** Whether the key works, as the line under it says: none, checking, works, refused, or not
+   * checked. */
+  const say = (state: "none" | "checking" | "works" | "refused" | "unreachable", text: string) => {
+    status.dataset.state = state;
+    status.textContent = text;
+  };
+  /** What looks wrong with the key's form, as it is typed. */
+  const hinted = () => {
+    const said = keys.hint(which(), key.value);
+    hintLine.hidden = !said;
+    hintLine.textContent = said ?? "";
+  };
+  /** The key shown or masked. */
+  const showing = (shown: boolean) => {
+    key.type = shown ? "text" : "password";
+    reveal.setAttribute("aria-pressed", String(shown));
+    reveal.setAttribute("aria-label", shown ? "Hide the key" : "Show the key");
+    reveal.title = shown ? "Hide the key" : "Show the key";
+  };
+  reveal.onclick = () => {
+    showing(key.type === "password");
+    key.focus();
+  };
   const risk = () =>
     `Your key goes from this page to ${PROVIDERS[which()].name} and nowhere else; get one at ${PROVIDERS[which()].keys}. ` +
     (kept.checked
@@ -126,6 +152,8 @@ export function panel(stage: Stage, editor: Editor): Panel {
     const found = await keys.load(p);
     key.value = found?.key ?? "";
     kept.checked = found?.kept ?? false;
+    showing(false);
+    hinted();
     tell(risk());
     await listModels();
   }
@@ -136,15 +164,20 @@ export function panel(stage: Stage, editor: Editor): Panel {
     const asked = ++listing;
     const p = which();
     model.replaceChildren();
-    if (!key.value) return;
+    if (!key.value) return say("none", `No key yet: paste ${PROVIDERS[p].name}'s to ask its models.`);
+    say("checking", `Checking the key with ${PROVIDERS[p].name}…`);
     let models: string[];
     try {
       models = await stage.models(p, key.value, base.value || undefined);
     } catch (e) {
-      if (asked === listing) tell(`${PROVIDERS[p].name} did not list its models: ${e instanceof Error ? e.message : e}`);
+      if (asked !== listing) return;
+      const { state, said } = keys.verdict(p, e instanceof Error ? e : new Error(String(e)));
+      say(state, said);
       return;
     }
     if (asked !== listing) return;
+    const { state, said } = keys.verdict(p, models);
+    say(state, said);
     model.replaceChildren(...models.map((m) => new Option(m, m)));
     const picked = settings.models[p];
     if (picked && models.includes(picked)) model.value = picked;
@@ -164,6 +197,7 @@ export function panel(stage: Stage, editor: Editor): Panel {
   model.onchange = remember;
   let typing: ReturnType<typeof setTimeout> | undefined;
   key.oninput = base.oninput = () => {
+    hinted();
     clearTimeout(typing);
     typing = setTimeout(() => {
       remember();
@@ -180,6 +214,9 @@ export function panel(stage: Stage, editor: Editor): Panel {
     key.value = "";
     kept.checked = false;
     model.replaceChildren();
+    showing(false);
+    hinted();
+    say("none", `No key yet: paste ${PROVIDERS[which()].name}'s to ask its models.`);
     tell(`The ${PROVIDERS[which()].name} key is forgotten. ${risk()}`);
   };
   $<HTMLButtonElement>("#new").onclick = () => {

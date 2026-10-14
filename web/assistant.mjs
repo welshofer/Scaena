@@ -16,7 +16,9 @@
 // source takes each edit and lints clean at the end; that each edit shows the states it drew
 // anew, before and after (PLAN 2.93); that the theme's edit is one step of the source's undo, the
 // theme written back (PLAN 2.61); and that a question stops when asked to.
-// Then the key's storage: for the tab, or on the device, encrypted, and forgotten.
+// Then the key's field and storage: masked and shown on request, its form said as it is typed, its
+// provider's answer said (it works with its models, or is refused in the provider's words), kept
+// for the tab, or on the device, encrypted, and forgotten.
 // Exits 1 on any failure.
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -170,7 +172,11 @@ async function provider(wire) {
     if (req.method === "OPTIONS") return res.writeHead(204, cors).end();
     const path = new URL(req.url, "http://x").pathname;
     const reply = (status, body) => res.writeHead(status, { ...cors, "content-type": "application/json" }).end(JSON.stringify(body));
-    if (req.method === "GET" && path === wire.models.path) return reply(200, wire.models.body);
+    if (req.method === "GET" && path === wire.models.path) {
+      // A key the provider refuses, as Anthropic answers one.
+      if (wire.key(req.headers) === "refused-key") return reply(401, { type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } });
+      return reply(200, wire.models.body);
+    }
     if (req.method !== "POST" || path !== wire.turn) return reply(404, { error: { message: `no ${req.method} ${path}` } });
     let text = "";
     for await (const chunk of req) text += chunk;
@@ -331,6 +337,36 @@ try {
       check(editable === "true", "and the source takes typing again");
       scripted.state.slow = 0;
 
+      // The key's field: masked, shown when asked; its form said as it is typed; checked with the
+      // provider, which lists its models or refuses it.
+      const keyState = () => page.$eval("#keystatus", (p) => ({ state: p.dataset.state, text: p.textContent }));
+      const keyed = (state) => page.waitForFunction((s) => document.querySelector("#keystatus").dataset.state === s, state, { timeout: 15000 }).catch(() => {});
+      await keyed("works");
+      let said = await keyState();
+      check(said.state === "works" && said.text.includes("1 model"), `the key is said to work, with its models: ${said.text}`);
+      check((await page.$eval("#key", (k) => k.type)) === "password", "the key is masked");
+      await page.click("#reveal-key");
+      check(
+        (await page.$eval("#key", (k) => k.type)) === "text" && (await page.$eval("#reveal-key", (b) => b.getAttribute("aria-pressed"))) === "true",
+        "Show the key shows it",
+      );
+      await page.click("#reveal-key");
+      check((await page.$eval("#key", (k) => k.type)) === "password", "and masks it again");
+      await page.fill("#key", "AIzaSyB-a-key-of-geminis-form-0123");
+      const hint = await page.$eval("#keyhint", (p) => (p.hidden ? "" : p.textContent));
+      check(hint === "This looks like a Gemini key.", `a key of another form is said so as it is typed: ${hint}`);
+      await page.fill("#key", "refused-key");
+      await keyed("refused");
+      said = await keyState();
+      check(said.state === "refused" && said.text === "Anthropic refused this key: invalid x-api-key", `a key the provider refuses is said so, in its words: ${said.text}`);
+      check((await page.$eval("#model", (s) => s.options.length)) === 0, "and offers no models");
+      await page.fill("#key", "anthropic-test-key");
+      await keyed("works");
+      // The test's key is not of Anthropic's form: it is warned of, and works all the same, since
+      // the form warns and refuses nothing; the provider's answer decides.
+      const warned = await page.$eval("#keyhint", (p) => (p.hidden ? "" : p.textContent));
+      check((await keyState()).state === "works" && warned === "Anthropic's keys start with sk-ant-.", `a key of another form that the provider takes works, warned of: ${warned}`);
+
       // The key: for this tab by default; on this device, encrypted, when asked; then forgotten.
       const stored = () => page.evaluate(() => ({ session: sessionStorage.getItem("scaena.key.anthropic"), local: localStorage.getItem("scaena.key.anthropic") }));
       let keys = await stored();
@@ -347,6 +383,8 @@ try {
       await page.click("#forget-key");
       keys = await stored();
       check(keys.session === null && keys.local === null && (await page.$eval("#key", (k) => k.value)) === "", "Forget key forgets it everywhere");
+      said = await keyState();
+      check(said.state === "none" && said.text.includes("No key yet"), `and says there is no key: ${said.text}`);
     }
     await page.close();
     scripted.close();

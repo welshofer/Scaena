@@ -483,7 +483,27 @@
       #assistant[hidden] { display: none; }
       #assistant input, #assistant textarea { font: inherit; font-size: 13px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; }
       #who { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-      #who #key { flex: 1 1 10em; min-width: 8em; }
+      #who .keyfield { flex: 1 1 12em; min-width: 9em; display: flex; position: relative; }
+      #who .keyfield #key { flex: 1; min-width: 0; padding-right: 30px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: 0.02em; }
+      #who .keyfield .reveal { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); display: grid; place-items: center; width: 26px; height: 22px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--muted); cursor: pointer; }
+      #who .keyfield .reveal:hover { color: var(--ink); background: var(--line); }
+      #who .keyfield .reveal:focus-visible { outline: 2px solid var(--info); outline-offset: 0; }
+      #who .keyfield .reveal .slash { display: none; }
+      #who .keyfield .reveal[aria-pressed="true"] .slash { display: inline; }
+      .keysaid { display: grid; gap: 4px; }
+      #assistant .keysaid p { padding: 0 12px; }
+      #assistant .keysaid p[hidden] { display: none; }
+      .keysaid:not(:has(> p:not([hidden]):not(:empty))) { display: none; }
+      .keystatus { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; color: var(--muted); }
+      .keystatus:empty { display: none; }
+      .keystatus::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+      .keystatus[data-state="checking"]::before { background: none; border: 1.5px solid currentColor; border-right-color: transparent; animation: keyspin 0.8s linear infinite; }
+      .keystatus[data-state="works"] { color: #7fcf9a; }
+      .keystatus[data-state="refused"] { color: var(--error); }
+      .keystatus[data-state="unreachable"] { color: var(--warning); }
+      .keyhint { margin: 0; font-size: 12px; color: var(--warning); }
+      @keyframes keyspin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) { .keystatus[data-state="checking"]::before { animation: none; } }
       #who #model { max-width: 16em; }
       #who #base { width: 100%; }
       .note { color: var(--muted); font-size: 12px; margin: 0; }
@@ -781,11 +801,18 @@
               <option value="openai">OpenAI</option>
               <option value="gemini">Gemini</option>
             </select>
-            <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="your API key" aria-label="API key" />
+            <span class="keyfield">
+              <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your API key" aria-label="API key" aria-describedby="keystatus keyhint" />
+              <button id="reveal-key" type="button" class="reveal" aria-pressed="false" aria-label="Show the key" title="Show the key"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path class="eye" d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path class="slash" d="M4 20 20 4" stroke="currentColor" stroke-width="1.8"/></svg></button>
+            </span>
             <select id="model" aria-label="Model"></select>
             <label class="note"><input id="keep-key" type="checkbox" /> keep on this device</label>
             <button id="forget-key" type="button" title="Forget this provider's key">Forget key</button>
             <input id="base" type="url" spellcheck="false" aria-label="The API's address" />
+          </div>
+          <div class="keysaid">
+            <p id="keyhint" class="keyhint" hidden></p>
+            <p id="keystatus" class="keystatus" role="status" aria-live="polite" data-state="none"></p>
           </div>
           <p class="note" id="keynote"></p>
           <ol id="transcript" aria-label="Conversation" aria-live="polite"></ol>
