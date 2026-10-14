@@ -62,7 +62,11 @@ try {
   await page.waitForFunction(() => [...document.querySelectorAll("#cue [data-add] option")].some((o) => o.value.includes('"enter","bg","pop"')), null, {
     timeout: 30000,
   });
-  const offered = await page.evaluate(() => [...document.querySelectorAll("#cue [data-add] option")].map((o) => o.textContent));
+  // The backdrop's own builds: the menu also offers each object that leaves its own exits, a
+  // text's among them.
+  const offered = await page.evaluate(() =>
+    [...document.querySelectorAll("#cue [data-add] option")].filter((o) => o.value.includes('"bg"')).map((o) => o.textContent),
+  );
   const wanted = ["Appear", "Pop", "Fade and Scale", "Drop", "Move In from Left", "Move In from Bottom", "Spin", "Swing", "Flip", "Blink", "Jiggle"];
   check(
     wanted.every((w) => offered.includes(w)) && !offered.includes("Typewriter") && !offered.includes("Word by Word"),
