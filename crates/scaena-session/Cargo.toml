@@ -18,6 +18,9 @@ cpu = ["scaena-paint/cpu"]
 # by `scaena-ops`' operations (ADR-0009); open and save bundles in memory with `scaena-store`
 # (PLAN 2.4), and start new ones from a theme and its fonts (PLAN 2.12).
 editor = ["dep:scaena-ops", "dep:scaena-store", "dep:serde", "dep:indexmap", "dep:base64", "cpu"]
+# The icons that ship (PLAN 2.104), which the assistant's `icon_find` reads: the Mac's library
+# carries them, and the browser's module does not, its page finding them in the set beside it.
+shipped = ["editor", "scaena-ops/shipped"]
 # A deck made from a prompt (PLAN G.5, ADR-0026): the deck a narrative built, which the
 # generator's module or the C ABI hands over, made a bundle as `scaena generate` makes one.
 # Narrato's prompts and arcs stay in the generator: this reaches `scaena_ops::narrative`'s

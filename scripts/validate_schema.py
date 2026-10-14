@@ -21,7 +21,7 @@ targets += [('docs/examples/authorability/deck.json', deck_schema)]
 targets += [(str(p.relative_to(root)), theme_schema) for p in sorted((root / 'docs/examples/authorability/themes').glob('*.theme.json'))]
 # The validation fixtures' clean decks and their theme (PLAN 1.2); the triggers break on purpose.
 targets += [(str(p.relative_to(root)), deck_schema) for p in sorted((root / 'tests/lint').glob('*/clean.deck.json'))]
-targets += [('tests/lint/theme.json', theme_schema), ('tests/lint/bundle/theme.json', theme_schema)]
+targets += [('tests/lint/theme.json', theme_schema), ('tests/lint/bundle/theme.json', theme_schema), ('tests/lint/bundle/one-weight.theme.json', theme_schema)]
 for bundle in sorted((root / 'tests/fixtures').glob('*.scaena')) + sorted((root / 'tests/bench').glob('*.scaena')):
     targets.append((str((bundle / 'deck.json').relative_to(root)), deck_schema))
     if (bundle / 'theme.json').exists():
@@ -78,6 +78,8 @@ patch_accept = {
     'a test of the whole document': ops({'op': 'test', 'path': '', 'value': {}}),
     'a state added with its deltas': ops({'op': 'add_state', 'state': {'id': 'b', 'props': {'t': {'at': {'in': None}}}}}),
     'a theme inline': ops({'op': 'retheme', 'theme': {'scaena-theme': '0.14'}}),
+    "a slide transition's style": ops({'op': 'set_state', 'id': 'mix', 'prop': 'transition/style', 'value': 'push'}),
+    "a slide transition's direction": ops({'op': 'set_state', 'id': 'mix', 'prop': 'transition/direction', 'value': 'up'}),
 }
 for name, inst in patch_reject.items():
     assert list(Draft202012Validator(patch_schema).iter_errors(inst)), f"patch schema failed to reject {name}"

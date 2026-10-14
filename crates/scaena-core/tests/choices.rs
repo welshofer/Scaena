@@ -153,6 +153,45 @@ fn each_node_type_offers_what_its_theme_names() {
     assert!(e.contains("not on screen in `intro`"), "{e}");
 }
 
+/// A build splits a node only into what it has (E106, PLAN 2.112): Typewriter and Word by Word are
+/// a text's, Grow a chart's, and a picture or a backdrop takes neither; a chart's own entrance and
+/// exit move its marks, whatever the build splits.
+#[test]
+fn each_build_offered_splits_only_what_its_node_has() {
+    let mut doc = example();
+    doc["nodes"]["photo"] = json!({ "type": "image", "src": "assets/photo.jpg", "at": { "rect": [96, 96, 640, 360] } });
+    doc["states"][0]["props"]["photo"] = json!({});
+    let names = |state: &str, node: &str, prop: &str| match &field(&offered(&doc, state, node), prop).takes {
+        Takes::Name { of: Vocabulary::MotionPreset, names, .. } => names.clone(),
+        takes => panic!("{node} {prop}: {takes:?}"),
+    };
+    let has = |names: &[String], name: &str| names.iter().any(|n| n == name);
+    for prop in ["enter", "exit"] {
+        for (state, node) in [("intro", "photo"), ("intro", "bg")] {
+            let offered = names(state, node, prop);
+            let splitting =
+                ["typewriter", "words", "grow"].into_iter().filter(|p| has(&offered, p)).collect::<Vec<_>>();
+            assert!(splitting.is_empty() && has(&offered, "pop"), "{node} {prop}: {offered:?}");
+        }
+        let title = names("intro", "title", prop);
+        assert!(has(&title, "typewriter") && has(&title, "words") && !has(&title, "grow"), "{prop}: {title:?}");
+        let rev = names("revenue", "rev", prop);
+        assert!(["typewriter", "words", "grow"].iter().all(|p| has(&rev, p)), "{prop}: {rev:?}");
+    }
+}
+
+/// What never tracks is the state's own (SPEC §2.2): an emphasis chosen in a step lives there,
+/// and the step before shows none.
+#[test]
+fn an_emphasis_lives_in_the_state_that_shows_it() {
+    let op = json!({ "op": "choose", "node": "note", "prop": "emphasis", "value": "pulse", "state": "mix" });
+    let c = compile(&example(), &[op], &Examples).unwrap();
+    let mix = field(&offered(&c.doc, "mix", "note"), "emphasis").clone();
+    assert_eq!((mix.value, mix.lives), (Some(json!("pulse")), Some(Where::State("mix".into()))));
+    let revenue = field(&offered(&c.doc, "revenue", "note"), "emphasis").clone();
+    assert_eq!((revenue.value, revenue.lives), (None, None));
+}
+
 /// A shape offers corners and a shadow where it draws them (PLAN 2.106, 2.115): a rectangle both,
 /// an oval its shadow, and a polygon of the shape library neither. A shape of no kind draws as a
 /// rectangle, and offers both; one of no kind with a path draws the path, and offers neither.

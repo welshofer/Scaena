@@ -33,7 +33,8 @@ enum Kind {
 
 /// The motions of `state`, entered from `from`: the state before it in the cue list, at
 /// rest, or `None` into the first state. Under `match: none` (`matched` false), every
-/// node leaves and enters.
+/// node leaves and enters. Under a slide transition (`slide`), the slide left is drawn whole,
+/// at rest, so no node's own exit plays there.
 pub fn items(
     deck: &Deck,
     theme: &Theme,
@@ -41,6 +42,7 @@ pub fn items(
     from: Option<&Snapshot>,
     to: &Snapshot,
     matched: bool,
+    slide: bool,
 ) -> Result<Vec<Item>, EngineError> {
     let mut items = Vec::new();
     // The nodes the choreography moves, and how: their own presets give way to it.
@@ -66,6 +68,7 @@ pub fn items(
         }
         if let Some(props) = before
             && (!stays || chart)
+            && !slide
             && !covered(id, Kind::Exit)
             && let Some(preset) = props.get("exit")
         {
@@ -184,7 +187,12 @@ fn preset_cue(
         Kind::Emphasis => Motion::Emphasis(look(p.to.as_ref().or(p.from.as_ref()))?),
         Kind::Anim => unreachable!("anim names no preset"),
     };
-    let curve = curve(theme, item, call, p)?;
+    // An exit on a spring stops where it first reaches the look it leaves by, gone: it does
+    // not swing past it and back into sight.
+    let curve = match kind {
+        Kind::Exit => curve(theme, item, call, p)?.arriving(),
+        _ => curve(theme, item, call, p)?,
+    };
     let eased = match (item.and_then(|t| t.duration.as_ref()), call.and_then(|c| c.duration.as_ref()), &p.duration) {
         (Some(d), _, _) | (None, Some(d), _) | (None, None, Some(d)) => duration(theme, d)?,
         (None, None, None) => standard(theme)?,

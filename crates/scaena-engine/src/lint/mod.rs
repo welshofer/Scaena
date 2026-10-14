@@ -47,6 +47,7 @@ pub fn rules() -> Vec<Box<dyn Rule>> {
         Box::new(text::W203ShrinkFloor),
         Box::new(text::W220MixedAlignment),
         Box::new(text::W231Upright),
+        Box::new(text::W232Lighter),
         Box::new(space::W303UnderFurniture),
         Box::new(text::W310LabelCollision),
         Box::new(space::W311ShaderBehindData),
@@ -315,7 +316,7 @@ fn lay_out(
         let state = &deck.states[i];
         let timing = Timing::parse(theme, state.transition.as_ref())?;
         let before = i.checked_sub(1).map(|p| &snapshots[p]);
-        let items = cues::items(deck, theme, state, before, snap, timing.matched)?;
+        let items = cues::items(deck, theme, state, before, snap, timing.matched, timing.slide.is_some())?;
         // The state before, as laid out already, or laid out for the cue into this one.
         let from = match (i.checked_sub(1), out.last()) {
             (Some(p), Some(laid)) if laid.index == p => Some(laid.scene.clone()),

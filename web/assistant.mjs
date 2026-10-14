@@ -5,8 +5,9 @@
 //
 //   a new deck from Dusk → a headline too long for its one-row slot (deck_patch) → the E100
 //   lint finds, with its fix (deck_lint) → the fix (deck_lint with `fix`) → no errors
-//   (deck_lint) → the state drawn (deck_render) → a cooler accent (theme_edit) → a patch the deck
-//   refuses (deck_patch), headed as not done → an answer.
+//   (deck_lint) → the state drawn (deck_render) → a cooler accent (theme_edit) → an icon found by
+//   its words (icon_find, which the author-deck skill names, from the set the page carries) → a
+//   patch the deck refuses (deck_patch), headed as not done → an answer.
 //
 //   node web/assistant.mjs     (after `just web`; from the repository's root)
 //
@@ -81,6 +82,7 @@ const SCRIPT = [
   { name: "deck_lint", args: {} },
   { name: "deck_render", args: { state: "start", size: "960x540" } },
   { name: "theme_edit", args: { ops: [{ op: "replace", path: "/tokens/color/accent", value: "#2E86E4" }] } },
+  { name: "icon_find", args: { query: "rocket", weight: "fill", limit: 2 } },
   // A patch the deck refuses: a layout the theme has not.
   { name: "deck_patch", args: { ops: [{ op: "set_state", id: "start", prop: "layout", value: "no-such-layout" }] } },
 ];
@@ -248,7 +250,7 @@ try {
     const tools = wire.tools(first.body);
     const names = tools.map((t) => t.name);
     check(
-      ["deck_read", "deck_patch", "deck_lint", "deck_inspect", "deck_diff", "deck_render", "spine_read", "spine_update", "data_attach", "data_edit", "theme_edit", "resource_read"].every((n) => names.includes(n)),
+      ["deck_read", "deck_patch", "deck_lint", "deck_inspect", "deck_diff", "deck_render", "spine_read", "spine_update", "data_attach", "data_edit", "theme_edit", "icon_find", "resource_read"].every((n) => names.includes(n)),
       `${id}: the tools: ${names.join(", ")}`,
     );
     check(
@@ -274,12 +276,18 @@ try {
       themed.applied === true && themed.theme === "themes/dusk.theme.json" && themed.paths?.[0] === "/tokens/color/accent",
       `${id}: theme_edit edits the bundle's copy of Dusk (${result(6).json?.slice(0, 160)})`,
     );
+    const icons = parsed(7);
+    const rocket = icons.icons?.[0];
+    check(
+      icons.icons?.length === 2 && rocket?.name === "rocket" && JSON.stringify(rocket.icon?.view) === "[0,0,256,256]" && rocket.icon.path?.startsWith("M") && icons.found >= 2,
+      `${id}: icon_find finds the rocket by its words, its path on its view (${result(7).json?.slice(0, 160)})`,
+    );
     // Each call headed by what it came to: the patch that was made edited the deck; the one the
     // deck refused did not, and says so.
-    check(!JSON.parse(result(7).json ?? "{}").applied, `${id}: the patch naming a layout the theme has not is not made (${result(7).json?.slice(0, 160)})`);
+    check(!JSON.parse(result(8).json ?? "{}").applied, `${id}: the patch naming a layout the theme has not is not made (${result(8).json?.slice(0, 160)})`);
     const heads = await page.evaluate(() => [...document.querySelectorAll("#transcript li.call .doing")].map((d) => d.textContent));
     check(heads[0] === "Edited the deck" && heads[5] === "Edited the theme", `${id}: a call made is headed by what it did: ${heads[0]} · ${heads[5]}`);
-    check(heads[6] === "Didn't edit the deck", `${id}: a call refused is headed as not done: ${heads[6]}`);
+    check(heads[7] === "Didn't edit the deck", `${id}: a call refused is headed as not done: ${heads[7]}`);
     if (id === "gemini") {
       const model = requests[1].body.contents.find((c) => c.role === "model");
       check(model?.parts?.[0]?.thoughtSignature === "signature-0", "gemini: a call's thought signature goes back as it came");

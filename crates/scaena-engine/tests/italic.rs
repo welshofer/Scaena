@@ -1,7 +1,8 @@
 //! Italics (PLAN 2.40, SPEC §3.5): text that asks for italic is set in its family's italic
 //! face, a file the theme names; a family without one sets it upright and says so (lint
 //! W231), never a slanted roman. On the example decks' fonts, which carry each family's
-//! italic.
+//! italic. Bold is the family's own too: a family of one weight sets a heavier run in its
+//! weight and says so (lint W232), never an emboldened outline.
 
 use scaena_core::Deck;
 use scaena_engine::fonts::BundleFonts;
@@ -61,7 +62,7 @@ fn italic_is_the_familys_own_italic_face() {
     assert_eq!(faces(&upright), ["fonts/Inter-VF.ttf"]);
     let italic = set(&mut fonts, &theme, &[("Revenue doubled", true)]);
     assert_eq!(faces(&italic), ["fonts/Inter-Italic-VF.ttf"], "the italic file, not the roman slanted");
-    assert!(italic.upright.is_empty() && !italic.synthesized);
+    assert!(italic.upright.is_empty() && italic.lighter.is_empty());
     assert_ne!(italic.width, upright.width, "an italic sets its own advances");
 
     // A run in italic, the rest upright: only its glyphs come from the italic.
@@ -88,7 +89,7 @@ fn a_family_without_an_italic_sets_it_upright_and_says_so() {
     let text = set(&mut fonts, &theme, &[("Revenue ", false), ("doubled", true)]);
     assert!(faces(&text).iter().all(|f| *f == "fonts/Inter-VF.ttf"), "upright, the roman as it is: {:?}", faces(&text));
     assert_eq!(text.upright, ["body"], "the family asked, by its key");
-    assert!(!text.synthesized);
+    assert!(text.lighter.is_empty());
     // Asked of none, nothing to say.
     assert!(set(&mut fonts, &theme, &[("Revenue doubled", false)]).upright.is_empty());
 }
@@ -137,4 +138,53 @@ fn command_i_toggles_italic_by_what_each_character_asks() {
     });
     let carets = set(&mut fonts, &plain, &[("doubled", true)]).carets([0.0, 0.0]);
     assert_eq!(carets.italicizing(0, 7)["style/italic"], serde_json::Value::Null);
+}
+
+/// Gallery's display family, Instrument Serif, is one weight, with no `wght` axis. A run asked
+/// to be bold is set in that weight, the glyphs and advances the font has, none emboldened,
+/// and the layout names the font set lighter than asked (lint W232). The run keeps the weight
+/// it asks for, which ⌘B reads.
+#[test]
+fn a_family_of_one_weight_sets_a_heavier_run_in_its_own_weight() {
+    let theme = Theme::from_json(&String::from_utf8(read("themes/gallery.theme.json")).unwrap()).unwrap();
+    let mut fonts = BundleFonts::new();
+    for file in ["InstrumentSerif-Regular.ttf", "InstrumentSerif-Italic.ttf", "Inter-VF.ttf", "Inter-Italic-VF.ttf"]
+        .into_iter()
+        .chain(["JetBrainsMono-VF.ttf", "JetBrainsMono-Italic-VF.ttf"])
+    {
+        let path = format!("fonts/{file}");
+        fonts.register(&path, read(&path)).unwrap();
+    }
+    fonts.check_theme(&theme).unwrap();
+    let set = |fonts: &mut BundleFonts, role: &str, weight: Option<f32>| {
+        let role = theme.text_role(role).unwrap();
+        let mut spec = TextSpec::plain(role.clone(), "");
+        spec.spans = [("Revenue ", None), ("doubled", weight)]
+            .into_iter()
+            .map(|(text, weight)| {
+                let mut span = TextSpec::plain(role.clone(), text).spans.remove(0);
+                if let Some(weight) = weight {
+                    span.style.weight = weight;
+                }
+                span
+            })
+            .collect();
+        TextEngine::new().layout(fonts, &theme, &spec, 1600.0).unwrap()
+    };
+    let glyphs = |text: &TextLayout| -> Vec<(u32, f32, f32)> {
+        text.runs.iter().flat_map(|r| r.glyphs.iter().map(|g| (g.id, g.x, g.y))).collect()
+    };
+
+    let plain = set(&mut fonts, "headline", None);
+    let bold = set(&mut fonts, "headline", Some(700.0));
+    assert!(plain.lighter.is_empty());
+    assert_eq!(bold.lighter, ["fonts/InstrumentSerif-Regular.ttf"], "the font set lighter than asked");
+    assert!(faces(&bold).iter().all(|f| *f == "fonts/InstrumentSerif-Regular.ttf"), "{:?}", faces(&bold));
+    assert_eq!(glyphs(&bold), glyphs(&plain), "the font's own glyphs and advances");
+    assert_eq!(bold.looks.iter().map(|l| l.weight).collect::<Vec<_>>(), [400.0, 700.0], "the weight asked");
+
+    // Inter, with its `wght` axis, sets the run bold: nothing to say.
+    let inter = set(&mut fonts, "body", Some(700.0));
+    assert!(inter.lighter.is_empty());
+    assert_ne!(glyphs(&inter), glyphs(&set(&mut fonts, "body", None)));
 }

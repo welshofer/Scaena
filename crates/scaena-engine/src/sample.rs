@@ -388,7 +388,7 @@ impl Timing {
     /// A state's `transition`: a duration (ms or a theme name), or
     /// `{ duration, ease, spring, match }`, with `duration` and `ease` defaulting to
     /// `standard`. A spring takes the place of both: the transition follows it and
-    /// lasts its settle time.
+    /// lasts its settle time, a slide transition until it first reaches its end.
     pub fn parse(theme: &Theme, transition: Option<&Value>) -> Result<Timing, EngineError> {
         let Some(v) = transition else { return Ok(Timing::CUT) };
         let standard = Value::from("standard");
@@ -423,7 +423,11 @@ impl Timing {
                 }
                 _ => return Err(bad()),
             };
-            let curve = Curve::spring(spring);
+            // A slide stops where the spring first brings it, rather than swinging past and back.
+            let curve = match slide {
+                Some(_) => Curve::spring(spring).arriving(),
+                None => Curve::spring(spring),
+            };
             return Ok(Timing { duration_ms: curve.duration(0.0), curve, matched, slide });
         }
         let duration_ms = theme
@@ -1212,7 +1216,11 @@ impl Transition {
         self.furnish(&mut dl, moving, p, time);
         if let Some((slide, way)) = slid {
             let entered = std::mem::take(&mut dl.ops);
-            let left = self.from.as_ref().map(|s| s.ops_into(&mut dl, time, &HashMap::new())).unwrap_or_default();
+            // Into the first state, the slide left is the ground (SPEC §3.9).
+            let left = match &self.from {
+                Some(s) => s.ops_into(&mut dl, time, &HashMap::new()),
+                None => vec![self.to.ground_op()],
+            };
             dl.ops = slide.compose(way, p, dl.viewport, left, entered);
         }
         dl

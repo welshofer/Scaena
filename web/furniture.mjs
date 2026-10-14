@@ -6,12 +6,14 @@
 // - Number: Each slide's is one `furnish` patch: the deck's header says so, the slide draws its
 //   number at the right of its foot and nothing else moves, and the status says what changed.
 // - A footer typed is one `furnish` patch, its words in the header, drawn from the left of the foot;
-//   the field emptied takes it away, one `furnish` of `null`.
+//   the same words with a space added are no edit; the field emptied takes it away, one `furnish`
+//   of `null`.
 // - This slide: Hides them is a `set_state` of `furniture` on the slide's first state, chosen
 //   from its step too, and the slide draws as it did; As its layout has them takes it away.
 // - The title slide, which Dusk leaves them off, shows them when it asks.
 // - Neither is an object: the canvas lists no box for them, and lint finds nothing under them.
 // - ⌘Z takes each back, a step at a time.
+// - New layout from the title slide's leaves them off the copy, as Dusk leaves them off a title.
 //
 //   node web/furniture.mjs     (after `just web`; from the repository's root)
 //
@@ -143,6 +145,16 @@ try {
   check((await status()).includes("Q3 Review · Board"), `the status says the footer: ${await status()}`);
   const footed = differ(numbered, await drawn());
   check(footed.left > 20 && footed.right === 0 && footed.above === 0, `the footer is drawn from the left of the foot: ${JSON.stringify(footed)}`);
+  // The same words with a space added change nothing: no patch, nothing refused, the field put back.
+  const kept = await source();
+  await page.fill("#look-footer", "Q3 Review · Board ");
+  await page.locator("#overlay").focus();
+  const refused = await page
+    .waitForFunction(() => document.querySelector("#status").textContent.startsWith("Not changed"), null, { timeout: 3000, polling: 50 })
+    .then(() => true, () => false);
+  check(!refused, `a space added is no edit, and nothing is refused: ${await status()}`);
+  check((await source()) === kept, "and the deck stays as it was");
+  check((await page.inputValue("#look-footer")) === "Q3 Review · Board", `the field is put back: “${await page.inputValue("#look-footer")}”`);
   const findings = await page.evaluate(() => window.scaena.last().findings.filter((f) => f.code === "W303").length);
   check(findings === 0, `nothing on the example's slides stands under them: ${findings} W303`);
   const boxes = await page.evaluate(() => window.scaena.canvas.boxes().map((b) => b.node));
@@ -186,6 +198,38 @@ try {
   await until((s) => window.scaena.source() === s, original);
   check((await source()) === original, "six undos take the deck back as it was");
   check(await page.evaluate(() => window.scaena.last().valid), "the source still compiles and validates");
+
+  // A new layout from the title's leaves them off as the title's does: one theme edit.
+  // The preview follows the caret to the title slide once the editor has taken the undos: the caret
+  // leaves the slide's line and comes back until it does.
+  for (let tries = 0; tries < 10 && (await page.evaluate(() => window.scaena.shown())) !== 0; tries++) {
+    await page.evaluate(() => window.scaena.cursor(0));
+    await page.waitForTimeout(500);
+    await page.evaluate(() => window.scaena.cursor(window.scaena.source().indexOf("state intro") + "state ".length));
+    await page.waitForFunction(() => window.scaena.shown() === 0, null, { timeout: 3000 }).catch(() => {});
+  }
+  await show("intro", 0);
+  await page.selectOption("#look-number", "yes");
+  await until(() => window.scaena.source().includes("furniture:{"));
+  check(await lives("Hidden"), `numbered, the title slide shows none, as its layout has them: ${(await shows()).lives}`);
+  const cover = await drawn();
+  await page.evaluate(() => void window.scaena.canvas.newLayout());
+  const field = await page.waitForSelector("input.note-words", { timeout: 10000 }).catch(() => null);
+  check(field !== null, "New layout asks for its name");
+  if (field) {
+    await field.fill("Cover 2");
+    await page.keyboard.press("Enter");
+  }
+  await until(() => /^state intro .*layout:cover-2/m.test(window.scaena.source()));
+  check((await line("intro")).includes("layout:cover-2"), `the title slide takes the copy: ${await line("intro")}`);
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => !window.scaena.canvas.slotting(), null, { timeout: 10000 }).catch(() => {});
+  await show("intro", 0);
+  seen = await shows();
+  check(seen.slide === "" && seen.lives === "Hidden", `the copy leaves them off, as the title's layout does: ${JSON.stringify(seen)}`);
+  const copied = differ(cover, await drawn());
+  check(copied.left + copied.right + copied.above === 0, `the title slide draws as it did, no number at its foot: ${JSON.stringify(copied)}`);
 } finally {
   await browser.close();
   await server.close();

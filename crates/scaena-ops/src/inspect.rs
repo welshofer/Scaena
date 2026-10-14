@@ -884,7 +884,7 @@ pub fn inserting(
         Start::Box { .. } => {
             let kind = insert.node["type"].as_str();
             // An icon goes in an empty place for one, as words go in a place for words (PLAN G.23).
-            let icon = kind == Some("shape") && insert.node.get("view").is_some();
+            let icon = kind == Some("shape") && scaena_core::inserts::is_icon(|key| insert.node.get(key));
             let empty = match serde_json::from_value(insert.node["type"].clone()) {
                 Ok(content @ (NodeType::Text | NodeType::Image)) => empty_slot(deck, theme, room, state, at, content)?,
                 Ok(NodeType::Shape) if icon => empty_slot(deck, theme, room, state, at, NodeType::Shape)?,
@@ -1481,7 +1481,9 @@ fn cue_of(slot: &timeline::Slot, cue: &scaena_engine::sample::Transition, doc: &
             curve: curve(&timing.curve),
             matched: if timing.matched { "id" } else { "none" }.to_string(),
             style: timing.slide.map(|(slide, _)| slide.name().to_string()),
-            direction: timing.slide.map(|(_, way)| scaena_engine::sample::Slide::direction(way).to_string()),
+            // A dissolve fades in place: it goes no way.
+            direction: (timing.slide.filter(|(slide, _)| *slide != scaena_engine::sample::Slide::Dissolve))
+                .map(|(_, way)| scaena_engine::sample::Slide::direction(way).to_string()),
         },
         motions: cue.schedule().cues.iter().map(|p| motion(p, doc, state)).collect(),
     }
