@@ -316,11 +316,13 @@ impl Session {
             "deck_patch" => {
                 let a: DeckPatch = args(name, a)?;
                 let ops = Value::Array(a.ops.into_iter().map(Value::Object).collect());
-                // Linted as an edit is, with the session's engine, on the states it reaches.
+                // Linted as an edit is, with the session's engine, on the states it reaches, the
+                // deck it is made on validated as the editor compiled it.
+                let validated = self.validated.clone();
                 let judge = |deck: &Deck, theme: &Theme, states: &[&str]| {
                     self.judge(deck, theme, states).map_err(|e| scaena_ops::OpsError::new(e.to_string()))
                 };
-                let (mut patched, deck) = scaena_ops::patch::editing(&b, &ops, None, judge)?;
+                let (mut patched, deck) = scaena_ops::patch::editing(&b, &ops, None, validated, judge)?;
                 patched.applied &= !a.dry_run;
                 let edited = self.write(deck.filter(|_| !a.dry_run), by)?;
                 Ok(Called { edited, ..Called::of(patched)? })

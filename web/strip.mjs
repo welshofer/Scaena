@@ -22,8 +22,10 @@
 //   with its words, and a press on them asks for a picture, which goes in that slot, one undo;
 //   where it outlines nothing on `intro`, a title slide the deck opened with no picture and no
 //   kicker. Bullets deleted from the strip takes its headline and points with it, the source as
-//   it was. Blank adds an empty slide after `mix`. Alt with an arrow key moves it, and so
-//   does a drag; Delete removes it, and the source is as it was.
+//   it was, and the editor counts the states as the patch left them before the source compiles
+//   again, as it does after the title is taken out of every slide that writes it. Blank adds an
+//   empty slide after `mix`. Alt with an arrow key moves it, and so does a drag; Delete removes
+//   it, and the source is as it was.
 // - A deck whose bundle took Dusk before its library grew, 11 layouts in no section, opens with the
 //   library Dusk ships now (PLAN 3.31): + Slide offers the 13 sections and 128 layouts.
 // - Each is named as a person counts it (PLAN 2.99): Slide 2, Step 2; no id names one. A state
@@ -326,8 +328,16 @@ try {
   }
   // Deleted from the strip, the slide takes what it alone showed with it, as a presentation app's
   // does: the source is as it was, and nothing is left that no slide shows.
+  /** Where the editor has each state, read as the source changes from `was`, before it compiles
+   * again: what the cursor follows meanwhile. */
+  const counted = (was) =>
+    page
+      .waitForFunction((s) => window.scaena.source() !== s && window.scaena.last().states.map(([id]) => id).join(" "), was, { timeout: 30000, polling: "raf" })
+      .then((h) => h.jsonValue(), () => undefined);
   await item("bullets").focus();
+  const gone = counted(await source());
   await page.keyboard.press("Delete");
+  check((await gone) === "intro revenue mix close", `the editor counts the states the patch left, before the source compiles: ${await gone}`);
   check(await holds(["intro", "revenue", "mix", "close"]), `Delete removes the Bullets slide: ${await order()}`);
   const left = (await source()).split("\n").filter((l) => l.includes("bullets-"));
   check(await back(original), `and its headline and points with it: ${left.join(" | ")}`);
@@ -336,6 +346,15 @@ try {
   check(await back(started), "one undo puts the slide back");
   await undo();
   check(await back(original), "one undo takes it back");
+  // The title taken out of the deck goes from each slide that writes it, the first and the last,
+  // one change across the slides between them: the editor counts every slide meanwhile.
+  await page.evaluate(() => window.scaena.canvas.select("title"));
+  await page.locator("#overlay").focus();
+  const across = counted(await source());
+  await page.keyboard.press("Shift+Delete");
+  check((await across) === "intro revenue mix close", `and after a patch across several, before the source compiles: ${await across}`);
+  await undo();
+  check(await back(original), "one undo puts the title back");
 
   // Photo: its picture waits, edge to edge, outlined with its words.
   await item("revenue").click();

@@ -9,14 +9,14 @@
 
 use crate::{Error, Session};
 use scaena_core::model::Format;
-use scaena_core::validate::BundleFiles;
+use scaena_core::validate::{BundleFiles, validate_bundle};
 use scaena_core::{Deck, Finding, Severity, resolve_states};
 use scaena_engine::data::DataFiles;
 use scaena_engine::theme::Theme;
 use scaena_engine::{Engine, FrameRequest};
 use scaena_ops::compile::{Compiled, compile_renamed, line_col};
 use scaena_ops::inspect::{Inspected, Views, inspect_deck};
-use scaena_ops::lint::{layout_rules, layout_rules_on, lint_with};
+use scaena_ops::lint::{layout_rules, layout_rules_on, lint_validated, lint_with};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -218,6 +218,7 @@ impl Session {
         let valid = deck.is_some();
         if let Some(deck) = deck {
             self.set_deck(deck);
+            self.validated = Some(compiled.findings.clone());
         }
         let every = self.every();
         let findings = (compiled.findings.iter()).map(|f| every.locate(source, &compiled, f, false)).collect();
@@ -247,13 +248,21 @@ impl Session {
             });
         };
         self.build()?;
-        let Session { engine, store, data, theme_json, laid, files, .. } = self;
+        let Session { engine, store, data, theme_json, laid, files, validated, .. } = self;
         let engine = engine.as_mut().expect("built above");
         let mut fresh = None;
         // What the layout rules found, this time and kept from the last: what holds only in the
         // format it was laid out in.
         let mut layout = Vec::new();
-        let linted = lint_with(&deck, &Handed(files), Some(theme_json.as_str()), |theme| {
+        // What validation found when the deck was compiled, which nothing has changed since.
+        let found = match validated {
+            Some(found) => found.clone(),
+            None => {
+                let json = deck.to_json().map_err(|e| Error::Deck(e.to_string()))?;
+                validate_bundle(&json, &Handed(files)).map_err(|e| Error::Deck(e.to_string()))?
+            }
+        };
+        let linted = lint_validated(&deck, found, Some(theme_json.as_str()), |theme| {
             let found = layout_rules(engine, &deck, theme, data, store, only)?;
             fresh = Some(found.clone());
             layout = match only {

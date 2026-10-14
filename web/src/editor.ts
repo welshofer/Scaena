@@ -422,13 +422,20 @@ async function edit(source: Source) {
             version++;
             clearTimeout(pending);
             // Where each state starts moves with the change until the source is compiled again:
-            // the cursor an undo puts back is in the state it was in. A state whose start the
-            // change took away is gone, so the states after it count as the worker counts them.
+            // the cursor an undo puts back is in the state it was in. The source the worker made
+            // (a patch, the assistant's edit), which it holds, has its states where it says, those
+            // the patch added or took away too. Elsewhere a state whose start the change took away
+            // is gone, and one it brings back waits for the worker to compile the source, so the
+            // cursor never asks the worker for a state it does not hold.
             if (last) {
-              const states = last.states.flatMap(([id, at]): [string, number][] => {
-                const to = update.changes.mapPos(at, 1, MapMode.TrackAfter);
-                return to === null ? [] : [[id, to]];
-              });
+              const doc = update.state.doc;
+              const made = taken?.edited.valid && taken.source.length === doc.length && taken.source === doc.toString() ? taken.edited : undefined;
+              const states =
+                made?.states ??
+                last.states.flatMap(([id, at]): [string, number][] => {
+                  const to = update.changes.mapPos(at, 1, MapMode.TrackAfter);
+                  return to === null ? [] : [[id, to]];
+                });
               last = { ...last, states };
             }
             if (!quiet) {

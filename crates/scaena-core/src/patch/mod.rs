@@ -334,8 +334,10 @@ pub enum SemanticOp {
     /// length in canvas units: lint W300's) goes in the deck's `overrides`, the only place it
     /// is legal, and so does any value where the overrides set the property, since they win
     /// in every state. Else it goes in the latest delta that sets it, from `state` back along
-    /// what it tracks, else in the node's own; without `state`, in the node's own. `null`
-    /// takes it away where it lives, so what is under it shows.
+    /// what it tracks, else in the node's own; without `state`, in the node's own. What never
+    /// tracks (`emphasis`, `anim`) is `state`'s own: written in its props, where it plays, or on
+    /// the node where the node enters there with its own. `null` takes it away where it lives,
+    /// so what is under it shows.
     Choose {
         #[schemars(with = "Id")]
         node: String,
@@ -445,7 +447,9 @@ pub enum SemanticOp {
         before: Option<String>,
     },
     /// A state, and its place in the spine's beats. The state after it tracks from the one
-    /// before it. A state that others build on (`slide`) or track from (`from`) stays.
+    /// before it. Each node it shows that no other state shows then goes with it, as a
+    /// presentation app's slide takes its objects. A state that others build on (`slide`) or
+    /// track from (`from`) stays.
     RemoveState {
         #[schemars(with = "Id")]
         id: String,
@@ -465,16 +469,19 @@ pub enum SemanticOp {
     },
     /// A copy of a slide just after it (PLAN 2.97): each of its states under an id new to the
     /// deck, its first `-2`, `-3`, … after the slide's. The copy's first state is absolute and
-    /// sets each property of each node it shows, so an edit to either slide leaves the other;
-    /// it shows the same nodes, so the slide morphs into it. Every other state shows what it
+    /// sets each property of each node it shows but what is the node's own in every state (its
+    /// lock, a connector's ends, and its layout in its formats), and `null` for each of the
+    /// node's own that the slide takes away, so an edit to either slide leaves the other; it
+    /// shows the same nodes, so the slide morphs into it. Every other state shows what it
     /// showed.
     DuplicateSlide {
         #[schemars(with = "Id")]
         slide: String,
     },
     /// A slide's states taken out, and their places in the spine's beats and the links to them
-    /// (PLAN 2.97). Every other state shows what it showed: the state after the slide, and one
-    /// that tracked from a state of it, are written again to resolve as they did.
+    /// (PLAN 2.97), and each node they show that no other state shows then. Every other state
+    /// shows what it showed: the state after the slide, and one that tracked from a state of
+    /// it, are written again to resolve as they did.
     RemoveSlide {
         #[schemars(with = "Id")]
         slide: String,
