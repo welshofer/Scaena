@@ -32,11 +32,14 @@ import SwiftUI
 /// in reading order, Return goes into a container or onto a node's handles, the arrows step a node
 /// a track (with Shift resize it) or move the handle the keys are on, `[` and `]` turn it, ⌘A
 /// selects all beside it, and Space, then Tab and Space, build a selection; each node is an
-/// element VoiceOver reads as the reader hears it. On the iPad (PLAN 4.3), a finger makes each of
-/// these gestures' patches: a tap is a click and a double tap a double click; a handle is taken
-/// within 22 points; a long press offers what the Node menu and the clipboard do to what it
-/// pressed; and two fingers zoom the slide on the desk and pan it, a second finger stopping the
-/// first's press as it touches down. Every box and caret is the engine's, at rest; nothing here lays out.
+/// element VoiceOver reads as the reader hears it. Zoomed in with nothing selected, the arrows pan
+/// what shows, and what the keys select comes into view; PageDown and PageUp show the next slide
+/// or step and the one before (PLAN 4.12, as the browser's, PLAN 2.125, 2.126). On the iPad (PLAN
+/// 4.3), a finger makes each of these gestures' patches: a tap is a click and a double tap a
+/// double click; a handle is taken within 22 points; a long press offers what the Node menu and
+/// the clipboard do to what it pressed; and two fingers zoom the slide on the desk and pan it, a
+/// second finger stopping the first's press as it touches down. Every box and caret is the
+/// engine's, at rest; nothing here lays out.
 struct CanvasSelection: View {
     let editor: DeckEditor
     let state: String
@@ -76,6 +79,9 @@ struct CanvasSelection: View {
     var pen: PenUp? = nil
     var penning: (() -> Void)? = nil
     var inked: (([CGPoint]) -> Void)? = nil
+    /// Show another state, a slide or a step: where PageDown and PageUp go (PLAN 4.12). None where
+    /// the window shows no other.
+    var showing: ((String) -> Void)? = nil
     /// Make the patch a gesture ended in: one step to undo, named in the Edit menu as the gesture
     /// is where it says more than the patch (a resize), else as the patch says what it does.
     let make: ([JSONValue], String?) -> Void
@@ -125,6 +131,10 @@ struct CanvasSelection: View {
     /// show yet (PLAN 2.114).
     @State private var stroke: [CGPoint] = []
     @State private var wet: [[CGPoint]] = []
+    /// Where the pen's drag under way began, view points; and where one two fingers stopped began,
+    /// which draws nothing until it ends (PLAN 4.3).
+    @State private var inkStart: CGPoint?
+    @State private var inkStopped: CGPoint?
 
     /// How long a resize pauses before the canvas shows its text reflowed (as the browser's).
     private static let pause = Duration.milliseconds(300)
@@ -293,6 +303,17 @@ struct CanvasSelection: View {
                     Color.clear
                         .contentShape(Rectangle())
                         .gesture(inking(fit))
+                        #if !os(macOS)
+                        // Two fingers zoom and pan with the pen up too, and draw nothing (PLAN 2.114,
+                        // 4.3).
+                        .gesture(
+                            CanvasPinch(
+                                level: { zoom.level }, zoom: { to, at in zoom.zoom(to: to, about: at) },
+                                fingers: fingers))
+                        .gesture(
+                            CanvasPan(
+                                pan: { by in _ = zoom.pan(by: CGVector(dx: -by.dx, dy: -by.dy)) }, fingers: fingers))
+                        #endif
                     ink(pen, fit: fit)
                         .allowsHitTesting(false)
                 }
@@ -461,6 +482,15 @@ struct CanvasSelection: View {
             pointPicked = nil
             keyed = nil
         }
+        .onChange(of: pen != nil, initial: true) { _, up in
+            // The pen up (PLAN 2.114): the Pencil draws and writes in no text, typing stops, and
+            // the canvas takes the keyboard, so P and Escape put the pen down, however it was taken
+            // up.
+            typing.inking = up
+            guard up else { return }
+            if typing.typing { typing.leave() }
+            typing.focus?()
+        }
         .modifier(LinkQuestion(typing: typing))
     }
 
@@ -604,10 +634,29 @@ struct CanvasSelection: View {
     private func inking(_ fit: Fit) -> some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .local)
             .onChanged { value in
-                if stroke.isEmpty { stroke = [fit.canvas(value.startLocation)] }
+                // A drag two fingers stopped draws nothing more (PLAN 4.3); the next is a stroke.
+                if let stopped = inkStopped {
+                    if stopped == value.startLocation { return }
+                    inkStopped = nil
+                }
+                if stroke.isEmpty {
+                    // A stroke begins as a press does: typing stops, and the canvas takes the
+                    // keyboard, so P and Escape put the pen down.
+                    if typing.typing { typing.leave() }
+                    typing.focus?()
+                    keyOn = nil
+                    pointed = fit.canvas(value.startLocation)
+                    inkStart = value.startLocation
+                    stroke = [fit.canvas(value.startLocation)]
+                }
                 stroke.append(fit.canvas(value.location))
             }
             .onEnded { value in
+                if inkStopped == value.startLocation {
+                    inkStopped = nil
+                    stroke = []
+                    return
+                }
                 var points = stroke.isEmpty ? [fit.canvas(value.startLocation)] : stroke
                 points.append(fit.canvas(value.location))
                 stroke = []
@@ -647,7 +696,7 @@ struct CanvasSelection: View {
                     typing.focus?()
                     pointed = at
                     said = nil
-                    clicks = presses.began(at: value.startLocation)
+                    clicks = presses.began(at: value.startLocation, time: value.time)
                     // Typing: a press in the text puts the caret there, one outside it stops typing.
                     let typed = typing.typing
                     if typed {
@@ -949,6 +998,12 @@ struct CanvasSelection: View {
             return arrow(0, 1, shift: shift, option: option)
         case 126 where !command:
             return arrow(0, -1, shift: shift, option: option)
+        // PageDown and PageUp (fn with ↓ and ↑ where a keyboard has neither): the next slide or
+        // step, and the one before (PLAN 4.12).
+        case 121 where !command && !option:
+            return page(1)
+        case 116 where !command && !option:
+            return page(-1)
         case 49 where !command && !option:
             return space()
         case 33, 30:
@@ -1003,6 +1058,9 @@ struct CanvasSelection: View {
             return arrow(0, 1, shift: shift, option: option)
         case .keyboardUpArrow where !command:
             return arrow(0, -1, shift: shift, option: option)
+        // PageDown and PageUp are key commands of the canvas's own, ahead of the system's, as
+        // Escape and Return are (`commanded`, PLAN 4.12): a press of either goes on, so that the
+        // one key never turns two slides where both reach the canvas.
         case .keyboardSpacebar where !command && !option:
             return space()
         case .keyboardOpenBracket, .keyboardCloseBracket:
@@ -1044,10 +1102,16 @@ struct CanvasSelection: View {
     }
 
     /// Escape or Return on the canvas while no text is typed in (PLAN 4.6), which the system hands
-    /// it as a key command rather than a press: what a press of either does.
+    /// it as a key command rather than a press: what a press of either does. PageDown and PageUp
+    /// come so too: the next slide or step, and the one before (PLAN 4.12).
     private func commanded(_ input: String, _ flags: UIKeyModifierFlags) -> Bool {
         guard press == nil, flags.isDisjoint(with: [.command, .control]) else { return false }
-        return input == UIKeyCommand.inputEscape ? escape() : enter(option: flags.contains(.alternate))
+        switch input {
+        case UIKeyCommand.inputEscape: return escape()
+        case UIKeyCommand.inputPageDown: return page(1)
+        case UIKeyCommand.inputPageUp: return page(-1)
+        default: return enter(option: flags.contains(.alternate))
+        }
     }
     #endif
 
@@ -1134,6 +1198,7 @@ struct CanvasSelection: View {
                 return false
             }
             keyOn = order[next]
+            reveal(order[next])
             let inIt = selection.contains(order[next])
             said =
                 "\(name(order[next], starting: true)), \(next + 1) of \(order.count)\(inIt ? ", selected" : "") · Space "
@@ -1152,6 +1217,7 @@ struct CanvasSelection: View {
         }
         node = order[next]
         also = []
+        reveal(order[next])
         // What Return does is said the first time only: after that, what is selected is enough.
         let hint = toldReturn ? "" : " · Return goes into it or its handles"
         toldReturn = true
@@ -1172,6 +1238,7 @@ struct CanvasSelection: View {
         let inside = readingOrder(boxes, in: selected)
         if also.isEmpty, let first = inside.first {
             node = first
+            reveal(first)
             said = "\(name(first, starting: true)) selected, in \(name(selected)) · Tab goes on, Escape goes back out"
             return true
         }
@@ -1246,8 +1313,11 @@ struct CanvasSelection: View {
 
     /// An arrow key: the handle the keys are on moved, as its drag moves it; else the node selected
     /// stepped a track, with Shift resized, kept to the state with Option, and several together.
+    /// With nothing selected, zoomed in, what shows panned a tenth of itself, with Shift half,
+    /// selecting and changing nothing, as the browser's arrows pan (PLAN 4.12, 2.125); fitted, or
+    /// with Option, the key goes on.
     private func arrow(_ dx: Int, _ dy: Int, shift: Bool, option: Bool) -> Bool {
-        guard let selected = node else { return false }
+        guard let selected = node else { return !option && zoom.pan(dx, dy, far: shift) }
         if also.isEmpty, let k = keyed {
             let list = handles(of: selected)
             guard list.indices.contains(k) else { return true }
@@ -1362,6 +1432,31 @@ struct CanvasSelection: View {
         return true
     }
 
+    /// Zoomed in, `node` brought into view (PLAN 4.12, as the browser's, PLAN 2.125): the least pan
+    /// that shows it whole where it is drawn, or, larger than what shows, the least that shows
+    /// nothing but it. What Tab, Return, and a selection by keys select; fitted, nothing moves.
+    private func reveal(_ node: String) {
+        guard let b = boxes.first(where: { $0.node == node }) else { return }
+        zoom.reveal(b.extent)
+    }
+
+    /// PageDown, `1`, or PageUp, `-1`, on the canvas (PLAN 4.12, as the browser's slide takes them,
+    /// PLAN 2.126): the next slide or step shown, or the one before, the window saying which; past
+    /// either end, that there is none. Whether the canvas took the key.
+    private func page(_ by: Int) -> Bool {
+        guard let showing else { return false }
+        guard let to = editor.state(from: state, by: by) else {
+            said = by > 0 ? "This is the last slide" : "This is the first slide"
+            return true
+        }
+        // A selection built by keys stops with the slide it was built on.
+        keyOn = nil
+        keyed = nil
+        showing(to)
+        said = "\(Words.slide(to, in: editor.slots)) shown"
+        return true
+    }
+
     /// What draws `node`'s box where it is drawn: none for the canvas, or a node nothing turns.
     private func transform(of node: String?) -> [Double]? {
         guard let node else { return nil }
@@ -1455,7 +1550,9 @@ struct CanvasSelection: View {
         pausing?.cancel()
         if case .dragging = press { editor.still() }
         press = .fingers
-        // A second finger stops the pen's stroke too (PLAN 2.114).
+        // A second finger stops the pen's stroke too, until its drag ends, which draws nothing
+        // (PLAN 2.114).
+        if !stroke.isEmpty { inkStopped = inkStart }
         stroke = []
     }
     #endif

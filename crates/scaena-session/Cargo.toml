@@ -47,3 +47,5 @@ thiserror.workspace = true
 scaena-engine = { workspace = true, features = ["hyphenation"] }
 # What a page loads to record a save in a bundle's history (PLAN 2.9), called here as Rust.
 scaena-history.workspace = true
+# Reads back the zip of every slide's PNG (PLAN 2.122).
+zip.workspace = true

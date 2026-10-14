@@ -240,6 +240,7 @@ fn write(deck: &Deck, pages: &[Page], assets: &Assets, settings: &PdfSettings) -
             readings: &readings,
             written: &written,
             page: KRect::from_xywh(0.0, 0.0, w, h),
+            pixels: kurbo::Rect::new(0.0, 0.0, f64::from(dl.viewport[0] * scale), f64::from(dl.viewport[1] * scale)),
             photos: &mut photos,
             error: None,
         };
@@ -357,6 +358,8 @@ struct Cx<'a, 's> {
     written: &'a HashMap<String, String>,
     /// The page, in points: what its background covers.
     page: Option<KRect>,
+    /// The page in the pixels shaders and shadows are drawn in: what a shadow's image is cut to.
+    pixels: kurbo::Rect,
     /// Each photo as the document carries it, by its id and whether it is filtered: made once.
     photos: &'a mut HashMap<(String, bool), Image>,
     /// The first thing that did not draw. Drawing goes on past it, so that every push
@@ -741,14 +744,15 @@ impl Cx<'_, '_> {
         Ok(())
     }
 
-    /// A shadow (PLAN 2.115) as the CPU painter blurs it, an image of what it reaches with its
-    /// alpha kept: PDF has no blur. Drawn at the scale shaders are, pixel for pixel.
+    /// A shadow (PLAN 2.115) as the CPU painter blurs it, an image of what it reaches on the page
+    /// with its alpha kept: PDF has no blur. Drawn at the scale shaders are, pixel for pixel, and
+    /// cut to the page, as the SVG's is, so a large one is no larger an image than the page.
     fn shadow(&mut self, op: &Op, xf: Affine) -> Result<(), ExportError> {
         let Op::Shadow { rect: [x, y, w, h], blur, .. } = op else { return Ok(()) };
         let reach = f64::from(*blur) * 3.0;
         let area =
             kurbo::Rect::new(f64::from(*x), f64::from(*y), f64::from(x + w), f64::from(y + h)).inflate(reach, reach);
-        let device = xf.transform_rect_bbox(area);
+        let device = xf.transform_rect_bbox(area).intersect(self.pixels);
         let (x0, y0, x1, y1) = (device.x0.floor(), device.y0.floor(), device.x1.ceil(), device.y1.ceil());
         if !(x1 - x0 >= 1.0 && y1 - y0 >= 1.0) {
             return Ok(());
@@ -1206,4 +1210,37 @@ fn by_case(shown: &str, written: &str) -> Option<String> {
     let plain = |s: &str| s.replace('\u{AD}', "").split_whitespace().collect::<Vec<_>>().join(" ");
     let (shown, written) = (plain(shown), plain(written));
     (shown != written && shown.to_uppercase() == written.to_uppercase()).then_some(written)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use scaena_core::displaylist::Color;
+
+    /// A deck of one empty state on a canvas `w` × `h`, and a page of it that draws `ops`.
+    fn page(w: f32, h: f32, ops: Vec<Op>) -> (Deck, Page) {
+        let deck = serde_json::json!({
+            "scaena": scaena_core::FORMAT_VERSION,
+            "canvas": { "width": w, "height": h },
+            "nodes": {},
+            "states": [{ "id": "only" }]
+        });
+        let deck = Deck::from_json(&deck.to_string()).unwrap();
+        let mut list = DisplayList::new([w, h]);
+        list.ops = ops;
+        (deck, Page { state: "only".into(), list })
+    }
+
+    /// A shadow larger than the page is drawn as far as the page, which a raster holds, and not
+    /// as an image past what one may be (PLAN 2.115).
+    #[test]
+    fn a_shadow_larger_than_the_page_is_drawn_to_its_edge() {
+        let black = Color([0, 0, 0, 64]);
+        for (w, h, blur) in [(3840.0, 2160.0, 10.0), (1920.0, 1080.0, 500.0)] {
+            let shadow = Op::Shadow { rect: [0.0, 0.0, w, h], radius: 0.0, blur, color: black };
+            let (deck, page) = page(w, h, vec![shadow]);
+            let written = pdf(&deck, &[page], &Assets::default(), &PdfSettings::default());
+            assert!(written.is_ok(), "{w} × {h}, a blur of {blur}: {written:?}");
+        }
+    }
 }

@@ -69,27 +69,33 @@ enum Held {
 
 /// How many presses a press beginning makes, as a double click or a double tap counts them: AppKit
 /// counts the Mac's clicks; on the iPad, a press that begins within the double-tap time of the one
-/// before it, and a finger's reach of it, is the next of them (PLAN 4.3).
+/// before it, and a finger's reach of it, is the next of them (PLAN 4.3). Each is timed when its
+/// finger came down, not when the canvas hears of it, so a busy moment between the two taps of a
+/// double tap leaves them a double tap.
 struct Presses {
-    /// The press before: where it began, view points, when, and how many it made.
-    private var last: (at: CGPoint, when: ContinuousClock.Instant, count: Int)?
+    /// The press before: where it began, view points, when its finger came down, and how many it
+    /// made.
+    private var last: (at: CGPoint, when: Date, count: Int)?
 
-    /// How long after one press the next counts with it: UIKit's double-tap time.
-    static let within = Duration.milliseconds(350)
+    /// How long after one press the next counts with it, seconds: UIKit's double-tap time.
+    static let within: TimeInterval = 0.35
     /// How far from the press before, points, the next counts with it: a finger's reach.
     static let near = 22.0
 
-    /// A press began at `point`, view points: how many it makes, one for a single click or tap.
-    @MainActor mutating func began(at point: CGPoint) -> Int {
+    /// A press began at `point`, view points, its finger down at `time`: how many it makes, one for
+    /// a single click or tap.
+    @MainActor mutating func began(at point: CGPoint, time: Date) -> Int {
         #if os(macOS)
         return Held.clicks
         #else
-        let now = ContinuousClock.now
         var count = 1
-        if let last, now - last.when <= Self.within, hypot(point.x - last.at.x, point.y - last.at.y) <= Self.near {
-            count = last.count + 1
+        if let last {
+            let gap = time.timeIntervalSince(last.when)
+            if gap >= 0, gap <= Self.within, hypot(point.x - last.at.x, point.y - last.at.y) <= Self.near {
+                count = last.count + 1
+            }
         }
-        last = (point, now, count)
+        last = (point, time, count)
         return count
         #endif
     }

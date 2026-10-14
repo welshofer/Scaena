@@ -14,7 +14,7 @@
 
 use crate::choices::choices;
 use crate::data::SourceFiles;
-use crate::document::{Deck, NodeType};
+use crate::document::{Deck, NodeType, Props};
 use crate::model::theme::Theme;
 use crate::patch::SemanticOp;
 use schemars::JsonSchema;
@@ -46,6 +46,65 @@ pub fn look_props(node_type: NodeType) -> &'static [&'static str] {
         NodeType::Frame => &["shadow"],
         NodeType::Table | NodeType::Group => &[],
     }
+}
+
+/// Whether a node of `node_type`, as `props` show it, casts the shadow it names (PLAN 2.115): a
+/// filled rectangle or ellipse, a container with a panel (its `fill`), and a picture under no mask
+/// or an oval one that hides all under it (`clear`: one that may let it show, [`see_through`]).
+/// What else names one draws none, which the engine draws by and an inspector offers by.
+pub fn casts(node_type: NodeType, props: &Props, clear: bool) -> bool {
+    let filled = props.get("fill").is_some_and(|f| !f.is_null());
+    match node_type {
+        NodeType::Shape => filled && matches!(shape_kind(props), "rect" | "ellipse"),
+        NodeType::Image => !clear && matches!(mask_of(props), None | Some("ellipse")),
+        NodeType::Stack | NodeType::Grid | NodeType::Frame => filled,
+        _ => false,
+    }
+}
+
+/// Whether `radius` rounds a node's corners as `props` show it (PLAN 2.68, 2.113): a rectangle's,
+/// and a picture's under no mask, which takes their place.
+pub fn rounds(node_type: NodeType, props: &Props) -> bool {
+    match node_type {
+        NodeType::Shape => shape_kind(props) == "rect",
+        NodeType::Image => mask_of(props).is_none(),
+        _ => false,
+    }
+}
+
+/// A shape's kind as it draws: a `rect` where it names none, or a `path` where it gives one.
+fn shape_kind(props: &Props) -> &str {
+    let path = props.contains_key("path");
+    props.get("kind").and_then(Value::as_str).unwrap_or(if path { "path" } else { "rect" })
+}
+
+/// The mask a picture is shown in, by name, if any.
+fn mask_of(props: &Props) -> Option<&str> {
+    props.get("mask").filter(|m| !m.is_null()).map(|m| m.as_str().unwrap_or_default())
+}
+
+/// Whether a picture's file may let what is under it show (PLAN 2.115): a PNG with an alpha
+/// channel, or with a color it says is transparent (`tRNS`, which comes before its pixels). A
+/// JPEG hides all under it.
+pub fn see_through(bytes: &[u8]) -> bool {
+    if !bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return false;
+    }
+    // IHDR's color type: 4 is gray and 6 color, each with alpha.
+    if matches!(bytes.get(25), Some(4 | 6)) {
+        return true;
+    }
+    let mut at = 8usize;
+    while let Some(head) = bytes.get(at..at.saturating_add(8)) {
+        match &head[4..8] {
+            b"tRNS" => return true,
+            b"IDAT" | b"IEND" => return false,
+            _ => {}
+        }
+        let len = u32::from_be_bytes([head[0], head[1], head[2], head[3]]) as usize;
+        at = at.saturating_add(12).saturating_add(len);
+    }
+    false
 }
 
 /// A node's look as a state shows it: what ⌥⌘C picks up.

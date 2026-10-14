@@ -15,9 +15,10 @@
 //   them to the goldens (SPEC §13.5; `just web-smoke` runs it). A browser's screenshots of one
 //   frame can differ by a step in a few pixels between a page from a server and one from a
 //   file, so these are held to the goldens, not to the player's screenshots.
-// - The revenue example's file plays: on, a hold that goes on by itself, End, Home. The
-//   state shown reads in its live region as the export wrote it, and what reads as it did
-//   stays put. The canvas is hidden from a screen reader.
+// - The revenue example's file plays: on, a hold that goes on by itself, End, on past the last to
+//   the end of the show and on again out of it (PLAN 2.120), Home. The state shown reads in its
+//   live region as the export wrote it, and what reads as it did stays put. The canvas is hidden
+//   from a screen reader.
 // - The file of `mix` and `intro` plays those two, in that order.
 // - WebGPU paints a file, and the presenter view opens from one and follows it.
 // - Nothing any file does asks for more than itself and its worker's blob, and no page logs
@@ -166,6 +167,13 @@ try {
   await page.keyboard.press("End");
   await page.waitForFunction(() => window.scaena.at().index === 3, null, { timeout: 30000 });
   check((await reading(page)) === '<h1 data-node="title">Thank you</h1>', "End: the last state, and its reading");
+  // The end of the show (PLAN 2.120): → past the last, a black screen that says so; → again leaves it.
+  await page.waitForFunction(() => !window.scaena.at().playing, null, { timeout: 30000 }).catch(() => {});
+  await page.keyboard.press("ArrowRight");
+  const ended = await page.evaluate(() => ({ ended: window.scaena.ended(), words: document.querySelector(".end").hidden ? "" : document.querySelector(".end").textContent }));
+  check(ended.ended && ended.words.startsWith("The show has ended."), `→ past the last ends the show, and says so: ${JSON.stringify(ended)}`);
+  await page.keyboard.press("ArrowRight");
+  check(await page.evaluate(() => !window.scaena.ended() && window.scaena.at().index === 3), "→ again leaves it, on the last state");
   await page.keyboard.press("Home");
   await page.waitForFunction(() => window.scaena.at().index === 0, null, { timeout: 30000 });
   check((await reading(page)) === intro, "Home: the first again");

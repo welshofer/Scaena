@@ -482,3 +482,26 @@ private func carets(_ json: String) throws -> Carets {
     #expect(typing.head == 0, "the caret nearest the subtitle's start")
 }
 #endif
+
+/// With the pen up (PLAN 2.114) the Pencil draws, as a finger does: no text is offered to write in,
+/// and on the iPad Scribble finds none under a stroke over the title, so the stroke is a drawing.
+@MainActor
+@Test func withThePenUpThePencilWritesInNoText() throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    editor.shown = "cover"
+    let typing = Typing(editor: editor)
+    #expect(typing.writable().map(\.node).contains("title"))
+    typing.inking = true
+    #expect(typing.writable().isEmpty)
+    #if os(iOS)
+    let view = CanvasKeys(typing: typing)
+    view.frame = CGRect(x: 0, y: 0, width: 960, height: 540)
+    view.canvas = CGSize(width: 1920, height: 1080)
+    let scribble = UIIndirectScribbleInteraction(delegate: view)
+    var found = ["unasked"]
+    view.indirectScribbleInteraction(scribble, requestElementsIn: view.bounds) { found = $0 }
+    #expect(found.isEmpty, "\(found)")
+    #endif
+    typing.inking = false
+    #expect(typing.writable().map(\.node).contains("title"), "the pen down, the Pencil writes again")
+}

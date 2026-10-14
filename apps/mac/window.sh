@@ -274,6 +274,26 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   sleep 2
   shot zoomed
   echo "zoomed twice, the canvas: $(frames find canvas || true); the zoom reads $(frames value zoom), against the slide's own size"
+  # Zoomed in with nothing selected (Escape stops typing in the text inserted, then selects what
+  # holds it, the slide), → pans a tenth of what shows and Shift+→ half, what the canvas holds
+  # standing elsewhere each time; PageDown shows the next slide or step, the canvas saying so, and
+  # PageUp the slide before again (PLAN 4.12).
+  events 'key code 53'
+  events 'key code 53'
+  sleep 1
+  before=$(holds canvas)
+  events 'key code 124'
+  echo "zoomed in, nothing selected, → pans: $(changed holds canvas "$before"); the canvas reads $(named canvas)"
+  before=$(holds canvas)
+  events 'key code 124 using shift down'
+  echo "Shift+→ pans: $(changed holds canvas "$before")"
+  shot panned
+  before=$(named canvas)
+  events 'key code 121'
+  echo "PageDown, the canvas shows: $(reads "$before"), and says \"$(frames value hint)\""
+  shot paged-down
+  events 'key code 116'
+  echo "PageUp, the canvas shows: $(reads "$before" same), and says \"$(frames value hint)\""
   events 'keystroke "0" using command down'
   sleep 2
   echo "fitted again, the canvas: $(frames find canvas || true)"
@@ -468,6 +488,33 @@ if [[ "${ph:-}" =~ ^[0-9]+$ ]]; then
   echo "a picture too large, pasted: no alert: $(app 'count of sheets of window 1' 2>&1); the copy went in: $(changed holds canvas "$before")"
 else
   echo "no canvas to paste on: $px $py $pw $ph"
+fi
+
+# The pen (PLAN 2.114): taken up from the Insert menu while the slides down the side have the
+# keyboard, a stroke drawn on the slide gives the canvas the keyboard, as a press does, so Escape
+# puts the pen down, and the Insert menu offers Drawing again, not Stop Drawing. ⌘Z takes the stroke
+# back.
+read -r lx ly lw lh <<<"$(frames find state-cover)" || true
+read -r px py pw ph <<<"$(frames find canvas)" || true
+if [[ "${lh:-}" =~ ^[0-9]+$ && "${ph:-}" =~ ^[0-9]+$ ]]; then
+  pointer click $((lx + lw / 2)) $((ly + lh / 2))
+  sleep 1
+  menu Insert "Drawing"
+  sleep 1
+  pointer drag $((px + pw / 4)) $((py + ph * 3 / 4)) $((px + pw / 2)) $((py + ph * 4 / 5))
+  sleep 2
+  shot pen-stroke
+  events 'key code 53'
+  sleep 1
+  offered=$(app 'get name of every menu item of menu 1 of menu bar item "Insert" of menu bar 1' | tr ',' '\n' | grep -o 'Stop Drawing\|Drawing' | head -1 || true)
+  echo "the pen after a stroke and Escape: the Insert menu offers ${offered:-neither} (Drawing: the pen is down)"
+  # Put down by its menu where Escape did not, so the walk goes on with the pen down.
+  if [[ "${offered:-}" == "Stop Drawing" ]]; then menu Insert "Stop Drawing"; fi
+  # ⌘Z: the Edit menu names the step it takes back (Undo Draw), so it is pressed, not chosen.
+  events 'keystroke "z" using command down'
+  sleep 2
+else
+  echo "no slide or canvas for the pen: $lx $ly $lw $lh, $px $py $pw $ph"
 fi
 
 # The light table (PLAN 3.14), as a presentation app's: every slide in a grid that fills the
