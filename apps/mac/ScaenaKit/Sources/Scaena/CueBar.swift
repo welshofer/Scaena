@@ -101,7 +101,7 @@ struct CueBar: View {
             ForEach(offers) { offer in
                 Section("\(offered[offer.node]?.name ?? Words.kind(nil)), \(Self.verb(offer.motion))") {
                     ForEach(offer.presets, id: \.self) { preset in
-                        Button(Words.name(preset, of: "motion-preset", theme: nil)) { add(preset, as: offer) }
+                        Button(Words.build(preset, as: offer.motion)) { add(preset, as: offer) }
                     }
                 }
             }
@@ -234,7 +234,7 @@ struct CueBar: View {
             return make([], "It isn't on the slide before this one")
         }
         let it = offered[offer.node]?.quoted ?? "it"
-        make(patch, "\(Words.name(preset, of: "motion-preset", theme: nil)) added to \(it) \(Self.verb(offer.motion))")
+        make(patch, "\(Words.build(preset, as: offer.motion)) added to \(it) \(Self.verb(offer.motion))")
     }
 }
 

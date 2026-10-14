@@ -392,8 +392,10 @@ void scaena_surface_free(struct ScaenaSurface *surface);
 // The deck exported as `format` (PLAN 3.8), the bytes `scaena export` writes for it: `pdf`, a page
 // for each slide at its last state, as the browser's PDF module draws it from the pages the
 // session lays out; or `png`, `args` `{state, width}`, the state at rest painted by the CPU
-// painter that wide, as the editor's PNG export paints it; or `version`, the same of the version
-// `viewVersion` shows (PLAN 3.15). Null bytes where it cannot be made, `*error` then saying why.
+// painter that wide, as the editor's PNG export paints it; or `slides`, `args` `{width, name}`,
+// every slide once its steps have played, as PNGs that wide in one zip, each `{name} - Slide
+// 3.png` (PLAN 2.122); or `version`, the same as `png` of the version `viewVersion` shows (PLAN
+// 3.15). Null bytes where it cannot be made, `*error` then saying why.
 //
 // # Safety
 // `session` is a live handle; `format` a NUL-terminated string; `args` one, or null; `error`

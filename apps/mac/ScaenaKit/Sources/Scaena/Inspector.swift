@@ -26,6 +26,9 @@ struct Inspector: View {
     let tab: InspectorTab
     /// Ask a model, its answer offered.
     let offer: (Asked) -> Void
+    /// Bring an object the list of objects on the slide selects into view, where the slide is
+    /// zoomed in (PLAN 4.12).
+    var reveal: ((String) -> Void)? = nil
     let make: ([JSONValue]) -> Void
     @State private var layers: [Layer] = []
     @State private var choices: Choices?
@@ -147,7 +150,7 @@ struct Inspector: View {
         }
         return Part.allCases.compactMap { part in
             guard let fields = parts[part], !fields.isEmpty else { return nil }
-            return Shelf(part: part, title: title(part, type: type, node: isNode), fields: fields)
+            return Shelf(part: part, title: title(part, type: type, noun: choices.noun, node: isNode), fields: fields)
         }
     }
 
@@ -174,9 +177,11 @@ struct Inspector: View {
         }
     }
 
-    private func title(_ part: Part, type: String?, node: Bool) -> String {
+    /// A section's title: the main one names the node by its kind as the engine says it (`noun`), a
+    /// Star, a Card, a Drawing, as the browser's inspector heads it.
+    private func title(_ part: Part, type: String?, noun: String?, node: Bool) -> String {
         switch part {
-        case .main: characters != nil ? "Selected Text" : node ? Words.kind(type) : "Slide"
+        case .main: characters != nil ? "Selected Text" : node ? (noun ?? Words.kind(type)) : "Slide"
         case .adjust: "Adjust Image"
         case .fitting: "Fitting"
         case .arrange: "Arrange"
@@ -191,7 +196,7 @@ struct Inspector: View {
 
     /// A field's control, for what it takes, showing the value the slide shows.
     @ViewBuilder private func row(_ field: Field, in state: String) -> some View {
-        let label = Words.label(field.prop, chart: chartKind)
+        let label = Words.label(field.prop, chart: chartKind, horizontal: barsAcross)
         let choose = { (value: JSONValue) in self.choose(field.prop, value, in: state) }
         Group {
             switch field.prop {
@@ -231,10 +236,15 @@ struct Inspector: View {
                         label: label, value: field.value, names: names, look: look, any: overrides,
                         shows: field.theme?.string, choose: choose)
                 case .name(let of, let names, _):
-                    let said = { (name: String) in Option(tag: name, title: Words.name(name, of: of, theme: look)) }
+                    // A build is said as the object takes it: Build Out's as it leaves (PLAN 2.116).
+                    let say = { (name: String) -> String in
+                        of == "motion-preset"
+                            ? Words.build(name, as: field.prop) : Words.name(name, of: of, theme: look)
+                    }
+                    let said = { (name: String) in Option(tag: name, title: say(name)) }
                     PickRow(
                         label: label, value: field.value, options: names.map(said), shows: field.theme?.string.map(said),
-                        said: { Words.name($0, of: of, theme: look) }, choose: choose)
+                        said: say, choose: choose)
                 case .word(let words):
                     let said = { (word: String) in
                         Option(tag: word, title: Words.word(word, of: field.prop, type: choices?.type))
@@ -279,6 +289,13 @@ struct Inspector: View {
         return choices?.fields.first { $0.prop == "kind" }?.value?.string
     }
 
+    /// Whether the chart selected runs its bars across (PLAN 1.29), which names its categories down
+    /// the side and its values across.
+    private var barsAcross: Bool {
+        guard chartKind != nil else { return false }
+        return choices?.fields.first { $0.prop == "orient" }?.value?.string == "horizontal"
+    }
+
     /// What a word the deck may leave unset is where it is: a stack runs down, a chart's bars run
     /// up, and a chart puts its values where its kind does (SPEC §3.3, §3.7). The theme gives none
     /// of these, so Default is called by it.
@@ -303,7 +320,8 @@ struct Inspector: View {
     }
 
     /// The objects on the slide, the topmost first, each named by what it shows: a click selects
-    /// one, and the lock beside it locks it, or unlocks it (PLAN 2.95).
+    /// one, brought into view where the slide is zoomed in (PLAN 4.12), and the lock beside it
+    /// locks it, or unlocks it (PLAN 2.95).
     private var objects: some View {
         Section {
             DisclosureGroup("Objects on This Slide", isExpanded: $showsObjects) {
@@ -315,6 +333,7 @@ struct Inspector: View {
                     ) {
                         node = row.layer.node
                         also = []
+                        reveal?(row.layer.node)
                     }
                 }
             }
@@ -352,10 +371,14 @@ struct Inspector: View {
                     case .name(let of, let names, let overrides) where of == "color":
                         SwatchRow(label: label, value: field.value, names: names, look: look, any: overrides, choose: choose)
                     case .name(let of, let names, _):
+                        // Build Out's names each build as the objects leave, as one selected's does.
+                        let say = { (name: String) -> String in
+                            of == "motion-preset"
+                                ? Words.build(name, as: field.prop) : Words.name(name, of: of, theme: look)
+                        }
                         PickRow(
-                            label: label, value: field.value,
-                            options: names.map { Option(tag: $0, title: Words.name($0, of: of, theme: look)) },
-                            choose: choose)
+                            label: label, value: field.value, options: names.map { Option(tag: $0, title: say($0)) },
+                            said: say, choose: choose)
                     case .word(let words):
                         PickRow(
                             label: label, value: field.value,

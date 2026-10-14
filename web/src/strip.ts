@@ -102,8 +102,18 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
       .join("");
     for (const s of next) draw(s.state);
     const item = list.children[shown] as HTMLElement | undefined;
-    item?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    inView(item);
     if (focused) item?.focus();
+  }
+
+  /** `item` scrolled into the strip's view, as `scrollIntoView` scrolls it to the nearest edge, by
+   * the strip's own scroll: Chromium starts the page's next Tab at what `scrollIntoView` scrolls
+   * to, which would take a page's first Tab past the bar into the strip (PLAN 2.126). */
+  function inView(item: HTMLElement | undefined) {
+    if (!item) return;
+    const [strip, at] = [list.getBoundingClientRect(), item.getBoundingClientRect()];
+    if (at.left < strip.left) list.scrollLeft -= strip.left - at.left;
+    else if (at.right > strip.right) list.scrollLeft += at.right - strip.right;
   }
 
   /** The state shown is slot `shown`: it is the strip's selection, and takes the focus if the
@@ -115,7 +125,7 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
       (li as HTMLElement).tabIndex = i === shown ? 0 : -1;
     }
     const item = list.children[shown] as HTMLElement | undefined;
-    item?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    inView(item);
     if (focused) item?.focus();
   }
 

@@ -951,8 +951,10 @@ pub unsafe extern "C" fn scaena_surface_free(surface: *mut ScaenaSurface) {
 /// The deck exported as `format` (PLAN 3.8), the bytes `scaena export` writes for it: `pdf`, a page
 /// for each slide at its last state, as the browser's PDF module draws it from the pages the
 /// session lays out; or `png`, `args` `{state, width}`, the state at rest painted by the CPU
-/// painter that wide, as the editor's PNG export paints it; or `version`, the same of the version
-/// `viewVersion` shows (PLAN 3.15). Null bytes where it cannot be made, `*error` then saying why.
+/// painter that wide, as the editor's PNG export paints it; or `slides`, `args` `{width, name}`,
+/// every slide once its steps have played, as PNGs that wide in one zip, each `{name} - Slide
+/// 3.png` (PLAN 2.122); or `version`, the same as `png` of the version `viewVersion` shows (PLAN
+/// 3.15). Null bytes where it cannot be made, `*error` then saying why.
 ///
 /// # Safety
 /// `session` is a live handle; `format` a NUL-terminated string; `args` one, or null; `error`
@@ -991,6 +993,14 @@ pub unsafe extern "C" fn scaena_export(
                     .ok_or_else(|| said("png: `width` is a number of pixels, 1 to 16384"))?;
                 session.0.png(state, width).map_err(said)
             }
+            "slides" => {
+                let width = (args.get("width").and_then(Value::as_u64))
+                    .and_then(|w| u32::try_from(w).ok())
+                    .filter(|w| (1..=16384).contains(w))
+                    .ok_or_else(|| said("slides: `width` is a number of pixels, 1 to 16384"))?;
+                let name = args.get("name").and_then(Value::as_str).unwrap_or("Deck");
+                session.0.slides_png(width, name).map_err(said)
+            }
             // The version shown (`viewVersion`, PLAN 2.60): `args` `{state, width}`, as `png`.
             "version" => {
                 let state = args
@@ -1003,7 +1013,7 @@ pub unsafe extern "C" fn scaena_export(
                     .ok_or_else(|| said("version: `width` is a number of pixels, 1 to 16384"))?;
                 session.0.version_png(state, width).map_err(said)
             }
-            _ => Err(said(format!("`{format}` is not an export this library makes: pdf, png, or version"))),
+            _ => Err(said(format!("`{format}` is not an export this library makes: pdf, png, slides, or version"))),
         }
     });
     match made {

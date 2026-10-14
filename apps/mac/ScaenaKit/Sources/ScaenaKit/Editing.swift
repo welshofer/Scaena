@@ -97,8 +97,9 @@ public struct Choices: Decodable, Sendable {
     public let fields: [Field]
     /// The slide's number and footer (ADR-0028): offered with the state's own fields.
     public let furniture: FurnitureChoice?
-    /// The node's kind as a person names it: `Text`, `Chart`, or `Icon` for a filled path on a view,
-    /// which the icon picker replaces (PLAN G.23); a pen's drawing, stroked, is a `Shape`.
+    /// The node's kind as a person names it: `Text`, `Chart`, a shape by its kind (`Rectangle`, a
+    /// `Star`), a container with a panel of its own a `Card`; `Icon` for a filled path on a view,
+    /// which the icon picker replaces (PLAN G.23), and a pen's drawing, stroked, a `Drawing`.
     public let noun: String?
 
     /// Whether the writing tools have words to write for what is offered (PLAN 2.101): a text's, a
@@ -296,6 +297,16 @@ public struct NodeBox: Decodable, Sendable {
 
     /// Its box's corners where it is drawn, clockwise from the top left, canvas units.
     public var corners: [CGPoint] { drawn(rect, through: transform) }
+
+    /// The box about its corners where it is drawn, canvas units: what shows it whole, as the view
+    /// is moved to bring it into view (PLAN 4.12). None where it has no box.
+    public var extent: CGRect {
+        let c = corners
+        guard let x0 = c.map(\.x).min(), let x1 = c.map(\.x).max(), let y0 = c.map(\.y).min(),
+            let y1 = c.map(\.y).max()
+        else { return .null }
+        return CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)
+    }
 
     /// Whether `point`, canvas units, is inside its box where it is drawn: within the four corners
     /// its map draws it at, its edges included. A connector holds what stands within 12 units of

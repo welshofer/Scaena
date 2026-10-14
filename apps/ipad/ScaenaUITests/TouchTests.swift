@@ -7,7 +7,8 @@ import XCTest
 /// light table, a slide dragged onto another moves after it, the inspector showing the slide, not
 /// what the canvas had selected. The move and the copy are each one step that the toolbar's Undo
 /// takes back by touch, and a long press on Undo offers Redo, named for the step it makes again as
-/// the Edit menu names it, which makes the copy again (PLAN 4.11).
+/// the Edit menu names it, which makes the copy again (PLAN 4.11). With the pen up, a pinch still
+/// zooms, and draws nothing (PLAN 2.114).
 final class TouchTests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -64,6 +65,39 @@ final class TouchTests: XCTestCase {
                         "the canvas is not whole again: \(before) → \(title.frame), \(closer) → \(shown(canvas)), the canvas at \(canvas.frame)"
                 )
             }
+        }
+
+        try XCTContext.runActivity(named: "With the pen up, a pinch zooms and draws nothing") { _ in
+            // The pen taken up from the toolbar's Shape menu (PLAN 2.114): two fingers still zoom
+            // and pan, as without it, and leave no stroke behind.
+            let shape = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'insert-Shape'")).firstMatch
+            guard shape.waitForExistence(timeout: 5) else {
+                throw Unseen(description: "no Shape in the toolbar: \(app.debugDescription)")
+            }
+            shape.tap()
+            let draw = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Draw with Pen'")).firstMatch
+            guard draw.waitForExistence(timeout: 5) else {
+                throw Unseen(description: "the Shape menu offers no pen: \(app.debugDescription)")
+            }
+            draw.tap()
+            settle()
+            canvas.pinch(withScale: 2, velocity: 1)
+            guard wait(5, { shown(canvas) != "whole" }) else {
+                throw Unseen(description: "with the pen up, the pinch zoomed nothing: \(shown(canvas))")
+            }
+            settle()
+            keep(app, as: "pen-pinched")
+            let drawing = canvas.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Drawing'"))
+            XCTAssertEqual(drawing.count, 0, "the pinch drew a stroke: \(app.debugDescription)")
+            canvas.pinch(withScale: 0.4, velocity: -1)
+            XCTAssertTrue(wait(5) { shown(canvas) == "whole" }, "the canvas is not whole again: \(shown(canvas))")
+            shape.tap()
+            let stop = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Stop Drawing'")).firstMatch
+            guard stop.waitForExistence(timeout: 5) else {
+                throw Unseen(description: "the Shape menu offers no way to put the pen down: \(app.debugDescription)")
+            }
+            stop.tap()
+            settle()
         }
 
         try XCTContext.runActivity(named: "A double tap types in the title, and the keys type there") { _ in

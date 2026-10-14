@@ -69,6 +69,41 @@ impl Formats {
     }
 }
 
+/// The deck format whose `shadow` first drew (PLAN 2.115). Before it a node's `shadow` was any
+/// object and drew nothing, so a deck saved in an older format reads without one, and draws as
+/// it did: what a shadow written out may say narrowed in the format that drew it.
+const SHADOWS: &str = "0.25";
+
+/// Whether a deck saved in `version` reads as the current format with its `shadow`s taken away:
+/// one saved before a shadow drew, in a format this build reads.
+pub(crate) fn unshadows(version: &str) -> bool {
+    DECK.read(version) != version && parse(version) < parse(SHADOWS)
+}
+
+/// `doc`, a deck as saved, as this build reads it: its format the current one where it is an
+/// older one this build reads, and its `shadow`s taken away where it was saved before they drew,
+/// on each node, in each state's deltas, and in the overrides. What validation checks and the
+/// source compiles.
+pub(crate) fn deck_as_read(doc: &mut Value) {
+    let unshadowed = doc.get("scaena").and_then(Value::as_str).is_some_and(unshadows);
+    DECK.as_read(doc, "scaena");
+    if !unshadowed {
+        return;
+    }
+    let take = |props: Option<&mut Value>| {
+        for props in props.and_then(Value::as_object_mut).into_iter().flat_map(|m| m.values_mut()) {
+            if let Some(props) = props.as_object_mut() {
+                props.remove("shadow");
+            }
+        }
+    };
+    take(doc.get_mut("nodes"));
+    take(doc.get_mut("overrides"));
+    for state in doc.get_mut("states").and_then(Value::as_array_mut).into_iter().flatten() {
+        take(state.get_mut("props"));
+    }
+}
+
 /// `major.minor[.patch]`'s major and minor.
 fn parse(version: &str) -> Option<(u32, u32)> {
     fn number(part: &str) -> Option<u32> {
@@ -139,5 +174,29 @@ mod tests {
         let mut number = serde_json::json!({ "scaena": 15 });
         DECK.as_read(&mut number, "scaena");
         assert_eq!(number["scaena"], 15);
+    }
+
+    #[test]
+    fn a_deck_saved_before_shadows_drew_reads_without_one() {
+        let saved = |version: &str| {
+            serde_json::json!({
+                "scaena": version,
+                "nodes": { "card": { "type": "shape", "shadow": { "y": 8, "spread": 4 } } },
+                "states": [{ "id": "one", "props": { "card": { "shadow": { "blur": 20 } } } }],
+                "overrides": { "card": { "shadow": { "opacity": 1.5 } } }
+            })
+        };
+        let mut old = saved("0.24");
+        deck_as_read(&mut old);
+        assert_eq!(old["scaena"], crate::FORMAT_VERSION);
+        assert_eq!(old["nodes"]["card"], serde_json::json!({ "type": "shape" }));
+        assert_eq!(old["states"][0]["props"]["card"], serde_json::json!({}));
+        assert_eq!(old["overrides"]["card"], serde_json::json!({}));
+        // From the format that drew them on, a shadow is read as written: validation says what
+        // is wrong with one.
+        let mut drawn = saved("0.25");
+        deck_as_read(&mut drawn);
+        assert_eq!(drawn["nodes"]["card"]["shadow"], serde_json::json!({ "y": 8, "spread": 4 }));
+        assert!(!unshadows(crate::FORMAT_VERSION) && !unshadows("0.3") && unshadows(crate::OLDEST_FORMAT_VERSION));
     }
 }

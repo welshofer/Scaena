@@ -15,10 +15,19 @@
 //   which names it, and once it is whole again the next download goes through.
 // - A folder (any directory handle; here one in the browser's storage) opens and saves in
 //   place: the save names its fonts by their content and removes the old names.
+// - Kept in this browser… lists the decks the browser keeps (PLAN 2.124), and axe-core finds
+//   nothing in it against WCAG 2.1 AA: one is renamed in its row, every file of it under the new
+//   name and none under the old; a name another deck has, or one with a slash, is refused, saying
+//   why; one is deleted, asked first, and is gone. The deck open here is marked, is not deleted,
+//   and renamed, goes on where it is kept now: the address names it, and a save writes there.
+//   Escape in a name leaves it as it was, the list open.
 // Exits 1 on any failure.
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { launch, serve } from "./serve.mjs";
+
+const axe = createRequire(import.meta.url).resolve("axe-core/axe.min.js");
 
 const server = await serve();
 const editor = (bundle) => `${server.origin}/web/dist/editor.html?painter=cpu&bundle=${bundle}`;
@@ -61,7 +70,12 @@ try {
   const page = await context.newPage();
   page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
   page.on("console", (m) => m.type() === "error" && failures.push(`console: ${m.text()}`));
-  page.on("dialog", (d) => d.accept());
+  /** What the page asked first, as `confirm` asks it. */
+  const asked = [];
+  page.on("dialog", (d) => {
+    asked.push(d.message());
+    void d.accept();
+  });
   /** The editor once it has compiled and linted the bundle named `name`, if any. */
   const ready = async (name) => {
     await page.waitForFunction(
@@ -224,6 +238,67 @@ try {
   const plain = await listing(page, "plain");
   check(inPlace?.renamed.length === 6, `a save names its fonts by their content: ${JSON.stringify(inPlace?.renamed)}`);
   check(!("fonts/Inter-VF.ttf" in plain) && Object.keys(plain).some((p) => /^fonts\/Inter-[0-9a-f]{16}\.ttf$/.test(p)), `and removes the old names: ${Object.keys(plain)}`);
+
+  // Kept in this browser…: each deck opened, renamed, or deleted from the list (PLAN 2.124).
+  const keeps = () => page.evaluate(async () => {
+    const names = [];
+    for await (const [name, handle] of (await (await navigator.storage.getDirectory()).getDirectoryHandle("bundles")).entries()) if (handle.kind === "directory") names.push(name);
+    return names.sort();
+  });
+  const listed = () => page.locator("#keeping li").evaluateAll((rows) => rows.map((li) => li.dataset.name));
+  const row = (name) => page.locator(`#keeping li[data-name="${name}"]`);
+  const told = () => page.evaluate(() => document.querySelector("#keeping [data-said]").textContent);
+  /** Rename `from` to `to` in its row, as a person types it, then Enter. */
+  const renamed = async (from, to) => {
+    await page.evaluate(() => (document.querySelector("#keeping [data-said]").textContent = ""));
+    await row(from).locator("[data-rename]").click();
+    await page.keyboard.type(to);
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => document.querySelector("#keeping [data-said]").textContent, null, { timeout: 30000 }).catch(() => {});
+  };
+  await page.click("#kept");
+  await page.waitForFunction(() => document.querySelector("#keeping").open && document.querySelectorAll("#keeping li").length, null, { timeout: 10000 }).catch(() => {});
+  check(JSON.stringify(await listed()) === JSON.stringify(["downloaded", "revenue"]) && JSON.stringify(await keeps()) === JSON.stringify(["downloaded", "revenue"]), `Kept in this browser lists the decks it keeps: ${await listed()}`);
+  check(await page.evaluate(() => document.querySelector("#keeping").contains(document.activeElement)), "the focus in the list");
+  await page.addScriptTag({ path: axe });
+  const found = await page.evaluate(async () => {
+    const result = await window.axe.run(document, { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });
+    return result.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);
+  });
+  check(!found.length, `axe finds nothing against WCAG 2.1 AA with the list open${found.length ? `:\n    ${found.join("\n    ")}` : ""}`);
+  await renamed("revenue", "Q3 board");
+  check(JSON.stringify(await keeps()) === JSON.stringify(["Q3 board", "downloaded"]) && JSON.stringify(await listed()) === JSON.stringify(["Q3 board", "downloaded"]), `renamed in its row, it is kept under its new name alone: ${await keeps()} · ${await told()}`);
+  const moved = await listing(page, "bundles/Q3 board");
+  check(["deck.json", "manifest.json", "data/q3-revenue.csv"].every((p) => p in moved) && Object.keys(moved).filter((p) => p.startsWith("fonts/")).length === 6, `every file of it goes with it: ${Object.keys(moved)}`);
+  await renamed("Q3 board", "downloaded");
+  check((await told()).startsWith("Not renamed") && (await told()).includes("downloaded already") && JSON.stringify(await keeps()) === JSON.stringify(["Q3 board", "downloaded"]), `a name another deck has is refused: ${await told()}`);
+  await renamed("Q3 board", "Q3/board");
+  check((await told()).startsWith("Not renamed") && (await told()).includes("no slash") && JSON.stringify(await keeps()) === JSON.stringify(["Q3 board", "downloaded"]), `and so is one with a slash: ${await told()}`);
+  await row("Q3 board").locator("[data-rename]").click();
+  await page.keyboard.type("nothing");
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(300);
+  check((await page.evaluate(() => document.querySelector("#keeping").open)) && JSON.stringify(await keeps()) === JSON.stringify(["Q3 board", "downloaded"]), "Escape in a name leaves it as it was, the list open");
+  asked.length = 0;
+  await row("downloaded").locator("[data-delete]").click();
+  await page.waitForFunction(() => !document.querySelector('#keeping li[data-name="downloaded"]'), null, { timeout: 30000 }).catch(() => {});
+  check(asked.length === 1 && asked[0].includes("Delete “downloaded”"), `Delete asks first: ${asked}`);
+  check(JSON.stringify(await keeps()) === JSON.stringify(["Q3 board"]) && JSON.stringify(await listed()) === JSON.stringify(["Q3 board"]), `and the deck is gone: ${await keeps()} · ${await told()}`);
+  // The deck open here: opened from the list, marked, kept from deletion, and renamed where it is.
+  await row("Q3 board").locator("[data-open]").click();
+  await ready("Q3 board");
+  await page.click("#kept");
+  await page.waitForFunction(() => document.querySelector("#keeping").open, null, { timeout: 10000 }).catch(() => {});
+  const here = await page.evaluate(() => {
+    const li = document.querySelector('#keeping li[data-name="Q3 board"]');
+    return { marked: li?.querySelector(".here")?.textContent, deletable: !li?.querySelector("[data-delete]").disabled };
+  });
+  check(here.marked === "open here" && !here.deletable, `the deck open here is marked, and not deleted: ${JSON.stringify(here)}`);
+  await renamed("Q3 board", "Board");
+  check(JSON.stringify(await keeps()) === JSON.stringify(["Board"]) && (await where()).where?.name === "Board" && new URL(page.url()).searchParams.get("bundle") === "opfs:Board", `renamed, the deck open goes on where it is kept now: ${JSON.stringify((await where()).where)}, ${page.url()}`);
+  await page.keyboard.press("Escape");
+  await type((await page.evaluate(() => window.scaena.source())).replace("Revenue more than doubled", "Revenue tripled"));
+  check((await page.evaluate(() => window.scaena.save()))?.where.name === "Board" && (await listing(page, "bundles/Board", "deck.json")).includes("Revenue tripled"), "and a save writes there");
 } catch (e) {
   failures.push(String(e));
 } finally {

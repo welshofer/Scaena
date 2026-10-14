@@ -6,7 +6,9 @@
 // On the revenue example:
 // - The Insert menu offers what Dusk and the bundle name: a text in each of the theme's roles, the
 //   shapes and the shape library's polygons (PLAN 2.106), and the theme's two shader presets; once
-//   a PNG is dropped into the bundle, the image.
+//   a PNG is dropped into the bundle, the image. Under Draw, the draw tools with their keys (PLAN
+//   2.123): each chosen does what its key does, Rectangle arming the canvas as R does and Pen
+//   taking up the pen as P does.
 // - A kicker inserted where the canvas was last pressed, in the template's `kicker` slot, which
 //   nothing fills in `revenue`, fills it, and enters in `revenue`, selected: one patch, one undo.
 // - A headline inserted over the chart, whose slot is filled, takes the grid's cells in the room
@@ -20,7 +22,7 @@
 // - A star from the shape library is a polygon of ten points in the accent, named Star on the menu
 //   and in the layers.
 // - A shader preset fills the canvas under the rest, and the image dropped is inserted in its own
-//   proportions, which a drag of its corner keeps.
+//   proportions, which a drag of its corner keeps, let go beside another's edge too.
 // Exits 1 on any failure.
 import { readFile } from "node:fs/promises";
 import { launch, serve } from "./serve.mjs";
@@ -139,6 +141,26 @@ try {
   check(JSON.stringify(offered.Shape) === JSON.stringify(shapes), `the shapes, by their names: ${offered.Shape}`);
   check(offered["Background Effect"]?.length === 2, `the theme's shader presets: ${offered["Background Effect"]}`);
   check(!offered.Image, "no image: the bundle holds no PNG");
+
+  // The draw tools, each with its key, each its key's gesture (PLAN 2.123).
+  const tools = ["Text (T)", "Rectangle (R)", "Oval (O)", "Line (L)", "Arrow (A)", "Pen (P)"];
+  check(JSON.stringify(offered.Draw) === JSON.stringify(tools), `Draw lists the draw tools with their keys: ${offered.Draw}`);
+  await page.selectOption("#insert", { label: "Rectangle (R)" });
+  await page.waitForFunction(() => window.scaena.canvas.armed()?.key === "r", null, { timeout: 10000 }).catch(() => {});
+  check((await page.evaluate(() => window.scaena.canvas.armed()?.key)) === "r" && (await says("Drawing a rectangle")), `Rectangle arms the canvas as R does: ${await status()}`);
+  check(await page.evaluate(() => document.activeElement?.id === "overlay"), "and the slide has the keys, for the drag and for Escape");
+  await page.selectOption("#insert", { label: "Oval (O)" });
+  await page.waitForFunction(() => window.scaena.canvas.armed()?.key === "o", null, { timeout: 10000 }).catch(() => {});
+  check(await says("Drawing an oval"), `Oval arms it for an oval instead: ${await status()}`);
+  await page.keyboard.press("Escape");
+  check((await page.evaluate(() => window.scaena.canvas.armed())) === undefined, "Escape stops, as after O");
+  await page.selectOption("#insert", { label: "Pen (P)" });
+  await page.waitForFunction(() => window.scaena.canvas.pen() !== undefined, null, { timeout: 10000 }).catch(() => {});
+  check((await page.evaluate(() => window.scaena.canvas.pen())) !== undefined && (await says("Drawing with the pen")), `Pen takes up the pen as P does: ${await status()}`);
+  await page.selectOption("#insert", { label: "Pen (P)" });
+  check((await page.evaluate(() => window.scaena.canvas.pen())) !== undefined, "chosen again, it stays taken up");
+  await page.keyboard.press("Escape");
+  check((await page.evaluate(() => window.scaena.canvas.pen())) === undefined && (await source()) === original, "Escape puts it down, and nothing is drawn");
 
   // A kicker in the `kicker` slot, which nothing fills in `revenue`: it fills the slot.
   const slots = (await page.evaluate(() => window.scaena.canvas.targets("title"))).slots ?? {};
@@ -308,6 +330,49 @@ try {
       `a corner dragged scales it in the proportions it has: ${scaled}`,
     );
     await page.keyboard.press("Control+z");
+    // Let go a few units past another box's edge, within a guide's reach, its corner stays where it
+    // was let go, in its proportions: no guide draws its right edge alone onto that edge, out of them.
+    await page
+      .waitForFunction(
+        ([n, r]) => !window.scaena.canvas.busy() && JSON.stringify(window.scaena.canvas.boxes()?.find((b) => b.node === n)?.rect) === r,
+        [id, JSON.stringify(inserted)],
+        { timeout: 30000 },
+      )
+      .catch(() => {});
+    const [x0, , w0, h0] = inserted;
+    const PAST = 6;
+    const stops = await page.evaluate((n) => {
+      const [cw] = window.scaena.canvas.size();
+      const rects = window.scaena.canvas.boxes().filter((b) => b.node !== n && b.draws).map((b) => b.rect);
+      return [0, cw / 2, cw, ...rects.flatMap(([x, , w]) => [x, x + w / 2, x + w])];
+    }, id);
+    // An edge no other lies near, the nearest a drag of its corner can bring its right edge to,
+    // in or out: the canvas's middle, or another box's edge or middle.
+    const lone = (s) => stops.every((t) => t === s || Math.abs(t - s - PAST) > 16);
+    const right = x0 + w0;
+    const edge = stops
+      .filter((s) => Math.abs(s + PAST - right) > 24 && s + PAST > x0 + 0.3 * w0 && s + PAST < x0 + 1.5 * w0 && lone(s))
+      .sort((a, b) => Math.abs(a - right) - Math.abs(b - right))[0];
+    if (edge === undefined) check(false, `an edge to let the picture's corner go beside: ${stops.join(", ")}`);
+    else {
+      // Across more than down, so its width leads and its height follows.
+      const across = edge + PAST - right;
+      const [at, past] = [await clientOf(corner), await clientOf([corner[0] + across, corner[1] + (across * h0) / w0 / 2])];
+      const was = await source();
+      await page.mouse.move(...at);
+      await page.mouse.down();
+      for (let k = 1; k <= 8; k++) await page.mouse.move(at[0] + ((past[0] - at[0]) * k) / 8, at[1] + ((past[1] - at[1]) * k) / 8);
+      await page.waitForTimeout(400);
+      await page.mouse.up();
+      await page.waitForFunction((s) => window.scaena.source() !== s && !window.scaena.canvas.busy(), was, { timeout: 30000 }).catch(() => {});
+      await page.waitForTimeout(300);
+      const beside = await box(id);
+      check(
+        Boolean(beside) && Math.abs(beside[0] + beside[2] - (edge + PAST)) <= 2.5 && Math.abs(ratio(beside) / ratio(inserted) - 1) <= 0.01,
+        `let go ${PAST} past an edge at ${edge}, it stays there in its proportions: ${beside}`,
+      );
+      await page.keyboard.press("Control+z");
+    }
     await page.locator("#overlay").focus();
     await page.keyboard.press("Delete");
     check(await back(original), "Delete takes it out again");

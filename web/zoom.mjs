@@ -11,6 +11,9 @@
 //   where the drag at the whole canvas did. One patch, one undo.
 // - The wheel pans; ⌘ or Ctrl with the wheel zooms about the pointer, the point under it staying
 //   put; Space and a drag pan, selecting and changing nothing.
+// - With nothing selected, the arrow keys pan a tenth of what is shown, and with Shift half,
+//   changing nothing; and Tab, zoomed in on the middle, selects each object in reading order and
+//   brings it into view: the least move that shows it whole (PLAN 2.125).
 // - A text is typed in where it stands zoomed in.
 // - ⌘0 shows the whole canvas again, and another format does too.
 // Exits 1 on any failure.
@@ -188,6 +191,48 @@ try {
   const to = await view();
   check(to[0] > from[0] && to[1] > from[1], `Space and a drag pan: ${from.slice(0, 2).map(Math.round)} → ${to.slice(0, 2).map(Math.round)}`);
   check((await page.evaluate(() => window.scaena.canvas.selected())) === selectedBefore && (await trips()) === unchanged, "selecting and changing nothing");
+
+  // With nothing selected, the arrow keys pan (PLAN 2.125): about the middle at 400%, a tenth of
+  // what is shown, and with Shift half.
+  await page.evaluate(([w, h]) => window.scaena.canvas.zoom(4, [w / 2, h / 2]), [W, H]);
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => window.scaena.canvas.selected() === undefined, null, { timeout: 10000 }).catch(() => {});
+  const middle = await view();
+  const keyed = async (key) => {
+    const was = (await view()).join();
+    await page.keyboard.press(key);
+    await page.waitForFunction((v) => window.scaena.canvas.view().join() !== v, was, { timeout: 10000 }).catch(() => {});
+    return view();
+  };
+  const right = await keyed("ArrowRight");
+  check(near(right[0], middle[0] + middle[2] / 10) && right[1] === middle[1] && right[2] === middle[2], `→ pans a tenth of what is shown: x ${Math.round(middle[0])} → ${Math.round(right[0])}`);
+  const down = await keyed("Shift+ArrowDown");
+  check(near(down[1], right[1] + right[3] / 2) && down[0] === right[0], `Shift+↓ pans half: y ${Math.round(right[1])} → ${Math.round(down[1])}`);
+  const left = await keyed("ArrowLeft");
+  const up = await keyed("Shift+ArrowUp");
+  check(near(left[0], middle[0]) && near(up[1], middle[1]), `← and Shift+↑ pan back: ${up.slice(0, 2).map(Math.round)}`);
+  check((await page.evaluate(() => window.scaena.canvas.selected())) === undefined && (await trips()) === unchanged && (await zoomed()) === 4, "selecting and changing nothing, as close as it was");
+
+  // Tab selects each object in reading order, and brings what it selects into view: the least
+  // move that shows it whole, or, larger than what is shown, nothing but it.
+  const inView = (r, v) =>
+    [0, 1].every((a) => (r[a + 2] <= v[a + 2] ? r[a] >= v[a] - 0.5 && r[a] + r[a + 2] <= v[a] + v[a + 2] + 0.5 : r[a] <= v[a] + 0.5 && r[a] + r[a + 2] >= v[a] + v[a + 2] - 0.5));
+  const tabbed = [];
+  let moved = 0;
+  for (let k = 0; k < 3; k++) {
+    const was = await view();
+    await page.keyboard.press("Tab");
+    await page.waitForFunction(() => window.scaena.canvas.selected() !== undefined, null, { timeout: 10000 }).catch(() => {});
+    await page.waitForTimeout(200);
+    const node = await page.evaluate(() => window.scaena.canvas.selected());
+    const [r, v] = [await box(node), await view()];
+    if (v.join() !== was.join()) moved++;
+    tabbed.push(`${node} ${r && inView(r, v) ? "in view" : `out of view at ${v.map(Math.round)}`}`);
+  }
+  check(tabbed.every((t) => t.endsWith("in view")) && moved > 0, `Tab brings each object it selects into view: ${tabbed.join(", ")}`);
+  check((await trips()) === unchanged, "moving nothing");
+  await page.keyboard.press("Escape");
 
   // Typed in where it stands, zoomed in: the caret where the text was pressed, and the input an
   // input method shows what it composes in under the caret, through the view.

@@ -51,6 +51,9 @@ public final class Typing {
     @ObservationIgnored public var discarded: (@MainActor () -> Void)?
     /// How long a pause between two keys ends a burst of typing.
     @ObservationIgnored public var burst = Duration.seconds(1)
+    /// Whether the pen is up on the canvas (PLAN 2.114): the Pencil then draws, as a finger does,
+    /// and writes in no text.
+    @ObservationIgnored public var inking = false
 
     /// The line a caret stands on, where it could stand on two: a line's end or the next's start.
     @ObservationIgnored private var on: Int?
@@ -403,9 +406,10 @@ public final class Typing {
     }
 
     /// The texts of the state shown that the Pencil may write in (PLAN 4.4): each a text the state
-    /// shows and no lock holds, with its box as the engine says it stands.
+    /// shows and no lock holds, with its box as the engine says it stands. None while the pen is up
+    /// (`inking`, PLAN 2.114), when a stroke over a text is a drawing.
     public func writable() -> [NodeBox] {
-        guard let state = editor.shown, let layers = try? editor.session.layers(state: state),
+        guard !inking, let state = editor.shown, let layers = try? editor.session.layers(state: state),
             let boxes = try? editor.session.boxes(state: state)
         else { return [] }
         var texts = Set<String>()

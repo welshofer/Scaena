@@ -45,15 +45,23 @@ enum Words {
     ]
 
     /// A chart's property as its kind of chart reads it (`kind`, the chart's): a donut's `x` names
-    /// its slices and its `y` sizes them, where a chart with axes reads them across and up.
-    static func label(_ prop: String, chart kind: String?) -> String {
+    /// its slices and its `y` sizes them, where a chart with axes reads them across and up; bars
+    /// that run across (`horizontal`, PLAN 1.29) name their categories down the side and their
+    /// values across, as the browser says them.
+    static func label(_ prop: String, chart kind: String?, horizontal: Bool = false) -> String {
         if kind == "donut", let said = donut[prop] { return said }
+        if horizontal, kind == "bar" || kind == "stackedBar", let said = across[prop] { return said }
         return label(prop)
     }
 
     /// A donut's channels, which no axis runs along.
     private static let donut: [String: String] = [
         "x/field": "Slices", "x/type": "Slices Are", "y/field": "Values", "y/type": "Values Are",
+    ]
+
+    /// The channels of bars that run across: the categories down the side, the values across.
+    private static let across: [String: String] = [
+        "x/field": "Down the Side", "x/type": "Down the Side Are", "y/field": "Across", "y/type": "Across Are",
     ]
 
     /// A font's weights by their names, Thin to Black, as a presentation app names them.
@@ -168,6 +176,23 @@ enum Words {
         "words": "Word by Word", "bullets": "By Bullet", "fadeScale": "Fade and Scale", "scaleBig": "Scale Big",
         "moveInLeft": "Move In from Left", "moveInRight": "Move In from Right", "moveInTop": "Move In from Top",
         "moveInBottom": "Move In from Bottom",
+    ]
+
+    /// A build as an object takes it (`motion`: `enter`, `emphasis`, or `exit`), as the browser says
+    /// it: by its name, and as the object leaves by Build Out's (PLAN 2.116), the entrance played
+    /// back, `moveInLeft` as Move Out to Left and `appear` as Disappear.
+    static func build(_ preset: String, as motion: String) -> String {
+        if motion == "exit", let said = exits[preset] { return said }
+        return name(preset, of: "motion-preset", theme: nil)
+    }
+
+    /// The builds Build Out names otherwise than Build In, each as it leaves; one not here, Pop or
+    /// Spin, is said as it enters.
+    private static let exits: [String: String] = [
+        "appear": "Disappear", "fade": "Fade Out", "rise": "Sink", "words": "Word by Word Out",
+        "typewriter": "Typewriter Out", "scale": "Scale Down", "grow": "Shrink", "draw": "Erase",
+        "moveInLeft": "Move Out to Left", "moveInRight": "Move Out to Right", "moveInTop": "Move Out to Top",
+        "moveInBottom": "Move Out to Bottom",
     ]
 
     /// A node's kind, as a person names it.

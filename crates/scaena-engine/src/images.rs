@@ -23,7 +23,7 @@ use crate::shapes::{Border, path_of, polyline};
 use crate::theme::Theme;
 use scaena_core::adjust::Adjust;
 use scaena_core::displaylist::{Blend, IDENTITY, MAX_IMAGE_SIDE, Op, Path, Quality, Rect};
-use scaena_core::document::Props;
+use scaena_core::document::{NodeType, Props};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -38,6 +38,9 @@ pub struct ImageInfo {
     pub height: u32,
     /// A JPEG, which hides all that is under it; a PNG may let some show through.
     pub photo: bool,
+    /// A PNG that says it may let some of what is under it show: an alpha channel, or a color it
+    /// makes transparent (`scaena_core::looks::see_through`). It casts no shadow (PLAN 2.115).
+    pub clear: bool,
 }
 
 impl ImageInfo {
@@ -48,7 +51,8 @@ impl ImageInfo {
             return Err(format!("{width} × {height} px; images are at most {largest} px a side (SPEC §3.3)"));
         }
         let hex: String = Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect();
-        Ok(ImageInfo { id: format!("sha256:{hex}"), width, height, photo: scaena_core::jpeg::is_jpeg(bytes) })
+        let (photo, clear) = (scaena_core::jpeg::is_jpeg(bytes), scaena_core::looks::see_through(bytes));
+        Ok(ImageInfo { id: format!("sha256:{hex}"), width, height, photo, clear })
     }
 }
 
@@ -219,8 +223,9 @@ impl ImageNode {
                 EngineError::Layout(format!("image `mask` {v}: `ellipse`, or a shape of the library by its name"))
             })?),
         };
+        // Under no mask but an oval, from a picture that hides all under it (PLAN 2.115).
         let shadow = Shadow::of(theme, props.get("shadow"))?;
-        let shadow = shadow.filter(|_| matches!(mask, None | Some(Mask::Oval)));
+        let shadow = shadow.filter(|_| scaena_core::looks::casts(NodeType::Image, props, info.clear));
         let adjust = match props.get("adjust") {
             None | Some(Value::Null) => Adjust::default(),
             Some(Value::Object(a)) => {
@@ -420,17 +425,24 @@ mod tests {
     use serde_json::json;
 
     /// A PNG header for an image of `w` × `h`: all the engine reads.
+    /// A PNG's header, its pixels in color with no alpha.
     fn png(w: u32, h: u32) -> Vec<u8> {
+        png_of(w, h, 2)
+    }
+
+    /// A PNG's header, its pixels of color type `color`: 6 is in color with alpha.
+    fn png_of(w: u32, h: u32, color: u8) -> Vec<u8> {
         let mut b = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
         b.extend(w.to_be_bytes());
         b.extend(h.to_be_bytes());
-        b.extend([8, 6, 0, 0, 0]);
+        b.extend([8, color, 0, 0, 0]);
         b
     }
 
     fn node(props: Value, rect: Rect) -> ImageNode {
         let mut images = BundleImages::new();
         images.register("assets/photo.png", &png(400, 200)).unwrap();
+        images.register("assets/logo.png", &png_of(400, 200, 6)).unwrap();
         let theme = Theme::from_json(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();
         ImageNode::resolve(&serde_json::from_value(props).unwrap(), &theme, &images, rect).unwrap()
     }
@@ -454,6 +466,10 @@ mod tests {
         );
         let star = node(json!({ "src": "assets/photo.png", "mask": "star", "shadow": "soft" }), [0.0, 0.0, 80.0, 80.0]);
         assert!(!star.ops().iter().any(|op| matches!(op, Op::Shadow { .. })), "a star casts none");
+        // A picture that may let what is under it show, a logo on nothing, casts none: a box's
+        // shadow would show through it.
+        let logo = node(json!({ "src": "assets/logo.png", "shadow": "soft" }), [0.0, 0.0, 80.0, 80.0]);
+        assert!(!logo.ops().iter().any(|op| matches!(op, Op::Shadow { .. })), "a clear PNG casts none");
     }
 
     /// Adjustments (PLAN 2.117): the display list names the picture's pixels as adjusted, and

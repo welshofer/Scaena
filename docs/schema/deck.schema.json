@@ -755,7 +755,33 @@
     "NonNegative": { "description": "A number at or above 0.", "type": "number", "minimum": 0 },
     "ShadowRef": {
       "description": "The shadow a node casts (PLAN 2.115): the theme's shadow of this name (`tokens.shadow`), or one written out, an override: `x`, `y`, and `blur` in canvas units, a `color`, and an `opacity`. A filled rectangle or ellipse, an image, and a container's panel cast one.",
-      "anyOf": [{ "type": "string" }, { "type": "object", "additionalProperties": true }]
+      "anyOf": [{ "type": "string" }, { "$ref": "#/$defs/WrittenShadow" }]
+    },
+    "WrittenShadow": {
+      "description": "A shadow written out (PLAN 2.115): these keys and no others, so one written as CSS writes one (`spread`) is an error at the key, where it is written.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "x": {
+          "description": "How far right of the node it falls; left where it is negative. None by default.",
+          "$ref": "#/$defs/Length"
+        },
+        "y": {
+          "description": "How far below the node it falls; above where it is negative. None by default.",
+          "$ref": "#/$defs/Length"
+        },
+        "blur": {
+          "description": "How soft its edge is: the blur's radius, twice the deviation of the Gaussian it is drawn with. None by default.",
+          "$ref": "#/$defs/Length"
+        },
+        "color": { "description": "A theme color: black by default.", "$ref": "#/$defs/Color" },
+        "opacity": {
+          "description": "How dark it is, from 0 to 1: 1 by default.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
     },
     "Clip": {
       "description": "Clip to the node's box, or to SVG path data.",
@@ -1488,7 +1514,7 @@
         "fill": { "anyOf": [{ "$ref": "#/$defs/PaintDelta" }, { "type": "null" }] },
         "stroke": { "anyOf": [{ "$ref": "#/$defs/StrokeDelta" }, { "type": "null" }] },
         "blur": { "anyOf": [{ "$ref": "#/$defs/NonNegative" }, { "type": "null" }] },
-        "shadow": { "anyOf": [{ "$ref": "#/$defs/ShadowRef" }, { "type": "null" }] },
+        "shadow": { "anyOf": [{ "$ref": "#/$defs/ShadowRefDelta" }, { "type": "null" }] },
         "clip": { "anyOf": [{ "$ref": "#/$defs/Clip" }, { "type": "null" }] },
         "blend": { "anyOf": [{ "$ref": "#/$defs/Blend" }, { "type": "null" }] },
         "at": { "anyOf": [{ "$ref": "#/$defs/PlacementDelta" }, { "type": "null" }] },
@@ -1689,6 +1715,22 @@
         "cap": { "anyOf": [{ "$ref": "#/$defs/Cap" }, { "type": "null" }] },
         "join": { "anyOf": [{ "$ref": "#/$defs/Join" }, { "type": "null" }] },
         "dash": { "anyOf": [{ "type": "array", "items": { "$ref": "#/$defs/NonNegative" } }, { "type": "null" }] }
+      }
+    },
+    "ShadowRefDelta": {
+      "description": "`ShadowRef` in a state's delta: a whole value, or an object that merges one level into the tracked one (SPEC §2.2).",
+      "anyOf": [{ "type": "string" }, { "$ref": "#/$defs/WrittenShadowDelta" }]
+    },
+    "WrittenShadowDelta": {
+      "description": "`WrittenShadow` in a state's delta: it merges one level into the tracked value, so every key is optional and null deletes one (SPEC §2.2).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "x": { "anyOf": [{ "$ref": "#/$defs/Length" }, { "type": "null" }] },
+        "y": { "anyOf": [{ "$ref": "#/$defs/Length" }, { "type": "null" }] },
+        "blur": { "anyOf": [{ "$ref": "#/$defs/Length" }, { "type": "null" }] },
+        "color": { "anyOf": [{ "$ref": "#/$defs/Color" }, { "type": "null" }] },
+        "opacity": { "anyOf": [{ "maximum": 1, "type": "number", "minimum": 0 }, { "type": "null" }] }
       }
     },
     "PlacementDelta": {

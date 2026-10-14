@@ -16,7 +16,7 @@ use crate::charts::{RoundRect, lerp};
 use crate::shadows::Shadow;
 use crate::theme::Theme;
 use scaena_core::displaylist::{Cap, Color, FillRule, Join, Op, Paint, Path, PathEl, Rect, Stop};
-use scaena_core::document::Props;
+use scaena_core::document::{NodeType, Props};
 use scaena_core::model::nodes::LineEnd;
 use serde_json::Value;
 
@@ -268,8 +268,7 @@ impl ShapeNode {
         // A filled rectangle or ellipse casts its shadow (PLAN 2.115): a line, an outline, a
         // polygon, and a path cast none, as a box's shadow would misdraw them.
         let shadow = Shadow::of(theme, props.get("shadow"))?;
-        let casts = fill.is_some() && matches!(geometry, Geometry::Rect(_) | Geometry::Ellipse);
-        let shadow = shadow.filter(|_| casts);
+        let shadow = shadow.filter(|_| scaena_core::looks::casts(NodeType::Shape, props, false));
         Ok(ShapeNode { rect, geometry, fill, stroke, progress: 1.0, shadow })
     }
 

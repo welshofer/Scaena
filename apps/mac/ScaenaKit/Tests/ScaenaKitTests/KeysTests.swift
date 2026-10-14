@@ -155,4 +155,33 @@ private func box(_ boxes: [NodeBox], _ node: String) -> CGRect? {
     }
     #expect(heard == [UIKeyCommand.inputEscape, "\r", "⌥\r"])
 }
+
+/// PageDown and PageUp come to the iPad's canvas as key commands of its own too (PLAN 4.12), alone
+/// or with Shift, as the Mac's canvas takes them: each ahead of the system's own behavior, and each
+/// going to the canvas.
+@MainActor
+@Test func pageDownAndPageUpAreTheIPadCanvassOwnKeyCommands() throws {
+    let presses = CanvasPresses()
+    var heard: [String] = []
+    presses.commanded = { input, flags in
+        heard.append(flags.contains(.shift) ? "⇧" + input : input)
+        return true
+    }
+    let commands = try #require(presses.keyCommands)
+    let keyed = NSSelectorFromString("keyed:")
+    let keys: [(String, UIKeyModifierFlags)] = [
+        (UIKeyCommand.inputPageDown, []), (UIKeyCommand.inputPageUp, []), (UIKeyCommand.inputPageDown, .shift),
+        (UIKeyCommand.inputPageUp, .shift),
+    ]
+    for (input, flags) in keys {
+        let command = try #require(commands.first { $0.input == input && $0.modifierFlags == flags })
+        let first = command.wantsPriorityOverSystemBehavior
+        #expect(first, "it comes ahead of the system's own behavior")
+        #expect(presses.canPerformAction(keyed, withSender: command))
+        _ = presses.perform(keyed, with: command)
+    }
+    let down = UIKeyCommand.inputPageDown
+    let up = UIKeyCommand.inputPageUp
+    #expect(heard == [down, up, "⇧" + down, "⇧" + up])
+}
 #endif

@@ -16,6 +16,7 @@
 use crate::data::{self, SourceFiles};
 use crate::document::{Deck, NodeType, Props};
 use crate::lint::literal;
+use crate::looks::{casts, rounds, see_through};
 use crate::model::check::Checker;
 use crate::model::theme::{Theme, Vocabulary};
 use crate::model::values::SplitUnit;
@@ -305,7 +306,17 @@ pub fn choices(
         NodeType::Chart | NodeType::Table => data::read(deck, files, &shown).ok(),
         _ => None,
     };
+    // A picture that may let what is under it show casts no shadow (PLAN 2.115).
+    let src = shown.get("src").and_then(Value::as_str);
+    let clear = node_type == NodeType::Image && src.and_then(|src| files.bytes(src)).is_some_and(|b| see_through(&b));
     let fields = own(node_type).iter().chain(&EVERY).filter_map(|&(prop, source)| {
+        // Corners and a shadow where they draw (PLAN 2.68, 2.113, 2.115): no corners where a mask
+        // or the shape's kind takes their place, and no shadow from a line, an outline, a picture
+        // under a mask but an oval or that lets what is under it show, or a container with no
+        // panel.
+        if (prop == "radius" && !rounds(node_type, &shown)) || (prop == "shadow" && !casts(node_type, &shown, clear)) {
+            return None;
+        }
         // A bar chart's bars turn (PLAN 1.29), and a range's values have intervals (PLAN
         // 1.30); no other kind has either (E106).
         let kind = shown.get("kind").and_then(Value::as_str);

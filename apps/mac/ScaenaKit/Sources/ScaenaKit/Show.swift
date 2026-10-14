@@ -15,6 +15,10 @@ public enum Blank: String, Sendable {
 /// The presenter's keys (PLAN 2.105), as the browser's player's: the screen black or white, the
 /// show waiting where it was, a cue or a hold held where it stood, until the slide is back; and a
 /// slide's number typed, then Return, going there.
+///
+/// The end of the show (PLAN 2.120), as Keynote's and PowerPoint's, and the browser's player's:
+/// going on past the last state at rest, the show is over, the screen black and saying so; going
+/// on again leaves the show (`Showing`'s to do), and going back shows the last state again.
 public struct Show: Equatable, Sendable {
     /// The deck's states, as its timeline plays them.
     public let slots: [ScaenaSession.Slot]
@@ -24,6 +28,8 @@ public struct Show: Equatable, Sendable {
     public var playhead: Playhead
     /// The screen black or white, where the presenter turned it so; none while the slide shows.
     public private(set) var blank: Blank?
+    /// Whether the show is over: gone on past the last state, the screen black and saying so.
+    public private(set) var over = false
     /// Where a cue that played stood when the screen went black or white, to play on from.
     private var held: Playhead?
     /// The hold that runs at rest: when it began, and how long it lasts, ms.
@@ -51,7 +57,8 @@ public struct Show: Equatable, Sendable {
     /// The state that comes next, if any.
     public var next: ScaenaSession.Slot? { slots.indices.contains(index + 1) ? slots[index + 1] : nil }
 
-    /// Go on: finish the cue that plays, or play the next state's.
+    /// Go on: finish the cue that plays, or play the next state's; past the last at rest, the show
+    /// is over.
     public mutating func on() {
         stopHold()
         if playhead.playing {
@@ -59,13 +66,20 @@ public struct Show: Equatable, Sendable {
         } else if index + 1 < slots.count {
             index += 1
             playhead = Playhead()
+        } else if !slots.isEmpty {
+            over = true
         }
     }
 
-    /// Go back: the state before, at rest, no hold running: it waits to be told.
+    /// Go back: the state before, at rest, no hold running: it waits to be told. At the end of the
+    /// show, the last state again.
     public mutating func back() {
         stopHold()
-        index = max(index - 1, 0)
+        if over {
+            over = false
+        } else {
+            index = max(index - 1, 0)
+        }
         playhead = .rest
     }
 
@@ -74,6 +88,7 @@ public struct Show: Equatable, Sendable {
     public mutating func go(to state: String) -> Bool {
         guard let at = slots.firstIndex(where: { $0.state == state }) else { return false }
         stopHold()
+        over = false
         index = at
         playhead = Playhead()
         return true
@@ -82,6 +97,7 @@ public struct Show: Equatable, Sendable {
     /// The first state, its cue played.
     public mutating func first() {
         stopHold()
+        over = false
         index = 0
         playhead = Playhead()
     }
@@ -89,6 +105,7 @@ public struct Show: Equatable, Sendable {
     /// The last state, at rest.
     public mutating func last() {
         stopHold()
+        over = false
         index = max(slots.count - 1, 0)
         playhead = .rest
     }
@@ -124,9 +141,10 @@ public struct Show: Equatable, Sendable {
 
     /// The screen `to` at `now`, black or white, a cue that plays held where it stands, and a hold
     /// that runs stopped with what is left of it; the slide again, where the screen is `to`
-    /// already (PLAN 2.105).
+    /// already (PLAN 2.105). At the end of the show, it takes the end's place.
     public mutating func blanking(_ to: Blank, at now: Date = Date()) {
         if blank == to { return unblank(at: now) }
+        over = false
         if blank == nil {
             if playhead.playing {
                 held = playhead
@@ -173,6 +191,50 @@ public struct Show: Equatable, Sendable {
         blank = nil
         held = nil
         return go(to: state)
+    }
+}
+
+/// The presenter's timer (PLAN 2.121), as Keynote's and PowerPoint's presenter's: the time since
+/// the show began, which pauses and runs on, and resets to 0:00, running or paused as it was.
+public struct Stopwatch: Equatable, Sendable {
+    /// When it last ran on; none while it is paused.
+    private var since: Date?
+    /// What it counted before it last ran on, s.
+    private var counted: TimeInterval = 0
+
+    /// One that runs from `now`.
+    public init(at now: Date = Date()) {
+        since = now
+    }
+
+    /// Whether it is paused.
+    public var paused: Bool { since == nil }
+
+    /// What it has counted at `now`, s.
+    public func elapsed(at now: Date = Date()) -> TimeInterval {
+        counted + (since.map { max(now.timeIntervalSince($0), 0) } ?? 0)
+    }
+
+    /// Paused at `now`, or, paused, run on from what it counted.
+    public mutating func toggle(at now: Date = Date()) {
+        if since == nil {
+            since = now
+        } else {
+            counted = elapsed(at: now)
+            since = nil
+        }
+    }
+
+    /// Back to 0:00 at `now`, running on or paused as it was.
+    public mutating func reset(at now: Date = Date()) {
+        counted = 0
+        if since != nil { since = now }
+    }
+
+    /// What it has counted at `now`, as the browser's presenter view reads it: minutes and seconds.
+    public func reads(at now: Date = Date()) -> String {
+        let seconds = Int(elapsed(at: now))
+        return String(format: "%ld:%02ld", seconds / 60, seconds % 60)
     }
 }
 

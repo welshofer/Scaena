@@ -58,8 +58,8 @@ slopes 62df41cb3d116409
 slopes-next fa23d243c563c11c
 multiples c2ed9b69ba300af6
 multiples-next 24823784e140c205
-shadows 1126d2a0652f8872
-shadows-next 89b8d787f6edbd58
+shadows 01acf2588de26b26
+shadows-next d2d6f14466e9b24c
 adjust 8b70710c67a63273
 adjust-next a378961576ec754d
 connectors 91df8a97549d722d
@@ -86,7 +86,7 @@ across-next@0.25 341bdca56ecfd166
 across-next@0.75 eaa97d18471c14e0
 slopes-next@0.5 fc6b3a56e5b23e98
 multiples-next@0.5 7a29a6c8f583e080
-shadows-next@0.5 eb7be3e4a2e8bde2
+shadows-next@0.5 a9e75e95ff673356
 adjust-next@0.5 bd2ff6568acea076
 formats~9x16 bd611fea23e3eb49
 containers~9x16 472f03e08896b8a3

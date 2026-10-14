@@ -272,7 +272,8 @@ struct DeckView: View {
     /// the slide picked there.
     private func inspecting(_ tab: InspectorTab) -> some View {
         Inspector(
-            editor: editor, state: inspected, node: $node, also: $also, typing: typing, tab: tab, offer: { asked = $0 }
+            editor: editor, state: inspected, node: $node, also: $also, typing: typing, tab: tab, offer: { asked = $0 },
+            reveal: { picked in if let shown { bringIntoView(picked, in: shown) } }
         ) { ops in
             perform { try document.make(ops, undo: undo) }
         }
@@ -322,6 +323,7 @@ struct DeckView: View {
                     ) { picked in
                         node = picked
                         also = []
+                        bringIntoView(picked, in: shown)
                     }
                 }
             }
@@ -535,7 +537,8 @@ struct DeckView: View {
         }
     }
 
-    /// The deck as a PDF, or the slide shown as a PNG: shared, looked at, or saved.
+    /// The deck as a PDF, the slide shown as a PNG, or every slide as PNGs in one zip: shared,
+    /// looked at, or saved.
     private var sharing: some View {
         Menu {
             Button("Share as PDF…") { export(.pdf, sharing: true) }
@@ -546,11 +549,15 @@ struct DeckView: View {
                 Button("Share This Slide as PNG…") { export(png(shown), sharing: true) }
                 Button("Save This Slide as PNG…") { save(png(shown)) }
             }
+            // Every slide, each a PNG named by its number (PLAN 2.122).
+            Divider()
+            Button("Share All Slides as PNGs…") { export(allSlides, sharing: true) }
+            Button("Save All Slides as PNGs…") { save(allSlides) }
         } label: {
             Label("Share", systemImage: "square.and.arrow.up")
         }
         .accessibilityLabel("Share")
-        .help("The deck as a PDF, or this slide as a picture")
+        .help("The deck as a PDF, this slide as a picture, or every slide as pictures")
         .disabled(editor.slots.isEmpty)
     }
 
@@ -666,6 +673,8 @@ struct DeckView: View {
                 editor.shown = now
                 node = arriving
                 also = []
+                // What find or a finding went to comes into view where the slide is zoomed in.
+                if let arrived = arriving, let now { bringIntoView(arrived, in: now) }
                 arriving = nil
                 playhead = Playhead()
                 typing?.sync(shown: now)
@@ -873,7 +882,8 @@ struct DeckView: View {
                                 fill: filling(shown),
                                 pen: pen,
                                 penning: { takePen() },
-                                inked: { points in ink(points, in: shown) }
+                                inked: { points in ink(points, in: shown) },
+                                showing: { state in chosen = state }
                             ) { ops, name in
                                 perform { try document.make(ops, undo: undo, named: name) }
                             }
@@ -930,7 +940,8 @@ struct DeckView: View {
         }
     }
 
-    /// Show a match the find bar found (PLAN 3.16): its state, and its node selected.
+    /// Show a match the find bar found (PLAN 3.16): its state, and its node selected, brought into
+    /// view where the slide is zoomed in (PLAN 4.12).
     private func reveal(_ state: String?, _ found: String?) {
         if let state, state != shown {
             arriving = found
@@ -938,7 +949,20 @@ struct DeckView: View {
         } else {
             node = found
             also = []
+            if let found, let shown { bringIntoView(found, in: shown) }
         }
+    }
+
+    /// Zoomed in, `node` as `state` shows it brought into view (PLAN 4.12, as the browser's panels
+    /// bring what they select into view, PLAN 2.125): the least pan that shows it whole where it is
+    /// drawn, or, larger than what shows, the least that shows nothing but it. What the layers,
+    /// find, a finding, or the cue select; fitted, nothing moves. Nor does it on the light table,
+    /// where the inspector's objects are the slide picked there, not the canvas's.
+    private func bringIntoView(_ node: String, in state: String) {
+        guard !showsSlides, zoom.level > 1 + 1e-9,
+            let box = (try? editor.session.boxes(state: state))?.first(where: { $0.node == node })
+        else { return }
+        zoom.reveal(box.extent)
     }
 
     /// Lay the canvas out in `format`, or on the deck's own canvas (PLAN 3.16, as the browser's
@@ -970,7 +994,8 @@ struct DeckView: View {
             zoom: { by in zoom.step(by) }, fit: { zoom.fit() }, zoomed: zoom.level > 1, find: { searching = true })
     }
 
-    /// Show what `finding` is about: its state, and its node selected.
+    /// Show what `finding` is about: its state, and its node selected, brought into view where the
+    /// slide is zoomed in (PLAN 4.12).
     private func go(_ finding: Finding) {
         if let state = finding.state, state != shown {
             arriving = finding.node
@@ -978,6 +1003,7 @@ struct DeckView: View {
         } else {
             node = finding.node
             also = []
+            if let about = finding.node, let shown { bringIntoView(about, in: shown) }
         }
     }
 
@@ -985,6 +1011,12 @@ struct DeckView: View {
     private func png(_ state: String) -> Exporting.Kind {
         let size = (try? editor.session.canvasSize()) ?? CGSize(width: 1920, height: 1080)
         return .png(state: state, width: Int(size.width.rounded()))
+    }
+
+    /// Every slide as PNGs the canvas's width, a pixel to the unit, in one zip.
+    private var allSlides: Exporting.Kind {
+        let size = (try? editor.session.canvasSize()) ?? CGSize(width: 1920, height: 1080)
+        return .slides(width: Int(size.width.rounded()))
     }
 
     /// Write `kind` and share it, or show it in Quick Look.
@@ -1476,6 +1508,12 @@ struct DeckView: View {
     /// the diagram selected.
     private func diagram(_ kind: DiagramKind, in state: String) {
         guard let text = node, also.isEmpty else { return }
+        // The text goes, and nothing of a locked node is deleted (PLAN 2.95).
+        let boxes = (try? editor.session.boxes(state: state)) ?? []
+        if let held = boxes.first(where: { $0.node == text }), let holder = held.locked {
+            said = holder == held.node ? "It is locked: ⇧⌘L unlocks it" : "What holds it is locked: unlock that first"
+            return
+        }
         perform {
             let made = try editor.session.diagramming(state: state, node: text, kind: kind)
             try document.make(made.patch, undo: undo, named: "Diagram from Text")

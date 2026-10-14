@@ -259,6 +259,40 @@ fn e106_schema_and_resolved_types() {
     assert_eq!(say("/nodes/late/at/row"), "`late` is placed in rows 4–3, which run backward: write [3, 4]");
 }
 
+/// A shadow is one of the theme's by name, or one written out with a shadow's keys alone and an
+/// opacity from 0 to 1 (PLAN 2.115): anything else is a finding where it is written, which lint
+/// reports, and not a slide that cannot be drawn.
+#[test]
+fn a_shadow_the_theme_lacks_or_written_out_wrong_is_found_where_it_is_written() {
+    let found = |shadow: serde_json::Value| {
+        let mut deck: serde_json::Value = serde_json::from_str(fixture!("E102", "clean")).unwrap();
+        deck["nodes"]["stats"]["shadow"] = shadow.clone();
+        deck["overrides"]["photo"] = serde_json::json!({ "shadow": shadow });
+        let found = validate_bundle(&deck.to_string(), &Fixtures).unwrap();
+        found.into_iter().map(|f| (f.code, f.path.unwrap_or_default(), f.message)).collect::<Vec<_>>()
+    };
+    let named = found(serde_json::json!("dreamy"));
+    let paths: Vec<(&str, &str)> = named.iter().map(|(c, p, _)| (c.as_str(), p.as_str())).collect();
+    assert_eq!(paths, [("E102", "/nodes/stats/shadow"), ("E102", "/overrides/photo/shadow")], "{named:?}");
+    assert_eq!(named[0].2, "shadow `dreamy` is not in the theme, which has none");
+    let css = found(serde_json::json!({ "y": 8, "blur": 20, "spread": 4 }));
+    let paths: Vec<(&str, &str)> = css.iter().map(|(c, p, _)| (c.as_str(), p.as_str())).collect();
+    assert_eq!(paths, [("E106", "/nodes/stats/shadow/spread"), ("E106", "/overrides/photo/shadow/spread")], "{css:?}");
+    let dark = found(serde_json::json!({ "y": 8, "opacity": 1.5 }));
+    let paths: Vec<(&str, &str)> = dark.iter().map(|(c, p, _)| (c.as_str(), p.as_str())).collect();
+    assert_eq!(paths, [("E106", "/nodes/stats/shadow/opacity"), ("E106", "/overrides/photo/shadow/opacity")]);
+    let colored = found(serde_json::json!({ "y": 8, "color": "glow" }));
+    let paths: Vec<(&str, &str)> = colored.iter().map(|(c, p, _)| (c.as_str(), p.as_str())).collect();
+    assert_eq!(paths, [("E102", "/nodes/stats/shadow/color"), ("E102", "/overrides/photo/shadow/color")]);
+    assert!(found(serde_json::json!({ "x": 4, "y": "space.2", "blur": 20, "opacity": 0.5 })).is_empty());
+    // A deck saved before a shadow drew reads without one: its `shadow` drew nothing then.
+    let mut old: serde_json::Value = serde_json::from_str(fixture!("E102", "clean")).unwrap();
+    old["scaena"] = "0.24".into();
+    old["nodes"]["stats"]["shadow"] = serde_json::json!({ "y": 8, "spread": 4 });
+    let found = validate_bundle(&old.to_string(), &Fixtures).unwrap();
+    assert!(found.is_empty(), "{found:?}");
+}
+
 #[test]
 fn a_placement_past_the_grid_names_the_grid() {
     let found = validate_bundle(fixture!("E102", "trigger"), &Fixtures).unwrap();
