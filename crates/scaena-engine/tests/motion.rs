@@ -750,6 +750,30 @@ fn an_edited_deck_is_timed_as_a_fresh_engine_times_it() {
     );
 }
 
+/// A state's motions are read as the states write them: a node's own `enter` timed anew under
+/// overrides that set one over it, which an engine keeping each state's span times as a fresh
+/// engine does.
+#[test]
+fn a_motion_written_under_the_overrides_is_timed_as_a_fresh_engine_times_it() {
+    let states = json!([{ "id": "a", "layout": "specimen", "mode": "absolute", "props": { "t": {} } }]);
+    let entering = |ms: f64| -> Deck {
+        let mut t = text("One", "main");
+        t["enter"] = json!({ "preset": "fade", "duration": ms });
+        let mut d = serde_json::to_value(deck(json!({ "t": t }), states.clone())).unwrap();
+        d["overrides"] = json!({ "t": { "enter": "fade" } });
+        serde_json::from_value(d).unwrap()
+    };
+    let mut fx = Fx::new(entering(300.0), theme(|_| {}));
+    fx.engine = std::mem::replace(&mut fx.engine, Engine::new(BundleFonts::new())).with_timed(Timed::default());
+    let span = |timeline: &scaena_core::timeline::Timeline| timeline.slots[0].span;
+    assert_eq!(span(&fx.engine.timeline(&fx.deck, &fx.theme, &fx.data).unwrap()), 300.0);
+    let edited = entering(600.0);
+    let kept = fx.engine.timeline(&edited, &fx.theme, &fx.data).unwrap();
+    let mut fresh = Fx::new(edited.clone(), theme(|_| {}));
+    assert_eq!(span(&kept), span(&fresh.engine.timeline(&edited, &fresh.theme, &fresh.data).unwrap()));
+    assert_eq!(span(&kept), 600.0);
+}
+
 /// The torture theme with Dusk's builds and the springs they spring on (PLAN 2.112).
 fn dusk_builds(t: &mut Value) {
     let dusk: Value = serde_json::from_str(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();

@@ -58,7 +58,7 @@ impl Session {
         if let Some(refused) = scaena_ops::files::refusals(&listed, &held, &[path.to_string()]).pop() {
             return Err(Error::Ops(refused.why));
         }
-        let before = std::sync::Arc::make_mut(&mut self.files).remove(path);
+        let before = self.files_mut().remove(path);
         self.removed.insert(path.to_string());
         self.undone.clear();
         self.done.push(Written { path: path.to_string(), before, after: None, why: format!("take out {path}") });
@@ -186,7 +186,7 @@ impl Session {
                 self.add_file(&step.path, bytes);
             }
             None => {
-                std::sync::Arc::make_mut(&mut self.files).remove(&step.path);
+                self.files_mut().remove(&step.path);
                 self.removed.insert(step.path.clone());
             }
         }

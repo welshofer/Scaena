@@ -618,3 +618,30 @@ fn a_source_that_is_not_a_deck_says_why_in_the_decks_terms() {
     let e = compile("deck \"T\" canvas:big\n").unwrap_err();
     assert_eq!((e.line, e.col, e.pointer.as_deref()), (1, 10, Some("/canvas")), "{e}");
 }
+
+/// A long deck's source compiles in time that grows with it, not with its square: each `at:` call
+/// moves only the marks its value just made under the call's place, never every mark the source
+/// made before it, which cost a 38-slide deck most of each compile (the editor compiles one
+/// after every gesture).
+#[test]
+fn a_long_source_compiles_in_time_that_grows_with_it() {
+    let n = 3000;
+    let mut src = String::from("deck \"Long\" canvas:1920x1080 author:jay\n");
+    for i in 0..n {
+        src += &format!("node n{i} text \"Words {i}\" role:body\n");
+    }
+    src += "state all\n";
+    for i in 0..n {
+        src += &format!("  n{i} at:col({}-{}) row({}) in(body)\n", 1 + i % 6, 7 + i % 6, 1 + i % 12);
+    }
+    let started = std::time::Instant::now();
+    let (json, map) = scaena_core::dsl::compile_json(&src).unwrap();
+    let took = started.elapsed();
+    let at = |p: &str| map.locate(p).map(|(o, l)| &src[o..o + l]);
+    let last = format!("/states/0/props/n{}/at", n - 1);
+    assert_eq!(at(&format!("{last}/col")), Some("col(6-12)"));
+    assert_eq!(at(&format!("{last}/row")), Some("row(12)"));
+    assert_eq!(at(&format!("{last}/in")), Some("in(body)"));
+    assert_eq!(json["states"][0]["props"]["n0"]["at"], serde_json::json!({ "col": [1, 7], "row": 1, "in": "body" }));
+    assert!(took < std::time::Duration::from_secs(3), "{n} nodes compiled in {took:?}");
+}

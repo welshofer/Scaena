@@ -126,8 +126,9 @@ pub fn lint_with(
 }
 
 /// [`lint_with`] on a deck validated already, `found` what validation found: what a patch
-/// checks the deck it makes against before it lints it (SPEC §7.3).
-pub(crate) fn lint_validated(
+/// checks the deck it makes against before it lints it (SPEC §7.3), and what an editor knows
+/// of the deck it compiled.
+pub fn lint_validated(
     deck: &Deck,
     mut found: Vec<Finding>,
     theme: Option<&str>,
