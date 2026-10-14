@@ -486,9 +486,12 @@ if [[ "${lh:-}" =~ ^[0-9]+$ && "${ph:-}" =~ ^[0-9]+$ ]]; then
   shot pen-stroke
   events 'key code 53'
   sleep 1
-  offered=$(app 'get name of every menu item of menu 1 of menu bar item "Insert" of menu bar 1' | tr ',' '\n' | grep -o 'Stop Drawing\|Drawing' | head -1)
+  offered=$(app 'get name of every menu item of menu 1 of menu bar item "Insert" of menu bar 1' | tr ',' '\n' | grep -o 'Stop Drawing\|Drawing' | head -1 || true)
   echo "the pen after a stroke and Escape: the Insert menu offers ${offered:-neither} (Drawing: the pen is down)"
-  menu Edit "Undo"
+  # Put down by its menu where Escape did not, so the walk goes on with the pen down.
+  if [[ "${offered:-}" == "Stop Drawing" ]]; then menu Insert "Stop Drawing"; fi
+  # ⌘Z: the Edit menu names the step it takes back (Undo Draw), so it is pressed, not chosen.
+  events 'keystroke "z" using command down'
   sleep 2
 else
   echo "no slide or canvas for the pen: $lx $ly $lw $lh, $px $py $pw $ph"

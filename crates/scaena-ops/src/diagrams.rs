@@ -87,7 +87,7 @@ pub struct Laid<'a> {
 /// words, and the connectors between them. `laid` is the state at rest on the deck's own canvas,
 /// first, and in each format it lays out anew: the text's box in each sizes a process's boxes and
 /// sets which way it runs, and sets a hierarchy's boxes to one column's width, there. A text in a
-/// stack with no size of its own takes the share of the stack's room its box did.
+/// stack with no size of its own takes the share of the stack's room its box did, and its shape.
 ///
 /// Each line that holds words is a step, at its list level: a process's or a cycle's steps are its
 /// shallowest lines, each deeper line joining the box above it as a line of its own; a hierarchy's
@@ -181,7 +181,8 @@ pub fn diagramming(
         }
     }
     // A text in a stack with no size of its own is as large as its lines; a container has none,
-    // so it takes the share of the stack's room the text's box took, along the stack.
+    // so it takes the share of the stack's room the text's box took, along the stack, and the
+    // box's shape, so it is as large across it, and along a stack as large as what it holds.
     let stack = parent_of(node).filter(|p| deck.nodes.get(*p).is_some_and(|n| n.node_type == NodeType::Stack));
     let share = |format: Option<&str>, boxes: &[NodeBox], rest: [f32; 4]| -> Option<Value> {
         let stack = stack?;
@@ -196,7 +197,10 @@ pub fn diagramming(
         let across = own("axis").and_then(Value::as_str) == Some("x");
         let (part, room, key) =
             if across { (rest[2], outer[2] - left - right, "w") } else { (rest[3], outer[3] - top - bottom, "h") };
-        (room > 0.0 && part > 0.0).then(|| json!({ key: format!("{}%", (10000.0 * part / room).round() / 100.0) }))
+        let hundredths = |v: f32| (v * 100.0).round() / 100.0;
+        let shape = format!("{}:{}", hundredths(rest[2]), hundredths(rest[3]));
+        (room > 0.0 && part > 0.0 && rest[2] > 0.0 && rest[3] > 0.0)
+            .then(|| json!({ key: format!("{}%", hundredths(100.0 * part / room)), "aspect": shape }))
     };
     if props.get("size").is_none() {
         let base = laid.iter().find(|l| l.format.is_none()).map_or(&[][..], |l| l.boxes);

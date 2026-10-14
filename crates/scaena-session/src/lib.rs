@@ -3195,27 +3195,42 @@ mod tests {
             assert!(step[2] > 40.0 && step[3] > 40.0, "a step with room for its words: {step:?}");
         }
 
-        // In a column stack, between two texts, none with an index of its own.
-        let mut s = revenue();
-        let card = serde_json::json!([
-            { "op": "add", "path": "/nodes/card", "value": { "type": "stack", "axis": "y", "at": { "col": [2, 11], "row": [3, 11] } } },
-            { "op": "add", "path": "/states/0/props/card", "value": {} },
-            { "op": "replace", "path": "/nodes/title/at", "value": { "parent": "card" } },
-            { "op": "replace", "path": "/nodes/subtitle/text", "value": "Plan\nBuild\nShip" },
-            { "op": "replace", "path": "/nodes/subtitle/at", "value": { "parent": "card" } },
-            { "op": "add", "path": "/nodes/tail", "value": { "type": "text", "role": "body", "text": "Last", "at": { "parent": "card" } } },
-            { "op": "add", "path": "/states/0/props/tail", "value": {} }
-        ]);
-        s.tool("deck_patch", serde_json::json!({ "ops": card }), by()).unwrap();
-        let was = rect(&mut s, "intro", "subtitle");
-        let made = s.diagramming("intro", "subtitle", Diagram::Process).unwrap();
-        s.tool("deck_patch", serde_json::json!({ "ops": made.patch }), by()).unwrap();
-        let (title, holder, tail) =
-            (rect(&mut s, "intro", "title"), rect(&mut s, "intro", &made.id), rect(&mut s, "intro", "tail"));
-        assert!((holder[3] - was[3]).abs() < 1.0, "the subtitle's share of the stack: {holder:?} {was:?}");
-        assert!(title[1] < holder[1] && holder[1] < tail[1], "in the subtitle's turn: {title:?} {holder:?} {tail:?}");
-        for step in steps(&mut s, "intro", &made.id) {
-            assert!(step[2] > 40.0 && step[3] > 10.0, "a step with room for its words: {step:?}");
+        // In a column stack, between two texts, none with an index of its own: one that fills its
+        // cells, and one in another stack, as tall as what it holds.
+        let cells = serde_json::json!({ "col": [2, 11], "row": [3, 11] });
+        for (outer, at) in [(None, cells.clone()), (Some(cells), serde_json::json!({ "parent": "outer" }))] {
+            let mut s = revenue();
+            let mut card = vec![
+                serde_json::json!({ "op": "add", "path": "/nodes/card", "value": { "type": "stack", "axis": "y", "at": at } }),
+                serde_json::json!({ "op": "add", "path": "/states/0/props/card", "value": {} }),
+            ];
+            if let Some(cells) = outer {
+                card.push(serde_json::json!({ "op": "add", "path": "/nodes/outer",
+                    "value": { "type": "stack", "axis": "y", "at": cells } }));
+                card.push(serde_json::json!({ "op": "add", "path": "/states/0/props/outer", "value": {} }));
+            }
+            card.extend([
+                serde_json::json!({ "op": "replace", "path": "/nodes/title/at", "value": { "parent": "card" } }),
+                serde_json::json!({ "op": "replace", "path": "/nodes/subtitle/text", "value": "Plan\nBuild\nShip" }),
+                serde_json::json!({ "op": "replace", "path": "/nodes/subtitle/at", "value": { "parent": "card" } }),
+                serde_json::json!({ "op": "add", "path": "/nodes/tail",
+                    "value": { "type": "text", "role": "body", "text": "Last", "at": { "parent": "card" } } }),
+                serde_json::json!({ "op": "add", "path": "/states/0/props/tail", "value": {} }),
+            ]);
+            s.tool("deck_patch", serde_json::json!({ "ops": card }), by()).unwrap();
+            let was = rect(&mut s, "intro", "subtitle");
+            let made = s.diagramming("intro", "subtitle", Diagram::Process).unwrap();
+            s.tool("deck_patch", serde_json::json!({ "ops": made.patch }), by()).unwrap();
+            let (title, holder, tail) =
+                (rect(&mut s, "intro", "title"), rect(&mut s, "intro", &made.id), rect(&mut s, "intro", "tail"));
+            assert!((holder[3] - was[3]).abs() < 1.0, "the subtitle's share of the stack: {holder:?} {was:?}");
+            assert!(
+                title[1] < holder[1] && holder[1] < tail[1],
+                "in the subtitle's turn: {title:?} {holder:?} {tail:?}"
+            );
+            for step in steps(&mut s, "intro", &made.id) {
+                assert!(step[2] > 40.0 && step[3] > 10.0, "a step with room for its words: {step:?}");
+            }
         }
 
         // The trails example's hours: the steps read where the meaning did, before the aside.
