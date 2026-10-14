@@ -1159,7 +1159,9 @@ impl Session {
     /// states", ADR-0013).
     #[cfg(feature = "editor")]
     pub fn reach(&self, ops: &[serde_json::Value]) -> Result<Vec<String>, Error> {
-        scaena_ops::patch::reach(&self.deck, &editor::Handed(&self.files), ops).map_err(|e| Error::Ops(e.to_string()))
+        let places = self.theme.furniture.as_ref();
+        scaena_ops::patch::reach(&self.deck, &editor::Handed(&self.files), places, ops)
+            .map_err(|e| Error::Ops(e.to_string()))
     }
 
     /// Where a caret stands in `node`'s text in `state` at rest, in the format shown
@@ -4308,6 +4310,27 @@ mod tests {
         assert_eq!(s.states().len(), 64);
     }
 
+    /// A pen's drawing and an icon are each a path on a view (PLAN 2.104, 2.114): the drawing,
+    /// stroked, is a shape, which Insert › Icon… adds an icon beside rather than replaces; the
+    /// icon, filled, is an icon.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_drawing_is_a_shape_and_an_icon_an_icon() {
+        let by = || assistant::Caller { author: "user", at: None };
+        let mut s = revenue();
+        let drawn = s.inking("revenue", &[[100.0, 100.0], [300.0, 200.0]], None).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": drawn.patch }), by()).unwrap();
+        assert_eq!(s.choices("revenue", &drawn.id).unwrap().noun.as_deref(), Some("Shape"));
+        let icon = scaena_core::inserts::Icon {
+            name: "rocket".into(),
+            path: "M16 16L240 16L128 240Z".into(),
+            view: [0.0, 0.0, 256.0, 256.0],
+        };
+        let added = s.inserting_icon("revenue", &icon, [900.0, 500.0]).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": added.patch }), by()).unwrap();
+        assert_eq!(s.choices("revenue", &added.id).unwrap().noun.as_deref(), Some("Icon"));
+    }
+
     /// A chart's marks and the rows of its source (PLAN 2.64): each bar of the revenue chart is
     /// the row of `q3` its sheet shows as that quarter and product; a row marks its bar, and a
     /// point on the bar names the row, in the format shown.
@@ -4340,6 +4363,77 @@ mod tests {
             let found = s.mark_at("revenue", [x + w / 2.0, y + h / 2.0]).unwrap().unwrap();
             assert_eq!(found.rows, [row]);
         }
+    }
+}
+
+#[cfg(all(test, feature = "editor"))]
+mod shipped {
+    use super::*;
+    use serde_json::json;
+
+    /// A new deck in the theme that ships as `theme` (`gallery.theme.json`), as New makes one, a
+    /// slide started in its `layout` after the first: the session, and the slide's state.
+    pub(crate) fn started(theme: &str, layout: &str) -> (Session, String) {
+        let examples = std::path::Path::new("../../docs/examples");
+        let fonts: BTreeMap<String, Vec<u8>> =
+            ["Fraunces-VF.ttf", "Fraunces-Italic-VF.ttf", "InstrumentSerif-Regular.ttf"]
+                .into_iter()
+                .chain(["InstrumentSerif-Italic.ttf", "Inter-VF.ttf", "Inter-Italic-VF.ttf"])
+                .chain(["JetBrainsMono-VF.ttf", "JetBrainsMono-Italic-VF.ttf"])
+                .map(|f| (format!("fonts/{f}"), std::fs::read(examples.join("fonts").join(f)).unwrap()))
+                .collect();
+        let text = std::fs::read_to_string(examples.join("themes").join(theme)).unwrap();
+        let mut s = Session::create(theme, &text, &fonts, "Field notes").unwrap();
+        let first = s.states()[0].clone();
+        let started = s.starting(&first, Some(layout)).unwrap();
+        s.tool("deck_patch", json!({ "ops": started.patch }), assistant::Caller { author: "user", at: None }).unwrap();
+        (s, started.id)
+    }
+
+    /// ⌘B on words of a Gallery headline, set in Instrument Serif, a family of one weight: the
+    /// words are set in its weight, none synthesized, and lint says so (W232). The slide draws,
+    /// every edit after it is made, and ⌘B takes the weight away again.
+    #[test]
+    fn a_bold_word_in_a_family_of_one_weight_is_set_in_its_weight() {
+        let (mut s, state) = started("gallery.theme.json", "title");
+        let by = assistant::Caller { author: "user", at: None };
+        let look = s.bolding(&state, "title-title", 0, 3).unwrap();
+        assert_eq!(look, json!({ "style/weight": 700 }));
+        let op =
+            json!([{ "op": "style_text", "node": "title-title", "state": state, "from": 0, "to": 3, "look": look }]);
+        assert!(s.typed(&op, None).unwrap());
+        s.frame(&state, f64::INFINITY).expect("the slide draws");
+        let source = s.source();
+        assert!(s.compile(&source).valid);
+        let linted = s.lint(Some(&state)).unwrap();
+        let said: Vec<(&str, &str)> =
+            linted.findings.iter().map(|f| (f.finding.code.as_str(), f.finding.message.as_str())).collect();
+        assert!(said.iter().any(|(code, message)| *code == "W232" && message.contains("`title-title`")), "{said:?}");
+        let choose = json!({ "ops": [{ "op": "choose", "node": "title-subtitle", "prop": "align/x", "value": "center", "state": state }] });
+        s.tool("deck_patch", choose, by).expect("another edit is made");
+        assert_eq!(s.bolding(&state, "title-title", 0, 3).unwrap(), json!({ "style/weight": null }), "⌘B again");
+    }
+
+    /// An icon copied and pasted where an empty place for one stands fills it, as Insert does
+    /// (PLAN G.23, SPEC §3.6): on a slide in Icon Columns, its first icon taken out.
+    #[test]
+    fn a_pasted_icon_fills_the_empty_place_for_one() {
+        let (mut s, state) = started("dusk.theme.json", "icon-columns");
+        let by = assistant::Caller { author: "user", at: None };
+        let snaps = scaena_core::resolve_states(&s.deck).unwrap();
+        let shown = &snaps.iter().find(|x| x.state_id == state).unwrap().nodes;
+        let in_place = |place: &str| {
+            let found = shown.iter().find(|(_, p)| p.get("at").and_then(|at| at.get("in")) == Some(&json!(place)));
+            found.map(|(id, _)| id.clone()).unwrap()
+        };
+        let (first, second) = (in_place("first-icon"), in_place("second-icon"));
+        let deleted = s.deleting(&state, &[first.as_str()], false).unwrap();
+        s.tool("deck_patch", json!({ "ops": deleted }), by).unwrap();
+        let clip = s.copying(&state, &[second.as_str()]).unwrap();
+        // The first third's place for an icon, about (392, 388), as the browser's Insert fills it.
+        let pasted = s.pasting(&clip, &state, [392.0, 388.0]).unwrap();
+        let place = pasted.patch.iter().find(|op| op["op"] == "place").unwrap();
+        assert_eq!(place["at"]["in"], "first-icon", "{:?}", pasted.patch);
     }
 }
 
@@ -4421,14 +4515,20 @@ mod gestures {
                 whole_took,
             )
         };
-        // The subtitle moved down a row, as an arrow key moves it.
+        // The subtitle moved down a row, as an arrow key moves it, three times over, each from the
+        // deck as it was: the quickest of each kept, so a pause on a busy machine decides nothing.
         let [x, y, w, h] = s.targets("cover", "cover-sub").unwrap().cell;
         let moved = s.snap("cover", "cover-sub", SnapMode::Move, [x, y + 80.0, w, h], false).unwrap().unwrap();
-        let (scoped, whole, took, whole_took) = made(&mut s, &json!(moved.patch));
+        let timed: Vec<_> = (0..3).map(|_| made(&mut s, &json!(moved.patch))).collect();
+        let (scoped, whole, _, _) = &timed[0];
         assert_eq!(scoped["states"], json!(["cover"]));
         assert_eq!(said(scoped["added"].as_array().unwrap()), said(whole["added"].as_array().unwrap()));
+        let took = timed.iter().map(|t| t.2).min().unwrap();
+        let whole_took = timed.iter().map(|t| t.3).min().unwrap();
         eprintln!("a move on higher-ed's cover: {took:?} in the session, {whole_took:?} linting the whole deck twice");
-        assert!(took * 4 < whole_took, "{took:?} against {whole_took:?}");
+        // A session that linted the whole deck would take about as long as the whole deck linted
+        // twice; one that lints the state the move changes takes well under half of it.
+        assert!(took * 2 < whole_took, "{took:?} against {whole_took:?}");
         // Its words too long for its box: what the whole deck's lint adds, and nothing else.
         let long = json!([{ "op": "set_text", "node": "cover-sub", "text": "W".repeat(400) }]);
         let (scoped, whole, _, _) = made(&mut s, &long);

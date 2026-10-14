@@ -97,8 +97,8 @@ public struct Choices: Decodable, Sendable {
     public let fields: [Field]
     /// The slide's number and footer (ADR-0028): offered with the state's own fields.
     public let furniture: FurnitureChoice?
-    /// The node's kind as a person names it: `Text`, `Chart`, or `Icon` for a path on a view, which
-    /// the icon picker replaces (PLAN G.23).
+    /// The node's kind as a person names it: `Text`, `Chart`, or `Icon` for a filled path on a view,
+    /// which the icon picker replaces (PLAN G.23); a pen's drawing, stroked, is a `Shape`.
     public let noun: String?
 
     /// Whether the writing tools have words to write for what is offered (PLAN 2.101): a text's, a
@@ -130,6 +130,13 @@ public struct FurnitureChoice: Decodable, Sendable, Equatable {
     public static func footing(_ words: String) -> [JSONValue] {
         let trimmed = words.trimmingCharacters(in: .whitespacesAndNewlines)
         return [["op": "furnish", "footer": trimmed.isEmpty ? .null : .string(trimmed)]]
+    }
+
+    /// The patch that sets the deck's footer to `words`, as `footing` does, or none where the words,
+    /// trimmed, are the footer it has: a field left with a space added changes nothing.
+    public func footing(to words: String) -> [JSONValue]? {
+        let trimmed = words.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed == (footer ?? "") ? nil : FurnitureChoice.footing(trimmed)
     }
 
     /// The patch that shows the number and footer on this slide, hides them, or leaves them as its
@@ -371,13 +378,17 @@ public struct Cue: Decodable, Sendable {
         public let duration: Double
         /// On a spring, which lasts as long as it takes to settle (SPEC §3.9).
         public let sprung: Bool
+        /// A slide transition's style (PLAN 2.111), which moves the slide left whole: none of its
+        /// exits plays.
+        public let style: String?
 
-        private enum Keys: String, CodingKey { case duration, curve }
+        private enum Keys: String, CodingKey { case duration, curve, style }
 
         public init(from decoder: any Decoder) throws {
             let fields = try decoder.container(keyedBy: Keys.self)
             duration = try fields.decode(Double.self, forKey: .duration)
             sprung = try fields.decodeIfPresent(JSONValue.self, forKey: .curve)?["spring"] != nil
+            style = try fields.decodeIfPresent(String.self, forKey: .style)
         }
     }
 

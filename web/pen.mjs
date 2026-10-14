@@ -9,6 +9,7 @@
 // - A second stroke joins the drawing: one more curve of its path, its box grown to take it in.
 // - One undo takes the second stroke away, and another the drawing.
 // - Escape puts the pen down.
+// - A drawing is no icon: with one selected, Insert › Icon… adds an icon and leaves its strokes.
 // Exits 1 on any failure.
 import { launch, serve } from "./serve.mjs";
 
@@ -136,6 +137,29 @@ try {
   await key("Escape");
   check(await settled(() => window.scaena.canvas.pen() === undefined), "Escape puts the pen down");
   check(!(await drawing()) && (await says("The pen is put down")), `and says so: ${await status()}`);
+
+  // A drawing is no icon (PLAN 2.104): with one selected, Insert › Icon… inserts an icon beside it
+  // and leaves its strokes as they were.
+  await key("p");
+  await settled(() => window.scaena.canvas.pen() !== undefined);
+  await stroke(wave);
+  check(await settled(() => window.scaena.source().includes("drawing shape")), "the pen draws another drawing");
+  await key("Escape");
+  await settled(() => window.scaena.canvas.pen() === undefined);
+  check((await selected()) === "drawing", "put down, the pen leaves the drawing selected");
+  const strokesDrawn = (await declared("drawing")).match(/path:"([^"]*)"/)?.[1];
+  await page.selectOption("#insert", "icon");
+  await page.waitForSelector("#iconing[open] .icons button.icon", { timeout: 30000 });
+  const title = await page.evaluate(() => document.querySelector("#iconing-title").textContent);
+  check(title === "Insert an icon", `with a drawing selected, the picker inserts an icon: ${title}`);
+  await page.fill("#iconing input.find", "rocket");
+  await page.waitForFunction(() => document.querySelector("#iconing .icons button.icon")?.dataset.icon === "rocket", null, { timeout: 10000 });
+  await page.click('#iconing button.icon[data-icon="rocket"]');
+  check(await settled(() => /^\s*rocket shape /m.test(window.scaena.source())), "the rocket is added");
+  check(Boolean(strokesDrawn) && (await declared("drawing")).includes(`path:"${strokesDrawn}"`), "the drawing keeps its strokes");
+  await key("Control+z");
+  await key("Control+z");
+  check(await back(original), "two undos take the icon and the drawing away");
 } catch (e) {
   failures.push(`error: ${e.message}`);
 } finally {

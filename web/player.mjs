@@ -13,14 +13,21 @@
 // - The scrubber shows the deck at a time on its timeline: the frame `show` paints for the
 //   same state and time.
 // - A click goes on; a swipe either way goes on or back.
+// - The window is the deck's, by its title, and the bar's buttons say what they do and their keys.
+//   The slide stands in the middle of the room the bar leaves, and fullscreen, of the screen, on
+//   black. At 1024 × 768 every control of the bar is in the window.
 // - The presenter's keys (PLAN 2.105): B, W, . and , turn the screen black or white and back, the
 //   deck waiting under it, a hold where it stood, and a key or a click brings the slide back; a
-//   slide's number then Return goes there, one the deck lacks said; L shows the laser where the
-//   pointer is over the slide; ? lists the keys.
+//   slide's number then Return goes there, one the deck lacks said, 0 among them; L shows the laser
+//   where the pointer is over the slide; ? lists the keys.
 // - The presenter view follows the player, shows the state's notes (its beat's, where it has
 //   none), and steers it: on, back, and with End and Home to the last and the first; and its own
 //   presenter's keys steer the room's screen, its laser pointed from the slide it shows, and drawn
-//   on none of the room's black screen.
+//   on none of the room's black screen. At the last state it shows nothing as next. P again brings
+//   it to the front as it is, its clock running. Its notes scroll, long or short, and its buttons
+//   stay in its window. With no player open, or once the player closes, it says so, and its
+//   buttons wait until one is.
+// - A link at rest shows a hand under the pointer.
 // - With `?fps`, the frame meter reads a played cue's frames: frames a second, the worst frame,
 //   late frames, and the mean paint (gate 2, criterion 1).
 // Exits 1 on any failure.
@@ -64,6 +71,29 @@ try {
 
   const player = await open(url(revenue));
   const slots = await player.evaluate(() => window.scaena.timeline());
+  const { meta } = JSON.parse(await readFile(`.${revenue}`, "utf8"));
+  // The window, and the bar's buttons.
+  check((await player.title()) === meta.title, `the player's window is the deck's, by its title: ${await player.title()}`);
+  const named = await player.evaluate(() =>
+    ["back", "on", "full", "present"].map((id) => [id, document.getElementById(id).getAttribute("aria-label"), document.getElementById(id).title]),
+  );
+  const next = await player.getByRole("button", { name: "Next", exact: true }).getAttribute("id", { timeout: 2000 }).catch(() => null);
+  check(next === "on" && named.every(([, , title]) => title), `its buttons say what they do, and their keys, ▶ as Next: ${JSON.stringify(named)}`);
+  /** Where the slide stands, and the room the bar at the window's foot leaves it: the window's
+   * height in fullscreen. */
+  const standing = (page) =>
+    page.evaluate(() => {
+      const r = document.querySelector("#stage").getBoundingClientRect();
+      const bar = document.querySelector(".bar");
+      const room = bar.offsetParent === null ? innerHeight : innerHeight - bar.offsetHeight;
+      const foot = bar.offsetParent === null || Math.abs(bar.getBoundingClientRect().bottom - innerHeight) <= 1;
+      return { top: r.top, height: r.height, room, foot, background: getComputedStyle(document.body).backgroundColor };
+    });
+  const stands = await standing(player);
+  check(
+    stands.foot && Math.abs(stands.top - (stands.room - stands.height) / 2) <= 1,
+    `the slide stands in the middle of the room the bar at the window's foot leaves: ${JSON.stringify(stands)}`,
+  );
   const states = slots.map((s) => s.state);
   console.log(`revenue: ${states.join(", ")}; holds ${slots.map((s) => s.hold).join(", ")} ms`);
   let at = await player.evaluate(() => window.scaena.at());
@@ -189,6 +219,11 @@ try {
   await player.waitForTimeout(300);
   at = await player.evaluate(() => window.scaena.at());
   check((await typed()) === `No slide 9: the deck has ${count} slides` && at.index === 0, `a slide the deck lacks is said: ${await typed()}`);
+  await player.keyboard.press("0");
+  await player.keyboard.press("Enter");
+  await player.waitForTimeout(300);
+  at = await player.evaluate(() => window.scaena.at());
+  check((await typed()) === `No slide 0: the deck has ${count} slides` && at.index === 0, `and so is 0, which goes nowhere: ${await typed()}`);
   await player.keyboard.press("2");
   await player.keyboard.press("Escape");
   await player.keyboard.press("ArrowLeft");
@@ -240,6 +275,7 @@ try {
   const beatNotes = (state) => deck.spine.sections.flatMap((s) => s.beats).find((b) => b.states?.includes(state))?.notes;
   const notes = (i) => deck.states[i].notes ?? beatNotes(states[i]) ?? "No notes.";
   const presenter = await open(url(revenue, "presenter"));
+  check((await presenter.title()) === `Presenter view · ${meta.title}`, `its window is the deck's, marked as the presenter's: ${await presenter.title()}`);
   // Where the player is, as a person counts its slides (PLAN 2.99): Slide 2 of 3, step 2.
   const slides = new Set(slots.map((s) => s.slide ?? s.state)).size;
   const follows = (i) => slots[i].said.replace(/^Slide (\d+)/, `Slide $1 of ${slides}`);
@@ -260,9 +296,21 @@ try {
   await presenter.keyboard.press("End");
   at = await until(player, (last) => window.scaena.at().index === last, "the presenter view's End", slots.length - 1, 2000);
   check(at.index === slots.length - 1, `its End steers the player to ${states.at(-1)}`);
+  /** What the presenter view shows as next, once it follows the player to state `i`. */
+  const nextShown = async (i) => {
+    await presenter.waitForFunction((want) => window.scaena.follows() === want, follows(i), { timeout: 15000 }).catch(() => {});
+    return presenter.evaluate(() => {
+      const shown = document.querySelector("#upnext");
+      return { name: document.querySelector("#nextName").textContent, shown: !shown.hidden && getComputedStyle(shown).display !== "none" };
+    });
+  };
+  const atEnd = await nextShown(slots.length - 1);
+  check(atEnd.name === "The end of the deck." && !atEnd.shown, `at the last state it says the deck ends there, and shows no slide as next: ${JSON.stringify(atEnd)}`);
   await presenter.keyboard.press("Home");
   at = await until(player, () => window.scaena.at().index === 0, "the presenter view's Home", null, 2000);
   check(at.index === 0, `and its Home to ${states[0]}`);
+  const fromStart = await nextShown(0);
+  check(fromStart.name === `Next: ${slots[1].said}` && fromStart.shown, `back at the first, it shows the next again: ${JSON.stringify(fromStart)}`);
   // Its presenter's keys steer the player's screen (PLAN 2.105): B turns the room's black, and the
   // view says so; a key brings the slide back.
   await presenter.keyboard.press("b");
@@ -291,6 +339,12 @@ try {
   await presenter.keyboard.press("Enter");
   const there = await presenter.evaluate(() => document.querySelector(".typed").textContent);
   check(there === `No slide 9: the deck has ${count} slides` && !(await typed()), `a slide the deck lacks is said there alone: ${there}`);
+  await presenter.keyboard.press("0");
+  await presenter.keyboard.press("Enter");
+  await player.waitForTimeout(300);
+  const zero = await presenter.evaluate(() => document.querySelector(".typed").textContent);
+  at = await player.evaluate(() => window.scaena.at());
+  check(zero === `No slide 0: the deck has ${count} slides` && at.index === slideAt(count), `and 0 too, the player going nowhere: ${zero}`);
   // L: the laser, pointed from the slide the presenter view shows, drawn on the room's.
   await presenter.keyboard.press("l");
   await player.waitForFunction(() => window.scaena.laser().on, null, { timeout: 5000 }).catch(() => {});
@@ -323,12 +377,56 @@ try {
   check((await laser()).hidden, "its L again puts the laser away");
   await presenter.close();
 
-  // Fullscreen: F asks for it.
+  // P opens the presenter view in a window of its own; P again, or Presenter, brings it to the
+  // front as it is, its clock running, and loads nothing anew.
+  const [popup] = await Promise.all([context.waitForEvent("page"), player.keyboard.press("p")]);
+  popup.on("pageerror", (e) => failures.push(`the presenter view's window: ${e.message}`));
+  const seconds = (least = 0) => {
+    const [m, s] = document.querySelector("#clock").textContent.split(":").map(Number);
+    return m * 60 + s >= least && m * 60 + s;
+  };
+  await popup.waitForFunction(() => window.scaena?.follows?.(), null, { timeout: 120000 });
+  await popup.waitForFunction(seconds, 2, { timeout: 15000, polling: 100 }).catch(() => {});
+  let loads = 0;
+  popup.on("framenavigated", (frame) => frame === popup.mainFrame() && loads++);
+  const pages = context.pages().length;
+  const ran = await popup.evaluate(seconds);
+  await player.bringToFront();
+  await player.keyboard.press("p");
+  await player.click("#present");
+  await player.waitForTimeout(1200);
+  const runs = await popup.evaluate(seconds);
+  check(loads === 0 && runs >= ran && ran >= 2 && context.pages().length === pages, `P again, and Presenter, bring the presenter view to the front as it is, its clock running: ${ran} s, then ${runs} s, ${loads} loaded anew`);
+  await popup.close();
+
+  // Fullscreen: F asks for it, and the slide stands in the middle of the screen, on black.
   await player.keyboard.press("f");
   const full = await player.waitForFunction(() => document.fullscreenElement !== null, null, { timeout: 5000 }).then(() => true, () => false);
   check(full, "F makes the player fullscreen");
-  if (full) await player.keyboard.press("f");
+  if (full) {
+    await player.waitForFunction(() => document.querySelector(".bar").offsetParent === null, null, { timeout: 5000 }).catch(() => {});
+    const centred = await standing(player);
+    check(
+      Math.abs(centred.top - (centred.room - centred.height) / 2) <= 1 && centred.background === "rgb(0, 0, 0)",
+      `in the middle of the screen, on black: ${JSON.stringify(centred)}`,
+    );
+    await player.keyboard.press("f");
+  }
   await player.close();
+
+  // The presenter view with no player to follow says so, and how to open one; its buttons wait.
+  const alone = await open(url(revenue, "presenter"));
+  const told = await alone
+    .waitForFunction(() => document.querySelector("#status").textContent.startsWith("The player is not open."), null, { timeout: 10000 })
+    .then(() => true, () => false);
+  const lone = await alone.evaluate(() => ({
+    status: document.querySelector("#status").textContent,
+    link: document.querySelector("#status a")?.href ?? "",
+    waiting: document.querySelector("#on").disabled && document.querySelector("#back").disabled,
+  }));
+  const linked = lone.link && !new URL(lone.link).searchParams.has("view") && new URL(lone.link).searchParams.get("bundle") === revenue;
+  check(told && lone.waiting && linked, `the presenter view alone says the player is not open, and links to it: ${JSON.stringify(lone)}`);
+  await alone.close();
 
   // In a deck whose states do not hold, most take no time on the timeline: many stand at one
   // instant, and the player still tells them apart.
@@ -344,7 +442,68 @@ try {
   await torture.evaluate((k) => window.scaena.run(k, 0), k);
   at = await until(torture, (k) => window.scaena.at().index === k && !window.scaena.at().playing, "a state without a hold comes to rest", k, 10000);
   check(at.index === k && at.t === tSlots[k].span, `${tSlots[k].state}, which does not hold, rests at the end of its cue and waits`);
+  // A link at rest shows a hand under the pointer, as a click there follows it (PLAN 2.70).
+  await torture.evaluate((k) => window.scaena.seek(k), tSlots.findIndex((s) => s.state === "links"));
+  const spot = await torture.evaluate(async () => {
+    for (let y = 0.05; y < 0.95; y += 0.025) for (let x = 0.05; x < 0.95; x += 0.025) if (await window.scaena.linkAt([x, y])) return [x, y];
+    return null;
+  });
+  const tBox = await torture.locator("#stage").boundingBox();
+  const hand = (want) =>
+    torture
+      .waitForFunction((want) => (getComputedStyle(document.querySelector("#stage")).cursor === "pointer") === want, want, { timeout: 5000 })
+      .then(() => true, () => false);
+  if (spot) await torture.mouse.move(tBox.x + spot[0] * tBox.width, tBox.y + spot[1] * tBox.height, { steps: 3 });
+  check(Boolean(spot) && (await hand(true)), `over a link on the links slide, the pointer is a hand: at ${spot}`);
+  await torture.mouse.move(tBox.x + 4, tBox.y + tBox.height - 4, { steps: 3 });
+  check(await hand(false), "and off it, it is not");
   await torture.close();
+
+  // A long deck in a window a projector's size, 1024 × 768: every control of the bar in the
+  // window, the status said, and the page not wider than it.
+  const higher = "/docs/examples/higher-ed.deck.json";
+  const long = await open(`${url(higher)}&state=curriculum`);
+  await long.setViewportSize({ width: 1024, height: 768 });
+  const fits = await long.evaluate(() => ({
+    width: innerWidth,
+    scroll: document.documentElement.scrollWidth,
+    controls: [...document.querySelectorAll(".bar > *")].filter((e) => !e.hidden).map((e) => [e.id, Math.round(e.getBoundingClientRect().right)]),
+    status: document.querySelector("#status").getBoundingClientRect().width,
+  }));
+  check(
+    fits.scroll <= fits.width && fits.controls.every(([, right]) => right <= fits.width) && fits.status > 0,
+    `at 1024 × 768 the bar of a deck with long claims fits the window: ${JSON.stringify(fits)}`,
+  );
+  // Its presenter view, on a slide with long notes: they scroll, and Back and Next stay in sight.
+  const longView = await open(url(higher, "presenter"));
+  await longView
+    .waitForFunction(() => window.scaena.follows() && document.querySelector("#notes").textContent, null, { timeout: 30000 })
+    .catch(() => {});
+  for (const [width, height] of [[1280, 800], [1024, 640]]) {
+    await longView.setViewportSize({ width, height });
+    const seen = await longView.evaluate(() => {
+      const bottom = (id) => Math.round(document.getElementById(id).getBoundingClientRect().bottom);
+      const notes = document.querySelector("#notes");
+      return { height: innerHeight, back: bottom("back"), on: bottom("on"), notes: [notes.scrollHeight, notes.clientHeight] };
+    });
+    check(
+      seen.back <= seen.height && seen.on <= seen.height && seen.notes[0] > seen.notes[1],
+      `at ${width} × ${height} the presenter view's notes scroll, and Back and Next stay in sight: ${JSON.stringify(seen)}`,
+    );
+  }
+  // The player closed, the view says so and its buttons wait; a player opened again, it follows.
+  await long.close();
+  const closed = await longView
+    .waitForFunction(() => document.querySelector("#status").textContent.startsWith("The player has closed.") && document.querySelector("#on").disabled, null, { timeout: 10000 })
+    .then(() => true, () => false);
+  check(closed, `once the player closes, the presenter view says so: ${await longView.textContent("#status")}`);
+  const reopened = await open(url(higher));
+  const followsAgain = await longView
+    .waitForFunction(() => !document.querySelector("#on").disabled && document.querySelector("#status").textContent === "", null, { timeout: 30000 })
+    .then(() => true, () => false);
+  check(followsAgain, `and follows a player opened again: ${await longView.evaluate(() => window.scaena.follows())}`);
+  await reopened.close();
+  await longView.close();
 
   // The frame meter (gate 2, criterion 1): with ?fps, a cue played says how its frames went.
   const metered = await open(`${url("/tests/fixtures/torture.scaena")}&fps`);

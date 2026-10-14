@@ -749,3 +749,95 @@ fn an_edited_deck_is_timed_as_a_fresh_engine_times_it() {
         [(0.0, 620.0), (620.0, 620.0), (1240.0, 620.0)]
     );
 }
+
+/// The torture theme with Dusk's builds and the springs they spring on (PLAN 2.112).
+fn dusk_builds(t: &mut Value) {
+    let dusk: Value = serde_json::from_str(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();
+    t["motion"]["presets"] = dusk["motion"]["presets"].clone();
+    t["motion"]["springs"] = dusk["motion"]["springs"].clone();
+}
+
+#[test]
+fn a_slide_transition_plays_no_exit_of_the_slide_it_leaves() {
+    // The slide left is drawn whole, at rest (SPEC §3.9): a node's own exit there would not draw,
+    // so it adds no time to the cue and no motion to it.
+    let nodes = json!({ "a": text("Alpha", "case"), "b": text("Beta", "main") });
+    for exit in ["spin", "words"] {
+        let states = json!([
+            { "id": "one", "layout": "specimen", "props": { "a": { "exit": exit }, "b": {} } },
+            { "id": "two", "transition": { "style": "push", "duration": 400, "ease": [0, 0, 1, 1] }, "remove": ["a"] }
+        ]);
+        let mut fx = Fx::new(deck(nodes.clone(), states), theme(dusk_builds));
+        assert_eq!(fx.frame("two", f64::INFINITY).duration_ms, 400.0, "{exit}: the push alone");
+        let cue = fx.engine.transition(&fx.deck, &fx.theme, &fx.data, "two").unwrap();
+        assert!(cue.schedule().cues.is_empty(), "{exit}: {:?}", cue.schedule().cues);
+    }
+}
+
+#[test]
+fn a_slide_transition_into_the_first_slide_moves_it_over_the_ground() {
+    // Nothing comes before the first state: the slide left is the canvas's ground, never nothing.
+    let nodes = json!({ "a": text("Alpha", "case") });
+    for style in ["push", "dissolve", "wipe"] {
+        let states = json!([
+            { "id": "one", "layout": "specimen", "props": { "a": {} },
+              "transition": { "style": style, "duration": 400, "ease": [0, 0, 1, 1] } }
+        ]);
+        let mut fx = Fx::new(deck(nodes.clone(), states), theme(|_| {}));
+        let ground = fx.dl("one", 0.0).ops;
+        assert!(matches!(ground[..], [Op::Fill { .. }]), "{style}: before it starts, the ground: {ground:?}");
+        let dl = fx.dl("one", 100.0);
+        match &dl.ops[0] {
+            Op::Layer { node: None, ops, .. } => assert_eq!(ops, &ground, "{style}: the slide left is the ground"),
+            other => panic!("{style}: the slide left's layer, not {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn a_slide_transition_on_a_spring_stops_where_it_arrives() {
+    // Bouncy swings past its end and back as it settles; a slide it moves stops where it first
+    // arrives (SPEC §3.9), never sliding back to show a strip of the slide it left.
+    let nodes = json!({ "a": text("Alpha", "case"), "b": text("Beta", "main") });
+    let states = json!([
+        { "id": "one", "layout": "specimen", "props": { "a": {} } },
+        { "id": "two", "transition": { "style": "push", "spring": "bouncy" }, "props": { "b": {} }, "remove": ["a"] }
+    ]);
+    let mut fx = Fx::new(deck(nodes, states), theme(dusk_builds));
+    let span = fx.frame("two", f64::INFINITY).duration_ms;
+    assert!(span > 100.0 && span < 130.0, "it arrives in {span} ms");
+    // Where the slide entered stands across the canvas, each ms, until well past the spring's settle.
+    let rest = fx.dl("two", f64::INFINITY);
+    let xs: Vec<f32> = (1..900)
+        .map(|t| {
+            let dl = fx.dl("two", f64::from(t));
+            match &dl.ops[..] {
+                [Op::Layer { node: None, .. }, Op::Layer { node: None, transform, .. }] => transform[4],
+                _ => {
+                    assert_eq!(dl, rest, "at {t} ms, at rest");
+                    0.0
+                }
+            }
+        })
+        .collect();
+    assert!(xs.windows(2).all(|w| w[1] <= w[0]), "it only comes in: {xs:?}");
+    assert_eq!(xs[150..], vec![0.0; xs.len() - 150][..], "and stays");
+}
+
+#[test]
+fn an_exit_on_a_spring_does_not_come_back_once_gone() {
+    // Pop as a node leaves springs on bouncy: once the node has gone it stays gone, no faint ghost
+    // of it swinging back, and the cue ends there.
+    let nodes = json!({ "a": text("Alpha", "case"), "b": text("Beta", "main") });
+    let states = json!([
+        { "id": "one", "layout": "specimen", "props": { "a": {}, "b": {} } },
+        { "id": "two", "remove": ["b"], "choreography": [{ "target": "b", "exit": "pop" }] }
+    ]);
+    let mut fx = Fx::new(deck(nodes, states), theme(dusk_builds));
+    let span = fx.frame("two", f64::INFINITY).duration_ms;
+    assert!(span > 100.0 && span < 130.0, "it is gone in {span} ms");
+    let opacity: Vec<f32> = (0..900).map(|t| seen(&fx.dl("two", f64::from(t)), "b").map_or(0.0, |(_, o)| o)).collect();
+    let gone = opacity.iter().position(|o| *o == 0.0).expect("it goes");
+    assert!(opacity[gone..].iter().all(|o| *o == 0.0), "gone at {gone} ms, and after: {opacity:?}");
+    assert!(opacity[..gone].windows(2).all(|w| w[1] <= w[0]), "it only fades: {opacity:?}");
+}

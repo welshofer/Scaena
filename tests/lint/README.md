@@ -10,7 +10,7 @@ Each deck's `_comment` says what it shows.
 **Two harnesses.**
 
 - `E102`–`E106` are validation. `crates/scaena-core/tests/validate.rs` checks them against `theme.json` here, in a bundle that holds the files the clean decks name.
-- Every other code is checked end to end by `crates/scaena-cli/tests/lint.rs`, as `scaena --json lint` runs it: validation, the document rules, then the layout rules with contrast painted by the CPU painter. Each deck is copied into a scratch bundle made of `bundle/` plus two of the torture deck's fonts, `RobotoSerif-VF.ttf` and `EBGaramond-VF.ttf`. That avoids a second copy of the font files.
+- Every other code is checked end to end by `crates/scaena-cli/tests/lint.rs`, as `scaena --json lint` runs it: validation, the document rules, then the layout rules with contrast painted by the CPU painter. Each deck is copied into a scratch bundle made of `bundle/` plus two of the torture deck's fonts, `RobotoSerif-VF.ttf` and `EBGaramond-VF.ttf`, and the examples' `InstrumentSerif-Regular.ttf`. That avoids a second copy of the font files.
 
 `bundle/theme.json` sets its limits low so small decks reach them:
 - density: 30 words a state;
@@ -19,6 +19,8 @@ Each deck's `_comment` says what it shows.
 - display text: two lines at most.
 
 Its charts set their text in the `chart` role, 24 cu: the smallest W312 lets pass.
+
+`bundle/one-weight.theme.json` is the same theme with its serif family set in Instrument Serif, a family of one weight with no `wght` axis: W232's decks name it.
 
 `bundle/data/sales.csv` and `bundle/assets/photo.png` are what the decks that need data or an image name. `bundle/fonts/ScaenaRestricted.ttf` is W230's: a font of plain boxes whose license bits say restricted and not to be subset. `scripts/build_lint_fonts.py` makes it from nothing, so no one's font is bent to say that, and `just schema` checks it is what the script writes.
 

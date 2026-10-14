@@ -1369,6 +1369,9 @@ export type AssistantEvent =
 export interface Opened {
   /** The bundle's name: its folder's, or its deck file's without `.deck.json`. */
   name: string;
+  /** The deck's title (`meta.title`), where it has one: what the player's windows are called,
+   * as a single file's page is. */
+  title?: string;
   /** Where it is kept, if anywhere. */
   where?: Where;
   states: string[];
@@ -1607,7 +1610,8 @@ export interface Cue {
   start: number;
   span: number;
   hold: number;
-  /** Its transition; `style` and `direction` where it is a slide transition (PLAN 2.111). */
+  /** Its transition; `style` and `direction` where it is a slide transition (PLAN 2.111), and no
+   * `direction` for a dissolve, which goes no way. */
   transition: { duration: number; match: string; curve: Curve; style?: string; direction?: string };
   motions: Motion[];
 }

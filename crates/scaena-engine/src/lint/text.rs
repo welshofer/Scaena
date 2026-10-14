@@ -404,6 +404,57 @@ impl Rule for W231Upright {
     }
 }
 
+/// W232: text that asks for a weight heavier than its family draws, set in the family's own:
+/// a font of one weight, with no `wght` axis, and no bold synthesized (SPEC §3.5).
+pub struct W232Lighter;
+impl Rule for W232Lighter {
+    fn code(&self) -> &'static str {
+        "W232"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn check(&self, cx: &Cx) -> Vec<Finding> {
+        let mut out = Vec::new();
+        for state in cx.states {
+            for (id, placed, _) in texts(state) {
+                let lighter = &placed.text.lighter;
+                if lighter.is_empty() {
+                    continue;
+                }
+                // A font by the theme family whose face it is, by its key and name; else by its file.
+                let named: Vec<String> = (lighter.iter())
+                    .map(|file| {
+                        let face = |def: &scaena_core::model::theme::Family| {
+                            def.file == *file || def.italic.as_ref().is_some_and(|i| i.file == *file)
+                        };
+                        match cx.theme.families().iter().find(|(_, def)| face(def)) {
+                            Some((key, def)) => format!("`{key}` ({})", def.family),
+                            None => format!("`{file}`"),
+                        }
+                    })
+                    .collect();
+                let draws = if named.len() == 1 { "draws" } else { "draw" };
+                let message = format!(
+                    "text `{id}` asks for a heavier weight than {} {draws}: it is set in the family's own weight",
+                    named.join(" and ")
+                );
+                out.push(
+                    cx.finding(self.code(), self.severity(), state, message)
+                        .at(cx.node_path(id))
+                        .node(id)
+                        .measure(json!({ "lighter": lighter }))
+                        .hint(
+                            "Set the text in a family with a `wght` axis, or take its weight away: no bold is \
+                             synthesized.",
+                        ),
+                );
+            }
+        }
+        out
+    }
+}
+
 /// W201: a line wider than its measure: a word too long to break at it. One wider than
 /// its box is E100's.
 pub struct W201Measure;

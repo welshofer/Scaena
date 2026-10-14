@@ -136,6 +136,22 @@ fn carriers<'a>(deck: &'a Deck, node: &str) -> Vec<&'a str> {
     out
 }
 
+/// Where `deck.states[i]` gets `node`'s property `prop`, as [`lives`] finds it, `shown` the node
+/// as that state shows it. What never tracks ([`NON_TRACKING_KEYS`]) is the state's own: in its
+/// delta where that sets it, else on the node where the state shows it, which it does only where
+/// the node enters with its own; else it is written in the state's delta, never an earlier
+/// state's, which this one does not show.
+pub fn lives_shown(deck: &Deck, i: usize, node: &str, shown: Option<&Props>, prop: &str, keys: &[&str]) -> Lives {
+    if !NON_TRACKING_KEYS.contains(&prop) {
+        return lives(deck, i, node, prop, keys);
+    }
+    let set = deck.states[i].props.get(node).is_some_and(|delta| delta.contains_key(prop));
+    match !set && shown.is_some_and(|props| props.contains_key(prop)) {
+        true => Lives::Node,
+        false => Lives::State(i),
+    }
+}
+
 /// Where `deck.states[i]` gets its layout template from, which tracks like a property: the
 /// latest state that sets one, from state `i` back along what it tracks. `None` where none
 /// does.

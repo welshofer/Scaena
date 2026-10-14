@@ -168,8 +168,14 @@ export function writer(stage: Stage, host: WritingHost) {
     answer.value = written.text;
     answer.hidden = false;
     use.hidden = false;
+    use.disabled = false;
     answer.focus();
   }
+
+  // An answer with no words left in it is nothing to take, as no answer is: Use it waits for words.
+  answer.addEventListener("input", () => {
+    use.disabled = !answer.value.trim();
+  });
 
   /** Take the answer as it stands in the dialog: one patch, one step to undo. */
   async function take() {

@@ -58,6 +58,9 @@ const ICONED = (() => {
   });
   return JSON.stringify(answer);
 })();
+/** The same answer, the first list's second item naming its icon by a dash, as a model writes for
+ * an item it cannot picture: a word with no letter, which names no icon. */
+const DASHED = ICONED.replace(String.raw`[\"lightning\",\"shield\",\"users\"]`, String.raw`[\"lightning\",\"—\",\"users\"]`);
 const NOTES = "# Tidewater field notes\n\nPort calls doubled in Q3, and every berth ran on shore power.";
 /** A picture, as OpenAI's Images API gives one: a JPEG from the decoder's fixtures. */
 const PICTURE = (await readFile("tests/fixtures/jpeg/baseline-422.jpg")).toString("base64");
@@ -375,6 +378,19 @@ try {
   const iconedLast = await page.evaluate(() => window.scaena.last());
   const iconedErrors = (iconedLast?.findings ?? []).filter((f) => f.severity === "error").map((f) => f.code);
   check(iconedLast?.valid && iconedErrors.length === 0, `it lints with no error: ${iconedLast ? iconedErrors : "not compiled"}`);
+
+  // A dash for an item's icon names none: that list keeps its words, under no icon, and no item
+  // is set under the set's first icon.
+  state.slides = DASHED;
+  check(DASHED !== ICONED, "the dashed answer differs from the iconed one");
+  await opened();
+  await page.click("#prompting-go");
+  await page
+    .waitForFunction((was) => window.scaena.source() !== was && window.scaena.source().includes("alt:Compass") && window.scaena.last(), iconed, { timeout: 180000 })
+    .catch(() => {});
+  const dashed = await page.evaluate(() => window.scaena.source());
+  check(dashed.includes("alt:Compass"), "the other list is still set under its icons");
+  check(!dashed.includes("alt:Acorn") && !dashed.includes("alt:Lightning"), "the dashed list keeps its words, under no icon");
   state.slides = undefined;
 } catch (e) {
   failures.push(String(e?.stack ?? e));

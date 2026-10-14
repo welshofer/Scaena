@@ -1016,7 +1016,7 @@ fn chart_presets_read_the_themes_motion_and_calls_override_it() {
         let d = deck("en-US", rows.clone(), json!({ "v": "number" }), Value::Null, chart(enter));
         let theme = Theme::from_json(&String::from_utf8(read("theme.json")).unwrap()).unwrap();
         let snapshots = scaena_core::resolve_states(&d).unwrap();
-        let items = scaena_engine::motion::items(&d, &theme, &d.states[0], None, &snapshots[0], true).unwrap();
+        let items = scaena_engine::motion::items(&d, &theme, &d.states[0], None, &snapshots[0], true, false).unwrap();
         match <[Item; 1]>::try_from(items) {
             Ok([Item::Cue(cue)]) => cue,
             other => panic!("one cue, not {other:?}"),
