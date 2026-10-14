@@ -1355,8 +1355,8 @@ private struct FurnitureSection: View {
         Section {
             Toggle("Slide Numbers", isOn: Binding(get: { furniture.number }, set: { make(FurnitureChoice.numbering($0)) }))
                 .accessibilityIdentifier("slide-numbers")
-            TextRow(label: "Footer", value: furniture.footer ?? "", long: false) { value in
-                make(FurnitureChoice.footing(value.string ?? ""))
+            TextRow(label: "Footer", value: furniture.footer ?? "", long: false, trims: true) { value in
+                if let patch = furniture.footing(to: value.string ?? "") { make(patch) }
             }
             .accessibilityIdentifier("footer")
             Picker("On This Slide", selection: Binding(get: { furniture.slide.map { $0 ? "shown" : "hidden" } ?? "" }, set: { picked in
@@ -1384,6 +1384,8 @@ private struct TextRow: View {
     let long: Bool
     /// What an empty field of several lines says goes in it; its label where none is given.
     var prompt: String? = nil
+    /// Words that are the value trimmed, as a footer's are, choose nothing: the field is put back.
+    var trims = false
     let choose: (JSONValue) -> Void
     @State private var text = ""
     @FocusState private var focused: Bool
@@ -1411,6 +1413,10 @@ private struct TextRow: View {
     }
 
     private func commit() {
+        if trims, text != value, text.trimmingCharacters(in: .whitespacesAndNewlines) == value {
+            text = value
+            return
+        }
         guard text != value else { return }
         choose(text.isEmpty ? .null : .string(text))
     }

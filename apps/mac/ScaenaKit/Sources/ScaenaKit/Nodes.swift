@@ -85,8 +85,8 @@ extension ScaenaSession {
             ["query": .string(query), "weight": .string(fill ? "fill" : "regular"), "limit": .number(Double(limit))])
     }
 
-    /// Whether `node`, as `state` shows it, is an icon: a path on a view, as the inspector names it
-    /// (PLAN 2.104), which the picker puts another icon in place of (PLAN G.23).
+    /// Whether `node`, as `state` shows it, is an icon: a filled path on a view, as the inspector
+    /// names it (PLAN 2.104), which the picker puts another icon in place of (PLAN G.23).
     public func isIcon(_ node: String, in state: String) -> Bool {
         (try? choices(state: state, node: node))?.noun == "Icon"
     }

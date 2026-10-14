@@ -355,7 +355,14 @@ pub fn restored(
     let refused = !delta(&invalid, &was, &invalid_after, &is, &[]).added.is_empty();
     let (before, after, states) = match refused {
         true => (invalid, invalid_after, Vec::new()),
-        false => (lint(b)?.findings, lint_in(&deck, &view)?.findings, crate::patch::changed(&b.deck, &deck)?),
+        false => {
+            let places = crate::patch::placed(b.theme_json.as_deref(), &b.deck, &deck);
+            (
+                lint(b)?.findings,
+                lint_in(&deck, &view)?.findings,
+                crate::patch::changed(&b.deck, &deck, places.as_ref())?,
+            )
+        }
     };
     let Delta { added, removed } = delta(&before, &was, &after, &is, &[]);
     let restored = Restored {

@@ -727,12 +727,6 @@ impl Engine {
             }
             _ => (1.0, base),
         };
-        if text.synthesized {
-            return Err(EngineError::Font(format!(
-                "node `{id}`: a run needs faux bold, which the display list cannot express; \
-                 use a weight the family provides"
-            )));
-        }
         let overflow = !fits_box(&text);
         let clip = (fit == TextFit::Clip).then_some(cell);
         let top = text_top(cell, align_y, &text, trim);

@@ -62,12 +62,13 @@ fn the_icons_the_slides_name_are_asked_once_and_kept() {
         { "slideTitle": "Tidewater", "layoutSuggestion": "Title", "keyBullets": [] },
         { "slideTitle": "Why us", "layoutSuggestion": "Bullet List",
           "keyBullets": ["Fast: a day", "Safe: sealed", "Shared: one ledger"], "icons": ["Rocket", " shield", "rocket"] },
-        { "slideTitle": "The route", "layoutSuggestion": "Bullet List", "keyBullets": ["Ports", "Ships"] },
+        { "slideTitle": "The route", "layoutSuggestion": "Bullet List", "keyBullets": ["Ports", "Ships", "Crews"],
+          "icons": ["-", "—", "\ud83d\ude80"] },
         { "slideTitle": "The cost", "layoutSuggestion": "Bullet List", "keyBullets": ["Less", "Sooner"] },
         { "slideTitle": "Sail with us", "layoutSuggestion": "Closing", "keyBullets": [] }
     ] }"#;
     g.written(slides, false).unwrap();
-    assert_eq!(g.icon_words(), ["rocket", "shield"]);
+    assert_eq!(g.icon_words(), ["rocket", "shield"], "a word with no letter names none");
     let rocket = Icon { name: "rocket".into(), path: "M0,0L1,1Z".into(), view: [0.0, 0.0, 256.0, 256.0] };
     g.give_icons([("rocket".to_string(), rocket.clone())].into());
     assert_eq!(g.narrative().unwrap().icons["rocket"], rocket);
