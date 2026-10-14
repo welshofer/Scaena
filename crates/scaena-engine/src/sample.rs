@@ -40,7 +40,7 @@ use crate::render::PlacedText;
 use crate::shaders::ShaderNode;
 use crate::shapes::ShapeNode;
 use crate::tables::{Cell, TableLayout};
-use crate::text::{GlyphRun, TextLayout};
+use crate::text::{GlyphRun, TextLayout, TextUnit};
 use crate::theme::Theme;
 use scaena_core::displaylist::{
     Affine, Blend, Cap, Color, DisplayList, FillRule, Join, Op, Paint, Path, PathEl, Point, Rect,
@@ -480,8 +480,40 @@ enum Track {
     Chart { from: Option<usize>, to: Option<usize>, plan: Box<ChartPlan> },
     /// A table in both: its cells match by row and column, its rules by the row above.
     Table { from: usize, to: usize, plan: Box<TablePlan> },
+    /// Text in both whose words and layout are the same and whose paragraphs drawn differ
+    /// (PLAN 2.129): those both draw stay, and the others enter and leave by its cues.
+    Paragraphs { from: usize, to: usize, parts: Box<Paragraphs> },
     /// Text in both whose layout changed: its words match by their text.
     Words { from: usize, to: usize, plan: Box<WordPlan> },
+}
+
+/// A text's paragraphs between two states that draw others of it (PLAN 2.129), each part laid
+/// out as its side lays it out: what both draw, as the target draws it; what the target draws
+/// anew; and what the source drew that the target does not.
+#[derive(Debug, Clone, PartialEq)]
+struct Paragraphs {
+    both: TextLayout,
+    came: TextLayout,
+    went: TextLayout,
+}
+
+impl Paragraphs {
+    /// The parts of `a` and `b`, if they are one text that draws other paragraphs of itself:
+    /// the same words, laid out alike, drawing alike the paragraphs both draw.
+    fn of(a: &TextLayout, b: &TextLayout) -> Option<Paragraphs> {
+        let (was, is) = (a.drawn_paragraphs(), b.drawn_paragraphs());
+        if was == is || a.text != b.text || a.lines != b.lines {
+            return None;
+        }
+        let both = |p: usize| was.contains(&p) && is.contains(&p);
+        let (kept, theirs) = (b.keeping(both), a.keeping(both));
+        if kept.runs != theirs.runs || kept.underlines != theirs.underlines {
+            return None;
+        }
+        let came = b.keeping(|p| !was.contains(&p));
+        let went = a.keeping(|p| !is.contains(&p));
+        Some(Paragraphs { both: kept, came, went })
+    }
 }
 
 /// How a chart's parts get from one snapshot to the next, matched by key.
@@ -720,6 +752,7 @@ fn text_split(split: Option<SplitUnit>) -> Option<TextSplit> {
         SplitUnit::Lines => Some(TextSplit::Lines),
         SplitUnit::Words => Some(TextSplit::Words),
         SplitUnit::Glyphs => Some(TextSplit::Glyphs),
+        SplitUnit::Paragraphs => Some(TextSplit::Paragraphs),
         SplitUnit::Children | SplitUnit::Marks => None,
     }
 }
@@ -781,6 +814,9 @@ impl Transition {
                 (Some(i), Policy::Crossfade) => Track::Crossfade { from: i, to: j },
                 (Some(i), Policy::Morph) => match (&source[i].content, &b.content) {
                     (Content::Text(x), Content::Text(y)) if x.text == y.text => Track::Move { from: i, to: j },
+                    (Content::Text(x), Content::Text(y)) if let Some(parts) = Paragraphs::of(&x.text, &y.text) => {
+                        Track::Paragraphs { from: i, to: j, parts: Box::new(parts) }
+                    }
                     (Content::Text(x), Content::Text(y)) => {
                         Track::Words { from: i, to: j, plan: Box::new(WordPlan::new(&x.text, &y.text)) }
                     }
@@ -821,7 +857,10 @@ impl Transition {
                 let scene = if leaving(&cue.motion) { from.as_ref() } else { Some(&to) };
                 let Some(node) = scene.and_then(|s| s.nodes.iter().find(|n| &n.id == id)) else { continue };
                 let fits = match (split, &node.content) {
-                    (SplitUnit::Lines | SplitUnit::Words | SplitUnit::Glyphs, Content::Text(_)) => true,
+                    (
+                        SplitUnit::Lines | SplitUnit::Words | SplitUnit::Glyphs | SplitUnit::Paragraphs,
+                        Content::Text(_),
+                    ) => true,
                     (SplitUnit::Marks, Content::Chart { .. }) => {
                         !matches!(cue.motion, Motion::Emphasis(_) | Motion::Keys(_))
                     }
@@ -845,9 +884,19 @@ impl Transition {
                 _ => None,
             })
         };
+        // A text built by bullet moves the paragraphs that come or go (PLAN 2.129).
+        let bullets = |id: &str| {
+            tracks.iter().find_map(|t| match t {
+                Track::Paragraphs { to: j, parts, .. } if to.nodes[*j].id == id => Some(&**parts),
+                _ => None,
+            })
+        };
         let mut units = |id: &str, split: SplitUnit, motion: &Motion| -> usize {
             let scene = if leaving(motion) { from.as_ref() } else { Some(&to) };
             let Some(scene) = scene else { return 0 };
+            if let (Some(parts), Some(unit)) = (bullets(id), text_split(Some(split))) {
+                return if leaving(motion) { parts.went.units(unit).len() } else { parts.came.units(unit).len() };
+            }
             match (split, text_split(Some(split))) {
                 (_, Some(unit)) => scene.nodes.iter().find(|n| n.id == id).map_or(0, |n| match &n.content {
                     Content::Text(placed) => placed.text.units(unit).len(),
@@ -1175,6 +1224,41 @@ impl Transition {
                     let ops = plan.sample(&mut dl, a, b, p);
                     dl.ops.push(looked(layer(Some(&y.id), origin, lerp(x.opacity, y.opacity, p), ops), seen));
                 }
+                Track::Paragraphs { from: i, to: j, parts } => {
+                    let (x, y) = (&from[*i], &to[*j]);
+                    let (Some(seen), _) = self.seen(&y.id, false, true, t_ms) else { continue };
+                    let (Content::Text(a), Content::Text(b)) = (&x.content, &y.content) else {
+                        unreachable!("Paragraphs tracks pair text")
+                    };
+                    let origin = if moving { lerp2(a.origin, b.origin, geo) } else { b.origin };
+                    let opacity = if moving { lerp(x.opacity, y.opacity, p) } else { y.opacity };
+                    // What both draw stays; what comes enters by the text's entrance, else fades
+                    // in with the transition; what goes leaves by its exit, else fades out.
+                    let mut ops = item_ops(&mut dl, &parts.both);
+                    let cue = |on: fn(&Motion) -> bool| self.schedule.of(&y.id).find(|c| on(&c.motion));
+                    let sides = [
+                        (&parts.came, cue(|m| matches!(m, Motion::Enter(_))), p, true),
+                        (&parts.went, cue(|m| matches!(m, Motion::Exit(_))), 1.0 - p, false),
+                    ];
+                    for (text, cue, fade, comes) in sides {
+                        if text.runs.is_empty() {
+                            continue;
+                        }
+                        match cue {
+                            Some(cue) => ops.extend(cue_ops(&mut dl, text, text_split(cue.split), cue, t_ms)),
+                            None if moving => ops.push(layer(None, [0.0, 0.0], fade, item_ops(&mut dl, text))),
+                            None if comes => ops.extend(item_ops(&mut dl, text)),
+                            None => {}
+                        }
+                    }
+                    let clip = b.clip.map(|[x, y, w, h]| Path::rect([x - origin[0], y - origin[1], w, h]));
+                    let Op::Layer { node, cell, transform, opacity, blend, ops, .. } =
+                        layer(Some(&y.id), origin, opacity, ops)
+                    else {
+                        unreachable!("`layer` makes layers")
+                    };
+                    dl.ops.push(looked(Op::Layer { node, cell, transform, opacity, blend, clip, ops }, seen));
+                }
                 Track::Words { from: i, to: j, plan } => {
                     let (x, y) = (&from[*i], &to[*j]);
                     let (Some(seen), _) = self.seen(&y.id, false, true, t_ms) else { continue };
@@ -1486,7 +1570,26 @@ fn same_glyphs(a: &Word, b: &Word) -> bool {
 /// `t` ms into the state's cue: a unit out of sight is left out, and glyphs in no unit
 /// (spaces between lines) stay as they are, under the units.
 fn unit_ops(dl: &mut DisplayList, text: &TextLayout, split: TextSplit, cue: &Placed, t: f64) -> Vec<Op> {
-    let units = text.units(split);
+    unit_ops_of(dl, text, text.units(split), cue, t)
+}
+
+/// The paragraphs of a text that come or go (PLAN 2.129) through the cue that moves them: as
+/// units of its split, else as one.
+fn cue_ops(dl: &mut DisplayList, text: &TextLayout, split: Option<TextSplit>, cue: &Placed, t: f64) -> Vec<Op> {
+    let units = match split {
+        Some(split) => text.units(split),
+        None => {
+            let glyphs: Vec<(usize, usize)> =
+                text.runs.iter().enumerate().flat_map(|(r, run)| (0..run.glyphs.len()).map(move |g| (r, g))).collect();
+            let line = text.runs.first().map_or(0, |r| r.line);
+            vec![TextUnit { text: 0..text.text.len(), line, glyphs }]
+        }
+    };
+    unit_ops_of(dl, text, units, cue, t)
+}
+
+/// `units` of a text through its cue's look, as [`unit_ops`] draws them.
+fn unit_ops_of(dl: &mut DisplayList, text: &TextLayout, units: Vec<TextUnit>, cue: &Placed, t: f64) -> Vec<Op> {
     let starts = text.cluster_starts();
     let mut taken: HashSet<(usize, usize)> = HashSet::new();
     let mut layers = Vec::with_capacity(units.len());

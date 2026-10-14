@@ -95,6 +95,12 @@ pub(super) fn compile(doc: &Value, op: &SemanticOp, files: &dyn BundleFiles) -> 
                 Some(axes) => choose(&d, node, "align", &axes, state.as_deref(), *fork)?,
                 None => choose(&d, node, prop, value, state.as_deref(), *fork)?,
             },
+            // A build by bullet (PLAN 2.129) chosen as a text's entrance or exit adds its steps.
+            "enter" | "exit" => {
+                let mut ops = choose(&d, node, prop, value, state.as_deref(), *fork)?;
+                ops.extend(by_bullet(&d, files, node, prop, value, state.as_deref())?);
+                ops
+            }
             _ => choose(&d, node, prop, value, state.as_deref(), *fork)?,
         },
         SemanticOp::Annotate { node, index, annotation, state, fork } => {
@@ -140,7 +146,10 @@ pub(super) fn compile(doc: &Value, op: &SemanticOp, files: &dyn BundleFiles) -> 
                         return Err(format!("the theme has no motion preset `{preset}`; it has {names}"));
                     }
                     let entry = (motion.key().to_string(), None, Value::String(preset.clone()));
-                    set(&d, node, vec![entry], at.map(|(i, _)| i))?
+                    let mut ops = set(&d, node, vec![entry], at.map(|(i, _)| i))?;
+                    let preset = Value::String(preset.clone());
+                    ops.extend(by_bullet(&d, files, node, motion.key(), &preset, state.as_deref())?);
+                    ops
                 }
                 None => {
                     if kind != "shader" {
@@ -230,6 +239,104 @@ pub(super) fn compile(doc: &Value, op: &SemanticOp, files: &dyn BundleFiles) -> 
         }
     };
     Ok(Out { ops, renamed })
+}
+
+/// The steps a build by bullet adds (PLAN 2.129), where `node`'s `motion`, its `enter` or its
+/// `exit`, becomes `preset`, one of the theme's that splits a text by its paragraphs: a click for
+/// each paragraph with words, as a presentation app's By Bullet builds a list.
+/// - **In:** the state the text enters in draws its first paragraph with words, and a step after
+///   it each one more, the last all of them, so the states after it show the list whole as before.
+/// - **Out:** after the last state of the text's that `state` is one of, a step for each one
+///   fewer, from the first, then a step it leaves in.
+///
+/// A blank paragraph comes and goes with the one before it.
+///
+/// Each step is the slide's, named after it, in the beat of the state it follows. Nothing where the
+/// preset splits otherwise, the text has fewer than two paragraphs with words, or one of the states
+/// that show it, one after another, says which it draws: it is built by bullet already.
+fn by_bullet(
+    d: &Doc,
+    files: &dyn BundleFiles,
+    node: &str,
+    motion: &str,
+    preset: &Value,
+    state: Option<&str>,
+) -> Result<Vec<JsonOp>, String> {
+    let (Some(preset), "enter" | "exit") = (preset.as_str(), motion) else { return Ok(Vec::new()) };
+    let Ok(theme) = d.theme(files) else { return Ok(Vec::new()) };
+    let split = theme.motion.presets.get(preset).and_then(|p| p.split);
+    if d.kind(node)? != "text" || split != Some(crate::model::values::SplitUnit::Paragraphs) {
+        return Ok(Vec::new());
+    }
+    let (deck, snapshots) = d.snapshots()?;
+    let shown = |i: usize| snapshots.get(i).and_then(|s| s.nodes.get(node));
+    let at = match state {
+        Some(state) => Some(d.state(state)?),
+        None => (0..snapshots.len()).find(|&i| shown(i).is_some()),
+    };
+    let Some(props) = at.and_then(shown) else { return Ok(Vec::new()) };
+    let (mut first, mut last) = (at.unwrap_or_default(), at.unwrap_or_default());
+    while first > 0 && shown(first - 1).is_some() {
+        first -= 1;
+    }
+    while shown(last + 1).is_some() {
+        last += 1;
+    }
+    let inked = crate::builds::paragraphs(props);
+    let built = (first..=last).any(|i| shown(i).is_some_and(|p| p.contains_key("paragraphs")));
+    if inked.len() < 2 || built {
+        return Ok(Vec::new());
+    }
+    // A run of paragraphs, from 0, as the format counts them, from 1.
+    let span = |a: usize, b: usize| Value::from(vec![a + 1, b + 1]);
+    let after = if motion == "enter" { first } else { last };
+    let (mut ops, mut steps) = (Vec::new(), Vec::new());
+    let slide = deck.slide_of(&deck.states[after]).to_string();
+    let step = |props: Value| -> Value {
+        let mut state = Map::new();
+        state.insert("slide".into(), Value::String(slide.clone()));
+        state.insert("props".into(), object(node, props));
+        Value::Object(state)
+    };
+    if motion == "enter" {
+        // Each draws through the paragraph before the next with words; the last, all of them.
+        let through = |k: usize| inked.get(k + 1).map_or(Value::Null, |&next| span(0, next - 1));
+        ops.extend(set(d, node, vec![("paragraphs".into(), None, through(0))], Some(first))?);
+        steps.extend((1..inked.len()).map(|k| step(object("paragraphs", through(k)))));
+    } else {
+        let count = crate::builds::count(props);
+        for &p in &inked[1..] {
+            steps.push(step(object("paragraphs", span(p, count - 1))));
+        }
+        let mut gone = Map::new();
+        gone.insert("slide".into(), Value::String(slide.clone()));
+        gone.insert("remove".into(), Value::from(vec![node]));
+        steps.push(Value::Object(gone));
+    }
+    // Each named after its slide, `-2`, `-3`, …, in the beat of the state it follows.
+    let base = match slide.rsplit_once('-') {
+        Some((stem, n)) if !stem.is_empty() && !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) => stem,
+        _ => slide.as_str(),
+    };
+    let mut taken: Vec<String> = d.states().iter().map(|s| id_of(s).to_string()).collect();
+    let beat = d.beats().find(|(_, _, b)| {
+        b.get("states")
+            .and_then(Value::as_array)
+            .is_some_and(|s| s.iter().any(|x| x.as_str() == Some(id_of(&d.states()[after]))))
+    });
+    for (k, mut step) in steps.into_iter().enumerate() {
+        let id = (2..).map(|n| format!("{base}-{n}")).find(|id| !taken.contains(id)).expect("some number is free");
+        taken.push(id.clone());
+        let mut state = Map::from_iter([("id".to_string(), Value::String(id.clone()))]);
+        if let Value::Object(rest) = step.take() {
+            state.extend(rest);
+        }
+        ops.push(JsonOp::Add { path: format!("/states/{}", after + 1 + k), value: Value::Object(state) });
+        if let Some((s, b, _)) = beat {
+            ops.push(JsonOp::Add { path: format!("/spine/sections/{s}/beats/{b}/states/-"), value: Value::String(id) });
+        }
+    }
+    Ok(ops)
 }
 
 /// The deck being patched, as JSON.

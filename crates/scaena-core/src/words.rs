@@ -48,6 +48,9 @@ pub const LABELS: &[(&str, &str)] = &[
     ("fill", "Fill"),
     ("stroke/paint", "Border"),
     ("stroke/width", "Border Width"),
+    ("connect/route", "Connection"),
+    ("ends/start", "Line Start"),
+    ("ends/end", "Line End"),
     ("data", "Data"),
     ("kind", "Chart"),
     ("orient", "Bars Run"),
@@ -126,6 +129,21 @@ pub const WORDS: &[(&str, &str, &str)] = &[
     ("axis", "y", "Down"),
     ("labels/show", "auto", "Automatic"),
     ("labels/show", "ends", "First and Last"),
+    ("connect/route", "straight", "Straight"),
+    ("connect/route", "elbow", "Corner"),
+    ("connect/route", "curved", "Curved"),
+    ("ends/start", "none", "None"),
+    ("ends/start", "arrow", "Arrow"),
+    ("ends/start", "open", "Open Arrow"),
+    ("ends/start", "circle", "Circle"),
+    ("ends/start", "square", "Square"),
+    ("ends/start", "diamond", "Diamond"),
+    ("ends/end", "none", "None"),
+    ("ends/end", "arrow", "Arrow"),
+    ("ends/end", "open", "Open Arrow"),
+    ("ends/end", "circle", "Circle"),
+    ("ends/end", "square", "Square"),
+    ("ends/end", "diamond", "Diamond"),
 ];
 
 /// A word said alike whatever property takes it: how a chart's channel reads its column.
@@ -163,6 +181,7 @@ pub const EASINGS: &[(&str, &str)] = &[("in", "Ease In"), ("out", "Ease Out")];
 /// shipped themes' builds, as a presentation app names them. The rest are said as they read.
 pub const PRESETS: &[(&str, &str)] = &[
     ("words", "Word by Word"),
+    ("bullets", "By Bullet"),
     ("fadeScale", "Fade and Scale"),
     ("scaleBig", "Scale Big"),
     ("moveInLeft", "Move In from Left"),
@@ -517,6 +536,7 @@ pub fn motion(kind: &str, split: Option<&str>) -> String {
         Some("lines") => "Line by Line",
         Some("words") => "Word by Word",
         Some("glyphs") => "Letter by Letter",
+        Some("paragraphs") => "Bullet by Bullet",
         Some("children") => "One by One",
         Some("marks") => "Mark by Mark",
         _ => return does,
@@ -943,7 +963,7 @@ pub fn lexicon(deck: &Deck, theme: &Theme, state: &str) -> Result<Lexicon, Strin
         motions.insert(kind.to_string(), motion(kind, None));
     }
     let mut splits = BTreeMap::new();
-    for split in ["lines", "words", "glyphs", "children", "marks"] {
+    for split in ["lines", "words", "glyphs", "paragraphs", "children", "marks"] {
         let by = motion("", Some(split));
         splits.insert(split.to_string(), by.trim().to_string());
     }

@@ -183,6 +183,33 @@ fn each_build_offered_splits_only_what_its_node_has() {
     }
 }
 
+/// By Bullet (PLAN 2.129) brings a text in, or takes it away, a paragraph a click: Build In and
+/// Build Out offer it beside Word by Word for a text of two or more paragraphs with words, and
+/// for no text of one, blank lines or none, no other node, and no emphasis.
+#[test]
+fn by_bullet_is_offered_for_a_text_of_paragraphs() {
+    let mut doc = example();
+    doc["nodes"]["list"] = json!({ "type": "text", "role": "body", "text": "Plants\nChlorophyll\nWater",
+        "at": { "rect": [96, 600, 800, 300] } });
+    doc["nodes"]["one"] =
+        json!({ "type": "text", "role": "body", "text": "Plants\n\n", "at": { "rect": [960, 600, 800, 300] } });
+    doc["states"][1]["props"]["list"] = json!({});
+    doc["states"][1]["props"]["one"] = json!({});
+    let names = |node: &str, prop: &str| match &field(&offered(&doc, "revenue", node), prop).takes {
+        Takes::Name { of: Vocabulary::MotionPreset, names, .. } => names.clone(),
+        takes => panic!("{node} {prop}: {takes:?}"),
+    };
+    for prop in ["enter", "exit"] {
+        let list = names("list", prop);
+        let at = |p: &str| list.iter().position(|n| n == p);
+        assert!(at("bullets").is_some() && at("bullets") == at("words").map(|k| k + 1), "{prop}: {list:?}");
+        for node in ["one", "title", "rev"] {
+            assert!(!names(node, prop).iter().any(|n| n == "bullets"), "{node} {prop}");
+        }
+    }
+    assert!(!names("list", "emphasis").iter().any(|n| n == "bullets"), "no emphasis");
+}
+
 /// What never tracks is the state's own (SPEC §2.2): an emphasis chosen in a step lives there,
 /// and the step before shows none.
 #[test]
@@ -866,6 +893,53 @@ fn a_connector_offers_no_turn() {
     assert!(!arrow.fields.iter().any(|f| f.prop.starts_with("transform/")), "{:?}", arrow.fields);
     field(&arrow, "stroke/paint");
     field(&offered(&doc, "revenue", "title"), "transform/rotate");
+}
+
+/// A connector runs straight, by its corners, or curved, and a line's ends are drawn bare, as an
+/// arrowhead, or as a mark (PLAN 2.128): an inspector offers each where it offers the stroke, with
+/// what the line is drawn with where the deck says none, and each choice is one `choose`, written
+/// where the value lives. A line that joins nothing has no route, and a box has neither.
+#[test]
+fn a_connector_offers_its_route_and_a_line_its_ends() {
+    let mut doc = example();
+    doc["nodes"]["link"] = json!({ "type": "shape", "kind": "arrow", "connect": { "from": "title", "to": "rev" } });
+    doc["nodes"]["rule"] =
+        json!({ "type": "shape", "kind": "line", "points": [[0, 0], [1, 0]], "at": { "rect": [100, 900, 600, 4] } });
+    doc["nodes"]["box"] = json!({ "type": "shape", "kind": "rect", "at": { "rect": [100, 100, 200, 200] } });
+    for id in ["link", "rule", "box"] {
+        doc["states"][1]["props"][id] = json!({});
+    }
+    let link = offered(&doc, "revenue", "link");
+    let props: Vec<&str> = link.fields.iter().map(|f| f.prop.as_str()).collect();
+    let at = |p: &str| props.iter().position(|q| *q == p).unwrap_or_else(|| panic!("no {p} in {props:?}"));
+    assert!(at("stroke/width") < at("connect/route") && at("connect/route") < at("ends/start"), "{props:?}");
+    let words = |f: &Field| match &f.takes {
+        Takes::Word { words } => words.clone(),
+        takes => panic!("{takes:?}"),
+    };
+    let route = field(&link, "connect/route");
+    assert_eq!(words(route), ["straight", "elbow", "curved"]);
+    assert_eq!((route.value.clone(), route.theme.clone()), (None, Some(json!("straight"))));
+    let end = field(&link, "ends/end");
+    assert_eq!(words(end), ["none", "arrow", "open", "circle", "square", "diamond"]);
+    assert_eq!(end.theme, Some(json!("arrow")), "an arrow's last end is a head");
+    assert_eq!(field(&link, "ends/start").theme, Some(json!("none")));
+    let rule = offered(&doc, "revenue", "rule");
+    assert_eq!(field(&rule, "ends/end").theme, Some(json!("none")), "a line's ends are bare");
+    assert!(!rule.fields.iter().any(|f| f.prop == "connect/route"), "{:?}", rule.fields);
+    let square = offered(&doc, "revenue", "box");
+    assert!(!square.fields.iter().any(|f| f.prop.starts_with("ends/") || f.prop.starts_with("connect/")));
+
+    // Each a `choose`, on the node where its connection and its kind live.
+    let chosen = |doc: &Value, prop: &str, value: &str| {
+        let ops = json!([{ "op": "choose", "node": "link", "prop": prop, "value": value, "state": "revenue" }]);
+        compile(doc, ops.as_array().unwrap(), &Examples).unwrap().doc
+    };
+    let curved = chosen(&doc, "connect/route", "curved");
+    assert_eq!(curved["nodes"]["link"]["connect"], json!({ "from": "title", "to": "rev", "route": "curved" }));
+    let ends = chosen(&chosen(&curved, "ends/start", "circle"), "ends/end", "open");
+    assert_eq!(ends["nodes"]["link"]["ends"], json!({ "start": "circle", "end": "open" }));
+    assert_eq!(field(&offered(&ends, "revenue", "link"), "connect/route").value, Some(json!("curved")));
 }
 
 /// A shape's words stand in its middle across it where they say nothing (PLAN 2.108): what an

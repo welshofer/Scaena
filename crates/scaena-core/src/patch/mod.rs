@@ -335,7 +335,9 @@ pub enum SemanticOp {
     /// is legal, and so does any value where the overrides set the property, since they win
     /// in every state. Else it goes in the latest delta that sets it, from `state` back along
     /// what it tracks, else in the node's own; without `state`, in the node's own. `null`
-    /// takes it away where it lives, so what is under it shows.
+    /// takes it away where it lives, so what is under it shows. A text's `enter` or `exit`
+    /// chosen as a preset that splits it by its paragraphs also adds a step of its slide for
+    /// each of them (By Bullet, SPEC §3.9).
     Choose {
         #[schemars(with = "Id")]
         node: String,
@@ -390,8 +392,9 @@ pub enum SemanticOp {
         state: Option<String>,
     },
     /// A theme preset. With `motion`, a motion preset becomes the node's `enter`, `exit`,
-    /// or `emphasis`. Without, a shader takes a shader preset whole: the preset's kind, and
-    /// none of its own `palette` or `params`, which would win over the preset's.
+    /// or `emphasis`, and a text's entrance or exit that splits it by its paragraphs adds its
+    /// steps, as `choose` does. Without, a shader takes a shader preset whole: the preset's
+    /// kind, and none of its own `palette` or `params`, which would win over the preset's.
     ApplyPreset {
         #[schemars(with = "Id")]
         node: String,

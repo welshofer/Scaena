@@ -10,7 +10,8 @@
 // - Its crop and its fit, chosen in the inspector, are each one patch; a crop is kept inside the image.
 // - A PNG dropped on the image takes its place: the file joins the bundle, named by its SHA-256,
 //   and the image's `src` is its path. So does a JPEG, as it is (PLAN 2.66), drawn as its EXIF
-//   orientation turns it. Dropped on a text, it is inserted as Insert inserts it (PLAN 2.76),
+//   orientation turns it, and so does a print workflow's CMYK one (PLAN 2.127), drawn as the RGB
+//   photo it was separated from. Dropped on a text, it is inserted as Insert inserts it (PLAN 2.76),
 //   in the room nearest the text and named after its file (PLAN 2.79), and one undo takes it
 //   out. A file neither a picture nor data changes nothing.
 // - Undone, the deck is as it was, and it validates.
@@ -225,6 +226,44 @@ try {
   check(await page.evaluate(() => window.scaena.last().valid), "the deck validates with it");
   await undo();
   check((await source()) === original, "one undo puts the test card back again");
+
+  // A print workflow's CMYK photo (PLAN 2.127) takes its place as any photo does, as it is, and
+  // is drawn as the picture its inks print: the RGB photo it was separated from, as near as a
+  // JPEG's loss lets it be. Both are drawn at points across the image, as the PNG export draws
+  // the slide.
+  const [cw] = await page.evaluate(() => window.scaena.canvas.size());
+  const spots = [0.2, 0.5, 0.8].flatMap((fy) => [0.15, 0.35, 0.5, 0.65, 0.85].map((fx) => [x + fx * w, y + fy * h]));
+  const pixels = () =>
+    page.evaluate(
+      async ([points, scale]) => {
+        const shot = await window.scaena.exportAs("png", 960);
+        const bitmap = await createImageBitmap(new Blob([shot.bytes], { type: "image/png" }));
+        const g = new OffscreenCanvas(bitmap.width, bitmap.height).getContext("2d");
+        g.drawImage(bitmap, 0, 0);
+        return points.map((p) => [...g.getImageData(Math.round(p[0] * scale), Math.round(p[1] * scale), 1, 1).data].slice(0, 3));
+      },
+      [spots, 960 / cw],
+    );
+  n = await trips();
+  await drop("separated.jpg", [x + w / 2, y + h / 2], [...readFileSync("tests/fixtures/jpeg/baseline-444.jpg")]);
+  check(await says(" shows separated.jpg"), `the RGB photo takes its place: ${await status()}`);
+  await settled(n);
+  const rgb = await pixels();
+  await undo();
+  n = await trips();
+  await drop("print-ready.jpg", [x + w / 2, y + h / 2], [...readFileSync("tests/fixtures/jpeg/cmyk.jpg")]);
+  check(await says(" shows print-ready.jpg"), `a CMYK photo is not refused: it takes its place: ${await status()}`);
+  await settled(n);
+  const inks = declared(await source(), "image-cover").match(/\bimage "([^"]+)"/)?.[1] ?? "";
+  check(/^assets\/[0-9a-f]{64}\.jpg$/.test(inks), `as it is, a JPEG named by its SHA-256: ${inks}`);
+  check(await page.evaluate(() => window.scaena.last().valid), "the deck validates with it");
+  const printed = await pixels();
+  const off = rgb.flatMap((c, i) => c.map((v, k) => Math.abs(v - printed[i][k])));
+  const mean = off.reduce((a, b) => a + b, 0) / off.length;
+  const spread = Math.max(...rgb.flat()) - Math.min(...rgb.flat());
+  check(spread > 100 && mean < 12, `drawn as the photo its inks print: off by ${mean.toFixed(1)} a channel on average, across a spread of ${spread}`);
+  await undo();
+  check((await source()) === original, "one undo puts the test card back once more");
 } catch (e) {
   failures.push(`error: ${e.message}`);
 } finally {

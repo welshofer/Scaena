@@ -236,6 +236,11 @@ node! {
         /// Paragraphs past its end are no items.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub list: Option<Vec<Option<ListItem>>>,
+        /// The paragraphs a state draws (PLAN 2.129, deck format 0.27), counted from 1: one, or
+        /// the first and the last of a run. The rest are laid out where they stand and not drawn,
+        /// so a list built by bullet keeps its place as its items come and go. Without it, all.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub paragraphs: Option<Range>,
     }
 }
 
@@ -297,7 +302,35 @@ node! {
         /// does. What it joins places it: it takes no `at` and no `points` of its own.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub connect: Option<Connect>,
+        /// What a line's or an arrow's ends are drawn with (PLAN 2.128, deck format 0.27): its
+        /// `start`, where its first point is, and its `end`. An end it does not name is a line's
+        /// bare end, and an arrow's last a filled head.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub ends: Option<LineEnds>,
     }
+}
+
+/// A line's or an arrow's two ends (PLAN 2.128), as a presentation app's line endpoints.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LineEnds {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start: Option<LineEnd>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end: Option<LineEnd>,
+}
+
+/// What one end of a line is drawn with, sized from its stroke: nothing, a filled `arrow`head, an
+/// `open` one of two strokes, or a filled `circle`, `square`, or `diamond` on the end.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum LineEnd {
+    None,
+    Arrow,
+    Open,
+    Circle,
+    Square,
+    Diamond,
 }
 
 /// The shadow a node casts (PLAN 2.115): the theme's shadow of this name (`tokens.shadow`), or
@@ -317,17 +350,20 @@ pub struct Connect {
     pub from: Id,
     pub to: Id,
     /// `straight`, the default, runs between the two boxes along the line from middle to middle;
-    /// `elbow` leaves one box by the side that faces the other and turns at right angles.
+    /// `elbow` leaves one box by the side that faces the other and turns at right angles; `curved`
+    /// leaves and meets the boxes as an elbow does, a cubic curve through the elbow's corners
+    /// (PLAN 2.128, deck format 0.27).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub route: Option<Route>,
 }
 
-/// How a connector runs between what it joins (PLAN 2.109).
+/// How a connector runs between what it joins (PLAN 2.109, 2.128).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Route {
     Straight,
     Elbow,
+    Curved,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

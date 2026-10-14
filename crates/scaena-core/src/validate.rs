@@ -274,6 +274,7 @@ pub fn validate_bundle(deck_json: &str, files: &dyn BundleFiles) -> Result<Vec<F
     if let Ok(deck) = Deck::from_json(deck_json) {
         out.extend(validate(&deck));
         out.extend(connectors(&deck));
+        out.extend(ends_and_paragraphs(&deck));
         out.extend(type_changes(&deck));
         out.extend(missing_files(&deck, theme.as_ref(), files));
         // Tracking that fails (reported above) leaves no states to resolve.
@@ -1190,6 +1191,45 @@ fn connectors(deck: &Deck) -> Vec<Finding> {
     out
 }
 
+/// E106: ends on a shape that is no line or arrow, which has none to draw them on (PLAN 2.128),
+/// and a text's `paragraphs` that run backward (PLAN 2.129), wherever either is written: in the
+/// node's own props, a state's delta, or the deck's `overrides`.
+fn ends_and_paragraphs(deck: &Deck) -> Vec<Finding> {
+    let mut out = Vec::new();
+    let mut written: Vec<(String, &str, &Props)> = Vec::new();
+    for (id, node) in &deck.nodes {
+        written.push((format!("/nodes/{}", esc(id)), id, &node.props));
+    }
+    for (id, over) in &deck.overrides {
+        written.push((format!("/overrides/{}", esc(id)), id, over));
+    }
+    for (i, state) in deck.states.iter().enumerate() {
+        for (id, delta) in &state.props {
+            written.push((format!("/states/{i}/props/{}", esc(id)), id, delta));
+        }
+    }
+    for (at, id, props) in written {
+        let Some(node) = deck.nodes.get(id) else { continue };
+        if props.get("ends").is_some_and(|e| !e.is_null()) {
+            let kind = props.get("kind").or_else(|| node.props.get("kind")).and_then(Value::as_str);
+            if node.node_type != NodeType::Shape || !matches!(kind, Some("line" | "arrow")) {
+                let what = article(kind.unwrap_or(&type_name(node.node_type)));
+                let message = format!("`{id}`, {what}, has no ends to draw: only a line or an arrow has ends");
+                out.push(Finding::new("E106", Severity::Error, message).at(format!("{at}/ends")).node(id.to_string()));
+            }
+        }
+        if let Some([a, b]) = props.get("paragraphs").and_then(|p| serde_json::from_value::<[u64; 2]>(p.clone()).ok())
+            && a > b
+        {
+            let message = format!("`{id}` draws paragraphs {a} to {b}, which run backward: write [{b}, {a}]");
+            out.push(
+                Finding::new("E106", Severity::Error, message).at(format!("{at}/paragraphs")).node(id.to_string()),
+            );
+        }
+    }
+    out
+}
+
 /// Why `id` cannot be the words in shape `shape` as `snapshot` shows them, and the key of its
 /// `at` that says so, if it cannot (PLAN 2.108): a shape holds one text and places it, so the
 /// text names no place of its own; a line or an arrow holds none.
@@ -1954,7 +1994,9 @@ fn own_cues(
 /// What splits into `split`, said where a node does not (E106).
 fn takes(split: SplitUnit) -> &'static str {
     match split {
-        SplitUnit::Lines | SplitUnit::Words | SplitUnit::Glyphs => "only text splits into lines, words, and glyphs",
+        SplitUnit::Lines | SplitUnit::Words | SplitUnit::Glyphs | SplitUnit::Paragraphs => {
+            "only text splits into lines, words, glyphs, and paragraphs"
+        }
         SplitUnit::Children => "only a stack, grid, frame, or group splits into its children",
         SplitUnit::Marks => "only a chart splits into its marks",
     }

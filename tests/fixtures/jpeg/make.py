@@ -5,8 +5,10 @@
 Each file is a case the decoder must read as zune-jpeg does: a sampling, progressive scans,
 restart intervals, Huffman tables of its own, gray, RGB, a size that is not a whole number of
 blocks, and one that is. `orientation-6.jpg` also says where, when, and with what it was taken,
-which `stripped` drops. `cmyk.jpg` is refused. The files are what the tests read; this script
-says how they were made, by Pillow's libjpeg, so a newer libjpeg may write other bytes.
+which `stripped` drops. `cmyk.jpg` and `ycck.jpg` are a print workflow's: inks with black, as
+Photoshop writes them, inverted under an Adobe marker, the second in YCCK. The files are what the
+tests read; this script says how they were made, by Pillow's libjpeg, so a newer libjpeg may write
+other bytes.
 """
 
 import io
@@ -40,6 +42,48 @@ def picture(w, h, seed=7):
     return im
 
 
+def inks(im):
+    """`im` separated into inks as a print workflow does: black where the color is dark, and
+    cyan, magenta, and yellow for the rest, each 0 for none and 255 for full."""
+    out = Image.new("CMYK", im.size)
+    src, dst = im.load(), out.load()
+    for y in range(im.height):
+        for x in range(im.width):
+            r, g, b = src[x, y]
+            k = 255 - max(r, g, b)
+            if k == 255:
+                dst[x, y] = (0, 0, 0, 255)
+                continue
+            dst[x, y] = tuple(round((255 - v - k) * 255 / (255 - k)) for v in (r, g, b)) + (k,)
+    return out
+
+
+def ycck(name, cmyk, **options):
+    """`cmyk` written as Photoshop writes YCCK: its cyan, magenta, and yellow taken as red, green,
+    and blue into YCbCr, its black as it is, under an Adobe marker whose transform is 2. Pillow
+    writes CMYK inverted, as Adobe's marker means it, so each channel goes in inverted, and the
+    marker's transform is set after."""
+    src = cmyk.load()
+    out = Image.new("CMYK", cmyk.size)
+    dst = out.load()
+    for y in range(cmyk.height):
+        for x in range(cmyk.width):
+            c, m, yy, k = src[x, y]
+            # The YCbCr of (c, m, y), as JFIF converts.
+            luma = 0.299 * c + 0.587 * m + 0.114 * yy
+            cb = 128 - 0.168736 * c - 0.331264 * m + 0.5 * yy
+            cr = 128 + 0.5 * c - 0.418688 * m - 0.081312 * yy
+            stored = [max(0, min(255, round(v))) for v in (luma, cb, cr)] + [255 - k]
+            dst[x, y] = tuple(255 - v for v in stored)
+    data = io.BytesIO()
+    out.save(data, "JPEG", **options)
+    data = bytearray(data.getvalue())
+    adobe = data.index(b"Adobe")
+    assert data[adobe + 11] == 0, "Pillow's Adobe marker says CMYK"
+    data[adobe + 11] = 2
+    (HERE / name).write_bytes(bytes(data))
+
+
 def save(name, im, **options):
     out = HERE / name
     im.save(out, "JPEG", **options)
@@ -70,7 +114,8 @@ save("tiny.jpg", picture(1, 1, seed=5), quality=90, subsampling=2)
 save("large-420.jpg", picture(300, 200, seed=11), quality=80, subsampling=2, progressive=True)
 magick("sampled-411.jpg", small, "-quality", "90", "-sampling-factor", "4x1")
 magick("sampled-440.jpg", small, "-quality", "90", "-sampling-factor", "1x2")
-save("cmyk.jpg", small.convert("CMYK"), quality=90)
+save("cmyk.jpg", inks(small), quality=90)
+ycck("ycck.jpg", inks(small), quality=90, subsampling=2, progressive=True)
 
 # Turned a quarter clockwise to be seen, and saying more than it needs to: the camera, when, a
 # comment, XMP, and a color profile.

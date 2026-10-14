@@ -73,7 +73,10 @@ pub fn reading(t: NodeType, props: &Props) -> Reading {
     };
     let items = match (kind, props.get("list").cloned().map(serde_json::from_value::<Vec<Option<ListItem>>>)) {
         (Kind::Heading(_) | Kind::Paragraph, Some(Ok(list))) if list.iter().any(Option::is_some) => {
-            crate::lists::items(&list, crate::lists::paragraphs(&words(props)).len())
+            let count = crate::lists::paragraphs(&words(props)).len();
+            let items = crate::lists::items(&list, count);
+            // The items of the paragraphs it draws (PLAN 2.129).
+            items[crate::lists::drawn(props.get("paragraphs"), count)].to_vec()
         }
         _ => Vec::new(),
     };
@@ -169,7 +172,7 @@ impl Reader<'_> {
             let alt = reading.and_then(|r| r.alt.clone());
             let lang = reading.and_then(|r| r.lang.clone()).filter(|l| Some(l.as_str()) != self.lang);
             let part = |role, level, text: String| Part { node: id.to_string(), role, level, text, lang: lang.clone() };
-            let words = || alt.clone().unwrap_or_else(|| self.snap.nodes.get(id).map(words).unwrap_or_default());
+            let words = || alt.clone().unwrap_or_else(|| self.snap.nodes.get(id).map(drawn_words).unwrap_or_default());
             match reading.map_or(Kind::Group, |r| r.kind) {
                 Kind::Artifact => {}
                 Kind::Heading(level) if !words().trim().is_empty() => out.push(part("heading", Some(level), words())),
@@ -195,7 +198,7 @@ impl Reader<'_> {
     fn text(&self, tag: &str, id: &str, reading: Option<&Reading>, out: &mut String) {
         let words = match reading.and_then(|r| r.alt.clone()) {
             Some(alt) => alt,
-            None => self.snap.nodes.get(id).map(words).unwrap_or_default(),
+            None => self.snap.nodes.get(id).map(drawn_words).unwrap_or_default(),
         };
         if words.trim().is_empty() {
             return;
@@ -203,7 +206,7 @@ impl Reader<'_> {
         // Its words, each stretch that links written as a link (PLAN 2.70); alt text as it is.
         let parts = match reading.and_then(|r| r.alt.clone()) {
             Some(alt) => vec![(alt, None)],
-            None => self.snap.nodes.get(id).map(stretches).unwrap_or_default(),
+            None => self.snap.nodes.get(id).map(drawn_stretches).unwrap_or_default(),
         };
         let say = |range: Range<usize>| self.linked(&parts, range);
         let items = reading.filter(|r| r.alt.is_none()).map_or(&[][..], |r| &r.items[..]);
@@ -340,6 +343,36 @@ fn listed(words: &str, items: &[Option<ListItem>], say: &dyn Fn(Range<usize>) ->
 /// A text node's words: its `text`, or its runs' texts in turn.
 pub fn words(props: &Props) -> String {
     stretches(props).into_iter().map(|(w, _)| w).collect()
+}
+
+/// The words of the paragraphs a text node draws (PLAN 2.129): what a reader hears of it.
+fn drawn_words(props: &Props) -> String {
+    drawn_stretches(props).into_iter().map(|(w, _)| w).collect()
+}
+
+/// [`stretches`] cut to the paragraphs the text draws (PLAN 2.129), without the break after the
+/// last of them.
+fn drawn_stretches(props: &Props) -> Vec<(String, Option<LinkTarget>)> {
+    let all = stretches(props);
+    let Some(drawn) = props.get("paragraphs") else { return all };
+    let words: String = all.iter().map(|(w, _)| w.as_str()).collect();
+    let paragraphs = crate::lists::paragraphs(&words);
+    let kept = crate::lists::drawn(Some(drawn), paragraphs.len());
+    if kept.is_empty() {
+        return Vec::new();
+    }
+    let (from, to) = (paragraphs[kept.start].start, paragraphs[kept.end - 1].end);
+    let mut at = 0;
+    let mut out = Vec::new();
+    for (stretch, link) in all {
+        let (start, end) = (at, at + stretch.len());
+        at = end;
+        let (lo, hi) = (from.max(start), to.min(end));
+        if lo < hi {
+            out.push((stretch[lo - start..hi - start].to_string(), link));
+        }
+    }
+    out
 }
 
 /// A text node's words in stretches, each with where it links, if it does (PLAN 2.70): its

@@ -15,6 +15,12 @@
 //   bouncy spring's time.
 // - Jiggle for emphasis is another, its own bar.
 // - Each one step to undo; undone, the deck is as it was, and it validates.
+// - By Bullet (PLAN 2.129): the note typed as three paragraphs, Build In and Build Out offer By
+//   Bullet. Chosen as its entrance, one patch adds a step for each paragraph after the first: the
+//   slide draws the first, the next click the second, the last all three, and the second click's
+//   cue rises its new paragraph in. One undo takes the build and its steps back. In `close`, which
+//   the note leaves, the cue's menu offers it By Bullet as it leaves, and nothing else: one patch,
+//   a step after `mix` for each paragraph it lets go, one undo.
 // Exits 1 on any failure.
 import { launch, serve } from "./serve.mjs";
 
@@ -153,6 +159,76 @@ try {
   await undo();
   check((await source()) === original, "and another Pop: the deck is as it was");
   check(await page.evaluate(() => window.scaena.last().valid), "and it validates");
+
+  // By Bullet (PLAN 2.129): the note typed as three paragraphs, then built in a paragraph a click.
+  const note = '"Revenue in $M. Enterprise recognized on delivery."';
+  check(original.includes(note), "the note's words are in the source");
+  const listed = original.replace(note, '"Plants\\nChlorophyll\\nWater"');
+  await page.evaluate((s) => window.scaena.type(s), listed);
+  await page.waitForFunction((s) => window.scaena.source() === s && window.scaena.last()?.valid, listed, { timeout: 60000, polling: 100 });
+  const revenue = await page.evaluate(() => window.scaena.last().states.findIndex((s) => s[0] === "revenue"));
+  await page.evaluate(() => window.scaena.cursor(window.scaena.source().indexOf("state revenue") + "state ".length));
+  await page.waitForFunction((i) => window.scaena.shown() === i && window.scaena.at().index === i, revenue, { timeout: 30000 });
+  await page.evaluate(() => window.scaena.canvas.select("note"));
+  await page.waitForFunction(() => window.scaena.look.offered()?.node === "note", null, { timeout: 30000 });
+  await page.waitForSelector('#look-enter option[value="bullets"]', { state: "attached", timeout: 30000 }).catch(() => {});
+  const said = (id) => page.evaluate((i) => [...document.querySelectorAll(`#${i} option`)].find((o) => o.value === "bullets")?.textContent, id);
+  check((await said("look-enter")) === "By Bullet", `Build In offers By Bullet for a text of three paragraphs: ${await said("look-enter")}`);
+  check((await said("look-exit")) === "By Bullet", `and so does Build Out: ${await said("look-exit")}`);
+  const before = await page.evaluate(() => window.scaena.last().states.map((s) => s[0]).join(" "));
+  n = await trips();
+  await page.selectOption("#look-enter", "bullets");
+  await redrawn(n);
+  await page.waitForFunction((b) => window.scaena.last().states.map((s) => s[0]).join(" ") !== b, before, { timeout: 30000 }).catch(() => {});
+  const steps = await page.evaluate(() => window.scaena.last().states.map((s) => s[0]).join(" "));
+  check(steps === "intro revenue revenue-2 revenue-3 mix close", `By Bullet adds a step for each paragraph after the first: ${steps}`);
+  const reads = (state) => page.evaluate((s) => window.scaena.reading(s), state);
+  const [first, second, third] = [await reads("revenue"), await reads("revenue-2"), await reads("revenue-3")];
+  check(first.includes("Plants") && !first.includes("Chlorophyll"), `the slide draws the first paragraph: ${first.replace(/<[^>]+>/g, " ")}`);
+  check(second.includes("Chlorophyll") && !second.includes("Water"), "the next click the second");
+  check(third.includes("Plants") && third.includes("Water"), "and the last all three");
+  check(/note[^\n]*enter:bullets/.test(await source()) && (await source()).includes("paragraphs:[1, 1]"), "written as the note's entrance and the paragraphs each step draws");
+  // On the second click the paragraph it adds rises in by the build, at once, while the first
+  // stays (the slide's own entrance for the note is the choreographed fade, 600 ms in).
+  const secondClick = await page.evaluate(() => window.scaena.last().states.findIndex((s) => s[0] === "revenue-2"));
+  await page.evaluate(() => window.scaena.cursor(window.scaena.source().indexOf("state revenue-2") + "state ".length));
+  await page.waitForFunction((i) => window.scaena.shown() === i && window.scaena.at().index === i, secondClick, { timeout: 30000 }).catch(() => {});
+  await page
+    .waitForFunction(() => window.scaena.cue.bars().some((b) => b.key === "note enter" && b.delay === 0), null, { timeout: 30000 })
+    .catch(() => {});
+  const rise = await bar("note enter");
+  check(rise?.delay === 0 && rise.to > rise.from, `the second click's cue has the note's paragraph rising in: ${JSON.stringify(rise)}`);
+  // One step to undo: the build and its steps.
+  await undo();
+  check((await source()) === listed, "one undo takes By Bullet and its steps back");
+  check(await page.evaluate(() => window.scaena.last().valid), "and it validates");
+
+  // Out by bullet from the cue: in `close`, which the note leaves, Add an animation… offers it By
+  // Bullet as it leaves, one patch that adds a step after `mix` for each paragraph it lets go.
+  const close = await page.evaluate(() => window.scaena.last().states.findIndex((s) => s[0] === "close"));
+  await page.evaluate(() => window.scaena.cursor(window.scaena.source().indexOf("state close") + "state ".length));
+  await page.waitForFunction((i) => window.scaena.shown() === i && window.scaena.at().index === i, close, { timeout: 30000 });
+  const leaving = '["exit","note","bullets"]';
+  await page
+    .waitForFunction((v) => [...document.querySelectorAll("#cue [data-add] option")].some((o) => o.value === v), leaving, { timeout: 30000 })
+    .catch(() => {});
+  const cued = await page.evaluate((v) => [...document.querySelectorAll("#cue [data-add] option")].find((o) => o.value === v)?.textContent, leaving);
+  check(cued === "By Bullet", `Add an animation… offers the note By Bullet as it leaves: ${cued}`);
+  const bulletless = await page.evaluate(() =>
+    [...document.querySelectorAll("#cue [data-add] option")].some((o) => o.value.startsWith('["exit",') && o.value.endsWith(',"bullets"]') && !o.value.includes('"note"')),
+  );
+  check(!bulletless, "and nothing else that leaves, none a text of paragraphs");
+  n = await trips();
+  await page.locator("#cue [data-add]").selectOption(leaving);
+  await redrawn(n);
+  await page.waitForFunction((l) => window.scaena.source() !== l, listed, { timeout: 30000 }).catch(() => {});
+  const out = await page.evaluate(() => window.scaena.last().states.map((s) => s[0]).join(" "));
+  check(out === "intro revenue mix revenue-2 revenue-3 revenue-4 close", `a step after mix for each paragraph it lets go: ${out}`);
+  const [less, last] = [await reads("revenue-3"), await reads("revenue-4")];
+  check(!less.includes("Plants") && !less.includes("Chlorophyll") && less.includes("Water"), "one fewer each click, from the first");
+  check(!last.includes("Water"), "and then it is gone");
+  await undo();
+  check((await source()) === listed, "one undo takes it back");
 } catch (e) {
   failures.push(`error: ${e.message}`);
 } finally {

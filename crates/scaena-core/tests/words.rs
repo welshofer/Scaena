@@ -70,8 +70,9 @@ fn the_mac_names_colors_easings_presets_shapes_and_kinds_as_the_browser_does() {
     for (kind, said) in motions.iter().filter(|(k, _)| ["enter", "exit", "emphasis", "anim"].contains(&k.as_str())) {
         assert_eq!(words::motion(kind, None), *said);
     }
-    for (split, by) in
-        motions.iter().filter(|(k, _)| ["lines", "words", "glyphs", "children", "marks"].contains(&k.as_str()))
+    for (split, by) in motions
+        .iter()
+        .filter(|(k, _)| ["lines", "words", "glyphs", "paragraphs", "children", "marks"].contains(&k.as_str()))
     {
         assert_eq!(words::motion("enter", Some(split)), format!("Enters {by}"));
     }

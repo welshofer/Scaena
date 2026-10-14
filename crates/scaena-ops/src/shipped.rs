@@ -107,8 +107,10 @@ mod tests {
             assert_eq!(motion(theme), first, "{}", theme.name);
         }
         let builds = first.0.as_object().unwrap();
-        assert_eq!(builds.len(), 24);
-        for name in ["appear", "typewriter", "pop", "drop", "moveInLeft", "spin", "swing", "flip", "blink", "jiggle"] {
+        assert_eq!(builds.len(), 25);
+        for name in
+            ["appear", "bullets", "typewriter", "pop", "drop", "moveInLeft", "spin", "swing", "flip", "blink", "jiggle"]
+        {
             assert!(builds.contains_key(name), "{name}");
         }
         assert!(first.1.get("bouncy").is_some(), "the spring Pop, Drop, Skid, Swing, and Jiggle spring on");

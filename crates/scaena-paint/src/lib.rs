@@ -354,8 +354,9 @@ mod picture_tests {
         let yellow = |px: Vec<u8>| px[0] > 200 && px[1] > 200 && px[2] < 90;
         assert!(yellow(at(&stored, 1, 1)), "{:?}", at(&stored, 1, 1));
         assert!(yellow(at(&turned, 43, 1)), "{:?}", at(&turned, 43, 1));
-        let Err(PaintError::Jpeg(e)) = Picture::decode(&fixture("cmyk.jpg")) else { panic!("decoded a CMYK JPEG") };
-        assert!(e.contains("CMYK"), "{e}");
+        // A print workflow's CMYK photo is the picture its inks print.
+        let inks = Picture::decode(&fixture("cmyk.jpg")).unwrap();
+        assert!(yellow(at(&inks, 1, 1)), "{:?}", at(&inks, 1, 1));
     }
 
     #[test]

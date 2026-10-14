@@ -334,6 +334,9 @@ pub struct TextLayout {
     pub items: Vec<Option<ListMark>>,
     /// Its links' underlines (PLAN 2.70), one for each glyph run of a link, in order.
     pub underlines: Vec<Underline>,
+    /// The paragraphs it lays out and does not draw (PLAN 2.129), from 0: none unless
+    /// [`TextLayout::keeping`] left them out.
+    pub hidden: Vec<usize>,
 }
 
 /// A link's underline under one glyph run (PLAN 2.70): at the font's underline, in the run's
@@ -427,6 +430,18 @@ impl TextLayout {
                 .filter_map(|(k, line)| unit(line.text.clone(), &|r, _| self.runs[r].line == k))
                 .collect(),
             TextSplit::Words => self.words.iter().filter_map(|w| unit(w.clone(), &|_, c| w.contains(&c))).collect(),
+            // Each paragraph, a list's item with its marker (PLAN 2.129).
+            TextSplit::Paragraphs => {
+                let last = self.lines.iter().map(|l| l.paragraph).max().unwrap_or(0);
+                (0..=last)
+                    .filter_map(|k| {
+                        let mut lines = self.lines.iter().filter(|l| l.paragraph == k);
+                        let first = lines.next()?.text.clone();
+                        let text = first.start..lines.next_back().map_or(first.end, |l| l.text.end);
+                        unit(text, &|r, _| self.lines.get(self.runs[r].line).is_some_and(|l| l.paragraph == k))
+                    })
+                    .collect()
+            }
             TextSplit::Glyphs => {
                 let mut starts: Vec<usize> = glyphs().map(|(_, _, c)| c).collect();
                 starts.sort_unstable();
@@ -443,11 +458,40 @@ impl TextLayout {
 }
 
 impl TextLayout {
+    /// How many paragraphs it lays out: one more than its hard line breaks.
+    pub fn paragraph_count(&self) -> usize {
+        self.lines.iter().map(|l| l.paragraph + 1).max().unwrap_or(1)
+    }
+
+    /// The paragraphs its glyphs are in, from 0, in order: those it draws.
+    pub fn drawn_paragraphs(&self) -> Vec<usize> {
+        let mut out: Vec<usize> =
+            self.runs.iter().filter_map(|r| self.lines.get(r.line).map(|l| l.paragraph)).collect();
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    /// The text drawing only the paragraphs `keep` names, from 0 (PLAN 2.129): laid out whole,
+    /// so the rest keep their places, and their glyphs and underlines left out.
+    pub fn keeping(&self, keep: impl Fn(usize) -> bool) -> TextLayout {
+        let mut out = self.clone();
+        let lines = &out.lines;
+        let kept = |line: usize| lines.get(line).is_some_and(|l| keep(l.paragraph));
+        out.runs.retain(|r| kept(r.line));
+        out.underlines.retain(|u| kept(u.line));
+        out.hidden = (0..self.paragraph_count()).filter(|&p| self.hidden.contains(&p) || !keep(p)).collect();
+        out
+    }
+
     /// Where each cluster starts in [`TextLayout::text`], in order: a cluster runs to the
     /// next, the last to the end of the text. Text that sets no glyph of its own (a soft
     /// hyphen, a line break) belongs to the cluster before it.
     pub fn cluster_starts(&self) -> Vec<usize> {
         let mut starts: Vec<usize> = self.runs.iter().flat_map(|r| r.clusters.iter().copied()).collect();
+        // A paragraph it does not draw (PLAN 2.129) starts a stretch the one before does not say.
+        let hidden = self.lines.iter().filter(|l| self.hidden.contains(&l.paragraph));
+        starts.extend(hidden.map(|l| l.text.start));
         starts.sort_unstable();
         starts.dedup();
         starts
@@ -1933,5 +1977,6 @@ fn read_layout(
         looks: Vec::new(),
         items: Vec::new(),
         underlines,
+        hidden: Vec::new(),
     })
 }

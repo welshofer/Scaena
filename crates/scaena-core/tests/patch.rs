@@ -401,7 +401,7 @@ fn an_op_that_would_not_do_what_it_says_is_refused() {
 #[test]
 fn set_text_takes_runs_away_and_null_takes_a_property_away() {
     let doc = json!({
-        "scaena": "0.26", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.27", "canvas": { "width": 1920, "height": 1080 },
         "nodes": { "t": { "type": "text", "runs": [{ "text": "Hello" }], "fit": "shrink", "at": { "in": "canvas" } } },
         "states": [{ "id": "a", "props": { "t": {} } }, { "id": "b" }],
     });
@@ -541,7 +541,7 @@ fn place_forks_a_placement_into_its_state() {
         .unwrap_err();
     assert!(e.to_string().contains("`fork`"), "{e}");
     let doc = json!({
-        "scaena": "0.26", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.27", "canvas": { "width": 1920, "height": 1080 },
         "nodes": { "u": { "type": "text", "text": "Yo", "at": { "col": [1, 4] } } },
         "overrides": { "u": { "at": { "rect": [10, 10, 300, 100] } } },
         "states": [{ "id": "a", "props": { "u": {} } }],
@@ -554,7 +554,7 @@ fn place_forks_a_placement_into_its_state() {
 #[test]
 fn place_follows_a_node_out_and_back_and_into_its_overrides() {
     let doc = json!({
-        "scaena": "0.26", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.27", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "t": { "type": "text", "text": "Hi", "at": { "in": "grid", "align": "center" } },
             "u": { "type": "text", "text": "Yo", "at": { "col": [1, 4] } },
@@ -602,7 +602,7 @@ fn place_follows_a_node_out_and_back_and_into_its_overrides() {
 #[test]
 fn place_says_what_places_a_node() {
     let doc = json!({
-        "scaena": "0.26", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.27", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "row": { "type": "stack", "axis": "x", "at": { "in": "grid" } },
             "a": { "type": "text", "text": "A", "at": { "parent": "row" } },
@@ -652,7 +652,7 @@ fn place_says_what_places_a_node() {
 #[test]
 fn place_moves_a_node_into_another_container_or_onto_the_canvas() {
     let doc = json!({
-        "scaena": "0.26", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.27", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "row": { "type": "stack", "axis": "x", "at": { "col": [1, 6], "row": [1, 3] } },
             "a": { "type": "text", "text": "A", "at": { "parent": "row" } },
@@ -868,7 +868,7 @@ fn style_text_gives_characters_a_look_where_the_text_lives() {
 
     // A role, a color the theme names, and emphasis; characters, not bytes, counted.
     let doc = json!({
-        "scaena": "0.26", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.27", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "t": { "type": "text", "role": "body", "at": { "in": "title" },
                    "runs": [{ "text": "Hello " }, { "text": "wörld", "emphasis": "high" }, { "text": "!" }] },
@@ -986,7 +986,7 @@ fn style_text_gives_characters_features_and_axes_of_their_own() {
 #[test]
 fn replace_text_keeps_runs_and_their_looks() {
     let doc = json!({
-        "scaena": "0.26", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.27", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "t": { "type": "text", "at": { "in": "title" },
                    "runs": [{ "text": "Hello " }, { "text": "wörld", "emphasis": "strong" }, { "text": "!" }] },
@@ -1046,7 +1046,7 @@ fn replace_text_keeps_runs_and_their_looks() {
 #[test]
 fn replace_text_over_a_run_keeps_its_look() {
     let doc = json!({
-        "scaena": "0.26", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.27", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "t": { "type": "text", "at": { "in": "title" },
                    "runs": [{ "text": "This quarter " }, { "text": "chnaged", "emphasis": "high" }, { "text": " the shape." }] },
@@ -1787,7 +1787,7 @@ fn annotate_writes_a_charts_annotations_where_they_live() {
 fn list_marks_a_texts_paragraphs_and_replace_text_keeps_them_in_step() {
     // ADR-0018, PLAN 2.69: `t`'s three paragraphs, its list on the node; `b` forks its text.
     let doc = json!({
-        "scaena": "0.26", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.27", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "t": { "type": "text", "role": "body", "text": "One\nTwo\nThree", "at": { "in": "body" } },
         },
@@ -2061,4 +2061,73 @@ fn emphasis_chosen_in_a_step_is_the_steps_own() {
         patch(&doc, json!([{ "op": "choose", "node": "rev", "prop": "emphasis", "value": null, "state": "revenue" }]))
             .unwrap();
     assert_eq!(rfc(&c), json!([{ "op": "remove", "path": "/nodes/rev/emphasis" }]));
+}
+
+/// By Bullet (PLAN 2.129): a build that splits a text by its paragraphs, chosen as its entrance,
+/// puts each paragraph with words on a click of its own, a step of its slide after the state it
+/// enters in, the last showing it whole; chosen as its exit, a step after the last state that
+/// shows it for each one fewer, then one it leaves in. One patch; nothing more once built so.
+#[test]
+fn a_build_by_bullet_puts_each_paragraph_on_a_click_of_its_own() {
+    let mut doc = example();
+    doc["nodes"]["list"] = json!({ "type": "text", "role": "body", "text": "Plants\n\nChlorophyll\nWater",
+        "at": { "in": "main" } });
+    doc["states"][1]["props"]["list"] = json!({});
+    doc["states"][3]["remove"] = json!(["rev", "note", "list"]);
+    // Chosen on `mix`, a step it stays in: the build starts where it enters, `revenue`.
+    let c =
+        patch(&doc, json!([{ "op": "choose", "node": "list", "prop": "enter", "value": "bullets", "state": "mix" }]))
+            .unwrap();
+    let built = c.doc.clone();
+    let ids: Vec<&str> = built["states"].as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["intro", "revenue", "revenue-2", "revenue-3", "mix", "close"]);
+    // The blank paragraph comes with the one before it.
+    assert_eq!(built["states"][1]["props"]["list"], json!({ "paragraphs": [1, 2] }));
+    assert_eq!(
+        built["states"][2],
+        json!({ "id": "revenue-2", "slide": "revenue", "props": { "list": { "paragraphs": [1, 3] } } })
+    );
+    assert_eq!(
+        built["states"][3],
+        json!({ "id": "revenue-3", "slide": "revenue", "props": { "list": { "paragraphs": null } } })
+    );
+    assert_eq!(
+        built["spine"]["sections"][1]["beats"][0]["states"],
+        json!(["revenue", "mix", "revenue-2", "revenue-3"])
+    );
+    let snaps = scaena_core::resolve_states(&deck(&built)).unwrap();
+    let drawn: Vec<Option<&Value>> =
+        snaps.iter().map(|s| s.nodes.get("list").and_then(|p| p.get("paragraphs"))).collect();
+    assert_eq!(drawn, [None, Some(&json!([1, 2])), Some(&json!([1, 3])), None, None, None]);
+    assert!(snaps[4].nodes.contains_key("list"), "`mix` shows the list whole, as before");
+    assert_eq!(errors(&built), Vec::<String>::new());
+    // Chosen again, it is built so already: the preset alone.
+    let again = patch(
+        &built,
+        json!([{ "op": "choose", "node": "list", "prop": "enter", "value": "bullets", "state": "revenue" }]),
+    );
+    assert_eq!(again.unwrap().doc["states"].as_array().unwrap().len(), 6);
+    // Out by bullet, from the cue's Add Motion: after `mix`, the last that shows it, one fewer each
+    // step from the first, then a step it leaves in.
+    let c = patch(
+        &doc,
+        json!([{ "op": "apply_preset", "node": "list", "preset": "bullets", "motion": "exit", "state": "revenue" }]),
+    )
+    .unwrap();
+    let states = c.doc["states"].as_array().unwrap();
+    let ids: Vec<&str> = states.iter().map(|s| s["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["intro", "revenue", "mix", "revenue-2", "revenue-3", "revenue-4", "close"]);
+    assert_eq!(states[3]["props"]["list"]["paragraphs"], json!([3, 4]));
+    assert_eq!(states[4]["props"]["list"]["paragraphs"], json!([4, 4]));
+    assert_eq!(states[5], json!({ "id": "revenue-4", "slide": "revenue", "remove": ["list"] }));
+    assert_eq!(errors(&c.doc), Vec::<String>::new());
+    // Any other build, and a text of one paragraph, take no steps.
+    let rise =
+        patch(&doc, json!([{ "op": "choose", "node": "list", "prop": "enter", "value": "rise", "state": "revenue" }]));
+    assert_eq!(rise.unwrap().doc["states"].as_array().unwrap().len(), 4);
+    let one = patch(
+        &doc,
+        json!([{ "op": "choose", "node": "note", "prop": "enter", "value": "bullets", "state": "revenue" }]),
+    );
+    assert_eq!(one.unwrap().doc["states"].as_array().unwrap().len(), 4);
 }

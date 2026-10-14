@@ -17,6 +17,7 @@ use crate::shadows::Shadow;
 use crate::theme::Theme;
 use scaena_core::displaylist::{Cap, Color, FillRule, Join, Op, Paint, Path, PathEl, Rect, Stop};
 use scaena_core::document::Props;
+use scaena_core::model::nodes::LineEnd;
 use serde_json::Value;
 
 /// A shape node, resolved against the theme and placed in its box.
@@ -129,10 +130,15 @@ enum Geometry {
     /// Corner radius, canvas units.
     Rect(f32),
     Ellipse,
-    /// Points as fractions of the box; an arrow ends in a head.
+    /// Points as fractions of the box, whether it is an arrow, and what its start and its end
+    /// are drawn with (PLAN 2.128); a curved one, a connector's curved route, is a cubic through
+    /// its four points, a curve that leaves the first toward the second and meets the last from
+    /// the third.
     Line {
         points: Vec<[f32; 2]>,
         arrow: bool,
+        ends: [LineEnd; 2],
+        curved: bool,
     },
     Polygon(Vec<[f32; 2]>),
     /// As written, with the box of its own coordinates that fits the shape's box when drawn:
@@ -205,7 +211,20 @@ impl ShapeNode {
                 if points.len() < 2 {
                     return Err(EngineError::Layout(format!("a {kind} needs two points or more")));
                 }
-                Geometry::Line { points, arrow: kind == "arrow" }
+                // An end it does not name is a line's bare end, and an arrow's last a head.
+                let end = |key: &str, unnamed: LineEnd| match props.get("ends").and_then(|e| e.get(key)) {
+                    None | Some(Value::Null) => Ok(unnamed),
+                    Some(v) => serde_json::from_value(v.clone()).map_err(|_| {
+                        EngineError::Layout(format!(
+                            "`ends.{key}` {v}: expected none, arrow, open, circle, square, or diamond"
+                        ))
+                    }),
+                };
+                let arrow = kind == "arrow";
+                let ends =
+                    [end("start", LineEnd::None)?, end("end", if arrow { LineEnd::Arrow } else { LineEnd::None })?];
+                let route = props.get("connect").and_then(|c| c.get("route")).and_then(Value::as_str);
+                Geometry::Line { points, arrow, ends, curved: route == Some("curved") }
             }
             "polygon" => {
                 let points = points()?;
@@ -261,7 +280,7 @@ impl ShapeNode {
         match &self.geometry {
             Geometry::Rect(radius) => ("rect", &[], Some(*radius)),
             Geometry::Ellipse => ("ellipse", &[], None),
-            Geometry::Line { points, arrow } => (if *arrow { "arrow" } else { "line" }, points, None),
+            Geometry::Line { points, arrow, .. } => (if *arrow { "arrow" } else { "line" }, points, None),
             Geometry::Polygon(points) => ("polygon", points, None),
             Geometry::Path(..) | Geometry::Between(..) => ("path", &[], None),
         }
@@ -275,9 +294,10 @@ impl ShapeNode {
     pub fn morphs_to(&self, other: &ShapeNode) -> bool {
         let geometry = match (&self.geometry, &other.geometry) {
             (Geometry::Rect(_), Geometry::Rect(_)) | (Geometry::Ellipse, Geometry::Ellipse) => true,
-            (Geometry::Line { points: a, arrow: x }, Geometry::Line { points: b, arrow: y }) => {
-                x == y && a.len() == b.len()
-            }
+            (
+                Geometry::Line { points: a, arrow: x, ends: e, curved: c },
+                Geometry::Line { points: b, arrow: y, ends: f, curved: d },
+            ) => x == y && e == f && c == d && a.len() == b.len(),
             (Geometry::Polygon(a), Geometry::Polygon(b)) => a.len() == b.len(),
             (Geometry::Path(a, _), Geometry::Path(b, _)) => same_commands(a, b),
             _ => false,
@@ -306,8 +326,8 @@ impl ShapeNode {
         let geometry = match (&a.geometry, &b.geometry) {
             // A spring may carry `geo` past 1: a corner never rounds the wrong way.
             (Geometry::Rect(x), Geometry::Rect(y)) => Geometry::Rect(lerp(*x, *y, geo).max(0.0)),
-            (Geometry::Line { points: x, .. }, Geometry::Line { points: y, arrow }) => {
-                Geometry::Line { points: points(x, y), arrow: *arrow }
+            (Geometry::Line { points: x, .. }, Geometry::Line { points: y, arrow, ends, curved }) => {
+                Geometry::Line { points: points(x, y), arrow: *arrow, ends: *ends, curved: *curved }
             }
             (Geometry::Polygon(x), Geometry::Polygon(y)) => Geometry::Polygon(points(x, y)),
             (Geometry::Path(x, f), Geometry::Path(y, g)) => Geometry::Between((x.clone(), *f), (y.clone(), *g), geo),
@@ -346,6 +366,10 @@ impl ShapeNode {
                 );
                 (path_of(&kurbo::Shape::to_path(&ellipse, 0.1)), true)
             }
+            Geometry::Line { points, curved: true, .. } if points.len() == 4 => {
+                let [a, b, c, d] = [0, 1, 2, 3].map(|k| at(points[k]));
+                (Path(vec![PathEl::MoveTo(a), PathEl::CurveTo(b, c, d)]), false)
+            }
             Geometry::Line { points, .. } => (polyline(points.iter().copied().map(at), false), false),
             Geometry::Polygon(points) => (polyline(points.iter().copied().map(at), true), true),
             Geometry::Path(bez, frame) => (path_of(&fit(bez, *frame, w, h)), true),
@@ -368,16 +392,56 @@ impl ShapeNode {
         if let Some(s) = &self.stroke {
             let full = (self.progress < 1.0).then(|| length(&path));
             let mut outline = if self.progress < 1.0 { trimmed(&path, self.progress) } else { path };
-            // An arrow's head sits at the tip of what is drawn, growing in over its own
-            // length; its shaft stops where the head starts, so no cap shows past the point.
-            let mut tip = None;
-            if let (Geometry::Line { arrow: true, .. }, [.., a, b]) = (&self.geometry, outline.0.as_slice()) {
-                let (from, to) = (end(a), end(b));
+            // Each end's head (PLAN 2.128) sits at its tip of what is drawn, growing in over its
+            // own length as the outline is drawn on; an arrow's shaft stops where its head
+            // starts, so no cap shows past the point.
+            let mut heads = Vec::new();
+            if let Geometry::Line { ends, .. } = &self.geometry {
                 let scale = full.map_or(1.0, |full| (length(&outline) / head(s).0.min(full)).min(1.0));
-                if let Some(PathEl::LineTo(end)) = outline.0.last_mut() {
-                    *end = head_base(from, to, s, scale);
+                let drawn = length(&outline);
+                let long = head(s).0 * scale;
+                let curved = outline.0.iter().any(|el| matches!(el, PathEl::CurveTo(..)));
+                // Where each end points from: along a curve, the point a head's length in; else
+                // the point next to it.
+                let towards = |outline: &Path, last: bool| -> Option<([f32; 2], [f32; 2])> {
+                    let els = outline.0.as_slice();
+                    if curved && drawn > 0.0 {
+                        let at = if last { (drawn - long).max(0.0) } else { long.min(drawn) };
+                        let tip = if last { els.last().map(end)? } else { els.first().map(end)? };
+                        Some((point_at(outline, at), tip))
+                    } else if last {
+                        let [.., a, b] = els else { return None };
+                        Some((end(a), end(b)))
+                    } else {
+                        let [a, b, ..] = els else { return None };
+                        Some((end(b), end(a)))
+                    }
+                };
+                let (start, last) = (towards(&outline, false), towards(&outline, true));
+                for (kind, at, last) in [(ends[0], start, false), (ends[1], last, true)] {
+                    let Some((from, tip)) = at else { continue };
+                    heads.extend(end_ops(kind, from, tip, s, scale, w, h));
+                    // An arrow's shaft stops at its head's base; a curve's is cut back below.
+                    let base = head_base(from, tip, s, scale);
+                    match (kind, curved, last) {
+                        (LineEnd::Arrow, false, true) => {
+                            if let Some(PathEl::LineTo(end)) = outline.0.last_mut() {
+                                *end = base;
+                            }
+                        }
+                        (LineEnd::Arrow, false, false) => {
+                            if let Some(PathEl::MoveTo(start)) = outline.0.first_mut() {
+                                *start = base;
+                            }
+                        }
+                        _ => {}
+                    }
                 }
-                tip = Some(arrowhead(from, to, s, scale));
+                if curved && ends.contains(&LineEnd::Arrow) {
+                    let from = if ends[0] == LineEnd::Arrow { long.min(drawn) } else { 0.0 };
+                    let to = if ends[1] == LineEnd::Arrow { (drawn - long).max(from) } else { drawn };
+                    outline = span(&outline, from, to);
+                }
             }
             ops.push(Op::Stroke {
                 path: outline,
@@ -389,11 +453,74 @@ impl ShapeNode {
                 dash: s.dash.clone(),
                 dash_offset: 0.0,
             });
-            if let Some(head) = tip {
-                ops.push(Op::Fill { path: head, rule: FillRule::NonZero, paint: s.paint.paint(w, h) });
-            }
+            ops.extend(heads);
         }
         ops
+    }
+
+    /// The points a line's drawn outline runs through, fractions of its box: its points, or a
+    /// curved one's cubic, 16 pieces along it (PLAN 2.128). What a pointer picks a connector by.
+    pub fn traced(&self) -> Vec<[f32; 2]> {
+        match &self.geometry {
+            Geometry::Line { points, curved: true, .. } if points.len() == 4 => (0..=16)
+                .map(|i| {
+                    let t = i as f32 / 16.0;
+                    let u = 1.0 - t;
+                    let (a, b, c, d) = (u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t);
+                    let [p, q, r, z] = [points[0], points[1], points[2], points[3]];
+                    [a * p[0] + b * q[0] + c * r[0] + d * z[0], a * p[1] + b * q[1] + c * r[1] + d * z[1]]
+                })
+                .collect(),
+            _ => self.outline().1.to_vec(),
+        }
+    }
+}
+
+/// What end `kind` draws at `tip`, pointing from `from`, sized by the stroke and `scale` (PLAN
+/// 2.128), in its paint: a filled head, an open head of two strokes, or a filled circle, square,
+/// or diamond on the tip.
+fn end_ops(kind: LineEnd, from: [f32; 2], tip: [f32; 2], s: &Stroke, scale: f32, w: f32, h: f32) -> Vec<Op> {
+    let paint = s.paint.paint(w, h);
+    let fill = |path: Path| Op::Fill { path, rule: FillRule::NonZero, paint: paint.clone() };
+    let (ux, uy) = direction(from, tip);
+    // Across the shaft, and along it back from the tip.
+    let at = |back: f32, across: f32| [tip[0] - ux * back - uy * across, tip[1] - uy * back + ux * across];
+    let (long, half) = (head(s).0 * scale, head(s).1 * scale);
+    let r = s.width * 2.0 * scale;
+    match kind {
+        LineEnd::None => Vec::new(),
+        LineEnd::Arrow => vec![fill(arrowhead(from, tip, s, scale))],
+        LineEnd::Open => vec![Op::Stroke {
+            path: Path(vec![PathEl::MoveTo(at(long, half)), PathEl::LineTo(tip), PathEl::LineTo(at(long, -half))]),
+            paint: paint.clone(),
+            width: s.width,
+            cap: s.cap,
+            join: s.join,
+            miter_limit: 4.0,
+            dash: Vec::new(),
+            dash_offset: 0.0,
+        }],
+        LineEnd::Circle => {
+            let circle = kurbo::Circle::new((f64::from(tip[0]), f64::from(tip[1])), f64::from(r));
+            vec![fill(path_of(&kurbo::Shape::to_path(&circle, 0.1)))]
+        }
+        LineEnd::Square => {
+            let c = r * 0.875;
+            vec![fill(Path(vec![
+                PathEl::MoveTo(at(-c, -c)),
+                PathEl::LineTo(at(-c, c)),
+                PathEl::LineTo(at(c, c)),
+                PathEl::LineTo(at(c, -c)),
+                PathEl::Close,
+            ]))]
+        }
+        LineEnd::Diamond => vec![fill(Path(vec![
+            PathEl::MoveTo(at(-half, 0.0)),
+            PathEl::LineTo(at(0.0, r)),
+            PathEl::LineTo(at(half, 0.0)),
+            PathEl::LineTo(at(0.0, -r)),
+            PathEl::Close,
+        ]))],
     }
 }
 
@@ -529,6 +656,45 @@ fn measured(path: &Path) -> Vec<(kurbo::PathSeg, Vec<f64>)> {
 /// How long `path` is.
 fn length(path: &Path) -> f32 {
     measured(path).iter().map(|(_, along)| along[along.len() - 1]).sum::<f64>() as f32
+}
+
+/// The part of `path` from `from` to `to` along its length, open (PLAN 2.128): a curve's ends
+/// cut back for its heads.
+fn span(path: &Path, from: f32, to: f32) -> Path {
+    use kurbo::ParamCurve;
+    let (from, to) = (f64::from(from), f64::from(to));
+    let (mut out, mut at, mut start) = (kurbo::BezPath::new(), None, 0.0);
+    // Where in a segment a length along it falls, as a parameter, by the pieces measured.
+    let param = |along: &[f64], len: f64| {
+        let pieces = along.len() - 1;
+        let i = along.iter().rposition(|&a| a <= len).unwrap_or(0).min(pieces - 1);
+        let within = (len - along[i]) / (along[i + 1] - along[i]).max(f64::MIN_POSITIVE);
+        ((i as f64 + within) / pieces as f64).clamp(0.0, 1.0)
+    };
+    for (seg, along) in &measured(path) {
+        let len = along[along.len() - 1];
+        let (lo, hi) = ((from - start).max(0.0), (to - start).min(len));
+        start += len;
+        if lo >= hi {
+            continue;
+        }
+        let seg = seg.subsegment(param(along, lo)..param(along, hi));
+        if at != Some(seg.start()) {
+            out.move_to(seg.start());
+        }
+        out.push(seg.as_path_el());
+        at = Some(seg.end());
+    }
+    path_of(&out)
+}
+
+/// The point `len` along `path`.
+fn point_at(path: &Path, len: f32) -> [f32; 2] {
+    let cut = span(path, 0.0, len);
+    match cut.0.last() {
+        Some(el) => end(el),
+        None => path.0.first().map(end).unwrap_or([0.0; 2]),
+    }
 }
 
 /// The first `progress` of `path` by length, from where it starts, open.
@@ -693,7 +859,8 @@ impl Border {
 pub struct Joint {
     pub from: String,
     pub to: String,
-    /// It leaves `from` by the side that faces `to` and turns at right angles.
+    /// It leaves `from` by the side that faces `to` and turns at right angles: an elbow, or a
+    /// curve through an elbow's corners (PLAN 2.128), which the shape draws as one.
     pub elbow: bool,
     /// How far each end stands off what it joins, canvas units: the theme's `space.2`, so an
     /// arrowhead points at a box rather than into it.
@@ -782,7 +949,7 @@ impl Joint {
         Some(Joint {
             from,
             to,
-            elbow: connect.get("route").and_then(Value::as_str) == Some("elbow"),
+            elbow: matches!(connect.get("route").and_then(Value::as_str), Some("elbow" | "curved")),
             gap: theme.tokens.space.scale.get(2).map_or(theme.tokens.space.unit as f32, |s| s.0 as f32),
             ends,
         })
@@ -1108,6 +1275,81 @@ mod tests {
         assert_eq!(ops.len(), 2, "the shaft and its head");
         let Op::Fill { path, .. } = &ops[1] else { panic!("{ops:?}") };
         assert_eq!(path.0[0], PathEl::MoveTo([100.0, 100.0]), "the head's point is the last point");
+    }
+
+    /// A line's ends (PLAN 2.128): each drawn as it is named, in the stroke's paint, sized from its
+    /// width, an arrow's shaft stopping at its head; and a curved connector a cubic through its
+    /// elbow's corners, its head on the curve's end and its shaft cut back along the curve.
+    #[test]
+    fn a_lines_ends_are_drawn_as_named_and_a_curve_runs_through_its_elbow() {
+        let stroke = json!({"paint": "accent", "width": 4});
+        let ends = |ends: Value| {
+            let v = json!({"kind": "line", "points": [[0, 0.5], [1, 0.5]], "stroke": stroke, "ends": ends});
+            shape(v, [0.0, 0.0, 200.0, 40.0]).unwrap().ops()
+        };
+        // An arrow at its start: the head points back at the first point, the shaft starts at its
+        // base, 16 (four widths) in.
+        let ops = ends(json!({"start": "arrow"}));
+        let Op::Stroke { path, .. } = &ops[0] else { panic!("{ops:?}") };
+        assert_eq!(path.0, vec![PathEl::MoveTo([16.0, 20.0]), PathEl::LineTo([200.0, 20.0])]);
+        let Op::Fill { path, .. } = &ops[1] else { panic!("{ops:?}") };
+        assert_eq!(path.0[0], PathEl::MoveTo([0.0, 20.0]), "the head's point is the first point");
+        assert_eq!(ops.len(), 2);
+        // An open head is two strokes meeting at the tip; a circle, a square, and a diamond sit
+        // on the end, the shaft running to it.
+        let ops = ends(json!({"start": "circle", "end": "open"}));
+        let Op::Stroke { path, .. } = &ops[0] else { panic!("{ops:?}") };
+        assert_eq!(path.0, vec![PathEl::MoveTo([0.0, 20.0]), PathEl::LineTo([200.0, 20.0])], "uncut");
+        assert!(matches!(&ops[1], Op::Fill { .. }), "the circle: {ops:?}");
+        let Op::Stroke { path: open, width, .. } = &ops[2] else { panic!("{ops:?}") };
+        assert_eq!((open.0[1], *width), (PathEl::LineTo([200.0, 20.0]), 4.0), "the open head's tip");
+        assert_eq!(open.0[0], PathEl::MoveTo([184.0, 30.0]), "back four widths, out two and a half");
+        for (end, corners) in [("square", 5), ("diamond", 5)] {
+            let ops = ends(json!({"end": end}));
+            let Op::Fill { path, .. } = &ops[1] else { panic!("{end}: {ops:?}") };
+            assert_eq!(path.0.len(), corners, "{end}");
+        }
+        assert_eq!(ends(json!({"end": "none"})).len(), 1, "a bare end");
+        // An arrow names no end: its last is a head. Named `none`, it has none.
+        let arrow = |v: Value| shape(v, [0.0, 0.0, 200.0, 40.0]).unwrap().ops().len();
+        assert_eq!(arrow(json!({"kind": "arrow"})), 2);
+        assert_eq!(arrow(json!({"kind": "arrow", "ends": {"end": "none"}})), 1);
+        assert!(shape(json!({"kind": "line", "ends": {"end": "star"}}), [0.0, 0.0, 9.0, 9.0]).is_err());
+        // Two ends of other kinds do not morph point by point.
+        let a = shape(json!({"kind": "arrow"}), [0.0, 0.0, 200.0, 40.0]).unwrap();
+        let b = shape(json!({"kind": "arrow", "ends": {"start": "arrow"}}), [0.0, 0.0, 200.0, 40.0]).unwrap();
+        assert!(!a.morphs_to(&b) && a.morphs_to(&a.clone()));
+
+        // A curved connector: a cubic from its first point to its last through the elbow's
+        // corners, which leaves the box across and meets the other across.
+        let elbow = json!([[0, 0], [0.5, 0], [0.5, 1], [1, 1]]);
+        let curve = json!({"kind": "arrow", "points": elbow, "stroke": stroke,
+            "connect": {"from": "a", "to": "b", "route": "curved"}});
+        let curve = shape(curve, [0.0, 0.0, 200.0, 100.0]).unwrap();
+        let ops = curve.ops();
+        let Op::Stroke { path, .. } = &ops[0] else { panic!("{ops:?}") };
+        let [PathEl::MoveTo(start), PathEl::CurveTo(_, _, cut)] = path.0[..] else { panic!("{path:?}") };
+        assert_eq!(start, [0.0, 0.0]);
+        // Its shaft stops on the curve a head's length, 16, short of the end, the head on the end.
+        assert!(cut[0] < 200.0 && cut[1] <= 100.0 && (200.0 - cut[0]).hypot(100.0 - cut[1]) < 16.5, "{cut:?}");
+        let Op::Fill { path, .. } = &ops[1] else { panic!("{ops:?}") };
+        assert_eq!(path.0[0], PathEl::MoveTo([200.0, 100.0]));
+        // Uncut, the curve's controls are the elbow's corners.
+        let bare = json!({"kind": "line", "points": elbow, "connect": {"from": "a", "to": "b", "route": "curved"}});
+        let ops = shape(bare, [0.0, 0.0, 200.0, 100.0]).unwrap().ops();
+        let Op::Stroke { path, .. } = &ops[0] else { panic!("{ops:?}") };
+        assert_eq!(
+            path.0,
+            vec![PathEl::MoveTo([0.0, 0.0]), PathEl::CurveTo([100.0, 0.0], [100.0, 100.0], [200.0, 100.0])]
+        );
+        // A pointer follows the curve: its middle is the box's, where the elbow's corners are not.
+        let traced = curve.traced();
+        assert_eq!((traced.len(), traced[8]), (17, [0.5, 0.5]));
+        // An elbow's points are its corners.
+        let corner = json!({"kind": "line", "points": elbow, "connect": {"from": "a", "to": "b", "route": "elbow"}});
+        let ops = shape(corner, [0.0, 0.0, 200.0, 100.0]).unwrap().ops();
+        let Op::Stroke { path, .. } = &ops[0] else { panic!("{ops:?}") };
+        assert_eq!(path.0.len(), 4, "a polyline of four points");
     }
 
     #[test]

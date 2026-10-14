@@ -29,6 +29,25 @@ pub fn paragraphs(text: &str) -> Vec<Range<usize>> {
     out
 }
 
+/// The paragraphs a text's `paragraphs` draws of its `count` (PLAN 2.129), as indices from 0:
+/// one, or the first and the last of a run, counted from 1 as written, as far as there are any;
+/// all where it says none.
+pub fn drawn(paragraphs: Option<&serde_json::Value>, count: usize) -> Range<usize> {
+    let index = |v: &serde_json::Value| v.as_u64().map(|n| (n as usize).clamp(1, count.max(1)));
+    let (first, last) = match paragraphs {
+        Some(serde_json::Value::Array(span)) if span.len() == 2 => match (index(&span[0]), index(&span[1])) {
+            (Some(a), Some(b)) => (a, b),
+            _ => return 0..count,
+        },
+        Some(n) => match index(n) {
+            Some(n) => (n, n),
+            None => return 0..count,
+        },
+        None => return 0..count,
+    };
+    (first - 1).min(count)..last.min(count).max(first - 1)
+}
+
 /// Each paragraph's item, `list` read for `count` paragraphs: one past its end is none.
 pub fn items(list: &[Option<ListItem>], count: usize) -> Vec<Option<ListItem>> {
     (0..count).map(|k| list.get(k).copied().flatten()).collect()
