@@ -505,7 +505,9 @@ pub enum SemanticOp {
     SetState {
         #[schemars(with = "Id")]
         id: String,
-        #[schemars(regex(pattern = r"^(layout|hold|notes|furniture|transition(/(duration|ease|spring|match))?)$"))]
+        #[schemars(regex(
+            pattern = r"^(layout|hold|notes|furniture|transition(/(duration|ease|spring|match|style|direction))?)$"
+        ))]
         prop: String,
         value: Value,
         /// Write a layout into `id` itself, wherever it lives now: it shows there, and in the

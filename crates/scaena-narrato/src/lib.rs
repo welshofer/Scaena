@@ -96,11 +96,12 @@ impl Narrative {
     }
 
     /// The words its slides name icons by (PLAN G.23), each once, as written but trimmed and in
-    /// lower case: what [`Narrative::icons`] keys the icons found by.
+    /// lower case: what [`Narrative::icons`] keys the icons found by. One with no letter or digit
+    /// (`-`, `—`, `$`, an emoji), which a model writes for an item it cannot picture, names none.
     pub fn icon_words(&self) -> Vec<String> {
         let mut words: Vec<String> = Vec::new();
         for word in self.slides.iter().flat_map(|s| &s.icons).map(|w| w.trim().to_lowercase()) {
-            if !word.is_empty() && !words.contains(&word) {
+            if word.chars().any(char::is_alphanumeric) && !words.contains(&word) {
                 words.push(word);
             }
         }

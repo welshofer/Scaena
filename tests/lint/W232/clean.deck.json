@@ -1,0 +1,13 @@
+{
+  "scaena": "0.26",
+  "_comment": "W232 clean: the same text, in the weight its family draws.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "one-weight.theme.json",
+  "fonts": [{"family": "Instrument Serif", "file": "fonts/InstrumentSerif-Regular.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "nodes": {
+    "t": {"type": "text", "role": "body", "text": "Set in bold", "at": {"in": "main"}}
+  },
+  "states": [
+    {"id": "a", "layout": "full", "props": {"t": {}}}
+  ]
+}

@@ -2061,7 +2061,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     let name = root;
     for (let n = 2; theme.layouts[name]; n++) name = `${root}-${n}`;
     const copied = { ...theme.layouts[from], name: title };
-    const done = await editor.themeEdit?.([{ op: "add", path: pointer("layouts", name), value: copied }], `The ${title} layout added, a copy of ${was}`);
+    const ops: unknown[] = [{ op: "add", path: pointer("layouts", name), value: copied }];
+    // A copy of a layout the theme leaves the slide's number and footer off leaves them off too,
+    // in the same edit (ADR-0028).
+    if (theme.furniture?.except?.includes(from)) ops.push({ op: "add", path: pointer("furniture", "except", "-"), value: name });
+    const done = await editor.themeEdit?.(ops, `The ${title} layout added, a copy of ${was}`);
     if (!done) return;
     await change([{ op: "set_state", id: shown.state, prop: "layout", value: name, fork: true }], "Choosing it…", `The ${title} layout added, a copy of ${was}; this slide uses it`, null);
     await relayout();

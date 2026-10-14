@@ -768,6 +768,11 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
         furnish([{ op: "furnish", number: on }], on ? "Slides numbered" : "Slides not numbered");
       } else if (furnishing === "footer") {
         const words = target.value.trim();
+        // Words that trim to the footer the deck has change nothing: the field is put back.
+        if (words === (f.footer ?? "")) {
+          target.value = f.footer ?? "";
+          return;
+        }
         furnish([{ op: "furnish", footer: words || null }], words ? `Footer: “${words}”` : "No footer");
       } else {
         const value = target.value === "" ? null : target.value === "yes";

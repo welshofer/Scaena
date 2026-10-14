@@ -236,6 +236,38 @@ fn a_theme_in_a_new_typeface_brings_its_fonts() {
     assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stdout));
 }
 
+/// A deck with a bold word in a headline and a heavy big number moves into Gallery, whose
+/// Instrument Serif is one weight (PLAN 2.102): each is set in that weight, none synthesized,
+/// and lint says so (W232), rather than the re-theme failing.
+#[test]
+fn bold_words_move_into_a_family_of_one_weight() {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("theme-one-weight");
+    let _ = std::fs::remove_dir_all(&dir);
+    copy_dir(Path::new("../../docs/examples/authorability"), &dir);
+    let _ = std::fs::remove_dir_all(dir.join("history"));
+    let mut d = deck(&dir);
+    d["nodes"]["headline"]["runs"] =
+        serde_json::json!([{ "text": "Revenue grew " }, { "text": "every quarter", "style": { "weight": 700 } }]);
+    d["nodes"]["headline"].as_object_mut().unwrap().remove("text");
+    d["nodes"]["q3-total"]["style"] = serde_json::json!({ "weight": 600 });
+    std::fs::write(dir.join("deck.json"), serde_json::to_vec_pretty(&d).unwrap()).unwrap();
+    let out =
+        scaena(&["--json", "theme", dir.to_str().unwrap(), "--apply", "../../docs/examples/themes/gallery.theme.json"]);
+    let t: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(out.status.code(), Some(0), "{t:#}");
+    assert_eq!(t["applied"], true, "{t:#}");
+    let lighter: std::collections::BTreeSet<&str> = (t["added"].as_array().unwrap().iter())
+        .filter(|f| f["code"] == "W232")
+        .map(|f| f["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(lighter, ["/nodes/headline", "/nodes/q3-total"].into(), "{t:#}");
+    for state in ["topline", "quarters"] {
+        let png = dir.join(format!("{state}.png"));
+        let out = scaena(&["render", dir.to_str().unwrap(), "--state", state, "--out", png.to_str().unwrap()]);
+        assert_eq!(out.status.code(), Some(0), "{state}: {}", String::from_utf8_lossy(&out.stderr));
+    }
+}
+
 #[test]
 fn inspect_resolved_shows_each_look_and_what_overrides_set() {
     let dir = example("resolved");

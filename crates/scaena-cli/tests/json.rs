@@ -220,6 +220,28 @@ fn inspect_timeline_places_each_motion_on_its_states_clock() {
     assert!(text.contains("▸ mo-title     enter by words ×6 0–720 ms, 420 ms each, 60 ms apart"), "{text}");
 }
 
+/// A slide transition reads as its style and the way it goes (PLAN 2.111), with no match the deck
+/// does not write; a dissolve goes no way.
+#[test]
+fn inspect_timeline_names_a_slide_transition() {
+    let dir = scratch("slides");
+    copy_dir(Path::new("../../docs/examples"), &dir);
+    let deck = dir.join("revenue.deck.json");
+    let mut d: Value = serde_json::from_str(&std::fs::read_to_string(&deck).unwrap()).unwrap();
+    d["states"][2]["transition"] = serde_json::json!({ "style": "push", "direction": "up", "duration": 420 });
+    d["states"][3]["transition"] = serde_json::json!({ "style": "dissolve", "duration": 420 });
+    std::fs::write(&deck, serde_json::to_string_pretty(&d).unwrap()).unwrap();
+    let path = deck.to_str().unwrap();
+    let text = String::from_utf8(scaena(&["inspect", path, "--state", "mix", "--timeline"]).stdout).unwrap();
+    assert!(text.contains("push up transition 420 ms") && !text.contains("match none"), "{text}");
+    let text = String::from_utf8(scaena(&["inspect", path, "--state", "close", "--timeline"]).stdout).unwrap();
+    assert!(text.contains("dissolve transition 420 ms"), "{text}");
+    let (code, close) = json(&["inspect", path, "--state", "close", "--timeline"]);
+    assert_eq!(code, 0, "{close:#}");
+    let t = &close[0]["timeline"]["transition"];
+    assert_eq!((t["style"].as_str(), t.get("direction")), (Some("dissolve"), None), "{t:#}");
+}
+
 #[test]
 fn inspect_data_shows_the_rows_each_chart_and_table_reads() {
     let (code, states) = json(&["inspect", TORTURE, "--state", "chart-kinds-2-next", "--data"]);

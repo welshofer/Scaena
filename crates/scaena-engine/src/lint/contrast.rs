@@ -16,6 +16,8 @@
 //!   at no opacity is not read, so not judged.
 //! - **Display** is WCAG's large text: 24 px or more, or 18.67 px at weight 700 or more,
 //!   on a screen whose shorter side is 1080 px (a 1920 × 1080 canvas unit is a pixel).
+//!   The weight is the one drawn: text a family of one weight sets in its own, lighter than
+//!   it asks (W232), is not bold.
 //!   Everything else is body.
 //! - A node is reported once per format, at its worst; a chart once for each kind of
 //!   text in it that fails, since each kind is set in its own role.
@@ -198,7 +200,7 @@ fn texts(cx: &Cx, state: &Laid) -> (Vec<Run>, BTreeSet<String>, BTreeSet<String>
                     color: [r, g, b],
                     alpha: a * opacity,
                     opacity,
-                    display: px >= 24.0 || (px >= 18.67 && t.weight >= 700.0),
+                    display: px >= 24.0 || (px >= 18.67 && t.weight >= 700.0 && t.lighter.is_empty()),
                     size: px,
                 });
             }

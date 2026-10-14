@@ -8,7 +8,9 @@
 //   Reveal, Wipe), and its Direction, in plain words.
 // - Push chosen is one patch that gives the state's transition a `style`; the cue's listing says
 //   "Push transition"; Bottom to Top chosen sets its `direction`.
-// - Its cue runs the transition's duration.
+// - Its cue runs the transition's duration, and offers no exit for what leaves: the slide left
+//   moves whole, and none of its exits plays.
+// - Dissolve chosen, the listing names no way it goes: a dissolve fades in place.
 // - Each choice is one step to undo.
 // Exits 1 on any failure.
 import { launch, serve } from "./serve.mjs";
@@ -64,6 +66,10 @@ try {
   await page.locator("#tab-inspector").click();
   await page.waitForSelector("#look-transition-style", { timeout: 30000 });
   const original = await source();
+  /** The exits the cue's Add an animation… menu offers. */
+  const exits = () => page.evaluate(() => [...document.querySelectorAll("#cue [data-add] option")].filter((o) => o.value.startsWith('["exit"')).length);
+  await page.waitForFunction(() => [...document.querySelectorAll("#cue [data-add] option")].some((o) => o.value.startsWith('["exit"')), null, { timeout: 30000 }).catch(() => {});
+  check((await exits()) > 0, `before, the cue offers an exit for what leaves: ${await exits()}`);
   const styles = await options("#look-transition-style");
   check(
     ["Dissolve", "Push", "Move In", "Reveal", "Wipe"].every((s) => styles.includes(s)),
@@ -87,14 +93,30 @@ try {
   // each style's layers).
   const span = await page.evaluate(() => window.scaena.last().slots.find((s) => s.state === "close").span);
   check(span > 0, `its cue runs: ${span} ms`);
+  await page.waitForFunction(() => ![...document.querySelectorAll("#cue [data-add] option")].some((o) => o.value.startsWith('["exit"')), null, { timeout: 30000 }).catch(() => {});
+  check((await exits()) === 0, `a push moves the slide left whole: the cue offers none of its exits, not ${await exits()}`);
 
   // Bottom to Top.
   await page.selectOption("#look-transition-direction", "up");
   check(await reads("direction: up"), `Bottom to Top sets its direction: ${await closeLine()}`);
 
+  const directed = await source();
+
+  // Dissolve: it fades in place, so the listing says no way it goes.
+  await page.selectOption("#look-transition-style", "dissolve");
+  check(await reads("style: dissolve"), `Dissolve is the transition's style: ${await closeLine()}`);
+  await page.waitForFunction(() => document.querySelector("#listing")?.textContent.includes("Dissolve transition"), null, { timeout: 30000 }).catch(() => {});
+  const dissolved = await page.evaluate(() => document.querySelector("#listing")?.textContent ?? "");
+  check(
+    dissolved.includes("Dissolve transition") && !/Right to Left|Bottom to Top/.test(dissolved),
+    `the listing names no way a dissolve goes: ${dissolved.slice(0, 200)}`,
+  );
+
   // Each one step to undo.
   await undo();
-  check(await back(pushed), "one undo takes the direction back");
+  check(await back(directed), "one undo takes Dissolve back");
+  await undo();
+  check(await back(pushed), "another the direction");
   await undo();
   check(await back(original), "and another the style");
   check(await page.evaluate(() => window.scaena.last().valid), "the source still compiles and validates");

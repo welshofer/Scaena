@@ -216,7 +216,7 @@ impl Engine {
         let state = &deck.states[i];
         let timing = Timing::parse(theme, state.transition.as_ref())?;
         let before = i.checked_sub(1).map(|p| &snapshots[p]);
-        let items = motion::items(deck, theme, state, before, &snapshots[i], timing.matched)?;
+        let items = motion::items(deck, theme, state, before, &snapshots[i], timing.matched, timing.slide.is_some())?;
         let to = self.scene(deck, theme, data, &snapshots[i])?;
         // What was on screen is drawn while the transition runs, or a motion moves it.
         let from = match before {
@@ -271,7 +271,8 @@ impl Engine {
             }
             let timing = Timing::parse(theme, state.transition.as_ref())?;
             let before = i.checked_sub(1).map(|p| &snapshots[p]);
-            let items = motion::items(deck, theme, state, before, &snapshots[i], timing.matched)?;
+            let items =
+                motion::items(deck, theme, state, before, &snapshots[i], timing.matched, timing.slide.is_some())?;
             let span = if motion::counted_by_layout(&items) {
                 self.transition_at(deck, theme, data, &snapshots, i, 0.0)?.span_ms()
             } else {
@@ -726,12 +727,6 @@ impl Engine {
             }
             _ => (1.0, base),
         };
-        if text.synthesized {
-            return Err(EngineError::Font(format!(
-                "node `{id}`: a run needs faux bold, which the display list cannot express; \
-                 use a weight the family provides"
-            )));
-        }
         let overflow = !fits_box(&text);
         let clip = (fit == TextFit::Clip).then_some(cell);
         let top = text_top(cell, align_y, &text, trim);

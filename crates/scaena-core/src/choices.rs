@@ -19,8 +19,7 @@ use crate::lint::literal;
 use crate::looks::{casts, rounds, see_through};
 use crate::model::check::Checker;
 use crate::model::theme::{Theme, Vocabulary};
-use crate::model::values::SplitUnit;
-use crate::tracking::{Lives, layout_lives, layout_takers, lives, merge_props, resolve_states};
+use crate::tracking::{Lives, layout_lives, layout_takers, lives_shown, merge_props, resolve_states};
 use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -40,7 +39,8 @@ pub struct Choices {
     #[schemars(skip)]
     pub said: Option<String>,
     /// Its kind as a person names it, `Text` or `Chart` ([`crate::words::kind`]), as `said` is;
-    /// `Icon` for a path on a view (PLAN 2.104), which the icon picker replaces (PLAN G.23).
+    /// `Icon` for a filled path on a view (PLAN 2.104, [`crate::inserts::is_icon`]), which the
+    /// icon picker replaces (PLAN G.23); a pen's drawing, stroked, is a `Shape`.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(skip)]
     pub noun: Option<String>,
@@ -344,20 +344,15 @@ pub fn choices(
                 }
                 // An entrance and an exit take the presets that start from a look, and emphasis
                 // those that go to one and back (PLAN 2.116): Fade enters, Pulse emphasizes, and
-                // Pop, Drop, and Swing do both. One that moves a text's words, letters, or lines
-                // one at a time is a text's, and one that moves a chart's marks a chart's, as the
-                // engine splits them.
+                // Pop, Drop, and Swing do both. Each splits the node only into what it has (E106):
+                // Typewriter is a text's, and Grow a chart's.
                 if of == V::MotionPreset {
                     let presets = &theme.motion.presets;
                     let emphasis = prop == "emphasis";
-                    let splits = |split: Option<SplitUnit>| match split {
-                        Some(SplitUnit::Lines | SplitUnit::Words | SplitUnit::Glyphs) => node_type == NodeType::Text,
-                        Some(SplitUnit::Marks) => node_type == NodeType::Chart,
-                        Some(SplitUnit::Children) | None => true,
-                    };
                     names.retain(|n| {
                         presets.get(n).is_some_and(|p| {
-                            splits(p.split) && if emphasis { p.to.is_some() } else { p.from.is_some() }
+                            let kind = if emphasis { p.to.is_some() } else { p.from.is_some() };
+                            kind && p.split.is_none_or(|split| split.owned(node_type, emphasis))
                         })
                     });
                 }
@@ -380,7 +375,7 @@ pub fn choices(
             Some(key) => shown.get(name).and_then(|v| v.get(key)),
             None => shown.get(name),
         };
-        let lives = value.map(|_| lives_at(deck, i, node, over, name, key));
+        let lives = value.map(|_| lives_at(deck, i, node, snapshots[i].nodes.get(node), over, name, key));
         let literal = value.is_some_and(|v| literal(prop, v));
         let role = shown.get("role").and_then(Value::as_str);
         let layout = snapshots[i].layout.as_deref();
@@ -481,7 +476,7 @@ pub fn characters(
         start > from
     });
     let prop = if runs.is_some() { "runs" } else { "text" };
-    let lives = lives_at(deck, i, node, over, prop, None);
+    let lives = lives_at(deck, i, node, snapshots[i].nodes.get(node), over, prop, None);
     let fields = CHARACTERS.iter().filter_map(|&(prop, source)| {
         let takes = match source {
             Names(of, overrides) => Takes::Name { of, names: theme.names(of), overrides },
@@ -640,14 +635,23 @@ fn allowed(schema: &Value, overrides: bool) -> Option<Takes> {
     }
 }
 
-/// Where the value of `name` (or its key `key`) that state `i` shows of `node` lives.
-fn lives_at(deck: &Deck, i: usize, node: &str, over: Option<&Props>, name: &str, key: Option<&str>) -> Where {
+/// Where the value of `name` (or its key `key`) that state `i` shows of `node` lives, `shown` the
+/// node as the state shows it before the deck's overrides, `over`.
+fn lives_at(
+    deck: &Deck,
+    i: usize,
+    node: &str,
+    shown: Option<&Props>,
+    over: Option<&Props>,
+    name: &str,
+    key: Option<&str>,
+) -> Where {
     let overridden =
         over.and_then(|o| o.get(name)).is_some_and(|v| key.is_none_or(|k| v.is_null() || v.get(k).is_some()));
     if overridden {
         return Where::Overrides;
     }
-    match lives(deck, i, node, name, &key.into_iter().collect::<Vec<_>>()) {
+    match lives_shown(deck, i, node, shown, name, &key.into_iter().collect::<Vec<_>>()) {
         Lives::State(j) => Where::State(deck.states[j].id.clone()),
         Lives::Node => Where::Node,
     }

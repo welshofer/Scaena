@@ -37,7 +37,8 @@ fn copy_dir(from: &Path, to: &Path) {
 }
 
 /// `tests/lint/<code>/<which>.deck.json` as a bundle of `test`'s own: the lint theme, its
-/// data and image, and the two torture fonts it names.
+/// data and image, the two torture fonts it names, and the examples' Instrument Serif, a family
+/// of one weight, which W232's theme names.
 fn fixture(test: &str, code: &str, which: &str) -> PathBuf {
     let dir = scratch(&format!("{test}-{code}-{which}"));
     copy_dir(&Path::new(ROOT).join("tests/lint/bundle"), &dir);
@@ -49,6 +50,8 @@ fn fixture(test: &str, code: &str, which: &str) -> PathBuf {
         )
         .unwrap();
     }
+    let serif = "InstrumentSerif-Regular.ttf";
+    std::fs::copy(Path::new(ROOT).join("docs/examples/fonts").join(serif), dir.join("fonts").join(serif)).unwrap();
     std::fs::copy(Path::new(ROOT).join(format!("tests/lint/{code}/{which}.deck.json")), dir.join("deck.json")).unwrap();
     dir
 }
@@ -64,7 +67,7 @@ fn lint(bundle: &Path) -> (i32, Vec<Value>) {
 }
 
 /// Each rule's trigger, and where in the deck it finds what it finds.
-const RULES: [(&str, &[&str]); 39] = [
+const RULES: [(&str, &[&str]); 40] = [
     ("E100", &["/nodes/t"]),
     ("E101", &["/nodes/b", "/nodes/note", "/nodes/src"]),
     ("E110", &["/nodes/t"]),
@@ -79,6 +82,7 @@ const RULES: [(&str, &[&str]); 39] = [
     ("W221", &["/theme/type/roles/body/leading", "/theme/type/roles/body/snap", "/theme/type/roles/caption/snap"]),
     ("W230", &["/fonts/2/file"]),
     ("W231", &["/nodes/t"]),
+    ("W232", &["/nodes/t"]),
     ("W300", &["/nodes/t/style/color", "/nodes/t/style/size", "/nodes/box/shadow", "/states/0/props/box/radius"]),
     ("W301", &["/nodes/t/at/rect"]),
     ("W302", &["/nodes/t/at/col"]),
@@ -283,6 +287,31 @@ fn contrast_reads_the_pixels_under_the_glyphs_not_the_line_box() {
     assert!(contrast(&found).is_empty(), "a line under the baseline is not under the glyphs: {found:#?}");
     let (_, found) = lint(&bundle("ink-through", &with_line(baseline - 8.0), |_| {}));
     assert_eq!(contrast(&found).len(), 1, "a line through the glyphs is: {found:#?}");
+}
+
+/// Text at 20 px asks for weight 700, in a color that reads at 3.7:1 over the surface: display
+/// text, judged at 3:1, where its family draws it bold; body text, judged at 4.5:1, where a family
+/// of one weight sets it in its own (W232), as WCAG judges the text that is drawn.
+#[test]
+fn bold_asked_of_a_family_of_one_weight_is_judged_as_drawn() {
+    let text = serde_json::json!({
+        "type": "text", "role": "label", "text": "Set in bold",
+        "style": { "weight": 700, "color": "onSurfaceMuted" }, "at": { "in": "main" },
+    });
+    let mut d = deck(serde_json::json!({}), serde_json::json!({ "t": text }));
+    let muted = |t: &mut Value| t["tokens"]["color"]["muted"] = serde_json::json!("#6E6E6E");
+    let (_, found) = lint(&bundle("bold-drawn", &d, muted));
+    assert!(contrast(&found).is_empty(), "bold, it is display text: {found:#?}");
+
+    let serif = serde_json::json!({ "family": "Instrument Serif", "file": "fonts/InstrumentSerif-Regular.ttf" });
+    d["fonts"][0] = serif.clone();
+    let (_, found) = lint(&bundle("bold-lighter", &d, |t| {
+        muted(t);
+        t["type"]["families"]["serif"] = serif;
+    }));
+    assert!(found.iter().any(|f| f["code"] == "W232"), "{found:#?}");
+    let read: Vec<&str> = contrast(&found).iter().map(|f| f["code"].as_str().unwrap()).collect();
+    assert_eq!(read, ["E110"], "set in its own weight, it is body text: {found:#?}");
 }
 
 #[test]
