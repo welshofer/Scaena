@@ -37,7 +37,8 @@ fn copy_dir(from: &Path, to: &Path) {
 }
 
 /// `tests/lint/<code>/<which>.deck.json` as a bundle of `test`'s own: the lint theme, its
-/// data and image, and the two torture fonts it names.
+/// data and image, the two torture fonts it names, and the examples' Instrument Serif, a family
+/// of one weight, which W232's theme names.
 fn fixture(test: &str, code: &str, which: &str) -> PathBuf {
     let dir = scratch(&format!("{test}-{code}-{which}"));
     copy_dir(&Path::new(ROOT).join("tests/lint/bundle"), &dir);
@@ -49,6 +50,8 @@ fn fixture(test: &str, code: &str, which: &str) -> PathBuf {
         )
         .unwrap();
     }
+    let serif = "InstrumentSerif-Regular.ttf";
+    std::fs::copy(Path::new(ROOT).join("docs/examples/fonts").join(serif), dir.join("fonts").join(serif)).unwrap();
     std::fs::copy(Path::new(ROOT).join(format!("tests/lint/{code}/{which}.deck.json")), dir.join("deck.json")).unwrap();
     dir
 }
@@ -64,7 +67,7 @@ fn lint(bundle: &Path) -> (i32, Vec<Value>) {
 }
 
 /// Each rule's trigger, and where in the deck it finds what it finds.
-const RULES: [(&str, &[&str]); 39] = [
+const RULES: [(&str, &[&str]); 40] = [
     ("E100", &["/nodes/t"]),
     ("E101", &["/nodes/b", "/nodes/note", "/nodes/src"]),
     ("E110", &["/nodes/t"]),
@@ -79,6 +82,7 @@ const RULES: [(&str, &[&str]); 39] = [
     ("W221", &["/theme/type/roles/body/leading", "/theme/type/roles/body/snap", "/theme/type/roles/caption/snap"]),
     ("W230", &["/fonts/2/file"]),
     ("W231", &["/nodes/t"]),
+    ("W232", &["/nodes/t"]),
     ("W300", &["/nodes/t/style/color", "/nodes/t/style/size", "/nodes/box/shadow", "/states/0/props/box/radius"]),
     ("W301", &["/nodes/t/at/rect"]),
     ("W302", &["/nodes/t/at/col"]),

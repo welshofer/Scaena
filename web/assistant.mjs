@@ -5,7 +5,9 @@
 //
 //   a new deck from Dusk → a headline too long for its one-row slot (deck_patch) → the E100
 //   lint finds, with its fix (deck_lint) → the fix (deck_lint with `fix`) → no errors
-//   (deck_lint) → the state drawn (deck_render) → a cooler accent (theme_edit) → an answer.
+//   (deck_lint) → the state drawn (deck_render) → a cooler accent (theme_edit) → an icon found by
+//   its words (icon_find, which the author-deck skill names, from the set the page carries) → an
+//   answer.
 //
 //   node web/assistant.mjs     (after `just web`; from the repository's root)
 //
@@ -80,6 +82,7 @@ const SCRIPT = [
   { name: "deck_lint", args: {} },
   { name: "deck_render", args: { state: "start", size: "960x540" } },
   { name: "theme_edit", args: { ops: [{ op: "replace", path: "/tokens/color/accent", value: "#2E86E4" }] } },
+  { name: "icon_find", args: { query: "rocket", weight: "fill", limit: 2 } },
 ];
 const ANSWER = "The headline fits its slot now, and the deck lints clean.";
 
@@ -245,7 +248,7 @@ try {
     const tools = wire.tools(first.body);
     const names = tools.map((t) => t.name);
     check(
-      ["deck_read", "deck_patch", "deck_lint", "deck_inspect", "deck_diff", "deck_render", "spine_read", "spine_update", "data_attach", "data_edit", "theme_edit", "resource_read"].every((n) => names.includes(n)),
+      ["deck_read", "deck_patch", "deck_lint", "deck_inspect", "deck_diff", "deck_render", "spine_read", "spine_update", "data_attach", "data_edit", "theme_edit", "icon_find", "resource_read"].every((n) => names.includes(n)),
       `${id}: the tools: ${names.join(", ")}`,
     );
     check(
@@ -270,6 +273,12 @@ try {
     check(
       themed.applied === true && themed.theme === "themes/dusk.theme.json" && themed.paths?.[0] === "/tokens/color/accent",
       `${id}: theme_edit edits the bundle's copy of Dusk (${result(6).json?.slice(0, 160)})`,
+    );
+    const icons = parsed(7);
+    const rocket = icons.icons?.[0];
+    check(
+      icons.icons?.length === 2 && rocket?.name === "rocket" && JSON.stringify(rocket.icon?.view) === "[0,0,256,256]" && rocket.icon.path?.startsWith("M") && icons.found >= 2,
+      `${id}: icon_find finds the rocket by its words, its path on its view (${result(7).json?.slice(0, 160)})`,
     );
     if (id === "gemini") {
       const model = requests[1].body.contents.find((c) => c.role === "model");

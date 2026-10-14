@@ -425,6 +425,37 @@ fn body_of(request: &Value) -> Value {
     serde_json::from_str(request["body"].as_str().unwrap()).unwrap()
 }
 
+/// The assistant is given each tool its prompt tells it to use (PLAN 2.6, 3.6): every MCP tool
+/// the author-deck skill names, which the prompt holds whole, is one of its tools, or one the
+/// prompt says is not here. `icon_find` finds the icons that ship, as the MCP server finds them:
+/// the Mac's library carries them.
+#[test]
+fn the_assistant_is_given_each_tool_its_prompt_names() {
+    let skill = include_str!("../../../skills/author-deck/SKILL.md");
+    let prompt = scaena_chat::system_of(scaena_chat::Client::App, &scaena_chat::Facts::default(), &[], &[], skill);
+    let (_, rest) = prompt.split_once("There is no ").expect("the prompt says what is not here");
+    let (lacking, _) = rest.split_once(" here").unwrap();
+    let given = scaena_chat::tools(scaena_session::assistant::TOOLS).unwrap();
+    for entry in std::fs::read_dir("../../docs/schema/mcp").unwrap() {
+        let path = entry.unwrap().path();
+        let name = path.file_stem().unwrap().to_str().unwrap().to_string();
+        if skill.contains(&format!("`{name}`")) {
+            let here = given.iter().any(|t| t.name == name);
+            assert!(
+                here || lacking.contains(&name),
+                "the skill names `{name}`, which the assistant neither has nor lacks"
+            );
+        }
+    }
+    let s = open(B1);
+    let found = tool(s, "icon_find", json!({ "query": "rocket", "weight": "fill", "limit": 2 }));
+    let icons = found["ok"]["icons"].as_array().unwrap_or_else(|| panic!("{found}"));
+    assert_eq!((icons.len(), icons[0]["name"].as_str()), (2, Some("rocket")), "{found}");
+    assert_eq!(icons[0]["icon"]["view"], json!([0.0, 0.0, 256.0, 256.0]), "{found}");
+    assert_eq!(found["edited"], false);
+    unsafe { scaena_session_free(s) };
+}
+
 #[test]
 fn the_assistant_asks_with_the_users_key_and_runs_each_call_on_the_bundle() {
     // The providers, outside a conversation: the models a key can use.
@@ -460,7 +491,7 @@ fn the_assistant_asks_with_the_users_key_and_runs_each_call_on_the_bundle() {
     let question = body["messages"][0]["content"][0]["text"].as_str().unwrap();
     assert_eq!(question, "[In the window: state cover shown; selected: title (text).]\n\nIs the cover clean?");
     let tools: Vec<&str> = body["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-    assert_eq!(tools.len(), 13, "the page's twelve and resource_read: {tools:?}");
+    assert_eq!(tools.len(), 14, "the page's thirteen and resource_read: {tools:?}");
     assert_eq!(tools.last(), Some(&"resource_read"));
 
     // The model calls three tools: each runs on the bundle, as the browser runs it.

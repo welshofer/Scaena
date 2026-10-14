@@ -20,7 +20,9 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
-/// The tools a page's assistant has, by their MCP names.
+/// The tools a page's assistant has, by their MCP names. `icon_find` reads the icons that ship
+/// (PLAN 2.104): the session answers it where its library carries them (`shipped`, the Mac's),
+/// and the browser's page from the set it carries beside its pages, which its module lacks.
 pub const TOOLS: &[&str] = &[
     "deck_read",
     "deck_patch",
@@ -34,6 +36,7 @@ pub const TOOLS: &[&str] = &[
     "data_attach",
     "data_edit",
     "theme_edit",
+    "icon_find",
 ];
 
 /// Who calls a tool, and when, in seconds since 1970: an edit it makes is theirs in the
@@ -253,6 +256,18 @@ struct ThemeEdit {
 #[serde(deny_unknown_fields)]
 struct SpineRead {}
 
+#[cfg(feature = "shipped")]
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct IconFind {
+    #[serde(default)]
+    query: String,
+    #[serde(default)]
+    weight: scaena_ops::icons::Weight,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SpineUpdate {
@@ -408,6 +423,14 @@ impl Session {
                 let wrote = self.write(made.filter(|_| !a.dry_run), by)?;
                 Ok(Called { edited: wrote, ..Called::of(edited)? })
             }
+            // The icons that ship, as the MCP server finds them, where this library carries them.
+            #[cfg(feature = "shipped")]
+            "icon_find" => {
+                let a: IconFind = args(name, a)?;
+                Called::of(scaena_ops::icons::find(&a.query, a.weight, a.limit.unwrap_or(20)))
+            }
+            #[cfg(not(feature = "shipped"))]
+            "icon_find" => Err(ops("icon_find: the icons are the page's, which finds them")),
             "theme_edit" => {
                 let a: ThemeEdit = args(name, a)?;
                 let edit = scaena_ops::theme::ThemeEdit { ops: a.ops, photo: a.photo };

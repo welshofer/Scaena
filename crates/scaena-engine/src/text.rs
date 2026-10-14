@@ -107,7 +107,8 @@ pub struct Span {
 pub struct SpanLook {
     /// Where it ends in the text as written, bytes; it starts where the one before ends.
     pub end: usize,
-    /// The weight it is set in.
+    /// The weight it is set in, as its look asks: a family of one weight sets it in its own all
+    /// the same (lint W232).
     pub weight: f32,
     /// The weight it is set in without its own `style.weight` ([`Span::base_weight`]).
     pub base: f32,
@@ -310,8 +311,10 @@ pub struct TextLayout {
     /// the paragraph has that many, and breaking could not give it more (lint W200).
     pub widow: bool,
     pub rtl: bool,
-    /// Some run asked for faux bold, which the display list cannot express.
-    pub synthesized: bool,
+    /// What set text lighter than it asked (lint W232): each font, by its file, of a family
+    /// of one weight, with no `wght` axis, that a run asked a heavier weight of. Its glyphs
+    /// are drawn as the font draws them: no bold is synthesized.
+    pub lighter: Vec<String>,
     /// What set text upright that asked for italic (PLAN 2.40, lint W231): each theme family,
     /// by its key, that has no italic face, and each font a fallback took that has none, by
     /// its file. No italic is synthesized.
@@ -1731,7 +1734,7 @@ fn read_layout(
     let text = text.as_str();
     let mut lines = Vec::new();
     let mut runs = Vec::new();
-    let mut synthesized = false;
+    let mut lighter: Vec<String> = Vec::new();
     let mut upright = p.upright;
     let mut top = 0.0_f32;
     let mut underlines = Vec::new();
@@ -1797,7 +1800,14 @@ fn read_layout(
             let PositionedLayoutItem::GlyphRun(glyph_run) = item else { continue };
             let run = glyph_run.run();
             let synthesis = run.synthesis();
-            synthesized |= synthesis.embolden();
+            // A font of one weight asked a heavier one: its glyphs are drawn as they are, at its
+            // own weight, and never emboldened. parley sets their advances as the font has them.
+            if synthesis.embolden() {
+                let font = fonts.font_ref(run.font())?.id;
+                if !lighter.contains(&font) {
+                    lighter.push(font);
+                }
+            }
             // A family asked for italic that has no italic face of its own: a fallback's. Its
             // glyphs are drawn as they are, upright, and never slanted (PLAN 2.40).
             if synthesis.skew().is_some() {
@@ -1915,7 +1925,7 @@ fn read_layout(
         words: p.words,
         widow: p.widow,
         rtl: p.rtl,
-        synthesized,
+        lighter,
         upright,
         align: p.align,
         measure: p.measure,

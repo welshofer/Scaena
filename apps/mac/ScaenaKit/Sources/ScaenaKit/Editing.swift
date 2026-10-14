@@ -124,6 +124,13 @@ public struct FurnitureChoice: Decodable, Sendable, Equatable {
         return [["op": "furnish", "footer": trimmed.isEmpty ? .null : .string(trimmed)]]
     }
 
+    /// The patch that sets the deck's footer to `words`, as `footing` does, or none where the words,
+    /// trimmed, are the footer it has: a field left with a space added changes nothing.
+    public func footing(to words: String) -> [JSONValue]? {
+        let trimmed = words.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed == (footer ?? "") ? nil : FurnitureChoice.footing(trimmed)
+    }
+
     /// The patch that shows the number and footer on this slide, hides them, or leaves them as its
     /// layout has them (`nil`): on the slide's first state.
     public func showing(_ shows: Bool?) -> [JSONValue] {

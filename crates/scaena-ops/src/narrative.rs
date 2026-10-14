@@ -1531,12 +1531,16 @@ fn icons_of<'n>(narrative: &'n Narrative, slide: &Slide, items: &[Item]) -> Opti
 }
 
 /// The icons `words` name (PLAN G.23), each the first its word finds in the set that ships
-/// ([`crate::icons::find`]), in its regular weight; a word that finds none left out. What the
+/// ([`crate::icons::find`]), in its regular weight; a word that finds none left out, and so is one
+/// with no letter or digit, which [`crate::icons::find`] would answer with every icon. What the
 /// CLI and the Mac hand a generation ([`Generation::give_icons`]); the browser finds them by the
 /// same rule (`web/src/icons.ts`).
 #[cfg(feature = "shipped")]
 pub fn icons_found(words: &[String]) -> BTreeMap<String, Icon> {
     scaena_core::sort::map(words.iter().filter_map(|word| {
+        if !word.chars().any(char::is_alphanumeric) {
+            return None;
+        }
         let found = crate::icons::find(word, crate::icons::Weight::Regular, 1).icons.into_iter().next()?;
         Some((word.clone(), Icon { name: found.name, path: found.icon.path, view: found.icon.view }))
     }))
@@ -4216,6 +4220,36 @@ mod tests {
             .map(|f| format!("{} {}", f.code, f.message))
             .collect();
         assert!(errors.is_empty(), "{errors:#?}");
+    }
+
+    /// A word with no letter or digit (`-`, `—`, an emoji), which a model writes for an item it
+    /// cannot picture, names no icon (PLAN G.23): the set's first icon is never taken for it, and
+    /// its slide keeps its layout of words.
+    #[cfg(feature = "shipped")]
+    #[test]
+    fn a_word_with_no_letter_names_no_icon() {
+        let none: Vec<String> = ["-", "—", "$", "\u{1F680}"].iter().map(|w| w.to_string()).collect();
+        assert!(icons_found(&none).is_empty(), "{:?}", icons_found(&none).keys());
+        let three = ["Fast: a crossing in a day", "Safe: checked at every port", "Shared: one ledger for all"];
+        let slides = vec![
+            Slide { slide_title: "Tidewater".into(), layout_suggestion: "Title".into(), ..Slide::default() },
+            Slide {
+                slide_title: "What it means for a crew".into(),
+                layout_suggestion: "Gallery".into(),
+                key_bullets: three.iter().map(|b| b.to_string()).collect(),
+                icons: ["rocket", "-", "leaf"].iter().map(|i| i.to_string()).collect(),
+                ..Slide::default()
+            },
+            Slide { slide_title: "Sail with us".into(), layout_suggestion: "Closing".into(), ..Slide::default() },
+        ];
+        let mut n = narrative("A pitch.", slides);
+        assert_eq!(n.icon_words(), ["rocket", "leaf"]);
+        n.icons = icons_found(&n.icon_words());
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let made = deck(&n, &theme, &Pictures::new()).unwrap();
+        assert_eq!(made.layouts[1], "three-columns", "its words, under no icon");
+        let acorn = made.deck["nodes"].as_object().unwrap().values().any(|node| node["alt"] == "Acorn");
+        assert!(!acorn, "no item is set under the set's first icon");
     }
 
     #[test]

@@ -877,7 +877,7 @@ pub fn inserting(
         Start::Box { .. } => {
             let kind = insert.node["type"].as_str();
             // An icon goes in an empty place for one, as words go in a place for words (PLAN G.23).
-            let icon = kind == Some("shape") && insert.node.get("view").is_some();
+            let icon = kind == Some("shape") && scaena_core::inserts::is_icon(|key| insert.node.get(key));
             let empty = match serde_json::from_value(insert.node["type"].clone()) {
                 Ok(content @ (NodeType::Text | NodeType::Image)) => empty_slot(deck, theme, room, state, at, content)?,
                 Ok(NodeType::Shape) if icon => empty_slot(deck, theme, room, state, at, NodeType::Shape)?,

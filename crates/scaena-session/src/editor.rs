@@ -404,7 +404,8 @@ impl Session {
     /// (`surface-2`) in each other slot that waits for a picture or a figure. Each as JSON: its
     /// `layout` (none for the blank one), the layout's `name`, `description`, and `group`, and its
     /// picture's `width` and `height`, the pictures kept until [`Session::starter_picture`] takes
-    /// each. Nothing is made.
+    /// each. Nothing is made, and the pictures leave off the deck's slide number and footer, which
+    /// the slide would draw where it lands.
     pub fn starters_painted(
         &mut self,
         state: &str,
@@ -413,7 +414,12 @@ impl Session {
     ) -> Result<Vec<Value>, Error> {
         use scaena_paint::Painter;
         self.build()?;
-        let base = self.deck.to_value().map_err(|e| Error::Ops(e.to_string()))?;
+        let mut base = self.deck.to_value().map_err(|e| Error::Ops(e.to_string()))?;
+        // A layout's picture is drawn without the deck's slide number and footer: an editor keeps
+        // it whichever slide the picker opens from, and whatever the deck shows at their feet.
+        if let Some(deck) = base.as_object_mut() {
+            deck.remove("furniture");
+        }
         let fill = ["surface-2", "line"].into_iter().find(|c| self.theme.tokens.roles.contains_key(*c));
         let layouts: Vec<Option<String>> = match only {
             Some(only) => only
@@ -653,6 +659,25 @@ mod tests {
             s.starter_picture(0).unwrap().rgba,
             pictures[layouts.iter().position(|l| *l == "two-up").unwrap()].rgba
         );
+    }
+
+    /// A layout's picture is the same whatever the deck numbers or puts at a slide's foot, and
+    /// whichever slide the picker opens from: what an editor keeps it by (ADR-0028).
+    #[test]
+    fn a_layouts_picture_leaves_off_the_slide_number_and_footer() {
+        let mut s = revenue();
+        let only = [Some("figure".to_string())];
+        let picture = |s: &mut Session, state: &str| {
+            s.starters_painted(state, 90, Some(&only)).unwrap();
+            s.starter_picture(0).unwrap().rgba
+        };
+        let bare = picture(&mut s, "revenue");
+        let by = crate::assistant::Caller { author: "user", at: None };
+        let furnish = serde_json::json!({ "ops": [{ "op": "furnish", "number": true, "footer": "Board" }] });
+        s.tool("deck_patch", furnish, by).unwrap();
+        assert!(s.deck.furniture.is_some());
+        assert!(picture(&mut s, "revenue") == bare, "no number or footer drawn");
+        assert!(picture(&mut s, "intro") == bare, "from another slide, the same");
     }
 
     #[test]
