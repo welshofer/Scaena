@@ -6,7 +6,9 @@
 // On the torture deck's `containers` case:
 // - The tally and the card selected, ⌘G puts them in a new group, `group`, where they stand: one
 //   patch, the group selected, nothing moved; one undo takes it back.
-// - ⌘⇧G on the group takes it apart: the deck is as it was, the tally and the card selected.
+// - ⌘⇧G on the group takes it apart: the deck is as it was, the tally and the card selected. On a
+//   member, as a click selects it, it takes the group that holds it apart; on what no group holds,
+//   it says so, in a person's words.
 // - The inspector's Group and Ungroup buttons do the same.
 // - A stat's figure and label, which a stack holds, are refused: a stack places what it holds.
 // Exits 1 on any failure.
@@ -116,6 +118,22 @@ try {
   check(await press("Control+Shift+g", "The group taken apart: 2 objects"), `⌘⇧G takes it apart: ${await status()}`);
   check((await source()) === original, "and the deck is as it was");
   check(JSON.stringify((await chosen()).sort()) === JSON.stringify(["card", "tally"]), `its children are selected: ${await chosen()}`);
+
+  // ⌘⇧G with a member selected, as a click on it selects: the group that holds it is taken apart,
+  // said in a person's words. With what no group holds selected, it says so.
+  await page.evaluate(() => window.scaena.canvas.selectAll(["tally", "card"]));
+  check(await press("Control+g", "2 objects grouped"), "grouped once more");
+  await page.waitForFunction(() => window.scaena.canvas.chosen().join() === "group", null, { timeout: 30000 }).catch(() => {});
+  await page.evaluate(() => window.scaena.canvas.select("tally"));
+  check(await press("Control+Shift+g", "The group taken apart: 2 objects"), `⌘⇧G on a member takes its group apart: ${await status()}`);
+  check(!/op \d|`/.test(await status()) && (await source()) === original, `in words, the deck as it was: ${await status()}`);
+  await page.evaluate(() => window.scaena.canvas.select("stat-a-figure"));
+  // Nothing changes, so no lint follows: the status alone answers.
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Control+Shift+g");
+  check(await says("is in no group"), `with what no group holds, it says so: ${await status()}`);
+  check(!/op \d|`/.test(await status()) && (await source()) === original, "in words, and nothing changes");
+  await page.evaluate(() => window.scaena.canvas.selectAll(["tally", "card"]));
 
   // The inspector's Group and Ungroup.
   await page.waitForFunction(() => document.querySelector("#look [data-group]"), null, { timeout: 30000 }).catch(() => {});

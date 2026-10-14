@@ -8,7 +8,9 @@
 //   and the cell that does not read marked, with why, and listed under it. axe-core finds nothing
 //   against WCAG 2.1 AA in it.
 // - Setting that cell to a number fixes it: the problem goes, and the deck validates.
-// - A value its column does not read is refused, with why, and the cell holds what it held. So is
+// - In a window of 1440 × 900 the sheet's columns fit the panel, each as wide as what it holds.
+// - A value its column does not read is refused, with why in a person's words (no source's
+//   name, no backticks), and the cell holds what it held. So is
 //   a value that would leave the deck invalid: a second Core in 2025-Q4, E103.
 // - A cell set repaints the chart that reads it, and the bundle is changed, to save.
 // - + Row adds a row after the one focused, − Row takes it away, and Undo and Redo put the file
@@ -99,6 +101,16 @@ try {
   await page.addScriptTag({ path: axe });
   const violations = await page.evaluate(async () => (await window.axe.run(document.querySelector("#data"), { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] })).violations);
   check(violations.length === 0, `axe finds nothing in the Data panel${violations.length ? `: ${violations.map((v) => `${v.id} (${v.nodes.length})`).join(", ")}` : ""}`);
+  // In a window of 1440 × 900 the four columns fit the panel: each as wide as what it holds.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.waitForTimeout(300);
+  const fits = await page.evaluate(() => {
+    const sheet = document.querySelector("#data .sheet");
+    const last = [...sheet.querySelectorAll("thead th")].at(-1).getBoundingClientRect();
+    return { scroll: sheet.scrollWidth, client: sheet.clientWidth, inside: last.right <= sheet.getBoundingClientRect().right + 1 };
+  });
+  check(fits.scroll <= fits.client && fits.inside, `at 1440 × 900 the sheet fits the panel, its last column whole: ${JSON.stringify(fits)}`);
+  await page.setViewportSize({ width: 1600, height: 1100 });
 
   // Fixed: the deck validates.
   await set(3, 2, "19.8", "Row 3, revenue: set");
@@ -116,7 +128,10 @@ try {
   // Refused: a value its column does not read, and one that would leave the deck invalid.
   await set(2, 2, "lots", "Not changed");
   const lots = await status();
-  check(lots.includes("`lots` is not a number") && (await value(2, 2)) === "4.4", `a value its column does not read is refused, with why, the cell as it was: ${lots}`);
+  check(
+    lots.includes("The revenue column takes a number: “lots” is not one") && !/[`@]/.test(lots) && (await value(2, 2)) === "4.4",
+    `a value its column does not read is refused, with why in a person's words, the cell as it was: ${lots}`,
+  );
   await set(1, 1, "Core", "Not changed");
   const twice = await status();
   check(twice.startsWith("Not changed: ") && !/\b[EWI]\d{3}\b/.test(twice) && (await value(1, 1)) === "Pro", `a second Core in 2025-Q4 is refused, in a sentence: ${twice}`);

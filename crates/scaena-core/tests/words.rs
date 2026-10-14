@@ -8,6 +8,8 @@ use std::collections::BTreeSet;
 
 const WORDS_SWIFT: &str = include_str!("../../../apps/mac/ScaenaKit/Sources/Scaena/Words.swift");
 const ISSUES_SWIFT: &str = include_str!("../../../apps/mac/ScaenaKit/Sources/Scaena/IssueBadges.swift");
+const CUE_SWIFT: &str = include_str!("../../../apps/mac/ScaenaKit/Sources/Scaena/CueBar.swift");
+const INSPECTOR_SWIFT: &str = include_str!("../../../apps/mac/ScaenaKit/Sources/Scaena/Inspector.swift");
 
 /// The Swift source between `from` and the first `until` after it.
 fn between<'a>(source: &'a str, from: &str, until: &str) -> &'a str {
@@ -68,6 +70,28 @@ fn the_mac_names_colors_easings_presets_shapes_and_kinds_as_the_browser_does() {
     {
         assert_eq!(words::motion("enter", Some(split)), format!("Enters {by}"));
     }
+}
+
+/// The Mac's Add Motion names each build as the browser's menu does (PLAN 2.112, 3.18): by its name,
+/// `Move In from Left`, under its object's words, never by the theme's key or the node's id.
+#[test]
+fn the_mac_names_each_build_it_offers_as_the_browser_does() {
+    let adding = between(CUE_SWIFT, "private var adding: some View", ".menuStyle(");
+    assert!(adding.contains(r#"Button(Words.name(preset, of: "motion-preset", theme: nil))"#), "{adding}");
+    assert!(!adding.contains("Button(preset)") && !adding.contains("offer.label"), "{adding}");
+    let add = between(CUE_SWIFT, "private func add(_ preset: String", "\n    }\n");
+    assert!(add.contains(r#"Words.name(preset, of: "motion-preset", theme: nil)"#) && !add.contains("phrase"), "{add}");
+}
+
+/// A build the inspector keeps but no longer offers for its kind reads as its name, as the browser
+/// says it (PLAN 2.116): Pulse, not Custom, which is for a value written out.
+#[test]
+fn the_mac_says_a_build_it_keeps_by_its_name() {
+    let pick = between(INSPECTOR_SWIFT, "private struct PickRow", "\n}\n");
+    assert!(pick.contains("Text(Self.kept(value, said: said)).tag(current)"), "{pick}");
+    assert!(!pick.contains(r#"Text("Custom").tag(current)"#), "{pick}");
+    let named = between(INSPECTOR_SWIFT, "case .name(let of, let names, _):", "case .word(");
+    assert!(named.contains("said: { Words.name($0, of: of, theme: look) }"), "{named}");
 }
 
 #[test]

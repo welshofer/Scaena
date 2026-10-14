@@ -428,7 +428,7 @@ export interface Field {
   theme?: unknown;
   /** Its label, and each name or word it offers, its value, and the theme's, said as a person says
    * them (PLAN 2.99): `style/family` is Font, `onSurface` Text, `fast` Fast (0.18 s). */
-  words?: { label: string; said: Record<string, string> };
+  words?: { label: string; said: Record<string, string>; colors?: Record<string, string> };
 }
 
 /** What a property takes: one of the theme's names of a kind (with `overrides`, or a value written
@@ -710,6 +710,9 @@ export interface Compared {
   deck: Record<string, unknown>;
   /** The data files whose bytes changed. */
   files: string[];
+  /** Each text whose words changed, by state and node: its words before and after, which name it
+   * and show what changed. */
+  texts?: Record<string, Record<string, [string, string]>>;
 }
 
 /** What restoring a version did, as `scaena history --restore` says it. */
@@ -1601,7 +1604,8 @@ export interface Cue {
   start: number;
   span: number;
   hold: number;
-  /** Its transition; `style` and `direction` where it is a slide transition (PLAN 2.111). */
+  /** Its transition; `style` and `direction` where it is a slide transition (PLAN 2.111), and no
+   * `direction` for a dissolve, which goes no way. */
   transition: { duration: number; match: string; curve: Curve; style?: string; direction?: string };
   motions: Motion[];
 }
@@ -1629,6 +1633,8 @@ export interface Motion {
   delay: number;
   /** Where it is written: a JSON pointer into the deck. */
   written?: string;
+  /** The theme's preset it plays, where it is written as one. */
+  preset?: string;
   curve: Curve;
 }
 

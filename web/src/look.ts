@@ -43,7 +43,7 @@
 import type { Arrange, Choices, Edited, Field, LayoutSuggestion, Lives, StateChoices, WritingKind } from "./protocol";
 import type { Stage } from "./stage";
 import type { Selected } from "./typing";
-import { counted, fractions, PARTS, quote, reaching } from "./words";
+import { counted, fractions, PARTS, quote, reaching, seconds } from "./words";
 
 /** What the inspector's edits ask of the editor around them. */
 export interface Around {
@@ -165,20 +165,38 @@ function part(el: HTMLElement): { node: string; kind: string; says: string } {
 /** A property as a person labels it (PLAN 2.99): `style/family` is Font. */
 const labeled = (f: Field) => f.words?.label ?? f.prop;
 
+/** A build written as a call to a preset (`{ preset, delay }`), as a drag of its bar in the cue
+ * writes it (SPEC §7.3): the preset it plays. */
+const called = (v: unknown): { preset: string; delay?: number } | undefined =>
+  v !== null && typeof v === "object" && typeof (v as { preset?: unknown }).preset === "string" ? (v as { preset: string; delay?: number }) : undefined;
+
 /** A value of `f`'s as a person says it (PLAN 2.99): one of its names or words as the engine says
- * it (`onSurface` is Text), a weight by its name, yes or no; a value written out, a color or a
- * gradient, is the deck's own. */
+ * it (`onSurface` is Text), a weight by its name, yes or no; a build called with a setting by its
+ * preset and its wait; a value written out, a color or a gradient, is the deck's own. */
 function spoken(f: Field, v: unknown): string {
+  const call = called(v);
+  if (call) {
+    const name = f.words?.said[call.preset] ?? call.preset;
+    return typeof call.delay === "number" && call.delay > 0 ? `${name} · waits ${seconds(call.delay)}` : name;
+  }
   if (typeof v === "string") return f.words?.said[v] ?? (v.startsWith("#") ? v : "Custom");
   if (typeof v === "boolean") return v ? "Yes" : "No";
   if (typeof v === "number") return f.words?.said[String(v)] ?? String(Math.round(v * 1000) / 1000);
   return "Custom";
 }
 
-/** An adjustment from -1 to 1 as Adjust Image's slider reads it: "None", or a signed percent. */
+/** An adjustment from -1 to 1 as Adjust Image's slider reads it, and the status says it: "None",
+ * or a signed percent. */
 function adjustment(value: number): string {
-  return value === 0 ? "None" : `${value > 0 ? "+" : "−"}${Math.round(Math.abs(value) * 100)}`;
+  return value === 0 ? "None" : `${value > 0 ? "+" : "−"}${Math.round(Math.abs(value) * 100)}%`;
 }
+
+/** Each part of an image's crop or focal point as its field is captioned: the crop by its edges
+ * and its size, the focal point by how far across and down. */
+const CAPTIONS: Record<string, Record<string, string>> = {
+  crop: { x: "Left", y: "Top", w: "Width", h: "Height" },
+  focal: { x: "Across", y: "Down" },
+};
 
 /** Where a value lives, as a person says it: on the slide shown (`shown`), on another (`slide`
  * says which), on the object, on the object on every slide, or the theme's. */
@@ -196,6 +214,8 @@ const told = (f: Field, v: unknown) =>
     ? `after ${Math.round(v) / 1000} s`
     : f.prop === "transform/rotate" && typeof v === "number"
       ? `${v}°`
+      : f.prop.startsWith("adjust/") && typeof v === "number"
+        ? adjustment(v)
       : f.takes.kind === "text" && typeof v === "string"
         ? v.trim()
           ? quote(v)
@@ -281,9 +301,10 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
   /** The control for field `f`, its id `id`. */
   function control(f: Field, id: string): string {
     const prop = `data-prop="${html(f.prop)}"`;
-    const value = f.value;
+    // A build called with a setting is the preset it plays, its option chosen.
+    const value = called(f.value)?.preset ?? f.value;
     const label = labeled(f);
-    // A value no control here sets (a preset with parameters, a gradient) shows as the deck's own.
+    // A value no control here sets (a gradient) shows as the deck's own.
     const kept = (known: unknown[]) =>
       value !== undefined && !known.includes(value) ? `<option value="" selected disabled>${html(spoken(f, value))}</option>` : "";
     // What shows where nothing sets it: the theme's, by what it gives a text's look.
@@ -304,7 +325,11 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
         let select = `<select id="${id}" ${prop}>${none}${options(t.names)}${kept(t.names)}</select>`;
         const written = `id="${id}-written" ${prop} title="One of its own, on every slide"`;
         if (t.overrides && t.of === "color") {
-          const hex = typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ? value : "#000000";
+          // The well shows the color in use: one written out, or the one the theme's name is,
+          // the value's or, where nothing sets it, the theme's (PLAN 2.99).
+          const shown = typeof value === "string" ? value : typeof f.theme === "string" ? f.theme : undefined;
+          const own = shown !== undefined && /^#[0-9a-f]{6}$/i.test(shown) ? shown : undefined;
+          const hex = (own ?? (shown !== undefined ? f.words?.colors?.[shown] : undefined) ?? "#000000").toLowerCase();
           select += ` <input type="color" ${written} value="${hex}" aria-label="${html(label)} of its own, on every slide">`;
         } else if (t.overrides) {
           const units = typeof value === "number" ? String(value) : "";
@@ -359,12 +384,15 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
         return `<textarea id="${id}" ${prop} rows="${rows}" placeholder="${empty}">${html(typeof value === "string" ? value : "")}</textarea>`;
       }
       case "fractions": {
-        // An image's focal point or crop (PLAN 2.45): what shows where nothing sets it.
+        // An image's focal point or crop (PLAN 2.45): what shows where nothing sets it. Each part
+        // is a share of the picture, in percent, under its caption, as the status says it.
         const rest = f.prop === "crop" ? [0, 0, 1, 1] : [0.5, 0.5];
         const now = Array.isArray(value) && value.length === t.names.length ? (value as number[]) : rest;
         const inputs = t.names.map((name, k) => {
           const part = PARTS[name] ?? name;
-          return `<input${k === 0 ? ` id="${id}"` : ""} type="number" class="fraction" ${prop} data-part="${k}" min="0" max="1" step="0.01" value="${now[k]}" aria-label="${html(label)}, ${part}" title="${part[0].toUpperCase()}${part.slice(1)}, as a share of the picture">`;
+          const caption = CAPTIONS[f.prop]?.[name] ?? part;
+          const pct = Math.round(now[k] * 1000) / 10;
+          return `<label class="part"><span>${html(caption)}</span><input${k === 0 ? ` id="${id}"` : ""} type="number" class="fraction" ${prop} data-part="${k}" min="0" max="100" step="0.1" value="${pct}" aria-label="${html(label)}, ${part}, percent" title="${html(caption)}, as a share of the picture">%</label>`;
         });
         // The focal point is picked on the image itself: where its subject is.
         const pick = f.prop === "focal" ? ' <button type="button" data-pick title="Then click the picture where its subject is">Pick</button>' : "";
@@ -760,7 +788,7 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     // Fractions of the image, together (PLAN 2.45): a crop keeps some of the image, inside it.
     if (target.dataset.part !== undefined) {
       const inputs = [...into.querySelectorAll<HTMLInputElement>(`input[data-prop="${CSS.escape(prop)}"][data-part]`)];
-      const parts = inputs.map((i) => (i.value.trim() === "" ? NaN : Number(i.value)));
+      const parts = inputs.map((i) => (i.value.trim() === "" ? NaN : Number(i.value) / 100));
       if (parts.some((p) => !Number.isFinite(p))) return render(true);
       const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
       // In whole thousandths, as a person writes them, so that a crop's edges add up exactly.
@@ -772,6 +800,9 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
       return void choose(prop, given.map((p) => p / 1000));
     }
     let value: unknown = target.value === "" ? null : target.value;
+    // Another preset for a build called with a setting keeps the setting: its wait stays.
+    const call = called(offered && "fields" in offered ? offered.fields.find((f) => f.prop === prop)?.value : undefined);
+    if (call && typeof value === "string" && target instanceof HTMLSelectElement) value = { ...call, preset: value };
     if (target.matches("[data-flag]") && value !== null) value = value === "yes";
     if (target instanceof HTMLInputElement && (target.type === "number" || target.type === "range") && value !== null) {
       value = Number(value) * Number(target.dataset.scale ?? 1);

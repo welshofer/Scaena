@@ -217,7 +217,7 @@ layout("Statements", "key-point", "One point on its card, set large, and what fo
 layout("Lists", "bullets-photo", "A headline and the points that make its case, a picture off the right edge beside them.", {
     "art": picture((8, 12), (1, 12), "A picture, off the edge", bleed=True),
     "header": header(col=(1, 7)),
-    "body": slot((1, 7), (3, 10), "body", {"bullet": ["The first point", "The second point", "The third point"]}),
+    "body": slot((1, 7), (3, 10), "lede", {"bullet": ["The first point", "The second point", "The third point"]}),
 })
 
 layout("Lists", "checklist", "What's done and what's left: each item on its row, its state at the end.", {
@@ -231,7 +231,7 @@ layout("Lists", "checklist", "What's done and what's left: each item on its row,
 layout("Lists", "agenda-photo", "What the talk covers, numbered, beside a picture off the left edge.", {
     "art": picture((1, 5), (1, 12), "A picture, off the edge", bleed=True),
     "header": slot((7, 12), (2, 3), "headline", "Agenda"),
-    "body": slot((7, 12), (4, 10), "body", {"number": ["The first topic", "The second topic", "The third topic", "The fourth topic"]}),
+    "body": slot((7, 12), (4, 10), "lede", {"number": ["The first topic", "The second topic", "The third topic", "The fourth topic"]}),
     "kicker": KICKER,
 }, ember={"header": ((7, 12), (2, 3)), "body": ((7, 12), (4, 11)), "kicker": ((7, 12), 12)})
 
@@ -903,6 +903,10 @@ OLD_SLOTS = {
     "stat": {"number": {"role": "hero", "fit": "shrink"}},
     "big-number": {"number": {"fit": "shrink"}},
     "two-numbers": {"first-title": {"fit": "shrink"}, "second-title": {"fit": "shrink"}},
+    # A list's points are read from the back of the room: set in the lede, as Statements' credo
+    # sets its own, not in the body's size, which leaves three of them in the top of the slot.
+    "bullets": {"body": {"role": "lede"}},
+    "numbered": {"body": {"role": "lede"}},
 }
 
 # And in one theme alone. Where Stat's claim sits under its number, as in Dusk and Daybreak, the

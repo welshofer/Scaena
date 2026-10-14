@@ -371,13 +371,17 @@ public struct Cue: Decodable, Sendable {
         public let duration: Double
         /// On a spring, which lasts as long as it takes to settle (SPEC §3.9).
         public let sprung: Bool
+        /// A slide transition's style (PLAN 2.111), which moves the slide left whole: none of its
+        /// exits plays.
+        public let style: String?
 
-        private enum Keys: String, CodingKey { case duration, curve }
+        private enum Keys: String, CodingKey { case duration, curve, style }
 
         public init(from decoder: any Decoder) throws {
             let fields = try decoder.container(keyedBy: Keys.self)
             duration = try fields.decode(Double.self, forKey: .duration)
             sprung = try fields.decodeIfPresent(JSONValue.self, forKey: .curve)?["spring"] != nil
+            style = try fields.decodeIfPresent(String.self, forKey: .style)
         }
     }
 
