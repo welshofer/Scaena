@@ -252,8 +252,11 @@ pub(super) fn compile(doc: &Value, op: &SemanticOp, files: &dyn BundleFiles) -> 
 /// A blank paragraph comes and goes with the one before it.
 ///
 /// Each step is the slide's, named after it, in the beat of the state it follows. Nothing where the
-/// preset splits otherwise, the text has fewer than two paragraphs with words, or one of the states
-/// that show it, one after another, says which it draws: it is built by bullet already.
+/// text has fewer than two paragraphs with words, or it is built so already: the first of the
+/// states that show it, one after another, draws part of it (in), or the last does (out). So a
+/// list is built in by bullet and out by bullet, each once.
+///
+/// Another build chosen for that motion, or none, takes such a build back ([`unbuilt`]).
 fn by_bullet(
     d: &Doc,
     files: &dyn BundleFiles,
@@ -262,12 +265,11 @@ fn by_bullet(
     preset: &Value,
     state: Option<&str>,
 ) -> Result<Vec<JsonOp>, String> {
-    let (Some(preset), "enter" | "exit") = (preset.as_str(), motion) else { return Ok(Vec::new()) };
-    let Ok(theme) = d.theme(files) else { return Ok(Vec::new()) };
-    let split = theme.motion.presets.get(preset).and_then(|p| p.split);
-    if d.kind(node)? != "text" || split != Some(crate::model::values::SplitUnit::Paragraphs) {
+    if !matches!(motion, "enter" | "exit") || d.kind(node)? != "text" {
         return Ok(Vec::new());
     }
+    let Ok(theme) = d.theme(files) else { return Ok(Vec::new()) };
+    let split = preset.as_str().and_then(|p| theme.motion.presets.get(p)).and_then(|p| p.split);
     let (deck, snapshots) = d.snapshots()?;
     let shown = |i: usize| snapshots.get(i).and_then(|s| s.nodes.get(node));
     let at = match state {
@@ -282,8 +284,12 @@ fn by_bullet(
     while shown(last + 1).is_some() {
         last += 1;
     }
+    let part = |i: usize| shown(i).is_some_and(|p| p.contains_key("paragraphs"));
+    let built = part(if motion == "enter" { first } else { last });
+    if split != Some(crate::model::values::SplitUnit::Paragraphs) {
+        return Ok(if built { unbuilt(d, node, motion, (first, last), &part) } else { Vec::new() });
+    }
     let inked = crate::builds::paragraphs(props);
-    let built = (first..=last).any(|i| shown(i).is_some_and(|p| p.contains_key("paragraphs")));
     if inked.len() < 2 || built {
         return Ok(Vec::new());
     }
@@ -337,6 +343,79 @@ fn by_bullet(
         }
     }
     Ok(ops)
+}
+
+/// The ops that take a build by bullet of `node`'s `motion` back (PLAN 2.129), where another
+/// build is chosen for it, or none, as a presentation app's All at Once takes back its By Bullet.
+/// `first..=last` are the states that show the text, one after another, and `part` says which of
+/// them draw part of it.
+/// - **In:** from the first, the states that draw part of it, and the step after them that draws
+///   it whole again.
+/// - **Out:** the last states that draw part of it, and the step after them that it leaves in.
+///
+/// Each draws the text whole, its `paragraphs` taken away; and each step that says no more than
+/// which of them it draws, or, out, that it leaves, goes, out of its beat too, unless a state
+/// builds on it or tracks from it, or a link goes to it. A step the deck has given more stays.
+fn unbuilt(
+    d: &Doc,
+    node: &str,
+    motion: &str,
+    (first, last): (usize, usize),
+    part: &dyn Fn(usize) -> bool,
+) -> Vec<JsonOp> {
+    let states = d.states();
+    let (from, to) = if motion == "enter" {
+        (first, (first..=last).find(|&i| !part(i)).unwrap_or(last))
+    } else {
+        let from = (first..=last).rev().find(|&i| !part(i)).map_or(first, |i| i + 1);
+        (from, (last + 1).min(states.len().saturating_sub(1)))
+    };
+    // A step the build made: one that says no more than which paragraphs the text draws, or, out,
+    // that it leaves.
+    let says = |i: usize, (key, value): (&String, &Value)| match key.as_str() {
+        "id" | "slide" => true,
+        "mode" => value == "delta",
+        "props" => value.as_object().is_some_and(|p| {
+            p.iter()
+                .all(|(n, delta)| n == node && delta.as_object().is_some_and(|d| d.keys().all(|k| k == "paragraphs")))
+        }),
+        "remove" => motion == "exit" && i == last + 1 && value.as_array().is_some_and(|r| r == &[Value::from(node)]),
+        _ => false,
+    };
+    let drawn = format!("/props/{}/paragraphs", esc(node));
+    let bare = |i: usize| {
+        let id = id_of(&states[i]);
+        let made = states[i].pointer(&drawn).is_some() || (motion == "exit" && i == last + 1);
+        let named =
+            states.iter().any(|s| ["slide", "from"].iter().any(|k| s.get(*k).and_then(Value::as_str) == Some(id)));
+        made && i != first
+            && states[i].get("slide").is_some()
+            && !named
+            && links_to(d, id).is_empty()
+            && states[i].as_object().is_some_and(|s| s.iter().all(|entry| says(i, entry)))
+    };
+    let mut ops = Vec::new();
+    let mut gone = Vec::new();
+    for i in (from..=to).rev() {
+        if bare(i) {
+            gone.push(id_of(&states[i]));
+            ops.push(JsonOp::Remove { path: format!("/states/{i}") });
+        } else if states[i].pointer(&drawn).is_some() {
+            ops.push(JsonOp::Remove { path: format!("/states/{i}{drawn}") });
+        }
+    }
+    for (s, b, beat) in d.beats() {
+        if let Some(Value::Array(ids)) = beat.get("states")
+            && ids.iter().any(|x| x.as_str().is_some_and(|x| gone.contains(&x)))
+        {
+            let kept = ids.iter().filter(|x| !x.as_str().is_some_and(|x| gone.contains(&x))).cloned().collect();
+            ops.push(JsonOp::Replace {
+                path: format!("/spine/sections/{s}/beats/{b}/states"),
+                value: Value::Array(kept),
+            });
+        }
+    }
+    ops
 }
 
 /// The deck being patched, as JSON.
@@ -765,7 +844,52 @@ fn replace_text(
             entries.push(("list".into(), None, serde_json::to_value(now).map_err(|e| e.to_string())?));
         }
     }
-    shown.write(d, node, state, fork, entries, prop)
+    let mut ops = shown.write(d, node, state, fork, entries, prop)?;
+    ops.extend(drawing_in_step(d, node, &ops, (&shown.written, from..to), text));
+    Ok(ops)
+}
+
+/// Ops that keep the paragraphs each state draws of text `node` (PLAN 2.129) in step with `ops`,
+/// an edit that makes bytes `range` of `written` `text`, as its list is kept: in each state whose
+/// delta says which it draws and whose text the edit changes, a paragraph typed into stays drawn
+/// with what is typed, so a bullet added where a step of a build by bullet shows is drawn there,
+/// and the paragraphs after the edit move with those it adds or takes away.
+fn drawing_in_step(
+    d: &Doc,
+    node: &str,
+    ops: &[JsonOp],
+    (written, range): (&str, Range<usize>),
+    text: &str,
+) -> Vec<JsonOp> {
+    let drawn = |state: &Value| {
+        state.get("props").and_then(|p| p.get(node)).and_then(|p| p.get("paragraphs")).filter(|p| !p.is_null()).cloned()
+    };
+    if !d.states().iter().any(|s| drawn(s).is_some()) {
+        return Vec::new();
+    }
+    let now = format!("{}{text}{}", &written[..range.start], &written[range.end..]);
+    let mut after = d.0.clone();
+    if ops.iter().any(|op| super::one(&mut after, op).is_err()) {
+        return Vec::new();
+    }
+    let resolved = |doc: &Value| Deck::from_value(doc).ok().and_then(|deck| resolve_states(&deck).ok());
+    let (Some(before), Some(edited)) = (resolved(d.0), resolved(&after)) else { return Vec::new() };
+    let says = |snaps: &[Snapshot], i: usize, words: &str| {
+        snaps.get(i).and_then(|s| s.nodes.get(node)).is_some_and(|p| crate::reading::words(p) == words)
+    };
+    let mut out = Vec::new();
+    for (i, state) in d.states().iter().enumerate() {
+        let Some(was) = drawn(state) else { continue };
+        if !says(&before, i, written) || !says(&edited, i, &now) {
+            continue;
+        }
+        if let Some(value) = crate::lists::redrawn(&was, written, range.clone(), text)
+            && value != was
+        {
+            out.push(JsonOp::Replace { path: format!("/states/{i}/props/{}/paragraphs", esc(node)), value });
+        }
+    }
+    out
 }
 
 /// `list` without the trailing paragraphs that are no items.

@@ -17,10 +17,13 @@
 // - Each one step to undo; undone, the deck is as it was, and it validates.
 // - By Bullet (PLAN 2.129): the note typed as three paragraphs, Build In and Build Out offer By
 //   Bullet. Chosen as its entrance, one patch adds a step for each paragraph after the first: the
-//   slide draws the first, the next click the second, the last all three, and the second click's
-//   cue rises its new paragraph in. One undo takes the build and its steps back. In `close`, which
-//   the note leaves, the cue's menu offers it By Bullet as it leaves, and nothing else: one patch,
-//   a step after `mix` for each paragraph it lets go, one undo.
+//   slide draws the first, the next click the second, the last all three, the status counting the
+//   steps on the slide, and the second click's cue rises its new paragraph in. Built in so, Build
+//   Out's By Bullet adds a step after `mix` for each paragraph it lets go, and one undo takes them
+//   back. Rise chosen as its entrance takes By Bullet back, as All at Once does: its steps go and
+//   the note enters whole, one undo building it by bullet again. One undo takes the build and its
+//   steps back. In `close`, which the note leaves, the cue's menu offers it By Bullet as it leaves,
+//   and nothing else: one patch, a step after `mix` for each paragraph it lets go, one undo.
 // Exits 1 on any failure.
 import { launch, serve } from "./serve.mjs";
 
@@ -175,13 +178,15 @@ try {
   const said = (id) => page.evaluate((i) => [...document.querySelectorAll(`#${i} option`)].find((o) => o.value === "bullets")?.textContent, id);
   check((await said("look-enter")) === "By Bullet", `Build In offers By Bullet for a text of three paragraphs: ${await said("look-enter")}`);
   check((await said("look-exit")) === "By Bullet", `and so does Build Out: ${await said("look-exit")}`);
-  const before = await page.evaluate(() => window.scaena.last().states.map((s) => s[0]).join(" "));
   n = await trips();
   await page.selectOption("#look-enter", "bullets");
   await redrawn(n);
-  await page.waitForFunction((b) => window.scaena.last().states.map((s) => s[0]).join(" ") !== b, before, { timeout: 30000 }).catch(() => {});
+  await page
+    .waitForFunction((b) => window.scaena.last().states.map((s) => s[0]).join(" ") === b, "intro revenue revenue-2 revenue-3 mix close", { timeout: 30000 })
+    .catch(() => {});
   const steps = await page.evaluate(() => window.scaena.last().states.map((s) => s[0]).join(" "));
   check(steps === "intro revenue revenue-2 revenue-3 mix close", `By Bullet adds a step for each paragraph after the first: ${steps}`);
+  check(/^Build In: By Bullet · on \d steps of Slide 2\b/.test(await status()), `the status counts the steps it adds on the slide's: ${await status()}`);
   const reads = (state) => page.evaluate((s) => window.scaena.reading(s), state);
   const [first, second, third] = [await reads("revenue"), await reads("revenue-2"), await reads("revenue-3")];
   check(first.includes("Plants") && !first.includes("Chlorophyll"), `the slide draws the first paragraph: ${first.replace(/<[^>]+>/g, " ")}`);
@@ -198,6 +203,39 @@ try {
     .catch(() => {});
   const rise = await bar("note enter");
   check(rise?.delay === 0 && rise.to > rise.from, `the second click's cue has the note's paragraph rising in: ${JSON.stringify(rise)}`);
+  // Built in so, it builds out by bullet too, from Build Out: a step after `mix` for each paragraph
+  // it lets go.
+  const built = await source();
+  const lookAt = async (node) => {
+    await page.evaluate((id) => window.scaena.canvas.select(id), node);
+    await page.waitForFunction((id) => window.scaena.look.offered()?.node === id, node, { timeout: 30000 });
+  };
+  const states = () => page.evaluate(() => window.scaena.last().states.map((s) => s[0]).join(" "));
+  await lookAt("note");
+  n = await trips();
+  await page.selectOption("#look-exit", "bullets");
+  await redrawn(n);
+  const bothWanted = "intro revenue revenue-2 revenue-3 mix revenue-4 revenue-5 revenue-6 close";
+  await page.waitForFunction((w) => window.scaena.last().states.map((s) => s[0]).join(" ") === w, bothWanted, { timeout: 30000 }).catch(() => {});
+  const both = await states();
+  check(both === bothWanted, `built in by bullet, it builds out by bullet too: ${both}`);
+  await undo();
+  check((await source()) === built, "one undo takes the build out back");
+  // Another entrance chosen takes By Bullet back, as All at Once does: its steps go, and the note
+  // enters whole, by Rise.
+  await lookAt("note");
+  n = await trips();
+  await page.selectOption("#look-enter", "rise");
+  await redrawn(n);
+  await page.waitForFunction(() => window.scaena.last().states.map((s) => s[0]).join(" ") === "intro revenue mix close", null, { timeout: 30000 }).catch(() => {});
+  const whole = await states();
+  check(whole === "intro revenue mix close", `Rise chosen takes By Bullet's steps back: ${whole}`);
+  check(!(await source()).includes("paragraphs:") && /note[^\n]*enter:rise/.test(await source()), "and the note enters whole, by Rise");
+  check((await reads("revenue")).includes("Water"), "the slide draws all of it");
+  check(await page.evaluate(() => window.scaena.last().valid), "and it validates");
+  await undo();
+  check((await source()) === built, "one undo builds it by bullet again");
+
   // One step to undo: the build and its steps.
   await undo();
   check((await source()) === listed, "one undo takes By Bullet and its steps back");

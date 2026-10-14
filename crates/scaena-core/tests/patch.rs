@@ -2131,3 +2131,105 @@ fn a_build_by_bullet_puts_each_paragraph_on_a_click_of_its_own() {
     );
     assert_eq!(one.unwrap().doc["states"].as_array().unwrap().len(), 4);
 }
+
+/// A list is built in by bullet and out by bullet (PLAN 2.129), each once: an exit by bullet
+/// chosen for a list built in so takes its steps after the last state that shows it. Another
+/// build chosen for either, or none, takes that build back, as a presentation app's All at Once
+/// does: the text drawn whole, and each step that said no more than its paragraphs gone, out of
+/// its beat too, so the deck is as it was; a step the deck has given more keeps that.
+#[test]
+fn a_build_by_bullet_is_taken_back_by_another_and_a_list_built_in_builds_out_too() {
+    let mut doc = example();
+    doc["nodes"]["list"] = json!({ "type": "text", "role": "body", "text": "Plants\n\nChlorophyll\nWater",
+        "at": { "in": "main" } });
+    doc["states"][1]["props"]["list"] = json!({});
+    doc["states"][3]["remove"] = json!(["rev", "note", "list"]);
+    let choose = |doc: &Value, prop: &str, value: Value| {
+        let ops = json!([{ "op": "choose", "node": "list", "prop": prop, "value": value, "state": "revenue" }]);
+        patch(doc, ops).unwrap().doc
+    };
+    let ids = |doc: &Value| -> Vec<String> {
+        doc["states"].as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap().to_string()).collect()
+    };
+    let beat = |doc: &Value| doc["spine"]["sections"][1]["beats"][0]["states"].clone();
+    // In, then out: the exit's steps follow `mix`, the last that shows the list whole.
+    let built = choose(&doc, "enter", json!("bullets"));
+    let both = choose(&built, "exit", json!("bullets"));
+    assert_eq!(
+        ids(&both),
+        ["intro", "revenue", "revenue-2", "revenue-3", "mix", "revenue-4", "revenue-5", "revenue-6", "close"]
+    );
+    assert_eq!(both["states"][5]["props"]["list"], json!({ "paragraphs": [3, 4] }));
+    assert_eq!(both["states"][7], json!({ "id": "revenue-6", "slide": "revenue", "remove": ["list"] }));
+    assert_eq!(errors(&both), Vec::<String>::new());
+    // Out by bullet again: built so already.
+    assert_eq!(ids(&choose(&both, "exit", json!("bullets"))), ids(&both));
+
+    // Another entrance: its steps go, and it enters whole; the exit's stay.
+    let faded = choose(&both, "enter", json!("fade"));
+    assert_eq!(ids(&faded), ["intro", "revenue", "mix", "revenue-4", "revenue-5", "revenue-6", "close"]);
+    assert_eq!(faded["states"][1]["props"]["list"], json!({}));
+    assert_eq!(faded["nodes"]["list"]["enter"], json!("fade"));
+    assert_eq!(beat(&faded), json!(["revenue", "mix", "revenue-4", "revenue-5", "revenue-6"]));
+    assert_eq!(errors(&faded), Vec::<String>::new());
+    // No exit: its steps go too, and the deck is as it was but for its entrance.
+    let none = choose(&faded, "exit", Value::Null);
+    let mut was = doc.clone();
+    was["nodes"]["list"]["enter"] = json!("fade");
+    assert_eq!(none, was);
+
+    // A step given more keeps it, drawing the text whole.
+    let mut kept = built.clone();
+    kept["states"][2]["props"]["title"] = json!({ "text": "Three things" });
+    let faded = choose(&kept, "enter", json!("fade"));
+    assert_eq!(ids(&faded), ["intro", "revenue", "revenue-2", "mix", "close"]);
+    assert_eq!(faded["states"][2]["props"], json!({ "list": {}, "title": { "text": "Three things" } }));
+    let snaps = scaena_core::resolve_states(&deck(&faded)).unwrap();
+    assert!(snaps.iter().all(|s| s.nodes.get("list").is_none_or(|p| p.get("paragraphs").is_none())));
+    // A step added among them, which says nothing yet, is the deck's: it stays.
+    let mut added = built.clone();
+    added["states"].as_array_mut().unwrap().insert(3, json!({ "id": "later", "slide": "revenue" }));
+    let faded = choose(&added, "enter", json!("fade"));
+    assert_eq!(ids(&faded), ["intro", "revenue", "later", "mix", "close"]);
+}
+
+/// A list built by bullet keeps each step's paragraphs in step with its text (PLAN 2.129), as its
+/// list is: a bullet typed in after the first, where only the first is drawn, is drawn there with
+/// it, and each later step draws as many more; words typed into a bullet move nothing.
+#[test]
+fn typing_in_a_list_built_by_bullet_keeps_its_steps_in_step() {
+    let mut doc = example();
+    doc["nodes"]["list"] = json!({ "type": "text", "role": "body", "text": "Plants\n\nChlorophyll\nWater",
+        "at": { "in": "main" } });
+    doc["states"][1]["props"]["list"] = json!({});
+    doc["states"][3]["remove"] = json!(["rev", "note", "list"]);
+    let built = patch(
+        &doc,
+        json!([{ "op": "choose", "node": "list", "prop": "enter", "value": "bullets", "state": "revenue" }]),
+    )
+    .unwrap()
+    .doc;
+    let drawn = |doc: &Value| -> Vec<Value> {
+        (1..4).map(|i| doc["states"][i]["props"]["list"]["paragraphs"].clone()).collect()
+    };
+    assert_eq!(drawn(&built), [json!([1, 2]), json!([1, 3]), Value::Null]);
+    // Enter and a bullet at the end of the first, typed where only it is drawn.
+    let typed = patch(
+        &built,
+        json!([{ "op": "replace_text", "node": "list", "from": 6, "to": 6, "text": "\nLeaves", "state": "revenue" }]),
+    )
+    .unwrap()
+    .doc;
+    assert_eq!(typed["nodes"]["list"]["text"], json!("Plants\nLeaves\n\nChlorophyll\nWater"));
+    assert_eq!(drawn(&typed), [json!([1, 3]), json!([1, 4]), Value::Null]);
+    assert_eq!(errors(&typed), Vec::<String>::new());
+    // Words typed into the last bullet, where all are drawn, move nothing.
+    let more = patch(
+        &typed,
+        json!([{ "op": "replace_text", "node": "list", "from": 32, "to": 32, "text": " is split", "state": "revenue-3" }]),
+    )
+    .unwrap()
+    .doc;
+    assert_eq!(more["nodes"]["list"]["text"], json!("Plants\nLeaves\n\nChlorophyll\nWater is split"));
+    assert_eq!(drawn(&more), drawn(&typed));
+}

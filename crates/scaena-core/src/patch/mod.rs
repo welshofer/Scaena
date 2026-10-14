@@ -261,7 +261,8 @@ pub enum SemanticOp {
     /// into, the one before where two meet; and a run the edit leaves with no text goes. It is
     /// written where the text lives: in the deck's `overrides` if they set it; else in the
     /// latest delta that sets it, from `state` back along what it tracks; else in the node's
-    /// own. Without `state`, in the node's own unless the overrides set it.
+    /// own. Without `state`, in the node's own unless the overrides set it. The paragraphs each
+    /// state draws of a text built by bullet (`paragraphs`, SPEC §3.9) are kept in step.
     ReplaceText {
         #[schemars(with = "Id")]
         node: String,
@@ -337,7 +338,7 @@ pub enum SemanticOp {
     /// what it tracks, else in the node's own; without `state`, in the node's own. `null`
     /// takes it away where it lives, so what is under it shows. A text's `enter` or `exit`
     /// chosen as a preset that splits it by its paragraphs also adds a step of its slide for
-    /// each of them (By Bullet, SPEC §3.9).
+    /// each of them (By Bullet, SPEC §3.9), and another, or `null`, takes those steps back.
     Choose {
         #[schemars(with = "Id")]
         node: String,
@@ -393,8 +394,9 @@ pub enum SemanticOp {
     },
     /// A theme preset. With `motion`, a motion preset becomes the node's `enter`, `exit`,
     /// or `emphasis`, and a text's entrance or exit that splits it by its paragraphs adds its
-    /// steps, as `choose` does. Without, a shader takes a shader preset whole: the preset's
-    /// kind, and none of its own `palette` or `params`, which would win over the preset's.
+    /// steps, and another takes them back, as `choose` does. Without, a shader takes a shader
+    /// preset whole: the preset's kind, and none of its own `palette` or `params`, which would
+    /// win over the preset's.
     ApplyPreset {
         #[schemars(with = "Id")]
         node: String,

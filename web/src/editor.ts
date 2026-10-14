@@ -538,8 +538,10 @@ async function edit(source: Source) {
     const state = last?.valid && !last.error ? last.states[shown]?.[0] : undefined;
     return state !== undefined && !assisting ? { state, index: shown } : undefined;
   };
-  /** `state` as a person counts it: `Slide 3`, or `Slide 3, step 2` (PLAN 2.99). */
-  const slideOf = (state: string) => last?.slots?.find((s) => s.state === state)?.said ?? "the slide";
+  /** `state` as a person counts it: `Slide 3`, or `Slide 3, step 2` (PLAN 2.99), in the deck a
+   * patch just made where the source has not shown it yet, so a step the patch adds is counted. */
+  const slideOf = (state: string) =>
+    (taken?.edited ?? last)?.slots?.find((s) => s.state === state)?.said ?? "the slide";
   /** The words for the state shown (PLAN 2.99): its objects by what they show, the theme's names
    * said. Asked for each time the state shown is inspected. */
   let lexicon: Lexicon | undefined;

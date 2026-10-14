@@ -168,6 +168,37 @@ pub fn edited(list: &[Option<ListItem>], written: &str, range: Range<usize>, tex
     out
 }
 
+/// `paragraphs`, which of a text's paragraphs a state draws (PLAN 2.129, as [`drawn`] reads it),
+/// once bytes `range` of `written` are `text`, as [`edited`] keeps a list: the paragraphs before
+/// the edit keep their places, the paragraphs it touches become those it leaves, drawn where one
+/// of them was, so what is typed into a paragraph drawn is drawn too, and those after it move by
+/// as many as it adds or takes away. None where it names no paragraph.
+pub fn redrawn(
+    paragraphs: &serde_json::Value,
+    written: &str,
+    range: Range<usize>,
+    text: &str,
+) -> Option<serde_json::Value> {
+    let index = |v: &serde_json::Value| v.as_u64().filter(|&n| n >= 1).map(|n| n as usize - 1);
+    let (a, b, one) = match paragraphs {
+        serde_json::Value::Array(span) if span.len() == 2 => (index(&span[0])?, index(&span[1])?, false),
+        n => (index(n)?, index(n)?, true),
+    };
+    let before = self::paragraphs(written);
+    let first = before.iter().position(|p| range.start <= p.end).unwrap_or(before.len() - 1);
+    let last = before.iter().position(|p| range.end <= p.end).unwrap_or(before.len() - 1);
+    let typed = self::paragraphs(text).len();
+    // Where paragraph `q` is once edited: the edit's first or last paragraph where it touched `q`.
+    let moved = |q: usize, end: bool| match q {
+        q if q < first => q,
+        q if q > last => q - (last + 1) + first + typed,
+        _ if end => first + typed - 1,
+        _ => first,
+    };
+    let (a, b) = (moved(a, false), moved(b, true));
+    Some(if one && a == b { serde_json::Value::from(a + 1) } else { serde_json::Value::from(vec![a + 1, b + 1]) })
+}
+
 /// `list` with the paragraphs that characters `range` of `written` touch (bytes) marked as
 /// `how` says: each set to `kind` (none takes it out of the list) at `level`, or, with `by`,
 /// each item moved that many levels deeper, from 0 to 8. A paragraph that is no item and
@@ -257,6 +288,28 @@ mod tests {
         assert_eq!(edited(&list, "one\ntwo", 5..5, "x"), list);
         // A plain paragraph after them stays plain.
         assert_eq!(edited(&[None, item(B, 0)], "a\nb", 0..0, "x\ny"), [None, None, item(B, 0)]);
+    }
+
+    /// What a state draws of a text built by bullet (PLAN 2.129) follows an edit as its list does.
+    #[test]
+    fn an_edit_keeps_the_paragraphs_drawn_in_step() {
+        use serde_json::json;
+        let text = "one\ntwo\nthree";
+        // Enter at the end of the first, drawn alone: the new paragraph is drawn with it, and
+        // those after it move down one.
+        assert_eq!(redrawn(&json!(1), text, 3..3, "\n"), Some(json!([1, 2])));
+        assert_eq!(redrawn(&json!([1, 2]), text, 3..3, "\n"), Some(json!([1, 3])));
+        assert_eq!(redrawn(&json!([2, 3]), text, 3..3, "\n"), Some(json!([3, 4])));
+        // Words typed in a paragraph move nothing.
+        assert_eq!(redrawn(&json!([1, 2]), text, 5..5, "x"), Some(json!([1, 2])));
+        assert_eq!(redrawn(&json!(3), text, 0..0, "x"), Some(json!(3)));
+        // The break after the first taken away: the two are one, drawn where either was.
+        assert_eq!(redrawn(&json!(1), text, 3..4, ""), Some(json!(1)));
+        assert_eq!(redrawn(&json!([2, 3]), text, 3..4, ""), Some(json!([1, 2])));
+        assert_eq!(redrawn(&json!(3), text, 3..4, ""), Some(json!(2)));
+        // Pasted lines in the last move none before them.
+        assert_eq!(redrawn(&json!([1, 2]), text, 13..13, "\nfour\nfive"), Some(json!([1, 2])));
+        assert_eq!(redrawn(&json!(0), text, 0..0, "x"), None);
     }
 
     #[test]
