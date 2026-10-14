@@ -2328,14 +2328,19 @@ async function edit(source: Source) {
     if ((e.key === "PageDown" || e.key === "PageUp") && !e.metaKey && !e.ctrlKey && !e.altKey && !e.defaultPrevented && e.target === $("#overlay")) {
       e.preventDefault();
       const to = shown + (e.key === "PageDown" ? 1 : -1);
-      if (last?.valid && to >= 0 && to < last.states.length) {
+      // A source that does not compile shows no other slide, as the palette's commands have it.
+      if (!last?.valid) return;
+      if (to >= 0 && to < last.states.length) {
         goTo(to);
         say(`${slideOf(last.states[to][0])} shown`);
       } else say(e.key === "PageDown" ? "This is the last slide" : "This is the first slide");
     }
     // ⌥⇧⌘C puts the focus on the slide, and ⌥⇧⌘F among the slides (PLAN 2.124), over no dialog;
-    // by the keys' places, as Option makes ⌥C a character of its own.
-    if ((e.metaKey || e.ctrlKey) && e.altKey && e.shiftKey && (e.code === "KeyC" || e.code === "KeyF") && !document.querySelector("dialog[open]")) {
+    // by the keys' places, as Option makes ⌥C a character of its own. AltGr, which Windows gives
+    // as Ctrl and Alt, types a character with them (AltGr+Shift+C is Ć on a Polish keyboard): it
+    // stays the character.
+    const altGr = e.getModifierState("AltGraph");
+    if ((e.metaKey || e.ctrlKey) && e.altKey && e.shiftKey && !altGr && (e.code === "KeyC" || e.code === "KeyF") && !document.querySelector("dialog[open]")) {
       e.preventDefault();
       if (e.code === "KeyC") toSlide();
       else toStrip();

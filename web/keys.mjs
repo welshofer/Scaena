@@ -15,8 +15,9 @@
 //   to the next finding in the source and back.
 // - Slides by keys (PLAN 2.124): PageDown and PageUp on the slide show the next slide or step and
 //   the one before, as the sheet and the palette say; Ctrl+Alt+Shift+C puts the focus on the slide
-//   from the source, and Ctrl+Alt+Shift+F on the slide shown among the slides. A page's first Tab
-//   is Go to the slide, which Enter takes. Zoomed in, the arrows pan: the sheet says so (PLAN 2.123).
+//   from the source, and Ctrl+Alt+Shift+F on the slide shown among the slides; AltGr with Shift and
+//   C, a character on some keyboards, stays one. A page's first Tab is Go to the slide, which Enter
+//   takes. Zoomed in, the arrows pan: the sheet says so (PLAN 2.123).
 // - axe-core finds nothing against WCAG 2.1 AA with the sheet open.
 // Exits 1 on any failure.
 import { createRequire } from "node:module";
@@ -164,6 +165,14 @@ try {
   check(nextNamed === "Show the next slide or stepPageDown", `the palette names it with its key: ${nextNamed}`);
   await page.keyboard.press("Escape");
   await page.locator(".cm-content").click();
+  // AltGr, which Windows gives as Ctrl and Alt, with Shift and C types Ć on a Polish keyboard: the
+  // source keeps it, and the focus stays.
+  const altGr = await page.evaluate(() => {
+    const press = new KeyboardEvent("keydown", { key: "Ć", code: "KeyC", ctrlKey: true, altKey: true, shiftKey: true, modifierAltGraph: true, bubbles: true, cancelable: true });
+    document.activeElement.dispatchEvent(press);
+    return { kept: !press.defaultPrevented, inSource: Boolean(document.activeElement?.closest(".cm-editor")) };
+  });
+  check(altGr.kept && altGr.inSource, `AltGr+Shift+C is a character, typed where it was: ${JSON.stringify(altGr)}`);
   await page.keyboard.press("Control+Alt+Shift+C");
   check(await page.evaluate(() => document.activeElement?.id === "overlay"), "Ctrl+Alt+Shift+C puts the focus on the slide, from the source");
   await page.keyboard.press("Control+Alt+Shift+F");

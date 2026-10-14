@@ -15,15 +15,19 @@
 //   which names it, and once it is whole again the next download goes through.
 // - A folder (any directory handle; here one in the browser's storage) opens and saves in
 //   place: the save names its fonts by their content and removes the old names.
-// - Kept in this browser… lists the decks the browser keeps (PLAN 2.122): one is renamed in its
-//   row, every file of it under the new name and none under the old; a name another deck has, or
-//   none, is refused; one is deleted, asked first, and is gone. The deck open here is marked, is
-//   not deleted, and renamed, goes on where it is kept now: the address names it, and a save
-//   writes there. Escape in a name leaves it as it was, the list open.
+// - Kept in this browser… lists the decks the browser keeps (PLAN 2.122), and axe-core finds
+//   nothing in it against WCAG 2.1 AA: one is renamed in its row, every file of it under the new
+//   name and none under the old; a name another deck has, or one with a slash, is refused, saying
+//   why; one is deleted, asked first, and is gone. The deck open here is marked, is not deleted,
+//   and renamed, goes on where it is kept now: the address names it, and a save writes there.
+//   Escape in a name leaves it as it was, the list open.
 // Exits 1 on any failure.
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { launch, serve } from "./serve.mjs";
+
+const axe = createRequire(import.meta.url).resolve("axe-core/axe.min.js");
 
 const server = await serve();
 const editor = (bundle) => `${server.origin}/web/dist/editor.html?painter=cpu&bundle=${bundle}`;
@@ -256,12 +260,20 @@ try {
   await page.waitForFunction(() => document.querySelector("#keeping").open && document.querySelectorAll("#keeping li").length, null, { timeout: 10000 }).catch(() => {});
   check(JSON.stringify(await listed()) === JSON.stringify(["downloaded", "revenue"]) && JSON.stringify(await keeps()) === JSON.stringify(["downloaded", "revenue"]), `Kept in this browser lists the decks it keeps: ${await listed()}`);
   check(await page.evaluate(() => document.querySelector("#keeping").contains(document.activeElement)), "the focus in the list");
+  await page.addScriptTag({ path: axe });
+  const found = await page.evaluate(async () => {
+    const result = await window.axe.run(document, { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });
+    return result.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);
+  });
+  check(!found.length, `axe finds nothing against WCAG 2.1 AA with the list open${found.length ? `:\n    ${found.join("\n    ")}` : ""}`);
   await renamed("revenue", "Q3 board");
   check(JSON.stringify(await keeps()) === JSON.stringify(["Q3 board", "downloaded"]) && JSON.stringify(await listed()) === JSON.stringify(["Q3 board", "downloaded"]), `renamed in its row, it is kept under its new name alone: ${await keeps()} · ${await told()}`);
   const moved = await listing(page, "bundles/Q3 board");
   check(["deck.json", "manifest.json", "data/q3-revenue.csv"].every((p) => p in moved) && Object.keys(moved).filter((p) => p.startsWith("fonts/")).length === 6, `every file of it goes with it: ${Object.keys(moved)}`);
   await renamed("Q3 board", "downloaded");
   check((await told()).startsWith("Not renamed") && (await told()).includes("downloaded already") && JSON.stringify(await keeps()) === JSON.stringify(["Q3 board", "downloaded"]), `a name another deck has is refused: ${await told()}`);
+  await renamed("Q3 board", "Q3/board");
+  check((await told()).startsWith("Not renamed") && (await told()).includes("no slash") && JSON.stringify(await keeps()) === JSON.stringify(["Q3 board", "downloaded"]), `and so is one with a slash: ${await told()}`);
   await row("Q3 board").locator("[data-rename]").click();
   await page.keyboard.type("nothing");
   await page.keyboard.press("Escape");
