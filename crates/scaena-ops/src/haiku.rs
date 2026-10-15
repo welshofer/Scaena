@@ -60,10 +60,7 @@ pub enum Answered {
         note: Option<String>,
     },
     /// The second ask, and the poem the first came to, handed back with the second answer.
-    Again {
-        prompt: String,
-        poem: Poem,
-    },
+    Again { prompt: String, poem: Poem },
 }
 
 /// The rounds, at most two calls: the first answer is offered when it is kept or uncounted; else
