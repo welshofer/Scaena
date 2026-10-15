@@ -16,4 +16,4 @@ A theme is a design system (SPEC §3.6): tokens, typographic roles, layout templ
 - **+** Agent output is well-typeset by construction; lint catches the rest.
 - **+** Override counts make "theme-safe" a visible, enforceable property.
 - **−** Expressiveness is deliberately constrained; escape hatches exist and are loud.
-- **−** Themes are more work to author than a color palette; we ship a small number of excellent ones.
+- **−** Themes are more work to author than a color palette; we ship a small number of excellent ones. *(Amended by ADR-0031, 2026-10-15: fifty, each generated from a spec and held to the checks the first four pass.)*

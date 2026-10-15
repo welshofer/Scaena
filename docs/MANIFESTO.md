@@ -54,7 +54,7 @@ A deck is a bundle on your disk. It opens offline, from a USB stick, in ten year
 
 ### 10. Constraint is the gift.
 
-Fewer node types, one grid, named motion, a fixed set of shaders, a small chart grammar. Every constraint is chosen so that the default output is excellent and the escape hatch is loud. We would rather ship four exceptional themes than four hundred mediocre ones.
+Fewer node types, one grid, named motion, a fixed set of shaders, a small chart grammar. Every constraint is chosen so that the default output is excellent and the escape hatch is loud. We would rather ship fifty exceptional themes, each generated from a spec and held to one bar, than four hundred mediocre ones.
 
 ---
 

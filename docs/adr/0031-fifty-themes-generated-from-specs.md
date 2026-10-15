@@ -1,6 +1,6 @@
 # ADR-0031: Fifty themes, generated from specs and shipped in batches
 
-**Status:** proposed · **Date:** 2026-10-15
+**Status:** accepted · **Date:** 2026-10-15
 
 ## Context
 
@@ -45,9 +45,28 @@ Both are in "Themes for every deck", a claude.ai document shared with Jay (https
 - The editor's module stays under SPEC §15's 3,000,000 bytes gzipped. It was 2,849,788 bytes on 2026-10-14, so themes and fonts stay data, never compiled into it.
 - Render never fetches: a theme's fonts are fetched before a deck is made or re-themed in it, never while drawing.
 
+## Decided (Jay's calls, 2026-10-15)
+
+Jay answered the twelve calls in the shared document on 2026-10-15. Where Jay asked for the recommendation, the recommendation is taken.
+
+| Call | Decided |
+| --- | --- |
+| 1. Ship fifty? | (a), "ship them all": fifty, generated from specs, each held to the four's bar. The MANIFESTO and ADR-0005 are amended. |
+| 2. Fonts in git? | (b): the four's eight files stay in git, and the rest are fetched at build from google/fonts at 9710da1 by sha256, into a cache CI keeps. |
+| 3. What the clients carry | (b), "for now": every client carries every theme and every family's files, so all fifty work offline. Fetching on first use waits until the size is felt. |
+| 4. Names | (a): one word, equal to the slug ignoring case. Gallery is renamed Salon, and `gallery` stays an alias. |
+| 5. Reserved Font Names | (b): Pretendard is kept whole, never subset. The bench bundles' Source Serif 4 subset is renamed in its name records. Whether a bundle is a document or a distribution stays a question for counsel. |
+| 6. Italics | (b) now: a family whose script has no italic convention ships without one, and W231 still warns. (c) before a later batch of louder display faces. |
+| 7. What draws what a theme's faces lack | (a): Inter, embedded, last in every text family's fallback, before ADR-0027's script family. |
+| 8. Right to left | (b): every layout is mirrored at layout time when the deck's language runs right to left. Photographs, logos, and digits are not mirrored. |
+| 9. Motion and density | (a), "for now, same": every theme keeps the shared motion and a density of 40. |
+| 10. The four and the new bars | (a): the bars hold new themes. The four's cards, Gallery's line, and its chart grays change later, in a reviewed change of their own (PLAN T.6). |
+| 11. Slide types first? | "Slides first": the slide types the format already allows land before the theme batches. |
+| 12. What a first use may download | (a): at most 3 MB gzip-9 for a Latin theme, so Lyceum, Elegy, and Fieldwork take Open Sans as body. While every client carries every font (call 3), nothing downloads. |
+
 ## Decision
 
-Proposed. Every part below that rests on one of Jay's twelve calls names it, and the calls are under Calls for Jay.
+Every part below that rests on one of Jay's twelve calls names it. The calls as they were asked are under Calls for Jay, and what Jay decided is above.
 
 ### 1. Fifty themes, each held to the four's bar
 
@@ -97,7 +116,7 @@ The fifty are listed at the end, under The fifty, with their colors, faces, and 
   - Every weight a role asks for is one its family draws (W232). So no body face is static, since a static family draws one weight and would set every bold in it.
 - **Layouts are keyed by geometry family,** not by theme name: `build_layouts.py`'s `THEMES`, `OLD_SLOTS_IN`, and `ember_slots()` name themes today. Most new themes take Dusk's geometry, and a new geometry is linted whole.
 - **A knob a signature needs** that the format lacks is added library-wide, for every theme, before the batch that needs it: a picture's frame or mat (Darkroom, Viewfinder, Postcard, Vow), before batch 3.
-- **Motion needs no knob** (call 9). Every theme file already carries its own motion. If each theme takes its own values, the builds test holds the presets' names, not their values.
+- **Motion needs no knob** (call 9). Every theme file already carries its own motion, and for now every theme keeps the shared base's. If themes later take their own values, the builds test holds the presets' names, not their values.
 
 ### 4. One registry, names that are words
 
@@ -127,26 +146,28 @@ Measured on 2026-10-15, before subsetting. A saved deck carries only the subset 
   - Pretendard comes from orioncactus/pretendard at its v1.3.9 tag, the one family google/fonts does not hold.
   - The build fetches the rest by sha256 into a cache CI keeps.
   - Its `--check` also compares each `SOURCES.md` with the files beside it, which it does not do today.
-- **What each client carries** (call 3):
+- **What each client carries** (call 3, "for now"): every theme and every family's files, whole, so all fifty work offline everywhere.
 
-  | Client | Carries | Fetches when first needed |
-  | --- | --- | --- |
-  | CLI and MCP server | Every theme's JSON, about 8.2 MB raw and 1.24 MB gzip-9 for fifty, and the four's fonts | Any other theme's fonts, by a pinned URL, sha256, and size, kept by digest in its cache. Offline, the four, Basel, and Kernel work, and any other theme is refused with why |
-  | Browser | A thumbnail of each theme, drawn at build by the CPU painter, and the four's fonts in the service worker's install | A theme's JSON and its own fonts when New, New from a Prompt, or the theme picker needs them, held to sha256 in Cache Storage |
-  | Mac | The four's fonts in the static library; `scaena_create` and `retheme` hand over only the chosen theme's fonts, not all eight | Other fonts once, kept by digest in Application Support, as ADR-0027's path keeps a script's |
-  | iPad | The Mac's library | The rest into the app's container, kept by digest. A first deck in a theme not yet fetched is refused offline, with why |
+  | Client | Carries |
+  | --- | --- |
+  | CLI and MCP server | Every theme's JSON, about 8.2 MB raw and 1.24 MB gzip-9 for fifty, and every family's files, stored compressed where the binary allows |
+  | Browser | Every theme's JSON, a thumbnail of each drawn at build by the CPU painter, and every family's files beside the pages. The service worker keeps them all, as it keeps every file of the site, and nothing enters the editor's module |
+  | Mac | Every family's files in the static library. `scaena_create` and `retheme` hand over only the chosen theme's fonts, not every family |
+  | iPad | The Mac's library |
+
+  When the size is felt, a client fetches a theme's fonts on first use instead: by a pinned URL, sha256, and size, kept by digest, as ADR-0027's path keeps a script's font. Then a theme not yet fetched is refused offline, with why.
 
 - **What a theme's faces lack** is drawn by Inter, which every client embeds (call 7). A fallback names a family of the theme, not a file, so Inter and its italic become a family of every theme whose text families lack it, under the key `inter`. That key is named last in every text family's fallback, before ADR-0027's script family. The four need none, since their body is Inter, and the vocabulary test leaves the key out of the families it compares. Read from each face's character map, Inter covers:
   - → in the 8 themes where no face draws it (Quant, Garrison, Remedy, Kite, Sunbeam, Threshold, Vespers, Lambda);
   - Greek in 6 bodies (Beacon, Haven, Recess, Kite, Qalam, Sunbeam), and Cyrillic in 2 (Beacon, Haven);
   - Washi's Latin Extended-A, of which its Japanese faces draw 3 of 19 letters sampled.
-- **Reserved Font Names** (call 5). A bundle keeps its fonts as files beside the deck, so a saved subset is a Modified Version (OFL FAQ 1.11, 1.12, 2.6). A Modified Version may not use a Reserved Font Name as its primary name (OFL 1.1, condition 3).
+- **Reserved Font Names** (call 5: Pretendard kept whole, the bench subset renamed). A bundle keeps its fonts as files beside the deck, so a saved subset is a Modified Version (OFL FAQ 1.11, 1.12, 2.6). A Modified Version may not use a Reserved Font Name as its primary name (OFL 1.1, condition 3).
   - Pretendard reserves its own name and three more: "Source", "Inter", and "M PLUS 1" (its `LICENSE`). A subset renamed under call 5's (c) avoids all four.
   - Noto Sans JP, and ADR-0027's Noto Sans SC and KR, reserve "Source", which their names do not use, so their subsets are fine.
   - The bench bundles' Source Serif 4 subset (`tests/bench/b1.scaena` to `b3.scaena`, made by `build_bundle_fonts.py`) keeps "Source Serif 4" as its name, so it uses its reserved name today.
   - The review dropped three families for their reserved names: Carlito, Merriweather Sans, and Source Serif 4. So batches 1 to 4 wait on no reserved name.
-- **Italics** (call 6). Noto Serif JP, Noto Sans JP, and Pretendard have no italic files. `shipped.rs`'s rule that every family ships an italic would keep Washi and Hanji out.
-- **What a theme's first use may download** (call 12):
+- **Italics** (call 6). Noto Serif JP, Noto Sans JP, and Pretendard have no italic files. `shipped.rs`'s rule that every family ships an italic would keep Washi and Hanji out, so a family whose script has no italic convention is exempt, and W231 still warns.
+- **What a theme's first use would download** (call 12). While every client carries every font, nothing downloads. The cap is 3 MB gzip-9 for a Latin theme, so Lyceum, Elegy, and Fieldwork take Open Sans as body:
   - The six themes on the four's fonts download nothing: Dusk, Daybreak, Ember, Gallery, Basel, and Kernel. The other 44 download a median of 0.98 MB gzip-9, each family once, kept by digest, so a second theme in the same family costs nothing.
   - Latin themes run to 4.55 MB (Elegy). Equator, multi-script by design, downloads 5.46 MB; Washi 13.95 MB, Saffron 4.85 MB, and Hanji 2.95 MB.
 
@@ -156,17 +177,17 @@ The 46 land in five batches, after a batch of rails, each only when its checks p
 
 | Batch | Themes | Why this order | Gate before it |
 | --- | --- | --- | --- |
-| 0. Rails | — | Registry, generator, font table and fetch path, thumbnails, tests that read the registry. No new theme yet. | Jay's calls 2 to 4 and 12, each before the rail it decides; T.0a waits on none |
-| 1. Business core and access | Harbor, Ledger, Basel, Kernel, Meridian, Keystone, Voltage, Quant, Beacon, Signpost | Business, pitch and report decks lead every catalog; Basel and Kernel prove the path with no new font; the high-contrast pair sets the bar the later batches are judged against. | The generator reproduces the four byte for byte; Jay's calls 1, 7, and 9 |
-| 2. Teach and research | Lyceum, Margin, Seminar, Remedy, Recess, Kite, Sunbeam, Haven, Equator, Council | Education is the largest category in both big free catalogs (Slidesgo 9,806; SlidesCarnival 1,140, read 2026-10-15). | The first 16 slide types land (call 11) |
+| 0. Rails | — | Registry, generator, font table and fetch path, thumbnails, tests that read the registry. No new theme yet. | — |
+| 1. Business core and access | Harbor, Ledger, Basel, Kernel, Meridian, Keystone, Voltage, Quant, Beacon, Signpost | Business, pitch and report decks lead every catalog; Basel and Kernel prove the path with no new font; the high-contrast pair sets the bar the later batches are judged against. | The generator reproduces the four byte for byte, and the slide types land (call 11) |
+| 2. Teach and research | Lyceum, Margin, Seminar, Remedy, Recess, Kite, Sunbeam, Haven, Equator, Council | Education is the largest category in both big free catalogs (Slidesgo 9,806; SlidesCarnival 1,140, read 2026-10-15). | — |
 | 3. Stage, story and pictures | Liftoff, Sorbet, Noir, Marquee, Nocturne, Broadsheet, Darkroom, Viewfinder, Threshold | Keynotes, launches, portfolios and listings; needs the picture-frame knob. Nocturne's Cormorant Garamond replaces a face with a reserved name, so nothing here waits on call 5. | A picture frame or mat in the theme format |
 | 4. Civic, craft and ceremony | Garrison, Docket, Sterling, Kindred, Fieldwork, Halftone, Vespers, Hymnal, Vow, Elegy | Briefings, courts, boards, community, worship and life events. | — |
-| 5. Scripts and the rest | Postcard, Lambda, Runtime, Saffron, Qalam, Washi, Hanji | Reserved Font Names, italics for Japanese and Korean, script faces, right-to-left layout, and the rest. | Jay's calls 5, 6, and 8 |
+| 5. Scripts and the rest | Postcard, Lambda, Runtime, Saffron, Qalam, Washi, Hanji | Reserved Font Names, italics for Japanese and Korean, script faces, right-to-left layout, and the rest. | Right-to-left layout and the italic exemption (PLAN T.5a, T.5b) |
 
-Batch 1 also waits on call 7: Inter, last in every fallback, draws the → Quant's faces lack and the Greek and Cyrillic Beacon's body lacks. Call 12 comes with the rails: its (b) changes what they pin and fetch, and its (c) would move Keystone's and Signpost's bodies to Inter. Before batch 5, three of its themes wait on calls:
-- Hanji on Pretendard's reserved name and its italics (calls 5 and 6);
-- Washi on its italics (call 6), with Inter drawing the Latin its faces lack (call 7);
-- Qalam on right-to-left layout (call 8).
+Batch 1 needs Inter last in every fallback (call 7): it draws the → Quant's faces lack and the Greek and Cyrillic Beacon's body lacks. Before batch 5, three of its themes wait on work the calls set:
+- Hanji on keeping Pretendard whole and on the italic exemption (calls 5 and 6, PLAN T.5b);
+- Washi on the italic exemption (call 6), with Inter drawing the Latin its faces lack (call 7);
+- Qalam on right-to-left layout (call 8, PLAN T.5a).
 
 Saffron, Postcard, Lambda, and Runtime close the fifty with them.
 
@@ -175,8 +196,7 @@ Saffron, Postcard, Lambda, and Runtime close the fifty with them.
 Every theme carries the whole library: 128 layouts in 13 sections today, against Jay's bar of 75. Layouts are what a change of theme keeps, so a deck keeps every slide in any of the fifty. Each addition is drawn once for each geometry family and linted in every theme.
 
 The decks people make still lack 53 slide types. With them, the library is 181 layouts in 17 sections, and 186 with the five more ADR-0030 adds: Map and Words, Full-Bleed Map, Forecast, Price Chart, and Haiku. The four new sections are Briefing, Classroom, Code, and Diagrams. The 53 come in three batches:
-- **First, 16**, before theme batch 2 (call 11), so each new theme is drawn and reviewed once.
-- **Next, 23.**
+- **First, 16**, and **next, 23**, before the theme batches (call 11, "slides first"), so each new theme is drawn and reviewed once with them.
 - **Last, 14.** Most of these wait on something the format lacks.
 
 A slot today holds words, a shape, a picture, a chart of a v1 kind, or a table of 2 to 6 columns. None holds a video, a web page, an equation, or a waterfall, Mekko, or word-cloud chart.
@@ -260,14 +280,14 @@ Some slides people search for are already in the library under another name, so 
 ### 9. Budgets
 
 - **The editor's module** stays at or under 3,000,000 bytes gzip-9, the CI gate: themes and fonts stay data.
-- **Embedded fonts** stay the four's 2,017,048 bytes unless Jay chooses a larger set that works offline (call 3).
+- **Embedded fonts** are every family's files for now (call 3): 80,684,328 bytes raw, 42,856,320 gzip-9, in each client outside the editor's module.
 - **Fifty embedded theme files** come to about 8.2 MB raw and 1.24 MB gzip-9. Each is 24.5–24.8 KB gzip-9, and its layouts are 126–129 KB of its 161–168 KB raw.
 - **SPEC §15 holds with the heaviest Latin theme:** B1's cold start at most 500 ms, and MCP `deck_render` at most 1 s with its fonts cached.
 - **Test time grows.** Slide starts go from 512 to 6,400 at 128 layouts, 9,050 at 181, and 9,300 at 186. The re-theme matrix goes from 28 to 350 CLI runs over its seven decks. They are sharded by theme, with the full matrix on main and a sample on each pull request.
 
 ## Calls for Jay
 
-Each call gives its options and the recommendation. When each is needed:
+Decided on 2026-10-15, as Decided says above. The calls stay here as they were asked, each with its options and the recommendation, and when each was needed:
 - Calls 2 to 4 and 12 come before the rails they decide (PLAN T.0b–T.0d), and calls 1, 7, and 9 before batch 1.
 - Call 11 comes before batch 2, and calls 5, 6, and 8 before batch 5. Call 10 can come any time.
 - Call 5 also touches what ships today: the bench bundles' Source Serif 4 (PLAN T.0f).
@@ -347,7 +367,7 @@ The generator and the registry for the four (PLAN T.0a) wait on no call: they ch
 
 - **The theme chooser grows from four to fifty,** sectioned by family. Every deck keeps every slide through a change of theme, since every theme carries the same layouts, slots, roles, and presets.
 - **The four become rows of the registry.** Their files come out of the generator byte for byte, after Dusk's one rewrite that keeps every value, and no deck that names one draws differently. Gallery is called Salon, and `gallery` still opens it (call 4). The four's cards and Gallery's line and chart grays are not retrofitted to the new bars except by a separate, reviewed change (call 10).
-- **A theme's fonts are fetched once on first use,** outside the six that need none, so choosing a theme or re-theming a deck can reach the network. The CLI, the Mac, and the iPad fetch them by ADR-0027's path, which already fetches a script's font. The MCP server, which makes no network call today, makes its first through the CLI's transport, as ADR-0030's `map_fetch` does, so `scaena-mcp` links no HTTP client. Offline, a theme not yet fetched is refused with why, never drawn in another face.
+- **Every client carries every theme's fonts, for now** (call 3). The CLI's, the Mac's, and the iPad's binaries grow by up to 80.7 MB, and the site's install by 42.9 MB gzip-9. Nothing is fetched, so every theme works offline. When the size is felt, fetching on first use replaces it: the CLI, the Mac, and the iPad by ADR-0027's path, and the MCP server through the CLI's transport, as ADR-0030's `map_fetch` does.
 - **The repository does not grow by the fonts:** clones stay the size they are, and builds are reproducible by sha256.
 - **CI grows** by the starts and the re-theme matrix, sharded, with the full matrix on main.
 - **The bench bundles' Source Serif 4 subset is renamed or dropped** (call 5), whatever else is decided, since its name is reserved.
