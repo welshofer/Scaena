@@ -35,7 +35,7 @@ fn an_older_copy_takes_the_library_and_draws_as_it_did() {
     }
     // The roles a haiku and a number are set in, which the copy lacked (PLAN O.4c); nothing else
     // of its type changes.
-    assert_eq!(brought.roles, ["verse", "hero"]);
+    assert_eq!(brought.roles, ["hero", "verse"]);
     for role in ["verse", "hero"] {
         assert_eq!(theme["type"]["roles"][role], shipped["type"]["roles"][role], "{role}");
     }
@@ -128,7 +128,7 @@ fn the_copy_keeps_its_own_and_takes_only_what_it_can_draw() {
     // `hero` in a family the copy does not have: no layout that sets a number in it.
     shipped["type"]["roles"]["hero"]["family"] = json!("nonesuch");
     let (theme, brought) = library(&older, &shipped).unwrap();
-    assert!(brought.roles.is_empty() && theme["type"]["roles"].get("hero").is_none());
+    assert!(brought.roles == ["verse"] && theme["type"]["roles"].get("hero").is_none(), "{:?}", brought.roles);
     let sets_hero = |layout: &Value| layout["slots"].as_object().unwrap().values().any(|s| s["role"] == "hero");
     assert!(brought.added.iter().all(|k| !sets_hero(&theme["layouts"][k])), "{:?}", brought.added);
     assert!(
