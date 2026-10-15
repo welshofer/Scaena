@@ -132,6 +132,26 @@ final class OpeningTests: XCTestCase {
         settle()
         keep(app, as: "inserted")
     }
+
+    /// Code pasted on the slide is a code text in its language, its chip saying which (PLAN 2.133).
+    @MainActor
+    func testCodePastedShowsItsLanguage() throws {
+        let app = launched()
+        try openB1(in: app)
+        UIPasteboard.general.string = "fn main() {\n    let total = 42;\n    println!(\"{total}\");\n}\n"
+        let canvas = app.descendants(matching: .any).matching(identifier: "canvas").firstMatch
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "no canvas: \(app.debugDescription)")
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).tap()
+        app.typeKey("v", modifierFlags: .command)
+        // iPadOS asks once whether the app may read what another put on the pasteboard.
+        let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Allow Paste"]
+        if allow.waitForExistence(timeout: 3) { allow.tap() }
+        let chip = app.descendants(matching: .any).matching(identifier: "code-chip").firstMatch
+        XCTAssertTrue(chip.waitForExistence(timeout: 10), "the code pasted shows no chip: \(app.debugDescription)")
+        XCTAssertEqual(chip.value as? String, "Rust", "the chip does not say Rust: \(chip.debugDescription)")
+        settle()
+        keep(app, as: "code-pasted")
+    }
 }
 
 /// How words read on what they are drawn over, as the screen shows them (WCAG 2): the color most of
