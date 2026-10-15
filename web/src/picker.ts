@@ -38,9 +38,10 @@ const named = (one: Starter) => one.name ?? (one.layout ? phrase(one.layout) : "
 const slug = (title: string) => title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 
 /** Whether `one` is found by `words`: each word, in any case, in its name, what it is for, its
- * section, or its key, as the source names it (`narrow-figure`). */
+ * section, its key, as the source names it (`narrow-figure`), or another name people search for
+ * it by (Kanban, for Roadmap; ADR-0031). */
 function matches(one: Starter, words: string): boolean {
-  const text = `${named(one)} ${one.description ?? ""} ${one.group ?? ""} ${one.layout ?? ""}`.toLowerCase();
+  const text = `${named(one)} ${one.description ?? ""} ${one.group ?? ""} ${one.layout ?? ""} ${(one.also ?? []).join(" ")}`.toLowerCase();
   return words
     .toLowerCase()
     .split(/\s+/)
