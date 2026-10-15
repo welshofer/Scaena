@@ -133,8 +133,9 @@ struct VersionsPanel: View {
         edits.beside("Restore Version") {
             let restored = try editor.session.restoreVersion(chosen)
             guard restored.applied else {
-                let why = restored.why.first ?? "it would not validate in the bundle as it is"
-                throw Refused(description: "not restored: \(why)")
+                throw Refused(
+                    "not restored", restored.refusals, by: editor,
+                    otherwise: "the deck would not open with the files it has now")
             }
             return restored.files
         }

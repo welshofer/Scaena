@@ -109,9 +109,11 @@ export const an = (words: string) => `${/^[aeiou]/i.test(words) ? "an" : "a"} ${
 /** `words` begun as a sentence begins: its first letter a capital. */
 export const sentence = (words: string) => words.charAt(0).toUpperCase() + words.slice(1);
 
-/** `words` as a whole sentence: begun with a capital, and ended with a stop where it has none. */
+/** `words` as a whole sentence: begun with a capital, and ended with a stop where it has none; with
+ * no words, what to do, as the Mac's `Why.sentence` says it. */
 export function ended(words: string): string {
   const said = sentence(words.trim());
+  if (!said) return "Something went wrong. Try again.";
   return /[.!?…]$/.test(said) ? said : `${said}.`;
 }
 

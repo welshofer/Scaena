@@ -470,18 +470,24 @@ public final class Generator {
         if let base = painter.base { listing["base"] = .string(base) }
         let list: Listing = try step("imageModels", listing)
         let listed = await send(list.request)
-        // A key the provider does not take, or no way to it, said in a person's words (PLAN 3.18),
-        // not in the provider's own.
-        guard (200..<300).contains(listed.status) else {
-            throw ScaenaError(message: Why.answered(painter.provider, status: listed.status, body: listed.text))
+        // A key the provider does not take, no way to it, or an answer that does not read, said in
+        // a person's words (PLAN 3.18), not in the provider's own nor in what the answer holds.
+        let unlisted = {
+            ScaenaError(message: Why.answered(painter.provider, status: listed.status, body: listed.text))
         }
-        let models: Models = try step(
-            "imageModelsRead",
-            [
-                "provider": .string(painter.provider.rawValue), "status": .number(Double(listed.status)),
-                "statusText": .string(HTTPURLResponse.localizedString(forStatusCode: listed.status)),
-                "body": .string(listed.text),
-            ])
+        guard (200..<300).contains(listed.status) else { throw unlisted() }
+        let models: Models
+        do {
+            models = try step(
+                "imageModelsRead",
+                [
+                    "provider": .string(painter.provider.rawValue), "status": .number(Double(listed.status)),
+                    "statusText": .string(HTTPURLResponse.localizedString(forStatusCode: listed.status)),
+                    "body": .string(listed.text),
+                ])
+        } catch {
+            throw unlisted()
+        }
         return models.models.first
     }
 

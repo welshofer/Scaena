@@ -100,11 +100,12 @@ public final class DeckEditor {
     }
 
     /// What lint found in a change refused, as an editor says it (`scaena_core::words`, as the
-    /// browser's `finding` says it): the object it is about, by what it shows, or the deck or its
-    /// theme; then what it finds, in a sentence.
-    private func refusal(_ finding: JSONValue) -> String {
-        let state = finding["state"]?.string ?? slots.first?.state ?? ""
-        let words: JSONValue? = try? session.call("words", ["state": .string(state)])
+    /// browser's `finding` says it): the object it is about, by what it shows in its state, else in
+    /// the state shown, or the deck or its theme; then what it finds, in a sentence. A patch, a
+    /// theme taken or edited, a version restored, and a data edit are each refused so (PLAN 3.18).
+    public func refusal(_ finding: JSONValue) -> String {
+        let state = finding["state"]?.string ?? shown ?? slots.first?.state ?? ""
+        let words = try? session.call("words", ["state": .string(state)], as: JSONValue.self)
         let code = finding["code"]?.string ?? ""
         let found =
             finding["said"]?.string ?? words?["issues"]?[code]?.string

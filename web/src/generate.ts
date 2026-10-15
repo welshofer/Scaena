@@ -267,17 +267,18 @@ async function painting(
   const wanted = (JSON.parse(asked) as unknown[]).length;
   const named = PAINTERS[pictures.provider];
   const listed = await send(JSON.parse(g.pictureModelsRequest(pictures.provider, pictures.key, pictures.base)));
-  // A key the provider does not take, or no way to it, in a person's words (PLAN 3.18), as the
-  // Mac says it, not in the provider's own.
+  // A key the provider does not take, no way to it, or an answer that does not read, in a person's
+  // words (PLAN 3.18), as the Mac says it, not in the provider's own nor in what the answer holds.
+  const unlisted = () => hear({ kind: "painted", pictures: 0, unmade: [answered(named, listed.status, listed.body)] });
   if (listed.status < 200 || listed.status >= 300) {
-    hear({ kind: "painted", pictures: 0, unmade: [answered(named, listed.status, listed.body)] });
+    unlisted();
     return undefined;
   }
   let model: string | undefined;
   try {
     model = (JSON.parse(g.pictureModels(pictures.provider, listed.status, listed.statusText, listed.body)) as string[])[0];
-  } catch (e) {
-    hear({ kind: "painted", pictures: 0, unmade: [`the image models could not be listed: ${said(e)}`] });
+  } catch {
+    unlisted();
     return undefined;
   }
   if (!model) {

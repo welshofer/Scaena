@@ -121,7 +121,7 @@ struct DataPanel: View {
             let edited = try session.dataEdit(name, rows)
             guard edited.edited else {
                 let source = Words.source(name, file: file)
-                throw Refused(description: "\(source) not changed: \(edited.why.first ?? "it reads so already")")
+                throw Refused("\(source) not changed", edited.refusals, by: editor, otherwise: "it reads so already")
             }
         }
         problem = nil

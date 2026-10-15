@@ -4,9 +4,16 @@ import Foundation
 // The panels (PLAN 3.15), as the browser's tabs: the theme (PLAN 2.39, 2.61, 2.94), the data
 // (PLAN 2.55), the bundle's files (PLAN 2.59), and the versions its history keeps (PLAN 2.60).
 
-/// The errors among what a change added, as lint says them: why it was refused.
-private func errors(in added: [JSONValue]) -> [String] {
-    added.filter { $0["severity"]?.string == "error" }.compactMap { $0["message"]?.string }
+/// The errors among what a change added, as lint found them: why it was refused. The window says
+/// each by `DeckEditor.refusal` (PLAN 3.18), not by lint's own message, which names what it finds by
+/// the ids the deck writes.
+private func errors(in added: [JSONValue]) -> [JSONValue] {
+    added.filter { $0["severity"]?.string == "error" }
+}
+
+/// Lint's own message for each of `errors`, as the CLI says it.
+private func messages(_ errors: [JSONValue]) -> [String] {
+    errors.compactMap { $0["message"]?.string }
 }
 
 /// A theme that ships (SPEC §3.6): its name, as `retheme(ships:)` takes it, and its file.
@@ -43,6 +50,8 @@ public struct Themed: Decodable, Sendable {
     /// Refused: the deck would not validate in it, and keeps its own; `why` says how.
     public let refused: Bool
     public let why: [String]
+    /// The errors it would have made, as lint found them: what the window says it by.
+    public let refusals: [JSONValue]
     /// How many texts the theme left too faint to read were set in its color that reads where
     /// each stands (PLAN 2.82).
     public let recolored: Int
@@ -54,7 +63,9 @@ public struct Themed: Decodable, Sendable {
         theme = try fields.decode(String.self, forKey: .theme)
         applied = try fields.decode(Bool.self, forKey: .applied)
         refused = try fields.decodeIfPresent(Bool.self, forKey: .refused) ?? false
-        why = errors(in: try fields.decodeIfPresent([JSONValue].self, forKey: .added) ?? [])
+        let found = errors(in: try fields.decodeIfPresent([JSONValue].self, forKey: .added) ?? [])
+        refusals = found
+        why = messages(found)
         recolored = try fields.decodeIfPresent([JSONValue].self, forKey: .recolored)?.count ?? 0
     }
 }
@@ -69,6 +80,8 @@ public struct ThemeEdited: Decodable, Sendable {
     public let refused: Bool
     /// Why it was refused: what it would have made wrong.
     public let why: [String]
+    /// The errors it would have made, as lint found them: what the window says it by.
+    public let refusals: [JSONValue]
     public let files: [Rewritten]
 
     private enum Keys: String, CodingKey { case edited, files }
@@ -80,7 +93,9 @@ public struct ThemeEdited: Decodable, Sendable {
         theme = try edited.decode(String.self, forKey: .theme)
         applied = try edited.decode(Bool.self, forKey: .applied)
         refused = try edited.decodeIfPresent(Bool.self, forKey: .refused) ?? false
-        why = errors(in: try edited.decodeIfPresent([JSONValue].self, forKey: .added) ?? [])
+        let found = errors(in: try edited.decodeIfPresent([JSONValue].self, forKey: .added) ?? [])
+        refusals = found
+        why = messages(found)
         files = try fields.decodeIfPresent([Rewritten].self, forKey: .files) ?? []
     }
 }
@@ -201,6 +216,8 @@ public enum RowEdit: Sendable, Equatable {
 public struct DataEdited: Decodable, Sendable {
     public let edited: Bool
     public let why: [String]
+    /// The errors it would have made, as lint found them: what the window says it by.
+    public let refusals: [JSONValue]
     /// Whether it wrote: the file, for a source that is one; else the deck's rows.
     public let wrote: Bool
     /// The file it is: none for rows written inline.
@@ -214,7 +231,9 @@ public struct DataEdited: Decodable, Sendable {
         let result = try fields.nestedContainer(keyedBy: Inner.self, forKey: .result)
         edited = try result.decode(Bool.self, forKey: .edited)
         file = try result.decodeIfPresent(String.self, forKey: .file)
-        why = errors(in: try result.decodeIfPresent([JSONValue].self, forKey: .added) ?? [])
+        let found = errors(in: try result.decodeIfPresent([JSONValue].self, forKey: .added) ?? [])
+        refusals = found
+        why = messages(found)
         wrote = try fields.decode(Bool.self, forKey: .wrote)
     }
 }
@@ -270,6 +289,8 @@ public struct Compared: Decodable, Sendable {
 public struct Restored: Decodable, Sendable {
     public let applied: Bool
     public let why: [String]
+    /// The errors it would have made, as lint found them: what the window says it by.
+    public let refusals: [JSONValue]
     public let files: [Rewritten]
 
     private enum Keys: String, CodingKey { case restored, files }
@@ -279,7 +300,9 @@ public struct Restored: Decodable, Sendable {
         let fields = try decoder.container(keyedBy: Keys.self)
         let restored = try fields.nestedContainer(keyedBy: Inner.self, forKey: .restored)
         applied = try restored.decode(Bool.self, forKey: .applied)
-        why = errors(in: try restored.decodeIfPresent([JSONValue].self, forKey: .added) ?? [])
+        let found = errors(in: try restored.decodeIfPresent([JSONValue].self, forKey: .added) ?? [])
+        refusals = found
+        why = messages(found)
         files = try fields.decodeIfPresent([Rewritten].self, forKey: .files) ?? []
     }
 }

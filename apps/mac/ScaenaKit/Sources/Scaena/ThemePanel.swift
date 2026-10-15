@@ -120,7 +120,7 @@ struct ThemePanel: View {
                 try picked.hasPrefix("ships:")
                 ? session.retheme(ships: String(picked.dropFirst("ships:".count))) : session.retheme(path: picked)
             guard themed.applied else {
-                throw Refused(description: "not re-themed: \(themed.why.first ?? "the deck would not validate in it")")
+                throw Refused("not re-themed", themed.refusals, by: editor, otherwise: "the deck would not open in it")
             }
             recolored = themed.recolored
             return []
@@ -139,8 +139,8 @@ struct ThemePanel: View {
         edits.beside(name) {
             let edited = try editor.session.themeEdit(ops)
             guard edited.applied else {
-                let why = edited.why.first ?? "the deck would not validate in it"
-                throw Refused(description: "\(name) not changed: \(why)")
+                throw Refused(
+                    "\(name) not changed", edited.refusals, by: editor, otherwise: "the deck would not open in it")
             }
             return edited.files
         }
@@ -150,8 +150,10 @@ struct ThemePanel: View {
         edits.beside("Colors from Photo") {
             let edited = try editor.session.themeEdit(photo: photo)
             guard edited.applied else {
-                let why = edited.why.first ?? "the deck would not validate in it"
-                throw Refused(description: "not taken from \(photo): \(why)")
+                // The photo by its file's name, as the panel offers it, not its path in the bundle.
+                let named = Words.file(photo, type: "image") ?? "the photo"
+                throw Refused(
+                    "not taken from \(named)", edited.refusals, by: editor, otherwise: "the deck would not open in it")
             }
             return edited.files
         }

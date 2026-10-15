@@ -835,7 +835,7 @@ struct DeckView: View {
             guard let ships, current != ships.file else { return }
             let themed = try session.retheme(ships: name)
             guard themed.applied else {
-                throw Refused(description: "not re-themed: \(themed.why.first ?? "the deck would not validate in it")")
+                throw Refused("not re-themed", themed.refusals, by: editor, otherwise: "the deck would not open in it")
             }
             for file in try session.bundleFiles() where file.named.isEmpty {
                 try session.removeFile(file.path)

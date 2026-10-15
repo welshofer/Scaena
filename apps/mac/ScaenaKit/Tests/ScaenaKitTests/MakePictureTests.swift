@@ -108,3 +108,16 @@ private actor Painted {
     }
     #expect(declined?.message == "OpenAI's safety system turned that down. Ask in other words.", "\(String(describing: declined))")
 }
+
+/// A listing of the image models that comes back with a page that is no answer, as a network that
+/// asks a person to sign in gives one, is said by what it means (PLAN 3.18), none of what it holds.
+@MainActor
+@Test func anImageModelListingThatDoesNotReadIsSaidInAPersonsWords() async throws {
+    let generator = Generator { _ in GeneratorReply(status: 200, body: Data("<html>Sign in to the network</html>".utf8)) }
+    let declined = await #expect(throws: ScaenaError.self) {
+        _ = try await generator.picture(
+            subject: "A lighthouse at dusk", theme: "{}", size: CGSize(width: 1920, height: 1080),
+            painter: Generator.Painter(provider: .openai, key: "sk-pictures"))
+    }
+    #expect(declined?.message == "OpenAI's answer couldn't be read. Try again in a moment.", "\(String(describing: declined))")
+}

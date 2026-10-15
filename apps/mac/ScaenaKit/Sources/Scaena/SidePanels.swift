@@ -95,6 +95,17 @@ struct Refused: Error, CustomStringConvertible, LocalizedError {
     var errorDescription: String? { description }
 }
 
+extension Refused {
+    /// A change the deck refused, as the browser says it (PLAN 3.18): `what` was not done, then
+    /// why, the first error lint found in it said by the object it is about (`DeckEditor.refusal`),
+    /// never by lint's own message, which names it by the ids the deck writes; `otherwise` where
+    /// lint found none.
+    init(_ what: String, _ refusals: [JSONValue], by editor: DeckEditor, otherwise: String) {
+        let why = refusals.first.map { editor.refusal($0) } ?? otherwise
+        self.init(description: "\(what): \(why)")
+    }
+}
+
 /// The inspector's column (PLAN 3.18): the tab chosen. On the Mac the toolbar's Format, Animate,
 /// and Document choose it, as a presentation app's do; on the iPad, whose toolbar folds, the
 /// column's own control does too.

@@ -33,6 +33,18 @@ private let torture = repository.appending(path: "tests/fixtures/torture.scaena"
     #expect(try color() == "#101014", "undone: the theme written back")
 }
 
+/// A change the deck refuses is said as the window says it (PLAN 3.18), as the browser's `finding`
+/// says it: what lint found, in a sentence, by the object it is about or the deck; never lint's own
+/// message, which names what it finds by the ids the deck writes.
+@Test func aChangeRefusedIsSaidInAPersonsWords() throws {
+    let session = try ScaenaSession(directory: b1)
+    let refused = try session.retheme(ships: "daybreak")
+    let found = try #require(refused.refusals.first)
+    let said = DeckEditor(session: session).refusal(found)
+    #expect(said.hasSuffix(".") && !said.contains("`"), "\(said)")
+    #expect(!refused.why.contains { said.contains($0) }, "\(said)")
+}
+
 /// A theme taken recolors what it would leave too faint to read (PLAN 2.82), as the browser's
 /// does: trails in Daybreak sets its storm slide's title and note in the theme's color that reads
 /// on the photo, and the panel says how many. A deck with nothing to recolor recolors nothing.
