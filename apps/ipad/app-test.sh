@@ -36,4 +36,10 @@ xcodebuild test-without-building -quiet -project Scaena.xcodeproj -scheme Scaena
 kill "$logging" 2>/dev/null || true
 "$here/results.sh" "$results" "$root/target/ipad/shots"
 cp "$said" "$root/target/ipad/shots/log.txt" 2>/dev/null || true
+# What SwiftUI finds wrong in how the app's views are made (a change handler run twice in a frame,
+# say) fails the run, the fault named: no tap or shot of the tests shows it.
+if grep -F '[com.apple.SwiftUI:Invalid Configuration]' "$said" 2>/dev/null; then
+  echo "SwiftUI found an invalid configuration while the UI tests ran: target/ipad/log.txt" >&2
+  [[ "$status" -ne 0 ]] || status=1
+fi
 exit "$status"

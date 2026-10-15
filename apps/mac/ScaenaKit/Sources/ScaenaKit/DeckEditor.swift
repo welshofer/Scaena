@@ -21,6 +21,9 @@ public final class DeckEditor {
     /// Bumped when what frames at rest draw changes without an edit: a node drawn moved by a
     /// drag, or a patch shown before it is made (PLAN 3.7). What draws the canvas again.
     public private(set) var drawn = 0
+    /// Changed by each edit and by each change to what frames at rest draw without one: the
+    /// revision the canvas paints by (`ScaenaCanvas`), and is told it painted.
+    public var redraws: Int { revision &+ drawn }
     /// The deck's states on its timeline, each step named by its slide.
     public private(set) var slots: [ScaenaSession.Slot] = []
     /// The source as the source pane shows it: the deck's, or what is typed.

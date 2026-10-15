@@ -55,6 +55,9 @@ struct DeckView: View {
     /// The pen, taken up (PLAN 2.114): each drag on the slide draws a stroke, the strokes one
     /// drawing, until it is put down.
     @State private var pen: PenUp?
+    /// The revision of the canvas its surface painted last (`ScaenaView.onPainted`): until it has
+    /// painted the deck that holds a stroke of the pen let go, the canvas draws the stroke over it.
+    @State private var painted = Painted()
     /// What the on-device model is asked, shown in a sheet.
     @State private var asked: Asked?
     /// Where a picture made goes, while Make a Picture's sheet asks what it shows (PLAN 2.107),
@@ -681,10 +684,11 @@ struct DeckView: View {
             }
             .task(id: said) {
                 // What the canvas says of an edit, a moment on the desk under the slide, then gone,
-                // as a presentation app's tips fade once read.
-                guard said != nil else { return }
+                // as a presentation app's tips fade once read: those words alone. Words said as
+                // the time runs out (a slide turned to by PageDown, say) stay their own moment.
+                guard let words = said else { return }
                 try? await Task.sleep(for: .seconds(6))
-                if !Task.isCancelled { said = nil }
+                if !Task.isCancelled, said == words { said = nil }
             }
             .onChange(of: undo, initial: true) { _, now in
                 // The assistant's edits are each one step of this window's undo.
@@ -856,8 +860,8 @@ struct DeckView: View {
                         .position(x: slide.midX, y: slide.midY)
                     // Drawn again after each edit, and as a drag moves a node or shows its patch (PLAN 3.7).
                     ScaenaCanvas(
-                        session: editor.session, state: shown, revision: editor.revision &+ editor.drawn,
-                        playhead: $playhead
+                        session: editor.session, state: shown, revision: editor.redraws, playhead: $playhead,
+                        painted: { painted.revision = $0 }
                     )
                     .overlay {
                         if showsGrid { GridOverlay(editor: editor, shown: placed.view) }
@@ -883,6 +887,7 @@ struct DeckView: View {
                                 pen: pen,
                                 penning: { takePen() },
                                 inked: { points in ink(points, in: shown) },
+                                painted: painted,
                                 showing: { state in chosen = state }
                             ) { ops, name in
                                 perform { try document.make(ops, undo: undo, named: name) }

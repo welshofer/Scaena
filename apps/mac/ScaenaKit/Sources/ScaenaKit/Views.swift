@@ -182,6 +182,14 @@ public struct Zoom: Equatable, Sendable {
         settle()
     }
 
+    /// As close as it is, the slide's middle in the middle of the desk, as it is zoomed from
+    /// fitted: another slide turned to (PLAN 4.12), where what the last showed may hold nothing.
+    public mutating func center() {
+        let size = slide.size
+        corner = CGPoint(x: (desk.width - size.width) / 2, y: (desk.height - size.height) / 2)
+        settle()
+    }
+
     /// The canvas, another size (another format shown, or the deck's canvas changed): fitted to
     /// the desk. The same size changes nothing.
     public mutating func resize(to size: CGSize) {

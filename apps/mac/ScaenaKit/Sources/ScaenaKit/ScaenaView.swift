@@ -68,6 +68,11 @@ public final class ScaenaView: PlatformView {
     /// to rest.
     public var onPlayhead: (@MainActor (Playhead) -> Void)?
 
+    /// Told the revision of each frame as it is painted, or fails to be, once for each revision:
+    /// what is drawn over the view until the deck draws it (a stroke of the pen let go, PLAN
+    /// 2.114) goes once the view paints the deck that holds it.
+    public var onPainted: (@MainActor (Int) -> Void)?
+
     /// Why the last frame could not be painted, if it could not.
     public private(set) var failure: ScaenaError?
 
@@ -81,6 +86,8 @@ public final class ScaenaView: PlatformView {
     private var cue: Double = 0
     /// Whether the frame shown is not the playhead's.
     private var dirty = true
+    /// The revision `onPainted` was told last.
+    private var reported: Int?
 
     #if os(macOS)
     public override init(frame: NSRect) {
@@ -221,6 +228,7 @@ public final class ScaenaView: PlatformView {
             guard try surface?.paint(session, state: state, at: at) == true else { return }
             failure = nil
             dirty = false
+            painted()
             guard playhead.playing else { return }
             if over {
                 playhead = .rest
@@ -233,6 +241,7 @@ public final class ScaenaView: PlatformView {
         } catch {
             failure = error as? ScaenaError ?? ScaenaError(message: "\(error)")
             dirty = false
+            painted()
             if playhead.playing {
                 playhead = .rest
                 began = nil
@@ -245,6 +254,13 @@ public final class ScaenaView: PlatformView {
         told = now
         onPlayhead?(playhead)
     }
+
+    /// Tell `onPainted` the revision just painted, once for each.
+    private func painted() {
+        guard reported != revision else { return }
+        reported = revision
+        onPainted?(revision)
+    }
 }
 
 #if os(macOS)
@@ -256,18 +272,24 @@ public typealias PlatformViewRepresentable = UIViewRepresentable
 #endif
 
 /// `ScaenaView` in SwiftUI: `state` of `session` where `playhead` is, painted again when
-/// `revision` changes, after an edit. While the cue plays, the view moves the playhead.
+/// `revision` changes, after an edit, and `painted` told each revision as it is painted. While
+/// the cue plays, the view moves the playhead.
 public struct ScaenaCanvas: PlatformViewRepresentable {
     public let session: ScaenaSession
     public let state: String
     public let revision: Int
     @Binding public var playhead: Playhead
+    public let painted: (@MainActor (Int) -> Void)?
 
-    public init(session: ScaenaSession, state: String, revision: Int = 0, playhead: Binding<Playhead>) {
+    public init(
+        session: ScaenaSession, state: String, revision: Int = 0, playhead: Binding<Playhead>,
+        painted: (@MainActor (Int) -> Void)? = nil
+    ) {
         self.session = session
         self.state = state
         self.revision = revision
         self._playhead = playhead
+        self.painted = painted
     }
 
     #if os(macOS)
@@ -296,6 +318,7 @@ public struct ScaenaCanvas: PlatformViewRepresentable {
         if view.session !== session { view.session = session }
         if view.state != state { view.state = state }
         view.revision = revision
+        view.onPainted = painted
         let playhead = $playhead
         view.onPlayhead = { playhead.wrappedValue = $0 }
         view.show(self.playhead)
