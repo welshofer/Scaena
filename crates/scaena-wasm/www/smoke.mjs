@@ -7,14 +7,20 @@
 // 2. Every one of those states paints through WebGPU: read back from the canvas, the frame is
 //    opaque and has ink on it. Each frame is saved as <out-dir>/<state>.png (default
 //    target/wasm-smoke) for review and the parity harness (PLAN 0.9).
+// 3. The editor's module leaves out the code scanners' word tables (PLAN 2.132): run in Node and
+//    handed none, a code text's frame is an error that names the file it needs, and so is one
+//    handed bytes that are not that file; handed the repository's, it draws, the digest check 1
+//    held the page's frame to.
 // Exits 1 on any mismatch or error. Needs Playwright and its Chromium; `playwright` resolves
 // like `require` does, so a global install works with NODE_PATH. Headless Chromium hands out a
 // WebGPU adapter by default but leaves WebGPU canvases blank unless its compositor runs on
 // Vulkan, hence the SwiftShader Vulkan flags below.
+import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { extname, join, normalize } from "node:path";
+import { extname, join, normalize, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const { chromium } = createRequire(import.meta.url)("playwright");
 
@@ -107,6 +113,37 @@ try {
 } finally {
   await browser.close();
   server.close();
+}
+try {
+  const pkg = "crates/scaena-wasm/www/pkg";
+  const glue = await import(pathToFileURL(resolve(pkg, "scaena_wasm.js")).href);
+  await glue.default({ module_or_path: await readFile(join(pkg, "scaena_wasm_bg.wasm")) });
+  glue.setHyphenation((code) => readFileSync(`crates/scaena-engine/hyphenation/${code}.bin`));
+  const bundle = "tests/fixtures/torture.scaena";
+  const deckJson = await readFile(join(bundle, "deck.json"), "utf8");
+  const deck = JSON.parse(deckJson);
+  const player = new glue.Player(deckJson, await readFile(join(bundle, deck.theme), "utf8"));
+  const sources = Object.values(deck.data ?? {}).flatMap(({ source }) => (typeof source === "string" ? [source] : []));
+  for (const path of [...deck.fonts.map((f) => f.file), ...sources, ...player.imageFiles()])
+    player.addFile(path, await readFile(join(bundle, path)));
+  const tables = (name) => readFileSync(`crates/scaena-core/code/${name}.txt`);
+  const said = (loader) => {
+    glue.setCodeTables(loader);
+    try {
+      player.frame("code", Infinity);
+      return "";
+    } catch (e) {
+      return String(e?.message ?? e);
+    }
+  };
+  const none = said(() => undefined);
+  const wrong = said((name) => Buffer.concat([tables(name), Buffer.from("\n")]));
+  const handed = said(tables);
+  const ok = none.includes("`clike`") && none.includes("not handed over") && wrong.includes("not the engine's tables") && !handed;
+  console.log(`${ok ? "ok  " : "FAIL"} code tables: none: ${none}; another file: ${wrong}; the repository's: ${handed || "drawn"}`);
+  if (!ok) failures.push("code tables");
+} catch (e) {
+  failures.push(`code tables: ${e}`);
 }
 console.log(failures.length ? `${failures.length} failure(s): ${failures.join("; ")}` : `all ${expected.length} states: WASM display lists match native, WebGPU painted each`);
 process.exit(failures.length ? 1 : 0);

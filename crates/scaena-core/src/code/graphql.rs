@@ -22,6 +22,7 @@
 
 use super::Class;
 use super::scan::{Nest, Spans, byte, is_break, is_space, is_word, is_word_start, line_end, number_end, space_end};
+use super::tables::{Table, words};
 
 /// What a bracket holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,7 +139,7 @@ pub(super) fn scan<'t>(text: &'t str, out: &mut Spans<'t>) {
                 // A definition begins at the top, where the one before has no braces to end it too.
                 let begins = matches!(want, Want::Definition | Want::Head | Want::Locations) && nest.is_empty();
                 let class = match want {
-                    _ if begins && DEFINITIONS.binary_search(&word).is_ok() => {
+                    _ if begins && DEFINITIONS.holds(word) => {
                         (def, want) = match word {
                             b"query" | b"mutation" | b"subscription" | b"fragment" => {
                                 (Def::Operation, Want::Name(Class::Function))
@@ -308,21 +309,27 @@ fn string_end(b: &[u8], at: usize) -> usize {
 }
 
 /// The words that begin a definition, sorted, so one is found by binary search.
-const DEFINITIONS: &[&[u8]] = &[
-    b"directive",
-    b"enum",
-    b"extend",
-    b"fragment",
-    b"input",
-    b"interface",
-    b"mutation",
-    b"query",
-    b"scalar",
-    b"schema",
-    b"subscription",
-    b"type",
-    b"union",
-];
+const DEFINITIONS: Table = words!(
+    "graphql/definitions",
+    [
+        "directive",
+        "enum",
+        "extend",
+        "fragment",
+        "input",
+        "interface",
+        "mutation",
+        "query",
+        "scalar",
+        "schema",
+        "subscription",
+        "type",
+        "union"
+    ]
+);
+
+/// The tables above, in the file they are handed over in (`code::tables`).
+pub(super) const WORDS: &[Table] = &[DEFINITIONS];
 
 #[cfg(test)]
 mod tests {

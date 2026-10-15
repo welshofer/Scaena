@@ -72,6 +72,8 @@ pub struct Scene {
     /// What each connector joins, by its id (PLAN 2.109): what a drag of either end runs it
     /// between again.
     pub joins: HashMap<String, crate::shapes::Joint>,
+    /// Whether its deck reads right to left, and so stands mirrored (PLAN T.5a).
+    pub mirrored: bool,
 }
 
 /// A visible node's place in its scene.

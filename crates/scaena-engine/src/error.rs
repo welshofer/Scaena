@@ -19,4 +19,7 @@ pub enum EngineError {
     /// A language's hyphenation patterns that could not be had (`hyphen`).
     #[error("hyphenation: {0}")]
     Hyphenation(String),
+    /// The tables a code text's language is colored by that could not be had (`code`).
+    #[error("code: {0}")]
+    Code(String),
 }

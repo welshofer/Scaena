@@ -1,0 +1,629 @@
+{
+  "scaena": "0.29",
+  "meta": {
+    "title": "מים נקיים לערים שלנו",
+    "lang": "he",
+    "description": "A deck that reads right to left, laid out mirrored (PLAN T.5a). Written by scripts/build_rtl_decks.py."
+  },
+  "canvas": {
+    "width": 1920,
+    "height": 1080,
+    "unit": "cu"
+  },
+  "theme": "theme.json",
+  "fonts": [
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          9,
+          144
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          14,
+          32
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          800
+        ]
+      }
+    },
+    {
+      "family": "Noto Sans Arabic",
+      "file": "fonts/NotoSansArabic-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ]
+      }
+    },
+    {
+      "family": "Noto Sans Hebrew",
+      "file": "fonts/NotoSansHebrew-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ]
+      }
+    }
+  ],
+  "data": {
+    "lost": {
+      "source": {
+        "inline": [
+          {
+            "month": "ינואר",
+            "lost": 31
+          },
+          {
+            "month": "פברואר",
+            "lost": 27
+          },
+          {
+            "month": "מרץ",
+            "lost": 22
+          },
+          {
+            "month": "אפריל",
+            "lost": 18
+          }
+        ]
+      },
+      "schema": {
+        "month": "string",
+        "lost": "number"
+      }
+    }
+  },
+  "nodes": {
+    "cover-kicker": {
+      "type": "text",
+      "role": "kicker",
+      "text": "דוח שנתי · 2026",
+      "at": {
+        "in": "kicker"
+      }
+    },
+    "cover-title": {
+      "type": "text",
+      "role": "display",
+      "text": "מים נקיים לערים שלנו",
+      "at": {
+        "in": "title"
+      },
+      "semantic": "navigation"
+    },
+    "cover-subtitle": {
+      "type": "text",
+      "role": "title",
+      "text": "מה למדנו בשנה של עבודה",
+      "at": {
+        "in": "subtitle"
+      }
+    },
+    "points-header": {
+      "type": "text",
+      "role": "headline",
+      "text": "מה השתנה",
+      "at": {
+        "in": "header"
+      },
+      "semantic": "navigation"
+    },
+    "points-body": {
+      "type": "text",
+      "role": "lede",
+      "text": "הבזבוז ירד ב־18% מאז 2024\nארבע תחנות חדשות פועלות\nמים נקיים מגיעים ל־1.2 מיליון איש",
+      "at": {
+        "in": "body"
+      },
+      "list": [
+        {
+          "kind": "bullet"
+        },
+        {
+          "kind": "bullet"
+        },
+        {
+          "kind": "bullet"
+        }
+      ]
+    },
+    "sides-header": {
+      "type": "text",
+      "role": "headline",
+      "text": "לפני ואחרי",
+      "at": {
+        "in": "header"
+      },
+      "semantic": "navigation"
+    },
+    "sides-before": {
+      "type": "text",
+      "role": "body",
+      "text": "הצינורות הישנים איבדו שליש מהמים לפני שהגיעו לבתים.",
+      "at": {
+        "in": "first"
+      }
+    },
+    "sides-after": {
+      "type": "text",
+      "role": "body",
+      "text": "היום חיישנים מודדים כל קו, ואנחנו מתקנים דליפה ביום אחד.",
+      "at": {
+        "in": "second"
+      }
+    },
+    "steps-header": {
+      "type": "text",
+      "role": "headline",
+      "text": "איך אנחנו עובדים",
+      "at": {
+        "in": "header"
+      },
+      "semantic": "navigation"
+    },
+    "steps-first-chevron": {
+      "type": "shape",
+      "kind": "polygon",
+      "fill": "surface-2",
+      "points": [
+        [
+          1,
+          0
+        ],
+        [
+          0.14,
+          0
+        ],
+        [
+          0,
+          0.5
+        ],
+        [
+          0.14,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ],
+      "semantic": "decoration",
+      "at": {
+        "in": "first-chevron"
+      },
+      "z": -1
+    },
+    "steps-first-title": {
+      "type": "text",
+      "role": "title",
+      "text": "מודדים",
+      "at": {
+        "in": "first-title"
+      }
+    },
+    "steps-first": {
+      "type": "text",
+      "role": "body",
+      "text": "חיישנים בכל שכונה",
+      "at": {
+        "in": "first"
+      }
+    },
+    "steps-second-chevron": {
+      "type": "shape",
+      "kind": "polygon",
+      "fill": "surface-2",
+      "points": [
+        [
+          1,
+          0
+        ],
+        [
+          0.14,
+          0
+        ],
+        [
+          0,
+          0.5
+        ],
+        [
+          0.14,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          0.86,
+          0.5
+        ]
+      ],
+      "semantic": "decoration",
+      "at": {
+        "in": "second-chevron"
+      },
+      "z": -1
+    },
+    "steps-second-title": {
+      "type": "text",
+      "role": "title",
+      "text": "מתכננים",
+      "at": {
+        "in": "second-title"
+      }
+    },
+    "steps-second": {
+      "type": "text",
+      "role": "body",
+      "text": "סדרי עדיפויות בכל רבעון",
+      "at": {
+        "in": "second"
+      }
+    },
+    "steps-third-chevron": {
+      "type": "shape",
+      "kind": "polygon",
+      "fill": "surface-2",
+      "points": [
+        [
+          1,
+          0
+        ],
+        [
+          0.14,
+          0
+        ],
+        [
+          0,
+          0.5
+        ],
+        [
+          0.14,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          0.86,
+          0.5
+        ]
+      ],
+      "semantic": "decoration",
+      "at": {
+        "in": "third-chevron"
+      },
+      "z": -1
+    },
+    "steps-third-title": {
+      "type": "text",
+      "role": "title",
+      "text": "בונים",
+      "at": {
+        "in": "third-title"
+      }
+    },
+    "steps-third": {
+      "type": "text",
+      "role": "body",
+      "text": "צוותים מקומיים לתיקון",
+      "at": {
+        "in": "third"
+      }
+    },
+    "steps-fourth-chevron": {
+      "type": "shape",
+      "kind": "polygon",
+      "fill": "surface-2",
+      "points": [
+        [
+          1,
+          0
+        ],
+        [
+          0.14,
+          0
+        ],
+        [
+          0,
+          0.5
+        ],
+        [
+          0.14,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          0.86,
+          0.5
+        ]
+      ],
+      "semantic": "decoration",
+      "at": {
+        "in": "fourth-chevron"
+      },
+      "z": -1
+    },
+    "steps-fourth-title": {
+      "type": "text",
+      "role": "title",
+      "text": "בודקים",
+      "at": {
+        "in": "fourth-title"
+      }
+    },
+    "steps-fourth": {
+      "type": "text",
+      "role": "body",
+      "text": "דוח פתוח בכל חודש",
+      "at": {
+        "in": "fourth"
+      }
+    },
+    "figure-number": {
+      "type": "text",
+      "role": "hero",
+      "text": "42%",
+      "at": {
+        "in": "number"
+      }
+    },
+    "figure-claim": {
+      "type": "text",
+      "role": "title",
+      "text": "מהשכונות עם מונים חכמים",
+      "at": {
+        "in": "claim"
+      },
+      "semantic": "claim"
+    },
+    "figure-detail": {
+      "type": "text",
+      "role": "body",
+      "text": "התחלנו בשכונות שמאבדות הכי הרבה, ונגיע לשאר ב־2027.",
+      "at": {
+        "in": "detail"
+      }
+    },
+    "photo-picture": {
+      "type": "image",
+      "src": "assets/sunset.png",
+      "alt": "שמש נמוכה מעל גבעות בשקיעה.",
+      "semantic": "evidence",
+      "at": {
+        "in": "art"
+      }
+    },
+    "photo-header": {
+      "type": "text",
+      "role": "headline",
+      "text": "בשטח",
+      "at": {
+        "in": "header"
+      },
+      "semantic": "navigation"
+    },
+    "photo-body": {
+      "type": "text",
+      "role": "body",
+      "text": "הצוותים שלנו עובדים עם התושבים בכל שכונה, מהתכנון ועד התיקון.",
+      "at": {
+        "in": "body"
+      },
+      "semantic": "claim"
+    },
+    "free-chart": {
+      "type": "chart",
+      "kind": "bar",
+      "data": "@lost",
+      "x": {
+        "field": "month",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "lost",
+        "type": "quantitative",
+        "format": "d"
+      },
+      "alt": "מים שאבדו בכל חודש, במיליוני ליטרים: ינואר 31, פברואר 27, מרץ 22, אפריל 18.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          1,
+          7
+        ],
+        "row": [
+          3,
+          10
+        ]
+      }
+    },
+    "free-order": {
+      "type": "stack",
+      "axis": "x",
+      "gap": "space.3",
+      "at": {
+        "col": [
+          8,
+          12
+        ],
+        "row": [
+          3,
+          5
+        ]
+      }
+    },
+    "free-order-1": {
+      "type": "text",
+      "role": "title",
+      "text": "ראשית",
+      "at": {
+        "parent": "free-order",
+        "index": 0
+      }
+    },
+    "free-order-2": {
+      "type": "text",
+      "role": "title",
+      "text": "שנית",
+      "at": {
+        "parent": "free-order",
+        "index": 1
+      }
+    },
+    "free-order-3": {
+      "type": "text",
+      "role": "title",
+      "text": "שלישית",
+      "at": {
+        "parent": "free-order",
+        "index": 2
+      }
+    },
+    "free-header": {
+      "type": "text",
+      "role": "headline",
+      "text": "המספרים חודש אחר חודש",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          1,
+          2
+        ]
+      },
+      "semantic": "claim"
+    },
+    "free-source": {
+      "type": "text",
+      "role": "caption",
+      "text": "מקור: רישומי הרשת, 2026",
+      "at": {
+        "rect": [
+          120,
+          900,
+          640,
+          72
+        ]
+      },
+      "semantic": "source"
+    }
+  },
+  "states": [
+    {
+      "id": "cover",
+      "mode": "absolute",
+      "props": {
+        "cover-kicker": {},
+        "cover-title": {},
+        "cover-subtitle": {}
+      },
+      "layout": "title"
+    },
+    {
+      "id": "points",
+      "mode": "absolute",
+      "props": {
+        "points-header": {},
+        "points-body": {}
+      },
+      "layout": "bullets"
+    },
+    {
+      "id": "sides",
+      "mode": "absolute",
+      "props": {
+        "sides-header": {},
+        "sides-before": {},
+        "sides-after": {}
+      },
+      "layout": "two-columns"
+    },
+    {
+      "id": "steps",
+      "mode": "absolute",
+      "props": {
+        "steps-header": {},
+        "steps-first-chevron": {},
+        "steps-first-title": {},
+        "steps-first": {},
+        "steps-second-chevron": {},
+        "steps-second-title": {},
+        "steps-second": {},
+        "steps-third-chevron": {},
+        "steps-third-title": {},
+        "steps-third": {},
+        "steps-fourth-chevron": {},
+        "steps-fourth-title": {},
+        "steps-fourth": {}
+      },
+      "layout": "process"
+    },
+    {
+      "id": "figure",
+      "mode": "absolute",
+      "props": {
+        "figure-number": {},
+        "figure-claim": {},
+        "figure-detail": {}
+      },
+      "layout": "stat"
+    },
+    {
+      "id": "photo",
+      "mode": "absolute",
+      "props": {
+        "photo-header": {},
+        "photo-body": {},
+        "photo-picture": {}
+      },
+      "layout": "photo-right"
+    },
+    {
+      "id": "free",
+      "mode": "absolute",
+      "props": {
+        "free-header": {},
+        "free-chart": {},
+        "free-order": {},
+        "free-order-1": {},
+        "free-order-2": {},
+        "free-order-3": {},
+        "free-source": {}
+      }
+    }
+  ]
+}

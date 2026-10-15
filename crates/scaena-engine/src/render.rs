@@ -425,7 +425,7 @@ impl Engine {
         snap: &Snapshot,
     ) -> Result<Scene, EngineError> {
         let canvas = canvas(deck);
-        let grid = Grid::from_theme(theme, canvas)?;
+        let grid = Grid::from_theme(theme, canvas)?.mirrored(scaena_core::direction::mirrored(deck));
         let snap = &cascade::with_overrides(deck, snap);
         let mut placement = self.place(deck, theme, data, &grid, snap)?;
         let mut tree = tree(deck, snap, &placement)?;
@@ -531,6 +531,7 @@ impl Engine {
             tracks: placement.tracks,
             furniture,
             joins,
+            mirrored: grid.is_mirrored(),
         })
     }
 
@@ -769,8 +770,9 @@ impl Engine {
         // Held to the grid of the format laid out, which may have fewer columns.
         let a = a.clamp(1, last);
         let b = b.clamp(a, last);
-        let [x0, _] = columns[(a - 1) as usize];
-        let [_, x1] = columns[(b - 1) as usize];
+        // Its first column and its last, which stand right to left in a deck that reads so.
+        let (first, last) = (columns[(a - 1) as usize], columns[(b - 1) as usize]);
+        let (x0, x1) = (first[0].min(last[0]), first[1].max(last[1]));
         let size = canvas(deck);
         let rows = grid.rows();
         let (y0, y1) = match item.edge {
@@ -831,7 +833,7 @@ impl Engine {
         if let Some(node) = nodes.iter().find(|n| !snap.nodes.contains_key(**n)) {
             return Err(EngineError::Layout(format!("node `{node}` is not visible in state `{}`", req.state)));
         }
-        let grid = Grid::from_theme(theme, canvas(deck))?;
+        let grid = Grid::from_theme(theme, canvas(deck))?.mirrored(scaena_core::direction::mirrored(deck));
         let placement = self.place(deck, theme, req.data, &grid, snap)?;
         let mut placed = Vec::with_capacity(nodes.len());
         for node in nodes {
@@ -1368,10 +1370,16 @@ fn theme_color(theme: &Theme, name: &str) -> Result<Color, EngineError> {
 fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>) -> Result<TextSpec, EngineError> {
     let str_prop = |key: &str| props.get(key).and_then(Value::as_str);
     let mut role = cascade::node_role(theme, props, slot_role)?;
-    // Code is set as written (ADR-0029): no case, no measure, no hyphens, nothing hung.
-    let code = crate::code::CodeSpec::of(props, role.size, role.min_size, canvas(deck));
-    if code.is_some() {
+    // Code is set as written (ADR-0029): no case, no measure, no hyphens, nothing hung. It is
+    // colored by its language in the theme's colors, each held to read on its ground: the
+    // surface, which it is drawn on (PLAN 2.132).
+    let mut code = crate::code::CodeSpec::of(props, role.size, role.min_size, canvas(deck));
+    if let Some(code) = &mut code {
         role.case = None;
+        let look = theme.code.as_ref();
+        code.tab = look.and_then(|c| c.tab).map_or(crate::code::TAB, usize::from);
+        let [r, g, b, _] = theme_color(theme, "surface")?.0;
+        code.looks = Some(Box::new(theme.code_looks([r, g, b], &role)?));
     }
     let (role_measure, hanging, optical, hyphenate) =
         (role.measure, role.hanging_punctuation, role.optical_margins, role.hyphenate);
@@ -1440,6 +1448,7 @@ fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>)
             list_indent: list_indent as f32,
             list_gap: list_gap as f32,
             code,
+            mirrored: scaena_core::direction::mirrored(deck),
         });
     }
     let items = list_marks(theme, props, &written)?;
@@ -1462,6 +1471,7 @@ fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>)
         list_indent: list_indent as f32,
         list_gap: list_gap as f32,
         code: None,
+        mirrored: scaena_core::direction::mirrored(deck),
     })
 }
 
