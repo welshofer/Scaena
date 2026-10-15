@@ -1718,6 +1718,8 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             json!({ "current": current, "files": files })
         }
         "themeText" => s.theme_text().unwrap_or(Value::Null),
+        // Each kind of code token as the theme draws it, what the Theme tab's Code shows (PLAN 2.144).
+        "codeColors" => value(serde_json::to_value(s.code_colors().map_err(said)?))?,
         "keepHistory" => {
             s.keep_history();
             Value::Null

@@ -197,6 +197,16 @@ enum Words {
 
     private static let easings: [String: String] = ["in": "Ease In", "out": "Ease Out"]
 
+    /// A kind of code token as a person calls it (PLAN 2.144): `keyword` is Keywords.
+    static func syntax(_ kind: String) -> String { syntaxes[kind] ?? phrase(kind) }
+
+    private static let syntaxes: [String: String] = [
+        "keyword": "Keywords", "type": "Types", "function": "Functions", "string": "Strings", "number": "Numbers",
+        "constant": "Constants", "comment": "Comments", "operator": "Operators", "punctuation": "Punctuation",
+        "property": "Properties", "attribute": "Attributes", "tag": "Tags", "variable": "Variables",
+        "meta": "Directives", "inserted": "Lines Added", "deleted": "Lines Taken Away",
+    ]
+
     /// The shipped themes' builds whose names say them in fewer words than a person would (PLAN 2.112).
     private static let presets: [String: String] = [
         "words": "Word by Word", "bullets": "By Bullet", "fadeScale": "Fade and Scale", "scaleBig": "Scale Big",
