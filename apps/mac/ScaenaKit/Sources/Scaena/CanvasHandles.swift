@@ -319,9 +319,9 @@ struct WaitingButton: View {
     let slot: WaitingSlot
     /// How wide and how tall the slot is drawn, points. Its words stand whole inside it, the first
     /// way that fits: beside the icon on a line or two; else under it, on as many lines as the slot
-    /// is tall enough for (`WaitingSlot.lines`); else the same a size smaller; else the icon alone,
-    /// as small as the slot is short, the words its help. A short slot's pill is smaller. No word
-    /// is cut.
+    /// is tall enough for (`WaitingSlot.lines`); else, on the iPad, the same a size smaller; else
+    /// the icon alone, as small as the slot is short, the words its help. A short slot's pill is
+    /// smaller. No word is cut, and none is set smaller than a person reads on the platform.
     let width: CGFloat
     let height: CGFloat
     let fill: () -> Void
@@ -348,11 +348,12 @@ struct WaitingButton: View {
     private var symbol: String { slot.typed ? "text.cursor" : "photo.badge.plus" }
 
     /// The ways the words may stand, in the order they are tried: beside the icon on a line, then
-    /// on two; under it on a line, two, and so on to the narrowest; then each a size smaller.
+    /// on two; under it on a line, two, and so on to the narrowest; then, where there is a size
+    /// smaller to set them in, each in it.
     private var ways: [WaitingWay] {
         let lines = slot.lines
         var ways: [WaitingWay] = []
-        for smaller in [false, true] {
+        for smaller in Self.sizes {
             for way in lines where way.count <= 2 {
                 ways.append(WaitingWay(lines: way, under: false, smaller: smaller))
             }
@@ -406,15 +407,21 @@ struct WaitingButton: View {
             .contentShape(Circle())
     }
 
-    /// A size smaller than the words' own, for a slot too small for them in it: on the Mac a
-    /// caption's size is the least a text style takes.
-    private static var smaller: Font {
+    /// The sizes the words are tried in, as whether each is the smaller: their own, then on the
+    /// iPad the caption's second size, 11 points. The Mac's caption, 10 points, is the least it
+    /// sets words in to be read (Apple's guidelines): there, a slot too small for them shows the
+    /// icon alone.
+    private static var sizes: [Bool] {
         #if os(macOS)
-        return .system(size: 9)
+        return [false]
         #else
-        return .caption2
+        return [false, true]
         #endif
     }
+
+    /// A size smaller than the words' own, for a slot too small for them in it: the caption's
+    /// second size, which the iPad reads at 11 points.
+    private static var smaller: Font { .caption2 }
 }
 
 /// One way an empty slot's words may stand in it: on these lines, beside the icon or under it, in

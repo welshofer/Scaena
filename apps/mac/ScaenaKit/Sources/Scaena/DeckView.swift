@@ -365,9 +365,9 @@ struct DeckView: View {
     /// way back to the documents standing at its leading end alone.
     private var leading: ToolbarItemPlacement {
         #if os(macOS)
-        .navigation
+        return .navigation
         #else
-        .topBarLeading
+        return .topBarLeading
         #endif
     }
 
