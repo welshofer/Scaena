@@ -102,6 +102,7 @@ async fn the_tools_and_resources_are_listed() {
             "deck_read",
             "deck_render",
             "icon_find",
+            "map_fetch",
             "spine_read",
             "spine_update",
             "theme_apply",
