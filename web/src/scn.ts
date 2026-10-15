@@ -26,37 +26,40 @@ const KEYWORDS = new Set([
 const TYPES = new Set(["text", "image", "shape", "chart", "table", "shader", "stack", "grid", "frame", "group"]);
 
 interface State {
-  /** Inside a triple-quoted string that runs on past its line. */
-  triple: boolean;
+  /** The run of quotes that fences the block a line is in, or 0 outside one. */
+  fence: number;
 }
 
-/** The rest of a triple-quoted string from where `stream` is: through its closing `"""`,
- * or to the line's end. */
-function triple(stream: StringStream, state: State): string {
-  while (!stream.eol()) {
-    if (stream.match('"""')) {
-      state.triple = false;
-      return "string";
-    }
-    stream.next();
-  }
+/** A line of a block, whole: its text, or the line that closes it, which is the block's own
+ * run of quotes after its indentation of spaces (`closes` in the lexer). A run of another
+ * length, or the run with more after it, is a line of the text. */
+function block(stream: StringStream, state: State): string {
+  const rest = stream.string.replace(/^ +/, "");
+  if (rest.length === state.fence && /^"+$/.test(rest)) state.fence = 0;
+  stream.skipToEnd();
   return "string";
 }
 
 export const scn = StreamLanguage.define<State>({
   name: "scn",
-  startState: () => ({ triple: false }),
+  startState: () => ({ fence: 0 }),
   copyState: (s) => ({ ...s }),
   token(stream, state) {
-    if (state.triple) return triple(stream, state);
+    if (state.fence) return block(stream, state);
     if (stream.eatSpace()) return null;
     if (stream.peek() === "#") {
       stream.skipToEnd();
       return "comment";
     }
-    if (stream.match('"""')) {
-      state.triple = true;
-      return triple(stream, state);
+    // Three quotes or more are a block's fence, and the block starts on the next line where
+    // nothing follows them on theirs but white space, as Rust's `trim` counts it (`\s` would
+    // take U+FEFF and pass over U+0085). Where something does, the lexer refuses the line, and
+    // it reads as a string to its end.
+    const fence = stream.match(/^"{3,}/) as RegExpMatchArray | null;
+    if (fence) {
+      if (/^\p{White_Space}*$/u.test(stream.string.slice(stream.pos))) state.fence = fence[0].length;
+      stream.skipToEnd();
+      return "string";
     }
     if (stream.peek() === '"') {
       stream.next();
@@ -77,7 +80,8 @@ export const scn = StreamLanguage.define<State>({
       const w = word[0];
       if (stream.peek() === ":") return "propertyName";
       if (w === "true" || w === "false" || w === "null") return "atom";
-      if (KEYWORDS.has(w) && stream.column() - w.length === stream.indentation()) return "keyword";
+      // `column` is where the token starts, so a keyword is one at its line's indentation.
+      if (KEYWORDS.has(w) && stream.column() === stream.indentation()) return "keyword";
       if (TYPES.has(w)) return "typeName";
       return "variableName";
     }

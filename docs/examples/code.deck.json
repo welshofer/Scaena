@@ -129,7 +129,7 @@
       "code": {
         "language": "rust"
       },
-      "text": "// A talk on the program, and the votes it drew.\nstruct Talk {\n\ttitle: String,\n\tvotes: u32,\n}\n\n// The talks, most votes first.\nfn rank(talks: &mut [Talk]) {\n\ttalks.sort_by(|a, b| b.votes.cmp(&a.votes));\n}",
+      "text": "// A talk on the program, and the votes it drew.\nstruct Talk {\n    title: String,\n    votes: u32,\n}\n\n// The talks, most votes first.\nfn rank(talks: &mut [Talk]) {\n    talks.sort_by(|a, b| b.votes.cmp(&a.votes));\n}",
       "semantic": "evidence",
       "alt": "Rust: a Talk has a title and a vote count, and rank sorts the talks by votes, most first.",
       "at": {
@@ -158,7 +158,7 @@
           "text": "Then by title"
         },
         "snippet": {
-          "text": "// A talk on the program, and the votes it drew.\nstruct Talk {\n\ttitle: String,\n\tvotes: u32,\n}\n\n// The talks, most votes first; ties by title.\nfn rank(talks: &mut [Talk]) {\n\ttalks.sort_by(|a, b| {\n\t\tb.votes.cmp(&a.votes).then_with(|| a.title.cmp(&b.title))\n\t});\n}",
+          "text": "// A talk on the program, and the votes it drew.\nstruct Talk {\n    title: String,\n    votes: u32,\n}\n\n// The talks, most votes first; ties by title.\nfn rank(talks: &mut [Talk]) {\n    talks.sort_by(|a, b| {\n        b.votes.cmp(&a.votes).then_with(|| a.title.cmp(&b.title))\n    });\n}",
           "alt": "Rust: rank sorts the talks by votes, most first, and ties by title."
         }
       },
