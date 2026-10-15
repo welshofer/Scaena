@@ -1939,6 +1939,37 @@ The spine stays the source of truth: generation writes nothing onto states that 
 
 ---
 
+## Objects from outside the deck — maps, weather, stocks, and verse
+
+**Goal:** an object a person asks for in a few words, and gets on the slide drawn in the theme: a map from an address, a forecast from a city, a price chart from a ticker, a haiku from a topic or from the deck itself. In the browser, on the Mac, and on the iPad, through the same Rust, and for agents through the CLI and the MCP server. *(Proposed on Jay's call, 2026-10-15. Unscheduled: each takes a design pass and an ADR before it is scheduled.)*
+
+What each must keep, whatever its design:
+- **Render never fetches.** What a map, a forecast, or a price chart draws is fetched once, when it is made, into the bundle: a data source or a data file that names what was asked (the address, the city, the ticker, the range), where it came from, and when. The deck then draws the same offline, in a single file, in the PDF, and in video (SPEC §13). Fetching again is an edit by a person or an agent: one patch, one step to undo, recorded in the history.
+- **No server of Scaena's.** The client makes each call, as the assistant and Narrato do (ADR-0011, ADR-0026). A provider that takes a key takes the user's own, kept where the assistant's are, never in a bundle (ADR-0006).
+- **Credit where it is owed.** What a source's license asks to be shown (OpenStreetMap's "© OpenStreetMap contributors", a market-data provider's name and delay) is drawn with the object, read by the reader, and carried into the PDF.
+- **Semantics over pixels.** Each is drawn by the theme's roles, colors, and icons, not by a provider's style (ADR-0005).
+
+- [ ] O.1 Map: an address or a place, typed in Insert › Map, becomes a map on the slide with a pin at the place, drawn in the theme's colors. *(Jay, 2026-10-15: "give an address and get back a map object.")*
+    - The place is found by a geocoder: OpenStreetMap's Nominatim, under its usage policy (one request at a time, a named client, its answer credited).
+    - The map is drawn by the engine as vector paths from OpenStreetMap's features around the place: land, water, parks, roads, buildings, and the names the theme's roles set. The features are fetched once and kept in the bundle as a data file, so the map themes with the deck: land on the surface, water in a cool accent, roads in the line color, and the pin in the accent.
+    - It is a node of its own (`map`: the place, the center, the zoom, and the features' file), so a format change, a schema, and a SPEC section. A pan or a zoom in the inspector is a `choose`, and one that reaches past the features kept fetches more.
+    - The other way is a raster map from a tile provider with the user's key (MapTiler, Stadia, Mapbox), kept as an image. It is simpler, but it is not drawn in the theme. Jay's call.
+- [ ] O.2 Weather: a city or a postal code becomes the day's forecast by the hour, or the week's by the day. Each period shows its high and low, its sky as one of the shipped icons (Phosphor's sun, clouds, rain, and snow), and the chance of rain, with the place and the time of the forecast. *(Jay, 2026-10-15: "provide a city or zip and get back a day or week weather forecast.")*
+    - The forecast comes from Open-Meteo, which takes no key and is free for non-commercial use, with a subscription for commercial use. Jay's call. The place comes from Open-Meteo's geocoder, which reads cities and postal codes.
+    - It is kept as a data source (time, high, low, the sky's WMO code, the chance of rain) and drawn as icons and figures in the theme's roles, each period a column. A table or a chart of the same source is a choice in the inspector.
+    - It says when it was fetched. Lint says when a forecast has passed its days (a new warning, with Refresh as its fix). Degrees are Celsius or Fahrenheit, by the deck's language or by a choice.
+- [ ] O.3 Stock: a ticker becomes a line chart of its price over a day, a week, a month, a quarter, a year, or the year to date, its change said as the chart's claim ("up 12% this quarter"). *(Jay, 2026-10-15: a ticker symbol in, and a chart of a day, a week, a month, a quarter, a year, or the year to date out.)*
+    - Prices come from a market-data provider with the user's own key: Alpha Vantage, Twelve Data, Finnhub, or Polygon. Each provider's terms for showing its data are kept, and a delayed quote is said to be delayed. Jay's call on which.
+    - The series is kept as a data source, naming the ticker, the range, and when it was fetched. The chart is the line chart that already exists, with its time axis (PLAN 2.81) and its claim (G.19). A day's chart is drawn by the minute or the five minutes.
+    - The range is a `choose` that fetches anew: one patch, one step to undo. The provider and the time are credited under the chart.
+- [ ] O.4 Haiku: a topic, or the deck itself, becomes a haiku written by the assistant with the user's own key, and set beautifully: three lines in a verse role of the theme's, with generous leading, alone on a slide or in a place on one. *(Jay, 2026-10-15: "provide either a topic or just point at the deck and ai writes a nice haiku and formats it beautifully.")*
+    - From the deck, the model reads what Narrato's grounding reads: the spine's claims and notes. From a topic, it reads the topic. The request is built and the answer read in Rust, as `scaena-chat` and `scaena-narrato` do, and the client makes the call.
+    - It is checked as written: three lines of 5, 7, and 5 syllables, counted in English by a syllable counter of the engine's. Where the count is off, the model is asked once more, and where it is still off, the editor says so. A haiku in Japanese is counted in morae; another language's is left uncounted.
+    - It is set as an ordinary text, typed in like any other: a `verse` role in the shipped themes (the display face, or the body face's italic, larger, with generous leading), and a Haiku layout in the library (the poem centered, a hairline under it). Its notes say which model wrote it and when. Nothing about the model is drawn on the slide.
+    - Insert › Haiku… in the browser, on the Mac, and on the iPad; `scaena haiku` and an MCP tool for agents.
+
+---
+
 ## Cross-cutting tracks (run alongside phases)
 
 - **Performance:** benches from Phase 0 onward; budgets in SPEC §15; a regression fails CI.
