@@ -1,0 +1,97 @@
+meta        «<?xml version="1.0" encoding="UTF-8"?>\n<?xml-stylesheet type="text/xsl" href="feed.xsl"?>\n<!DOCTYPE feed [\n  <!ENTITY brand "Scaena">\n  <!-- Entities the feed uses. -->\n]>\n»
+punctuation «<»
+tag         «feed »
+attribute   «xmlns»
+operator    «=»
+string      «"http://www.w3.org/2005/Atom" »
+attribute   «xml:lang»
+operator    «=»
+string      «"en"»
+punctuation «>\n  <»
+tag         «title»
+punctuation «>»
+constant    «&brand; »
+plain       «releases»
+punctuation «</»
+tag         «title»
+punctuation «>\n  <»
+tag         «link »
+attribute   «href»
+operator    «=»
+string      «"https://example.com/feed.xml" »
+attribute   «rel»
+operator    «=»
+string      «"self"»
+punctuation «/>\n  <»
+tag         «updated»
+punctuation «>»
+plain       «2026-10-15T09:00:00Z»
+punctuation «</»
+tag         «updated»
+punctuation «>\n  »
+comment     «<!-- One entry per release. -->\n  »
+punctuation «<»
+tag         «entry»
+punctuation «>\n    <»
+tag         «id»
+punctuation «>»
+plain       «urn:uuid:60a76c80-d399-11d9-b93C-0003939e0af6»
+punctuation «</»
+tag         «id»
+punctuation «>\n    <»
+tag         «title »
+attribute   «type»
+operator    «=»
+string      «"html"»
+punctuation «>»
+plain       «Code »
+constant    «&amp; »
+plain       «slides»
+punctuation «</»
+tag         «title»
+punctuation «>\n    <»
+tag         «content »
+attribute   «type»
+operator    «=»
+string      «"xhtml"»
+punctuation «>\n      <»
+tag         «div »
+attribute   «xmlns»
+operator    «=»
+string      «"http://www.w3.org/1999/xhtml"»
+punctuation «><»
+tag         «p»
+punctuation «>»
+plain       «Colored »
+punctuation «<»
+tag         «em»
+punctuation «>»
+plain       «by language»
+punctuation «</»
+tag         «em»
+punctuation «>»
+plain       «.»
+punctuation «</»
+tag         «p»
+punctuation «></»
+tag         «div»
+punctuation «>\n    </»
+tag         «content»
+punctuation «>\n    <»
+tag         «script»
+punctuation «>»
+meta        «<![CDATA[»
+string      «\n      if (a < b && b > c) { notify("<new>"); }\n    »
+meta        «]]>»
+punctuation «</»
+tag         «script»
+punctuation «>\n    <»
+tag         «xsl:value-of »
+attribute   «select»
+operator    «=»
+string      «"count(//entry)"»
+punctuation «/>\n  </»
+tag         «entry»
+punctuation «>\n</»
+tag         «feed»
+punctuation «>\n»

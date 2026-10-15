@@ -1,0 +1,40 @@
+/* The site's styles. */
+@charset "UTF-8";
+@import url("reset.css") screen;
+@import url(https://fonts.example.com/inter.css);
+
+:root {
+  --brand: #3366cc;
+  --gap: clamp(1rem, 2.5vw, 2rem);
+}
+
+html, body { margin: 0; font: 400 1rem/1.5 "Inter", system-ui, sans-serif; }
+
+.card > h2 + p::first-line,
+a[href^="https" i]:not(.plain)::after {
+  color: var(--brand, #fff);
+  content: "\2197";
+  transition: opacity 200ms cubic-bezier(.2, .8, .2, 1), transform .3s;
+}
+
+#main .grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  margin: -1px auto 0 calc(100% - var(--gap) * 2) !important;
+  background: url(data:image/svg+xml;base64,PHN2Zy8+) no-repeat, #FFFFFF80;
+}
+
+@media screen and (min-width: 48em) and (prefers-reduced-motion: no-preference) {
+  .md\:flex { display: flex; }
+  .card:hover { box-shadow: 0 0 0 1px rgba(0, 0, 0, .2); }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  50% { opacity: .5; }
+  to { transform: rotate(1turn); }
+}
+
+@supports (display: grid) and (not (display: inline-grid)) {
+  .grid { gap: var(--gap); }
+}
