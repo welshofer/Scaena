@@ -443,3 +443,34 @@ fn a_slides_number_and_footer_are_pagination_artifacts() {
     assert!(!content[0].contains("Pagination") && !content[2].contains("Pagination"), "the title slides show neither");
     assert_eq!(structure(&bytes), structure(&bare), "a reader reads the deck as it read without them");
 }
+
+/// A fetched map's credit (ADR-0030) is text in the PDF with its link annotations, tagged as a
+/// paragraph after the figure: on the torture deck's `maps` page, each map is a figure, then its
+/// credit a paragraph, and each run of a credit that links is a URI action.
+#[test]
+fn a_maps_credit_is_a_paragraph_after_the_figure_with_its_links() {
+    use hayro::hayro_syntax::object::{Array, Dict};
+    let bundle = scaena_ops::open(Path::new(TORTURE)).unwrap();
+    let (bytes, _) = exported(&bundle, Some(&["maps".to_string()]), &format!("{}", line!()));
+    let lines = structure(&bytes);
+    let tags: Vec<&str> = lines.iter().map(|l| l.trim()).collect();
+    let figure = tags.iter().position(|t| t.starts_with("Figure [Map of Ferry Building, marked Ferry Building]")).unwrap();
+    assert_eq!(tags[figure + 1], "P", "its credit, after it: {tags:#?}");
+    let pier = tags.iter().position(|t| t.starts_with("Figure [A street map of the waterfront")).unwrap();
+    assert_eq!(tags[pier + 1], "P", "{tags:#?}");
+    let pdf = hayro::hayro_syntax::Pdf::new(Arc::new(bytes)).expect("the PDF parses");
+    let annots: Array = pdf.pages()[0].raw().get(b"Annots").expect("the maps page has annotations");
+    let mut uris: Vec<String> = annots
+        .iter::<Dict>()
+        .filter_map(|a| a.get::<Dict>(b"A"))
+        .map(|action| {
+            let uri: hayro::hayro_syntax::object::String = action.get(b"URI").expect("a URI");
+            String::from_utf8_lossy(uri.as_bytes()).into_owned()
+        })
+        .collect();
+    uris.sort();
+    uris.dedup();
+    assert_eq!(uris, ["https://openmaptiles.org/", "https://www.geoapify.com/", "https://www.openstreetmap.org/copyright"]);
+    let content = String::from_utf8_lossy(pdf.pages()[0].page_stream().expect("its content")).into_owned();
+    assert!(!content.is_empty());
+}

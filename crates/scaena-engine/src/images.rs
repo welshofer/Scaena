@@ -22,7 +22,10 @@ use crate::shadows::Shadow;
 use crate::shapes::{Border, path_of, polyline};
 use crate::theme::Theme;
 use scaena_core::adjust::Adjust;
-use scaena_core::displaylist::{Blend, IDENTITY, MAX_IMAGE_SIDE, Op, Path, Quality, Rect};
+use crate::text::TextLayout;
+use scaena_core::displaylist::{
+    Blend, Cap, Color, FillRule, IDENTITY, Join, MAX_IMAGE_SIDE, Op, Paint, Path, Quality, Rect,
+};
 use scaena_core::document::{NodeType, Props};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -146,6 +149,115 @@ pub struct ImageNode {
     /// Its border (PLAN 2.118), stroked around what shows as a shape's outline is, and how much
     /// of it shows: less than all only between a state that draws it and one that does not.
     border: Option<(Border, f32)>,
+    /// How much of the box's foot a credit set below the picture keeps (ADR-0030): the picture
+    /// shows in the rest.
+    foot: f32,
+    /// What the engine draws over the picture (ADR-0030): a pin, its label, and a credit.
+    pub marks: Marks,
+}
+
+/// What the engine draws over a picture (ADR-0030, decisions 13–14): a pin, its label beside it,
+/// and the credit a fetched picture's service asks, each box-local, laid out once per snapshot.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Marks {
+    pub pin: Option<PinMark>,
+    pub label: Option<Card>,
+    pub credit: Option<Card>,
+}
+
+/// A pin, drawn with its tip on the point of the picture it marks.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PinMark {
+    /// Its tip, box-local.
+    pub tip: [f32; 2],
+    /// How tall it is, canvas units.
+    pub height: f32,
+    pub color: Color,
+    /// The ring around it, in the surface's color, so it reads on any map.
+    pub ring: Color,
+}
+
+/// Words the engine sets on a picture: a pin's label or a credit, on a card of the surface, or a
+/// credit below the picture with none.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Card {
+    /// The card, box-local; where the words stand, where there is no card.
+    pub rect: Rect,
+    /// The card's fill: the surface, or none for a credit set below the picture.
+    pub fill: Option<Color>,
+    pub radius: f32,
+    /// Where the words' layout stands, box-local.
+    pub origin: [f32; 2],
+    pub text: TextLayout,
+}
+
+/// The pin's outline on its 256 by 256 view: where its tip and its head's middle stand, and its
+/// width and height there.
+const PIN_TIP: [f32; 2] = [128.0, 240.48];
+const PIN_HEAD: f32 = 104.0;
+const PIN_TOP: f32 = 16.0;
+const PIN_WIDTH: f32 = 176.0;
+
+impl PinMark {
+    /// Its width, canvas units.
+    pub fn width(&self) -> f32 {
+        self.height * PIN_WIDTH / (PIN_TIP[1] - PIN_TOP)
+    }
+
+    /// The middle of its head, box-local: where a label lines up.
+    pub fn head(&self) -> [f32; 2] {
+        let k = self.height / (PIN_TIP[1] - PIN_TOP);
+        [self.tip[0], self.tip[1] - (PIN_TIP[1] - PIN_HEAD) * k]
+    }
+
+    /// The box it is drawn in, box-local.
+    pub fn bounds(&self) -> Rect {
+        let w = self.width();
+        [self.tip[0] - w / 2.0, self.tip[1] - self.height, w, self.height]
+    }
+
+    /// Its outline, box-local: Phosphor's `map-pin`, fill weight, its tip on [`PinMark::tip`].
+    pub fn path(&self) -> Path {
+        let k = f64::from(self.height / (PIN_TIP[1] - PIN_TOP));
+        let at = kurbo::Affine::translate((
+            f64::from(self.tip[0]) - f64::from(PIN_TIP[0]) * k,
+            f64::from(self.tip[1]) - f64::from(PIN_TIP[1]) * k,
+        )) * kurbo::Affine::scale(k);
+        let bez = kurbo::BezPath::from_svg(crate::pin::MAP_PIN).expect("the pin's path parses");
+        path_of(&(at * bez))
+    }
+
+    /// What it draws: its ring of the surface, then the pin in its color.
+    pub fn ops(&self) -> Vec<Op> {
+        let path = self.path();
+        let ring = (self.height / 16.0).max(1.0);
+        vec![
+            Op::Stroke {
+                path: path.clone(),
+                paint: Paint::Solid(self.ring),
+                width: 2.0 * ring,
+                cap: Cap::Round,
+                join: Join::Round,
+                miter_limit: 4.0,
+                dash: Vec::new(),
+                dash_offset: 0.0,
+            },
+            Op::Fill { path, rule: FillRule::NonZero, paint: Paint::Solid(self.color) },
+        ]
+    }
+}
+
+impl Card {
+    /// The card's fill, under its words: none for a credit below the picture.
+    pub fn ground(&self) -> Option<Op> {
+        let fill = self.fill?;
+        let [x, y, w, h] = self.rect;
+        Some(Op::Fill {
+            path: RoundRect::rounded(x, y, w, h, self.radius.min(w.min(h) / 2.0)).path(),
+            rule: FillRule::NonZero,
+            paint: Paint::Solid(fill),
+        })
+    }
 }
 
 /// The shape an image shows inside (PLAN 2.113).
@@ -251,7 +363,44 @@ impl ImageNode {
             }
         };
         let border = props.get("stroke").map(|s| Border::of(theme, s)).transpose()?.map(|b| (b, 1.0));
-        Ok(ImageNode { rect, info, fit, focal, crop, radius, mask, shadow, adjust, under: None, border })
+        Ok(ImageNode {
+            rect,
+            info,
+            fit,
+            focal,
+            crop,
+            radius,
+            mask,
+            shadow,
+            adjust,
+            under: None,
+            border,
+            foot: 0.0,
+            marks: Marks::default(),
+        })
+    }
+
+    /// The image with `foot` of its box's foot kept for a credit below the picture (ADR-0030).
+    pub fn keeping(self, foot: f32) -> ImageNode {
+        ImageNode { foot: foot.clamp(0.0, self.rect[3]), ..self }
+    }
+
+    /// Where the picture shows, box-local.
+    pub fn shown(&self) -> Rect {
+        self.placement().1
+    }
+
+    /// The point of the picture at `at`, in fractions of the whole image as `crop` is, box-local
+    /// where it shows: where a pin's tip stands (ADR-0030). `None` where it does not show.
+    pub fn spot(&self, at: [f32; 2]) -> Option<[f32; 2]> {
+        let (src, [dx, dy, dw, dh]) = self.placement();
+        let [ix, iy] = [at[0] * self.info.width as f32, at[1] * self.info.height as f32];
+        if src[2] <= 0.0 || src[3] <= 0.0 {
+            return None;
+        }
+        let [x, y] = [dx + (ix - src[0]) / src[2] * dw, dy + (iy - src[1]) / src[3] * dh];
+        let inside = |v: f32, lo: f32, len: f32| v >= lo - 1e-3 && v <= lo + len + 1e-3;
+        (inside(x, dx, dw) && inside(y, dy, dh)).then_some([x, y])
     }
 
     /// The same image in another box.
@@ -290,6 +439,8 @@ impl ImageNode {
     /// The pixels of the image that show, and where in the box, box-local: `(src, dst)`.
     pub fn placement(&self) -> (Rect, Rect) {
         let [_, _, w, h] = self.rect;
+        // A credit set below keeps the box's foot (ADR-0030).
+        let h = (h - self.foot).max(0.0);
         let (iw, ih) = (self.info.width as f32, self.info.height as f32);
         let [fx, fy] = self.focal;
         // The crop, in pixels.

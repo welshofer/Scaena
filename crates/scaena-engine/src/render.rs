@@ -486,7 +486,8 @@ impl Engine {
                     Content::Shape(ShapeNode::resolve(props, theme, rect).map_err(|e| in_node(id, e))?)
                 }
                 NodeType::Image => {
-                    Content::Image(ImageNode::resolve(props, theme, &self.images, rect).map_err(|e| in_node(id, e))?)
+                    let image = ImageNode::resolve(props, theme, &self.images, rect).map_err(|e| in_node(id, e))?;
+                    Content::Image(self.mark_image(deck, theme, props, image).map_err(|e| in_node(id, e))?)
                 }
                 // A container draws its `fill` and `stroke` under its children, if it has them.
                 NodeType::Stack | NodeType::Grid | NodeType::Frame => {
@@ -523,6 +524,150 @@ impl Engine {
             furniture,
             joins,
         })
+    }
+
+    /// What the engine draws over a picture (ADR-0030, decisions 13–14), laid out with it: the
+    /// credit its `fetched` record asks, in the `caption` role, never under 24 cu where the canvas's
+    /// shorter side is 1080, on a card in the bottom-left corner of what shows, or below the
+    /// picture inside its box; and its `pin`, Phosphor's `map-pin` 48 cu tall with its tip on the
+    /// point it marks, its label in the `label` role on a card beside it, inside what shows and
+    /// clear of the credit. A pin outside what shows draws nothing.
+    fn mark_image(
+        &mut self,
+        deck: &Deck,
+        theme: &Theme,
+        props: &Props,
+        mut image: ImageNode,
+    ) -> Result<ImageNode, EngineError> {
+        use crate::images::{Card, Marks, PinMark};
+        use scaena_core::fetched::{CreditPlace, Fetched, Pin};
+        let fetched = match props.get("fetched") {
+            Some(v) => Some(
+                serde_json::from_value::<Fetched>(v.clone())
+                    .map_err(|e| EngineError::Layout(format!("image `fetched`: {e}")))?,
+            ),
+            None => None,
+        };
+        let pin = match props.get("pin") {
+            Some(v) => {
+                Some(serde_json::from_value::<Pin>(v.clone()).map_err(|e| EngineError::Layout(format!("image `pin`: {e}")))?)
+            }
+            None => None,
+        };
+        let place = match props.get("credit") {
+            Some(v) => serde_json::from_value::<CreditPlace>(v.clone())
+                .map_err(|_| EngineError::Layout(format!("image `credit` {v}: inside or below")))?,
+            None => CreditPlace::Inside,
+        };
+        let credit: Vec<Value> = fetched
+            .iter()
+            .flat_map(|f| &f.credit)
+            .filter(|r| !r.text.is_empty())
+            .map(|r| match &r.link {
+                Some(href) => serde_json::json!({ "text": r.text, "link": { "href": href } }),
+                None => serde_json::json!({ "text": r.text }),
+            })
+            .collect();
+        if credit.is_empty() && pin.is_none() {
+            return Ok(image);
+        }
+        // Sizes at 1080p, in proportion on another canvas.
+        let [cw, ch] = canvas(deck);
+        let k = cw.min(ch) / 1080.0;
+        let surface = theme_color(theme, "surface")?;
+        let mut marks = Marks::default();
+        let [_, _, w, h] = image.rect;
+        if !credit.is_empty() {
+            let mut words = Props::new();
+            words.insert("type".into(), "text".into());
+            words.insert("runs".into(), Value::Array(credit));
+            words.insert("role".into(), "caption".into());
+            let size = cascade::node_role(theme, &words, None)?.size;
+            if size < MIN_CREDIT * k {
+                words.insert("style".into(), serde_json::json!({ "size": MIN_CREDIT * k }));
+            }
+            let spec = text_spec(deck, theme, &words, None)?;
+            let size = spec.role.size;
+            match place {
+                CreditPlace::Below => {
+                    let text = self.text.layout(&mut self.fonts, theme, &spec, w)?;
+                    let gap = (0.5 * size).round();
+                    let tall = (text.height + gap).min(h);
+                    let y = h - text.height;
+                    image = image.keeping(tall);
+                    marks.credit = Some(Card {
+                        rect: [0.0, y, text.width, text.height],
+                        fill: None,
+                        radius: 0.0,
+                        origin: [0.0, y],
+                        text,
+                    });
+                }
+                CreditPlace::Inside => {
+                    let [dx, dy, dw, dh] = image.shown();
+                    let pad = (0.4 * size).round();
+                    // Clear of the credit the service writes in the bottom right.
+                    let room = (dw * CREDIT_SHARE - 2.0 * pad).max(size);
+                    let text = self.text.layout(&mut self.fonts, theme, &spec, room)?;
+                    let (cw, chh) = (text.width + 2.0 * pad, text.height + 2.0 * pad);
+                    let rect = [dx, dy + dh - chh, cw, chh];
+                    marks.credit = Some(Card {
+                        rect,
+                        fill: Some(surface),
+                        radius: pad / 2.0,
+                        origin: [rect[0] + pad, rect[1] + pad],
+                        text,
+                    });
+                }
+            }
+        }
+        if let Some(pin) = pin
+            && let Some(tip) = image.spot([pin.at[0] as f32, pin.at[1] as f32])
+        {
+            let color = theme_color(theme, pin.color.as_deref().unwrap_or("accent"))?;
+            let mark = PinMark { tip, height: PIN_HEIGHT * k, color, ring: surface };
+            if let Some(label) = pin.label.as_deref().filter(|l| !l.trim().is_empty()) {
+                let mut words = Props::new();
+                words.insert("type".into(), "text".into());
+                words.insert("text".into(), label.into());
+                words.insert("role".into(), "label".into());
+                let spec = text_spec(deck, theme, &words, None)?;
+                let size = spec.role.size;
+                let shown = image.shown();
+                let pad = (0.4 * size).round();
+                let text = self.text.layout(&mut self.fonts, theme, &spec, (shown[2] - 2.0 * pad).max(size))?;
+                let (lw, lh) = (text.width + 2.0 * pad, text.height + 2.0 * pad);
+                let [hx, hy] = mark.head();
+                let gap = mark.width() / 2.0 + pad / 2.0;
+                let inside = |r: Rect| {
+                    r[0] >= shown[0] - 0.5
+                        && r[1] >= shown[1] - 0.5
+                        && r[0] + r[2] <= shown[0] + shown[2] + 0.5
+                        && r[1] + r[3] <= shown[1] + shown[3] + 0.5
+                };
+                let clear = |r: Rect| {
+                    marks.credit.as_ref().is_none_or(|c| {
+                        let c = c.rect;
+                        r[0] >= c[0] + c[2] || c[0] >= r[0] + r[2] || r[1] >= c[1] + c[3] || c[1] >= r[1] + r[3]
+                    })
+                };
+                // Beside the pin's head: to its right where it fits, else to its left.
+                let y = (hy - lh / 2.0).clamp(shown[1], (shown[1] + shown[3] - lh).max(shown[1]));
+                let card = [[hx + gap, y, lw, lh], [hx - gap - lw, y, lw, lh]]
+                    .into_iter()
+                    .find(|&r| inside(r) && clear(r));
+                marks.label = card.map(|rect| Card {
+                    rect,
+                    fill: Some(surface),
+                    radius: pad / 2.0,
+                    origin: [rect[0] + pad, rect[1] + pad],
+                    text,
+                });
+            }
+            marks.pin = Some(mark);
+        }
+        image.marks = marks;
+        Ok(image)
     }
 
     /// The slide's number and footer in `snap`, laid out where the theme places them (ADR-0028):
@@ -1154,6 +1299,17 @@ fn in_node(id: &str, e: EngineError) -> EngineError {
         other => other,
     }
 }
+
+/// A pin's height where the canvas's shorter side is 1080 (ADR-0030).
+const PIN_HEIGHT: f32 = 48.0;
+
+/// The least size a credit is set at where the canvas's shorter side is 1080: 12 pt at
+/// presentation size (ADR-0030).
+pub const MIN_CREDIT: f32 = 24.0;
+
+/// How much of what shows of a picture a credit inside it may run across: the rest of its foot
+/// is the service's own credit's.
+const CREDIT_SHARE: f32 = 0.7;
 
 fn theme_color(theme: &Theme, name: &str) -> Result<Color, EngineError> {
     theme.color(name)

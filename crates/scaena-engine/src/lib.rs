@@ -40,6 +40,7 @@ pub mod images;
 pub mod layout;
 pub mod lint;
 pub mod marks;
+pub mod pin;
 pub mod motion;
 pub mod render;
 pub mod sample;

@@ -42,6 +42,9 @@ pub struct Reading {
     /// A text's paragraphs as a list's items (ADR-0018), one for each paragraph; empty for a
     /// text that is no list, and for any other node.
     pub items: Vec<Option<ListItem>>,
+    /// The credit a fetched picture's service asks shown with it (ADR-0030), its stretches each
+    /// with where it links: read after the picture, as a paragraph. Empty for anything else.
+    pub credit: Vec<(String, Option<LinkTarget>)>,
 }
 
 /// How each node `snap` shows reads, by id.
@@ -80,8 +83,24 @@ pub fn reading(t: NodeType, props: &Props) -> Reading {
         }
         _ => Vec::new(),
     };
-    let alt = alt.filter(|a| !a.is_empty()).map(str::to_string);
-    Reading { kind, alt, lang: text("lang").map(str::to_string), items }
+    let fetched = (t == NodeType::Image)
+        .then(|| serde_json::from_value::<crate::fetched::Fetched>(props.get("fetched")?.clone()).ok())
+        .flatten();
+    // A map with no alt text reads as the map of its place, and what its pin marks (ADR-0030).
+    let alt = alt.filter(|a| !a.is_empty()).map(str::to_string).or_else(|| {
+        let fetched = fetched.as_ref().filter(|_| kind == Kind::Figure)?;
+        let map = fetched.map.as_ref()?;
+        let place = map.place.as_ref().and_then(|p| p.name.clone()).unwrap_or_else(|| fetched.asked.clone());
+        let label = props.get("pin").and_then(|p| p.get("label")).and_then(Value::as_str).filter(|l| !l.is_empty());
+        Some(match label {
+            Some(label) => format!("Map of {place}, marked {label}"),
+            None => format!("Map of {place}"),
+        })
+    });
+    let credit = fetched
+        .map(|f| f.credit.into_iter().map(|r| (r.text, r.link.map(LinkTarget::Href))).collect())
+        .unwrap_or_default();
+    Reading { kind, alt, lang: text("lang").map(str::to_string), items, credit }
 }
 
 /// What a reader hears of a node a state shows (SPEC §3.12), as [`html`] reads it, in plain words:
@@ -157,6 +176,11 @@ impl Reader<'_> {
                         write!(out, r#"<div role="img" data-node="{}"{named}{}></div>"#, attr(id), self.lang(reading));
                 }
             }
+            // A fetched picture's credit, after it (ADR-0030).
+            if let Some(credit) = reading.map(|r| &r.credit).filter(|c| !c.is_empty()) {
+                let said: usize = credit.iter().map(|(w, _)| w.len()).sum();
+                let _ = write!(out, r#"<p data-node="{}" data-credit="">{}</p>"#, attr(id), self.linked(credit, 0..said));
+            }
         }
     }
 
@@ -189,6 +213,10 @@ impl Reader<'_> {
                 }
                 Kind::Group if alt.is_none() => self.parts(inner, out),
                 Kind::Figure | Kind::Group => out.push(part("figure", None, alt.clone().unwrap_or_default())),
+            }
+            // A fetched picture's credit, after it (ADR-0030).
+            if let Some(credit) = reading.map(|r| &r.credit).filter(|c| !c.is_empty()) {
+                out.push(part("paragraph", None, credit.iter().map(|(w, _)| w.as_str()).collect()));
             }
         }
     }
@@ -472,7 +500,8 @@ mod tests {
                 kind: Kind::Paragraph,
                 alt: Some("four point two times".into()),
                 lang: Some("en-GB".into()),
-                items: Vec::new()
+                items: Vec::new(),
+                credit: Vec::new()
             }
         );
     }
@@ -587,5 +616,47 @@ mod tests {
                 r#"<tr><td>North east</td><td></td></tr><tr><td>South</td><td>pre sold</td></tr></table>"#,
             )
         );
+    }
+
+    /// A fetched map (ADR-0030) reads as the map of its place, marked by its pin's label where it
+    /// has no alt text, then its credit as a paragraph with its links; its alt text where it has one.
+    #[test]
+    fn a_map_reads_as_its_place_then_its_credit() {
+        let fetched = json!({
+            "from": "geoapify", "at": "2026-10-15T20:12:44Z", "asked": "ferry building",
+            "credit": [{ "text": "© OpenStreetMap", "link": "https://www.openstreetmap.org/copyright" }, { "text": " · Geoapify" }],
+            "map": { "place": { "name": "Ferry Building", "lat": 37.8, "lon": -122.4 }, "center": { "lat": 37.8, "lon": -122.4 },
+                     "zoom": 15, "style": "positron", "size": [800, 450], "scale": 2 }
+        });
+        let map = read(NodeType::Image, json!({ "fetched": fetched, "pin": { "at": [0.5, 0.5], "label": "Ferries" } }));
+        assert_eq!((map.kind, map.alt.as_deref()), (Kind::Figure, Some("Map of Ferry Building, marked Ferries")));
+        assert_eq!(map.credit.len(), 2);
+        let said = read(NodeType::Image, json!({ "fetched": fetched, "alt": "The waterfront" }));
+        assert_eq!(said.alt.as_deref(), Some("The waterfront"));
+        let plain = read(NodeType::Image, json!({ "fetched": fetched }));
+        assert_eq!(plain.alt.as_deref(), Some("Map of Ferry Building"));
+
+        let deck = Deck::from_json(
+            &json!({
+                "scaena": crate::FORMAT_VERSION, "canvas": { "width": 1920, "height": 1080 }, "theme": "theme.json",
+                "nodes": { "m": { "type": "image", "src": "assets/m.png", "fetched": fetched, "pin": { "at": [0.5, 0.5] } } },
+                "states": [{ "id": "one", "props": { "m": {} } }]
+            })
+            .to_string(),
+        )
+        .expect("a deck");
+        let snaps = crate::resolve_states(&deck).expect("snapshots");
+        let mut list = DisplayList::new([1920.0, 1080.0]);
+        list.ops = vec![layer(Some("m"), None, vec![layer(None, Some(crate::fetched::CREDIT_CELL), vec![])])];
+        assert_eq!(
+            html(&deck, &snaps[0], &list),
+            concat!(
+                r#"<div role="img" data-node="m" aria-label="Map of Ferry Building"></div>"#,
+                r#"<p data-node="m" data-credit=""><a href="https://www.openstreetmap.org/copyright">© OpenStreetMap</a> · Geoapify</p>"#,
+            )
+        );
+        let parts = parts(&deck, &snaps[0], &list);
+        let said: Vec<(&str, &str)> = parts.iter().map(|p| (p.role, p.text.as_str())).collect();
+        assert_eq!(said, [("figure", "Map of Ferry Building"), ("paragraph", "© OpenStreetMap · Geoapify")]);
     }
 }

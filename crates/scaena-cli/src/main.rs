@@ -1206,6 +1206,9 @@ fn files(bundle: &Path, remove: Option<&[String]>, dry_run: bool, json: bool) ->
         println!("{heading}");
         for f in of {
             println!("  {}  {}", f.path, size(f.bytes));
+            if let Some(fetched) = &f.fetched {
+                println!("    {}", fetched.said);
+            }
             if f.named.is_empty() {
                 println!("    nothing names it: --remove {} takes it out", f.path);
                 continue;

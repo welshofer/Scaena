@@ -5069,6 +5069,131 @@
           8
         ]
       }
+    },
+    "map-inside": {
+      "type": "image",
+      "src": "assets/map-card.png",
+      "fetched": {
+        "from": "geoapify",
+        "at": "2026-10-15T20:12:44Z",
+        "asked": "Ferry Building, San Francisco",
+        "credit": [
+          {
+            "text": "© OpenStreetMap contributors",
+            "link": "https://www.openstreetmap.org/copyright"
+          },
+          {
+            "text": " · openstreetmap.org/copyright · "
+          },
+          {
+            "text": "© OpenMapTiles",
+            "link": "https://openmaptiles.org/"
+          },
+          {
+            "text": " · "
+          },
+          {
+            "text": "Powered by Geoapify",
+            "link": "https://www.geoapify.com/"
+          }
+        ],
+        "license": "ODbL-1.0",
+        "map": {
+          "place": {
+            "name": "Ferry Building",
+            "lat": 37.7955,
+            "lon": -122.3937
+          },
+          "center": {
+            "lat": 37.7955,
+            "lon": -122.3937
+          },
+          "zoom": 15,
+          "style": "positron",
+          "size": [
+            400,
+            225
+          ],
+          "scale": 2
+        }
+      },
+      "pin": {
+        "at": [
+          0.5,
+          0.5
+        ],
+        "label": "Ferry Building"
+      },
+      "semantic": "evidence",
+      "at": {
+        "in": "left"
+      }
+    },
+    "map-below": {
+      "type": "image",
+      "src": "assets/map-card.png",
+      "fetched": {
+        "from": "geoapify",
+        "at": "2026-10-15T20:12:44Z",
+        "asked": "Pier 39",
+        "credit": [
+          {
+            "text": "© OpenStreetMap contributors",
+            "link": "https://www.openstreetmap.org/copyright"
+          },
+          {
+            "text": " · openstreetmap.org/copyright · "
+          },
+          {
+            "text": "© OpenMapTiles",
+            "link": "https://openmaptiles.org/"
+          },
+          {
+            "text": " · "
+          },
+          {
+            "text": "Powered by Geoapify",
+            "link": "https://www.geoapify.com/"
+          }
+        ],
+        "license": "ODbL-1.0",
+        "map": {
+          "place": {
+            "name": "Pier 39",
+            "lat": 37.8087,
+            "lon": -122.4098
+          },
+          "center": {
+            "lat": 37.8087,
+            "lon": -122.4098
+          },
+          "zoom": 15,
+          "style": "positron",
+          "size": [
+            400,
+            225
+          ],
+          "scale": 2
+        }
+      },
+      "pin": {
+        "at": [
+          0.9,
+          0.38
+        ],
+        "label": "Pier 39",
+        "color": "signal"
+      },
+      "credit": "below",
+      "focal": [
+        0.85,
+        0.5
+      ],
+      "alt": "A street map of the waterfront, Pier 39 marked at its right.",
+      "semantic": "evidence",
+      "at": {
+        "in": "right"
+      }
     }
   },
   "states": [
@@ -6392,6 +6517,20 @@
         "code-block": {}
       },
       "notes": "Pass: sixteen lines of TypeScript set as written in JetBrains Mono, in the text's own color (PLAN 2.131), its role's ligatures off (`calt: false`), so each `=>` draws as typed. Each line breaks only where the text breaks it: nothing wraps, hyphenates, or changes case, and the blank lines stand. The quotation mark that opens line 1 stands on the block's left edge, where prose would hang it into the margin (case 11). Each tab stands to the next stop of four columns: the comments of lines 5 and 6 start in one column, the 21st, and lines 10-13 step in four columns a tab. At the code role's 40 cu the sixteen lines run past rows 2-8, so the block shrinks to 34.5 cu, worked out from one layout: the largest size at which every line fits, and never under 24 cu, 12 pt at presentation size, by itself."
+    },
+    {
+      "id": "maps",
+      "name": "Maps",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "67 · Maps: a pin, its label, and the credit · recorded"
+        },
+        "map-inside": {},
+        "map-below": {}
+      },
+      "notes": "Pass: the map card twice, each drawn as a fetched map is, with what the engine draws over it. Left, the map covers its box, the credit on a card of the surface in the bottom-left corner of the picture, in the caption role at 24 cu, wrapped to two lines, clear of the block in the bottom-right corner where the service writes its own; the pin, in the accent with a ring of the surface, 48 cu tall, its tip on the ink cross at the picture's middle; its label, Ferry Building, on a card of the surface to the right of the pin's head. Right, the map covers what its box keeps above the credit, which runs under it in two lines inside the box with no card, its focal point toward the right; the pin, in the signal color, stands near the right edge, so its label, Pier 39, stands to the left of its head. Each run of the credit that links is underlined, a link op over it."
     }
   ],
   "overrides": {

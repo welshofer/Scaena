@@ -834,3 +834,48 @@ fn a_code_text_takes_none_of_what_code_does_not_use() {
     );
     assert_eq!(say("/nodes/snippet/style/case"), "`snippet` is code, set as written: it takes no `style.case`");
 }
+
+/// A fetched picture (ADR-0030): its record, its pin, and where its credit goes round-trip through
+/// the model and the schema; a service this build does not know, an `at` that is no instant, and an
+/// empty credit where the service asks one are E106, and a pin's color the theme lacks is E102.
+#[test]
+fn a_fetched_picture_validates_and_says_what_is_wrong_with_its_record() {
+    let deck = |fetched: serde_json::Value, pin: serde_json::Value| {
+        serde_json::json!({
+            "scaena": scaena_core::FORMAT_VERSION, "canvas": { "width": 1920, "height": 1080 }, "theme": "theme.json",
+            "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
+            "nodes": { "map": { "type": "image", "src": "assets/photo.png", "at": { "in": "main" }, "alt": "A map.",
+                                "fetched": fetched, "pin": pin, "credit": "below" } },
+            "states": [{ "id": "a", "layout": "full", "props": { "map": {} } }]
+        })
+        .to_string()
+    };
+    let record = serde_json::json!({
+        "from": "geoapify", "at": "2026-10-15T20:12:44Z", "asked": "Ferry Building",
+        "credit": [{ "text": "© OpenStreetMap contributors", "link": "https://www.openstreetmap.org/copyright" }],
+        "license": "ODbL-1.0",
+        "map": { "place": { "name": "Ferry Building", "lat": 37.7955, "lon": -122.3937 },
+                 "center": { "lat": 37.7955, "lon": -122.3937 }, "zoom": 15, "style": "positron", "size": [800, 450], "scale": 2 }
+    });
+    let pin = serde_json::json!({ "at": [0.5, 0.5], "label": "Ferry Building", "color": "accent" });
+    let good = deck(record.clone(), pin.clone());
+    assert_eq!(findings(&good), Vec::<String>::new());
+    let parsed = scaena_core::Deck::from_json(&good).unwrap();
+    let back: serde_json::Value = serde_json::from_str(&parsed.to_json().unwrap()).unwrap();
+    let node = &back["nodes"]["map"];
+    assert_eq!((&node["fetched"], &node["pin"], &node["credit"]), (&record, &pin, &serde_json::json!("below")));
+
+    let mut bad = record.clone();
+    bad["from"] = "mapquest".into();
+    bad["at"] = "yesterday".into();
+    assert_eq!(findings(&deck(bad, pin.clone())), ["E106 /nodes/map/fetched/at", "E106 /nodes/map/fetched/from"]);
+    let mut silent = record.clone();
+    silent["credit"] = serde_json::json!([]);
+    assert_eq!(findings(&deck(silent, pin)), ["E106 /nodes/map/fetched/credit"]);
+    let unknown = serde_json::json!({ "at": [0.5, 0.5], "color": "chartreuse" });
+    assert_eq!(findings(&deck(record.clone(), unknown)), ["E102 /nodes/map/pin/color"]);
+    // A key has no field to go in.
+    let mut keyed = record;
+    keyed["apiKey"] = "secret".into();
+    assert_eq!(findings(&deck(keyed, serde_json::json!({ "at": [0.5, 0.5] }))), ["E106 /nodes/map/fetched/apiKey"]);
+}

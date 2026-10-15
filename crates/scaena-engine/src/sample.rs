@@ -261,7 +261,7 @@ impl SceneNode {
         match &self.content {
             Content::Shader(s) => layer(Some(&self.id), [s.rect[0], s.rect[1]], opacity, vec![s.op(time)]),
             Content::Shape(s) => layer(Some(&self.id), [s.rect[0], s.rect[1]], opacity, s.ops()),
-            Content::Image(i) => layer(Some(&self.id), [i.rect[0], i.rect[1]], opacity, i.ops()),
+            Content::Image(i) => layer(Some(&self.id), [i.rect[0], i.rect[1]], opacity, image_ops(dl, i)),
             Content::Text(placed) => text_layer(dl, &self.id, placed, placed.origin, opacity),
             Content::Table { cell, table } => {
                 let ops = table_ops(dl, table);
@@ -2646,6 +2646,34 @@ fn chart_layer(id: &str, origin: Point, width: f32, canvas_height: f32, opacity:
         clip: Some(Path::rect([0.0, -origin[1], width, canvas_height])),
         ops,
     }
+}
+
+/// What an image draws, box-local: the picture, then what the engine draws over it (ADR-0030):
+/// its pin, the pin's label on its card, and its credit, in a layer of its own that says it is
+/// the credit ([`scaena_core::fetched::CREDIT_CELL`]), each run a link where it links.
+fn image_ops(dl: &mut DisplayList, image: &crate::images::ImageNode) -> Vec<Op> {
+    let mut ops = image.ops();
+    let marks = &image.marks;
+    let words = |dl: &mut DisplayList, card: &crate::images::Card| {
+        let mut ops: Vec<Op> = card.ground().into_iter().collect();
+        ops.push(layer(None, card.origin, 1.0, text_ops(dl, &card.text)));
+        ops
+    };
+    if let Some(pin) = &marks.pin {
+        ops.extend(pin.ops());
+    }
+    if let Some(label) = &marks.label {
+        ops.extend(words(dl, label));
+    }
+    if let Some(credit) = &marks.credit {
+        let Op::Layer { node, transform, opacity, blend, clip, ops: inner, .. } = layer(None, [0.0, 0.0], 1.0, words(dl, credit))
+        else {
+            unreachable!("`layer` makes layers")
+        };
+        let cell = Some(scaena_core::fetched::CREDIT_CELL);
+        ops.push(Op::Layer { node, cell, transform, opacity, blend, clip, ops: inner });
+    }
+    ops
 }
 
 fn layer(node: Option<&str>, origin: Point, opacity: f32, ops: Vec<Op>) -> Op {

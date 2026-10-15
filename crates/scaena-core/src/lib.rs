@@ -15,6 +15,8 @@
 //! - [`color`] — a theme's color literals, hex and Oklab, to the bytes a display list holds.
 //! - [`data`] — data sources read and typed (SPEC §3.10), from bytes the caller hands over.
 //! - [`format`] — number and date formats, d3's grammar (`docs/spec/format.md`).
+//! - [`fetched`] — where an object fetched from outside the deck came from, and its credit
+//!   (ADR-0030).
 //! - [`files`] — a bundle's images, fonts, and data, and what in the deck uses each (PLAN 2.59).
 //! - [`furniture`] — a slide's number and footer: which slide a state is, and whether it shows them (ADR-0028).
 //! - [`jpeg`] — photos: a JPEG decoder in integers alone, the same pixels on every target
@@ -47,6 +49,7 @@ pub mod displaylist;
 pub mod document;
 pub mod dsl;
 pub mod expr;
+pub mod fetched;
 pub mod files;
 pub mod format;
 pub mod furniture;
