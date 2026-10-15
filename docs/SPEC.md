@@ -124,7 +124,7 @@ Rules:
 
 ```jsonc
 {
-  "scaena": "0.28",
+  "scaena": "0.29",
   "meta":   { "title": "...", "author": "...", "created": "...", "lang": "en-US" },
   "canvas": { "width": 1920, "height": 1080, "unit": "cu" },   // canvas units; 1 cu = 1 px at 1080p
   "formats": ["16:9", "9:16"],                               // the formats it is laid out in too (§3.4)
@@ -157,7 +157,7 @@ Every node has a `type`, an id (its key in `nodes`), and the properties every ty
 |---|---|---|
 | `text` | typographic text | `role`, `text` or `runs`, `fit`, `wrap: greedy\|pretty\|balance`, `maxLines`, `minSize`, `maxSize`, `box`, `features`, `axes`, `lang`, `measure`, `hyphenate`, `opticalMargins`, `hangingPunctuation`, `numeric`, `minLastLineWords`, `split`, `paragraphs` (§3.9), `code` (§3.5) |
 | `shape` | vector geometry | `path` (SVG path data) or `kind: rect\|ellipse\|line\|arrow\|polygon\|path`, `view`, `points`, `radius`; a line's or an arrow's `ends` and `connect` (§3.4) |
-| `image` | raster/vector image | `src` (asset ref), `fit: cover\|contain\|fill`, `focal: [x,y]`, `crop`, `radius`, `mask`, `adjust`; `stroke` is its border |
+| `image` | raster/vector image | `src` (asset ref), `fit: cover\|contain\|fill`, `focal: [x,y]`, `crop`, `radius`, `mask`, `adjust`, `fetched`, `pin`, `credit`; `stroke` is its border |
 | `chart` | data-bound visualization | §3.7 |
 | `table` | data-bound table | `data`, `dataTransform`, `columns` (`field`, `title`, `format`, `align`), `key`, `header` |
 | `shader` | GPU/CPU parametric background or fill | §3.8 |
@@ -200,6 +200,12 @@ How it is adjusted (deck format 0.26, PLAN 2.117), as a presentation app's Adjus
 - `saturation` moves each color toward its luminance in linear light (Rec. 709's), or away from it: −1 is black and white, each color at its own lightness, and 1 twice the color.
 - `warmth` scales red up and blue down in linear light, or the other way, as a white balance does: 1 toward orange, −1 toward blue.
 - Alpha is left as it is. The display list names the adjusted pixels by the image's id and the adjustment in thousandths, `sha256:…+adjust(exposure,contrast,saturation,warmth)` (§6), which every painter makes from the image's own pixels with `scaena_core::adjust`: `f32` arithmetic over tables made by `libm`, the same bytes on every target.
+
+Where it came from (deck format 0.29, ADR-0030, PLAN O.1a): a picture fetched once from a service, a map, records it in `fetched`, and the engine draws what its service's terms ask with it. Render never fetches: the picture is the image's file, kept in the bundle, and fetching again is an edit.
+- `fetched` is `{ from, at, asked, credit, license?, map? }`. `from` names the service as Scaena does (`geoapify`, `scaena_core::fetched::SERVICES`); `at` is when its answer came, an instant in UTC by the clock of the client that asked (`2026-10-15T20:12:44Z`); `asked` is what the person typed; `credit` is what the service's terms ask shown with it, as runs `{ text, link? }`, each `link` a web address; `license` names the data's license (`ODbL-1.0`). A map's `map` says what was asked: the `place` (`{ name?, lat, lon }`), the `center` (`{ lat, lon }`), the service's `zoom` and `style`, the `size` asked in the service's points, and the `scale`, pixels to a point. No field takes a key, an account, or a URL that holds one. A service this build does not know, an `at` that is no instant, and an empty credit where the service asks for one are **E106**, wherever the record is written.
+- `pin` is `{ at, label?, color? }`, and any image may take one: Phosphor's `map-pin` in its fill weight (MIT, compiled into the engine by `scripts/build_icons.py`), 48 cu tall where the canvas's shorter side is 1080 and in proportion on others, in its `color` (a theme color, the `accent` by default, **E102** where the theme lacks it) with a ring of the surface, its tip on `at`, a point of the picture in fractions of the whole image as `crop` is, through the image's crop, fit, focal, and transform. A pin outside what shows draws nothing. Its `label` is set in the theme's `label` role on a card of the surface beside the pin's head, to its right where that fits inside what shows, else to its left, and never over the credit; none, or `""`, gives none.
+- `credit` is `inside` (the default) or `below`. The engine sets the record's credit in the theme's `caption` role, never under 24 cu at 1080p (12 pt at presentation size), each run that links a `link` op over its words (§6): `inside`, on a card of the surface in the bottom-left corner of what shows, across at most 70% of it, clear of the credit a service writes in its bottom-right corner; `below`, as lines under the picture inside the node's box, the picture showing in the rest. No theme or deck can hide it.
+- How it reads (§3.12): a picture with a map and no `alt` reads as "Map of {place}, marked {label}", then its credit as a paragraph, with its links; a tagged PDF tags the credit as a paragraph after the figure, with its link annotations (§10). The credit's layer in the display list says so by its `cell`, `[0, 1]`. **W314** finds a credit that cannot be read. `scaena files` and the Files tab name each fetched picture's service and the day it came.
 
 Images are filtered bilinearly in every painter (vello's GPU path has no bicubic, so a finer CPU filter would only make the painters disagree), without mipmaps: an image drawn at under half its size aliases. Between two states an image's box and radius morph; a change of `src`, `fit`, `focal`, `crop`, or `mask` is a new picture, which crossfades. A change of `adjust` keeps the picture where it moves, the new adjustment fading in over the old one: a JPEG, which hides what is under it, over itself as it was; a PNG, which may let it show, as the old one fades out.
 
@@ -323,7 +329,7 @@ See `docs/schema/theme.schema.json`. Shape:
 
 ```jsonc
 {
-  "scaena-theme": "0.17",
+  "scaena-theme": "0.18",
   "name": "Dusk",
   "tokens": {
     "color":  { "ink": "#...", "paper": "#...", "accent": "#...", "muted": "...", "...": "..." },
@@ -1393,12 +1399,13 @@ Three families. **Mechanical** rules say "this cannot be shown" (1xx). **Design*
 | W311 | warn | a shader painted behind a chart or a table, where they overlap: data reads against a plain surface (§3.8). One finding per shader and chart or table, at the shader, with every state it happens in |
 | W312 | warn | chart text under 12 pt at presentation size: 24 cu where the canvas's shorter side is 1080 cu, in proportion on others (§3.7). One finding per chart, at the chart, naming each kind of its text that is too small (category and value labels, axis labels, titles, series names, annotations) at its smallest |
 | W313 | warn | a chart squashed below a legible plot: the room its marks have, once its axes, labels, titles, and legend have theirs, under 120 cu across or down where the canvas's shorter side is 1080 cu, in proportion on others, as a short slot or a few rows of a theme's grid can leave it. One finding per chart, at the chart, with its plot at its smallest and every state it is squashed in |
+| W314 | warn | a fetched picture's credit (ADR-0030) that cannot be read: set under 12 pt at presentation size, cut by its box or the canvas, covered by a node drawn over it, decoration included, or covering more than a quarter of what shows of its picture. One finding per image, naming every state; its fix, where the credit stands inside the picture, is `credit: below` |
 | W320 | warn | more nodes moving at once than the theme's `motion.maxConcurrent` (12) |
 | W321 | warn | a state's motions run past the theme's `motion.maxBuild` (2500 ms) |
 | W322 | warn | a motion that moves nothing, yet takes its time: an entrance on a node that does not enter, an exit on one that does not leave (under `match: none`, every node does both; under a slide transition, every node enters and no exit runs, the slide left moving whole, §3.9), an emphasis or `anim` on a node not on screen, a draw-on (a look whose only change is `progress`) on a node that strokes no outline |
 | W323 | warn | in a deck that runs on its own (any state has a `hold`), a state that shows for 0 ms: its span and its hold are both 0, so a video has no frame of it and a player's auto-advance passes over it. The finding suggests a hold for its reading |
 | W401 | warn | state not referenced by any beat |
-| W410 | warn | image without `alt` |
+| W410 | warn | image without `alt`; a fetched map reads as the map of its place (ADR-0030) and needs none |
 | W420 | warn | a beat whose states show no claim (a node whose `semantic` is `claim` or `takeaway`). A beat whose states show only signposts (`navigation`, `decoration`, `source`) is not judged |
 | W421 | warn | a slide whose last state shows evidence and no claim |
 | W422 | warn | at a slide's last state, evidence text set larger than its claim, by role size or `style.size`; a stat's numeral (role `numeral`) does not count |

@@ -1,0 +1,64 @@
+{
+  "scaena": "0.29",
+  "_comment": "W314 clean: the map's credit, clear of everything.",
+  "canvas": {
+    "width": 1920,
+    "height": 1080
+  },
+  "theme": "theme.json",
+  "fonts": [
+    {
+      "family": "Roboto Serif",
+      "file": "fonts/RobotoSerif-VF.ttf"
+    },
+    {
+      "family": "EB Garamond",
+      "file": "fonts/EBGaramond-VF.ttf"
+    }
+  ],
+  "nodes": {
+    "map": {
+      "type": "image",
+      "src": "assets/photo.png",
+      "fetched": {
+        "from": "geoapify",
+        "at": "2026-10-15T20:12:44Z",
+        "asked": "Ferry Building, San Francisco",
+        "credit": [
+          {
+            "text": "© OpenStreetMap contributors",
+            "link": "https://www.openstreetmap.org/copyright"
+          },
+          {
+            "text": " · openstreetmap.org/copyright · "
+          },
+          {
+            "text": "© OpenMapTiles",
+            "link": "https://openmaptiles.org/"
+          },
+          {
+            "text": " · "
+          },
+          {
+            "text": "Powered by Geoapify",
+            "link": "https://www.geoapify.com/"
+          }
+        ],
+        "license": "ODbL-1.0"
+      },
+      "alt": "A map of the waterfront.",
+      "at": {
+        "in": "main"
+      }
+    }
+  },
+  "states": [
+    {
+      "id": "a",
+      "layout": "full",
+      "props": {
+        "map": {}
+      }
+    }
+  ]
+}

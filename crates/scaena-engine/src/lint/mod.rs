@@ -54,6 +54,7 @@ pub fn rules() -> Vec<Box<dyn Rule>> {
         Box::new(space::W311ShaderBehindData),
         Box::new(text::W312ChartTextSize),
         Box::new(space::W313ChartSquashed),
+        Box::new(space::W314Credit),
         Box::new(motion::W320Concurrent),
         Box::new(motion::W321Build),
         Box::new(motion::W323Skipped),
@@ -285,7 +286,11 @@ fn verify(
                 schedule: Schedule { transition: Timing::CUT.clock(), cues: vec![], span: 0.0 },
             };
             let cx = Cx { deck: &d, theme: &t, format: f.format.as_deref(), states: std::slice::from_ref(&state) };
-            let rules: [&dyn Rule; 3] = [&text::E100Overflow, &text::W202MaxLines, &text::W203ShrinkFloor];
+            // A credit set below must read there (ADR-0030); text set smaller must fit.
+            let rules: Vec<&dyn Rule> = match f.code.as_str() {
+                "W314" => vec![&space::W314Credit],
+                _ => vec![&text::E100Overflow, &text::W202MaxLines, &text::W203ShrinkFloor],
+            };
             Some(rules.iter().flat_map(|r| r.check(&cx)).all(|g| g.node != f.node))
         })();
         if works != Some(true) {

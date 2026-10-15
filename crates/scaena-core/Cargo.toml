@@ -8,6 +8,11 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+# The table of English words the syllable rules miss, compiled in (`verse`, PLAN O.4a): the CLI,
+# the MCP server, and the C ABI. The editor's module leaves it out and hands it over (ADR-0015).
+syllables = []
+
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
@@ -24,3 +29,7 @@ libm.workspace = true
 # decoder, a crate of their own so the browser's modules build them for speed and the rest of
 # core for size (PLAN 2.98).
 scaena-pixels.workspace = true
+
+[dev-dependencies]
+# Its own tests count with the table compiled in (`verse`).
+scaena-core = { path = ".", features = ["syllables"] }
