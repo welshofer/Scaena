@@ -297,7 +297,7 @@ fn custom_data(bytes: &[u8]) -> Option<String> {
         let len = units.checked_mul(2)?;
         let body = bytes.get(*at + 4..(*at + 4).checked_add(len)?)?;
         *at += 4 + len.div_ceil(4) * 4;
-        let units: Vec<u16> = body.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+        let units: Vec<u16> = body.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect();
         String::from_utf16(&units).ok()
     };
     let count = u32_at(at)?;
@@ -326,10 +326,10 @@ pub fn of_text(deck: &Deck, theme: &Theme, text: &str, hints: &Hints) -> Result<
             mode: mode.as_deref(),
             ..Default::default()
         };
-        if let Detected::Named(language) | Detected::Likely(language) = detect(text, &said) {
-            if theme.code_role().is_some() {
-                return of_code(deck, theme, text, language.name);
-            }
+        if let Detected::Named(language) | Detected::Likely(language) = detect(text, &said)
+            && theme.code_role().is_some()
+        {
+            return of_code(deck, theme, text, language.name);
         }
     }
     let text = text.trim_end_matches(['\n', '\r']);

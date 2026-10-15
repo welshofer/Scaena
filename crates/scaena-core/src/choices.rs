@@ -870,6 +870,8 @@ mod tests {
                     Columns => (None, json!("region")),
                     // Fractions of an image are none either.
                     Fractions(names) => (None, json!(vec![0.5; names.len()])),
+                    // Nor is a language's name (PLAN 2.133).
+                    Languages => (None, json!("rust")),
                 };
                 if let Some(written) = written {
                     assert!(literal(prop, &written), "{prop} = {written} is an override");
