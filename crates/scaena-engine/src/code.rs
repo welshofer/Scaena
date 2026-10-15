@@ -3,11 +3,22 @@
 //! measures them. Its tabs stand to stops, and it runs left to right whatever its first strong
 //! character is, so an Arabic comment on its first line does not turn the block. It grows its box
 //! first, then shrinks to fit, worked out from one layout, never under 12 pt at presentation size
-//! by itself (lint W205 where it is drawn smaller). It draws in its own color: coloring it by its
-//! language is PLAN 2.132's.
+//! by itself (lint W205 where it is drawn smaller).
+//!
+//! It is colored by its language in the theme's colors (PLAN 2.132): `scaena_core::code` reads its
+//! words into tokens of 16 kinds as it is laid out, and each token is drawn in its kind's look
+//! ([`TokenLook`]), which `Theme::code_looks` gives, every color held to read on the ground it is
+//! drawn on. The deck stores no token and no color. A change of color shapes nothing apart; a
+//! change of weight or italic shapes each token apart from its neighbors, as any change of face
+//! does.
 
+use crate::EngineError;
+use scaena_core::code::{Class, Lang, highlight, lang, tables};
 use scaena_core::document::Props;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
+use std::cell::RefCell;
+use std::ops::Range;
 
 /// The columns between a code text's tab stops, as most editors set them.
 pub const TAB: usize = 4;
@@ -21,29 +32,140 @@ pub const LTR: char = '\u{200E}';
 /// chart's text.
 pub const PRESENTATION_SIZE: f32 = 24.0;
 
+/// How one class of a code text's tokens is drawn (ADR-0029): its color, opaque, its weight, and
+/// whether it is set in its family's italic face, which it is only where the family has one.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TokenLook {
+    pub color: [u8; 4],
+    pub weight: f32,
+    pub italic: bool,
+}
+
+/// How each class of a code text's tokens is drawn, by `Class as usize`: plain words first, then
+/// the 16 kinds in `Class::KINDS`' order.
+pub type Looks = [TokenLook; 17];
+
 /// A code text's settings, as the cascade reads them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CodeSpec {
     /// The language it is written in, as the deck names it.
     pub language: String,
-    /// The columns between its tab stops.
+    /// The columns between its tab stops: the theme's `code.tab`, else [`TAB`].
     pub tab: usize,
     /// The least it shrinks to by itself, a share of its own size: its `minSize`, else its
     /// role's, else 12 pt at presentation size ([`floor`]), and never more than its own.
     pub least: f32,
+    /// How each class of its tokens is drawn ([`Looks`]): none draws every token as its plain
+    /// words.
+    pub looks: Option<Box<Looks>>,
 }
 
 impl CodeSpec {
     /// The settings `props` make a code text with, if they do, set at `size` in a role whose
     /// own `minSize` is `min`, on a canvas of `canvas`: a `code` object, its language `plain`
-    /// where it names none (E106).
+    /// where it names none (E106). Its tokens are drawn as its plain words until it is given
+    /// [`CodeSpec::looks`].
     pub fn of(props: &Props, size: f32, min: Option<f32>, canvas: [f32; 2]) -> Option<CodeSpec> {
         let code = props.get("code")?.as_object()?;
         let language = code.get("language").and_then(Value::as_str).unwrap_or("plain");
         let own = props.get("minSize").and_then(Value::as_f64).map(|m| m as f32);
         let least = own.or(min).unwrap_or(floor(canvas)) / size;
-        Some(CodeSpec { language: language.to_string(), tab: TAB, least: least.min(1.0) })
+        Some(CodeSpec { language: language.to_string(), tab: TAB, least: least.min(1.0), looks: None })
     }
+
+    /// The runs of `written`, its words as written, that its tokens draw in another look than its
+    /// plain words (PLAN 2.132), each by its range in the text as laid out, which `offsets` maps
+    /// to ([`laid`]), with that look; neighbors in one look are one run. None where it has no
+    /// looks, or its language colors nothing. An error where the tables its language is colored
+    /// by are neither compiled in nor handed over ([`set_loader`]).
+    pub(crate) fn runs(
+        &self,
+        written: &str,
+        offsets: &[(usize, usize)],
+    ) -> Result<Vec<(Range<usize>, TokenLook)>, EngineError> {
+        let Some(looks) = self.looks.as_deref() else { return Ok(Vec::new()) };
+        let lang = lang(&self.language);
+        tables_for(&self.language, lang)?;
+        let plain = looks[Class::Plain as usize];
+        // Where a character as written starts in the text as laid out: a token ends on one.
+        let at = |w: usize| offsets.get(offsets.partition_point(|o| o.0 < w)).map_or(usize::MAX, |o| o.1);
+        let mut out: Vec<(Range<usize>, TokenLook)> = Vec::new();
+        let mut start = 0;
+        for token in highlight(written, lang) {
+            let (from, look) = (start, looks[token.class as usize]);
+            start = token.end;
+            let range = at(from)..at(token.end);
+            if look == plain || range.is_empty() || range.end == usize::MAX {
+                continue;
+            }
+            match out.last_mut() {
+                Some((last, was)) if last.end == range.start && *was == look => last.end = range.end,
+                _ => out.push((range, look)),
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// The SHA-256 of each file of the tables the scanners read (`scaena_core::code::tables`, in
+/// `crates/scaena-core/code/`), in hex: what one handed over is held to.
+pub const TABLES: [(&str, &str); 11] = [
+    ("clike", "8e61a3d34f8c08a4fb8bc12ebbaeaf5070d209624def3d49a67dee2b74f78112"),
+    ("css", "085c66feb5ee53507e0875db5d35e71bc9d6785ad36bc377e3f696141ff096ca"),
+    ("dockerfile", "1a3268dea51c84dfe3f27782000e86b8e74d6bee771226f9cfc2e02b47837dce"),
+    ("graphql", "97ce256e18c0e12d03e1a63c372a3c675c7952c9ee27a1b7afbf28883d1a17d2"),
+    ("hcl", "4b9e6ce7ec481b512edda75f4755396de6b55d31a4c236390510d8347c5cb786"),
+    ("makefile", "006ece179f50923b03aff10dcad14c3ba51b2105cc34ae338c1fd6b3b1063d72"),
+    ("powershell", "6085c69b72f0e2389e2ff5bcada40cb1c9e1b1c1b552244bbe995150c970f9b3"),
+    ("python", "cd7e95eccc8f20e6367e16430a8cee43a0e17e033126ee0baffdf17e03c020a5"),
+    ("ruby", "eb18c5ac0f40a503c7798e9e705f99fd4cedc440bf1b2f675f0fdbc50b307847"),
+    ("shell", "587ca758689c91b4d1871a1e329801b92a2e8e41b624b4f270a8b2d303d99abe"),
+    ("sql", "a6619ac5929e5a861a2a3c69dd9285edee06d4673de3eb0b113cfd0ac86ebe0d"),
+];
+
+/// What gives a file of tables a build leaves out: given its name (`clike`), its bytes.
+type Loader = Box<dyn Fn(&str) -> Option<Vec<u8>>>;
+
+thread_local! {
+    static LOADER: RefCell<Option<Loader>> = RefCell::default();
+}
+
+/// Where this thread's engines get a file of the tables the scanners read that is not compiled in
+/// (PLAN 2.132, as ADR-0015 hands a language's hyphenation patterns over): `loader`, given its name
+/// (`clike`), gives the bytes of `crates/scaena-core/code/clike.txt`, or none. It is asked the first
+/// time a code text in a language that reads the file lays out, and what it gives is held to the
+/// file's SHA-256. Native builds and the player's module have every table compiled in, and never
+/// ask.
+pub fn set_loader(loader: impl Fn(&str) -> Option<Vec<u8>> + 'static) {
+    LOADER.with(|l| *l.borrow_mut() = Some(Box::new(loader)));
+}
+
+/// `bytes` as file `name` of tables, as text: refused unless they are its file, byte for byte.
+fn checked(name: &str, bytes: Vec<u8>) -> Result<String, EngineError> {
+    let digest: String = Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
+    if !TABLES.iter().any(|(file, d)| *file == name && *d == digest) {
+        return Err(EngineError::Code(format!(
+            "`{name}`: what was handed over ({} bytes) is not the engine's tables for it",
+            bytes.len()
+        )));
+    }
+    String::from_utf8(bytes).map_err(|_| EngineError::Code(format!("`{name}`: its tables are not UTF-8")))
+}
+
+/// Every table `lang`, which a code text names `language`, is colored by: here, as compiled in or
+/// handed over before, or handed over now. A file that cannot be had is an error that says so, never
+/// a text colored by less than its tables.
+fn tables_for(language: &str, lang: Lang) -> Result<(), EngineError> {
+    for &file in tables::files(lang) {
+        if tables::has(file) {
+            continue;
+        }
+        let bytes = LOADER.with(|l| l.borrow().as_ref().and_then(|load| load(file))).ok_or_else(|| {
+            EngineError::Code(format!("the tables `{language}` is colored by (`{file}`) were not handed over"))
+        })?;
+        tables::hand(file, &checked(file, bytes)?).map_err(EngineError::Code)?;
+    }
+    Ok(())
 }
 
 /// Whether `props` make a text code.
@@ -131,6 +253,24 @@ mod tests {
         let (set, offsets) = laid(&["a\r", "\nb"], 4);
         assert_eq!(set, ["\u{200E}a", "\nb"]);
         assert_eq!(&offsets[1..3], [(1, 4), (2, 4)]);
+    }
+
+    /// Each file of tables is held to its digest, and the engine knows every file the scanners
+    /// read (PLAN 2.132): what the editor's module is handed is what it would have compiled in.
+    #[test]
+    fn each_file_of_tables_is_held_to_its_digest() {
+        let names: Vec<&str> = TABLES.iter().map(|(name, _)| *name).collect();
+        assert_eq!(names, tables::FILES);
+        for (name, _) in TABLES {
+            let bytes = std::fs::read(format!("../scaena-core/code/{name}.txt")).unwrap();
+            let text = checked(name, bytes.clone()).unwrap_or_else(|e| panic!("{e}"));
+            assert_eq!(text, tables::written(name).unwrap());
+            let mut wrong = bytes;
+            wrong.push(b'\n');
+            assert!(checked(name, wrong).unwrap_err().to_string().contains("is not the engine's tables"));
+        }
+        // A language whose tables are compiled in needs none handed over.
+        assert!(tables_for("rust", lang("rust")).is_ok());
     }
 
     #[test]

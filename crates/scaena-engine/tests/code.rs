@@ -1,11 +1,15 @@
 //! A code text, set as written (PLAN 2.131, ADR-0029), with the torture deck's fonts: its lines
 //! break only where it breaks them, its tabs stand to stops, nothing hangs, and it runs left to
 //! right whatever its first word is. It grows its box first, then shrinks, worked out from one
-//! layout, and by itself never under 12 pt at presentation size.
+//! layout, and by itself never under 12 pt at presentation size. It is colored by its language in
+//! the theme's colors, each reading on its ground, and a color alone shapes nothing apart (PLAN
+//! 2.132).
 
 use scaena_core::Deck;
+use scaena_core::code::{Class, highlight, lang};
 use scaena_core::model::values::Range;
-use scaena_engine::code::CodeSpec;
+use scaena_core::palette::{READS, STRONG, ratio};
+use scaena_engine::code::{CodeSpec, Looks, TokenLook};
 use scaena_engine::data::DataFiles;
 use scaena_engine::fonts::BundleFonts;
 use scaena_engine::text::{TextEngine, TextLayout, TextSpec};
@@ -58,7 +62,7 @@ fn code(text: &str, at: Value) -> Value {
 fn set(text: &str, width: f32, scale: f32) -> TextLayout {
     let (theme, deck) = (theme(), deck(json!({})));
     let mut spec = TextSpec::plain(theme.text_role("body").unwrap(), text);
-    spec.code = Some(CodeSpec { language: "rust".into(), tab: 4, least: 24.0 / 40.0 });
+    spec.code = Some(CodeSpec { language: "rust".into(), tab: 4, least: 24.0 / 40.0, looks: None });
     TextEngine::new().layout(&mut fonts(&deck), &theme, &spec.scaled(scale), width).unwrap()
 }
 
@@ -284,4 +288,160 @@ fn a_code_text_in_a_container_shrinks_to_the_room_it_is_given() {
     let (top, bottom) = n.text.trimmed(TextBox::Line);
     assert!(n.scale < 1.0 && !n.overflow, "{} {}", n.scale, n.overflow);
     assert!((n.cell[3] - (bottom - top)).abs() <= 0.5, "{:?} holds {}", n.cell, bottom - top);
+}
+
+/// How each kind of token is drawn in `theme`'s `code` role on its surface: what the engine draws
+/// a code text on the slide in.
+fn looks_on_surface(theme: &Theme) -> Looks {
+    let [r, g, b, _] = theme.color("surface").unwrap().0;
+    theme.code_looks([r, g, b], &theme.text_role("code").unwrap()).unwrap()
+}
+
+/// The color the glyph at laid-out byte `laid` of `layout`'s text is drawn in.
+fn color_of(layout: &TextLayout, laid: usize) -> [u8; 4] {
+    layout.runs.iter().find(|r| r.clusters.contains(&laid)).map(|r| r.color.0).unwrap()
+}
+
+/// Where the character `written` bytes into `layout`'s text as written starts as laid out.
+fn laid(layout: &TextLayout, written: usize) -> usize {
+    layout.offsets[layout.offsets.partition_point(|o| o.0 < written)].1
+}
+
+const RUST: &str = "fn main() {\n\tlet greeting = \"hello\"; // says hi\n\treturn Vec::new(42);\n}";
+
+#[test]
+fn a_code_text_is_colored_by_its_language_in_the_themes_colors() {
+    let theme = theme();
+    let looks = looks_on_surface(&theme);
+    let mut node = code(RUST, json!({ "col": [1, 12], "row": [2, 8] }));
+    node["role"] = json!("code");
+    let d = deck(json!({ "n": node }));
+    let t = placed(&d, "n").text;
+    // Each glyph is drawn in its token's look: the keywords in the theme's `signal`, held to read
+    // at 7:1 on the paper, every other kind derived, plain words in the text's own color.
+    let tokens = highlight(RUST, lang("rust"));
+    let mut start = 0;
+    let mut kinds = Vec::new();
+    for token in &tokens {
+        for (w, _) in RUST[start..token.end].char_indices() {
+            let at = laid(&t, start + w);
+            if t.runs.iter().any(|r| r.clusters.contains(&at)) {
+                assert_eq!(color_of(&t, at), looks[token.class as usize].color, "{:?} at {}", token.class, start + w);
+            }
+        }
+        kinds.push(token.class);
+        start = token.end;
+    }
+    for kind in [Class::Keyword, Class::Function, Class::String, Class::Comment, Class::Number, Class::Type] {
+        assert!(kinds.contains(&kind), "{kind:?} in {kinds:?}");
+    }
+    let paper = [0xFB, 0xFA, 0xF6];
+    let keyword = looks[Class::Keyword as usize];
+    assert_eq!(keyword.weight, 700.0, "the theme's weight for keywords");
+    let [r, g, b, _] = theme.color("signal").unwrap().0;
+    let [kr, kg, kb] = scaena_core::palette::held_strong([r, g, b], paper);
+    assert_eq!(keyword.color, [kr, kg, kb, 255], "the signal, held to read");
+    assert!(ratio([kr, kg, kb], paper) >= STRONG, "{keyword:?}");
+    assert_eq!(looks[Class::Plain as usize].color, theme.color("ink").unwrap().0);
+    // The spans are as written: colored, the text keeps its characters and its lines, and, in a
+    // monospaced face, each glyph stands where it stood uncolored.
+    let lay = |looks: Option<Box<Looks>>| {
+        let mut spec = TextSpec::plain(theme.text_role("code").unwrap(), RUST);
+        spec.code = Some(CodeSpec { language: "rust".into(), tab: 4, least: 1.0, looks });
+        TextEngine::new().layout(&mut fonts(&d), &theme, &spec, 2000.0).unwrap()
+    };
+    let (plain, colored) = (lay(None), lay(Some(Box::new(looks))));
+    assert_eq!((&colored.text, &colored.written, &colored.offsets), (&plain.text, &plain.written, &plain.offsets));
+    assert_eq!(colored.lines.len(), plain.lines.len());
+    let xs = |t: &TextLayout| -> Vec<(usize, i32)> {
+        let mut xs: Vec<(usize, i32)> = (t.runs.iter())
+            .flat_map(|r| r.clusters.iter().zip(&r.glyphs).map(|(c, g)| (*c, (g.x * 64.0).round() as i32)))
+            .collect();
+        xs.sort();
+        xs
+    };
+    assert_eq!(xs(&colored), xs(&plain));
+    assert!(colored.runs.len() > plain.runs.len(), "split by token");
+}
+
+#[test]
+fn every_code_color_reads_4_5_to_1_on_its_ground() {
+    let dusk =
+        || -> Value { serde_json::from_str(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap() };
+    let daybreak = || -> Value {
+        serde_json::from_str(include_str!("../../../docs/examples/authorability/themes/daybreak.theme.json")).unwrap()
+    };
+    let mut named = dusk();
+    // Named colors that do not read where they are drawn: the rule's, a literal, and one that reads
+    // on a light ground alone.
+    named["code"] = json!({ "syntax": {
+        "comment": { "color": "line" }, "string": { "color": "#2E8B57" }, "keyword": { "color": "ink" },
+    } });
+    let mut light_named = daybreak();
+    light_named["code"] = json!({ "syntax": { "keyword": { "color": "line" }, "number": { "color": "#FFFF00" } } });
+    let grounds: [(&str, [u8; 3]); 6] = [
+        // The card 2.136 draws on Dusk, and on Daybreak.
+        ("a card on a dark theme", [0x29, 0x29, 0x2E]),
+        ("a card on a light theme", [0xDF, 0xDD, 0xD5]),
+        // A node's dark fill on a light theme, and a light one on a dark theme.
+        ("a dark fill", [0x16, 0x14, 0x0F]),
+        ("a light fill", [0xF6, 0xF4, 0xEF]),
+        // Where 7:1 cannot be had, and where 4.5:1 can be had only in black.
+        ("a mid gray", [0x80, 0x80, 0x80]),
+        ("a blue", [0x2F, 0x6F, 0xD0]),
+    ];
+    for (name, theme) in
+        [("dusk", dusk()), ("daybreak", daybreak()), ("dusk named", named), ("daybreak named", light_named)]
+    {
+        let theme = Theme::from_json(&theme.to_string()).unwrap();
+        let [r, g, b, _] = theme.color("surface").unwrap().0;
+        for (on, ground) in grounds.into_iter().chain([("the surface", [r, g, b])]) {
+            let looks = theme.code_looks(ground, &theme.text_role("code").unwrap()).unwrap();
+            let strong = ratio([0; 3], ground).max(ratio([255; 3], ground)) >= STRONG;
+            let best = ratio([0; 3], ground).max(ratio([255; 3], ground));
+            for (i, look) in looks.iter().enumerate() {
+                let [r, g, b, a] = look.color;
+                assert_eq!(a, 255, "opaque");
+                let keyword = i == Class::Keyword as usize || i == Class::Tag as usize;
+                let wanted = if keyword && strong { STRONG } else { READS.min(best) };
+                assert!(ratio([r, g, b], ground) >= wanted - 1e-9, "{name} on {on}: {i} {look:?} at {wanted}");
+            }
+        }
+    }
+}
+
+#[test]
+fn color_alone_keeps_shaping_whole() {
+    // Roboto Serif kerns `T.`, a type and the punctuation after it in code: drawn in two colors,
+    // the pair is shaped as one, so it kerns as it does uncolored.
+    let theme = theme();
+    let d = deck(json!({}));
+    let text = "T.V,To.Wa";
+    let body = theme.text_role("body").unwrap();
+    let lay = |looks: Option<Looks>| {
+        let mut spec = TextSpec::plain(body.clone(), text);
+        spec.code = Some(CodeSpec { language: "rust".into(), tab: 4, least: 1.0, looks: looks.map(Box::new) });
+        TextEngine::new().layout(&mut fonts(&d), &theme, &spec, 4000.0).unwrap()
+    };
+    let width = |s: &str| {
+        TextEngine::new().layout(&mut fonts(&d), &theme, &TextSpec::plain(body.clone(), s), 4000.0).unwrap().width
+    };
+    assert!(width("T.") < width("T") + width(".") - 0.5, "the pair kerns");
+    // Every kind its own color, at the text's weight and upright.
+    let mut looks = [TokenLook { color: [0, 0, 0, 255], weight: body.weight, italic: false }; 17];
+    for (i, look) in looks.iter_mut().enumerate() {
+        look.color = [i as u8 * 13, 40, 200 - i as u8 * 9, 255];
+    }
+    let (plain, colored) = (lay(None), lay(Some(looks)));
+    let glyphs = |t: &TextLayout| -> Vec<(u32, i32, usize)> {
+        t.runs
+            .iter()
+            .flat_map(|r| r.glyphs.iter().zip(&r.clusters).map(|(g, c)| (g.id, (g.x * 64.0).round() as i32, *c)))
+            .collect()
+    };
+    assert_eq!(glyphs(&colored), glyphs(&plain));
+    let colors: std::collections::BTreeSet<[u8; 4]> = colored.runs.iter().map(|r| r.color.0).collect();
+    assert!(colors.len() >= 2, "drawn in more than one color: {colors:?}");
+    let tokens = highlight(text, lang("rust"));
+    assert!(tokens.len() >= 2 && tokens[0].class != tokens[1].class, "{tokens:?}");
 }

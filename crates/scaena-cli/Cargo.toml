@@ -19,7 +19,9 @@ gpu = ["scaena-ops/gpu", "scaena-mcp/gpu", "scaena-paint/gpu"]
 
 [dependencies]
 scaena-core.workspace = true
-scaena-engine = { workspace = true, features = ["hyphenation"] }
+# Every language's hyphenation patterns and the code scanners' tables compiled in (ADR-0015,
+# PLAN 2.132).
+scaena-engine = { workspace = true, features = ["hyphenation", "code-tables"] }
 scaena-paint.workspace = true
 scaena-export.workspace = true
 scaena-store.workspace = true

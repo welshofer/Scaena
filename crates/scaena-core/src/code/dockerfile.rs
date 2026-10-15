@@ -19,6 +19,7 @@
 //! At most [`MAX_NESTING`] heredocs wait for their bodies after one instruction.
 
 use super::scan::{Spans, blanks_end, byte, is_break, is_space, is_word, is_word_start, line_end, line_next};
+use super::tables::{Table, words};
 use super::{Class, MAX_NESTING, powershell, shell};
 
 /// What reads a command.
@@ -48,29 +49,35 @@ struct Here {
 }
 
 /// The instructions, in lowercase and sorted, so one is found by binary search in any case.
-const INSTRUCTIONS: &[&str] = &[
-    "add",
-    "arg",
-    "cmd",
-    "copy",
-    "entrypoint",
-    "env",
-    "expose",
-    "from",
-    "healthcheck",
-    "label",
-    "maintainer",
-    "onbuild",
-    "run",
-    "shell",
-    "stopsignal",
-    "user",
-    "volume",
-    "workdir",
-];
+const INSTRUCTIONS: Table = words!(
+    "dockerfile/instructions",
+    [
+        "add",
+        "arg",
+        "cmd",
+        "copy",
+        "entrypoint",
+        "env",
+        "expose",
+        "from",
+        "healthcheck",
+        "label",
+        "maintainer",
+        "onbuild",
+        "run",
+        "shell",
+        "stopsignal",
+        "user",
+        "volume",
+        "workdir"
+    ]
+);
 
 /// The parser directives, in lowercase.
-const DIRECTIVES: &[&str] = &["check", "escape", "syntax"];
+const DIRECTIVES: Table = words!("dockerfile/directives", ["check", "escape", "syntax"]);
+
+/// The tables above, in the file they are handed over in (`code::tables`).
+pub(super) const WORDS: &[Table] = &[INSTRUCTIONS, DIRECTIVES];
 
 /// Writes `text`'s tokens as a Dockerfile.
 pub(super) fn scan<'t>(text: &'t str, out: &mut Spans<'t>) {

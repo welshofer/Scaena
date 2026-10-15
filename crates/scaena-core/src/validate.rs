@@ -521,6 +521,17 @@ impl LoadedTheme {
                 }
             }
         }
+        // How code is set and colored (ADR-0029): the role it is set in, and each kind's color.
+        if let Some(code) = &t.code {
+            if let Some(role) = &code.role {
+                need(t.typography.roles.contains_key(role), "text role", role, "/code/role".into());
+            }
+            let syntax = code.syntax.as_ref();
+            for class in crate::code::Class::KINDS {
+                let Some(color) = syntax.and_then(|s| s.of(class)).and_then(|l| l.color.as_ref()) else { continue };
+                need(self.color(color), "color", color, format!("/code/syntax/{}/color", class.name()));
+            }
+        }
         // A slide's number and footer (ADR-0028): their roles and colors, the layouts they are left
         // off, and their columns on the grid.
         let mut past = Vec::new();

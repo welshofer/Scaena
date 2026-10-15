@@ -1323,10 +1323,16 @@ fn theme_color(theme: &Theme, name: &str) -> Result<Color, EngineError> {
 fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>) -> Result<TextSpec, EngineError> {
     let str_prop = |key: &str| props.get(key).and_then(Value::as_str);
     let mut role = cascade::node_role(theme, props, slot_role)?;
-    // Code is set as written (ADR-0029): no case, no measure, no hyphens, nothing hung.
-    let code = crate::code::CodeSpec::of(props, role.size, role.min_size, canvas(deck));
-    if code.is_some() {
+    // Code is set as written (ADR-0029): no case, no measure, no hyphens, nothing hung. It is
+    // colored by its language in the theme's colors, each held to read on its ground: the
+    // surface, which it is drawn on (PLAN 2.132).
+    let mut code = crate::code::CodeSpec::of(props, role.size, role.min_size, canvas(deck));
+    if let Some(code) = &mut code {
         role.case = None;
+        let look = theme.code.as_ref();
+        code.tab = look.and_then(|c| c.tab).map_or(crate::code::TAB, usize::from);
+        let [r, g, b, _] = theme_color(theme, "surface")?.0;
+        code.looks = Some(Box::new(theme.code_looks([r, g, b], &role)?));
     }
     let (role_measure, hanging, optical, hyphenate) =
         (role.measure, role.hanging_punctuation, role.optical_margins, role.hyphenate);

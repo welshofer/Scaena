@@ -26,6 +26,7 @@
 use super::scan::{
     Spans, blanks_end, is_break, is_space, is_word, is_word_start, line_end, line_next, number_end, space_end, word_end,
 };
+use super::tables::{Table, words};
 use super::{Class, MAX_NESTING};
 
 /// How far a regular expression is looked for before `/` is taken to divide.
@@ -732,73 +733,82 @@ fn operator(rest: &[u8]) -> Option<usize> {
 }
 
 /// The operators a method may be named, each before the operators it begins.
-const OPERATORS: &[&str] = &[
-    "[]=", "[]", "<=>", "<=", "<<", "<", "===", "==", "=~", "!=", "!~", "!", "**", "*", "+@", "+", "-@", "-", ">=",
-    ">>", ">", "/", "%", "~", "&", "|", "^",
-];
+const OPERATORS: Table = words!(
+    "ruby/operators",
+    [
+        "[]=", "[]", "<=>", "<=", "<<", "<", "===", "==", "=~", "!=", "!~", "!", "**", "*", "+@", "+", "-@", "-", ">=",
+        ">>", ">", "/", "%", "~", "&", "|", "^",
+    ]
+);
 
 // The tables, each sorted, so a word is found by binary search (`every_table_is_sorted`).
 
-const KEYWORDS: &[&str] = &[
-    "BEGIN",
-    "END",
-    "alias",
-    "and",
-    "attr_accessor",
-    "attr_reader",
-    "attr_writer",
-    "begin",
-    "block_given?",
-    "break",
-    "case",
-    "catch",
-    "class",
-    "def",
-    "defined?",
-    "do",
-    "else",
-    "elsif",
-    "end",
-    "ensure",
-    "extend",
-    "fail",
-    "for",
-    "if",
-    "in",
-    "include",
-    "lambda",
-    "loop",
-    "module",
-    "module_function",
-    "next",
-    "not",
-    "or",
-    "prepend",
-    "private",
-    "private_constant",
-    "proc",
-    "protected",
-    "public",
-    "raise",
-    "redo",
-    "refine",
-    "require",
-    "require_relative",
-    "rescue",
-    "retry",
-    "return",
-    "super",
-    "then",
-    "throw",
-    "undef",
-    "unless",
-    "until",
-    "using",
-    "when",
-    "while",
-    "yield",
-];
-const CONSTANTS: &[&str] = &["__ENCODING__", "__FILE__", "__LINE__", "false", "nil", "true"];
+const KEYWORDS: Table = words!(
+    "ruby/keywords",
+    [
+        "BEGIN",
+        "END",
+        "alias",
+        "and",
+        "attr_accessor",
+        "attr_reader",
+        "attr_writer",
+        "begin",
+        "block_given?",
+        "break",
+        "case",
+        "catch",
+        "class",
+        "def",
+        "defined?",
+        "do",
+        "else",
+        "elsif",
+        "end",
+        "ensure",
+        "extend",
+        "fail",
+        "for",
+        "if",
+        "in",
+        "include",
+        "lambda",
+        "loop",
+        "module",
+        "module_function",
+        "next",
+        "not",
+        "or",
+        "prepend",
+        "private",
+        "private_constant",
+        "proc",
+        "protected",
+        "public",
+        "raise",
+        "redo",
+        "refine",
+        "require",
+        "require_relative",
+        "rescue",
+        "retry",
+        "return",
+        "super",
+        "then",
+        "throw",
+        "undef",
+        "unless",
+        "until",
+        "using",
+        "when",
+        "while",
+        "yield",
+    ]
+);
+const CONSTANTS: Table = words!("ruby/constants", ["__ENCODING__", "__FILE__", "__LINE__", "false", "nil", "true"]);
+
+/// Every table this scanner reads, in the order its file lists them (`tables::written`).
+pub(super) const WORDS: &[Table] = &[OPERATORS, KEYWORDS, CONSTANTS];
 
 #[cfg(test)]
 mod tests {
