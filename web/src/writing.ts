@@ -7,6 +7,7 @@
 // it takes them as one patch, written where the text or the notes live, one step to undo; a text
 // keeps the looks of the words the answer keeps, run by run (`Player.written`). Leave it changes
 // nothing. With no key, nothing is asked: the dialog says where one goes.
+import { listen } from "./life";
 import type { Edited, WritingAsk, WritingKind, Written } from "./protocol";
 import type { Stage } from "./stage";
 import { quote } from "./words";
@@ -199,10 +200,10 @@ export function writer(stage: Stage, host: WritingHost) {
   // An answer is being taken from the press of Use on: the dialog says it closed a task later,
   // and what a test waits for is the answer taken, not the close.
   let taken: (() => void) | undefined;
-  use.addEventListener("click", () => {
+  listen(use, "click", () => {
     settled = new Promise<void>((done) => (taken = done));
   });
-  dialog.addEventListener("close", () => {
+  listen(dialog, "close", () => {
     // An answer still on its way is dropped.
     turn++;
     const done = taken;

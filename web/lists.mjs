@@ -6,7 +6,9 @@
 //
 // - Typing in a list: Enter at an item's end makes another like it; Tab and Shift+Tab move it a
 //   level in and out; Enter in an empty item ends the list there; ⌘⇧7 numbers the paragraph the
-//   caret is in, and ⌘⇧8 bullets it. Each is one patch of the text's `list`, one step to undo.
+//   caret is in, and ⌘⇧8 bullets it. Backspace at an item's start takes its bullet off, and a
+//   second joins it to the paragraph before; Tab at the start of a paragraph that is no item makes
+//   it one a level in. Each is one patch of the text's `list`, one step to undo.
 // - A text selected, not typed in: ⌘⇧8 bullets every paragraph, and again takes them out of the
 //   list; the palette's Numbered list numbers them.
 // - The player's live region reads the lists as lists: `ul` and `ol`, nested by level.
@@ -133,6 +135,53 @@ try {
     await page.waitForTimeout(150);
   }
   check(await back(original), "undo takes each back, to the deck as it was");
+  await page.keyboard.press("Escape");
+
+  // Backspace at an item's start takes its bullet off, its words kept; a second joins it to the
+  // paragraph before. Each one step to undo.
+  const typeAtEnd = async () => {
+    await page.evaluate(() => window.scaena.canvas.select("list-points"));
+    await page.locator("#overlay").focus();
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => window.scaena.canvas.typing() === "list-points", null, { timeout: 30000 });
+  };
+  await typeAtEnd();
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Backspace");
+  await lists("list-points", "list:[{kind: bullet}, {kind: bullet}, {kind: bullet, level: 1}, {kind: bullet, level: 2}]", "Backspace at the last item's start takes its bullet off");
+  check((await source()).includes("And one more level in\\nBack out to the first level"), "and keeps its words where they were");
+  await page.keyboard.press("Backspace");
+  const joined = await page
+    .waitForFunction(() => window.scaena.source().includes("And one more level inBack out") && !window.scaena.canvas.typed()?.sending, null, { timeout: 30000 })
+    .then(() => true, () => false);
+  check(joined, "a second Backspace joins it to the paragraph before");
+  await undo();
+  await undo();
+  check(await back(original), "two undos take both back");
+  await page.keyboard.press("Escape");
+
+  // Tab at the start of a paragraph that is no item makes it one a level in, and typing goes on.
+  await typeAtEnd();
+  await page.keyboard.press("Enter");
+  await lists("list-points", points.replace(/]$/, ", {kind: bullet}]"), "Enter makes an empty item");
+  await page.keyboard.press("Enter");
+  await lists("list-points", points, "Enter in it: a plain paragraph");
+  await page.keyboard.type("Plain");
+  await page.waitForFunction(() => window.scaena.source().includes("\\nPlain") && !window.scaena.canvas.typed()?.sending, null, { timeout: 30000 }).catch(() => {});
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Tab");
+  await lists("list-points", points.replace(/]$/, ", {kind: bullet, level: 1}]"), "Tab at its start makes it an item a level in");
+  check((await typed())?.node === "list-points", "typing goes on in it");
+  await page.keyboard.type("Under ");
+  const under = await page
+    .waitForFunction(() => window.scaena.source().includes("\\nUnder Plain") && !window.scaena.canvas.typed()?.sending, null, { timeout: 30000 })
+    .then(() => true, () => false);
+  check(under, "and takes what is typed at its start");
+  for (let i = 0; i < 8 && (await source()) !== original; i++) {
+    await undo();
+    await page.waitForTimeout(150);
+  }
+  check(await back(original), "undo takes each back");
   await page.keyboard.press("Escape");
 
   // The steps, selected and not typed in: ⌘⇧8 bullets every paragraph, and again takes them out.

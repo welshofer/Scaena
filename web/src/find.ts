@@ -10,7 +10,8 @@
 //   each match is.
 // - Replace replaces the match shown, then goes on to the next after what it put in; Replace All
 //   replaces every match in one patch, one step to undo, and says how many, in how many texts.
-// - Match case and Whole words, as asked. Escape, or ×, closes the bar.
+// - Match case and Whole words, as asked. Escape, or ×, closes the bar, and the focus goes back where
+//   it was, the canvas's keys with it.
 import { type Key, MOD, SHIFT } from "./commands";
 import type { Edited, Found, Lexicon, Query } from "./protocol";
 import type { Stage } from "./stage";
@@ -45,6 +46,8 @@ export interface FindEditor {
   words?(): Lexicon | undefined;
   /** `state` as a person counts it: Slide 3, or Slide 3, step 2. */
   slide?(state: string): string;
+  /** Put the focus where the editor's keys go, where it cannot go back where it was: the canvas. */
+  home?(): void;
 }
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -76,6 +79,8 @@ export function finder(stage: Stage, bar: HTMLElement, editor: FindEditor) {
   let at: number | undefined;
   /** A search under way: the next waits for it, and a stale one is dropped. */
   let asked = 0;
+  /** Where the focus was when the bar opened, which it goes back to as the bar closes. */
+  let back: Element | null = null;
 
   const query = (): Query => ({ find: field.value, case: matchCase.checked, words: wholeWords.checked });
   /** Every match, in order, as `[text, match]` into `found`. */
@@ -171,6 +176,7 @@ export function finder(stage: Stage, bar: HTMLElement, editor: FindEditor) {
   }
 
   function open() {
+    if (!bar.contains(document.activeElement)) back = document.activeElement;
     bar.hidden = false;
     field.focus();
     field.select();
@@ -178,9 +184,15 @@ export function finder(stage: Stage, bar: HTMLElement, editor: FindEditor) {
   }
 
   function close() {
+    const had = bar.contains(document.activeElement);
     bar.hidden = true;
     at = undefined;
     editor.unmark();
+    if (!had) return;
+    // Back where it was, where that still takes it; else to the canvas.
+    if (back instanceof HTMLElement && back !== document.body && back.isConnected && back.getClientRects().length) back.focus({ preventScroll: true });
+    if (!document.activeElement || document.activeElement === document.body || bar.contains(document.activeElement)) editor.home?.();
+    back = null;
   }
 
   /** The query changed: what it finds is asked again, from the first. */

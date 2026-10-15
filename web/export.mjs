@@ -5,7 +5,8 @@
 //   node web/export.mjs     (after `just web`; from the repository's root)
 //
 // `scaena` runs here by cargo, so it is built after the web build it carries the single-file page of.
-// - Export… opens on a PNG of the state shown, its width the canvas's, and the note says its pixels.
+// - Export… opens on a PNG of the state shown, its width the canvas's, and the note says its slide
+//   and its pixels; the width shows for a PNG alone.
 //   axe-core finds nothing against WCAG 2.1 AA in it. Export downloads `<deck> - Slide N.png`: the size
 //   asked, within SPEC §13.5 of `scaena export --format png --size` of that state. The CPU painter
 //   runs in WASM SIMD in the browser and natively there (ADR-0004 finding 15).
@@ -92,6 +93,12 @@ try {
     opened.as === "png" && opened.width === "1920" && opened.note.includes("1920 × 1080 pixels") && opened.focus === "exporting-width",
     `Export… opens on a PNG of the state shown, 1920 wide, its pixels said (${JSON.stringify(opened)})`,
   );
+  check(/^Slide \d+(, step \d+)?: 1920 × 1080 pixels\.$/.test(opened.note), `the note names the slide as a person counts it, and no painter: ${opened.note}`);
+  for (const as of ["pdf", "html", "png"]) {
+    await page.check(`#exporting input[name=as][value=${as}]`);
+    const shown = await page.locator("#exporting-size").isVisible();
+    check(shown === (as === "png"), `the width is ${as === "png" ? "shown for a PNG" : `not shown for ${as.toUpperCase()}`}`);
+  }
   await page.addScriptTag({ path: axe });
   const violations = await page.evaluate(async () => (await window.axe.run(document.querySelector("#exporting"), { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] })).violations);
   check(violations.length === 0, `axe finds nothing in Export…${violations.length ? `: ${violations.map((v) => `${v.id} (${v.nodes.length})`).join(", ")}` : ""}`);
@@ -163,8 +170,7 @@ try {
   // The deck as one HTML file, from Export….
   await page.click("#export");
   await page.check("#exporting input[name=as][value=html]");
-  const hidden = await page.evaluate(() => document.querySelector("#exporting-size").hidden);
-  check(hidden, "the width goes for a file of the deck");
+  check(await page.locator("#exporting-size").isHidden(), "the width goes for a file of the deck");
   const html = await downloaded(() => page.click("#exporting-go"));
   scaena("export", bundle, "--format", "html", "--out", join(out, "cli.html"));
   const cliHtml = readFileSync(join(out, "cli.html"));

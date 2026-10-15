@@ -62,6 +62,10 @@ pub enum Error {
     Paint(#[from] PaintError),
     #[error("the deck names {0}, which is not in the bundle: hand it over with addFile")]
     Missing(String),
+    /// A file opened as a bundle that is none (PLAN 2.4): no zip, or one cut short, damaged, or
+    /// with no deck in it.
+    #[error("it isn't a Scaena file, or it is damaged")]
+    NotABundle,
     #[error("compile a source before linting or fixing it")]
     NothingCompiled,
     /// A call about a frame held for its shaders that no frame is, or that is not in it.
@@ -1204,9 +1208,11 @@ impl Session {
 
     /// [`Session::carets`] as a page and the Mac take it (PLAN 2.32, 3.6): `{ "text", "lines":
     /// [{ "top", "bottom", "x", "start", "end", "broken", "chars": [[offset, lead, trail]] }],
-    /// "items": [{ "kind", "level", "marker" } | null] }`, canvas units, its offsets in UTF-16
-    /// code units, as JavaScript and Swift count a string; `items` each paragraph as a list's
-    /// item (ADR-0018). Null for a node that is no text there.
+    /// "items": [{ "kind", "level", "marker" } | null], "links": [[from, to, { "href" } | {
+    /// "state" }]] }`, canvas units, its offsets in UTF-16 code units, as JavaScript and Swift
+    /// count a string; `items` each paragraph as a list's item (ADR-0018), and `links` each
+    /// stretch of it a link goes from (PLAN 2.70), which ⌘K shows. Null for a node that is no
+    /// text there.
     pub fn carets_json(&mut self, state: &str, node: &str) -> Result<serde_json::Value, Error> {
         let Some(c) = self.carets(state, node)? else { return Ok(serde_json::Value::Null) };
         let units = utf16(&c.text);
@@ -1220,7 +1226,15 @@ impl Session {
                 })
             })
             .collect();
-        Ok(serde_json::json!({ "text": c.text, "lines": lines, "items": c.items }))
+        let mut start = 0;
+        let mut links = Vec::new();
+        for look in &c.looks {
+            if let Some(link) = &look.link {
+                links.push(serde_json::json!([units(start), units(look.end), link]));
+            }
+            start = look.end;
+        }
+        Ok(serde_json::json!({ "text": c.text, "lines": lines, "items": c.items, "links": links }))
     }
 
     /// What an inspector offers for `node` as `state` shows it (ADR-0013, PLAN 2.33): each
@@ -2972,6 +2986,26 @@ mod tests {
         let value = |prop: &str| offered.fields.iter().find(|f| f.prop == prop).and_then(|f| f.value.clone());
         assert_eq!((value("style/weight"), value("style/color")), (Some(700.into()), Some("accent".into())));
         assert!(s.bolding("revenue", "rev", 0, 1).is_err(), "a chart is no text");
+    }
+
+    /// The carets say where a text's links go from (PLAN 2.70): each stretch of characters a
+    /// link goes from, and where to, which ⌘K shows in its field so the link is read and kept.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn the_carets_say_where_each_link_goes_from() {
+        let mut s = revenue();
+        assert_eq!(s.carets_json("revenue", "title").unwrap()["links"], serde_json::json!([]), "no link yet");
+        let link = serde_json::json!({ "link": { "href": "https://example.com/q3" } });
+        let ops = serde_json::json!([{ "op": "style_text", "node": "title", "state": "revenue", "from": 8, "to": 15, "look": link }]);
+        assert!(s.typed(&ops, None).unwrap());
+        let to = serde_json::json!({ "link": { "state": "intro" } });
+        let ops = serde_json::json!([{ "op": "style_text", "node": "title", "state": "revenue", "from": 0, "to": 3, "look": to }]);
+        assert!(s.typed(&ops, None).unwrap());
+        assert_eq!(
+            s.carets_json("revenue", "title").unwrap()["links"],
+            serde_json::json!([[0, 3, { "state": "intro" }], [8, 15, { "href": "https://example.com/q3" }]]),
+            "UTF-16 offsets, as a page counts them"
+        );
     }
 
     /// A theme chosen in the editor (PLAN 2.39): one that ships, which the page carries, or one

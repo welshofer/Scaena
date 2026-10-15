@@ -65,6 +65,7 @@
 //   dropped on, a `choose` of `src`; dropped anywhere else, it is inserted there, as Insert does.
 import { ALT, type Key, MOD, SHIFT } from "./commands";
 import { type Icon, iconSaid } from "./icon-set";
+import { listen } from "./life";
 import { marks } from "./marks";
 import { fitting } from "./pictures";
 import { BUNDLE_PATH, CLIP, DATA, PICTURE } from "./protocol";
@@ -162,6 +163,9 @@ export interface Editor {
   undo(): void;
   redo(): void;
   say(text: string): void;
+  /** Take back `text`, if the status still says it: `instead` in its place, or what was said
+   * before it. */
+  unsay?(text: string, instead?: string): void;
   /** The node selected is now `node`, with `also` selected beside it (PLAN 2.42). */
   selected(node: string | undefined, also: string[]): void;
   /** The characters selected in a text typed in are now `selected`, or none are (PLAN 2.38). */
@@ -710,7 +714,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     pressed = undefined;
     righted = false;
   };
-  document.addEventListener("keydown", unpress, true);
+  listen(document, "keydown", unpress, { capture: true });
   const clicks = (e: PointerEvent) => {
     const again =
       pressed && e.timeStamp - pressed.at < AGAIN && Math.hypot(e.clientX - pressed.client[0], e.clientY - pressed.client[1]) < SLOP;
@@ -793,6 +797,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     undo: () => editor.undo(),
     redo: () => editor.redo(),
     say: (words) => editor.say(words),
+    unsay: (words, instead) => editor.unsay?.(words, instead),
     name: (node) => called(node),
     slide: (state) => editor.slide(state),
     numbered: (typed) => editor.numbered(typed),
@@ -2297,7 +2302,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     pointed ? [Math.min(Math.max(pointed[0], 0), size[0]), Math.min(Math.max(pointed[1], 0), size[1])] : [size[0] / 2, size[1] / 2];
 
   /** Insert what the deck offers `n`th (`Stage.inserts`) where the pointer last pressed, or in the
-   * middle of the canvas: it enters in the state shown, selected. */
+   * middle of the canvas: it enters in the state shown, selected, and a text takes the caret, its
+   * words selected, so what is typed takes their place (PLAN 3.21). */
   function insert(n: number, label = "it") {
     return inTurn(() => inserting(n, label));
   }
@@ -2308,8 +2314,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const shown = editor.shown();
     if (!shown) return editor.say(WAITING);
     try {
+      const text = offered[n]?.node.type === "text";
       const added = await stage.inserting(editor.source(), shown.state, n, landing(), editor.format(), named, with_);
-      await change(added.patch, "Inserting…", `${sentence(label)} inserted on this slide`, added.id);
+      const made = await change(added.patch, "Inserting…", `${sentence(label)} inserted on this slide`, added.id);
+      if (made && text && selected === added.id) await type(added.id, undefined, false, true);
     } catch (e) {
       editor.say(`Not inserted: ${said(e)}`);
     }
@@ -2995,11 +3003,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       }
     });
   }
-  overlay.addEventListener("dragover", (e) => {
+  listen(overlay, "dragover", (e) => {
     const types = e.dataTransfer?.types ?? [];
     if (types.includes("Files") || types.includes(BUNDLE_PATH)) e.preventDefault();
   });
-  overlay.addEventListener("drop", (e) => {
+  listen(overlay, "drop", (e) => {
     const path = e.dataTransfer?.getData(BUNDLE_PATH);
     if (path) {
       e.preventDefault();
@@ -3197,7 +3205,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       },
     ],
   ];
-  for (const [type, hear] of clipboard) document.addEventListener(type, hear as EventListener);
+  for (const [type, hear] of clipboard) listen(document, type, hear);
 
   /** Move the node selected a step, or, to `grow` it, resize it: a track on a grid, a place along
    * its stack, a canvas unit off the grid. A node in a slot or an area steps onto the tracks that
@@ -4072,13 +4080,14 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (tapped && !panning && !drag && !slotting && !armed && text.node() === undefined) keyedToggle();
     tapped = false;
   };
-  overlay.addEventListener("blur", () => {
+  listen(overlay, "blur", () => {
     spaced = false;
     if (!panning) overlay.classList.remove("panning");
   });
   // Pinch, or the wheel with ⌘ or Ctrl, zooms about the pointer; the wheel alone pans what is zoomed
   // in, and scrolls the page past what is not (PLAN 2.46).
-  overlay.addEventListener(
+  listen(
+    overlay,
     "wheel",
     (e) => {
       if (e.ctrlKey || e.metaKey) {
@@ -4273,6 +4282,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     busy: () => busy || drag !== undefined || starting !== undefined || reshaping !== undefined || cropping !== undefined,
     /** The text typed in, if one is. */
     typing: () => text.node(),
+    /** Once every change typed so far is made, typing left with one under way among them: what a
+     * save waits for. */
+    idle: () => text.idle(),
+    /** Whether what is typed is not yet all made. */
+    unsettled: () => text.busy(),
     /** What is typed in it, for a test. */
     typed: () => text.now(),
     /** How many drags began from moves made before the engine said what was pressed, as a drag

@@ -134,6 +134,11 @@ try {
       return tiles.filter((t) => t.offsetTop === tiles[0]?.offsetTop).length;
     });
   const painted = () => page.evaluate(() => document.querySelector("#slides li canvas")?.height ?? 0);
+  // Once the light table holds the deck's slides again, after the undo.
+  await page
+    .waitForFunction(() => window.scaena.slides.slides().map((s) => s.id).join(" ") === "intro revenue close", null, { timeout: 30000 })
+    .catch(() => {});
+  await page.evaluate(() => window.scaena.slides.settled());
   const [wide, high] = [await across(), await painted()];
   await page.evaluate(() => {
     const size = document.querySelector("#slides input[data-size]");

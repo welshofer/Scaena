@@ -67,15 +67,17 @@ try {
     page
       .waitForFunction((n) => window.scaena.canvas.boxes()?.some((b) => b.node === n), node, { timeout: 30000, polling: 50 })
       .then(() => true, () => false);
-  /** The client point at the middle of `node`'s box. */
-  const middle = (node) =>
-    page.evaluate((n) => {
+  /** The client point at the middle of `node`'s box, once the canvas has one for it. */
+  const middle = async (node) => {
+    await page.waitForFunction((n) => window.scaena.canvas.boxes().some((x) => x.node === n), node, { timeout: 10000 }).catch(() => {});
+    return page.evaluate((n) => {
       const b = window.scaena.canvas.boxes().find((x) => x.node === n);
       const r = document.querySelector("#overlay").getBoundingClientRect();
       const [w, h] = window.scaena.canvas.size();
       const [x, y, bw, bh] = b.rect;
       return [r.left + ((x + bw / 2) / w) * r.width, r.top + ((y + bh / 2) / h) * r.height];
     }, node);
+  };
   /** The declaration of `node` in the source, with the lines its properties run on to, as one. */
   const declared = (scn, node) => {
     const lines = scn.split("\n");

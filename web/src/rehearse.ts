@@ -12,6 +12,7 @@
 //   patch: one step to undo. A state not reached keeps its hold.
 // - Nothing the rehearsal does changes the deck until Keep.
 import type { Key } from "./commands";
+import { listen } from "./life";
 import type { Slot } from "./protocol";
 import type { Stage } from "./stage";
 
@@ -188,10 +189,10 @@ export function rehearsal(stage: Stage, bar: HTMLElement, dialog: HTMLDialogElem
     go(1);
   }
 
-  bar.querySelector("[data-on]")?.addEventListener("click", () => go(1));
-  bar.querySelector("[data-back]")?.addEventListener("click", () => go(-1));
-  bar.querySelector("[data-end]")?.addEventListener("click", () => stop());
-  dialog.addEventListener("close", async () => {
+  listen(bar.querySelector<HTMLElement>("[data-on]")!, "click", () => go(1));
+  listen(bar.querySelector<HTMLElement>("[data-back]")!, "click", () => go(-1));
+  listen(bar.querySelector<HTMLElement>("[data-end]")!, "click", () => stop());
+  listen(dialog, "close", async () => {
     if (dialog.returnValue !== "keep") return editor.say("Rehearsal: nothing kept");
     const ops = kept.filter((k) => k.keeps !== undefined && k.keeps !== k.hold).map((k) => ({ op: "set_state", id: k.state, prop: "hold", value: k.keeps }));
     if (!ops.length) return editor.say("Rehearsal: every timing is as it was");
