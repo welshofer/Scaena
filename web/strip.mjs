@@ -261,7 +261,7 @@ try {
   check(offered.sections.join() === sections, `the sections down the side: ${offered.sections.join(", ")}`);
   check(offered.counted === 163 && offered.selected === "Titles", `163 layouts, Titles shown first: ${offered.counted}, ${offered.selected}`);
   const titles = await drawn();
-  const want = "Title,Section,Title over Photo,Title Only,Centered Title,Title beside Photo,Section and Photo,Section Number";
+  const want = "Title,Section,Title over Photo,Title Only,Centered Title,Title beside Photo,Section and Photo,Section Number,Paper Title";
   check(titles.join() === want, `each drawn, by its name: ${titles.join(", ")}`);
   // The arrows go among the layouts as they stand in the grid: → the next, ↓ the one below.
   await tile("Title").focus();
