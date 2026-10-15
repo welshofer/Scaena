@@ -98,6 +98,9 @@ pub struct Session {
     /// What the engine let go had worked out of the global timeline, for the one built again:
     /// none once a file it read is handed over again with other bytes.
     timed: scaena_engine::Timed,
+    /// The deck's timeline, kept until what was laid out is let go, so a frame reads its
+    /// state's slot from it rather than fingerprinting the deck again (PLAN 2.146).
+    timeline: Option<Timeline>,
     /// The transition last sampled, so the frames of one transition lay out once.
     transition: Option<(String, Transition)>,
     /// The state last asked what stands where, laid out at rest, so a pointer's every move
@@ -325,6 +328,7 @@ impl Session {
             data: DataFiles::new(),
             engine: None,
             timed: scaena_engine::Timed::default(),
+            timeline: None,
             transition: None,
             rest: None,
             targets: Vec::new(),
@@ -500,6 +504,7 @@ impl Session {
     /// Let go of what the canvas laid out: the format it shows changed, or the deck did. What
     /// each format beside it laid out stands (PLAN 2.62).
     fn forget_shown(&mut self) {
+        self.timeline = None;
         self.transition = None;
         self.rest = None;
         self.targets.clear();
@@ -580,10 +585,19 @@ impl Session {
     /// The deck's states end to end, ms (SPEC §2.4): each state's start, its span (its
     /// transition and motions), and its hold. Builds the engine, as a frame does.
     pub fn timeline(&mut self) -> Result<Timeline, Error> {
+        Ok(self.kept_timeline()?.clone())
+    }
+
+    /// The timeline, worked out once for what is laid out: building the engine lets go of
+    /// what was, so it is worked out again for the engine built.
+    fn kept_timeline(&mut self) -> Result<&Timeline, Error> {
         self.build()?;
-        let (deck, theme) = project(&self.deck, &self.theme, self.format.as_deref())?;
-        let engine = self.engine.as_mut().expect("built above");
-        Ok(engine.timeline(deck.as_ref(), theme.as_ref(), &self.data)?)
+        if self.timeline.is_none() {
+            let (deck, theme) = project(&self.deck, &self.theme, self.format.as_deref())?;
+            let engine = self.engine.as_mut().expect("built above");
+            self.timeline = Some(engine.timeline(deck.as_ref(), theme.as_ref(), &self.data)?);
+        }
+        Ok(self.timeline.as_ref().expect("worked out above"))
     }
 
     /// The deck's states end to end, as a client lists them: `[{ "state", "slide", "said",
@@ -610,8 +624,7 @@ impl Session {
     /// The span of `state`, ms: its transition and every motion of its cue. Past it, the
     /// state is at rest.
     pub fn duration(&mut self, state: &str) -> Result<f64, Error> {
-        let timeline = self.timeline()?;
-        Ok(timeline.slot(state).ok_or_else(|| EngineError::UnknownState(state.to_string()))?.span)
+        Ok(self.kept_timeline()?.slot(state).ok_or_else(|| EngineError::UnknownState(state.to_string()))?.span)
     }
 
     /// The display list for `state`, `t_ms` into its cue (`f64::INFINITY`: at rest). At
@@ -620,8 +633,7 @@ impl Session {
     /// it, laid out on the first such frame and kept: the frames of one cue lay out once
     /// (SPEC §5).
     pub fn frame(&mut self, state: &str, t_ms: f64) -> Result<DisplayList, Error> {
-        let timeline = self.timeline()?;
-        let slot = timeline.slot(state).ok_or_else(|| EngineError::UnknownState(state.to_string()))?;
+        let slot = self.kept_timeline()?.slot(state).ok_or_else(|| EngineError::UnknownState(state.to_string()))?;
         let (start, span) = (slot.start, slot.span);
         // The engine is built by now: the timeline took it.
         let format = self.format.as_deref();
@@ -2405,6 +2417,35 @@ mod tests {
         assert_eq!(s.sizes(), Sizes { own: Some("16:9".into()), anew: vec!["9:16".into()] });
         // The torture deck lists only another shape, which it lays out anew.
         assert_eq!(torture().sizes(), Sizes { own: Some("16:9".into()), anew: vec!["9:16".into()] });
+    }
+
+    /// A frame reads its state's slot from the timeline the session keeps (PLAN 2.146), and an
+    /// edit, another format, or a font handed over with other bytes lets it go: the timeline
+    /// after each is the one a session opened on it works out.
+    #[test]
+    fn the_timeline_kept_follows_the_deck() {
+        let mut s = torture();
+        let before = s.timeline().unwrap();
+        let last = before.slots.last().unwrap().state.clone();
+        let mut deck = s.deck.clone();
+        deck.states[0].hold = Some(deck.states[0].hold.unwrap_or(0.0) + 1234.0);
+        s.set_deck(deck.clone());
+        let after = s.timeline().unwrap();
+        assert_eq!(after.slot(&last).unwrap().start, before.slot(&last).unwrap().start + 1234.0);
+        // A frame at rest in the first state's longer hold is its at rest, not the next state's cue.
+        let first = &after.slots[0];
+        let held = s.frame(&first.state.clone(), first.span + first.hold - 1.0).unwrap();
+        assert_eq!(held.digest().unwrap(), s.frame(&first.state.clone(), f64::INFINITY).unwrap().digest().unwrap());
+        s.set_format(Some("9:16")).unwrap();
+        let mut fresh = torture();
+        fresh.set_deck(deck);
+        fresh.set_format(Some("9:16")).unwrap();
+        assert_eq!(s.timeline().unwrap(), fresh.timeline().unwrap());
+        let font = "fonts/JetBrainsMono-VF.ttf";
+        let bytes = std::fs::read(format!("{BUNDLE}/{font}")).unwrap();
+        s.add_file(font, bytes[..bytes.len() / 2].to_vec());
+        s.add_file(font, bytes);
+        assert_eq!(s.timeline().unwrap(), fresh.timeline().unwrap());
     }
 
     /// Set `s` up for the golden frame `name`, and say which state it is and when: `state`
