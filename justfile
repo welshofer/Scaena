@@ -232,6 +232,7 @@ web-smoke: site
     node web/adjust.mjs
     node web/draw.mjs
     node web/findings.mjs
+    node web/haiku.mjs
     node web/layers.mjs
     node web/lock.mjs
     node web/rotate.mjs

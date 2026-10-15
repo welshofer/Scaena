@@ -2999,6 +2999,21 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     return { at: landing(), width: size[0] / 3, height: size[0] / 3 };
   }
 
+  /** Where a haiku goes on the slide shown (PLAN O.4f): over the verse text selected, a text in
+   * the theme's verse role or set as written; in the slide's empty verse place; else where the
+   * pointer last pressed. */
+  async function haikuTarget(): Promise<{ node?: string; waiting: boolean; at: [number, number] } | undefined> {
+    const shown = editor.shown();
+    if (!shown) return undefined;
+    const picked = selected !== undefined && !also.length ? box(selected) : undefined;
+    const one = picked?.locked ? undefined : picked;
+    const choices = one && (await stage.choices(shown.state, one.node).catch(() => undefined));
+    const valued = (prop: string) => choices?.fields.find((f) => f.prop === prop)?.value;
+    const verse = choices?.type === "text" && (valued("role") === "verse" || valued("wrap") === "none");
+    const waiting = (await stage.waits(shown.state, editor.format()).catch((): Waiting[] => [])).some((w) => w.typed && w.role === "verse");
+    return { node: verse ? one?.node : undefined, waiting, at: landing() };
+  }
+
   /** A picture made (PLAN 2.107) put where `target` says: it joins the bundle, named by its
    * SHA-256 as one dropped is. The image it was made for shows it, saying what it shows, one
    * `choose` of `src` and one of `alt`, each written where it lives, and the whole of it, framed
@@ -4173,6 +4188,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     waiting: () => waits,
     /** Where a picture made for the slide shown goes, and the place it is framed for (PLAN 2.107). */
     pictureTarget,
+    /** Where a haiku goes (PLAN O.4f): the verse selected, the slide's verse place, or the landing. */
+    haikuTarget,
     /** A picture made put where it was asked for: one patch, one step to undo (PLAN 2.107). */
     putPicture,
     /** A slide made here: its layout's empty slots are outlined once it shows. */

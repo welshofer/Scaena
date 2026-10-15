@@ -345,6 +345,8 @@ jobs:
       - run: node web/draw.mjs
       # Lint's findings on the canvas, the strip's counts, and a fix taken from a mark (PLAN 2.49).
       - run: node web/findings.mjs
+      # Insert › Haiku…: asked once more on a near miss, placed in one patch, the model named in the notes (PLAN O.4f).
+      - run: node web/haiku.mjs
       # The layers: listed topmost first, a node selected, shown or hidden, and renamed (PLAN 2.50).
       - run: node web/layers.mjs
       # A node locked: the canvas passes over it, its keys leave it, and a right click or ⇧⌘L

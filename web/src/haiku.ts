@@ -36,7 +36,7 @@ export interface HaikuHost {
 
 /** The keys the dialog answers, as the keys sheet lists them (PLAN 2.65). */
 export const haikuKeys = (): Key[] => [
-  { keys: `${MOD}Return`, label: "Use the haiku written, in its dialog", group: "Draw and insert" },
+  { keys: `${MOD}Enter in a haiku`, label: "Use the haiku written", group: "Draw and insert" },
 ];
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));

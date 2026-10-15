@@ -76,6 +76,7 @@ try {
   check(listed("Edit", "Duplicate", "Ctrl+D") && listed("Arrange", "Ungroup", "Ctrl+Shift+G"), "as this machine shows them: Ctrl+D duplicates, Ctrl+Shift+G ungroups (whether or not it applies now)");
   check(listed("The editor", "Show the keys", "?") && listed("The editor", "Commands by name, and words for the assistant", "Ctrl+K"), "and ? and Ctrl+K");
   const rowsOf = (group) => sheet.find((s) => s.group === group)?.rows ?? [];
+  check(rowsOf("Draw and insert").some((r) => r.label === "Use the haiku written" && r.keys === "Ctrl+Enter in a haiku"), "the haiku dialog's Use It (PLAN O.4f)");
   check(rowsOf("Move and resize").some((r) => r.keys === "← ↑ → ↓") && rowsOf("Move and resize").some((r) => r.keys === "Shift+← ↑ → ↓"), "the canvas's arrow keys, and Shift with them");
   check(rowsOf("Rehearse").some((r) => r.keys === "→ ↓ PageDown Space Enter") && rowsOf("Rehearse").some((r) => r.keys === "← ↑ PageUp Backspace"), "a rehearsal's keys, from the keys it answers");
   check(["F8", "Shift+F8", "Ctrl+Shift+M"].every((k) => rowsOf("The source").some((r) => r.keys === k)), `the source's finding keys, from its keymap: ${rowsOf("The source").map((r) => r.keys).join(", ")}`);
