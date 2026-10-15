@@ -136,7 +136,7 @@ fn no_key(provider: Provider) -> anyhow::Error {
 
 /// The client every call goes through: an error status read as an answer, the environment's
 /// proxy, the system's certificates, and room for an answer that takes minutes to write.
-fn agent() -> ureq::Agent {
+pub(crate) fn agent() -> ureq::Agent {
     let tls = ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::PlatformVerifier).build();
     ureq::Agent::config_builder()
         .http_status_as_error(false)

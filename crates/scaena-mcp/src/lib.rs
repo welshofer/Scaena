@@ -39,6 +39,19 @@ use tokio::sync::watch;
 use scaena_resources as resources;
 pub use scaena_resources::{LIMIT, resource};
 
+pub mod maps;
+
+/// What makes the requests a tool sends outside this machine (ADR-0030): the client's, which the
+/// CLI hands the server, so the server links no HTTP client. None, and no tool reaches out.
+#[derive(Clone, Default)]
+pub struct Reach(Option<Arc<dyn scaena_objects::Transport + Send + Sync>>);
+
+impl std::fmt::Debug for Reach {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.0.is_some() { "Reach(a transport)" } else { "Reach(none)" })
+    }
+}
+
 /// The server: its tools, and the resources it serves.
 #[derive(Debug, Clone)]
 pub struct Scaena {
@@ -48,6 +61,8 @@ pub struct Scaena {
     exports: Arc<Mutex<HashMap<PathBuf, Export>>>,
     /// How long `deck_export` waits for an export before it answers that it is running.
     wait: Duration,
+    /// What makes `map_fetch`'s requests.
+    reach: Reach,
 }
 
 impl Default for Scaena {
@@ -57,7 +72,7 @@ impl Default for Scaena {
             route.attr.input_schema = standard(&route.attr.input_schema);
             route.attr.output_schema = route.attr.output_schema.as_deref().map(standard);
         }
-        Scaena { tool_router, exports: Arc::default(), wait: EXPORT_WAIT }
+        Scaena { tool_router, exports: Arc::default(), wait: EXPORT_WAIT, reach: Reach::default() }
     }
 }
 
@@ -65,6 +80,12 @@ impl Scaena {
     /// The same server, its exports answering after `wait` at most.
     pub fn with_export_wait(mut self, wait: Duration) -> Self {
         self.wait = wait;
+        self
+    }
+
+    /// The same server, its requests outside this machine made by `transport` (ADR-0030).
+    pub fn with_transport(mut self, transport: Arc<dyn scaena_objects::Transport + Send + Sync>) -> Self {
+        self.reach = Reach(Some(transport));
         self
     }
 }
@@ -171,9 +192,18 @@ fn author(context: &RequestContext<RoleServer>) -> String {
 
 /// Serve on stdin and stdout until the client goes.
 pub fn stdio() -> std::io::Result<()> {
+    serve_stdio(Scaena::default())
+}
+
+/// [`stdio`], `map_fetch`'s requests made by `transport`: the CLI's (ADR-0030).
+pub fn stdio_with(transport: Arc<dyn scaena_objects::Transport + Send + Sync>) -> std::io::Result<()> {
+    serve_stdio(Scaena::default().with_transport(transport))
+}
+
+fn serve_stdio(scaena: Scaena) -> std::io::Result<()> {
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
     runtime.block_on(async {
-        let server = Scaena::default().serve(rmcp::transport::stdio()).await.map_err(std::io::Error::other)?;
+        let server = scaena.serve(rmcp::transport::stdio()).await.map_err(std::io::Error::other)?;
         server.waiting().await.map_err(std::io::Error::other)?;
         Ok(())
     })
@@ -840,6 +870,29 @@ impl Scaena {
     ) -> Result<Json<scaena_ops::create::Attached>, String> {
         let author = author(&context);
         blocking(move || scaena_ops::create::attach(&open_by(&a.bundle, author)?, &a.data)).await.map(Json)
+    }
+
+    #[tool(description = "Put a map on a slide (ADR-0030): a picture of `place` (an address, a place, or `lat, lon`) \
+        fetched once from Geoapify with the user's own key ($GEOAPIFY_API_KEY), kept in the bundle, and drawn with a \
+        pin, its label, and the credit Geoapify's terms ask. It sends the place's words to Geoapify's geocoder \
+        (api.geoapify.com) and the map's middle, size, and zoom to its static map (maps.geoapify.com), under \
+        Geoapify's terms; coordinates skip the geocoder. It goes in the image `into`, else the slide's first empty \
+        place for a picture, else a new image at `at`, in one patch by its author, refused as a patch is. A name that \
+        matches several places answers them in `places`: ask again with `pick`, from 1. `refresh`, an image's id, \
+        fetches its map again, the same place and view or at `zoom` or `center`, one patch, both pictures kept.")]
+    async fn map_fetch(
+        &self,
+        Parameters(a): Parameters<maps::MapFetch>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<Json<maps::MapFetched>, String> {
+        let author = author(&context);
+        let reach = self.reach.0.clone();
+        blocking(move || {
+            let reach = reach.ok_or_else(|| OpsError::new("this server reaches no service outside this machine"))?;
+            maps::fetch(&open_by(&a.bundle, author)?, &a, reach.as_ref())
+        })
+        .await
+        .map(Json)
     }
 
     #[tool(description = "A data source's rows (SPEC §3.10). With no `edits`, the source as a sheet: its columns, \

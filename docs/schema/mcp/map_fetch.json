@@ -1,0 +1,279 @@
+{
+  "name": "map_fetch",
+  "description": "Put a map on a slide (ADR-0030): a picture of `place` (an address, a place, or `lat, lon`) fetched once from Geoapify with the user's own key ($GEOAPIFY_API_KEY), kept in the bundle, and drawn with a pin, its label, and the credit Geoapify's terms ask. It sends the place's words to Geoapify's geocoder (api.geoapify.com) and the map's middle, size, and zoom to its static map (maps.geoapify.com), under Geoapify's terms; coordinates skip the geocoder. It goes in the image `into`, else the slide's first empty place for a picture, else a new image at `at`, in one patch by its author, refused as a patch is. A name that matches several places answers them in `places`: ask again with `pick`, from 1. `refresh`, an image's id, fetches its map again, the same place and view or at `zoom` or `center`, one patch, both pictures kept.",
+  "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "required": ["bundle"],
+    "additionalProperties": false,
+    "type": "object",
+    "properties": {
+      "bundle": {
+        "description": "The bundle's path: a directory, a `.scaena` zip, or a `deck.json`.",
+        "type": "string"
+      },
+      "place": {
+        "description": "Where: an address, a place, or `lat, lon`. Not with `refresh`.",
+        "type": ["string", "null"],
+        "default": null
+      },
+      "refresh": {
+        "description": "An image fetched before, fetched again: the same place and view, or `zoom` or `center`.",
+        "type": ["string", "null"],
+        "default": null
+      },
+      "state": {
+        "description": "The state it goes in: the first, where none is named.",
+        "type": ["string", "null"],
+        "default": null
+      },
+      "into": {
+        "description": "An image it goes in, in place of what it shows.",
+        "type": ["string", "null"],
+        "default": null
+      },
+      "at": {
+        "description": "The box a new image takes, `[x, y, width, height]` in canvas units, where the slide has no\nempty place for a picture.",
+        "type": ["array", "null"],
+        "items": { "type": "number" },
+        "minItems": 4,
+        "maxItems": 4,
+        "default": null
+      },
+      "show": {
+        "description": "What the box spans across: `block` (about 500 m), `neighborhood` (2 km, the default),\n`city` (20 km), or `region` (200 km).",
+        "type": ["string", "null"],
+        "default": null
+      },
+      "zoom": {
+        "description": "The service's zoom, 1 to 20, in place of `show`.",
+        "type": ["number", "null"],
+        "default": null
+      },
+      "label": {
+        "description": "The pin's label: the place's name where none is given, none where it is empty.",
+        "type": ["string", "null"],
+        "default": null
+      },
+      "style": {
+        "description": "`light` or `dark`, as the theme's surface asks where none is given, or `bright`.",
+        "type": ["string", "null"],
+        "default": null
+      },
+      "pick": {
+        "description": "Which of several places the name matches, from 1, as `places` lists them.",
+        "type": ["integer", "null"],
+        "minimum": 0,
+        "default": null
+      },
+      "places": {
+        "description": "Only list the places the name matches, and write nothing.",
+        "type": "boolean",
+        "default": false
+      },
+      "center": {
+        "description": "A refresh's middle, `[lat, lon]`, where it is not where the map was centered.",
+        "type": ["array", "null"],
+        "items": { "type": "number" },
+        "minItems": 2,
+        "maxItems": 2,
+        "default": null
+      }
+    }
+  },
+  "outputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$defs": {
+      "Target": {
+        "description": "Where a map goes, and what it is fetched for.",
+        "type": "object",
+        "properties": {
+          "state": { "type": "string" },
+          "node": { "description": "The image it goes in.", "type": ["string", "null"] },
+          "slot": { "description": "The empty place for a picture it fills.", "type": ["string", "null"] },
+          "rect": {
+            "description": "The box it is drawn in, canvas units: the picture is asked for at its size.",
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "style": {
+            "description": "The picture's style, as the theme's surface asks: `light` or `dark`.",
+            "type": "string"
+          },
+          "lang": {
+            "description": "The deck's language, which the geocoder names places in.",
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["state", "rect", "style"]
+      },
+      "Placed": {
+        "description": "A map put on a slide, or refused.",
+        "type": "object",
+        "properties": {
+          "node": { "description": "The image that shows it.", "type": "string" },
+          "src": { "description": "Its picture's path in the bundle.", "type": "string" },
+          "place": { "description": "The place it marks.", "type": "string" },
+          "said": { "description": "What it did, as an editor says it.", "type": "string" },
+          "applied": {
+            "description": "Whether the deck was written: not under a dry run, nor when the patch was refused.",
+            "type": "boolean"
+          },
+          "patch": {
+            "description": "The patch as RFC 6902, in order.",
+            "type": "array",
+            "items": { "$ref": "#/$defs/JsonOp" }
+          },
+          "added": {
+            "description": "What `validate` and `lint` find after the patch that they did not before.",
+            "type": "array",
+            "items": { "$ref": "#/$defs/Finding" }
+          },
+          "removed": {
+            "description": "What they found before that they do not after.",
+            "type": "array",
+            "items": { "$ref": "#/$defs/Finding" }
+          },
+          "errors": { "description": "The findings that are errors, after.", "type": "integer", "minimum": 0 },
+          "states": {
+            "description": "The states it changes, by id: each whose nodes, resolved with the deck's overrides,\nor whose layout, transition, choreography, hold, notes, or slide number and footer are\nnot as they were, and each it adds. None when it is refused.",
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "required": ["node", "src", "place", "said", "applied", "patch", "added", "removed", "errors", "states"]
+      },
+      "JsonOp": {
+        "description": "RFC 6902's ops.",
+        "oneOf": [
+          {
+            "description": "Put `value` at `path`: a member of an object (one already there is replaced, in its\nplace), or an item of an array, at an index or at its end (`-`).",
+            "type": "object",
+            "properties": {
+              "path": { "$ref": "#/$defs/Pointer" },
+              "value": true,
+              "op": { "type": "string", "const": "add" }
+            },
+            "required": ["op", "path", "value"]
+          },
+          {
+            "description": "Take away what is at `path`.",
+            "type": "object",
+            "properties": { "path": { "$ref": "#/$defs/Pointer" }, "op": { "type": "string", "const": "remove" } },
+            "required": ["op", "path"]
+          },
+          {
+            "description": "Replace what is at `path`, which must be there.",
+            "type": "object",
+            "properties": {
+              "path": { "$ref": "#/$defs/Pointer" },
+              "value": true,
+              "op": { "type": "string", "const": "replace" }
+            },
+            "required": ["op", "path", "value"]
+          },
+          {
+            "description": "`remove` at `from`, then `add` at `path`. A member moved within its object keeps its\nplace: a rename.",
+            "type": "object",
+            "properties": {
+              "from": { "$ref": "#/$defs/Pointer" },
+              "path": { "$ref": "#/$defs/Pointer" },
+              "op": { "type": "string", "const": "move" }
+            },
+            "required": ["op", "from", "path"]
+          },
+          {
+            "description": "`add` at `path` what is at `from`.",
+            "type": "object",
+            "properties": {
+              "from": { "$ref": "#/$defs/Pointer" },
+              "path": { "$ref": "#/$defs/Pointer" },
+              "op": { "type": "string", "const": "copy" }
+            },
+            "required": ["op", "from", "path"]
+          },
+          {
+            "description": "Fail the patch unless `path` holds `value` (numbers equal by value: 1 is 1.0).",
+            "type": "object",
+            "properties": {
+              "path": { "$ref": "#/$defs/Pointer" },
+              "value": true,
+              "op": { "type": "string", "const": "test" }
+            },
+            "required": ["op", "path", "value"]
+          }
+        ]
+      },
+      "Pointer": {
+        "description": "A JSON Pointer (RFC 6901): empty, the whole document, or `/`-separated tokens, `~1` for a\n`/` and `~0` for a `~` inside one.",
+        "type": "string",
+        "pattern": "^(/.*)?$"
+      },
+      "Finding": {
+        "description": "One lint finding, shaped for agents: a code, a JSON pointer, and (when safe) a fix.",
+        "type": "object",
+        "properties": {
+          "code": { "type": "string" },
+          "severity": { "$ref": "#/$defs/Severity" },
+          "message": { "type": "string" },
+          "file": {
+            "description": "The bundle file `path` points into, when it is not `deck.json` (a theme file).",
+            "type": ["string", "null"]
+          },
+          "path": { "description": "JSON pointer into `deck.json`, or into `file`.", "type": ["string", "null"] },
+          "state": { "type": ["string", "null"] },
+          "node": { "type": ["string", "null"] },
+          "format": {
+            "description": "The format the deck was laid out in (`\"9:16\"`), when it is not the deck's own.",
+            "type": ["string", "null"]
+          },
+          "measure": true,
+          "hint": { "type": ["string", "null"] },
+          "fix": {
+            "description": "A JSON Patch (RFC 6902) that resolves the finding. Only safe, non-content fixes.",
+            "type": ["array", "null"],
+            "items": true
+          }
+        },
+        "required": ["code", "severity", "message"]
+      },
+      "Severity": { "type": "string", "enum": ["info", "warning", "error"] },
+      "Found": {
+        "description": "A place a name matches, among several to choose from.",
+        "type": "object",
+        "properties": {
+          "name": { "description": "Its name, as the geocoder gives it.", "type": "string" },
+          "address": {
+            "description": "Where it is, in words: its address, as the geocoder writes it.",
+            "type": "string"
+          },
+          "lat": { "type": "number" },
+          "lon": { "type": "number" },
+          "kind": {
+            "description": "What it is: a city, a street, an amenity, as the geocoder says.",
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["name", "address", "lat", "lon"]
+      }
+    },
+    "required": ["places"],
+    "type": "object",
+    "properties": {
+      "target": {
+        "description": "Where it goes, and the box it was fetched for; none where only places were listed.",
+        "anyOf": [{ "$ref": "#/$defs/Target" }, { "type": "null" }]
+      },
+      "placed": {
+        "description": "The map put there: one patch, or refused, saying why.",
+        "anyOf": [{ "$ref": "#/$defs/Placed" }, { "type": "null" }]
+      },
+      "places": {
+        "description": "The places the name matched, where it matched several and none was picked, or where they\nwere asked for: ask again with `pick`, from 1.",
+        "type": "array",
+        "items": { "$ref": "#/$defs/Found" }
+      }
+    }
+  }
+}
