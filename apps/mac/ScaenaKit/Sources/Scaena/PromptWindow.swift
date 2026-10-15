@@ -475,18 +475,21 @@ struct PromptView: View {
         kept = Set(Provider.allCases.filter { keychain.key(for: $0) != nil })
     }
 
-    /// The models the provider's key can use, the one kept chosen, else the first.
+    /// The models the provider's key can use, the one kept chosen, else the first; where it lists
+    /// none, why, in a person's words (PLAN 3.18), as the assistant's panel says it.
     private func list() async {
         models = []
         listing = nil
         guard let key = keychain.key(for: provider) else { return }
-        do {
-            let request = try provider.modelsRequest(key: key).urlRequest()
-            let (data, status) = try await Assistant.urlSession(request)
-            models = try provider.models(status: status, body: String(decoding: data, as: UTF8.self))
+        let listed = await KeyCheck.models(key, for: provider)
+        // Another provider chosen, or a key kept, since: the listing that follows says.
+        guard !Task.isCancelled else { return }
+        switch listed {
+        case .listed(let names):
+            models = names
             if !models.contains(model.wrappedValue), let first = models.first { model.wrappedValue = first }
-        } catch {
-            listing = "\(provider.name) listed no models: \(error.localizedDescription)"
+        case .unlisted(let why):
+            listing = why
         }
     }
 

@@ -3,8 +3,9 @@ import XCTest
 /// The assistant on the iPad (PLAN 4.9), on B1: its panel opens, and with no key kept it offers to
 /// add one. The keys' sheet checks a key with its provider before it keeps it in the iPad's
 /// Keychain, shows the key kept masked, keeps another in its place, and takes it away when asked
-/// twice, each tap its own button's; with a key kept, the panel offers none to add. The provider
-/// is stood in for (`SCAENA_KEY_CHECK`): a test sends no key anywhere.
+/// twice, each tap its own button's; with a key kept, the panel offers none to add, and the model's
+/// name stands on one line. The provider is stood in for (`SCAENA_KEY_CHECK`), in the key's check
+/// and in the models the panel lists: a test sends no key anywhere.
 final class AssistantTests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -80,6 +81,23 @@ final class AssistantTests: XCTestCase {
         XCTContext.runActivity(named: "With a key kept, the panel offers none to add") { _ in
             app.buttons.matching(NSPredicate(format: "label == 'Done'")).firstMatch.tap()
             XCTAssertTrue(wait(10) { !add.exists }, "the panel still offers a key to add")
+        }
+
+        XCTContext.runActivity(named: "The models are listed in the provider's place, the model's name on one line") { _ in
+            // The test's key is none of Anthropic's: sent there, it would be refused, or, with no
+            // connection, not reach it, and the panel would say so. The stand-in lists the models.
+            let unlisted = app.staticTexts.matching(
+                NSPredicate(
+                    format: "label CONTAINS 'accept your key' OR label CONTAINS 'be reached' OR label CONTAINS 'listed no models'")
+            ).firstMatch
+            XCTAssertFalse(unlisted.waitForExistence(timeout: 5), "the key went to its provider: \(unlisted.label)")
+            let model = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'assistant-model'")).firstMatch
+            XCTAssertTrue(model.waitForExistence(timeout: 10), "the panel offers no model to choose: \(app.debugDescription)")
+            keep(app, as: "models-listed")
+            // A line of the panel's words stands about 20 points tall, two about 41.
+            let name = model.staticTexts.firstMatch
+            let line = name.exists ? name.frame : model.frame
+            XCTAssertLessThan(line.height, 30, "the model's name runs onto a second line: \(line), \(model.debugDescription)")
         }
 
         XCTContext.runActivity(named: "Taken away when asked twice, the Keychain is as it was") { _ in

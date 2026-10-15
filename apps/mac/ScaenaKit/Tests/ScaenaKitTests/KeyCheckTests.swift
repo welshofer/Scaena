@@ -59,3 +59,54 @@ import Testing
     let offline = await KeyCheck.check("sk-ant-test", for: .anthropic) { _ in throw URLError(.notConnectedToInternet) }
     if case .unreachable = offline {} else { Issue.record("no connection is not a key that works or one refused: \(offline)") }
 }
+
+/// The models a kept key can use, as the assistant and New from a Prompt list them; where none are
+/// listed, why, as the window says it (PLAN 3.18): the key not accepted, the provider busy or in
+/// trouble, or no way to it, with no status and none of the provider's own words.
+@Test func whyNoModelsAreListedIsSaidInAPersonsWords() async {
+    let refusal = #"{"type": "error", "error": {"type": "authentication_error", "message": "invalid x-api-key"}}"#
+    let notAccepted = KeyCheck.Listing.unlisted("Anthropic didn't accept your key. Check it, or replace it.")
+    let answers: [(Int, String, KeyCheck.Listing)] = [
+        (200, #"{"data": [{"id": "model-a"}, {"id": "model-b"}]}"#, .listed(["model-a", "model-b"])),
+        (401, refusal, notAccepted),
+        (403, "", notAccepted),
+        (429, "", .unlisted("Anthropic is busy. Try again in a moment.")),
+        (529, #"{"error": {"message": "Overloaded"}}"#, .unlisted("Anthropic couldn't answer just now. Try again in a moment.")),
+        (200, "<html>Sign in to the network</html>", .unlisted("Anthropic's models couldn't be listed. Try again in a moment.")),
+    ]
+    for (status, body, said) in answers {
+        let listed = await KeyCheck.models(" sk-ant-test \n", for: .anthropic, environment: [:]) { request in
+            #expect(request.url?.path == "/v1/models")
+            #expect(request.value(forHTTPHeaderField: "x-api-key") == "sk-ant-test")
+            return (Data(body.utf8), status)
+        }
+        #expect(listed == said, "answered \(status)")
+        if case .unlisted(let why) = listed {
+            #expect(!why.contains(where: \.isNumber) && !why.contains("invalid"), "\(why)")
+        }
+    }
+    let gemini = #"{"error": {"code": 400, "message": "API key not valid. Please pass a valid API key."}}"#
+    let refused = await KeyCheck.models("AIza-test", for: .gemini, environment: [:]) { _ in (Data(gemini.utf8), 400) }
+    #expect(refused == .unlisted("Gemini didn't accept your key. Check it, or replace it."))
+    let offline = await KeyCheck.models("sk-ant-test", for: .anthropic, environment: [:]) { _ in
+        throw URLError(.notConnectedToInternet)
+    }
+    #expect(offline == .unlisted("Anthropic can't be reached. Check your internet connection."))
+}
+
+/// For the apps' UI tests, `SCAENA_KEY_CHECK` answers the listing in the provider's place, as it
+/// answers the check: the models listed, the key refused, or no connection, and the key sent
+/// nowhere.
+@Test func theStandInListsTheModelsAndSendsTheKeyNowhere() async {
+    let unsent: Assistant.Send = { request in
+        Issue.record("the key was sent to \(request.url?.absoluteString ?? "a provider")")
+        return (Data(), 500)
+    }
+    let standIn = { (answer: String) in ["SCAENA_KEY_CHECK": answer] }
+    let accepted = await KeyCheck.models("sk-ant-test", for: .anthropic, environment: standIn("accept"), send: unsent)
+    #expect(accepted == .listed([]))
+    let refused = await KeyCheck.models("sk-ant-test", for: .anthropic, environment: standIn("refuse"), send: unsent)
+    #expect(refused == .unlisted("Anthropic didn't accept your key. Check it, or replace it."))
+    let offline = await KeyCheck.models("sk-ant-test", for: .anthropic, environment: standIn("offline"), send: unsent)
+    #expect(offline == .unlisted("Anthropic can't be reached. Check your internet connection."))
+}

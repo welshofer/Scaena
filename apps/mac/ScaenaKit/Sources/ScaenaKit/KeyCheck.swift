@@ -2,8 +2,9 @@ import Foundation
 
 /// What a key the user gives is, before it is kept and each time the settings show it: its form,
 /// checked as it is typed, then its provider's own answer to the request that lists the models it
-/// can use, the cheapest call each provider answers, and refuses a bad key to. Nothing here keeps a
-/// key, and a key goes nowhere but to its provider (ADR-0006, ADR-0022).
+/// can use, the cheapest call each provider answers, and refuses a bad key to. The same request
+/// lists a kept key's models for the assistant and New from a Prompt. Nothing here keeps a key,
+/// and a key goes nowhere but to its provider (ADR-0006, ADR-0022).
 public enum KeyCheck {
     /// What a provider said of a key.
     public enum Verdict: Equatable, Sendable {
@@ -92,6 +93,64 @@ public enum KeyCheck {
         } catch {
             return .unreachable("\(provider.name) could not be asked: \(error)")
         }
+    }
+
+    /// What came of asking a provider for the models a key can use.
+    public enum Listing: Equatable, Sendable {
+        /// The models, as the provider listed them.
+        case listed([String])
+        /// None, and why, in a sentence in a person's words.
+        case unlisted(String)
+    }
+
+    /// The models `key` can use, as `provider` lists them through `send`; where it lists none, why,
+    /// as the window says it (PLAN 3.18): the key not accepted, the provider busy or in trouble, or
+    /// no way to it, with no status and none of the provider's own words.
+    ///
+    /// For the apps' UI tests, `SCAENA_KEY_CHECK` in `environment` answers in the provider's place,
+    /// as it answers `check`: `accept` lists no models, `refuse` refuses the key, and `offline`
+    /// finds no connection; nothing is sent.
+    public static func models(
+        _ key: String, for provider: Provider, environment: [String: String] = ProcessInfo.processInfo.environment,
+        send: Assistant.Send = Assistant.urlSession
+    ) async -> Listing {
+        switch environment["SCAENA_KEY_CHECK"] {
+        case "accept": return .listed([])
+        case "refuse": return .unlisted(whyUnlisted(provider, status: 401, body: ""))
+        case "offline": return .unlisted(unreached(provider))
+        default: break
+        }
+        do {
+            var request = try provider.modelsRequest(key: key.trimmingCharacters(in: .whitespacesAndNewlines))
+                .urlRequest()
+            request.timeoutInterval = 20
+            let (data, status) = try await send(request)
+            let body = String(decoding: data, as: UTF8.self)
+            if (200..<300).contains(status), let names = try? provider.models(status: status, body: body) {
+                return .listed(names)
+            }
+            return .unlisted(whyUnlisted(provider, status: status, body: body))
+        } catch is URLError {
+            return .unlisted(unreached(provider))
+        } catch {
+            return .unlisted("\(provider.name)'s models couldn't be listed. Try again in a moment.")
+        }
+    }
+
+    /// Why `provider`'s answer of `status` lists no models, in a person's words, by what the answer
+    /// says of the key: not accepted, the provider busy or in trouble, or an answer that lists none.
+    static func whyUnlisted(_ provider: Provider, status: Int, body: String) -> String {
+        switch verdict(provider, status: status, body: body) {
+        case .refused: "\(provider.name) didn't accept your key. Check it, or replace it."
+        case .unreachable: "\(provider.name) couldn't answer just now. Try again in a moment."
+        case .accepted where status == 429: "\(provider.name) is busy. Try again in a moment."
+        case .accepted: "\(provider.name)'s models couldn't be listed. Try again in a moment."
+        }
+    }
+
+    /// That `provider` could not be reached, in a person's words.
+    static func unreached(_ provider: Provider) -> String {
+        "\(provider.name) can't be reached. Check your internet connection."
     }
 
     /// The message a provider's error answer carries, `{"error": {"message": …}}` in each of
