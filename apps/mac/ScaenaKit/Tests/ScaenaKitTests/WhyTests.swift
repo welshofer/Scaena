@@ -48,7 +48,9 @@ import Testing
     for status in [0, 200, 400, 401, 402, 403, 404, 408, 413, 429, 500, 503, 529] {
         for body in ["", refusal, credit, quota, unsafe, gemini, disabled] {
             let said = Why.answered(.openai, status: status, body: body)
-            #expect(!said.contains(where: \.isNumber), "\(status): \(said)")
+            // Worked out before `#expect`, which expands a call given a key path as one that throws.
+            let digits = said.contains(where: \.isNumber)
+            #expect(!digits, "\(status): \(said)")
             #expect(!said.contains("invalid") && !said.contains("x-api-key") && !said.contains("rejected"), "\(status): \(said)")
         }
     }

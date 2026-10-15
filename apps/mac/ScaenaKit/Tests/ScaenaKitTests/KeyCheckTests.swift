@@ -127,7 +127,9 @@ import Testing
         }
         #expect(listed == said, "answered \(status)")
         if case .unlisted(let why) = listed {
-            #expect(!why.contains(where: \.isNumber) && !why.contains("invalid"), "\(why)")
+            // Worked out before `#expect`, which expands a call given a key path as one that throws.
+            let digits = why.contains(where: \.isNumber)
+            #expect(!digits && !why.contains("invalid"), "\(why)")
         }
     }
     let gemini = #"{"error": {"code": 400, "message": "API key not valid. Please pass a valid API key."}}"#
