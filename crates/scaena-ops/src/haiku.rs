@@ -59,9 +59,8 @@ pub enum Answered {
         #[serde(skip_serializing_if = "Option::is_none")]
         note: Option<String>,
     },
-    Again {
-        prompt: String,
-    },
+    /// The second ask, and the poem the first came to, handed back with the second answer.
+    Again { prompt: String, poem: Poem },
 }
 
 /// The rounds, at most two calls: the first answer is offered when it is kept or uncounted; else
@@ -72,7 +71,7 @@ pub fn answered(about: &About, lang: &str, first: Poem, second: Option<Poem>) ->
         if matches!(first.checked.kept, Kept::Kept | Kept::Uncounted) {
             return Answered::Offer { poem: first, note: None };
         }
-        return Answered::Again { prompt: haiku::again(about, lang, &first.checked) };
+        return Answered::Again { prompt: haiku::again(about, lang, &first.checked), poem: first };
     };
     if second.checked.kept == Kept::Kept {
         return Answered::Offer { poem: second, note: None };
@@ -240,7 +239,7 @@ mod tests {
         assert!(matches!(answered(&about, "en", poem(kept), None), Answered::Offer { note: None, .. }));
         assert!(matches!(answered(&about, "en", poem("in 1999\na\nb"), None), Answered::Offer { note: None, .. }));
         // Off: asked once more, with each line's count.
-        let Answered::Again { prompt } = answered(&about, "en", poem(near), None) else { panic!("asked again") };
+        let Answered::Again { prompt, .. } = answered(&about, "en", poem(near), None) else { panic!("asked again") };
         assert!(prompt.contains("Its lines count 5, 8, and 5 syllables"), "{prompt}");
         // The second kept: offered.
         let Answered::Offer { poem: p, note } = answered(&about, "en", poem(near), Some(poem(kept))) else { panic!() };
