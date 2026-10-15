@@ -3191,6 +3191,7 @@ dependencies = [
  "scaena-export",
  "scaena-mcp",
  "scaena-narrato",
+ "scaena-objects",
  "scaena-ops",
  "scaena-paint",
  "scaena-serve",
@@ -3311,6 +3312,7 @@ dependencies = [
  "rmcp",
  "scaena-core",
  "scaena-engine",
+ "scaena-objects",
  "scaena-ops",
  "scaena-resources",
  "scaena-store",
@@ -3326,6 +3328,18 @@ version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
  "regex-lite",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "scaena-objects"
+version = "0.1.0"
+dependencies = [
+ "libm",
+ "scaena-core",
+ "schemars",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -3349,6 +3363,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.21",
 ]
 

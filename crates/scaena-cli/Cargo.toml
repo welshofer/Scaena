@@ -30,6 +30,7 @@ scaena-mcp.workspace = true
 scaena-serve.workspace = true
 scaena-narrato.workspace = true
 scaena-sources.workspace = true
+scaena-objects.workspace = true
 ureq.workspace = true
 clap.workspace = true
 miette.workspace = true
