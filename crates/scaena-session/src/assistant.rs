@@ -43,6 +43,38 @@ pub const TOOLS: &[&str] = &[
     "map_fetch",
 ];
 
+/// `map_fetch`'s arguments, as the MCP tool takes them (`scaena_mcp::maps::MapFetch`), less the
+/// bundle: what the session reads before it says the client fetches the map.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+#[allow(dead_code)]
+struct MapFetch {
+    #[serde(default)]
+    place: Option<String>,
+    #[serde(default)]
+    refresh: Option<String>,
+    #[serde(default)]
+    state: Option<String>,
+    #[serde(default)]
+    into: Option<String>,
+    #[serde(default)]
+    at: Option<[f32; 4]>,
+    #[serde(default)]
+    show: Option<String>,
+    #[serde(default)]
+    zoom: Option<f64>,
+    #[serde(default)]
+    label: Option<String>,
+    #[serde(default)]
+    style: Option<String>,
+    #[serde(default)]
+    pick: Option<usize>,
+    #[serde(default)]
+    places: bool,
+    #[serde(default)]
+    center: Option<[f64; 2]>,
+}
+
 /// Who calls a tool, and when, in seconds since 1970: an edit it makes is theirs in the
 /// bundle's history (SPEC §8.2). The page's assistant is `agent:` and its model's name.
 #[derive(Debug, Clone, Copy)]
@@ -442,7 +474,12 @@ impl Session {
             #[cfg(not(feature = "shipped"))]
             "icon_find" => Err(ops("icon_find: the icons are the page's, which finds them")),
             // A map's requests are the client's, which runs the call as Insert › Map… does.
-            "map_fetch" => Err(ops("map_fetch: the client fetches the map, as Insert › Map… does")),
+            "map_fetch" => {
+                // Read as the MCP tool reads it, so a call is refused for what it is, not for
+                // what it holds.
+                let _: MapFetch = args(name, a)?;
+                Err(ops("map_fetch: the client fetches the map, as Insert › Map… does"))
+            }
             "theme_edit" => {
                 let a: ThemeEdit = args(name, a)?;
                 let edit = scaena_ops::theme::ThemeEdit { ops: a.ops, photo: a.photo };
