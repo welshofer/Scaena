@@ -96,7 +96,10 @@ try {
     await page.mouse.dblclick(x, y);
     for (const key of keys) await page.keyboard.up(key);
     await page.waitForFunction((n) => window.scaena.canvas.typing() === n, node, { timeout: 30000 }).catch(() => {});
-    await page.waitForFunction(() => document.querySelector("#status").textContent.startsWith("Typing in"), null, { timeout: 30000 }).catch(() => {});
+    // Typing says it began at once, then where what is typed shows once the worker says.
+    await page
+      .waitForFunction(() => /^Typing in .* · (what is typed shows|kept to this slide)/.test(document.querySelector("#status").textContent), null, { timeout: 30000 })
+      .catch(() => {});
     return page.evaluate(() => window.scaena.canvas.typing());
   };
 
