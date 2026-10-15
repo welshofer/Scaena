@@ -1,0 +1,9 @@
+plain       «From 3f2a9c1e5d7b8a6f4c2e0d1b3a5c7e9f1d3b5a7c Mon Sep 17 00:00:00 2001\nFrom: Ada Lovelace <ada@example.com>\nDate: Wed, 14 Oct 2026 09:12:00 +0000\nSubject: [PATCH] Keep the cache under the store\n\n- moves cache.rs under store/\n+ keeps its tests beside it\n»
+meta        «---\n»
+plain       « src/{ => store}/cache.rs | 2 +-\n assets/logo.png          | Bin 2048 -> 0 bytes\n 2 files changed, 1 insertion(+), 1 deletion(-)\n\n»
+meta        «diff --git a/src/cache.rs b/src/store/cache.rs\nsimilarity index 96%\nrename from src/cache.rs\nrename to src/store/cache.rs\nindex 1a2b3c4..5d6e7f8 100644\n--- a/src/cache.rs\n+++ b/src/store/cache.rs\n@@ -1,3 +1,3 @@\n»
+plain       « use std::collections::HashMap;\n»
+deleted     «-use crate::key::Key;\n»
+inserted    «+use crate::store::key::Key;\n \n»
+meta        «diff --git a/assets/logo.png b/assets/logo.png\ndeleted file mode 100644\nindex 9f8e7d6..0000000\nBinary files a/assets/logo.png and /dev/null differ\n»
+plain       «-- \n2.45.0\n»

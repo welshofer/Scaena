@@ -1,0 +1,130 @@
+meta        «# syntax=docker/dockerfile:1.7\n# check=error=true\n»
+keyword     «ARG »
+variable    «NODE_VERSION»
+operator    «=»
+number      «20\n»
+keyword     «ARG »
+variable    «APP_VERSION»
+operator    «=»
+number      «1.4\n»
+keyword     «FROM »
+plain       «node:»
+variable    «${NODE_VERSION}»
+plain       «-alpine »
+keyword     «AS »
+plain       «build\n»
+keyword     «LABEL »
+property    «org.opencontainers.image.source»
+operator    «=»
+string      «"https://github.com/example/app" »
+punctuation «\\\n      »
+property    «org.opencontainers.image.description»
+operator    «=»
+string      «"The app, built here \\\nand served by nginx" »
+punctuation «\\\n      »
+property    «maintainer»
+operator    «=»
+string      «"ops@example.com"\n»
+keyword     «ENV »
+variable    «NODE_ENV»
+operator    «=»
+plain       «production »
+variable    «PATH»
+operator    «=»
+string      «"/app/node_modules/.bin:»
+variable    «$PATH»
+string      «"\n»
+keyword     «WORKDIR »
+plain       «/app\n»
+keyword     «COPY »
+attribute   «--chown»
+operator    «=»
+plain       «node:node package*.json ./\n»
+keyword     «RUN »
+attribute   «--mount»
+operator    «=»
+plain       «type=cache,target=/root/.npm »
+punctuation «\\\n    »
+function    «npm »
+plain       «ci --omit=dev »
+operator    «&& »
+punctuation «\\\n    »
+comment     «# Docker drops this comment line\n    »
+function    «npm »
+plain       «cache clean --force\n»
+keyword     «COPY »
+plain       «. .\n»
+keyword     «RUN »
+operator    «<<»
+string      «EOF\n»
+function    «set »
+plain       «-eux\n»
+keyword     «if »
+punctuation «[ »
+operator    «-f »
+plain       «build.sh »
+punctuation «]; »
+keyword     «then\n  »
+function    «./build.sh »
+string      «"»
+variable    «$NODE_ENV»
+string      «"\n»
+keyword     «fi\n»
+string      «EOF\n»
+keyword     «COPY »
+operator    «<<-»
+string      «'NOTE' »
+plain       «/app/NOTE.txt\n»
+string      «\tBuilt by $USER, not expanded.\n\tNOTE\n\n»
+keyword     «FROM »
+plain       «nginx:1.27-alpine\n»
+keyword     «RUN »
+function    «apk »
+plain       «add --no-cache »
+punctuation «\\\n      »
+comment     «# what the health check calls\n      »
+plain       «curl »
+punctuation «\\\n      »
+plain       «tini\n»
+keyword     «COPY »
+attribute   «--from»
+operator    «=»
+plain       «build /app/dist /usr/share/nginx/html\n»
+keyword     «COPY »
+attribute   «--from»
+operator    «=»
+plain       «busybox:1.36 /bin/wget /usr/local/bin/\n»
+keyword     «EXPOSE »
+number      «80»
+plain       «/tcp »
+number      «443\n»
+keyword     «HEALTHCHECK »
+attribute   «--interval»
+operator    «=»
+plain       «30s »
+attribute   «--timeout»
+operator    «=»
+plain       «3s »
+keyword     «CMD »
+function    «wget »
+plain       «-qO- http://localhost/ »
+operator    «|| »
+keyword     «exit »
+number      «1\n»
+keyword     «USER »
+number      «101»
+plain       «:»
+number      «101\n»
+keyword     «ENTRYPOINT »
+punctuation «[»
+string      «"nginx"»
+punctuation «, »
+string      «"-g"»
+punctuation «, »
+string      «"daemon off;"»
+punctuation «]\n»
+keyword     «CMD »
+function    «echo »
+string      «"serving on »
+variable    «$PORT»
+string      «"\n»
