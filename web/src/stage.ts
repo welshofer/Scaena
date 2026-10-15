@@ -150,6 +150,7 @@ type Reply = Extract<
       | "characterChoices"
       | "bolding"
       | "codeWords"
+      | "tidied"
       | "italicizing"
       | "themes"
       | "rethemed"
@@ -643,6 +644,11 @@ export class Stage {
 
   /** What ⌘B gives the characters `from` to `to` (Unicode scalar values) of `node`'s text in
    * `state`, on the deck the editor's `source` compiles to (PLAN 2.38): `style_text`'s `look`. */
+  /** `text` tidied as code in `language` is when it is pasted (PLAN 2.133, `code::tidy`). */
+  tidied(text: string, language: string): Promise<string> {
+    return this.request<"tidied">({ type: "tidied", id: ++this.asked, text, language }).then(({ text }) => text);
+  }
+
   /** The words of code text `node` as `state` shows them: what Copy Code copies (PLAN 2.133). */
   codeWords(source: string, state: string, node: string, format?: string): Promise<string> {
     const asked = { type: "codeWords" as const, id: ++this.asked, source, state, node, format };
@@ -1108,6 +1114,7 @@ export class Stage {
       case "characterChoices":
       case "bolding":
       case "codeWords":
+      case "tidied":
       case "italicizing":
       case "themes":
       case "rethemed":

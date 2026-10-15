@@ -830,6 +830,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     map: (node) => box(node)?.transform,
     chose: (selected) => editor.chose(selected),
     keeps: (to) => editor.keeps(to),
+    code: (node) => box(node)?.code?.language,
     // Typing in a shape's words stopped: the shape is selected, as a presentation app's is.
     left: (node) => {
       const shape = shapeOf(node);

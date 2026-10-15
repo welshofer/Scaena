@@ -457,6 +457,8 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         const choices = JSON.parse(player.characterChoices(data.state, data.node, data.from, data.to)) as Choices;
         return post({ type: "characterChoices", id: data.id, choices });
       }
+      case "tidied":
+        return post({ type: "tidied", id: data.id, text: player.tidied(data.text, data.language) });
       case "codeWords": {
         const behind = !player.compiledFrom(data.source);
         if (behind) saveable(data.source);

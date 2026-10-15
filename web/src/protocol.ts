@@ -985,6 +985,8 @@ export type ToWorker =
   | { type: "bolding"; id: number; source: string; state: string; node: string; from: number; to: number; format?: string }
   /** The words of code text `node` as `state` shows them, which Copy Code copies (PLAN 2.133). */
   | { type: "codeWords"; id: number; source: string; state: string; node: string; format?: string }
+  /** `text` tidied as a paste of code in `language` is (PLAN 2.133). */
+  | { type: "tidied"; id: number; text: string; language: string }
   | { type: "italicizing"; id: number; source: string; state: string; node: string; from: number; to: number; format?: string }
   /** The theme the deck names, and the theme files the bundle holds (PLAN 2.39). */
   | { type: "themes"; id: number }
@@ -1739,6 +1741,7 @@ export type FromWorker =
   | { type: "characterChoices"; id: number; choices: Choices }
   | { type: "bolding"; id: number; look: Record<string, unknown> }
   | { type: "codeWords"; id: number; words: string }
+  | { type: "tidied"; id: number; text: string }
   | { type: "italicizing"; id: number; look: Record<string, unknown> }
   | { type: "themes"; id: number; themes: Themes }
   /** A theme chosen: what it did, as `theme --apply` says it, and unless it was refused, the

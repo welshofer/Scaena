@@ -777,6 +777,13 @@ impl Session {
             .collect())
     }
 
+    /// `text` tidied as a paste of code in `language` is (PLAN 2.133, `code::tidy`), its tabs to the
+    /// stops the theme sets for code: what a paste into a code text being typed in puts there.
+    pub fn tidied(&self, text: &str, language: &str) -> String {
+        let tab = self.theme.code.as_ref().and_then(|c| c.tab).map_or(4, usize::from);
+        scaena_core::code::tidy(text, scaena_core::code::lang(language), tab).text
+    }
+
     /// The words of code text `node` as `state` shows them, the deck's `overrides` over it: what
     /// Copy Code puts on the clipboard as text (PLAN 2.133). An error where it is no code there.
     pub fn code_words(&self, state: &str, node: &str) -> Result<String, Error> {

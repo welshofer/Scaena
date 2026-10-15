@@ -375,7 +375,8 @@ pub unsafe extern "C" fn scaena_picture(bytes: *const u8, len: usize) -> *mut c_
 /// (PLAN 3.9): `typed {ops, at?}`, `replace_text`, `style_text`, and `list` ops by the user,
 /// validated but not linted, and whether the deck changed; and `bolding` and `italicizing
 /// {state, node, from, to}`, the look ⌘B and ⌘I give characters; and `codeWords {state, node}`,
-/// a code text's words as the state shows them, which Copy Code copies (PLAN 2.133). A text's
+/// a code text's words as the state shows them, which Copy Code copies, and `tidied {text,
+/// language}`, code pasted into code, tidied (PLAN 2.133). A text's
 /// characters (PLAN
 /// 3.10): `characterChoices {state, node, from, to}`, what an inspector offers for them; and
 /// `linkAt {state, x, y}`, the link drawn there at rest, where a click goes. Nodes added and
@@ -1365,6 +1366,8 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         }
         // The words of a code text as a state shows them, which Copy Code copies (PLAN 2.133).
         "codeWords" => json!(s.code_words(arg("state")?, arg("node")?).map_err(said)?),
+        // Code pasted into code, tidied as a paste of code is (PLAN 2.133).
+        "tidied" => json!(s.tidied(arg("text")?, arg("language")?)),
         // What ⌘B and ⌘I give the characters `from` to `to` (Unicode scalar values): `style_text`'s
         // `look` (PLAN 2.38, 2.40).
         "bolding" | "italicizing" => {

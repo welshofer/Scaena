@@ -668,6 +668,12 @@ impl Player {
         serde_json::to_string(&self.0.character_choices(state, node, from, to).map_err(js)?).map_err(js)
     }
 
+    /// `text` tidied as a paste of code in `language` is (PLAN 2.133, `code::tidy`), its tabs to the
+    /// theme's stops.
+    pub fn tidied(&self, text: &str, language: &str) -> String {
+        self.0.tidied(text, language)
+    }
+
     /// The words of code text `node` as `state` shows them: what Copy Code copies (PLAN 2.133).
     #[wasm_bindgen(js_name = codeWords)]
     pub fn code_words(&self, state: &str, node: &str) -> Result<String, JsError> {
