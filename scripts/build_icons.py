@@ -12,7 +12,8 @@ radius; quadratics and smooth curves become the cubics they are.
 
 Check (no network; CI runs this): docs/icons/phosphor.json is sorted by name, each name is unique
 and in kebab case, and each path is of those four commands, starts with a move, and stays in the
-icons' 256 by 256 view.
+icons' 256 by 256 view; and the paths the engine compiles in (`map-pin` in its fill weight, the pin
+a picture's `pin` draws, ADR-0030) are the set's.
 
     python3 scripts/build_icons.py            # fetch the package, write the icons, then check
     python3 scripts/build_icons.py --cache ~/.cache/scaena-icons
@@ -35,6 +36,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "docs/icons/phosphor.json"
 LICENSE = ROOT / "docs/icons/LICENSE-phosphor.txt"
+# The icons the engine compiles in, each by its name and weight, as a constant of this file.
+COMPILED = ROOT / "crates/scaena-engine/src/pin.rs"
+COMPILED_ICONS = [("MAP_PIN", "map-pin", "fill")]
 
 VERSION = "2.1.1"
 PACKAGE = f"https://registry.npmjs.org/@phosphor-icons/core/-/core-{VERSION}.tgz"
@@ -336,7 +340,24 @@ def build(cache: Path | None) -> None:
     }
     OUT.write_text(json.dumps(doc, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
     LICENSE.write_text(read("LICENSE"), encoding="utf-8")
+    COMPILED.write_text(compiled(doc), encoding="utf-8")
     print(f"wrote {len(icons)} icons to {OUT.relative_to(ROOT)} ({OUT.stat().st_size // 1024} KB)")
+
+
+def compiled(doc: dict) -> str:
+    """The Rust file of the icons the engine compiles in, from `doc`."""
+    by_name = {icon["name"]: icon for icon in doc["icons"]}
+    lines = [
+        f"//! Phosphor Icons {VERSION} (MIT, docs/icons/LICENSE-phosphor.txt) the engine draws itself, each",
+        "//! path on the icons' 256 by 256 view: `map-pin` in its fill weight, the pin a picture's `pin`",
+        "//! draws (ADR-0030). Written by scripts/build_icons.py from docs/icons/phosphor.json, which its",
+        "//! `--check` holds this file to.",
+        "",
+    ]
+    for constant, name, weight in COMPILED_ICONS:
+        lines.append(f"/// `{name}`, {weight}.")
+        lines.append(f'pub const {constant}: &str = "{by_name[name][weight]}";')
+    return "\n".join(lines) + "\n"
 
 
 WRITTEN = re.compile(r"(?:M-?[\d.]+,-?[\d.]+|L-?[\d.]+,-?[\d.]+|C(?:-?[\d.]+,){5}-?[\d.]+|Z)+")
@@ -375,6 +396,8 @@ def check() -> bool:
             ]
             if any(v < VIEW[0] - 1 or v > VIEW[2] + 1 for end in ends for v in end):
                 problems.append(f"{name} ({weight}): drawn outside its view")
+    if not COMPILED.exists() or COMPILED.read_text(encoding="utf-8") != compiled(doc):
+        problems.append(f"{COMPILED.relative_to(ROOT)} is not the set's: run scripts/build_icons.py")
     for p in problems[:20]:
         print(f"FAIL {p}")
     if not problems:

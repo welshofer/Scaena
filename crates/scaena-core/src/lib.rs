@@ -15,6 +15,8 @@
 //! - [`color`] — a theme's color literals, hex and Oklab, to the bytes a display list holds.
 //! - [`data`] — data sources read and typed (SPEC §3.10), from bytes the caller hands over.
 //! - [`format`] — number and date formats, d3's grammar (`docs/spec/format.md`).
+//! - [`fetched`] — where an object fetched from outside the deck came from, and its credit
+//!   (ADR-0030).
 //! - [`files`] — a bundle's images, fonts, and data, and what in the deck uses each (PLAN 2.59).
 //! - [`furniture`] — a slide's number and footer: which slide a state is, and whether it shows them (ADR-0028).
 //! - [`jpeg`] — photos: a JPEG decoder in integers alone, the same pixels on every target
@@ -48,6 +50,7 @@ pub mod displaylist;
 pub mod document;
 pub mod dsl;
 pub mod expr;
+pub mod fetched;
 pub mod files;
 pub mod format;
 pub mod furniture;
@@ -70,6 +73,7 @@ pub mod timeline;
 pub mod tracking;
 pub mod transform;
 pub mod validate;
+pub mod verse;
 pub mod version;
 pub mod words;
 pub mod writing;
@@ -87,7 +91,7 @@ pub use tracking::{Snapshot, resolve_states};
 
 /// The `deck.json` format version this crate reads and writes (its `scaena` key). Bump per
 /// SPEC §3.1; `docs/schema/deck.schema.json` takes its `$id` and version pattern from it.
-pub const FORMAT_VERSION: &str = "0.28";
+pub const FORMAT_VERSION: &str = "0.29";
 
 /// The theme format version (a theme's `scaena-theme` key), versioned apart from decks.
 pub const THEME_FORMAT_VERSION: &str = "0.17";

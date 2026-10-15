@@ -13,6 +13,8 @@
 //! W311: a shader painted behind a chart or a table, where they overlap.
 //!
 //! W313: a chart squashed below a legible plot.
+//!
+//! W314: a fetched picture's credit that cannot be read (ADR-0030).
 
 use super::{Cx, Rule};
 use crate::sample::{Content, Scene, SceneNode};
@@ -367,4 +369,114 @@ impl Rule for W313ChartSquashed {
             })
             .collect()
     }
+}
+
+/// W314: a fetched picture's credit that cannot be read (ADR-0030): set under 12 pt at
+/// presentation size, cut by its box or the canvas, covered by a node drawn over it, decoration
+/// included, or covering more than a quarter of what shows of its picture. One finding per image,
+/// at the image, naming every state; its fix, where the credit stands inside the picture, sets it
+/// below (`credit: below`), which lint keeps only where it reads there.
+pub struct W314Credit;
+
+impl Rule for W314Credit {
+    fn code(&self) -> &'static str {
+        "W314"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn check(&self, cx: &Cx) -> Vec<Finding> {
+        // Each image's first reason, the state it is first found in, and every state.
+        let mut found: BTreeMap<String, (usize, String, bool, Vec<String>)> = BTreeMap::new();
+        let short = cx.deck.canvas.width.min(cx.deck.canvas.height) as f32;
+        let canvas = [0.0, 0.0, cx.deck.canvas.width as f32, cx.deck.canvas.height as f32];
+        for state in cx.states {
+            for (k, node) in state.scene.nodes.iter().enumerate() {
+                let Content::Image(image) = &node.content else { continue };
+                let Some(credit) = &image.marks.credit else { continue };
+                if node.opacity <= 0.0 {
+                    continue;
+                }
+                let [x, y, _, _] = image.rect;
+                let card = [credit.rect[0] + x, credit.rect[1] + y, credit.rect[2], credit.rect[3]];
+                let map = state.scene.posed(&node.id, true);
+                let scale = pose::stretch(&map)[1] as f32;
+                let size = credit.text.runs.iter().map(|r| r.size).fold(f32::INFINITY, f32::min) * scale;
+                let inside = credit.fill.is_some();
+                let drawn_card = pose::bounds(&map, card);
+                let shown = image.shown();
+                let words = credit.text.lines.iter().map(|l| l.width).fold(0.0f32, f32::max);
+                let why = if size.is_finite() && size < crate::render::MIN_CREDIT * short / 1080.0 - 0.01 {
+                    Some(format!("is set at {:.0} cu, under 12 pt at presentation size", size))
+                } else if !contains(canvas, drawn_card) {
+                    Some("runs off the canvas".to_string())
+                } else if !contains([0.0, 0.0, image.rect[2], image.rect[3]], credit.rect)
+                    || (inside && !contains(shown, credit.rect))
+                    || words > credit.text.measure + 0.5
+                {
+                    Some("is cut by its box".to_string())
+                } else if let Some(over) =
+                    state.scene.nodes[k + 1..].iter().chain(&state.scene.furniture).filter(|n| n.opacity > 0.0).find(
+                        |n| {
+                            drawn_extent(n)
+                                .is_some_and(|r| meets(drawn(&state.scene, &n.id, r), (card, Some(map))).is_some())
+                        },
+                    )
+                {
+                    Some(format!("is covered by `{}`", over.id))
+                } else if inside && credit.rect[2] * credit.rect[3] > 0.25 * shown[2] * shown[3] {
+                    Some("covers more than a quarter of the picture".to_string())
+                } else {
+                    None
+                };
+                let Some(why) = why else { continue };
+                let entry = found.entry(node.id.clone()).or_insert_with(|| (state.index, why, inside, Vec::new()));
+                entry.3.push(state.snapshot.state_id.clone());
+            }
+        }
+        found
+            .into_iter()
+            .map(|(node, (first, why, inside, states))| {
+                let f = cx
+                    .finding(self.code(), self.severity(), cx.laid(first), format!("the credit on `{node}` {why}"))
+                    .at(cx.node_path(&node))
+                    .node(node.clone())
+                    .measure(json!({ "states": states }))
+                    .hint("Set the credit below the picture (`credit: below`), make the picture larger, or move what lies over it.");
+                if inside { f.fix(vec![json!({ "op": "add", "path": prop_path(cx, first, &node, "credit"), "value": "below" })]) } else { f }
+            })
+            .collect()
+    }
+}
+
+/// Whether `outer` holds `inner`, within half a unit.
+fn contains(outer: Rect, inner: Rect) -> bool {
+    inner[0] >= outer[0] - 0.5
+        && inner[1] >= outer[1] - 0.5
+        && inner[0] + inner[2] <= outer[0] + outer[2] + 0.5
+        && inner[1] + inner[3] <= outer[1] + outer[3] + 0.5
+}
+
+/// What a node draws over, as laid out: its ink, or a shape's or a shader's box.
+fn drawn_extent(node: &SceneNode) -> Option<Rect> {
+    match &node.content {
+        Content::Shape(s) => Some(s.rect),
+        Content::Shader(s) => Some(s.rect),
+        _ => node.ink(),
+    }
+}
+
+/// Where a fix to node `id`'s `key` goes in state `index`: where it is set now (its overrides,
+/// else the latest state delta that sets it), else its defaults.
+fn prop_path(cx: &Cx, index: usize, id: &str, key: &str) -> String {
+    let token = id.replace('~', "~0").replace('/', "~1");
+    if cx.deck.overrides.get(id).is_some_and(|o| o.contains_key(key)) {
+        return format!("/overrides/{token}/{key}");
+    }
+    for j in (0..=index).rev() {
+        if cx.deck.states[j].props.get(id).is_some_and(|p| p.contains_key(key)) {
+            return format!("/states/{j}/props/{token}/{key}");
+        }
+    }
+    format!("/nodes/{token}/{key}")
 }

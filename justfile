@@ -96,6 +96,7 @@ schema:
     python3 scripts/build_rtl_decks.py --check
     python3 scripts/build_layouts.py --check
     python3 scripts/build_icons.py --check
+    python3 scripts/build_syllables.py --check
     python3 scripts/build_app_icon.py --check
 
 # The scripts' own tests: the bench gate's judgment (PLAN 1.24); and the browser's assistant, held to

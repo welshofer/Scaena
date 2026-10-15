@@ -432,6 +432,23 @@ impl Cx<'_, '_> {
                         .collect();
                     out.push(element(Tag::Div.into(), reading, list_nodes(&paras)));
                 }
+                // A fetched picture's credit (ADR-0030): the picture tagged as the figure, then its
+                // credit as a paragraph after it, with its links.
+                Kind::Figure if !whole && inner.iter().any(is_credit) => {
+                    let pushed = self.open(transform, *opacity, *blend, clip.as_ref());
+                    let xf = xf * affine(transform);
+                    let picture: Vec<Op> = inner.iter().filter(|op| !is_credit(op)).cloned().collect();
+                    let figure = self.surface.start_tagged(ContentTag::Other);
+                    self.ops(&picture, xf);
+                    self.surface.end_tagged();
+                    let credits: Vec<Identifier> =
+                        inner.iter().filter(|op| is_credit(op)).map(|op| self.tagged(op, xf)).collect();
+                    self.close(pushed);
+                    out.push(element(Tag::Figure(alt.clone()).into(), reading, vec![figure.into()]));
+                    for credit in credits {
+                        out.push(element(Tag::P.into(), reading, vec![credit.into()]));
+                    }
+                }
                 kind @ (Kind::Heading(_) | Kind::Paragraph | Kind::Figure) => {
                     let written = node.as_deref().and_then(|id| self.written.get(id)).map(String::as_str);
                     let id = self.spoken(op, xf, written.filter(|_| kind != Kind::Figure));
@@ -890,6 +907,11 @@ fn list_at(paras: &[Para], mut i: usize, level: u8, kind: ListKind) -> (Node, us
         ListKind::Number => ListNumbering::Decimal,
     };
     (TagGroup::with_children(Tag::L(numbering), items).into(), i)
+}
+
+/// Whether `op` is the layer a fetched picture's credit is drawn in (ADR-0030).
+fn is_credit(op: &Op) -> bool {
+    matches!(op, Op::Layer { cell: Some(cell), .. } if *cell == scaena_core::fetched::CREDIT_CELL)
 }
 
 fn element(tag: TagKind, reading: Option<&Reading>, children: Vec<Node>) -> Node {

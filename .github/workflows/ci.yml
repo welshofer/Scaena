@@ -510,8 +510,19 @@ jobs:
       - run: python3 scripts/build_torture_fonts.py --check
       # The torture deck's test card is what its generator writes (PLAN 1.7), as `just schema` checks.
       - run: python3 scripts/build_torture_images.py --check
-      # Every character in the benchmark decks maps in its role's own family (PLAN 0.14).
+      # Every character in the benchmark decks maps in its role's own family (PLAN 0.14), and each
+      # SOURCES.md answers for the files beside it (PLAN T.0b).
       - run: python3 scripts/build_bundle_fonts.py --check
+      # Every family a theme names, fetched by sha256 into a cache CI keeps, then read from it
+      # with no network (PLAN T.0b). A change to the table restores the last cache and fetches
+      # only what it lacks.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/scaena-fonts
+          key: fonts-${{ hashFiles('scripts/build_bundle_fonts.py') }}
+          restore-keys: fonts-
+      - run: python3 scripts/build_bundle_fonts.py --fetch
+      - run: python3 scripts/build_bundle_fonts.py --fetch --offline
       # What a save keeps of a CJK font, and the tests' script fonts, are what their generator
       # writes and fetches (PLAN G.22).
       - run: python3 scripts/build_scripts.py --check
@@ -525,6 +536,8 @@ jobs:
       - run: python3 scripts/build_layouts.py --check
       # The icons that ship are absolute paths in their view, as their generator writes them (PLAN 2.104).
       - run: python3 scripts/build_icons.py --check
+      # The syllable table is what CMUdict and the Ngram ranks kept make, and the rules count as words/syllable does (PLAN O.4a).
+      - run: python3 scripts/build_syllables.py --check
       # The Mac's and the iPad's app icons, and the iPad's accent, are what their generator writes.
       - run: python3 scripts/build_app_icon.py --check
       # The bench gate judges a pull request beside its base (PLAN 1.24).
