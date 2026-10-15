@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/deck-0.26.json",
+  "$id": "https://scaena.dev/schema/deck-0.27.json",
   "title": "Scaena deck document",
   "description": "Canonical deck.json. A deck is a scene graph (nodes) plus an ordered cue list (states) over a narrative spine, rendered against a theme. See docs/SPEC.md §3.",
   "type": "object",
@@ -10,7 +10,7 @@
     "scaena": {
       "description": "Format version (semver, major.minor[.patch]).",
       "type": "string",
-      "pattern": "^0\\.26(\\.[0-9]+)?$"
+      "pattern": "^0\\.27(\\.[0-9]+)?$"
     },
     "meta": { "$ref": "#/$defs/Meta" },
     "canvas": { "$ref": "#/$defs/Canvas" },
@@ -406,6 +406,10 @@
           "description": "Its paragraphs as a list's items (SPEC §3.5, ADR-0018): one entry for each paragraph a hard line break ends, in order, `null` for one that is no item. Paragraphs past its end are no items.",
           "type": "array",
           "items": { "anyOf": [{ "$ref": "#/$defs/ListItem" }, { "type": "null" }] }
+        },
+        "paragraphs": {
+          "description": "The paragraphs a state draws (PLAN 2.129, deck format 0.27), counted from 1: one, or the first and the last of a run. The rest are laid out where they stand and not drawn, so a list built by bullet keeps its place as its items come and go. Without it, all.",
+          "$ref": "#/$defs/Range"
         }
       },
       "anyOf": [{ "required": ["text"] }, { "required": ["runs"] }]
@@ -432,6 +436,10 @@
         "connect": {
           "description": "The two nodes a line or an arrow joins (PLAN 2.109): it runs from `from`'s box to `to`'s as each state lays them out, and so follows them, and it leaves wherever either does. What it joins places it: it takes no `at` and no `points` of its own.",
           "$ref": "#/$defs/Connect"
+        },
+        "ends": {
+          "description": "What a line's or an arrow's ends are drawn with (PLAN 2.128, deck format 0.27): its `start`, where its first point is, and its `end`. An end it does not name is a line's bare end, and an arrow's last a filled head.",
+          "$ref": "#/$defs/LineEnds"
         }
       }
     },
@@ -903,9 +911,9 @@
       }
     },
     "SplitUnit": {
-      "description": "What a choreographed entrance splits its target into.",
+      "description": "What a choreographed entrance splits its target into. A text's `paragraphs` are the stretches its hard line breaks end, a list's items (deck format 0.27, theme format 0.17).",
       "type": "string",
-      "enum": ["lines", "words", "glyphs", "children", "marks"]
+      "enum": ["lines", "words", "glyphs", "paragraphs", "children", "marks"]
     },
     "LookParams": {
       "description": "Numbers a look sets on what its unit draws.",
@@ -1091,7 +1099,7 @@
     "TextSplit": {
       "description": "What a text node's own `split` divides it into for motion.",
       "type": "string",
-      "enum": ["lines", "words", "glyphs"]
+      "enum": ["lines", "words", "glyphs", "paragraphs"]
     },
     "ListItem": {
       "description": "A paragraph of a text as an item of a list (SPEC §3.5, ADR-0018): bulleted or numbered, at a level, 0 the outermost. Its marker and indent are the theme's (`type.lists`).",
@@ -1114,15 +1122,26 @@
         "from": { "$ref": "#/$defs/Id" },
         "to": { "$ref": "#/$defs/Id" },
         "route": {
-          "description": "`straight`, the default, runs between the two boxes along the line from middle to middle; `elbow` leaves one box by the side that faces the other and turns at right angles.",
+          "description": "`straight`, the default, runs between the two boxes along the line from middle to middle; `elbow` leaves one box by the side that faces the other and turns at right angles; `curved` leaves and meets the boxes as an elbow does, a cubic curve through the elbow's corners (PLAN 2.128, deck format 0.27).",
           "$ref": "#/$defs/Route"
         }
       }
     },
     "Route": {
-      "description": "How a connector runs between what it joins (PLAN 2.109).",
+      "description": "How a connector runs between what it joins (PLAN 2.109, 2.128).",
       "type": "string",
-      "enum": ["straight", "elbow"]
+      "enum": ["straight", "elbow", "curved"]
+    },
+    "LineEnds": {
+      "description": "A line's or an arrow's two ends (PLAN 2.128), as a presentation app's line endpoints.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "start": { "$ref": "#/$defs/LineEnd" }, "end": { "$ref": "#/$defs/LineEnd" } }
+    },
+    "LineEnd": {
+      "description": "What one end of a line is drawn with, sized from its stroke: nothing, a filled `arrow`head, an `open` one of two strokes, or a filled `circle`, `square`, or `diamond` on the end.",
+      "type": "string",
+      "enum": ["none", "arrow", "open", "circle", "square", "diamond"]
     },
     "ImageFit": {
       "description": "How an image meets its box.",
@@ -1559,6 +1578,7 @@
             { "type": "null" }
           ]
         },
+        "paragraphs": { "anyOf": [{ "$ref": "#/$defs/Range" }, { "type": "null" }] },
         "kind": {
           "anyOf": [
             { "$ref": "#/$defs/ShapeKind" },
@@ -1580,6 +1600,7 @@
         },
         "radius": { "anyOf": [{ "$ref": "#/$defs/Length" }, { "type": "null" }] },
         "connect": { "anyOf": [{ "$ref": "#/$defs/ConnectDelta" }, { "type": "null" }] },
+        "ends": { "anyOf": [{ "$ref": "#/$defs/LineEndsDelta" }, { "type": "null" }] },
         "src": { "type": ["string", "null"] },
         "focal": {
           "anyOf": [
@@ -1812,6 +1833,15 @@
         "from": { "anyOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] },
         "to": { "anyOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] },
         "route": { "anyOf": [{ "$ref": "#/$defs/Route" }, { "type": "null" }] }
+      }
+    },
+    "LineEndsDelta": {
+      "description": "`LineEnds` in a state's delta: it merges one level into the tracked value, so every key is optional and null deletes one (SPEC §2.2).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "start": { "anyOf": [{ "$ref": "#/$defs/LineEnd" }, { "type": "null" }] },
+        "end": { "anyOf": [{ "$ref": "#/$defs/LineEnd" }, { "type": "null" }] }
       }
     },
     "ImageAdjustDelta": {

@@ -15,6 +15,7 @@
 //   no key of it taken as the canvas's own; one more undo takes the typing back.
 // - A headline inserted over the chart, whose slot is filled, takes the grid's cells in the room
 //   nearest the point pressed, clear of the chart (PLAN 2.79).
+// - With the chart deleted, a chart of the source pressed into the figure's place fills it.
 // - Delete takes a node just inserted out of the deck again, and the source is as it was. On the
 //   title in `mix`, it takes the title out of `mix` alone (`-title`): `close` shows it again by its
 //   own delta.
@@ -22,7 +23,8 @@
 //   the deck.
 // - A star from the shape library is a polygon of ten points in the accent, named Star on the menu
 //   and in the layers.
-// - A shader preset fills the canvas under the rest, and the image dropped is inserted.
+// - A shader preset fills the canvas under the rest, and the image dropped is inserted in its own
+//   proportions, which a drag of its corner keeps, let go beside another's edge too.
 // Exits 1 on any failure.
 import { readFile } from "node:fs/promises";
 import { launch, serve } from "./serve.mjs";
@@ -89,6 +91,8 @@ try {
   /** Show the state declared as `state` in the source, slot `index`. */
   const showState = async (state, index) => {
     const at = (await source()).indexOf(`state ${state}`) + "state ".length;
+    // Once the canvas has caught up with the last edit, whose undo may show the state it changed.
+    await page.waitForFunction(() => !window.scaena.canvas.busy(), null, { timeout: 30000 }).catch(() => {});
     await page.evaluate((offset) => window.scaena.cursor(offset), at);
     await page.waitForFunction((i) => window.scaena.shown() === i && window.scaena.at().index === i, index, { timeout: 30000 });
     // The canvas's boxes are the shown state's, not the one shown before it.
@@ -103,6 +107,16 @@ try {
   const menu = () =>
     page.evaluate(() =>
       Object.fromEntries([...document.querySelectorAll("#insert optgroup")].map((g) => [g.label, [...g.children].map((o) => o.textContent)])),
+    );
+  /** A point in canvas units, on the page. */
+  const clientOf = ([x, y]) =>
+    page.evaluate(
+      ([x, y]) => {
+        const r = document.querySelector("#overlay").getBoundingClientRect();
+        const [w, h] = window.scaena.canvas.size();
+        return [r.left + (x / w) * r.width, r.top + (y / h) * r.height];
+      },
+      [x, y],
     );
   /** Press the canvas at `at`, canvas units. */
   const press = async ([x, y]) => {
@@ -124,6 +138,7 @@ try {
   await page.waitForFunction(() => document.querySelectorAll("#insert optgroup").length > 0, null, { timeout: 30000 });
   const offered = await menu();
   check(["Display", "Headline", "Title", "Caption"].every((r) => offered.Text?.includes(r)), `a text in each of Dusk's roles, by its name: ${offered.Text}`);
+  check(!offered.Text?.includes("Axis"), "but for Axis, which Dusk sets only a chart's text in");
   // The rectangle and the oval, the shape library's polygons (PLAN 2.106), then the line and the arrow.
   const shapes = [
     "Rectangle", "Oval", "Triangle", "Right Triangle", "Diamond", "Parallelogram", "Trapezoid", "Pentagon", "Hexagon",
@@ -197,6 +212,27 @@ try {
   check(await back(original), "Delete takes a node just inserted out of the deck: the source is as it was");
   check(await says("deleted from every slide"), `and says so: ${await status()}`);
 
+  // The chart deleted from `revenue` on, a chart of the source pressed into the figure's place
+  // fills it, as a placeholder takes what is put on it: placed in the slot, at its size.
+  await select("rev");
+  await page.keyboard.press("Delete");
+  check(await reads("\n  -rev"), "the chart deleted from `revenue` on");
+  // Pressed once the canvas draws the slide without it, so the press lands on the place it left.
+  await page.waitForFunction(() => !window.scaena.canvas.busy() && !window.scaena.canvas.boxes()?.some((b) => b.node === "rev"), null, { timeout: 30000 }).catch(() => {});
+  const main = slots.main;
+  await press([main[0] + main[2] / 2, main[1] + main[3] / 2]);
+  await page.selectOption("#insert", { label: "q3" });
+  check(await reads("q3-chart chart:bar data:@q3"), "a chart of q3 is inserted");
+  // Its declaration, with the lines its properties run on to.
+  const q3 = /q3-chart chart:bar data:@q3[^\n]*(?:\n {4}[^\n]*)*/.exec(await source())?.[0] ?? "";
+  check(q3.includes("at:in(main)"), `into the figure's place: ${q3.slice(-60)}`);
+  const placed = await drawn("q3-chart");
+  check(JSON.stringify(placed) === JSON.stringify(main), `at its size: ${placed}`);
+  await page.keyboard.press("Control+z");
+  await page.keyboard.press("Control+z");
+  check(await back(original), "two undos put the chart back");
+  await page.waitForTimeout(500);
+
   // The title deleted in `mix`: it leaves `mix`, and `close` shows it again by its own delta.
   await showState("mix", 2);
   await select("title");
@@ -236,6 +272,16 @@ try {
   const corners = (/points:\[\[(.*?)\]\]/.exec(star)?.[1] ?? "").split("], [").length;
   check(corners === 10 && star.includes("fill:accent"), `its ten points, in the accent: ${star.slice(0, 90)}…`);
   check(await says("Star inserted on this slide"), `the status names it: ${await status()}`);
+  // The inspector offers what a star draws: its fill, and no corners or shadow, which a polygon
+  // does not draw; and heads it a Star.
+  await page.waitForFunction(() => window.scaena.look.offered()?.node === "star", null, { timeout: 30000 }).catch(() => {});
+  const starred = await page.evaluate(() => ({
+    heading: document.querySelector("#look h2")?.textContent,
+    fill: Boolean(document.querySelector("#look-fill")),
+    radius: Boolean(document.querySelector("#look-radius")),
+    shadow: Boolean(document.querySelector("#look-shadow")),
+  }));
+  check(starred.heading === "Star" && starred.fill && !starred.radius && !starred.shadow, `a star's inspector: ${JSON.stringify(starred)}`);
   // The layers call it a Star, as the menu does.
   const starLayer = await page
     .waitForFunction(() => document.querySelector('#layers li[data-layer="star"] [data-pick]')?.textContent, null, { timeout: 10000 })
@@ -273,6 +319,77 @@ try {
     check(await reads(JSON.stringify(path)), "and inserted, its path its `src`");
     const id = (await selects(`image-${hash}`)) ? `image-${hash}` : await selected();
     check(id === `image-${hash}` && Boolean(await box(id)), `it stands on the canvas, selected: ${id}`);
+    // In the picture's own proportions, read from its header, and a corner dragged keeps the
+    // proportions its box has, as a presentation app scales a picture.
+    const shape = png.readUInt32BE(16) / png.readUInt32BE(20);
+    const ratio = (r) => (r ? r[2] / r[3] : NaN);
+    const inserted = await box(id);
+    check(Math.abs(ratio(inserted) / shape - 1) <= 0.05, `it keeps the picture's proportions, ${shape.toFixed(3)}: ${inserted}`);
+    await page.waitForFunction(() => document.querySelectorAll("#overlay rect.handle").length === 8, null, { timeout: 30000 }).catch(() => {});
+    const corner = await page.evaluate(() => {
+      const r = document.querySelector('#overlay rect.handle[data-edge="se"]');
+      const at = (name) => Number(r?.getAttribute(name) ?? NaN);
+      return [at("x") + at("width") / 2, at("y") + at("height") / 2];
+    });
+    const [from, to] = [await clientOf(corner), await clientOf([corner[0] - 150, corner[1] - 60])];
+    const before = await source();
+    await page.mouse.move(...from);
+    await page.mouse.down();
+    for (let k = 1; k <= 8; k++) await page.mouse.move(from[0] + ((to[0] - from[0]) * k) / 8, from[1] + ((to[1] - from[1]) * k) / 8);
+    await page.waitForTimeout(400);
+    await page.mouse.up();
+    await page.waitForFunction((s) => window.scaena.source() !== s && !window.scaena.canvas.busy(), before, { timeout: 30000 }).catch(() => {});
+    await page.waitForTimeout(300);
+    const scaled = await box(id);
+    check(
+      Boolean(scaled) && scaled[2] < inserted[2] && Math.abs(ratio(scaled) / ratio(inserted) - 1) <= 0.02,
+      `a corner dragged scales it in the proportions it has: ${scaled}`,
+    );
+    await page.keyboard.press("Control+z");
+    // Let go a few units past another box's edge, within a guide's reach, its corner stays where it
+    // was let go, in its proportions: no guide draws its right edge alone onto that edge, out of them.
+    await page
+      .waitForFunction(
+        ([n, r]) => !window.scaena.canvas.busy() && JSON.stringify(window.scaena.canvas.boxes()?.find((b) => b.node === n)?.rect) === r,
+        [id, JSON.stringify(inserted)],
+        { timeout: 30000 },
+      )
+      .catch(() => {});
+    const [x0, , w0, h0] = inserted;
+    const PAST = 6;
+    const stops = await page.evaluate((n) => {
+      const [cw] = window.scaena.canvas.size();
+      const rects = window.scaena.canvas.boxes().filter((b) => b.node !== n && b.draws).map((b) => b.rect);
+      return [0, cw / 2, cw, ...rects.flatMap(([x, , w]) => [x, x + w / 2, x + w])];
+    }, id);
+    // An edge no other lies near, the nearest a drag of its corner can bring its right edge to,
+    // in or out: the canvas's middle, or another box's edge or middle.
+    const lone = (s) => stops.every((t) => t === s || Math.abs(t - s - PAST) > 16);
+    const right = x0 + w0;
+    const edge = stops
+      .filter((s) => Math.abs(s + PAST - right) > 24 && s + PAST > x0 + 0.3 * w0 && s + PAST < x0 + 1.5 * w0 && lone(s))
+      .sort((a, b) => Math.abs(a - right) - Math.abs(b - right))[0];
+    if (edge === undefined) check(false, `an edge to let the picture's corner go beside: ${stops.join(", ")}`);
+    else {
+      // Across more than down, so its width leads and its height follows.
+      const across = edge + PAST - right;
+      const [at, past] = [await clientOf(corner), await clientOf([corner[0] + across, corner[1] + (across * h0) / w0 / 2])];
+      const was = await source();
+      await page.mouse.move(...at);
+      await page.mouse.down();
+      for (let k = 1; k <= 8; k++) await page.mouse.move(at[0] + ((past[0] - at[0]) * k) / 8, at[1] + ((past[1] - at[1]) * k) / 8);
+      await page.waitForTimeout(400);
+      await page.mouse.up();
+      await page.waitForFunction((s) => window.scaena.source() !== s && !window.scaena.canvas.busy(), was, { timeout: 30000 }).catch(() => {});
+      await page.waitForTimeout(300);
+      const beside = await box(id);
+      check(
+        Boolean(beside) && Math.abs(beside[0] + beside[2] - (edge + PAST)) <= 2.5 && Math.abs(ratio(beside) / ratio(inserted) - 1) <= 0.01,
+        `let go ${PAST} past an edge at ${edge}, it stays there in its proportions: ${beside}`,
+      );
+      await page.keyboard.press("Control+z");
+    }
+    await page.locator("#overlay").focus();
     await page.keyboard.press("Delete");
     check(await back(original), "Delete takes it out again");
   }

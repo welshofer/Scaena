@@ -20,6 +20,7 @@ use scaena_ops::lint::{layout_rules, layout_rules_on, lint_validated, lint_with}
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 /// The source compiled last, and what lint found in it.
 pub(crate) struct Edit {
@@ -323,6 +324,20 @@ impl Session {
         found.map_err(|e| Error::Ops(e.message))
     }
 
+    /// The engine given each image `made` draws that the deck does not yet, from the bundle's
+    /// files, so a patch that inserts a picture is laid out before it is made. What draws now
+    /// draws as before.
+    fn take_images(&mut self, made: &Deck) -> Result<(), Error> {
+        let drawn = self.deck.image_files();
+        for path in made.image_files().into_iter().filter(|p| !drawn.contains(p)) {
+            let Some(bytes) = self.files.get(&path) else { continue };
+            let engine = self.engine.as_mut().expect("built before");
+            let info = engine.add_image(&path, bytes)?;
+            Arc::make_mut(&mut self.store).insert_image(&info.id, bytes)?;
+        }
+        Ok(())
+    }
+
     /// Whether the deck with `patch` made lays `state` out in its own format and in each it
     /// lists: a table too wide for its cell in one does not (PLAN 2.96). Nothing is made.
     pub(crate) fn lays_out_with(&mut self, patch: &[Value], state: &str) -> Result<bool, Error> {
@@ -332,12 +347,54 @@ impl Session {
             .and_then(|compiled| Deck::from_json(&compiled.doc.to_string()).ok());
         let Some(made) = made else { return Ok(false) };
         self.build()?;
+        self.take_images(&made)?;
         let Session { theme_json, files, data, engine, store, .. } = self;
         let engine = engine.as_mut().expect("built above");
         let linted = lint_with(&made, &Handed(files), Some(theme_json.as_str()), |theme| {
             layout_rules(engine, &made, theme, data, store, Some(state))
         });
         Ok(linted.is_ok())
+    }
+
+    /// The formats in which node `id`, as `patch` adds it to the deck in `state`, lands on what
+    /// draws there in a step of the slide it stays on (lint E101), or does not fit the cells it
+    /// takes there (E100), each once: none where the patch does not apply.
+    pub(crate) fn colliding(&mut self, patch: &[Value], state: &str, id: &str) -> Result<Vec<String>, Error> {
+        if self.deck.anew().is_empty() {
+            return Ok(Vec::new());
+        }
+        let doc = self.deck.to_value().map_err(|e| Error::Deck(e.to_string()))?;
+        let made = scaena_core::patch::compile(&doc, patch, &Handed(&self.files))
+            .ok()
+            .and_then(|compiled| Deck::from_json(&compiled.doc.to_string()).ok());
+        let Some(made) = made else { return Ok(Vec::new()) };
+        self.build()?;
+        self.take_images(&made)?;
+        let Session { theme_json, files, data, engine, store, .. } = self;
+        let engine = engine.as_mut().expect("built above");
+        let involves = |f: &scaena_core::lint::Finding| {
+            let named = f.measure.as_ref().and_then(|m| m.get("nodes")).and_then(Value::as_array);
+            f.node.as_deref() == Some(id) || named.is_some_and(|n| n.iter().any(|n| n == id))
+        };
+        let mut formats: Vec<String> = Vec::new();
+        for step in scaena_ops::inspect::staying(&made, state) {
+            let linted = lint_with(&made, &Handed(files), Some(theme_json.as_str()), |theme| {
+                layout_rules(engine, &made, theme, data, store, Some(&step))
+            });
+            let Ok(linted) = linted else { return Ok(Vec::new()) };
+            let wrong = |f: &&scaena_core::lint::Finding| {
+                f.state.as_deref() == Some(step.as_str())
+                    && (f.code == "E101" || (f.code == "E100" && f.node.as_deref() == Some(id)))
+            };
+            for f in linted.findings.iter().filter(wrong) {
+                if let Some(format) = f.format.as_ref().filter(|_| involves(f))
+                    && !formats.contains(format)
+                {
+                    formats.push(format.clone());
+                }
+            }
+        }
+        Ok(formats)
     }
 
     /// Begin judging the layouts `state` may take (PLAN 2.92), as `scaena inspect --layouts`

@@ -23,13 +23,14 @@ Five facts frame the choice:
 1. **`scaena_core::jpeg` decodes JPEG with integers alone.** One source serves every target, and no path is chosen at run time. Its arithmetic is zune-jpeg's portable path, so it gives that path's bytes:
    - **Reads** baseline, extended, and progressive Huffman-coded JPEGs at 8 bits a sample. That covers gray, and three components that are YCbCr, or RGB where an Adobe marker or the components' ids say so. Any sampling whose factors divide the largest is read, with or without restart intervals.
    - **A file cut short** is drawn as far as it goes, as libjpeg draws it.
-   - **Refuses, saying why:** arithmetic coding, lossless and hierarchical JPEGs, 12 bits a sample, CMYK, a height that only a DNL marker gives, and more than 8192 px a side.
+   - **Refuses, saying why:** arithmetic coding, lossless and hierarchical JPEGs, 12 bits a sample, a height that only a DNL marker gives, and more than 8192 px a side.
+   - **Four components** (amended 2026-10-14, PLAN 2.127) are a print workflow's inks: CMYK, or YCCK where an Adobe marker says they are transformed, each inverted as Adobe's marker means it, as Photoshop writes them. Each ink takes its share of white away under what black leaves, `v × k / 255` rounded as zune-jpeg rounds it, in integers; YCCK's first three are YCbCr's arithmetic above, then inverted. CMYK was refused until then.
    - The decoder is about 1,100 lines of code; its IDCT is 80 of them.
 2. **It is held to zune-jpeg, file by file.**
-   - `photos_decode_as_zune_jpeg_does` (in `scaena-export`, through `image`) compares every file in `tests/fixtures/jpeg` byte for byte. There are 17, covering:
+   - `photos_decode_as_zune_jpeg_does` (in `scaena-export`, through `image`) compares every file in `tests/fixtures/jpeg` byte for byte. There were 17, and with CMYK and YCCK (PLAN 2.127) there are 19, covering:
      - sampling at 4:4:4, 4:2:2, 4:2:0, 4:1:1, and 4:4:0;
      - progressive scans, with restarts and without, and Huffman tables of a file's own;
-     - gray and RGB;
+     - gray and RGB, and CMYK and YCCK;
      - sizes that are whole blocks and sizes that are not, and 1 × 1.
    - zune-jpeg takes its AVX2 paths on the machines CI runs on. So the test passing also says those paths agree with its portable one on these files.
    - Torture case 50 holds seven of the files to goldens: natively, in the WASM smoke page, and in the web player.
@@ -39,6 +40,7 @@ Five facts frame the choice:
 4. **The bundle keeps the file as it is.** It is saved as `assets/<sha256>.jpg`, and its content id is its bytes. Exports that carry pixels draw the decoded picture.
    - **The PDF carries the file itself,** drawn through the orientation's turn. It keeps what draws the picture: the frame, its tables and scans, and the JFIF and Adobe markers.
    - It leaves out EXIF, XMP, IPTC, the color profile, comments, and whatever follows the picture's end (`jpeg::stripped`). A photo in a PDF says nothing of where it was taken.
+   - A print workflow's CMYK or YCCK photo (PLAN 2.127) goes in the same way, its inks marked inverted as Adobe's marker means them (krilla's `Decode`). A viewer turns its inks into light by a profile of its own, so its page is near the slide rather than the same.
 5. **Color profiles are still not applied** (SPEC §3.3): pixels are taken as sRGB.
 
 ## Consequences
@@ -49,7 +51,7 @@ Five facts frame the choice:
 - **−** The decoder is ours to keep, and so are its bugs.
   - `a_damaged_file_is_an_error_or_a_picture_never_a_panic` holds it to never panicking: every truncation of four files, and 3,000 files with bytes changed at random.
   - The zune-jpeg test holds it to someone else's bytes.
-- **−** CMYK and 12-bit JPEGs are refused. A print shop's CMYK file has to be converted first.
+- **−** 12-bit JPEGs are refused. (CMYK ones are read since PLAN 2.127, with no color profile, as every photo is: a print shop's file shows its inks as a naive separation prints them.)
 - **−** vello's image atlas is unchanged. It is 8192 px square and holds every image a frame draws, so photos make the case Q11 raised likelier: six 12-megapixel photos on one slide. Reducing each image to the size it is drawn at is its own task (SPEC §16 Q11).
 
 ## Alternatives

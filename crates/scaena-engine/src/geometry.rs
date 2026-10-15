@@ -192,7 +192,7 @@ impl Scene {
         self.joins.get(node)?;
         let Content::Shape(shape) = &self.nodes.iter().find(|n| n.id == node)?.content else { return None };
         let [x, y, w, h] = self.tree.get(node)?.rect;
-        Some(shape.outline().1.iter().map(|p| [x + p[0] * w, y + p[1] * h]).collect())
+        Some(shape.traced().iter().map(|p| [x + p[0] * w, y + p[1] * h]).collect())
     }
 
     /// Shape `node`'s outline at rest (PLAN 2.68), its corners' steps from `theme`'s radius

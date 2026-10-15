@@ -177,6 +177,13 @@ W302 - adjust adj-bright /nodes/adj-bright/at/col
 W302 - adjust adj-dark /nodes/adj-dark/at/col
 W302 - adjust adj-card /nodes/adj-card/at/col
 W302 - adjust adj-vivid /nodes/adj-vivid/at/col
+W302 - connectors cn-a /nodes/cn-a/at/col
+W302 - connectors cn-b /nodes/cn-b/at/col
+W302 - connectors cn-c /nodes/cn-c/at/col
+W302 - connectors cn-d /nodes/cn-d/at/col
+W302 - connectors cn-e /nodes/cn-e/at/col
+W302 - connectors cn-f /nodes/cn-f/at/col
+W302 - connectors cn-rule /nodes/cn-rule/at/col
 W421 - chart-next - /states/23
 W421 - images - /states/26
 W421 - containers - /states/27

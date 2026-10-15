@@ -136,7 +136,8 @@ try {
   });
   check(!found.length, `axe finds nothing with a shape's handles shown${found.length ? `:\n    ${found.join("\n    ")}` : ""}`);
 
-  // Its apex dragged a quarter of the box left: one `choose` of its points, on the triangle.
+  // Its apex dragged a quarter of the box left: one `choose` of its points, on the triangle. The
+  // status names a shape by its kind, as the layers do: a triangle, then, with a point more, a polygon.
   await drag(apex, [apex[0] - tw / 4, apex[1]]);
   check(await says("The triangle: point 1 moved"), `the status says the point moved: ${await status()}`);
   await comes("points:[[0.25, 0], [1, 1], [0, 1]]");
@@ -167,7 +168,7 @@ try {
   check((await page.evaluate(() => window.scaena.canvas.pointPicked())) === 1, "a click on it picks it");
   check((await page.locator('#overlay svg [data-point="1"].picked').count()) === 1, "and draws it picked");
   await page.keyboard.press("Delete");
-  check(await says("The shape: point 2 taken away"), `Delete takes it away: ${await status()}`);
+  check(await says("The polygon: point 2 taken away"), `Delete takes it away: ${await status()}`);
   await comes("points:[[0.5, 0], [1, 1], [0, 1]]");
   check(declared(await source(), "shape-tri").includes("points:[[0.5, 0], [1, 1], [0, 1]]"), "the triangle as it was");
   check(await selects("shape-tri"), "and the triangle stays selected");
@@ -234,7 +235,7 @@ try {
   const corner = await handle("[data-radius]");
   const by = po.radii[4] - po.radius;
   await drag(corner, [corner[0] + by, corner[1] + by]);
-  check(await says("The shape: corners rounded 32 pt"), `the status says the step: ${await status()}`);
+  check(await says("The rectangle: corners rounded 32 pt"), `the status says the step: ${await status()}`);
   await comes("radius:radius.4");
   check(declared(await source(), "shape-panel").includes("radius:radius.4"), `written on the panel: ${declared(await source(), "shape-panel")}`);
   await undo();
@@ -257,7 +258,7 @@ try {
   await page.mouse.move(cx + 30, cy + 30, { steps: 4 });
   await page.keyboard.press("Escape");
   await page.mouse.up();
-  check(await says("The shape stays as it is"), `Escape leaves it: ${await status()}`);
+  check(await says("The rectangle stays as it is"), `Escape leaves it: ${await status()}`);
   await page.waitForTimeout(300);
   check((await source()) === original, "and nothing changes");
 

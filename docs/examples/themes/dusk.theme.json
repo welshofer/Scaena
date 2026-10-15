@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.16",
+  "scaena-theme": "0.17",
   "name": "Dusk",
   "description": "Dark surface, warm paper-white ink, one accent. Display type set tight with optical sizing; body set loose.",
   "tokens": {
@@ -63,7 +63,7 @@
   },
   "grid": { "columns": 12, "rows": 12, "gutter": 24, "margin": [96, 120], "baseline": 8 },
   "layouts": {
-    "title":           { "name": "Title", "description": "The opening: the talk's title, a line on what it's about, and a picture beside them.", "group": "Titles", "slots": { "kicker": { "col": [9, 12], "row": [11, 12], "role": "kicker", "align": { "x": "end" }, "prompt": "Your name · the date" }, "title": { "col": [1, 9], "row": [3, 8], "align": { "x": "start", "y": "cap" }, "role": "display", "prompt": "The talk's title" }, "subtitle": { "col": [1, 8], "row": [9, 10], "role": "title", "prompt": "What it's about, in a line" }, "art": { "col": [10, 12], "row": [3, 10], "prompt": "A picture, or a backdrop", "example": { "picture": "backdrop" } } } },
+    "title":           { "name": "Title", "description": "The opening: the talk's title, a line on what it's about, and a picture beside them.", "group": "Titles", "slots": { "kicker": { "col": [1, 8], "row": [11, 12], "role": "kicker", "align": { "y": "end" }, "prompt": "Your name · the date" }, "title": { "col": [1, 9], "row": [3, 8], "align": { "x": "start", "y": "cap" }, "role": "display", "prompt": "The talk's title" }, "subtitle": { "col": [1, 8], "row": [9, 10], "role": "title", "prompt": "What it's about, in a line" }, "art": { "col": [10, 12], "row": [3, 10], "prompt": "A picture, or a backdrop", "example": { "picture": "backdrop" } } } },
     "section":         { "name": "Section", "description": "A section's opening: its number, its name, and what it covers.", "group": "Titles", "slots": { "kicker": { "col": [9, 12], "row": [11, 12], "role": "kicker", "align": { "x": "end" } }, "number": { "col": [1, 4], "row": [3, 4], "role": "numeral", "prompt": "01" }, "title": { "col": [1, 10], "row": [5, 8], "role": "display", "align": { "x": "start", "y": "end" }, "prompt": "Section title" }, "support": { "col": [1, 8], "row": [9, 10], "role": "lede", "prompt": "What this part covers" } } },
     "photo-title":     { "name": "Title over Photo", "description": "A picture across the whole slide, the title over its foot.", "group": "Titles", "slots": { "art": { "col": [1, 12], "row": [1, 12], "bleed": true, "prompt": "A picture, edge to edge", "example": { "picture": "backdrop" } }, "title": { "col": [1, 10], "row": [8, 10], "role": "display", "prompt": "The talk's title" }, "subtitle": { "col": [1, 8], "row": [11, 12], "role": "lede", "prompt": "What it's about, in a line" } } },
     "title-only":      { "name": "Title Only", "description": "A headline alone: the rest of the slide is free for what you place on it.", "group": "Titles", "slots": { "kicker": { "col": [9, 12], "row": [11, 12], "role": "kicker", "align": { "x": "end" } }, "header": { "col": [1, 10], "row": [1, 2], "role": "headline", "prompt": "What this slide says" } } },
@@ -206,6 +206,7 @@
       "fade":         { "from": { "opacity": 0 }, "duration": "standard", "ease": "out", "description": "Opacity only." },
       "rise":         { "from": { "opacity": 0, "transform": { "translate": [0, 24] } }, "duration": "standard", "ease": "out", "description": "Fade up from 24cu below." },
       "words":        { "from": { "opacity": 0, "transform": { "translate": [0, 12] } }, "split": "words", "stagger": 28, "ease": "out", "duration": "fast", "description": "Word-by-word rise." },
+      "bullets":      { "from": { "opacity": 0, "transform": { "translate": [0, 16] } }, "split": "paragraphs", "stagger": 240, "ease": "out", "duration": "standard", "description": "By bullet: each paragraph, a list's item, rises in on a click of its own; in one click, one after another." },
       "typewriter":   { "from": { "opacity": 0 }, "split": "glyphs", "stagger": 40, "duration": 0, "description": "Letter by letter, each at once, as typed." },
       "pop":          { "from": { "opacity": 0, "transform": { "scale": 0.5 } }, "to": { "transform": { "scale": 1.12 } }, "spring": "bouncy", "description": "Springs up from half its size, past it and back; as emphasis, swells and settles." },
       "scale":        { "from": { "transform": { "scale": 0 } }, "duration": "standard", "ease": "out", "description": "Grows from nothing about its middle." },

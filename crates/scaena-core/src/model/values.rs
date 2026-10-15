@@ -401,23 +401,28 @@ pub struct PresetCall {
     pub params: Option<LookParams>,
 }
 
-/// What a choreographed entrance splits its target into.
+/// What a choreographed entrance splits its target into. A text's `paragraphs` are the stretches
+/// its hard line breaks end, a list's items (deck format 0.27, theme format 0.17).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum SplitUnit {
     Lines,
     Words,
     Glyphs,
+    Paragraphs,
     Children,
     Marks,
 }
 
 impl SplitUnit {
-    /// Whether a node of `node_type` splits into these (SPEC §3.9): lines, words, and glyphs are
-    /// a text's, children a stack's, a grid's, a frame's, or a group's, and marks a chart's.
+    /// Whether a node of `node_type` splits into these (SPEC §3.9): lines, words, glyphs, and
+    /// paragraphs are a text's, children a stack's, a grid's, a frame's, or a group's, and marks a
+    /// chart's.
     pub fn splits(self, node_type: NodeType) -> bool {
         match self {
-            SplitUnit::Lines | SplitUnit::Words | SplitUnit::Glyphs => node_type == NodeType::Text,
+            SplitUnit::Lines | SplitUnit::Words | SplitUnit::Glyphs | SplitUnit::Paragraphs => {
+                node_type == NodeType::Text
+            }
             SplitUnit::Children => {
                 matches!(node_type, NodeType::Stack | NodeType::Grid | NodeType::Frame | NodeType::Group)
             }
@@ -445,6 +450,7 @@ pub enum TextSplit {
     Lines,
     Words,
     Glyphs,
+    Paragraphs,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]

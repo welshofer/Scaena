@@ -291,7 +291,8 @@ export interface Choices {
   fields: Field[];
   /** The node as a person names it, by what it shows: its words, else its kind (PLAN 2.99). */
   said?: string;
-  /** Its kind as a person names it: `Text`, `Chart`, `Background Effect` (PLAN 2.99). */
+  /** Its kind as a person names it: `Text`, `Chart`, `Background Effect`, a shape's own, `Star`;
+   * `Icon` for a path on a view, and `Drawing` for the pen's (PLAN 2.99). */
   noun?: string;
 }
 
@@ -345,7 +346,8 @@ export interface FurnitureChoice {
 
 /** The words an editor shows for a state (PLAN 2.99): each object it shows named by what it
  * shows and by its kind, each of the theme's names said by its kind of name (`color`,
- * `text-role`, `layout`, …), and how a motion, its split, and a shape are said. */
+ * `text-role`, `layout`, …, and `motion-exit`, each motion preset as a Build Out effect), and how a
+ * motion, its split, and a shape are said. */
 export interface Lexicon {
   objects: Record<string, string>;
   kinds: Record<string, string>;
@@ -568,6 +570,9 @@ export interface Insert {
   /** The box it takes at first: about the pointer, each side a share of the canvas's; or a slot
    * it fills, under what is there. */
   start: { box: { w: number; h: number } } | { slot: string };
+  /** The data source it reads where the deck has none to offer (a chart or a table of sample
+   * rows), which the patch that inserts it adds first. */
+  sample?: { name: string; source: unknown };
 }
 
 /** A state at rest, painted small for the state strip (PLAN 2.35): what identifies its drawing,
@@ -1629,7 +1634,7 @@ export type Curve = { ease: [number, number, number, number] } | { spring: { sti
 export interface Motion {
   node: string;
   motion: "enter" | "exit" | "emphasis" | "anim";
-  /** What it moves one at a time: lines, words, glyphs, children, or marks. */
+  /** What it moves one at a time: lines, words, glyphs, paragraphs, children, or marks. */
   split?: string | null;
   units: number;
   start: number;

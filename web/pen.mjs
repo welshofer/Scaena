@@ -113,6 +113,10 @@ try {
   check(/accent/.test(await declared("drawing")), "in the theme's accent");
   check(await says("A drawing drawn on this slide"), `the status says what was drawn: ${await status()}`);
   check((await selected()) === "drawing", "selected");
+  // The inspector heads it a Drawing, no icon for the icon picker to replace.
+  await page.waitForFunction(() => document.querySelector("#look h2")?.textContent === "Drawing", null, { timeout: 30000 }).catch(() => {});
+  const heading = await page.evaluate(() => document.querySelector("#look h2")?.textContent);
+  check(heading === "Drawing", `the inspector heads it a Drawing: ${heading}`);
   const first = await box("drawing");
   check(Boolean(first) && first[0] <= 300 && first[0] + first[2] >= 900 && first[1] <= 700 && first[1] + first[3] >= 800, `where it was drawn: ${first}`);
   check((await strokes()) === 1, "one stroke");
@@ -146,7 +150,8 @@ try {
   check(await settled(() => window.scaena.source().includes("drawing shape")), "the pen draws another drawing");
   await key("Escape");
   await settled(() => window.scaena.canvas.pen() === undefined);
-  check((await selected()) === "drawing", "put down, the pen leaves the drawing selected");
+  // The canvas selects the drawing once it has drawn the slide with it, after the source shows it.
+  check(await settled(() => window.scaena.canvas.selected() === "drawing"), `put down, the pen leaves the drawing selected: ${await selected()}`);
   const strokesDrawn = (await declared("drawing")).match(/path:"([^"]*)"/)?.[1];
   await page.selectOption("#insert", "icon");
   await page.waitForSelector("#iconing[open] .icons button.icon", { timeout: 30000 });

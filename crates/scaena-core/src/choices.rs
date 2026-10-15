@@ -19,6 +19,7 @@ use crate::lint::literal;
 use crate::looks::{casts, rounds, see_through};
 use crate::model::check::Checker;
 use crate::model::theme::{Theme, Vocabulary};
+use crate::model::values::SplitUnit;
 use crate::tracking::{Lives, layout_lives, layout_takers, lives_shown, merge_props, resolve_states};
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -33,14 +34,15 @@ pub struct Choices {
     pub state: String,
     /// Each property the inspector edits: the node type's own, then those every node has.
     pub fields: Vec<Field>,
-    /// The node as a person names it, by what it shows (PLAN 2.99, [`crate::words::object`]):
+    /// The node as a person names it, by what it shows (PLAN 2.99, [`crate::words::object_in`]):
     /// what the session words its answers with for an editor, absent elsewhere.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(skip)]
     pub said: Option<String>,
-    /// Its kind as a person names it, `Text` or `Chart` ([`crate::words::kind`]), as `said` is;
-    /// `Icon` for a filled path on a view (PLAN 2.104, [`crate::inserts::is_icon`]), which the
-    /// icon picker replaces (PLAN G.23); a pen's drawing, stroked, is a `Shape`.
+    /// Its kind as a person names it, `Text`, `Chart`, or a shape's, `Star` ([`crate::words::kind_of`]),
+    /// as `said` is; `Icon` for a filled path on a view (PLAN 2.104, [`crate::inserts::is_icon`]),
+    /// which the icon picker replaces (PLAN G.23), and `Drawing` for the pen's, stroked (PLAN 2.114),
+    /// which it does not.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(skip)]
     pub noun: Option<String>,
@@ -104,6 +106,7 @@ pub struct Field {
     /// What the theme gives a text's look where the deck sets none, which the state then shows:
     /// its role's family, weight, size, italic, case, tracking, or color; how its slot fits it
     /// (theme format 0.13); where a shape's words stand across it, in its middle (PLAN 2.108);
+    /// how a connector runs and a line's ends are drawn where it says none (PLAN 2.128);
     /// and for characters selected, the text's own look where their run sets none, its role and
     /// emphasis too. What an inspector shows in place of a blank. Absent for any other property.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -221,6 +224,10 @@ fn own(node_type: NodeType) -> &'static [(&'static str, Source)] {
             ("stroke/paint", Names(V::Color, true)),
             ("stroke/width", Names(V::Stroke, true)),
             ("radius", Names(V::Radius, true)),
+            // How a connector runs, and what a line's ends are drawn with (PLAN 2.128).
+            ("connect/route", Schema(false)),
+            ("ends/start", Schema(false)),
+            ("ends/end", Schema(false)),
             // The shadow it casts (PLAN 2.115).
             ("shadow", Names(V::Shadow, false)),
         ],
@@ -319,6 +326,27 @@ pub fn choices(
         if prop.starts_with("interval/") && kind != Some("range") {
             return None;
         }
+        // A donut colors its slices by category and keys them by it alone: it has no series.
+        if matches!(prop, "series/field" | "color/field") && kind == Some("donut") {
+            return None;
+        }
+        // A shape offers what its kind draws (PLAN 2.106, 2.115): corners on a rectangle; a fill
+        // on what closes, not a line or an arrow; a shadow under a rectangle or an ellipse.
+        if node_type == NodeType::Shape {
+            let path = shown.contains_key("path");
+            let kind = kind.unwrap_or(if path { "path" } else { "rect" });
+            let draws = match prop {
+                "radius" => kind == "rect",
+                "fill" => !matches!(kind, "line" | "arrow"),
+                "shadow" => matches!(kind, "rect" | "ellipse"),
+                "ends/start" | "ends/end" => matches!(kind, "line" | "arrow"),
+                "connect/route" => shown.contains_key("connect"),
+                _ => true,
+            };
+            if !draws {
+                return None;
+            }
+        }
         // A connector goes where what it joins goes (PLAN 2.109): it turns with neither.
         if prop.starts_with("transform/") && crate::tracking::connects_of(own_props).is_some() {
             return None;
@@ -355,6 +383,10 @@ pub fn choices(
                             kind && p.split.is_none_or(|split| split.owned(node_type, emphasis))
                         })
                     });
+                    // A build by bullet moves a text's paragraphs (PLAN 2.129): a text of two or
+                    // more with words offers it.
+                    let bullets = node_type == NodeType::Text && crate::builds::paragraphs(&shown).len() >= 2;
+                    names.retain(|n| bullets || presets.get(n).and_then(|p| p.split) != Some(SplitUnit::Paragraphs));
                 }
                 Takes::Name { of, names, overrides }
             }
@@ -362,6 +394,13 @@ pub fn choices(
                 // A text's lines are set from its start where it would stretch.
                 Takes::Word { mut words } if prop == "align/x" => {
                     words.retain(|w| w != "stretch");
+                    Takes::Word { words }
+                }
+                // A chart takes the kinds its data makes, and the one it is.
+                Takes::Word { mut words } if node_type == NodeType::Chart && prop == "kind" => {
+                    if let Some(table) = &table {
+                        words.retain(|w| kind == Some(w.as_str()) || makes(w, table, &shown));
+                    }
                     Takes::Word { words }
                 }
                 takes => takes,
@@ -382,13 +421,31 @@ pub fn choices(
         // A shape's words stand in its middle across it where they say nothing (PLAN 2.108).
         let words = crate::tracking::words_of(deck, own_props).is_some() && prop == "align/x";
         let gives = || {
-            (role_gives(theme, role, prop).or_else(|| slot_gives(theme, layout, shown.get("at"), prop)))
+            role_gives(theme, role, prop)
+                .or_else(|| slot_gives(theme, layout, shown.get("at"), prop))
                 .or_else(|| words.then(|| Value::from("center")))
+                .or_else(|| aligned(theme, layout, &shown, prop))
         };
-        let theme = (node_type == NodeType::Text).then(gives).flatten();
+        let theme = match node_type {
+            NodeType::Text => gives(),
+            NodeType::Shape => drawn_with(&shown, prop),
+            _ => None,
+        };
         Some(Field { prop: prop.into(), takes, value: value.cloned(), lives, literal, theme, words: None })
     });
     Ok(Choices { node: node.into(), node_type, state: state.into(), fields: fields.collect(), said: None, noun: None })
+}
+
+/// How a line is drawn where nothing in the deck says (PLAN 2.128): a connector runs straight, a
+/// line's ends are bare, and an arrow's last is a filled head. None for any other property.
+fn drawn_with(shown: &Props, prop: &str) -> Option<Value> {
+    let arrow = shown.get("kind").and_then(Value::as_str) == Some("arrow");
+    match prop {
+        "connect/route" => Some(Value::from("straight")),
+        "ends/start" => Some(Value::from("none")),
+        "ends/end" => Some(Value::from(if arrow { "arrow" } else { "none" })),
+        _ => None,
+    }
 }
 
 /// What the theme gives `prop` of a text set in `role` where nothing in the deck sets it: the
@@ -419,6 +476,51 @@ fn slot_gives(theme: &Theme, layout: Option<&str>, at: Option<&Value>, prop: &st
     }
     let slot = at?.get("in")?.as_str()?;
     serde_json::to_value(theme.layouts.get(layout?)?.slots.get(slot)?.fit?).ok()
+}
+
+/// Where a text's lines stand across its box where nothing in the deck says (`align/x`), as the
+/// engine sets them: as the slot it is placed in in `layout` aligns them, else from their start
+/// (PLAN 3.25). A shape's words, which stand in its middle, are said before this is asked. None for
+/// any other property.
+fn aligned(theme: &Theme, layout: Option<&str>, shown: &Props, prop: &str) -> Option<Value> {
+    if prop != "align/x" {
+        return None;
+    }
+    let at = shown.get("at");
+    let slot = at.filter(|a| a.get("parent").is_none()).and_then(|a| a.get("in")).and_then(Value::as_str);
+    let align = slot.and_then(|s| theme.layouts.get(layout?)?.slots.get(s)?.align.as_ref());
+    let x = match align {
+        Some(crate::model::values::Align::Both(x)) => Some(*x),
+        Some(crate::model::values::Align::Axes(axes)) => axes.x,
+        None => None,
+    };
+    // A text set to stretch is set from its start.
+    let x = x.filter(|x| *x != crate::model::values::AlignX::Stretch);
+    Some(x.and_then(|x| serde_json::to_value(x).ok()).unwrap_or_else(|| Value::from("start")))
+}
+
+/// Whether a chart of `kind`, its other props as `shown` gives them, can be drawn from `table`, as
+/// validation (E103) and the chart's layout judge it: a scatter's `x` reads numbers or dates; a
+/// donut keys each slice by its `x` (or `key`) alone, so those tell its rows apart; a slope compares
+/// two of its `x`'s values; and a range spans the series its `series` or `color` gives, or each
+/// value's `interval`.
+fn makes(kind: &str, table: &data::Table, shown: &Props) -> bool {
+    let field = |c: &str| shown.get(c).and_then(|e| e.get("field")).and_then(Value::as_str);
+    let column = |c: &str| field(c).and_then(|f| table.column(f));
+    let (Some(x), Some(y)) = (column("x"), column("y")) else { return true };
+    let drawn = || table.rows.iter().filter(move |row| row[y] != data::Datum::Null);
+    match kind {
+        "scatter" => matches!(table.types[x], data::ColumnType::Number | data::ColumnType::Date),
+        "donut" => {
+            let by = shown.get("key").and_then(Value::as_str).and_then(|k| table.column(k)).unwrap_or(x);
+            let panel = column("facet");
+            let mut seen = std::collections::HashSet::new();
+            drawn().all(|row| seen.insert((panel.map(|p| row[p].label()), row[by].label())))
+        }
+        "slope" => crate::sort::set(drawn().map(|row| row[x].label())).len() == 2,
+        "range" => ["series", "color", "interval"].iter().any(|p| shown.contains_key(*p)),
+        _ => true,
+    }
 }
 
 /// What an inspector edits on characters selected in a text (PLAN 2.38): a run's own, which

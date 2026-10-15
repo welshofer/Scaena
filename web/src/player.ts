@@ -439,7 +439,7 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
   /** The presenter view's window, once this page opens it. */
   let view: Window | null = null;
   /** The presenter view, in a window of its own; one open already comes to the front as it is,
-   * its clock running, since opening its address again would load it anew. */
+   * its timer running, since opening its address again would load it anew. */
   const present = () => {
     if (view && !view.closed) return view.focus();
     const url = new URL(location.href);
@@ -751,11 +751,15 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
     link.textContent = again;
     status.replaceChildren(`${words} `, link, ", and this view follows it.");
   };
+  /** The wait for an answer to the last hello: a hello asked again ends the one before, so a player
+   * that closes as this view opens is said to have closed, not never to have been open. */
+  let waiting: ReturnType<typeof setTimeout> | undefined;
   /** Ask where the player is; with no answer in `ms`, say `words`. */
   const hello = (words: string, again: string, ms: number) => {
     heard = false;
     steer({ type: "hello" });
-    setTimeout(() => alone(words, again), ms);
+    clearTimeout(waiting);
+    waiting = setTimeout(() => alone(words, again), ms);
   };
   // The laser as the player draws it on the room's screen, drawn here on the slide this view shows;
   // with it on, the pointer over that slide points it.
@@ -821,7 +825,10 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
   // the ones it cannot keep up with go.
   let latest: Follow | undefined;
   let painting = false;
-  let next = -1;
+  const pane = $("#notes");
+  /** The state and the format the next state was painted for, and the size it was painted at. */
+  let next = "";
+  let nextSize: [number, number] | null = null;
   const follow = async () => {
     if (painting) return;
     painting = true;
@@ -831,14 +838,22 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
         latest = undefined;
         await now.show(states[at.index], at.t, at.format);
         $("#where").textContent = place(slots, at.index);
-        $("#notes").textContent = notes[at.index] || "No notes.";
-        if (at.index !== next) {
-          next = at.index;
+        // Other notes start at their top, however far the last were scrolled; a step that keeps its
+        // slide's notes keeps them where they stood.
+        const written = notes[at.index] || "No notes.";
+        if (pane.textContent !== written) {
+          pane.textContent = written;
+          pane.scrollTop = 0;
+        }
+        // The next state, painted again for another state, or in the format the player turned to.
+        const after = `${at.index} ${at.format ?? ""}`;
+        if (after !== next) {
+          next = after;
           const coming = states[at.index + 1];
           $("#nextName").textContent = coming ? `Next: ${slots[at.index + 1]?.said ?? coming}` : "The end of the deck.";
           // After the last state nothing comes: no slide stands where the next would.
           $("#upnext").hidden = !coming;
-          if (coming) await upNext.show(coming, undefined, at.format);
+          nextSize = coming ? (await upNext.show(coming, undefined, at.format)).size : null;
         }
         // A frame painted once the player has gone leaves what this view says of it.
         if (heard) status.textContent = "";
@@ -885,7 +900,7 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
           ({ states, notes } = now.opened);
           title();
           slots = await now.timeline();
-          next = -1;
+          next = "";
           steer({ type: "hello" });
         });
       },
@@ -902,6 +917,9 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
       timer: () => ({ shows: $("#clock").textContent, paused: since === undefined, now: $("#now").textContent }),
       /** Where the laser points on the slide, as the player says, or null. */
       pointed: () => (laser ? point : null),
+      /** The size the next state is painted at, in the format the player shows, or null after the
+       * last. */
+      coming: () => nextSize,
     },
   });
 }

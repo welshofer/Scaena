@@ -865,3 +865,80 @@ fn an_exit_on_a_spring_does_not_come_back_once_gone() {
     assert!(opacity[gone..].iter().all(|o| *o == 0.0), "gone at {gone} ms, and after: {opacity:?}");
     assert!(opacity[..gone].windows(2).all(|w| w[1] <= w[0]), "it only fades: {opacity:?}");
 }
+
+/// The words `ops` set, in paint order, each glyph run's own, and whether each is drawn whole
+/// (`true`) or through a layer that is fading or moving it.
+fn set_words(ops: &[Op], moved: bool, out: &mut Vec<(String, bool)>) {
+    for op in ops {
+        match op {
+            Op::Glyphs { text, .. } => out.push((text.trim().to_string(), !moved)),
+            Op::Layer { ops, opacity, transform, node, .. } => {
+                let moves = node.is_none() && (*opacity < 1.0 || *transform != [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
+                set_words(ops, moved || moves, out);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The words `node`'s layer sets in `dl`, each with whether it is at rest.
+fn words_of(dl: &DisplayList, node: &str) -> Vec<(String, bool)> {
+    let mut out = Vec::new();
+    if let Some(Op::Layer { ops, .. }) = layer(dl, node) {
+        set_words(ops, false, &mut out);
+    }
+    out.retain(|(w, _)| !w.is_empty());
+    out
+}
+
+/// A list built by bullet (PLAN 2.129): a step for each of its paragraphs, the text laid out whole
+/// in each so that none moves, each step drawing the paragraphs it says. The paragraph a step
+/// draws anew rises in by the text's own entrance while the rest stay as they are; one it draws no
+/// longer fades out by its exit.
+#[test]
+fn a_list_builds_by_bullet_a_paragraph_a_click() {
+    let mut t = text("Plants\nChlorophyll\nWater", "main");
+    t["enter"] = json!("rise");
+    t["exit"] = json!("fade");
+    let nodes = json!({ "t": t });
+    let states = json!([
+        { "id": "s", "layout": "specimen", "props": { "t": { "paragraphs": [1, 1] } } },
+        { "id": "s-2", "slide": "s", "props": { "t": { "paragraphs": [1, 2] } } },
+        { "id": "s-3", "slide": "s", "props": { "t": { "paragraphs": null } } },
+        { "id": "s-4", "slide": "s", "props": { "t": { "paragraphs": [2, 3] } } }
+    ]);
+    let mut fx = Fx::new(deck(nodes, states), theme(|_| {}));
+    let rest = |fx: &mut Fx, state: &str| -> Vec<String> {
+        words_of(&fx.dl(state, f64::INFINITY), "t").into_iter().map(|(w, _)| w).collect()
+    };
+    assert_eq!(rest(&mut fx, "s"), ["Plants"]);
+    assert_eq!(rest(&mut fx, "s-2"), ["Plants", "Chlorophyll"]);
+    assert_eq!(rest(&mut fx, "s-3"), ["Plants", "Chlorophyll", "Water"]);
+    assert_eq!(rest(&mut fx, "s-4"), ["Chlorophyll", "Water"]);
+    // Laid out whole in each: the text stands where it stands with all of it, and its first
+    // paragraph's glyphs where they are.
+    let (s, all) = (fx.dl("s", f64::INFINITY), fx.dl("s-3", f64::INFINITY));
+    assert_eq!(seen(&s, "t"), seen(&all, "t"));
+    let first = |dl: &DisplayList| match layer(dl, "t") {
+        Some(Op::Layer { ops, .. }) => ops.iter().find(|op| matches!(op, Op::Glyphs { .. })).cloned(),
+        _ => None,
+    };
+    assert_eq!(first(&s), first(&all));
+    // The second step cuts in, and its new paragraph rises by `rise` (420 ms) as the first stays.
+    assert_eq!(fx.frame("s-2", f64::INFINITY).duration_ms, 420.0);
+    let mid = words_of(&fx.dl("s-2", 200.0), "t");
+    assert_eq!(mid, [("Plants".to_string(), true), ("Chlorophyll".to_string(), false)], "{mid:?}");
+    // Out by bullet: the first fades out by `fade`, the others stay.
+    let mid = words_of(&fx.dl("s-4", 100.0), "t");
+    assert!(mid.contains(&("Plants".to_string(), false)), "{mid:?}");
+    assert!(mid.contains(&("Water".to_string(), true)), "{mid:?}");
+    // In one click, a cue that splits a text by its paragraphs brings them in one by one.
+    let nodes = json!({ "t": text("Plants\nChlorophyll\nWater", "main") });
+    let states = json!([{
+        "id": "s", "layout": "specimen", "props": { "t": {} },
+        "choreography": [{ "target": "t", "split": "paragraphs", "enter": "rise", "stagger": 100, "timing": "with" }]
+    }]);
+    let mut fx = Fx::new(deck(nodes, states), theme(|_| {}));
+    let counts: Vec<usize> = [50.0, 150.0, 250.0].map(|t| units(&fx.dl("s", t), "t")).to_vec();
+    assert_eq!(counts, [1, 2, 3], "each paragraph starts 100 ms after the one before");
+}

@@ -159,6 +159,12 @@ impl Engine {
         self
     }
 
+    /// An image file the bundle has gained, at `path`, so a deck that names it lays out: what
+    /// the engine draws now is drawn as before.
+    pub fn add_image(&mut self, path: &str, bytes: &[u8]) -> Result<crate::images::ImageInfo, EngineError> {
+        self.images.register(path, bytes)
+    }
+
     /// The bundle's fonts, as registered.
     pub fn fonts(&self) -> &BundleFonts {
         &self.fonts
@@ -485,7 +491,9 @@ impl Engine {
         let furniture = self.furniture(deck, theme, &grid, snap)?;
         // What each connector joins, which a drag of either end runs it between again (PLAN 2.109).
         let joins = (placement.joined.keys())
-            .filter_map(|id| Some((id.clone(), crate::shapes::Joint::of(snap.nodes.get(id.as_str())?, theme)?)))
+            .filter_map(|id| {
+                Some((id.clone(), crate::shapes::Joint::of(snap.nodes.get(id.as_str())?, theme, &snap.nodes)?))
+            })
             .collect();
         Ok(Scene {
             state: snap.state_id.clone(),
@@ -731,6 +739,14 @@ impl Engine {
         let clip = (fit == TextFit::Clip).then_some(cell);
         let top = text_top(cell, align_y, &text, trim);
         let origin = [cell[0], top + to_grid(lines, spec.role.snap, align_y, top, &text)];
+        // The paragraphs a state draws (PLAN 2.129): laid out whole, so each keeps its place.
+        let text = match props.get("paragraphs") {
+            Some(drawn) => {
+                let drawn = scaena_core::lists::drawn(Some(drawn), text.paragraph_count());
+                text.keeping(|p| drawn.contains(&p))
+            }
+            None => text,
+        };
         Ok(PlacedText { cell, origin, text, scale, overflow, clip })
     }
 }
@@ -1012,7 +1028,8 @@ fn span_key(drawn: u64, deck: &Deck, snapshots: &[Snapshot], i: usize) -> u64 {
 fn rejoin(theme: &Theme, snap: &Snapshot, placement: &mut Placement, tree: &mut HashMap<String, Place>) {
     let joined: Vec<String> = placement.joined.keys().cloned().collect();
     for id in joined {
-        let Some(joint) = snap.nodes.get(&id).and_then(|props| crate::shapes::Joint::of(props, theme)) else {
+        let Some(joint) = snap.nodes.get(&id).and_then(|props| crate::shapes::Joint::of(props, theme, &snap.nodes))
+        else {
             continue;
         };
         let moved = |end: &str| crate::sample::posed(tree, end, true) != [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];

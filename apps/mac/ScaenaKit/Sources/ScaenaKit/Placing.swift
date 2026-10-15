@@ -93,6 +93,19 @@ extension Targets {
         let placedFreely = at?["rect"].map { $0 != .null } ?? false
         return snap(at: at, resize: resize, shift: placedFreely)
     }
+
+    /// `to`, a box a corner of the node's (`cell`) was dragged to, made `keep` wide for each unit
+    /// tall, as a presentation app scales a picture by its corner and the browser's canvas keeps
+    /// one (`kept`): by the side the drag changed more, its other side following, the corner across
+    /// from the one dragged where it was. `west` and `north` say which corner is dragged.
+    public func kept(_ to: CGRect, west: Bool, north: Bool, keep: Double) -> CGRect {
+        let (w, h) = (Double(to.width), Double(to.height))
+        let wide = abs(w / Double(cell.width) - 1) >= abs(h / Double(cell.height) - 1)
+        let (kw, kh) = wide ? (w, w / keep) : (h * keep, h)
+        let x = west ? Double(cell.maxX) - kw : Double(to.minX)
+        let y = north ? Double(cell.maxY) - kh : Double(to.minY)
+        return CGRect(x: x, y: y, width: max(1, kw), height: max(1, kh))
+    }
 }
 
 /// Where a box left on the canvas lands: the box a guide shows there, the patch that puts the node

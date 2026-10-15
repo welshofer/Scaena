@@ -139,11 +139,14 @@ fn each_node_type_offers_what_its_theme_names() {
         (Some(json!("ambient")), Some(Where::Node))
     );
 
-    // A chart's kind is a word, and `mix` sets its own.
+    // A chart's kind is a word, and `mix` sets its own: those its data makes. Its quarters
+    // repeat, one row a product, so no donut keys its slices by them; and a quarter is no number
+    // or date for a scatter's x.
     let rev = offered(&example(), "mix", "rev");
     let kind = field(&rev, "kind");
     let Takes::Word { words } = &kind.takes else { panic!("{kind:?}") };
-    assert!(words.contains(&"stackedBar".to_string()) && words.contains(&"donut".to_string()), "{words:?}");
+    assert!(words.contains(&"stackedBar".to_string()) && words.contains(&"line".to_string()), "{words:?}");
+    assert!(!words.contains(&"donut".to_string()) && !words.contains(&"scatter".to_string()), "{words:?}");
     assert_eq!((kind.value.clone(), kind.lives.clone()), (Some(json!("stackedBar")), Some(Where::State("mix".into()))));
     assert!(rev.fields.iter().any(|f| f.prop == "labels/role"));
 
@@ -178,6 +181,33 @@ fn each_build_offered_splits_only_what_its_node_has() {
         let rev = names("revenue", "rev", prop);
         assert!(["typewriter", "words", "grow"].iter().all(|p| has(&rev, p)), "{prop}: {rev:?}");
     }
+}
+
+/// By Bullet (PLAN 2.129) brings a text in, or takes it away, a paragraph a click: Build In and
+/// Build Out offer it beside Word by Word for a text of two or more paragraphs with words, and
+/// for no text of one, blank lines or none, no other node, and no emphasis.
+#[test]
+fn by_bullet_is_offered_for_a_text_of_paragraphs() {
+    let mut doc = example();
+    doc["nodes"]["list"] = json!({ "type": "text", "role": "body", "text": "Plants\nChlorophyll\nWater",
+        "at": { "rect": [96, 600, 800, 300] } });
+    doc["nodes"]["one"] =
+        json!({ "type": "text", "role": "body", "text": "Plants\n\n", "at": { "rect": [960, 600, 800, 300] } });
+    doc["states"][1]["props"]["list"] = json!({});
+    doc["states"][1]["props"]["one"] = json!({});
+    let names = |node: &str, prop: &str| match &field(&offered(&doc, "revenue", node), prop).takes {
+        Takes::Name { of: Vocabulary::MotionPreset, names, .. } => names.clone(),
+        takes => panic!("{node} {prop}: {takes:?}"),
+    };
+    for prop in ["enter", "exit"] {
+        let list = names("list", prop);
+        let at = |p: &str| list.iter().position(|n| n == p);
+        assert!(at("bullets").is_some() && at("bullets") == at("words").map(|k| k + 1), "{prop}: {list:?}");
+        for node in ["one", "title", "rev"] {
+            assert!(!names(node, prop).iter().any(|n| n == "bullets"), "{node} {prop}");
+        }
+    }
+    assert!(!names("list", "emphasis").iter().any(|n| n == "bullets"), "no emphasis");
 }
 
 /// What never tracks is the state's own (SPEC §2.2): an emphasis chosen in a step lives there,
@@ -749,9 +779,11 @@ fn a_texts_look_says_what_its_role_gives_where_the_deck_sets_none() {
     assert_eq!(gives("style/case"), Some(json!("none")), "as typed");
     assert_eq!(gives("style/color"), Some(json!("onSurface")), "a role that names no color");
     assert!(field(&c, "style/size").value.is_none(), "the deck sets none of it");
-    for prop in ["role", "align/x", "fit", "opacity", "alt"] {
+    for prop in ["role", "fit", "opacity", "alt"] {
         assert_eq!(gives(prop), None, "{prop} is no part of a role's look");
     }
+    // Its lines stand from their start, as its slot sets none (PLAN 3.25).
+    assert_eq!(gives("align/x"), Some(json!("start")));
     // A chart's fields say nothing of the kind.
     let chart = offered(&example(), "revenue", "rev");
     assert!(chart.fields.iter().all(|f| f.theme.is_none()), "{:?}", chart.fields);
@@ -781,6 +813,72 @@ fn one_keyword_shows_as_each_axis() {
     assert_eq!((align.value.clone(), align.lives.clone()), (Some(json!("center")), Some(Where::Node)));
     doc["nodes"]["note"]["align"] = json!({ "y": "end" });
     assert_eq!(field(&offered(&doc, "revenue", "note"), "align/x").value, None, "it sets no `x`");
+}
+
+/// Where the deck sets no alignment, the field says where the text's lines stand (PLAN 3.25), as
+/// the engine sets them: as its slot aligns them, else from their start; in a shape, centered.
+#[test]
+fn a_texts_alignment_says_what_its_slot_gives() {
+    let mut doc = example();
+    let intro = offered(&doc, "intro", "title");
+    assert_eq!(field(&intro, "align/x").theme, Some(json!("start")), "the title layout's title slot");
+    doc["states"][0]["layout"] = json!("title-center");
+    let centered = offered(&doc, "intro", "title");
+    assert_eq!(field(&centered, "align/x").theme, Some(json!("center")));
+    assert!(field(&centered, "align/x").value.is_none(), "the deck sets none of it");
+    // In a shape, its words stand in its middle (PLAN 2.108).
+    doc["nodes"]["box"] =
+        json!({ "type": "shape", "kind": "rect", "fill": "accent", "at": { "rect": [96, 96, 400, 200] } });
+    doc["nodes"]["words"] = json!({ "type": "text", "role": "body", "text": "Start", "at": { "parent": "box" } });
+    doc["states"][0]["props"]["box"] = json!({});
+    doc["states"][0]["props"]["words"] = json!({});
+    assert_eq!(field(&offered(&doc, "intro", "words"), "align/x").theme, Some(json!("center")));
+}
+
+/// A shape offers what its kind draws (PLAN 2.106, 2.115): corners on a rectangle alone; a fill
+/// on what closes, and none on a line or an arrow; a shadow under a rectangle or an oval alone.
+#[test]
+fn a_shapes_fields_are_those_its_kind_draws() {
+    let mut doc = example();
+    let star = scaena_core::inserts::polygons().into_iter().find(|(name, ..)| *name == "star").unwrap().1;
+    for (id, node) in [
+        ("r", json!({ "type": "shape", "kind": "rect", "fill": "accent" })),
+        ("o", json!({ "type": "shape", "kind": "ellipse", "fill": "accent" })),
+        ("s", json!({ "type": "shape", "kind": "polygon", "points": star, "fill": "accent" })),
+        ("l", json!({ "type": "shape", "kind": "line" })),
+        ("a", json!({ "type": "shape", "kind": "arrow" })),
+    ] {
+        let mut node = node;
+        node["at"] = json!({ "rect": [96, 96, 300, 200] });
+        doc["nodes"][id] = node;
+        doc["states"][0]["props"][id] = json!({});
+    }
+    let has = |id: &str| -> Vec<String> {
+        let c = offered(&doc, "intro", id);
+        ["fill", "stroke/paint", "radius", "shadow"]
+            .iter()
+            .filter(|p| c.fields.iter().any(|f| f.prop == **p))
+            .map(|p| p.to_string())
+            .collect()
+    };
+    assert_eq!(has("r"), ["fill", "stroke/paint", "radius", "shadow"]);
+    assert_eq!(has("o"), ["fill", "stroke/paint", "shadow"]);
+    assert_eq!(has("s"), ["fill", "stroke/paint"]);
+    assert_eq!(has("l"), ["stroke/paint"]);
+    assert_eq!(has("a"), ["stroke/paint"]);
+}
+
+/// A donut keys its slices by its categories and colors each its own (PLAN 1.9): it offers no
+/// series and no color field, which would change nothing it draws.
+#[test]
+fn a_donut_offers_no_series() {
+    let mut doc = example();
+    doc["nodes"]["rev"]["kind"] = json!("donut");
+    doc["nodes"]["rev"]["dataTransform"] = json!([{ "filter": "quarter == '2025-Q4'" }]);
+    let donut = offered(&doc, "revenue", "rev");
+    let props: Vec<&str> = donut.fields.iter().map(|f| f.prop.as_str()).collect();
+    assert!(!props.contains(&"series/field") && !props.contains(&"color/field"), "{props:?}");
+    assert!(props.contains(&"x/field") && props.contains(&"y/field"), "{props:?}");
 }
 
 /// A PNG's header, its pixels of color type `color`: 2 in color, 6 in color with alpha.
@@ -852,6 +950,53 @@ fn a_connector_offers_no_turn() {
     field(&offered(&doc, "revenue", "title"), "transform/rotate");
 }
 
+/// A connector runs straight, by its corners, or curved, and a line's ends are drawn bare, as an
+/// arrowhead, or as a mark (PLAN 2.128): an inspector offers each where it offers the stroke, with
+/// what the line is drawn with where the deck says none, and each choice is one `choose`, written
+/// where the value lives. A line that joins nothing has no route, and a box has neither.
+#[test]
+fn a_connector_offers_its_route_and_a_line_its_ends() {
+    let mut doc = example();
+    doc["nodes"]["link"] = json!({ "type": "shape", "kind": "arrow", "connect": { "from": "title", "to": "rev" } });
+    doc["nodes"]["rule"] =
+        json!({ "type": "shape", "kind": "line", "points": [[0, 0], [1, 0]], "at": { "rect": [100, 900, 600, 4] } });
+    doc["nodes"]["box"] = json!({ "type": "shape", "kind": "rect", "at": { "rect": [100, 100, 200, 200] } });
+    for id in ["link", "rule", "box"] {
+        doc["states"][1]["props"][id] = json!({});
+    }
+    let link = offered(&doc, "revenue", "link");
+    let props: Vec<&str> = link.fields.iter().map(|f| f.prop.as_str()).collect();
+    let at = |p: &str| props.iter().position(|q| *q == p).unwrap_or_else(|| panic!("no {p} in {props:?}"));
+    assert!(at("stroke/width") < at("connect/route") && at("connect/route") < at("ends/start"), "{props:?}");
+    let words = |f: &Field| match &f.takes {
+        Takes::Word { words } => words.clone(),
+        takes => panic!("{takes:?}"),
+    };
+    let route = field(&link, "connect/route");
+    assert_eq!(words(route), ["straight", "elbow", "curved"]);
+    assert_eq!((route.value.clone(), route.theme.clone()), (None, Some(json!("straight"))));
+    let end = field(&link, "ends/end");
+    assert_eq!(words(end), ["none", "arrow", "open", "circle", "square", "diamond"]);
+    assert_eq!(end.theme, Some(json!("arrow")), "an arrow's last end is a head");
+    assert_eq!(field(&link, "ends/start").theme, Some(json!("none")));
+    let rule = offered(&doc, "revenue", "rule");
+    assert_eq!(field(&rule, "ends/end").theme, Some(json!("none")), "a line's ends are bare");
+    assert!(!rule.fields.iter().any(|f| f.prop == "connect/route"), "{:?}", rule.fields);
+    let square = offered(&doc, "revenue", "box");
+    assert!(!square.fields.iter().any(|f| f.prop.starts_with("ends/") || f.prop.starts_with("connect/")));
+
+    // Each a `choose`, on the node where its connection and its kind live.
+    let chosen = |doc: &Value, prop: &str, value: &str| {
+        let ops = json!([{ "op": "choose", "node": "link", "prop": prop, "value": value, "state": "revenue" }]);
+        compile(doc, ops.as_array().unwrap(), &Examples).unwrap().doc
+    };
+    let curved = chosen(&doc, "connect/route", "curved");
+    assert_eq!(curved["nodes"]["link"]["connect"], json!({ "from": "title", "to": "rev", "route": "curved" }));
+    let ends = chosen(&chosen(&curved, "ends/start", "circle"), "ends/end", "open");
+    assert_eq!(ends["nodes"]["link"]["ends"], json!({ "start": "circle", "end": "open" }));
+    assert_eq!(field(&offered(&ends, "revenue", "link"), "connect/route").value, Some(json!("curved")));
+}
+
 /// A shape's words stand in its middle across it where they say nothing (PLAN 2.108): what an
 /// inspector shows for their alignment, as it shows what a role gives.
 #[test]
@@ -863,5 +1008,6 @@ fn a_shapes_words_show_themselves_centered() {
     doc["states"][1]["props"]["star"] = json!({});
     let words = field(&offered(&doc, "revenue", "star-words"), "align/x").clone();
     assert_eq!((words.value, words.theme), (None, Some(json!("center"))));
-    assert_eq!(field(&offered(&doc, "revenue", "title"), "align/x").theme, None);
+    // A text of its own shows where its slot sets its lines: from their start (PLAN 3.25).
+    assert_eq!(field(&offered(&doc, "revenue", "title"), "align/x").theme, Some(json!("start")));
 }

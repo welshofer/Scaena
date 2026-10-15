@@ -913,6 +913,9 @@ OLD_SLOTS = {
 # number ends a row higher, as Big Number's does: a number in `hero` reaches below its baseline,
 # and a row left empty keeps it off the claim. A timeline's dates stand on its rule across the
 # middle of what the slide holds, from the row `top`, and what happened hangs under it to `last`.
+# A title slide's byline stands at its foot under the title and the line on what it is about, as
+# theirs do, not under the picture, where it would read as the picture's caption (Ember's runs
+# along the top).
 
 
 def timeline_rows(top, last=10):
@@ -921,9 +924,12 @@ def timeline_rows(top, last=10):
     return {**dates, "rule": {"row": [top + 3, top + 3]}, **happened}
 
 
+TITLE_KICKER = {"kicker": {"col": [1, 8], "row": [11, 12], "align": {"y": "end"}}}
+
 OLD_SLOTS_IN = {
-    "dusk": {"stat": {"number": {"row": [3, 7]}}, "timeline": timeline_rows(3)},
-    "daybreak": {"stat": {"number": {"row": [3, 7]}}, "timeline": timeline_rows(3)},
+    "dusk": {"stat": {"number": {"row": [3, 7]}}, "timeline": timeline_rows(3), "title": TITLE_KICKER},
+    "daybreak": {"stat": {"number": {"row": [3, 7]}}, "timeline": timeline_rows(3), "title": TITLE_KICKER},
+    "gallery": {"title": TITLE_KICKER},
     "ember": {"timeline": timeline_rows(4, last=12)},
 }
 

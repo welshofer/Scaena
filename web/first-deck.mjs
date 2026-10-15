@@ -10,8 +10,9 @@
 // - New, from its dialog: a deck in Dusk that opens on a title slide in the theme's title layout,
 //   its words to type over and its picture's place outlined (PLAN 3.30).
 // - Its title and the line under it typed over where they stand.
-// - + Slide, and Blank from its gallery of the theme's layouts (PLAN 3.30), then a body text typed
-//   as three lines and made a bulleted list with ⌘⇧8.
+// - + Slide, and Blank from its gallery of the theme's layouts (PLAN 3.30). With no data in the deck,
+//   Insert's chart is of sample rows, which come with it and go with one undo. Then a body text
+//   typed as three lines and made a bulleted list with ⌘⇧8.
 // - A CSV dropped on the slide becomes the deck's data source, and a chart of it lands there; the
 //   same file again is another chart of it, not a second source, and one undo takes it out; the
 //   Data tab shows its rows.
@@ -211,6 +212,26 @@ try {
     const states = await page.evaluate(() => [...document.querySelectorAll("#strip li")].map((li) => li.dataset.state));
     check(states.length === 2, `+ Slide's Blank adds a slide: ${states.join(", ")}`);
     await showState(1);
+  });
+
+  await step("sample-chart", async () => {
+    // The deck has no data, and Insert offers a chart and a table all the same, of a few sample
+    // rows, as a presentation app does: the chart comes with them, and one undo takes both out.
+    await until("a chart offered", () => document.querySelectorAll("#insert optgroup[label=Chart] option").length > 0);
+    const groups = await page.evaluate(() =>
+      Object.fromEntries([...document.querySelectorAll("#insert optgroup")].map((g) => [g.label, [...g.children].map((o) => o.textContent)])),
+    );
+    check(groups.Chart?.includes("sample") && groups.Table?.includes("sample"), `a deck with no data offers a chart and a table of sample rows: ${groups.Chart} · ${groups.Table}`);
+    const before = await mark();
+    await page.selectOption("#insert", { label: "sample" });
+    await changed(before);
+    const text = await source();
+    check(/^data sample\s+inline:\[/m.test(text) && /sample-chart chart:bar data:@sample/.test(text), `the chart comes with its rows: ${await status()}`);
+    const added = await mark();
+    await page.locator("#overlay").focus();
+    await page.keyboard.press("Control+z");
+    await changed(added);
+    check((await source()) === before.source, "one undo takes the chart and its rows out");
   });
 
   await step("insert-list", async () => {

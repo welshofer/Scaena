@@ -587,7 +587,7 @@ mod tests {
         assert_eq!((info.width, info.height), (45, 67));
         assert!(ImageInfo::read(&[0xFF, 0xD8, 0xFF, 0xE0]).unwrap_err().contains("JPEG"));
         let cmyk = include_bytes!("../../../tests/fixtures/jpeg/cmyk.jpg");
-        assert!(ImageInfo::read(cmyk).unwrap_err().contains("CMYK"));
+        assert_eq!(ImageInfo::read(cmyk).map(|i| (i.width, i.height)), Ok((67, 45)), "a CMYK photo is read");
         assert!(ImageInfo::read(b"GIF89a").unwrap_err().contains("neither a PNG nor a JPEG"));
         assert!(ImageInfo::read(&png(8192, 1)).is_ok());
         assert!(ImageInfo::read(&png(8193, 1)).unwrap_err().contains("at most 8192 px a side"));

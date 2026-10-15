@@ -3,14 +3,18 @@
 //! it takes at first. The page keeps no vocabulary of its own.
 //!
 //! - **A text** in each of the theme's roles, two of the role's lines tall and half the canvas
-//!   wide, its text the role's name.
+//!   wide, its text the role's name; but for a role the theme sets only a chart's or a table's
+//!   text in, which no slot of its layouts sets words in (`axis`).
 //! - **A shape** of each kind that needs no points: a rectangle and an ellipse, filled with the
 //!   theme's accent (or its first color); a line and an arrow, the theme's rule. And the shape
 //!   library's polygons (PLAN 2.106, [`polygons`]): triangles, a diamond, regular polygons, a
 //!   star, a chevron, block arrows, a plus, and a callout, filled as the rectangle is.
-//! - **An image** of each PNG and JPEG in the bundle.
+//! - **An image** of each PNG and JPEG in the bundle, in a box of the picture's own proportions,
+//!   its longer side a third of the canvas's width, or the picture's own pixels where fewer.
 //! - **A chart and a table** of each of the deck's data sources (PLAN 2.41), from the columns
-//!   it has, half the canvas each way; the table its first rows, as many as that holds.
+//!   it has, half the canvas each way; the table its first rows, as many as that holds. Where no
+//!   source offers one, a chart or a table of a few rows made up for it (`sample`), as a
+//!   presentation app's chart starts from sample data the user then edits.
 //! - **A shader** of each preset, filling the canvas, under what is there.
 //!
 //! An icon (PLAN 2.104) is offered by an editor's picker of the icons that ship, not here: the
@@ -37,6 +41,18 @@ pub struct Insert {
     pub id: String,
     /// The box it takes at first.
     pub start: Start,
+    /// The data source it reads where the deck has none to offer: a few rows made up for it,
+    /// which the patch that inserts it adds to the deck first.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sample: Option<Sample>,
+}
+
+/// A data source an insert brings with it: its name, and the source as the deck writes it, its
+/// rows inline.
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct Sample {
+    pub name: String,
+    pub source: Value,
 }
 
 /// The box an inserted node takes at first.
@@ -44,8 +60,9 @@ pub struct Insert {
 #[serde(rename_all = "lowercase")]
 pub enum Start {
     /// A box about the pointer, each side a fraction of the canvas's, snapped to the theme's
-    /// grid as a drop snaps; a text or an image fills instead the template's slot under the
-    /// pointer, if nothing fills it.
+    /// grid as a drop snaps; a text, an image, a chart, or a table fills instead the template's
+    /// slot under the pointer, if nothing fills it. An image keeps the box's proportions, which
+    /// are the picture's.
     Box { w: f32, h: f32 },
     /// A slot it fills whole, and under the nodes there (`z`): a shader fills the canvas.
     Slot(String),
@@ -147,13 +164,15 @@ pub fn inserts_on(
 ) -> Vec<Insert> {
     let [w, h] = canvas.map(|v| v as f32);
     let mut out = Vec::new();
-    for (role, look) in &theme.typography.roles {
+    let charted = charted(theme);
+    for (role, look) in theme.typography.roles.iter().filter(|(role, _)| !charted.contains(role.as_str())) {
         let tall = (2.0 * look.size * look.leading) as f32 / h;
         out.push(Insert {
             label: format!("Text · {role}"),
             node: json!({ "type": "text", "role": role, "text": sentence(role) }),
             id: role.clone(),
             start: Start::Box { w: 0.5, h: tall.clamp(1.0 / 12.0, 0.5) },
+            sample: None,
         });
     }
     let colors = theme.names(Vocabulary::Color);
@@ -162,7 +181,9 @@ pub fn inserts_on(
     for kind in ["rect", "ellipse"] {
         let Some(fill) = fill else { break };
         let node = json!({ "type": "shape", "kind": kind, "fill": fill });
-        out.push(Insert { label: format!("Shape · {kind}"), node, id: kind.into(), start: square(0.25) });
+        out.push(Insert {
+            label: format!("Shape · {kind}"), node, id: kind.into(), start: square(0.25), sample: None
+        });
     }
     // The shape library's polygons, each in the box its own shape takes: as wide as the
     // rectangle, and as tall as its aspect makes it.
@@ -170,7 +191,7 @@ pub fn inserts_on(
         let Some(fill) = fill else { break };
         let node = json!({ "type": "shape", "kind": "polygon", "points": points, "fill": fill });
         let start = Start::Box { w: 0.25, h: 0.25 * w / h / aspect as f32 };
-        out.push(Insert { label: format!("Shape · {name}"), node, id: name.into(), start });
+        out.push(Insert { label: format!("Shape · {name}"), node, id: name.into(), start, sample: None });
     }
     for kind in ["line", "arrow"] {
         let node = json!({ "type": "shape", "kind": kind });
@@ -179,9 +200,9 @@ pub fn inserts_on(
             node,
             id: kind.into(),
             start: Start::Box { w: 0.25, h: 1.0 / 12.0 },
+            sample: None,
         });
     }
-    let picture = |p: &str| [".png", ".jpg", ".jpeg"].iter().any(|e| p.to_ascii_lowercase().ends_with(e));
     for path in files.iter().filter(|p| picture(p)) {
         let name = path.rsplit('/').next().unwrap_or(path);
         let stem = name.rsplit_once('.').map_or(name, |(stem, _)| stem);
@@ -192,24 +213,56 @@ pub fn inserts_on(
             true => (format!("Image · {}…", &stem[..8]), format!("image-{}", stem[..8].to_ascii_lowercase())),
             false => (format!("Image · {name}"), slug(stem, "image")),
         };
-        out.push(Insert { label, node, id, start: square(1.0 / 3.0) });
+        // A picture keeps its own proportions: its longer side a third of the canvas's width, or
+        // its own pixels where fewer, so a small one is not blown up past them. One whose size
+        // does not read starts square.
+        let side = w / 3.0;
+        let start = match sources.bytes(path).as_deref().and_then(seen) {
+            Some((pw, ph)) => {
+                let long = side.min(pw.max(ph) as f32);
+                let [bw, bh] =
+                    if pw >= ph { [long, long * ph as f32 / pw as f32] } else { [long * pw as f32 / ph as f32, long] };
+                Start::Box { w: bw / w, h: bh / h }
+            }
+            None => square(1.0 / 3.0),
+        };
+        out.push(Insert { label, node, id, start, sample: None });
     }
+    let half = Start::Box { w: 0.5, h: 0.5 };
+    let mut figures = Vec::new();
     for name in deck.data.keys() {
         // A source that does not load offers nothing: validation says why.
         let Ok(table) = data::load(deck, sources, name) else { continue };
-        let half = Start::Box { w: 0.5, h: 0.5 };
         if let Some(node) = chart(name, &table) {
-            out.push(Insert {
-                label: format!("Chart · {name}"),
-                node,
-                id: format!("{name}-chart"),
-                start: half.clone(),
-            });
+            let id = format!("{name}-chart");
+            figures.push(Insert { label: format!("Chart · {name}"), node, id, start: half.clone(), sample: None });
         }
         if let Some(node) = table_of(name, &table) {
-            out.push(Insert { label: format!("Table · {name}"), node, id: format!("{name}-table"), start: half });
+            let id = format!("{name}-table");
+            figures.push(Insert { label: format!("Table · {name}"), node, id, start: half.clone(), sample: None });
         }
     }
+    // Where no source offers a chart, or a table, one of a few rows made up for it, which the
+    // user then edits, as a presentation app inserts one: a deck with no data has them too.
+    for (kind, made) in [("chart", chart as fn(&str, &Table) -> Option<Value>), ("table", table_of)] {
+        if figures.iter().any(|i| i.node["type"] == kind) {
+            continue;
+        }
+        let name = (1..)
+            .map(|n| if n == 1 { "sample".to_string() } else { format!("sample-{n}") })
+            .find(|name| !deck.data.contains_key(name))
+            .expect("some number is free");
+        let (source, table) = sample();
+        let Some(node) = made(&name, &table) else { continue };
+        figures.push(Insert {
+            label: format!("{} · {name}", sentence(kind)),
+            node,
+            id: format!("{name}-{kind}"),
+            start: half.clone(),
+            sample: Some(Sample { name: name.clone(), source }),
+        });
+    }
+    out.extend(figures);
     let presets = theme.shaders.as_ref().and_then(|s| s.presets.as_ref());
     for (name, preset) in presets.into_iter().flatten() {
         let node = json!({ "type": "shader", "kind": preset.kind, "preset": name, "z": -1 });
@@ -218,9 +271,69 @@ pub fn inserts_on(
             node,
             id: slug(name, "shader"),
             start: Start::Slot("canvas".into()),
+            sample: None,
         });
     }
     out
+}
+
+/// Whether the bundle's file at `path` is a picture Insert offers: a PNG or a JPEG.
+pub fn picture(path: &str) -> bool {
+    [".png", ".jpg", ".jpeg"].iter().any(|e| path.to_ascii_lowercase().ends_with(e))
+}
+
+/// The roles `theme` sets only a chart's or a table's text in: each its `charts` and `tables` name
+/// that no slot of its layouts sets words in, in any format. Insert offers no text in them.
+fn charted(theme: &Theme) -> HashSet<String> {
+    fn roles(v: &Value, out: &mut HashSet<String>) {
+        match v {
+            Value::Object(o) => {
+                if let Some(Value::String(role)) = o.get("role") {
+                    out.insert(role.clone());
+                }
+                o.values().for_each(|v| roles(v, out));
+            }
+            Value::Array(a) => a.iter().for_each(|v| roles(v, out)),
+            _ => {}
+        }
+    }
+    let mut named = HashSet::new();
+    roles(&serde_json::to_value(&theme.charts).unwrap_or_default(), &mut named);
+    roles(&serde_json::to_value(&theme.tables).unwrap_or_default(), &mut named);
+    let mut worded = HashSet::new();
+    roles(&serde_json::to_value(&theme.layouts).unwrap_or_default(), &mut worded);
+    named.retain(|role| !worded.contains(role));
+    named
+}
+
+/// The width and height of a PNG or a JPEG as it is seen, from its header: a JPEG's turned by its
+/// EXIF orientation. None for anything else, or a header that does not read.
+fn seen(bytes: &[u8]) -> Option<(u32, u32)> {
+    let (w, h) = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        // The first chunk is IHDR: length, type, then width and height, big-endian.
+        let ihdr = bytes.get(8..24).filter(|h| &h[4..8] == b"IHDR")?;
+        let be = |b: &[u8]| u32::from_be_bytes([b[0], b[1], b[2], b[3]]);
+        (be(&ihdr[8..12]), be(&ihdr[12..16]))
+    } else if crate::jpeg::is_jpeg(bytes) {
+        crate::jpeg::Header::read(bytes).ok()?.size()
+    } else {
+        return None;
+    };
+    (w > 0 && h > 0).then_some((w, h))
+}
+
+/// The rows a chart or a table inserted with no data of the deck's reads (`sample`), written
+/// inline, and the table they make: four quarters' sales.
+fn sample() -> (Value, Table) {
+    let quarters = [("Q1", 42.0), ("Q2", 58.0), ("Q3", 51.0), ("Q4", 73.0)];
+    let rows: Vec<Value> = quarters.iter().map(|(q, v)| json!({ "Quarter": q, "Sales": v })).collect();
+    let source = json!({ "source": { "inline": rows }, "schema": { "Quarter": "string", "Sales": "number" } });
+    let table = Table {
+        columns: vec!["Quarter".into(), "Sales".into()],
+        types: vec![ColumnType::String, ColumnType::Number],
+        rows: quarters.iter().map(|(q, v)| vec![Datum::Text(q.to_string()), Datum::Number(*v)]).collect(),
+    };
+    (source, table)
 }
 
 /// A chart of source `name`, read as `table`, from the columns it has: its `y` the first column
@@ -313,6 +426,7 @@ pub fn icon(canvas: [f64; 2], theme: &Theme, icon: &Icon) -> Insert {
         node,
         id: slug(&icon.name, "icon"),
         start: Start::Box { w: side, h: side * w / h },
+        sample: None,
     }
 }
 
@@ -426,8 +540,95 @@ mod tests {
             ]
         );
         assert_eq!(sentence("title"), "Title");
-        // A source the bundle does not hand over offers nothing to insert.
-        assert!(!offered.iter().any(|i| i.node["type"] == "chart" || i.node["type"] == "table"));
+        // A source the bundle does not hand over offers nothing to insert: a chart and a table of
+        // sample rows stand in for it.
+        let figures: Vec<(&str, &Value)> = offered
+            .iter()
+            .filter(|i| i.node["type"] == "chart" || i.node["type"] == "table")
+            .map(|i| (i.label.as_str(), &i.node["data"]))
+            .collect();
+        assert_eq!(figures, [("Chart · sample", &json!("@sample")), ("Table · sample", &json!("@sample"))]);
+    }
+
+    /// A picture is offered in a box of its own proportions (PLAN 2.34): its longer side a third of
+    /// the canvas's width, or its own pixels where fewer, read from its header; a JPEG's as its EXIF
+    /// orientation turns it.
+    #[test]
+    fn a_picture_is_offered_in_its_own_proportions() {
+        let deck = Deck::from_json(include_str!("../../../docs/examples/revenue.deck.json")).unwrap();
+        let theme: Theme = serde_json::from_str(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();
+        let png = |w: u32, h: u32| {
+            let mut b = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+            b.extend(w.to_be_bytes());
+            b.extend(h.to_be_bytes());
+            b
+        };
+        let files = BTreeMap::from([
+            ("assets/ridge.png".to_string(), png(1500, 1000)),
+            ("assets/strip.png".to_string(), png(9000, 40)),
+            ("assets/tall.png".to_string(), png(1000, 3000)),
+            ("assets/thumb.png".to_string(), png(67, 45)),
+            ("assets/broken.png".to_string(), b"not a picture".to_vec()),
+        ]);
+        let paths: Vec<String> = files.keys().cloned().collect();
+        let offered = inserts(&deck, &theme, &paths, &files);
+        let size = |id: &str| match offered.iter().find(|i| i.id == id).unwrap().start {
+            Start::Box { w, h } => [w * 1920.0, h * 1080.0],
+            Start::Slot(_) => unreachable!(),
+        };
+        let near = |[w, h]: [f32; 2], [ew, eh]: [f32; 2]| (w - ew).abs() < 0.01 && (h - eh).abs() < 0.01;
+        assert!(near(size("ridge"), [640.0, 426.6667]), "{:?}", size("ridge"));
+        assert!(near(size("strip"), [640.0, 640.0 * 40.0 / 9000.0]), "{:?}", size("strip"));
+        assert!(near(size("tall"), [640.0 / 3.0, 640.0]), "{:?}", size("tall"));
+        assert!(near(size("thumb"), [67.0, 45.0]), "no larger than its pixels: {:?}", size("thumb"));
+        assert!(near(size("broken"), [640.0, 640.0]), "one that does not read starts square: {:?}", size("broken"));
+    }
+
+    /// A deck with no data has a chart and a table to insert all the same (PLAN 2.41), as a
+    /// presentation app inserts one: of a few rows made up for it, which the insert brings, under a
+    /// name the deck has not; a deck whose source offers one has no sample.
+    #[test]
+    fn a_deck_with_no_data_is_offered_a_sample_chart_and_table() {
+        let mut deck = Deck::from_json(include_str!("../../../docs/examples/revenue.deck.json")).unwrap();
+        let theme: Theme = serde_json::from_str(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();
+        deck.data.clear();
+        let offered = inserts(&deck, &theme, &[], &BTreeMap::new());
+        let chart = offered.iter().find(|i| i.node["type"] == "chart").expect("a chart offered");
+        let table = offered.iter().find(|i| i.node["type"] == "table").expect("a table offered");
+        assert_eq!((chart.label.as_str(), chart.id.as_str()), ("Chart · sample", "sample-chart"));
+        assert_eq!((table.label.as_str(), table.id.as_str()), ("Table · sample", "sample-table"));
+        assert_eq!(chart.node["kind"], "bar");
+        let sample = chart.sample.as_ref().expect("it brings its rows");
+        assert_eq!((sample.name.as_str(), &table.sample.as_ref().unwrap().source), ("sample", &sample.source));
+        // The rows it brings are a source the deck reads as the chart does.
+        deck.data.insert(sample.name.clone(), serde_json::from_value(sample.source.clone()).unwrap());
+        let read = data::load(&deck, &BTreeMap::new(), "sample").unwrap();
+        assert_eq!((read.columns.len(), read.rows.len()), (2, 4));
+        // Now the deck has data, and the sample is its own source's: none other is offered.
+        let again = inserts(&deck, &theme, &[], &BTreeMap::new());
+        assert!(again.iter().filter(|i| i.node["type"] == "chart").all(|i| i.sample.is_none()));
+        assert_eq!(again.iter().filter(|i| i.node["type"] == "chart").count(), 1);
+        // A name the deck has is not taken again.
+        deck.data.insert("q".into(), serde_json::from_value(json!({ "source": "data/q.csv" })).unwrap());
+        deck.data.swap_remove("sample");
+        deck.data.insert("sample".into(), serde_json::from_value(json!({ "source": "data/gone.csv" })).unwrap());
+        let named = inserts(&deck, &theme, &[], &BTreeMap::new());
+        let chart = named.iter().find(|i| i.node["type"] == "chart").unwrap();
+        assert_eq!(chart.node["data"], "@sample-2");
+    }
+
+    /// Insert offers a text in each role a slide sets words in, and none in a role the theme sets
+    /// only a chart's or a table's text in: Dusk's `axis`, its charts' axes and its tables' header.
+    #[test]
+    fn no_text_is_offered_in_a_role_for_charts_alone() {
+        let deck = Deck::from_json(include_str!("../../../docs/examples/revenue.deck.json")).unwrap();
+        let theme: Theme = serde_json::from_str(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();
+        let offered = inserts(&deck, &theme, &[], &BTreeMap::new());
+        let roles: Vec<&str> = offered.iter().filter(|i| i.node["type"] == "text").map(|i| i.id.as_str()).collect();
+        assert!(!roles.contains(&"axis"), "{roles:?}");
+        assert!(roles.contains(&"value"), "a layout sets words in `value`: {roles:?}");
+        assert!(roles.contains(&"title") && roles.contains(&"body") && roles.contains(&"code"), "{roles:?}");
+        assert_eq!(roles.len(), theme.typography.roles.len() - 1);
     }
 
     /// The shape library (PLAN 2.106): after the rectangle and the oval, each polygon, filled as

@@ -555,7 +555,16 @@ pub fn inspect(b: &Bundle, state: Option<&str>, views: Views) -> Result<Vec<Insp
     // list of the bundle's files.
     if let (true, Some(theme)) = (views.inserts, &theme) {
         let paths = b.files.list().context("the bundle's files")?;
-        let offered = inserts(&b.deck, theme, &paths, &files);
+        // A picture is offered in its own proportions, which its header gives, as an editor's
+        // session offers it.
+        let mut read = files.clone();
+        let view = crate::lint::View::of(b);
+        for path in paths.iter().filter(|p| scaena_core::inserts::picture(p)) {
+            if let Ok(bytes) = view.read(path) {
+                read.insert(path.clone(), bytes);
+            }
+        }
+        let offered = inserts(&b.deck, theme, &paths, &read);
         out.iter_mut().for_each(|i| i.inserts = Some(offered.clone()));
     }
     // The layouts a state may take are judged by lint, which reads the bundle's files.
@@ -859,18 +868,33 @@ pub struct Added {
     pub copies: IndexMap<String, String>,
 }
 
+/// What an insert lands clear of where it can (PLAN 2.79), as boxes in canvas units: what lint
+/// E101 judges it against (`all`, `Scene::crowded`), in the state it enters in and each later
+/// step of its slide; of that, what is placed in that state other than in a slot of the layout
+/// (`loose`), whose slot is taken; and what of `all` sets words (`words`), which content is kept
+/// off where nothing is clear of all of it.
+#[derive(Debug, Clone, Default)]
+pub struct Crowd {
+    pub all: Vec<[f32; 4]>,
+    pub loose: Vec<[f32; 4]>,
+    pub words: Vec<[f32; 4]>,
+}
+
 /// The patch that inserts `insert` in `state` as `room`'s node (PLAN 2.34): `add_node`, the
 /// node entering there, then `place`, then where it leaves, so it stays on the slide (PLAN
-/// 3.26). A text, an image, or an icon fills the template's slot under `at` (canvas units) where
-/// no node of the state's is placed in it and `theme`'s layout says it goes there: a text where
-/// words go, an image where a picture or a figure does, an icon where an icon does (PLAN G.23,
-/// `Slot::takes`). Anything else, or one with no such slot free, takes the box it starts as,
-/// about `at`, snapped to the theme's
-/// grid as a drop snaps; a shader fills the slot it names. What draws content (a text, an
-/// image, a chart, a table) and would overlap what is `crowded` there (`Scene::crowded`, what
-/// lint E101 judges it against) goes instead to the place on the grid clear of it whose middle
-/// is nearest `at`, and stays about `at` where none is (PLAN 2.79). `room` is the engine's for
-/// the new node in `deck` (`Engine::room`), its cell the box `insert` starts as.
+/// 3.26). A text, an image, a chart, a table, or an icon fills the template's slot under `at`
+/// (canvas units) where no node of the state's is placed in it, nothing `loose` stands over it,
+/// and `theme`'s layout says it goes there: a text where words go, an image, a chart, or a
+/// table where a picture or a figure does, an icon where an icon does (PLAN G.23,
+/// `Slot::takes`), and under what the layout lays over the slot ([`under`]). Anything else, or
+/// one with no such slot free, takes the box it starts as, about `at`, snapped to the theme's
+/// grid as a drop snaps; a picture keeps its own proportions there, on cells that keep them or
+/// off the grid ([`fitted`]); a shader fills the slot it names, under what is there
+/// ([`beneath`]). What draws content (a text, an image, a chart, a table) and would overlap what
+/// is `crowded` there goes instead to the place on the grid clear of it whose middle is nearest
+/// `at` ([`roomy`]) (PLAN 2.79). `room` is the engine's for the new node in `deck`
+/// (`Engine::room`), its cell the box `insert` starts as. What it reads that the deck has not
+/// (`sample`) is added to the deck first.
 pub fn inserting(
     deck: &Deck,
     theme: &scaena_core::model::theme::Theme,
@@ -878,25 +902,51 @@ pub fn inserting(
     insert: &Insert,
     state: &str,
     at: [f32; 2],
-    crowded: &[[f32; 4]],
+    crowded: &Crowd,
 ) -> Result<Added, OpsError> {
+    let mut node = insert.node.clone();
     let target = match &insert.start {
         Start::Box { .. } => {
             let kind = insert.node["type"].as_str();
             // An icon goes in an empty place for one, as words go in a place for words (PLAN G.23).
             let icon = kind == Some("shape") && scaena_core::inserts::is_icon(|key| insert.node.get(key));
             let empty = match serde_json::from_value(insert.node["type"].clone()) {
-                Ok(content @ (NodeType::Text | NodeType::Image)) => empty_slot(deck, theme, room, state, at, content)?,
+                Ok(content @ (NodeType::Text | NodeType::Image | NodeType::Chart | NodeType::Table)) => {
+                    empty_slot(deck, theme, room, state, at, content)?
+                }
                 Ok(NodeType::Shape) if icon => empty_slot(deck, theme, room, state, at, NodeType::Shape)?,
                 _ => None,
             };
+            // A slot that what is placed otherwise stands over is taken, as the canvas no longer
+            // outlines it.
+            let empty = empty.filter(|(_, rect)| crowded.loose.iter().all(|o| apart(rect, o)));
             match empty {
-                Some(rect) => room.snap(Snap::Slot, rect),
+                Some((slot, rect)) => {
+                    if let Some(z) = under(deck, room, state, &slot)? {
+                        node["z"] = serde_json::json!(z);
+                    }
+                    room.snap(Snap::Slot, rect)
+                }
                 None => {
-                    let [_, _, w, h] = room.cell;
-                    let about = room.snap(Snap::Move, [at[0] - w / 2.0, at[1] - h / 2.0, w, h]);
+                    // A picture keeps its own proportions, its start box's: on cells that keep them,
+                    // or where it lands, off the grid (`fitted`).
+                    let picture = (kind == Some("image")).then(|| fitted(room));
+                    let cells = match &picture {
+                        Some(Some([w, h])) => {
+                            let mut cells = room.clone();
+                            cells.cell = [room.cell[0], room.cell[1], *w, *h];
+                            cells
+                        }
+                        _ => room.clone(),
+                    };
+                    let free = matches!(picture, Some(None));
+                    let land = |b: [f32; 4]| if free { off_grid(room, b) } else { cells.snap(Snap::Move, b) };
+                    let [_, _, w, h] = cells.cell;
+                    let about = land([at[0] - w / 2.0, at[1] - h / 2.0, w, h]);
                     match kind {
-                        Some("text" | "image" | "chart" | "table") => roomy(room, about, crowded, at),
+                        Some("text" | "image" | "chart" | "table") => {
+                            roomy(room, about, crowded, at, &land, kind == Some("text"))
+                        }
                         _ => about,
                     }
                 }
@@ -905,30 +955,143 @@ pub fn inserting(
         Start::Slot(name) => {
             let slot = room.slots.iter().find(|(n, _)| n == name);
             let (_, rect) = slot.ok_or_else(|| OpsError::new(format!("the state has no slot `{name}`")))?;
+            let own = node.get("z").and_then(Value::as_i64).unwrap_or(0);
+            if let Some(z) = beneath(deck, state, own)? {
+                node["z"] = serde_json::json!(z);
+            }
             room.snap(Snap::Slot, *rect)
         }
     };
-    added(deck, room, insert.node.clone(), state, target)
+    let mut added = added(deck, room, node, state, target)?;
+    sampled(deck, insert, &mut added);
+    Ok(added)
 }
 
-/// `about`, where it is clear of `crowded`; else the place on `room`'s grid for a box its size,
-/// clear of it, whose middle is nearest `at`; else `about`, where there is none (PLAN 2.79). Two
-/// boxes are clear of each other as lint E101 has them: overlapping by 2 cu or less either way.
+/// The `z` that lays a background (a shader filling its slot), its own `own`, under every node
+/// `state` shows at the root but another background, a picture laid under a layout's words
+/// ([`under`]) among them: one below the lowest of them, where that one lies at `own` or below.
+/// None where `own` lays it under them already.
+fn beneath(deck: &Deck, state: &str, own: i64) -> Result<Option<i64>, OpsError> {
+    let snaps = scaena_core::resolve_states(deck).context("tracking")?;
+    let snap =
+        snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+    let lowest = (snap.nodes.iter())
+        .filter(|(id, p)| {
+            p.get("at").and_then(|a| a.get("parent")).is_none()
+                && deck.nodes.get(id.as_str()).is_some_and(|n| n.node_type != NodeType::Shader)
+        })
+        .map(|(_, p)| p.get("z").and_then(Value::as_i64).unwrap_or(0))
+        .min();
+    Ok(lowest.filter(|z| *z <= own).map(|z| z - 1))
+}
+
+/// The cells, columns by rows, a picture whose start box is `room`'s cell lands on, keeping its
+/// proportions: of the spans of the grid's tracks within a third of its width of that box's, the
+/// one nearest its width whose shape is within 5% of the box's. None where no span keeps them,
+/// as a strip's or a thumbnail's, which lands off the grid ([`off_grid`]).
+fn fitted(room: &scaena_engine::geometry::Targets) -> Option<[f32; 2]> {
+    let [_, _, w, h] = room.cell;
+    let (cols, rows) = (&room.columns, &room.rows);
+    let (first_col, first_row) = (cols.first()?, rows.first()?);
+    let keep = w / h;
+    let spans = (1..=cols.len()).flat_map(|n| (1..=rows.len()).map(move |m| (n, m)));
+    spans
+        .map(|(n, m)| [cols[n - 1][1] - first_col[0], rows[m - 1][1] - first_row[0]])
+        .filter(|[sw, sh]| (sw / sh / keep - 1.0).abs() <= 0.05 && (sw - w).abs() <= w / 3.0)
+        .min_by(|a, b| (a[0] - w).abs().total_cmp(&(b[0] - w).abs()))
+}
+
+/// Box `b` where it lands, held inside `room`'s grid's margins where it fits, in whole canvas
+/// units: a `rect` (ADR-0024), so a picture is neither stretched nor cut to fit cells.
+fn off_grid(room: &scaena_engine::geometry::Targets, b: [f32; 4]) -> Option<scaena_engine::geometry::Target> {
+    let span = |tracks: &[[f32; 2]], from: f32, size: f32| match (tracks.first(), tracks.last()) {
+        (Some(first), Some(last)) => [first[0], last[1]],
+        _ => [from, from + size],
+    };
+    let [x0, x1] = span(&room.columns, room.within[0], room.within[2]);
+    let [y0, y1] = span(&room.rows, room.within[1], room.within[3]);
+    let inside = |at: f32, size: f32, lo: f32, hi: f32| if size >= hi - lo { lo } else { at.clamp(lo, hi - size) };
+    room.snap(Snap::Free, [inside(b[0], b[2], x0, x1), inside(b[1], b[3], y0, y1), b[2], b[3]])
+}
+
+/// The data source `insert` brings (`sample`), added to the deck at the head of `added`'s patch,
+/// so the node that reads it finds it.
+fn sampled(deck: &Deck, insert: &Insert, added: &mut Added) {
+    let Some(sample) = &insert.sample else { return };
+    let op = if deck.data.is_empty() {
+        let mut data = serde_json::Map::new();
+        data.insert(sample.name.clone(), sample.source.clone());
+        serde_json::json!({ "op": "add", "path": "/data", "value": data })
+    } else {
+        serde_json::json!({ "op": "add", "path": format!("/data/{}", sample.name), "value": sample.source })
+    };
+    added.patch.insert(0, op);
+}
+
+/// The `z` that lays what fills `slot` of `state`'s layout under what the layout lays over it,
+/// as a layout's picture lies under its words (SPEC §3.6): one below the lowest of the nodes the
+/// state shows placed in a slot written after `slot` whose box overlaps it. None where no such
+/// node stands at 0 or below.
+pub(crate) fn under(
+    deck: &Deck,
+    room: &scaena_engine::geometry::Targets,
+    state: &str,
+    slot: &str,
+) -> Result<Option<i64>, OpsError> {
+    let snaps = scaena_core::resolve_states(deck).context("tracking")?;
+    let snap =
+        snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+    let Some(k) = room.slots.iter().position(|(name, _)| name == slot) else { return Ok(None) };
+    let [x, y, w, h] = room.slots[k].1;
+    let overlaps = |r: &[f32; 4]| x.max(r[0]) < (x + w).min(r[0] + r[2]) && y.max(r[1]) < (y + h).min(r[1] + r[3]);
+    let over: Vec<&str> = room.slots[k + 1..]
+        .iter()
+        .filter(|(name, rect)| !matches!(name.as_str(), "canvas" | "grid") && overlaps(rect))
+        .map(|(name, _)| name.as_str())
+        .collect();
+    let lowest = snap
+        .nodes
+        .values()
+        .filter(|p| {
+            let placed = p.get("at").filter(|a| a.get("parent").is_none()).and_then(|a| a.get("in")?.as_str());
+            placed.is_some_and(|s| over.contains(&s))
+        })
+        .map(|p| p.get("z").and_then(Value::as_i64).unwrap_or(0))
+        .min();
+    Ok(lowest.filter(|z| *z <= 0).map(|z| z - 1))
+}
+
+/// Whether boxes `a` and `b` are clear of each other as lint E101 has them: overlapping by 2 cu or
+/// less either way.
+fn apart(a: &[f32; 4], b: &[f32; 4]) -> bool {
+    let w = (a[0] + a[2]).min(b[0] + b[2]) - a[0].max(b[0]);
+    let h = (a[1] + a[3]).min(b[1] + b[3]) - a[1].max(b[1]);
+    w <= 2.0 || h <= 2.0
+}
+
+/// `about`, where it is clear of all `crowded`; else the place on `room`'s grid for a box its
+/// size, clear of it, whose middle is nearest `at`, as `land` puts a box there; else, for words
+/// that `wrap`, the same for the widest span of the grid's columns down to half its width that
+/// has such a place (PLAN 2.79). A box is clear of another as lint E101 has them, overlapping by
+/// 2 cu or less either way, once the other stands out by the grid's gutter on each side: new
+/// words do not land hard against what is there. Where nothing is clear so, the nearest place
+/// clear of it as lint has it, without the gutter; else, where nothing is clear of all of it,
+/// `about` or the nearest place clear of its words at least; else `about`.
 fn roomy(
     room: &scaena_engine::geometry::Targets,
     about: Option<scaena_engine::geometry::Target>,
-    crowded: &[[f32; 4]],
+    crowded: &Crowd,
     at: [f32; 2],
+    land: &dyn Fn([f32; 4]) -> Option<scaena_engine::geometry::Target>,
+    wrap: bool,
 ) -> Option<scaena_engine::geometry::Target> {
     let about = about?;
-    let clear = |c: &[f32; 4]| {
-        crowded.iter().all(|o| {
-            let w = (c[0] + c[2]).min(o[0] + o[2]) - c[0].max(o[0]);
-            let h = (c[1] + c[3]).min(o[1] + o[3]) - c[1].max(o[1]);
-            w <= 2.0 || h <= 2.0
-        })
+    let gutter = room.rows.windows(2).next().map_or(0.0, |r| (r[1][0] - r[0][1]).max(0.0));
+    let clear = |c: &[f32; 4], of: &[[f32; 4]], pad: f32| {
+        of.iter().all(|o| apart(c, &[o[0] - pad, o[1] - pad, o[2] + 2.0 * pad, o[3] + 2.0 * pad]))
     };
-    if clear(&about.cell) {
+    let all = crowded.all.as_slice();
+    if clear(&about.cell, all, gutter) {
         return Some(about);
     }
     let [_, _, w, h] = about.cell;
@@ -937,12 +1100,39 @@ fn roomy(
         let (dx, dy) = (x + w / 2.0 - at[0], y + h / 2.0 - at[1]);
         dx * dx + dy * dy
     };
-    let places = room.columns.iter().flat_map(|c| room.rows.iter().map(move |r| [c[0], r[0], w, h]));
-    places
-        .filter_map(|p| room.snap(Snap::Move, p))
-        .filter(|t| clear(&t.cell))
-        .min_by(|a, b| far(a).total_cmp(&far(b)))
-        .or(Some(about))
+    let nearest =
+        |w: f32, of: &[[f32; 4]], pad: f32, land: &dyn Fn([f32; 4]) -> Option<scaena_engine::geometry::Target>| {
+            let places = room.columns.iter().flat_map(|c| room.rows.iter().map(move |r| [c[0], r[0], w, h]));
+            places.filter_map(land).filter(|t| clear(&t.cell, of, pad)).min_by(|a, b| far(a).total_cmp(&far(b)))
+        };
+    // Its own width first; then, for words, each narrower span of columns, widest first, on the
+    // cells it covers.
+    let mut widths = Vec::new();
+    if let Some(first) = room.columns.first().filter(|_| wrap) {
+        for c in room.columns.iter().rev() {
+            let span = c[1] - first[0];
+            if span < w - 1.0 && span >= w / 2.0 {
+                widths.push(span);
+            }
+        }
+    }
+    let covers = |b: [f32; 4]| room.snap(Snap::Resize, b);
+    if let Some(place) =
+        (nearest(w, all, gutter, land)).or_else(|| widths.into_iter().find_map(|w| nearest(w, all, gutter, &covers)))
+    {
+        return Some(place);
+    }
+    if clear(&about.cell, all, 0.0) {
+        return Some(about);
+    }
+    if let Some(place) = nearest(w, all, 0.0, land) {
+        return Some(place);
+    }
+    let words = crowded.words.as_slice();
+    if clear(&about.cell, words, 0.0) {
+        return Some(about);
+    }
+    nearest(w, words, 0.0, land).or(Some(about))
 }
 
 /// The patch that draws `insert` in `state` as `room`'s node (PLAN 2.48): `add_node`, the node
@@ -963,7 +1153,7 @@ pub fn drawing(
     free: bool,
 ) -> Result<Added, OpsError> {
     if matches!(insert.start, Start::Slot(_)) {
-        return inserting(deck, theme, room, insert, state, from, &[]);
+        return inserting(deck, theme, room, insert, state, from, &Crowd::default());
     }
     let drawn = [from[0].min(to[0]), from[1].min(to[1]), (to[0] - from[0]).abs(), (to[1] - from[1]).abs()];
     let target = room.snap(if free { Snap::Free } else { Snap::Resize }, drawn);
@@ -973,7 +1163,9 @@ pub fn drawing(
     {
         node["points"] = points;
     }
-    added(deck, room, node, state, target)
+    let mut added = added(deck, room, node, state, target)?;
+    sampled(deck, insert, &mut added);
+    Ok(added)
 }
 
 /// The points of a line drawn from `from` to `to`, as fractions of its box: from the corner the
@@ -1021,23 +1213,8 @@ pub(crate) fn added(
 /// hidden there, nor is one that goes with another hidden there, a shape's words with their shape
 /// and a connector with its end (PLAN 2.108, 2.109).
 pub(crate) fn leaving(deck: &Deck, state: &str, new: &[(String, Node)]) -> Vec<SemanticOp> {
-    let Some(s) = deck.state_index(state) else { return Vec::new() };
-    let slide = deck.slide_of(&deck.states[s]);
-    // Whether what enters in `s` shows in each state from it on, once it has left.
-    let mut shows = vec![false; deck.states.len()];
-    shows[s] = true;
-    let mut leaves = Vec::new();
-    for k in s + 1..deck.states.len() {
-        let from = scaena_core::tracking::tracks_from(deck, k).filter(|&j| s <= j && j < k);
-        shows[k] = from.is_some_and(|j| shows[j]);
-        if shows[k] && deck.slide_of(&deck.states[k]) != slide {
-            shows[k] = false;
-            leaves.push(k);
-        }
-    }
-    if leaves.is_empty() {
-        return Vec::new();
-    }
+    let (_, leaves) = stays(deck, state);
+    let Some(s) = deck.state_index(state).filter(|_| !leaves.is_empty()) else { return Vec::new() };
     // The deck with them in it. No state they leave in tracks from another, so what each shows of
     // them is what it shows once they are hidden in the others.
     let mut made = deck.clone();
@@ -1064,9 +1241,39 @@ pub(crate) fn leaving(deck: &Deck, state: &str, new: &[(String, Node)]) -> Vec<S
     out
 }
 
+/// The states in which what enters in `state` shows once it stays on its slide (PLAN 3.26):
+/// `state`, then each state of its slide that tracks from one that shows it, in the deck's
+/// order. None where there is no such state.
+pub fn staying(deck: &Deck, state: &str) -> Vec<String> {
+    stays(deck, state).0
+}
+
+/// What [`staying`] gives, and the states of other slides, by index, that would show what enters
+/// in `state` but for a `hide_node` ([`leaving`]).
+fn stays(deck: &Deck, state: &str) -> (Vec<String>, Vec<usize>) {
+    let Some(s) = deck.state_index(state) else { return (Vec::new(), Vec::new()) };
+    let slide = deck.slide_of(&deck.states[s]);
+    // Whether what enters in `s` shows in each state from it on, once it has left.
+    let mut shows = vec![false; deck.states.len()];
+    shows[s] = true;
+    let (mut stays, mut leaves) = (vec![deck.states[s].id.clone()], Vec::new());
+    for k in s + 1..deck.states.len() {
+        let from = scaena_core::tracking::tracks_from(deck, k).filter(|&j| s <= j && j < k);
+        shows[k] = from.is_some_and(|j| shows[j]);
+        if shows[k] && deck.slide_of(&deck.states[k]) != slide {
+            shows[k] = false;
+            leaves.push(k);
+        } else if shows[k] {
+            stays.push(deck.states[k].id.clone());
+        }
+    }
+    (stays, leaves)
+}
+
 /// The smallest of the template's slots under `at` that no node `state` shows is placed in and
 /// that takes a node of `kind`, as the state's layout in `theme` says (`Slot::takes`): words in
-/// a slot for words, a picture in one that waits for a picture or a figure.
+/// a slot for words, a picture, a chart, or a table in one that waits for a picture or a figure.
+/// Its name and its box.
 pub(crate) fn empty_slot(
     deck: &Deck,
     theme: &scaena_core::model::theme::Theme,
@@ -1074,7 +1281,7 @@ pub(crate) fn empty_slot(
     state: &str,
     at: [f32; 2],
     kind: NodeType,
-) -> Result<Option<[f32; 4]>, OpsError> {
+) -> Result<Option<(String, [f32; 4])>, OpsError> {
     let snaps = scaena_core::resolve_states(deck).context("tracking")?;
     let snap =
         snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
@@ -1089,7 +1296,8 @@ pub(crate) fn empty_slot(
     let free = room.slots.iter().filter(|(name, rect)| {
         !matches!(name.as_str(), "canvas" | "grid") && !filled.contains(&name.as_str()) && under(rect) && takes(name)
     });
-    Ok(free.map(|(_, rect)| *rect).min_by(|a, b| (a[2] * a[3]).total_cmp(&(b[2] * b[3]))))
+    let smallest = free.min_by(|(_, a), (_, b)| (a[2] * a[3]).total_cmp(&(b[2] * b[3])));
+    Ok(smallest.map(|(name, rect)| (name.clone(), *rect)))
 }
 
 /// The patch that copies `node`, as `state` shows it, with each node it holds there, beside it
