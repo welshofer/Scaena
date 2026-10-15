@@ -20,6 +20,8 @@
 // caret in the text, the save holds what was typed, each key once; keys typed back to back go in
 // once each, straight after the first save too; the bar and the tab say whether it is saved, and
 // an undo back to it leaves nothing to save.
+// Keys typed while the text is read again, the source changed under it, then Escape: each goes in
+// once, and the change stays.
 // Exits 1 on any failure.
 import { launch, serve } from "./serve.mjs";
 
@@ -342,6 +344,36 @@ try {
   await quick.waitForTimeout(1500);
   const quickly = await quick.evaluate(() => /^\s*title text[^"\n]*"([^"]*)"/m.exec(window.scaena.source())?.[1]);
   check(quickly === "Q3 Review Alpha", `each key once, with no space after them: ${JSON.stringify(quickly)}`);
+
+  // Keys typed while the text is read again, the source changed under it, then Escape: each goes
+  // in once, and the change stays. The page holds the worker's answers of where carets stand, so
+  // the keys and Escape come while the text is read.
+  {
+    const held = await browser.newContext({ viewport: { width: 1920, height: 1200 }, deviceScaleFactor: 1 });
+    await held.addInitScript(() => {
+      const post = Worker.prototype.postMessage;
+      Worker.prototype.postMessage = function (message, ...rest) {
+        if (message?.type === "carets" && window.holdCarets) return void setTimeout(() => post.call(this, message, ...rest), window.holdCarets);
+        return post.call(this, message, ...rest);
+      };
+    });
+    const reread = await open("/docs/examples/revenue.deck.json", held);
+    check((await typeIn(reread, "title")) === "title", "typed in, then the source changed under the text");
+    await reread.keyboard.press("End");
+    await reread.evaluate(() => {
+      window.holdCarets = 1500;
+      window.scaena.type(window.scaena.source().replace("the shape of the business", "the shape of the company"));
+    });
+    await reread.keyboard.type(" Alpha");
+    const reading = await reread.evaluate(() => window.scaena.canvas.typed()?.sending === true);
+    await reread.keyboard.press("Escape");
+    await reread.evaluate(() => (window.holdCarets = 0));
+    await reread.waitForFunction(() => window.scaena.source().includes("Alpha") && !window.scaena.canvas.unsettled?.(), null, { timeout: 30000 }).catch(() => {});
+    const after = await reread.evaluate(() => window.scaena.source());
+    const title = /^\s*title text[^"\n]*"([^"]*)"/m.exec(after)?.[1];
+    check(reading, "the keys and Escape came while the text was read again");
+    check(title === "Q3 Review Alpha" && after.includes("the shape of the company"), `keys typed while the text is read again, then Escape, go in once each: ${JSON.stringify(title)}`);
+  }
 } catch (e) {
   failures.push(String(e));
 } finally {
