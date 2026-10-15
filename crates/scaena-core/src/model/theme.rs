@@ -532,8 +532,9 @@ pub enum Example {
     Picture(#[schemars(length(min = 1))] String),
     /// A chart of this kind, of a few rows made up for it.
     Chart(super::nodes::ChartKind),
-    /// A table of this many columns, of a few rows made up for it.
-    Table(#[schemars(range(min = 2, max = 6))] u32),
+    /// A table of this many columns, of a few rows made up for it: seven are a week's days, a
+    /// month's calendar (theme format 0.18, PLAN S.2).
+    Table(#[schemars(range(min = 2, max = 7))] u32),
 }
 
 /// What goes in a slot (PLAN 3.30): words, a paragraph to each line; a list's items; or a shape.
