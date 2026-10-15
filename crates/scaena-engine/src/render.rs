@@ -345,35 +345,53 @@ impl Engine {
     }
 
     /// Where text `node` goes in `req.state` at rest, laid out in `req.format`, to hold its lines
-    /// where they run past the foot of its cells (PLAN 2.32): its rows on the theme's grid grown
-    /// down to the first that holds them, or the grid's last, as a presentation app's text box
-    /// grows as it is typed in. `None` for a text that does not run past the foot of its box,
-    /// one placed otherwise (in a slot, by a `rect`, in a container), and one whose `fit` is not
-    /// to wrap or grow.
+    /// where they run past the foot of its box (PLAN 2.32), as a presentation app's text box grows
+    /// as it is typed in: on the theme's grid, its rows grown down to the first that holds them, or
+    /// the grid's last. A text that wraps or grows grows so for its lines as set. Code grows first
+    /// and shrinks after (ADR-0029): to hold its lines at the largest size its box's width lets it,
+    /// its own at most, by its rows on the grid, or, placed by a `rect`, by its height, no further
+    /// than the grid's margin. `None` for a text that its box holds, one placed otherwise (in a
+    /// slot, in a container), and one whose fit is none of those.
     pub fn grown(&mut self, req: &FrameRequest, node: &str) -> Result<Option<crate::geometry::Target>, EngineError> {
         let (deck, theme) = project(req.deck, req.theme, req.format)?;
         let (deck, theme) = (deck.as_ref(), theme.as_ref());
         let snapshots = scaena_core::resolve_states(deck)?;
         let snap = &snapshots[state_index(&snapshots, req.state)?];
         let Some(props) = snap.nodes.get(node) else { return Ok(None) };
-        let by_cells = props
-            .get("at")
-            .is_some_and(|at| at.get("row").is_some() && ["in", "rect", "parent"].iter().all(|k| at.get(k).is_none()));
-        let fit = props.get("fit").and_then(Value::as_str).unwrap_or("wrap");
-        if !by_cells || !matches!(fit, "wrap" | "grow") {
+        let placed_by = |key: &str| props.get("at").is_some_and(|at| at.get(key).is_some());
+        let by_cells = placed_by("row") && !["in", "rect", "parent"].iter().any(|k| placed_by(k));
+        let by_rect = placed_by("rect") && !placed_by("parent");
+        if !by_cells && !by_rect {
             return Ok(None);
         }
         let scene = self.scene(deck, theme, req.data, snap)?;
-        let need = scene.nodes.iter().find(|n| n.id == node).and_then(|n| match &n.content {
-            Content::Text(placed) if placed.text.height > placed.cell[3] + 0.5 => Some(placed.text.height),
+        let placed = scene.nodes.iter().find(|n| n.id == node).and_then(|n| match &n.content {
+            Content::Text(placed) => Some(placed),
             _ => None,
         });
-        let Some(need) = need else { return Ok(None) };
+        let Some(placed) = placed else { return Ok(None) };
+        // What it needs: a text that wraps or grows its lines; code its lines at the largest size
+        // its width lets it, which growing down does not change, and no smaller than it shrinks to.
+        let need = match (placed.natural, placed.fit) {
+            (Some([wide, tall]), TextFit::Shrink) => {
+                let across = if wide > 0.0 { (placed.cell[2] / wide).min(1.0) } else { 1.0 };
+                tall * across.max(placed.scale)
+            }
+            (None, TextFit::Wrap | TextFit::Grow) if by_cells => placed.text.height,
+            _ => return Ok(None),
+        };
+        if need <= placed.cell[3] + 0.5 {
+            return Ok(None);
+        }
         let mut t = crate::geometry::targets(deck, theme, &cascade::with_overrides(deck, snap), &scene, node, None)?;
         t.format = req.format.map(String::from);
         let [x, y, w, h] = t.cell;
-        let Some(last) = t.rows.last() else { return Ok(None) };
-        let foot = t.rows.iter().find(|r| r[1] >= y + need - 0.5).unwrap_or(last)[1];
+        let Some(last) = t.rows.last().copied() else { return Ok(None) };
+        if by_rect {
+            let tall = need.min(last[1] - y).ceil();
+            return Ok((tall > h + 0.5).then(|| t.snap(crate::geometry::Snap::Free, [x, y, w, tall])).flatten());
+        }
+        let foot = t.rows.iter().find(|r| r[1] >= y + need - 0.5).unwrap_or(&last)[1];
         if foot - y <= h + 0.5 {
             return Ok(None);
         }
@@ -586,7 +604,16 @@ impl Engine {
         let (top, bottom) = text.trimmed(TextBox::Cap);
         let y = cell[1] + 0.5 * (cell[3] - (bottom - top)) - top;
         let overflow = text.lines.iter().any(|l| l.width > cell[2] + FIT_EPSILON);
-        let placed = PlacedText { cell, origin: [cell[0], y], text, scale: 1.0, overflow, clip: None };
+        let placed = PlacedText {
+            cell,
+            origin: [cell[0], y],
+            text,
+            scale: 1.0,
+            overflow,
+            clip: None,
+            fit: TextFit::Wrap,
+            natural: None,
+        };
         Ok(SceneNode {
             id: id.into(),
             paint: Vec::new(),
@@ -692,13 +719,11 @@ impl Engine {
             Some(trim) => trim,
             None => spec.role.text_box,
         };
-        // The text's own fit, else its slot's (theme format 0.13), else it wraps.
-        let slot_fit = || Grid::slot(theme, template, props.get("at")).and_then(|slot| slot.fit);
-        let fit = typed_prop::<TextFit>(props, "fit")?.or_else(slot_fit).unwrap_or(if in_shape {
-            TextFit::Shrink
-        } else {
-            TextFit::Wrap
-        });
+        // One fit (SPEC §3.4, ADR-0029): the text's own, else its slot's (theme format 0.13), else
+        // a shape's words and code shrink, else it wraps. Lint and the editors read it as set.
+        let code = spec.code.is_some();
+        let slot_fit = Grid::slot(theme, template, props.get("at")).and_then(|slot| slot.fit);
+        let fit = TextFit::effective(typed_prop::<TextFit>(props, "fit")?, slot_fit, in_shape, code);
         let number = |key: &str| props.get(key).and_then(Value::as_f64).map(|v| v as f32);
         let max_lines = props
             .get("maxLines")
@@ -709,12 +734,25 @@ impl Engine {
             let (top, bottom) = t.trimmed(trim);
             bottom - top <= cell[3] + FIT_EPSILON && t.lines.iter().all(|l| l.width <= cell[2] + FIT_EPSILON)
         };
-        let fits = |t: &TextLayout| fits_box(t) && max_lines.is_none_or(|m| t.lines.len() <= m);
+        // Code's lines are its own at any size: a size fits its box or it does not.
+        let fits = |t: &TextLayout| fits_box(t) && (code || max_lines.is_none_or(|m| t.lines.len() <= m));
         let mut lay = |scale: f32| -> Result<TextLayout, EngineError> {
             self.text.layout(&mut self.fonts, theme, &spec.scaled(scale), cell[2]).map_err(|e| in_node(id, e))
         };
         let base = lay(1.0)?;
+        // Code's size at its own, which its box grows to hold first (`Engine::grown`).
+        let natural = code.then(|| {
+            let (top, bottom) = base.trimmed(trim);
+            [base.width, bottom - top]
+        });
         let (scale, text) = match fit {
+            // Code shrinks no further than its `minSize`, else its role's, else 12 pt at
+            // presentation size, and never above its own size; worked out, since no line of it
+            // breaks again at another size.
+            TextFit::Shrink if code && !fits(&base) => {
+                let floor = spec.code.as_ref().map_or(1.0, |c| c.least);
+                worked_out(&mut lay, &fits, &base, [cell[2], cell[3]], trim, floor)?
+            }
             TextFit::Shrink if !fits(&base) => {
                 let floor = number("minSize").or(spec.role.min_size).map_or(0.5, |m| m / spec.role.size).min(1.0);
                 largest_fit(&mut lay, &fits, floor, 1.0)?
@@ -747,7 +785,7 @@ impl Engine {
             }
             None => text,
         };
-        Ok(PlacedText { cell, origin, text, scale, overflow, clip })
+        Ok(PlacedText { cell, origin, text, scale, overflow, clip, fit, natural })
     }
 }
 
@@ -777,6 +815,34 @@ fn to_grid(lines: Option<BaselineGrid>, snap: Option<Snap>, align: AlignY, top: 
 /// Bisection steps for `fit: shrink` and `grow`: the scale is within `(hi - lo) / 2^12`
 /// of the largest that fits.
 const FIT_STEPS: u32 = 12;
+
+/// How far a code text's worked-out scale steps down while it still does not fit, as a fraction
+/// of its own size (ADR-0029).
+const CODE_STEP: f32 = 1.0 / 64.0;
+
+/// The scale at which a code text fits `room`, `[width, height]`, and its layout there, worked out
+/// from `base`, its layout at its own size: no line of it breaks again at another size, so its
+/// width and its height go as its size. The least of the room over each, then down by
+/// [`CODE_STEP`] while it does not fit (a font whose shapes change with its size, by its `opsz`,
+/// can set it a hair wider), to no less than `floor`, where it may not fit: W203.
+fn worked_out(
+    lay: &mut impl FnMut(f32) -> Result<TextLayout, EngineError>,
+    fits: &impl Fn(&TextLayout) -> bool,
+    base: &TextLayout,
+    room: [f32; 2],
+    trim: TextBox,
+    floor: f32,
+) -> Result<(f32, TextLayout), EngineError> {
+    let (top, bottom) = base.trimmed(trim);
+    let ratio = |room: f32, used: f32| if used > 0.0 { room / used } else { 1.0 };
+    let mut scale = ratio(room[0], base.width).min(ratio(room[1], bottom - top)).min(1.0).max(floor);
+    let mut laid = lay(scale)?;
+    while !fits(&laid) && scale > floor {
+        scale = (scale - CODE_STEP).max(floor);
+        laid = lay(scale)?;
+    }
+    Ok((scale, laid))
+}
 
 /// The largest scale in `lo..=hi` at which the text fits, by bisection, and its layout.
 /// `lo` is used when nothing fits; `hi` when everything does.
@@ -824,6 +890,13 @@ pub struct PlacedText {
     pub overflow: bool,
     /// What `fit: clip` cuts the text to, canvas units.
     pub clip: Option<Rect>,
+    /// How it fits its box (SPEC §3.4, ADR-0029): its own `fit`, else its slot's, else `shrink`
+    /// for a shape's words and for code, else `wrap`. What lint and the editors read.
+    pub fit: TextFit,
+    /// A code text's size at its own, before it shrinks or grows, `[width, height]` as its `box`
+    /// trims it: what its box grows to hold first, at the size its width lets it
+    /// ([`Engine::grown`]). `None` for any other text.
+    pub natural: Option<[f32; 2]>,
 }
 
 /// Canvas y of the paragraph top, so the text's anchor sits where its alignment says
@@ -851,7 +924,9 @@ const FIT_SLACK: f32 = 1.0 / 64.0;
 
 /// A text node's size in a container (SPEC §3.4): the lines it breaks into at the width it
 /// is given, or that `available` allows; its height, the box its `box` trims to. Its
-/// narrowest and widest sizes break greedily, which `balance` and `pretty` never change.
+/// narrowest and widest sizes break greedily, which `balance` and `pretty` never change. Code
+/// breaks no line and shrinks instead (ADR-0029): it asks for its own size at most and the
+/// least it shrinks to at narrowest, and stands as tall as the width it is given sets it.
 fn measure_text(
     text: &mut TextEngine,
     fonts: &mut BundleFonts,
@@ -876,6 +951,20 @@ fn measure_text(
         text.layout(fonts, theme, spec, width)?
     };
     let (top, bottom) = laid.trimmed(trim);
+    if let Some(code) = &spec.code {
+        let [wide, tall] = [laid.width, bottom - top];
+        let scale = match (known.width, available.width) {
+            (Some(w), _) | (None, taffy::AvailableSpace::Definite(w)) if wide > 0.0 => {
+                (w / wide).clamp(code.least, 1.0)
+            }
+            (None, taffy::AvailableSpace::MinContent) => code.least,
+            _ => 1.0,
+        };
+        return Ok(taffy::Size {
+            width: known.width.unwrap_or(wide * scale + FIT_SLACK),
+            height: known.height.unwrap_or(tall * scale),
+        });
+    }
     Ok(taffy::Size {
         width: known.width.unwrap_or(laid.width + FIT_SLACK),
         height: known.height.unwrap_or(bottom - top),
@@ -1075,7 +1164,12 @@ fn theme_color(theme: &Theme, name: &str) -> Result<Color, EngineError> {
 /// in its own; `lang` falls back to the deck's.
 fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>) -> Result<TextSpec, EngineError> {
     let str_prop = |key: &str| props.get(key).and_then(Value::as_str);
-    let role = cascade::node_role(theme, props, slot_role)?;
+    let mut role = cascade::node_role(theme, props, slot_role)?;
+    // Code is set as written (ADR-0029): no case, no measure, no hyphens, nothing hung.
+    let code = crate::code::CodeSpec::of(props, role.size, role.min_size, canvas(deck));
+    if code.is_some() {
+        role.case = None;
+    }
     let (role_measure, hanging, optical, hyphenate) =
         (role.measure, role.hanging_punctuation, role.optical_margins, role.hyphenate);
     let line_grid = theme.grid.baseline.filter(|_| role.snap == Some(Snap::Baseline)).map(|pitch| pitch as f32);
@@ -1094,9 +1188,13 @@ fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>)
                     (_, Some(Value::String(state))) => Some(LinkTarget::State(state.clone())),
                     _ => None,
                 });
+                let mut style = cascade::run_role(theme, &role, run)?;
+                if code.is_some() {
+                    style.case = None;
+                }
                 Ok(Span {
                     text,
-                    style: cascade::run_role(theme, &role, run)?,
+                    style,
                     base_weight,
                     base_italic,
                     link,
@@ -1116,10 +1214,32 @@ fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>)
         }],
     };
     let written: String = spans.iter().map(|s| s.text.as_str()).collect();
-    let items = list_marks(theme, props, &written)?;
     let (list_indent, list_gap, _, _) = theme.typography.lists.clone().unwrap_or_default().at(0);
     let features = features(props.get("features"))?;
     let axes = axes(props.get("axes"));
+    if code.is_some() {
+        return Ok(TextSpec {
+            spans,
+            role,
+            features,
+            axes,
+            numeric: typed_prop::<Numeric>(props, "numeric")?,
+            wrap: None,
+            min_last_line_words: None,
+            lang: str_prop("lang").map(String::from).or_else(|| deck.meta.as_ref().and_then(|m| m.lang.clone())),
+            align: TextAlign::Start,
+            measure: None,
+            hanging_punctuation: false,
+            optical_margins: false,
+            hyphenate: false,
+            line_grid,
+            items: Vec::new(),
+            list_indent: list_indent as f32,
+            list_gap: list_gap as f32,
+            code,
+        });
+    }
+    let items = list_marks(theme, props, &written)?;
     Ok(TextSpec {
         spans,
         role,
@@ -1138,6 +1258,7 @@ fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>)
         items,
         list_indent: list_indent as f32,
         list_gap: list_gap as f32,
+        code: None,
     })
 }
 

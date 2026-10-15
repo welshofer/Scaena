@@ -13,7 +13,7 @@ for tool in sorted((root / 'docs/schema/mcp').glob('*.json')):
         assert t.get(k) is None or t[k]['type'] == 'object', f"{tool.name}: a tool's {k} is an object (MCP)"
     for sch in filter(None, (t['inputSchema'], t.get('outputSchema'))): Draft202012Validator.check_schema(sch)
 # Every example, plus every fixture and benchmark bundle under tests/ (deck.json and its theme.json).
-targets = [('docs/examples/revenue.deck.json', deck_schema), ('docs/examples/charts.deck.json', deck_schema), ('docs/examples/trails.deck.json', deck_schema), ('docs/examples/higher-ed.deck.json', deck_schema), ('docs/examples/ridgeline.deck.json', deck_schema), ('docs/examples/themes/dusk.theme.json', theme_schema), ('docs/examples/themes/ember.theme.json', theme_schema)]
+targets = [('docs/examples/revenue.deck.json', deck_schema), ('docs/examples/charts.deck.json', deck_schema), ('docs/examples/trails.deck.json', deck_schema), ('docs/examples/higher-ed.deck.json', deck_schema), ('docs/examples/ridgeline.deck.json', deck_schema), ('docs/examples/code.deck.json', deck_schema), ('docs/examples/themes/dusk.theme.json', theme_schema), ('docs/examples/themes/ember.theme.json', theme_schema), ('docs/examples/themes/gallery.theme.json', theme_schema)]
 # The example patch (PLAN 1.16).
 targets += [('docs/examples/revenue.patch.json', patch_schema)]
 # The deck the authorability spike's agents wrote (PLAN 0.13), and the themes it moved between.
@@ -48,6 +48,9 @@ reject = {
     'mesh params out of range': lambda d: d['nodes'].update(bg={'type': 'shader', 'kind': 'mesh', 'params': {'points': 40}}),
     'a mesh param that does not exist': lambda d: d['nodes'].update(bg={'type': 'shader', 'kind': 'mesh', 'params': {'zoom': 1}}),
     'null on a node': lambda d: d['nodes']['title'].update(alt=None),
+    'code that names no language': lambda d: d['nodes']['title'].update(code={}),
+    'a language that is not a name': lambda d: d['nodes']['title'].update(code={'language': 'Rust 2024'}),
+    'code on a chart': lambda d: d['nodes']['rev'].update(code={'language': 'rust'}),
 }
 accept = {
     'null deleting a prop in a delta': lambda d: delta(d, 'title').update(alt=None),
@@ -55,6 +58,8 @@ accept = {
     'part of an encoding in a delta': lambda d: delta(d, 'rev').update(y={'format': '$,.0f'}),
     'chart axes settings': lambda d: d['nodes']['rev'].update(axes={'x': {'gridlines': False}}),
     'an image that covers its box': lambda d: d['nodes'].update(img={'type': 'image', 'src': 'assets/x.png', 'fit': 'cover'}),
+    'a code text (PLAN 2.131)': lambda d: d['nodes']['title'].update(code={'language': 'c++'}),
+    'another language in a delta': lambda d: delta(d, 'title').update(code={'language': 'typescript'}),
 }
 for name, f in reject.items():
     assert list(Draft202012Validator(deck_schema).iter_errors(mutant(f))), f"schema failed to reject {name}"

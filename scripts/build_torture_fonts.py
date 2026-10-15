@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build and check the typography torture deck's bundle fonts (PLAN 0.2).
 
-Build: download five SIL OFL fonts from google/fonts at a pinned commit, verify
+Build: download six SIL OFL fonts from google/fonts at a pinned commit, verify
 their sha256, subset them to every character the deck uses plus ASCII, Latin-1,
 Latin Extended-A and common punctuation (so small text edits need no rebuild),
 and write fonts/*.ttf, the OFL texts, and fonts/SOURCES.md. Subsetting keeps all
@@ -63,6 +63,11 @@ SOURCES = {
         "4d82a18d8d95f60ba883ce242bbadbf84a576e987745dd7ba38d71c67cff2d73",
         "catalogue only: emoji",
     ),
+    "JetBrainsMono-VF.ttf": (
+        "ofl/jetbrainsmono/JetBrainsMono[wght].ttf",
+        "48715a42ec242c21e9f02692891e147d022299a52e48d5e413e1a942193ffeda",
+        "code, set as written (PLAN 2.131)",
+    ),
 }
 LICENSES = {  # OFL text shipped beside each font (OFL 1.1 requires it to travel with the font)
     "OFL-RobotoSerif.txt": ("ofl/robotoserif/OFL.txt", "34dbfbb43e0b4fdeef445d77b9ac0b988e5ad7a9bbf16808c97b66c66d51f553"),
@@ -70,12 +75,13 @@ LICENSES = {  # OFL text shipped beside each font (OFL 1.1 requires it to travel
     "OFL-NotoSansHebrew.txt": ("ofl/notosanshebrew/OFL.txt", "9b9fe028b5ba74d231659a1bbaf0ed09b11e759d1ca6a070999e16d151616b47"),
     "OFL-NotoSansArabic.txt": ("ofl/notosansarabic/OFL.txt", "07fc70bfeb985cc1a87a8587d0a0c80bab11c86c9dc3fd95b6f0cb332f983e96"),
     "OFL-NotoColorEmoji.txt": ("ofl/notocoloremoji/OFL.txt", "ac564676d10054a8445923dfc2dfb13c042d97888bd27c1b6ec6dfe89a9d8d62"),
+    "OFL-JetBrainsMono.txt": ("ofl/jetbrainsmono/OFL.txt", "b2fe5e8987594e9ffd1d2ca52a2f5d73eb8335243893c5d6254b5ad69269591d"),
 }
 EXTRA_RANGES = [(0x20, 0x7E), (0xA0, 0x17F), (0x2010, 0x203A), (0x20AC, 0x20AC)]
 # Characters that select or join rather than draw; shaping consumes them.
 # Hard line breaks end a line or a paragraph and set no glyph (SPEC §3.5): a list's items are
-# paragraphs (PLAN 2.69).
-IGNORABLE = {0x200C, 0x200D, 0x2060, 0xFE0E, 0xFE0F, 0x00AD, 0x000A, 0x000D, 0x2028, 0x2029}
+# paragraphs (PLAN 2.69). A code text's tab stands to its stop in spaces (PLAN 2.131).
+IGNORABLE = {0x200C, 0x200D, 0x2060, 0xFE0E, 0xFE0F, 0x00AD, 0x000A, 0x000D, 0x2028, 0x2029, 0x0009}
 
 # Fonts each text node must end up using. Unlisted nodes must use only their role's own family:
 # a kill case that fell back would be testing fallback instead of its feature.

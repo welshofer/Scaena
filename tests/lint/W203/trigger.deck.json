@@ -1,13 +1,15 @@
 {
-  "scaena": "0.27",
-  "_comment": "W203 trigger: a headline that shrinks to its 48 cu minimum and still does not fit its header.",
+  "scaena": "0.28",
+  "_comment": "W203 trigger: a headline that shrinks to its 48 cu minimum and still does not fit its header, and, on the next slide, code that shrinks to 24 cu, 12 pt at presentation size, and still runs past its slot.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",
   "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
   "nodes": {
-    "t": {"type": "text", "role": "headline", "text": "Extraordinarily unreasonable headline lengths inevitably overwhelm comparatively narrow headers regardless, notwithstanding wholehearted typographical accommodations", "fit": "shrink", "at": {"in": "header"}}
+    "t": {"type": "text", "role": "headline", "text": "Extraordinarily unreasonable headline lengths inevitably overwhelm comparatively narrow headers regardless, notwithstanding wholehearted typographical accommodations", "fit": "shrink", "at": {"in": "header"}},
+    "code": {"type": "text", "role": "body", "code": {"language": "rust"}, "text": "let step_01 = run(1);\nlet step_02 = run(2);\nlet step_03 = run(3);\nlet step_04 = run(4);\nlet step_05 = run(5);\nlet step_06 = run(6);\nlet step_07 = run(7);\nlet step_08 = run(8);\nlet step_09 = run(9);\nlet step_10 = run(10);\nlet step_11 = run(11);\nlet step_12 = run(12);\nlet step_13 = run(13);\nlet step_14 = run(14);\nlet step_15 = run(15);\nlet step_16 = run(16);\nlet step_17 = run(17);\nlet step_18 = run(18);\nlet step_19 = run(19);\nlet step_20 = run(20);\nlet step_21 = run(21);\nlet step_22 = run(22);\nlet step_23 = run(23);\nlet step_24 = run(24);", "at": {"in": "main"}}
   },
   "states": [
-    {"id": "a", "layout": "figure", "props": {"t": {}}}
+    {"id": "a", "layout": "figure", "props": {"t": {}}},
+    {"id": "b", "layout": "figure", "remove": ["t"], "props": {"code": {}}}
   ]
 }

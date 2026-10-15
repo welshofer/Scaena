@@ -11,6 +11,9 @@
 //!   JavaScript with JSX, TypeScript and TSX, Kotlin, Swift, Rust, Dart, Scala, Zig, Objective-C,
 //!   and Protocol Buffers.
 //! - **JSON**, which reads JSON with comments and JSON5 as leniently.
+//! - **Python, Ruby, Shell, PowerShell, and SQL**, each by a scanner of its own (PLAN 2.134).
+//! - **A console session**: its prompts, the commands after them read as Shell or as PowerShell,
+//!   and what they print.
 //! - **The generic scanner**, for a language Scaena has no scanner for: its strings, numbers,
 //!   comments, and brackets.
 //!
@@ -22,23 +25,31 @@
 //!   scanner neither panics nor runs on. What never closes runs to the end in its class; a string
 //!   that cannot run past its line ends at the line's end.
 //! - **Bounded.** At most [`MAX_NESTING`] interpolations, JSX elements, and JSX expressions stand
-//!   open inside one another, and the lines past the first [`MAX_LINES`] are one plain token.
+//!   open inside one another, and as many heredocs wait for their bodies; the lines past the first
+//!   [`MAX_LINES`] are one plain token.
 //! - **Few tokens.** Neighbors of one class are one token, and whitespace goes to the token before
 //!   it.
 
 mod clike;
+mod console;
 mod generic;
 mod json;
+mod powershell;
+mod python;
+mod ruby;
 mod scan;
+mod shell;
+mod sql;
 
 use std::fmt;
 
 /// The most lines of a code text that are colored: the lines after them are one plain token.
 pub const MAX_LINES: usize = 1_000;
 
-/// The most interpolations (`${…}` in a template, `\(…)` in a Swift string), JSX elements, and JSX
-/// expressions that stand open inside one another. What would open one more is read as what it
-/// stands in: a ninth `${` as its string's own characters.
+/// The most interpolations (`${…}` in a template, `\(…)` in a Swift string, `{…}` in an f-string,
+/// `#{…}` in Ruby, `$(…)` in Shell and PowerShell), JSX elements, and JSX expressions that stand
+/// open inside one another, and the most heredocs that wait for their bodies. What would open one
+/// more is read as what it stands in: a ninth `${` as its string's own characters.
 pub const MAX_NESTING: usize = 8;
 
 /// A kind of token, which the theme gives a color, a weight, and an italic (ADR-0029).
@@ -173,6 +184,18 @@ pub(crate) enum Scan {
     CLike(&'static clike::Spec),
     /// JSON's.
     Json,
+    /// Python's.
+    Python,
+    /// Ruby's.
+    Ruby,
+    /// Shell's: bash, sh, and zsh.
+    Shell,
+    /// A console session's, which reads its commands as Shell or PowerShell.
+    Console,
+    /// PowerShell's.
+    PowerShell,
+    /// SQL's.
+    Sql,
 }
 
 /// How a code text's language colors it.
@@ -198,6 +221,14 @@ pub static LANGUAGES: &[Language] = &[
         extensions: &["c", "h"],
         interpreters: &[],
         scan: Scan::CLike(&clike::C),
+    },
+    Language {
+        name: "console",
+        aliases: &["sh-session", "shell-session", "shellsession"],
+        said: "Console",
+        extensions: &["sh-session"],
+        interpreters: &[],
+        scan: Scan::Console,
     },
     Language {
         name: "cpp",
@@ -304,12 +335,36 @@ pub static LANGUAGES: &[Language] = &[
         scan: Scan::Plain,
     },
     Language {
+        name: "powershell",
+        aliases: &["posh", "ps", "ps1", "pwsh"],
+        said: "PowerShell",
+        extensions: &["ps1", "psd1", "psm1"],
+        interpreters: &["powershell", "pwsh"],
+        scan: Scan::PowerShell,
+    },
+    Language {
         name: "protobuf",
         aliases: &["proto"],
         said: "Protocol Buffers",
         extensions: &["proto"],
         interpreters: &[],
         scan: Scan::CLike(&clike::PROTOBUF),
+    },
+    Language {
+        name: "python",
+        aliases: &["py", "python3"],
+        said: "Python",
+        extensions: &["py", "pyi", "pyw"],
+        interpreters: &["pypy", "pypy3", "python", "python2", "python3"],
+        scan: Scan::Python,
+    },
+    Language {
+        name: "ruby",
+        aliases: &["rb"],
+        said: "Ruby",
+        extensions: &["gemspec", "rake", "rb", "ru"],
+        interpreters: &["jruby", "ruby"],
+        scan: Scan::Ruby,
     },
     Language {
         name: "rust",
@@ -326,6 +381,22 @@ pub static LANGUAGES: &[Language] = &[
         extensions: &["sc", "scala"],
         interpreters: &["scala"],
         scan: Scan::CLike(&clike::SCALA),
+    },
+    Language {
+        name: "shell",
+        aliases: &["bash", "sh", "shell-script", "shellscript", "zsh"],
+        said: "Shell",
+        extensions: &["bash", "ksh", "sh", "zsh"],
+        interpreters: &["ash", "bash", "dash", "ksh", "sh", "zsh"],
+        scan: Scan::Shell,
+    },
+    Language {
+        name: "sql",
+        aliases: &["mysql", "pgsql", "plpgsql", "postgres", "postgresql", "sqlite", "tsql"],
+        said: "SQL",
+        extensions: &["ddl", "pgsql", "sql"],
+        interpreters: &["psql", "sqlite3"],
+        scan: Scan::Sql,
     },
     Language {
         name: "swift",
@@ -390,6 +461,12 @@ pub fn highlight(text: &str, lang: Lang) -> Vec<Token> {
         Lang::Generic => generic::scan(head, &mut out),
         Lang::Known(Language { scan: Scan::CLike(spec), .. }) => clike::scan(head, spec, &mut out),
         Lang::Known(Language { scan: Scan::Json, .. }) => json::scan(head, &mut out),
+        Lang::Known(Language { scan: Scan::Python, .. }) => python::scan(head, &mut out),
+        Lang::Known(Language { scan: Scan::Ruby, .. }) => ruby::scan(head, &mut out),
+        Lang::Known(Language { scan: Scan::Shell, .. }) => shell::scan(head, &mut out),
+        Lang::Known(Language { scan: Scan::Console, .. }) => console::scan(head, &mut out),
+        Lang::Known(Language { scan: Scan::PowerShell, .. }) => powershell::scan(head, &mut out),
+        Lang::Known(Language { scan: Scan::Sql, .. }) => sql::scan(head, &mut out),
     }
     let mut tokens = out.finish();
     if head.len() < text.len() {

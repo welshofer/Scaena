@@ -9,6 +9,7 @@ Built by `scripts/build_torture_fonts.py` (fontTools 4.66.1) from [google/fonts]
 | `NotoSansHebrew-VF.ttf` | `ofl/notosanshebrew/NotoSansHebrew[wdth,wght].ttf` | `7ef36a2c3593758c…` | `7002a46fb7c393f7…` | 110 KB → 71 KB | fallback for a script the first two lack |
 | `NotoSansArabic-VF.ttf` | `ofl/notosansarabic/NotoSansArabic[wdth,wght].ttf` | `63111b5b2e074dd4…` | `6240ae32d944a419…` | 824 KB → 164 KB | catalogue only: Arabic bidi line |
 | `NotoColorEmoji-COLRv1.ttf` | `ofl/notocoloremoji/NotoColorEmoji-Regular.ttf` | `4d82a18d8d95f60b…` | `24f1031339499bdd…` | 24739 KB → 28 KB | catalogue only: emoji |
+| `JetBrainsMono-VF.ttf` | `ofl/jetbrainsmono/JetBrainsMono[wght].ttf` | `48715a42ec242c21…` | `448ca6a6f221712e…` | 182 KB → 107 KB | code, set as written (PLAN 2.131) |
 
 **Subset:** every character in `deck.json` ∪ U+0020–007E ∪ U+00A0–017F ∪ U+2010–203A ∪ U+20AC. All OpenType layout features, all name records, variations and hinting kept. Noto Color Emoji additionally drops its `SVG ` table, so COLRv1 is the only color format any painter (vello, vello_cpu, PDF) can choose.
 

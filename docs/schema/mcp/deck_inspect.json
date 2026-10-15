@@ -695,7 +695,7 @@
             "type": "boolean"
           },
           "theme": {
-            "description": "What the theme gives a text's look where the deck sets none, which the state then shows:\nits role's family, weight, size, italic, case, tracking, or color; how its slot fits it\n(theme format 0.13); where a shape's words stand across it, in its middle (PLAN 2.108);\nhow a connector runs and a line's ends are drawn where it says none (PLAN 2.128);\nand for characters selected, the text's own look where their run sets none, its role and\nemphasis too. What an inspector shows in place of a blank. Absent for any other property."
+            "description": "What the theme gives a text's look where the deck sets none, which the state then shows:\nits role's family, weight, size, italic, case, tracking, or color; how it fits: as its\nslot fits it (theme format 0.13), else shrunk, for a shape's words and for code (PLAN\n2.131); where a shape's words stand across it, in its middle (PLAN 2.108);\nhow a connector runs and a line's ends are drawn where it says none (PLAN 2.128);\nand for characters selected, the text's own look where their run sets none, its role and\nemphasis too. What an inspector shows in place of a blank. Absent for any other property."
           }
         },
         "required": ["prop", "takes"]

@@ -2093,7 +2093,8 @@ impl Session {
     /// `ops`, a run of typing, with the `place` that grows each text it types past the foot of
     /// its cells on the theme's grid, in the state it is typed in and the format shown: its rows
     /// down to the first that holds its lines, as a presentation app's text box grows (PLAN
-    /// 2.32, `Engine::grown`). `None` where none grows, or the run does not make a deck.
+    /// 2.32, `Engine::grown`), and code's `rect` down too, before it shrinks (PLAN 2.131). `None`
+    /// where none grows, or the run does not make a deck.
     #[cfg(feature = "editor")]
     fn growing(&mut self, ops: &serde_json::Value) -> Result<Option<serde_json::Value>, Error> {
         let Some(list) = ops.as_array() else { return Ok(None) };
@@ -2351,6 +2352,7 @@ mod tests {
             "NotoSansHebrew-VF.ttf",
             "NotoSansArabic-VF.ttf",
             "NotoColorEmoji-COLRv1.ttf",
+            "JetBrainsMono-VF.ttf",
         ] {
             let id = format!("fonts/{f}");
             s.add_file(&id, std::fs::read(format!("{BUNDLE}/{id}")).unwrap());
@@ -5052,7 +5054,7 @@ mod tests {
         s.set_deck(rename(&s.deck, "assets/copy.png", "assets/absent.png"));
         let err = s.frame("images", f64::INFINITY).unwrap_err();
         assert!(matches!(&err, Error::Missing(p) if p == "assets/absent.png"), "{err}");
-        assert_eq!(s.states().len(), 65);
+        assert_eq!(s.states().len(), 66);
     }
 
     /// A pen's drawing and an icon are each a path on a view (PLAN 2.104, 2.114): the drawing,

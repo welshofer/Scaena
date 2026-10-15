@@ -159,6 +159,10 @@ pub struct TextSpec {
     /// a marker and its words, in ems of the node's size (the theme's `type.lists`).
     pub list_indent: f32,
     pub list_gap: f32,
+    /// The text is code (ADR-0029): set as written, its lines broken only where it breaks them,
+    /// its tabs standing to stops, run left to right, nothing hung, and placed as a block by
+    /// `align`, each line from the block's left ([`crate::code`]).
+    pub code: Option<crate::code::CodeSpec>,
 }
 
 /// A paragraph as an item of a list (ADR-0018): its kind, its level, 0 the outermost, and its
@@ -590,6 +594,7 @@ impl TextSpec {
             items: Vec::new(),
             list_indent: 1.2,
             list_gap: 0.4,
+            code: None,
         }
     }
 }
@@ -609,8 +614,19 @@ impl TextEngine {
         width: f32,
     ) -> Result<TextLayout, EngineError> {
         let base = &spec.role;
-        let mut cased: Vec<Cow<str>> = spec.spans.iter().map(|s| set_case(&s.text, s.style.case)).collect();
+        let code = spec.code.as_ref();
+        // Code is set as written (ADR-0029): no case and no hyphens, each tab stood to its stop
+        // in spaces, and a mark before it that runs it left to right, mapped out by its offsets.
+        let (mut cased, code_offsets): (Vec<Cow<str>>, _) = match code {
+            Some(code) => {
+                let written: Vec<&str> = spec.spans.iter().map(|s| s.text.as_str()).collect();
+                let (laid, offsets) = crate::code::laid(&written, code.tab);
+                (laid.into_iter().map(Cow::Owned).collect(), Some(offsets))
+            }
+            None => (spec.spans.iter().map(|s| set_case(&s.text, s.style.case)).collect(), None),
+        };
         if spec.hyphenate
+            && code.is_none()
             && let Some(lang) = spec.lang.as_deref().and_then(hyphen::language)
         {
             let trie = hyphen::trie(lang)?;
@@ -649,6 +665,11 @@ impl TextEngine {
                     builder.push(StyleProperty::Underline(true), range.clone());
                 }
             }
+            // The mark that runs code left to right takes no room, so tracking puts none after it
+            // and its first line starts where the others do.
+            if code.is_some() && text.starts_with(crate::code::LTR) {
+                builder.push(StyleProperty::LetterSpacing(0.0), 0..crate::code::LTR.len_utf8());
+            }
             builder.build(&text)
         };
         // The hyphen each span draws where a line breaks inside one of its words.
@@ -663,7 +684,11 @@ impl TextEngine {
         }
 
         let rtl = layout.is_rtl();
-        let hang = Hang { edge: Edge::from(spec.align), punctuation: spec.hanging_punctuation };
+        // Nothing hangs in code: its lines keep the columns they are written in.
+        let hang = match code {
+            Some(_) => Hang { edge: Edge::Neither, punctuation: false },
+            None => Hang { edge: Edge::from(spec.align), punctuation: spec.hanging_punctuation },
+        };
         // Each paragraph's indent as a list item (ADR-0018).
         let em = spec.role.size;
         let indents: Vec<f32> = spec
@@ -677,6 +702,7 @@ impl TextEngine {
         let breaking = Breaking { text: &text, rtl, room, segments: &segments, min_words };
         let requested = spec.wrap.unwrap_or(base.wrap);
         let mut fallback = match requested {
+            _ if code.is_some() => None,
             Wrap::Greedy => None,
             _ if text.contains(['\n', '\r', '\u{2028}', '\u{2029}']) => Some("hard line break"),
             _ => None,
@@ -687,6 +713,11 @@ impl TextEngine {
             _ if empty => {
                 layout.break_all_lines(None);
                 requested
+            }
+            // Code breaks only where it breaks itself, however wide a line runs (ADR-0029).
+            _ if code.is_some() => {
+                layout.break_all_lines(None);
+                Wrap::Greedy
             }
             (_, Some(_)) | (Wrap::Greedy, _) => {
                 fallback = fallback.or(greedy(&mut layout, breaking, max_width));
@@ -708,14 +739,29 @@ impl TextEngine {
         };
         // Every line's ink from x = 0, in either direction; `read_layout` places it.
         layout.align(Alignment::Left, AlignmentOptions { align_when_overflowing: true });
-        let optical = spec.optical_margins;
+        let optical = spec.optical_margins && code.is_none();
         let widow = widowed(&layout, &segments, min_words);
         let words = words(&segments);
+        // Code's lines start from the block's left, and `align` places the block: its widest line
+        // across the box (ADR-0029).
+        let (align, block) = match code {
+            Some(_) => {
+                let widest = layout.lines().map(|l| l.metrics().advance - l.metrics().trailing_whitespace);
+                let widest = widest.fold(0.0, f32::max);
+                let block = match spec.align {
+                    TextAlign::Start => 0.0,
+                    TextAlign::Center => 0.5 * (width - widest),
+                    TextAlign::End => width - widest,
+                };
+                (TextAlign::Start, block)
+            }
+            None => (spec.align, 0.0),
+        };
         let paragraph = Paragraph {
             wrap,
             fallback,
             rtl,
-            align: spec.align,
+            align,
             hang,
             optical,
             width,
@@ -726,6 +772,7 @@ impl TextEngine {
             weight: spec.role.weight,
             upright: upright(theme, spec),
             indents: indents.clone(),
+            block,
         };
         let mut read = read_layout(&layout, text, fonts, &hyphens, paragraph)?;
         if empty {
@@ -734,6 +781,22 @@ impl TextEngine {
             for line in &mut read.lines {
                 line.text = 0..0;
             }
+        }
+        // The mark that runs code left to right sets nothing: no glyph of it is drawn or said.
+        if code.is_some() && !empty {
+            let mark = crate::code::LTR.len_utf8();
+            for run in read.runs.iter_mut().filter(|r| r.clusters.iter().any(|&c| c < mark)) {
+                let kept: Vec<((Glyph, usize), f32)> = (run.glyphs.drain(..).zip(run.clusters.drain(..)))
+                    .zip(run.advances.drain(..))
+                    .filter(|((_, c), _)| *c >= mark)
+                    .collect();
+                for ((glyph, cluster), advance) in kept {
+                    run.glyphs.push(glyph);
+                    run.clusters.push(cluster);
+                    run.advances.push(advance);
+                }
+            }
+            read.runs.retain(|r| !r.glyphs.is_empty());
         }
         // Each item's marker, on its first line, its end the gap short of its indent.
         let starts: Vec<usize> = cased
@@ -769,7 +832,7 @@ impl TextEngine {
         }
         read.underlines.retain(|u| u.target.is_some());
         read.written = spec.spans.iter().map(|s| s.text.as_str()).collect();
-        read.offsets = offsets(&spec.spans, &cased);
+        read.offsets = code_offsets.unwrap_or_else(|| offsets(&spec.spans, &cased));
         let mut end = 0;
         read.looks = (spec.spans.iter())
             .map(|s| {
@@ -1737,6 +1800,9 @@ struct Paragraph {
     upright: Vec<String>,
     /// Each paragraph's indent as a list item, canvas units (ADR-0018).
     indents: Vec<f32>,
+    /// Where a code text's block starts across the box, canvas units: its lines start there
+    /// (ADR-0029). 0 for any other text.
+    block: f32,
 }
 
 impl Paragraph {
@@ -1758,6 +1824,7 @@ impl Paragraph {
             weight: 400.0,
             upright: Vec::new(),
             indents: Vec::new(),
+            block: 0.0,
         }
     }
 }
@@ -1820,7 +1887,8 @@ fn read_layout(
         // A list item's lines sit in the box less its indent, on the start side (ADR-0018).
         let indent = p.indents.get(paragraph).copied().unwrap_or(0.0);
         let across = p.width - indent;
-        let x = if p.rtl { 0.0 } else { indent }
+        let x = p.block
+            + if p.rtl { 0.0 } else { indent }
             + match (p.align, p.rtl) {
                 (TextAlign::Start, false) | (TextAlign::End, true) => 0.0,
                 (TextAlign::Start, true) | (TextAlign::End, false) => across - width,

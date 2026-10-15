@@ -1,0 +1,70 @@
+meta        «$ »
+function    «python3 »
+plain       «-m venv .venv »
+operator    «&& »
+function    «source »
+plain       «.venv/bin/activate\n»
+meta        «(.venv) $ »
+function    «pip »
+plain       «install --upgrade »
+string      «"scaena[cli]"\n»
+plain       «Collecting scaena[cli]\n  Downloading scaena-1.2.0-py3-none-any.whl (24 kB)\nSuccessfully installed scaena-1.2.0\n»
+meta        «(.venv) $ »
+function    «cat »
+operator    «> »
+plain       «deck.scn »
+operator    «<<»
+string      «EOF\n»
+meta        «> »
+string      «title: "Q3 review"\n»
+meta        «> »
+string      «EOF\n»
+meta        «user@host:~/talks$ »
+keyword     «for »
+variable    «f »
+keyword     «in »
+plain       «*.scn»
+punctuation «; »
+keyword     «do\n»
+meta        «> »
+function    «echo »
+string      «"»
+variable    «$f»
+string      «"\n»
+meta        «> »
+keyword     «done\n»
+plain       «deck.scn\n»
+meta        «~/talks $ »
+function    «ls\n»
+plain       «deck.scn\n»
+meta        «[user@host talks]$ »
+keyword     «export »
+variable    «SCAENA_AUTHOR»
+operator    «=»
+plain       «jay »
+comment     «# who saves\n»
+meta        «% »
+function    «git »
+plain       «status --short\n M deck.scn\n»
+meta        «# »
+function    «apt »
+plain       «install ffmpeg\n»
+meta        «PS C:\\Users\\jay> »
+function    «Get-ChildItem »
+attribute   «-Path »
+plain       «. »
+attribute   «-Filter »
+plain       «*.scn »
+operator    «|\n»
+meta        «>> »
+function    «Select-Object »
+plain       «Name»
+punctuation «, »
+plain       «Length\n\nName     Length\n----     ------\ndeck.scn    412\n\n»
+meta        «PS> »
+variable    «$PSVersionTable»
+punctuation «.»
+property    «PSVersion»
+punctuation «.»
+property    «Major\n»
+plain       «7\n»

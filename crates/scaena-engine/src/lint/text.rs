@@ -1,14 +1,17 @@
-//! Text as laid out: whether it fits (E100, W202, W203), whether its fonts have its
-//! glyphs (E120), how its lines break (W200, W201), how a state aligns it (W220); and a
+//! Text as laid out: whether it fits (E100, W202, W203), by the one fit layout set it by
+//! ([`crate::PlacedText::fit`]), whether its fonts have its glyphs (E120), how its lines break
+//! (W200, W201), how a state aligns it (W220), and whether code reads at its size (W205); and a
 //! chart's value labels (W310) and the size of its text (W312).
 
 use super::{Cx, Laid, Rule};
 use crate::charts::{ChartLayout, ChartText};
+use crate::code::is_code;
 use crate::layout::Grid;
 use crate::sample::Content;
 use crate::text::{TextAlign, TextLayout};
 use scaena_core::document::Props;
 use scaena_core::lint::{Finding, Severity};
+use scaena_core::model::nodes::TextFit;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
@@ -18,10 +21,6 @@ fn texts<'a>(state: &'a Laid) -> impl Iterator<Item = (&'a str, &'a crate::rende
         Content::Text(placed) => Some((n.id.as_str(), placed, state.snapshot.nodes.get(&n.id)?)),
         _ => None,
     })
-}
-
-fn fit(props: &Props) -> &str {
-    props.get("fit").and_then(Value::as_str).unwrap_or("wrap")
 }
 
 /// Where a fix to node `id`'s `fit` goes in state `index`: where its `fit` is set now
@@ -58,8 +57,8 @@ impl Rule for E100Overflow {
     fn check(&self, cx: &Cx) -> Vec<Finding> {
         let mut out = Vec::new();
         for state in cx.states {
-            for (id, placed, props) in texts(state) {
-                if !placed.overflow || fit(props) == "shrink" {
+            for (id, placed, _) in texts(state) {
+                if !placed.overflow || placed.fit == TextFit::Shrink {
                     continue;
                 }
                 let [_, _, w, h] = placed.cell;
@@ -75,7 +74,8 @@ impl Rule for E100Overflow {
                     ),
                     _ => format!("has a line {:.0} cu wide, and its box is {:.0}", t.width, w),
                 };
-                let refused = if fit(props) == "error" { " (`fit: error`: a frame refuses to draw it)" } else { "" };
+                let refused =
+                    if placed.fit == TextFit::Error { " (`fit: error`: a frame refuses to draw it)" } else { "" };
                 out.push(
                     cx.finding(self.code(), self.severity(), state, format!("text `{id}` does not fit: it {how}{refused}"))
                         .at(cx.node_path(id))
@@ -146,7 +146,10 @@ fn cut(cx: &Cx, state: &Laid, id: &str, cell: &[f32; 4], chart: &ChartLayout) ->
     )
 }
 
-/// W203: text under `fit: shrink` that does not fit at its smallest size.
+/// W203: text that shrinks to fit (`fit: shrink`, or by itself: a slot's that shrinks what is set
+/// in it, a shape's words, code) and does not fit at its smallest size. For code, how many of its
+/// lines fit at that size (ADR-0029): nothing wraps, so a block too long for its box is given
+/// fewer lines a step, or more room.
 pub struct W203ShrinkFloor;
 impl Rule for W203ShrinkFloor {
     fn code(&self) -> &'static str {
@@ -159,26 +162,190 @@ impl Rule for W203ShrinkFloor {
         let mut out = Vec::new();
         for state in cx.states {
             for (id, placed, props) in texts(state) {
-                if placed.overflow && fit(props) == "shrink" {
-                    out.push(
-                        cx.finding(
-                            self.code(),
-                            self.severity(),
-                            state,
-                            format!(
-                                "text `{id}` shrank to {:.0}% of its size, its `minSize`, and still does not fit",
-                                placed.scale * 100.0
+                if !placed.overflow || placed.fit != TextFit::Shrink {
+                    continue;
+                }
+                let t = &placed.text;
+                let [_, _, w, h] = placed.cell;
+                let size = t.runs.iter().map(|r| r.size).fold(f32::INFINITY, f32::min);
+                let (message, hint) = match is_code(props) && size.is_finite() {
+                    true => {
+                        let lines = t.lines.len().max(1);
+                        let each = t.height / lines as f32;
+                        let fit = if each > 0.0 { ((h / each).floor() as usize).min(lines) } else { lines };
+                        let message = format!(
+                            "code `{id}` shrank to {size:.0} cu, as small as it is set, and still does not fit"
+                        );
+                        let hint = match (t.height > h + 0.5, lines) {
+                            (true, 1) => {
+                                "Its one line is taller than its box at this size: give it more room.".to_string()
+                            }
+                            (true, _) => format!(
+                                "{fit} of its {lines} lines fit at this size: give it fewer lines a step, or more room."
                             ),
-                        )
+                            (false, _) => format!(
+                                "Its longest line is {:.0} cu wide at this size, and its box {w:.0}: shorten the line, or \
+                                 give it more room.",
+                                t.width
+                            ),
+                        };
+                        (message, hint)
+                    }
+                    false => (
+                        format!(
+                            "text `{id}` shrank to {:.0}% of its size, its `minSize`, and still does not fit",
+                            placed.scale * 100.0
+                        ),
+                        "Shorten it, or give it a larger slot.".to_string(),
+                    ),
+                };
+                out.push(
+                    cx.finding(self.code(), self.severity(), state, message)
                         .at(cx.node_path(id))
                         .node(id)
-                        .measure(json!({ "scale": placed.scale, "height": placed.text.height, "box": [placed.cell[2], placed.cell[3]] }))
-                        .hint("Shorten it, or give it a larger slot."),
-                    );
-                }
+                        .measure(
+                            json!({ "scale": placed.scale, "height": t.height, "lines": t.lines.len(), "box": [w, h] }),
+                        )
+                        .hint(hint),
+                );
             }
         }
         out
+    }
+}
+
+/// W205: code drawn under 12 pt at presentation size (PLAN 2.131, ADR-0029): 24 cu where the
+/// canvas's shorter side is 1080 cu, in proportion on others, as W312 holds a chart's text. Code
+/// shrinks no further by itself: a `minSize` of its own or its role's lets it, and a size of its
+/// own or its role's under 12 pt, or a `transform` that scales it down, draws it so. One finding
+/// per code text, at its smallest, saying which, and naming its longest line, how many lines it
+/// has, and every state it is that small in.
+pub struct W205CodeSize;
+
+/// A code text drawn too small: at its smallest, the state it is smallest in first, what draws it
+/// that small there, its longest line and its line count there, and every state it is too small
+/// in.
+struct SmallCode {
+    least: f32,
+    first: usize,
+    why: Shrunk,
+    longest: String,
+    lines: usize,
+    states: Vec<String>,
+}
+
+/// What draws code under 12 pt: a size it is set at, a `minSize` that lets it shrink that far to
+/// fit, or its `transform`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Shrunk {
+    Set(f32),
+    ToFit,
+    Posed,
+}
+
+/// The most of a line a finding quotes, in characters.
+const QUOTED: usize = 40;
+
+/// `line`, as a finding quotes it: its first [`QUOTED`] characters, and an ellipsis after them
+/// where it runs on.
+fn quoted(line: &str) -> String {
+    match line.char_indices().nth(QUOTED) {
+        Some((cut, _)) => format!("{}…", line[..cut].trim_end()),
+        None => line.to_string(),
+    }
+}
+
+impl Rule for W205CodeSize {
+    fn code(&self) -> &'static str {
+        "W205"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn check(&self, cx: &Cx) -> Vec<Finding> {
+        let floor = crate::code::floor([cx.deck.canvas.width as f32, cx.deck.canvas.height as f32]);
+        let under = |size: f32| size < floor - 1.0e-3;
+        let mut small: BTreeMap<String, SmallCode> = BTreeMap::new();
+        for state in cx.states {
+            for (id, placed, props) in texts(state) {
+                if !is_code(props) {
+                    continue;
+                }
+                // As drawn: a block scaled down sets its text smaller; one flattened sets none.
+                let scale = scaena_core::pose::stretch(&state.scene.posed(id, true))[1] as f32;
+                let t = &placed.text;
+                let laid = t.runs.iter().map(|r| r.size).fold(f32::INFINITY, f32::min);
+                let size = laid * scale;
+                if scale <= 0.0 || !size.is_finite() || !under(size) {
+                    continue;
+                }
+                let own = laid / placed.scale;
+                let why = match (under(own), under(laid)) {
+                    (true, _) => Shrunk::Set(own),
+                    (false, true) => Shrunk::ToFit,
+                    (false, false) => Shrunk::Posed,
+                };
+                let widest = t.lines.iter().max_by(|a, b| a.width.total_cmp(&b.width));
+                let longest = widest.map_or("", |l| t.text.get(l.text.clone()).unwrap_or_default());
+                let longest = quoted(longest.trim_start_matches(crate::code::LTR).trim());
+                let entry = small.entry(id.to_string()).or_insert_with(|| SmallCode {
+                    least: size,
+                    first: state.index,
+                    why,
+                    longest: longest.clone(),
+                    lines: t.lines.len(),
+                    states: Vec::new(),
+                });
+                if size < entry.least {
+                    (entry.least, entry.first, entry.why, entry.longest, entry.lines) =
+                        (size, state.index, why, longest, t.lines.len());
+                }
+                if !entry.states.contains(&state.snapshot.state_id) {
+                    entry.states.push(state.snapshot.state_id.clone());
+                }
+            }
+        }
+        let cu = |v: f32| (v * 10.0).round() / 10.0;
+        small
+            .into_iter()
+            .map(|(id, SmallCode { least, first, why, longest, lines, states })| {
+                let (because, hint) = match why {
+                    Shrunk::Set(own) => (
+                        format!("it is set at {} cu", cu(own)),
+                        format!("Set it at {} cu or more, in a role of that size or larger.", cu(floor)),
+                    ),
+                    Shrunk::ToFit => (
+                        "a `minSize` lets it shrink that far to fit".to_string(),
+                        "Give it fewer lines a step, or more room, and take away the `minSize` that lets it shrink \
+                         this far: code shrinks no further than 12 pt by itself."
+                            .to_string(),
+                    ),
+                    Shrunk::Posed => (
+                        "its `transform` scales it down".to_string(),
+                        "Scale it less, or give it more room at its own size.".to_string(),
+                    ),
+                };
+                let longest = match lines {
+                    1 => format!("its one line is \"{longest}\""),
+                    n => format!("the longest of its {n} lines is \"{longest}\""),
+                };
+                cx.finding(
+                    self.code(),
+                    self.severity(),
+                    cx.laid(first),
+                    format!(
+                        "code `{id}` is drawn at {} cu, under 12 pt at presentation size ({} cu on this canvas): \
+                         {because}; {longest}",
+                        cu(least),
+                        cu(floor)
+                    ),
+                )
+                .at(cx.node_path(&id))
+                .node(id.clone())
+                .measure(json!({ "size": cu(least), "needs": cu(floor), "lines": lines, "states": states }))
+                .hint(hint)
+            })
+            .collect()
     }
 }
 
@@ -220,8 +387,15 @@ impl Rule for W202MaxLines {
                     .at(cx.node_path(id))
                     .node(id)
                     .measure(json!({ "lines": n, "maxLines": max }))
-                    .hint("Shorten it, or let it shrink (`fit: shrink`) to fit its lines.");
-                if fit(props) != "shrink" {
+                    .hint(match is_code(props) {
+                        // Code keeps its lines at any size (ADR-0029).
+                        true => {
+                            "Give it fewer lines a step, or take its `maxLines` away: code keeps its lines at any size."
+                        }
+                        false => "Shorten it, or let it shrink (`fit: shrink`) to fit its lines.",
+                    });
+                // Shrinking takes no line from code.
+                if placed.fit != TextFit::Shrink && !is_code(props) {
                     f = f.fix(shrink(cx, state.index, id));
                 }
                 out.push(f);
@@ -492,7 +666,8 @@ impl Rule for W201Measure {
 }
 
 /// W220: paragraphs (text of two lines or more) aligned more than one way in a state; a shape's
-/// words are none of them (PLAN 2.108).
+/// words are none of them (PLAN 2.108), and nor is code, whose lines start from its block's left
+/// (PLAN 2.131).
 pub struct W220MixedAlignment;
 impl Rule for W220MixedAlignment {
     fn code(&self) -> &'static str {
@@ -508,8 +683,8 @@ impl Rule for W220MixedAlignment {
             // A shape's words stand in its middle as a label does (PLAN 2.108): no paragraph of
             // the slide's.
             let words = |id: &str| cx.deck.nodes.get(id).and_then(|n| scaena_core::tracking::words_of(cx.deck, n));
-            for (id, placed, _) in texts(state) {
-                if placed.text.lines.len() >= 2 && words(id).is_none() {
+            for (id, placed, props) in texts(state) {
+                if placed.text.lines.len() >= 2 && words(id).is_none() && !is_code(props) {
                     let align = match placed.text.align {
                         TextAlign::Start => "start",
                         TextAlign::Center => "center",

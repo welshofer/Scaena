@@ -21,12 +21,14 @@
 //! `frame` containers lay their children out with `taffy` (1.7, [`containers`]). A state at
 //! rest says what stands where, for a client that edits by pointing ([`geometry`], ADR-0013),
 //! and where a caret stands in each of its texts ([`carets`]); and what an editor draws to
-//! place things by: the theme's grid, and where a moved box meets others ([`guides`]).
+//! place things by: the theme's grid, and where a moved box meets others ([`guides`]). A text
+//! that is code is set as written, grown then shrunk to fit, never under 12 pt ([`code`]).
 //! Nothing here may read a clock, system fonts, or the filesystem (SPEC §13).
 
 pub mod carets;
 pub mod cascade;
 pub mod charts;
+pub mod code;
 pub mod containers;
 pub mod data;
 pub mod error;
