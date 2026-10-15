@@ -246,10 +246,20 @@ final class KeysTests: XCTestCase {
             app.typeKey(XCUIKeyboardKey.leftArrow, modifierFlags: [])
             XCTAssertTrue(
                 wait(5) { abs(subtitle.frame.maxX - was.maxX) < 1 }, "← did not pan back: \(was) → \(subtitle.frame)")
+            // The simulator's keyboard can lose the Shift of a press, which the app then hears as a
+            // plain →: its key log has the arrow with no flags, and no Shift before it. Only where
+            // the subtitle panned just a tenth, as → pans it, is it panned back and Shift+→ pressed
+            // again.
+            let farther = { was.maxX - subtitle.frame.maxX > moved + 2 }
             app.typeKey(XCUIKeyboardKey.rightArrow, modifierFlags: .shift)
-            XCTAssertTrue(
-                wait(5) { was.maxX - subtitle.frame.maxX > moved + 2 },
-                "Shift+→ panned no farther than →: \(was) → \(subtitle.frame)")
+            if !wait(5, farther), abs(was.maxX - subtitle.frame.maxX - moved) < 1 {
+                keep(app, as: "shift-unheard")
+                app.typeKey(XCUIKeyboardKey.leftArrow, modifierFlags: [])
+                XCTAssertTrue(
+                    wait(5) { abs(subtitle.frame.maxX - was.maxX) < 1 }, "← did not pan back: \(was) → \(subtitle.frame)")
+                app.typeKey(XCUIKeyboardKey.rightArrow, modifierFlags: .shift)
+            }
+            XCTAssertTrue(wait(5, farther), "Shift+→ panned no farther than →: \(was) → \(subtitle.frame)")
             XCTAssertFalse(title.isSelected || subtitle.isSelected, "Shift+→ selected something")
             keep(app, as: "panned-farther")
         }
