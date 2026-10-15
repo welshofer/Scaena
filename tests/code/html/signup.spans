@@ -1,0 +1,148 @@
+meta        «<!DOCTYPE html>\n»
+punctuation «<»
+tag         «html »
+attribute   «lang»
+operator    «=»
+string      «"en"»
+punctuation «>\n<»
+tag         «head»
+punctuation «>\n  <»
+tag         «meta »
+attribute   «charset»
+operator    «=»
+string      «"utf-8"»
+punctuation «>\n  <»
+tag         «title»
+punctuation «>»
+plain       «Sign up »
+constant    «&mdash; »
+plain       «Scaena»
+punctuation «</»
+tag         «title»
+punctuation «>\n  <»
+tag         «link »
+attribute   «rel»
+operator    «=»
+string      «"stylesheet" »
+attribute   «href»
+operator    «=»
+string      «"/style.css?v=2»
+constant    «&amp;»
+string      «theme=dusk"»
+punctuation «>\n  <»
+tag         «style»
+punctuation «>\n    »
+plain       «.hero > h1 { color: #fff; }\n  »
+punctuation «</»
+tag         «style»
+punctuation «>\n</»
+tag         «head»
+punctuation «>\n»
+comment     «<!-- The form, and what it sends. -->\n»
+punctuation «<»
+tag         «body »
+attribute   «class»
+operator    «=»
+string      «"page signup" »
+attribute   «data-state»
+operator    «=»
+string      «'ready'»
+punctuation «>\n  <»
+tag         «main »
+attribute   «id»
+operator    «=»
+string      «content»
+punctuation «>\n    <»
+tag         «h1»
+punctuation «>»
+plain       «Join us »
+constant    «&#x1F44B;»
+punctuation «</»
+tag         «h1»
+punctuation «>\n    <»
+tag         «form »
+attribute   «action»
+operator    «=»
+string      «"/signup" »
+attribute   «method»
+operator    «=»
+string      «"post" »
+attribute   «novalidate»
+punctuation «>\n      <»
+tag         «label »
+attribute   «for»
+operator    «=»
+string      «"email"»
+punctuation «>»
+plain       «Email»
+punctuation «</»
+tag         «label»
+punctuation «>\n      <»
+tag         «input »
+attribute   «type»
+operator    «=»
+string      «"email" »
+attribute   «id»
+operator    «=»
+string      «"email" »
+attribute   «name»
+operator    «=»
+string      «"email" »
+attribute   «required placeholder»
+operator    «=»
+string      «"you@example.com"»
+punctuation «/>\n      <»
+tag         «button »
+attribute   «type»
+operator    «=»
+string      «"submit" »
+attribute   «disabled»
+punctuation «>»
+plain       «Send »
+constant    «&rarr;»
+punctuation «</»
+tag         «button»
+punctuation «>\n    </»
+tag         «form»
+punctuation «>\n    <»
+tag         «p»
+punctuation «>»
+plain       «Fees: 5 »
+constant    «&lt; »
+plain       «10 »
+constant    «&amp; »
+plain       «tax »
+constant    «&copy; »
+plain       «2026 »
+constant    «&nbsp;»
+plain       «&bogus»
+punctuation «</»
+tag         «p»
+punctuation «>\n    <»
+tag         «svg »
+attribute   «viewBox»
+operator    «=»
+string      «"0 0 24 24"»
+punctuation «><»
+tag         «path »
+attribute   «d»
+operator    «=»
+string      «"M12 2L2 22h20z"»
+punctuation «/></»
+tag         «svg»
+punctuation «>\n  </»
+tag         «main»
+punctuation «>\n  <»
+tag         «script »
+attribute   «type»
+operator    «=»
+string      «"module"»
+punctuation «>\n    »
+plain       «if (a < b && c > d) document.body.dataset.state = "<b>sent</b>";\n  »
+punctuation «</»
+tag         «script»
+punctuation «>\n</»
+tag         «body»
+punctuation «>\n</»
+tag         «html»
+punctuation «>\n»

@@ -1,0 +1,129 @@
+comment     «# Builds the app, and tidies up.\n»
+variable    «CC      »
+operator    «?= »
+plain       «cc\n»
+variable    «CFLAGS  »
+operator    «:= »
+plain       «-O2 -Wall »
+variable    «$(EXTRA_CFLAGS)\nSRC     »
+operator    «:= »
+punctuation «$(»
+function    «wildcard »
+plain       «src/*.c»
+punctuation «)\n»
+variable    «OBJ     »
+operator    «:= »
+punctuation «$(»
+function    «patsubst »
+plain       «src/%.c»
+punctuation «,»
+plain       «build/%.o»
+punctuation «,»
+variable    «$(SRC)»
+punctuation «)\n»
+variable    «VERSION »
+operator    «!= »
+plain       «git describe --tags\n»
+variable    «MARK    »
+operator    «:= »
+plain       «\\#\n\n»
+keyword     «.PHONY»
+punctuation «: »
+plain       «all clean test\n\n»
+function    «all»
+punctuation «: »
+plain       «build/app\n\n»
+function    «build/app»
+punctuation «: »
+variable    «$(OBJ) »
+operator    «| »
+plain       «build\n\t»
+operator    «@»
+function    «echo »
+string      «"linking »
+variable    «$@»
+string      « from »
+variable    «$(words $^)»
+string      « objects"\n\t»
+variable    «$(CC) $(CFLAGS) »
+plain       «-o »
+variable    «$@ $^ $(LDLIBS)\n\n»
+function    «build/%.o»
+punctuation «: »
+plain       «src/%.c\n\t»
+variable    «$(CC) $(CFLAGS) »
+plain       «-c »
+variable    «$< »
+plain       «-o »
+variable    «$@\n\n»
+function    «build»
+punctuation «:\n\t»
+function    «mkdir »
+plain       «-p »
+variable    «$@\n\n»
+function    «test»
+punctuation «: »
+variable    «CFLAGS »
+operator    «+= »
+plain       «-g\n»
+function    «test»
+punctuation «: »
+keyword     «private »
+variable    «LDLIBS »
+operator    «+= »
+plain       «-lasan\n»
+function    «test»
+punctuation «: »
+plain       «all »
+punctuation «; »
+function    «./build/app »
+plain       «--self-test\n»
+function    «print-%»
+punctuation «: ; »
+operator    «@»
+function    «echo »
+variable    «$*»
+plain       «=»
+variable    «$($*)\n\n»
+function    «clean»
+punctuation «:\n\t»
+operator    «-»
+function    «rm »
+plain       «-rf build\n\t»
+keyword     «for »
+variable    «f »
+keyword     «in »
+variable    «$(OBJ)»
+punctuation «; »
+keyword     «do »
+punctuation «\\\n\t  »
+function    «echo »
+string      «"removed »
+variable    «$$f»
+string      «"»
+punctuation «; \\\n\t»
+keyword     «done\n\nifeq »
+punctuation «(»
+variable    «$(OS)»
+punctuation «,»
+plain       «Windows_NT»
+punctuation «)\n  »
+variable    «EXE »
+operator    «:= »
+plain       «.exe\n»
+keyword     «else\n  »
+variable    «EXE »
+operator    «:=\n»
+keyword     «endif\n\ndefine »
+variable    «banner\n»
+plain       «Built »
+variable    «$(VERSION) »
+plain       «at »
+punctuation «$(»
+function    «shell »
+plain       «date +%F»
+punctuation «)\n»
+keyword     «endef\nexport »
+variable    «banner\n»
+keyword     «include »
+plain       «config.mk\n»

@@ -1,0 +1,141 @@
+comment     «# The package, and what it needs.\n»
+punctuation «[»
+type        «package»
+punctuation «]\n»
+property    «name »
+operator    «= »
+string      «"scaena-core"\n»
+property    «version »
+operator    «= »
+string      «"0.1.0"\n»
+property    «edition »
+operator    «= »
+string      «'2024'\n»
+property    «authors »
+operator    «= »
+punctuation «[»
+string      «"Jay <jay@example.com>"»
+punctuation «, »
+string      «'Ada'»
+punctuation «]\n»
+property    «description »
+operator    «= »
+string      «"""\nA presentation engine: \\\na timeline of "states"."""\n»
+property    «license-file »
+operator    «= »
+string      «'''C:\\licenses\\LICENSE'''\n\n»
+punctuation «[»
+type        «dependencies»
+punctuation «]\n»
+property    «serde »
+operator    «= »
+punctuation «{ »
+property    «version »
+operator    «= »
+string      «"1.0"»
+punctuation «, »
+property    «features »
+operator    «= »
+punctuation «[»
+string      «"derive"»
+punctuation «] }\n»
+property    «regex-lite»
+punctuation «.»
+property    «workspace »
+operator    «= »
+constant    «true\n»
+property    «"quoted.key" »
+operator    «= »
+number      «1\n\n»
+punctuation «[»
+type        «profile»
+punctuation «.»
+type        «release»
+punctuation «]\n»
+property    «opt-level »
+operator    «= »
+number      «3\n»
+property    «lto »
+operator    «= »
+constant    «true\n»
+property    «debug »
+operator    «= »
+constant    «false\n\n»
+punctuation «[[»
+type        «bin»
+punctuation «]]\n»
+property    «name »
+operator    «= »
+string      «"scaena"\n»
+property    «path »
+operator    «= »
+string      «"src/main.rs"\n\n»
+punctuation «[»
+type        «limits»
+punctuation «]\n»
+property    «max_size »
+operator    «= »
+number      «1_000_000\n»
+property    «mask »
+operator    «= »
+number      «0xDEAD_BEEF\n»
+property    «mode »
+operator    «= »
+number      «0o755\n»
+property    «flags »
+operator    «= »
+number      «0b1101\n»
+property    «ratio »
+operator    «= »
+number      «6.626e-34\n»
+property    «ceiling »
+operator    «= »
+number      «+inf\n»
+property    «missing »
+operator    «= »
+number      «nan\n»
+property    «started »
+operator    «= »
+number      «1979-05-27T07:32:00-08:00\n»
+property    «local »
+operator    «= »
+number      «1979-05-27 07:32:00\n»
+property    «day »
+operator    «= »
+number      «2024-01-15\n»
+property    «alarm »
+operator    «= »
+number      «07:32:00.999\n»
+property    «matrix »
+operator    «= »
+punctuation «[\n  [»
+number      «1»
+punctuation «, »
+number      «2»
+punctuation «],\n  [»
+number      «3»
+punctuation «, »
+number      «4»
+punctuation «], »
+comment     «# a comment in an array\n»
+punctuation «]\n»
+property    «point »
+operator    «= »
+punctuation «{ »
+property    «x »
+operator    «= »
+number      «1»
+punctuation «, »
+property    «y »
+operator    «= »
+number      «-2»
+punctuation «, »
+property    «tags »
+operator    «= »
+punctuation «{ »
+property    «a»
+punctuation «.»
+property    «b »
+operator    «= »
+string      «"c" »
+punctuation «} }\n»

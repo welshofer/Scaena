@@ -1,0 +1,13 @@
+meta        «diff --git a/src/cache.rs b/src/cache.rs\nindex 3f2a1b0..8c9d4e2 100644\n--- a/src/cache.rs\n+++ b/src/cache.rs\n@@ -12,7 +12,8 @@ »
+plain       «impl Cache {\n     pub fn get(&self, key: &str) -> Option<&Entry> {\n»
+deleted     «-        self.entries.get(key)\n»
+inserted    «+        let entry = self.entries.get(key)?;\n+        (!entry.expired()).then_some(entry)\n»
+plain       «     }\n \n     pub fn insert(&mut self, key: String, entry: Entry) {\n»
+deleted     «--- a removed line that looks like a header\n»
+inserted    «+++ an added line that looks like one\n»
+plain       «     }\n»
+meta        «@@ -40 +41,0 @@\n»
+deleted     «-// this line is gone\n»
+comment     «\\ No newline at end of file\n»
+meta        «diff --git a/README.md b/README.md\nnew file mode 100644\nindex 0000000..e69de29\n--- /dev/null\n+++ b/README.md\n@@ -0,0 +1,2 @@\n»
+inserted    «+# Cache\n+A small cache.\n»
