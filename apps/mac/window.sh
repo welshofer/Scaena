@@ -344,6 +344,9 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
       echo "the slide started holds:"
       holds canvas
       shot started
+      # The picture's place, a slot drawn tall and narrow, says what goes there in words that read
+      # whole: under its icon, on as many lines as they need, never cut (PLAN 3.30).
+      echo "the picture's place says \"$(named waiting-art)\", its words at $(frames find waiting-art)"
       events 'keystroke "z" using command down'
       sleep 2
       echo "⌘Z, the slide shown holds:"
@@ -436,6 +439,12 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   shot theme
   # The inspector's tabs stay in the toolbar, the rest of it overflowing first (PLAN 3.18).
   echo "the toolbar's Format: $(frames find tab-format); Animate: $(frames find tab-animate); Document: $(frames find tab-document)"
+  # Each color's name and what the theme sets in it read whole, the uses under the name on as many
+  # lines as they need, the row as tall as they are, the field beside them as wide as ever: the
+  # paper's, set in the background and in text on the accent, and the second paper's, on a line.
+  for key in paper paper-2; do
+    echo "the theme's $key: \"$(named "theme-name-$key")\" at $(frames find "theme-name-$key"), set in \"$(named "theme-uses-$key")\" at $(frames find "theme-uses-$key"), its field at $(frames find "theme-color-$key")"
+  done
   read -r px py pw ph <<<"$(frames find theme-color-paper)" || true
   if [[ "${ph:-}" =~ ^[0-9]+$ ]]; then
     echo "the theme's paper: $px $py $pw $ph, $(frames value theme-color-paper)"
