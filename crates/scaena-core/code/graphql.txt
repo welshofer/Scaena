@@ -1,0 +1,15 @@
+graphql/definitions
+directive
+enum
+extend
+fragment
+input
+interface
+mutation
+query
+scalar
+schema
+subscription
+type
+union
+

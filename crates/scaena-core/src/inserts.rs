@@ -167,9 +167,14 @@ pub fn inserts_on(
     let charted = charted(theme);
     for (role, look) in theme.typography.roles.iter().filter(|(role, _)| !charted.contains(role.as_str())) {
         let tall = (2.0 * look.size * look.leading) as f32 / h;
+        // A text in the role the theme keeps for code is code (ADR-0029), in no language yet.
+        let node = match theme.code_role() == Some(role.as_str()) {
+            true => json!({ "type": "text", "role": role, "code": { "language": "plain" }, "text": sentence(role) }),
+            false => json!({ "type": "text", "role": role, "text": sentence(role) }),
+        };
         out.push(Insert {
             label: format!("Text · {role}"),
-            node: json!({ "type": "text", "role": role, "text": sentence(role) }),
+            node,
             id: role.clone(),
             start: Start::Box { w: 0.5, h: tall.clamp(1.0 / 12.0, 0.5) },
             sample: None,
