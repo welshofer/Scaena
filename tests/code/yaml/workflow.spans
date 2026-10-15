@@ -1,0 +1,137 @@
+meta        «%YAML 1.2\n---\n»
+comment     «# Runs the checks on every push.\n»
+property    «name»
+punctuation «: »
+string      «CI\n»
+property    «on»
+punctuation «:\n  »
+property    «push»
+punctuation «:\n    »
+property    «branches»
+punctuation «: [»
+string      «main»
+punctuation «, »
+string      «"release/**"»
+punctuation «]\n  »
+property    «pull_request»
+punctuation «: {»
+property    «types»
+punctuation «: [»
+string      «opened»
+punctuation «, »
+string      «synchronize»
+punctuation «]}\n\n»
+property    «env»
+punctuation «: »
+variable    «&env\n  »
+property    «RUST_BACKTRACE»
+punctuation «: »
+number      «1\n  »
+property    «CARGO_TERM_COLOR»
+punctuation «: »
+string      «always\n  »
+property    «RETRIES»
+punctuation «: »
+number      «3\n  »
+property    «TIMEOUT»
+punctuation «: »
+number      «2.5\n  »
+property    «DEBUG»
+punctuation «: »
+constant    «false\n  »
+property    «CACHE»
+punctuation «: »
+constant    «~\n  »
+property    «PATTERN»
+punctuation «: »
+string      «'it''s *.rs'\n\n»
+property    «jobs»
+punctuation «:\n  »
+property    «test»
+punctuation «:\n    »
+property    «runs-on»
+punctuation «: »
+string      «${{ matrix.os }}\n    »
+property    «timeout-minutes»
+punctuation «: »
+number      «30\n    »
+property    «strategy»
+punctuation «:\n      »
+property    «matrix»
+punctuation «:\n        »
+property    «os»
+punctuation «: [»
+string      «ubuntu-latest»
+punctuation «, »
+string      «macos-14»
+punctuation «]\n        »
+property    «toolchain»
+punctuation «: [»
+string      «"1.82"»
+punctuation «, »
+string      «stable»
+punctuation «]\n    »
+property    «env»
+punctuation «: »
+variable    «*env\n    »
+property    «steps»
+punctuation «:\n      - »
+property    «uses»
+punctuation «: »
+string      «actions/checkout@v4\n      »
+punctuation «- »
+property    «name»
+punctuation «: »
+string      «Build and test\n        »
+property    «run»
+punctuation «: »
+operator    «|\n»
+string      «          cargo build --locked\n          cargo test --locked # every crate\n\n          cargo doc --no-deps\n      »
+punctuation «- »
+property    «name»
+punctuation «: »
+string      «Notes\n        »
+property    «if»
+punctuation «: »
+string      «github.event_name == 'push'\n        »
+property    «run»
+punctuation «: »
+operator    «>-\n»
+string      «          echo "folded into\n          one line"\n      »
+punctuation «- »
+variable    «&cache\n        »
+property    «name»
+punctuation «: »
+string      «Cache\n        »
+property    «uses»
+punctuation «: »
+string      «actions/cache@v4\n        »
+property    «with»
+punctuation «:\n          »
+property    «path»
+punctuation «: »
+string      «~/.cargo\n          »
+property    «key»
+punctuation «: »
+type        «!!str »
+string      «42\n»
+punctuation «? »
+property    «complex key\n»
+punctuation «: »
+string      «complex value\n»
+punctuation «? [»
+string      «flow»
+punctuation «, »
+string      «key»
+punctuation «]\n: {»
+property    «"json"»
+punctuation «:»
+number      «1»
+punctuation «, »
+property    «"list"»
+punctuation «:[»
+constant    «true»
+punctuation «,»
+constant    «null»
+punctuation «]}\n»
+meta        «...\n»

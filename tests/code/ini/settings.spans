@@ -1,0 +1,65 @@
+comment     «; Settings for the build, read by configparser.\n# A hash begins a comment too.\n»
+property    «root »
+operator    «= »
+constant    «true\n\n»
+punctuation «[»
+type        «*»
+punctuation «]\n»
+property    «indent_style »
+operator    «= »
+string      «space\n»
+property    «indent_size »
+operator    «= »
+number      «4\n»
+property    «insert_final_newline »
+operator    «= »
+constant    «yes\n\n»
+punctuation «[»
+type        «*.{js,json,yml}»
+punctuation «]\n»
+property    «indent_size »
+operator    «= »
+number      «2\n\n»
+punctuation «[»
+type        «remote »
+string      «"origin"»
+punctuation «]\n\t»
+property    «url »
+operator    «= »
+string      «https://github.com/example/app.git\n\t»
+property    «fetch »
+operator    «= »
+string      «+refs/heads/*:refs/remotes/origin/*\n\n»
+punctuation «[»
+type        «paths»
+punctuation «]\n»
+property    «home »
+operator    «= »
+string      «/var/lib/app\n»
+property    «data »
+operator    «= »
+variable    «${home}»
+string      «/data\n»
+property    «logs »
+operator    «= »
+variable    «%(home)s»
+string      «/logs\n»
+property    «timeout»
+operator    «: »
+number      «30\n»
+property    «ratio »
+operator    «= »
+number      «-0.75\n»
+property    «description »
+operator    «= »
+string      «A value that runs\n    onto the next line\n»
+property    «greeting »
+operator    «= »
+string      «Hello, \\\n    world\n\n»
+punctuation «[»
+type        «options.entry_points»
+punctuation «]\n»
+property    «console_scripts »
+operator    «=\n    »
+string      «app = app.cli:main\n    app-admin = app.admin:run\n»
+comment     «! A .properties file writes a comment so.\n»
