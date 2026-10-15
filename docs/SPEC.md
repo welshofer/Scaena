@@ -1022,6 +1022,8 @@ scaena data      <bundle> SOURCE [--edits edits.json|- [--dry-run]]   # a data s
 scaena files     <bundle> [--remove PATHS [--dry-run]]   # the bundle's images, fonts, and data, and what uses each; those nothing names taken out
 scaena health    <bundle>                             # its narrative health (§7.7): scores, each slide as read, findings with fixes
 scaena icons     [WORDS…] [--fill] [--limit N]        # the icons that ship, found by their words: each its path and the view it is drawn on (§3.3)
+scaena map       <bundle> PLACE [--show block|neighborhood|city|region | --zoom Z] [--label TEXT] [--style light|dark|bright] [--state S] [--into NODE | --at X,Y,W,H] [--pick N] [--places]
+                 <bundle> --refresh NODE [--zoom Z] [--center LAT,LON]   # a map from Geoapify, with $GEOAPIFY_API_KEY, put on a slide in one patch (§3.3, ADR-0030); several places found exit 2
 scaena history   <bundle> [--at VERSION [--scn] | --diff FROM[,TO] | --restore VERSION [--dry-run]]   # the versions its history keeps; one as it was, two compared, one made the deck again
 scaena diff      <bundle> --from ID --to ID           # what changes between two states (resolved)
 scaena save      <bundle> [--to DIR|FILE.scaena] [--keep-fonts] [--history]   # write the bundle as §3.1 lays it out
@@ -1274,6 +1276,7 @@ An editor puts a box about the pointer, snapped to the theme's grid as a dropped
 | `data_attach` | Copies a CSV or JSON file into `data/` and declares it as data source `id`. Each column is typed by `schema`, or inferred: as narrowly as all its values allow (`number`, `boolean`, `date` in ISO 8601, else `string`). Written only if the deck validates no worse. | `{ attached, id, source, schema, rows, added, removed, errors }` |
 | `spine_read` | The spine projection (§10), without the times and renders `export --format spine` adds: it runs no layout. | the projection |
 | `spine_update` | Replaces the spine, as a patch. | as `deck_patch` |
+| `map_fetch` | `scaena map`: a map of `place` (an address, a place, or `lat, lon`) fetched from Geoapify with the user's own key (`$GEOAPIFY_API_KEY` where the server runs), kept in the bundle, and put in the image `into`, else the state's first empty place for a picture, else a new image at `at`, one patch (§3.3, ADR-0030); `show` or `zoom`, `label`, `style`, `pick` from 1; `places` only lists what `place` finds; `refresh`, an image's id, fetches its map again, at `zoom` or `center` where given. It sends the place's words to Geoapify's geocoder and the map's middle, size, and zoom to its static map, through the CLI's transport, so the server links no HTTP client. A name that matches several places answers them in `places`. | `{ target?, placed?, places? }` |
 
 - **Results.** A tool's result is structured content, with the same JSON as text. It is the command's `--json` result, with one difference: structured content is an object, so a command that prints a list or a map has it named here (`findings`, `states`, `changes`).
 - **Failures.** A tool that stops returns an error result (`isError`), not a protocol error, so the agent reads why. Its text is `{ "message", "plan"?, "op"? }`: what stopped it, the PLAN task that builds what it needs, and the index of a patch's op that does not apply.
