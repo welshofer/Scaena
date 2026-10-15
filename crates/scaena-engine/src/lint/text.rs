@@ -388,15 +388,15 @@ impl Rule for W202MaxLines {
                     .at(cx.node_path(id))
                     .node(id)
                     .measure(json!({ "lines": n, "maxLines": max }))
-                    .hint(match is_code(props) {
-                        // Code keeps its lines at any size (ADR-0029).
+                    .hint(match is_code(props) || placed.text.wrap == Wrap::None {
+                        // Code keeps its lines at any size (ADR-0029), and verse (PLAN O.4b).
                         true => {
-                            "Give it fewer lines a step, or take its `maxLines` away: code keeps its lines at any size."
+                            "Give it fewer lines a step, or take its `maxLines` away: code and verse keep their lines at any size."
                         }
                         false => "Shorten it, or let it shrink (`fit: shrink`) to fit its lines.",
                     });
-                // Shrinking takes no line from code.
-                if placed.fit != TextFit::Shrink && !is_code(props) {
+                // Shrinking takes no line from code or verse.
+                if placed.fit != TextFit::Shrink && !is_code(props) && placed.text.wrap != Wrap::None {
                     f = f.fix(shrink(cx, state.index, id));
                 }
                 out.push(f);

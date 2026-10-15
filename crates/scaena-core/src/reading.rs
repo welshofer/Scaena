@@ -42,6 +42,9 @@ pub struct Reading {
     /// A text's paragraphs as a list's items (ADR-0018), one for each paragraph; empty for a
     /// text that is no list, and for any other node.
     pub items: Vec<Option<ListItem>>,
+    /// A text set as verse, its lines broken only where it breaks them: in the `verse` role, or
+    /// with `wrap: none` (PLAN O.4b). It reads as one paragraph, its lines set apart.
+    pub verse: bool,
 }
 
 /// How each node `snap` shows reads, by id.
@@ -480,7 +483,8 @@ mod tests {
                 kind: Kind::Paragraph,
                 alt: Some("four point two times".into()),
                 lang: Some("en-GB".into()),
-                items: Vec::new()
+                items: Vec::new(),
+                verse: false,
             }
         );
     }

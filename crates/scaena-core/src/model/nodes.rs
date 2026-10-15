@@ -288,8 +288,8 @@ pub enum Wrap {
     Greedy,
     Pretty,
     Balance,
-    /// Never: its lines break only where the text breaks them, as verse is set (PLAN O.4b), and under `fit: shrink` a line too wide shrinks
-    /// the whole text, as code does (ADR-0029).
+    // Never: its lines break only where the text breaks them, as verse is set (PLAN O.4b), and
+    // under `fit: shrink` a line too wide shrinks the whole text, as code does (ADR-0029).
     None,
 }
 

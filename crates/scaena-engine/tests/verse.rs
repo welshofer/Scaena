@@ -12,7 +12,8 @@ use serde_json::{Value, json};
 
 const BUNDLE: &str = "../../tests/fixtures/torture.scaena";
 
-const POEM: &str = "An old silent pond, still beneath the winter moon\nA frog jumps into the pond\nSplash! Silence again";
+const POEM: &str =
+    "An old silent pond, still beneath the winter moon\nA frog jumps into the pond\nSplash! Silence again";
 
 fn read(path: &str) -> Vec<u8> {
     std::fs::read(format!("{BUNDLE}/{path}")).unwrap()
@@ -68,22 +69,22 @@ fn set(text: &str, width: f32, scale: f32) -> TextLayout {
 #[test]
 fn a_verse_is_set_as_written() {
     // In four columns, far narrower than its first line.
-    let d = deck(json!({ "n": verse(POEM, json!({ "col": [1, 4], "row": [2, 10] })) }));
+    let d = deck(json!({ "n": verse(POEM, json!({ "col": [1, 4], "row": [2, 8] })) }));
     let p = placed(&d, "n");
     // No soft break: three lines, as written, set whole and smaller.
     assert_eq!(p.text.lines.len(), 3, "{:?}", p.text.lines);
     assert_eq!(p.text.wrap, Wrap::None);
     assert!(p.scale < 1.0 && !p.overflow, "{} {}", p.scale, p.overflow);
     // Wide enough, it keeps its size and its lines.
-    let wide = placed(&deck(json!({ "n": verse(POEM, json!({ "col": [1, 12], "row": [2, 10] })) })), "n");
+    let wide = placed(&deck(json!({ "n": verse(POEM, json!({ "col": [1, 12], "row": [2, 8] })) })), "n");
     assert_eq!((wide.scale, wide.text.lines.len()), (1.0, 3));
     // A text that wraps breaks the same words into more lines.
-    let mut prose = verse(POEM, json!({ "col": [1, 4], "row": [2, 10] }));
+    let mut prose = verse(POEM, json!({ "col": [1, 4], "row": [2, 8] }));
     prose["wrap"] = json!("greedy");
     prose["fit"] = json!("wrap");
     assert!(placed(&deck(json!({ "n": prose })), "n").text.lines.len() > 3);
     // Centered, each line stands in the middle on its own.
-    let mut centered = verse(POEM, json!({ "col": [1, 12], "row": [2, 10] }));
+    let mut centered = verse(POEM, json!({ "col": [1, 12], "row": [2, 8] }));
     centered["align"] = json!({ "x": "center" });
     let t = placed(&deck(json!({ "n": centered })), "n").text;
     let middles: Vec<f32> = t.lines.iter().map(|l| l.x + 0.5 * l.width).collect();
@@ -93,7 +94,7 @@ fn a_verse_is_set_as_written() {
 
 #[test]
 fn a_verse_shrinks_within_1_64_of_bisection() {
-    let d = deck(json!({ "n": verse(POEM, json!({ "col": [1, 5], "row": [2, 10] })) }));
+    let d = deck(json!({ "n": verse(POEM, json!({ "col": [1, 5], "row": [2, 8] })) }));
     let p = placed(&d, "n");
     let [w, h] = [p.cell[2], p.cell[3]];
     let fits = |scale: f32| {
@@ -112,7 +113,7 @@ fn a_verse_shrinks_within_1_64_of_bisection() {
 
 #[test]
 fn a_verse_shrinks_no_further_than_its_min_size() {
-    let mut node = verse(POEM, json!({ "col": [1, 2], "row": [2, 10] }));
+    let mut node = verse(POEM, json!({ "col": [1, 2], "row": [2, 8] }));
     node["minSize"] = json!(30);
     let d = deck(json!({ "n": node }));
     let p = placed(&d, "n");
@@ -123,9 +124,9 @@ fn a_verse_shrinks_no_further_than_its_min_size() {
     assert!(found.iter().any(|(c, n, _)| c == "W203" && n == "n"), "{found:?}");
     // Its lines are its own: no measure to run past, and no paragraph of the slide's to align.
     assert!(!found.iter().any(|(c, n, _)| (c == "W201" || c == "E100") && n == "n"), "{found:?}");
-    let mut centered = verse(POEM, json!({ "col": [1, 12], "row": [2, 6] }));
+    let mut centered = verse(POEM, json!({ "col": [1, 12], "row": [2, 5] }));
     centered["align"] = json!({ "x": "center" });
-    let prose = json!({ "type": "text", "role": "body", "text": "Two lines of words that run across the box and on, and on, and on again, so that they break.", "at": { "col": [1, 6], "row": [7, 10] } });
+    let prose = json!({ "type": "text", "role": "body", "text": "Two lines of words that run across the box and on, and on, and on again, so that they break.", "at": { "col": [1, 6], "row": [6, 8] } });
     let found = lint(&deck(json!({ "n": centered, "p": prose })));
     assert!(!found.iter().any(|(c, _, _)| c == "W220"), "{found:?}");
 }

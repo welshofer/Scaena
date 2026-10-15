@@ -124,7 +124,7 @@ Rules:
 
 ```jsonc
 {
-  "scaena": "0.28",
+  "scaena": "0.29",
   "meta":   { "title": "...", "author": "...", "created": "...", "lang": "en-US" },
   "canvas": { "width": 1920, "height": 1080, "unit": "cu" },   // canvas units; 1 cu = 1 px at 1080p
   "formats": ["16:9", "9:16"],                               // the formats it is laid out in too (§3.4)
@@ -292,7 +292,7 @@ Italic is a family's own italic face (PLAN 2.40). A role, or a text's `style` (a
 - The themes that ship have a `code` role for it: JetBrains Mono at their body's size, `minSize: 24`.
 - In `.scn`, its lines are a block where one keeps them (§4.2, §4.3), as `docs/examples/code.deck.scn` writes them.
 
-**Verse** (PLAN O.4b, ADR-0030 decision 28). A text's or a role's `wrap: none` sets it as a poem is set: its lines break only where the text breaks them, however wide one runs, as code's do (2.131's path, offered to any text). Nothing hyphenates it, its `measure` is passed over, and each line is aligned on its own, so a centered poem stands each line in the middle. Under `fit: shrink` a line too wide shrinks the whole text, worked out from one layout (§3.4), no further than its `minSize`, else its role's, else half its size; past it, **W203**. In a container it asks for its longest line's width.
+**Verse** (deck format 0.29, theme format 0.18, PLAN O.4b, ADR-0030 decision 28). A text's or a role's `wrap: none` sets it as a poem is set: its lines break only where the text breaks them, however wide one runs, as code's do (2.131's path, offered to any text). Nothing hyphenates it, its `measure` is passed over, and each line is aligned on its own, so a centered poem stands each line in the middle. Under `fit: shrink` a line too wide shrinks the whole text, worked out from one layout (§3.4), no further than its `minSize`, else its role's, else half its size; past it, **W203**. In a container it asks for its longest line's width.
 - The themes that ship have a `verse` role: the display face upright (Fraunces at 400, `SOFT` 50 and `opsz` 72; Gallery's Instrument Serif), 64 cu (Ember's 48) at a leading of 1.5, on the baseline grid where the theme snaps (Ember snaps none), `wrap: none`, and a `minSize` of 40 (Ember's 32). Insert offers Text · verse.
 - A text in the `verse` role, or with `wrap: none`, reads as one paragraph, its lines set apart by `br` (§3.12). W201 and W220 pass over it. In another script it takes the script's family and leading, as every role but code's does (ADR-0027).
 - `docs/examples/haiku.deck.json` sets a haiku in it.
@@ -328,7 +328,7 @@ See `docs/schema/theme.schema.json`. Shape:
 
 ```jsonc
 {
-  "scaena-theme": "0.17",
+  "scaena-theme": "0.18",
   "name": "Dusk",
   "tokens": {
     "color":  { "ink": "#...", "paper": "#...", "accent": "#...", "muted": "...", "...": "..." },

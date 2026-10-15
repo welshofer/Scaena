@@ -1,5 +1,5 @@
 {
-  "scaena": "0.28",
+  "scaena": "0.29",
   "meta": {
     "title": "Typography torture deck",
     "author": "Scaena",
@@ -5089,7 +5089,8 @@
           2,
           8
         ]
-      }
+      },
+      "maxLines": 3
     }
   },
   "states": [
@@ -6425,7 +6426,7 @@
         },
         "verse-poem": {}
       },
-      "notes": "Pass: a haiku set as written (PLAN O.4b): `wrap: none`, so its three lines break only where the text breaks them, and none breaks again, though the display role balances its lines. Each line is centered on its own. At the role's 144 cu the middle line runs past columns 2-11, so the poem shrinks whole, worked out from one layout as code is, to the largest size at which every line fits, no smaller than its `minSize` of 72 cu."
+      "notes": "Pass: a haiku set as written (PLAN O.4b): `wrap: none`, so its three lines break only where the text breaks them, and none breaks again, though the display role balances its lines. Each line is centered on its own. At the role's 144 cu the middle line runs past columns 2-11, so the poem shrinks whole, worked out from one layout as code is, to the largest size at which every line fits (114 cu), no smaller than its `minSize` of 72 cu."
     }
   ],
   "overrides": {

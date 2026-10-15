@@ -736,8 +736,8 @@ impl Engine {
             let (top, bottom) = t.trimmed(trim);
             bottom - top <= cell[3] + FIT_EPSILON && t.lines.iter().all(|l| l.width <= cell[2] + FIT_EPSILON)
         };
-        // Code's lines are its own at any size: a size fits its box or it does not.
-        let fits = |t: &TextLayout| fits_box(t) && (code || max_lines.is_none_or(|m| t.lines.len() <= m));
+        // Code's lines are its own at any size, and verse's: a size fits its box or it does not.
+        let fits = |t: &TextLayout| fits_box(t) && (code || unbroken || max_lines.is_none_or(|m| t.lines.len() <= m));
         let mut lay = |scale: f32| -> Result<TextLayout, EngineError> {
             self.text.layout(&mut self.fonts, theme, &spec.scaled(scale), cell[2]).map_err(|e| in_node(id, e))
         };
