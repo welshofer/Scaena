@@ -93,7 +93,7 @@ import type {
 import { fitting } from "./pictures";
 import { PICTURE } from "./protocol";
 import { counted } from "./marks";
-import { counted as many, findings as why, inserting, moving, named, numbered, object, seconds, sentence } from "./words";
+import { counted as many, findings as why, inserting, moving, named, numbered, object, seconds, sentence, sourced } from "./words";
 import { prompting } from "./prompt";
 import { rehearsal, rehearsalKeys } from "./rehearse";
 import { scn, scnHighlight } from "./scn";
@@ -917,7 +917,7 @@ async function edit(source: Source, opened?: Stage) {
       if (!mark) return false;
       if (open) tab("data");
       await data.select(mark.source, mark.rows);
-      say(`${sentence(object(lexicon, mark.node, true))} is drawn from ${rowsSaid(mark.rows)} of the data “${mark.source}”`);
+      say(`${sentence(object(lexicon, mark.node, true))} is drawn from ${rowsSaid(mark.rows)} of the data “${sourced(lexicon, mark.source)}”`);
       return true;
     },
   }, $("#marks"), $("#marked"));
@@ -1291,12 +1291,13 @@ async function edit(source: Source, opened?: Stage) {
       stage.inserts().catch(() => undefined),
       state === undefined ? Promise.resolve(lexicon) : stage.words(state).catch(() => lexicon),
     ]);
-    const key = JSON.stringify([inserts?.map((i) => i.label), words?.types]);
+    const key = JSON.stringify([inserts?.map((i) => i.label), words?.types, words?.sources]);
     if (!inserts || key === offered) return;
     offered = key;
     insertable = [];
     // Each as a person names it (PLAN 2.99): its kind, then a text by its role, a shape by its
-    // kind, an effect by the theme's preset, and a picture or a source's chart by its name.
+    // kind, an effect by the theme's preset, a source's chart or table by the source's file
+    // (PLAN 3.18), and a picture by its name.
     const groups = new Map<string, HTMLOptGroupElement>();
     for (const [n, insert] of inserts.entries()) {
       const { kind, said } = inserting(words, insert);

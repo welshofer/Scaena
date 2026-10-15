@@ -21,13 +21,21 @@ struct DataPanel: View {
                     "No Data", systemImage: "tablecells",
                     description: Text("Paste cells from a spreadsheet, or drop a CSV or JSON file on a slide."))
             } else {
+                // Each source as a person names it (PLAN 3.18), as the inspector names a chart's:
+                // by its file's name in words, never by the name the deck writes it with.
                 Picker("Source", selection: $chosen) {
                     ForEach(sources) { source in
-                        Text("\(source.name) · \(kept(source))").tag(Optional(source.name))
+                        Text(Words.source(source.name, file: source.file)).tag(Optional(source.name))
                     }
                 }
+                .accessibilityIdentifier("data-source")
                 .padding(.horizontal, 8)
                 if let sheet, let name = chosen {
+                    // Where its rows are kept, and how many, as the browser's Data tab says it.
+                    Text(Self.kept(sheet))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 8)
                     table(sheet, name: name)
                     HStack {
                         Button("Add Row") { change(name, [.add(row: nil, values: [:])], file: sheet.file) }
@@ -43,10 +51,11 @@ struct DataPanel: View {
         .task(id: "\(editor.revision)\u{1f}\(chosen ?? "")") { read() }
     }
 
-    /// Where a source's rows are kept, as the picker says it: its file, by name, or the deck itself.
-    private func kept(_ source: DataSource) -> String {
-        guard let file = source.file else { return "in the deck" }
-        return String(file.split(separator: "/").last ?? Substring(file))
+    /// Where a source's rows are kept, its file by name or the deck itself, and how many there are.
+    private static func kept(_ sheet: Sheet) -> String {
+        let rows = sheet.rows.count == 1 ? "1 row" : "\(sheet.rows.count) rows"
+        guard let file = sheet.file else { return "Written in the deck · \(rows)" }
+        return "\(file.split(separator: "/").last.map(String.init) ?? file) · \(rows)"
     }
 
     /// The sheet as a grid: its columns and their types, then each row's cells, each a field.
@@ -58,7 +67,7 @@ struct DataPanel: View {
                     ForEach(sheet.columns, id: \.name) { column in
                         VStack(alignment: .leading, spacing: 0) {
                             Text(column.name).bold()
-                            Text(column.type).font(.caption2).foregroundStyle(.secondary)
+                            Text(Words.column(column.type)).font(.caption2).foregroundStyle(.secondary)
                         }
                     }
                     Text("")
@@ -100,7 +109,7 @@ struct DataPanel: View {
             problem = nil
         } catch {
             sheet = nil
-            problem = "\(error)"
+            problem = Why.said(error)
         }
     }
 
@@ -111,7 +120,8 @@ struct DataPanel: View {
         let made = { () throws -> Void in
             let edited = try session.dataEdit(name, rows)
             guard edited.edited else {
-                throw Refused(description: "\(name): \(edited.why.first ?? "nothing changed")")
+                let source = Words.source(name, file: file)
+                throw Refused("\(source) not changed", edited.refusals, by: editor, otherwise: "it reads so already")
             }
         }
         problem = nil

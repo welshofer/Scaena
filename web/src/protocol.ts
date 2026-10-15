@@ -364,6 +364,9 @@ export interface Lexicon {
   /** What lint finds, by its code, in a sentence a person would say: `E100` is The text doesn't
    * fit its box. */
   issues: Record<string, string>;
+  /** Each data source the deck declares, by the name the deck writes it with, as a person names
+   * it (PLAN 3.18): `q3`, read from `data/q3-revenue.csv`, is Q3 Revenue. */
+  sources: Record<string, string>;
 }
 
 /** A slide a person may start (PLAN 3.30): one in a layout of the theme, a text in each slot that

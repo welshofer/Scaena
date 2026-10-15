@@ -292,7 +292,7 @@ private struct ProviderKey: View {
             replacing = false
             failure = nil
         } catch {
-            failure = "\(error)"
+            failure = Why.said(error)
         }
     }
 
@@ -305,7 +305,7 @@ private struct ProviderKey: View {
             checked = .idle
             failure = nil
         } catch {
-            failure = "\(error)"
+            failure = Why.said(error)
         }
     }
 }
@@ -369,12 +369,13 @@ extension KeyCheck.Verdict {
         }
     }
 
-    /// The sentence that says why a key does not work, or could not be checked.
+    /// The sentences that say why a key does not work, or could not be checked, in a person's
+    /// words (PLAN 3.18), as the browser's key field says them.
     var said: String? {
         switch self {
         case .accepted: nil
         case .refused(let why): why
-        case .unreachable(let why): "It couldn't be checked: \(why)"
+        case .unreachable(let why): "The key couldn't be checked. \(why)"
         }
     }
 

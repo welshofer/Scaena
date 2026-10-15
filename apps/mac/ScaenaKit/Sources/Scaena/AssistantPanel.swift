@@ -338,7 +338,8 @@ private struct EntryRow: View {
         case "stopped": "Stopped."
         case "steps": "Stopped after 32 rounds of calls: ask again to go on."
         case "length": "The answer ran out of room."
-        default: "Stopped: \(why)."
+        // The provider's own reason is no person's word (PLAN 3.18), as the browser says it.
+        default: "The model stopped."
         }
     }
 }

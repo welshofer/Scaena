@@ -471,7 +471,8 @@ const OPS: &[(&str, &str)] = &[
 
 /// What a change the deck's history keeps did, from the message it was recorded with, as a
 /// person says it (PLAN 2.99): `patch: add_node, place` as An object added, an object moved; a
-/// theme taken by its name; an undo by what it undid. Every editor's Versions lists a change so.
+/// theme taken by its name; a data source by its name in words, never the id the deck writes it
+/// with (PLAN 3.18); an undo by what it undid. Every editor's Versions lists a change so.
 pub fn change(message: &str) -> String {
     let m = message.trim();
     let file = |path: &str| path.rsplit('/').next().unwrap_or(path).to_string();
@@ -499,10 +500,10 @@ pub fn change(message: &str) -> String {
         _ => {}
     }
     if let Some(name) = m.strip_prefix("data_attach ") {
-        return format!("The data “{name}” added");
+        return format!("The data “{}” added", source(name, None));
     }
     if let Some(name) = m.strip_prefix("data_edit ") {
-        return format!("The data “{}” changed", name.split(':').next().unwrap_or(name));
+        return format!("The data “{}” changed", source(name.split(':').next().unwrap_or(name), None));
     }
     if m.starts_with("history --restore ") {
         return "A version restored".into();
@@ -918,8 +919,8 @@ const VOCABULARIES: [Vocabulary; 15] = [
 ];
 
 /// The words an editor shows for a state and the deck around it (PLAN 2.99): each object the
-/// state shows named by what it shows and by its kind, each of the theme's names said, and how a
-/// motion, its split, a shape, and each issue lint finds are said.
+/// state shows named by what it shows and by its kind, each of the theme's names said, how a
+/// motion, its split, a shape, and each issue lint finds are said, and each data source named.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Lexicon {
     /// Each node, by its id: what it shows, as the state shows it where it does, else its kind
@@ -947,6 +948,11 @@ pub struct Lexicon {
     /// text doesn't fit its box. An editor says by these a finding that came without its
     /// sentence, as those do that refuse a theme, a version, or a data edit.
     pub issues: BTreeMap<String, String>,
+    /// Each data source the deck declares, by the name the deck writes it with, as a person names
+    /// it ([`source`], PLAN 3.18): `q3`, read from `data/q3-revenue.csv`, is Q3 Revenue. An editor
+    /// names a source by these wherever it offers one or speaks of it: Insert's charts and tables,
+    /// the rows a mark is drawn from, the file a source reads.
+    pub sources: BTreeMap<String, String>,
 }
 
 /// Every type of node, in the format's order.
@@ -1033,7 +1039,11 @@ pub fn lexicon(deck: &Deck, theme: &Theme, state: &str) -> Result<Lexicon, Strin
     for (code, said) in MARKED.iter().chain(LISTED) {
         issues.insert(code.to_string(), said.to_string());
     }
-    Ok(Lexicon { objects, kinds, names, motions, splits, shapes, places, weights, types, issues })
+    let mut sources = BTreeMap::new();
+    for (name, data) in &deck.data {
+        sources.insert(name.clone(), source(name, data.source.as_str()));
+    }
+    Ok(Lexicon { objects, kinds, names, motions, splits, shapes, places, weights, types, issues, sources })
 }
 
 #[cfg(test)]
@@ -1210,6 +1220,10 @@ mod tests {
         choices(&mut c, &deck, &theme);
         let data = c.fields.iter().find(|f| f.prop == "data").and_then(|f| f.words.as_ref()).unwrap();
         assert_eq!(data.said["@q3"], "Q3 Revenue", "the chart's source, by its file");
+        // The words an editor names each source by, wherever it speaks of one: Insert's charts and
+        // tables of it, the rows a mark is drawn from, the file it reads.
+        let said = lexicon(&deck, &theme, "revenue").unwrap();
+        assert_eq!(said.sources, BTreeMap::from([("q3".to_string(), "Q3 Revenue".to_string())]));
     }
 
     /// A polygon of the shape library is named as Insert names it (PLAN 2.106), wherever an editor

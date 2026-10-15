@@ -5,6 +5,7 @@
 // which the page says. A key is never written into a bundle, and goes nowhere but to the
 // provider it is for.
 import type { ProviderId } from "../protocol";
+import { answered, answerOf, unanswered } from "../words";
 
 const item = (provider: ProviderId) => `scaena.key.${provider}`;
 
@@ -111,20 +112,21 @@ export function hint(provider: ProviderId, key: string): string | undefined {
   return `${form.name}'s keys start with ${form.start}.`;
 }
 
-/** What a provider's answer to the request that lists its models says of the key: it works, the
- * provider refused it (an answer of 401 or 403, or Gemini's 400 that names the key), or it could
- * not be checked; with the sentence that says so. */
+/** What a provider's answer to the request that lists its models says of the key, in a person's
+ * words (PLAN 3.18), as the Mac's `KeyCheck.verdict` says it (`answered`): it works; the provider
+ * did not accept it, or the account is out of credit or without the models; or it could not be
+ * checked, the provider busy or in trouble, or no way to it. No status, and none of the provider's
+ * own words. */
 export function verdict(provider: ProviderId, listed: string[] | Error): { state: "works" | "refused" | "unreachable"; said: string } {
   const name = FORMS[provider].name;
   if (!(listed instanceof Error)) return { state: "works", said: `The key works: ${listed.length === 1 ? "1 model" : `${listed.length} models`} to choose from.` };
   // The adapters' errors read "401 Unauthorized: what the provider said" (`json` in providers.ts);
   // over HTTP/2 there is no status text.
-  const message = listed.message;
-  const answered = /\b([1-5]\d\d)\b[^:]*:\s*([\s\S]*)$/.exec(message);
-  const status = Number(answered?.[1] ?? 0);
-  const words = (answered?.[2] ?? "").trim();
-  if (status === 401 || status === 403 || (status === 400 && /key/i.test(words)))
-    return { state: "refused", said: words ? `${name} refused this key: ${words}` : `${name} refused this key.` };
-  if (status === 429) return { state: "works", said: `The key works; ${name} says it is busy for now.` };
-  return { state: "unreachable", said: `The key couldn't be checked: ${message}` };
+  const answer = answerOf(listed);
+  if (!answer) return { state: "unreachable", said: "The key couldn't be checked. Try again in a moment." };
+  const why = unanswered(answer.status, answer.words);
+  if (why === "busy" && answer.status === 429) return { state: "works", said: `The key works; ${name} says it is busy for now.` };
+  const said = answered(name, answer.status, answer.words);
+  if (why === "notAccepted" || why === "noCredit" || why === "noAccess") return { state: "refused", said };
+  return { state: "unreachable", said: `The key couldn't be checked. ${said}` };
 }

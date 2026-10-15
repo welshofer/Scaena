@@ -64,7 +64,7 @@ struct StoryPanel: View {
             why = nil
         } catch {
             health = nil
-            why = "Its story is not read: \(error)"
+            why = "Its story couldn't be read. \(Why.said(error))"
         }
     }
 

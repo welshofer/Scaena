@@ -128,7 +128,8 @@ private actor Answers {
     #expect(shown[3...] == ["said Done.", "done: end"])
     #expect(assistant.usage == Usage(input: 10, output: 2))
 
-    // A refusal is said, and the conversation goes on from where it was.
+    // A refusal is said in a person's words (PLAN 3.18), not the provider's or its status, and
+    // the conversation goes on from where it was.
     assistant.ask("Again?", provider: .anthropic, model: "a-model", key: "sk-test")
     for _ in 0..<500 where assistant.working {
         try await Task.sleep(for: .milliseconds(10))
@@ -137,7 +138,7 @@ private actor Answers {
         Issue.record("the refusal is said")
         return
     }
-    #expect(why.contains("500"), "\(why)")
+    #expect(why == "Anthropic couldn't answer just now. Try again in a moment.", "\(why)")
 }
 
 /// Whether this Mac lets a test write the Keychain: a runner without a login keychain does not.

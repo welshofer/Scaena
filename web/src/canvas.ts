@@ -78,7 +78,7 @@ import * as notes from "./notes";
 import { annotate, askWords, markName, noteName } from "./notes";
 import type { Stage } from "./stage";
 import { covered, paragraphs, type Selected, typing } from "./typing";
-import { an, findings, fractions, inserting as insertSaid, named, object, reaching, sentence } from "./words";
+import { an, findings, fractions, inserting as insertSaid, named, object, reaching, sentence, source as sourceSaid } from "./words";
 
 /** `text` as SVG holds it: the words of a slot's prompt (PLAN 3.30). */
 const escaped = (text: string) => text.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]!);
@@ -2927,13 +2927,15 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const what = sheet ? `the ${sheet.rows} rows pasted` : file.name;
     try {
       const { path, data, attached, patch } = await stage.attaching(editor.source(), file.name, await file.arrayBuffer(), sheet?.schema);
-      let made = `${sentence(what)} ${sheet ? "are" : "is"} the data “${data}” already`;
+      // The source as a person names it (PLAN 3.18), by its file's name in words, as the Mac does.
+      const sourceName = sourceSaid(data, path);
+      let made = `${sentence(what)} ${sheet ? "are" : "is"} the data “${sourceName}” already`;
       if (attached) {
         if (!patch.length) {
           const errors = attached.added.filter((f) => f.severity === "error");
           return editor.say(`${sentence(what)} not added: ${errors.length ? findings(words, errors) : "the deck would not open with it"}`);
         }
-        made = sheet ? `${sentence(what)} added as the data “${data}”` : `${file.name} added as the data “${data}”, ${attached.rows} rows`;
+        made = sheet ? `${sentence(what)} added as the data “${sourceName}”` : `${file.name} added as the data “${sourceName}”, ${attached.rows} rows`;
         if (!(await change(patch, "Adding the data…", made, null))) return;
       }
       offered = await stage.inserts();
@@ -2943,7 +2945,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       if (n < 0) return editor.say(sheet ? `${made}: Insert offers no table of it, since no column tells its rows apart` : `${made}: Insert offers a table of it, since its columns make no chart`);
       pointed = at;
       const columns = sheet?.columns.map((field, i) => (sheet.formats[i] ? { field, format: sheet.formats[i] } : { field }));
-      await inserting(n, `a ${kind} of “${data}”`, undefined, columns && { columns });
+      await inserting(n, `a ${kind} of “${sourceName}”`, undefined, columns && { columns });
     } catch (e) {
       editor.say(`Not added: ${said(e)}`);
     }

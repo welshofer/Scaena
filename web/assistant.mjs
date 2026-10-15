@@ -19,7 +19,7 @@
 // anew, before and after (PLAN 2.93); that the theme's edit is one step of the source's undo, the
 // theme written back (PLAN 2.61); and that a question stops when asked to.
 // Then the key's field and storage: masked and shown on request, its form said as it is typed, its
-// provider's answer said (it works with its models, or is refused in the provider's words), kept
+// provider's answer said (it works with its models, or is refused, in a person's words), kept
 // for the tab, or on the device, encrypted, and forgotten.
 // Exits 1 on any failure.
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
@@ -375,7 +375,11 @@ try {
       await page.fill("#key", "refused-key");
       await keyed("refused");
       said = await keyState();
-      check(said.state === "refused" && said.text === "Anthropic refused this key: invalid x-api-key", `a key the provider refuses is said so, in its words: ${said.text}`);
+      // In a person's words (PLAN 3.18), as the Mac's Keys say it: not the provider's own, nor its status.
+      check(
+        said.state === "refused" && said.text === "Anthropic didn't accept your key. Check it, or replace it.",
+        `a key the provider refuses is said so, in a person's words: ${said.text}`,
+      );
       check((await page.$eval("#model", (s) => s.options.length)) === 0, "and offers no models");
       await page.fill("#key", "anthropic-test-key");
       await keyed("works");

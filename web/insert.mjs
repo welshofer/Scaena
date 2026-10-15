@@ -221,7 +221,8 @@ try {
   await page.waitForFunction(() => !window.scaena.canvas.busy() && !window.scaena.canvas.boxes()?.some((b) => b.node === "rev"), null, { timeout: 30000 }).catch(() => {});
   const main = slots.main;
   await press([main[0] + main[2] / 2, main[1] + main[3] / 2]);
-  await page.selectOption("#insert", { label: "q3" });
+  // The source named as a person names it (PLAN 3.18): by its file, `data/q3-revenue.csv`.
+  await page.selectOption("#insert", { label: "Q3 Revenue" });
   check(await reads("q3-chart chart:bar data:@q3"), "a chart of q3 is inserted");
   // Its declaration, with the lines its properties run on to.
   const q3 = /q3-chart chart:bar data:@q3[^\n]*(?:\n {4}[^\n]*)*/.exec(await source())?.[0] ?? "";

@@ -105,7 +105,7 @@ struct VersionsPanel: View {
             if state == nil || !states.contains(state ?? "") { state = states.first }
             compared = try editor.session.compareVersions(from: chosen)
         } catch {
-            problem = "\(error)"
+            problem = Why.said(error)
         }
     }
 
@@ -115,7 +115,7 @@ struct VersionsPanel: View {
             drawing = Image(png: try editor.session.versionPNG(state, width: 640))
         } catch {
             drawing = nil
-            problem = "\(error)"
+            problem = Why.said(error)
         }
     }
 
@@ -124,7 +124,7 @@ struct VersionsPanel: View {
             try editor.session.keepHistory()
             keeps = true
         } catch {
-            problem = "\(error)"
+            problem = Why.said(error)
         }
     }
 
@@ -133,8 +133,9 @@ struct VersionsPanel: View {
         edits.beside("Restore Version") {
             let restored = try editor.session.restoreVersion(chosen)
             guard restored.applied else {
-                let why = restored.why.first ?? "it would not validate in the bundle as it is"
-                throw Refused(description: "not restored: \(why)")
+                throw Refused(
+                    "not restored", restored.refusals, by: editor,
+                    otherwise: "the deck would not open with the files it has now")
             }
             return restored.files
         }

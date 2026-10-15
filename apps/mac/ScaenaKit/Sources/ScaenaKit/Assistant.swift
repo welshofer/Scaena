@@ -69,7 +69,7 @@ public final class Assistant {
             let chat = try conversing(provider: provider, model: model, base: base)
             try chat.ask(text, seeing: seeing, on: editor.session)
         } catch {
-            add(.failed("\(error)"))
+            add(.failed(Why.said(error, of: provider)))
             return
         }
         add(.question(text))
@@ -116,7 +116,17 @@ public final class Assistant {
                 let request = try chat.request(key: key).urlRequest()
                 let (data, status) = try await send(request)
                 try Task.checkCancellation()
-                switch try chat.answer(status: status, body: String(decoding: data, as: UTF8.self)) {
+                let body = String(decoding: data, as: UTF8.self)
+                let next: Next
+                do {
+                    next = try chat.answer(status: status, body: body)
+                } catch {
+                    // A refusal, or an answer that does not read, said in a person's words (PLAN
+                    // 3.18), never the provider's own: the conversation is as it was.
+                    add(.failed(Why.answered(chat.provider, status: status, body: body)))
+                    return
+                }
+                switch next {
                 case .done(let text, let stop, let used):
                     count(used)
                     if !text.isEmpty { add(.said(text)) }
@@ -146,7 +156,7 @@ public final class Assistant {
         } catch let error as URLError where error.code == .cancelled {
             settle(chat)
         } catch {
-            if Task.isCancelled { settle(chat) } else { add(.failed("\(error)")) }
+            if Task.isCancelled { settle(chat) } else { add(.failed(Why.said(error, of: chat.provider))) }
         }
     }
 

@@ -72,6 +72,23 @@ export function phrase(name: string): string {
  * the format writes it in words. */
 export const named = (words: Lexicon | undefined, kind: string, name: string) => words?.names[kind]?.[name] ?? phrase(name);
 
+/** Data source `name` as a person names it (PLAN 3.18), never by the id the deck writes it with,
+ * as `scaena_core::words::source` says it: by the name of its `file` in words,
+ * `data/trails-funding.csv` as Trails Funding; rows written in the deck, by its own name in words. */
+export function source(name: string, file?: string): string {
+  if (file) {
+    const leaf = file.split("/").pop() ?? file;
+    const dot = leaf.lastIndexOf(".");
+    const said = phrase(dot < 0 ? leaf : leaf.slice(0, dot));
+    if (said) return said;
+  }
+  return phrase(name);
+}
+
+/** One of the deck's data sources as a person names it: as the lexicon says it (`words.sources`),
+ * by its file; one the words lack, by its own name in words. */
+export const sourced = (words: Lexicon | undefined, name: string) => words?.sources?.[name] ?? source(name);
+
 /** What a motion does, and what it moves one at a time: Enters Word by Word. */
 export function moving(words: Lexicon | undefined, motion: string, split?: string | null): string {
   const does = words?.motions[motion] ?? motion;
@@ -91,6 +108,14 @@ export const an = (words: string) => `${/^[aeiou]/i.test(words) ? "an" : "a"} ${
 
 /** `words` begun as a sentence begins: its first letter a capital. */
 export const sentence = (words: string) => words.charAt(0).toUpperCase() + words.slice(1);
+
+/** `words` as a whole sentence: begun with a capital, and ended with a stop where it has none; with
+ * no words, what to do, as the Mac's `Why.sentence` says it. */
+export function ended(words: string): string {
+  const said = sentence(words.trim());
+  if (!said) return "Something went wrong. Try again.";
+  return /[.!?…]$/.test(said) ? said : `${said}.`;
+}
 
 /** Each part of an image a fraction gives, said. */
 export const PARTS: Record<string, string> = { x: "across", y: "down", w: "width", h: "height" };
@@ -125,7 +150,8 @@ export function reaching(states: string[], shown: string, slide: (state: string)
 }
 
 /** What Insert offers, as a person names it (PLAN 2.99): a text by its role, a shape by its kind,
- * an effect by the theme's preset, and a picture or a source's chart by its name. */
+ * an effect by the theme's preset, a source's chart or table by the source's file, as the Mac's
+ * Insert menu names it (PLAN 3.18), and a picture by its name. */
 export function inserting(words: Lexicon | undefined, insert: Insert): { kind: string; said: string } {
   const name = insert.label.includes(" · ") ? insert.label.split(" · ", 2)[1] : insert.label;
   const type = insert.node.type;
@@ -133,5 +159,91 @@ export function inserting(words: Lexicon | undefined, insert: Insert): { kind: s
   if (type === "text") return { kind, said: named(words, "text-role", name) };
   if (type === "shape") return { kind, said: words?.shapes[name] ?? name };
   if (type === "shader") return { kind, said: named(words, "shader-preset", name) };
+  if (type === "chart" || type === "table") return { kind, said: sourced(words, name) };
   return { kind, said: name };
+}
+
+/** What an answer that is no answer means for the person who asked (PLAN 3.18), as the Mac's
+ * `Why.Answer` reads it: `status` 0 where none came. A key not taken is said by its status alone;
+ * else the answer's words decide where they say more than the status does, so a quota spent is no
+ * credit whatever status it came with. */
+export type Unanswered = "notAccepted" | "noCredit" | "noAccess" | "unsafe" | "tooLong" | "busy" | "down" | "unreached" | "unread" | "refused";
+
+export function unanswered(status: number, body: string): Unanswered {
+  const said = body.toLowerCase();
+  const names = (words: string[]) => words.some((w) => said.includes(w));
+  if (status === 0) return "unreached";
+  // Answered with nothing in it: withheld by the safety system, or an answer that does not read.
+  if (status >= 200 && status < 300) return names(['safety"', "prohibited_content", "blocklist", '"refusal"']) ? "unsafe" : "unread";
+  if (status === 401) return "notAccepted";
+  if (status === 402 || names(["credit", "billing", "payment", "insufficient_quota", "exceeded your current quota"])) return "noCredit";
+  if (
+    status === 413 ||
+    names(["too long", "too large", "context length", "context window", "maximum context", "too many tokens", "maximum number of tokens"])
+  )
+    return "tooLong";
+  if (names(["safety", "moderation", "content_policy", "content policy", "usage policy", "flagged"])) return "unsafe";
+  if (status === 403) {
+    // Refused with no words, or of the key itself: not accepted. Else what the key may use.
+    if (!/\p{L}/u.test(said)) return "notAccepted";
+    if (names(["permission", "access", "not allowed", "region", "country", "territory", "verified"])) return "noAccess";
+    return names(["key"]) ? "notAccepted" : "noAccess";
+  }
+  // Gemini answers a key it does not take with a 400 that says so.
+  if (status === 400 && names(["api key", "api_key", "x-api-key"])) return "notAccepted";
+  if (status === 404 && names(["model"])) return "noAccess";
+  if (status === 408 || status === 429) return "busy";
+  if (status >= 500) return "down";
+  return "refused";
+}
+
+/** That `provider` could not be reached, in a person's words. */
+export const unreached = (provider: string) => `${provider} can't be reached. Check your internet connection.`;
+
+/** Why `provider`'s answer of `status`, its body `body`, is no answer, in a person's words, as the
+ * Mac's `Why.answered` says it: no status, no code, and none of the provider's own words. */
+export function answered(provider: string, status: number, body: string): string {
+  switch (unanswered(status, body)) {
+    case "notAccepted":
+      return `${provider} didn't accept your key. Check it, or replace it.`;
+    case "noCredit":
+      return `Your ${provider} account is out of credit, or past its limit. Check its plan and billing.`;
+    case "noAccess":
+      return `Your ${provider} account can't use these models. Check its plan, or choose another model.`;
+    case "unsafe":
+      return `${provider}'s safety system turned that down. Ask in other words.`;
+    case "tooLong":
+      return `That is more than ${provider}'s model takes at once. Ask about less, or start again.`;
+    case "busy":
+      return `${provider} is busy. Try again in a moment.`;
+    case "down":
+      return `${provider} couldn't answer just now. Try again in a moment.`;
+    case "unreached":
+      return unreached(provider);
+    case "unread":
+      return `${provider}'s answer couldn't be read. Try again in a moment.`;
+    case "refused":
+      return `${provider} couldn't answer that. Try again in a moment.`;
+  }
+}
+
+/** The answer an ask that came to nothing carries: its status and its words, as the assistant's
+ * adapters throw them (`STATUS TEXT: words`, or `not JSON: …` for one that does not read; `json`
+ * in assistant/providers.ts), status 0 where `fetch` found no way to the provider, as each browser
+ * words that. None for an error that is no provider's answer: the page's own, said as no answer. */
+export function answerOf(e: unknown): { status: number; words: string } | undefined {
+  const message = e instanceof Error ? e.message : String(e);
+  const answer = /^([1-5]\d\d)\b[^:]*:\s*([\s\S]*)$/.exec(message);
+  if (answer) return { status: Number(answer[1]), words: answer[2] };
+  if (message.startsWith("not JSON: ")) return { status: 200, words: message.slice("not JSON: ".length) };
+  if (/failed to fetch|networkerror|load failed|fetch failed/i.test(message)) return { status: 0, words: "" };
+  return undefined;
+}
+
+/** Why asking `provider` came to nothing, from what the ask threw, in a person's words, as the Mac's
+ * `Why.said` says it: the provider's answer by what it means, no way to it, or stopped. */
+export function unasked(provider: string, e: unknown): string {
+  if (e instanceof Error && e.name === "AbortError") return "Stopped.";
+  const answer = answerOf(e);
+  return answer ? answered(provider, answer.status, answer.words) : `${provider} couldn't answer that. Try again in a moment.`;
 }

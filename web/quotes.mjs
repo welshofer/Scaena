@@ -82,7 +82,7 @@ try {
   await page.click("#data [data-quote]");
   const quoted = 'text: "?19\\.4"?, quote: \\{data: @q3, row: \\{quarter: "?2026-Q3"?, product: Pro\\}, column: revenue\\}';
   check(await comes(quoted), `the characters quote the cell, their row by its quarter and product, the figure set: ${(await source()).match(/title[^\n]*quote[^\n]*/)?.[0]}`);
-  check(await says("quotes revenue of row 10 of the data “q3”"), `the status says so: ${await status()}`);
+  check(await says("quotes revenue of row 10 of the data “Q3 Revenue”"), `the status says so, the data by its file's name: ${await status()}`);
   check((await page.evaluate(() => window.scaena.canvas.typing())) === "title", "typing goes on");
   await page.addScriptTag({ path: axe });
   const found = await page.evaluate(async () => {

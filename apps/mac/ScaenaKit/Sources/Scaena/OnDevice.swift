@@ -27,13 +27,27 @@ enum OnDevice {
         return false
     }
 
+    /// Why the on-device model gave no answer, in a person's words (PLAN 3.18): what the model
+    /// says of it is for its makers, not the window.
+    struct Unanswered: LocalizedError {
+        var errorDescription: String? {
+            "The model on this \(Words.device) couldn't answer that. Ask again, or in other words."
+        }
+    }
+
     /// `prompt` answered by the on-device model, told `instructions`.
     static func respond(instructions: String, prompt: String) async throws -> String {
         #if canImport(FoundationModels)
         if #available(macOS 26.0, *) {
             let session = LanguageModelSession(instructions: instructions)
-            let response = try await session.respond(to: prompt)
-            return response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            do {
+                let response = try await session.respond(to: prompt)
+                return response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            } catch let error as CancellationError {
+                throw error
+            } catch {
+                throw Unanswered()
+            }
         }
         #endif
         throw Unavailable()
@@ -102,7 +116,7 @@ enum Writer {
         do {
             writing = try session.writing(ask)
         } catch {
-            let why = "Nothing to ask: \(error)"
+            let why = "Nothing to ask. \(Why.said(error))"
             return Asked(title: named(ask.kind), ask: { throw Unasked(errorDescription: why) }, take: nil)
         }
         let (instructions, prompt, picture) = (writing.instructions, writing.prompt, writing.picture)
@@ -186,7 +200,7 @@ struct OfferSheet: View {
                             make(try take(answer))
                             dismiss()
                         } catch {
-                            refused = "Not changed: \(error)"
+                            refused = "Not changed. \(Why.said(error))"
                         }
                     }
                     .keyboardShortcut(.defaultAction)
@@ -210,7 +224,9 @@ struct OfferSheet: View {
                     answer = said
                 }
             } catch {
-                failure = error.localizedDescription
+                // Why no answer came, in a person's words (PLAN 3.18): the key not accepted, the
+                // provider busy, the model on the device unable to answer.
+                failure = Why.said(error)
             }
         }
     }

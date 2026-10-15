@@ -217,13 +217,14 @@ try {
   await step("sample-chart", async () => {
     // The deck has no data, and Insert offers a chart and a table all the same, of a few sample
     // rows, as a presentation app does: the chart comes with them, and one undo takes both out.
+    // Each is named by its rows' source in words, as a person names it (PLAN 3.18): Sample.
     await until("a chart offered", () => document.querySelectorAll("#insert optgroup[label=Chart] option").length > 0);
     const groups = await page.evaluate(() =>
       Object.fromEntries([...document.querySelectorAll("#insert optgroup")].map((g) => [g.label, [...g.children].map((o) => o.textContent)])),
     );
-    check(groups.Chart?.includes("sample") && groups.Table?.includes("sample"), `a deck with no data offers a chart and a table of sample rows: ${groups.Chart} · ${groups.Table}`);
+    check(groups.Chart?.includes("Sample") && groups.Table?.includes("Sample"), `a deck with no data offers a chart and a table of sample rows: ${groups.Chart} · ${groups.Table}`);
     const before = await mark();
-    await page.selectOption("#insert", { label: "sample" });
+    await page.selectOption("#insert", { label: "Sample" });
     await changed(before);
     const text = await source();
     check(/^data sample\s+inline:\[/m.test(text) && /sample-chart chart:bar data:@sample/.test(text), `the chart comes with its rows: ${await status()}`);

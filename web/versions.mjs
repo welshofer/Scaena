@@ -97,13 +97,14 @@ try {
     `the history's changes, oldest first: ${JSON.stringify(messages)}`,
   );
   check(versions.every((v, i) => v.n === i + 1 && v.author === "user" && v.at?.endsWith("Z")), "each numbered, by its author, and when");
-  // In the engine's words, as the Mac's Versions says them (PLAN 2.99): no operation's name, no author's id.
+  // In the engine's words, as the Mac's Versions says them (PLAN 2.99): no operation's name, no author's id,
+  // and a data source by its name in words, not as the deck writes it (PLAN 3.18).
   check(
     JSON.stringify(versions.map((v) => [v.said, v.by])) ===
       JSON.stringify([
         ["The history begins", "you"],
         ["Words changed", "you"],
-        ["The data “q3” changed", "you"],
+        ["The data “Q3” changed", "you"],
         ["A slide added", "you"],
         ["An object added", "you"],
         ["An object deleted", "you"],

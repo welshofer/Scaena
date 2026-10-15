@@ -160,7 +160,9 @@ struct PictureSheet: View {
                 put(made)
                 dismiss()
             } catch {
-                if !Task.isCancelled { status = "No picture: \(error)" }
+                // Why none was made, in a person's words (PLAN 3.18): the key not accepted, the
+                // provider's safety system refusing, no way to it.
+                if !Task.isCancelled { status = "No picture was made. \(Why.said(error, of: painter.provider))" }
             }
         }
     }

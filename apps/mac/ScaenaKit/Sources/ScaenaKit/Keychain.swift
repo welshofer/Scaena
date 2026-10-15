@@ -47,8 +47,12 @@ public struct Keychain: Sendable {
         ]
     }
 
+    /// Why the Keychain refused, in its own sentence where it has one; never its status's number
+    /// (PLAN 3.18), which the system's sentence for a status it has no words for carries.
     private func refusal(_ status: OSStatus) -> ScaenaError {
-        let said = SecCopyErrorMessageString(status, nil) as String? ?? "status \(status)"
-        return ScaenaError(message: "the Keychain refused: \(said)")
+        guard let said = SecCopyErrorMessageString(status, nil) as String?, !said.contains(where: \.isNumber) else {
+            return ScaenaError(message: "the Keychain refused it")
+        }
+        return ScaenaError(message: "the Keychain refused it: \(said)")
     }
 }

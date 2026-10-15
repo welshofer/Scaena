@@ -130,7 +130,8 @@ try {
   await page.waitForFunction(() => /table/.test(window.scaena.canvas.selected() ?? ""), null, { timeout: 30000 }).catch(() => {});
   const table = await selected();
   check(/table/.test(table ?? ""), `the table they were is inserted, selected: ${table}`);
-  check(await says("A table of “trail-visitors-revenue” inserted on this slide"), `the status says so: ${await status()}`);
+  // The source named as a person names it (PLAN 3.18), not by the id the deck writes it with.
+  check(await says("A table of “Trail Visitors Revenue” inserted on this slide"), `the status says so: ${await status()}`);
   const scn = await source();
   for (const format of ['",d"', '"$,.2f"', '".1~%"']) check(scn.includes(format), `its columns print as copied: ${format}`);
   check(kept(scn) === kept(original), "the picture beside the cells stays out");

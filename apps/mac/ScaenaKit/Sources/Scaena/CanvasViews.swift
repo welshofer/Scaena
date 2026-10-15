@@ -245,7 +245,7 @@ struct FindBar: View {
             found = try editor.session.find(text, matchCase: matchCase, words: words)
         } catch {
             found = []
-            said = "\(error)"
+            said = Why.said(error)
         }
         let n = matches.all.count
         if let shown = now, shown >= n { now = n > 0 ? 0 : nil }
@@ -287,7 +287,7 @@ struct FindBar: View {
             if again { now = shown + 1 }
             replaced = true
         } catch {
-            said = "not replaced: \(error)"
+            said = "Not replaced. \(Why.said(error))"
         }
     }
 
@@ -304,7 +304,7 @@ struct FindBar: View {
             now = nil
             said = "\(n) replaced in \(places) \(places == 1 ? "place" : "places")"
         } catch {
-            said = "not replaced: \(error)"
+            said = "Not replaced. \(Why.said(error))"
         }
     }
 }

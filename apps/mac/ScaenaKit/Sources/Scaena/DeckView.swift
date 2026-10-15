@@ -40,6 +40,8 @@ struct DeckView: View {
     @State private var said: String?
     /// What the deck may have inserted, read again after each edit.
     @State private var inserts: [Insert] = []
+    /// The deck's data sources and their files: what Insert names a chart's or a table's data by.
+    @State private var sources: [DataSource] = []
     /// The others selected with the node selected, children of the same container (PLAN 3.13).
     @State private var also: [String] = []
     /// The nodes the state shown has locked by their own lock: what Lock undoes.
@@ -159,7 +161,7 @@ struct DeckView: View {
         ) { result in
             switch result {
             case .success(let url): choose(url)
-            case .failure(let error): failure = error.localizedDescription
+            case .failure(let error): failure = Why.said(error)
             }
         }
         // An icon chosen lands where the pointer last pressed, or in the middle of the slide; with
@@ -446,9 +448,13 @@ struct DeckView: View {
                     ]
                 } ?? [])
         case .chart:
-            InsertMenu(title: "Chart", symbol: "chart.bar", kinds: ["Chart"], first: nil, inserts: inserts, insert: insertHere)
+            InsertMenu(
+                title: "Chart", symbol: "chart.bar", kinds: ["Chart"], first: nil, inserts: inserts, insert: insertHere,
+                sources: sources)
         case .table:
-            InsertMenu(title: "Table", symbol: "tablecells", kinds: ["Table"], first: nil, inserts: inserts, insert: insertHere)
+            InsertMenu(
+                title: "Table", symbol: "tablecells", kinds: ["Table"], first: nil, inserts: inserts, insert: insertHere,
+                sources: sources)
         }
     }
 
@@ -714,6 +720,7 @@ struct DeckView: View {
             .task(id: "\(shown ?? "")\u{1f}\(selection.joined(separator: ","))\u{1f}\(editor.revision)") {
                 // What the Node menu offers, read again as the deck or the selection changes.
                 inserts = (try? editor.session.inserts()) ?? []
+                sources = (try? editor.session.dataSources()) ?? []
                 let boxes = shown.flatMap { try? editor.session.boxes(state: $0) } ?? []
                 ownLocks = Set(boxes.filter { $0.locked == $0.node }.map(\.node))
                 if let shown, let node, let choices = try? editor.session.choices(state: shown, node: node) {
@@ -757,7 +764,7 @@ struct DeckView: View {
             .fileExporter(
                 isPresented: exporting, document: saving, contentType: savingType, defaultFilename: savingName
             ) { result in
-                if case .failure(let error) = result { failure = "\(error)" }
+                if case .failure(let error) = result { failure = Why.said(error) }
             }
             .sheet(isPresented: showingRehearsed) {
                 if let done = rehearsed {
@@ -828,7 +835,7 @@ struct DeckView: View {
             guard let ships, current != ships.file else { return }
             let themed = try session.retheme(ships: name)
             guard themed.applied else {
-                throw Refused(description: "not re-themed: \(themed.why.first ?? "the deck would not validate in it")")
+                throw Refused("not re-themed", themed.refusals, by: editor, otherwise: "the deck would not open in it")
             }
             for file in try session.bundleFiles() where file.named.isEmpty {
                 try session.removeFile(file.path)
@@ -1091,6 +1098,7 @@ struct DeckView: View {
             group: selection.count > 1 ? { group(in: shown) } : nil,
             ungroup: one && grouped ? { ungroup(in: shown) } : nil,
             order: some ? { how in order(how, in: shown) } : nil)
+        made.sources = sources
         made.choosePicture = { choosingPicture = true }
         made.chooseIcon = { choosingIcon = true }
         made.makePicture = { makePicture(in: shown) }
@@ -1127,7 +1135,7 @@ struct DeckView: View {
         do {
             Pasteboard.write(clip: try editor.session.copying(state: shown, nodes: nodes))
         } catch {
-            said = "Not copied: \(error)"
+            said = "Not copied. \(Why.said(error))"
             return
         }
         said = cut ? "Cut" : "Copied"
@@ -1615,7 +1623,7 @@ struct DeckView: View {
             undo?.setActionName(name)
             return true
         } catch {
-            failure = "\(error)"
+            failure = Why.said(error)
             return false
         }
     }
@@ -1703,11 +1711,13 @@ struct DeckView: View {
         }
     }
 
+    /// `edit` made; where it was not, the window says why in a sentence in a person's words
+    /// (PLAN 3.18), never an error's own wrapping.
     private func perform(_ edit: () throws -> Void) {
         do {
             try edit()
         } catch {
-            failure = "\(error)"
+            failure = Why.said(error)
         }
     }
 }

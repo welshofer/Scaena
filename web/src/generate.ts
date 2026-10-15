@@ -11,6 +11,7 @@
 import { Making, scriptChecked, scriptFor, scriptTaken, writable } from "@scaena/wasm";
 import { findIcons, iconSet } from "./icon-set";
 import type { Choices, Generate, Generated, GeneratingEvent, Health, PictureJob } from "./protocol";
+import { answered } from "./words";
 
 type Generator = typeof import("@scaena/generator");
 
@@ -26,6 +27,8 @@ function generator(): Promise<Generator> {
 }
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
+/** Who makes pictures, by name, as a person reads it. */
+const PAINTERS = { openai: "OpenAI", gemini: "Gemini" } as const;
 
 /** The narrative health of `deck`, as `deck.json` holds it (PLAN G.9, SPEC §7.7). */
 export async function health(deck: string): Promise<Health> {
@@ -252,25 +255,34 @@ async function paint(
 
 /** The pictures `asked` (JSON, as `Painting` takes them) made by the best image model the key
  * lists at `pictures.provider`, every one at once, each round's answers read by the generator,
- * which says how long to wait before asking a busy provider again. None where the key lists no
- * image model, which `hear` hears. */
+ * which says how long to wait before asking a busy provider again; `heard` hears each answer.
+ * None where the key lists no image model, which `hear` hears. */
 async function painting(
   g: Generator,
   asked: string,
   pictures: { provider: "openai" | "gemini"; key: string; base?: string },
   hear: (event: GeneratingEvent) => void,
+  heard?: (reply: { status: number; body: string }) => void,
 ): Promise<{ placed: string; bytes: Map<string, Uint8Array>; made: number; unmade: string[]; model: string } | undefined> {
   const wanted = (JSON.parse(asked) as unknown[]).length;
+  const named = PAINTERS[pictures.provider];
   const listed = await send(JSON.parse(g.pictureModelsRequest(pictures.provider, pictures.key, pictures.base)));
+  // A key the provider does not take, no way to it, or an answer that does not read, in a person's
+  // words (PLAN 3.18), as the Mac says it, not in the provider's own nor in what the answer holds.
+  const unlisted = () => hear({ kind: "painted", pictures: 0, unmade: [answered(named, listed.status, listed.body)] });
+  if (listed.status < 200 || listed.status >= 300) {
+    unlisted();
+    return undefined;
+  }
   let model: string | undefined;
   try {
     model = (JSON.parse(g.pictureModels(pictures.provider, listed.status, listed.statusText, listed.body)) as string[])[0];
-  } catch (e) {
-    hear({ kind: "painted", pictures: 0, unmade: [`the image models could not be listed: ${said(e)}`] });
+  } catch {
+    unlisted();
     return undefined;
   }
   if (!model) {
-    hear({ kind: "painted", pictures: 0, unmade: ["the key lists no image model"] });
+    hear({ kind: "painted", pictures: 0, unmade: [`your ${named} key lists no image model`] });
     return undefined;
   }
   hear({ kind: "painting", pictures: wanted, model });
@@ -282,7 +294,10 @@ async function painting(
       const requests = JSON.parse(painting.requests(pictures.key)) as Request[];
       if (!requests.length) break;
       const replies = await Promise.all(requests.map(send));
-      for (const r of replies) painting.reply(r.status, r.statusText, r.body, r.after);
+      for (const r of replies) {
+        painting.reply(r.status, r.statusText, r.body, r.after);
+        heard?.(r);
+      }
       const pause = painting.round();
       if (pause > 0) await wait(pause * 1000);
     }
@@ -311,12 +326,22 @@ export async function picture(
   const g = await generator();
   const asked = g.pictureAsked(theme, job.subject, job.look, job.width, job.height);
   let why: string | undefined;
-  const made = await painting(g, asked, job, (event) => {
-    if (event.kind === "painted" && event.unmade.length) why = event.unmade.join("; ");
-  });
-  if (!made) throw new Error(why ?? "no picture was made");
+  const seen: { last?: { status: number; body: string } } = {};
+  const made = await painting(
+    g,
+    asked,
+    job,
+    (event) => {
+      if (event.kind === "painted" && event.unmade.length) why = event.unmade.join("; ");
+    },
+    (reply) => (seen.last = reply),
+  );
+  // Why none was made: what the provider answered in its place, said by what it means (PLAN
+  // 3.18), as the Mac says it, never in the provider's words; else the generator's reason.
+  const unmade = () => new Error(seen.last ? answered(PAINTERS[job.provider], seen.last.status, seen.last.body) : (why ?? "no picture was made"));
+  if (!made) throw unmade();
   const [path, bytes] = [...made.bytes][0] ?? [];
-  if (!path || !bytes) throw new Error(why ?? "no picture was made");
+  if (!path || !bytes) throw unmade();
   const alt = (JSON.parse(made.placed) as Record<string, { alt: string }>)["0"]?.alt ?? job.subject.trim();
   return { bytes, ext: path.replace(/^.*\./, ""), alt, model: made.model };
 }

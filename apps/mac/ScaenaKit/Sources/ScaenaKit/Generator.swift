@@ -470,19 +470,33 @@ public final class Generator {
         if let base = painter.base { listing["base"] = .string(base) }
         let list: Listing = try step("imageModels", listing)
         let listed = await send(list.request)
-        let models: Models = try step(
-            "imageModelsRead",
-            [
-                "provider": .string(painter.provider.rawValue), "status": .number(Double(listed.status)),
-                "statusText": .string(HTTPURLResponse.localizedString(forStatusCode: listed.status)),
-                "body": .string(listed.text),
-            ])
+        // A key the provider does not take, no way to it, or an answer that does not read, said in
+        // a person's words (PLAN 3.18), not in the provider's own nor in what the answer holds.
+        let unlisted = {
+            ScaenaError(message: Why.answered(painter.provider, status: listed.status, body: listed.text))
+        }
+        guard (200..<300).contains(listed.status) else { throw unlisted() }
+        let models: Models
+        do {
+            models = try step(
+                "imageModelsRead",
+                [
+                    "provider": .string(painter.provider.rawValue), "status": .number(Double(listed.status)),
+                    "statusText": .string(HTTPURLResponse.localizedString(forStatusCode: listed.status)),
+                    "body": .string(listed.text),
+                ])
+        } catch {
+            throw unlisted()
+        }
         return models.models.first
     }
 
     /// The pictures asked for made by `painter`, every one at once, a busy provider asked again
-    /// after the wait the engine says.
-    private func rounds(_ painter: Painter) async throws {
+    /// after the wait the engine says: the last answer the provider gave, which says why where a
+    /// picture was not made.
+    @discardableResult
+    private func rounds(_ painter: Painter) async throws -> GeneratorReply? {
+        var last: GeneratorReply?
         while true {
             let round: Round = try step("paint", ["key": .string(painter.key)])
             if round.requests.isEmpty { break }
@@ -505,10 +519,12 @@ public final class Generator {
                 ]
                 if let after = reply.after { args["after"] = .string(after) }
                 let _: JSONValue = try step("painted", args, bytes: reply.status == 0 ? Data() : reply.body)
+                last = reply
             }
             let wait: Wait = try step("round")
             if wait.wait > 0 { try await Task.sleep(nanoseconds: UInt64(wait.wait * 1_000_000_000)) }
         }
+        return last
     }
 
     /// The pictures the narrative's slides ask for, made by `painter`'s best image model, every
@@ -540,7 +556,8 @@ public final class Generator {
     /// One picture a person asks for in an editor (PLAN 2.107): of `subject`, in their words, made
     /// as `painter.look` in the palette of `theme` (the deck's theme, its JSON), for a place `size`
     /// on the slide, which frames it wide, tall, or square, by the best image model `painter`'s key
-    /// lists, as a made deck's pictures are. Why none was made, where none was.
+    /// lists, as a made deck's pictures are. Why none was made, where none was, in a person's words
+    /// (PLAN 3.18): the key not accepted, the provider's safety system refusing, the provider busy.
     public func picture(subject: String, theme: String, size: CGSize, painter: Painter) async throws -> MadePicture {
         guard let model = try await bestModel(painter) else {
             throw ScaenaError(message: "your \(painter.provider.name) key lists no image model")
@@ -552,8 +569,16 @@ public final class Generator {
         ]
         if let base = painter.base { asking["base"] = .string(base) }
         let _: Asked = try step("picture", asking)
-        try await rounds(painter)
-        let made: Picture = try step("pictureMade")
+        let last = try await rounds(painter)
+        let made: Picture
+        do {
+            made = try step("pictureMade")
+        } catch {
+            // Why none was made: what the provider answered in its place, said by what it means,
+            // never in the provider's words; the engine's reason where no answer came.
+            guard let last else { throw error }
+            throw ScaenaError(message: Why.answered(painter.provider, status: last.status, body: last.text))
+        }
         return MadePicture(bytes: made.bytes, ext: made.ext, alt: made.alt, model: model)
     }
 

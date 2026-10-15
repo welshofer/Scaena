@@ -155,6 +155,16 @@ enum Words {
         return phrase(name)
     }
 
+    /// The type of a data source's column as a person says it, as the browser's Data tab says it:
+    /// `string` is text, and `boolean` yes or no.
+    static func column(_ type: String) -> String {
+        switch type {
+        case "string": "text"
+        case "boolean": "yes or no"
+        default: type
+        }
+    }
+
     /// One of the theme's names of a kind (`of`), said: a color by what it is for, a font by its
     /// family, a duration with its seconds, a step of a scale by its size.
     static func name(_ name: String, of kind: String, theme: ThemeLook?) -> String {
@@ -234,15 +244,18 @@ enum Words {
     }
 
     /// What Insert adds, as a menu offers it: a text by its style, a shape by its name, a chart or
-    /// a table by its data, a picture by its place among the bundle's.
-    static func insertion(_ insert: Insert, among all: [Insert]) -> String {
+    /// a table by its data, which the deck's `sources` say is in a file, named as `source` names
+    /// it (PLAN 3.18), a picture by its place among the bundle's.
+    static func insertion(_ insert: Insert, among all: [Insert], sources: [DataSource] = []) -> String {
         switch insert.kind {
         case "Shape": return shapes[insert.name] ?? phrase(insert.name)
         case "Image":
             let pictures = all.filter { $0.kind == "Image" }
             let n = (pictures.firstIndex { $0.id == insert.id } ?? 0) + 1
             return pictures.count > 1 ? "Picture \(n)" : "Picture"
-        case "Chart", "Table": return "\(insert.kind) of \(insert.name)"
+        case "Chart", "Table":
+            let file = sources.first(where: { $0.name == insert.name })?.file
+            return "\(insert.kind) of \(source(insert.name, file: file))"
         default: return phrase(insert.name)
         }
     }

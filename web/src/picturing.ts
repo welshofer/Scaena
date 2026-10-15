@@ -9,6 +9,7 @@ import { load, settings } from "./assistant/keys";
 import type { MadePicture, PictureTarget } from "./canvas";
 import { listen } from "./life";
 import type { Stage } from "./stage";
+import { ended } from "./words";
 
 /** What the dialog asks of the editor around it. */
 export interface PicturingHost {
@@ -123,7 +124,8 @@ export function picturer(stage: Stage, host: PicturingHost) {
       if (mine !== turn) return;
       busy(false);
       whoPaints();
-      status.textContent = `No picture: ${said(e)}`;
+      // Why, in a person's words (PLAN 3.18), as the Mac's Make a Picture says it.
+      status.textContent = `No picture was made. ${ended(said(e))}`;
       return;
     }
     if (mine !== turn || !dialog.open) return;

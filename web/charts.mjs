@@ -4,10 +4,12 @@
 //   node web/charts.mjs     (after `just web`; from the repository's root)
 //
 // On the revenue example, in `revenue`:
-// - The Insert menu offers a chart and a table of `q3`, its one data source.
+// - The Insert menu offers a chart and a table of `q3`, its one data source, named as a person
+//   names it (PLAN 3.18): by its file, `data/q3-revenue.csv`, as Q3 Revenue.
 // - The chart inserted where the canvas was pressed reads the quarters, grouped by product: one
 //   patch, the chart selected. The inspector offers what it reads: its source, each channel's field
-//   from the columns of `q3` the channel can read (a y the numbers), and the type it reads it as.
+//   from the columns of `q3` the channel can read (a y the numbers), and the type it reads it as;
+//   the choice that takes a channel's column away is None, as the Mac's inspector calls it.
 // - Customers chosen for its y is one `choose`, and the preview draws it otherwise.
 // - A second source written into the source, of segments, is offered as its source; chosen, the
 //   chart reads the segments and their sales, and its series, which that source has no column for,
@@ -92,14 +94,17 @@ try {
   await showState("revenue", 1);
   const original = await source();
 
-  // A chart and a table of `q3`.
+  // A chart and a table of `q3`, named by its file (PLAN 3.18).
   await page.waitForFunction(() => document.querySelectorAll("#insert optgroup").length > 0, null, { timeout: 30000 });
   const offered = await menu();
-  check(offered.Chart?.includes("q3") && offered.Table?.includes("q3"), `a chart and a table of q3: ${JSON.stringify([offered.Chart, offered.Table])}`);
+  check(
+    offered.Chart?.includes("Q3 Revenue") && offered.Table?.includes("Q3 Revenue"),
+    `a chart and a table of q3, by its file: ${JSON.stringify([offered.Chart, offered.Table])}`,
+  );
 
   // The chart, about where the canvas was pressed: the quarters, grouped by product.
   await press([480, 300]);
-  const chart = await page.evaluate(() => [...document.querySelectorAll('#insert optgroup[label="Chart"] option')].find((o) => o.textContent === "q3")?.value);
+  const chart = await page.evaluate(() => [...document.querySelectorAll('#insert optgroup[label="Chart"] option')].find((o) => o.textContent === "Q3 Revenue")?.value);
   await page.selectOption("#insert", chart);
   check(await reads("q3-chart chart:bar data:@q3 x:{field: quarter} y:{field: revenue}"), "the chart of q3 is inserted");
   check((await source()).includes("series:{field: product}"), "its quarters grouped by product");
@@ -113,6 +118,9 @@ try {
   );
   check(JSON.stringify(await offers("y/field", "revenue")) === JSON.stringify(["revenue", "customers"]), `its y, the numbers: ${await offers("y/field", "revenue")}`);
   check((await offers("x/type", "ordinal")).includes("temporal"), "the type it reads x as");
+  // Where nothing set leaves none, the choice that takes the column away is None (PLAN 3.18).
+  const away = await page.evaluate(() => document.querySelector("#look-x-field")?.options[0]?.textContent);
+  check(away === "None", `the choice that takes its x's column away is None, not Default: ${away}`);
 
   // Customers, not revenue.
   const before = await painted();
