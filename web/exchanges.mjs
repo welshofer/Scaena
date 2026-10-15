@@ -1,7 +1,7 @@
 // The assistant's providers, as the browser's adapters ask them (PLAN 2.6, 3.6, ADR-0022): one
 // conversation (tests/assistant/conversation.json), each provider's request for it, and its
 // answer read back; a question asked once with nothing to call, as a writing tool asks it (PLAN
-// 2.101), and one asked of a picture, as Describe asks it (PLAN 2.119); and what the model is told, the system prompt for a deck and the line that says what
+// 2.101), one asked of a picture, as Describe asks it (PLAN 2.119), and a haiku (PLAN O.4e); and what the model is told, the system prompt for a deck and the line that says what
 // the editor shows. With --write, the record is written to
 // tests/assistant/exchanges.json; without, the browser's code is held to the record, which
 // scaena-chat's tests hold the Rust code to as well: the two cannot drift apart unseen.
@@ -58,12 +58,16 @@ for (const [id, provider] of Object.entries(providers)) {
   const { picture } = conversation;
   const pictured = { ...once, system: picture.system, messages: [{ role: "user", text: picture.prompt, png: picture.png }] };
   const shown = await asking({ status: 200, body: conversation.answers[id] }, () => provider.turn(pictured));
+  // A haiku asked once, as Insert › Haiku… asks it (PLAN O.4e).
+  const haiku = { ...once, system: conversation.haiku.system, messages: [{ role: "user", text: conversation.haiku.prompt }] };
+  const written = await asking({ status: 200, body: conversation.answers[id] }, () => provider.turn(haiku));
   record[id] = {
     turn: { request: turn.asked[0], read: turn.result.value },
     models: { request: models.asked[0], read: models.result.value },
     failure: { message: failure.result.error },
     once: { request: asked.asked[0] },
     picture: { request: shown.asked[0] },
+    haiku: { request: written.asked[0] },
   };
 }
 
@@ -84,7 +88,7 @@ if (write) {
 } else {
   const kept = JSON.parse(await readFile(recordPath, "utf8"));
   for (const id of Object.keys(providers)) {
-    for (const part of ["turn", "models", "failure", "once", "picture"]) {
+    for (const part of ["turn", "models", "failure", "once", "picture", "haiku"]) {
       check(isDeepStrictEqual(record[id][part], kept[id][part]), `${id}: the ${part} the adapter makes is the one recorded`);
     }
   }

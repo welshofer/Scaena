@@ -105,8 +105,9 @@ pub fn run(a: HaikuArgs, json: bool) -> Result<ExitCode> {
         }
         return Ok(ExitCode::SUCCESS);
     }
-    let (about, asking) = scaena_ops::haiku::asking(&b, a.topic.as_deref(), a.slide.as_deref(), a.lang.as_deref(), None)
-        .map_err(|e| anyhow!(e))?;
+    let (about, asking) =
+        scaena_ops::haiku::asking(&b, a.topic.as_deref(), a.slide.as_deref(), a.lang.as_deref(), None)
+            .map_err(|e| anyhow!(e))?;
     let lang = asking.lang.clone();
     let (poem, note, by) = match &a.lines {
         Some(lines) => {
@@ -123,10 +124,19 @@ pub fn run(a: HaikuArgs, json: bool) -> Result<ExitCode> {
         None => {
             let key = key(provider).ok_or_else(no_key)?;
             let model = a.model.clone().or_else(|| std::env::var("SCAENA_MODEL").ok()).filter(|m| !m.trim().is_empty());
-            let model = model.ok_or_else(|| anyhow!("name a model with --model or $SCAENA_MODEL (--models lists them)"))?;
+            let model =
+                model.ok_or_else(|| anyhow!("name a model with --model or $SCAENA_MODEL (--models lists them)"))?;
             let ask = |prompt: &str| -> Result<Poem> {
-                let request =
-                    scaena_chat::once(provider, &model, a.base.as_deref(), &key, false, &asking.instructions, prompt, None);
+                let request = scaena_chat::once(
+                    provider,
+                    &model,
+                    a.base.as_deref(),
+                    &key,
+                    false,
+                    &asking.instructions,
+                    prompt,
+                    None,
+                );
                 let reply = sent(&request);
                 let said = scaena_chat::answered(provider, reply.status, &reply.status_text, &reply.body)
                     .map_err(|e| anyhow!("{}: {e}", provider.name()))?;
@@ -139,10 +149,12 @@ pub fn run(a: HaikuArgs, json: bool) -> Result<ExitCode> {
             let first = ask(&asking.prompt)?;
             let (poem, note) = match scaena_ops::haiku::answered(&about, &lang, first.clone(), None) {
                 Answered::Offer { poem, note } => (poem, note),
-                Answered::Again { prompt } => match scaena_ops::haiku::answered(&about, &lang, first, Some(ask(&prompt)?)) {
-                    Answered::Offer { poem, note } => (poem, note),
-                    Answered::Again { .. } => unreachable!("two answers are offered"),
-                },
+                Answered::Again { prompt } => {
+                    match scaena_ops::haiku::answered(&about, &lang, first, Some(ask(&prompt)?)) {
+                        Answered::Offer { poem, note } => (poem, note),
+                        Answered::Again { .. } => unreachable!("two answers are offered"),
+                    }
+                }
             };
             (poem, note, Writer { model, provider: Some(provider.name().to_string()) })
         }

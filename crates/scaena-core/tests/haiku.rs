@@ -102,3 +102,13 @@ fn an_answer_is_taken_as_three_lines() {
     assert_eq!(ja.reading, Some(lines(&["ふるいけや", "かわずとびこむ", "みずのおと"])));
     assert_eq!(haiku::taken("a\nb\nc\n\nd\ne\nf", "en").reading, None);
 }
+
+/// The record of exchanges asks a haiku in the engine's own words (PLAN O.4e, ADR-0022).
+#[test]
+fn the_exchanges_ask_a_haiku_in_these_words() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/assistant/conversation.json");
+    let conversation: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    assert_eq!(conversation["haiku"]["system"], haiku::instructions("en"));
+    let about = About::Topic { topic: "the first frost on the trail".into() };
+    assert_eq!(conversation["haiku"]["prompt"], haiku::prompt(&about));
+}

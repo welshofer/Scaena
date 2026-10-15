@@ -279,7 +279,10 @@ pub fn asking(
     another: Option<&[String]>,
 ) -> Result<(About, Asking), OpsError> {
     let deck = &b.deck;
-    let lang = lang.map(str::to_string).or_else(|| deck.meta.as_ref().and_then(|m| m.lang.clone())).unwrap_or_else(|| "en".into());
+    let lang = lang
+        .map(str::to_string)
+        .or_else(|| deck.meta.as_ref().and_then(|m| m.lang.clone()))
+        .unwrap_or_else(|| "en".into());
     let theme = crate::theme(b)?;
     if let Some(why) = undrawable(&theme, &lang) {
         return Err(OpsError::new(why));
@@ -289,10 +292,20 @@ pub fn asking(
         (None, Some(state)) => {
             let mut engine = crate::lint::engine_with(b, &theme, None)?;
             let data = crate::lint::data_files(b)?;
-            let req = scaena_engine::FrameRequest { deck, theme: &theme, data: &data, state, t_ms: f64::INFINITY, format: None };
+            let req = scaena_engine::FrameRequest {
+                deck,
+                theme: &theme,
+                data: &data,
+                state,
+                t_ms: f64::INFINITY,
+                format: None,
+            };
             let list = engine.frame(&req)?.display_list;
             let snaps = scaena_core::resolve_states(deck).context("tracking")?;
-            let snap = snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+            let snap = snaps
+                .iter()
+                .find(|s| s.state_id == state)
+                .ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
             let slide = scaena_core::writing::slide(&scaena_core::reading::parts(deck, snap, &list));
             let claim = (deck.spine.as_ref())
                 .and_then(|s| s.sections.iter().flat_map(|s| &s.beats).find(|b| b.states.iter().any(|s| s == state)))
@@ -311,7 +324,13 @@ pub fn asking(
         "ja" => "Morae of the kana reading the poem gives after an empty line, against 5, 7, and 5.",
         _ => "Not counted: the engine counts English and Japanese alone.",
     };
-    let asking = Asking { instructions: haiku::instructions(&lang), prompt, lang: lang.clone(), about: about.said(), counted: counted.into() };
+    let asking = Asking {
+        instructions: haiku::instructions(&lang),
+        prompt,
+        lang: lang.clone(),
+        about: about.said(),
+        counted: counted.into(),
+    };
     Ok((about, asking))
 }
 
@@ -361,10 +380,11 @@ pub fn writing(
         Where::After(state) => (state.clone(), Place::New),
         Where::On(state) => {
             let waiting = crate::states::waiting(deck, &theme, state, None)?;
-            let slot = waiting
-                .iter()
-                .find(|w| w.typed && w.role.as_deref() == Some("verse"))
-                .ok_or_else(|| OpsError::new(format!("{state}'s slide has no empty place for verse: put it after it, or over a verse text")))?;
+            let slot = waiting.iter().find(|w| w.typed && w.role.as_deref() == Some("verse")).ok_or_else(|| {
+                OpsError::new(format!(
+                    "{state}'s slide has no empty place for verse: put it after it, or over a verse text"
+                ))
+            })?;
             (state.clone(), Place::Slot { slot: slot.slot.clone() })
         }
         Where::Replace { node, state } => {
@@ -390,7 +410,10 @@ pub fn writing(
     Ok(Written {
         lines: poem.lines.clone(),
         counts: poem.checked.lines.iter().map(|l| l.count.map(|c| [c.low, c.high])).collect(),
-        kept: serde_json::to_value(poem.checked.kept).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default(),
+        kept: serde_json::to_value(poem.checked.kept)
+            .ok()
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_default(),
         note,
         state: placed.state,
         node: placed.node,
@@ -402,7 +425,17 @@ pub fn writing(
 /// client that gives no date of its own says (the CLI, an agent's server).
 pub fn today() -> String {
     const MONTHS: [&str; 12] = [
-        "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November",
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
         "December",
     ];
     let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());

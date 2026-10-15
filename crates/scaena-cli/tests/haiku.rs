@@ -96,7 +96,18 @@ fn a_near_miss_is_asked_once_more_and_the_second_placed() {
     let states = deck(&dir)["states"].as_array().unwrap().len();
     let (base, asked) = serve();
     let out = scaena(
-        &["--json", "haiku", dir.to_str().unwrap(), "a field at dawn", "--provider", "anthropic", "--model", "test-model-1", "--base", &base],
+        &[
+            "--json",
+            "haiku",
+            dir.to_str().unwrap(),
+            "a field at dawn",
+            "--provider",
+            "anthropic",
+            "--model",
+            "test-model-1",
+            "--base",
+            &base,
+        ],
         true,
     );
     let said = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
@@ -137,7 +148,10 @@ fn lines_given_ask_no_model_and_a_dry_run_writes_nothing() {
     let d = deck(&dir);
     assert!(d["nodes"].to_string().contains("after a long day"));
     let notes: Vec<&str> = d["states"].as_array().unwrap().iter().filter_map(|s| s["notes"].as_str()).collect();
-    assert!(notes.iter().any(|n| n.starts_with("Haiku given on ") && n.ends_with(", about the whole talk.")), "{notes:?}");
+    assert!(
+        notes.iter().any(|n| n.starts_with("Haiku given on ") && n.ends_with(", about the whole talk.")),
+        "{notes:?}"
+    );
 }
 
 #[test]
