@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Build the torture deck's test card (PLAN 1.7, torture case 25): one 480 x 240 RGBA PNG.
+"""Build the torture deck's pictures: the test card (PLAN 1.7, torture case 25), one 480 x 240 RGBA
+PNG, and the map card (ADR-0030, torture case 67), one 800 x 450 PNG drawn as a provider's map is.
 
 The card is made to show what an image node's `fit`, `focal`, `crop`, and `radius` did, and
 to make the painters disagree if they can:
@@ -14,11 +15,16 @@ to make the painters disagree if they can:
 - a half-transparent bottom strip (alpha 128): straight alpha in the file, so a painter that
   forgets to premultiply, or premultiplies twice, draws the wrong color there.
 
+The map card stands in for a fetched map, which no test fetches: a pale ground, a park, a river
+across it, streets every 100 px, a main road through the middle, a cross of ink at its middle,
+where its place is and a pin's tip goes, and a block in its bottom-right corner where a service
+writes its own credit, which Scaena's must keep clear of.
+
 Pure Python (zlib, struct): no imaging library. The pixels are exact integers; the disc and
 ring edges are 4 x 4 supersampled.
 
-    python3 scripts/build_torture_images.py           # write the PNG
-    python3 scripts/build_torture_images.py --check   # the committed PNG has these pixels
+    python3 scripts/build_torture_images.py           # write the PNGs
+    python3 scripts/build_torture_images.py --check   # the committed PNGs have these pixels
 
 The committed file is the truth for its content id (`sha256:` of its bytes, in the goldens);
 `--check` compares decoded pixels, so a zlib that compresses differently cannot fail it.
@@ -29,8 +35,11 @@ import sys
 import zlib
 from pathlib import Path
 
-OUT = Path(__file__).resolve().parent.parent / "tests/fixtures/torture.scaena/assets/test-card.png"
+ASSETS = Path(__file__).resolve().parent.parent / "tests/fixtures/torture.scaena/assets"
+OUT = ASSETS / "test-card.png"
 W, H = 480, 240
+MAP = ASSETS / "map-card.png"
+MW, MH = 800, 450
 
 BANDS = ["#0F766E", "#4338CA", "#C2410C", "#F5C451", "#BE123C", "#15803D", "#0369A1", "#7E22CE"]
 INK = (0x16, 0x14, 0x0F)
@@ -81,12 +90,46 @@ def pixels():
     return rows
 
 
+def map_pixels():
+    """The map card's pixels, every one opaque."""
+    ground, park, river = (0xEE, 0xF0, 0xEC), (0xCF, 0xE3, 0xC4), (0xBB, 0xD6, 0xE8)
+    street, curb, road = (0xFF, 0xFF, 0xFF), (0xD5, 0xD8, 0xD2), (0xF7, 0xE3, 0xB0)
+    credit, words = (0xF8, 0xF8, 0xF6), (0x6B, 0x6E, 0x68)
+    rows = []
+    for y in range(MH):
+        row = []
+        for x in range(MW):
+            rgb = ground
+            if 80 <= x < 260 and 60 <= y < 200:
+                rgb = park
+            if abs(y - (0.35 * x + 250)) < 18:
+                rgb = river
+            # Streets every 100 px, 8 px wide with a 1 px curb each side, over the river as bridges.
+            for at in (x % 100, y % 100):
+                if 45 <= at < 55:
+                    rgb = curb if at in (45, 54) else street
+            # The main road through the middle.
+            if 218 <= y < 232:
+                rgb = road
+            # The cross at the middle: where the place is.
+            if (abs(x - 400) < 12 and 224 <= y < 226) or (abs(y - 225) < 12 and 399 <= x < 401):
+                rgb = INK
+            # The service's own credit, in the bottom-right corner, its words as blocks.
+            if 610 <= x < 794 and 426 <= y < 446:
+                rgb = credit
+                if 431 <= y < 441 and (x - 616) % 14 < 10 and x < 788:
+                    rgb = words
+            row.append((*rgb, 255))
+        rows.append(row)
+    return rows
+
+
 def encode(rows):
     def chunk(kind, data):
         return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
 
     raw = b"".join(b"\0" + bytes(c for px in row for c in px) for row in rows)
-    ihdr = struct.pack(">IIBBBBB", W, H, 8, 6, 0, 0, 0)
+    ihdr = struct.pack(">IIBBBBB", len(rows[0]), len(rows), 8, 6, 0, 0, 0)
     return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b"")
 
 
@@ -129,15 +172,15 @@ def decode(data):
 
 
 def main():
-    rows = pixels()
-    if "--check" in sys.argv[1:]:
-        if decode(OUT.read_bytes()) != rows:
-            sys.exit(f"{OUT}: its pixels are not what scripts/build_torture_images.py makes; rebuild and re-bless")
-        print(f"{OUT.name}: pixels match")
-        return
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_bytes(encode(rows))
-    print(f"wrote {OUT} ({OUT.stat().st_size} bytes)")
+    for out, rows in ((OUT, pixels()), (MAP, map_pixels())):
+        if "--check" in sys.argv[1:]:
+            if not out.exists() or decode(out.read_bytes()) != rows:
+                sys.exit(f"{out}: its pixels are not what scripts/build_torture_images.py makes; rebuild and re-bless")
+            print(f"{out.name}: pixels match")
+            continue
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(encode(rows))
+        print(f"wrote {out} ({out.stat().st_size} bytes)")
 
 
 if __name__ == "__main__":

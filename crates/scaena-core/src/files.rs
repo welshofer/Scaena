@@ -50,6 +50,23 @@ pub struct BundleFile {
     pub named: Vec<Named>,
     /// The nodes drawn from it, in the deck's order, each with the states that show it so.
     pub used: Vec<Used>,
+    /// Where a picture fetched from a service came from (ADR-0030): what an image drawn from it
+    /// records.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fetched: Option<FetchedFrom>,
+}
+
+/// A fetched picture's service and the day its answer came.
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct FetchedFrom {
+    /// The service, by Scaena's name for it: `geoapify`.
+    pub from: String,
+    /// Its name as a person reads it: `Geoapify`.
+    pub service: String,
+    /// The day its answer came, `YYYY-MM-DD`, in UTC.
+    pub date: String,
+    /// Where it came from, as an editor says it: "From Geoapify, fetched 15 October 2026".
+    pub said: String,
 }
 
 /// What names a file.
@@ -121,11 +138,27 @@ pub fn files(deck: &Deck, theme: &Theme, held: &[(String, u64)]) -> Result<Vec<B
             let kind = kind_of(deck, path)?;
             let named = named(deck, theme, path, kind);
             let used = used(deck, theme, &drawn, path, kind);
-            Some(BundleFile { path: path.clone(), kind, bytes: *bytes, named, used })
+            let fetched = (kind == Kind::Image).then(|| fetched_from(&drawn, path)).flatten();
+            Some(BundleFile { path: path.clone(), kind, bytes: *bytes, named, used, fetched })
         })
         .collect();
     crate::sort::by(&mut out, |a, b| (a.kind, &a.path).cmp(&(b.kind, &b.path)));
     Ok(out)
+}
+
+/// Where the picture at `path` came from, as the first image drawn from it with a `fetched`
+/// record says.
+fn fetched_from(drawn: &[Drawn], path: &str) -> Option<FetchedFrom> {
+    drawn.iter().flat_map(|d| d.nodes.values()).find_map(|props| {
+        if props.get("src").and_then(Value::as_str) != Some(path) {
+            return None;
+        }
+        let fetched: crate::fetched::Fetched = serde_json::from_value(props.get("fetched")?.clone()).ok()?;
+        let service = crate::fetched::service(&fetched.from).map_or(fetched.from.clone(), |s| s.title.to_string());
+        let date = crate::fetched::date(&fetched.at)?.to_string();
+        let said = format!("From {service}, fetched {}", crate::words::day(&date));
+        Some(FetchedFrom { from: fetched.from, service, date, said })
+    })
 }
 
 /// What names `path`, a file of kind `kind`, in `deck` and `theme`.
