@@ -390,6 +390,34 @@ fn a_themes_furniture_names_what_it_has() {
     );
 }
 
+/// How a theme sets code (ADR-0029) names its own roles and colors: a role or a color it lacks is
+/// E102 in the theme file, and a color written out is a color.
+#[test]
+fn a_themes_code_names_what_it_has() {
+    let files = EditedTheme(|t| {
+        t.replacen(
+            "{",
+            r##"{ "code": { "role": "mono", "tab": 2, "syntax": { "keyword": { "color": "accent", "weight": 700 }, "string": { "color": "#2E8B57" }, "comment": { "color": "chartreuse", "italic": true }, "type": { "weight": 600 } } },"##,
+            1,
+        )
+    });
+    let mut found = placed(&files);
+    found.sort();
+    let at = |p: &str| ("E102".to_string(), Some("theme.json".to_string()), p.to_string());
+    assert_eq!(found, [at("/code/role"), at("/code/syntax/comment/color")]);
+    // A tab stop of no columns, or a kind no scanner reads, is no theme: E106 in the theme file.
+    let none = EditedTheme(|t| t.replacen('{', r#"{ "code": { "tab": 0 },"#, 1));
+    let regex = EditedTheme(|t| t.replacen('{', r#"{ "code": { "syntax": { "regex": { "color": "accent" } } },"#, 1));
+    for files in [none, regex] {
+        let found = placed(&files);
+        assert!(!found.is_empty(), "the edit is found");
+        assert!(
+            found.iter().all(|(code, file, _)| code == "E106" && file.as_deref() == Some("theme.json")),
+            "{found:?}"
+        );
+    }
+}
+
 /// The fixtures' bundle with its theme edited by `edit`.
 struct EditedTheme(fn(String) -> String);
 

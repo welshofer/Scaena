@@ -48,7 +48,9 @@ impl Session {
         let theme: Value = serde_json::from_slice(bytes).map_err(|e| Error::Ops(format!("{path}: {e}")))?;
         let shipped: Value =
             serde_json::from_str(shipped).map_err(|e| Error::Ops(format!("the theme that ships: {e}")))?;
-        let Some((theme, brought)) = scaena_ops::theme::library(&theme, &shipped) else { return Ok(None) };
+        let Some((theme, brought)) = scaena_ops::theme::library(&theme, &shipped, self.shows_code()) else {
+            return Ok(None);
+        };
         let text = serde_json::to_string_pretty(&theme).map_err(|e| Error::Ops(e.to_string()))? + "\n";
         // Frames are drawn in it from now on: it reads as a theme, or nothing is written.
         scaena_engine::theme::Theme::from_json(&text).map_err(|e| Error::Ops(format!("{path}: {e}")))?;
@@ -56,6 +58,27 @@ impl Session {
         w.files.insert(path, text.into_bytes());
         self.write(Some(w), by)?;
         Ok(Some(brought))
+    }
+}
+
+impl Session {
+    /// Whether a state of the deck shows a code text (ADR-0029), the deck's overrides over it: one
+    /// the look a theme brings for code would draw otherwise. A deck whose states do not resolve
+    /// is taken to show one.
+    fn shows_code(&self) -> bool {
+        let deck = self.deck();
+        let code =
+            |id: &str, props: &scaena_core::document::Props| match deck.overrides.get(id).and_then(|o| o.get("code")) {
+                Some(code) => code.is_object(),
+                None => props.get("code").is_some_and(Value::is_object),
+            };
+        let Ok(snapshots) = scaena_core::resolve_states(deck) else { return true };
+        snapshots.iter().any(|s| {
+            s.nodes.iter().any(|(id, props)| {
+                deck.nodes.get(id).is_some_and(|n| n.node_type == scaena_core::document::NodeType::Text)
+                    && code(id, props)
+            })
+        })
     }
 }
 

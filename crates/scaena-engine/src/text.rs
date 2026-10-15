@@ -665,6 +665,25 @@ impl TextEngine {
                     builder.push(StyleProperty::Underline(true), range.clone());
                 }
             }
+            // Code's tokens, each in its kind's look (PLAN 2.132), its plain words in theirs. A
+            // change of color shapes nothing apart; a change of weight or italic is a change of face.
+            if let (Some(code), Some(offsets)) = (code, code_offsets.as_ref())
+                && let Some(looks) = code.looks.as_deref()
+            {
+                builder.push_default(StyleProperty::Brush(looks[scaena_core::code::Class::Plain as usize].color));
+                let upright = !(base.italic && theme.has_italic(&base.family));
+                let written: String = spec.spans.iter().map(|s| s.text.as_str()).collect();
+                for (range, look) in code.runs(&written, offsets)? {
+                    builder.push(StyleProperty::Brush(look.color), range.clone());
+                    if look.weight != base.weight {
+                        builder.push(StyleProperty::FontWeight(FontWeight::new(look.weight)), range.clone());
+                    }
+                    if look.italic == upright {
+                        let style = if look.italic { FontStyle::Italic } else { FontStyle::Normal };
+                        builder.push(StyleProperty::FontStyle(style), range);
+                    }
+                }
+            }
             // The mark that runs code left to right takes no room, so tracking puts none after it
             // and its first line starts where the others do.
             if code.is_some() && text.starts_with(crate::code::LTR) {

@@ -1,0 +1,14 @@
+{
+  "scaena": "0.28",
+  "_comment": "I403 clean: code in Python, which a scanner of its own colors, and in `plain`, which colors nothing.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "nodes": {
+    "python": {"type": "text", "role": "body", "code": {"language": "python"}, "text": "print('hello')", "at": {"in": "left"}},
+    "plain": {"type": "text", "role": "body", "code": {"language": "plain"}, "text": "DISPLAY 'HELLO'.\nSTOP RUN.", "at": {"in": "right"}}
+  },
+  "states": [
+    {"id": "a", "layout": "two", "props": {"python": {}, "plain": {}}}
+  ]
+}

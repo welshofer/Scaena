@@ -51,6 +51,7 @@ mod ruby;
 mod scan;
 mod shell;
 mod sql;
+pub mod tables;
 mod toml;
 mod yaml;
 

@@ -1176,9 +1176,10 @@ pub fn writable(
     };
     let model: Theme = serde_json::from_str(theme).context("the theme")?;
     let families = &model.typography.families;
+    let code = model.code_role();
     let mut keys: Vec<&str> = Vec::new();
     for (role, r) in &model.typography.roles {
-        if role != "code" && !keys.contains(&r.family.as_str()) {
+        if Some(role.as_str()) != code && !keys.contains(&r.family.as_str()) {
             keys.push(&r.family);
         }
     }

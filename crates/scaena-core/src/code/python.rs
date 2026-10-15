@@ -22,6 +22,7 @@
 //! one more is read as its string's own characters.
 
 use super::scan::{Spans, blanks_end, is_break, is_space, is_word_start, line_end, number_end, space_end, word_end};
+use super::tables::{Table, words};
 use super::{Class, MAX_NESTING};
 
 /// How far the line a soft keyword begins is looked through for the `:` that ends it.
@@ -494,29 +495,39 @@ impl Scanner<'_, '_> {
 
 // The tables, each sorted, so a word is found by binary search (`every_table_is_sorted`).
 
-const KEYWORDS: &[&str] = &[
-    "and", "as", "assert", "async", "await", "break", "class", "continue", "def", "del", "elif", "else", "except",
-    "finally", "for", "from", "global", "if", "import", "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise",
-    "return", "try", "while", "with", "yield",
-];
-const CONSTANTS: &[&str] = &["Ellipsis", "False", "None", "NotImplemented", "True", "__debug__"];
-const TYPES: &[&str] = &[
-    "bool",
-    "bytearray",
-    "bytes",
-    "complex",
-    "dict",
-    "float",
-    "frozenset",
-    "int",
-    "list",
-    "object",
-    "set",
-    "str",
-    "tuple",
-    "type",
-];
-const BUILTINS: &[&str] = &["cls", "self"];
+const KEYWORDS: Table = words!(
+    "python/keywords",
+    [
+        "and", "as", "assert", "async", "await", "break", "class", "continue", "def", "del", "elif", "else", "except",
+        "finally", "for", "from", "global", "if", "import", "in", "is", "lambda", "nonlocal", "not", "or", "pass",
+        "raise", "return", "try", "while", "with", "yield",
+    ]
+);
+const CONSTANTS: Table =
+    words!("python/constants", ["Ellipsis", "False", "None", "NotImplemented", "True", "__debug__"]);
+const TYPES: Table = words!(
+    "python/types",
+    [
+        "bool",
+        "bytearray",
+        "bytes",
+        "complex",
+        "dict",
+        "float",
+        "frozenset",
+        "int",
+        "list",
+        "object",
+        "set",
+        "str",
+        "tuple",
+        "type",
+    ]
+);
+const BUILTINS: Table = words!("python/builtins", ["cls", "self"]);
+
+/// Every table this scanner reads, in the order its file lists them (`tables::written`).
+pub(super) const WORDS: &[Table] = &[KEYWORDS, CONSTANTS, TYPES, BUILTINS];
 
 #[cfg(test)]
 mod tests {

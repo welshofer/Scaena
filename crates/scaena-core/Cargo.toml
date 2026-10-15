@@ -8,6 +8,13 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+default = ["code-tables"]
+# The word tables the code scanners read compiled in (`code::tables`, ADR-0029): natively, and in
+# the player's module, which a single-file export carries offline. The editor's module leaves them
+# out, and its page hands a scanner's tables over the first time a code text it colors lays out.
+code-tables = []
+
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
