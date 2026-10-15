@@ -884,7 +884,11 @@
             "description": "What its id starts from: a role, a kind, an image's name, a preset.",
             "type": "string"
           },
-          "start": { "description": "The box it takes at first.", "$ref": "#/$defs/Start" }
+          "start": { "description": "The box it takes at first.", "$ref": "#/$defs/Start" },
+          "sample": {
+            "description": "The data source it reads where the deck has none to offer: a few rows made up for it,\nwhich the patch that inserts it adds to the deck first.",
+            "anyOf": [{ "$ref": "#/$defs/Sample" }, { "type": "null" }]
+          }
         },
         "required": ["label", "node", "id", "start"]
       },
@@ -892,7 +896,7 @@
         "description": "The box an inserted node takes at first.",
         "oneOf": [
           {
-            "description": "A box about the pointer, each side a fraction of the canvas's, snapped to the theme's\ngrid as a drop snaps; a text or an image fills instead the template's slot under the\npointer, if nothing fills it.",
+            "description": "A box about the pointer, each side a fraction of the canvas's, snapped to the theme's\ngrid as a drop snaps; a text, an image, a chart, or a table fills instead the template's\nslot under the pointer, if nothing fills it. An image keeps the box's proportions, which\nare the picture's.",
             "type": "object",
             "properties": {
               "box": {
@@ -912,6 +916,12 @@
             "additionalProperties": false
           }
         ]
+      },
+      "Sample": {
+        "description": "A data source an insert brings with it: its name, and the source as the deck writes it, its\nrows inline.",
+        "type": "object",
+        "properties": { "name": { "type": "string" }, "source": true },
+        "required": ["name", "source"]
       },
       "Layer": {
         "description": "One node of a state's layers.",

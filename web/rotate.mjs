@@ -139,7 +139,8 @@ try {
   await page.waitForTimeout(500);
   check((await selected()) !== "tf-title", `a click where the turn drew nothing of it does not select it: ${await selected()}`);
 
-  // The pennant, upright: a quarter turn by its handle.
+  // The pennant, upright: a quarter turn by its handle. The status names it by its kind, as the
+  // layers do (a polygon, or the library's name for its points), then says the turn.
   const flag = await box("tf-flag");
   check(flag && flag.transform === undefined, "the pennant stands as laid out");
   const [fx, fy, fw, fh] = flag.rect;
@@ -147,7 +148,7 @@ try {
   await click(pivot);
   check(await selects("tf-flag"), "a click on the pennant selects it");
   await turn(pivot, 90);
-  check(await says("The shape turned to 90°"), `a quarter turn by the handle turns it to 90°: ${await status()}`);
+  check(await says(" turned to 90°"), `a quarter turn by the handle turns it to 90°: ${await status()}`);
   const turned = await source();
   check(declared(turned, "tf-flag").includes("transform:{rotate: 90}"), `written where it lives, on the pennant: ${JSON.stringify(declared(turned, "tf-flag"))}`);
   await page.waitForFunction(() => window.scaena.canvas.boxes()?.find((b) => b.node === "tf-flag")?.transform, null, { timeout: 30000 }).catch(() => {});
@@ -161,7 +162,7 @@ try {
   await click(pivot);
   await selects("tf-flag");
   await turn(pivot, 50, ["Shift"]);
-  check(await says("The shape turned to 45°"), `with Shift it goes by 15°: ${await status()}`);
+  check(await says(" turned to 45°"), `with Shift it goes by 15°: ${await status()}`);
   check((await source()).includes("transform:{rotate: 45}"), "and writes 45");
   await undo();
   check(await back(original), "one undo takes it back");
@@ -171,9 +172,9 @@ try {
   await click(pivot);
   await selects("tf-flag");
   const mid = await turn(pivot, 30, [], { hold: true });
-  check(mid.includes("The shape turns to 30°"), `the status follows the turn: ${mid}`);
+  check(mid.includes(" turns to 30°"), `the status follows the turn: ${mid}`);
   await page.keyboard.press("Escape");
-  check(await says("The shape stays as it is"), `Escape leaves it as it was: ${await status()}`);
+  check(await says(" stays as it is"), `Escape leaves it as it was: ${await status()}`);
   await page.mouse.up();
   await page.waitForTimeout(500);
   check((await source()) === original, "and nothing changes");

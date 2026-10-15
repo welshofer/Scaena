@@ -13,7 +13,8 @@
 //   (`show_node`). The eye shows the background too; the subtitle, whose slot `figure` lacks, the
 //   deck refuses, and the status says why.
 // - Each is named as a person names it (PLAN 2.99): a text by its words, a picture by its
-//   description, else its kind; no id. A double click on a name opens no field to rename one.
+//   description, a card or what holds words by the words it holds, else its kind; no id. A double
+//   click on a name opens no field to rename one.
 // - A node dragged before another of what holds it goes over it, by `z`, and Alt with ↓ or ↑
 //   moves the node focused one place: each one patch, one undo.
 // - On the torture deck's `containers` case, a node dropped before a child of another stack goes
@@ -200,6 +201,16 @@ try {
     await row(node).dragTo(row(on), { targetPosition: { x: 40, y } });
   };
   check(await has(...holding), `each container holds its own: ${(await listed()).join(" | ")}`);
+  // A card, a stack with a panel of its own, is named by the words it holds and called a Card; the
+  // stack of cards by the first words in what it holds; neither a Group.
+  const named = (node) =>
+    page.evaluate((n) => {
+      const row = document.querySelector(`#layers li[data-layer="${n}"] > .row`);
+      return [row?.querySelector("[data-pick]")?.textContent, row?.querySelector(".kind")?.textContent];
+    }, node);
+  const [cardName, cardKind] = await named("stat-a");
+  check(cardName === "42%" && cardKind === "Card", `a card is named by its words, a Card: ${cardName} · ${cardKind}`);
+  check((await named("stats"))[0] === "42%", `what holds cards by the first words in them: ${(await named("stats"))[0]}`);
 
   // Dropped before a child of another stack, the tally's label goes into that stack, before it.
   await drop("tally-label", "stat-a-label", "before");

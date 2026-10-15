@@ -171,16 +171,25 @@ pub const PRESETS: &[(&str, &str)] = &[
     ("moveInBottom", "Move In from Bottom"),
 ];
 
-/// An entrance that moves in from a side, said as it leaves (PLAN 2.116): an exit plays an
-/// entrance back, so what moves in from the left moves out to it.
+/// An entrance said as it leaves, as a presentation app names its Build Out effects (PLAN 2.116):
+/// an exit plays an entrance back, so what moves in from the left moves out to it, and what
+/// appears disappears. One not here, Pop or Spin, is said as it enters.
 pub const EXITS: &[(&str, &str)] = &[
+    ("appear", "Disappear"),
+    ("fade", "Fade Out"),
+    ("rise", "Sink"),
+    ("words", "Word by Word Out"),
+    ("typewriter", "Typewriter Out"),
+    ("scale", "Scale Down"),
+    ("grow", "Shrink"),
+    ("draw", "Erase"),
     ("moveInLeft", "Move Out to Left"),
     ("moveInRight", "Move Out to Right"),
     ("moveInTop", "Move Out to Top"),
     ("moveInBottom", "Move Out to Bottom"),
 ];
 
-/// Motion preset `name` of `theme` as Build Out names it: played back, as it leaves.
+/// Motion preset `name` of `theme` as Build Out names it: played back, as it leaves ([`EXITS`]).
 pub fn leaving(name: &str, theme: &Theme) -> String {
     EXITS
         .iter()
@@ -263,26 +272,36 @@ pub fn kind(t: Option<NodeType>) -> &'static str {
 /// How long a name drawn from an object's words runs before it is cut.
 const NAMED: usize = 40;
 
-/// A node's kind as `props` show it, as a person names it: a connector is an Arrow or a Line
-/// (PLAN 2.109), a polygon of the shape library is its shape, a Star (PLAN 2.106), and anything
-/// else its type's kind.
+/// A node's kind as `props` show it, as a person names it: a shape by its kind, as Insert offers
+/// it (PLAN 2.106), a polygon of the shape library by its name; a filled path on a view an Icon
+/// (PLAN 2.104, [`crate::inserts::is_icon`]), and the pen's, stroked, a Drawing (PLAN 2.114); a
+/// container with a panel of its own a Card; and anything else its type's kind.
 pub fn kind_of(t: NodeType, props: &Props) -> &'static str {
-    match props.get("kind").and_then(Value::as_str) {
-        Some("arrow") if t == NodeType::Shape && props.contains_key("connect") => "Arrow",
-        Some("line") if t == NodeType::Shape && props.contains_key("connect") => "Line",
-        Some("polygon") if t == NodeType::Shape => library(props).unwrap_or(kind(Some(t))),
+    match t {
+        NodeType::Shape => {
+            let path = props.contains_key("path");
+            match props.get("kind").and_then(Value::as_str).unwrap_or(if path { "path" } else { "rect" }) {
+                "path" if crate::inserts::is_icon(|key| props.get(key)) => "Icon",
+                "path" => "Drawing",
+                "polygon" => library(props).unwrap_or("Polygon"),
+                other => SHAPES.iter().find(|(k, _)| *k == other).map_or("Shape", |(_, said)| said),
+            }
+        }
+        NodeType::Stack | NodeType::Grid | NodeType::Frame if props.contains_key("fill") => "Card",
         _ => kind(Some(t)),
     }
 }
 
-/// The shape of the library a polygon is, as Insert names it (PLAN 2.106): one whose `points` are
-/// a library shape's, to the four places each is written to.
+/// The shape library's name for a polygon whose points, as `props` show them, are one of its
+/// polygons' (PLAN 2.106), said: a Star.
 fn library(props: &Props) -> Option<&'static str> {
     let points: Vec<[f64; 2]> = serde_json::from_value(props.get("points")?.clone()).ok()?;
-    let near = |a: &[f64; 2], b: &[f64; 2]| (a[0] - b[0]).abs() < 1e-3 && (a[1] - b[1]).abs() < 1e-3;
-    let (name, _, _) = (crate::inserts::polygons().into_iter())
-        .find(|(_, shape, _)| shape.len() == points.len() && shape.iter().zip(&points).all(|(a, b)| near(a, b)))?;
-    SHAPES.iter().find(|(kind, _)| *kind == name).map(|(_, said)| *said)
+    let same = |theirs: &[[f64; 2]]| {
+        theirs.len() == points.len()
+            && theirs.iter().zip(&points).all(|(a, b)| (a[0] - b[0]).abs() < 1e-3 && (a[1] - b[1]).abs() < 1e-3)
+    };
+    let (name, ..) = crate::inserts::polygons().into_iter().find(|(_, theirs, _)| same(theirs))?;
+    SHAPES.iter().find(|(k, _)| *k == name).map(|(_, said)| *said)
 }
 
 /// A node as a person names it, as `props` show it: a text by its words, anything else by its
@@ -296,11 +315,51 @@ pub fn object(t: NodeType, props: &Props) -> String {
     if line.is_empty() {
         return kind_of(t, props).to_string();
     }
+    cut(line)
+}
+
+/// A first line, cut at 40 characters.
+fn cut(line: &str) -> String {
     if line.chars().count() > NAMED {
         let cut: String = line.chars().take(NAMED - 1).collect();
         return format!("{}…", cut.trim_end());
     }
     line.to_string()
+}
+
+/// Node `id` as a person names it where `shown` shows it (a state's nodes, in the deck's order),
+/// as [`object`] names it; but a shape or a container with no description of its own by the
+/// words it holds: the first text in it, or in what it holds, as a card is named by its heading
+/// and a shape by the words typed in it (PLAN 2.108).
+pub fn object_in(deck: &Deck, shown: &indexmap::IndexMap<String, Props>, id: &str) -> String {
+    let Some(node) = deck.nodes.get(id) else { return kind(None).to_string() };
+    let props = shown.get(id).unwrap_or(&node.props);
+    let said = object(node.node_type, props);
+    let holds = !matches!(node.node_type, NodeType::Text | NodeType::Image | NodeType::Chart | NodeType::Table);
+    if !holds || said != kind_of(node.node_type, props) {
+        return said;
+    }
+    held_words(deck, shown, id, 0).map_or(said, |words| cut(&words))
+}
+
+/// The first line of the first text `shown` holds in `holder`, at any depth, in the deck's order.
+fn held_words(deck: &Deck, shown: &indexmap::IndexMap<String, Props>, holder: &str, depth: usize) -> Option<String> {
+    if depth > 8 {
+        return None;
+    }
+    let held =
+        shown.iter().filter(|(_, p)| p.get("at").and_then(|a| a.get("parent")).and_then(Value::as_str) == Some(holder));
+    for (id, props) in held {
+        let words = match deck.nodes.get(id).map(|n| n.node_type) {
+            Some(NodeType::Text) => crate::reading::words(props),
+            _ => held_words(deck, shown, id, depth + 1).unwrap_or_default(),
+        };
+        let line = words.lines().next().unwrap_or_default().trim();
+        if !line.is_empty() {
+            return Some(line.to_string());
+        }
+    }
+    None
 }
 
 /// Where each of `deck`'s states stands among its slides, as a person counts them, in the deck's
@@ -741,20 +800,53 @@ pub fn choices(choices: &mut Choices, deck: &Deck, theme: &Theme) {
     let shown = crate::tracking::resolve_states(deck)
         .ok()
         .and_then(|snaps| snaps.into_iter().find(|s| s.state_id == choices.state))
-        .and_then(|snap| snap.nodes.get(&choices.node).cloned());
+        .map(|snap| snap.nodes)
+        .filter(|nodes| nodes.contains_key(&choices.node));
     choices.said = Some(match &shown {
-        Some(props) => object(choices.node_type, props),
+        Some(nodes) => object_in(deck, nodes, &choices.node),
         None => kind(Some(choices.node_type)).to_string(),
     });
-    // A filled path on a view is an icon (PLAN 2.104), as Insert makes one: what the picker
-    // replaces. A pen's drawing, stroked, is a shape.
-    let icon = choices.node_type == NodeType::Shape
-        && shown.as_ref().is_some_and(|p| crate::inserts::is_icon(|key| p.get(key)));
-    choices.noun = Some(if icon { "Icon" } else { kind(Some(choices.node_type)) }.to_string());
+    // Its kind as the state shows it: a shape by its kind, and a filled path on a view an Icon
+    // (PLAN 2.104), as Insert makes one, which the picker replaces; the pen's, stroked, is a
+    // Drawing (PLAN 2.114).
+    let props = shown.as_ref().and_then(|nodes| nodes.get(&choices.node));
+    choices.noun = Some(props.map_or(kind(Some(choices.node_type)), |p| kind_of(choices.node_type, p)).to_string());
+    let chart =
+        props.and_then(|p| p.get("kind")).and_then(Value::as_str).filter(|_| choices.node_type == NodeType::Chart);
+    let horizontal = props.and_then(|p| p.get("orient")).and_then(Value::as_str) == Some("horizontal");
     for f in &mut choices.fields {
-        f.words = Some(field(f, theme));
+        let mut words = field(f, theme);
+        if let Some(said) = channel(&f.prop, chart, horizontal) {
+            words.label = said.to_string();
+        }
+        f.words = Some(words);
     }
 }
+
+/// A chart's channel as a presentation app labels it on a chart of `kind`: a donut's categories
+/// are its Slices and their sizes its Values, as the Mac says them; bars that run across name
+/// their categories down the side and their values across (PLAN 1.29). None where [`LABELS`]
+/// says it.
+pub fn channel(prop: &str, kind: Option<&str>, horizontal: bool) -> Option<&'static str> {
+    let horizontal = horizontal && matches!(kind, Some("bar" | "stackedBar"));
+    CHANNELS
+        .iter()
+        .find(|(k, p, _)| *p == prop && (*k == kind.unwrap_or_default() || (*k == "across" && horizontal)))
+        .map(|(_, _, said)| *said)
+}
+
+/// A chart's channel labeled by its kind ([`channel`]): the kind (or `across`, bars that run
+/// across), the property, and its label.
+pub const CHANNELS: &[(&str, &str, &str)] = &[
+    ("donut", "x/field", "Slices"),
+    ("donut", "x/type", "Slices Are"),
+    ("donut", "y/field", "Values"),
+    ("donut", "y/type", "Values Are"),
+    ("across", "x/field", "Down the Side"),
+    ("across", "x/type", "Down the Side Are"),
+    ("across", "y/field", "Across"),
+    ("across", "y/type", "Across Are"),
+];
 
 /// `choices` of a state worded: the state as its slide's number says it (`said`), and each field
 /// labeled and its values said, in `theme`.
@@ -790,9 +882,9 @@ const VOCABULARIES: [Vocabulary; 15] = [
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Lexicon {
     /// Each node, by its id: what it shows, as the state shows it where it does, else its kind
-    /// ([`object`]).
+    /// ([`object_in`]).
     pub objects: BTreeMap<String, String>,
-    /// Each node, by its id: its kind ([`kind`]).
+    /// Each node, by its id: its kind ([`kind_of`]).
     pub kinds: BTreeMap<String, String>,
     /// Each of the theme's names said ([`named`]), by its kind of name: `color`, `text-role`,
     /// `layout`, `motion-preset`, … and `motion-exit`, each preset as Build Out names it.
@@ -839,7 +931,7 @@ pub fn lexicon(deck: &Deck, theme: &Theme, state: &str) -> Result<Lexicon, Strin
     let (mut objects, mut kinds) = (BTreeMap::new(), BTreeMap::new());
     for (id, node) in &deck.nodes {
         let props = snap.nodes.get(id).unwrap_or(&node.props);
-        objects.insert(id.clone(), object(node.node_type, props));
+        objects.insert(id.clone(), object_in(deck, &snap.nodes, id));
         kinds.insert(id.clone(), kind_of(node.node_type, props).to_string());
     }
     let mut names = BTreeMap::new();
@@ -956,9 +1048,115 @@ mod tests {
         assert_eq!(theme("themes/dusk-2.theme.json"), "Dusk 2");
     }
 
+    fn props(v: serde_json::Value) -> Props {
+        serde_json::from_value(v).unwrap()
+    }
+
+    /// A shape is named by its kind as Insert offers it (PLAN 2.106), a polygon of the library by
+    /// its name; a path on a view is an Icon, and the pen's stroked path a Drawing (PLAN 2.114); a
+    /// container with a panel of its own is a Card.
+    #[test]
+    fn a_shape_is_named_by_its_kind() {
+        let star = crate::inserts::polygons().into_iter().find(|(name, ..)| *name == "star").unwrap().1;
+        let shape = |v| kind_of(NodeType::Shape, &props(v));
+        assert_eq!(shape(serde_json::json!({ "kind": "rect" })), "Rectangle");
+        assert_eq!(shape(serde_json::json!({})), "Rectangle", "a shape's kind is a rectangle where it says none");
+        assert_eq!(shape(serde_json::json!({ "kind": "ellipse" })), "Oval");
+        assert_eq!(shape(serde_json::json!({ "kind": "polygon", "points": star })), "Star");
+        assert_eq!(shape(serde_json::json!({ "kind": "polygon", "points": [[0, 0], [1, 0], [0.5, 0.4]] })), "Polygon");
+        assert_eq!(shape(serde_json::json!({ "kind": "line", "connect": { "from": "a", "to": "b" } })), "Line");
+        let icon = crate::inserts::icon_node("rocket", "M0 0L1 1Z", [0.0, 0.0, 256.0, 256.0], "accent");
+        assert_eq!(kind_of(NodeType::Shape, &props(icon)), "Icon");
+        let drawn = serde_json::json!({ "kind": "path", "path": "M0 0L1 1", "view": [0, 0, 1, 1], "alt": "Drawing",
+            "stroke": { "paint": "accent", "width": "thick", "cap": "round", "join": "round" } });
+        assert_eq!(kind_of(NodeType::Shape, &props(drawn)), "Drawing");
+        assert_eq!(kind_of(NodeType::Stack, &props(serde_json::json!({ "fill": "surface-2" }))), "Card");
+        assert_eq!(kind_of(NodeType::Group, &props(serde_json::json!({}))), "Group");
+    }
+
+    /// A shape or a container with no description of its own is named by the words it holds, at
+    /// any depth: a card by its heading, a shape by the words typed in it (PLAN 2.108).
+    #[test]
+    fn what_holds_words_is_named_by_them() {
+        let deck = Deck::from_json(
+            &serde_json::json!({
+                "scaena": crate::version::DECK.current, "canvas": { "width": 1920, "height": 1080 },
+                "theme": "themes/dusk.theme.json",
+                "nodes": {
+                    "cards": { "type": "grid", "cols": 2, "at": { "col": [1, 12], "row": [3, 9] } },
+                    "card": { "type": "stack", "fill": "surface-2", "at": { "parent": "cards" } },
+                    "label": { "type": "text", "role": "label", "text": "Demographics", "at": { "parent": "card" } },
+                    "said": { "type": "text", "role": "body", "text": "Who comes.", "at": { "parent": "card" } },
+                    "start": { "type": "shape", "kind": "rect", "fill": "accent", "at": { "rect": [0, 0, 200, 100] } },
+                    "start-words": { "type": "text", "role": "body", "text": "Start", "at": { "parent": "start" } },
+                    "blank": { "type": "shape", "kind": "ellipse", "fill": "accent", "at": { "rect": [300, 0, 200, 100] } }
+                },
+                "states": [{ "id": "s", "mode": "absolute", "props": {
+                    "cards": {}, "card": {}, "label": {}, "said": {}, "start": {}, "start-words": {}, "blank": {}
+                } }]
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let snap = crate::tracking::resolve_states(&deck).unwrap().remove(0);
+        let named = |id: &str| object_in(&deck, &snap.nodes, id);
+        assert_eq!(named("card"), "Demographics");
+        assert_eq!(named("cards"), "Demographics", "by the first words in what it holds");
+        assert_eq!(named("start"), "Start");
+        assert_eq!(named("blank"), "Oval");
+        assert_eq!(named("said"), "Who comes.");
+    }
+
+    /// An exit is said as a presentation app names its Build Out effects: the entrance played
+    /// back, `moveInLeft` as Move Out to Left and `appear` as Disappear; one that plays the same
+    /// both ways, Pop, as it enters.
+    #[test]
+    fn an_exit_is_said_as_one() {
+        let theme: Theme = serde_json::from_str(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();
+        assert_eq!(leaving("moveInLeft", &theme), "Move Out to Left");
+        assert_eq!(leaving("appear", &theme), "Disappear");
+        assert_eq!(leaving("fade", &theme), "Fade Out");
+        assert_eq!(leaving("rise", &theme), "Sink");
+        assert_eq!(leaving("pop", &theme), "Pop");
+        assert_eq!(leaving("fadeScale", &theme), "Fade and Scale");
+        let deck = Deck::from_json(include_str!("../../../docs/examples/revenue.deck.json")).unwrap();
+        let said = lexicon(&deck, &theme, "intro").unwrap();
+        assert_eq!(said.names["motion-exit"]["moveInRight"], "Move Out to Right");
+        assert_eq!(said.names["motion-exit"]["appear"], "Disappear");
+        assert_eq!(said.names["motion-preset"]["moveInRight"], "Move In from Right", "an entrance as it was");
+    }
+
+    /// A chart's channels are labeled by its kind: a donut's categories are its Slices, and bars
+    /// that run across name theirs down the side.
+    #[test]
+    fn a_charts_channels_are_said_by_its_kind() {
+        assert_eq!(channel("x/field", Some("donut"), false), Some("Slices"));
+        assert_eq!(channel("y/field", Some("donut"), false), Some("Values"));
+        assert_eq!(channel("x/field", Some("bar"), true), Some("Down the Side"));
+        assert_eq!(channel("y/field", Some("bar"), true), Some("Across"));
+        assert_eq!(channel("x/field", Some("bar"), false), None, "LABELS says it: Across");
+        assert_eq!(channel("x/field", Some("line"), true), None, "a line does not turn");
+        let theme: Theme = serde_json::from_str(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();
+        let mut doc: serde_json::Value =
+            serde_json::from_str(include_str!("../../../docs/examples/revenue.deck.json")).unwrap();
+        doc["nodes"]["rev"]["kind"] = serde_json::json!("donut");
+        let deck: Deck = serde_json::from_value(doc).unwrap();
+        let files = std::collections::BTreeMap::<String, Vec<u8>>::new();
+        let mut c = crate::choices::choices(&deck, &theme, "revenue", "rev", &files).unwrap();
+        choices(&mut c, &deck, &theme);
+        let label = |prop: &str| {
+            c.fields.iter().find(|f| f.prop == prop).and_then(|f| f.words.as_ref()).map(|w| w.label.clone())
+        };
+        assert_eq!(label("kind").as_deref(), Some("Chart"));
+        assert_eq!(label("x/type").as_deref(), Some("Slices Are"));
+        let exit = c.fields.iter().find(|f| f.prop == "exit").unwrap().words.as_ref().unwrap();
+        assert_eq!(exit.said["moveInLeft"], "Move Out to Left", "Build Out offers exits");
+        assert_eq!(c.noun.as_deref(), Some("Chart"));
+    }
+
     /// A polygon of the shape library is named as Insert names it (PLAN 2.106), wherever an editor
-    /// names an object: a star is a Star. A polygon of its own, and a rectangle, are a Shape, and
-    /// a description comes first.
+    /// names an object: a star is a Star. A polygon of its own is a Polygon, a rectangle a
+    /// Rectangle, and a description comes first.
     #[test]
     fn a_shape_of_the_library_is_named_by_its_shape() {
         let props = |v: Value| -> Props { serde_json::from_value(v).unwrap() };
@@ -967,8 +1165,8 @@ mod tests {
             assert_eq!(object(NodeType::Shape, &drawn), shape(name), "{name}");
         }
         let own = props(serde_json::json!({ "kind": "polygon", "points": [[0, 0], [1, 0], [0.4, 1]] }));
-        assert_eq!(object(NodeType::Shape, &own), "Shape");
-        assert_eq!(object(NodeType::Shape, &props(serde_json::json!({ "kind": "rect" }))), "Shape");
+        assert_eq!(object(NodeType::Shape, &own), "Polygon");
+        assert_eq!(object(NodeType::Shape, &props(serde_json::json!({ "kind": "rect" }))), "Rectangle");
         let star = crate::inserts::polygons().into_iter().find(|(n, _, _)| *n == "star").unwrap().1;
         let described = props(serde_json::json!({ "kind": "polygon", "points": star, "alt": "A gold star" }));
         assert_eq!(object(NodeType::Shape, &described), "A gold star");

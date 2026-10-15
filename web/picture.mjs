@@ -12,7 +12,7 @@
 //   shows written in, and the same image shows the new picture whole and says what it shows, the
 //   old one's crop taken away: one patch, which one undo takes back.
 // - A picture locked, selected, is not replaced: with no empty place on the slide, the picture
-//   goes where the pointer last pressed, asked for square as the box Insert gives it there is.
+//   goes where the pointer last pressed, asked for square, and lands in its own proportions.
 // - A provider that refuses says why in the dialog, and nothing changes.
 //
 //   node web/picture.mjs     (after `just web`; from the repository's root)
@@ -222,8 +222,8 @@ try {
   check(await back(pictured), "and the crop set before it goes with the next");
 
   // A picture locked (PLAN 2.95), selected from its layers, is not replaced: with no empty place
-  // for one, the picture goes where the pointer last pressed, framed square as the box Insert
-  // gives a picture there, and lands in one.
+  // for one, the picture goes where the pointer last pressed, asked for square, and lands in a box
+  // of the picture's own proportions, as Insert gives a picture (the scripted one is 67 × 45).
   const locked = await imageShowing("A lighthouse at dusk");
   await page.evaluate((id) => window.scaena.canvas.lock([id], true), locked?.id);
   await page.waitForFunction((id) => window.scaena.canvas.boxes()?.find((b) => b.node === id)?.locked, locked?.id, { timeout: 30000 }).catch(() => {});
@@ -248,7 +248,7 @@ try {
     .waitForFunction(() => window.scaena.source().includes('alt:"A brass compass"') && window.scaena.canvas.boxes()?.find((b) => b.node.startsWith("a-brass-compass"))?.rect, null, { timeout: 30000 })
     .then((h) => h.jsonValue(), () => undefined);
   const ratio = compass ? compass[2] / compass[3] : 0;
-  check(ratio > 0.84 && ratio < 1.2, `and lands in a box as square: ${compass}`);
+  check(Math.abs(ratio / (67 / 45) - 1) <= 0.05, `and lands in a box of the picture's own proportions: ${compass}`);
   check((await source()).includes('alt:"A lighthouse at dusk"'), "the picture locked stays as it was");
   await undo();
   check(await back(lockedSource), "one undo takes the picture back");

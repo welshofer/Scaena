@@ -21,6 +21,9 @@
 //   placed by a `rect`, an override lint flags (W301); or, off it, back onto it.
 // - A handle resizes it the same way, by tracks. While it is dragged, the text keeps its old
 //   wrapping; when the pointer pauses, the preview shows it laid out as the patch would make it.
+//   A picture's corner keeps its proportions, where it lands, as a presentation app scales a
+//   picture (`kept`), no guide drawing one of its edges alone; with Shift, its edges go to the
+//   tracks as another node's do.
 // - The arrow keys move it a track, or a place along its stack; off the grid, a canvas unit. With
 //   Shift, they resize it the same.
 // - Before a patch is made, the status says which states it changes ("in 3 states"). It changes
@@ -63,7 +66,7 @@
 //   away. A node of another type takes what its look shares with it (PLAN 2.58).
 // - An image dragged from the Files panel (PLAN 2.59) takes the place of the image node it is
 //   dropped on, a `choose` of `src`; dropped anywhere else, it is inserted there, as Insert does.
-import { ALT, type Key, MOD, SHIFT } from "./commands";
+import { ALT, type Key, MOD, MOD_ALT, SHIFT } from "./commands";
 import { type Icon, iconSaid } from "./icon-set";
 import { listen } from "./life";
 import { marks } from "./marks";
@@ -93,7 +96,7 @@ export const canvasKeys = (): Key[] => [
   { keys: `${MOD}A`, label: "Select what is selected and all beside it, or all on the slide", group: "Select" },
   { keys: "Space, then Tab", label: "Build a selection by keys: Tab keys the next beside it, Space puts it in or takes it out, Escape stops", group: "Select" },
   { keys: "Drag", label: "Move what is selected onto the grid; a handle resizes it", group: "Move and resize" },
-  { keys: `${SHIFT}Drag`, label: "Move or resize it off the grid, or back onto it", group: "Move and resize" },
+  { keys: `${SHIFT}Drag`, label: "Move or resize it off the grid, or back onto it; a picture's corner, free of its proportions", group: "Move and resize" },
   { keys: `${MOD}Drag`, label: "Off the grid, go where the pointer says, not onto an edge it meets", group: "Move and resize" },
   { keys: "← ↑ → ↓", label: "Move what is selected a column or a row, a place along its stack, or a step off the grid", group: "Move and resize" },
   { keys: `${SHIFT}← ↑ → ↓`, label: "Resize it the same", group: "Move and resize" },
@@ -275,6 +278,9 @@ interface Drag {
   asked?: string;
   /** A resize's preview, once the pointer pauses. */
   pause?: ReturnType<typeof setTimeout>;
+  /** A picture's width over its height, which a drag of its corner keeps, as a presentation app
+   * scales a picture; Shift frees it. */
+  keep?: number;
 }
 
 /** A node turned by its rotate handle (PLAN 2.51): about `pivot`, where its anchor is drawn, from
@@ -558,6 +564,18 @@ function resized([x, y, w, h]: Rect, edge: Edge, [dx, dy]: [number, number]): Re
   return [x, y, Math.max(1, w), Math.max(1, h)];
 }
 
+/** `to`, a box a corner of `from` was dragged to, made `keep` wide for each unit tall: by the side
+ * the drag changed more, its other side following, the corner across from the one dragged where it
+ * was. */
+function kept(from: Rect, to: Rect, edge: Edge, keep: number): Rect {
+  const [x, y, w, h] = to;
+  const wide = Math.abs(w / from[2] - 1) >= Math.abs(h / from[3] - 1);
+  const [kw, kh] = wide ? [w, w / keep] : [h * keep, h];
+  const kx = edge.includes("w") ? from[0] + from[2] - kw : x;
+  const ky = edge.includes("n") ? from[1] + from[3] - kh : y;
+  return [kx, ky, Math.max(1, kw), Math.max(1, kh)];
+}
+
 /** The canvas over `overlay`, which holds an `<svg>` the size of the preview, on `stage`'s state
  * shown, with lint's findings marked in `layer` over it, each opened in `pop`. The editor makes one
  * for each bundle it opens. */
@@ -760,9 +778,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   };
   /** Canvas units to a CSS pixel: what handles and lines are sized in. */
   const unit = () => view[2] / Math.max(1, overlay.getBoundingClientRect().width);
+  /** Whether `d` drags a picture's corner in the proportions its box has: without Shift, where
+   * what holds it lets it go off the grid. */
+  const keeps = (d: Drag) => d.keep !== undefined && !d.shift && (d.targets.by === "grid" || d.targets.by === "frame");
   /** How near, canvas units, an edge `d` moves off the grid goes onto another's: a few pixels;
-   * none with ⌘ or Ctrl held. */
-  const reach = (d: Drag) => (d.loose ? 0 : REACH * unit());
+   * none with ⌘ or Ctrl held, nor for a picture's corner, whose edges would go each its own way
+   * out of its proportions. */
+  const reach = (d: Drag) => (d.loose || keeps(d) ? 0 : REACH * unit());
   const inside = ([x, y, w, h]: Rect, [px, py]: [number, number]) => px >= x && px <= x + w && py >= y && py <= y + h;
   /** Whether `p` stands within 12 canvas units of the line through `points`: where a connector is
    * pointed at (PLAN 2.109), as the engine's hit takes it. */
@@ -2119,6 +2141,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     // Several move as the first does: on the grid, by its tracks, or with Shift off it.
     const how = d.with.length ? (d.shift ? "free" : "move") : snapOf(d.targets, editor.at(d.node), d.kind === "resize", d.shift);
     const to = d.kind === "move" ? moved(d.targets.cell, held) : resized(d.targets.cell, d.edge!, across(box(d.node)?.transform, by));
+    // A picture's corner keeps its proportions, where it lands (a `rect`), as a presentation app
+    // scales a picture; Shift frees it to the grid's tracks.
+    if (keeps(d) && how !== undefined) {
+      return { how: "free", to: kept(d.targets.cell, to, d.edge!, d.keep!), by, held };
+    }
     return { how, to, by, held };
   }
 
@@ -3069,7 +3096,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     e.preventDefault();
     const at = held !== undefined && held.key === holding() ? held : undefined;
     const them = sentence(these(nodes));
-    const done = () => editor.say(`${them} ${cut ? "cut" : "copied"}: ⌘V pastes ${nodes.length > 1 ? "them" : "it"}, in this deck or another`);
+    const done = () => editor.say(`${them} ${cut ? "cut" : "copied"}: ${MOD}V pastes ${nodes.length > 1 ? "them" : "it"}, in this deck or another`);
     if (at?.text !== undefined && e.clipboardData) {
       e.clipboardData.setData(CLIP, at.text);
       e.clipboardData.setData("text/plain", at.text);
@@ -3137,7 +3164,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         const look = await stage.look(editor.source(), shown.state, nodes[0]);
         if (!look.props.length) return editor.say(`${sentence(an((words?.types[look.type] ?? look.type).toLowerCase()))} has no look of its own to copy`);
         copiedLook = look;
-        editor.say(`The look of ${called(look.node)} copied: ⌥⌘V pastes it on what is selected`);
+        editor.say(`The look of ${called(look.node)} copied: ${MOD_ALT}V pastes it on what is selected`);
       } catch (e) {
         editor.say(`No look copied: ${said(e)}`);
       }
@@ -3503,6 +3530,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
           version,
           targets,
         };
+        const [, , w, h] = targets.cell;
+        if (begun.edge?.length === 2 && words?.kinds[begun.node!] === "Image" && w > 0 && h > 0) d.keep = w / h;
         hovered = undefined;
         if (now.up) return void inTurn(() => drop(d));
         drag = d;

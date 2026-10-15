@@ -14,9 +14,11 @@
 // - The palette offers both, with their keys: Paste the look only once a look is copied.
 // On the torture deck:
 // - In `shapes`, the pill's look pasted on the ring: the pill's fill, and the ring's stroke taken
-//   away, as the pill's is the theme's; not its corners, which an oval does not draw.
+//   away, as the pill's is the theme's; not its corners, which an oval does not draw. Each is
+//   named by its kind, the rectangle and the oval.
 // - In `containers`, a shape's look on an image and a stack: the image takes its corners, and the
-//   stack only its shadow (PLAN 2.115), which neither casts, so it looks so already.
+//   stack only its shadow (PLAN 2.115), which neither casts, so it looks so already; the stack is
+//   named by the words it holds.
 // Exits 1 on any failure.
 import { launch, serve } from "./serve.mjs";
 
@@ -97,8 +99,10 @@ try {
   check(none !== "Paste the look", `with no look copied, the palette offers no paste: ${none}`);
 
   // ⌥⌘C on the title: its role in `revenue`, and the theme's for the rest.
-  const copied = await press(["title"], "Control+Alt+KeyC", "copied: ⌥⌘V");
-  check(copied.includes("The look of “") && copied.includes("” copied: ⌥⌘V pastes it on what is selected"), `⌥⌘C copies the title's look: ${copied}`);
+  // In the keys of the platform it runs on: Ctrl+Alt+V off a Mac.
+  const modAlt = await page.evaluate(() => (/Mac|iPhone|iPad/.test(navigator.platform) ? "⌥⌘" : "Ctrl+Alt+"));
+  const copied = await press(["title"], "Control+Alt+KeyC", `copied: ${modAlt}V`);
+  check(copied.includes("The look of “") && copied.includes(`” copied: ${modAlt}V pastes it on what is selected`), `⌥⌘C copies the title's look: ${copied}`);
   const look = await page.evaluate(() => window.scaena.canvas.copiedLook());
   check(
     look?.node === "title" && look.props[0]?.prop === "role" && look.props[0]?.value === "headline" && look.props.slice(1).every((p) => p.value === undefined),
@@ -131,15 +135,14 @@ try {
   check(pasteLabel === "Paste the look" && pasteKey === "Ctrl+Alt+V", `and Paste the look, once one is copied: ${pasteLabel}, ${pasteKey}`);
 
   // A shape's look: its fill, stroke, and corners. The pill has a fill and no stroke of its own;
-  // on the ring, an oval, its fill goes down and the ring's stroke is taken away, but not its
-  // corners, which an oval does not draw.
+  // on the ring, its fill goes down, and the ring's stroke is taken away; an oval has no corners.
   await open("/tests/fixtures/torture.scaena/deck.json", "shapes");
   const props = ["fill", "stroke/paint", "stroke/width", "radius"];
   const ring = await shows("shape-ring", props);
   check(ring.fill === null && ring["stroke/paint"] === "accent" && ring["stroke/width"] === "thick", `the ring is a stroke: ${JSON.stringify(ring)}`);
-  await press(["shape-pill"], "Control+Alt+KeyC", "copied: ⌥⌘V");
+  await press(["shape-pill"], "Control+Alt+KeyC", `copied: ${modAlt}V`);
   const onRing = await press(["shape-ring"], "Control+Alt+KeyV", "pasted on");
-  check(onRing.includes("The look of the shape pasted on the shape"), `the pill's look on the ring: ${onRing}`);
+  check(onRing.includes("The look of the rectangle pasted on the oval"), `the pill's look on the ring: ${onRing}`);
   const filled = await shows("shape-ring", props);
   check(
     filled.fill === "accent" && filled.radius === null && filled["stroke/paint"] === null && filled["stroke/width"] === null,
@@ -149,13 +152,13 @@ try {
   // On an image, a shape's corners (and its shadow, of which the tag casts none); a stack takes
   // its shadow alone (PLAN 2.115), and casts none already.
   await into("containers");
-  await press(["card-tag"], "Control+Alt+KeyC", "copied: ⌥⌘V");
+  await press(["card-tag"], "Control+Alt+KeyC", `copied: ${modAlt}V`);
   const photo = await press(["board-photo"], "Control+Alt+KeyV", "pasted on");
-  check(photo.includes("The look of the shape pasted on “The test card in a grid area two rows t…”"), `a shape's look on an image: ${photo}`);
+  check(photo.includes("The look of the rectangle pasted on “The test card in a grid area two rows t…”"), `a shape's look on an image: ${photo}`);
   const corners = await shows("board-photo", ["radius", "fit"]);
   check(corners.radius === "radius.5", `the image takes its corners: ${JSON.stringify(corners)}`);
   const stack = await press(["stats"], "Control+Alt+KeyV", "looks so already");
-  check(stack.includes("The group looks so already"), `a stack takes only a shape's shadow, and has it already: ${stack}`);
+  check(stack.includes("“42%” looks so already"), `a stack takes only a shape's shadow, and has it already: ${stack}`);
 } catch (e) {
   failures.push(String(e));
 } finally {

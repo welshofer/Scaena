@@ -80,6 +80,10 @@ try {
   check(heading[0] === "Text" && heading[1] === "Revenue doubled", `the inspector shows the title by its kind and its words: ${heading.join(" / ")}`);
   const label = await page.evaluate(() => document.querySelector('label[for="look-role"]')?.textContent);
   check(label === "Text Style", `its role is its Text Style: ${label}`);
+  // Where nothing sets its alignment, it shows where its lines stand: from their start, as its slot
+  // sets none (PLAN 3.25).
+  const aligned = await page.evaluate(() => document.querySelector("#look-align-x")?.selectedOptions?.[0]?.textContent);
+  check(aligned === "Default (Left)", `its alignment shows what its slot gives: ${aligned}`);
   const roles = await page.evaluate(() => [...document.querySelectorAll("#look-role option")].map((o) => o.textContent));
   check(["Display", "Headline", "Title", "Caption"].every((r) => roles.includes(r)), `the role takes the theme's roles, said: ${roles.join(", ")}`);
   check((await page.inputValue("#look-role")) === "headline", "it shows the role `revenue` sets");
@@ -167,6 +171,12 @@ try {
   await page.waitForFunction(() => !window.scaena.look.offered()?.fields.find((f) => f.prop === "style/color")?.value, null, { timeout: 30000 }).catch(() => {});
   check((await field("style/color"))?.value === undefined, "and the role's color shows again");
   check((await page.evaluate(() => window.scaena.last().valid)), "the source still compiles and validates");
+
+  // A chart offers the kinds its data makes: the quarters repeat, one row a product, so no donut,
+  // which keys its slices by them alone; and a quarter is no number for a scatter's x.
+  await select("rev");
+  const kinds = await page.evaluate(() => [...document.querySelectorAll("#look-kind option")].map((o) => o.textContent));
+  check(kinds.includes("Bar") && kinds.includes("Stacked Bar") && !kinds.includes("Donut") && !kinds.includes("Scatter"), `the chart's kinds, those its data makes: ${kinds.join(", ")}`);
 
   // With nothing selected, the inspector edits the state shown.
   const stated = (prop) => page.evaluate((p) => window.scaena.look.offered()?.fields.find((f) => f.prop === p), prop);

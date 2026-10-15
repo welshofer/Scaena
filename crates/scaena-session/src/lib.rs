@@ -1467,7 +1467,10 @@ impl Session {
         self.inserting_offer(state, insert, at, None)
     }
 
-    /// [`Session::inserting`] of `insert`, whatever offered it.
+    /// [`Session::inserting`] of `insert`, whatever offered it. In each other format the deck lays
+    /// out anew (ADR-0020) where it would land on what draws there (lint E101) or not fit its
+    /// cells (E100), it takes a place of its own there, found as it is in the format shown, so
+    /// the insert leaves no format in error.
     #[cfg(feature = "editor")]
     fn inserting_offer(
         &mut self,
@@ -1476,24 +1479,101 @@ impl Session {
         at: [f32; 2],
         named: Option<&str>,
     ) -> Result<scaena_ops::inspect::Added, Error> {
-        let room = self.room_for(state, &insert, named, None)?;
-        // What lint E101 would judge it against: a decoration lies anywhere.
-        let snaps = scaena_core::resolve_states(&self.deck).map_err(|e| Error::Deck(e.to_string()))?;
-        let decorations: Vec<String> = (snaps.iter().find(|s| s.state_id == state).into_iter())
-            .flat_map(|s| &s.nodes)
-            .filter(|(_, props)| props.get("semantic").and_then(serde_json::Value::as_str) == Some("decoration"))
-            .map(|(id, _)| id.clone())
+        let mut added = self.inserting_here(state, &insert, at, named)?;
+        let shown = self.format.clone();
+        let colliding = self.colliding(&added.patch, state, &added.id)?;
+        let elsewhere: Vec<String> = (self.deck.anew().into_iter())
+            .filter(|f| Some(*f) != shown.as_deref() && colliding.iter().any(|c| c == f))
+            .map(String::from)
             .collect();
-        let crowded = self.at_rest(state)?.crowded(|id| decorations.iter().any(|d| d == id));
-        let added = scaena_ops::inspect::inserting(&self.deck, &self.theme, &room, &insert, state, at, &crowded)
+        let mut there = |s: &mut Session| -> Result<(), Error> {
+            for format in &elsewhere {
+                s.set_format(Some(format))?;
+                // About the same point of the canvas, as a share of it.
+                let [w, h] = s.canvas_size()?.map(|v| v as f32);
+                let [ow, oh] = {
+                    let (deck, _) = project(&s.deck, &s.theme, shown.as_deref())?;
+                    [deck.canvas.width as f32, deck.canvas.height as f32]
+                };
+                let point = [at[0] / ow * w, at[1] / oh * h];
+                // As large there, in canvas units, as here, so a picture keeps its proportions:
+                // shares of that canvas, as much smaller as it takes to fit.
+                let mut insert = insert.clone();
+                if let scaena_core::inserts::Start::Box { w: bw, h: bh } = &mut insert.start {
+                    let [sw, sh] = [*bw * ow / w, *bh * oh / h];
+                    let fit = 1f32.min(1.0 / sw).min(1.0 / sh);
+                    (*bw, *bh) = (sw * fit, sh * fit);
+                }
+                let placed = s.inserting_here(state, &insert, point, named)?.patch.into_iter();
+                // A place there that is the one it has here, a slot that goes where the formats
+                // put it, is none of its own.
+                let here = |op: &serde_json::Value| {
+                    added.patch.iter().any(|o| o["op"] == "place" && o["node"] == op["node"] && o["at"] == op["at"])
+                };
+                let mut places: Vec<serde_json::Value> =
+                    placed.filter(|op| op["op"] == "place" && op["node"] == added.id.as_str() && !here(op)).collect();
+                for op in &mut places {
+                    op["format"] = serde_json::json!(format);
+                    op["anew"] = serde_json::json!(true);
+                }
+                let after = added.patch.iter().rposition(|op| op["op"] == "place").map_or(added.patch.len(), |i| i + 1);
+                added.patch.splice(after..after, places);
+            }
+            Ok(())
+        };
+        let done = there(self);
+        self.set_format(shown.as_deref())?;
+        done.map(|()| added)
+    }
+
+    /// [`Session::inserting_offer`] in the format shown alone.
+    #[cfg(feature = "editor")]
+    fn inserting_here(
+        &mut self,
+        state: &str,
+        insert: &scaena_core::inserts::Insert,
+        at: [f32; 2],
+        named: Option<&str>,
+    ) -> Result<scaena_ops::inspect::Added, Error> {
+        let room = self.room_for(state, insert, named, None)?;
+        // What lint E101 would judge it against in each step of the slide it stays on: a
+        // decoration lies anywhere. Of that, what is placed in `state` other than in a slot of
+        // the layout, and what sets words.
+        let snaps = scaena_core::resolve_states(&self.deck).map_err(|e| Error::Deck(e.to_string()))?;
+        let mut crowd = scaena_ops::inspect::Crowd::default();
+        for step in scaena_ops::inspect::staying(&self.deck, state) {
+            let shown = snaps.iter().find(|s| s.state_id == step).into_iter().flat_map(|s| &s.nodes);
+            let (mut decorations, mut slotted, mut texts) = (Vec::new(), Vec::new(), Vec::new());
+            for (id, props) in shown {
+                if props.get("semantic").and_then(serde_json::Value::as_str) == Some("decoration") {
+                    decorations.push(id.clone());
+                }
+                let at = props.get("at").filter(|a| a.get("parent").is_none());
+                if at.and_then(|a| a.get("in")).is_some() {
+                    slotted.push(id.clone());
+                }
+                let text = self.deck.nodes.get(id).map(|n| n.node_type);
+                if text == Some(scaena_core::document::NodeType::Text) {
+                    texts.push(id.clone());
+                }
+            }
+            let scene = self.at_rest(&step)?;
+            crowd.all.extend(scene.crowded(|id| decorations.iter().any(|d| d == id)));
+            let unworded = |id: &str| !texts.iter().any(|t| t == id) || decorations.iter().any(|d| d == id);
+            crowd.words.extend(scene.crowded(unworded));
+            if step == state {
+                crowd.loose = scene.crowded(|id| decorations.iter().chain(&slotted).any(|d| d == id));
+            }
+        }
+        let added = scaena_ops::inspect::inserting(&self.deck, &self.theme, &room, insert, state, at, &crowd)
             .map_err(|e| Error::Deck(e.to_string()))?;
         // A table is as wide as its columns: where the cell offered is too narrow for them in a
         // format the deck lists, it takes the grid's width (PLAN 2.96).
         if insert.node["type"] != "table" || self.lays_out_with(&added.patch, state)? {
             return Ok(added);
         }
-        let room = self.room_for(state, &insert, named, Some(1.0))?;
-        scaena_ops::inspect::inserting(&self.deck, &self.theme, &room, &insert, state, at, &crowded)
+        let room = self.room_for(state, insert, named, Some(1.0))?;
+        scaena_ops::inspect::inserting(&self.deck, &self.theme, &room, insert, state, at, &crowd)
             .map_err(|e| Error::Deck(e.to_string()))
     }
 
@@ -1667,7 +1747,8 @@ impl Session {
     /// place (PLAN 2.110): a container of boxes, each with its words, joined by connectors, kept
     /// to the state's slide, and the text deleted from the state on. The state is laid out on the
     /// deck's own canvas and in each format it lays out anew, so the diagram runs as its place
-    /// does in each (ADR-0020). Refused for a text locked, or held by what is (PLAN 2.95).
+    /// does in each (ADR-0020). On the deck's own canvas, a place too short for its boxes' words
+    /// takes more of the theme grid's rows. Refused for a text locked, or held by what is (PLAN 2.95).
     #[cfg(feature = "editor")]
     pub fn diagramming(
         &mut self,
@@ -1676,6 +1757,12 @@ impl Session {
         kind: scaena_ops::diagrams::Diagram,
     ) -> Result<scaena_ops::diagrams::Diagrammed, Error> {
         let shown = self.format.clone();
+        // The rows its place may grow on: the theme grid's, on the deck's own canvas, where the
+        // text is placed by them, while the deck's own canvas is shown.
+        let rows = match shown {
+            None => self.targets(state, node)?.rows.clone(),
+            Some(_) => Vec::new(),
+        };
         let formats: Vec<Option<String>> =
             std::iter::once(None).chain(self.deck.anew().into_iter().map(|f| Some(f.to_string()))).collect();
         let mut laid = Vec::with_capacity(formats.len());
@@ -1693,7 +1780,7 @@ impl Session {
             .map(|(format, boxes)| scaena_ops::diagrams::Laid { format: format.as_deref(), boxes })
             .collect();
         let files = editor::Handed(&self.files);
-        scaena_ops::diagrams::diagramming(&self.deck, &self.theme, &files, state, node, kind, &laid)
+        scaena_ops::diagrams::diagramming(&self.deck, &self.theme, &files, state, node, kind, &laid, &rows)
             .map_err(|e| Error::Ops(e.to_string()))
     }
 
@@ -3766,7 +3853,7 @@ mod tests {
         let by = assistant::Caller { author: "user", at: None };
         let offered = s.inserts();
         let of = |kind: &str| offered.iter().filter(|i| i.node["type"] == kind).count();
-        assert_eq!(of("text"), s.theme.typography.roles.len(), "a text in each of Dusk's roles");
+        assert_eq!(of("text"), s.theme.typography.roles.len() - 1, "a text in each of Dusk's roles but `axis`");
         assert_eq!((of("shape"), of("image"), of("shader")), (20, 0, 2), "the revenue bundle holds no PNG");
         let n = |label: &str| offered.iter().position(|i| i.label == label).unwrap();
         let within =
@@ -3790,9 +3877,11 @@ mod tests {
         let added = s.inserting("revenue", n("Text · headline"), [960.0, 540.0], None).unwrap();
         assert_eq!(added.id, "headline");
         let ops: Vec<&str> = added.patch.iter().map(|op| op["op"].as_str().unwrap()).collect();
-        assert_eq!(ops, ["add_node", "place", "hide_node"]);
+        assert_eq!(ops, ["add_node", "place", "place", "hide_node"]);
         assert_eq!(added.patch[0]["state"], "revenue", "it enters in the state shown");
-        assert_eq!(added.patch[2]["state"], "close", "and leaves at the next slide (PLAN 3.24)");
+        // Where its cells would put it on the chart in 9:16, it takes a place of its own there.
+        assert_eq!((added.patch[2]["format"].as_str(), added.patch[2]["anew"].as_bool()), (Some("9:16"), Some(true)));
+        assert_eq!(added.patch[3]["state"], "close", "and leaves at the next slide (PLAN 3.24)");
         let apart = |c: [f32; 4], o: [f32; 4]| {
             (c[0] + c[2]).min(o[0] + o[2]) - c[0].max(o[0]) <= 2.0
                 || (c[1] + c[3]).min(o[1] + o[3]) - c[1].max(o[1]) <= 2.0
@@ -3859,6 +3948,299 @@ mod tests {
             offered[image].id,
             "a click names it as offered"
         );
+    }
+
+    /// Lint's findings on `state` with `codes`, as `deck_lint` says them.
+    #[cfg(feature = "editor")]
+    fn found(s: &mut Session, state: &str, codes: &[&str]) -> Vec<serde_json::Value> {
+        let by = assistant::Caller { author: "user", at: None };
+        let lint = s.tool("deck_lint", serde_json::json!({}), by).unwrap();
+        let result: serde_json::Value = serde_json::from_str(&lint.result).unwrap();
+        (result["findings"].as_array().unwrap().iter())
+            .filter(|f| f["state"] == state && codes.iter().any(|c| f["code"] == *c))
+            .cloned()
+            .collect()
+    }
+
+    /// A chart deleted from its slide, and a chart of its data pressed into the figure's place it
+    /// left: it fills the slot, at its size, as the browser's walk has it (web/insert.mjs).
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_chart_pressed_where_one_was_deleted_fills_its_place() {
+        let mut s = revenue();
+        let by = assistant::Caller { author: "user", at: None };
+        let gone = s.deleting("revenue", &["rev"], false).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": gone }), by).unwrap();
+        let slots = s.targets("revenue", "title").unwrap().slots.clone();
+        let main = slots.iter().find(|(name, _)| name == "main").unwrap().1;
+        let middle = [main[0] + main[2] / 2.0, main[1] + main[3] / 2.0];
+        let n = s.inserts().iter().position(|i| i.label == "Chart · q3").unwrap();
+        let added = s.inserting("revenue", n, middle, None).unwrap();
+        assert_eq!(added.patch[1]["at"], serde_json::json!({ "in": "main" }), "{:?}", added.patch);
+        assert_eq!(added.cell, main);
+    }
+
+    /// A chart or a table fills a slot that waits for a figure, as a placeholder takes what is put
+    /// on it: placed in the slot, so it goes where the slot goes, in another theme too. Dropped on
+    /// a Chart slide's placeholder, the chart fills it, and re-themed in Ember, where the note
+    /// stands beside the slot, nothing lies over it.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_chart_or_a_table_fills_the_slot_that_waits_for_it() {
+        let mut s = revenue();
+        let by = assistant::Caller { author: "user", at: None };
+        let offered = s.inserts();
+        let n = |label: &str| offered.iter().position(|i| i.label == label).unwrap();
+        let slide = |s: &mut Session, layout: &str| {
+            let started = s.starting("close", Some(layout)).unwrap();
+            s.tool("deck_patch", serde_json::json!({ "ops": started.patch }), by).unwrap();
+            started.id
+        };
+        for (layout, insert) in [("figure", "Chart · q3"), ("table", "Table · q3")] {
+            let state = slide(&mut s, layout);
+            let slots = s.targets(&state, &format!("{state}-header")).unwrap().slots.clone();
+            let main = slots.iter().find(|(name, _)| name == "main").unwrap().1;
+            let middle = [main[0] + main[2] / 2.0, main[1] + main[3] / 2.0];
+            let added = s.inserting(&state, n(insert), middle, None).unwrap();
+            assert_eq!(added.patch[1]["at"], serde_json::json!({ "in": "main" }), "{insert}: {:?}", added.patch);
+            assert_eq!(added.cell, main, "{insert}");
+            // The slot goes where each format puts it: no place of its own in any.
+            assert!(added.patch.iter().all(|op| op.get("format").is_none()), "{insert}: {:?}", added.patch);
+            s.tool("deck_patch", serde_json::json!({ "ops": added.patch }), by).unwrap();
+            assert!(s.waiting(&state).unwrap().iter().all(|w| w.slot != "main"), "{insert}: filled");
+        }
+        let ember = std::fs::read_to_string("../../docs/examples/themes/ember.theme.json").unwrap();
+        let themed = s.retheme("themes/ember.theme.json", Some(&ember), BTreeMap::new(), None).unwrap();
+        assert!(!themed.refused);
+        let over: Vec<&scaena_core::lint::Finding> = themed
+            .added
+            .iter()
+            .filter(|f| f.code == "E101" && f.node.as_deref().is_some_and(|n| n.starts_with("q3-")))
+            .collect();
+        assert!(over.is_empty(), "nothing over the chart or the table in Ember: {over:?}");
+    }
+
+    /// A picture put in a layout's picture place lies under the layout's words over it, as a
+    /// placeholder's picture does: on a Photo and Caption slide, the caption still reads.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_picture_in_a_layouts_place_lies_under_its_words() {
+        let mut s = revenue();
+        let by = assistant::Caller { author: "user", at: None };
+        let started = s.starting("close", Some("photo-caption")).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": started.patch }), by).unwrap();
+        let state = started.id;
+        let photo = std::fs::read("../../docs/examples/assets/trails-ridge.png").unwrap();
+        let path = scaena_store::place("ridge.png", &photo);
+        s.add_file(&path, photo);
+        let image = s.inserts().iter().position(|i| i.node["src"] == path.as_str()).unwrap();
+        let added = s.inserting(&state, image, [960.0, 400.0], None).unwrap();
+        assert_eq!(added.patch[1]["at"], serde_json::json!({ "in": "art" }), "{:?}", added.patch);
+        assert_eq!(added.patch[0]["node"]["z"], -1, "under the caption: {:?}", added.patch);
+        s.tool("deck_patch", serde_json::json!({ "ops": added.patch }), by).unwrap();
+        let note = s.boxes(&state).unwrap().into_iter().find(|b| b.node.ends_with("-note")).unwrap().rect;
+        let topmost = s.hit(&state, [note[0] + 10.0, note[1] + note[3] / 2.0]).unwrap();
+        assert!(topmost.first().is_some_and(|h| h.node.ends_with("-note")), "{topmost:?}");
+        assert!(found(&mut s, &state, &["E101"]).is_empty());
+
+        // A background effect inserted after it goes under what is there, the picture with it,
+        // which it would otherwise cover.
+        let backdrop = s.inserts().iter().position(|i| i.node["type"] == "shader").unwrap();
+        let effect = s.inserting(&state, backdrop, [960.0, 300.0], None).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": effect.patch }), by).unwrap();
+        let drawn: Vec<String> = s.hit(&state, [960.0, 300.0]).unwrap().into_iter().map(|h| h.node).collect();
+        let at = |id: &str| drawn.iter().position(|n| n == id);
+        assert!(at(&added.id).is_some_and(|p| Some(p) < at(&effect.id)), "the picture over the background: {drawn:?}");
+    }
+
+    /// A picture inserted keeps its own proportions (PLAN 2.34): a 3:2 photo lands on cells of the
+    /// grid that keep it to within 5%, not on a near square that crops it.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn an_inserted_picture_keeps_its_proportions() {
+        let mut s = revenue();
+        let photo = std::fs::read("../../docs/examples/assets/trails-ridge.png").unwrap();
+        let path = scaena_store::place("ridge.png", &photo);
+        s.add_file(&path, photo);
+        let image = s.inserts().iter().position(|i| i.node["src"] == path.as_str()).unwrap();
+        let added = s.inserting("close", image, [960.0, 880.0], None).unwrap();
+        let [_, _, w, h] = added.cell;
+        assert!((w / h / 1.5 - 1.0).abs() <= 0.05, "1500 × 1000 lands {w} × {h}");
+        assert!(added.patch[1]["at"].get("col").is_some(), "on the grid: {:?}", added.patch);
+
+        // Put on the chart, it takes a place of its own in 9:16, where the chart fills the slide:
+        // there too in its own proportions.
+        let added = s.inserting("revenue", image, [1400.0, 500.0], None).unwrap();
+        let tall = added.patch.iter().find(|op| op["op"] == "place" && op["format"] == "9:16");
+        assert!(tall.is_some(), "a place of its own in 9:16: {:?}", added.patch);
+        let by = assistant::Caller { author: "user", at: None };
+        s.tool("deck_patch", serde_json::json!({ "ops": added.patch }), by).unwrap();
+        s.set_format(Some("9:16")).unwrap();
+        let [_, _, w, h] = s.boxes("revenue").unwrap().into_iter().find(|b| b.node == added.id).unwrap().rect;
+        assert!((w / h / 1.5 - 1.0).abs() <= 0.05, "in 9:16, 1500 × 1000 lands {w} × {h}");
+    }
+
+    /// A deck with no data inserts a chart and a table all the same, of a few rows made up for
+    /// them, as a presentation app does: the patch brings the rows, the chart lays out from them,
+    /// and the next insert reads the same source.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_chart_is_inserted_in_a_deck_with_no_data() {
+        let dir = "../../docs/examples";
+        let mut doc: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(format!("{dir}/revenue.deck.json")).unwrap()).unwrap();
+        let o = doc.as_object_mut().unwrap();
+        o.remove("data");
+        o["nodes"].as_object_mut().unwrap().remove("rev");
+        for state in o["states"].as_array_mut().unwrap() {
+            if let Some(props) = state["props"].as_object_mut() {
+                props.remove("rev");
+            }
+            if let Some(gone) = state.get_mut("remove").and_then(serde_json::Value::as_array_mut) {
+                gone.retain(|id| id != "rev");
+            }
+            if let Some(cue) = state.get_mut("choreography").and_then(serde_json::Value::as_array_mut) {
+                cue.retain(|c| c["target"] != "rev");
+            }
+        }
+        // Its story cites no data now.
+        for section in o["spine"]["sections"].as_array_mut().unwrap() {
+            for beat in section["beats"].as_array_mut().unwrap() {
+                beat.as_object_mut().unwrap().remove("evidence");
+            }
+        }
+        let read = |p: &str| std::fs::read_to_string(format!("{dir}/{p}")).unwrap();
+        let mut s = Session::new(&doc.to_string(), &read("themes/dusk.theme.json")).unwrap();
+        for path in revenue().files.keys().filter(|p| p.starts_with("fonts/")) {
+            s.add_file(path, std::fs::read(format!("{dir}/{path}")).unwrap());
+        }
+        let by = assistant::Caller { author: "user", at: None };
+        let offered = s.inserts();
+        let chart = offered.iter().position(|i| i.label == "Chart · sample").expect("a chart offered");
+        let added = s.inserting("revenue", chart, [960.0, 540.0], None).unwrap();
+        assert_eq!(added.patch[0]["op"], "add", "the rows first: {:?}", added.patch);
+        assert_eq!(added.patch[1]["node"]["data"], "@sample");
+        assert_eq!(added.patch[2]["at"], serde_json::json!({ "in": "main" }), "the figure's place waited for it");
+        s.tool("deck_patch", serde_json::json!({ "ops": added.patch }), by).unwrap();
+        assert!(s.boxes("revenue").unwrap().iter().any(|b| b.node == "sample-chart"), "it lays out");
+        let again = s.inserts();
+        let tables: Vec<&str> = again.iter().filter(|i| i.node["type"] == "table").map(|i| i.label.as_str()).collect();
+        assert_eq!(tables, ["Table · sample"]);
+        assert!(again.iter().all(|i| i.sample.is_none()), "the deck's own source now");
+    }
+
+    /// Text inserted lands clear of the words already there by the grid's gutter, and clear of
+    /// them in each format the deck lays out anew (ADR-0020): on the trails cover, a Display text
+    /// leaves lint nothing to find, in 16:9 or in 9:16.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn an_insert_leaves_no_format_in_error() {
+        let mut s = trails();
+        let by = assistant::Caller { author: "user", at: None };
+        let display = s.inserts().iter().position(|i| i.label == "Text · display").unwrap();
+        assert!(found(&mut s, "cover", &["E101"]).is_empty());
+        let added = s.inserting("cover", display, [960.0, 540.0], None).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": added.patch }), by).unwrap();
+        assert_eq!(found(&mut s, "cover", &["E101", "E100"]), Vec::<serde_json::Value>::new(), "{:?}", added.patch);
+    }
+
+    /// A picture put on a slide with no room clear of what draws there keeps off its words at
+    /// least, in each format: on the torture deck's `images`, full of pictures, a photo dropped
+    /// on the label lands clear of it, in 16:9 and in 9:16, where it takes a place of its own
+    /// (PLAN 2.79, ADR-0020). The picture is laid out before it is in the deck.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_picture_with_no_room_keeps_off_the_words() {
+        let mut s = torture();
+        let png = std::fs::read("../../docs/examples/assets/trails-ridge.png").unwrap();
+        let path = scaena_store::place("ridge.png", &png);
+        s.add_file(&path, png);
+        let n = s.inserts().iter().position(|i| i.node["src"] == path.as_str()).unwrap();
+        let case = s.boxes("images").unwrap().into_iter().find(|b| b.node == "case").unwrap().rect;
+        let at = [case[0] + case[2] / 2.0, case[1] + case[3] / 2.0];
+        let added = s.inserting("images", n, at, Some("ridge")).unwrap();
+        let by = assistant::Caller { author: "user", at: None };
+        s.tool("deck_patch", serde_json::json!({ "ops": added.patch }), by).unwrap();
+        let worded: Vec<serde_json::Value> = (found(&mut s, "images", &["E101"]).into_iter())
+            .filter(|f| f["message"].as_str().is_some_and(|m| m.contains("`case`")))
+            .collect();
+        assert_eq!(worded, Vec::<serde_json::Value>::new(), "{:?}", added.patch);
+    }
+
+    /// What is inserted stays on its slide, so it lands clear of what each step of the slide
+    /// draws, in each format: a headline put on the revenue chart is clear of the title in
+    /// `revenue` and of the longer one `mix` sets there, in 16:9 and in 9:16 (PLAN 2.79, 3.24).
+    #[cfg(feature = "editor")]
+    #[test]
+    fn an_insert_is_clear_of_what_each_step_of_its_slide_draws() {
+        let mut s = revenue();
+        let by = assistant::Caller { author: "user", at: None };
+        let headline = s.inserts().iter().position(|i| i.label == "Text · headline").unwrap();
+        let added = s.inserting("revenue", headline, [1400.0, 300.0], None).unwrap();
+        // In 9:16, where the chart fills the slide, it takes a place of its own (ADR-0020).
+        let elsewhere = added.patch.iter().find(|op| op["op"] == "place" && op["format"] == "9:16");
+        assert!(elsewhere.is_some_and(|op| op["anew"] == true), "{:?}", added.patch);
+        s.tool("deck_patch", serde_json::json!({ "ops": added.patch }), by).unwrap();
+        for state in ["revenue", "mix"] {
+            assert_eq!(
+                found(&mut s, state, &["E101", "E100"]),
+                Vec::<serde_json::Value>::new(),
+                "{state}: {:?}",
+                added.patch
+            );
+        }
+    }
+
+    /// A hierarchy or a cycle drawn from a text inserted at its own two rows takes the rows its
+    /// boxes need to hold their words: lint finds none too small to fit (PLAN 2.110).
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_diagram_takes_the_room_its_words_need() {
+        let mut s = revenue();
+        let by = assistant::Caller { author: "user", at: None };
+        let blank = s.starting("close", None).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": blank.patch }), by).unwrap();
+        let state = blank.id;
+        let body = s.inserts().iter().position(|i| i.label == "Text · body").unwrap();
+        let added = s.inserting(&state, body, [960.0, 540.0], None).unwrap();
+        assert!(added.patch[1]["at"].get("row").is_some(), "on two rows of its own: {:?}", added.patch);
+        s.tool("deck_patch", serde_json::json!({ "ops": added.patch }), by).unwrap();
+        let lines = serde_json::json!([
+            { "op": "replace", "path": "/nodes/body/text", "value": "CEO\nCTO\nCFO" },
+            { "op": "add", "path": "/nodes/body/list",
+              "value": [{ "kind": "bullet" }, { "kind": "bullet", "level": 1 }, { "kind": "bullet", "level": 1 }] }
+        ]);
+        s.tool("deck_patch", serde_json::json!({ "ops": lines }), by).unwrap();
+        let made = s.diagramming(&state, "body", scaena_ops::diagrams::Diagram::Hierarchy).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": made.patch }), by).unwrap();
+        let boxes = s.boxes(&state).unwrap();
+        let line = s.theme.typography.roles["body"].size * s.theme.typography.roles["body"].leading;
+        for id in ["body-hierarchy-1", "body-hierarchy-2", "body-hierarchy-3"] {
+            let rect = boxes.iter().find(|b| b.node == id).unwrap().rect;
+            assert!(f64::from(rect[3]) >= 2.0 * line - 0.5, "{id} two lines tall: {rect:?}");
+        }
+        assert_eq!(found(&mut s, &state, &["W203", "E100"]), Vec::<serde_json::Value>::new());
+
+        // A cycle of four steps from a text at its own two rows, the same.
+        let blank = s.starting(&state, None).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": blank.patch }), by).unwrap();
+        let state = blank.id;
+        let body = s.inserts().iter().position(|i| i.label == "Text · body").unwrap();
+        let added = s.inserting(&state, body, [960.0, 540.0], None).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": added.patch }), by).unwrap();
+        let text = serde_json::json!([
+            { "op": "replace", "path": format!("/nodes/{}/text", added.id), "value": "Research\nDesign\nBuild\nLaunch" }
+        ]);
+        s.tool("deck_patch", serde_json::json!({ "ops": text }), by).unwrap();
+        let made = s.diagramming(&state, &added.id, scaena_ops::diagrams::Diagram::Cycle).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": made.patch }), by).unwrap();
+        let boxes = s.boxes(&state).unwrap();
+        for k in 1..=4 {
+            let id = format!("{}-{k}", made.id);
+            let rect = boxes.iter().find(|b| b.node == id).unwrap().rect;
+            assert!(f64::from(rect[3]) >= 2.0 * line - 0.5, "{id} two lines tall: {rect:?}");
+        }
+        assert_eq!(found(&mut s, &state, &["W203", "E100"]), Vec::<serde_json::Value>::new());
     }
 
     /// A text or a picture fills an empty slot only where the layout says it goes there (PLAN
@@ -4674,16 +5056,16 @@ mod tests {
     }
 
     /// A pen's drawing and an icon are each a path on a view (PLAN 2.104, 2.114): the drawing,
-    /// stroked, is a shape, which Insert › Icon… adds an icon beside rather than replaces; the
+    /// stroked, is a Drawing, which Insert › Icon… adds an icon beside rather than replaces; the
     /// icon, filled, is an icon.
     #[cfg(feature = "editor")]
     #[test]
-    fn a_drawing_is_a_shape_and_an_icon_an_icon() {
+    fn a_drawing_is_a_drawing_and_an_icon_an_icon() {
         let by = || assistant::Caller { author: "user", at: None };
         let mut s = revenue();
         let drawn = s.inking("revenue", &[[100.0, 100.0], [300.0, 200.0]], None).unwrap();
         s.tool("deck_patch", serde_json::json!({ "ops": drawn.patch }), by()).unwrap();
-        assert_eq!(s.choices("revenue", &drawn.id).unwrap().noun.as_deref(), Some("Shape"));
+        assert_eq!(s.choices("revenue", &drawn.id).unwrap().noun.as_deref(), Some("Drawing"));
         let icon = scaena_core::inserts::Icon {
             name: "rocket".into(),
             path: "M16 16L240 16L128 240Z".into(),

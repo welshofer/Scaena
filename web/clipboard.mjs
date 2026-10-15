@@ -128,7 +128,9 @@ try {
   check(clip.kind === "scaena/clip" && clip.node === "rev", `a clip of the chart: ${clip.kind} ${clip.node}`);
   check(clip.nodes?.rev?.type === "chart" && clip.nodes.rev.data === "@q3", "the chart as the state shows it");
   check(Boolean(clip.data?.q3) && Boolean(clip.files?.["data/q3-revenue.csv"]), "with its data source and the CSV it reads");
-  check(await says(page, " copied: ⌘V pastes it"), `the status says so: ${await status(page)}`);
+  // In the keys of the platform it runs on: Ctrl+V off a Mac.
+  const mod = await page.evaluate(() => (/Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+"));
+  check(await says(page, ` copied: ${mod}V pastes it`), `the status says so, in this platform's keys: ${await status(page)}`);
 
   // ⌘V where the canvas was last pressed: `rev-2`, entering in `revenue`, selected.
   const at = [600, 820];

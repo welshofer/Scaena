@@ -32,6 +32,20 @@ private func held(by: String) throws -> Targets {
     #expect(!framed.offGrid, "a frame places its children by rect")
 }
 
+/// A picture's corner keeps its proportions, as a presentation app scales a picture and the
+/// browser's canvas keeps one: by the side the drag changed more, its other side following, the
+/// corner across from the one dragged where it was.
+@Test func aPicturesCornerKeepsItsProportions() throws {
+    // Its cell 100 × 50: two units wide for each unit tall.
+    let grid = try held(by: "grid")
+    // Its bottom right drawn in, more across than down: the width leads.
+    let inward = grid.kept(CGRect(x: 0, y: 0, width: 60, height: 40), west: false, north: false, keep: 2)
+    #expect(inward == CGRect(x: 0, y: 0, width: 60, height: 30))
+    // Its top left drawn out, more down than across: the height leads, the bottom right stays.
+    let outward = grid.kept(CGRect(x: -10, y: -40, width: 110, height: 90), west: true, north: true, keep: 2)
+    #expect(outward == CGRect(x: -80, y: -40, width: 180, height: 90))
+}
+
 /// How a drag snaps as a presentation app's (PLAN 3.19, ADR-0024): on the theme's grid, free
 /// wherever it is placed now; with Shift, into its slot or onto the grid's cells, as the browser's
 /// canvas snaps it, one placed by a `rect` back onto the cells; what a container holds as before.

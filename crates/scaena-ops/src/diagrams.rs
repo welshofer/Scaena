@@ -97,6 +97,11 @@ pub struct Laid<'a> {
 /// words, for one that is locked or held by what is (PLAN 2.95), which nothing deletes, and for
 /// lines a diagram of `kind` cannot draw: one step, a cycle of two, more steps than fit, or a
 /// hierarchy with no line under another. `files` is the bundle's, which the patch is made on.
+///
+/// Its boxes are tall enough for two lines of their words: where the text's place on the deck's own
+/// canvas is shorter than that, the container takes more of the theme grid's `rows` (canvas units)
+/// the place stands on there, down and then up, where the text is placed on them by its rows; and a
+/// hierarchy's rows stand closer, the gap between them no more than its boxes' height allows.
 #[allow(clippy::too_many_arguments)]
 pub fn diagramming(
     deck: &Deck,
@@ -106,6 +111,7 @@ pub fn diagramming(
     node: &str,
     kind: Diagram,
     laid: &[Laid<'_>],
+    rows: &[[f32; 2]],
 ) -> Result<Diagrammed, OpsError> {
     let snaps = scaena_core::resolve_states(deck).context("tracking")?;
     let snap =
@@ -144,7 +150,7 @@ pub fn diagramming(
         return Err(OpsError::new("a diagram takes two lines or more: put each step on a line of its own"));
     }
 
-    let look = Look::of(theme);
+    let mut look = Look::of(theme);
     let mut taken: Vec<String> = deck.nodes.keys().cloned().collect();
     let mut name = |base: String| {
         let id = free_id(&taken, &base);
@@ -219,6 +225,17 @@ pub fn diagramming(
     // Each box, as `(id, words, its own props)`, and each connector, `(from, to)`.
     let mut boxes: Vec<(String, String, Value)> = Vec::new();
     let mut joins: Vec<(String, String)> = Vec::new();
+    // The place taller on the deck's own canvas, where the diagram needs it to be: its boxes two
+    // lines of words tall.
+    let mut h = rest[3];
+    let slots = snap.layout.as_deref().and_then(|l| theme.layouts.get(l)).map(|l| &l.slots);
+    let room = |holder: &mut Value, h: &mut f32, need: f32| {
+        if let Some((at, more)) = holder.get("at").and_then(|at| taller(at, slots, rows, need - *h)) {
+            holder["at"] = at;
+            *h += more;
+        }
+        *h
+    };
     match kind {
         Diagram::Process | Diagram::Cycle => {
             let steps = steps(&lines);
@@ -241,15 +258,23 @@ pub fn diagramming(
             if kind == Diagram::Process {
                 // Across where the text's place is wider than tall, each box as tall as four thirds
                 // of its width where the place has the room; down where it is taller.
-                let runs = |[_, _, w, h]: [f32; 4]| -> (&str, Value) {
-                    if w < h {
-                        return ("y", json!({}));
-                    }
+                let heights = |w: f32, h: f32| -> Value {
                     let wide = (w - (n - 1) as f32 * look.gap_length) / n as f32;
                     let tall = (100.0 * 0.75 * wide / h.max(1.0)).clamp(10.0, 100.0).round();
-                    ("x", json!({ "h": format!("{tall}%") }))
+                    json!({ "h": format!("{tall}%") })
                 };
-                let (axis, size) = runs(rest);
+                let runs = |[_, _, w, h]: [f32; 4]| -> (&str, Value) {
+                    if w < h { ("y", json!({})) } else { ("x", heights(w, h)) }
+                };
+                // On the deck's own canvas, it runs as the place stands, and the place grows on the
+                // grid where its boxes need the room: across, a box's share is of the place grown.
+                let (axis, size) = match runs(rest) {
+                    ("x", _) => ("x", heights(rest[2], room(&mut holder, &mut h, look.tall))),
+                    (down, size) => {
+                        room(&mut holder, &mut h, n as f32 * look.tall + (n - 1) as f32 * look.gap_length);
+                        (down, size)
+                    }
+                };
                 holder["axis"] = json!(axis);
                 holder["gap"] = json!(look.gap);
                 // In a format where the place is otherwise, it runs as that place does.
@@ -278,6 +303,7 @@ pub fn diagramming(
                 holder["cols"] = json!(RING);
                 holder["rows"] = json!(RING);
                 let (span, cells) = ring(n);
+                room(&mut holder, &mut h, look.tall * RING as f32 / span[1] as f32);
                 for ((box_id, words), [col, row]) in ids.iter().zip(steps).zip(cells) {
                     let at = json!({ "parent": id, "col": [col + 1, col + span[0]], "row": [row + 1, row + span[1]] });
                     boxes.push((box_id.clone(), words, json!({ "at": at })));
@@ -305,6 +331,9 @@ pub fn diagramming(
             }
             holder["cols"] = json!(wide);
             holder["rows"] = json!(levels);
+            let h = room(&mut holder, &mut h, levels as f32 * look.tall + (levels - 1) as f32 * look.gap_length);
+            // Its rows closer where its boxes would be shorter than two lines of their words.
+            look.closer(theme, (h - levels as f32 * look.tall) / (levels - 1).max(1) as f32);
             holder["gap"] = json!(look.gap);
             // One column's width, as a share of a box's columns with the gaps between them: on the
             // deck's own canvas, and in each format laid out anew.
@@ -332,6 +361,11 @@ pub fn diagramming(
         }
         if let Some(fill) = fill {
             shape["fill"] = json!(fill);
+        }
+        // A box below the top, filled near the slide's own color, outlined in the top's so it
+        // stands out from the slide.
+        if let (true, Some(outline)) = (lower, &look.outline) {
+            shape["stroke"] = outline.clone();
         }
         for (k, v) in own.as_object().into_iter().flatten().filter(|(k, _)| *k != "lower") {
             shape[k] = v.clone();
@@ -392,6 +426,10 @@ struct Look {
     role: String,
     /// The connectors' stroke: the `regular` width in `onSurfaceMuted`, where the theme has them.
     stroke: Option<Value>,
+    /// The outline of a hierarchy's boxes below its top: the `regular` width in the top's fill.
+    outline: Option<Value>,
+    /// The least a box is tall: two lines of its words, canvas units.
+    tall: f32,
 }
 
 impl Look {
@@ -417,8 +455,73 @@ impl Look {
             stroke.insert("paint".into(), json!("onSurfaceMuted"));
         }
         let stroke = (!stroke.is_empty()).then_some(Value::Object(stroke));
-        Look { fill, lower, radius, gap, gap_length, role, stroke }
+        let outline = (fill.as_ref().filter(|_| lower != fill)).map(|paint| {
+            let mut outline = json!({ "paint": paint });
+            if strokes.iter().any(|s| s == "regular") {
+                outline["width"] = json!("regular");
+            }
+            outline
+        });
+        let line = theme.typography.roles.get(&role).map_or(40.0, |r| (r.size * r.leading) as f32);
+        Look { fill, lower, radius, gap, gap_length, role, stroke, outline, tall: 2.0 * line }
     }
+
+    /// The gap the largest step of the theme's space scale, up to the one it is, that is no more
+    /// than `most` canvas units; `space.4` at the least, room for a connector to stand off the
+    /// boxes it joins.
+    fn closer(&mut self, theme: &Theme, most: f32) {
+        let scale = &theme.tokens.space.scale;
+        let now = scale.iter().position(|s| s.0 as f32 == self.gap_length).unwrap_or(scale.len().saturating_sub(1));
+        let least = now.min(4);
+        let fits = (least..=now).rev().find(|&i| scale[i].0 as f32 <= most).unwrap_or(least);
+        if let Some(step) = scale.get(fits).filter(|_| fits < now) {
+            self.gap = format!("space.{fits}");
+            self.gap_length = step.0 as f32;
+        }
+    }
+}
+
+/// Place `at` on the theme grid's `rows` (canvas units) by a 1-based row range, grown by whole rows
+/// until it is `more` canvas units taller, or as near as the grid goes: down first, then up. A slot
+/// of `slots`, the layout's, too short is left for its cells, grown so. The place, and how much
+/// taller it is. None where it is no taller: placed otherwise, in a container, or tall enough.
+fn taller(
+    at: &Value,
+    slots: Option<&indexmap::IndexMap<String, scaena_core::model::theme::Slot>>,
+    rows: &[[f32; 2]],
+    more: f32,
+) -> Option<(Value, f32)> {
+    if more <= 0.0 || at.get("parent").is_some() || at.get("rect").is_some() {
+        return None;
+    }
+    let at = match at.get("in").and_then(Value::as_str) {
+        Some(slot) => {
+            let slot = slots?.get(slot)?;
+            json!({ "col": serde_json::to_value(slot.col.as_ref()?).ok()?, "row": serde_json::to_value(slot.row.as_ref()?).ok()? })
+        }
+        None => at.clone(),
+    };
+    let at = &at;
+    let n = |v: &Value| v.as_u64().filter(|n| *n >= 1).map(|n| n as usize);
+    let (a, b) = match at.get("row")? {
+        Value::Array(ab) if ab.len() == 2 => (n(&ab[0])?, n(&ab[1])?),
+        one => (n(one)?, n(one)?),
+    };
+    if a > b || b > rows.len() {
+        return None;
+    }
+    let tall = |a: usize, b: usize| rows[b - 1][1] - rows[a - 1][0];
+    let (mut top, mut foot) = (a, b);
+    while tall(top, foot) - tall(a, b) < more && foot < rows.len() {
+        foot += 1;
+    }
+    while tall(top, foot) - tall(a, b) < more && top > 1 {
+        top -= 1;
+    }
+    let grown = tall(top, foot) - tall(a, b);
+    let mut at = at.clone();
+    at["row"] = json!([top, foot]);
+    (grown > 0.0).then_some((at, grown))
 }
 
 /// A hierarchy's boxes as they are placed: each on its level's row, over the columns of the boxes
@@ -601,7 +704,7 @@ mod tests {
         let stood = |node: &str| NodeBox { node: node.into(), rect: rest, parent: None, draws: true, transform: None };
         let boxes = [stood("subtitle"), stood("title"), stood("rev")];
         let laid = [Laid { format: None, boxes: &boxes }];
-        let draw = |kind| diagramming(&deck, &theme, &Examples, "intro", "subtitle", kind, &laid);
+        let draw = |kind| diagramming(&deck, &theme, &Examples, "intro", "subtitle", kind, &laid, &[]);
         let ops = |made: &Diagrammed, op: &str| -> Vec<Value> {
             made.patch.iter().filter(|o| o["op"] == op).cloned().collect()
         };
@@ -670,7 +773,7 @@ mod tests {
 
         // Refused: one line, a hierarchy of lines at one level, a cycle of two, what is no text.
         let refused = |node: &str, kind| {
-            diagramming(&deck, &theme, &Examples, "intro", node, kind, &laid).unwrap_err().to_string()
+            diagramming(&deck, &theme, &Examples, "intro", node, kind, &laid, &[]).unwrap_err().to_string()
         };
         assert!(refused("title", Diagram::Process).contains("two lines or more"));
         let mut flat = listed();
@@ -678,11 +781,12 @@ mod tests {
         flat["nodes"]["subtitle"].as_object_mut().unwrap().remove("list");
         flat["nodes"]["subtitle"]["text"] = json!("Plan\nBuild");
         let flat = Deck::from_value(&flat).unwrap();
-        let said =
-            |kind| diagramming(&flat, &theme, &Examples, "intro", "subtitle", kind, &laid).unwrap_err().to_string();
+        let said = |kind| {
+            diagramming(&flat, &theme, &Examples, "intro", "subtitle", kind, &laid, &[]).unwrap_err().to_string()
+        };
         assert!(said(Diagram::Hierarchy).contains("lines under others"));
         assert!(said(Diagram::Cycle).contains("three steps or more"));
-        let chart = diagramming(&deck, &theme, &Examples, "revenue", "rev", Diagram::Process, &laid).unwrap_err();
+        let chart = diagramming(&deck, &theme, &Examples, "revenue", "rev", Diagram::Process, &laid, &[]).unwrap_err();
         assert!(chart.to_string().contains("no text"), "{chart}");
     }
 

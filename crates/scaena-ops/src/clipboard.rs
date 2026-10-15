@@ -14,7 +14,7 @@
 //!   refused for it. A text keeps a role: one the theme lacks gives way to the role every
 //!   theme has that was nearest it in size where it was copied from.
 
-use crate::inspect::{copied_layouts, empty_slot, free_id, held_down, leaving};
+use crate::inspect::{copied_layouts, empty_slot, free_id, held_down, leaving, under};
 use crate::{Context, OpsError};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
@@ -298,10 +298,10 @@ pub struct Pasted {
 
 /// The patch that pastes `clip` in `state` (PLAN 2.37): each node it holds under an id new
 /// to `deck`, the copy of its node `room`'s, held by the copy of what held it, entering
-/// there; the copy of the node copied placed as Insert places a node, a text or an image
-/// filling the template's slot under `at` where no node of the state's stands in it and
-/// `theme`'s layout says it goes there (`Slot::takes`), and
-/// anything else taking the box it was copied with about `at`, snapped to the theme's grid as
+/// there; the copy of the node copied placed as Insert places a node, a text, an image, a chart,
+/// or a table filling the template's slot under `at` where no node of the state's stands in it
+/// and `theme`'s layout says it goes there (`Slot::takes`), under what the layout lays over it,
+/// and anything else taking the box it was copied with about `at`, snapped to the theme's grid as
 /// a drop snaps. Nodes copied together (PLAN 2.42) keep where they stood about each other,
 /// their boxes all about `at` and on the grid where they fit, each snapped to it. `room` is the
 /// engine's for the copy in `deck`, its cell the clip's share of the canvas. `files` is the
@@ -438,14 +438,24 @@ pub fn pasting(
     let targets = if roots.len() == 1 {
         // An icon goes in an empty place for one, as Insert puts it there (PLAN G.23).
         let slot = match serde_json::from_value(first["type"].clone()) {
-            Ok(content @ (NodeType::Text | NodeType::Image)) => empty_slot(deck, theme, room, state, at, content)?,
+            Ok(content @ (NodeType::Text | NodeType::Image | NodeType::Chart | NodeType::Table)) => {
+                empty_slot(deck, theme, room, state, at, content)?
+            }
             Ok(NodeType::Shape) if scaena_core::inserts::is_icon(|key| first.get(key)) => {
                 empty_slot(deck, theme, room, state, at, NodeType::Shape)?
             }
             _ => None,
         };
         let target = match slot {
-            Some(rect) => room.snap(Snap::Slot, rect),
+            Some((name, rect)) => {
+                // Under what the layout lays over the slot, as Insert puts it there.
+                if let Some(z) = under(deck, room, state, &name)?
+                    && let Some(props) = nodes.get_mut(&room.node)
+                {
+                    props.insert("z".into(), Value::from(z));
+                }
+                room.snap(Snap::Slot, rect)
+            }
             None => {
                 let [_, _, w, h] = room.cell;
                 room.snap(Snap::Move, [at[0] - w / 2.0, at[1] - h / 2.0, w, h])
