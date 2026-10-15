@@ -17,7 +17,8 @@ scaena-session = { workspace = true, features = ["generate", "shipped"] }
 # Narrato's requests and answers, the sources read, and the theme a deck is made in (PLAN G.6).
 scaena-narrato.workspace = true
 scaena-sources.workspace = true
-scaena-core.workspace = true
+# The syllable table compiled in (PLAN O.4a), so lint counts a haiku (I404).
+scaena-core = { workspace = true, features = ["syllables"] }
 # The CRDT a save records the history in, and the subsetter a save shrinks fonts with: what the
 # browser loads as modules of their own (scaena-history, scaena-subset), linked in here.
 scaena-store.workspace = true

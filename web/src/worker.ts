@@ -13,8 +13,8 @@
 // The CPU painter shares a shader's rows with helpers, each a worker started as this one was,
 // holding the engine's module and no deck (PLAN 2.28): a worker whose first message is `help`
 // is one.
-import { hyphenation } from "@scaena/hyphenation";
-import init, { Canvas, Player, engineModule, setHyphenation, shaderRows } from "@scaena/wasm";
+import { hyphenation, verse } from "@scaena/hyphenation";
+import init, { Canvas, Player, engineModule, setHyphenation, setVerse, shaderRows } from "@scaena/wasm";
 import { deleteKept, keptBundle, newBundle, readAll, remove, renameKept, write } from "./folders";
 import { finding } from "./words";
 import type {
@@ -704,6 +704,20 @@ function patterns(code: string): Uint8Array | undefined {
   return request.status === 200 ? new Uint8Array(request.response as ArrayBuffer) : undefined;
 }
 
+/** The syllable table (PLAN O.4a), which the editor's module leaves out: asked for the first
+ * time a line of verse counts, as lint judges a haiku (I404), so fetched at once. */
+function syllables(): string | undefined {
+  if (!verse) return undefined;
+  const request = new XMLHttpRequest();
+  request.open("GET", verse, false);
+  try {
+    request.send();
+  } catch {
+    return undefined;
+  }
+  return request.status === 200 ? request.responseText : undefined;
+}
+
 interface DeckFiles {
   meta?: { title?: string };
   theme: string;
@@ -716,6 +730,7 @@ interface DeckFiles {
 async function open(source: Source, painter: Painter, target: OffscreenCanvas, engine?: WebAssembly.Module) {
   await init(engine && { module_or_path: engine });
   setHyphenation(patterns);
+  setVerse(syllables);
   canvas = target;
   if (painter !== "cpu") {
     // Ask for an adapter before WebGPU takes the canvas: a canvas WebGPU holds takes no other
@@ -904,8 +919,9 @@ async function shipped(theme: string): Promise<{ file: string; text: string; fon
  * what it came to. The page opens it as it opens any bundle's files. */
 async function generating(job: Generate, engine?: WebAssembly.Module) {
   await init(engine && { module_or_path: engine });
-  // Lint lays the deck's texts out, which can hyphenate them.
+  // Lint lays the deck's texts out, which can hyphenate them, and counts a haiku.
   setHyphenation(patterns);
+  setVerse(syllables);
   const { generate } = await import("@scaena/generate");
   const theme = await shipped(job.theme);
   const { files, made, title } = await generate(job, theme, (event) => post({ type: "generating", event }));
