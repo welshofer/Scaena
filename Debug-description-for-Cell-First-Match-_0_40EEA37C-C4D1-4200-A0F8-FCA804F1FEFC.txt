@@ -1,0 +1,5 @@
+Query chain:
+ →Find: Target Application 'com.welshofer.Scaena'
+  ↪︎Find: Descendants matching type Cell
+    ↪︎Find: Elements matching predicate 'label BEGINSWITH "b1"'
+      ↪︎Find: First Match

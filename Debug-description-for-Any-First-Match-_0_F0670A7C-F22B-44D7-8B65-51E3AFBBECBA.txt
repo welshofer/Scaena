@@ -1,0 +1,5 @@
+Query chain:
+ →Find: Target Application 'com.welshofer.Scaena'
+  ↪︎Find: Descendants matching type Any
+    ↪︎Find: Elements matching predicate 'identifier == "state-cover"'
+      ↪︎Find: First Match
