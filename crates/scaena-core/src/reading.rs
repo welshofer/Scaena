@@ -631,18 +631,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_verse_reads_as_one_paragraph_its_lines_set_apart() {
-        let deck = Deck::from_json(
-            &json!({
-                "scaena": crate::FORMAT_VERSION,
-                "canvas": { "width": 1920, "height": 1080 },
-                "theme": "theme.json",
-                "nodes": {
-                    "poem": { "type": "text", "role": "verse", "text": "An old silent pond\nA frog jumps into the pond\nSplash! Silence again" },
-                    "set": { "type": "text", "role": "body", "wrap": "none", "text": "one & two\r\nthree" }
-                },
-                "states": [{ "id": "one", "layout": "title", "props": { "poem": {}, "set": {} } }]
     /// A fetched map (ADR-0030) reads as the map of its place, marked by its pin's label where it
     /// has no alt text, then its credit as a paragraph with its links; its alt text where it has one.
     #[test]
@@ -670,18 +658,6 @@ mod tests {
             .to_string(),
         )
         .expect("a deck");
-        assert!(read(NodeType::Text, json!({ "role": "verse" })).verse);
-        assert!(!read(NodeType::Text, json!({ "role": "quote" })).verse);
-        let snaps = crate::resolve_states(&deck).expect("snapshots");
-        let mut list = DisplayList::new([1920.0, 1080.0]);
-        list.ops = vec![layer(Some("poem"), None, vec![]), layer(Some("set"), None, vec![])];
-        assert_eq!(
-            html(&deck, &snaps[0], &list),
-            concat!(
-                r#"<p data-node="poem">An old silent pond<br>A frog jumps into the pond<br>Splash! Silence again</p>"#,
-                r#"<p data-node="set">one &amp; two<br>three</p>"#,
-            )
-        );
         let snaps = crate::resolve_states(&deck).expect("snapshots");
         let mut list = DisplayList::new([1920.0, 1080.0]);
         list.ops = vec![layer(Some("m"), None, vec![layer(None, Some(crate::fetched::CREDIT_CELL), vec![])])];
@@ -695,5 +671,35 @@ mod tests {
         let parts = parts(&deck, &snaps[0], &list);
         let said: Vec<(&str, &str)> = parts.iter().map(|p| (p.role, p.text.as_str())).collect();
         assert_eq!(said, [("figure", "Map of Ferry Building"), ("paragraph", "© OpenStreetMap · Geoapify")]);
+    }
+
+    #[test]
+    fn a_verse_reads_as_one_paragraph_its_lines_set_apart() {
+        let deck = Deck::from_json(
+            &json!({
+                "scaena": crate::FORMAT_VERSION,
+                "canvas": { "width": 1920, "height": 1080 },
+                "theme": "theme.json",
+                "nodes": {
+                    "poem": { "type": "text", "role": "verse", "text": "An old silent pond\nA frog jumps into the pond\nSplash! Silence again" },
+                    "set": { "type": "text", "role": "body", "wrap": "none", "text": "one & two\r\nthree" }
+                },
+                "states": [{ "id": "one", "layout": "title", "props": { "poem": {}, "set": {} } }]
+            })
+            .to_string(),
+        )
+        .expect("a deck");
+        assert!(read(NodeType::Text, json!({ "role": "verse" })).verse);
+        assert!(!read(NodeType::Text, json!({ "role": "quote" })).verse);
+        let snaps = crate::resolve_states(&deck).expect("snapshots");
+        let mut list = DisplayList::new([1920.0, 1080.0]);
+        list.ops = vec![layer(Some("poem"), None, vec![]), layer(Some("set"), None, vec![])];
+        assert_eq!(
+            html(&deck, &snaps[0], &list),
+            concat!(
+                r#"<p data-node="poem">An old silent pond<br>A frog jumps into the pond<br>Splash! Silence again</p>"#,
+                r#"<p data-node="set">one &amp; two<br>three</p>"#,
+            )
+        );
     }
 }

@@ -844,6 +844,8 @@ fn a_wrap_of_none_validates_and_an_unknown_wrap_is_e106() {
     assert_eq!(findings(&deck.to_string()), Vec::<String>::new());
     deck["nodes"][&id]["wrap"] = serde_json::json!("verse");
     assert_eq!(findings(&deck.to_string()), vec![format!("E106 /nodes/{id}/wrap")]);
+}
+
 /// A fetched picture (ADR-0030): its record, its pin, and where its credit goes round-trip through
 /// the model and the schema; a service this build does not know, an `at` that is no instant, and an
 /// empty credit where the service asks one are E106, and a pin's color the theme lacks is E102.
