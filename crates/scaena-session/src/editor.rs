@@ -713,15 +713,15 @@ mod tests {
         let before = s.pixels("revenue", f64::INFINITY, 160).unwrap();
         let listed = s.starters_painted("revenue", 90, None).unwrap();
         let layouts: Vec<&str> = listed.iter().map(|one| one["layout"].as_str().unwrap_or("blank")).collect();
-        assert_eq!(layouts.len(), 129, "Dusk's 128 layouts, then a blank slide: {layouts:?}");
-        assert_eq!((layouts[0], layouts[128]), ("title", "blank"));
+        assert_eq!(layouts.len(), 130, "Dusk's 129 layouts, then a blank slide: {layouts:?}");
+        assert_eq!((layouts[0], layouts[129]), ("title", "blank"));
         let bullets = &listed[layouts.iter().position(|l| *l == "bullets").unwrap()];
         assert_eq!(bullets["description"], "A headline, and the points that make its case.");
         assert_eq!((bullets["name"].as_str(), bullets["group"].as_str()), (Some("Bullets"), Some("Lists")));
         let swot = &listed[layouts.iter().position(|l| *l == "swot").unwrap()];
         assert_eq!(swot["name"], "SWOT", "named as a person calls it");
         assert!(
-            listed[128]["name"].is_null() && listed[128]["description"].is_null() && listed[128]["group"].is_null()
+            listed[129]["name"].is_null() && listed[129]["description"].is_null() && listed[129]["group"].is_null()
         );
         let mut pictures: Vec<scaena_paint::Raster> = Vec::new();
         for (i, one) in listed.iter().enumerate() {
