@@ -227,9 +227,104 @@ pub fn read(text: &str) -> Result<Option<Clip>, OpsError> {
     Ok(Some(clip))
 }
 
-/// A clip of `text` as a text in `theme`'s `body` role, which every theme has, in the box
-/// Insert gives it (PLAN 2.37): what text from anywhere else pastes as.
-pub fn of_text(deck: &Deck, theme: &Theme, text: &str) -> Result<Clip, OpsError> {
+/// What says words pasted are code, and in which language (PLAN 2.133, ADR-0029): what a
+/// clipboard or a drop hands over beside them. All of it is optional.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Hints {
+    /// Paste them as words whatever they look like: Paste as Text.
+    #[serde(default)]
+    pub plain: bool,
+    /// The HTML copied with them, whose element's class may name their language
+    /// (`language-rust`, `lang-py`, `hljs python`).
+    #[serde(default)]
+    pub html: Option<String>,
+    /// VS Code's `vscode-editor-data`, a JSON object whose `mode` names their language.
+    #[serde(default)]
+    pub vscode: Option<String>,
+    /// Chromium's custom data, in base64, as a Mac's pasteboard holds it
+    /// (`org.chromium.web-custom-data`): VS Code's `vscode-editor-data` is in it.
+    #[serde(default)]
+    pub chromium: Option<String>,
+    /// The name of the file they came from, which may name their language by its extension or
+    /// whole (`Dockerfile`).
+    #[serde(default)]
+    pub file: Option<String>,
+}
+
+impl Hints {
+    /// The language they name, if any, and what else to read for one: the class the HTML's first
+    /// element names one by, VS Code's mode, and the file's name.
+    fn read(&self) -> (Option<String>, Option<String>) {
+        let class = self.html.as_deref().and_then(class_named);
+        let chromium = self.chromium.as_deref().and_then(|b| STANDARD.decode(b).ok()).and_then(|b| custom_data(&b));
+        let vscode = self.vscode.as_deref().or(chromium.as_deref());
+        let mode = vscode.and_then(scaena_core::code::vscode_mode).map(str::to_string);
+        (class, mode)
+    }
+}
+
+/// The class of the first element of `html` that names a language, as highlighters write it on a
+/// `<pre>` or a `<code>`: `language-rust`, `lang-py`, `highlight-source-js`, or `hljs python`.
+fn class_named(html: &str) -> Option<String> {
+    // A clipboard's HTML is a fragment: what names the language stands near its start.
+    let head = &html[..html.len().min(4096)];
+    let head = &head[..(0..=head.len()).rev().find(|&i| head.is_char_boundary(i)).unwrap_or(0)];
+    head.match_indices("class=").find_map(|(at, _)| {
+        let rest = &head[at + 6..];
+        let quote = rest.chars().next().filter(|q| matches!(q, '"' | '\''))?;
+        let value = &rest[1..rest[1..].find(quote)? + 1];
+        value.split_ascii_whitespace().find_map(|class| {
+            let name = (["language-", "lang-", "highlight-source-", "source-"].iter())
+                .find_map(|p| class.strip_prefix(p))
+                .or_else(|| value.split_ascii_whitespace().any(|c| c == "hljs").then_some(class).filter(|c| *c != "hljs"))?;
+            scaena_core::code::language(name).map(|l| l.name.to_string())
+        })
+    })
+}
+
+/// VS Code's `vscode-editor-data` from Chromium's custom data, as a Mac's pasteboard holds it: a
+/// pickle of a count and then that many pairs of a type and its data, each a length in UTF-16
+/// units and the units, padded to four bytes. None where it holds none, or is not one.
+fn custom_data(bytes: &[u8]) -> Option<String> {
+    let u32_at = |at: usize| Some(u32::from_le_bytes(bytes.get(at..at + 4)?.try_into().ok()?) as usize);
+    // The pickle's header: the payload's size, then the payload.
+    let mut at = 4;
+    let string = |at: &mut usize| -> Option<String> {
+        let units = u32_at(*at)?;
+        let len = units.checked_mul(2)?;
+        let body = bytes.get(*at + 4..(*at + 4).checked_add(len)?)?;
+        *at += 4 + len.div_ceil(4) * 4;
+        let units: Vec<u16> = body.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+        String::from_utf16(&units).ok()
+    };
+    let count = u32_at(at)?;
+    at += 4;
+    for _ in 0..count.min(64) {
+        let kind = string(&mut at)?;
+        let data = string(&mut at)?;
+        if kind == "vscode-editor-data" {
+            return Some(data);
+        }
+    }
+    None
+}
+
+/// A clip of `text` as Insert would give it (PLAN 2.37): what text from anywhere else pastes as.
+/// Code, by what `hints` say or by how it reads (`code::detect`, PLAN 2.133), is a code text in its
+/// language, tidied ([`of_code`]); anything else, or anything with `hints.plain`, a text in
+/// `theme`'s `body` role, which every theme has, in the box Insert gives it.
+pub fn of_text(deck: &Deck, theme: &Theme, text: &str, hints: &Hints) -> Result<Clip, OpsError> {
+    if !hints.plain {
+        use scaena_core::code::{Detected, detect};
+        let (class, mode) = hints.read();
+        let said = scaena_core::code::Hints { file: hints.file.as_deref(), class: class.as_deref(), mode: mode.as_deref(), ..Default::default() };
+        if let Detected::Named(language) | Detected::Likely(language) = detect(text, &said) {
+            if theme.code_role().is_some() {
+                return of_code(deck, theme, text, language.name);
+            }
+        }
+    }
     let text = text.trim_end_matches(['\n', '\r']);
     if text.trim().is_empty() {
         return Err(OpsError::new("the clipboard holds nothing to paste"));
@@ -243,19 +338,46 @@ pub fn of_text(deck: &Deck, theme: &Theme, text: &str) -> Result<Clip, OpsError>
     };
     let mut node = body.node;
     node["text"] = Value::String(text.to_string());
-    Ok(Clip {
+    Ok(clip_of(body.id, node, [w, h]))
+}
+
+/// A clip of `text`, code in `language`, tidied (`code::tidy`) and set in `theme`'s code role, in
+/// a box sized to its lines at the role's size as far as the canvas lets it (PLAN 2.133): what
+/// code pasted from elsewhere pastes as. Refused where the theme keeps no role for code.
+pub fn of_code(deck: &Deck, theme: &Theme, text: &str, language: &str) -> Result<Clip, OpsError> {
+    let role = theme.code_role().ok_or_else(|| OpsError::new("the theme keeps no role for code"))?;
+    let look = (theme.typography.roles.get(role)).ok_or_else(|| OpsError::new(format!("the theme has no `{role}` role")))?;
+    let lang = scaena_core::code::lang(language);
+    let tab = theme.code.as_ref().and_then(|c| c.tab).map_or(4, usize::from);
+    let tidied = scaena_core::code::tidy(text, lang, tab).text;
+    if tidied.trim().is_empty() {
+        return Err(OpsError::new("the clipboard holds nothing to paste"));
+    }
+    let [cw, ch] = [deck.canvas.width, deck.canvas.height];
+    let lines = tidied.lines().count().max(1) as f64;
+    let longest = tidied.lines().map(|l| l.chars().count()).max().unwrap_or(1).max(1) as f64;
+    // A monospaced face's advance is about six tenths of its size; the box is a little wider.
+    let w = ((longest * 0.6 + 2.0) * look.size / cw).clamp(0.25, 0.9);
+    let h = (lines * look.size * look.leading / ch).clamp(1.0 / 12.0, 0.85);
+    let node = json!({ "type": "text", "role": role, "code": { "language": language }, "text": tidied });
+    Ok(clip_of(role.to_string(), node, [w as f32, h as f32]))
+}
+
+/// A clip of one node, `node`, under `id`, in a box `share` of the canvas.
+fn clip_of(id: String, node: Value, [w, h]: [f32; 2]) -> Clip {
+    Clip {
         kind: KIND.into(),
         version: 1,
         theme: None,
-        node: body.id.clone(),
+        node: id.clone(),
         share: [0.0, 0.0, w, h],
         more: Vec::new(),
-        nodes: IndexMap::from([(body.id, node)]),
+        nodes: IndexMap::from([(id, node)]),
         overrides: IndexMap::new(),
         roles: IndexMap::new(),
         data: IndexMap::new(),
         files: IndexMap::new(),
-    })
+    }
 }
 
 /// `clip` is a clip, of a version this Scaena reads.

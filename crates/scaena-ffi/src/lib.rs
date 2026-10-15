@@ -1695,10 +1695,17 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         }
         "pasting" => {
             let text = arg("text")?;
-            // A clip pastes what it holds; other text, a text in the theme's body role.
+            // A clip pastes what it holds; other text, code where `hints` or how it reads say so
+            // (PLAN 2.133), else a text in the theme's body role.
             let clip = match scaena_ops::clipboard::read(text).map_err(said)? {
                 Some(clip) => clip,
-                None => scaena_ops::clipboard::of_text(s.deck(), s.theme(), text).map_err(said)?,
+                None => {
+                    let hints: scaena_ops::clipboard::Hints = match args.get("hints") {
+                        Some(h) => serde_json::from_value(h.clone()).map_err(said)?,
+                        None => Default::default(),
+                    };
+                    scaena_ops::clipboard::of_text(s.deck(), s.theme(), text, &hints).map_err(said)?
+                }
             };
             let at = [number("x")? as f32, number("y")? as f32];
             value(serde_json::to_value(s.pasting(&clip, arg("state")?, at).map_err(said)?))?
