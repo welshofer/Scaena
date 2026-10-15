@@ -24,6 +24,8 @@ use serde_json::{Map, Value, json};
 /// The tools a page's assistant has, by their MCP names. `icon_find` reads the icons that ship
 /// (PLAN 2.104): the session answers it where its library carries them (`shipped`, the Mac's),
 /// and the browser's page from the set it carries beside its pages, which its module lacks.
+/// `map_fetch` fetches a map (ADR-0030): the client makes its requests, which the session cannot,
+/// and puts it on the slide by [`crate::Session::mapping`] (PLAN O.1c, O.1d).
 pub const TOOLS: &[&str] = &[
     "deck_read",
     "deck_patch",
@@ -38,6 +40,7 @@ pub const TOOLS: &[&str] = &[
     "data_edit",
     "theme_edit",
     "icon_find",
+    "map_fetch",
 ];
 
 /// Who calls a tool, and when, in seconds since 1970: an edit it makes is theirs in the
@@ -438,6 +441,8 @@ impl Session {
             }
             #[cfg(not(feature = "shipped"))]
             "icon_find" => Err(ops("icon_find: the icons are the page's, which finds them")),
+            // A map's requests are the client's, which runs the call as Insert › Map… does.
+            "map_fetch" => Err(ops("map_fetch: the client fetches the map, as Insert › Map… does")),
             "theme_edit" => {
                 let a: ThemeEdit = args(name, a)?;
                 let edit = scaena_ops::theme::ThemeEdit { ops: a.ops, photo: a.photo };

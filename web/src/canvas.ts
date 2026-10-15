@@ -72,7 +72,7 @@ import { listen } from "./life";
 import { marks } from "./marks";
 import { fitting } from "./pictures";
 import { BUNDLE_PATH, CLIP, DATA, PICTURE } from "./protocol";
-import type { Added, Arrange, Cells, DataMark, Diagram, Edited, Finding, Framing, Grid, Insert, LayoutSlots, Lexicon, Look, Map6, NodeBox, NoteMark, Outline, Rect, SlotBox, SnapMode, Snapped, Targets, Waiting } from "./protocol";
+import type { Added, Arrange, Cells, DataMark, Diagram, Edited, FetchedMap, Finding, Framing, Grid, Insert, LayoutSlots, Lexicon, Look, Map6, MapTarget, NodeBox, NoteMark, Outline, Rect, SlotBox, SnapMode, Snapped, Targets, Waiting } from "./protocol";
 import { pointer } from "./theme-panel";
 import * as notes from "./notes";
 import { annotate, askWords, markName, noteName } from "./notes";
@@ -3032,7 +3032,68 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       }
     });
   }
-  listen(overlay, "dragover", (e) => {
+  /** Where a map goes on the slide shown (ADR-0030, PLAN O.1c), found as a picture's place is: the
+   * image selected, unless a lock holds it, which shows the map in place of what it showed; else
+   * the first empty place for a picture on the slide; else where the pointer last pressed, in a
+   * box a third of the canvas wide, as wide as a map is drawn, 16 by 9. */
+  async function mapTarget(): Promise<MapTarget | undefined> {
+    const shown = editor.shown();
+    if (!shown) return undefined;
+    const place = await pictureTarget();
+    if (!place) return undefined;
+    const [x, y] = place.at;
+    const rect: [number, number, number, number] =
+      place.node !== undefined || place.slot !== undefined
+        ? [x - place.width / 2, y - place.height / 2, place.width, place.height]
+        : [Math.round(x - size[0] / 6), Math.round(y - (size[0] / 3) * (9 / 32)), Math.round(size[0] / 3), Math.round((size[0] / 3) * (9 / 16))];
+    return stage.mapTarget(editor.source(), shown.state, { node: place.node, slot: place.slot, rect });
+  }
+
+  /** A map fetched (PLAN O.1c) put where `target` says: its picture joins the bundle, named by its
+   * content, and the image shows it with its record and its pin, or a new image does, entering in
+   * the state shown and kept to its slide. One patch, one step to undo. */
+  function putMap(target: MapTarget, map: FetchedMap, label: string | undefined) {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      if (!shown) return editor.say(WAITING);
+      try {
+        const mapped = await stage.mapping(editor.source(), target, map, label);
+        await change(mapped.ops, "Placing the map…", `${mapped.said} · ${MOD}Z undoes it`, mapped.node);
+      } catch (e) {
+        editor.say(`Not placed: ${said(e)}`);
+      }
+    });
+  }
+
+  /** The map image `node` shows, fetched again (PLAN O.1c): as it was asked (`again`), a zoom step
+   * nearer (`in`) or further (`out`), or centered on the place its pin marks (`pin`); the new
+   * picture shown in its place, one patch, one step to undo, the old one kept in the bundle until
+   * Files takes it out. */
+  function refreshMap(node: string, key: string, how: "in" | "out" | "pin" | "again") {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      if (!shown) return editor.say(WAITING);
+      if (navigator.onLine === false) return editor.say("Not fetched: this browser is offline, and the map is as it was");
+      try {
+        editor.say("Fetching the map again…");
+        const again = await stage.mapRefreshing(editor.source(), shown.state, node);
+        const zoom = Math.min(20, Math.max(1, again.zoom + (how === "in" ? 1 : how === "out" ? -1 : 0)));
+        const center = how === "pin" ? { lat: again.place.lat, lon: again.place.lon } : again.center;
+        const [, , w, h] = again.target.rect;
+        const got = await stage.fetchMap(
+          { place: again.asked, known: again.place, center, zoom, style: again.style, size: [w, h], lang: again.target.lang },
+          key,
+        );
+        if (!got.map) throw new Error("no map came back");
+        const mapped = await stage.mapping(editor.source(), again.target, got.map, again.label ?? "");
+        const did = how === "in" ? "a step nearer" : how === "out" ? "a step further" : how === "pin" ? "centered on its pin" : "again";
+        await change(mapped.ops, "Placing the map…", `Map of ${mapped.place} fetched ${did} · ${MOD}Z undoes it`, node);
+      } catch (e) {
+        editor.say(`Not fetched: ${said(e)}`);
+      }
+    });
+  }
+  listen(overlay, "dragover", (e) => {  listen(overlay, "dragover", (e) => {
     const types = e.dataTransfer?.types ?? [];
     if (types.includes("Files") || types.includes(BUNDLE_PATH)) e.preventDefault();
   });
@@ -4173,6 +4234,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     waiting: () => waits,
     /** Where a picture made for the slide shown goes, and the place it is framed for (PLAN 2.107). */
     pictureTarget,
+    mapTarget,
+    putMap,
+    refreshMap,
     /** A picture made put where it was asked for: one patch, one step to undo (PLAN 2.107). */
     putPicture,
     /** A slide made here: its layout's empty slots are outlined once it shows. */

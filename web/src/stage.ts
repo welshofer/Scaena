@@ -77,6 +77,12 @@ import type {
   WritingCall,
   Written,
   PictureJob,
+  MapAsk,
+  MapPlace,
+  MapRefresh,
+  MapTarget,
+  Mapped,
+  FetchedMap,
 } from "./protocol";
 import type { Icon } from "./icon-set";
 
@@ -137,6 +143,10 @@ type Reply = Extract<
       | "bundleFiles"
       | "health"
       | "pictureMade"
+      | "mapTargeted"
+      | "mapFetched"
+      | "mapped"
+      | "mapRefresh"
       | "removed"
       | "versions"
       | "version"
@@ -516,6 +526,30 @@ export class Stage {
   /** A picture made by the user's image model in the deck's theme (PLAN 2.107), by the
    * generator's module, which the worker loads the first time: its bytes, its file's kind, what
    * it shows, and the model that made it. */
+  /** Where a map goes in `state` (ADR-0030, PLAN O.1c), as the canvas found the place. */
+  mapTarget(source: string, state: string, place: { node?: string; slot?: string; rect: [number, number, number, number] }): Promise<MapTarget> {
+    return this.request<"mapTargeted">({ type: "mapTarget", id: ++this.asked, source, state, ...place }).then(({ target }) => target);
+  }
+
+  /** A map fetched from Geoapify with `key` by the generator's plan, each GET made by `fetch`: the
+   * places a name matched, to pick one of, or the map. */
+  fetchMap(ask: MapAsk, key: string): Promise<{ places?: MapPlace[]; map?: FetchedMap }> {
+    return this.request<"mapFetched">({ type: "fetchMap", id: ++this.asked, ask, key }).then(({ places, map }) => ({ places, map }));
+  }
+
+  /** A map fetched put where `target` says: its picture joins the bundle, and the ops are the
+   * editor's to make one patch of. */
+  mapping(source: string, target: MapTarget, map: FetchedMap, label?: string): Promise<Mapped> {
+    return this.request<"mapped">({ type: "mapping", id: ++this.asked, source, target, fetched: map.fetched, pin: map.pin, label, png: map.png }).then(
+      ({ mapped }) => mapped,
+    );
+  }
+
+  /** What fetching image `node`'s map again in `state` asks for: at `zoom`, or about `center`. */
+  mapRefreshing(source: string, state: string, node: string, zoom?: number, center?: { lat: number; lon: number }): Promise<MapRefresh> {
+    return this.request<"mapRefresh">({ type: "mapRefreshing", id: ++this.asked, source, state, node, zoom, center }).then(({ refresh }) => refresh);
+  }
+
   makePicture(picture: PictureJob): Promise<{ bytes: ArrayBuffer; ext: string; alt: string; model: string }> {
     return this.request<"pictureMade">({ type: "makePicture", id: ++this.asked, picture }).then(({ bytes, ext, alt, model }) => ({
       bytes,
@@ -1088,6 +1122,10 @@ export class Stage {
       case "bundleFiles":
       case "health":
       case "pictureMade":
+      case "mapTargeted":
+      case "mapFetched":
+      case "mapped":
+      case "mapRefresh":
       case "removed":
       case "versions":
       case "version":

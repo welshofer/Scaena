@@ -34,6 +34,10 @@ pub const LABELS: &[(&str, &str)] = &[
     ("adjust/contrast", "Contrast"),
     ("adjust/saturation", "Saturation"),
     ("adjust/warmth", "Warmth"),
+    // A fetched map's pin and credit (ADR-0030).
+    ("pin/label", "Label"),
+    ("pin/color", "Pin"),
+    ("credit", "Credit"),
     ("wrap", "Line Breaks"),
     ("maxLines", "Most Lines"),
     ("opacity", "Opacity"),
@@ -95,6 +99,8 @@ pub fn label(prop: &str) -> String {
 /// `cover` is its Fill. A word any property takes is in [`ANY_WORDS`].
 pub const WORDS: &[(&str, &str, &str)] = &[
     ("fit", "cover", "Fill"),
+    ("credit", "inside", "On the Map"),
+    ("credit", "below", "Below the Map"),
     ("mask", "ellipse", "Oval"),
     ("fit", "contain", "Fit"),
     ("fit", "fill", "Stretch"),
