@@ -387,7 +387,8 @@ fn inspect_says_what_a_state_offers() {
     let field = |prop: &str| c["fields"].as_array().unwrap().iter().find(|f| f["prop"] == prop).unwrap().clone();
     let layout = field("layout");
     assert_eq!(layout["takes"]["of"], "layout");
-    let names = ["metric-trend", "figure", "narrow-figure", "bar-chart", "line-chart", "table", "full"];
+    let names =
+        ["metric-trend", "figure", "narrow-figure", "bar-chart", "line-chart", "table", "positioning-map", "full"];
     assert_eq!(layout["takes"]["names"], serde_json::json!(names), "{layout:#}");
     assert_eq!(
         (layout["value"].as_str(), &layout["lives"]),
@@ -405,7 +406,7 @@ fn inspect_says_what_a_state_offers() {
     let out = scaena(&["inspect", EXAMPLE, "--state", "mix", "--state-choices"]);
     let text = String::from_utf8(out.stdout).unwrap();
     assert!(text.contains("choices for state mix:"), "{text}");
-    let line = "layout               figure, set in revenue · metric-trend, figure, narrow-figure, bar-chart, line-chart, table, full";
+    let line = "layout               figure, set in revenue · metric-trend, figure, narrow-figure, bar-chart, line-chart, table, positioning-map, full";
     assert!(text.contains(line), "{text}");
     assert!(text.contains("transition/ease      not set · standard, in, out, linear"), "{text}");
 }

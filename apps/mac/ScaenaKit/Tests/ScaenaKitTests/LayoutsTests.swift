@@ -32,13 +32,15 @@ import Testing
 @Test @MainActor func theLayoutsAreListedThenDrawnAFewAtATimeAndKept() throws {
     let session = try ScaenaSession(files: example("revenue"))
     let listed = try session.starters()
-    #expect(listed.count == 129 && listed.last?.layout == nil, "Dusk's 128, then a blank slide")
+    #expect(listed.count == 145 && listed.last?.layout == nil, "Dusk's 144, then a blank slide")
     #expect(listed.allSatisfy { $0.width == 0 && $0.height == 0 }, "listed, none drawn")
     let swot = listed.first { $0.layout == "swot" }
     #expect(swot?.name == "SWOT" && swot?.group == "Frameworks")
     #expect(swot?.matches("strengths threats") == true && swot?.matches("receipt") == false)
+    // Found by another name people call it (ADR-0031): Kanban opens Roadmap, and Roadmap alone.
+    #expect(listed.filter { $0.matches("kanban") }.map(\.layout) == ["roadmap"])
     let sections = listed.compactMap(\.group).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
-    #expect(sections.count == 13 && sections.first == "Titles" && sections.last == "Closing")
+    #expect(sections.count == 16 && sections.first == "Titles" && sections.last == "Closing")
 
     // Those asked for, in the order asked, a name the theme lacks passed over.
     let some = try session.startersDrawn(after: "revenue", height: 90, only: ["swot", "nowhere", nil])

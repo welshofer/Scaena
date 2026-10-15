@@ -174,7 +174,7 @@ mod tests {
         let shipped: Value = serde_json::from_str(DUSK).unwrap();
         let layouts = shipped["layouts"].as_object().unwrap().len();
         assert_eq!(s.starters().len(), layouts + 1, "every layout Dusk ships, and a blank slide");
-        assert_eq!(sections(&s).len(), 13, "{:?}", sections(&s));
+        assert_eq!(sections(&s).len(), 16, "{:?}", sections(&s));
         let after: Vec<Vec<u8>> = states.iter().map(|state| s.png(state, 320).unwrap()).collect();
         assert!(before == after, "every slide draws as it did");
         assert!(s.library(DUSK, user()).unwrap().is_none(), "taken once, it brings nothing more");
