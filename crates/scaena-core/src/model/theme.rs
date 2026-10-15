@@ -39,6 +39,10 @@ pub struct Theme {
     pub charts: Option<Charts>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tables: Option<Tables>,
+    /// How code is set and colored (theme format 0.18, ADR-0029): the role a code text is set in,
+    /// its tab stops, and each kind of token's look.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<CodeLook>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub density: Option<Density>,
     /// A slide's number and footer: where each stands and in what type, and the layouts a slide
@@ -65,6 +69,16 @@ impl Theme {
     /// says what is wrong without a place in that text, which no file holds.
     pub fn from_value(value: &serde_json::Value) -> Result<Theme, String> {
         Theme::from_json(&value.to_string()).map_err(crate::document::unplaced)
+    }
+
+    /// The text role the theme keeps for code (ADR-0029): its `code.role`, else its `code` role,
+    /// if it has one. A code text that names no role is set in it, else in `body`; and a deck's
+    /// script stays out of its family's fallbacks, so code keeps its columns (ADR-0027).
+    pub fn code_role(&self) -> Option<&str> {
+        match self.code.as_ref().and_then(|c| c.role.as_deref()) {
+            Some(role) => Some(role),
+            None => self.typography.roles.contains_key("code").then_some("code"),
+        }
     }
 
     /// The names this theme defines of one kind, in its order: what a deck may call them.
@@ -863,6 +877,110 @@ pub struct TableText {
     pub role: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
+}
+
+/// How code is set and colored (SPEC §3.6, ADR-0029; theme format 0.18). A kind of token the
+/// theme names no color for takes one derived from its accent, and every color code is drawn in
+/// is held, where it is drawn, to read on its ground.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CodeLook {
+    /// The text role a code text is set in where it names none: the theme's `code` role when
+    /// unset, else `body`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    /// The columns between tab stops; 4 when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 1, max = 16))]
+    pub tab: Option<u8>,
+    /// Each kind of token's look, by the kind's name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub syntax: Option<Syntax>,
+}
+
+/// Each kind of token's look in code (ADR-0029), by the kind's name: the 16 kinds the scanners
+/// read. A kind left out is derived.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Syntax {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keyword: Option<SyntaxLook>,
+    #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
+    pub type_: Option<SyntaxLook>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub function: Option<SyntaxLook>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub string: Option<SyntaxLook>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub number: Option<SyntaxLook>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub constant: Option<SyntaxLook>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comment: Option<SyntaxLook>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operator: Option<SyntaxLook>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub punctuation: Option<SyntaxLook>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub property: Option<SyntaxLook>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attribute: Option<SyntaxLook>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tag: Option<SyntaxLook>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variable: Option<SyntaxLook>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub meta: Option<SyntaxLook>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inserted: Option<SyntaxLook>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deleted: Option<SyntaxLook>,
+}
+
+impl Syntax {
+    /// The look the theme gives `class`, if it gives one: none for plain text, which is set in the
+    /// text's own look.
+    pub fn of(&self, class: crate::code::Class) -> Option<&SyntaxLook> {
+        use crate::code::Class;
+        match class {
+            Class::Plain => None,
+            Class::Keyword => self.keyword.as_ref(),
+            Class::Type => self.type_.as_ref(),
+            Class::Function => self.function.as_ref(),
+            Class::String => self.string.as_ref(),
+            Class::Number => self.number.as_ref(),
+            Class::Constant => self.constant.as_ref(),
+            Class::Comment => self.comment.as_ref(),
+            Class::Operator => self.operator.as_ref(),
+            Class::Punctuation => self.punctuation.as_ref(),
+            Class::Property => self.property.as_ref(),
+            Class::Attribute => self.attribute.as_ref(),
+            Class::Tag => self.tag.as_ref(),
+            Class::Variable => self.variable.as_ref(),
+            Class::Meta => self.meta.as_ref(),
+            Class::Inserted => self.inserted.as_ref(),
+            Class::Deleted => self.deleted.as_ref(),
+        }
+    }
+}
+
+/// A kind of token's look in code: its color, weight, and italic, each the derived one where
+/// unset.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SyntaxLook {
+    /// A color token or role, or a literal, which a theme may hold: drawn a step lighter or darker
+    /// where its ground needs it to read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    /// Its weight: else the text's, and 600 at least for a keyword.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 1, max = 1000))]
+    pub weight: Option<u16>,
+    /// Whether it is set in its family's italic face, where the family has one: else as the text
+    /// is, and in italic for a comment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub italic: Option<bool>,
 }
 
 /// A chart rule: the axis or the gridlines.

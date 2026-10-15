@@ -29,6 +29,7 @@ use super::scan::{
     Spans, blanks_end, ends_with, holds, is_break, is_space, is_word, is_word_start, line_end, line_next, number_end,
     space_end, word_end,
 };
+use super::tables::{Table, words};
 use super::{Class, MAX_NESTING};
 
 /// How far a type in brackets is looked through for its `]`.
@@ -535,7 +536,7 @@ impl<'t, 'o> Scanner<'t, 'o> {
         } else if command && self.members.is_some() && self.members == self.depth() {
             // An enum's member: `Red`, `Green = 2`.
             Class::Constant
-        } else if !self.args && holds(KEYWORDS, word) {
+        } else if !self.args && holds(&KEYWORDS, word) {
             self.keyword(word);
             Class::Keyword
         } else if let Some(class) = pending {
@@ -731,104 +732,116 @@ fn cmdlet(word: &str) -> bool {
 /// Whether `-` and `word` are an operator, in any case: `-eq`, and `-ceq` and `-ieq`, which
 /// compare with case or without.
 fn operator(word: &str) -> bool {
-    holds(OPERATORS, word)
+    holds(&OPERATORS, word)
         || (word.len() > 2
             && matches!(word.as_bytes()[0], b'c' | b'i' | b'C' | b'I')
-            && holds(CASED, word.get(1..).unwrap_or_default()))
+            && holds(&CASED, word.get(1..).unwrap_or_default()))
 }
 
 // The tables, each sorted and in lowercase, so a word is found by binary search in any case
 // (`every_table_is_sorted`).
 
-const KEYWORDS: &[&str] = &[
-    "begin",
-    "break",
-    "catch",
-    "class",
-    "clean",
-    "continue",
-    "data",
-    "default",
-    "do",
-    "dynamicparam",
-    "else",
-    "elseif",
-    "end",
-    "enum",
-    "exit",
-    "filter",
-    "finally",
-    "for",
-    "foreach",
-    "function",
-    "hidden",
-    "if",
-    "in",
-    "param",
-    "process",
-    "return",
-    "static",
-    "switch",
-    "throw",
-    "trap",
-    "try",
-    "until",
-    "using",
-    "while",
-];
+const KEYWORDS: Table = words!(
+    "powershell/keywords",
+    [
+        "begin",
+        "break",
+        "catch",
+        "class",
+        "clean",
+        "continue",
+        "data",
+        "default",
+        "do",
+        "dynamicparam",
+        "else",
+        "elseif",
+        "end",
+        "enum",
+        "exit",
+        "filter",
+        "finally",
+        "for",
+        "foreach",
+        "function",
+        "hidden",
+        "if",
+        "in",
+        "param",
+        "process",
+        "return",
+        "static",
+        "switch",
+        "throw",
+        "trap",
+        "try",
+        "until",
+        "using",
+        "while",
+    ]
+);
 /// The operators after a `-`.
-const OPERATORS: &[&str] = &[
-    "and",
-    "as",
-    "band",
-    "bnot",
-    "bor",
-    "bxor",
-    "contains",
-    "eq",
-    "f",
-    "ge",
-    "gt",
-    "in",
-    "is",
-    "isnot",
-    "join",
-    "le",
-    "like",
-    "lt",
-    "match",
-    "ne",
-    "not",
-    "notcontains",
-    "notin",
-    "notlike",
-    "notmatch",
-    "or",
-    "replace",
-    "shl",
-    "shr",
-    "split",
-    "xor",
-];
+const OPERATORS: Table = words!(
+    "powershell/operators",
+    [
+        "and",
+        "as",
+        "band",
+        "bnot",
+        "bor",
+        "bxor",
+        "contains",
+        "eq",
+        "f",
+        "ge",
+        "gt",
+        "in",
+        "is",
+        "isnot",
+        "join",
+        "le",
+        "like",
+        "lt",
+        "match",
+        "ne",
+        "not",
+        "notcontains",
+        "notin",
+        "notlike",
+        "notmatch",
+        "or",
+        "replace",
+        "shl",
+        "shr",
+        "split",
+        "xor",
+    ]
+);
 /// The operators that compare with case or without after a `c` or an `i`: `-ceq`, `-ilike`.
-const CASED: &[&str] = &[
-    "contains",
-    "eq",
-    "ge",
-    "gt",
-    "in",
-    "le",
-    "like",
-    "lt",
-    "match",
-    "ne",
-    "notcontains",
-    "notin",
-    "notlike",
-    "notmatch",
-    "replace",
-    "split",
-];
+const CASED: Table = words!(
+    "powershell/cased",
+    [
+        "contains",
+        "eq",
+        "ge",
+        "gt",
+        "in",
+        "le",
+        "like",
+        "lt",
+        "match",
+        "ne",
+        "notcontains",
+        "notin",
+        "notlike",
+        "notmatch",
+        "replace",
+        "split",
+    ]
+);
+
+/// Every table this scanner reads, in the order its file lists them (`tables::written`).
+pub(super) const WORDS: &[Table] = &[KEYWORDS, OPERATORS, CASED];
 
 #[cfg(test)]
 mod tests {
@@ -842,6 +855,6 @@ mod tests {
             assert!(table.windows(2).all(|w| w[0] < w[1]), "not sorted: {table:?}");
             assert!(table.iter().all(|w| w.bytes().all(|c| c.is_ascii_lowercase())), "{table:?}");
         }
-        assert!(holds(KEYWORDS, "ForEach") && holds(OPERATORS, "EQ") && operator("CLike") && !operator("Path"));
+        assert!(holds(&KEYWORDS, "ForEach") && holds(&OPERATORS, "EQ") && operator("CLike") && !operator("Path"));
     }
 }

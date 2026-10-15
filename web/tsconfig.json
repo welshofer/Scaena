@@ -20,7 +20,8 @@
       "@scaena/generate": ["./src/generate.ts"],
       "@scaena/assistant": ["./src/assistant/index.ts"],
       "@scaena/themes": ["./src/themes.ts"],
-      "@scaena/hyphenation": ["./src/hyphenation.ts"]
+      "@scaena/hyphenation": ["./src/hyphenation.ts"],
+      "@scaena/code-tables": ["./src/code-tables.ts"]
     }
   },
   "include": ["src"],

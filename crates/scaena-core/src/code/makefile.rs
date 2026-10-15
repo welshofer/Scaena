@@ -22,6 +22,7 @@
 //! read as what it stands in.
 
 use super::scan::{Spans, blanks_end, byte, is_break, is_space, line_end, line_next};
+use super::tables::{Table, words};
 use super::{Class, MAX_NESTING, shell};
 
 /// What a line's words are, read as values.
@@ -112,7 +113,7 @@ impl Make<'_, '_> {
                 w += 1;
             }
             let word = &b[at..w];
-            if w == at || !(w == len || is_space(b[w])) || DIRECTIVES.binary_search(&word).is_err() {
+            if w == at || !(w == len || is_space(b[w])) || !DIRECTIVES.holds(word) {
                 break;
             }
             if !matches!(word, b"else" | b"endif" | b"ifdef" | b"ifeq" | b"ifndef" | b"ifneq") {
@@ -219,7 +220,7 @@ impl Make<'_, '_> {
             while e < colon && !matches!(b[e], b' ' | b'\t') {
                 e += 1;
             }
-            let special = SPECIAL.binary_search(&&b[i..e]).is_ok();
+            let special = SPECIAL.holds(&b[i..e]);
             self.values_to(i, e, if special { Class::Keyword } else { Class::Function });
             i = e;
         }
@@ -238,7 +239,7 @@ impl Make<'_, '_> {
                     w += 1;
                 }
                 let next = blanks_end(b, w, sign);
-                if w == name || next == w || next >= sign || MODIFIERS.binary_search(&&b[name..w]).is_err() {
+                if w == name || next == w || next >= sign || !MODIFIERS.holds(&b[name..w]) {
                     break;
                 }
                 self.out.push(w, Class::Keyword);
@@ -394,7 +395,7 @@ impl Make<'_, '_> {
             while e < stop && !is_space(b[e]) && !matches!(b[e], b')' | b'}' | b':' | b',' | b'$' | b'(' | b'{') {
                 e += 1;
             }
-            let call = e < stop && matches!(b[e], b' ' | b'\t') && FUNCTIONS.binary_search(&&b[i + 2..e]).is_ok();
+            let call = e < stop && matches!(b[e], b' ' | b'\t') && FUNCTIONS.holds(&b[i + 2..e]);
             if call {
                 self.out.push(i + 2, Class::Punctuation);
                 self.out.push(e, Class::Function);
@@ -478,92 +479,89 @@ fn operator(b: &[u8], at: usize, stop: usize, recipe: bool) -> Option<(usize, us
 // The tables, each sorted, so a word is found by binary search (`every_table_is_sorted`).
 
 /// The directives a line begins with.
-const DIRECTIVES: &[&[u8]] = &[
-    b"-include",
-    b"define",
-    b"else",
-    b"endef",
-    b"endif",
-    b"export",
-    b"ifdef",
-    b"ifeq",
-    b"ifndef",
-    b"ifneq",
-    b"include",
-    b"override",
-    b"private",
-    b"sinclude",
-    b"undefine",
-    b"unexport",
-    b"vpath",
-];
+const DIRECTIVES: Table = words!(
+    "makefile/directives",
+    [
+        "-include", "define", "else", "endef", "endif", "export", "ifdef", "ifeq", "ifndef", "ifneq", "include",
+        "override", "private", "sinclude", "undefine", "unexport", "vpath"
+    ]
+);
 
 /// The functions an expansion calls.
-const FUNCTIONS: &[&[u8]] = &[
-    b"abspath",
-    b"addprefix",
-    b"addsuffix",
-    b"and",
-    b"basename",
-    b"call",
-    b"dir",
-    b"error",
-    b"eval",
-    b"file",
-    b"filter",
-    b"filter-out",
-    b"findstring",
-    b"firstword",
-    b"flavor",
-    b"foreach",
-    b"guile",
-    b"if",
-    b"info",
-    b"intcmp",
-    b"join",
-    b"lastword",
-    b"let",
-    b"notdir",
-    b"or",
-    b"origin",
-    b"patsubst",
-    b"realpath",
-    b"shell",
-    b"sort",
-    b"strip",
-    b"subst",
-    b"suffix",
-    b"value",
-    b"warning",
-    b"wildcard",
-    b"word",
-    b"wordlist",
-    b"words",
-];
+const FUNCTIONS: Table = words!(
+    "makefile/functions",
+    [
+        "abspath",
+        "addprefix",
+        "addsuffix",
+        "and",
+        "basename",
+        "call",
+        "dir",
+        "error",
+        "eval",
+        "file",
+        "filter",
+        "filter-out",
+        "findstring",
+        "firstword",
+        "flavor",
+        "foreach",
+        "guile",
+        "if",
+        "info",
+        "intcmp",
+        "join",
+        "lastword",
+        "let",
+        "notdir",
+        "or",
+        "origin",
+        "patsubst",
+        "realpath",
+        "shell",
+        "sort",
+        "strip",
+        "subst",
+        "suffix",
+        "value",
+        "warning",
+        "wildcard",
+        "word",
+        "wordlist",
+        "words"
+    ]
+);
 
 /// The words that may come before a variable a rule sets for its targets.
-const MODIFIERS: &[&[u8]] = &[b"export", b"override", b"private", b"unexport"];
+const MODIFIERS: Table = words!("makefile/modifiers", ["export", "override", "private", "unexport"]);
 
 /// The special targets.
-const SPECIAL: &[&[u8]] = &[
-    b".DEFAULT",
-    b".DELETE_ON_ERROR",
-    b".EXPORT_ALL_VARIABLES",
-    b".IGNORE",
-    b".INTERMEDIATE",
-    b".LOW_RESOLUTION_TIME",
-    b".NOTINTERMEDIATE",
-    b".NOTPARALLEL",
-    b".ONESHELL",
-    b".PHONY",
-    b".POSIX",
-    b".PRECIOUS",
-    b".SECONDARY",
-    b".SECONDEXPANSION",
-    b".SILENT",
-    b".SUFFIXES",
-    b".WAIT",
-];
+const SPECIAL: Table = words!(
+    "makefile/special",
+    [
+        ".DEFAULT",
+        ".DELETE_ON_ERROR",
+        ".EXPORT_ALL_VARIABLES",
+        ".IGNORE",
+        ".INTERMEDIATE",
+        ".LOW_RESOLUTION_TIME",
+        ".NOTINTERMEDIATE",
+        ".NOTPARALLEL",
+        ".ONESHELL",
+        ".PHONY",
+        ".POSIX",
+        ".PRECIOUS",
+        ".SECONDARY",
+        ".SECONDEXPANSION",
+        ".SILENT",
+        ".SUFFIXES",
+        ".WAIT"
+    ]
+);
+
+/// The tables above, in the file they are handed over in (`code::tables`).
+pub(super) const WORDS: &[Table] = &[DIRECTIVES, FUNCTIONS, MODIFIERS, SPECIAL];
 
 #[cfg(test)]
 mod tests {

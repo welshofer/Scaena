@@ -13,8 +13,9 @@
 // The CPU painter shares a shader's rows with helpers, each a worker started as this one was,
 // holding the engine's module and no deck (PLAN 2.28): a worker whose first message is `help`
 // is one.
+import { codeTables } from "@scaena/code-tables";
 import { hyphenation } from "@scaena/hyphenation";
-import init, { Canvas, Player, engineModule, setHyphenation, shaderRows } from "@scaena/wasm";
+import init, { Canvas, Player, engineModule, setCodeTables, setHyphenation, shaderRows } from "@scaena/wasm";
 import { deleteKept, keptBundle, newBundle, readAll, remove, renameKept, write } from "./folders";
 import { finding } from "./words";
 import type {
@@ -691,7 +692,19 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
  * engine asks the first time a text hyphenates in it, in the middle of a layout, so they are
  * fetched at once, as a worker may. The player's module has every language, and never asks. */
 function patterns(code: string): Uint8Array | undefined {
-  const url = hyphenation[code];
+  return fetchedNow(hyphenation[code]);
+}
+
+/** File `name` of the tables the code scanners read, which the editor's module leaves out (PLAN
+ * 2.132). The engine asks the first time a code text in a language that reads it lays out, in the
+ * middle of a layout, so it is fetched at once, as the patterns are. The player's module has every
+ * table, and never asks. */
+function tables(name: string): Uint8Array | undefined {
+  return fetchedNow(codeTables[name]);
+}
+
+/** The bytes at `url`, fetched at once, as a worker may: none where there is no such file. */
+function fetchedNow(url: string | undefined): Uint8Array | undefined {
   if (!url) return undefined;
   const request = new XMLHttpRequest();
   request.open("GET", url, false);
@@ -716,6 +729,7 @@ interface DeckFiles {
 async function open(source: Source, painter: Painter, target: OffscreenCanvas, engine?: WebAssembly.Module) {
   await init(engine && { module_or_path: engine });
   setHyphenation(patterns);
+  setCodeTables(tables);
   canvas = target;
   if (painter !== "cpu") {
     // Ask for an adapter before WebGPU takes the canvas: a canvas WebGPU holds takes no other
@@ -904,8 +918,9 @@ async function shipped(theme: string): Promise<{ file: string; text: string; fon
  * what it came to. The page opens it as it opens any bundle's files. */
 async function generating(job: Generate, engine?: WebAssembly.Module) {
   await init(engine && { module_or_path: engine });
-  // Lint lays the deck's texts out, which can hyphenate them.
+  // Lint lays the deck's texts out, which can hyphenate them and color their code.
   setHyphenation(patterns);
+  setCodeTables(tables);
   const { generate } = await import("@scaena/generate");
   const theme = await shipped(job.theme);
   const { files, made, title } = await generate(job, theme, (event) => post({ type: "generating", event }));

@@ -884,6 +884,14 @@
       "role": "value"
     }
   },
+  "code": {
+    "syntax": {
+      "keyword": {
+        "color": "signal",
+        "weight": 700
+      }
+    }
+  },
   "density": {
     "maxWordsPerState": 80
   }

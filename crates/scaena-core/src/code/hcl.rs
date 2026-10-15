@@ -22,6 +22,7 @@ use super::scan::{
     Nest, Spans, blanks_end, block_comment_end, byte, is_break, is_space, is_word, is_word_start, line_end, line_next,
     number_end, space_end,
 };
+use super::tables::{Table, words};
 use super::{Class, MAX_NESTING};
 
 /// What a bracket opens, in the text's own code.
@@ -344,11 +345,15 @@ impl Scanner<'_, '_> {
 // The tables, each sorted, so a word is found by binary search (`every_table_is_sorted`).
 
 /// The keywords of expressions and of a template's directives.
-const KEYWORDS: &[&str] = &["else", "endfor", "endif", "for", "if", "in"];
-const CONSTANTS: &[&str] = &["false", "null", "true"];
-const TYPES: &[&str] = &["any", "bool", "list", "map", "number", "object", "set", "string", "tuple"];
+const KEYWORDS: Table = words!("hcl/keywords", ["else", "endfor", "endif", "for", "if", "in"]);
+const CONSTANTS: Table = words!("hcl/constants", ["false", "null", "true"]);
+const TYPES: Table = words!("hcl/types", ["any", "bool", "list", "map", "number", "object", "set", "string", "tuple"]);
 /// The names references begin with.
-const VARIABLES: &[&str] = &["count", "data", "each", "local", "module", "path", "self", "terraform", "var"];
+const VARIABLES: Table =
+    words!("hcl/variables", ["count", "data", "each", "local", "module", "path", "self", "terraform", "var"]);
+
+/// The tables above, in the file they are handed over in (`code::tables`).
+pub(super) const WORDS: &[Table] = &[KEYWORDS, CONSTANTS, TYPES, VARIABLES];
 
 #[cfg(test)]
 mod tests {
