@@ -15,7 +15,8 @@
 // - A click goes on; a swipe either way goes on or back.
 // - The window is the deck's, by its title, and the bar's buttons say what they do and their keys.
 //   The slide stands in the middle of the room the bar leaves, and fullscreen, of the screen, on
-//   black. At 1024 × 768 every control of the bar is in the window.
+//   black. At 1024 × 768, and at 700 × 400, where the bar takes two lines, every control of the
+//   bar is in the window, the slide over it.
 // - The presenter's keys (PLAN 2.105): B, W, . and , turn the screen black or white and back, the
 //   deck waiting under it, a hold where it stood, and a key or a click brings the slide back; a
 //   slide's number then Return goes there, one the deck lacks said, 0 among them; L shows the laser
@@ -26,12 +27,14 @@
 // - The presenter view follows the player, shows the state's notes (its beat's, where it has
 //   none), and steers it: on, back, and with End and Home to the last and the first; and its own
 //   presenter's keys steer the room's screen, its laser pointed from the slide it shows, and drawn
-//   on none of the room's black screen. At the last state it shows nothing as next, and its → past
-//   it ends the room's show, which it says over its slide. Its timer pauses, runs on, and resets
-//   to 0:00, and the time of day stands beside it (PLAN 2.121); after a press on Resume, Space
-//   goes on and presses it no more. P again brings it to the front as it is, its clock running.
-//   Its notes scroll, long or short, and its buttons and its timer's stay in its window. With no
-//   player open, or once the player closes, it says so, and its buttons wait until one is.
+//   on none of the room's black screen. It shows the next state in the format the player shows,
+//   and at the last state nothing as next, and its → past it ends the room's show, which it says
+//   over its slide. Its timer pauses, runs on, and resets to 0:00, and the time of day stands
+//   beside it (PLAN 2.121); after a press on Resume, Space goes on and presses it no more. P again
+//   brings it to the front as it is, its timer running. Its notes scroll, long or short, the next
+//   state's from their top, and its buttons and its timer's stay in its window. With no player
+//   open, or once the player closes, even as the view opens, it says so, every word of it, and
+//   its buttons wait until one is.
 // - A link at rest shows a hand under the pointer.
 // - With `?fps`, the frame meter reads a played cue's frames: frames a second, the worst frame,
 //   late frames, and the mean paint (gate 2, criterion 1).
@@ -410,6 +413,28 @@ try {
   check(at.index === 0, `and its Home to ${states[0]}`);
   const fromStart = await nextShown(0);
   check(fromStart.name === `Next: ${slots[1].said}` && fromStart.shown, `back at the first, it shows the next again: ${JSON.stringify(fromStart)}`);
+  // The player turned to another format, the view paints the next state in it, as it paints the
+  // slide; and again at the deck's own size.
+  const turnTo = async (format) => {
+    await player.evaluate((format) => {
+      const picker = document.querySelector("#format");
+      picker.value = format;
+      picker.dispatchEvent(new Event("change"));
+    }, format);
+    // Shown there once its status says 9:16, or no longer says it.
+    await player
+      .waitForFunction((format) => document.querySelector("#status").textContent.includes("9:16") === (format === "9:16"), format, { timeout: 15000 })
+      .catch(() => failures.push(`the player turned to ${format || "its own size"}`));
+  };
+  const upright = (want) =>
+    presenter
+      .waitForFunction((want) => (window.scaena.coming()?.[1] > window.scaena.coming()?.[0]) === want, want, { timeout: 15000 })
+      .then(() => true, () => false);
+  await turnTo("9:16");
+  const tall = await upright(true);
+  await turnTo("");
+  const wide = await upright(false);
+  check(tall && wide, `it paints the next state in the format the player shows, 9:16 and its own: ${tall}, ${wide}`);
   // Its presenter's keys steer the player's screen (PLAN 2.105): B turns the room's black, and the
   // view says so; a key brings the slide back.
   await presenter.keyboard.press("b");
@@ -477,7 +502,7 @@ try {
   await presenter.close();
 
   // P opens the presenter view in a window of its own; P again, or Presenter, brings it to the
-  // front as it is, its clock running, and loads nothing anew.
+  // front as it is, its timer running, and loads nothing anew.
   const [popup] = await Promise.all([context.waitForEvent("page"), player.keyboard.press("p")]);
   popup.on("pageerror", (e) => failures.push(`the presenter view's window: ${e.message}`));
   const seconds = (least = 0) => {
@@ -495,7 +520,7 @@ try {
   await player.click("#present");
   await player.waitForTimeout(1200);
   const runs = await popup.evaluate(seconds);
-  check(loads === 0 && runs >= ran && ran >= 2 && context.pages().length === pages, `P again, and Presenter, bring the presenter view to the front as it is, its clock running: ${ran} s, then ${runs} s, ${loads} loaded anew`);
+  check(loads === 0 && runs >= ran && ran >= 2 && context.pages().length === pages, `P again, and Presenter, bring the presenter view to the front as it is, its timer running: ${ran} s, then ${runs} s, ${loads} loaded anew`);
   await popup.close();
 
   // Fullscreen: F asks for it, and the slide stands in the middle of the screen, on black.
@@ -537,6 +562,13 @@ try {
   }));
   const linked = lone.link && !new URL(lone.link).searchParams.has("view") && new URL(lone.link).searchParams.get("bundle") === revenue;
   check(told && lone.waiting && linked, `the presenter view alone says the player is not open, and links to it: ${JSON.stringify(lone)}`);
+  // Every word of it, in a window 1024 wide too, where it takes two lines.
+  await alone.setViewportSize({ width: 1024, height: 640 });
+  const whole = await alone.evaluate(() => {
+    const said = document.querySelector("#status");
+    return [said.scrollWidth, said.clientWidth];
+  });
+  check(whole[0] <= whole[1], `and says every word of it in a window 1024 wide: ${whole[0]} px of words in ${whole[1]} px`);
   await alone.close();
 
   // In a deck whose states do not hold, most take no time on the timeline: many stand at one
@@ -570,21 +602,33 @@ try {
   check(await hand(false), "and off it, it is not");
   await torture.close();
 
-  // A long deck in a window a projector's size, 1024 × 768: every control of the bar in the
-  // window, the status said, and the page not wider than it.
+  // A long deck in a window a projector's size, 1024 × 768, and in a small one, 700 × 400, where
+  // the bar takes two lines: every control of the bar in the window, the status said, the slide
+  // over the bar, and the page neither wider nor taller than the window.
   const higher = "/docs/examples/higher-ed.deck.json";
   const long = await open(`${url(higher)}&state=curriculum`);
+  for (const [width, height] of [[1024, 768], [700, 400]]) {
+    await long.setViewportSize({ width, height });
+    const fits = await long.evaluate(() => {
+      const box = (e) => e.getBoundingClientRect();
+      return {
+        scroll: [document.documentElement.scrollWidth, document.documentElement.scrollHeight],
+        controls: [...document.querySelectorAll(".bar > *")].filter((e) => !e.hidden).map((e) => [e.id, Math.round(box(e).right), Math.round(box(e).bottom)]),
+        status: box(document.querySelector("#status")).width,
+        slide: Math.round(box(document.querySelector("#stage")).bottom),
+        bar: Math.round(box(document.querySelector(".bar")).top),
+      };
+    });
+    check(
+      fits.scroll[0] <= width &&
+        fits.scroll[1] <= height &&
+        fits.controls.every(([, right, bottom]) => right <= width && bottom <= height) &&
+        fits.status > 0 &&
+        fits.slide <= fits.bar,
+      `at ${width} × ${height} the bar of a deck with long claims fits the window, under the slide: ${JSON.stringify(fits)}`,
+    );
+  }
   await long.setViewportSize({ width: 1024, height: 768 });
-  const fits = await long.evaluate(() => ({
-    width: innerWidth,
-    scroll: document.documentElement.scrollWidth,
-    controls: [...document.querySelectorAll(".bar > *")].filter((e) => !e.hidden).map((e) => [e.id, Math.round(e.getBoundingClientRect().right)]),
-    status: document.querySelector("#status").getBoundingClientRect().width,
-  }));
-  check(
-    fits.scroll <= fits.width && fits.controls.every(([, right]) => right <= fits.width) && fits.status > 0,
-    `at 1024 × 768 the bar of a deck with long claims fits the window: ${JSON.stringify(fits)}`,
-  );
   // Its presenter view, on a slide with long notes: they scroll, and Back and Next stay in sight.
   const longView = await open(url(higher, "presenter"));
   await longView
@@ -605,6 +649,17 @@ try {
       `at ${width} × ${height} the presenter view's notes scroll, and Back and Next and the timer stay in sight: ${JSON.stringify(seen)}`,
     );
   }
+  // Its notes scrolled to their end, the next state's start at their top.
+  const scrolled = await longView.evaluate(() => {
+    const notes = document.querySelector("#notes");
+    notes.scrollTop = notes.scrollHeight;
+    return { top: notes.scrollTop, at: window.scaena.follows(), words: notes.textContent };
+  });
+  await longView.keyboard.press("ArrowRight");
+  const topped = await longView
+    .waitForFunction((was) => window.scaena.follows() !== was.at && document.querySelector("#notes").textContent !== was.words, scrolled, { timeout: 15000 })
+    .then(() => longView.evaluate(() => ({ top: document.querySelector("#notes").scrollTop, at: window.scaena.follows() })), () => null);
+  check(scrolled.top > 0 && topped?.top === 0, `the next state's notes start at their top: ${scrolled.top} px down on ${scrolled.at}, then ${JSON.stringify(topped)}`);
   // The player closed, the view says so and its buttons wait; a player opened again, it follows.
   await long.close();
   const closed = await longView
@@ -616,7 +671,15 @@ try {
     .waitForFunction(() => !document.querySelector("#on").disabled && document.querySelector("#status").textContent === "", null, { timeout: 30000 })
     .then(() => true, () => false);
   check(followsAgain, `and follows a player opened again: ${await longView.evaluate(() => window.scaena.follows())}`);
+  // A view whose player closes as soon as the view has heard it says the player has closed, and
+  // goes on saying so past the 2 s its first hello waits for an answer.
+  const quick = await open(url(higher, "presenter"));
+  await quick.waitForFunction(() => !document.querySelector("#on").disabled, null, { timeout: 30000 }).catch(() => {});
   await reopened.close();
+  await quick.waitForTimeout(2500);
+  const quickly = await quick.textContent("#status");
+  check(quickly.startsWith("The player has closed."), `a player closed as its view opens is said to have closed, and stays so: ${quickly}`);
+  await quick.close();
   await longView.close();
 
   // The frame meter (gate 2, criterion 1): with ?fps, a cue played says how its frames went.
