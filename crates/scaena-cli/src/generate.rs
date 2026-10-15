@@ -136,7 +136,7 @@ fn no_key(provider: Provider) -> anyhow::Error {
 
 /// The client every call goes through: an error status read as an answer, the environment's
 /// proxy, the system's certificates, and room for an answer that takes minutes to write.
-fn agent() -> ureq::Agent {
+pub(crate) fn agent() -> ureq::Agent {
     let tls = ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::PlatformVerifier).build();
     ureq::Agent::config_builder()
         .http_status_as_error(false)
@@ -194,7 +194,7 @@ fn script_font(agent: &ureq::Agent, script: &scaena_ops::scripts::Script, json: 
 }
 
 /// `request` made: its status, its reason, and its body; status 0 where it never came back.
-fn fetch(agent: &ureq::Agent, request: &Request) -> Reply {
+pub(crate) fn fetch(agent: &ureq::Agent, request: &Request) -> Reply {
     let sent = if request.method == "GET" {
         let mut r = agent.get(&request.url);
         for (k, v) in &request.headers {

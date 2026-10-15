@@ -99,27 +99,7 @@ impl Session {
                     .map(|b| b.claim.clone());
                 About::Slide { slide, claim }
             }
-            "talk" => {
-                let deck = &self.deck;
-                let title = deck.meta.as_ref().and_then(|m| m.title.as_deref());
-                let claims: Vec<String> = deck
-                    .spine
-                    .iter()
-                    .flat_map(|s| &s.sections)
-                    .flat_map(|s| &s.beats)
-                    .map(|b| b.claim.clone())
-                    .collect();
-                // The notes, but a haiku's own credit: the poem already in the deck is left out.
-                let notes: Vec<String> = deck
-                    .states
-                    .iter()
-                    .filter_map(|s| s.notes.as_deref())
-                    .flat_map(|n| n.split("\n\n"))
-                    .filter(|n| !n.trim_start().starts_with("Haiku written by"))
-                    .map(str::to_string)
-                    .collect();
-                About::Talk { talk: haiku::talk(title, &claims, &notes) }
-            }
+            "talk" => About::Talk { talk: scaena_ops::haiku::talk_of(&self.deck) },
             other => {
                 return Err(Error::Ops(format!("a haiku is about a topic, this slide, or the talk, not `{other}`")));
             }
@@ -132,13 +112,8 @@ impl Session {
         let about = self.about(ask)?;
         let lang = self.language();
         // A language in a script the theme's fonts do not draw is refused before any call.
-        let named = haiku::language(&lang);
-        if let Some(script) = scaena_ops::scripts::SCRIPTS.iter().find(|s| s.language.eq_ignore_ascii_case(&named))
-            && self.theme.typography.families.get(script.key).is_none_or(|f| f.file != script.file)
-        {
-            return Err(Error::Ops(format!(
-                "this deck's theme has no font for {named}, so a haiku in it could not be drawn: make the deck in {named} first"
-            )));
+        if let Some(why) = scaena_ops::haiku::undrawable(&self.theme, &lang) {
+            return Err(Error::Ops(why));
         }
         let prompt = match &ask.another {
             Some(poem) if !poem.is_empty() => haiku::another(&about, poem),

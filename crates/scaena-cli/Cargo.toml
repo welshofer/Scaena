@@ -18,6 +18,8 @@ path = "src/main.rs"
 gpu = ["scaena-ops/gpu", "scaena-mcp/gpu", "scaena-paint/gpu"]
 
 [dependencies]
+# A haiku asked once of the user's model (PLAN O.4e): the request built and the answer read.
+scaena-chat.workspace = true
 # The syllable table compiled in (PLAN O.4a), so lint counts a haiku (I404).
 scaena-core = { workspace = true, features = ["syllables"] }
 scaena-engine = { workspace = true, features = ["hyphenation"] }
