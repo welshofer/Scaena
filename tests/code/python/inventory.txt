@@ -1,0 +1,47 @@
+#!/usr/bin/env python3
+"""An inventory of parts, priced and counted."""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from typing import Iterator
+
+PART = re.compile(rb"^(?P<sku>[A-Z]{3})-(\d+)$")
+MAX_STOCK: int = 1_000
+
+
+@dataclass(frozen=True)
+class Part:
+    sku: str
+    price: float = 0.0
+    tags: list[str] = field(default_factory=list)
+
+    def label(self, width: int = 12) -> str:
+        return f"{self.sku!r:>{width}} costs ${self.price:,.2f} {{each}}"
+
+
+type Stock = dict[str, int]
+
+
+class Inventory:
+    def __init__(self, parts: Stock | None = None) -> None:
+        self.parts = parts or {}
+
+    @property
+    def total(self) -> int:
+        return sum(self.parts.values())
+
+    async def restock(self, sku: str, count: int = 1) -> None:
+        match sku.split("-"):
+            case [prefix, _] if prefix in {"ABC", "XYZ"}:
+                self.parts[sku] = min(self.parts.get(sku, 0) + count, MAX_STOCK)
+            case _:
+                raise ValueError(f"unknown part: {sku!r}, nested {f"{count:>{3}}"}")
+
+
+if __name__ == "__main__":
+    match = PART.match(b"ABC-42")
+    inventory = Inventory({"ABC-42": 3})
+    print(inventory.total, 0x1F, 1e-3, 2j, 5., ..., r"\d+", U'é', 'it\'s', t"{inventory}")
+    type = "a name, not a statement"

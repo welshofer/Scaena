@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Deploys a build to a host, and says how it went.
+set -euo pipefail
+
+readonly HOST="${DEPLOY_HOST:-staging.example.com}"
+export PATH="$HOME/bin:$PATH"
+declare -a targets=(web api "worker 2")
+retries=3
+
+log() {
+  local level=$1; shift
+  printf '%s [%s] %s\n' "$(date +%T)" "$level" "$*" >&2
+}
+
+function build {
+  if [[ -f Makefile && $# -gt 0 ]]; then
+    make -j"$(nproc)" "$@" 2>/dev/null || return 1
+  elif [ -x ./build.sh ]; then
+    ./build.sh --release
+  fi
+}
+
+for target in "${targets[@]}"; do
+  for ((i = 0; i < retries; i++)); do
+    if build "$target"; then
+      log info "built $target on try $((i + 1))"
+      break
+    fi
+    sleep 0.5
+  done
+done
+
+case "${1:-}" in
+  start|restart)
+    sudo systemctl restart app ;;
+  *.tar.gz)
+    tar -xzf "$1" -C /opt/app ;;
+  *)
+    echo "usage: $0 {start|restart|ARCHIVE}" >&2
+    exit 64 ;;
+esac
+
+ssh "$HOST" <<-EOF
+	cd /opt/app && git pull
+	echo "deployed at $(date)" # no comment here
+	EOF
+
+cat <<'NOTE' > notes.txt
+Nothing in $here expands, `not even this`.
+NOTE
+
+echo a#b ${#targets[@]} $'tab\there' `whoami` # a comment

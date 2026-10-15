@@ -1,0 +1,61 @@
+#Requires -Version 7.0
+<#
+.SYNOPSIS
+    Backs up a folder, keeping the newest copies.
+#>
+[CmdletBinding(SupportsShouldProcess)]
+param(
+    [Parameter(Mandatory = $true)]
+    [ValidateNotNullOrEmpty()]
+    [string]$Source,
+
+    [int]$Keep = 5,
+    [ValidateSet('zip', 'tar')][string]$Format = 'zip',
+    [Parameter()] [switch]$Force
+)
+
+$ErrorActionPreference = 'Stop'
+$stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$target = Join-Path $env:TEMP "backup-$stamp"
+
+function Get-OldBackups {
+    param([string]$Path, [int]$Count)
+    Get-ChildItem -Path $Path -Directory |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -Skip $Count
+}
+
+$options = @{
+    Path        = $Source
+    Destination = $target
+    Recurse     = $true
+}
+
+try {
+    if ($Force -or -not (Test-Path $target)) {
+        Copy-Item @options -ErrorAction Stop
+        Write-Host "Copied $($options.Path) to ${target}" -ForegroundColor Green
+    }
+    foreach ($old in Get-OldBackups -Path $env:TEMP -Count $Keep) {
+        Remove-Item $old.FullName -Recurse -WhatIf:(-not $Force)
+    }
+}
+catch [System.IO.IOException] {
+    Write-Error "Backup failed: $_"
+    exit 1
+}
+
+$summary = @"
+Source: $Source
+Kept:   $Keep copies, at most $([math]::Max($Keep, 1))
+"@
+$literal = @'
+Nothing in $here expands.
+'@
+$sizes = 1kb, 0x10, 2.5 | ForEach-Object { $_ * 2 }
+if ($sizes.Count -ge 3 -and $summary -like '*Kept*') { "it's ""ok""" }
+. $PSScriptRoot\lib\common.ps1
+enum Level { Low; High = 2 }
+$ratio = .5
+git commit --amend --no-edit
+docker run --name=backup -v ${PWD}:/data alpine
