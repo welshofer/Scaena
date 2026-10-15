@@ -2339,7 +2339,7 @@ What each must keep, whatever its batch:
 
 ### The slide types
 
-- [ ] S.1 The first 16 slide types, in every theme (ADR-0031, decision 7; no format change). *Can go ahead now, first of all (call 11).*
+- [x] S.1 The first 16 slide types, in every theme (ADR-0031, decision 7; no format change). *Can go ahead now, first of all (call 11).*
     - **The layouts.** `build_layouts.py` adds 16:
       - KPI Dashboard, Status Report, and Market Size in Numbers;
       - Flowchart and Swimlane in Diagrams, a new section;

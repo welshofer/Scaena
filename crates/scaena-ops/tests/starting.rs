@@ -14,11 +14,23 @@ const SHIPPED: [(&str, &str); 4] = [
     ("gallery", "../../docs/examples/themes/gallery.theme.json"),
 ];
 
-/// A new bundle in `theme`, titled, at a place of its own.
+/// A new bundle in `theme`, titled, at a place of its own, in the fonts the theme ships with
+/// (`scaena_ops::shipped`'s, `docs/examples/fonts`): Daybreak's file sits beside the authorability
+/// deck's fonts, subset to that deck, and a new deck in Daybreak takes the shipped ones.
 fn made(name: &str, theme: &str) -> PathBuf {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("starting-{name}"));
     let _ = std::fs::remove_dir_all(&dir);
-    let req = Create { theme: theme.into(), title: Some("A library".into()), ..Create::default() };
+    let shipped = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("starting-{name}-theme"));
+    let _ = std::fs::remove_dir_all(&shipped);
+    std::fs::create_dir_all(shipped.join("themes")).unwrap();
+    std::fs::create_dir_all(shipped.join("fonts")).unwrap();
+    for font in std::fs::read_dir("../../docs/examples/fonts").unwrap() {
+        let font = font.unwrap().path();
+        std::fs::copy(&font, shipped.join("fonts").join(font.file_name().unwrap())).unwrap();
+    }
+    let copy = shipped.join("themes").join(Path::new(theme).file_name().unwrap());
+    std::fs::copy(theme, &copy).unwrap();
+    let req = Create { theme: copy, title: Some("A library".into()), ..Create::default() };
     assert!(create(&dir, &req).unwrap().created, "{name} makes a deck");
     dir
 }
