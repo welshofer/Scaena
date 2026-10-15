@@ -18,7 +18,8 @@
 //   a role or a color chosen in the inspector gives them that. Each is one `style_text`, written
 //   where the text lives, one step to undo.
 import { type Key, MOD, SHIFT } from "./commands";
-import type { CaretLine, Carets, Edited, ListMark, Map6, Rect } from "./protocol";
+import { listen } from "./life";
+import type { CaretLine, Carets, Edited, LinkTarget, ListMark, Map6, Rect } from "./protocol";
 import { askWords } from "./notes";
 import type { Stage } from "./stage";
 import { quote, reaching, sentence } from "./words";
@@ -30,7 +31,8 @@ export const typingKeys = (): Key[] => [
   { keys: `${MOD}I`, label: "In italic, or not", group: "Type" },
   { keys: "↑ ↓ Home End", label: "Go up or down a line, or to its start or end, as the text is set", group: "Type" },
   { keys: "Enter", label: "In a list: a new item like it; in an empty item, the list ends", group: "Type" },
-  { keys: `Tab, ${SHIFT}Tab`, label: "In a list: the items selected a level in, or out", group: "Type" },
+  { keys: `Tab, ${SHIFT}Tab`, label: "In a list: the items selected a level in, or out; elsewhere, the paragraph an item a level in", group: "Type" },
+  { keys: "Backspace at an item's start", label: "Its marker off, or a level out; again, it joins the paragraph before", group: "Type" },
   { keys: `${MOD}K`, label: "In a text typed in: link the characters selected to a web address or a slide", group: "Type" },
   { keys: "Escape", label: "Stop typing: the text stays selected", group: "Type" },
 ];
@@ -47,6 +49,9 @@ export interface Around {
   undo(): void;
   redo(): void;
   say(text: string): void;
+  /** Take back `text`, if the status still says it: `instead` in its place, or what was said
+   * before it. */
+  unsay?(text: string, instead?: string): void;
   /** `node` as a person names it (PLAN 2.99): a text by its words, quoted. */
   name(node: string): string;
   /** The state `state` as a person counts it: Slide 3, or Slide 3, step 2. */
@@ -352,8 +357,11 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     if (open !== now || !states) return;
     const n = states.length;
     const where = now.fork ? "kept to this slide" : `what is typed shows ${reaching(states, now.state, around.slide)}`;
-    around.say(`Typing in ${around.name(now.node)} · ${where} · Escape leaves it${now.fork || n < 2 ? "" : "; Alt and a double click keep it to this slide"}`);
+    typingSaid = `Typing in ${around.name(now.node)} · ${where} · Escape leaves it${now.fork || n < 2 ? "" : "; Alt and a double click keep it to this slide"}`;
+    around.say(typingSaid);
   }
+  /** What the status was last told of typing, which it takes back once typing stops. */
+  let typingSaid: string | undefined;
 
   /** The characters selected, if any are. */
   function selection(): Selected | undefined {
@@ -516,38 +524,94 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
 
   /** Whether a field over the text asks for a link: focus there keeps typing on. */
   let asking = false;
-  /** ⌘K: link the characters selected (PLAN 2.70), to what is asked for in a field over them: a
-   * web address (`https://`, `http://`, `mailto:`), or a state's id (`#` before it, or not).
-   * Nothing takes the link away. One `style_text` of `link`, one step to undo. */
+  /** Where the characters from `from` to `to` (UTF-16) link to, as the engine last set them: the
+   * one place every one of them goes; none where any goes nowhere, or they go to two. */
+  function linked(from: number, to: number): LinkTarget | undefined {
+    const over = (carets?.links ?? []).filter(([a, b]) => a < Math.max(to, from + 1) && b > from).sort((x, y) => x[0] - y[0]);
+    let at = from;
+    for (const [a, b] of over) {
+      if (a > at) return undefined;
+      at = Math.max(at, b);
+    }
+    const first = over[0] && JSON.stringify(over[0][2]);
+    return at >= to && over.length && over.every(([, , t]) => JSON.stringify(t) === first) ? over[0][2] : undefined;
+  }
+  /** Where `typed` links to: a web address (`https://`, `http://`, `mailto:`, or a host typed
+   * without its scheme, which takes `https://` as a presentation app gives it); a state by its
+   * slide's number, or its id (`#` before it, or not); `null`, typed empty, the link taken away;
+   * none where it names neither. */
+  function target(typed: string): { link: LinkTarget | null; said: string } | undefined {
+    const to = typed.trim();
+    if (!to) return { link: null, said: "link removed" };
+    if (/^(https?:\/\/|mailto:)\S+$/.test(to)) return { link: { href: to }, said: `linked to ${to}` };
+    const numbered = around.numbered(to);
+    if (numbered !== undefined) return { link: { state: numbered }, said: `linked to ${around.slide(numbered)}` };
+    // A state's id, as the source names it: it holds no dot, as a host does.
+    const state = to.replace(/^#/, "");
+    if (/^[a-z][a-z0-9_-]{0,63}$/.test(state)) return { link: { state }, said: `linked to ${around.slide(state)}` };
+    if (/^(?:[\p{L}\p{N}-]+\.)+\p{L}{2,}(?::\d+)?(?:[/?#]\S*)?$/u.test(to)) return { link: { href: `https://${to}` }, said: `linked to https://${to}` };
+    return undefined;
+  }
+  /** ⌘K: link the characters selected (PLAN 2.70), to what is asked for in a field over them, which
+   * shows where they link to already, if they do: a web address, or a slide. One `style_text` of
+   * `link`, one step to undo; the field left as it was keeps the link, and left empty takes it
+   * away. */
   async function link(): Promise<boolean> {
     await idle();
     const now = open;
     const chosen = selection();
-    if (!now || !chosen) {
+    if (!now || !chosen || !carets) {
       around.say("Select characters to link them");
       return false;
     }
-    const r = area.getBoundingClientRect();
+    const { from, to } = caret();
+    const was = linked(from, to);
+    const said = was && "state" in was ? around.slide(was.state) : undefined;
+    const initial = !was ? "" : "href" in was ? was.href : said && /^Slide \d/.test(said) ? said : `#${was.state}`;
+    // Over the first line of the characters, else under the last, so they stay in sight.
+    const lines = covered(carets, from, to);
+    const [x, y] = lines[0] ?? [caretAt(carets, from).x, carets.lines[caretAt(carets, from).line]?.top ?? 0];
+    const last = lines.at(-1);
+    const [left, top] = onPage([x + (lines[0]?.[2] ?? 0) / 2, y]);
+    const below = last ? onPage([last[0], last[1] + last[3]])[1] : undefined;
     asking = true;
-    const words = await askWords([r.left, r.top], "", `Where ${quote(chosen.text)} links to: a web address, or a slide by its number`).finally(
-      () => (asking = false),
-    );
+    const words = await askWords([left, top], initial, `Where ${quote(chosen.text)} links to: a web address, or a slide by its number`, {
+      caption: was ? "Links to" : "Link to",
+      placeholder: "https://… or a slide's number",
+      below,
+      check: (w) => (target(w) ? undefined : `“${w.trim()}” is no link: a web address, or a slide's number`),
+    }).finally(() => (asking = false));
     if (open !== now) return false;
     area.focus({ preventScroll: true });
     if (words === undefined) {
+      around.say(was ? `${quote(chosen.text)} · link kept` : "No link made");
+      return false;
+    }
+    if (was && words.trim() === initial) {
+      around.say(`${quote(chosen.text)} · link kept`);
+      return false;
+    }
+    const made = target(words);
+    if (!made) {
+      around.say(`“${words.trim()}” is no link: type a web address (https://…) or a slide's number`);
+      return false;
+    }
+    if (made.link === null && !was) {
       around.say("No link made");
       return false;
     }
-    const to = words.trim();
-    if (!to) return style({ link: null }, "link removed");
-    if (/^(https?:\/\/|mailto:)\S+$/.test(to)) return style({ link: { href: to } }, `linked to ${to}`);
-    const numbered = around.numbered(to);
-    if (numbered !== undefined) return style({ link: { state: numbered } }, `linked to ${around.slide(numbered)}`);
-    // A state's id, as the source names it.
-    const state = to.replace(/^#/, "");
-    if (/^[a-z][a-z0-9_-]{0,63}$/.test(state)) return style({ link: { state } }, `linked to ${around.slide(state)}`);
-    around.say(`“${to}” is no link: type a web address (https://…) or a slide's number`);
-    return false;
+    return style({ link: made.link }, made.said);
+  }
+
+  /** Where canvas point `p` of the text typed in stands on the page, client pixels: through its
+   * `transform`, and the view the preview shows (PLAN 2.46, 2.51). */
+  function onPage([x, y]: [number, number]): [number, number] {
+    const r = overlay.getBoundingClientRect();
+    const [ox, oy] = around.origin();
+    const u = around.unit();
+    const m = open && around.map(open.node);
+    const [cx, cy] = m ? through(m, [x, y]) : [x, y];
+    return [r.left + (cx - ox) / u, r.top + (cy - oy) / u];
   }
 
   /** Stop typing: the node stays selected. Keys typed after a change still with the worker are
@@ -565,6 +629,9 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     tell();
     around.draw();
     around.left?.(was);
+    // However typing stopped (Escape, a press elsewhere, the focus gone on), the status says so.
+    if (typingSaid !== undefined) around.unsay?.(typingSaid, "Typing done");
+    typingSaid = undefined;
   }
 
   /** Make what was typed since the last change one more, on the source as it stands: one at a
@@ -752,9 +819,9 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
   area.addEventListener("keydown", (e) => {
     const mod = e.metaKey || e.ctrlKey;
     const key = e.key.toLowerCase();
-    // The canvas's keys are not the text's, but for its zoom and the deck's find, which no text
-    // takes (PLAN 2.46, 2.47).
-    if (mod && !e.altKey && ["=", "+", "-", "_", "0", "f"].includes(key)) return;
+    // The canvas's keys are not the text's, but for its zoom, the deck's find, and Save, which
+    // no text takes (PLAN 2.46, 2.47): Save waits for what was typed to be made.
+    if (mod && !e.altKey && ["=", "+", "-", "_", "0", "f", "s"].includes(key)) return;
     e.stopPropagation();
     if (mod && (key === "z" || key === "y")) {
       e.preventDefault();
@@ -785,18 +852,26 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     }
     if (e.isComposing) return;
     // In a list (ADR-0018): Tab and Shift+Tab move the items selected a level; Enter in an empty
-    // item ends the list there. Elsewhere they are the field's.
-    if ((e.key === "Tab" || e.key === "Enter") && !mod && !e.altKey && carets && area.value === carets.text) {
-      const [first] = touched(carets.text, caret().from, caret().to);
+    // item ends the list there; Backspace at an item's start takes its marker off, a level out
+    // first, and only then joins it to the paragraph before. Tab in a paragraph that is no item
+    // makes it one a level in, as a presentation app's text box does. Elsewhere they are the
+    // field's.
+    if (["Tab", "Enter", "Backspace"].includes(e.key) && !mod && !e.altKey && carets && area.value === carets.text) {
+      const { from, to } = caret();
+      const [first] = touched(carets.text, from, to);
       const item = carets.items?.[first];
-      if (item && e.key === "Tab") {
+      if (e.key === "Tab" && (item || !e.shiftKey)) {
         e.preventDefault();
         return void list({ by: e.shiftKey ? -1 : 1 }, e.shiftKey ? "a level out" : "a level in");
       }
       const [start, end] = paragraphs(carets.text)[first] ?? [0, 0];
-      if (item && e.key === "Enter" && !e.shiftKey && start === end && caret().from === caret().to) {
+      if (item && e.key === "Enter" && !e.shiftKey && start === end && from === to) {
         e.preventDefault();
         return void list({ kind: "none" }, "the list ends");
+      }
+      if (item && e.key === "Backspace" && !e.shiftKey && from === to && from === start) {
+        e.preventDefault();
+        return void (item.level > 0 ? list({ by: -1 }, "a level out") : list({ kind: "none" }, "out of the list"));
       }
     }
     const mac = /Mac|iPhone|iPad/.test(navigator.platform);
@@ -820,25 +895,30 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
   const wander = (e: FocusEvent) => {
     if (open && !keeping(e.target)) leave();
   };
-  document.addEventListener("focusin", wander);
+  listen(document, "focusin", wander);
   // The canvas focused while a text is typed in, by the keyboard or the page rather than a press
   // on it (which puts the caret in the text, or ends typing): the text takes the focus, and the
   // keys with it.
   const onward = () => {
     if (open && document.activeElement === overlay) area.focus({ preventScroll: true });
   };
-  overlay.addEventListener("focus", onward);
+  listen(overlay, "focus", onward);
   const selecting = () => {
     if (!open || document.activeElement !== area) return;
     around.draw();
     tell();
   };
-  document.addEventListener("selectionchange", selecting);
+  listen(document, "selectionchange", selecting);
 
   return {
     enter,
     leave,
     sync,
+    /** Once every change typed so far is made, typing left with one under way among them: what a
+     * save waits for, so it holds what was typed. */
+    idle,
+    /** Whether what was typed is not yet all made. */
+    busy: () => !settled() || finishing !== undefined,
     style,
     bold,
     italic,

@@ -8,6 +8,7 @@
 // comes from the commands' own list, which the palette names too. A key no command runs by name (a
 // gesture's modifier, the keys that move what is selected, a panel's own keys) is declared beside
 // the code that answers it, as a `Key`, and the sheet lists it with them.
+import { listen } from "./life";
 
 /** What a key does, as the keys sheet heads it, in the order it lists them. */
 export const GROUPS = [
@@ -168,7 +169,7 @@ export function palette(dialog: HTMLDialogElement, commands: () => Command[], as
   };
   // Escape closes a modal dialog by itself: focus goes back where it was, unless what ran has
   // put it somewhere already (the close is told after).
-  dialog.addEventListener("close", () => {
+  listen(dialog, "close", () => {
     const at = document.activeElement;
     if (!at || at === document.body || dialog.contains(at)) restore();
   });
@@ -284,7 +285,7 @@ export function sheet(dialog: HTMLDialogElement, commands: () => Command[], keys
   }
 
   // Escape closes a modal dialog by itself; either way, focus goes back where it was.
-  dialog.addEventListener("close", () => {
+  listen(dialog, "close", () => {
     if (back instanceof HTMLElement && back.isConnected) back.focus();
   });
   dialog.onclick = (e) => {

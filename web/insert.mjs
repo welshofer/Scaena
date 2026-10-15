@@ -11,6 +11,8 @@
 //   taking up the pen as P does.
 // - A kicker inserted where the canvas was last pressed, in the template's `kicker` slot, which
 //   nothing fills in `revenue`, fills it, and enters in `revenue`, selected: one patch, one undo.
+//   It is typed in at once, its words selected, so what is typed takes their place (PLAN 3.21),
+//   no key of it taken as the canvas's own; one more undo takes the typing back.
 // - A headline inserted over the chart, whose slot is filled, takes the grid's cells in the room
 //   nearest the point pressed, clear of the chart (PLAN 2.79).
 // - With the chart deleted, a chart of the source pressed into the figure's place fills it.
@@ -55,7 +57,11 @@ try {
     page
       .waitForFunction((n) => window.scaena.canvas.selected() === n, id, { timeout: 10000 })
       .then(() => true, () => false);
-  const box = (node) => page.evaluate((n) => window.scaena.canvas.boxes().find((b) => b.node === n)?.rect, node);
+  /** `node`'s box on the canvas, once the canvas has one for it. */
+  const box = async (node) => {
+    await page.waitForFunction((n) => window.scaena.canvas.boxes().some((b) => b.node === n), node, { timeout: 10000 }).catch(() => {});
+    return page.evaluate((n) => window.scaena.canvas.boxes().find((b) => b.node === n)?.rect, node);
+  };
   /** `node`'s box once the canvas has drawn it, which it does once the edit that made it is shown. */
   const drawn = (node) =>
     page
@@ -169,13 +175,21 @@ try {
   await press([kicker[0] + kicker[2] / 2, kicker[1] + kicker[3] / 2]);
   await page.selectOption("#insert", { label: "Kicker" });
   check(await reads('kicker text role:kicker "Kicker" at:in(kicker)'), "a kicker inserted in the empty kicker slot fills it");
-  check(await says("Kicker inserted on this slide"), `the status says what was inserted: ${await status()}`);
   check(await selects("kicker"), "and the canvas selects it");
   check(JSON.stringify(await box("kicker")) === JSON.stringify(kicker), `it stands in the slot: ${await box("kicker")}`);
   const scn = await source();
   check(scn.indexOf("kicker text") > scn.indexOf("state revenue") && scn.indexOf("kicker text") < scn.indexOf("state mix"), "it enters in `revenue`");
+  const typing = await page
+    .waitForFunction(() => window.scaena.canvas.typing() === "kicker" && window.scaena.canvas.typed(), null, { timeout: 10000 })
+    .then((h) => h.jsonValue(), () => undefined);
+  check(typing?.from === 0 && typing.to === "Kicker".length, `it is typed in at once, its words selected: ${JSON.stringify(typing)}`);
+  await page.keyboard.type("Q3 at a glance");
+  check(await reads('kicker text role:kicker "Q3 at a glance"'), "what is typed takes their place");
+  check((await page.evaluate(() => window.scaena.canvas.armed())) === undefined && !(await status()).includes("Drawing"), `no key is the canvas's own: ${await status()}`);
   await page.keyboard.press("Control+z");
-  check(await back(original), "one undo takes the insert back");
+  check(await back(scn), "one undo takes the typing back");
+  await page.keyboard.press("Control+z");
+  check(await back(original), "and one more the insert");
 
   // A headline pressed over the chart, whose slot is filled: the chart is there, so it takes the
   // grid's cells in the room nearest the point, clear of what lint judges it against (PLAN 2.79).
@@ -189,8 +203,10 @@ try {
   const on = Boolean(cell) && cell[0] <= at[0] && at[0] <= cell[0] + cell[2] && cell[1] <= at[1] && at[1] <= cell[1] + cell[3];
   check(Boolean(cell) && !on && overlaps.length === 0, `off the chart, in the room nearest the point: ${cell} · ${overlaps.join("; ") || "no overlap lint finds"}`);
 
-  // Inserted, then deleted: nothing is left behind.
+  // Inserted, then deleted: nothing is left behind. Typed in at once, Escape leaves it selected.
   await page.waitForFunction(() => window.scaena.canvas.selected() === "headline", null, { timeout: 30000 }).catch(() => {});
+  await page.waitForFunction(() => window.scaena.canvas.typing() === "headline", null, { timeout: 10000 }).catch(() => {});
+  await page.keyboard.press("Escape");
   await page.locator("#overlay").focus();
   await page.keyboard.press("Delete");
   check(await back(original), "Delete takes a node just inserted out of the deck: the source is as it was");

@@ -16,6 +16,10 @@
 //   step to undo.
 // On the torture deck: up, down, home, and end go by the engine's lines in the `pretty` case's
 // paragraph; and in the `mixed` case, a text set by runs keeps them as it is typed in.
+// On revenue kept in the browser: saved by Escape and ⌘S straight after typing, or by ⌘S with the
+// caret in the text, the save holds what was typed, each key once; keys typed back to back go in
+// once each, straight after the first save too; the bar and the tab say whether it is saved, and
+// an undo back to it leaves nothing to save.
 // Exits 1 on any failure.
 import { launch, serve } from "./serve.mjs";
 
@@ -30,8 +34,8 @@ const check = (ok, what) => {
 const browser = await launch();
 try {
   const context = await browser.newContext({ viewport: { width: 1920, height: 1200 }, deviceScaleFactor: 1 });
-  const open = async (bundle) => {
-    const page = await context.newPage();
+  const open = async (bundle, within = context) => {
+    const page = await within.newPage();
     page.on("pageerror", (e) => failures.push(`${bundle}: ${e.message}`));
     page.on("console", (m) => m.type() === "error" && failures.push(`${bundle}: console: ${m.text()}`));
     await page.goto(url(bundle));
@@ -258,6 +262,83 @@ try {
   check(runs.includes('"Very Thin "') && runs.includes('"Regular "') && runs.includes('"Black "'), "the first run takes what is typed at its start, and the others stay as they were");
   await torture.keyboard.press("Control+z");
   check(await back(torture, plain), "one undo takes it back");
+
+  // Saved straight after typing, by Escape and ⌘S at once, or by ⌘S with the caret still in the
+  // text: the save holds what was typed, each key once, and the bar and the tab say it is saved.
+  // Keys typed back to back, then Escape, go in once each. An undo back to what was saved leaves
+  // nothing to save.
+  const saving = await open("/docs/examples/revenue.deck.json");
+  await saving.locator("#save").click();
+  await saving.waitForFunction(() => window.scaena.where().where && !window.scaena.where().dirty, null, { timeout: 60000 });
+  check((await saving.title()) === "Q3 Review · Scaena", `the tab names the deck: ${await saving.title()}`);
+  const titled = () => saving.evaluate(() => /^\s*title text[^"\n]*"([^"]*)"/m.exec(window.scaena.source())?.[1]);
+  /** Once the deck kept in the browser as revenue holds `text` as its title, within the wait. */
+  const keeps = async (text) => {
+    for (const end = Date.now() + 30000; Date.now() < end; await saving.waitForTimeout(100)) {
+      const kept = await saving.evaluate(async () => {
+        try {
+          const dir = await (await (await navigator.storage.getDirectory()).getDirectoryHandle("bundles")).getDirectoryHandle("revenue");
+          return JSON.parse(await (await (await dir.getFileHandle("deck.json")).getFile()).text()).nodes.title.text;
+        } catch {
+          return undefined;
+        }
+      });
+      if (kept === text) return true;
+    }
+    return false;
+  };
+  check((await typeIn(saving, "title")) === "title", "a double click types in the title");
+  await saving.keyboard.press("End");
+  await saving.keyboard.type(" Alpha", { delay: 40 });
+  await saving.keyboard.press("Escape");
+  await saving.keyboard.press("Control+s");
+  check(await keeps("Q3 Review Alpha"), "Escape, then ⌘S at once: the save holds what was typed");
+  await saving.waitForFunction(() => !window.scaena.canvas.unsettled(), null, { timeout: 30000 }).catch(() => {});
+  check((await titled()) === "Q3 Review Alpha", `each key once: ${await titled()}`);
+  await saving.waitForFunction(() => !window.scaena.where().dirty, null, { timeout: 30000 }).catch(() => {});
+  check(!(await saving.evaluate(() => window.scaena.where().dirty)) && !(await saving.locator("#where").textContent()).includes("edited"), "and the bar says it is saved");
+  check((await typeIn(saving, "title")) === "title", "typed in again");
+  await saving.keyboard.press("End");
+  await saving.keyboard.type(" Beta", { delay: 40 });
+  await saving.waitForFunction(() => window.scaena.source().includes('"Q3 Review Alpha Beta"') && !window.scaena.canvas.unsettled(), null, { timeout: 30000 }).catch(() => {});
+  check((await saving.title()) === "Q3 Review — edited · Scaena", `the tab says it is edited: ${await saving.title()}`);
+  // Heard once the page's own handlers have had it: whether one took it from the browser.
+  await saving.evaluate(() => addEventListener("keydown", (e) => e.key.toLowerCase() === "s" && (window.heardTaken ??= e.defaultPrevented)));
+  await saving.keyboard.press("Control+s");
+  await saving.waitForFunction(() => window.heardTaken !== undefined, null, { timeout: 5000 }).catch(() => {});
+  check((await saving.evaluate(() => window.heardTaken)) === true, "⌘S with the caret in the text is the editor's, not the browser's");
+  check(await keeps("Q3 Review Alpha Beta"), "and saves what was typed");
+  check((await saving.evaluate(() => window.scaena.canvas.typing())) === "title", "the caret stays in the text");
+  await saving.keyboard.press("Escape");
+  check((await typeIn(saving, "title")) === "title", "typed in once more");
+  await saving.keyboard.press("End");
+  await saving.keyboard.type(" Gamma");
+  await saving.keyboard.press("Escape");
+  await saving.waitForFunction(() => window.scaena.source().includes("Gamma") && !window.scaena.canvas.unsettled(), null, { timeout: 30000 }).catch(() => {});
+  await saving.waitForTimeout(500);
+  check((await titled()) === "Q3 Review Alpha Beta Gamma", `keys back to back, then Escape, go in once each: ${JSON.stringify(await titled())}`);
+  check((await saving.evaluate(() => window.scaena.where().dirty)) && (await saving.locator("#where").textContent()).includes("edited"), "the bar says it is edited");
+  await saving.locator("#overlay").focus();
+  await saving.keyboard.press("Control+z");
+  await saving.waitForFunction(() => window.scaena.source().includes('"Q3 Review Alpha Beta"'), null, { timeout: 30000 }).catch(() => {});
+  check(!(await saving.evaluate(() => window.scaena.where().dirty)), "an undo back to what was saved leaves nothing to save");
+  check(!(await saving.locator("#where").textContent()).includes("edited") && (await saving.title()) === "Q3 Review · Scaena", `and the bar and the tab say so: ${await saving.title()}`);
+
+  // Keys typed back to back straight after the first save, which names the fonts anew in the
+  // source, then Escape: each goes in once, with nothing after them. A browser of its own, so the
+  // save is the deck's first.
+  const elsewhere = await browser.newContext({ viewport: { width: 1920, height: 1200 }, deviceScaleFactor: 1 });
+  const quick = await open("/docs/examples/revenue.deck.json", elsewhere);
+  await quick.locator("#save").click();
+  await quick.waitForFunction(() => window.scaena.where().where && !window.scaena.where().dirty, null, { timeout: 60000 });
+  check((await typeIn(quick, "title")) === "title", "typed in straight after the first save");
+  await quick.keyboard.press("End");
+  await quick.keyboard.type(" Alpha");
+  await quick.keyboard.press("Escape");
+  await quick.waitForFunction(() => window.scaena.source().includes("Alpha") && !window.scaena.canvas.unsettled?.(), null, { timeout: 30000 }).catch(() => {});
+  await quick.waitForTimeout(1500);
+  const quickly = await quick.evaluate(() => /^\s*title text[^"\n]*"([^"]*)"/m.exec(window.scaena.source())?.[1]);
+  check(quickly === "Q3 Review Alpha", `each key once, with no space after them: ${JSON.stringify(quickly)}`);
 } catch (e) {
   failures.push(String(e));
 } finally {

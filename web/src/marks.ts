@@ -16,6 +16,7 @@
 // - Explain says what a finding means for the slide, and what could be done, in two or three
 //   sentences by the model the assistant uses, with the user's own key (PLAN 2.101).
 // - The marks step aside while a drag, a marquee, or a drawing goes, and while the cue plays.
+import { listen } from "./life";
 import type { Finding, NodeBox, Rect } from "./protocol";
 
 /** What the marks ask of the canvas they stand on. */
@@ -249,7 +250,7 @@ export function marks(layer: HTMLElement, pop: HTMLElement, host: MarksHost) {
     open(mark, e.detail === 0);
   };
   // Closed, the popover gives the focus back to its mark, if it had it.
-  pop.addEventListener("toggle", (e) => {
+  listen(pop, "toggle", (e) => {
     if ((e as ToggleEvent).newState !== "closed") return;
     const had = pop.contains(document.activeElement) || document.activeElement === document.body;
     const mark = opened === undefined ? undefined : layer.querySelector<HTMLElement>(`[data-mark="${CSS.escape(opened ?? "")}"]`);

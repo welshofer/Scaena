@@ -2,6 +2,7 @@
 // a weight, and the icons found, drawn. An icon chosen is inserted as a path shape on its view
 // (`Player.insertingIcon`), or takes the place of the icon selected (PLAN G.23).
 import { findIcons, type Icon, type IconEntry, type IconSet, iconSaid, iconSet, type Weight } from "./icon-set";
+import { listen } from "./life";
 
 /** How many icons the picker draws at once: a person narrows the rest by words. */
 const SHOWN = 240;
@@ -58,10 +59,10 @@ export function iconPicker(dialog: HTMLDialogElement) {
     dialog.close();
   }
 
-  field.addEventListener("input", show);
-  solid.addEventListener("change", show);
+  listen(field, "input", show);
+  listen(solid, "change", show);
   // Enter in the field takes the first icon found; the arrows go into the icons.
-  field.addEventListener("keydown", (e) => {
+  listen(field, "keydown", (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
       if (found[0]) choose(found[0]);
@@ -71,7 +72,7 @@ export function iconPicker(dialog: HTMLDialogElement) {
     }
   });
   // The icons are one stop for Tab, and the arrows go among them, a row at a time up and down.
-  grid.addEventListener("keydown", (e) => {
+  listen(grid, "keydown", (e) => {
     const buttons = [...grid.querySelectorAll<HTMLButtonElement>("button.icon")];
     const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
     if (at < 0) return;
@@ -86,10 +87,10 @@ export function iconPicker(dialog: HTMLDialogElement) {
     next.tabIndex = 0;
     next.focus();
   });
-  grid.addEventListener("focusin", (e) => {
+  listen(grid, "focusin", (e) => {
     for (const b of grid.querySelectorAll("button.icon")) b.setAttribute("aria-selected", String(b === e.target));
   });
-  dialog.addEventListener("close", () => {
+  listen(dialog, "close", () => {
     answer?.(undefined);
     answer = undefined;
   });

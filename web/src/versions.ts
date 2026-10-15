@@ -8,6 +8,7 @@
 //   refused, with why, where the deck would not validate in the bundle as it is. The source takes
 //   it as one change, which ⌘Z undoes with the data files, as any other edit.
 // - The versions are what the history holds: an edit is one once a save records it.
+import { listen, observing } from "./life";
 import type { Compared, Lexicon, NodeChange, Restored, StateChange, Version } from "./protocol";
 import type { Stage } from "./stage";
 import { object, phrase, quote } from "./words";
@@ -315,24 +316,26 @@ export function versionsPanel(stage: Stage, into: HTMLElement, editor: VersionsE
     return done;
   }
 
-  list.addEventListener("click", (e) => {
+  listen(list, "click", (e) => {
     const id = (e.target as Element).closest<HTMLButtonElement>("button[data-id]")?.dataset.id;
     if (id) void settle(show(id));
   });
-  states.addEventListener("change", () => {
+  listen(states, "change", () => {
     if (chosen) void settle(show(chosen, states.value));
   });
-  against.addEventListener("change", () => void settle(compared()));
-  restore.addEventListener("click", () => void settle(restoring()));
+  listen(against, "change", () => void settle(compared()));
+  listen(restore, "click", () => void settle(restoring()));
   // A history begun with a save, the deck as saved its first version (PLAN 2.87); listed then.
-  keep.addEventListener("click", () => {
+  listen(keep, "click", () => {
     keep.disabled = true;
     void settle(editor.keep().then(refresh, (e) => editor.say(`No history begun: ${said(e)}`)))
       .finally(() => (keep.disabled = false));
   });
-  new MutationObserver(() => {
-    if (!into.hidden) void refresh();
-  }).observe(into, { attributes: true, attributeFilter: ["hidden"] });
+  observing(
+    new MutationObserver(() => {
+      if (!into.hidden) void refresh();
+    }),
+  ).observe(into, { attributes: true, attributeFilter: ["hidden"] });
 
   return {
     refresh,

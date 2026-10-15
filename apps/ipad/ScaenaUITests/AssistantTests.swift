@@ -14,12 +14,24 @@ final class AssistantTests: XCTestCase {
     func testAKeyIsCheckedAndKeptInTheIPadsKeychain() throws {
         let app = launched(environment: ["SCAENA_KEY_CHECK": "accept"])
         try openB1(in: app)
-        // The toolbar's Assistant where it shows, else its key.
+        // The window is the deck's once its canvas shows: on a slow simulator the slide list shows
+        // while the iPad still draws the document opening, and a press then is lost.
+        let canvas = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'canvas'")).firstMatch
+        _ = canvas.waitForExistence(timeout: 10)
+        settle()
+        // The toolbar's Assistant where it shows, else its key; pressed again only where the panel
+        // did not open, since a second press puts an open one away.
         let toggle = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Assistant'")).firstMatch
-        if toggle.waitForExistence(timeout: 5), toggle.isHittable {
-            toggle.tap()
-        } else {
-            app.typeKey("a", modifierFlags: [.command, .option])
+        let panel = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'assistant-options'")).firstMatch
+        for attempt in 1...2 where !panel.exists {
+            if toggle.waitForExistence(timeout: 5), toggle.isHittable {
+                toggle.tap()
+            } else {
+                app.typeKey("a", modifierFlags: [.command, .option])
+            }
+            if !panel.waitForExistence(timeout: 10), attempt == 1 {
+                keep(app, as: "assistant-unopened")
+            }
         }
         let add = app.buttons.matching(NSPredicate(format: "identifier == 'add-key'")).firstMatch
         guard add.waitForExistence(timeout: 10) else {

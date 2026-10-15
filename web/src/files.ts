@@ -8,8 +8,11 @@
 //   source, its path goes where it is dropped. Insert does the same from the keyboard, where the
 //   canvas was last pressed.
 // - A file nothing names says so, and Remove takes it out of the bundle: the deck draws and reads
-//   the same. Undo puts it back and Redo takes it out again, as the Data panel's undo does a data
-//   file's edits; the next save takes it out where the bundle is kept.
+//   the same. It is a step in the editor's one undo, ⌘Z anywhere and the panel's Undo: undone, the
+//   file is put back by its path, whatever came after it, so a node an undo brings back finds the
+//   file it draws; redone, it is taken out again. The next save takes it out where the bundle is
+//   kept.
+import { listen, observing } from "./life";
 import { BUNDLE_PATH, type BundleFile, type Edited, type Lexicon, type Named, PICTURE } from "./protocol";
 import type { Stage } from "./stage";
 import { named, object } from "./words";
@@ -23,6 +26,11 @@ export interface FilesEditor {
   /** Take an edit of the bundle's files: the source as it stands, shown and linted as `edited`
    * says, and a change to save. */
   took(edited: Edited): void;
+  /** Take `path` taken out as such an edit, and a step in the editor's undo, which puts it back. */
+  removed(path: string, edited: Edited): void;
+  /** The editor's own undo and redo. */
+  undo(): void;
+  redo(): void;
   /** Show `state`, `node` selected on the canvas. */
   show(state: string, node: string): Promise<void>;
   /** Insert image `path` where the canvas was last pressed, as Insert does. */
@@ -136,14 +144,14 @@ export function filesPanel(stage: Stage, into: HTMLElement, editor: FilesEditor)
     return `<li data-path="${path}"${drags ? ' draggable="true"' : ""}><span class="name" title="${path}">${html(fileName(f.path))}</span> <span class="size">${size(f.bytes)}</span>${insert}${uses}${used ? `<ul class="used">${used}</ul>` : ""}</li>`;
   }
 
-  /** `path` taken out of the bundle: one change, which Undo takes back. */
+  /** `path` taken out of the bundle: one change, which the editor's undo takes back. */
   function remove(path: string) {
     const run = async () => {
       try {
         const edited = await stage.removeFile(editor.source(), path, editor.shown()?.index ?? 0, editor.format());
-        editor.took(edited);
+        editor.removed(path, edited);
         await refresh();
-        editor.say(`${fileName(path)} taken out of the deck · Undo puts it back`);
+        editor.say(`${fileName(path)} taken out of the deck · ⌘Z puts it back`);
       } catch (e) {
         editor.say(`Not taken out: ${said(e)}`);
       }
@@ -152,15 +160,17 @@ export function filesPanel(stage: Stage, into: HTMLElement, editor: FilesEditor)
     return making;
   }
 
-  /** The last change to the bundle's files undone, or with `redo` made again. */
-  function undo(redo = false) {
+  /** The editor's undo, or with `redo` its redo, of `path` taken out: put back (`out` false), or
+   * taken out again. Asked of the worker at once, before any later change is, so the deck an undo
+   * after it compiles finds the file. */
+  function taken(path: string, out: boolean, redo: boolean) {
+    const [source, index, format] = [editor.source(), editor.shown()?.index ?? 0, editor.format()];
+    const asked = out ? stage.removeFile(source, path, index, format) : stage.putBack(source, path, index, format);
     const run = async () => {
       try {
-        const { name, edited } = await stage.dataUndo(editor.source(), redo, editor.shown()?.index ?? 0, editor.format());
-        if (name === undefined || !edited) return editor.say(redo ? "No change to the files to redo" : "No change to the files to undo");
-        editor.took(edited);
+        editor.took(await asked);
         await refresh();
-        editor.say(redo ? `Made again: the last change to ${fileName(name)}` : `Undone: the last change to ${fileName(name)}`);
+        editor.say(`${redo ? "Made again" : "Undone"}: ${fileName(path)} ${out ? "taken out of the deck" : "put back"}`);
       } catch (e) {
         editor.say(`${redo ? "Not made again" : "Not undone"}: ${said(e)}`);
       }
@@ -169,13 +179,13 @@ export function filesPanel(stage: Stage, into: HTMLElement, editor: FilesEditor)
     return making;
   }
 
-  into.addEventListener("click", (e) => {
+  listen(into, "click", (e) => {
     const target = e.target as Element;
     const at = target.closest<HTMLElement>("[data-path]")?.dataset.path;
     const button = target.closest<HTMLButtonElement>("button");
     if (!button) return;
-    if (button.matches("[data-undo]")) return void undo(false);
-    if (button.matches("[data-redo]")) return void undo(true);
+    if (button.matches("[data-undo]")) return editor.undo();
+    if (button.matches("[data-redo]")) return editor.redo();
     if (!at) return;
     if (button.matches("[data-remove]")) return void remove(at);
     if (button.matches("[data-insert]")) return void editor.insert(at);
@@ -183,33 +193,37 @@ export function filesPanel(stage: Stage, into: HTMLElement, editor: FilesEditor)
     const state = button.dataset.state;
     if (node && state) void editor.show(state, node);
   });
-  // ⌘Z and ⇧⌘Z (Ctrl) in the panel undo and redo the last change to the files.
-  into.addEventListener("keydown", (e) => {
+  // ⌘Z and ⇧⌘Z (Ctrl) in the panel are the editor's, as anywhere on the page.
+  listen(into, "keydown", (e) => {
     if (!(e.metaKey || e.ctrlKey) || e.altKey || (e.key.toLowerCase() !== "z" && e.key.toLowerCase() !== "y")) return;
     if ((e.target as Element).closest("input, textarea, select")) return;
     e.preventDefault();
-    void undo(e.key.toLowerCase() === "y" || e.shiftKey);
+    if (e.key.toLowerCase() === "y" || e.shiftKey) editor.redo();
+    else editor.undo();
   });
   // An image dragged out of the list carries its path: the canvas places it, and the source
   // takes its path, quoted, where it is dropped.
-  into.addEventListener("dragstart", (e) => {
+  listen(into, "dragstart", (e) => {
     const path = (e.target as Element).closest<HTMLElement>("[data-path][draggable]")?.dataset.path;
     if (!path || !e.dataTransfer) return;
     e.dataTransfer.setData(BUNDLE_PATH, path);
     e.dataTransfer.setData("text/plain", JSON.stringify(path));
     e.dataTransfer.effectAllowed = "copy";
   });
-  new MutationObserver(() => {
-    if (!into.hidden) void refresh();
-  }).observe(into, { attributes: true, attributeFilter: ["hidden"] });
+  observing(
+    new MutationObserver(() => {
+      if (!into.hidden) void refresh();
+    }),
+  ).observe(into, { attributes: true, attributeFilter: ["hidden"] });
 
   return {
     refresh,
     /** The files as the panel last listed them, for a test. */
     listed: () => listed,
-    /** Take `path` out, as Remove does; and undo or redo the last change to the files. */
+    /** Take `path` out, as Remove does. */
     remove,
-    undo,
+    /** Put `path` back, or take it out again, as the editor's undo or redo of its removal does. */
+    taken,
     /** Once the panel's last change is made. */
     settled: () => making,
   };

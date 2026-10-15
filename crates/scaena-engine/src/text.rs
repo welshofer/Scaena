@@ -103,7 +103,7 @@ pub struct Span {
 }
 
 /// A span of the text as written, as an editor reads its look (ADR-0013, PLAN 2.38).
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct SpanLook {
     /// Where it ends in the text as written, bytes; it starts where the one before ends.
     pub end: usize,
@@ -117,6 +117,8 @@ pub struct SpanLook {
     pub italic: bool,
     /// Whether it would without its own `style.italic` ([`Span::base_italic`]).
     pub base_italic: bool,
+    /// Where it goes when it is followed (PLAN 2.70): what ⌘K shows of the characters in it.
+    pub link: Option<LinkTarget>,
 }
 
 /// A text node after the cascade, ready to lay out.
@@ -734,6 +736,7 @@ impl TextEngine {
                     base: s.base_weight,
                     italic: s.style.italic,
                     base_italic: s.base_italic,
+                    link: s.link.clone(),
                 }
             })
             .collect();

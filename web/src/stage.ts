@@ -200,6 +200,8 @@ export class Stage {
   private waiting = new Map<number, { resolve: (reply: Reply) => void; reject: (error: Error) => void }>();
   /** What hears each step of the assistant's answer to a question, by the question's id. */
   private hearing = new Map<number, (event: AssistantEvent) => void>();
+  /** What takes each thumbnail as it is painted, by the request's id. */
+  private thumbing = new Map<number, (thumb: Thumb) => void>();
   private asked = 0;
 
   /** Workers that work out shaders' rows for the engine's worker, when it asks (PLAN 2.28). */
@@ -219,30 +221,37 @@ export class Stage {
 
   /** Open the bundle at `source` in a new worker of `engine`'s, which paints into a new
    * canvas in `canvas`'s place: a canvas WebGPU has held takes no other painter, so falling
-   * back to the CPU painter starts over. */
+   * back to the CPU painter starts over. A bundle that does not open puts `canvas` back, as
+   * whoever painted it left it. */
   static async open(canvas: HTMLCanvasElement, source: Source, painter: Painter, engine: Engine): Promise<Stage> {
     const fresh = canvas.cloneNode() as HTMLCanvasElement;
     canvas.replaceWith(fresh);
     const worker = engine.spawn();
-    const reply = new Promise<FromWorker>((resolve, reject) => {
-      worker.onmessage = ({ data }: MessageEvent<FromWorker>) => resolve(data);
-      worker.onerror = (e) => reject(new Error(e.message || "the worker failed to start"));
-    });
-    const offscreen = fresh.transferControlToOffscreen();
-    const open: ToWorker = { type: "open", source, painter, canvas: offscreen, engine: engine.module };
-    worker.postMessage(open, [offscreen]);
-    const first = await reply;
-    if (first.type === "ready") {
-      const { type: _, ...opened } = first;
-      return new Stage(fresh, worker, opened, engine);
+    try {
+      const reply = new Promise<FromWorker>((resolve, reject) => {
+        worker.onmessage = ({ data }: MessageEvent<FromWorker>) => resolve(data);
+        worker.onerror = (e) => reject(new Error(e.message || "the worker failed to start"));
+      });
+      const offscreen = fresh.transferControlToOffscreen();
+      const open: ToWorker = { type: "open", source, painter, canvas: offscreen, engine: engine.module };
+      worker.postMessage(open, [offscreen]);
+      const first = await reply;
+      if (first.type === "ready") {
+        const { type: _, ...opened } = first;
+        return new Stage(fresh, worker, opened, engine);
+      }
+      worker.terminate();
+      const message = first.type === "error" ? first.message : `the worker said ${first.type} first`;
+      if (first.type === "error" && first.webgpu && painter === "auto") {
+        console.warn(`${message}; the CPU painter paints instead`);
+        return await Stage.open(fresh, source, "cpu", engine);
+      }
+      throw new Error(message);
+    } catch (e) {
+      worker.terminate();
+      if (fresh.isConnected) fresh.replaceWith(canvas);
+      throw e;
     }
-    worker.terminate();
-    const message = first.type === "error" ? first.message : `the worker said ${first.type} first`;
-    if (first.type === "error" && first.webgpu && painter === "auto") {
-      console.warn(`${message}; the CPU painter paints instead`);
-      return Stage.open(fresh, source, "cpu", engine);
-    }
-    throw new Error(message);
   }
 
   /** Paint `state` `t` ms into its cue (at rest without `t`), in `format` or on the deck's
@@ -524,6 +533,16 @@ export class Stage {
    * back. What the deck came to, shown and linted as an edit is. */
   removeFile(source: string, path: string, index: number, format?: string): Promise<Edited> {
     return this.request<"removed">({ type: "removeFile", id: ++this.asked, source, path, index, format }).then(({ edited }) => {
+      this.moved(edited);
+      return edited;
+    });
+  }
+
+  /** `path`, taken out of the bundle, put back as it was, by its path (PLAN 2.59): the undo of its
+   * removal in the editor's one undo, whatever came after it. What the deck came to, shown and
+   * linted as an edit is. */
+  putBack(source: string, path: string, index: number, format?: string): Promise<Edited> {
+    return this.request<"removed">({ type: "putBack", id: ++this.asked, source, path, index, format }).then(({ edited }) => {
       this.moved(edited);
       return edited;
     });
@@ -814,9 +833,14 @@ export class Stage {
 
   /** Each state at rest, `height` pixels high, in `format`, for the state strip (PLAN 2.35): with
    * pixels where its drawing is not the one `known` holds. With `states`, those alone, for the
-   * light table (PLAN 2.97); a request for some does not stop one for all. */
-  thumbnails(height: number, known: Record<string, string>, format?: string, states?: string[]): Promise<Thumb[]> {
-    return this.request<"thumbnails">({ type: "thumbnails", id: ++this.asked, height, known, format, states }).then(({ thumbs }) => thumbs);
+   * light table (PLAN 2.97); a request for some does not stop one for all. With `each`, each is
+   * handed to it as it is painted, first to last, and the answer holds the rest. */
+  thumbnails(height: number, known: Record<string, string>, format?: string, states?: string[], each?: (thumb: Thumb) => void): Promise<Thumb[]> {
+    const id = ++this.asked;
+    if (each) this.thumbing.set(id, each);
+    return this.request<"thumbnails">({ type: "thumbnails", id, height, known, format, states, each: each !== undefined })
+      .then(({ thumbs }) => thumbs)
+      .finally(() => this.thumbing.delete(id));
   }
 
   /** The patch that adds a state after `state`, a `step` of its slide or a `slide` of its own, on
@@ -980,6 +1004,7 @@ export class Stage {
     this.helpers = [];
     this.waiting.clear();
     this.hearing.clear();
+    this.thumbing.clear();
   }
 
   /** Start `count` workers to work out shaders' rows beside the engine's (PLAN 2.28), each as
@@ -1104,6 +1129,9 @@ export class Stage {
         return;
       case "assistant":
         this.hearing.get(data.id)?.(data.event);
+        return;
+      case "thumbed":
+        this.thumbing.get(data.id)?.(data.thumb);
         return;
       case "at": {
         const { type: _, id, ...at } = data;
