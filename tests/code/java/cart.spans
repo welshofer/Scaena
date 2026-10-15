@@ -1,0 +1,221 @@
+keyword     «package »
+plain       «com»
+punctuation «.»
+property    «example»
+punctuation «.»
+property    «shop»
+punctuation «;\n\n»
+keyword     «import »
+plain       «java»
+punctuation «.»
+property    «util»
+punctuation «.»
+type        «List»
+punctuation «;\n»
+keyword     «import »
+plain       «java»
+punctuation «.»
+property    «util»
+punctuation «.»
+property    «stream»
+punctuation «.»
+type        «Collectors»
+punctuation «;\n\n»
+comment     «/**\n * A cart of line items.\n */\n»
+keyword     «public final class »
+type        «Cart »
+punctuation «{\n    »
+keyword     «private static final »
+type        «int »
+constant    «MAX_ITEMS »
+operator    «= »
+number      «100»
+punctuation «;\n    »
+keyword     «private final »
+type        «List»
+operator    «<»
+type        «Item»
+operator    «> »
+plain       «items»
+punctuation «;\n\n    »
+keyword     «public record »
+type        «Item»
+punctuation «(»
+type        «String »
+plain       «name»
+punctuation «, »
+type        «int »
+plain       «quantity»
+punctuation «, »
+type        «double »
+plain       «price»
+punctuation «) {}\n\n    »
+keyword     «public »
+type        «Cart»
+punctuation «(»
+type        «List»
+operator    «<»
+type        «Item»
+operator    «> »
+plain       «items»
+punctuation «) {\n        »
+variable    «this»
+punctuation «.»
+property    «items »
+operator    «= »
+type        «List»
+punctuation «.»
+function    «copyOf»
+punctuation «(»
+plain       «items»
+punctuation «);\n    }\n\n    »
+attribute   «@Override\n    »
+keyword     «public »
+type        «String »
+function    «toString»
+punctuation «() {\n        »
+type        «String »
+plain       «summary »
+operator    «= »
+plain       «items»
+punctuation «.»
+function    «stream»
+punctuation «()\n            .»
+function    «map»
+punctuation «(»
+type        «Item»
+punctuation «::»
+plain       «name»
+punctuation «)\n            .»
+function    «collect»
+punctuation «(»
+type        «Collectors»
+punctuation «.»
+function    «joining»
+punctuation «(»
+string      «", "»
+punctuation «));\n        »
+keyword     «return »
+string      «"Cart[" »
+operator    «+ »
+plain       «summary »
+operator    «+ »
+string      «"]"»
+punctuation «;\n    }\n\n    »
+keyword     «public »
+type        «double »
+function    «total»
+punctuation «() {\n        »
+type        «double »
+plain       «sum »
+operator    «= »
+number      «0.0»
+punctuation «;\n        »
+keyword     «for »
+punctuation «(»
+type        «Item »
+plain       «item »
+punctuation «: »
+plain       «items»
+punctuation «) {\n            »
+plain       «sum »
+operator    «+= »
+plain       «item»
+punctuation «.»
+function    «price»
+punctuation «() »
+operator    «* »
+plain       «item»
+punctuation «.»
+function    «quantity»
+punctuation «();\n        }\n        »
+keyword     «return »
+plain       «sum »
+operator    «> »
+number      «1_000 »
+operator    «? »
+plain       «sum »
+operator    «* »
+number      «0.95 »
+punctuation «: »
+plain       «sum»
+punctuation «;\n    }\n\n    »
+keyword     «public static »
+type        «void »
+function    «main»
+punctuation «(»
+type        «String»
+punctuation «[] »
+plain       «args»
+punctuation «) {\n        »
+keyword     «var »
+plain       «cart »
+operator    «= »
+keyword     «new »
+type        «Cart»
+punctuation «(»
+type        «List»
+punctuation «.»
+function    «of»
+punctuation «(»
+keyword     «new »
+type        «Item»
+punctuation «(»
+string      «"tea"»
+punctuation «, »
+number      «2»
+punctuation «, »
+number      «4.5»
+punctuation «)));\n        »
+type        «char »
+plain       «sep »
+operator    «= »
+string      «'\\t'»
+punctuation «;\n        »
+type        «String »
+plain       «json »
+operator    «= »
+string      «"""\n            {"total": %s}\n            """»
+punctuation «.»
+function    «formatted»
+punctuation «(»
+plain       «cart»
+punctuation «.»
+function    «total»
+punctuation «());\n        »
+type        «System»
+punctuation «.»
+property    «out»
+punctuation «.»
+function    «println»
+punctuation «(»
+plain       «cart »
+operator    «+ »
+type        «String»
+punctuation «.»
+function    «valueOf»
+punctuation «(»
+plain       «sep»
+punctuation «) »
+operator    «+ »
+plain       «json»
+punctuation «);\n        »
+type        «Object »
+plain       «nothing »
+operator    «= »
+constant    «null»
+punctuation «;\n        »
+type        «boolean »
+plain       «empty »
+operator    «= »
+plain       «cart»
+punctuation «.»
+property    «items»
+punctuation «.»
+function    «isEmpty»
+punctuation «() »
+operator    «&& »
+plain       «nothing »
+operator    «== »
+constant    «null»
+punctuation «;\n    }\n}\n»

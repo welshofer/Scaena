@@ -1,0 +1,233 @@
+meta        «#include »
+string      «<stdio.h>\n»
+meta        «#include »
+string      «<stdlib.h>\n»
+meta        «#include »
+string      «"stack.h"\n\n»
+meta        «#define »
+constant    «CAPACITY »
+number      «64\n»
+meta        «#define »
+function    «MAX»
+punctuation «(»
+plain       «a»
+punctuation «, »
+plain       «b»
+punctuation «) ((»
+plain       «a»
+punctuation «) »
+operator    «> »
+punctuation «(»
+plain       «b»
+punctuation «) »
+operator    «? »
+punctuation «(»
+plain       «a»
+punctuation «) : (»
+plain       «b»
+punctuation «))\n\n»
+comment     «/* A stack of integers,\n   grown on demand. */\n»
+keyword     «typedef struct »
+punctuation «{\n    »
+type        «int »
+operator    «*»
+plain       «items»
+punctuation «;\n    »
+type        «size_t »
+plain       «len»
+punctuation «, »
+plain       «cap»
+punctuation «;\n} »
+plain       «Stack»
+punctuation «;\n\n»
+keyword     «struct »
+type        «point »
+punctuation «{ »
+type        «double »
+plain       «x»
+punctuation «, »
+plain       «y»
+punctuation «; };\n\n»
+keyword     «static »
+type        «int »
+function    «push»
+punctuation «(»
+plain       «Stack »
+operator    «*»
+plain       «s»
+punctuation «, »
+type        «int »
+plain       «value»
+punctuation «) {\n    »
+keyword     «if »
+punctuation «(»
+plain       «s»
+operator    «->»
+property    «len »
+operator    «== »
+plain       «s»
+operator    «->»
+property    «cap»
+punctuation «) {\n        »
+type        «size_t »
+plain       «cap »
+operator    «= »
+plain       «s»
+operator    «->»
+property    «cap »
+operator    «? »
+plain       «s»
+operator    «->»
+property    «cap »
+operator    «* »
+number      «2 »
+punctuation «: »
+constant    «CAPACITY»
+punctuation «;\n        »
+type        «int »
+operator    «*»
+plain       «grown »
+operator    «= »
+function    «realloc»
+punctuation «(»
+plain       «s»
+operator    «->»
+property    «items»
+punctuation «, »
+plain       «cap »
+operator    «* »
+keyword     «sizeof »
+operator    «*»
+plain       «grown»
+punctuation «);\n        »
+keyword     «if »
+punctuation «(»
+plain       «grown »
+operator    «== »
+constant    «NULL»
+punctuation «) »
+keyword     «return »
+operator    «-»
+number      «1»
+punctuation «;  »
+comment     «// out of memory\n        »
+plain       «s»
+operator    «->»
+property    «items »
+operator    «= »
+plain       «grown»
+punctuation «;\n        »
+plain       «s»
+operator    «->»
+property    «cap »
+operator    «= »
+plain       «cap»
+punctuation «;\n    }\n    »
+plain       «s»
+operator    «->»
+property    «items»
+punctuation «[»
+plain       «s»
+operator    «->»
+property    «len»
+operator    «++»
+punctuation «] »
+operator    «= »
+plain       «value»
+punctuation «;\n    »
+keyword     «return »
+number      «0»
+punctuation «;\n}\n\n»
+type        «int »
+function    «main»
+punctuation «(»
+type        «void»
+punctuation «) {\n    »
+plain       «Stack s »
+operator    «= »
+punctuation «{»
+number      «0»
+punctuation «};\n    »
+keyword     «struct »
+type        «point »
+plain       «origin »
+operator    «= »
+punctuation «{.»
+property    «x »
+operator    «= »
+number      «0.0»
+punctuation «, .»
+property    «y »
+operator    «= »
+number      «.5»
+punctuation «};\n    »
+keyword     «for »
+punctuation «(»
+type        «int »
+plain       «i »
+operator    «= »
+number      «0»
+punctuation «; »
+plain       «i »
+operator    «< »
+number      «10»
+punctuation «; »
+plain       «i»
+operator    «++»
+punctuation «) »
+function    «push»
+punctuation «(»
+operator    «&»
+plain       «s»
+punctuation «, »
+function    «MAX»
+punctuation «(»
+plain       «i»
+punctuation «, »
+number      «3»
+punctuation «));\n    »
+function    «printf»
+punctuation «(»
+string      «"top: %d, mask: 0x%08X, ratio: %.2f\\n"»
+punctuation «, »
+plain       «s»
+punctuation «.»
+property    «items»
+punctuation «[»
+plain       «s»
+punctuation «.»
+property    «len »
+operator    «- »
+number      «1»
+punctuation «], »
+number      «0xFFu»
+punctuation «, »
+number      «1.5e-3»
+punctuation «);\n    »
+type        «char »
+plain       «c »
+operator    «= »
+string      «'\\n'»
+punctuation «;\n    »
+type        «unsigned long »
+plain       «big »
+operator    «= »
+number      «1000000UL»
+punctuation «;\n    »
+function    «free»
+punctuation «(»
+plain       «s»
+punctuation «.»
+property    «items»
+punctuation «);\n    »
+keyword     «return »
+plain       «origin»
+punctuation «.»
+property    «x »
+operator    «> »
+number      «0 »
+operator    «? »
+constant    «EXIT_FAILURE »
+punctuation «: »
+constant    «EXIT_SUCCESS»
+punctuation «;\n}\n»

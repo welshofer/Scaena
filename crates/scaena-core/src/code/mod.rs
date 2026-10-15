@@ -1,0 +1,402 @@
+//! Code on a slide, colored by its language (ADR-0029, PLAN 2.130): the languages Scaena knows by
+//! name, and the scanners that split a code text into tokens of 16 kinds for the theme to color.
+//!
+//! [`highlight`] reads a text in a language and gives its [`Token`]s: in order, each a run of the
+//! text in one [`Class`], together the whole text. A deck stores no token and no color. The engine
+//! colors a code text from its words and its language each time it lays the text out, so a fix to
+//! a scanner changes how code draws, and the spans in `tests/code/` say how.
+//!
+//! The scanners are written by hand from tables, with no dependency and no regular expression:
+//! - **The C family**: one scanner, which a table drives for each language. C, C++, C#, Go, Java,
+//!   JavaScript with JSX, TypeScript and TSX, Kotlin, Swift, Rust, Dart, Scala, Zig, Objective-C,
+//!   and Protocol Buffers.
+//! - **JSON**, which reads JSON with comments and JSON5 as leniently.
+//! - **The generic scanner**, for a language Scaena has no scanner for: its strings, numbers,
+//!   comments, and brackets.
+//!
+//! What each keeps to:
+//! - **ASCII classes.** It tells bytes apart by ASCII alone, and any other character continues a
+//!   word. So a token ends on an ASCII byte or at the text's end, always a character's boundary,
+//!   and nothing depends on the toolchain's Unicode tables.
+//! - **Linear and total.** Each step reads a byte, or closes what a byte read before opened, so a
+//!   scanner neither panics nor runs on. What never closes runs to the end in its class; a string
+//!   that cannot run past its line ends at the line's end.
+//! - **Bounded.** At most [`MAX_NESTING`] interpolations, JSX elements, and JSX expressions stand
+//!   open inside one another, and the lines past the first [`MAX_LINES`] are one plain token.
+//! - **Few tokens.** Neighbors of one class are one token, and whitespace goes to the token before
+//!   it.
+
+mod clike;
+mod generic;
+mod json;
+mod scan;
+
+use std::fmt;
+
+/// The most lines of a code text that are colored: the lines after them are one plain token.
+pub const MAX_LINES: usize = 1_000;
+
+/// The most interpolations (`${…}` in a template, `\(…)` in a Swift string), JSX elements, and JSX
+/// expressions that stand open inside one another. What would open one more is read as what it
+/// stands in: a ninth `${` as its string's own characters.
+pub const MAX_NESTING: usize = 8;
+
+/// A kind of token, which the theme gives a color, a weight, and an italic (ADR-0029).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Class {
+    /// What no kind claims: names, a JSX element's words, and the lines past [`MAX_LINES`].
+    Plain,
+    /// A word the language keeps for itself: `fn`, `class`, `return`.
+    Keyword,
+    /// A type: one the language names (`int`, `u8`), one a declaration names (`struct point`),
+    /// or a name that starts with a capital where the language writes types so (`HashMap`).
+    Type,
+    /// A function: one a declaration names, one called (`parse(`), or a Rust macro (`println!`).
+    Function,
+    /// A string, a character, or a regular expression, with its quotes.
+    String,
+    /// A number, in any base, with its suffix: `0x1F`, `1_000u32`, `1.5e-3`.
+    Number,
+    /// A constant: `true`, `null`, or a name in capitals (`MAX_LEN`).
+    Constant,
+    /// A comment.
+    Comment,
+    /// An operator: `+`, `=`, `&&`, `->`.
+    Operator,
+    /// Brackets, commas, semicolons, colons, and points.
+    Punctuation,
+    /// A member reached by a `.` (`point.x`), or a key in JSON.
+    Property,
+    /// An attribute or an annotation (`#[derive`, `@Override`), or a JSX element's attribute.
+    Attribute,
+    /// A markup element's name: `div` in JSX's `<div>`.
+    Tag,
+    /// A variable the language defines (`this`, `self`), or one a string interpolates (`$name`).
+    Variable,
+    /// A directive: `#include`, `#if`.
+    Meta,
+    /// A line a diff adds.
+    Inserted,
+    /// A line a diff takes away.
+    Deleted,
+}
+
+impl Class {
+    /// The 16 kinds a theme colors, every class but plain, in the order a theme lists them.
+    pub const KINDS: [Class; 16] = [
+        Class::Keyword,
+        Class::Type,
+        Class::Function,
+        Class::String,
+        Class::Number,
+        Class::Constant,
+        Class::Comment,
+        Class::Operator,
+        Class::Punctuation,
+        Class::Property,
+        Class::Attribute,
+        Class::Tag,
+        Class::Variable,
+        Class::Meta,
+        Class::Inserted,
+        Class::Deleted,
+    ];
+
+    /// Its name, as a theme keys its look: `keyword`, `type`, and `plain`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Class::Plain => "plain",
+            Class::Keyword => "keyword",
+            Class::Type => "type",
+            Class::Function => "function",
+            Class::String => "string",
+            Class::Number => "number",
+            Class::Constant => "constant",
+            Class::Comment => "comment",
+            Class::Operator => "operator",
+            Class::Punctuation => "punctuation",
+            Class::Property => "property",
+            Class::Attribute => "attribute",
+            Class::Tag => "tag",
+            Class::Variable => "variable",
+            Class::Meta => "meta",
+            Class::Inserted => "inserted",
+            Class::Deleted => "deleted",
+        }
+    }
+}
+
+/// A run of a text in one class. It ends `end` bytes into the text, and starts where the token
+/// before it ends, or at the text's start.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Token {
+    pub end: usize,
+    pub class: Class,
+}
+
+/// A language Scaena knows by name.
+pub struct Language {
+    /// Its name, which a deck writes, in lowercase: `rust`, `cpp`.
+    pub name: &'static str,
+    /// The other names it goes by, lowercase: `rs`, `c++`. A name or an alias names one language.
+    pub aliases: &'static [&'static str],
+    /// What a person calls it: `C++`, `Plain Text`.
+    pub said: &'static str,
+    /// The extensions of its files, lowercase and without their point.
+    pub extensions: &'static [&'static str],
+    /// The programs a script's first line runs it with: `node` in `#!/usr/bin/env node`.
+    pub interpreters: &'static [&'static str],
+    /// What colors it.
+    pub(crate) scan: Scan,
+}
+
+impl PartialEq for Language {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+
+impl Eq for Language {}
+
+impl fmt::Debug for Language {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Language").field(&self.name).finish()
+    }
+}
+
+/// What colors a language.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Scan {
+    /// Nothing: plain text.
+    Plain,
+    /// The C family's scanner, by the language's table.
+    CLike(&'static clike::Spec),
+    /// JSON's.
+    Json,
+}
+
+/// How a code text's language colors it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Lang {
+    /// By the language's own scanner.
+    Known(&'static Language),
+    /// Not at all: plain text is one plain token.
+    Plain,
+    /// By the generic scanner, which colors what most languages write alike: a language Scaena
+    /// has no scanner for.
+    Generic,
+}
+
+/// The languages Scaena knows by name, in the order of their names, so [`language`] finds one by
+/// binary search: each that a scanner of its own colors, and plain text, which nothing colors. A
+/// name none of them goes by colors by the generic scanner.
+pub static LANGUAGES: &[Language] = &[
+    Language {
+        name: "c",
+        aliases: &[],
+        said: "C",
+        extensions: &["c", "h"],
+        interpreters: &[],
+        scan: Scan::CLike(&clike::C),
+    },
+    Language {
+        name: "cpp",
+        aliases: &["c++", "cc", "cxx", "hpp"],
+        said: "C++",
+        extensions: &["c++", "cc", "cpp", "cxx", "h++", "hh", "hpp", "hxx", "ipp", "tpp"],
+        interpreters: &[],
+        scan: Scan::CLike(&clike::CPP),
+    },
+    Language {
+        name: "csharp",
+        aliases: &["c#", "cs"],
+        said: "C#",
+        extensions: &["cs", "csx"],
+        interpreters: &[],
+        scan: Scan::CLike(&clike::CSHARP),
+    },
+    Language {
+        name: "dart",
+        aliases: &[],
+        said: "Dart",
+        extensions: &["dart"],
+        interpreters: &["dart"],
+        scan: Scan::CLike(&clike::DART),
+    },
+    Language {
+        name: "go",
+        aliases: &["golang"],
+        said: "Go",
+        extensions: &["go"],
+        interpreters: &[],
+        scan: Scan::CLike(&clike::GO),
+    },
+    Language {
+        name: "java",
+        aliases: &[],
+        said: "Java",
+        extensions: &["java"],
+        interpreters: &[],
+        scan: Scan::CLike(&clike::JAVA),
+    },
+    Language {
+        name: "javascript",
+        aliases: &["cjs", "js", "mjs"],
+        said: "JavaScript",
+        extensions: &["cjs", "js", "mjs"],
+        interpreters: &["bun", "node", "nodejs"],
+        scan: Scan::CLike(&clike::JAVASCRIPT),
+    },
+    Language {
+        name: "json",
+        aliases: &["jsonl"],
+        said: "JSON",
+        extensions: &["geojson", "json", "jsonl"],
+        interpreters: &[],
+        scan: Scan::Json,
+    },
+    Language {
+        name: "json5",
+        aliases: &[],
+        said: "JSON5",
+        extensions: &["json5"],
+        interpreters: &[],
+        scan: Scan::Json,
+    },
+    Language {
+        name: "jsonc",
+        aliases: &[],
+        said: "JSON with Comments",
+        extensions: &["jsonc"],
+        interpreters: &[],
+        scan: Scan::Json,
+    },
+    Language {
+        name: "jsx",
+        aliases: &[],
+        said: "JSX",
+        extensions: &["jsx"],
+        interpreters: &[],
+        scan: Scan::CLike(&clike::JAVASCRIPT),
+    },
+    Language {
+        name: "kotlin",
+        aliases: &["kt", "kts"],
+        said: "Kotlin",
+        extensions: &["kt", "kts"],
+        interpreters: &[],
+        scan: Scan::CLike(&clike::KOTLIN),
+    },
+    Language {
+        name: "objc",
+        aliases: &["obj-c", "objective-c", "objectivec"],
+        said: "Objective-C",
+        extensions: &["m", "mm"],
+        interpreters: &[],
+        scan: Scan::CLike(&clike::OBJC),
+    },
+    Language {
+        name: "plain",
+        aliases: &["plaintext", "text", "txt"],
+        said: "Plain Text",
+        extensions: &["text", "txt"],
+        interpreters: &[],
+        scan: Scan::Plain,
+    },
+    Language {
+        name: "protobuf",
+        aliases: &["proto"],
+        said: "Protocol Buffers",
+        extensions: &["proto"],
+        interpreters: &[],
+        scan: Scan::CLike(&clike::PROTOBUF),
+    },
+    Language {
+        name: "rust",
+        aliases: &["rs"],
+        said: "Rust",
+        extensions: &["rs"],
+        interpreters: &[],
+        scan: Scan::CLike(&clike::RUST),
+    },
+    Language {
+        name: "scala",
+        aliases: &["sc"],
+        said: "Scala",
+        extensions: &["sc", "scala"],
+        interpreters: &["scala"],
+        scan: Scan::CLike(&clike::SCALA),
+    },
+    Language {
+        name: "swift",
+        aliases: &[],
+        said: "Swift",
+        extensions: &["swift"],
+        interpreters: &["swift"],
+        scan: Scan::CLike(&clike::SWIFT),
+    },
+    Language {
+        name: "tsx",
+        aliases: &[],
+        said: "TSX",
+        extensions: &["tsx"],
+        interpreters: &[],
+        scan: Scan::CLike(&clike::TSX),
+    },
+    Language {
+        name: "typescript",
+        aliases: &["cts", "mts", "ts"],
+        said: "TypeScript",
+        extensions: &["cts", "mts", "ts"],
+        interpreters: &["deno", "ts-node"],
+        scan: Scan::CLike(&clike::TYPESCRIPT),
+    },
+    Language {
+        name: "zig",
+        aliases: &[],
+        said: "Zig",
+        extensions: &["zig"],
+        interpreters: &[],
+        scan: Scan::CLike(&clike::ZIG),
+    },
+];
+
+/// The language `name` names, by its name or an alias, in any case.
+pub fn language(name: &str) -> Option<&'static Language> {
+    let name = name.to_ascii_lowercase();
+    match LANGUAGES.binary_search_by(|l| l.name.cmp(name.as_str())) {
+        Ok(i) => LANGUAGES.get(i),
+        Err(_) => LANGUAGES.iter().find(|l| l.aliases.contains(&name.as_str())),
+    }
+}
+
+/// How a code text in the language `name` is colored: by the language's own scanner, as plain
+/// text, or, where Scaena knows no language by that name, by the generic scanner.
+pub fn lang(name: &str) -> Lang {
+    match language(name) {
+        Some(language) if matches!(language.scan, Scan::Plain) => Lang::Plain,
+        Some(language) => Lang::Known(language),
+        None => Lang::Generic,
+    }
+}
+
+/// The tokens of `text` in `lang`: in order, each a run of the text in one class, and together
+/// every byte of it, the lines past [`MAX_LINES`] one plain token. An empty text has none.
+pub fn highlight(text: &str, lang: Lang) -> Vec<Token> {
+    let head = text.get(..scan::cut(text, MAX_LINES)).unwrap_or(text);
+    let mut out = scan::Spans::new(head);
+    match lang {
+        Lang::Plain | Lang::Known(Language { scan: Scan::Plain, .. }) => {}
+        Lang::Generic => generic::scan(head, &mut out),
+        Lang::Known(Language { scan: Scan::CLike(spec), .. }) => clike::scan(head, spec, &mut out),
+        Lang::Known(Language { scan: Scan::Json, .. }) => json::scan(head, &mut out),
+    }
+    let mut tokens = out.finish();
+    if head.len() < text.len() {
+        match tokens.last_mut() {
+            Some(last) if last.class == Class::Plain => last.end = text.len(),
+            _ => tokens.push(Token { end: text.len(), class: Class::Plain }),
+        }
+    }
+    tokens
+}

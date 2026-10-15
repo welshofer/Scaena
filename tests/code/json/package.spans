@@ -1,0 +1,59 @@
+punctuation «{\n  »
+property    «"name"»
+punctuation «: »
+string      «"scaena"»
+punctuation «,\n  »
+property    «"version"»
+punctuation «: »
+string      «"0.1.0"»
+punctuation «,\n  »
+property    «"private"»
+punctuation «: »
+constant    «true»
+punctuation «,\n  »
+property    «"description"»
+punctuation «: »
+string      «"A \\"quoted\\" word and an escape \\\\n"»
+punctuation «,\n  »
+property    «"scripts"»
+punctuation «: {\n    »
+property    «"build"»
+punctuation «: »
+string      «"vite build"»
+punctuation «,\n    »
+property    «"test"»
+punctuation «: »
+string      «"node --test"\n  »
+punctuation «},\n  »
+property    «"ratio"»
+punctuation «: »
+number      «0.75»
+punctuation «,\n  »
+property    «"count"»
+punctuation «: »
+number      «-12»
+punctuation «,\n  »
+property    «"big"»
+punctuation «: »
+number      «1.5e+10»
+punctuation «,\n  »
+property    «"tags"»
+punctuation «: [»
+string      «"presentation"»
+punctuation «, »
+string      «"engine"»
+punctuation «],\n  »
+property    «"license"»
+punctuation «: »
+constant    «null»
+punctuation «,\n  »
+property    «"nested"»
+punctuation «: [{»
+property    «"a"»
+punctuation «: [»
+number      «1»
+punctuation «, »
+number      «2»
+punctuation «, [»
+number      «3»
+punctuation «]]}, {}]\n}\n»

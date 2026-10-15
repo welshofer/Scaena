@@ -1,0 +1,40 @@
+#!/usr/bin/env node
+'use strict';
+
+import { readFile } from 'node:fs/promises';
+
+const WORD = /\b[a-z]+(?:-[a-z/]+)*\b/gi;
+const MAX_WORDS = 1e3;
+
+/** Counts the words in a file. */
+export async function count(path, { limit = MAX_WORDS } = {}) {
+  const text = await readFile(path, 'utf8');
+  const words = text.match(WORD) ?? [];
+  const ratio = words.length / limit / 2;
+  return { words: words.length, ratio, path };
+}
+
+class Counter {
+  #seen = new Map();
+  #turns = 0;
+
+  add(word) {
+    this.#seen.set(word, (this.#seen.get(word) || 0) + 1);
+    return this;
+  }
+
+  top() {
+    return [...this.#seen].sort((a, b) => b[1] - a[1])[0];
+  }
+
+  half() {
+    return this.#turns++ / 2;
+  }
+}
+
+const counter = new Counter();
+for (const w of ['a', 'b', 'a']) counter.add(w);
+console.log(`top: ${counter.top()?.[0] ?? 'none'} of ${counter.top()?.[1]}`, 0x1f, 10n);
+if (typeof window === "undefined" && !null) {
+  console.warn(`nested ${`template ${1 + 1}`} done`);
+}

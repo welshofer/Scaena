@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package shop.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "example.com/shop/v1;shopv1";
+
+// An order, as the API returns it.
+message Order {
+  int64 id = 1;
+  string customer = 2;
+  repeated LineItem items = 3;
+  map<string, string> labels = 4;
+  google.protobuf.Timestamp placed_at = 5;
+
+  enum State {
+    STATE_UNSPECIFIED = 0;
+    STATE_OPEN = 1;
+    STATE_SHIPPED = 2;
+  }
+  State state = 6;
+
+  oneof payment {
+    string card_token = 7;
+    bool cash = 8;
+  }
+
+  reserved 9 to 11;
+}
+
+message LineItem {
+  string sku = 1;
+  uint32 quantity = 2;
+  double unit_price = 3 [deprecated = true];
+}
+
+service Orders {
+  rpc GetOrder(GetOrderRequest) returns (Order);
+  rpc WatchOrders(stream GetOrderRequest) returns (stream Order) {}
+}
+
+/* Requests carry one id. */
+message GetOrderRequest { int64 id = 1; }

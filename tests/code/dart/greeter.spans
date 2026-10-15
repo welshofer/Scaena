@@ -1,0 +1,188 @@
+keyword     «import »
+string      «'dart:async'»
+punctuation «;\n»
+keyword     «import »
+string      «'package:flutter/material.dart'»
+punctuation «;\n\n»
+comment     «/// A greeting that counts.\n»
+keyword     «class »
+type        «Greeter »
+keyword     «extends »
+type        «StatefulWidget »
+punctuation «{\n  »
+keyword     «const »
+type        «Greeter»
+punctuation «({»
+variable    «super»
+punctuation «.»
+property    «key»
+punctuation «, »
+keyword     «required »
+variable    «this»
+punctuation «.»
+property    «name»
+punctuation «});\n\n  »
+keyword     «final »
+type        «String »
+plain       «name»
+punctuation «;\n\n  »
+attribute   «@override\n  »
+type        «State»
+operator    «<»
+type        «Greeter»
+operator    «> »
+function    «createState»
+punctuation «() »
+operator    «=> »
+type        «_GreeterState»
+punctuation «();\n}\n\n»
+keyword     «class »
+type        «_GreeterState »
+keyword     «extends »
+type        «State»
+operator    «<»
+type        «Greeter»
+operator    «> »
+punctuation «{\n  »
+type        «int »
+plain       «_count »
+operator    «= »
+number      «0»
+punctuation «;\n  »
+keyword     «late final »
+type        «Timer »
+plain       «_timer»
+punctuation «;\n\n  »
+attribute   «@override\n  »
+type        «void »
+function    «initState»
+punctuation «() {\n    »
+variable    «super»
+punctuation «.»
+function    «initState»
+punctuation «();\n    »
+plain       «_timer »
+operator    «= »
+type        «Timer»
+punctuation «.»
+function    «periodic»
+punctuation «(»
+keyword     «const »
+type        «Duration»
+punctuation «(»
+plain       «seconds»
+punctuation «: »
+number      «1»
+punctuation «), (»
+plain       «_»
+punctuation «) »
+operator    «=> »
+function    «setState»
+punctuation «(() »
+operator    «=> »
+plain       «_count»
+operator    «++»
+punctuation «));\n  }\n\n  »
+attribute   «@override\n  »
+type        «Widget »
+function    «build»
+punctuation «(»
+type        «BuildContext »
+plain       «context»
+punctuation «) {\n    »
+keyword     «final »
+plain       «greeting »
+operator    «= »
+string      «'Hello, »
+punctuation «${»
+plain       «widget»
+punctuation «.»
+property    «name»
+punctuation «}»
+string      «! Seen »
+variable    «$_count»
+string      « times.'»
+punctuation «;\n    »
+keyword     «return »
+type        «Text»
+punctuation «(»
+plain       «greeting»
+punctuation «, »
+plain       «style»
+punctuation «: »
+keyword     «const »
+type        «TextStyle»
+punctuation «(»
+plain       «fontSize»
+punctuation «: »
+number      «24.0»
+punctuation «));\n  }\n}\n\n»
+keyword     «enum »
+type        «Mood »
+punctuation «{ »
+plain       «happy»
+punctuation «, »
+plain       «sad »
+punctuation «}\n\n»
+keyword     «mixin »
+type        «Logging »
+punctuation «{\n  »
+type        «void »
+function    «log»
+punctuation «(»
+type        «String »
+plain       «message»
+punctuation «) »
+operator    «=> »
+function    «print»
+punctuation «(»
+string      «'[log] »
+variable    «$message»
+string      «'»
+punctuation «);\n}\n\n»
+type        «Future»
+operator    «<»
+type        «void»
+operator    «> »
+function    «main»
+punctuation «() »
+keyword     «async »
+punctuation «{\n  »
+keyword     «final »
+plain       «raw »
+operator    «= »
+string      «r'C:\\path\\no $interpolation'»
+punctuation «;\n  »
+keyword     «final »
+plain       «multi »
+operator    «= »
+string      «'''\nLine one\nLine »
+punctuation «${»
+number      «1 »
+operator    «+ »
+number      «1»
+punctuation «}»
+string      «\n'''»
+punctuation «;\n  »
+function    «print»
+punctuation «(»
+plain       «raw »
+operator    «+ »
+plain       «multi»
+punctuation «);\n  »
+type        «dynamic »
+plain       «value »
+operator    «= »
+constant    «null»
+punctuation «;\n  »
+keyword     «await »
+type        «Future»
+punctuation «.»
+function    «delayed»
+punctuation «(»
+type        «Duration»
+punctuation «(»
+plain       «milliseconds»
+punctuation «: »
+number      «0x10»
+punctuation «));\n}\n»

@@ -1,0 +1,195 @@
+keyword     «const »
+plain       «std »
+operator    «= »
+function    «@import»
+punctuation «(»
+string      «"std"»
+punctuation «);\n»
+keyword     «const »
+type        «Allocator »
+operator    «= »
+plain       «std»
+punctuation «.»
+property    «mem»
+punctuation «.»
+type        «Allocator»
+punctuation «;\n\n»
+comment     «/// A stack of items, grown as needed.\n»
+keyword     «pub fn »
+function    «Stack»
+punctuation «(»
+keyword     «comptime »
+type        «T»
+punctuation «: »
+type        «type»
+punctuation «) »
+type        «type »
+punctuation «{\n    »
+keyword     «return struct »
+punctuation «{\n        »
+plain       «items»
+punctuation «: »
+plain       «std»
+punctuation «.»
+type        «ArrayList»
+punctuation «(»
+type        «T»
+punctuation «),\n\n        »
+keyword     «const »
+type        «Self »
+operator    «= »
+function    «@This»
+punctuation «();\n\n        »
+keyword     «pub fn »
+function    «init»
+punctuation «(»
+plain       «allocator»
+punctuation «: »
+type        «Allocator»
+punctuation «) »
+type        «Self »
+punctuation «{\n            »
+keyword     «return »
+punctuation «.{ .»
+property    «items »
+operator    «= »
+plain       «std»
+punctuation «.»
+type        «ArrayList»
+punctuation «(»
+type        «T»
+punctuation «).»
+function    «init»
+punctuation «(»
+plain       «allocator»
+punctuation «) };\n        }\n\n        »
+keyword     «pub fn »
+function    «push»
+punctuation «(»
+plain       «self»
+punctuation «: »
+operator    «*»
+type        «Self»
+punctuation «, »
+plain       «item»
+punctuation «: »
+type        «T»
+punctuation «) »
+operator    «!»
+type        «void »
+punctuation «{\n            »
+keyword     «try »
+plain       «self»
+punctuation «.»
+property    «items»
+punctuation «.»
+function    «append»
+punctuation «(»
+plain       «item»
+punctuation «);\n        }\n\n        »
+keyword     «pub fn »
+function    «pop»
+punctuation «(»
+plain       «self»
+punctuation «: »
+operator    «*»
+type        «Self»
+punctuation «) »
+operator    «?»
+type        «T »
+punctuation «{\n            »
+keyword     «return »
+plain       «self»
+punctuation «.»
+property    «items»
+punctuation «.»
+function    «popOrNull»
+punctuation «();\n        }\n    };\n}\n\n»
+keyword     «const »
+plain       «banner »
+operator    «=\n    »
+string      «\\\\Zig's multiline strings\n    \\\\keep "quotes" as written\n»
+punctuation «;\n\n»
+keyword     «test »
+string      «"stack pushes and pops" »
+punctuation «{\n    »
+keyword     «var »
+plain       «stack »
+operator    «= »
+type        «Stack»
+punctuation «(»
+type        «u32»
+punctuation «).»
+function    «init»
+punctuation «(»
+plain       «std»
+punctuation «.»
+property    «testing»
+punctuation «.»
+property    «allocator»
+punctuation «);\n    »
+keyword     «defer »
+plain       «stack»
+punctuation «.»
+property    «items»
+punctuation «.»
+function    «deinit»
+punctuation «();\n    »
+keyword     «try »
+plain       «stack»
+punctuation «.»
+function    «push»
+punctuation «(»
+number      «0xFF»
+punctuation «);\n    »
+keyword     «const »
+plain       «top »
+operator    «= »
+plain       «stack»
+punctuation «.»
+function    «pop»
+punctuation «() »
+keyword     «orelse unreachable»
+punctuation «;\n    »
+keyword     «try »
+plain       «std»
+punctuation «.»
+property    «testing»
+punctuation «.»
+function    «expectEqual»
+punctuation «(»
+function    «@as»
+punctuation «(»
+type        «u32»
+punctuation «, »
+number      «255»
+punctuation «), »
+plain       «top»
+punctuation «);\n    »
+keyword     «const »
+plain       «c»
+punctuation «: »
+type        «u8 »
+operator    «= »
+string      «'z'»
+punctuation «;\n    »
+plain       «_ »
+operator    «= »
+plain       «c»
+punctuation «;\n    »
+plain       «_ »
+operator    «= »
+plain       «banner»
+punctuation «;\n    »
+keyword     «var »
+plain       «x»
+punctuation «: »
+operator    «?»
+type        «i32 »
+operator    «= »
+constant    «null»
+punctuation «;\n    »
+plain       «x »
+operator    «= »
+constant    «undefined»
+punctuation «;\n}\n»

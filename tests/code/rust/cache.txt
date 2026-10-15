@@ -1,0 +1,58 @@
+//! A small cache with expiry.
+
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Entry<'a, T> {
+    value: T,
+    key: &'a str,
+    expires: Instant,
+}
+
+/// What can go wrong.
+#[derive(Debug)]
+pub enum CacheError {
+    Missing(String),
+    Expired { since: Duration },
+}
+
+pub struct Cache<'a, T> {
+    entries: HashMap<&'a str, Entry<'a, T>>,
+    ttl: Duration,
+}
+
+impl<'a, T: Clone> Cache<'a, T> {
+    pub const DEFAULT_TTL: Duration = Duration::from_secs(60);
+
+    pub fn new() -> Self {
+        Self { entries: HashMap::new(), ttl: Self::DEFAULT_TTL }
+    }
+
+    pub fn get(&self, key: &str) -> Result<T, CacheError> {
+        let entry = self.entries.get(key).ok_or_else(|| CacheError::Missing(key.to_string()))?;
+        if Instant::now() > entry.expires {
+            return Err(CacheError::Expired { since: entry.expires.elapsed() });
+        }
+        Ok(entry.value.clone())
+    }
+}
+
+async fn warm(cache: &mut Cache<'static, u64>) -> usize {
+    let raw = r#"{"key": "value"}"#;
+    let bytes = b"bytes\x00";
+    let c = 'x';
+    let newline = '\n';
+    let total: u64 = (1..=10).map(|n| n * 0x10 + 1_000).sum();
+    println!("{raw} {} {:?} {c}{newline}", total, bytes);
+    let words = "a b".split(' ').collect::<Vec<&str>>();
+    let second = ((1, 2), 3).0.1 + words.len();
+    'outer: for i in 0..3 {
+        if i == 2 { break 'outer; }
+    }
+    let r#type = fetch().await;
+    vec![1, 2, 3].len() + r#type
+}
+
+/* Block comments /* nest */ in Rust. */
+fn fetch() -> impl std::future::Future<Output = usize> { async { 0 } }

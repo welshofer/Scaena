@@ -1,0 +1,214 @@
+keyword     «import »
+punctuation «{ »
+plain       «useState »
+punctuation «} »
+keyword     «from »
+string      «'react'»
+punctuation «;\n\n»
+keyword     «export default function »
+function    «TodoList»
+punctuation «({ »
+plain       «initial »
+operator    «= »
+punctuation «[] }) {\n  »
+keyword     «const »
+punctuation «[»
+plain       «todos»
+punctuation «, »
+plain       «setTodos»
+punctuation «] »
+operator    «= »
+function    «useState»
+punctuation «(»
+plain       «initial»
+punctuation «);\n  »
+keyword     «const »
+punctuation «[»
+plain       «draft»
+punctuation «, »
+plain       «setDraft»
+punctuation «] »
+operator    «= »
+function    «useState»
+punctuation «(»
+string      «''»
+punctuation «);\n\n  »
+keyword     «const »
+plain       «add »
+operator    «= »
+punctuation «(»
+plain       «event»
+punctuation «) »
+operator    «=> »
+punctuation «{\n    »
+plain       «event»
+punctuation «.»
+function    «preventDefault»
+punctuation «();\n    »
+keyword     «if »
+punctuation «(»
+operator    «!»
+plain       «draft»
+punctuation «.»
+function    «trim»
+punctuation «()) »
+keyword     «return»
+punctuation «;\n    »
+function    «setTodos»
+punctuation «([...»
+plain       «todos»
+punctuation «, { »
+plain       «id»
+punctuation «: »
+type        «Date»
+punctuation «.»
+function    «now»
+punctuation «(), »
+plain       «text»
+punctuation «: »
+plain       «draft»
+punctuation «, »
+plain       «done»
+punctuation «: »
+constant    «false »
+punctuation «}]);\n    »
+function    «setDraft»
+punctuation «(»
+string      «''»
+punctuation «);\n  };\n\n  »
+keyword     «return »
+punctuation «(\n    <»
+tag         «form »
+attribute   «onSubmit»
+operator    «=»
+punctuation «{»
+plain       «add»
+punctuation «} »
+attribute   «className»
+operator    «=»
+string      «"todos"»
+punctuation «>»
+plain       «\n      »
+punctuation «<»
+tag         «h2»
+punctuation «>»
+plain       «Todo (»
+punctuation «{»
+plain       «todos»
+punctuation «.»
+property    «length»
+punctuation «}»
+plain       «), don't wait»
+punctuation «</»
+tag         «h2»
+punctuation «>»
+plain       «\n      »
+punctuation «<»
+tag         «ul»
+punctuation «>»
+plain       «\n        »
+punctuation «{»
+plain       «todos»
+punctuation «.»
+function    «map»
+punctuation «((»
+plain       «todo»
+punctuation «) »
+operator    «=> »
+punctuation «(\n          <»
+tag         «li »
+attribute   «key»
+operator    «=»
+punctuation «{»
+plain       «todo»
+punctuation «.»
+property    «id»
+punctuation «} »
+attribute   «data-done»
+operator    «=»
+punctuation «{»
+plain       «todo»
+punctuation «.»
+property    «done »
+operator    «? »
+string      «'yes' »
+punctuation «: »
+string      «'no'»
+punctuation «}>»
+plain       «\n            »
+punctuation «{»
+plain       «todo»
+punctuation «.»
+property    «done »
+operator    «? »
+punctuation «<»
+tag         «s»
+punctuation «>{»
+plain       «todo»
+punctuation «.»
+property    «text»
+punctuation «}</»
+tag         «s»
+punctuation «> : »
+plain       «todo»
+punctuation «.»
+property    «text»
+punctuation «}»
+plain       «\n          »
+punctuation «</»
+tag         «li»
+punctuation «>\n        ))}»
+plain       «\n      »
+punctuation «</»
+tag         «ul»
+punctuation «>»
+plain       «\n      »
+punctuation «<»
+tag         «input »
+attribute   «value»
+operator    «=»
+punctuation «{»
+plain       «draft»
+punctuation «} »
+attribute   «onChange»
+operator    «=»
+punctuation «{(»
+plain       «e»
+punctuation «) »
+operator    «=> »
+function    «setDraft»
+punctuation «(»
+plain       «e»
+punctuation «.»
+property    «target»
+punctuation «.»
+property    «value»
+punctuation «)} />»
+plain       «\n      »
+punctuation «{»
+comment     «/* a comment inside JSX */»
+punctuation «}»
+plain       «\n      »
+punctuation «<>»
+plain       «\n        »
+punctuation «<»
+tag         «Button.Primary »
+attribute   «disabled»
+operator    «=»
+punctuation «{»
+plain       «todos»
+punctuation «.»
+property    «length »
+operator    «> »
+number      «10»
+punctuation «}>»
+plain       «Add»
+punctuation «</»
+tag         «Button.Primary»
+punctuation «>»
+plain       «\n      »
+punctuation «</>»
+plain       «\n    »
+punctuation «</»
+tag         «form»
+punctuation «>\n  );\n}\n»

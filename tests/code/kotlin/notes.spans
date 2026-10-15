@@ -1,0 +1,260 @@
+keyword     «package »
+plain       «com»
+punctuation «.»
+property    «example»
+punctuation «.»
+property    «notes\n\n»
+keyword     «import »
+plain       «kotlinx»
+punctuation «.»
+property    «coroutines»
+punctuation «.»
+property    «delay\n\n»
+comment     «/** A note with its tags. */\n»
+keyword     «data class »
+type        «Note»
+punctuation «(»
+keyword     «val »
+plain       «id»
+punctuation «: »
+type        «Long»
+punctuation «, »
+keyword     «val »
+plain       «title»
+punctuation «: »
+type        «String»
+punctuation «, »
+keyword     «val »
+plain       «tags»
+punctuation «: »
+type        «List»
+operator    «<»
+type        «String»
+operator    «> = »
+function    «emptyList»
+punctuation «())\n\n»
+keyword     «sealed interface »
+type        «Result»
+operator    «<»
+keyword     «out »
+type        «T»
+operator    «> »
+punctuation «{\n    »
+keyword     «data class »
+type        «Ok»
+operator    «<»
+type        «T»
+operator    «>»
+punctuation «(»
+keyword     «val »
+plain       «value»
+punctuation «: »
+type        «T»
+punctuation «) : »
+type        «Result»
+operator    «<»
+type        «T»
+operator    «>\n    »
+keyword     «data class »
+type        «Failed»
+punctuation «(»
+keyword     «val »
+plain       «reason»
+punctuation «: »
+type        «String»
+punctuation «) : »
+type        «Result»
+operator    «<»
+type        «Nothing»
+operator    «>\n»
+punctuation «}\n\n»
+keyword     «object »
+type        «Notes »
+punctuation «{\n    »
+keyword     «private const val »
+constant    «MAX_TITLE »
+operator    «= »
+number      «80\n    »
+keyword     «private val »
+plain       «store »
+operator    «= »
+function    «mutableMapOf»
+operator    «<»
+type        «Long»
+punctuation «, »
+type        «Note»
+operator    «>»
+punctuation «()\n\n    »
+keyword     «suspend fun »
+function    «save»
+punctuation «(»
+plain       «note»
+punctuation «: »
+type        «Note»
+punctuation «): »
+type        «Result»
+operator    «<»
+type        «Note»
+operator    «> »
+punctuation «{\n        »
+keyword     «if »
+punctuation «(»
+plain       «note»
+punctuation «.»
+property    «title»
+punctuation «.»
+property    «length »
+operator    «> »
+constant    «MAX_TITLE»
+punctuation «) »
+keyword     «return »
+type        «Result»
+punctuation «.»
+type        «Failed»
+punctuation «(»
+string      «"title too long: »
+punctuation «${»
+plain       «note»
+punctuation «.»
+property    «title»
+punctuation «.»
+property    «length»
+punctuation «}»
+string      «"»
+punctuation «)\n        »
+function    «delay»
+punctuation «(»
+number      «10L»
+punctuation «)\n        »
+plain       «store»
+punctuation «[»
+plain       «note»
+punctuation «.»
+property    «id»
+punctuation «] »
+operator    «= »
+plain       «note\n        »
+keyword     «return »
+type        «Result»
+punctuation «.»
+type        «Ok»
+punctuation «(»
+plain       «note»
+punctuation «)\n    }\n\n    »
+keyword     «fun »
+function    «find»
+punctuation «(»
+plain       «tag»
+punctuation «: »
+type        «String»
+punctuation «) »
+operator    «= »
+plain       «store»
+punctuation «.»
+property    «values»
+punctuation «.»
+function    «filter »
+punctuation «{ »
+plain       «tag »
+keyword     «in »
+variable    «it»
+punctuation «.»
+property    «tags »
+punctuation «}.»
+function    «sortedBy »
+punctuation «{ »
+variable    «it»
+punctuation «.»
+property    «title »
+punctuation «}\n}\n\n»
+keyword     «fun »
+type        «String»
+punctuation «.»
+function    «shout»
+punctuation «(): »
+type        «String »
+operator    «= »
+function    «uppercase»
+punctuation «() »
+operator    «+ »
+string      «"!"\n\n»
+keyword     «fun »
+function    «main»
+punctuation «() {\n    »
+keyword     «val »
+plain       «note »
+operator    «= »
+type        «Note»
+punctuation «(»
+number      «1»
+punctuation «, »
+string      «"Groceries"»
+punctuation «, »
+function    «listOf»
+punctuation «(»
+string      «"home"»
+punctuation «))\n    »
+keyword     «val »
+plain       «message »
+operator    «= »
+keyword     «when »
+punctuation «(»
+keyword     «val »
+plain       «r »
+operator    «= »
+function    «runCatching »
+punctuation «{ »
+plain       «note»
+punctuation «.»
+property    «title»
+punctuation «.»
+function    «shout»
+punctuation «() }.»
+function    «getOrNull»
+punctuation «()) {\n        »
+constant    «null »
+operator    «-> »
+string      «"nothing"\n        »
+keyword     «else »
+operator    «-> »
+string      «"Saved »
+variable    «$r»
+string      « with »
+punctuation «${»
+plain       «note»
+punctuation «.»
+property    «tags»
+punctuation «.»
+property    «size»
+punctuation «}»
+string      « tags"\n    »
+punctuation «}\n    »
+keyword     «val »
+plain       «raw »
+operator    «= »
+string      «"""\n        Raw »
+variable    «$message»
+string      «, \\n stays\n    """»
+punctuation «.»
+function    «trimIndent»
+punctuation «()\n    »
+keyword     «val »
+plain       «c »
+operator    «= »
+string      «'\\u0041'\n    »
+keyword     «val »
+plain       «`in` »
+operator    «= »
+number      «0xFF »
+plain       «and »
+number      «0b1010\n    »
+function    «println»
+punctuation «(»
+plain       «message »
+operator    «+ »
+plain       «raw »
+operator    «+ »
+plain       «c »
+operator    «+ »
+plain       «`in`»
+punctuation «)\n}\n»
