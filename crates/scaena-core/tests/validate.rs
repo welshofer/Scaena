@@ -496,7 +496,7 @@ fn a_deck_that_is_not_json_is_an_error_not_a_finding() {
 fn e103_two_rows_one_mark() {
     // A mark is known by its key, else its category, with its series beside it.
     let deck = serde_json::json!({
-        "scaena": "0.28",
+        "scaena": "0.29",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -540,7 +540,7 @@ fn what_marks_a_row_projected_is_a_column_that_can_hold_it() {
     let props: serde_json::Map<String, serde_json::Value> =
         nodes.keys().map(|k| (k.clone(), serde_json::json!({}))).collect();
     let deck = serde_json::json!({
-        "scaena": "0.28",
+        "scaena": "0.29",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -578,7 +578,7 @@ fn only_a_bar_charts_bars_turn() {
         c
     };
     let deck = serde_json::json!({
-        "scaena": "0.28",
+        "scaena": "0.29",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -604,7 +604,7 @@ fn a_slope_compares_two_states_and_a_range_spans_something() {
     // range's, each end a column of numbers (E106, E103); a range with no series, color, or
     // interval spans nothing (E106).
     let deck = serde_json::json!({
-        "scaena": "0.28",
+        "scaena": "0.29",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -652,7 +652,7 @@ fn small_multiples_facet_by_a_field_of_their_data() {
             "y": { "field": "v" }, "facet": facet, "alt": "", "at": { "in": "main" } })
     };
     let deck = serde_json::json!({
-        "scaena": "0.28",
+        "scaena": "0.29",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -769,7 +769,7 @@ fn a_code_text_takes_none_of_what_code_does_not_use() {
         node
     };
     let deck = serde_json::json!({
-        "scaena": "0.28",
+        "scaena": "0.29",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -844,4 +844,49 @@ fn a_wrap_of_none_validates_and_an_unknown_wrap_is_e106() {
     assert_eq!(findings(&deck.to_string()), Vec::<String>::new());
     deck["nodes"][&id]["wrap"] = serde_json::json!("verse");
     assert_eq!(findings(&deck.to_string()), vec![format!("E106 /nodes/{id}/wrap")]);
+}
+
+/// A fetched picture (ADR-0030): its record, its pin, and where its credit goes round-trip through
+/// the model and the schema; a service this build does not know, an `at` that is no instant, and an
+/// empty credit where the service asks one are E106, and a pin's color the theme lacks is E102.
+#[test]
+fn a_fetched_picture_validates_and_says_what_is_wrong_with_its_record() {
+    let deck = |fetched: serde_json::Value, pin: serde_json::Value| {
+        serde_json::json!({
+            "scaena": scaena_core::FORMAT_VERSION, "canvas": { "width": 1920, "height": 1080 }, "theme": "theme.json",
+            "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
+            "nodes": { "map": { "type": "image", "src": "assets/photo.png", "at": { "in": "main" }, "alt": "A map.",
+                                "fetched": fetched, "pin": pin, "credit": "below" } },
+            "states": [{ "id": "a", "layout": "full", "props": { "map": {} } }]
+        })
+        .to_string()
+    };
+    let record = serde_json::json!({
+        "from": "geoapify", "at": "2026-10-15T20:12:44Z", "asked": "Ferry Building",
+        "credit": [{ "text": "© OpenStreetMap contributors", "link": "https://www.openstreetmap.org/copyright" }],
+        "license": "ODbL-1.0",
+        "map": { "place": { "name": "Ferry Building", "lat": 37.7955, "lon": -122.3937 },
+                 "center": { "lat": 37.7955, "lon": -122.3937 }, "zoom": 15, "style": "positron", "size": [800, 450], "scale": 2 }
+    });
+    let pin = serde_json::json!({ "at": [0.5, 0.5], "label": "Ferry Building", "color": "accent" });
+    let good = deck(record.clone(), pin.clone());
+    assert_eq!(findings(&good), Vec::<String>::new());
+    let parsed = scaena_core::Deck::from_json(&good).unwrap();
+    let back: serde_json::Value = serde_json::from_str(&parsed.to_json().unwrap()).unwrap();
+    let node = &back["nodes"]["map"];
+    assert_eq!((&node["fetched"], &node["pin"], &node["credit"]), (&record, &pin, &serde_json::json!("below")));
+
+    let mut bad = record.clone();
+    bad["from"] = "mapquest".into();
+    bad["at"] = "yesterday".into();
+    assert_eq!(findings(&deck(bad, pin.clone())), ["E106 /nodes/map/fetched/at", "E106 /nodes/map/fetched/from"]);
+    let mut silent = record.clone();
+    silent["credit"] = serde_json::json!([]);
+    assert_eq!(findings(&deck(silent, pin)), ["E106 /nodes/map/fetched/credit"]);
+    let unknown = serde_json::json!({ "at": [0.5, 0.5], "color": "chartreuse" });
+    assert_eq!(findings(&deck(record.clone(), unknown)), ["E102 /nodes/map/pin/color"]);
+    // A key has no field to go in.
+    let mut keyed = record;
+    keyed["apiKey"] = "secret".into();
+    assert_eq!(findings(&deck(keyed, serde_json::json!({ "at": [0.5, 0.5] }))), ["E106 /nodes/map/fetched/apiKey"]);
 }

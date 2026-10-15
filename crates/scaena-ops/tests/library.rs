@@ -33,11 +33,15 @@ fn an_older_copy_takes_the_library_and_draws_as_it_did() {
     for (key, layout) in theme["layouts"].as_object().unwrap() {
         assert!(layout["name"].is_string() && layout["group"].is_string(), "{key} has a name and a section");
     }
-    // The role a number is set in, which the copy lacked; nothing else of its type changes.
-    assert_eq!(brought.roles, ["hero"]);
-    assert_eq!(theme["type"]["roles"]["hero"], shipped["type"]["roles"]["hero"]);
+    // The roles a haiku and a number are set in, which the copy lacked (PLAN O.4c); nothing else
+    // of its type changes.
+    assert_eq!(brought.roles, ["hero", "verse"]);
+    for role in ["verse", "hero"] {
+        assert_eq!(theme["type"]["roles"][role], shipped["type"]["roles"][role], "{role}");
+    }
     let mut roles = theme["type"]["roles"].clone();
     roles.as_object_mut().unwrap().remove("hero");
+    roles.as_object_mut().unwrap().remove("verse");
     assert_eq!(roles, older["type"]["roles"]);
     assert_eq!(theme["type"]["families"], older["type"]["families"]);
 
@@ -124,7 +128,7 @@ fn the_copy_keeps_its_own_and_takes_only_what_it_can_draw() {
     // `hero` in a family the copy does not have: no layout that sets a number in it.
     shipped["type"]["roles"]["hero"]["family"] = json!("nonesuch");
     let (theme, brought) = library(&older, &shipped).unwrap();
-    assert!(brought.roles.is_empty() && theme["type"]["roles"].get("hero").is_none());
+    assert!(brought.roles == ["verse"] && theme["type"]["roles"].get("hero").is_none(), "{:?}", brought.roles);
     let sets_hero = |layout: &Value| layout["slots"].as_object().unwrap().values().any(|s| s["role"] == "hero");
     assert!(brought.added.iter().all(|k| !sets_hero(&theme["layouts"][k])), "{:?}", brought.added);
     assert!(

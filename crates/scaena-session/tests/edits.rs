@@ -94,6 +94,13 @@ fn bundles(all: bool) -> Vec<Bundle> {
     for &name in examples_named {
         add(name, &examples.join(format!("{name}.deck.json")), shared.clone(), &examples);
     }
+    // A deck with a map (ADR-0030): the revenue example with the torture deck's map card on its
+    // first slide, fetched, pinned, and credited.
+    let mut files = shared.clone();
+    let card = std::fs::read(root.join("tests/fixtures/torture.scaena/assets/map-card.png")).unwrap();
+    files.push(("assets/map-card.png".into(), card));
+    add("map", &examples.join("revenue.deck.json"), files, &examples);
+
     let bundles_named: &[&'static str] = if all {
         &["tests/bench/b1.scaena", "tests/bench/b2.scaena", "tests/bench/b3.scaena", "tests/fixtures/torture.scaena"]
     } else {
@@ -106,6 +113,20 @@ fn bundles(all: bool) -> Vec<Bundle> {
         files.retain(|(path, _)| path != "deck.json" && path != "README.md");
         add(dir.rsplit('/').next().unwrap(), &dir_path.join("deck.json"), files, &dir_path);
     }
+    let map = out.iter_mut().find(|b| b.name == "map").unwrap();
+    map.deck["nodes"]["map"] = json!({
+        "type": "image", "src": "assets/map-card.png", "at": { "in": "canvas" },
+        "fetched": {
+            "from": "geoapify", "at": "2026-10-15T20:12:44Z", "asked": "Ferry Building",
+            "credit": [{ "text": "© OpenStreetMap contributors", "link": "https://www.openstreetmap.org/copyright" },
+                       { "text": " · Powered by Geoapify", "link": "https://www.geoapify.com/" }],
+            "map": { "place": { "name": "Ferry Building", "lat": 37.7955, "lon": -122.3937 },
+                     "center": { "lat": 37.7955, "lon": -122.3937 }, "zoom": 15, "style": "positron",
+                     "size": [800, 450], "scale": 2 }
+        },
+        "pin": { "at": [0.5, 0.5], "label": "Ferry Building" }
+    });
+    map.deck["states"][0]["props"]["map"] = json!({});
     out
 }
 

@@ -154,3 +154,26 @@ fn a_lists_points_are_set_larger_than_the_body() {
         }
     }
 }
+
+/// A slide started in the Haiku layout (PLAN O.4c) holds its prompt's own 5-7-5, centered in the
+/// theme's verse role, and lint finds nothing in it, in every theme.
+#[test]
+fn a_haiku_slide_counts_5_7_5_in_every_theme() {
+    for (name, theme) in SHIPPED {
+        let b = scaena_ops::open(&made(&format!("haiku-{name}"), theme)).unwrap();
+        let t = scaena_ops::theme(&b).unwrap();
+        let first = b.deck.states[0].id.clone();
+        let started = starting(&b.deck, &t, &first, Some("haiku")).unwrap();
+        let poem = started.patch.iter().find(|op| op["op"] == "add_node" && op["node"]["at"]["in"] == "poem").unwrap();
+        assert_eq!(poem["node"]["role"], "verse", "{name}");
+        let text = poem["node"]["text"].as_str().unwrap();
+        let checked = scaena_core::verse::check(text, "en");
+        assert_eq!(checked.kept, scaena_core::verse::Kept::Kept, "{name}: {checked:?}");
+        let layout = &t.layouts["haiku"];
+        assert_eq!(layout.name.as_deref(), Some("Haiku"));
+        assert_eq!(layout.group.as_deref(), Some("Statements"));
+        let order: Vec<&String> = t.layouts.keys().collect();
+        let at = |k: &str| order.iter().position(|o| *o == k).unwrap();
+        assert_eq!(at("haiku"), at("key-point") + 1, "{name}: after Key Point");
+    }
+}

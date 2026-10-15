@@ -202,6 +202,13 @@ def check(deck: dict, theme: dict) -> bool:
 
     texts = []  # (node id, text, role)
     for nid, node in deck["nodes"].items():
+        # A picture's pin label and credit, which the engine sets in `label` and `caption` (ADR-0030).
+        if node["type"] == "image":
+            label = node.get("pin", {}).get("label")
+            if label:
+                texts.append((nid, label, "label"))
+            texts += [(nid, run["text"], "caption") for run in node.get("fetched", {}).get("credit", [])]
+            continue
         if node["type"] != "text":
             continue
         if "runs" in node:
@@ -232,6 +239,8 @@ def check(deck: dict, theme: dict) -> bool:
                 used.setdefault(nid, set()).add(fam)
     for nid, fams in used.items():
         node = deck["nodes"][nid]
+        if node["type"] == "image":
+            continue
         expected = EXPECTED_FAMILIES.get(nid) or {roles[r]["family"] for r in [node["role"]] + [run.get("role", node["role"]) for run in node.get("runs", [])]}
         if fams != expected:
             ok = False

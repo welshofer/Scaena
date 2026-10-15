@@ -379,6 +379,7 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `big-question` | `kicker`, `question`, `support` | Big Question, in Statements |
 | `manifesto` | `kicker`, `header`, `body` | Manifesto, in Statements |
 | `key-point` | `kicker`, `card`, `point`, `follow` | Key Point, in Statements |
+| `haiku` | `poem`, `rule`, `attribution` | Haiku, in Statements: the poem in `verse`, shrunk to fit, a short rule, and who wrote it or what it is on, which waits empty |
 | `bullets` | `kicker`, `header`, `body` | Bullets, in Lists |
 | `numbered` | `kicker`, `header`, `body` | Numbered List, in Lists |
 | `agenda` | `kicker`, `header`, `body` | Agenda, in Lists |
@@ -618,6 +619,8 @@ state rank layout:figure
     }
     """
 ```
+
+**A map.** A map is a picture a service drew, fetched once into the bundle when it is made, and an image that says so: its `fetched` record names the service, when its answer came, what was asked, and the credit its terms ask shown with it, as runs with their links (`fetched:{from: geoapify, at: "2026-10-15T20:12:44Z", asked: "Ferry Building", credit: […]}`). The engine draws that credit with the picture, in the theme's caption role and never under 12 pt, on a card in its bottom-left corner, or under it with `credit:below`; no deck or theme can hide it, and W314 says where it cannot be read. `pin:{at: [0.5, 0.5], label: "Ferry Building"}` puts Phosphor's map pin on the point of the picture `at` names, in fractions of the whole image as `crop` is, in the accent unless its `color` names another of the theme's, its label on a card beside it. Any image may take a pin. A map with no `alt` reads as the map of its place (SPEC §3.3).
 
 For tables, stats, rows of cards, other chart kinds, and shader backgrounds, see SPEC §3.3 and the trails example.
 

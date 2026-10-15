@@ -1,5 +1,5 @@
 {
-  "scaena": "0.29",
+  "scaena": "0.30",
   "meta": {
     "title": "B2: six charts, each updated",
     "lang": "en-US",
@@ -58,8 +58,8 @@
       }
     },
     {
-      "family": "Source Serif 4",
-      "file": "fonts/SourceSerif4-VF.ttf",
+      "family": "Bench Serif",
+      "file": "fonts/BenchSerif-VF.ttf",
       "axes": {
         "wght": [
           200,

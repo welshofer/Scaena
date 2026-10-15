@@ -457,6 +457,18 @@ node! {
         /// adjusts a picture.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub adjust: Option<ImageAdjust>,
+        /// Where the picture came from (ADR-0030, deck format 0.29): a map fetched once from a
+        /// service, with when, what was asked, and the credit its terms ask shown with it, which
+        /// the engine draws.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub fetched: Option<crate::fetched::Fetched>,
+        /// A pin the engine draws on the picture (ADR-0030, decision 13), with its label.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub pin: Option<crate::fetched::Pin>,
+        /// Where its `fetched` credit is drawn: on a card inside the picture (the default), or
+        /// as a line below it inside the box.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub credit: Option<crate::fetched::CreditPlace>,
     }
 }
 
