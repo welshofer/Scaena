@@ -110,6 +110,7 @@ const RULES: [(&str, &[&str]); 42] = [
     ("I400", &["/states/1"]),
     ("I401", &["/nodes/ghost"]),
     ("I402", &["/overrides/t"]),
+    ("I404", &["/nodes/poem"]),
 ];
 
 #[test]

@@ -36,5 +36,7 @@ sha2.workspace = true
 skrifa.workspace = true
 
 [dev-dependencies]
+# The syllable table compiled in (PLAN O.4a).
+scaena-core = { workspace = true, features = ["syllables"] }
 # What `hyphen` walks as: every language breaks every word where it does.
 hypher.workspace = true

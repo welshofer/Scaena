@@ -99,7 +99,7 @@ pub struct Located {
     /// What it finds, in a sentence a person would say (PLAN 2.99, `scaena_core::words::issue`),
     /// its fix as a button names it, and whether an editor marks it on its object.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub said: Option<&'static str>,
+    pub said: Option<String>,
     pub fixing: &'static str,
     pub marked: bool,
 }
@@ -107,7 +107,7 @@ pub struct Located {
 impl Located {
     /// `finding`, at `at`, holding in `formats`: worded as an editor shows it.
     fn new(finding: Finding, at: Option<Place>, fixable: bool, shown: bool, formats: Vec<String>) -> Located {
-        let said = scaena_core::words::issue(&finding.code);
+        let said = scaena_core::words::said(&finding.code, finding.measure.as_ref());
         let fixing = scaena_core::words::fixing(&finding.code);
         let marked = scaena_core::words::marked(&finding.code);
         Located { finding, at, fixable, shown, formats, said, fixing, marked }

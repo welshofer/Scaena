@@ -32,3 +32,5 @@ gpu = ["scaena-paint/gpu"]
 [dev-dependencies]
 # Its hyphenation patterns, which the tests' decks hyphenate by (ADR-0015).
 scaena-engine = { workspace = true, features = ["hyphenation"] }
+# The syllable table compiled in (PLAN O.4a).
+scaena-core = { workspace = true, features = ["syllables"] }
