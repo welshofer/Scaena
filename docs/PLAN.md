@@ -2276,7 +2276,8 @@ What each must keep, whatever its batch:
     - `scaena theme --sheet THEME --out FILE` draws every layout of a theme, started as Add Slide starts it with its examples, on one PNG by its sections. With `--sheet`, the `theme` command's bundle and `--apply` become optional.
     - **Drift.** It prints each start's display-list digest, kept in `tests/golden/themes/<slug>.digests.json`. A test compares each start with them and writes the new digests to `tests/golden/themes/actual/` on a mismatch, and `just bless` writes them after the diff is reviewed, as the golden display lists are.
     - Tests: the sheet of Dusk; its digests the same on a second run; a changed layout caught as drift.
-- [ ] T.0f The bench bundles' Source Serif 4 under a name of its own (ADR-0031, decision 5). *Can go ahead now.*
+- [x] T.0f The bench bundles' Source Serif 4 under a name of its own (ADR-0031, decision 5).
+    - Done. B1 to B3 carry `fonts/BenchSerif-VF.ttf`, Source Serif 4's subset named Bench Serif in every name record but its copyright, trademark, and license (`build_bundle_fonts.py`'s `RENAMED`), and their theme and deck name the family so. `--check` fails a bundle font named by a word its copyright reserves.
     - The subset `build_bundle_fonts.py` makes for B1 to B3 keeps "Source Serif 4" as its name, which its copyright reserves ("with Reserved Font Name 'Source'"). The script renames it in its name records, to a name that uses no reserved word (call 5), and the bench themes name the family by its new name. It waits on no batch, and no batch waits on it.
     - Tests: `build_bundle_fonts.py --check`; the bench decks lint as before; `just bench`'s numbers recorded before and after.
 

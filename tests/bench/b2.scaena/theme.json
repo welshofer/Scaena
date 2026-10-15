@@ -130,8 +130,8 @@
         }
       },
       "text": {
-        "family": "Source Serif 4",
-        "file": "fonts/SourceSerif4-VF.ttf",
+        "family": "Bench Serif",
+        "file": "fonts/BenchSerif-VF.ttf",
         "axes": {
           "wght": [
             200,
