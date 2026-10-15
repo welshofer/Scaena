@@ -24,9 +24,9 @@ test-gpu:
     cargo test -p scaena-paint -p scaena-cli --features gpu --locked
 
 # Re-bless the generated schemas (PLAN 1.1) and the MCP tools' (PLAN 1.17), the code samples' spans
-# (PLAN 2.130), then the torture goldens: display lists first, then the rasters painted from them. Only
-# after reviewing the diffs in docs/schema/, tests/code/actual/, and tests/golden/**/actual/ (written by
-# a failing `just test`).
+# (PLAN 2.130), then the torture goldens: display lists first, then the rasters painted from them, and
+# each shipped theme's layout starts' digests (PLAN T.0e). Only after reviewing the diffs in docs/schema/,
+# tests/code/actual/, and tests/golden/**/actual/ (written by a failing `just test`).
 bless:
     SCAENA_BLESS=1 cargo test -p scaena-core --test schemas --locked
     SCAENA_BLESS=1 cargo test -p scaena-core --test code --locked
@@ -34,7 +34,8 @@ bless:
     SCAENA_BLESS=1 cargo test -p scaena-ffi --test header --locked
     SCAENA_BLESS=1 cargo test -p scaena-engine --test torture --locked
     SCAENA_BLESS=1 cargo test -p scaena-paint --test torture_rasters --locked
-    rm -rf tests/golden/torture/actual tests/code/actual
+    SCAENA_BLESS=1 cargo test -p scaena-cli --test sheet --locked
+    rm -rf tests/golden/torture/actual tests/code/actual tests/golden/themes/actual
 
 # The Mac's C ABI from C (PLAN 3.1): the static library built, a C program compiled against
 # `scaena.h` with every warning an error, linked with the system libraries rustc names, and run
