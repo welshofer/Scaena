@@ -2911,8 +2911,16 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (!shown) return editor.say(WAITING);
     if (DATA.test(file.name)) return attach(at, file);
     const readable = PICTURE.test(file.name) ? file : await asPng(file);
+    // A source file, words, pastes as words, its name saying what language it is in (PLAN 2.133).
+    if (!readable && file.size <= 1 << 20) {
+      const words = await file.text().catch(() => "");
+      if (words && !words.includes("\u0000") && !words.includes("\uFFFD")) {
+        pointed = at;
+        return pasting(words, { file: file.name });
+      }
+    }
     // An image shows a PNG or a JPEG: anything else stays out of the bundle.
-    if (!readable) return editor.say(`${file.name} is neither a picture (PNG, JPEG) nor data (CSV, JSON): nothing was added`);
+    if (!readable) return editor.say(`${file.name} is neither a picture (PNG, JPEG), data (CSV, JSON), nor words: nothing was added`);
     // One too large goes in as a smaller copy, made with nothing asked.
     const picture = await fitting(stage, readable, (words) => editor.say(words));
     if (!picture) return;
