@@ -170,8 +170,9 @@ struct LaunchHidden: UIViewRepresentable {
     func updateUIView(_ finder: Finder, context: Context) {}
 
     final class Finder: UIView {
-        /// What this deck hid, given back as it closes.
-        private let hidden = NSHashTable<UIView>.weakObjects()
+        /// The launch screen's buttons this deck took from VoiceOver, given back as it closes. Not
+        /// `hidden`, which is UIView's own `isHidden` to Objective-C.
+        private let taken = NSHashTable<UIView>.weakObjects()
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
@@ -194,7 +195,7 @@ struct LaunchHidden: UIViewRepresentable {
         }
 
         private func again() {
-            if window != nil, hidden.count == 0 { hide() }
+            if window != nil, taken.count == 0 { hide() }
         }
 
         /// Up from the deck's view, the first views beside it that read as the launch screen's
@@ -204,16 +205,16 @@ struct LaunchHidden: UIViewRepresentable {
             while let parent = view.superview {
                 for beside in parent.subviews where beside !== view && Self.reads(beside, depth: 0) {
                     beside.accessibilityElementsHidden = true
-                    hidden.add(beside)
+                    taken.add(beside)
                 }
-                if hidden.count > 0 { return }
+                if taken.count > 0 { return }
                 view = parent
             }
         }
 
         private func giveBack() {
-            for view in hidden.allObjects { view.accessibilityElementsHidden = false }
-            hidden.removeAllObjects()
+            for view in taken.allObjects { view.accessibilityElementsHidden = false }
+            taken.removeAllObjects()
         }
 
         /// Whether `object`, or what it holds a few levels down, is a button that reads as one of the
