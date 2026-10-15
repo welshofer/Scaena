@@ -22,6 +22,9 @@ targets += [(str(p.relative_to(root)), theme_schema) for p in sorted((root / 'do
 # The validation fixtures' clean decks and their theme (PLAN 1.2); the triggers break on purpose.
 targets += [(str(p.relative_to(root)), deck_schema) for p in sorted((root / 'tests/lint').glob('*/clean.deck.json'))]
 targets += [('tests/lint/theme.json', theme_schema), ('tests/lint/bundle/theme.json', theme_schema), ('tests/lint/bundle/one-weight.theme.json', theme_schema)]
+# The decks that read right to left (PLAN T.5a), which share one theme.
+targets += [(str(p.relative_to(root)), deck_schema) for p in sorted((root / 'tests/fixtures/rtl').glob('*.deck.json'))]
+targets += [('tests/fixtures/rtl/theme.json', theme_schema)]
 for bundle in sorted((root / 'tests/fixtures').glob('*.scaena')) + sorted((root / 'tests/bench').glob('*.scaena')):
     targets.append((str((bundle / 'deck.json').relative_to(root)), deck_schema))
     if (bundle / 'theme.json').exists():

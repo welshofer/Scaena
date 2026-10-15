@@ -45,6 +45,7 @@ pub mod choices;
 pub mod code;
 pub mod color;
 pub mod data;
+pub mod direction;
 pub mod displaylist;
 pub mod document;
 pub mod dsl;

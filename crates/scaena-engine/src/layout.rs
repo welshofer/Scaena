@@ -16,6 +16,11 @@ use scaena_core::model::theme::{Margin, Slot};
 use scaena_core::model::values::Range;
 use serde_json::Value;
 
+/// `rect` mirrored across a canvas `width` wide: as far from its right edge as it was from its left.
+pub fn mirror([x, y, w, h]: Rect, width: f32) -> Rect {
+    [width - x - w, y, w, h]
+}
+
 /// The theme grid resolved against the canvas, in canvas units.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Grid {
@@ -26,6 +31,9 @@ pub struct Grid {
     rows: Vec<(f32, f32)>,
     /// Its baseline grid, if the theme sets `grid.baseline`.
     pub baseline: Option<BaselineGrid>,
+    /// Whether its deck reads right to left (PLAN T.5a): its first column on the right. Its
+    /// cells are worked out left to right, and the boxes laid out in them mirrored after.
+    mirrored: bool,
 }
 
 /// A baseline grid's lines (SPEC §3.4): one every `pitch` canvas units, through the top
@@ -74,12 +82,33 @@ impl Grid {
             cols: tracks(left, canvas[0] - left - right, columns),
             rows: tracks(top, canvas[1] - top - bottom, rows),
             baseline: grid.baseline.map(|pitch| BaselineGrid { origin: top, pitch: pitch as f32 }),
+            mirrored: false,
         })
     }
 
-    /// The grid's columns, each `[start, end]`, left to right.
+    /// The grid of a deck that reads right to left when `on` (`scaena_core::direction`): its
+    /// columns counted from the right, and every box laid out on it mirrored (PLAN T.5a).
+    pub fn mirrored(mut self, on: bool) -> Grid {
+        self.mirrored = on;
+        self
+    }
+
+    /// Whether its deck reads right to left.
+    pub fn is_mirrored(&self) -> bool {
+        self.mirrored
+    }
+
+    /// `rect`, laid out on the grid left to right, where it stands: mirrored across the canvas
+    /// in a deck that reads right to left.
+    pub fn shown(&self, rect: Rect) -> Rect {
+        if self.mirrored { mirror(rect, self.canvas[0]) } else { rect }
+    }
+
+    /// The grid's columns, each `[start, end]` as it stands, first to last: left to right, or
+    /// right to left in a deck that reads so.
     pub fn columns(&self) -> Vec<[f32; 2]> {
-        self.cols.iter().map(|&(a, b)| [a, b]).collect()
+        let w = self.canvas[0];
+        self.cols.iter().map(|&(a, b)| if self.mirrored { [w - b, w - a] } else { [a, b] }).collect()
     }
 
     /// The grid's rows, each `[start, end]`, top to bottom.
