@@ -149,7 +149,7 @@ pub fn run(a: HaikuArgs, json: bool) -> Result<ExitCode> {
             let first = ask(&asking.prompt)?;
             let (poem, note) = match scaena_ops::haiku::answered(&about, &lang, first.clone(), None) {
                 Answered::Offer { poem, note } => (poem, note),
-                Answered::Again { prompt } => {
+                Answered::Again { prompt, .. } => {
                     match scaena_ops::haiku::answered(&about, &lang, first, Some(ask(&prompt)?)) {
                         Answered::Offer { poem, note } => (poem, note),
                         Answered::Again { .. } => unreachable!("two answers are offered"),
