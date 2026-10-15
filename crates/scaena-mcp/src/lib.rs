@@ -375,6 +375,10 @@ pub struct DeckLint {
     /// change of content), write the deck, and lint again.
     #[serde(default)]
     pub fix: bool,
+    /// The moment to judge dates at (W428: a forecast that has passed): an instant, as
+    /// 2026-10-15T20:00:00Z, or a day, as 2026-10-15. Without it, no date is judged.
+    #[serde(default)]
+    pub now: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -643,6 +647,14 @@ impl Scaena {
         };
         let author = author(&context);
         blocking(move || {
+            let now = match a.now.as_deref() {
+                Some(now) => Some(scaena_core::fetched::moment(now).ok_or_else(|| {
+                    OpsError::new(format!(
+                        "`now` `{now}` is not an instant or a day: write 2026-10-15T20:00:00Z or 2026-10-15"
+                    ))
+                })?),
+                None => None,
+            };
             let b = open_by(&a.bundle, author)?;
             let (findings, fixed, laid) = match a.fix {
                 true => {
@@ -650,7 +662,7 @@ impl Scaena {
                     (f.findings, Some(f.fixed), true)
                 }
                 false => {
-                    let l = scaena_ops::lint::lint(&b)?;
+                    let l = scaena_ops::lint::lint_at(&b, now)?;
                     (l.findings, None, l.laid)
                 }
             };

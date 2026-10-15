@@ -165,6 +165,10 @@ pub struct DataSource {
     pub schema: Option<IndexMap<String, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parse: Option<IndexMap<String, String>>,
+    /// Where its rows came from (ADR-0030, deck format 0.30): a forecast fetched once into the
+    /// deck, credited at the foot of each chart or table that reads it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fetched: Option<crate::fetched::Fetched>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

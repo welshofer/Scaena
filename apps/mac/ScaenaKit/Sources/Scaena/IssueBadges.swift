@@ -27,6 +27,7 @@ enum Issues {
         case "W314": "A credit here can't be read."
         case "W410": "The picture has no description for people who can't see it."
         case "W427": "A figure here no longer matches its data."
+        case "W428": "This forecast has passed."
         default: nil
         }
     }

@@ -51,7 +51,17 @@ pub struct Reading {
 pub fn readings(deck: &Deck, snap: &Snapshot) -> HashMap<String, Reading> {
     snap.nodes
         .iter()
-        .filter_map(|(id, props)| Some((id.clone(), reading(deck.nodes.get(id)?.node_type, props))))
+        .filter_map(|(id, props)| {
+            let t = deck.nodes.get(id)?.node_type;
+            let mut read = reading(t, props);
+            // A chart's or a table's data fetched from a service: its credit, read after it (ADR-0030).
+            if matches!(t, NodeType::Chart | NodeType::Table) && read.kind != Kind::Artifact {
+                read.credit = crate::fetched::reads(deck, props)
+                    .map(|runs| runs.into_iter().map(|r| (r.text, r.link.map(LinkTarget::Href))).collect())
+                    .unwrap_or_default();
+            }
+            Some((id.clone(), read))
+        })
         .collect()
 }
 
@@ -321,7 +331,9 @@ impl Reader<'_> {
 fn cells(ops: &[Op]) -> BTreeMap<(u32, u32), String> {
     let mut cells = BTreeMap::new();
     for op in ops {
-        if let Op::Layer { cell: Some([row, column]), ops, .. } = op {
+        if let Op::Layer { cell: Some(at @ [row, column]), ops, .. } = op
+            && *at != crate::fetched::FOOT_CELL
+        {
             cells.insert((*row, *column), drawn(ops));
         }
     }
@@ -659,5 +671,39 @@ mod tests {
         let parts = parts(&deck, &snaps[0], &list);
         let said: Vec<(&str, &str)> = parts.iter().map(|p| (p.role, p.text.as_str())).collect();
         assert_eq!(said, [("figure", "Map of Ferry Building"), ("paragraph", "© OpenStreetMap · Geoapify")]);
+    }
+
+    /// A table whose data was fetched (ADR-0030, PLAN O.2a) reads its rows, then the credit at its
+    /// foot as a paragraph: the place and the forecast's day there, then the service's credit.
+    #[test]
+    fn a_tables_fetched_data_reads_its_credit_after_it() {
+        let deck = Deck::from_json(
+            &json!({
+                "scaena": crate::FORMAT_VERSION, "canvas": { "width": 1920, "height": 1080 }, "theme": "theme.json",
+                "data": { "week": {
+                    "source": { "inline": [{ "date": "2026-10-15", "high": 17 }] },
+                    "fetched": {
+                        "from": "open-meteo", "at": "2026-10-15T13:00:00Z", "asked": "Boston",
+                        "credit": [{ "text": "Weather data by Open-Meteo.com", "link": "https://open-meteo.com/" }],
+                        "forecast": { "place": { "name": "Boston", "lat": 42.36, "lon": -71.06,
+                                                 "zone": "America/New_York", "offset": -14400 },
+                                      "period": "day", "units": "metric" }
+                    }
+                } },
+                "nodes": { "t": { "type": "table", "data": "@week" } },
+                "states": [{ "id": "one", "props": { "t": {} } }]
+            })
+            .to_string(),
+        )
+        .expect("a deck");
+        let snaps = crate::resolve_states(&deck).expect("snapshots");
+        let read = readings(&deck, &snaps[0]);
+        let credit: String = read["t"].credit.iter().map(|(w, _)| w.as_str()).collect();
+        assert_eq!(credit, "Boston · Oct 15, 2026 · Weather data by Open-Meteo.com");
+        let mut list = DisplayList::new([1920.0, 1080.0]);
+        list.ops = vec![layer(Some("t"), None, vec![layer(None, Some(crate::fetched::FOOT_CELL), vec![])])];
+        let parts = parts(&deck, &snaps[0], &list);
+        let said: Vec<&str> = parts.iter().map(|p| p.role).collect();
+        assert_eq!(said.last(), Some(&"paragraph"), "{parts:?}");
     }
 }

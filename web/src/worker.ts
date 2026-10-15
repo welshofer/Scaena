@@ -215,7 +215,8 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return post({ type: "edited", id: data.id, ...(await edit(data.source, data.index, data.format)) });
       case "lint": {
         const start = performance.now();
-        const linted = JSON.parse(player.lint(undefined)) as { findings: Finding[]; laid: boolean; whole: boolean };
+        const now = Math.floor(Date.now() / 1000);
+        const linted = JSON.parse(player.lint(undefined, now)) as { findings: Finding[]; laid: boolean; whole: boolean };
         return post({ type: "linted", id: data.id, ...linted, ms: performance.now() - start });
       }
       case "fix":
@@ -1347,7 +1348,7 @@ async function edit(source: string, index: number, at: string | undefined, read?
   // The state shown, laid out alone: the rest waits for typing to stop.
   const linted = compiled.error
     ? undefined
-    : (JSON.parse(player.lint(shown)) as { findings: Finding[]; laid: boolean; whole: boolean });
+    : (JSON.parse(player.lint(shown, Math.floor(Date.now() / 1000))) as { findings: Finding[]; laid: boolean; whole: boolean });
   const lintedAt = performance.now();
   return {
     error: compiled.error,

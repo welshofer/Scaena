@@ -440,6 +440,7 @@ impl Engine {
             let content = match deck.nodes[id].node_type {
                 NodeType::Text => Content::Text(self.layout_text_node(deck, theme, grid.baseline, snap, id, rect)?),
                 NodeType::Chart => {
+                    let foot = self.foot(deck, theme, props, rect).map_err(|e| in_node(id, e))?;
                     let states = match &mut every {
                         Some(states) => states,
                         none => none.insert(scaena_core::resolve_states(deck)?),
@@ -462,14 +463,21 @@ impl Engine {
                         colors: &colors,
                         lenient: self.lenient,
                     };
-                    let chart = charts::compile(&mut cx, props, [rect[2], rect[3]]).map_err(|e| in_node(id, e))?;
+                    let tall = foot.as_ref().map_or(0.0, |f| f.1);
+                    let mut chart =
+                        charts::compile(&mut cx, props, [rect[2], rect[3] - tall]).map_err(|e| in_node(id, e))?;
+                    chart.credit = foot.map(|f| f.0);
                     Content::Chart { cell: rect, chart: Box::new(chart) }
                 }
                 NodeType::Table => {
+                    let foot = self.foot(deck, theme, props, rect).map_err(|e| in_node(id, e))?;
+                    let tall = foot.as_ref().map_or(0.0, |f| f.1);
                     let lenient = self.lenient;
                     let mut cx =
                         Ctx { text: &mut self.text, fonts: &mut self.fonts, theme, deck, data, colors: &[], lenient };
-                    let table = tables::compile(&mut cx, props, [rect[2], rect[3]]).map_err(|e| in_node(id, e))?;
+                    let mut table =
+                        tables::compile(&mut cx, props, [rect[2], rect[3] - tall]).map_err(|e| in_node(id, e))?;
+                    table.credit = foot.map(|f| f.0);
                     Content::Table { cell: rect, table: Box::new(table) }
                 }
                 NodeType::Shader => {
@@ -524,6 +532,45 @@ impl Engine {
             furniture,
             joins,
         })
+    }
+
+    /// The credit at the foot of a chart or a table whose data was fetched from a service (ADR-0030,
+    /// decision 6), laid out across its box `rect` in the `caption` role, never under 24 cu where
+    /// the canvas's shorter side is 1080, each run linked where it links; and how much of the box's
+    /// foot it keeps, the gap above it with it. None where its data was fetched from no service.
+    fn foot(
+        &mut self,
+        deck: &Deck,
+        theme: &Theme,
+        props: &Props,
+        rect: Rect,
+    ) -> Result<Option<(charts::Foot, f32)>, EngineError> {
+        let Some(runs) = scaena_core::fetched::reads(deck, props) else { return Ok(None) };
+        let runs: Vec<Value> = runs
+            .into_iter()
+            .map(|r| match r.link {
+                Some(href) => serde_json::json!({ "text": r.text, "link": { "href": href } }),
+                None => serde_json::json!({ "text": r.text }),
+            })
+            .collect();
+        if runs.is_empty() {
+            return Ok(None);
+        }
+        let [cw, ch] = canvas(deck);
+        let k = cw.min(ch) / 1080.0;
+        let mut words = Props::new();
+        words.insert("type".into(), "text".into());
+        words.insert("runs".into(), Value::Array(runs));
+        words.insert("role".into(), "caption".into());
+        if cascade::node_role(theme, &words, None)?.size < MIN_CREDIT * k {
+            words.insert("style".into(), serde_json::json!({ "size": MIN_CREDIT * k }));
+        }
+        let spec = text_spec(deck, theme, &words, None)?;
+        let gap = (0.5 * spec.role.size).round();
+        let text = self.text.layout(&mut self.fonts, theme, &spec, rect[2].max(1.0))?;
+        let tall = (text.height + gap).min(rect[3]);
+        let origin = [0.0, rect[3] - text.height];
+        Ok(Some((charts::Foot { origin, text }, tall)))
     }
 
     /// What the engine draws over a picture (ADR-0030, decisions 13–14), laid out with it: the

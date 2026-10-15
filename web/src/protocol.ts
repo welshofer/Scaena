@@ -1510,6 +1510,8 @@ export interface Finding {
   format?: string;
   /** The fix, as JSON Patch. */
   fix?: unknown[];
+  /** The data source to fetch again, where a fetch is what resolves it (W428, ADR-0030). */
+  refresh?: string;
   at?: Place;
   fixable: boolean;
   /** Whether it holds in the format shown (PLAN 2.49): one lint found laying a format out holds

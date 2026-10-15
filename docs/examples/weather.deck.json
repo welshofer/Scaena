@@ -1,0 +1,272 @@
+{
+  "scaena": "0.30",
+  "meta": {
+    "title": "The week ahead",
+    "lang": "en-US",
+    "description": "A forecast fetched once into the deck from Open-Meteo, kept as of its date, shown as a table with its credit at the foot (PLAN O.2a, ADR-0030)."
+  },
+  "canvas": {
+    "width": 1920.0,
+    "height": 1080.0,
+    "unit": "cu"
+  },
+  "theme": "themes/dusk.theme.json",
+  "fonts": [
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-VF.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          9.0,
+          144.0
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-VF.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          14.0,
+          32.0
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-VF.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          800.0
+        ]
+      }
+    },
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          9.0,
+          144.0
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          14.0,
+          32.0
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100.0,
+          800.0
+        ]
+      }
+    }
+  ],
+  "data": {
+    "boston": {
+      "source": {
+        "inline": [
+          {
+            "date": "2026-10-15",
+            "sky": 2,
+            "high": 17.4,
+            "low": 9.2,
+            "rain": 10,
+            "amount": 0,
+            "wind": 13.1,
+            "direction": 245
+          },
+          {
+            "date": "2026-10-16",
+            "sky": 61,
+            "high": 14.1,
+            "low": 8.7,
+            "rain": 75,
+            "amount": 5.8,
+            "wind": 24.6,
+            "direction": 190
+          },
+          {
+            "date": "2026-10-17",
+            "sky": 63,
+            "high": 12.8,
+            "low": 7.9,
+            "rain": 90,
+            "amount": 14.2,
+            "wind": 29.8,
+            "direction": 160
+          },
+          {
+            "date": "2026-10-18",
+            "sky": 3,
+            "high": 15.2,
+            "low": 8.4,
+            "rain": 35,
+            "amount": 0.6,
+            "wind": 18.2,
+            "direction": 300
+          },
+          {
+            "date": "2026-10-19",
+            "sky": 1,
+            "high": 18.6,
+            "low": 10.1,
+            "rain": 5,
+            "amount": 0,
+            "wind": 9.4,
+            "direction": 280
+          },
+          {
+            "date": "2026-10-20",
+            "sky": 0,
+            "high": 20.3,
+            "low": 11.6,
+            "rain": 0,
+            "amount": 0,
+            "wind": 8.1,
+            "direction": 260
+          },
+          {
+            "date": "2026-10-21",
+            "sky": 80,
+            "high": 16.9,
+            "low": 10.8,
+            "rain": 55,
+            "amount": 2.3,
+            "wind": 16.7,
+            "direction": 210
+          }
+        ]
+      },
+      "schema": {
+        "date": "date",
+        "sky": "number",
+        "high": "number",
+        "low": "number",
+        "rain": "number",
+        "amount": "number",
+        "wind": "number",
+        "direction": "number"
+      },
+      "fetched": {
+        "from": "open-meteo",
+        "at": "2026-10-15T13:05:12Z",
+        "asked": "Boston",
+        "credit": [
+          {
+            "text": "Weather data by Open-Meteo.com",
+            "link": "https://open-meteo.com/"
+          },
+          {
+            "text": " · "
+          },
+          {
+            "text": "CC BY 4.0",
+            "link": "https://creativecommons.org/licenses/by/4.0/"
+          },
+          {
+            "text": " · location data by GeoNames"
+          }
+        ],
+        "license": "CC-BY-4.0",
+        "terms": "free",
+        "kept": true,
+        "forecast": {
+          "place": {
+            "name": "Boston",
+            "region": "Massachusetts",
+            "country": "United States",
+            "lat": 42.35843,
+            "lon": -71.05977,
+            "zone": "America/New_York",
+            "offset": -14400
+          },
+          "period": "day",
+          "units": "metric"
+        }
+      }
+    }
+  },
+  "nodes": {
+    "title": {
+      "type": "text",
+      "role": "headline",
+      "text": "A wet start to the week, then sun",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      }
+    },
+    "week": {
+      "type": "table",
+      "data": "@boston",
+      "key": "date",
+      "columns": [
+        {
+          "field": "date",
+          "title": "Day",
+          "format": "%a %b %-d"
+        },
+        {
+          "field": "high",
+          "title": "High (°C)",
+          "format": ".0f"
+        },
+        {
+          "field": "low",
+          "title": "Low (°C)",
+          "format": ".0f"
+        },
+        {
+          "field": "rain",
+          "title": "Rain (%)",
+          "format": "d"
+        }
+      ],
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      }
+    }
+  },
+  "states": [
+    {
+      "id": "week",
+      "layout": "figure",
+      "props": {
+        "title": {},
+        "week": {}
+      }
+    }
+  ]
+}

@@ -1,0 +1,329 @@
+{
+  "scaena": "0.30",
+  "_comment": "W428 clean, linted at 2026-10-15T18:00:00Z: a week fetched on 2026-10-15, whose first day is today in Boston; and one fetched on 2026-10-01 and kept as it is.",
+  "canvas": {
+    "width": 1920,
+    "height": 1080
+  },
+  "theme": "theme.json",
+  "fonts": [
+    {
+      "family": "Roboto Serif",
+      "file": "fonts/RobotoSerif-VF.ttf"
+    },
+    {
+      "family": "EB Garamond",
+      "file": "fonts/EBGaramond-VF.ttf"
+    }
+  ],
+  "data": {
+    "week": {
+      "source": {
+        "inline": [
+          {
+            "date": "2026-10-15",
+            "sky": 3,
+            "high": 17,
+            "low": 9,
+            "rain": 20,
+            "amount": 0,
+            "wind": 14,
+            "direction": 250
+          },
+          {
+            "date": "2026-10-16",
+            "sky": 61,
+            "high": 14,
+            "low": 8,
+            "rain": 80,
+            "amount": 6.2,
+            "wind": 22,
+            "direction": 200
+          },
+          {
+            "date": "2026-10-17",
+            "sky": 2,
+            "high": 19,
+            "low": 10,
+            "rain": 10,
+            "amount": 0,
+            "wind": 11,
+            "direction": 270
+          },
+          {
+            "date": "2026-10-18",
+            "sky": 0,
+            "high": 21,
+            "low": 12,
+            "rain": 0,
+            "amount": 0,
+            "wind": 9,
+            "direction": 300
+          },
+          {
+            "date": "2026-10-19",
+            "sky": 1,
+            "high": 22,
+            "low": 13,
+            "rain": 5,
+            "amount": 0,
+            "wind": 8,
+            "direction": 310
+          },
+          {
+            "date": "2026-10-20",
+            "sky": 63,
+            "high": 15,
+            "low": 9,
+            "rain": 70,
+            "amount": 4.1,
+            "wind": 19,
+            "direction": 180
+          },
+          {
+            "date": "2026-10-21",
+            "sky": 3,
+            "high": 16,
+            "low": 8,
+            "rain": 30,
+            "amount": 0.4,
+            "wind": 16,
+            "direction": 230
+          }
+        ]
+      },
+      "schema": {
+        "date": "date",
+        "sky": "number",
+        "high": "number",
+        "low": "number",
+        "rain": "number",
+        "amount": "number",
+        "wind": "number",
+        "direction": "number"
+      },
+      "fetched": {
+        "from": "open-meteo",
+        "at": "2026-10-15T12:00:00Z",
+        "asked": "Boston",
+        "credit": [
+          {
+            "text": "Weather data by Open-Meteo.com",
+            "link": "https://open-meteo.com/"
+          },
+          {
+            "text": " · "
+          },
+          {
+            "text": "CC BY 4.0",
+            "link": "https://creativecommons.org/licenses/by/4.0/"
+          },
+          {
+            "text": " · location data by GeoNames"
+          }
+        ],
+        "license": "CC-BY-4.0",
+        "terms": "free",
+        "forecast": {
+          "place": {
+            "name": "Boston",
+            "region": "Massachusetts",
+            "country": "United States",
+            "lat": 42.36,
+            "lon": -71.06,
+            "zone": "America/New_York",
+            "offset": -14400
+          },
+          "period": "day",
+          "units": "metric"
+        }
+      }
+    },
+    "then": {
+      "source": {
+        "inline": [
+          {
+            "date": "2026-10-01",
+            "sky": 3,
+            "high": 17,
+            "low": 9,
+            "rain": 20,
+            "amount": 0,
+            "wind": 14,
+            "direction": 250
+          },
+          {
+            "date": "2026-10-02",
+            "sky": 61,
+            "high": 14,
+            "low": 8,
+            "rain": 80,
+            "amount": 6.2,
+            "wind": 22,
+            "direction": 200
+          },
+          {
+            "date": "2026-10-03",
+            "sky": 2,
+            "high": 19,
+            "low": 10,
+            "rain": 10,
+            "amount": 0,
+            "wind": 11,
+            "direction": 270
+          },
+          {
+            "date": "2026-10-04",
+            "sky": 0,
+            "high": 21,
+            "low": 12,
+            "rain": 0,
+            "amount": 0,
+            "wind": 9,
+            "direction": 300
+          },
+          {
+            "date": "2026-10-05",
+            "sky": 1,
+            "high": 22,
+            "low": 13,
+            "rain": 5,
+            "amount": 0,
+            "wind": 8,
+            "direction": 310
+          },
+          {
+            "date": "2026-10-06",
+            "sky": 63,
+            "high": 15,
+            "low": 9,
+            "rain": 70,
+            "amount": 4.1,
+            "wind": 19,
+            "direction": 180
+          },
+          {
+            "date": "2026-10-07",
+            "sky": 3,
+            "high": 16,
+            "low": 8,
+            "rain": 30,
+            "amount": 0.4,
+            "wind": 16,
+            "direction": 230
+          }
+        ]
+      },
+      "schema": {
+        "date": "date",
+        "sky": "number",
+        "high": "number",
+        "low": "number",
+        "rain": "number",
+        "amount": "number",
+        "wind": "number",
+        "direction": "number"
+      },
+      "fetched": {
+        "from": "open-meteo",
+        "at": "2026-10-01T12:00:00Z",
+        "asked": "Boston",
+        "credit": [
+          {
+            "text": "Weather data by Open-Meteo.com",
+            "link": "https://open-meteo.com/"
+          },
+          {
+            "text": " · "
+          },
+          {
+            "text": "CC BY 4.0",
+            "link": "https://creativecommons.org/licenses/by/4.0/"
+          },
+          {
+            "text": " · location data by GeoNames"
+          }
+        ],
+        "license": "CC-BY-4.0",
+        "terms": "free",
+        "forecast": {
+          "place": {
+            "name": "Boston",
+            "region": "Massachusetts",
+            "country": "United States",
+            "lat": 42.36,
+            "lon": -71.06,
+            "zone": "America/New_York",
+            "offset": -14400
+          },
+          "period": "day",
+          "units": "metric"
+        },
+        "kept": true
+      }
+    }
+  },
+  "nodes": {
+    "t": {
+      "type": "table",
+      "data": "@week",
+      "columns": [
+        {
+          "field": "date",
+          "title": "Day",
+          "format": "%a"
+        },
+        {
+          "field": "high",
+          "title": "High"
+        },
+        {
+          "field": "low",
+          "title": "Low"
+        }
+      ],
+      "at": {
+        "in": "main"
+      }
+    },
+    "u": {
+      "type": "table",
+      "data": "@then",
+      "columns": [
+        {
+          "field": "date",
+          "title": "Day",
+          "format": "%a"
+        },
+        {
+          "field": "high",
+          "title": "High"
+        },
+        {
+          "field": "low",
+          "title": "Low"
+        }
+      ],
+      "at": {
+        "in": "main"
+      }
+    }
+  },
+  "states": [
+    {
+      "id": "a",
+      "layout": "full",
+      "props": {
+        "t": {}
+      }
+    },
+    {
+      "id": "b",
+      "layout": "full",
+      "mode": "absolute",
+      "props": {
+        "u": {}
+      }
+    }
+  ]
+}

@@ -12,6 +12,7 @@ const DECKS: &[(&str, &str)] = &[
     ("trails", include_str!("../../../docs/examples/trails.deck.json")),
     ("higher-ed", include_str!("../../../docs/examples/higher-ed.deck.json")),
     ("code", include_str!("../../../docs/examples/code.deck.json")),
+    ("weather", include_str!("../../../docs/examples/weather.deck.json")),
     ("authorability", include_str!("../../../docs/examples/authorability/deck.json")),
     ("torture", include_str!("../../../tests/fixtures/torture.scaena/deck.json")),
     ("b1", include_str!("../../../tests/bench/b1.scaena/deck.json")),

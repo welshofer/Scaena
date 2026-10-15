@@ -769,6 +769,9 @@ impl CategoryFormat {
 /// legend.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChartLayout {
+    /// The credit its data's service asks, at its foot (ADR-0030): none where its data was
+    /// fetched from no service. The rest of the chart is laid out above it.
+    pub credit: Option<Foot>,
     pub kind: ChartKind,
     /// Its bars run across (`orient: horizontal`, PLAN 1.29): its values run along x, its
     /// categories down the side, and `y_scale`, `base`, and `categories` measure across
@@ -834,6 +837,16 @@ pub struct ChartLayout {
     /// Small multiples (PLAN 1.31): each panel, keyed by its facet's value, and where its
     /// chart's cell stands in this one's. A chart with panels draws them alone.
     pub panels: Vec<Panel>,
+}
+
+/// The credit a chart's or a table's fetched data asks, set at its foot (ADR-0030, decision 6), in
+/// the theme's `caption` role, never under 12 pt at presentation size, each run linked where it
+/// links.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Foot {
+    /// Its top-left corner, relative to the chart or the table.
+    pub origin: [f32; 2],
+    pub text: TextLayout,
 }
 
 /// One panel of small multiples (SPEC §3.7, PLAN 1.31): the chart over one value of its

@@ -333,9 +333,11 @@ impl Player {
     /// Lint the deck compiled last, laid out by this engine: `{ findings, laid, whole }`.
     /// With `state`, the layout rules run on that state alone, the one being edited, and
     /// the other states keep what they found when they last ran on every state, in the
-    /// formats the deck still lists, each while it has every node it had then.
-    pub fn lint(&mut self, state: Option<String>) -> Result<String, JsError> {
-        serde_json::to_string(&self.0.lint(state.as_deref()).map_err(js)?).map_err(js)
+    /// formats the deck still lists, each while it has every node it had then. Dates are judged
+    /// at `now`, seconds since the epoch by the page's clock (W428, ADR-0030).
+    pub fn lint(&mut self, state: Option<String>, now: Option<f64>) -> Result<String, JsError> {
+        let now = now.map(|n| n as i64);
+        serde_json::to_string(&self.0.lint(state.as_deref(), now).map_err(js)?).map_err(js)
     }
 
     /// The source compiled last with `patch` (JSON: a finding's `fix`) applied.

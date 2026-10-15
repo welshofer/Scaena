@@ -58,6 +58,10 @@ enum Cmd {
         /// Apply safe fixes (PLAN 1.15).
         #[arg(long)]
         fix: bool,
+        /// The moment lint judges dates at (W428): an instant (2026-10-15T20:00:00Z) or a day
+        /// (2026-10-15). Else `SOURCE_DATE_EPOCH`, else the clock.
+        #[arg(long)]
+        now: Option<String>,
     },
     /// Resolved snapshot for a state (tracking applied), or all states.
     Inspect {
@@ -549,13 +553,14 @@ fn run(cli: Cli) -> Result<ExitCode> {
             }
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Lint { bundle, state, severity, fix } => {
+        Cmd::Lint { bundle, state, severity, fix, now } => {
+            let now = lint_now(now.as_deref())?;
             let b = open(&bundle)?;
             if fix {
                 return lint_fix(&b, cli.json);
             }
             let min: Severity = severity.into();
-            let Linted { findings: found, laid } = scaena_ops::lint::lint(&b)?;
+            let Linted { findings: found, laid } = scaena_ops::lint::lint_at(&b, Some(now))?;
             let findings: Vec<Finding> = found
                 .into_iter()
                 .filter(|f| f.severity >= min)
@@ -1391,6 +1396,24 @@ fn find(
 /// `scaena lint --fix`: apply every fix lint offers (each checked by laying its state out
 /// with it, never a change of content), write the deck, and lint again. Under `--json`:
 /// `{ "fixed": [findings], "findings": [what remains] }`.
+/// The moment lint judges dates at (ADR-0030, decision 8): `--now`, else `SOURCE_DATE_EPOCH`,
+/// else the clock; seconds since the epoch.
+fn lint_now(now: Option<&str>) -> Result<i64> {
+    if let Some(now) = now {
+        return scaena_core::fetched::moment(now).ok_or_else(|| {
+            anyhow::anyhow!("--now `{now}` is not an instant or a day: write 2026-10-15T20:00:00Z or 2026-10-15")
+        });
+    }
+    if let Ok(epoch) = std::env::var("SOURCE_DATE_EPOCH") {
+        return epoch
+            .trim()
+            .parse()
+            .map_err(|_| anyhow::anyhow!("SOURCE_DATE_EPOCH `{epoch}` is not a number of seconds"));
+    }
+    let since = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+    Ok(i64::try_from(since.as_secs()).unwrap_or(i64::MAX))
+}
+
 fn lint_fix(b: &Bundle, json: bool) -> Result<ExitCode> {
     let fixed = scaena_ops::lint::lint_fix(b)?;
     if json {

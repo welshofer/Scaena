@@ -1204,7 +1204,9 @@ impl Transition {
                         (None, None) => unreachable!("a chart track has a side"),
                     };
                     let clip_y = [-origin[1], dl.viewport[1]];
-                    let ops = plan.sample(&mut dl, a.map(|c| c.2), b.map(|c| c.2), p, t_ms, [enter, exit], clip_y);
+                    let mut ops = plan.sample(&mut dl, a.map(|c| c.2), b.map(|c| c.2), p, t_ms, [enter, exit], clip_y);
+                    let feet = (a.and_then(|c| c.2.credit.as_ref()), b.and_then(|c| c.2.credit.as_ref()));
+                    ops.extend(feet_between(&mut dl, feet.0, feet.1, p));
                     let op = chart_layer(id, origin, width, dl.viewport[1], opacity, ops);
                     dl.ops.push(looked(op, seen));
                 }
@@ -1221,7 +1223,8 @@ impl Transition {
                         unreachable!("Table tracks pair tables")
                     };
                     let origin = lerp2([ca[0], ca[1]], [cb[0], cb[1]], p);
-                    let ops = plan.sample(&mut dl, a, b, p);
+                    let mut ops = plan.sample(&mut dl, a, b, p);
+                    ops.extend(feet_between(&mut dl, a.credit.as_ref(), b.credit.as_ref(), p));
                     dl.ops.push(looked(layer(Some(&y.id), origin, lerp(x.opacity, y.opacity, p), ops), seen));
                 }
                 Track::Paragraphs { from: i, to: j, parts } => {
@@ -1724,7 +1727,37 @@ fn table_ops(dl: &mut DisplayList, table: &TableLayout) -> Vec<Op> {
     for cell in table.header.iter().chain(&table.cells) {
         ops.push(cell_layer(dl, cell, cell.origin, 1.0));
     }
+    ops.extend(table.credit.as_ref().map(|f| foot_op(dl, f, f.origin, 1.0)));
     ops
+}
+
+/// The credit at a chart's or a table's foot (ADR-0030), at `origin` in it: a layer of its own that
+/// says it is the credit ([`scaena_core::fetched::FOOT_CELL`]), each run a link where it links.
+fn foot_op(dl: &mut DisplayList, foot: &crate::charts::Foot, origin: Point, opacity: f32) -> Op {
+    let Op::Layer { node, transform, opacity, blend, clip, ops, .. } =
+        layer(None, origin, opacity, text_ops(dl, &foot.text))
+    else {
+        unreachable!("`layer` makes layers")
+    };
+    Op::Layer { node, cell: Some(scaena_core::fetched::FOOT_CELL), transform, opacity, blend, clip, ops }
+}
+
+/// The credit at a chart's or a table's foot `p` of the way from `a`'s to `b`'s: one credit that
+/// moves where both say the same, else the one fading out as the other fades in.
+fn feet_between(
+    dl: &mut DisplayList,
+    a: Option<&crate::charts::Foot>,
+    b: Option<&crate::charts::Foot>,
+    p: f32,
+) -> Vec<Op> {
+    match (a, b) {
+        (Some(x), Some(y)) if x.text == y.text => vec![foot_op(dl, y, lerp2(x.origin, y.origin, p), 1.0)],
+        _ => {
+            let mut ops: Vec<Op> = a.map(|x| foot_op(dl, x, x.origin, 1.0 - p)).into_iter().collect();
+            ops.extend(b.map(|y| foot_op(dl, y, y.origin, p)));
+            ops
+        }
+    }
 }
 
 fn push(dl: &mut DisplayList, node: &SceneNode, opacity: f32, time: f64, rest: Seen) {
@@ -2291,6 +2324,7 @@ fn chart_ops(dl: &mut DisplayList, chart: &ChartLayout, clip_y: [f32; 2]) -> Vec
         let clip = [clip_y[0] - panel.at[1], clip_y[1]];
         ops.push(panel_layer(panel.at, panel.size[0], clip, chart_ops(dl, &panel.chart, clip)));
     }
+    ops.extend(chart.credit.as_ref().map(|f| foot_op(dl, f, f.origin, 1.0)));
     ops
 }
 
@@ -3064,6 +3098,7 @@ mod tests {
 
     fn chart(kind: ChartKind, marks: Vec<Mark>, paths: Vec<SeriesPath>) -> ChartLayout {
         ChartLayout {
+            credit: None,
             kind,
             horizontal: false,
             base: 100.0,
