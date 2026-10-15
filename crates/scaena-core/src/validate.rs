@@ -851,7 +851,7 @@ fn override_types(deck: &Deck) -> Vec<Finding> {
         resolved.extend(props.into_iter().filter(|(k, _)| k != "type"));
         for v in checker.check_def(def, &Value::Object(resolved), "") {
             let Some(prop) = tokens(&v.path).into_iter().next() else { continue };
-            if prop == "type" || !over.contains_key(&prop) || nameless_code(&v) {
+            if prop == "type" || !over.contains_key(&prop) || code_language(&v) {
                 continue;
             }
             let message = match v.kind {
@@ -951,8 +951,8 @@ fn resolved_types(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
             resolved.extend(props.iter().map(|(k, v)| (k.clone(), v.clone())));
             for v in checker.check_def(def, &Value::Object(resolved), "") {
                 let Some(prop) = tokens(&v.path).into_iter().next() else { continue };
-                // A `code` that names no language is `code_texts`' to say, in its own words.
-                if prop == "type" || !delta.contains_key(&prop) || nameless_code(&v) {
+                // What a `code`'s language lacks is `code_texts`' to say, in its own words.
+                if prop == "type" || !delta.contains_key(&prop) || code_language(&v) {
                     continue;
                 }
                 let message = match v.kind {
@@ -1238,9 +1238,15 @@ fn ends_and_paragraphs(deck: &Deck) -> Vec<Finding> {
 const NOT_CODE: [&str; 6] =
     ["wrap", "measure", "hyphenate", "hangingPunctuation", "opticalMargins", "minLastLineWords"];
 
-/// Whether `v` says a `code` names no language, which [`code_texts`] says in its own words, once.
-fn nameless_code(v: &Violation) -> bool {
-    v.kind == Kind::Missing && v.path == "/code/language"
+/// Whether `v` is about a `code`'s language, which [`code_texts`] says in its own words, once.
+fn code_language(v: &Violation) -> bool {
+    v.path == "/code/language"
+}
+
+/// Whether `name` names a language as the schema takes one (`Code::language`): lowercase letters,
+/// digits, and `+#._-`, 32 at most.
+fn language_named(name: &str) -> bool {
+    Checker::deck().check_def("Code", &json!({ "language": name }), "").is_empty()
 }
 
 /// E106: what a code text does not take beside its `code` (PLAN 2.131, ADR-0029). Its words are
@@ -1248,8 +1254,8 @@ fn nameless_code(v: &Violation) -> bool {
 /// and takes none of [`NOT_CODE`] nor `style.case`. Each state is judged as it shows the text,
 /// the deck's `overrides` over it, and each finding is reported where the value is written: the
 /// node's own props, the delta the state tracks it from, or the overrides. A `code` that names
-/// no language, as a delta that writes part of one on a text that is no code makes it, is one
-/// finding, where that `code` is written.
+/// no language, as a delta that writes part of one on a text that is no code makes it, or names
+/// one in what is no language's name, is one finding, where that `code` is written.
 fn code_texts(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
     use crate::tracking::{Lives, lives, merge_props};
     let mut out = Vec::new();
@@ -1283,11 +1289,23 @@ fn code_texts(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
                     Finding::new("E106", Severity::Error, message).at(path).state(state.id.clone()).node(id.clone()),
                 );
             };
-            if !code.get("language").is_some_and(Value::is_string) {
-                let message = format!(
-                    "`{id}`'s `code` names no language: name the language its words are written in, or `plain` for none"
-                );
-                found(format!("{}/language", written("code", None)), message);
+            let language = code.get("language").and_then(Value::as_str).filter(|name| !name.is_empty());
+            match language {
+                None => {
+                    let message = format!(
+                        "`{id}`'s `code` names no language: name the language its words are written in, or `plain` for \
+                         none"
+                    );
+                    found(format!("{}/language", written("code", None)), message);
+                }
+                Some(name) if !language_named(name) => {
+                    let message = format!(
+                        "`{id}`'s `code` names `{name}`, which is no language's name: name it in lowercase letters and \
+                         digits, as `rust`, `c++`, or `plain`"
+                    );
+                    found(written("code", Some("language")), message);
+                }
+                Some(_) => {}
             }
             if shown.contains_key("runs") {
                 found(written("runs", None), format!("`{id}` is code, whose words are its `text`: it takes no `runs`"));

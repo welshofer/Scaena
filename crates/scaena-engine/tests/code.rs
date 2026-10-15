@@ -58,7 +58,7 @@ fn code(text: &str, at: Value) -> Value {
 fn set(text: &str, width: f32, scale: f32) -> TextLayout {
     let (theme, deck) = (theme(), deck(json!({})));
     let mut spec = TextSpec::plain(theme.text_role("body").unwrap(), text);
-    spec.code = Some(CodeSpec { language: "rust".into(), tab: 4 });
+    spec.code = Some(CodeSpec { language: "rust".into(), tab: 4, least: 24.0 / 40.0 });
     TextEngine::new().layout(&mut fonts(&deck), &theme, &spec.scaled(scale), width).unwrap()
 }
 
@@ -115,9 +115,26 @@ fn a_code_text_is_set_as_written() {
     assert_eq!((line.chars[0].offset, line.chars[1].offset), (tab, tab + 1));
     assert_eq!((line.chars[0].lead, line.chars[0].trail), (0.0, glyph_x(&tabbed, tab + 1)));
     assert_eq!(line.chars[1].lead, line.chars[0].trail);
-    // The mark that runs it left to right is drawn by no glyph and said by none.
+    // The mark that runs it left to right is drawn by no glyph and said by none, and takes no
+    // room: in a role that tracks its letters out, the first line starts where the others do.
     assert!(tabbed.runs.iter().all(|r| r.clusters.iter().all(|&c| c >= '\u{200E}'.len_utf8())));
     assert_eq!(tabbed.written, SNIPPET);
+    for role in ["loose", "tight"] {
+        let mut node = code("x = 1;\ny = 2;", json!({ "col": [1, 12], "row": [2, 8] }));
+        node["role"] = json!(role);
+        let t = placed(&deck(json!({ "n": node })), "n").text;
+        assert_eq!(glyph_x(&t, 0), glyph_x(&t, "x = 1;\n".len()), "{role}");
+    }
+    // A CRLF is one line break, as a code editor reads it, and a caret steps over it whole.
+    let crlf = SNIPPET.replace('\n', "\r\n");
+    let t = set(&crlf, 2000.0, 1.0);
+    assert_eq!(t.lines.len(), 5, "{:?}", t.lines);
+    assert_eq!(t.written, crlf);
+    let carets = t.carets([0.0, 0.0]);
+    let first = &carets.lines[0];
+    let end = crlf.find("\r\n").unwrap();
+    assert_eq!((first.end, first.chars.last().map(|c| c.offset)), (end + 2, Some(end)));
+    assert_eq!(carets.lines[1].start, end + 2);
 }
 
 #[test]
@@ -167,10 +184,31 @@ fn code_shrinks_no_further_than_12_pt() {
     let found = lint(&d);
     let w205 = found.iter().find(|(c, n, _)| c == "W205" && n == "n").expect("W205");
     assert!(w205.2.contains("drawn at 12 cu") && w205.2.contains("30 lines"), "{}", w205.2);
+    assert!(w205.2.contains("a `minSize` lets it shrink that far"), "{}", w205.2);
+    // Set under 12 pt, it is drawn so by its size, not by shrinking, and W205 says which.
+    let mut set_small = code("fn main() {}", json!({ "col": [1, 6], "row": [2, 4] }));
+    set_small["style"] = json!({ "size": 20 });
+    let found = lint(&deck(json!({ "n": set_small })));
+    let w205 = found.iter().find(|(c, n, _)| c == "W205" && n == "n").expect("W205");
+    assert!(w205.2.contains("it is set at 20 cu") && w205.2.contains("its one line is"), "{}", w205.2);
+    // A line far too long is quoted short.
+    let mut wide = code(&"step();".repeat(300), json!({ "col": [1, 12], "row": [2, 8] }));
+    wide["minSize"] = json!(4);
+    let found = lint(&deck(json!({ "n": wide })));
+    let w205 = found.iter().find(|(c, n, _)| c == "W205" && n == "n").expect("W205");
+    assert!(w205.2.len() < 300 && w205.2.ends_with("…\""), "{}", w205.2);
     // On a canvas twice as large, 12 pt is 48 cu: past body's own 40, which it keeps.
     let mut big = deck(json!({ "n": code(&long, json!({ "col": [1, 6], "row": 2 })) }));
     (big.canvas.width, big.canvas.height) = (3840.0, 2160.0);
     assert_eq!(placed(&big, "n").scale, 1.0);
+    // Its role's `minSize`, where it sets none of its own, before 12 pt.
+    let mut t: Value = serde_json::from_slice(&read("theme.json")).unwrap();
+    t["type"]["roles"]["body"]["minSize"] = json!(30);
+    let roled = Theme::from_json(&t.to_string()).unwrap();
+    let d = deck(json!({ "n": code(&long, json!({ "col": [1, 6], "row": 2 })) }));
+    let data = DataFiles::new();
+    let req = FrameRequest { deck: &d, theme: &roled, data: &data, state: "t", t_ms: f64::INFINITY, format: None };
+    assert_eq!(Engine::new(fonts(&d)).text_layout(&req, "n").unwrap().scale, 0.75);
 }
 
 #[test]
@@ -205,4 +243,45 @@ fn a_code_text_grows_its_box_before_it_shrinks() {
     placed_low.nodes["n"].props.insert("at".into(), json!({ "rect": [96, 700, 852, 284] }));
     let p = placed(&placed_low, "n");
     assert!(p.scale < 1.0 && !p.overflow, "{} {}", p.scale, p.overflow);
+    // Lines wider than its box shrink it whatever its height: it grows to hold them at the size
+    // its width lets it, and no further.
+    let wide = (1..=8).map(|i| format!("println!(\"{i}: {}\");", "x".repeat(40))).collect::<Vec<_>>().join("\n");
+    let d = deck(json!({ "n": code(&wide, json!({ "rect": [96, 200, 852, 100] })) }));
+    let p = placed(&d, "n");
+    let [wide_at_own, natural] = p.natural.unwrap();
+    let across = p.cell[2] / wide_at_own;
+    assert!(across < 0.9, "{across}");
+    let target = grown(&d).expect("it grows");
+    assert_eq!(target.cell[3], (natural * across).ceil());
+    let mut d = d;
+    d.nodes["n"].props.insert("at".into(), json!({ "rect": target.cell }));
+    let p = placed(&d, "n");
+    assert!(!p.overflow && (p.scale - across).abs() <= 1.0 / 64.0, "{} {across}", p.scale);
+}
+
+#[test]
+fn a_code_text_in_a_container_shrinks_to_the_room_it_is_given() {
+    let line = "fn main() { println!(\"a line far too long for half a row of this stack\"); }";
+    let text = format!("{line}\nlet x = 1;");
+    let in_row = |axis: &str| {
+        let mut n = code(&text, json!({ "parent": "row" }));
+        n["role"] = json!("code");
+        deck(json!({
+            "row": { "type": "stack", "axis": axis, "gap": 24, "at": { "col": [1, 12], "row": [2, 8] } },
+            "n": n,
+            "m": { "type": "text", "role": "body", "text": "Beside the code, a sentence.", "at": { "parent": "row" } },
+        }))
+    };
+    // In a row, it asks for no more than its own size and no less than its least, so it shrinks
+    // to its share and leaves its neighbor on the slide, where its whole line took the row.
+    let d = in_row("x");
+    let (n, m) = (placed(&d, "n"), placed(&d, "m"));
+    assert!(n.scale < 1.0 && n.scale >= 24.0 / 40.0 && !n.overflow, "{} {}", n.scale, n.overflow);
+    assert!(m.cell[0] >= n.cell[0] + n.cell[2] && m.cell[0] + m.cell[2] <= 1824.0 + 0.5, "{:?} {:?}", n.cell, m.cell);
+    // In a column, it stands as tall as the width it is given sets it, with no room under it.
+    let d = in_row("y");
+    let n = placed(&d, "n");
+    let (top, bottom) = n.text.trimmed(TextBox::Line);
+    assert!(n.scale < 1.0 && !n.overflow, "{} {}", n.scale, n.overflow);
+    assert!((n.cell[3] - (bottom - top)).abs() <= 0.5, "{:?} holds {}", n.cell, bottom - top);
 }

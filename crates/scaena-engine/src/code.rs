@@ -1,9 +1,9 @@
 //! Code on a slide, set as written (SPEC §3.5, PLAN 2.131, ADR-0029). A text with `code` keeps
-//! its lines as it breaks them, and nothing else breaks, hangs, hyphenates, cases, or measures
-//! them. Its tabs stand to stops, and it runs left to right whatever its first strong character
-//! is, so an Arabic comment on its first line does not turn the block. It grows its box first,
-//! then shrinks to fit, worked out from one layout, never under 12 pt at presentation size by
-//! itself (lint W205 where a `minSize` lets it). It draws in its own color: coloring it by its
+//! its lines as it breaks them, a CRLF once, and nothing else breaks, hangs, hyphenates, cases, or
+//! measures them. Its tabs stand to stops, and it runs left to right whatever its first strong
+//! character is, so an Arabic comment on its first line does not turn the block. It grows its box
+//! first, then shrinks to fit, worked out from one layout, never under 12 pt at presentation size
+//! by itself (lint W205 where it is drawn smaller). It draws in its own color: coloring it by its
 //! language is PLAN 2.132's.
 
 use scaena_core::document::Props;
@@ -28,15 +28,21 @@ pub struct CodeSpec {
     pub language: String,
     /// The columns between its tab stops.
     pub tab: usize,
+    /// The least it shrinks to by itself, a share of its own size: its `minSize`, else its
+    /// role's, else 12 pt at presentation size ([`floor`]), and never more than its own.
+    pub least: f32,
 }
 
 impl CodeSpec {
-    /// The settings `props` make a code text with, if they do: a `code` object, its language
-    /// `plain` where it names none (E106).
-    pub fn of(props: &Props) -> Option<CodeSpec> {
+    /// The settings `props` make a code text with, if they do, set at `size` in a role whose
+    /// own `minSize` is `min`, on a canvas of `canvas`: a `code` object, its language `plain`
+    /// where it names none (E106).
+    pub fn of(props: &Props, size: f32, min: Option<f32>, canvas: [f32; 2]) -> Option<CodeSpec> {
         let code = props.get("code")?.as_object()?;
         let language = code.get("language").and_then(Value::as_str).unwrap_or("plain");
-        Some(CodeSpec { language: language.to_string(), tab: TAB })
+        let own = props.get("minSize").and_then(Value::as_f64).map(|m| m as f32);
+        let least = own.or(min).unwrap_or(floor(canvas)) / size;
+        Some(CodeSpec { language: language.to_string(), tab: TAB, least: least.min(1.0) })
     }
 }
 
@@ -51,37 +57,39 @@ pub fn floor(canvas: [f32; 2]) -> f32 {
     PRESENTATION_SIZE * canvas[0].min(canvas[1]) / 1080.0
 }
 
-/// `texts`, a code text's spans as written, as it lays them out: [`LTR`] before them, and each
-/// tab stood to the next stop in spaces, its column counted in characters from its line's start,
-/// across the spans. Each span's part, and where each character as written starts in what is
-/// laid out, then both ends ([`crate::text::TextLayout::offsets`]), so a caret steps over a tab
-/// whole. A text with no words lays out none: no mark either.
+/// `texts`, a code text's spans as written, as it lays them out: [`LTR`] before them, each tab
+/// stood to the next stop in spaces, its column counted in characters from its line's start,
+/// across the spans, and each CRLF one line break, as a code editor reads it: its CR lays out
+/// nothing. Each span's part, and where each character as written starts in what is laid out,
+/// then both ends ([`crate::text::TextLayout::offsets`]), so a caret steps over a tab whole. A
+/// text with no words lays out none: no mark either.
 pub(crate) fn laid(texts: &[&str], tab: usize) -> (Vec<String>, Vec<(usize, usize)>) {
     let tab = tab.max(1);
-    let empty = texts.iter().all(|t| t.is_empty());
-    let mut out = Vec::with_capacity(texts.len());
+    let mut out: Vec<String> = texts.iter().map(|t| String::with_capacity(t.len() + 4)).collect();
     let mut offsets = Vec::with_capacity(texts.iter().map(|t| t.len()).sum::<usize>() + 1);
     let (mut written, mut at, mut column) = (0, 0, 0);
-    for (k, text) in texts.iter().enumerate() {
-        let mut part = String::with_capacity(text.len() + 4);
-        if k == 0 && !empty {
-            part.push(LTR);
-            at += LTR.len_utf8();
-        }
-        for c in text.chars() {
-            offsets.push((written, at));
-            written += c.len_utf8();
-            if c == '\t' {
+    if texts.iter().any(|t| !t.is_empty()) {
+        out[0].push(LTR);
+        at += LTR.len_utf8();
+    }
+    let mut chars = texts.iter().enumerate().flat_map(|(k, t)| t.chars().map(move |c| (k, c))).peekable();
+    while let Some((k, c)) = chars.next() {
+        offsets.push((written, at));
+        written += c.len_utf8();
+        match c {
+            '\t' => {
                 let stop = tab - column % tab;
-                part.extend(std::iter::repeat_n(' ', stop));
+                out[k].extend(std::iter::repeat_n(' ', stop));
                 (at, column) = (at + stop, column + stop);
-            } else {
-                part.push(c);
+            }
+            // The CR of a CRLF lays out nothing: its LF breaks the line, once.
+            '\r' if chars.peek().is_some_and(|&(_, next)| next == '\n') => column = 0,
+            _ => {
+                out[k].push(c);
                 at += c.len_utf8();
                 column = if crate::carets::breaks(c) { 0 } else { column + 1 };
             }
         }
-        out.push(part);
     }
     offsets.push((written, at));
     (out, offsets)
@@ -110,6 +118,19 @@ mod tests {
         let (set, _) = laid(&["ab", "\tc"], 4);
         assert_eq!(set, ["\u{200E}ab", "  c"]);
         assert_eq!(laid(&[""], 4), (vec![String::new()], vec![(0, 0)]));
+        assert_eq!(laid(&[], 4), (Vec::<String>::new(), vec![(0, 0)]));
+    }
+
+    #[test]
+    fn a_crlf_is_one_line_break() {
+        // Its CR lays out nothing, and maps to where its LF stands; a CR alone breaks as it is.
+        let (set, offsets) = laid(&["a\r\n\tb\rc"], 4);
+        assert_eq!(set, ["\u{200E}a\n    b\rc"]);
+        assert_eq!(&offsets[1..4], [(1, 4), (2, 4), (3, 5)]);
+        // Across spans too.
+        let (set, offsets) = laid(&["a\r", "\nb"], 4);
+        assert_eq!(set, ["\u{200E}a", "\nb"]);
+        assert_eq!(&offsets[1..3], [(1, 4), (2, 4)]);
     }
 
     #[test]

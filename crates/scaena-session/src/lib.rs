@@ -2093,7 +2093,8 @@ impl Session {
     /// `ops`, a run of typing, with the `place` that grows each text it types past the foot of
     /// its cells on the theme's grid, in the state it is typed in and the format shown: its rows
     /// down to the first that holds its lines, as a presentation app's text box grows (PLAN
-    /// 2.32, `Engine::grown`). `None` where none grows, or the run does not make a deck.
+    /// 2.32, `Engine::grown`), and code's `rect` down too, before it shrinks (PLAN 2.131). `None`
+    /// where none grows, or the run does not make a deck.
     #[cfg(feature = "editor")]
     fn growing(&mut self, ops: &serde_json::Value) -> Result<Option<serde_json::Value>, Error> {
         let Some(list) = ops.as_array() else { return Ok(None) };

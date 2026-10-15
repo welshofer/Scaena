@@ -758,8 +758,8 @@ fn a_deck_or_a_theme_in_a_format_this_build_does_not_read_says_which_it_reads() 
 /// A code text takes none of what code does not use (PLAN 2.131, ADR-0029): `runs`, `list`,
 /// `fit: wrap`, and the properties that break, measure, hyphenate, hang, or case its lines, each
 /// E106 where it is written: the node, a state's delta, or the deck's `overrides`. A `code` that
-/// names no language, the node's own or one a delta writes on a text that is no code, is one
-/// finding, in its own words.
+/// names no language, the node's own or one a delta writes on a text that is no code, or names
+/// one in what is no language's name, is one finding, in its own words.
 #[test]
 fn a_code_text_takes_none_of_what_code_does_not_use() {
     let code = |more: serde_json::Value| {
@@ -821,6 +821,12 @@ fn a_code_text_takes_none_of_what_code_does_not_use() {
     let nameless = "names no language: name the language its words are written in, or `plain` for none";
     assert_eq!(say("/states/1/props/prose/code/language"), format!("`prose`'s `code` {nameless}"));
     assert_eq!(say("/nodes/nameless/code/language"), format!("`nameless`'s `code` {nameless}"));
+    // A language written as no language's name is said in words of its own, not the schema's.
+    assert_eq!(
+        say("/nodes/upper/code/language"),
+        "`upper`'s `code` names `Rust`, which is no language's name: name it in lowercase letters and digits, as \
+         `rust`, `c++`, or `plain`"
+    );
     assert_eq!(say("/nodes/snippet/runs"), "`snippet` is code, whose words are its `text`: it takes no `runs`");
     assert_eq!(
         say("/states/1/props/later/fit"),

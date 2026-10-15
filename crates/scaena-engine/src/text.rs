@@ -665,6 +665,11 @@ impl TextEngine {
                     builder.push(StyleProperty::Underline(true), range.clone());
                 }
             }
+            // The mark that runs code left to right takes no room, so tracking puts none after it
+            // and its first line starts where the others do.
+            if code.is_some() && text.starts_with(crate::code::LTR) {
+                builder.push(StyleProperty::LetterSpacing(0.0), 0..crate::code::LTR.len_utf8());
+            }
             builder.build(&text)
         };
         // The hyphen each span draws where a line breaks inside one of its words.

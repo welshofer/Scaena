@@ -348,10 +348,10 @@ impl Engine {
     /// where they run past the foot of its box (PLAN 2.32), as a presentation app's text box grows
     /// as it is typed in: on the theme's grid, its rows grown down to the first that holds them, or
     /// the grid's last. A text that wraps or grows grows so for its lines as set. Code grows first
-    /// and shrinks after (ADR-0029): to hold its lines at its own size, by its rows on the grid, or,
-    /// placed by a `rect`, by its height, no further than the grid's margin. `None` for a text
-    /// that its box holds, one placed otherwise (in a slot, in a container), and one whose fit is
-    /// none of those.
+    /// and shrinks after (ADR-0029): to hold its lines at the largest size its box's width lets it,
+    /// its own at most, by its rows on the grid, or, placed by a `rect`, by its height, no further
+    /// than the grid's margin. `None` for a text that its box holds, one placed otherwise (in a
+    /// slot, in a container), and one whose fit is none of those.
     pub fn grown(&mut self, req: &FrameRequest, node: &str) -> Result<Option<crate::geometry::Target>, EngineError> {
         let (deck, theme) = project(req.deck, req.theme, req.format)?;
         let (deck, theme) = (deck.as_ref(), theme.as_ref());
@@ -370,9 +370,13 @@ impl Engine {
             _ => None,
         });
         let Some(placed) = placed else { return Ok(None) };
-        // What it needs: code its height at its own size, a text that wraps or grows its lines.
+        // What it needs: a text that wraps or grows its lines; code its lines at the largest size
+        // its width lets it, which growing down does not change, and no smaller than it shrinks to.
         let need = match (placed.natural, placed.fit) {
-            (Some([_, tall]), TextFit::Shrink) => tall,
+            (Some([wide, tall]), TextFit::Shrink) => {
+                let across = if wide > 0.0 { (placed.cell[2] / wide).min(1.0) } else { 1.0 };
+                tall * across.max(placed.scale)
+            }
             (None, TextFit::Wrap | TextFit::Grow) if by_cells => placed.text.height,
             _ => return Ok(None),
         };
@@ -746,8 +750,7 @@ impl Engine {
             // presentation size, and never above its own size; worked out, since no line of it
             // breaks again at another size.
             TextFit::Shrink if code && !fits(&base) => {
-                let least = number("minSize").or(spec.role.min_size).unwrap_or(crate::code::floor(canvas(deck)));
-                let floor = (least / spec.role.size).min(1.0);
+                let floor = spec.code.as_ref().map_or(1.0, |c| c.least);
                 worked_out(&mut lay, &fits, &base, [cell[2], cell[3]], trim, floor)?
             }
             TextFit::Shrink if !fits(&base) => {
@@ -891,7 +894,8 @@ pub struct PlacedText {
     /// for a shape's words and for code, else `wrap`. What lint and the editors read.
     pub fit: TextFit,
     /// A code text's size at its own, before it shrinks or grows, `[width, height]` as its `box`
-    /// trims it: what its box grows to hold first ([`Engine::grown`]). `None` for any other text.
+    /// trims it: what its box grows to hold first, at the size its width lets it
+    /// ([`Engine::grown`]). `None` for any other text.
     pub natural: Option<[f32; 2]>,
 }
 
@@ -920,7 +924,9 @@ const FIT_SLACK: f32 = 1.0 / 64.0;
 
 /// A text node's size in a container (SPEC §3.4): the lines it breaks into at the width it
 /// is given, or that `available` allows; its height, the box its `box` trims to. Its
-/// narrowest and widest sizes break greedily, which `balance` and `pretty` never change.
+/// narrowest and widest sizes break greedily, which `balance` and `pretty` never change. Code
+/// breaks no line and shrinks instead (ADR-0029): it asks for its own size at most and the
+/// least it shrinks to at narrowest, and stands as tall as the width it is given sets it.
 fn measure_text(
     text: &mut TextEngine,
     fonts: &mut BundleFonts,
@@ -945,6 +951,20 @@ fn measure_text(
         text.layout(fonts, theme, spec, width)?
     };
     let (top, bottom) = laid.trimmed(trim);
+    if let Some(code) = &spec.code {
+        let [wide, tall] = [laid.width, bottom - top];
+        let scale = match (known.width, available.width) {
+            (Some(w), _) | (None, taffy::AvailableSpace::Definite(w)) if wide > 0.0 => {
+                (w / wide).clamp(code.least, 1.0)
+            }
+            (None, taffy::AvailableSpace::MinContent) => code.least,
+            _ => 1.0,
+        };
+        return Ok(taffy::Size {
+            width: known.width.unwrap_or(wide * scale + FIT_SLACK),
+            height: known.height.unwrap_or(tall * scale),
+        });
+    }
     Ok(taffy::Size {
         width: known.width.unwrap_or(laid.width + FIT_SLACK),
         height: known.height.unwrap_or(bottom - top),
@@ -1146,7 +1166,7 @@ fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>)
     let str_prop = |key: &str| props.get(key).and_then(Value::as_str);
     let mut role = cascade::node_role(theme, props, slot_role)?;
     // Code is set as written (ADR-0029): no case, no measure, no hyphens, nothing hung.
-    let code = crate::code::CodeSpec::of(props);
+    let code = crate::code::CodeSpec::of(props, role.size, role.min_size, canvas(deck));
     if code.is_some() {
         role.case = None;
     }
