@@ -3147,6 +3147,60 @@ mod tests {
         assert_eq!(props.get("code"), Some(&serde_json::json!({ "language": "plain" })));
     }
 
+    /// Code pasted is a code text in its language, tidied and sized to its lines; Copy Code gives
+    /// its words back; and its box says its language, which its chip shows (PLAN 2.133).
+    #[cfg(feature = "editor")]
+    #[test]
+    fn pasted_code_is_a_code_text_sized_to_its_lines() {
+        let mut s = revenue();
+        let by = || assistant::Caller { author: "user", at: None };
+        let source = "\tfn main() {\r\n\t    println!(\"hi\");\r\n\t}\r\n";
+        let hints = scaena_ops::clipboard::Hints { file: Some("main.rs".into()), ..Default::default() };
+        let clip = scaena_ops::clipboard::of_text(&s.deck, &s.theme, source, &hints).unwrap();
+        let pasted = s.pasting(&clip, "close", [960.0, 540.0]).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": pasted.patch }), by()).unwrap();
+        let props = &s.deck().nodes[&pasted.id].props;
+        assert_eq!(props.get("code"), Some(&serde_json::json!({ "language": "rust" })));
+        assert_eq!(props.get("text"), Some(&serde_json::json!("fn main() {\n    println!(\"hi\");\n}")));
+        // Three lines in a box no taller than they need, and no shorter than a twelfth of the canvas.
+        let [_, _, _, h] = pasted.cell;
+        assert!(h <= 1080.0 / 4.0, "{:?}", pasted.cell);
+        assert_eq!(s.code_words("close", &pasted.id).unwrap(), "fn main() {\n    println!(\"hi\");\n}");
+        assert!(s.code_words("close", "title").is_err(), "a text that is no code");
+        let chip = s.boxes_json("close").unwrap().into_iter().find(|b| b["node"] == pasted.id.as_str()).unwrap();
+        assert_eq!(chip["code"], serde_json::json!({ "language": "rust", "said": "Rust" }));
+        // Prose pastes as words, and Paste as Text pastes code as words too.
+        let prose = scaena_ops::clipboard::of_text(&s.deck, &s.theme, "Margins held through the quarter.", &Default::default());
+        assert!(prose.unwrap().nodes.values().all(|n| n.get("code").is_none()));
+        let plain = scaena_ops::clipboard::Hints { plain: true, ..Default::default() };
+        let words = scaena_ops::clipboard::of_text(&s.deck, &s.theme, source, &plain).unwrap();
+        assert!(words.nodes.values().all(|n| n.get("code").is_none() && n["role"] == "body"));
+        assert_eq!(s.tidied("\t\tx = 1\n\t\ty = 2\n", "python"), "x = 1\ny = 2");
+    }
+
+    /// Code pasted over the whole of a Plain Text block takes the language it reads as, in the same
+    /// run of typing, and still grows (PLAN 2.133).
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_plain_text_block_takes_its_pastes_language() {
+        let mut s = revenue();
+        let by = assistant::Caller { author: "user", at: None };
+        let code = s.inserts().iter().position(|i| i.label == "Text · code").unwrap();
+        let added = s.inserting("close", code, [960.0, 540.0], None).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": added.patch }), by).unwrap();
+        let typed_over = s.code_words("close", &added.id).unwrap().chars().count();
+        let python = "import sys\n\ndef main(argv):\n    for arg in argv[1:]:\n        print(arg)\n    return 0\n";
+        let ops = serde_json::json!([{ "op": "replace_text", "node": added.id, "state": "close", "from": 0, "to": typed_over, "text": python }]);
+        assert!(s.typed(&ops, None).unwrap());
+        let props = &s.deck().nodes[&added.id].props;
+        assert_eq!(props.get("code"), Some(&serde_json::json!({ "language": "python" })));
+        assert_eq!(s.code_words("close", &added.id).unwrap(), python);
+        // A paste over part of it, or over a block in a language, names none.
+        let ops = serde_json::json!([{ "op": "replace_text", "node": added.id, "state": "close", "from": 0, "to": 6, "text": "SELECT" }]);
+        assert!(s.typed(&ops, None).unwrap());
+        assert_eq!(s.deck().nodes[&added.id].props.get("code"), Some(&serde_json::json!({ "language": "python" })));
+    }
+
     /// Characters selected on the canvas take a look (PLAN 2.38): ⌘B's from the weight the
     /// engine sets them in, and the inspector's from the run of the first of them.
     #[cfg(feature = "editor")]

@@ -1175,7 +1175,7 @@ struct DeckView: View {
                 // A source file pastes as words, its name saying their language (PLAN 2.133).
                 pasteText(words, in: shown, at: at, hints: PasteHints(file: name))
             } else {
-                said = "\(name) is neither a picture (PNG, JPEG), data (CSV, JSON), nor words: nothing was added"
+                said = "\(name) is neither a picture (PNG, JPEG) nor data (CSV, JSON): nothing was added"
             }
         case nil:
             said = "nothing on the clipboard to paste"

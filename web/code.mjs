@@ -1,0 +1,173 @@
+// PLAN 2.133 check: code pasted on the editor's canvas, in headless Chromium (serve.mjs), the CPU
+// painting, on the revenue example's closing slide.
+//
+//   node web/code.mjs     (after `just web`; from the repository's root)
+//
+// - Rust copied from a page, its `<pre>` classed `language-rust`, pastes as a code text in Rust,
+//   tidied: its tabs and the indentation its lines share gone, its line ends one. One step to undo.
+// - Its chip says Rust; a press on it offers the languages, and Python chosen is one step to undo.
+// - Copy Code puts its words on the clipboard as text.
+// - Prose pastes as words, and Paste as Text pastes code as words.
+// - VS Code's mode names the language of what it copies.
+// Exits 1 on any failure.
+import { launch, serve } from "./serve.mjs";
+
+import { launch, serve } from "./serve.mjs";
+
+const server = await serve();
+const failures = [];
+const check = (ok, what) => {
+  console.log(`${ok ? "ok  " : "FAIL"} ${what}`);
+  if (!ok) failures.push(what);
+};
+
+const browser = await launch();
+try {
+  const context = await browser.newContext({ viewport: { width: 1920, height: 1200 }, deviceScaleFactor: 1, permissions: ["clipboard-read", "clipboard-write"] });
+  const page = await context.newPage();
+  page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
+  page.on("console", (m) => m.type() === "error" && failures.push(`console: ${m.text()}`));
+  await page.goto(`${server.origin}/web/dist/editor.html?painter=cpu&bundle=/docs/examples/revenue.deck.json`);
+  await page.waitForFunction(() => window.scaena?.last()?.valid, null, { timeout: 120000 });
+
+  const source = () => page.evaluate(() => window.scaena.source());
+  const status = () => page.evaluate(() => document.querySelector("#status").textContent);
+  const selected = () => page.evaluate(() => window.scaena.canvas.selected());
+  const says = async (text) => {
+    await page.waitForFunction((t) => document.querySelector("#status").textContent.includes(t), text, { timeout: 30000 }).catch(() => {});
+    return (await status()).includes(text);
+  };
+  /** Once the source differs from `was`, and the canvas has caught up. */
+  const changed = async (was) => {
+    await page.waitForFunction((s) => window.scaena.source() !== s && !window.scaena.canvas.busy(), was, { timeout: 30000, polling: 50 }).catch(() => {});
+    await page.waitForTimeout(300);
+    return (await source()) !== was;
+  };
+  const back = async (to) => {
+    await page.waitForFunction((s) => window.scaena.source() === s, to, { timeout: 30000, polling: 50 }).catch(() => {});
+    await page.waitForTimeout(300);
+    return (await source()) === to;
+  };
+  const undo = async (to) => {
+    await page.locator("#overlay").focus();
+    await page.keyboard.press("Control+z");
+    return back(to);
+  };
+  /** ⌘Z, then once the source holds `has` and not `lacks`: one step back, however fast the
+   *  steps before it were written. */
+  const undoTo = async (has, lacks) => {
+    await page.locator("#overlay").focus();
+    await page.keyboard.press("Control+z");
+    const holds = ([has, lacks]) => {
+      const s = window.scaena.source();
+      return s.includes(has) && !s.includes(lacks) && !window.scaena.canvas.busy();
+    };
+    await page.waitForFunction(holds, [has, lacks], { timeout: 30000, polling: 50 }).catch(() => {});
+    await page.waitForTimeout(300);
+    const s = await source();
+    return s.includes(has) && !s.includes(lacks);
+  };
+  /** Press the canvas at `[x, y]`, canvas units. */
+  const press = async ([x, y]) => {
+    const [cx, cy] = await page.evaluate(
+      ([x, y]) => {
+        const r = document.querySelector("#overlay").getBoundingClientRect();
+        const [w, h] = window.scaena.canvas.size();
+        return [r.left + (x / w) * r.width, r.top + (y / h) * r.height];
+      },
+      [x, y],
+    );
+    await page.mouse.click(cx, cy);
+    await page.waitForFunction(() => !window.scaena.canvas.busy(), null, { timeout: 30000 });
+  };
+  /** A paste on the canvas, focused, as ⌘V fires it: `data` by media type, and `files`, each
+   * `{ name, type, url }` fetched from the site or `{ name, type, webp }` drawn as a WebP. */
+  const paste = (data, files = []) =>
+    page.evaluate(
+      async ([data, files]) => {
+        const held = new DataTransfer();
+        for (const [type, value] of Object.entries(data)) held.setData(type, value);
+        for (const f of files) {
+          let bytes;
+          if (f.url) bytes = await (await fetch(f.url)).arrayBuffer();
+          else {
+            const canvas = new OffscreenCanvas(64, 48);
+
+  /** Run the command `label` from the palette, as Ctrl+K and its name typed then Enter run it. */
+  const run = async (label) => {
+    await page.locator("#overlay").focus();
+    await page.keyboard.press("Control+k");
+    await page.waitForFunction(() => document.querySelector("#palette").open, null, { timeout: 10000 });
+    await page.keyboard.type(label);
+    await page.keyboard.press("Enter");
+  };
+
+  // The closing slide, with room below its title.
+  const index = await page.evaluate(() => window.scaena.opened.states.indexOf("close"));
+  await page.evaluate((offset) => window.scaena.cursor(offset), (await source()).indexOf("state close") + "state ".length);
+  await page.waitForFunction((i) => window.scaena.shown() === i && window.scaena.canvas.boxes().length > 0, index, { timeout: 30000 });
+  const original = await source();
+  /** The code text the canvas has, as its box says it. */
+  const coded = () => page.evaluate(() => window.scaena.canvas.boxes().find((b) => b.code));
+
+  // Rust copied from a page: tabs, CRLF, and an indentation its lines share.
+  await press([960, 760]);
+  const rust = "\tfn main() {\r\n\t    let total = 42;\r\n\t    println!(\"{total}\");\r\n\t}\r\n";
+  const html = '<pre class="language-rust"><code>fn main() {</code></pre>';
+  check(await paste({ "text/plain": rust, "text/html": html }), "the canvas takes the code");
+  check(await changed(original), "it comes in");
+  const pasted = await source();
+  check(pasted.includes("rust") && pasted.includes("fn main() {"), "as code in Rust");
+  check(!pasted.includes("\t") && !pasted.includes("\r"), "tidied: no tab, no carriage return");
+  const box = await coded();
+  check(box?.code?.language === "rust" && box?.code?.said === "Rust", `its box says Rust: ${JSON.stringify(box?.code)}`);
+
+  // Its chip, drawn while it is selected, offers the languages.
+  check((await selected()) === box?.node, "it is selected");
+  const chip = page.locator("#overlay .code-chip");
+  await chip.waitFor({ timeout: 30000 }).catch(() => {});
+  check((await chip.count()) === 1, "its chip shows");
+  check((await chip.textContent())?.includes("Rust"), `the chip says Rust: ${await chip.textContent()}`);
+  await chip.dispatchEvent("pointerdown", { button: 0, clientX: 10, clientY: 10, pointerId: 1, isPrimary: true });
+  const menu = page.locator(".context-menu");
+  await menu.waitFor({ timeout: 30000 }).catch(() => {});
+  check((await menu.locator("[role=menuitem]", { hasText: "Python" }).count()) > 0, "the chip offers Python");
+  await menu.locator("[role=menuitem]", { hasText: "Python" }).first().click();
+  check(await changed(pasted), "a language chosen changes the deck");
+  check((await coded())?.code?.language === "python", "it is Python now");
+  check(await undo(pasted), "⌘Z takes the language back");
+
+  // Copy Code: its words on the clipboard as text.
+  await run("Copy Code");
+  await says("The code copied as text");
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  check(copied === "fn main() {\n    let total = 42;\n    println!(\"{total}\");\n}", `Copy Code copies its words: ${JSON.stringify(copied)}`);
+  check(await undo(original), "⌘Z takes the paste away");
+
+  // Prose pastes as words.
+  await press([960, 760]);
+  check(await paste({ "text/plain": "Margins held through the quarter: costs fell, and prices held." }), "the canvas takes prose");
+  check(await changed(original), "the prose comes in");
+  check(!(await coded()), "as words, not code");
+  check(await undo(original), "⌘Z takes it away");
+
+  // Paste as Text: code as words.
+  await page.evaluate((t) => navigator.clipboard.writeText(t), rust);
+  await press([960, 760]);
+  await run("Paste as Text");
+  check(await changed(original), "Paste as Text pastes");
+  check(!(await coded()), "code pasted as text is words");
+  check(await undo(original), "⌘Z takes it away");
+
+  // VS Code's mode names the language of what it copies.
+  await press([960, 760]);
+  const sql = "select name, total from orders where total > 100 order by total desc";
+  check(await paste({ "text/plain": sql, "vscode-editor-data": JSON.stringify({ version: 1, isFromEmptySelection: false, mode: "sql" }) }), "the canvas takes VS Code's");
+  check(await changed(original), "it comes in");
+  check((await coded())?.code?.language === "sql", `as SQL, by VS Code's mode: ${JSON.stringify((await coded())?.code)}`);
+  check(await undo(original), "⌘Z takes it away");
+} finally {
+  await browser.close();
+  await server.close();
+}
+console.log(failures.length ? `${failures.length} failure(s): ${failures.join("; ")}` : "code pastes as code in its language, tidied, which its chip changes");
