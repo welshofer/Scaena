@@ -1,6 +1,6 @@
 {
-  "scaena": "0.27",
-  "_comment": "E106 trigger: a text property on an image, an image's fit on text, a missing src, a key written twice, two deltas whose resolved states break their node's type, a style on an image, overrides that do the same, a node placed in a text node, two stacks inside each other, chart annotations that stand where their kinds cannot, and rows that run backward.",
+  "scaena": "0.28",
+  "_comment": "E106 trigger: a text property on an image, an image's fit on text, a missing src, a key written twice, two deltas whose resolved states break their node's type, a style on an image, overrides that do the same, a node placed in a text node, two stacks inside each other, chart annotations that stand where their kinds cannot, rows that run backward, and a code text written in runs, then told to wrap.",
   "canvas": { "width": 1920, "height": 1080 },
   "data": { "q": { "source": { "inline": [{ "quarter": "Q1", "rev": 12 }] }, "schema": { "rev": "number" } } },
   "nodes": {
@@ -15,11 +15,12 @@
       "type": "chart", "kind": "bar", "data": "@q", "x": { "field": "quarter" }, "y": { "field": "rev" },
       "annotations": [{ "kind": "rule", "at": { "x": "Q1", "y": 3 } }, { "kind": "highlight", "at": { "x": "Q1" }, "text": "Up" }],
       "at": { "in": "canvas" }
-    }
+    },
+    "snippet": { "type": "text", "code": { "language": "rust" }, "runs": [{ "text": "fn main() {}" }], "at": { "in": "canvas" } }
   },
   "states": [
-    { "id": "one", "props": { "headline": {}, "photo": {}, "badge": {}, "left": {}, "right": {}, "plot": {}, "late": {} } },
-    { "id": "two", "props": { "headline": { "fit": "contain" }, "photo": { "src": null }, "plot": { "annotations": [{ "kind": "band", "at": { "y": 3 } }] } },
+    { "id": "one", "props": { "headline": {}, "photo": {}, "badge": {}, "left": {}, "right": {}, "plot": {}, "late": {}, "snippet": {} } },
+    { "id": "two", "props": { "headline": { "fit": "contain" }, "photo": { "src": null }, "plot": { "annotations": [{ "kind": "band", "at": { "y": 3 } }] }, "snippet": { "fit": "wrap" } },
       "choreography": [
         { "target": "headline", "enter": "fade", "exit": "fade" },
         { "target": "photo", "split": "words", "enter": "fade" },

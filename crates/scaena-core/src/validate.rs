@@ -248,7 +248,7 @@ pub trait BundleFiles {
 /// - a key written twice in one object (E105 for an id, E106 for anything else);
 /// - what a schema cannot say: references to nodes, states, data, files, and theme names
 ///   (E102), a delta that sets `type`, `locked`, or `connect` (E104), an id used twice (E105), and each state,
-///   resolved, against its nodes' types (E106).
+///   resolved, against its nodes' types (E106), a code text's among them (PLAN 2.131).
 ///
 /// `Err` only when `deck_json` is not JSON.
 pub fn validate_bundle(deck_json: &str, files: &dyn BundleFiles) -> Result<Vec<Finding>, serde_json::Error> {
@@ -281,6 +281,7 @@ pub fn validate_bundle(deck_json: &str, files: &dyn BundleFiles) -> Result<Vec<F
         let snapshots = resolve_states(&deck).ok();
         if let Some(snapshots) = &snapshots {
             out.extend(resolved_types(&deck, snapshots));
+            out.extend(code_texts(&deck, snapshots));
             out.extend(containers(&deck, snapshots));
             out.extend(annotations(&deck, snapshots));
             out.extend(projections(&deck, snapshots));
@@ -850,7 +851,7 @@ fn override_types(deck: &Deck) -> Vec<Finding> {
         resolved.extend(props.into_iter().filter(|(k, _)| k != "type"));
         for v in checker.check_def(def, &Value::Object(resolved), "") {
             let Some(prop) = tokens(&v.path).into_iter().next() else { continue };
-            if prop == "type" || !over.contains_key(&prop) {
+            if prop == "type" || !over.contains_key(&prop) || nameless_code(&v) {
                 continue;
             }
             let message = match v.kind {
@@ -950,7 +951,8 @@ fn resolved_types(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
             resolved.extend(props.iter().map(|(k, v)| (k.clone(), v.clone())));
             for v in checker.check_def(def, &Value::Object(resolved), "") {
                 let Some(prop) = tokens(&v.path).into_iter().next() else { continue };
-                if prop == "type" || !delta.contains_key(&prop) {
+                // A `code` that names no language is `code_texts`' to say, in its own words.
+                if prop == "type" || !delta.contains_key(&prop) || nameless_code(&v) {
                     continue;
                 }
                 let message = match v.kind {
@@ -1226,6 +1228,84 @@ fn ends_and_paragraphs(deck: &Deck) -> Vec<Finding> {
             out.push(
                 Finding::new("E106", Severity::Error, message).at(format!("{at}/paragraphs")).node(id.to_string()),
             );
+        }
+    }
+    out
+}
+
+/// The text properties a code text does not use (PLAN 2.131, ADR-0029): its lines break only
+/// where it breaks them, and nothing measures, hyphenates, or hangs them.
+const NOT_CODE: [&str; 6] =
+    ["wrap", "measure", "hyphenate", "hangingPunctuation", "opticalMargins", "minLastLineWords"];
+
+/// Whether `v` says a `code` names no language, which [`code_texts`] says in its own words, once.
+fn nameless_code(v: &Violation) -> bool {
+    v.kind == Kind::Missing && v.path == "/code/language"
+}
+
+/// E106: what a code text does not take beside its `code` (PLAN 2.131, ADR-0029). Its words are
+/// its `text`, set as written, so it takes no `runs` and no `list`, never wraps (`fit: wrap`),
+/// and takes none of [`NOT_CODE`] nor `style.case`. Each state is judged as it shows the text,
+/// the deck's `overrides` over it, and each finding is reported where the value is written: the
+/// node's own props, the delta the state tracks it from, or the overrides. A `code` that names
+/// no language, as a delta that writes part of one on a text that is no code makes it, is one
+/// finding, where that `code` is written.
+fn code_texts(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
+    use crate::tracking::{Lives, lives, merge_props};
+    let mut out = Vec::new();
+    for (i, (state, snapshot)) in deck.states.iter().zip(snapshots).enumerate() {
+        for (id, props) in &snapshot.nodes {
+            if deck.nodes.get(id).is_none_or(|n| n.node_type != NodeType::Text) {
+                continue;
+            }
+            let over = deck.overrides.get(id);
+            let mut shown = props.clone();
+            if let Some(over) = over {
+                merge_props(&mut shown, over);
+            }
+            let Some(code) = shown.get("code").and_then(Value::as_object) else { continue };
+            // Where `prop`, or its `key`, is written for this state.
+            let written = |prop: &str, key: Option<&str>| {
+                let keys: Vec<&str> = key.into_iter().collect();
+                let set = over.and_then(|o| o.get(prop)).is_some_and(|v| key.is_none_or(|k| v.get(k).is_some()));
+                let at = match (set, lives(deck, i, id, prop, &keys)) {
+                    (true, _) => format!("/overrides/{}", esc(id)),
+                    (false, Lives::State(j)) => format!("/states/{j}/props/{}", esc(id)),
+                    (false, Lives::Node) => format!("/nodes/{}", esc(id)),
+                };
+                match key {
+                    Some(key) => format!("{at}/{prop}/{key}"),
+                    None => format!("{at}/{prop}"),
+                }
+            };
+            let mut found = |path: String, message: String| {
+                out.push(
+                    Finding::new("E106", Severity::Error, message).at(path).state(state.id.clone()).node(id.clone()),
+                );
+            };
+            if !code.get("language").is_some_and(Value::is_string) {
+                let message = format!(
+                    "`{id}`'s `code` names no language: name the language its words are written in, or `plain` for none"
+                );
+                found(format!("{}/language", written("code", None)), message);
+            }
+            if shown.contains_key("runs") {
+                found(written("runs", None), format!("`{id}` is code, whose words are its `text`: it takes no `runs`"));
+            }
+            if shown.contains_key("list") {
+                found(written("list", None), format!("`{id}` is code, which makes no list: it takes no `list`"));
+            }
+            if shown.get("fit").and_then(Value::as_str) == Some("wrap") {
+                let message = format!("`{id}` is code, which never wraps: it shrinks to fit without `fit: wrap`");
+                found(written("fit", None), message);
+            }
+            for prop in NOT_CODE.into_iter().filter(|p| shown.contains_key(*p)) {
+                found(written(prop, None), format!("`{id}` is code, set as written: it takes no `{prop}`"));
+            }
+            if shown.get("style").and_then(|s| s.get("case")).is_some_and(|c| !c.is_null()) {
+                let message = format!("`{id}` is code, set as written: it takes no `style.case`");
+                found(written("style", Some("case")), message);
+            }
         }
     }
     out

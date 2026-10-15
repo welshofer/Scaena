@@ -237,6 +237,7 @@ fn e106_schema_and_resolved_types() {
             "/nodes/plot/annotations/0",
             "/nodes/plot/annotations/1",
             "/nodes/right/at/parent",
+            "/nodes/snippet/runs",
             "/overrides/headline/style/weight",
             "/overrides/photo/fit",
             "/overrides/photo/kind",
@@ -246,6 +247,7 @@ fn e106_schema_and_resolved_types() {
             "/states/1/props/headline/fit",
             "/states/1/props/photo/src",
             "/states/1/props/plot/annotations/0",
+            "/states/1/props/snippet/fit",
         ],
     );
     let found = validate_bundle(fixture!("E106", "trigger"), &Fixtures).unwrap();
@@ -494,7 +496,7 @@ fn a_deck_that_is_not_json_is_an_error_not_a_finding() {
 fn e103_two_rows_one_mark() {
     // A mark is known by its key, else its category, with its series beside it.
     let deck = serde_json::json!({
-        "scaena": "0.27",
+        "scaena": "0.28",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -538,7 +540,7 @@ fn what_marks_a_row_projected_is_a_column_that_can_hold_it() {
     let props: serde_json::Map<String, serde_json::Value> =
         nodes.keys().map(|k| (k.clone(), serde_json::json!({}))).collect();
     let deck = serde_json::json!({
-        "scaena": "0.27",
+        "scaena": "0.28",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -576,7 +578,7 @@ fn only_a_bar_charts_bars_turn() {
         c
     };
     let deck = serde_json::json!({
-        "scaena": "0.27",
+        "scaena": "0.28",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -602,7 +604,7 @@ fn a_slope_compares_two_states_and_a_range_spans_something() {
     // range's, each end a column of numbers (E106, E103); a range with no series, color, or
     // interval spans nothing (E106).
     let deck = serde_json::json!({
-        "scaena": "0.27",
+        "scaena": "0.28",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -650,7 +652,7 @@ fn small_multiples_facet_by_a_field_of_their_data() {
             "y": { "field": "v" }, "facet": facet, "alt": "", "at": { "in": "main" } })
     };
     let deck = serde_json::json!({
-        "scaena": "0.27",
+        "scaena": "0.28",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -751,4 +753,78 @@ fn a_deck_or_a_theme_in_a_format_this_build_does_not_read_says_which_it_reads() 
         scaena_core::THEME_FORMAT_VERSION
     );
     assert_eq!(said, [("E106", Some("/scaena-theme"), Some(reads))]);
+}
+
+/// A code text takes none of what code does not use (PLAN 2.131, ADR-0029): `runs`, `list`,
+/// `fit: wrap`, and the properties that break, measure, hyphenate, hang, or case its lines, each
+/// E106 where it is written: the node, a state's delta, or the deck's `overrides`. A `code` that
+/// names no language, the node's own or one a delta writes on a text that is no code, is one
+/// finding, in its own words.
+#[test]
+fn a_code_text_takes_none_of_what_code_does_not_use() {
+    let code = |more: serde_json::Value| {
+        let mut node = serde_json::json!({ "type": "text", "role": "body", "code": { "language": "rust" },
+            "text": "fn main() {}", "at": { "in": "main" } });
+        node.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
+        node
+    };
+    let deck = serde_json::json!({
+        "scaena": "0.28",
+        "canvas": { "width": 1920, "height": 1080 },
+        "theme": "theme.json",
+        "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
+        "nodes": {
+            "snippet": code(serde_json::json!({ "runs": [{ "text": "fn main() {}" }], "list": [null],
+                "wrap": "pretty", "measure": 40, "hyphenate": true, "hangingPunctuation": true,
+                "opticalMargins": false, "minLastLineWords": 2, "style": { "case": "upper" } })),
+            "fitted": code(serde_json::json!({ "fit": "wrap" })),
+            "later": code(serde_json::json!({})),
+            "over": code(serde_json::json!({})),
+            "nameless": code(serde_json::json!({ "code": {} })),
+            "upper": code(serde_json::json!({ "code": { "language": "Rust" } })),
+            "prose": { "type": "text", "role": "body", "text": "Words", "at": { "in": "main" } }
+        },
+        "states": [
+            { "id": "a", "layout": "full", "props": { "snippet": {}, "fitted": {}, "later": {}, "over": {},
+                "nameless": {}, "upper": {}, "prose": {} } },
+            { "id": "b", "props": { "fitted": { "fit": "shrink" }, "later": { "fit": "wrap" }, "prose": { "code": {} } } },
+            { "id": "c", "props": {} }
+        ],
+        "overrides": { "over": { "fit": "wrap" } }
+    });
+    // Its words as runs alone.
+    let mut deck = deck;
+    deck["nodes"]["snippet"].as_object_mut().unwrap().remove("text");
+    let text = deck.to_string();
+    assert_eq!(
+        findings(&text),
+        [
+            "E106 /nodes/fitted/fit",
+            "E106 /nodes/nameless/code/language",
+            "E106 /nodes/snippet/hangingPunctuation",
+            "E106 /nodes/snippet/hyphenate",
+            "E106 /nodes/snippet/list",
+            "E106 /nodes/snippet/measure",
+            "E106 /nodes/snippet/minLastLineWords",
+            "E106 /nodes/snippet/opticalMargins",
+            "E106 /nodes/snippet/runs",
+            "E106 /nodes/snippet/style/case",
+            "E106 /nodes/snippet/wrap",
+            "E106 /nodes/upper/code/language",
+            "E106 /overrides/over/fit",
+            "E106 /states/1/props/later/fit",
+            "E106 /states/1/props/prose/code/language",
+        ]
+    );
+    let found = validate_bundle(&text, &Fixtures).unwrap();
+    let say = |path: &str| found.iter().find(|f| f.path.as_deref() == Some(path)).unwrap().message.clone();
+    let nameless = "names no language: name the language its words are written in, or `plain` for none";
+    assert_eq!(say("/states/1/props/prose/code/language"), format!("`prose`'s `code` {nameless}"));
+    assert_eq!(say("/nodes/nameless/code/language"), format!("`nameless`'s `code` {nameless}"));
+    assert_eq!(say("/nodes/snippet/runs"), "`snippet` is code, whose words are its `text`: it takes no `runs`");
+    assert_eq!(
+        say("/states/1/props/later/fit"),
+        "`later` is code, which never wraps: it shrinks to fit without `fit: wrap`"
+    );
+    assert_eq!(say("/nodes/snippet/style/case"), "`snippet` is code, set as written: it takes no `style.case`");
 }

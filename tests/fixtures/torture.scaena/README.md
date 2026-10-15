@@ -4,14 +4,14 @@ Phase 0 is adversarial: this bundle exists to make `parley`/`harfrust` and the p
 
 ```
 torture.scaena/
-  deck.json        65 states, mode: absolute (but `chart` and `chart-next`, which build on `chart-intro`, each
+  deck.json        66 states, mode: absolute (but `chart` and `chart-next`, which build on `chart-intro`, each
                    state that moves a gallery's data or its annotations, `forecast-next`, `morph`,
                    `transforms-next`, `across-next`, `slopes-next`, `multiples-next`, `shadows-next`, and `adjust-next`, which
                    build on the one before), layout: specimen
   theme.json       "Torture": every case-specific setting is a role, so the deck references roles only
   data/bars.csv    six quarters for the bar chart; bars-next.csv, the window a quarter later; the chart
                    galleries' sources are inline in deck.json
-  fonts/           five subset fonts + OFL texts; provenance in fonts/SOURCES.md
+  fonts/           six subset fonts + OFL texts; provenance in fonts/SOURCES.md
   assets/          test-card.png, 480 × 240, made by scripts/build_torture_images.py; and seven
                    JPEGs from tests/fixtures/jpeg, made by its make.py (case 50)
 ```
@@ -25,8 +25,9 @@ torture.scaena/
 | `hebrew` | Noto Sans Hebrew | PLAN role: fallback for a script the first two lack. |
 | `arabic` | Noto Sans Arabic | Catalogue only: the Arabic bidi line. |
 | `emoji` | Noto Color Emoji, COLRv1 only (`SVG ` table stripped) | Catalogue only: emoji. |
+| `mono` | JetBrains Mono (variable `wght` 100–800) | Case 64: code, set as written (PLAN 2.131). No fallback: the code is ASCII. |
 
-Fallback order (theme `type.families.*.fallback`): `serif` → `garamond` → `hebrew` → `arabic` → `emoji`. All five carry OS/2 v4 cap-height and x-height (ADR-0004 finding 3). Fonts are subsets built by `just torture-fonts` from google/fonts at a pinned commit, sha256-verified, deterministic; `just schema` checks that every character of every text node resolves through its role's chain and that each case uses only the fonts it is meant to test.
+Fallback order (theme `type.families.*.fallback`): `serif` → `garamond` → `hebrew` → `arabic` → `emoji`; `mono` stands alone. All six carry OS/2 v4 cap-height and x-height (ADR-0004 finding 3). Fonts are subsets built by `just torture-fonts` from google/fonts at a pinned commit, sha256-verified, deterministic; `just schema` checks that every character of every text node resolves through its role's chain and that each case uses only the fonts it is meant to test.
 
 ## Cases
 
@@ -97,6 +98,7 @@ Class: **kill** = gate 0 criterion 1 (bit-identical display lists macOS/Linux, r
 | 61 | `adjust` | Adjust Image and borders | recorded (added with PLAN 2.117 and 2.118) | One baseline JPEG eight ways, as a presentation app's Adjust Image adjusts a picture (`scaena_core::adjust`): the display list names each picture's adjusted pixels by an asset id of their own (`sha256:…+adjust(…)`), which every painter makes alike. Rows 2–4: as it is; black and white (`saturation` −1), each color at its own lightness, the red block a darker gray than the green disc; warmer (`warmth` 0.8), its whites toward orange; cooler (−0.8), toward blue. Rows 6–8: a stop brighter with more contrast (`exposure` 0.5, `contrast` 0.3), the gradient's light end clipped to white, a `thin` ink border on its edge (`stroke`, PLAN 2.118); darker, in an oval (`exposure` −0.6), a `thick` accent border around the oval and none of it cut; the test card, a PNG, flatter and more colorful (`contrast` −0.6, `saturation` 0.6), its rounded corners still clear, a `hairline` border following them; and at twice the color with more contrast. |
 | 62 | `adjust-next` | Adjust Image: it moves | recorded (added with PLAN 2.117) | Frame `adjust-next@0.5`. Each adjustment fades into the next where the picture stands: the first photo halfway to black and white, its colors at half their strength and the photo never dimmer, the new pixels fading in over the old; the black-and-white one halfway back to color; the warm one halfway to cool, its whites near neutral; and the test card, a PNG that may let what is under it show, halfway back to as it is, the flat and the plain each at half. The vivid photo's accent border fades in at half, and the bright one's ink border fades out at half. |
 | 63 | `connectors` | Connectors and line ends | recorded (added with PLAN 2.128) | Three connectors and a rule, each end drawn as it is named (`ends`), in the stroke's paint and sized from its width. Upper left: a straight arrow from a card down to another, a filled circle on the first card's edge and a filled head on the second's, the shaft stopping at the head's base. Upper right: an elbow line from a card down to an oval, a filled diamond at its start and an open head of two strokes at its end. Rows 6–8: a curved arrow (`route: curved`), one cubic through the elbow's corners, leaving the left card's right side and meeting the right card's left side square to them, a square at its start and its head along the curve's end, the shaft cut back on the curve; under it, a dashed rule with a square at its left end and a filled head at its right. Every painter draws the curve as the cubic it is. |
+| 64 | `code` | Code, set as written | recorded (added with PLAN 2.131) | Sixteen lines of TypeScript with `code`, in JetBrains Mono, in the text's own color, its role's ligatures off (`calt: false`), so each `=>` draws as typed. Each line breaks only where the text breaks it: nothing wraps, hyphenates, or changes case, and the blank lines stand. The `"` that opens line 1 stands on the block's left edge, where prose hangs it (case 11). Each tab stands to the next stop of four columns: the comments of lines 5 and 6 start in one column, and lines 10–13 step in four columns a tab. At the role's 40 cu the lines run past rows 2–8, so the block shrinks, worked out from one layout, to the largest size at which every line fits (34.5 cu), never under 24 cu, 12 pt at presentation size, by itself. |
 
 Each state's `notes` repeats its pass condition in full, so a rendered PNG and its notes are enough to judge it.
 

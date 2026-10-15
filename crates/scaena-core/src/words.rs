@@ -601,6 +601,7 @@ pub const MARKED: &[(&str, &str)] = &[
     ("E120", "Some of its characters aren't in its font."),
     ("W202", "It runs to more lines than its style allows."),
     ("W203", "It doesn't fit, even at its smallest size."),
+    ("W205", "The code is too small to read."),
     ("W231", "Its font has no italic, so it's set upright."),
     ("W232", "Its font has no bold, so it's set in its own weight."),
     ("W303", "The slide's number or footer is drawn over it."),

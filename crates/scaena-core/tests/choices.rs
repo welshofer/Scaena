@@ -803,6 +803,31 @@ fn a_text_in_a_slot_that_shrinks_says_it_shrinks() {
     assert_eq!(field(&c, "role").theme, None);
 }
 
+/// Code shrinks to fit where the deck sets no fit (PLAN 2.131, ADR-0029), and so do a shape's
+/// words: the inspector shows how the engine sets them, a slot's `wrap` passed over for code.
+#[test]
+fn a_code_texts_fit_shows_shrink() {
+    let mut doc = example();
+    doc["nodes"]["note"]["code"] = json!({ "language": "rust" });
+    let c = offered(&doc, "revenue", "note");
+    assert_eq!(field(&c, "fit").theme, Some(json!("shrink")));
+    assert!(field(&c, "fit").value.is_none(), "the deck sets none of it");
+    // In a slot that wraps what is set in it, code still shrinks; prose wraps, as the slot says.
+    doc["states"][1]["layout"] = json!("stat");
+    doc["states"][1]["props"]["note"]["at"] = json!({ "in": "number" });
+    let mut dusk: Value = serde_json::from_str(DUSK).unwrap();
+    dusk["layouts"]["stat"]["slots"]["number"]["fit"] = json!("wrap");
+    let deck: Deck = serde_json::from_value(doc.clone()).unwrap();
+    let theme = Theme::from_json(&dusk.to_string()).unwrap();
+    let fit = |deck: &Deck| {
+        let c = choices(deck, &theme, "revenue", "note", &Texts(&Examples)).unwrap();
+        field(&c, "fit").theme.clone()
+    };
+    assert_eq!(fit(&deck), Some(json!("shrink")));
+    doc["nodes"]["note"].as_object_mut().unwrap().remove("code");
+    assert_eq!(fit(&serde_json::from_value(doc).unwrap()), Some(json!("wrap")));
+}
+
 /// One keyword aligns both axes: an inspector shows it as the axis's own (PLAN 3.25).
 #[test]
 fn one_keyword_shows_as_each_axis() {

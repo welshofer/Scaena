@@ -602,6 +602,16 @@ state plan layout:statement
     list:[{kind: number}, {kind: number}, {kind: bullet, level: 1}, {kind: bullet, level: 1}] at:in(statement)
 ```
 
+**Code.** A text with `code` is code, set as written; give it the theme's `code` role, JetBrains Mono in the themes that ship. Its lines break only where it breaks them: nothing wraps or hangs, each tab stands to the next stop of four columns, and every line runs left to right. Name the language it is written in, or `plain`. Its words are its `text`, so it takes no `runs` or `list`, and none of what sets prose, such as `measure` or `fit:wrap` (E106 names each). Typed into, its box grows down first, as a presentation app's text box does; then the code shrinks to fit, to 12 pt at presentation size (24 cu on a 1920 × 1080 canvas) and no further unless its own `minSize` lets it, which lint says (W205). Code that still does not fit is W203, with how many of its lines fit. `docs/examples/code.deck.json` is a slide of it, and a step that changes it (SPEC §3.5):
+
+```scn
+state rank layout:figure
+  -rev
+  title "Most votes first" at:in(header)
+  sort text role:code code:{language: rust} semantic:evidence at:in(main)
+    "fn rank(talks: &mut [Talk]) {\n\ttalks.sort_by(|a, b| b.votes.cmp(&a.votes));\n}"
+```
+
 For tables, stats, rows of cards, other chart kinds, and shader backgrounds, see SPEC §3.3 and the trails example.
 
 ## Present and export

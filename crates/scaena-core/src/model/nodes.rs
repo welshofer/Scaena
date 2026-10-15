@@ -241,7 +241,23 @@ node! {
         /// so a list built by bullet keeps its place as its items come and go. Without it, all.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub paragraphs: Option<Range>,
+        /// The text is code (SPEC §3.5, ADR-0029; deck format 0.28): set as written, its lines
+        /// broken only where it breaks them, its tabs standing to stops, grown then shrunk to fit
+        /// its box, never under 12 pt.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub code: Option<Code>,
     }
+}
+
+/// What makes a text code (PLAN 2.131, ADR-0029): the language its words are written in.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Code {
+    /// The language its words are written in, a lowercase name: one Scaena knows, by its name
+    /// or an alias (`rust`, `rs`, `c++`), `plain` for none, or any other, which the generic
+    /// scanner colors (`scaena_core::code`).
+    #[schemars(regex(pattern = r"^[a-z0-9][a-z0-9+#._-]{0,31}$"))]
+    pub language: String,
 }
 
 /// What a text node does when its text does not fit (SPEC §3.4).
@@ -253,6 +269,16 @@ pub enum TextFit {
     Grow,
     Clip,
     Error,
+}
+
+impl TextFit {
+    /// The fit a text is set by (SPEC §3.4, ADR-0029): its own, else its slot's, else `shrink`
+    /// for a shape's `words` and for `code`, else `wrap`. Code never wraps, so a `wrap` of its
+    /// own (E106) or of its slot's is passed over. Layout, lint, and the editors read this one.
+    pub fn effective(own: Option<TextFit>, slot: Option<TextFit>, words: bool, code: bool) -> TextFit {
+        let set = |fit: Option<TextFit>| fit.filter(|f| !(code && *f == TextFit::Wrap));
+        set(own).or(set(slot)).unwrap_or(if words || code { TextFit::Shrink } else { TextFit::Wrap })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

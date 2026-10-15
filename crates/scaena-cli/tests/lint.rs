@@ -67,7 +67,7 @@ fn lint(bundle: &Path) -> (i32, Vec<Value>) {
 }
 
 /// Each rule's trigger, and where in the deck it finds what it finds.
-const RULES: [(&str, &[&str]); 40] = [
+const RULES: [(&str, &[&str]); 41] = [
     ("E100", &["/nodes/t"]),
     ("E101", &["/nodes/b", "/nodes/note", "/nodes/src"]),
     ("E110", &["/nodes/t"]),
@@ -76,7 +76,8 @@ const RULES: [(&str, &[&str]); 40] = [
     ("W200", &["/nodes/t"]),
     ("W201", &["/nodes/t"]),
     ("W202", &["/nodes/t"]),
-    ("W203", &["/nodes/t"]),
+    ("W203", &["/nodes/t", "/nodes/code"]),
+    ("W205", &["/nodes/code"]),
     ("W210", &["/states/0"]),
     ("W220", &["/states/0"]),
     ("W221", &["/theme/type/roles/body/leading", "/theme/type/roles/body/snap", "/theme/type/roles/caption/snap"]),
@@ -142,7 +143,7 @@ fn deck(data: Value, nodes: Value) -> Value {
     let props: serde_json::Map<String, Value> =
         nodes.as_object().unwrap().keys().map(|k| (k.clone(), serde_json::json!({}))).collect();
     serde_json::json!({
-        "scaena": "0.27",
+        "scaena": "0.28",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [
@@ -429,6 +430,7 @@ fn the_example_decks_and_b1_lint_clean() {
         "docs/examples/trails.deck.json",
         "docs/examples/higher-ed.deck.json",
         "docs/examples/ridgeline.deck.json",
+        "docs/examples/code.deck.json",
         "tests/bench/b1.scaena",
     ] {
         let (exit, found) = lint(&Path::new(ROOT).join(bundle));

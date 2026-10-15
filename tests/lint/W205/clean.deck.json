@@ -1,0 +1,13 @@
+{
+  "scaena": "0.28",
+  "_comment": "W205 clean: twelve lines of the same code, which fit at the role's own size.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "nodes": {
+    "code": {"type": "text", "role": "body", "code": {"language": "rust"}, "text": "total += weigh(votes[0]);\ntotal += weigh(votes[1]);\ntotal += weigh(votes[2]);\ntotal += weigh(votes[3]);\ntotal += weigh(votes[4]);\ntotal += weigh(votes[5]);\ntotal += weigh(votes[6]);\ntotal += weigh(votes[7]);\ntotal += weigh(votes[8]);\ntotal += weigh(votes[9]);\ntotal += weigh(votes[10]);\ntotal += weigh(votes[11]);", "minSize": 12, "at": {"in": "main"}}
+  },
+  "states": [
+    {"id": "a", "layout": "figure", "props": {"code": {}}}
+  ]
+}
