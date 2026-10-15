@@ -152,6 +152,26 @@ BUNDLES = {
         "fonts": {**EXAMPLE_FONTS, **GALLERY_FONTS},
         "licenses": {**LICENSES, **GALLERY_LICENSES},
     },
+    # The decks that read right to left (PLAN T.5a): Dusk's three romans, and the scripts' fonts its
+    # text families fall back to, which no shipped theme carries.
+    "rtl": {
+        "title": "Right-to-left decks'",
+        "bundle": ROOT / "tests/fixtures/rtl",
+        "deck": "arabic.deck.json",
+        "also": ["hebrew.deck.json"],
+        "every_family": False,
+        "fallback": True,
+        "fonts": {
+            **ROMANS,
+            "NotoSansArabic-VF.ttf": (*torture.SOURCES["NotoSansArabic-VF.ttf"][:2], "arabic"),
+            "NotoSansHebrew-VF.ttf": (*torture.SOURCES["NotoSansHebrew-VF.ttf"][:2], "hebrew"),
+        },
+        "licenses": {
+            **LICENSES,
+            "OFL-NotoSansArabic.txt": torture.LICENSES["OFL-NotoSansArabic.txt"],
+            "OFL-NotoSansHebrew.txt": torture.LICENSES["OFL-NotoSansHebrew.txt"],
+        },
+    },
     "authorability": {
         "title": "Authorability spike deck",
         "bundle": ROOT / "docs/examples/authorability",
@@ -255,13 +275,24 @@ def check(name: str, deck: dict, theme: dict, label: str) -> bool:
             role = delta.get("role", role)
             texts += [(nid, text, run_role or role) for text, run_role in strings(delta)]
     ok, used = True, set()
+
+    def chain(family: str) -> list[str]:
+        """The families a role's text is set in: its own, then, where the bundle's decks are written
+        in a script its theme's faces lack, its fallbacks in turn."""
+        if not cfg.get("fallback"):
+            return [family]
+        out = [family]
+        for key in out:
+            out += [k for k in families[key].get("fallback") or [] if k not in out]
+        return out
+
     for nid, text, role in texts:
         family = roles[role]["family"]
         used.add(family)
         for ch in text:
             if ch == "\n" or ord(ch) in torture.IGNORABLE:
                 continue
-            if ord(ch) not in cmaps[family]:
+            if not any(ord(ch) in cmaps[f] for f in chain(family)):
                 ok = False
                 print(f"error: {nid}: U+{ord(ch):04X} {unicodedata.name(ch, '?')} is not in `{family}` (role `{role}`)")
     if cfg["every_family"] and used != set(families):

@@ -2303,7 +2303,10 @@ What each must keep, whatever its batch:
 - [ ] T.4 Batch 4: Garrison, Docket, Sterling, Kindred, Fieldwork, Halftone, Vespers, Hymnal, Vow, and Elegy (after T.3). *Waits on no call of its own.*
     - Elegy's and Fieldwork's bodies are Open Sans (call 12).
     - Tests: decision 8's checks on each; a person's review.
-- [ ] T.5a Right to left (ADR-0031; no format change). *Can go ahead now.*
+- [x] T.5a Right to left (ADR-0031; no format change).
+    - Done. `scaena_core::direction` says which languages run right to left. In such a deck, the engine lays every box out left to right and stands it mirrored across the canvas: slots, cells, a `rect`, a stack's and a grid container's children, the grid's tracks, and the slide's number and footer; a text's start is its box's right edge, and code keeps its columns. Pictures, charts, tables, shaders, and a shape's outline draw as written. A slide started from a layout, or made from a prompt, writes a theme's shape with its points mirrored, so Dusk's process chevrons point left (`direction::flipped`). The engine's targets snap a drop left to right and stand it mirrored again (`Targets::mirror`). `tests/fixtures/rtl` holds an Arabic and a Hebrew deck on a copy of Dusk with Noto Sans Arabic and Noto Sans Hebrew in its fallbacks (`scripts/build_rtl_decks.py`, fonts by `build_bundle_fonts.py`).
+    - Found on the way: text that runs right to left, laid out with no bound (a chart's category labels), set its glyphs at x = ∞. Lines laid out so now align across the widest of them.
+    - Left open: the browser's and the Mac's own snapping of a drag (`snapOf`, `Targets.snap`) reads tracks left to right, so a drag in a mirrored deck does not yet snap where it is dropped; and the layout guides' slot drags write cells as drawn.
     - A deck whose language runs right to left lays every layout out mirrored, in every theme, at layout time. Photographs, logos, and digits are not mirrored, as Apple's guidelines say.
     - Tests: golden display lists of an Arabic and a Hebrew deck; `starting.rs` mirrored; the reader's order.
 - [ ] T.5b Faces without italics, and families kept whole (ADR-0031, decision 5; theme format, next free). *Can go ahead now.*

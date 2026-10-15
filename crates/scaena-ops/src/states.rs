@@ -108,7 +108,7 @@ pub fn starting(deck: &Deck, theme: &Theme, shown: &str, layout: Option<&str>) -
     let mut nodes = Vec::new();
     for (slot, s) in template.into_iter().flat_map(|t| &t.slots) {
         // Words that say what goes in a slot with no role, a picture or a figure: it waits.
-        let Some(node) = slot_node(slot, s) else { continue };
+        let Some(node) = slot_node(slot, s, scaena_core::direction::mirrored(deck)) else { continue };
         let node_id = named(deck, &format!("{id}-{}", slug(slot, "slot")), &ids);
         nodes.push((node_id.clone(), serde_json::from_value(node.clone()).context("a slot's node")?));
         patch.push(json!({ "op": "add_node", "id": node_id, "node": node, "state": id }));
@@ -291,7 +291,10 @@ fn example_table(columns: u32) -> Vec<Value> {
 /// over it (`z` −1), which a reader passes over; or an icon, for a person to swap for another
 /// (PLAN G.23). None for a slot that waits for a picture or a figure, or says nothing of what
 /// goes there.
-fn slot_node(slot: &str, s: &Slot) -> Option<Value> {
+///
+/// In a deck that reads right to left (`mirrored`), a shape's points stand mirrored in its box, as
+/// the slot does on the slide (PLAN T.5a).
+fn slot_node(slot: &str, s: &Slot, mirrored: bool) -> Option<Value> {
     let prompt = s.prompt.as_ref()?;
     match (prompt, prompt.text(), &s.role) {
         (_, Some((text, list)), Some(role)) => {
@@ -315,7 +318,7 @@ fn slot_node(slot: &str, s: &Slot) -> Option<Value> {
                 node["stroke"] = json!({ "paint": stroke, "width": "thin" });
             }
             if let Some(points) = &shape.points {
-                node["points"] = json!(points);
+                node["points"] = if mirrored { json!(scaena_core::direction::flipped(points)) } else { json!(points) };
             }
             node["semantic"] = json!("decoration");
             Some(node)
@@ -356,9 +359,9 @@ pub fn filling(deck: &Deck, theme: &Theme, state: &str, slot: &str) -> Result<Fi
         .get(layout)
         .and_then(|l| l.slots.get(slot))
         .ok_or_else(|| OpsError::new(format!("the layout `{layout}` has no slot `{slot}`")))?;
-    let node = slot_node(slot, s).filter(|n| n["type"] == "text").ok_or_else(|| {
-        OpsError::new(format!("the slot `{slot}` waits for no words: a picture or a figure goes there"))
-    })?;
+    let node = slot_node(slot, s, scaena_core::direction::mirrored(deck)).filter(|n| n["type"] == "text").ok_or_else(
+        || OpsError::new(format!("the slot `{slot}` waits for no words: a picture or a figure goes there")),
+    )?;
     let i = deck.state_index(state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
     let slide = deck.slide_of(&deck.states[i]);
     let id = named(deck, &format!("{slide}-{}", slug(slot, "slot")), &[]);
