@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/deck-0.28.json",
+  "$id": "https://scaena.dev/schema/deck-0.29.json",
   "title": "Scaena deck document",
   "description": "Canonical deck.json. A deck is a scene graph (nodes) plus an ordered cue list (states) over a narrative spine, rendered against a theme. See docs/SPEC.md §3.",
   "type": "object",
@@ -10,7 +10,7 @@
     "scaena": {
       "description": "Format version (semver, major.minor[.patch]).",
       "type": "string",
-      "pattern": "^0\\.28(\\.[0-9]+)?$"
+      "pattern": "^0\\.29(\\.[0-9]+)?$"
     },
     "meta": { "$ref": "#/$defs/Meta" },
     "canvas": { "$ref": "#/$defs/Canvas" },
@@ -479,6 +479,18 @@
         "adjust": {
           "description": "Its light and color adjusted (PLAN 2.117), as a presentation app's Adjust Image adjusts a picture.",
           "$ref": "#/$defs/ImageAdjust"
+        },
+        "fetched": {
+          "description": "Where the picture came from (ADR-0030, deck format 0.29): a map fetched once from a service, with when, what was asked, and the credit its terms ask shown with it, which the engine draws.",
+          "$ref": "#/$defs/Fetched"
+        },
+        "pin": {
+          "description": "A pin the engine draws on the picture (ADR-0030, decision 13), with its label.",
+          "$ref": "#/$defs/Pin"
+        },
+        "credit": {
+          "description": "Where its `fetched` credit is drawn: on a card inside the picture (the default), or as a line below it inside the box.",
+          "$ref": "#/$defs/CreditPlace"
         }
       }
     },
@@ -1222,6 +1234,132 @@
         }
       }
     },
+    "Fetched": {
+      "description": "Where an object came from (ADR-0030, decision 2).",
+      "type": "object",
+      "required": ["from", "at", "asked", "credit"],
+      "additionalProperties": false,
+      "properties": {
+        "from": { "description": "The service, by Scaena's name for it: one of `SERVICES`.", "type": "string" },
+        "at": {
+          "description": "When its answer came, an instant in UTC (RFC 3339), by the clock of the client that asked.",
+          "type": "string"
+        },
+        "asked": {
+          "description": "What the person asked for, as typed: an address, a place, or `lat, lon`.",
+          "type": "string"
+        },
+        "credit": {
+          "description": "What the service's terms ask shown with it, as runs, each linked where it says.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/CreditRun" }
+        },
+        "license": { "description": "The data's license, where the service names one: `ODbL-1.0`.", "type": "string" },
+        "map": { "description": "A map's view, as it was asked (PLAN O.1b).", "$ref": "#/$defs/MapAsked" }
+      }
+    },
+    "CreditRun": {
+      "description": "A run of a credit: its words, and where they link.",
+      "type": "object",
+      "required": ["text"],
+      "additionalProperties": false,
+      "properties": {
+        "text": { "type": "string" },
+        "link": {
+          "description": "A web address the words link to.",
+          "type": "string",
+          "pattern": "^https?://[^\\s]+$"
+        }
+      }
+    },
+    "MapAsked": {
+      "description": "A map's picture as it was asked (ADR-0030, decisions 11–12): the place, the view, and the size.",
+      "type": "object",
+      "required": ["center", "zoom", "style", "size", "scale"],
+      "additionalProperties": false,
+      "properties": {
+        "place": {
+          "description": "The place the pin marks, as the geocoder named it, or the coordinates typed.",
+          "$ref": "#/$defs/Place"
+        },
+        "center": { "description": "The middle of the picture.", "$ref": "#/$defs/LatLon" },
+        "zoom": {
+          "description": "The service's zoom, 1 to 20: each step doubles the scale.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 22
+        },
+        "style": {
+          "description": "The service's style, by its name: `positron`, `dark-matter`, or `osm-bright`.",
+          "type": "string"
+        },
+        "size": {
+          "description": "The picture's size as asked, in the service's points: the box in canvas units.",
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0 },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "scale": {
+          "description": "Pixels to a point: 2 asks for a picture twice as dense.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4
+        }
+      }
+    },
+    "Place": {
+      "description": "A place a map marks.",
+      "type": "object",
+      "required": ["lat", "lon"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "description": "Its name, as the geocoder gave it.", "type": "string" },
+        "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+        "lon": { "type": "number", "minimum": -180, "maximum": 180 }
+      }
+    },
+    "LatLon": {
+      "description": "A point on the earth, in degrees.",
+      "type": "object",
+      "required": ["lat", "lon"],
+      "additionalProperties": false,
+      "properties": {
+        "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+        "lon": { "type": "number", "minimum": -180, "maximum": 180 }
+      }
+    },
+    "Pin": {
+      "description": "A pin the engine draws on an image (ADR-0030, decision 13): any image may take one.",
+      "type": "object",
+      "required": ["at"],
+      "additionalProperties": false,
+      "properties": {
+        "at": {
+          "description": "Where its tip stands, [x, y] in fractions of the picture, as `crop` is.",
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "label": {
+          "description": "Its label, set in the theme's `label` role beside it; none, or `\"\"`, gives none.",
+          "type": "string"
+        },
+        "color": { "description": "A theme color: the accent by default.", "type": "string" }
+      }
+    },
+    "CreditPlace": {
+      "description": "Where an image's credit is drawn (ADR-0030, decision 14).",
+      "oneOf": [
+        {
+          "description": "On a card in the picture's bottom-left corner (the default).",
+          "type": "string",
+          "const": "inside"
+        },
+        { "description": "As a line under the picture, inside the node's box.", "type": "string", "const": "below" }
+      ]
+    },
     "ChartKind": {
       "description": "v1 chart kinds (SPEC §3.7); waffle and heatmap are deferred. A `slope` compares two states, a line a series from the first to the second, both ends labeled and the change said; a `range` spans the value axis at each category, a dumbbell between its series or each value with its `interval` (PLAN 1.30).",
       "type": "string",
@@ -1386,12 +1524,12 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "x": { "$ref": "#/$defs/Place" },
-        "y": { "$ref": "#/$defs/Place" },
-        "series": { "$ref": "#/$defs/Place" }
+        "x": { "$ref": "#/$defs/Place2" },
+        "y": { "$ref": "#/$defs/Place2" },
+        "series": { "$ref": "#/$defs/Place2" }
       }
     },
-    "Place": {
+    "Place2": {
       "description": "One value, or several: a band's two ends, or what a highlight picks out.",
       "anyOf": [
         { "$ref": "#/$defs/Scalar" },
@@ -1629,6 +1767,9 @@
         "crop": { "anyOf": [{ "$ref": "#/$defs/Rect" }, { "type": "null" }] },
         "mask": { "anyOf": [{ "$ref": "#/$defs/ImageMask" }, { "type": "null" }] },
         "adjust": { "anyOf": [{ "$ref": "#/$defs/ImageAdjustDelta" }, { "type": "null" }] },
+        "fetched": { "anyOf": [{ "$ref": "#/$defs/FetchedDelta" }, { "type": "null" }] },
+        "pin": { "anyOf": [{ "$ref": "#/$defs/PinDelta" }, { "type": "null" }] },
+        "credit": { "anyOf": [{ "$ref": "#/$defs/CreditPlace" }, { "type": "null" }] },
         "orient": { "anyOf": [{ "$ref": "#/$defs/ChartOrient" }, { "type": "null" }] },
         "data": { "anyOf": [{ "pattern": "^@[a-z][a-z0-9_-]*$", "type": "string" }, { "type": "null" }] },
         "dataTransform": {
@@ -1879,6 +2020,34 @@
         "contrast": { "anyOf": [{ "maximum": 1, "type": "number", "minimum": -1 }, { "type": "null" }] },
         "saturation": { "anyOf": [{ "maximum": 1, "type": "number", "minimum": -1 }, { "type": "null" }] },
         "warmth": { "anyOf": [{ "maximum": 1, "type": "number", "minimum": -1 }, { "type": "null" }] }
+      }
+    },
+    "FetchedDelta": {
+      "description": "`Fetched` in a state's delta: it merges one level into the tracked value, so every key is optional and null deletes one (SPEC §2.2).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "from": { "type": ["string", "null"] },
+        "at": { "type": ["string", "null"] },
+        "asked": { "type": ["string", "null"] },
+        "credit": { "anyOf": [{ "items": { "$ref": "#/$defs/CreditRun" }, "type": "array" }, { "type": "null" }] },
+        "license": { "type": ["string", "null"] },
+        "map": { "anyOf": [{ "$ref": "#/$defs/MapAsked" }, { "type": "null" }] }
+      }
+    },
+    "PinDelta": {
+      "description": "`Pin` in a state's delta: it merges one level into the tracked value, so every key is optional and null deletes one (SPEC §2.2).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "at": {
+          "anyOf": [
+            { "maxItems": 2, "type": "array", "items": { "type": "number" }, "minItems": 2 },
+            { "type": "null" }
+          ]
+        },
+        "label": { "type": ["string", "null"] },
+        "color": { "type": ["string", "null"] }
       }
     },
     "EncodingDelta": {
