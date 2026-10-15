@@ -21,8 +21,9 @@ scaena-core.workspace = true
 # The CRDT a save records the history in, and the subsetter a save shrinks fonts with: what the
 # browser loads as modules of their own (scaena-history, scaena-subset), linked in here.
 scaena-store.workspace = true
-# Every language's hyphenation patterns compiled in, as natively everywhere (ADR-0015).
-scaena-engine = { workspace = true, features = ["hyphenation"] }
+# Every language's hyphenation patterns and the code scanners' tables compiled in, as natively
+# everywhere (ADR-0015, PLAN 2.132).
+scaena-engine = { workspace = true, features = ["hyphenation", "code-tables"] }
 serde_json.workspace = true
 # A frame's pixels, as the painters give them.
 scaena-paint.workspace = true

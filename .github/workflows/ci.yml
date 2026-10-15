@@ -194,7 +194,8 @@ jobs:
       # must keep compiling for the browser (PLAN 0.1, 0.8).
       - run: cargo clippy -p scaena-engine -p scaena-paint -p scaena-session -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf -p scaena-generator --all-features --target wasm32-unknown-unknown --locked -- -D warnings
       # The player's engine alone, as a single-file export carries it (PLAN 2.5), and the engine
-      # without its hyphenation patterns, as the editor's module leaves them out (ADR-0015).
+      # without its hyphenation patterns and code tables, as the editor's module leaves them out
+      # (ADR-0015, PLAN 2.132).
       - run: cargo clippy -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --locked -- -D warnings
   # ScaenaKit on an iPad simulator (PLAN 4.1, ADR-0023), wherever macOS runs: the engine built
   # for the simulator, the Xcode project XcodeGen makes, and ScaenaKit's tests run by xcodebuild
@@ -283,8 +284,9 @@ jobs:
       # The generator, which a worker of its own loads to make a deck from a prompt (PLAN G.5).
       - run: wasm-bindgen --target web --out-dir crates/scaena-generator/pkg target/wasm32-unknown-unknown/wasm/scaena_generator.wasm
       # The player's engine alone, which a single-file export carries (PLAN 2.5), with every
-      # language's hyphenation patterns, since its page plays offline (ADR-0015).
-      - run: cargo build -p scaena-wasm --no-default-features --features gpu,cpu,hyphenation --target wasm32-unknown-unknown --profile wasm --locked
+      # language's hyphenation patterns and the code scanners' tables, since its page plays offline
+      # (ADR-0015, PLAN 2.132).
+      - run: cargo build -p scaena-wasm --no-default-features --features gpu,cpu,hyphenation,code-tables --target wasm32-unknown-unknown --profile wasm --locked
       - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/player target/wasm32-unknown-unknown/wasm/scaena_wasm.wasm
       # SPEC §15: the engine as WASM, without fonts, is at most 3.0 MB gzipped. The font
       # subsetter, which a page loads only to download a bundle, is recorded beside it.

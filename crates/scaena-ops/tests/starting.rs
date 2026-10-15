@@ -226,13 +226,16 @@ fn every_shipped_layout_starts_a_slide_mirrored_where_the_deck_reads_right_to_le
                 if let (Some(en), Some(ar)) = (points(&en_deck), points(&ar_deck)) {
                     let en: Vec<[f64; 2]> = serde_json::from_value(en).unwrap();
                     let ar: Vec<[f64; 2]> = serde_json::from_value(ar).unwrap();
-                    // Each point mirrored, to within the last bit of 1 − x, which the two routes work out
-                    // in different orders.
-                    let want = scaena_core::direction::flipped(&en);
-                    let near = |a: &[f64; 2], b: &[f64; 2]| (a[0] - b[0]).abs() < 1e-9 && (a[1] - b[1]).abs() < 1e-9;
+                    // The deck writes a number to 16 significant digits, so a point flipped
+                    // reads back within a rounding of `1 - x`, not always to the bit.
+                    let flipped = scaena_core::direction::flipped(&en);
                     assert!(
-                        ar.len() == want.len() && ar.iter().zip(&want).all(|(a, b)| near(a, b)),
-                        "{name}'s {layout}: `{id}` points the other way: {ar:?}, not {want:?}"
+                        ar.len() == flipped.len()
+                            && ar
+                                .iter()
+                                .zip(&flipped)
+                                .all(|(a, b)| (a[0] - b[0]).abs() < 1e-9 && (a[1] - b[1]).abs() < 1e-9),
+                        "{name}'s {layout}: `{id}` points the other way: {ar:?}, not {flipped:?}"
                     );
                 }
             }

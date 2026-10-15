@@ -77,8 +77,8 @@ ipad-gate UDID="":
     apps/ipad/gate.sh {{UDID}}
 
 # The engine, both painters, and the WASM bindings must keep compiling for the browser (PLAN 0.1, 0.8):
-# with every feature, and as the player's engine alone, without the hyphenation patterns the
-# editor's module leaves out (ADR-0015).
+# with every feature, and as the player's engine alone, without the hyphenation patterns and the
+# code scanners' word tables the editor's module leaves out (ADR-0015, PLAN 2.132).
 wasm-check:
     cargo clippy -p scaena-engine -p scaena-paint -p scaena-session -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf -p scaena-generator --all-features --target wasm32-unknown-unknown --locked -- -D warnings
     cargo clippy -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --locked -- -D warnings
@@ -156,8 +156,9 @@ spike: wasm-smoke
 # into crates/scaena-resources/pkg (PLAN 2.6), the PDF painter, which a page loads to export a
 # PDF, into crates/scaena-pdf/pkg (PLAN 2.54),
 # and the player's engine alone, without the editor's operations, into crates/scaena-wasm/player:
-# what a single-file HTML export carries (PLAN 2.5), with every language's hyphenation patterns,
-# which the editor's module leaves out and its page fetches as a text needs them (ADR-0015). Cargo keeps each feature set's build, so
+# what a single-file HTML export carries (PLAN 2.5), with every language's hyphenation patterns
+# and the code scanners' word tables, which the editor's module leaves out and its page fetches as
+# a text needs them (ADR-0015, PLAN 2.132). Cargo keeps each feature set's build, so
 # building one after the other rebuilds neither. All of them by the `wasm` profile (Cargo.toml):
 # release's, with what runs as a deck is read or edited, not each frame, built for size (SPEC §15).
 # Needs `cargo install wasm-bindgen-cli --version 0.2.129` (the version in Cargo.lock).
@@ -169,7 +170,7 @@ wasm:
     wasm-bindgen --target web --out-dir crates/scaena-resources/pkg target/wasm32-unknown-unknown/wasm/scaena_resources.wasm
     wasm-bindgen --target web --out-dir crates/scaena-pdf/pkg target/wasm32-unknown-unknown/wasm/scaena_pdf.wasm
     wasm-bindgen --target web --out-dir crates/scaena-generator/pkg target/wasm32-unknown-unknown/wasm/scaena_generator.wasm
-    cargo build -p scaena-wasm --no-default-features --features gpu,cpu,hyphenation --target wasm32-unknown-unknown --profile wasm --locked
+    cargo build -p scaena-wasm --no-default-features --features gpu,cpu,hyphenation,code-tables --target wasm32-unknown-unknown --profile wasm --locked
     wasm-bindgen --target web --out-dir crates/scaena-wasm/player target/wasm32-unknown-unknown/wasm/scaena_wasm.wasm
 
 # The WebGPU page in headless Chromium: WASM display lists hash to the native digests and

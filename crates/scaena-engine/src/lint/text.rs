@@ -355,7 +355,7 @@ fn max_lines(cx: &Cx, state: &Laid, props: &Props) -> Option<usize> {
         return Some(n as usize);
     }
     let slot = Grid::slot_role(cx.theme, state.snapshot.layout.as_deref(), props.get("at"));
-    let role = props.get("role").and_then(Value::as_str).or(slot.as_deref())?;
+    let role = crate::cascade::role_name(cx.theme, props, slot.as_deref())?;
     cx.theme.text_role(role).ok()?.max_lines.map(|n| n as usize)
 }
 

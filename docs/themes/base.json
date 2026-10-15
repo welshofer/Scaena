@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.17",
+  "scaena-theme": "0.18",
   "name": null,
   "description": null,
   "tokens": {
@@ -523,6 +523,7 @@
   "density": {
     "maxWordsPerState": 40
   },
+  "code": null,
   "voices": {
     "dusk": {
       "scale": {
