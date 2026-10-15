@@ -226,18 +226,24 @@ private struct ColorRow: View {
         HStack(spacing: 8) {
             ColorPicker(name, selection: swatch, supportsOpacity: true)
                 .labelsHidden()
+            // The name, and what the theme sets in it under the name, each read whole: they take
+            // the room between the swatch and the field, on as many lines as they need, and the
+            // row grows to hold them, the field as wide as ever. Two lines beside a spacer cut
+            // Paper's uses short, and set the 2 of Paper 2's on a line of its own.
             VStack(alignment: .leading, spacing: 1) {
                 Text(name)
-                    .lineLimit(1)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("theme-name-\(key)")
                 if let uses {
                     Text(uses)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                         .help("What the theme sets in it")
+                        .accessibilityIdentifier("theme-uses-\(key)")
                 }
             }
-            Spacer()
+            .frame(maxWidth: .infinity, alignment: .leading)
             TextField(name, text: $typed)
                 .labelsHidden()
                 .textFieldStyle(.roundedBorder)

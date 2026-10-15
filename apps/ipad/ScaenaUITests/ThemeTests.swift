@@ -44,6 +44,26 @@ final class ThemeTests: XCTestCase {
             tab("Theme").tap()
         }
 
+        try XCTContext.runActivity(named: "Each color's name and what it is set in read whole, beside its field") { _ in
+            // The paper's row: what the theme sets in it, the background and text on the accent,
+            // stands under its name on as many lines as it needs, clear of its field, which is as
+            // wide as the accent's; two lines beside a spacer cut it short, "Text on Acc…".
+            let identified = { (id: String) in NSPredicate(format: "identifier == %@", id) }
+            let name = app.staticTexts.matching(identified("theme-name-paper")).firstMatch
+            let uses = app.staticTexts.matching(identified("theme-uses-paper")).firstMatch
+            let field = app.textFields.matching(identified("theme-color-paper")).firstMatch
+            let accent = app.textFields.matching(identified("theme-color-accent")).firstMatch
+            guard uses.waitForExistence(timeout: 10), name.exists, field.exists, accent.exists else {
+                keep(app, as: "no-paper-uses")
+                throw Unseen(description: "the theme's colors show no paper with its uses: \(app.debugDescription)")
+            }
+            keep(app, as: "theme-colors")
+            XCTAssertEqual(uses.label, "Background, Text on Accent")
+            XCTAssertGreaterThanOrEqual(uses.frame.minY, name.frame.maxY - 1, "the uses stand under the name")
+            XCTAssertLessThanOrEqual(uses.frame.maxX, field.frame.minX, "the uses stand clear of the field")
+            XCTAssertEqual(field.frame.width, accent.frame.width, accuracy: 0.5, "the paper's field is as wide as any")
+        }
+
         let size = app.textFields.matching(NSPredicate(format: "identifier == 'theme-body-size'")).firstMatch
         try XCTContext.runActivity(named: "The body role opened: its size in a field") { _ in
             let body = any.matching(NSPredicate(format: "label BEGINSWITH 'Body'")).firstMatch

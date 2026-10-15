@@ -179,6 +179,35 @@ private func playing(_ editor: DeckEditor) -> [String] {
     #expect(editor.startOnTitleSlide() == nil, "a title slide stays as it is")
 }
 
+/// An empty slot's words as the canvas may stand them (PLAN 3.30): the title slide's picture's
+/// place, a slot drawn tall and narrow, on a line, then two, and so on down to its longest word's
+/// width, each line whole words; the canvas shows the first way that fits, so no word is cut, as
+/// "A pictur…" was in the slot drawn 92 points wide. Each way holds every word, in order, on a line
+/// more than the way before it.
+@Test func anEmptySlotsWordsBreakOnlyBetweenWords() throws {
+    let editor = DeckEditor(session: try ScaenaSession.create(theme: "Dusk", title: "Untitled"))
+    #expect(editor.startOnTitleSlide() == "title")
+    let art = try #require(try editor.session.waiting(state: "title").first { $0.slot == "art" })
+    #expect(art.words == "A picture, or a backdrop")
+    #expect(
+        art.lines == [
+            ["A picture, or a backdrop"], ["A picture, or", "a backdrop"], ["A picture,", "or a", "backdrop"],
+            ["A", "picture,", "or a", "backdrop"],
+        ])
+    for words in [art.words, "What it's about, in a line", "Your name · the date", "Overview", " two  spaces "] {
+        let ways = WaitingSlot.lines(words)
+        let all = words.split(whereSeparator: \.isWhitespace).map(String.init)
+        for way in ways {
+            let said = way.flatMap { $0.split(separator: " ") }.map(String.init)
+            #expect(said == all, "\(words): every word, whole and in order, in \(way)")
+        }
+        #expect(ways.first?.count == 1, "\(words): on a line first")
+        #expect(zip(ways, ways.dropFirst()).allSatisfy { $0.count < $1.count }, "\(words): a line more each way")
+        #expect(ways.last?.map(\.count).max() == all.map(\.count).max(), "\(words): last, its longest word wide")
+    }
+    #expect(WaitingSlot.lines(" ").isEmpty)
+}
+
 /// An empty slot filled from a press on its words (PLAN 3.30): on a slide started in Bullets, its
 /// headline deleted, the header waits in its role, and filling it puts back what the slide was
 /// started with, one patch; a slot the layout lacks is refused.

@@ -317,45 +317,23 @@ struct WaitingOverlay: View {
 /// words selected, or a picture asked for and put there.
 struct WaitingButton: View {
     let slot: WaitingSlot
-    /// How wide and how tall the slot is drawn, points: the words wrap to a second line within it,
-    /// a short slot keeps them to a line, smaller, and a slot too narrow for any shows the icon
-    /// alone, as small as the slot is short, its words in its help.
+    /// How wide and how tall the slot is drawn, points. Its words stand whole inside it, the first
+    /// way that fits: beside the icon on a line or two; else under it, on as many lines as the slot
+    /// is tall enough for (`WaitingSlot.lines`); else the same a size smaller; else the icon alone,
+    /// as small as the slot is short, the words its help. A short slot's pill is smaller. No word
+    /// is cut.
     let width: CGFloat
     let height: CGFloat
     let fill: () -> Void
 
     var body: some View {
-        let icon = slot.typed ? "text.cursor" : "photo.badge.plus"
         let short = height < 44
-        // A short slot's words smaller and on one line, and its icon smaller, inside its outline.
-        let iconFont: Font = short ? .caption : .body
-        let iconPadding: CGFloat = short ? 4 : 7
-        let wordsFont: Font = short ? .caption2 : .caption
-        let lines: Int = short ? 1 : 2
-        let across: CGFloat = short ? 6 : 8
-        let down: CGFloat = short ? 2 : 4
-        let corner: CGFloat = short ? 6 : 8
         Button(action: fill) {
-            if width < 90 {
-                Image(systemName: icon)
-                    .font(iconFont)
-                    .padding(iconPadding)
-                    .background(.thinMaterial, in: Circle())
-                    .foregroundStyle(.secondary)
-                    .contentShape(Circle())
-            } else {
-                let shape = RoundedRectangle(cornerRadius: corner, style: .continuous)
-                Label(slot.words, systemImage: icon)
-                    .font(wordsFont)
-                    .lineLimit(lines)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, across)
-                    .padding(.vertical, down)
-                    .background(.thinMaterial, in: shape)
-                    .foregroundStyle(.secondary)
-                    .contentShape(shape)
-                    .frame(maxWidth: width - 16)
-                    .fixedSize(horizontal: false, vertical: true)
+            ViewThatFits {
+                ForEach(ways, id: \.self) { way in
+                    pill(way, short: short)
+                }
+                alone(short: short)
             }
         }
         .buttonStyle(.plain)
@@ -363,7 +341,88 @@ struct WaitingButton: View {
         .accessibilityLabel(slot.words)
         .accessibilityHint(slot.typed ? "Puts words here to type over" : "Chooses a picture to put here")
         .accessibilityIdentifier("waiting-\(slot.slot)")
+        // The room inside the slot's outline, which the way the words stand is chosen to fit.
+        .frame(width: max(width - 16, 0), height: max(height - 8, 0))
     }
+
+    private var symbol: String { slot.typed ? "text.cursor" : "photo.badge.plus" }
+
+    /// The ways the words may stand, in the order they are tried: beside the icon on a line, then
+    /// on two; under it on a line, two, and so on to the narrowest; then each a size smaller.
+    private var ways: [WaitingWay] {
+        let lines = slot.lines
+        var ways: [WaitingWay] = []
+        for smaller in [false, true] {
+            for way in lines where way.count <= 2 {
+                ways.append(WaitingWay(lines: way, under: false, smaller: smaller))
+            }
+            for way in lines {
+                ways.append(WaitingWay(lines: way, under: true, smaller: smaller))
+            }
+        }
+        return ways
+    }
+
+    /// The words on `way`'s lines, centered, the icon beside or above them, on a pill as large as
+    /// they are: a way too large for the slot is passed over, never cut.
+    private func pill(_ way: WaitingWay, short: Bool) -> some View {
+        let shape = RoundedRectangle(cornerRadius: short ? 6 : 8, style: .continuous)
+        let font: Font = way.smaller ? Self.smaller : (short ? .caption2 : .caption)
+        let across: CGFloat = short ? 6 : 8
+        let down: CGFloat = short ? 2 : 4
+        let words = Text(way.lines.joined(separator: "\n")).multilineTextAlignment(.center)
+        return Group {
+            if way.under {
+                VStack(spacing: 3) {
+                    Image(systemName: symbol)
+                    words
+                }
+            } else {
+                Label {
+                    words
+                } icon: {
+                    Image(systemName: symbol)
+                }
+            }
+        }
+        .font(font)
+        .padding(.horizontal, across)
+        .padding(.vertical, down)
+        .background(.thinMaterial, in: shape)
+        .foregroundStyle(.secondary)
+        .contentShape(shape)
+        .fixedSize()
+    }
+
+    /// The icon alone, where the words fit the slot no way: they are its help.
+    private func alone(short: Bool) -> some View {
+        let font: Font = short ? .caption : .body
+        let padding: CGFloat = short ? 4 : 7
+        return Image(systemName: symbol)
+            .font(font)
+            .padding(padding)
+            .background(.thinMaterial, in: Circle())
+            .foregroundStyle(.secondary)
+            .contentShape(Circle())
+    }
+
+    /// A size smaller than the words' own, for a slot too small for them in it: on the Mac a
+    /// caption's size is the least a text style takes.
+    private static var smaller: Font {
+        #if os(macOS)
+        return .system(size: 9)
+        #else
+        return .caption2
+        #endif
+    }
+}
+
+/// One way an empty slot's words may stand in it: on these lines, beside the icon or under it, in
+/// the words' size or a size smaller.
+private struct WaitingWay: Hashable {
+    let lines: [String]
+    let under: Bool
+    let smaller: Bool
 }
 
 /// The safe area over the canvas (PLAN 3.29, as the browser's): a strip 3/8 inch deep around the
