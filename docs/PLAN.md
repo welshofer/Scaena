@@ -2222,6 +2222,132 @@ The design pass the goal asks for is ADR-0030 (proposed, 2026-10-15).
 
 ---
 
+## Themes — fifty, generated from specs, and the slide types every theme carries
+
+**Goal:** a theme for every kind of deck people make, from a board pack to a sermon, a lesson to a listing. Each is generated from a short spec and held to every check the four shipped themes pass. Between them they set type in 46 families of OFL fonts, and every one carries the whole layout library, grown from 128 slide types by 53, to 181, and to 186 with ADR-0030's maps, forecast, price chart, and haiku. *(Jay's ask, 2026-10-15: fifty themes, many more fonts, and at least 75 slide types. Designed in ADR-0031, proposed, with twelve calls for Jay.)*
+
+What each must keep, whatever its batch:
+- **One vocabulary.** Every theme names the same layouts, slots, roles, and presets, so a deck keeps every slide through any change of theme (ADR-0005). A new layout is drawn once for each geometry family and lands in every theme at once.
+- **The four, byte for byte.** Dusk, Daybreak, Ember, and Gallery come out of the generator as they are, Dusk after one rewrite that keeps every value, so no deck that names one draws differently.
+- **Fonts are files, fetched before drawing.** Every font a theme names is an OFL file in the bundle a deck is saved to, fetched by a pinned URL and sha256 before a deck is made or re-themed in it, never while drawing (SPEC §13). Offline, a theme not yet fetched is refused with why, never drawn in another face.
+- **Data, not code.** Themes and their fonts never enter the editor's module, which stays under SPEC §15's 3,000,000 bytes gzipped.
+- **The bar does not move.** A theme that misses a check of ADR-0031's decision 8 does not ship, and no check is lowered to let it.
+
+**Jay's calls** (ADR-0031, Calls for Jay). Each task says which it waits on:
+- Calls 2 to 4 and 12 come before the rails they decide, and calls 1, 7, and 9 before batch 1.
+- Call 11 comes before batch 2, and calls 5, 6, and 8 before batch 5. Call 10 can come any time.
+- A task marked *Can go ahead now* waits on no call, as the generator for the four does. S.1 and S.2 wait only if call 11 puts the slide types after the fifty.
+
+**Formats.** The theme format changes three times: the picture's frame or mat (T.3a), a family kept whole (T.5b), and a table of seven columns (S.2). Each takes the next free theme format when it lands, which is 0.18 if it lands before 2.132. Code on a slide's formats (0.18–0.20) and the objects' (0.21–0.24) then move up, as the objects' section says of its own. No task here changes the deck format.
+
+### The rails
+
+- [ ] T.0a The registry and the generator, reproducing the four byte for byte (ADR-0031, decisions 3 and 4; no format change). *Can go ahead now.*
+    - **The registry**, `docs/themes/registry.json`, lists each theme: its slug, its name, its family, its geometry family, its fonts' keys, and its file or files (the four's paths as they are, both of Dusk's copies). Its description, mode, colors, and type voice are its spec's: the generator copies them in for the clients that list themes. It holds the four for now.
+    - **The specs.** `docs/themes/<slug>.spec.json` holds only what a theme sets apart from the shared base, `docs/themes/base.json` (ADR-0031, decision 3, says which is which).
+    - **Dusk first.** Dusk's two copies are aligned by hand, in columns no generator writes. A first commit rewrites them in the form Daybreak, Ember, and Gallery take: two-space JSON, each shadow on one line, the layouts and furniture as `build_layouts.py` writes them. Every value is kept (`json.loads` equal), so nothing a deck draws changes.
+    - **The generator.** `scripts/build_themes.py` writes each theme file from its spec and the base: every key but its layouts and furniture, which `build_layouts.py` keeps writing. The four keep their paths, which bundles and tests name, and new themes go in `docs/themes/<slug>.theme.json`.
+      - It refuses a new theme's spec below ADR-0031's contrast bars (decision 3), worked in Oklab with `scaena_core::palette`'s math, saying which color misses and by how much. The four are held to their files as they ship until T.6: their cards sit 1.06–1.11:1 off the page, and Gallery's line 1.29:1.
+      - It writes `scaena_ops::shipped`'s table and `web/src/themes.ts`'s list from the registry, as `build_scripts.py` writes `crates/scaena-store/src/common.rs`, and its `--check` fails where either is not what it writes. `scripts/validate_schema.py` reads the registry.
+    - **Layouts by geometry.** `build_layouts.py` keys its layouts by geometry family, not by theme name. Its `THEMES`, `OLD_SLOTS_IN`, `DESCRIPTIONS`, `ember_slots()`, and `library()`'s `theme == "ember"` name themes today. It reads the 47 older layouts back from each theme's own file, so a new theme takes them from the first file of its geometry family, Dusk's or Ember's.
+    - **The tests read the registry,** not four literals: `shipped.rs`, `the_shipped_themes_name_the_same_things`, `every_example_deck_moves_between_the_shipped_themes`, and `starting.rs`.
+    - Tests: `build_themes.py --check` in `just schema` and in CI's `schema` job, reproducing the four byte for byte; `scripts/test_build_themes.py` (a spec in, the file out; a new theme's spec under each bar refused, naming the color; the four's exemption held to the four); every existing test green with no golden changed.
+- [ ] T.0b Fonts by sha256: every family pinned, fetched at build, and each `SOURCES.md` held to its files (ADR-0031, decision 5; no format change). *Waits on Jay's calls 2 and 12.*
+    - **The pinned table.** `build_bundle_fonts.py`'s table grows to every family a theme in the registry names:
+      - its path at google/fonts 9710da1, the upstream file's sha256, and its license file's sha256;
+      - its italic, its axes, and the scripts it covers;
+      - Pretendard from orioncactus/pretendard at its v1.3.9 tag.
+    - **The cache.** The build fetches each file by sha256 into a cache CI keeps, and the four's eight files stay in git.
+    - **The check.** `--check` compares each `SOURCES.md` with the files beside it, so a row for a file that is gone fails.
+    - Tests: `--check` failing on a file whose sha256 differs, and on a `SOURCES.md` row with no file; the cache filled on a clean runner, then used offline.
+- [ ] T.0c A theme's fonts on each client, fetched on first use (ADR-0031, decision 5; after T.0a and T.0b; no format change). *Waits on Jay's calls 3 and 12.*
+    - **The CLI and the MCP server** embed every theme's JSON and the four's fonts. Any other theme's fonts are fetched the first time `new`, `generate`, `theme --apply`, `deck_create`, or `theme_apply` needs them, as ADR-0027's path fetches a script's font: a pinned URL, sha256, and size, kept by digest in the CLI's cache. The MCP server fetches through the CLI's transport, as ADR-0030's `map_fetch` does, so `scaena-mcp` links no HTTP client. Offline, they say which themes work: the four, Basel, and Kernel.
+    - **The browser** fetches a theme's JSON and its own fonts when New, New from a Prompt, or the theme picker needs them, held to sha256 in Cache Storage. The service worker keeps the four's fonts and a thumbnail of each theme, drawn at build by the CPU painter, so choosing a theme fetches nothing until it is chosen.
+    - **The Mac and the iPad** keep the four's fonts in the static library and fetch the rest once, by digest, into Application Support or the app's container. `scaena_create` and `retheme` hand over only the chosen theme's fonts, not all eight.
+    - Tests: the CLI against a stand-in font host on this machine (fetched once, then from the cache; a wrong sha256 refused; offline refused with the themes that work); `web/themes.mjs` (thumbnails without fonts; a theme chosen offline refused with why); ScaenaKit's `ThemeFontsTests` through `URLProtocol` stubs.
+- [ ] T.0d By name everywhere, and names that are words (ADR-0031, decision 4; after T.0a; no format change). *Taking a theme by name can go ahead now; the names' rule and Gallery's rename wait on Jay's call 4, and the chooser by family on call 1.*
+    - **By name.** `theme --apply` and the MCP server's `theme_apply` take a shipped theme by name as well as by file, as `scaena new --theme`, `scaena generate --theme`, and `deck_create` already do.
+    - **By family.** Once call 1 is made, the chooser on every client shows the registry's themes by family, each family a section. Until then it lists them as today.
+    - **Names.** Each name is one word, equal to its slug ignoring case. On call 4's recommendation, Gallery's file becomes `salon.theme.json`, named "Salon". `gallery` stays an alias in `shipped::theme`, `web/src/themes.ts`, the worker's lookup, and `scaena_ops::theme::library`, which takes a copy named Gallery as Salon's, so every deck and bundle that names it opens as before. Until call 4, the names check leaves Gallery's vendor name alone.
+    - Tests: `theme_apply` by name in `mcp.rs`; a bundle naming `gallery` opening as before; `the_shipped_themes_name_the_same_things` over the names.
+- [ ] T.0e A contact sheet of a theme, for the review every theme gets once (ADR-0031, decision 8; after T.0a; no format change). *Can go ahead now.*
+    - `scaena theme --sheet THEME --out FILE` draws every layout of a theme, started as Add Slide starts it with its examples, on one PNG by its sections. With `--sheet`, the `theme` command's bundle and `--apply` become optional.
+    - **Drift.** It prints each start's display-list digest, kept in `tests/golden/themes/<slug>.digests.json`. A test compares each start with them and writes the new digests to `tests/golden/themes/actual/` on a mismatch, and `just bless` writes them after the diff is reviewed, as the golden display lists are.
+    - Tests: the sheet of Dusk; its digests the same on a second run; a changed layout caught as drift.
+- [ ] T.0f The bench bundles' Source Serif 4 under a name of its own (ADR-0031, decision 5). *Waits on Jay's call 5 for how.*
+    - The subset `build_bundle_fonts.py` makes for B1 to B3 keeps "Source Serif 4" as its name, which its copyright reserves ("with Reserved Font Name 'Source'"). Rename it in its name records, or set the bench's quotations in a family that reserves no name, as call 5 decides. It waits on no batch, and no batch waits on it.
+    - Tests: `build_bundle_fonts.py --check`; the bench decks lint as before; `just bench`'s numbers recorded before and after.
+
+### The themes
+
+- [ ] T.1a Batch 1, first: Basel and Kernel, on the four's fonts (ADR-0031, decision 6; after T.0a, T.0d, and T.0e; no format change). *Waits on Jay's calls 1 and 9.*
+    - Basel and Kernel need no font beyond the four's. They prove the generator and the registry with nothing to fetch.
+    - **The MANIFESTO and ADR-0005** say fifty, held to one bar (call 1).
+    - **Motion and density** take each theme's own values within W320 and W321, if call 9 says so. The builds test then holds the names, not the values.
+    - Tests: every check of ADR-0031's decision 8 on both, and a person's review of each contact sheet.
+- [ ] T.1b Batch 1, the rest: Harbor, Ledger, Meridian, Keystone, Voltage, Quant, Beacon, and Signpost (after T.0b, T.0c, and T.1a). *Waits on Jay's call 7.*
+    - **Inter last.** A fallback names a family of the theme, so Inter and its italic become a family of every theme whose text families lack it, under the key `inter`, named last in every text family's fallback, before ADR-0027's script family. They draw the → Quant's faces lack and the Greek and Cyrillic Beacon's body lacks. The four need none, since their body is Inter, and the vocabulary test leaves the key out of the families it compares.
+    - **The fonts** this batch fetches: Geist, Inter Tight, Plus Jakarta Sans, Open Sans, Roboto, Roboto Mono, Montserrat, Poppins, Barlow Condensed, B612, Atkinson Hyperlegible Next, Inclusive Sans, Noto Sans, and Atkinson Hyperlegible Mono.
+    - Tests: decision 8's checks on each; the re-theme matrix over the twelve; a person's review of each contact sheet.
+- [ ] T.2 Batch 2: Lyceum, Margin, Seminar, Remedy, Recess, Kite, Sunbeam, Haven, Equator, and Council (after T.1b and S.1). *Waits on Jay's call 11.*
+    - On call 12's recommendation, Lyceum's body is Open Sans, so its first use downloads no more than 3 MB gzip-9. Equator is multi-script by design and exempt.
+    - Haven sets no role in italics or capitals, and opens letter and line spacing as WCAG 1.4.12 allows.
+    - Tests: decision 8's checks on each; a person's review.
+- [ ] T.3a A picture's frame or mat, in every theme (ADR-0031, decision 3; theme format, next free). *Waits on Jay's call 1, and lands before batch 3.*
+    - A theme says how its pictures are framed: a mat of a theme color around the picture, a keyline, or none. Every image takes its theme's frame, and no image property overrides it, so the deck format does not change.
+    - The four take none, so nothing they draw changes. Darkroom, Viewfinder, Postcard, and Vow use it.
+    - Tests: the frame drawn inside the box, the picture's crop and focal kept within it; every painter, the goldens' torture case; the schema.
+- [ ] T.3 Batch 3: Liftoff, Sorbet, Noir, Marquee, Nocturne, Broadsheet, Darkroom, Viewfinder, and Threshold (after T.2 and T.3a). *Waits on no call of its own.*
+    - Tests: decision 8's checks on each; a person's review.
+- [ ] T.4 Batch 4: Garrison, Docket, Sterling, Kindred, Fieldwork, Halftone, Vespers, Hymnal, Vow, and Elegy (after T.3). *Waits on no call of its own.*
+    - On call 12's recommendation, Elegy's and Fieldwork's bodies are Open Sans.
+    - Tests: decision 8's checks on each; a person's review.
+- [ ] T.5a Right to left (ADR-0031; no format change). *Waits on Jay's call 8.*
+    - On call 8's recommendation, a deck whose language runs right to left lays every layout out mirrored, in every theme, at layout time. Photographs, logos, and digits are not mirrored, as Apple's guidelines say.
+    - Tests: golden display lists of an Arabic and a Hebrew deck; `starting.rs` mirrored; the reader's order.
+- [ ] T.5b Faces without italics, and families kept whole (ADR-0031, decision 5; theme format, next free). *Waits on Jay's calls 5 and 6.*
+    - **Italics.** On call 6's recommendation, a family whose script has no italic convention ships without one. W231 still warns where a text asks for italic.
+    - **Kept whole.** On call 5's recommendation, a family whose license reserves its name, as Pretendard's does, is kept whole by every save: the CLI's, the browser's subsetter, and the Mac's.
+    - Tests: `shipped.rs` over the exemption; a save keeping Pretendard whole, byte for byte.
+- [ ] T.5 Batch 5: Postcard, Lambda, Runtime, Saffron, Qalam, Washi, and Hanji (after T.4, T.5a, and T.5b). *Waits on Jay's calls 5, 6, and 8, through T.5a and T.5b.*
+    - Tests: decision 8's checks on each; a person's review.
+- [ ] T.6 The four held to the new bars (ADR-0031). *Waits on Jay's call 10.*
+    - Cards 1.2:1 off the page, Gallery's line to `#DEDED6`, and its chart grays to 3:1, in one reviewed change, since it moves every existing deck's look.
+    - Tests: the goldens' diff reviewed; the contrast matrix over the four.
+
+### The slide types
+
+- [ ] S.1 The first 16 slide types, in every theme (ADR-0031, decision 7; no format change). *Can go ahead now, unless Jay's call 11 puts the slide types after all fifty.*
+    - **The layouts.** `build_layouts.py` adds 16:
+      - KPI Dashboard, Status Report, and Market Size in Numbers;
+      - Flowchart and Swimlane in Diagrams, a new section;
+      - Positioning Map in Charts, and Feature Grid in Comparison;
+      - Risk Matrix and Business Model Canvas in Frameworks;
+      - Case Study in Editorial, and Logo Wall and Device Mockup in Pictures;
+      - Quad Chart and Decision Brief in Briefing, a new section;
+      - Quiz in Classroom, a new section, and Buyer Persona in People.
+    - Each is drawn as ADR-0031's table says, as the library's layouts are: a prompt where a slot asks for something, and an example in each slot that waits for a picture, a chart, or a table. `library()` brings them into older copies of the shipped themes.
+    - **Search by other names.** Add Slide's search, on every client, also finds a layout by the names people search for: Kanban opens Roadmap, Learning Objectives opens Numbered List, and the rest of ADR-0031's list but Disclosures, which S.3 adds with Fine Print. The names are a table by layout name in `scaena_ops::states`.
+    - **Sections.** Diagrams, Briefing, and Classroom go before Closing in `build_layouts.py`'s `SECTIONS`, which sets Add Slide's order.
+    - Tests: `starting.rs` (each starts clean in every shipped theme, its examples drawn); `build_layouts.py --check`; `library.rs`; the counts of layouts and sections that `crates/scaena-session/src/editor.rs`, `web/strip.mjs`, and ScaenaKit's `LayoutsTests.swift` hold, moved by 16 and 3; the search finding each alias; the Mac's and the iPad's gallery shots, reviewed.
+- [ ] S.2 The next 23 (ADR-0031, decision 7; after S.1; theme format, next free, for Month). *Can go ahead now, unless Jay's call 11 puts the slide types after all fifty.*
+    - The layouts: Event, Join or Scan, Pictograph, Decision Tree, Fishbone, Month, Options Compared, Acknowledgments, Certificate, Game Board, Incident Review, Maturity Model, References, Architecture, Issue Tree, Lyrics, Paper Title, Patient Case, and Property.
+    - **Elsewhere.** Map is O.1e's, which adds Map and Words and Full-Bleed Map beside it. The three code layouts are 2.138's: Title and Code, Code beside Notes, and Two Code Blocks.
+    - **Month** needs a table example of 7 columns, where the schema allows 2 to 6. It takes the next theme format, and the other layouts need none.
+    - Tests: as S.1's.
+- [ ] S.3 The last 14 (ADR-0031, decision 7). *Unscheduled but for the first five.*
+    - Five need nothing new and can go ahead after S.2: Seating Chart, Exhibit Callout, Concept of Operations, Brand Board, and Fine Print, with the search name Disclosures.
+    - Nine wait on what the format lacks, each its own design and ADR:
+      - Waterfall and Mekko, on chart kinds;
+      - Forest Plot, on `range` running across;
+      - Video and Web Page, on the deferred video and embed nodes;
+      - Word Cloud, on a word-cloud drawing;
+      - Live Poll, on live data from outside the deck;
+      - Countdown, on a timer;
+      - Equation, on a math node.
+
+---
+
 ## Cross-cutting tracks (run alongside phases)
 
 - **Performance:** benches from Phase 0 onward; budgets in SPEC §15; a regression fails CI.
