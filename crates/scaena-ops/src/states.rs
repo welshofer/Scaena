@@ -72,6 +72,28 @@ fn added(deck: &Deck, after: usize, state: Value) -> Value {
     op
 }
 
+/// The names people search for a slide by that the library offers under another name (ADR-0031,
+/// decision 7), by layout: Add Slide's search, on every client, finds Roadmap by Kanban, as
+/// [`also_called`] says.
+pub const ALSO_CALLED: &[(&str, &[&str])] = &[
+    ("roadmap", &["Kanban"]),
+    ("numbered", &["Learning Objectives"]),
+    ("hub-spoke", &["Mind Map"]),
+    ("quote", &["Scripture"]),
+    ("bio", &["In Memoriam"]),
+    ("agenda", &["Order of Service"]),
+    ("comparison", &["Problem and Solution"]),
+    ("big-question", &["Exit Ticket"]),
+    ("table", &["Rubric"]),
+    ("closing", &["Thank You"]),
+    ("chyron", &["Lower Third Lyrics"]),
+];
+
+/// The other names a layout is searched for by, as [`ALSO_CALLED`] gives them: none for most.
+pub fn also_called(layout: &str) -> &'static [&'static str] {
+    ALSO_CALLED.iter().find(|(name, _)| *name == layout).map_or(&[], |(_, also)| also)
+}
+
 /// The patch that starts a slide in `layout`, one of `theme`'s, after `shown`'s slide (PLAN
 /// 3.30): one `add_state`, then an `add_node` for each of the layout's slots that says what goes
 /// there, words in its role or a shape, then where those leave (PLAN 3.24).

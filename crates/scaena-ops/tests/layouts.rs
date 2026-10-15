@@ -21,7 +21,17 @@ fn a_state_is_offered_each_layout_that_draws_it_otherwise_judged_by_lint_best_fi
     let names: Vec<&str> = suggested.iter().map(|s| s.layout.as_str()).collect();
     assert_eq!(
         names,
-        ["figure", "venn", "two-figures", "bar-chart", "line-chart", "metric-trend", "panorama", "narrow-figure"],
+        [
+            "figure",
+            "venn",
+            "risk-matrix",
+            "two-figures",
+            "bar-chart",
+            "line-chart",
+            "metric-trend",
+            "panorama",
+            "narrow-figure"
+        ],
         "{suggested:#?}"
     );
     // The layout it takes now first, with nothing to patch, and those it draws alike beside it.
@@ -29,8 +39,11 @@ fn a_state_is_offered_each_layout_that_draws_it_otherwise_judged_by_lint_best_fi
     assert!(now.current && now.patch.is_empty() && now.reach.is_empty(), "{now:?}");
     assert_eq!(now.alike, ["poster", "table", "full", "photo-caption"]);
     // Each other is one `set_state`, changes this state alone, and makes the slide's errors.
+    // Risk Matrix and Positioning Map set the note beside what the slide holds, alike.
+    assert_eq!(suggested[2].alike, ["positioning-map"]);
     for other in &suggested[1..] {
-        assert!(!other.current && other.alike.is_empty() && other.errors > 0, "{other:?}");
+        assert!(!other.current && other.errors > 0, "{other:?}");
+        assert!(other.alike.is_empty() || other.layout == "risk-matrix", "{other:?}");
         assert_eq!(
             other.patch,
             [json!({ "op": "set_state", "id": "budget", "prop": "layout", "value": other.layout })]
@@ -75,7 +88,8 @@ fn a_clean_layout_that_draws_the_state_otherwise_is_suggested() {
             ("panorama", false, 0, 0),
             ("venn", false, 0, 1),
             ("bar-chart", false, 1, 0),
-            ("line-chart", false, 1, 0)
+            ("line-chart", false, 1, 0),
+            ("risk-matrix", false, 2, 0)
         ],
         "{suggested:#?}"
     );
@@ -126,5 +140,5 @@ fn inspect_names_the_state_it_suggests_layouts_for() {
     let err = scaena_ops::inspect::inspect(&b, None, views.clone()).unwrap_err();
     assert!(err.message.contains("name the state"), "{}", err.message);
     let inspected = scaena_ops::inspect::inspect(&b, Some("budget"), views).unwrap();
-    assert_eq!(inspected[0].layouts.as_ref().map(Vec::len), Some(8));
+    assert_eq!(inspected[0].layouts.as_ref().map(Vec::len), Some(9));
 }
