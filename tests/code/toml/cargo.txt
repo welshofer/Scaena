@@ -1,0 +1,42 @@
+# The package, and what it needs.
+[package]
+name = "scaena-core"
+version = "0.1.0"
+edition = '2024'
+authors = ["Jay <jay@example.com>", 'Ada']
+description = """
+A presentation engine: \
+a timeline of "states"."""
+license-file = '''C:\licenses\LICENSE'''
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+regex-lite.workspace = true
+"quoted.key" = 1
+
+[profile.release]
+opt-level = 3
+lto = true
+debug = false
+
+[[bin]]
+name = "scaena"
+path = "src/main.rs"
+
+[limits]
+max_size = 1_000_000
+mask = 0xDEAD_BEEF
+mode = 0o755
+flags = 0b1101
+ratio = 6.626e-34
+ceiling = +inf
+missing = nan
+started = 1979-05-27T07:32:00-08:00
+local = 1979-05-27 07:32:00
+day = 2024-01-15
+alarm = 07:32:00.999
+matrix = [
+  [1, 2],
+  [3, 4], # a comment in an array
+]
+point = { x = 1, y = -2, tags = { a.b = "c" } }

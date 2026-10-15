@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Sign up &mdash; Scaena</title>
+  <link rel="stylesheet" href="/style.css?v=2&amp;theme=dusk">
+  <style>
+    .hero > h1 { color: #fff; }
+  </style>
+</head>
+<!-- The form, and what it sends. -->
+<body class="page signup" data-state='ready'>
+  <main id=content>
+    <h1>Join us &#x1F44B;</h1>
+    <form action="/signup" method="post" novalidate>
+      <label for="email">Email</label>
+      <input type="email" id="email" name="email" required placeholder="you@example.com"/>
+      <button type="submit" disabled>Send &rarr;</button>
+    </form>
+    <p>Fees: 5 &lt; 10 &amp; tax &copy; 2026 &nbsp;&bogus</p>
+    <svg viewBox="0 0 24 24"><path d="M12 2L2 22h20z"/></svg>
+  </main>
+  <script type="module">
+    if (a < b && c > d) document.body.dataset.state = "<b>sent</b>";
+  </script>
+</body>
+</html>
