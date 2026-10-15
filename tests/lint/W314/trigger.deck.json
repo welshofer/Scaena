@@ -1,0 +1,81 @@
+{
+  "scaena": "0.30",
+  "_comment": "W314 trigger: a map's credit covered by a band drawn over its foot.",
+  "canvas": {
+    "width": 1920,
+    "height": 1080
+  },
+  "theme": "theme.json",
+  "fonts": [
+    {
+      "family": "Roboto Serif",
+      "file": "fonts/RobotoSerif-VF.ttf"
+    },
+    {
+      "family": "EB Garamond",
+      "file": "fonts/EBGaramond-VF.ttf"
+    }
+  ],
+  "nodes": {
+    "map": {
+      "type": "image",
+      "src": "assets/photo.png",
+      "fetched": {
+        "from": "geoapify",
+        "at": "2026-10-15T20:12:44Z",
+        "asked": "Ferry Building, San Francisco",
+        "credit": [
+          {
+            "text": "© OpenStreetMap contributors",
+            "link": "https://www.openstreetmap.org/copyright"
+          },
+          {
+            "text": " · openstreetmap.org/copyright · "
+          },
+          {
+            "text": "© OpenMapTiles",
+            "link": "https://openmaptiles.org/"
+          },
+          {
+            "text": " · "
+          },
+          {
+            "text": "Powered by Geoapify",
+            "link": "https://www.geoapify.com/"
+          }
+        ],
+        "license": "ODbL-1.0"
+      },
+      "alt": "A map of the waterfront.",
+      "at": {
+        "in": "main"
+      }
+    },
+    "band": {
+      "type": "shape",
+      "kind": "rect",
+      "fill": "accent",
+      "semantic": "decoration",
+      "z": 1,
+      "at": {
+        "in": "main"
+      },
+      "size": {
+        "h": 200
+      },
+      "align": {
+        "y": "end"
+      }
+    }
+  },
+  "states": [
+    {
+      "id": "a",
+      "layout": "full",
+      "props": {
+        "map": {},
+        "band": {}
+      }
+    }
+  ]
+}
