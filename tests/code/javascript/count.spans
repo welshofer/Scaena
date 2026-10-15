@@ -81,7 +81,11 @@ property    «#seen »
 operator    «= »
 keyword     «new »
 type        «Map»
-punctuation «();\n\n  »
+punctuation «();\n  »
+property    «#turns »
+operator    «= »
+number      «0»
+punctuation «;\n\n  »
 function    «add»
 punctuation «(»
 plain       «word»
@@ -136,7 +140,16 @@ punctuation «[»
 number      «1»
 punctuation «])[»
 number      «0»
-punctuation «];\n  }\n}\n\n»
+punctuation «];\n  }\n\n  »
+function    «half»
+punctuation «() {\n    »
+keyword     «return »
+variable    «this»
+punctuation «.»
+property    «#turns»
+operator    «++ / »
+number      «2»
+punctuation «;\n  }\n}\n\n»
 keyword     «const »
 plain       «counter »
 operator    «= »

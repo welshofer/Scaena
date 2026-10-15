@@ -89,7 +89,8 @@ fn spans_cover_the_text_in_order_on_char_boundaries() {
 }
 
 /// Long runs of what opens and does not close, each read in one pass, never again from each of its
-/// bytes: a raw string's `#`s, a regular expression's `/`, type arguments, interpolations, and JSX.
+/// bytes: a raw string's `#`s, a regular expression's `/`, type arguments, interpolations, JSX,
+/// C#'s attributes and formats, and the spaces before a name a type declares.
 #[test]
 fn long_runs_read_in_one_pass() {
     let runs = [
@@ -106,6 +107,10 @@ fn long_runs_read_in_one_pass() {
         format!("x{}y", " ".repeat(30_000)),
         "'".repeat(30_000),
         "@".repeat(30_000),
+        "<A<".repeat(10_000),
+        "[A.".repeat(10_000),
+        format!("$\"{{{}", "x:".repeat(15_000)),
+        format!("string{}Name", " ".repeat(30_000)),
     ];
     for lang in langs() {
         for run in &runs {
@@ -418,6 +423,18 @@ const PIECES: &[&str] = &[
     "=\"v\"",
     "{/* c */}",
     "\\\\ zig",
+    "<T,>",
+    "<T extends ",
+    "<A<B>",
+    "[A]",
+    "{x:C2}",
+    "string? Name",
+    "->int",
+    "a++ / 2",
+    "x.0.1",
+    "::<&str>",
+    "| ",
+    "5.",
 ];
 
 /// Openers, and what closes each, nested 100 deep.

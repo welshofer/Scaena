@@ -11,6 +11,11 @@ punctuation «;\n»
 keyword     «using »
 type        «System»
 punctuation «.»
+property    «Diagnostics»
+punctuation «;\n»
+keyword     «using »
+type        «System»
+punctuation «.»
 property    «Threading»
 punctuation «.»
 property    «Tasks»
@@ -20,14 +25,20 @@ plain       «enable\n\n»
 keyword     «namespace »
 type        «Inventory\n»
 punctuation «{\n    [»
-type        «Serializable»
-punctuation «]\n    »
+attribute   «Serializable»
+punctuation «]\n    [»
+attribute   «DebuggerDisplay»
+punctuation «(»
+string      «"{Name}"»
+punctuation «)]\n    »
 keyword     «public record »
 type        «Item»
 punctuation «(»
-type        «string Name»
+type        «string »
+plain       «Name»
 punctuation «, »
-type        «decimal Price»
+type        «decimal »
+plain       «Price»
 punctuation «);\n\n    »
 keyword     «public sealed class »
 type        «Store\n    »
@@ -44,14 +55,16 @@ operator    «= »
 keyword     «new»
 punctuation «();\n        »
 keyword     «public »
-type        «int Count »
+type        «int »
+plain       «Count »
 operator    «=> »
 plain       «_items»
 punctuation «.»
 property    «Count»
 punctuation «;\n        »
 keyword     «public »
-type        «string Owner »
+type        «string »
+plain       «Owner »
 punctuation «{ »
 keyword     «get»
 punctuation «; »
@@ -59,7 +72,16 @@ keyword     «init»
 punctuation «; } »
 operator    «= »
 string      «"nobody"»
-punctuation «;\n\n        »
+punctuation «;\n        »
+keyword     «public »
+type        «string»
+operator    «? »
+plain       «Note »
+punctuation «{ »
+keyword     «get»
+punctuation «; »
+keyword     «set»
+punctuation «; }\n\n        »
 keyword     «public async »
 type        «Task»
 operator    «<»
@@ -129,7 +151,7 @@ string      « for »
 punctuation «{»
 plain       «price»
 punctuation «:»
-type        «C»
+string      «C»
 punctuation «}»
 string      «"»
 punctuation «;\n        }\n    }\n\n    »

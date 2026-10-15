@@ -17,4 +17,10 @@ export function Menu({ title, items, onPick }: Props): JSX.Element {
   );
 }
 
+export const first = <T,>(items: readonly T[]): T | undefined => items[0];
+
+export function Choices<T extends string>({ options }: { options: T[] }) {
+  return <Select<T> options={options} onPick={(o) => o.length} />;
+}
+
 export const half = (n: number): number => n / 2;

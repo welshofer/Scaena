@@ -178,7 +178,7 @@ number      «2»
 punctuation «, »
 number      «3»
 punctuation «].»
-property    «map »
+function    «map »
 punctuation «{ »
 plain       «$0 »
 operator    «* »

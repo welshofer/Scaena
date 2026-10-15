@@ -12,6 +12,10 @@ property    «ratio»
 punctuation «: »
 number      «.5»
 punctuation «,\n  »
+property    «scale»
+punctuation «: »
+number      «2.»
+punctuation «,\n  »
 property    «growth»
 punctuation «: »
 number      «+1.25»

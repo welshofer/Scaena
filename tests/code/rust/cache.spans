@@ -278,6 +278,41 @@ plain       «total»
 punctuation «, »
 plain       «bytes»
 punctuation «);\n    »
+keyword     «let »
+plain       «words »
+operator    «= »
+string      «"a b"»
+punctuation «.»
+function    «split»
+punctuation «(»
+string      «' '»
+punctuation «).»
+function    «collect»
+punctuation «::»
+operator    «<»
+type        «Vec»
+operator    «<&»
+type        «str»
+operator    «>>»
+punctuation «();\n    »
+keyword     «let »
+plain       «second »
+operator    «= »
+punctuation «((»
+number      «1»
+punctuation «, »
+number      «2»
+punctuation «), »
+number      «3»
+punctuation «).»
+number      «0»
+punctuation «.»
+number      «1 »
+operator    «+ »
+plain       «words»
+punctuation «.»
+function    «len»
+punctuation «();\n    »
 type        «'outer»
 punctuation «: »
 keyword     «for »

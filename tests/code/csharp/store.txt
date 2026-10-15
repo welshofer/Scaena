@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading.Tasks;
 
 #nullable enable
@@ -7,6 +8,7 @@ using System.Threading.Tasks;
 namespace Inventory
 {
     [Serializable]
+    [DebuggerDisplay("{Name}")]
     public record Item(string Name, decimal Price);
 
     public sealed class Store
@@ -14,6 +16,7 @@ namespace Inventory
         private readonly Dictionary<string, Item> _items = new();
         public int Count => _items.Count;
         public string Owner { get; init; } = "nobody";
+        public string? Note { get; set; }
 
         public async Task<bool> AddAsync(Item item)
         {

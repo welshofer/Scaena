@@ -141,7 +141,10 @@ operator    «&»
 punctuation «](»
 type        «int »
 plain       «x»
-punctuation «) { »
+punctuation «) »
+operator    «-> »
+type        «int »
+punctuation «{ »
 keyword     «return »
 plain       «x »
 operator    «* »

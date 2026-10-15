@@ -134,6 +134,61 @@ punctuation «</»
 tag         «nav»
 punctuation «>\n  );\n}\n\n»
 keyword     «export const »
+plain       «first »
+operator    «= <»
+type        «T»
+punctuation «,»
+operator    «>»
+punctuation «(»
+plain       «items»
+punctuation «: »
+keyword     «readonly »
+type        «T»
+punctuation «[]): »
+type        «T »
+operator    «| »
+constant    «undefined »
+operator    «=> »
+plain       «items»
+punctuation «[»
+number      «0»
+punctuation «];\n\n»
+keyword     «export function »
+function    «Choices»
+operator    «<»
+type        «T »
+keyword     «extends »
+type        «string»
+operator    «>»
+punctuation «({ »
+plain       «options »
+punctuation «}: { »
+plain       «options»
+punctuation «: »
+type        «T»
+punctuation «[] }) {\n  »
+keyword     «return »
+punctuation «<»
+tag         «Select»
+operator    «<»
+type        «T»
+operator    «> »
+attribute   «options»
+operator    «=»
+punctuation «{»
+plain       «options»
+punctuation «} »
+attribute   «onPick»
+operator    «=»
+punctuation «{(»
+plain       «o»
+punctuation «) »
+operator    «=> »
+plain       «o»
+punctuation «.»
+property    «length»
+punctuation «} />;\n}\n\n»
+keyword     «export const »
 plain       «half »
 operator    «= »
 punctuation «(»

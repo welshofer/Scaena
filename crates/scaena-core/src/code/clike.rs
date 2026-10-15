@@ -6,10 +6,13 @@
 //! comments, `#`, `@`, `'`, `/`, and `<` begin. A word is:
 //! - a **keyword**, a **constant**, a **type**, or a **variable** the language defines (`this`),
 //!   where its sorted tables hold it;
-//! - after a `.`, a **property**, or a **function** where a `(` follows it;
+//! - after a `.`, a **property**, or a **function** where a `(` follows it, but for a word C,
+//!   C++, and Objective-C keep for themselves, which no member is named: C++'s `-> int`;
 //! - after a keyword that declares one (`fn`, `class`), a **function**'s or a **type**'s name;
 //! - else, by its case and what follows it: a **constant** in capitals (`MAX_LEN`), a **type**
-//!   that starts with one (`HashMap`), a **function** where a `(` follows it, or plain.
+//!   that starts with one (`HashMap`), a **function** where a `(` follows it, or plain. In C#,
+//!   whose methods and properties are named in capitals, a name just after a type is the one
+//!   it declares, and plain: `string Name`.
 //!
 //! The scanner keeps a stack of what it returns to: the code it reads, a string that an
 //! interpolation interrupts, a JSX element's tag or its children. Strings take no place in it:
@@ -28,11 +31,14 @@ type Words = &'static [&'static [&'static str]];
 /// where an operand may start, so the scan stays linear on a line of them.
 const LOOK: usize = 256;
 
-/// The most `#`s a raw string opens with, as Rust allows: counted once at each `#` at most.
+/// The most `#`s a raw string opens with, as Rust allows, a run of them counted once.
 const HASHES: usize = 255;
 
 /// How far type arguments are looked through for the `(` of a generic call.
 const TYPE_ARGUMENTS: usize = 64;
+
+/// How far C#'s format after an interpolation's `:` is looked through for its `}`.
+const FORMAT: usize = 64;
 
 /// How a language of the C family reads.
 #[derive(Debug)]
@@ -68,10 +74,17 @@ pub(crate) struct Spec {
     /// Whether a word in capitals names a constant: `MAX_LEN`.
     capital_constants: bool,
     /// Whether a word that starts with a capital is a function where it is called, as C#'s
-    /// methods are named (`ToString()`), but for a type `new` makes (`new Item(…)`).
+    /// methods are named (`ToString()`), but for a type `new` makes (`new Item(…)`); and plain
+    /// just after a type, which declares it, as C#'s properties are named (`string Name`).
     capital_methods: bool,
     /// Whether a word just before `{` is a function given a lambda: Kotlin's `apply { … }`.
     closures: bool,
+    /// The keywords that begin a condition, which runs to its `{` and gives no word in it a
+    /// lambda: Swift's `if items.isEmpty {`.
+    conditions: &'static [&'static str],
+    /// Whether `[` first on its line or where no operand comes before it, then a name in
+    /// capitals, opens an attribute: C#'s `[HttpGet("{id}")]`.
+    bracket_attributes: bool,
     /// Whether `/` opens a regular expression where an operand may start.
     regex: bool,
     /// Whether `<` opens a JSX element where an operand may start.
@@ -232,6 +245,8 @@ pub(super) fn scan<'t>(text: &'t str, spec: &'static Spec, out: &mut Spans<'t>) 
         member: false,
         pending: None,
         line_start: true,
+        condition: false,
+        typed: None,
     };
     scanner.run();
 }
@@ -251,6 +266,11 @@ struct Scanner<'t, 'o> {
     pending: Option<Class>,
     /// Whether only whitespace has come since the line began.
     line_start: bool,
+    /// Whether a condition is open, from the keyword that begins it to its `{`.
+    condition: bool,
+    /// Where the type read last ends, with the `?`, `[]`, and type arguments' `>` just after
+    /// it: a name in capitals after it, past spaces, is the name it declares.
+    typed: Option<usize>,
 }
 
 impl Scanner<'_, '_> {
@@ -318,6 +338,16 @@ impl Scanner<'_, '_> {
         let line_start = std::mem::take(&mut self.line_start);
         let member = std::mem::take(&mut self.member);
         let pending = self.pending.take();
+        // C#'s format after an interpolation's `:`, which runs to its `}`: `{price:C2}`.
+        if b == b':'
+            && close == b'}'
+            && depth == 0
+            && next != b':'
+            && let Some(end) = self.format_end()
+        {
+            self.emit(i + 1, Class::Punctuation);
+            return self.emit(end, Class::String);
+        }
         // An interpolation's or a JSX expression's own brackets.
         if close != 0 && (b == close || b == open) {
             self.emit(i + 1, Class::Punctuation);
@@ -335,6 +365,9 @@ impl Scanner<'_, '_> {
         if let Some((len, s)) = self.raw().or_else(|| self.opener()) {
             return self.open(len, s);
         }
+        if b == b'[' && self.spec.bracket_attributes && (!self.operand || line_start) && next.is_ascii_uppercase() {
+            return self.bracket_attribute();
+        }
         if (b == b'#' && self.hash(line_start)) || (b == b'@' && self.at_word()) {
             return;
         }
@@ -344,13 +377,29 @@ impl Scanner<'_, '_> {
         if b == b'/' && self.spec.regex && !self.operand && self.regex() {
             return;
         }
-        if b == b'<' && self.spec.jsx && !self.operand && (is_word_start(next) || next == b'>') && self.can_nest() {
+        if b == b'<'
+            && self.spec.jsx
+            && !self.operand
+            && (is_word_start(next) || next == b'>')
+            && self.can_nest()
+            && !self.type_parameters()
+        {
             return self.element();
         }
         if b == b'-' && next == b'>' && self.spec.arrow {
             self.emit(i + 2, Class::Operator);
             self.operand = false;
             self.member = true;
+            return;
+        }
+        // A tuple's field by its index, after a `.`: `pair.0.1` is two of them, not a number.
+        if b.is_ascii_digit() && member {
+            let mut end = i + 1;
+            while self.at(end).is_ascii_digit() {
+                end += 1;
+            }
+            self.emit(end, Class::Number);
+            self.operand = true;
             return;
         }
         if b.is_ascii_digit() || (b == b'.' && next.is_ascii_digit() && !self.operand) {
@@ -393,6 +442,9 @@ impl Scanner<'_, '_> {
             return;
         }
         let class = self.classify(word, j, member, pending);
+        if class == Class::Type {
+            self.typed = Some(j);
+        }
         self.emit(j, class);
     }
 
@@ -401,14 +453,22 @@ impl Scanner<'_, '_> {
         let spec = self.spec;
         let next = self.blanks(end);
         let after = self.at(next);
-        // Called: `parse(`, `useState<string>(`, Rust's `parse::<u8>(`, and Kotlin's `apply {`.
+        // Called: `parse(`, `useState<string>(`, Rust's `parse::<u8>(`, and Kotlin's `apply {`,
+        // but not a word a condition ends with: Swift's `if items.isEmpty {`.
         let call = after == b'('
             || (matches!(after, b'<' | b':') && self.generic_call(next))
-            || (spec.closures && after == b'{');
+            || (spec.closures && after == b'{' && !self.condition);
         let name = word.trim_start_matches('_').as_bytes();
         let capital = name.first().is_some_and(u8::is_ascii_uppercase);
         let capitals = capital && name.len() > 1 && !name.iter().any(u8::is_ascii_lowercase);
         self.operand = true;
+        // Where `->` reaches a member too, a word the language keeps for itself, or a namespace
+        // a `::` follows, is no member: C++'s `-> int`, `-> std::string`, and `.template`.
+        let member = member
+            && !(spec.arrow
+                && (found(spec.keywords, word)
+                    || found(spec.types, word)
+                    || (after == b':' && self.at(next + 1) == b':')));
         if member {
             return if found(spec.builtins, word) {
                 Class::Variable
@@ -429,6 +489,9 @@ impl Scanner<'_, '_> {
         }
         if found(spec.keywords, word) {
             self.operand = false;
+            if spec.conditions.binary_search(&word).is_ok() {
+                self.condition = true;
+            }
             self.pending = if spec.functions.binary_search(&word).is_ok() {
                 Some(Class::Function)
             } else if spec.declares.binary_search(&word).is_ok() {
@@ -467,9 +530,25 @@ impl Scanner<'_, '_> {
             };
         }
         if spec.capital_types && capital {
-            return if spec.capital_methods && call { Class::Function } else { Class::Type };
+            return if spec.capital_methods && call {
+                Class::Function
+            } else if spec.capital_methods && self.declared(end - word.len()) {
+                Class::Plain
+            } else {
+                Class::Type
+            };
         }
         if call { Class::Function } else { Class::Plain }
+    }
+
+    /// Whether the word at `start` stands just after a type, past spaces, as the name the type
+    /// declares: `string Name`, `int? Count`, `List<Item> Items`, `int[] Scores`.
+    fn declared(&self, start: usize) -> bool {
+        let mut k = start;
+        while k > 0 && matches!(self.b[k - 1], b' ' | b'\t') {
+            k -= 1;
+        }
+        k < start && self.typed == Some(k)
     }
 
     /// The first byte at or after `i` that is no space or tab.
@@ -483,10 +562,14 @@ impl Scanner<'_, '_> {
 
     /// Whether type arguments at `i` (`<…>`, or Rust's `::<…>`) close before a `(`, so the word
     /// before them is called. It looks no further than [`TYPE_ARGUMENTS`] bytes, and takes only
-    /// what type arguments are written with, so `a < b && c > (d)` is no call.
+    /// what type arguments are written with, so `a < b && c > (d)` is no call: names, lifetimes
+    /// and literal types (`'a`, `'idle'`), and a union's single `|` (`useState<User | null>(`).
+    /// After `::`, where nothing compares, it takes references, pointers, and tuples too:
+    /// Rust's `collect::<Vec<&str>>()`.
     fn generic_call(&self, i: usize) -> bool {
         let mut k = i;
-        if self.at(k) == b':' && self.at(k + 1) == b':' {
+        let turbofish = self.at(k) == b':' && self.at(k + 1) == b':';
+        if turbofish {
             k += 2;
         }
         if self.at(k) != b'<' {
@@ -503,7 +586,9 @@ impl Scanner<'_, '_> {
                         return self.at(self.blanks(k + 1)) == b'(';
                     }
                 }
-                c if is_word(c) || matches!(c, b' ' | b',' | b'.' | b':' | b'?' | b'[' | b']') => {}
+                b'|' if self.b[k - 1] != b'|' && self.at(k + 1) != b'|' => {}
+                b'&' | b'*' | b'(' | b')' | b';' if turbofish => {}
+                c if is_word(c) || matches!(c, b' ' | b',' | b'.' | b':' | b'?' | b'[' | b']' | b'\'') => {}
                 _ => return false,
             }
             k += 1;
@@ -511,9 +596,62 @@ impl Scanner<'_, '_> {
         false
     }
 
+    /// Whether the `<` here opens type parameters, not a JSX element: TSX's generic arrow,
+    /// `<T,>(item: T) => …` or `<T extends Item>(…`, which no element writes.
+    fn type_parameters(&self) -> bool {
+        let j = self.blanks(word_end(self.b, self.pos + 1, self.b.len()));
+        self.at(j) == b','
+            || (self.b[j..].starts_with(b"extends") && !is_word(self.at(j + 7)) && self.at(self.blanks(j + 7)) != b'=')
+    }
+
+    /// C#'s attribute in brackets: the `[` and the attribute's name, by its namespace where it
+    /// gives one (`[HttpGet`, `[System.Serializable`).
+    fn bracket_attribute(&mut self) {
+        let (b, len) = (self.b, self.b.len());
+        self.emit(self.pos + 1, Class::Punctuation);
+        let mut j = word_end(b, self.pos, len);
+        while self.at(j) == b'.' && is_word_start(self.at(j + 1)) {
+            j = word_end(b, j + 1, len);
+        }
+        self.emit(j, Class::Attribute);
+        self.operand = true;
+    }
+
+    /// Where C#'s format after an interpolation's `:` ends, at the `}` that closes the
+    /// interpolation, no more than [`FORMAT`] bytes on: `{price:C2}`, `{when:HH:mm}`. None where
+    /// the `:` stands in an interpolation of another language's, or before a quote, a bracket, or
+    /// the line's end, as a conditional's does inside its parentheses (`{(a ? "x" : "y")}`).
+    fn format_end(&self) -> Option<usize> {
+        let below = self.stack.len().checked_sub(2).and_then(|k| self.stack.get(k));
+        if !matches!(below, Some(Frame::Str(Str { interp: Interp::Brace, .. }))) {
+            return None;
+        }
+        let limit = self.b.len().min(self.pos + FORMAT);
+        let mut j = self.pos + 1;
+        while j < limit {
+            match self.b[j] {
+                b'}' => return Some(j),
+                b'"' | b'\'' | b'(' | b')' | b'{' | b'\n' | b'\r' => return None,
+                _ => j += 1,
+            }
+        }
+        None
+    }
+
     /// An operator or punctuation.
     fn symbol(&mut self, b: u8, next: u8) {
         let i = self.pos;
+        // `++` and `--` leave what came before as it was: after an operand, `a++ / 2` divides.
+        if matches!(b, b'+' | b'-') && next == b {
+            return self.emit(i + 2, Class::Operator);
+        }
+        // A type's `?`, `[]`, and its type arguments' `>` belong to it: `int? Count`.
+        if matches!(b, b'?' | b'[' | b']' | b'>') && self.typed == Some(i) {
+            self.typed = Some(i + 1);
+        }
+        if b == b'{' {
+            self.condition = false;
+        }
         let (end, class) = match b {
             b'.' if next == b'.' => {
                 let mut j = i;
@@ -557,6 +695,10 @@ impl Scanner<'_, '_> {
                 Some((j + 2 + hashes - i, string(close, Escape::None, Interp::None, true)))
             }
             Raw::Swift => {
+                // A run of `#`s opens a string at its first or nowhere, so it is counted once.
+                if i > 0 && b[i - 1] == b'#' {
+                    return None;
+                }
                 let hashes = b[i..].iter().take(HASHES).take_while(|&&c| c == b'#').count();
                 let j = i + hashes;
                 let count = if b[j..].starts_with(b"\"\"\"") { 3 } else { 1 };
@@ -835,9 +977,47 @@ impl Scanner<'_, '_> {
             self.stack.push(Frame::Children);
         } else {
             self.emit(self.tag_name(self.pos), Class::Tag);
+            if self.at(self.pos) == b'<' {
+                self.type_arguments();
+            }
             self.stack.push(Frame::Tag);
         }
         self.operand = false;
+    }
+
+    /// A generic component's type arguments, just after its name: TSX's `<List<Item> …>`. Where
+    /// they close within [`TYPE_ARGUMENTS`] bytes, their names are types; else the tag reads on.
+    fn type_arguments(&mut self) {
+        let limit = self.b.len().min(self.pos + TYPE_ARGUMENTS);
+        let (mut k, mut depth) = (self.pos, 0u32);
+        let close = loop {
+            if k >= limit {
+                return;
+            }
+            match self.b[k] {
+                b'<' => depth += 1,
+                b'>' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break k;
+                    }
+                }
+                c if is_word(c) || matches!(c, b' ' | b',' | b'.' | b'?' | b'[' | b']' | b'|') => {}
+                _ => return,
+            }
+            k += 1;
+        };
+        while self.pos <= close {
+            let c = self.b[self.pos];
+            if is_word_start(c) {
+                self.emit(word_end(self.b, self.pos, close), Class::Type);
+            } else if c == b' ' {
+                self.pos = self.blanks(self.pos);
+                self.out.space(self.pos);
+            } else {
+                self.emit(self.pos + 1, if matches!(c, b'<' | b'>') { Class::Operator } else { Class::Punctuation });
+            }
+        }
     }
 
     /// Where the tag's or the attribute's name at `at` ends: `div`, `Menu.Item`, `aria-label`.
@@ -1066,6 +1246,8 @@ const BASE: Spec = Spec {
     capital_constants: true,
     capital_methods: false,
     closures: false,
+    conditions: &[],
+    bracket_attributes: false,
     regex: false,
     jsx: false,
     lifetimes: false,
@@ -1125,6 +1307,7 @@ pub(crate) static CSHARP: Spec = Spec {
     hash: Hash::Directive,
     at: At::Name,
     capital_methods: true,
+    bracket_attributes: true,
     ..BASE
 };
 
@@ -1165,6 +1348,8 @@ pub(crate) static SWIFT: Spec = Spec {
     hash: Hash::Meta,
     at: At::Attribute,
     dollar: true,
+    closures: true,
+    conditions: SWIFT_CONDITIONS,
     ..BASE
 };
 
@@ -1721,6 +1906,7 @@ const SWIFT_BUILTINS: &[&str] = &["self", "super"];
 const SWIFT_FUNCTIONS: &[&str] = &["func"];
 const SWIFT_DECLARES: &[&str] =
     &["actor", "associatedtype", "class", "enum", "extension", "protocol", "struct", "typealias"];
+const SWIFT_CONDITIONS: &[&str] = &["catch", "for", "guard", "if", "switch", "while"];
 const GO_KEYWORDS: &[&str] = &[
     "break",
     "case",
@@ -2125,19 +2311,19 @@ mod tests {
     fn every_table_is_sorted() {
         for spec in specs() {
             let tables = [spec.keywords, spec.types, spec.constants, spec.builtins].into_iter().flatten().copied();
-            for table in tables.chain([spec.functions, spec.declares, spec.dotted]) {
+            for table in tables.chain([spec.functions, spec.declares, spec.dotted, spec.conditions]) {
                 assert!(table.windows(2).all(|w| w[0] < w[1]), "not sorted: {table:?}");
                 assert!(table.iter().all(|w| w.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_')), "{table:?}");
             }
         }
     }
 
-    /// A word that declares a function or a type, or stays a keyword after a `.`, is a keyword,
-    /// or an `@` makes it one.
+    /// A word that declares a function or a type, stays a keyword after a `.`, or begins a
+    /// condition is a keyword, or an `@` makes it one.
     #[test]
     fn what_declares_is_a_keyword() {
         for spec in specs() {
-            for word in spec.functions.iter().chain(spec.declares).chain(spec.dotted) {
+            for word in spec.functions.iter().chain(spec.declares).chain(spec.dotted).chain(spec.conditions) {
                 assert!(found(spec.keywords, word) || spec.at == At::Keyword, "{word} is no keyword");
             }
         }

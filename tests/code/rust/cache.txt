@@ -45,6 +45,8 @@ async fn warm(cache: &mut Cache<'static, u64>) -> usize {
     let newline = '\n';
     let total: u64 = (1..=10).map(|n| n * 0x10 + 1_000).sum();
     println!("{raw} {} {:?} {c}{newline}", total, bytes);
+    let words = "a b".split(' ').collect::<Vec<&str>>();
+    let second = ((1, 2), 3).0.1 + words.len();
     'outer: for i in 0..3 {
         if i == 2 { break 'outer; }
     }

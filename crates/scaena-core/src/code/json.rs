@@ -3,7 +3,7 @@
 //! - A string, in either quote, is a **property** where a `:` follows it, else a **string**.
 //!   So is a bare word, as JSON5 writes its keys.
 //! - `true`, `false`, and `null` are **constants**; `Infinity` and `NaN` are **numbers**, as is
-//!   any number JSON5 writes (`0x1F`, `.5`, `+1`, `-Infinity`).
+//!   any number JSON5 writes (`0x1F`, `.5`, `5.`, `+1`, `-Infinity`).
 //! - `//` and `/* */` are **comments**, and brackets, commas, and colons **punctuation**.
 
 use super::Class;
@@ -31,12 +31,12 @@ pub(super) fn scan(text: &str, out: &mut Spans) {
                 (to, if keyed(b, to) { Class::Property } else { Class::String })
             }
             b'{' | b'}' | b'[' | b']' | b',' | b':' => (pos + 1, Class::Punctuation),
-            b'-' | b'+' if next.is_ascii_digit() || next == b'.' => (number_end(b, pos + 1, end, false), Class::Number),
+            b'-' | b'+' if next.is_ascii_digit() || next == b'.' => (number(b, pos + 1, end), Class::Number),
             b'-' | b'+' if matches!(&b[pos + 1..word(b, pos + 1)], b"Infinity" | b"NaN") => {
                 (word(b, pos + 1), Class::Number)
             }
-            b'0'..=b'9' => (number_end(b, pos, end, false), Class::Number),
-            b'.' if next.is_ascii_digit() => (number_end(b, pos, end, false), Class::Number),
+            b'0'..=b'9' => (number(b, pos, end), Class::Number),
+            b'.' if next.is_ascii_digit() => (number(b, pos, end), Class::Number),
             _ if is_word_start(c) || c == b'$' => {
                 let to = word(b, pos);
                 let class = match &b[pos..to] {
@@ -52,6 +52,12 @@ pub(super) fn scan(text: &str, out: &mut Spans) {
         out.push(to, class);
         pos = to;
     }
+}
+
+/// Where the number at `at` ends, with the point JSON5 lets one end with: `5.`.
+fn number(b: &[u8], at: usize, end: usize) -> usize {
+    let to = number_end(b, at, end, false);
+    if b.get(to) == Some(&b'.') && b.get(to + 1) != Some(&b'.') && !b[at..to].contains(&b'.') { to + 1 } else { to }
 }
 
 /// Where the word at `at` ends: JSON5's keys may hold `$`.

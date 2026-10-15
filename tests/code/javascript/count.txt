@@ -16,6 +16,7 @@ export async function count(path, { limit = MAX_WORDS } = {}) {
 
 class Counter {
   #seen = new Map();
+  #turns = 0;
 
   add(word) {
     this.#seen.set(word, (this.#seen.get(word) || 0) + 1);
@@ -24,6 +25,10 @@ class Counter {
 
   top() {
     return [...this.#seen].sort((a, b) => b[1] - a[1])[0];
+  }
+
+  half() {
+    return this.#turns++ / 2;
   }
 }
 
