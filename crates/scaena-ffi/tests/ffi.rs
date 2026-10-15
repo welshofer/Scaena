@@ -1012,6 +1012,20 @@ fn the_clipboard_copies_and_pastes_as_the_browsers_does() {
     let words = call(s, "pasting", json!({ "text": "Words from elsewhere", "state": "goal", "x": 100, "y": 100 }));
     assert_eq!(words["patch"][0]["node"]["type"], "text", "{words}");
 
+    // Code, as the browser pastes it (PLAN 2.133): the HTML's class names its language, it is
+    // tidied, and Copy Code gives its words back; Paste as Text pastes it as words.
+    let rust = "\tfn main() {\r\n\t    let total = 42;\r\n\t}\r\n";
+    let html = r#"<pre class="language-rust"><code>fn main() {</code></pre>"#;
+    let code = call(s, "pasting", json!({ "text": rust, "state": "goal", "x": 960, "y": 540, "hints": { "html": html } }));
+    assert_eq!(code["patch"][0]["node"]["code"], json!({ "language": "rust" }), "{code}");
+    assert_eq!(code["patch"][0]["node"]["text"], "fn main() {\n    let total = 42;\n}", "{code}");
+    assert_eq!(tool(s, "deck_patch", json!({ "ops": code["patch"] }))["edited"], true);
+    let id = code["id"].as_str().unwrap();
+    assert_eq!(call(s, "codeWords", json!({ "state": "goal", "node": id })), "fn main() {\n    let total = 42;\n}");
+    assert_eq!(call(s, "tidied", json!({ "text": "\t\tx = 1\n\t\ty = 2\n", "language": "python" })), "x = 1\ny = 2");
+    let plain = call(s, "pasting", json!({ "text": rust, "state": "goal", "x": 100, "y": 100, "hints": { "plain": true } }));
+    assert!(plain["patch"][0]["node"].get("code").is_none(), "{plain}");
+
     // ⌥⌘C on the title, ⌥⌘V on the subtitle: one patch of `choose`s.
     let look = call(s, "look", json!({ "state": "cover", "node": "title" }));
     let put = call(s, "putting", json!({ "state": "cover", "look": look, "nodes": ["subtitle"] }));

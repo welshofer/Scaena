@@ -66,13 +66,13 @@ import AppKit
     let editor = DeckEditor(session: try ScaenaSession(directory: b1))
     editor.shown = "goal"
     let session = editor.session
-    let block = "fn main() {\n    \n}"
+    let block = "fn main() {\n    run();\n}"
     let pasted = try session.pasting(block, state: "goal", at: CGPoint(x: 960, y: 540), hints: PasteHints(file: "main.rs"))
     try editor.make(pasted.patch)
     let typing = Typing(editor: editor)
     #expect(typing.enter(pasted.id, in: "goal", at: nil))
-    // After the four spaces of the middle line.
-    typing.select(NSRange(location: 16, length: 0))
+    // The middle line's words, after its four spaces.
+    typing.select(NSRange(location: 16, length: 6))
     typing.paste("\t\tlet a = 1;\n\t\tlet b = 2;\n")
     #expect(typing.carets?.text == "fn main() {\n    let a = 1;\n    let b = 2;\n}")
 }
