@@ -208,6 +208,57 @@ impl Theme {
         scaena_core::color::parse(literal).map_err(|e| EngineError::Theme(format!("color `{name}`: {e}")))
     }
 
+    /// How a code text set in `text` draws each class of its tokens on `ground` (ADR-0029, PLAN
+    /// 2.132), by `Class as usize`, plain first. A kind's color is the one the theme's `code.syntax`
+    /// names, else the one `palette::syntax` derives from its accent; plain words take the text's
+    /// own. Every color is held to read on `ground` by the least step of lightness: at 4.5:1, and
+    /// a keyword at 7:1 where the ground allows. A kind's weight and italic are the theme's, else
+    /// the text's, but for a keyword, at 600 at least, and a comment, in italic; italic only where
+    /// the family has an italic face. A color with alpha is taken as it lies on `ground`.
+    pub fn code_looks(&self, ground: [u8; 3], text: &TextRole) -> Result<crate::code::Looks, EngineError> {
+        use crate::code::TokenLook;
+        use scaena_core::code::Class;
+        use scaena_core::palette;
+        let on = |c: Color| -> [u8; 3] {
+            let [r, g, b, a] = c.0.map(u32::from);
+            let mix = |c: u32, g: u8| ((c * a + u32::from(g) * (255 - a) + 127) / 255) as u8;
+            [mix(r, ground[0]), mix(g, ground[1]), mix(b, ground[2])]
+        };
+        let own = on(self.color(text.color.as_deref().unwrap_or("onSurface"))?);
+        let accent = self.color("accent").map_or(own, on);
+        let second = self.color("accent-2").ok().map(on);
+        let muted = self.color("onSurfaceMuted").map_or(own, on);
+        let derived = palette::syntax(ground, own, accent, second, muted);
+        let syntax = self.code.as_ref().and_then(|c| c.syntax.as_ref());
+        let face = self.has_italic(&text.family);
+        let opaque = |[r, g, b]: [u8; 3]| [r, g, b, 255];
+        let plain = TokenLook {
+            color: opaque(palette::held(own, ground, palette::READS)),
+            weight: text.weight,
+            italic: text.italic && face,
+        };
+        let mut looks = [plain; 17];
+        for (i, class) in Class::KINDS.into_iter().enumerate() {
+            let named = syntax.and_then(|s| s.of(class));
+            let color = match named.and_then(|l| l.color.as_deref()) {
+                Some(name) if class == Class::Keyword => palette::held_strong(on(self.color(name)?), ground),
+                Some(name) => palette::held(on(self.color(name)?), ground, palette::READS),
+                None => derived[i],
+            };
+            let weight = match class {
+                Class::Keyword => text.weight.max(600.0),
+                _ => text.weight,
+            };
+            let italic = named.and_then(|l| l.italic).unwrap_or(class == Class::Comment || text.italic);
+            looks[class as usize] = TokenLook {
+                color: opaque(color),
+                weight: named.and_then(|l| l.weight).map_or(weight, f32::from),
+                italic: italic && face,
+            };
+        }
+        Ok(looks)
+    }
+
     /// A typographic role, as text is set in it.
     pub fn text_role(&self, name: &str) -> Result<TextRole, EngineError> {
         let role =
