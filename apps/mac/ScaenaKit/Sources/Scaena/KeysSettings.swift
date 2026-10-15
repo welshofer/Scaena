@@ -400,8 +400,8 @@ extension Provider {
     fileprivate var family: String {
         switch self {
         case .anthropic: "Claude"
-        case .openai: "GPT, and pictures"
-        case .gemini: "Gemini, and pictures"
+        case .openai: "GPT and pictures"
+        case .gemini: "Gemini and pictures"
         }
     }
 
