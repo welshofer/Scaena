@@ -107,15 +107,15 @@ struct HandleMarks: View {
                     path.move(to: view(turn.top))
                     path.addLine(to: view(turn.at))
                 }
-                .stroke(Color.accentColor, lineWidth: 1)
+                .stroke(Marks.color, lineWidth: 1)
                 dot(turn.at, radius: 5, fill: .white)
             }
             if let outline, ["line", "arrow", "polygon"].contains(outline.kind) {
                 ForEach(outline.middles.indices, id: \.self) { i in
-                    dot(outline.middles[i], radius: 3.5, fill: Color.accentColor.opacity(0.35))
+                    dot(outline.middles[i], radius: 3.5, fill: Marks.color.opacity(0.35))
                 }
                 ForEach(outline.drawn.indices, id: \.self) { i in
-                    dot(outline.drawn[i], radius: 5, fill: i == picked ? Color.accentColor : .white)
+                    dot(outline.drawn[i], radius: 5, fill: i == picked ? Marks.color : .white)
                 }
             }
             if let outline, outline.kind == "rect", !outline.radii.isEmpty {
@@ -135,7 +135,7 @@ struct HandleMarks: View {
     private func dot(_ at: CGPoint, radius: CGFloat, fill: Color) -> some View {
         Circle()
             .fill(fill)
-            .overlay(Circle().stroke(Color.accentColor, lineWidth: 1))
+            .overlay(Circle().stroke(Marks.color, lineWidth: 1))
             .frame(width: radius * 2, height: radius * 2)
             .position(view(at))
     }
@@ -145,7 +145,7 @@ struct HandleMarks: View {
         let along = side == .top || side == .bottom
         return RoundedRectangle(cornerRadius: 1.5)
             .fill(Color.white)
-            .overlay(RoundedRectangle(cornerRadius: 1.5).stroke(Color.accentColor, lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: 1.5).stroke(Marks.color, lineWidth: 1))
             .frame(width: along ? 16 : 5, height: along ? 5 : 16)
             .rotationEffect(.radians(angle(framing.transform)))
             .position(view(framing.handle(side, inset: HandleSpacing.inset * fit.units)))
@@ -161,9 +161,9 @@ struct HandleMarks: View {
                 path.move(to: CGPoint(x: p.x, y: p.y - 10))
                 path.addLine(to: CGPoint(x: p.x, y: p.y + 10))
             }
-            .stroke(Color.accentColor, lineWidth: 1)
+            .stroke(Marks.color, lineWidth: 1)
             Circle()
-                .stroke(Color.accentColor, lineWidth: 1.5)
+                .stroke(Marks.color, lineWidth: 1.5)
                 .frame(width: 12, height: 12)
                 .position(p)
         }
@@ -210,13 +210,13 @@ struct HandleHolding: View {
             let (dx, dy) = (Double(p.x) - px, Double(p.y) - py)
             return CGPoint(x: px + dx * c - dy * s, y: py + dx * s + dy * c)
         }
-        return joined(corners, closed: true).stroke(Color.accentColor, style: Self.dashed)
+        return joined(corners, closed: true).stroke(Marks.color, style: Self.dashed)
     }
 
     /// The points as the drag leaves them, joined: a polygon's closed.
     private func reshaped(_ outline: Outline) -> some View {
         joined(holding.points.map { outline.onCanvas($0) }, closed: outline.kind == "polygon")
-            .stroke(Color.accentColor, style: Self.dashed)
+            .stroke(Marks.color, style: Self.dashed)
     }
 
     /// The rect rounded to the step the corner is dragged to.
@@ -224,7 +224,7 @@ struct HandleHolding: View {
         let radius = outline.radii.indices.contains(step) ? outline.radii[step] : 0
         return Path(roundedRect: outline.rect, cornerRadius: CGFloat(radius))
             .applying(map(outline.transform).concatenating(fit.transform))
-            .stroke(Color.accentColor, style: Self.dashed)
+            .stroke(Marks.color, style: Self.dashed)
     }
 
     /// The whole image outlined, what the crop cuts away shaded, the part it keeps, and the focal
@@ -242,9 +242,9 @@ struct HandleHolding: View {
             .fill(Color.black.opacity(0.35), style: FillStyle(eoFill: true))
             Path(framing.whole).applying(m)
                 .stroke(Color.white.opacity(0.8), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-            Path(kept).applying(m).stroke(Color.accentColor, lineWidth: 1.5)
+            Path(kept).applying(m).stroke(Marks.color, lineWidth: 1.5)
             Circle()
-                .stroke(Color.accentColor, lineWidth: 1.5)
+                .stroke(Marks.color, lineWidth: 1.5)
                 .frame(width: 12, height: 12)
                 .position(fit.view(focal))
         }
@@ -300,7 +300,7 @@ struct WaitingOverlay: View {
 
     private func outline(_ slot: WaitingSlot, fit: Fit) -> some View {
         let r = slot.rect.applying(fit.transform)
-        let tint = Color.accentColor
+        let tint = Marks.color
         return RoundedRectangle(cornerRadius: 4)
             .fill(tint.opacity(0.05))
             .overlay {
@@ -317,45 +317,23 @@ struct WaitingOverlay: View {
 /// words selected, or a picture asked for and put there.
 struct WaitingButton: View {
     let slot: WaitingSlot
-    /// How wide and how tall the slot is drawn, points: the words wrap to a second line within it,
-    /// a short slot keeps them to a line, smaller, and a slot too narrow for any shows the icon
-    /// alone, as small as the slot is short, its words in its help.
+    /// How wide and how tall the slot is drawn, points. Its words stand whole inside it, the first
+    /// way that fits: beside the icon on a line or two; else under it, on as many lines as the slot
+    /// is tall enough for (`WaitingSlot.lines`); else, on the iPad, the same a size smaller; else
+    /// the icon alone, as small as the slot is short, the words its help. A short slot's pill is
+    /// smaller. No word is cut, and none is set smaller than a person reads on the platform.
     let width: CGFloat
     let height: CGFloat
     let fill: () -> Void
 
     var body: some View {
-        let icon = slot.typed ? "text.cursor" : "photo.badge.plus"
         let short = height < 44
-        // A short slot's words smaller and on one line, and its icon smaller, inside its outline.
-        let iconFont: Font = short ? .caption : .body
-        let iconPadding: CGFloat = short ? 4 : 7
-        let wordsFont: Font = short ? .caption2 : .caption
-        let lines: Int = short ? 1 : 2
-        let across: CGFloat = short ? 6 : 8
-        let down: CGFloat = short ? 2 : 4
-        let corner: CGFloat = short ? 6 : 8
         Button(action: fill) {
-            if width < 90 {
-                Image(systemName: icon)
-                    .font(iconFont)
-                    .padding(iconPadding)
-                    .background(.thinMaterial, in: Circle())
-                    .foregroundStyle(.secondary)
-                    .contentShape(Circle())
-            } else {
-                let shape = RoundedRectangle(cornerRadius: corner, style: .continuous)
-                Label(slot.words, systemImage: icon)
-                    .font(wordsFont)
-                    .lineLimit(lines)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, across)
-                    .padding(.vertical, down)
-                    .background(.thinMaterial, in: shape)
-                    .foregroundStyle(.secondary)
-                    .contentShape(shape)
-                    .frame(maxWidth: width - 16)
-                    .fixedSize(horizontal: false, vertical: true)
+            ViewThatFits {
+                ForEach(ways, id: \.self) { way in
+                    pill(way, short: short)
+                }
+                alone(short: short)
             }
         }
         .buttonStyle(.plain)
@@ -363,7 +341,95 @@ struct WaitingButton: View {
         .accessibilityLabel(slot.words)
         .accessibilityHint(slot.typed ? "Puts words here to type over" : "Chooses a picture to put here")
         .accessibilityIdentifier("waiting-\(slot.slot)")
+        // The room inside the slot's outline, which the way the words stand is chosen to fit.
+        .frame(width: max(width - 16, 0), height: max(height - 8, 0))
     }
+
+    private var symbol: String { slot.typed ? "text.cursor" : "photo.badge.plus" }
+
+    /// The ways the words may stand, in the order they are tried: beside the icon on a line, then
+    /// on two; under it on a line, two, and so on to the narrowest; then, where there is a size
+    /// smaller to set them in, each in it.
+    private var ways: [WaitingWay] {
+        let lines = slot.lines
+        var ways: [WaitingWay] = []
+        for smaller in Self.sizes {
+            for way in lines where way.count <= 2 {
+                ways.append(WaitingWay(lines: way, under: false, smaller: smaller))
+            }
+            for way in lines {
+                ways.append(WaitingWay(lines: way, under: true, smaller: smaller))
+            }
+        }
+        return ways
+    }
+
+    /// The words on `way`'s lines, centered, the icon beside or above them, on a pill as large as
+    /// they are: a way too large for the slot is passed over, never cut.
+    private func pill(_ way: WaitingWay, short: Bool) -> some View {
+        let shape = RoundedRectangle(cornerRadius: short ? 6 : 8, style: .continuous)
+        let font: Font = way.smaller ? Self.smaller : (short ? .caption2 : .caption)
+        let across: CGFloat = short ? 6 : 8
+        let down: CGFloat = short ? 2 : 4
+        let words = Text(way.lines.joined(separator: "\n")).multilineTextAlignment(.center)
+        return Group {
+            if way.under {
+                VStack(spacing: 3) {
+                    Image(systemName: symbol)
+                    words
+                }
+            } else {
+                Label {
+                    words
+                } icon: {
+                    Image(systemName: symbol)
+                }
+            }
+        }
+        .font(font)
+        .padding(.horizontal, across)
+        .padding(.vertical, down)
+        .background(.thinMaterial, in: shape)
+        .foregroundStyle(.secondary)
+        .contentShape(shape)
+        .fixedSize()
+    }
+
+    /// The icon alone, where the words fit the slot no way: they are its help.
+    private func alone(short: Bool) -> some View {
+        let font: Font = short ? .caption : .body
+        let padding: CGFloat = short ? 4 : 7
+        return Image(systemName: symbol)
+            .font(font)
+            .padding(padding)
+            .background(.thinMaterial, in: Circle())
+            .foregroundStyle(.secondary)
+            .contentShape(Circle())
+    }
+
+    /// The sizes the words are tried in, as whether each is the smaller: their own, then on the
+    /// iPad the caption's second size, 11 points. The Mac's caption, 10 points, is the least it
+    /// sets words in to be read (Apple's guidelines): there, a slot too small for them shows the
+    /// icon alone.
+    private static var sizes: [Bool] {
+        #if os(macOS)
+        return [false]
+        #else
+        return [false, true]
+        #endif
+    }
+
+    /// A size smaller than the words' own, for a slot too small for them in it: the caption's
+    /// second size, which the iPad reads at 11 points.
+    private static var smaller: Font { .caption2 }
+}
+
+/// One way an empty slot's words may stand in it: on these lines, beside the icon or under it, in
+/// the words' size or a size smaller.
+private struct WaitingWay: Hashable {
+    let lines: [String]
+    let under: Bool
+    let smaller: Bool
 }
 
 /// The safe area over the canvas (PLAN 3.29, as the browser's): a strip 3/8 inch deep around the

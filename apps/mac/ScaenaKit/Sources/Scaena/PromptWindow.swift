@@ -226,8 +226,9 @@ struct PromptView: View {
                         ForEach(choices?.goals ?? [], id: \.self) { Text($0).tag($0) }
                     }
                     Picker("Length", selection: $length) {
-                        ForEach(choices?.lengths ?? [], id: \.self) { Text($0).tag($0) }
+                        ForEach(choices?.lengths ?? [], id: \.self) { Text(Self.said(length: $0)).tag($0) }
                     }
+                    .accessibilityIdentifier("prompt-length")
                     Picker("Theme", selection: $theme) {
                         Text("Dusk").tag("dusk")
                         Text("Daybreak").tag("daybreak")
@@ -288,8 +289,12 @@ struct PromptView: View {
                     Button("Add Files…") { importing = true }
                         .buttonStyle(.borderless)
                     HStack {
-                        TextField("Link", text: $link, prompt: Text("sec:TICKER, github:owner/repo, or a web address"))
+                        // What a link may be, in a person's words, with how a company's filings are
+                        // asked for (`scaena_sources::fetch::remote` reads each).
+                        TextField(
+                            "Link", text: $link, prompt: Text("A web address, or a company’s filings, as sec:AAPL"))
                             .onSubmit(addLink)
+                            .accessibilityIdentifier("prompt-link")
                         Button("Add Link", action: addLink)
                             .buttonStyle(.borderless)
                             .disabled(link.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -456,6 +461,12 @@ struct PromptView: View {
         return "Made by \(made.name)’s best image model your key lists, two in five slides, ten at most. Your key goes to \(made.name) alone."
     }
 
+    /// A length as the brief shows it, its range with an en dash: `5–10 slides`. What is chosen
+    /// stays Narrato's own words, `5-10 slides`, which its prompts carry byte for byte (ADR-0026).
+    private static func said(length: String) -> String {
+        length.replacingOccurrences(of: "-", with: "\u{2013}")
+    }
+
     /// `name` after its article: "an Anthropic", "an OpenAI", "a Gemini".
     private func article(_ name: String) -> String {
         "AEIOU".contains(name.first ?? "x") ? "an \(name)" : "a \(name)"
@@ -475,18 +486,21 @@ struct PromptView: View {
         kept = Set(Provider.allCases.filter { keychain.key(for: $0) != nil })
     }
 
-    /// The models the provider's key can use, the one kept chosen, else the first.
+    /// The models the provider's key can use, the one kept chosen, else the first; where it lists
+    /// none, why, in a person's words (PLAN 3.18), as the assistant's panel says it.
     private func list() async {
         models = []
         listing = nil
         guard let key = keychain.key(for: provider) else { return }
-        do {
-            let request = try provider.modelsRequest(key: key).urlRequest()
-            let (data, status) = try await Assistant.urlSession(request)
-            models = try provider.models(status: status, body: String(decoding: data, as: UTF8.self))
+        let listed = await KeyCheck.models(key, for: provider)
+        // Another provider chosen, or a key kept, since: the listing that follows says.
+        guard !Task.isCancelled else { return }
+        switch listed {
+        case .listed(let names):
+            models = names
             if !models.contains(model.wrappedValue), let first = models.first { model.wrappedValue = first }
-        } catch {
-            listing = "\(provider.name) listed no models: \(error.localizedDescription)"
+        case .unlisted(let why):
+            listing = why
         }
     }
 

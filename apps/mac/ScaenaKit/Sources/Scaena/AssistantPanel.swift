@@ -73,17 +73,34 @@ struct AssistantPanel: View {
             // A model to choose once a key is kept: with none, there is none to choose, and the
             // panel offers to add one. Its name on one line, as the provider's is.
             if !keyless {
-                Picker("Model", selection: model) {
-                    if !models.contains(model.wrappedValue) {
-                        Text(model.wrappedValue.isEmpty ? "Choose a model" : model.wrappedValue).tag(model.wrappedValue)
-                    }
-                    ForEach(models, id: \.self) { name in
-                        Text(name).tag(name)
+                #if os(macOS)
+                Picker("Model", selection: model) { modelChoices }
+                    .labelsHidden()
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .accessibilityIdentifier("assistant-model")
+                #else
+                // A menu picker's name is drawn by UIKit, which no line limit reaches: in the
+                // panel's column it wrapped. A menu's label is SwiftUI's own, held to one line,
+                // and given the room it needs before the space beside it.
+                Menu {
+                    Picker("Model", selection: model) { modelChoices }
+                        .pickerStyle(.inline)
+                        .labelsHidden()
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(modelName)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .imageScale(.small)
                     }
                 }
-                .labelsHidden()
-                .lineLimit(1)
-                .truncationMode(.middle)
+                .layoutPriority(1)
+                .accessibilityLabel("Model")
+                .accessibilityValue(modelName)
+                .accessibilityIdentifier("assistant-model")
+                #endif
             }
             Spacer(minLength: 0)
             Menu {
@@ -99,6 +116,21 @@ struct AssistantPanel: View {
             .accessibilityIdentifier("assistant-options")
         }
         .padding(8)
+    }
+
+    /// The model chosen, by its name, or that one is to be chosen.
+    private var modelName: String {
+        model.wrappedValue.isEmpty ? "Choose a model" : model.wrappedValue
+    }
+
+    /// The models to choose from: the one chosen first, where the key does not list it.
+    @ViewBuilder private var modelChoices: some View {
+        if !models.contains(model.wrappedValue) {
+            Text(modelName).tag(model.wrappedValue)
+        }
+        ForEach(models, id: \.self) { name in
+            Text(name).tag(name)
+        }
     }
 
     /// Each question, what the model said, and each call it made.
@@ -195,7 +227,8 @@ struct AssistantPanel: View {
         #endif
     }
 
-    /// The models the provider's key can use.
+    /// The models the provider's key can use; where it lists none, why, in a person's words
+    /// (PLAN 3.18), the provider stood in for in the UI tests (`KeyCheck.models`).
     private func list() async {
         models = []
         guard let key = keychain.key(for: provider) else {
@@ -205,13 +238,15 @@ struct AssistantPanel: View {
         }
         keyless = false
         listing = nil
-        do {
-            let request = try provider.modelsRequest(key: key).urlRequest()
-            let (data, status) = try await Assistant.urlSession(request)
-            models = try provider.models(status: status, body: String(decoding: data, as: UTF8.self))
-            if model.wrappedValue.isEmpty, let first = models.first { model.wrappedValue = first }
-        } catch {
-            listing = "\(provider.name) listed no models: \(error)"
+        let listed = await KeyCheck.models(key, for: provider)
+        // Another provider chosen, or the keys closed, since: the listing that follows says.
+        guard !Task.isCancelled else { return }
+        switch listed {
+        case .listed(let names):
+            models = names
+            if model.wrappedValue.isEmpty, let first = names.first { model.wrappedValue = first }
+        case .unlisted(let why):
+            listing = why
         }
     }
 }

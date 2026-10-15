@@ -125,6 +125,20 @@ extension Color {
     }
 }
 
+/// What the canvas draws over a slide in, its outlines, handles, and caret: the accent the person
+/// chose on the Mac; on the iPad the system's blue, which shows on a dark slide as on a light one.
+/// The iPad app's own accent is a deep shade of the Dusk accent, which the launch screen's words
+/// read on (apps/ipad/Assets.xcassets).
+enum Marks {
+    static var color: Color {
+        #if os(macOS)
+        Color.accentColor
+        #else
+        Color.blue
+        #endif
+    }
+}
+
 /// The gray a slide sits on, as a presentation app's canvas does (PLAN 3.18): the Mac's under-page
 /// gray, the iPad's grouped background.
 enum Desk {

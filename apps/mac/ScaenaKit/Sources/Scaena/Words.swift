@@ -75,8 +75,9 @@ enum Words {
         weights.first { $0.value == value }?.name ?? "\(value)"
     }
 
-    /// One of the words a property takes, said: `cover` as an image's Fill.
-    static func word(_ word: String, of prop: String, type: String?) -> String {
+    /// One of the words a property takes, said: `cover` as an image's Fill; a data source, which the
+    /// deck writes `@name`, by the file `sources` say it is in.
+    static func word(_ word: String, of prop: String, type: String?, sources: [DataSource] = []) -> String {
         switch (prop, word) {
         case ("fit", "cover"): return "Fill"
         case ("mask", "ellipse"): return "Oval"
@@ -133,10 +134,25 @@ enum Words {
         case (_, "nominal"): return "Names"
         case (_, "temporal"): return "Dates"
         default:
-            // A data source by its name, without the `@` the deck writes it with.
-            if word.hasPrefix("@") { return String(word.dropFirst()) }
+            if word.hasPrefix("@") {
+                let name = String(word.dropFirst())
+                return source(name, file: sources.first(where: { $0.name == name })?.file)
+            }
             return phrase(word)
         }
+    }
+
+    /// Data source `name` as a person names it (PLAN 3.18), never by the id the deck writes it with:
+    /// by the name of its `file` in words, `data/trails-funding.csv` as Trails Funding; rows written
+    /// in the deck, by its own name in words. The browser says it so (`scaena_core::words::source`).
+    static func source(_ name: String, file: String?) -> String {
+        if let file {
+            let leaf = file.split(separator: "/", omittingEmptySubsequences: false).last.map(String.init) ?? file
+            let stem = leaf.lastIndex(of: ".").map { String(leaf[..<$0]) } ?? leaf
+            let said = phrase(stem)
+            if !said.isEmpty { return said }
+        }
+        return phrase(name)
     }
 
     /// One of the theme's names of a kind (`of`), said: a color by what it is for, a font by its

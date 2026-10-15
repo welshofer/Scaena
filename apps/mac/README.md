@@ -16,7 +16,7 @@ CI's macOS runner does the same on every pull request ready for review that touc
 
 ## The app
 
-`just mac` builds `Scaena.app` (`apps/mac/build-app.sh`) and opens it: New starts a deck from Dusk, and Open takes a `.scaena` bundle or zip, such as `tests/bench/b1.scaena`. Without Rust on the Mac, run the `mac-app` workflow (Actions → mac-app → Run workflow), or open a pull request that changes how the app is made, and download the run's `Scaena.app` artifact; macOS asks once whether to open an app signed ad hoc (right-click → Open).
+`just mac` builds `Scaena.app` (`apps/mac/build-app.sh`) and opens it: New starts a deck from Dusk, and Open takes a `.scaena` bundle or zip, such as `tests/bench/b1.scaena`. Its icon, a stage under a spotlight in Dusk's colors, is drawn by `scripts/build_app_icon.py`, with the iPad's and the remote's; `build-app.sh` makes the `.icns` of its sizes with iconutil, and a deck shows the system's folded page with the icon on it. Without Rust on the Mac, run the `mac-app` workflow (Actions → mac-app → Run workflow), or open a pull request that changes how the app is made, and download the run's `Scaena.app` artifact; macOS asks once whether to open an app signed ad hoc (right-click → Open).
 
 The window (PLAN 3.4): the states down the side, each drawn small; the state chosen on the canvas, a click selecting what draws there; its cue under it, to play and scrub; the findings lint makes, each with its fix; the deck's `.scn` beside the canvas (the Source toggle); and the inspector, which edits the node selected, or the state with none. Every edit is one step to undo, and what a save writes is the deck the source compiles to.
 

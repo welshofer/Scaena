@@ -150,8 +150,9 @@ pub const WORDS: &[(&str, &str, &str)] = &[
 pub const ANY_WORDS: &[(&str, &str)] =
     &[("quantitative", "Numbers"), ("ordinal", "In Order"), ("nominal", "Names"), ("temporal", "Dates")];
 
-/// One of the words `prop` takes, said: from [`WORDS`] and [`ANY_WORDS`]; a data source by its
-/// name, without the `@` the deck writes it with; else the word as words.
+/// One of the words `prop` takes, said: from [`WORDS`] and [`ANY_WORDS`]; a data source, which
+/// the deck writes `@name`, as [`source`] names it where its file is not known; else the word as
+/// words.
 pub fn word(prop: &str, word: &str) -> String {
     if let Some((_, _, said)) = WORDS.iter().find(|(p, w, _)| *p == prop && *w == word) {
         return said.to_string();
@@ -160,9 +161,20 @@ pub fn word(prop: &str, word: &str) -> String {
         return said.to_string();
     }
     match word.strip_prefix('@') {
-        Some(source) => source.to_string(),
+        Some(name) => source(name, None),
         None => phrase(word),
     }
+}
+
+/// Data source `name` as a person names it (PLAN 3.18), never by the id the deck writes it with:
+/// by the name of its `file` in words, `data/trails-funding.csv` as Trails Funding; rows written
+/// in the deck, by its own name in words.
+pub fn source(name: &str, file: Option<&str>) -> String {
+    let stem = file.map(|path| {
+        let leaf = path.rsplit('/').next().unwrap_or(path);
+        leaf.rsplit_once('.').map_or(leaf, |(stem, _)| stem)
+    });
+    stem.map(phrase).filter(|said| !said.is_empty()).unwrap_or_else(|| phrase(name))
 }
 
 /// A color role by what it is for.
@@ -840,6 +852,14 @@ pub fn choices(choices: &mut Choices, deck: &Deck, theme: &Theme) {
         if let Some(said) = channel(&f.prop, chart, horizontal) {
             words.label = said.to_string();
         }
+        // A chart's or a table's sources, each by the file the deck declares it in (PLAN 3.18).
+        if f.prop == "data" {
+            for (written, said) in &mut words.said {
+                if let Some(name) = written.strip_prefix('@') {
+                    *said = source(name, deck.data.get(name).and_then(|d| d.source.as_str()));
+                }
+            }
+        }
         f.words = Some(words);
     }
 }
@@ -1059,7 +1079,7 @@ mod tests {
         assert_eq!(label("labels/collide"), "Collide", "else its last key as words");
         assert_eq!(word("fit", "cover"), "Fill");
         assert_eq!(word("x/type", "temporal"), "Dates");
-        assert_eq!(word("data", "@q3"), "q3");
+        assert_eq!(word("data", "@q3"), "Q3", "a data source by its name in words, not its id");
         assert_eq!(word("semantic", "takeaway"), "Takeaway");
         assert_eq!(motion("enter", Some("words")), "Enters Word by Word");
         assert_eq!(motion("exit", None), "Leaves");
@@ -1173,6 +1193,23 @@ mod tests {
         let exit = c.fields.iter().find(|f| f.prop == "exit").unwrap().words.as_ref().unwrap();
         assert_eq!(exit.said["moveInLeft"], "Move Out to Left", "Build Out offers exits");
         assert_eq!(c.noun.as_deref(), Some("Chart"));
+    }
+
+    /// A data source is named as a person names it (PLAN 3.18), never by the id the deck writes it
+    /// with: by its file's name in words, else, its rows written in the deck, by its own.
+    #[test]
+    fn a_data_source_is_named_by_its_file() {
+        assert_eq!(source("funding", Some("data/trails-funding.csv")), "Trails Funding");
+        assert_eq!(source("q3", Some("data/q3-revenue.csv")), "Q3 Revenue");
+        assert_eq!(source("segments", None), "Segments", "rows written in the deck");
+        assert_eq!(source("odd", Some("data/.csv")), "Odd", "a file whose name says nothing");
+        let theme: Theme = serde_json::from_str(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();
+        let deck = Deck::from_json(include_str!("../../../docs/examples/revenue.deck.json")).unwrap();
+        let files = std::collections::BTreeMap::<String, Vec<u8>>::new();
+        let mut c = crate::choices::choices(&deck, &theme, "revenue", "rev", &files).unwrap();
+        choices(&mut c, &deck, &theme);
+        let data = c.fields.iter().find(|f| f.prop == "data").and_then(|f| f.words.as_ref()).unwrap();
+        assert_eq!(data.said["@q3"], "Q3 Revenue", "the chart's source, by its file");
     }
 
     /// A polygon of the shape library is named as Insert names it (PLAN 2.106), wherever an editor

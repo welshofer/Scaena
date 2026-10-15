@@ -132,6 +132,63 @@ fn the_mac_says_a_build_it_keeps_by_its_name() {
     }
 }
 
+/// A data source is named as a person names it (PLAN 3.18), not by the id the deck writes it with:
+/// by its file's name in words, else by its own. The Mac says it so through `Words.source`, with the
+/// deck's sources the inspector reads, as the session words the browser's.
+#[test]
+fn the_mac_names_a_data_source_as_the_browser_does() {
+    assert_eq!(words::source("funding", Some("data/trails-funding.csv")), "Trails Funding");
+    assert_eq!(words::source("segments", None), "Segments");
+    assert_eq!(words::word("data", "@funding"), "Funding");
+    let source = between(WORDS_SWIFT, "static func source(", "\n    }\n");
+    for step in [
+        r#"file.split(separator: "/", omittingEmptySubsequences: false).last"#,
+        r#"leaf.lastIndex(of: ".")"#,
+        "if !said.isEmpty { return said }",
+        "return phrase(name)",
+    ] {
+        assert!(source.contains(step), "{step}: {source}");
+    }
+    let word = between(WORDS_SWIFT, "static func word(", "\n    }\n");
+    assert!(word.contains("return source(name, file: sources.first(where: { $0.name == name })?.file)"), "{word}");
+    let row = between(INSPECTOR_SWIFT, "@ViewBuilder private func row(", "\n    }\n");
+    assert!(row.contains("Words.word(word, of: field.prop, type: choices?.type, sources: sources)"), "{row}");
+    assert!(INSPECTOR_SWIFT.contains("sources = (try? session.dataSources()) ?? []"));
+}
+
+/// A choice left unset where that leaves none is None, as a presentation app calls it, not Default
+/// (PLAN 3.18): a chart's source, each channel it reads a column by, a picture's mask, and a shadow.
+/// A key is not one: unset, it reads the chart's `x`.
+#[test]
+fn the_mac_calls_what_leaves_none_none() {
+    let quoted = Regex::new(r#""([^"]+)""#).unwrap();
+    let nothing: BTreeSet<String> = quoted
+        .captures_iter(between(INSPECTOR_SWIFT, "private static let nothing", "]\n"))
+        .map(|c| c[1].to_string())
+        .collect();
+    let pick = between(INSPECTOR_SWIFT, "private struct PickRow", "\n}\n");
+    assert!(pick.contains(r#"Text(shows?.title ?? (nothing ? "None" : "Default")).tag("")"#), "{pick}");
+    let theme =
+        scaena_core::model::Theme::from_json(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();
+    let csv = include_bytes!("../../../docs/examples/data/q3-revenue.csv").to_vec();
+    let files = std::collections::BTreeMap::from([("data/q3-revenue.csv".to_string(), csv)]);
+    let mut channels = BTreeSet::new();
+    for kind in ["bar", "range"] {
+        let mut doc: serde_json::Value =
+            serde_json::from_str(include_str!("../../../docs/examples/revenue.deck.json")).unwrap();
+        doc["nodes"]["rev"]["kind"] = serde_json::json!(kind);
+        let deck: scaena_core::Deck = serde_json::from_value(doc).unwrap();
+        let chart = scaena_core::choices::choices(&deck, &theme, "revenue", "rev", &files).unwrap();
+        let reads = chart.fields.iter().map(|f| f.prop.clone());
+        channels.extend(reads.filter(|p| p.ends_with("/field") || p.starts_with("interval/")));
+    }
+    assert!(channels.len() >= 8, "{channels:?}");
+    for prop in channels.iter().map(String::as_str).chain(["data", "mask", "shadow"]) {
+        assert!(nothing.contains(prop), "{prop} left unset is called Default: {nothing:?}");
+    }
+    assert!(!nothing.contains("key"), "a key left unset reads the chart's x");
+}
+
 #[test]
 fn the_mac_says_each_issue_and_its_fix_as_the_browser_does() {
     let said = Regex::new(r#"case ((?:"[EWI]\d+"(?:, )?)+): "([^"]+)""#).unwrap();

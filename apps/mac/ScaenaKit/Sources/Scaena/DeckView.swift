@@ -55,6 +55,9 @@ struct DeckView: View {
     /// The pen, taken up (PLAN 2.114): each drag on the slide draws a stroke, the strokes one
     /// drawing, until it is put down.
     @State private var pen: PenUp?
+    /// The revision of the canvas its surface painted last (`ScaenaView.onPainted`): until it has
+    /// painted the deck that holds a stroke of the pen let go, the canvas draws the stroke over it.
+    @State private var painted = Painted()
     /// What the on-device model is asked, shown in a sheet.
     @State private var asked: Asked?
     /// Where a picture made goes, while Make a Picture's sheet asks what it shows (PLAN 2.107),
@@ -169,18 +172,15 @@ struct DeckView: View {
     }
 
     /// The light table shown, or put away (PLAN 3.14). The canvas's selection is let go, so the
-    /// inspector shows the slide picked on the table, as a presentation app's does. On the Mac the
-    /// slides down the side fold away while it shows every slide, and come back after it, unless
-    /// they were folded away before. On the iPad they stay: folding them moved the toolbar's View,
-    /// Zoom, and Undo to its other end, and a presentation app's toolbar stays put.
+    /// inspector shows the slide picked on the table, as a presentation app's does. The slides down
+    /// the side fold away while it shows every slide, on the Mac and the iPad, and come back after
+    /// it, unless they were folded away before. The toolbar stays put as they fold: on the iPad its
+    /// View, Zoom, and Undo are the bar's leading items (`leading`), which stay at its leading end.
     private func tabled(_ shows: Bool) {
         if shows {
             if typing?.typing == true { typing?.leave() }
             node = nil
             also = []
-        }
-        #if os(macOS)
-        if shows {
             beforeTable = columns
             columns = .detailOnly
         } else if let before = beforeTable {
@@ -189,7 +189,6 @@ struct DeckView: View {
             columns = before == .detailOnly ? .detailOnly : .all
             beforeTable = nil
         }
-        #endif
     }
 
     /// The file at `url`, chosen, landed on the slide shown as a drop lands it.
@@ -221,8 +220,9 @@ struct DeckView: View {
                     .background(Color(nsColor: .windowBackgroundColor))
             }
         }
-        // The inspector's tabs stay in the toolbar as the window narrows, the rest overflowing first.
-        .background(ToolbarKeeps(ids: InspectorTab.allCases.map(\.rawValue), titles: InspectorTab.allCases.map(\.title)))
+        // The inspector's tabs stay in the toolbar as the window narrows, the rest overflowing
+        // first, and the tab shown last of all.
+        .background(ToolbarKeeps(shown: showsInspector ? tab : nil))
         #else
         // A column as wide as the Mac's, which no finger resizes: a slide zoomed past the desk
         // runs to the inspector's edge, and a pinch there would take the edge with it (PLAN 3.16).
@@ -335,7 +335,7 @@ struct DeckView: View {
     /// chart, or a table inserted; the deck shared, and the assistant; and the inspector's tabs.
     /// Every item is in the menus too, with its key there.
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .navigation) {
+        ToolbarItemGroup(placement: leading) {
             viewing
             zooming
             #if !os(macOS)
@@ -357,6 +357,18 @@ struct DeckView: View {
         ToolbarItemGroup {
             ForEach(InspectorTab.allCases) { tabbing($0) }
         }
+    }
+
+    /// Where View, Zoom, and Undo stand: at the toolbar's leading end. On the iPad, the bar's own
+    /// leading items, which stay there as the slides down the side fold away for the light table:
+    /// as navigation items, they went to the bar's other end then, past the inspector's tabs, the
+    /// way back to the documents standing at its leading end alone.
+    private var leading: ToolbarItemPlacement {
+        #if os(macOS)
+        return .navigation
+        #else
+        return .topBarLeading
+        #endif
     }
 
     #if os(macOS)
@@ -681,10 +693,11 @@ struct DeckView: View {
             }
             .task(id: said) {
                 // What the canvas says of an edit, a moment on the desk under the slide, then gone,
-                // as a presentation app's tips fade once read.
-                guard said != nil else { return }
+                // as a presentation app's tips fade once read: those words alone. Words said as
+                // the time runs out (a slide turned to by PageDown, say) stay their own moment.
+                guard let words = said else { return }
                 try? await Task.sleep(for: .seconds(6))
-                if !Task.isCancelled { said = nil }
+                if !Task.isCancelled, said == words { said = nil }
             }
             .onChange(of: undo, initial: true) { _, now in
                 // The assistant's edits are each one step of this window's undo.
@@ -856,8 +869,8 @@ struct DeckView: View {
                         .position(x: slide.midX, y: slide.midY)
                     // Drawn again after each edit, and as a drag moves a node or shows its patch (PLAN 3.7).
                     ScaenaCanvas(
-                        session: editor.session, state: shown, revision: editor.revision &+ editor.drawn,
-                        playhead: $playhead
+                        session: editor.session, state: shown, revision: editor.redraws, playhead: $playhead,
+                        painted: { painted.revision = $0 }
                     )
                     .overlay {
                         if showsGrid { GridOverlay(editor: editor, shown: placed.view) }
@@ -883,6 +896,7 @@ struct DeckView: View {
                                 pen: pen,
                                 penning: { takePen() },
                                 inked: { points in ink(points, in: shown) },
+                                painted: painted,
                                 showing: { state in chosen = state }
                             ) { ops, name in
                                 perform { try document.make(ops, undo: undo, named: name) }

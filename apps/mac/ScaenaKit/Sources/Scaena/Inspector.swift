@@ -40,6 +40,8 @@ struct Inspector: View {
     @State private var words: [String: String] = [:]
     /// Each node's kind, as the engine names it: a shape of the library by its shape (PLAN 2.106).
     @State private var kinds: [String: String] = [:]
+    /// The deck's data sources and their files: what names a chart's or a table's source.
+    @State private var sources: [DataSource] = []
     /// The box the node selected is placed by, canvas units, where a position typed can move it.
     @State private var placed: CGRect?
     @State private var showsObjects = false
@@ -99,17 +101,17 @@ struct Inspector: View {
                 Section {
                     if let node = choices?.node {
                         if choices?.type == "text" {
-                            Button("Proofread", systemImage: "checkmark.circle") { write(.proofread, node: node, in: state) }
-                            Button("Tighten the Wording", systemImage: "sparkles") { write(.tighten, node: node, in: state) }
-                            Button("Rewrite", systemImage: "wand.and.stars") { write(.rewrite, node: node, in: state) }
+                            writing("Proofread", "checkmark.circle") { write(.proofread, node: node, in: state) }
+                            writing("Tighten the Wording", "sparkles") { write(.tighten, node: node, in: state) }
+                            writing("Rewrite", "wand.and.stars") { write(.rewrite, node: node, in: state) }
                         } else if picture {
-                            Button("Describe the Picture", systemImage: "text.below.photo") {
+                            writing("Describe the Picture", "text.below.photo") {
                                 write(.describe, node: node, in: state)
                             }
                             .accessibilityIdentifier("describe-picture")
                         }
                     } else {
-                        Button("Draft Presenter Notes", systemImage: "sparkles") { write(.notes, in: state) }
+                        writing("Draft Presenter Notes", "sparkles") { write(.notes, in: state) }
                     }
                 } header: {
                     Text("Writing")
@@ -244,14 +246,17 @@ struct Inspector: View {
                     let said = { (name: String) in Option(tag: name, title: say(name)) }
                     PickRow(
                         label: label, value: field.value, options: names.map(said), shows: field.theme?.string.map(said),
+                        nothing: Self.nothing.contains(field.prop), id: "inspector-\(field.prop)",
                         said: say, choose: choose)
                 case .word(let words):
                     let said = { (word: String) in
-                        Option(tag: word, title: Words.word(word, of: field.prop, type: choices?.type))
+                        Option(
+                            tag: word, title: Words.word(word, of: field.prop, type: choices?.type, sources: sources))
                     }
                     PickRow(
                         label: label, value: field.value, options: words.map(said), segmented: words.count <= 2,
-                        shows: (field.theme?.string ?? Self.unset[field.prop]).map(said), choose: choose)
+                        shows: (field.theme?.string ?? Self.unset[field.prop]).map(said),
+                        nothing: Self.nothing.contains(field.prop), id: "inspector-\(field.prop)", choose: choose)
                 case .number(let least, let above, let most, let whole):
                     if field.prop.hasPrefix("adjust/") {
                         AdjustRow(
@@ -301,6 +306,14 @@ struct Inspector: View {
     /// of these, so Default is called by it.
     private static let unset: [String: String] = ["axis": "y", "orient": "vertical", "labels/show": "auto"]
 
+    /// What has none where the deck sets nothing (PLAN 3.18): a chart's or a table's source, a
+    /// chart's channel that reads no column (no series, no small multiples), a picture's mask, and a
+    /// shadow. The choice that takes it away is None, as a presentation app calls it, not Default.
+    private static let nothing: Set<String> = [
+        "data", "x/field", "y/field", "series/field", "color/field", "sizeEncoding/field", "interval/low",
+        "interval/high", "facet/field", "mask", "shadow",
+    ]
+
     /// What a number counts, said after it: a size in points, a turn in degrees.
     private static let unit: [String: String] = ["style/size": "pt", "transform/rotate": "°"]
 
@@ -313,7 +326,8 @@ struct Inspector: View {
         case .name(let of, let names, _):
             PickRow(
                 label: label, value: field.value,
-                options: names.map { Option(tag: $0, title: Words.name($0, of: of, theme: look)) }, choose: choose)
+                options: names.map { Option(tag: $0, title: Words.name($0, of: of, theme: look)) },
+                id: "inspector-\(field.prop)", choose: choose)
         default:
             EmptyView()
         }
@@ -378,12 +392,15 @@ struct Inspector: View {
                         }
                         PickRow(
                             label: label, value: field.value, options: names.map { Option(tag: $0, title: say($0)) },
+                            nothing: Self.nothing.contains(field.prop), id: "inspector-\(field.prop)",
                             said: say, choose: choose)
                     case .word(let words):
                         PickRow(
                             label: label, value: field.value,
-                            options: words.map { Option(tag: $0, title: Words.word($0, of: field.prop, type: nil)) },
-                            choose: choose)
+                            options: words.map {
+                                Option(tag: $0, title: Words.word($0, of: field.prop, type: nil, sources: sources))
+                            },
+                            nothing: Self.nothing.contains(field.prop), id: "inspector-\(field.prop)", choose: choose)
                     case .number(let least, let above, let most, let whole):
                         NumberRow(
                             label: label, value: field.value?.number, whole: whole, unit: Self.unit[field.prop],
@@ -496,6 +513,7 @@ struct Inspector: View {
             words[part.node] = part.text
         }
         kinds = (try? session.kinds(state: state)) ?? [:]
+        sources = (try? session.dataSources()) ?? []
         placed = nil
         if !also.isEmpty {
             shared = Field.shared(selected.compactMap { try? session.choices(state: state, node: $0) })
@@ -542,6 +560,21 @@ struct Inspector: View {
     /// assistant's model with the user's key, offered to take as one patch or to leave.
     private func write(_ kind: WritingKind, node: String? = nil, in state: String) {
         offer(Writer.asking(WritingAsk(kind: kind, state: state, node: node), of: editor.session))
+    }
+
+    /// A writing tool's button: its words, and its symbol beside them, which only draws it and
+    /// which VoiceOver passes over.
+    private func writing(_ title: String, _ symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label {
+                Text(title)
+            } icon: {
+                Image(systemName: symbol).accessibilityHidden(true)
+            }
+            // The title alone stands for the label: on the iPad a hidden image in a button's label
+            // is still read as an image within it.
+            .accessibilityRepresentation { Text(title) }
+        }
     }
 
     /// Where a field's value lives, which is where a choice is written, as a person says it.
@@ -630,7 +663,7 @@ private struct Option: Identifiable {
 /// options are (`said`): a build an older deck gave a node, which its kind no longer offers there
 /// (PLAN 2.116), by its name, as the browser says it. Where the theme gives a value (`shows`),
 /// Default is called by it, the Fraunces a headline is set in, say, and is not offered again
-/// beside it.
+/// beside it; where nothing set leaves none (`nothing`), it is None.
 private struct PickRow: View {
     let label: String
     let value: JSONValue?
@@ -638,6 +671,11 @@ private struct PickRow: View {
     var segmented = false
     /// What the slide shows where nothing sets it: the theme's, by its name.
     var shows: Option? = nil
+    /// Whether nothing set leaves none, as a chart's channel that reads no column: the choice that
+    /// takes the value away is None.
+    var nothing = false
+    /// What a test finds the picker by.
+    let id: String
     /// How a name is said, as the options are.
     var said: ((String) -> String)? = nil
     let choose: (JSONValue) -> Void
@@ -645,7 +683,7 @@ private struct PickRow: View {
     var body: some View {
         let current = value?.string ?? value.map(written) ?? ""
         let picker = Picker(label, selection: Binding(get: { current }, set: { picked in pick(picked, over: current) })) {
-            Text(shows?.title ?? "Default").tag("")
+            Text(shows?.title ?? (nothing ? "None" : "Default")).tag("")
             if !current.isEmpty, !options.contains(where: { $0.tag == current }) {
                 Text(Self.kept(value, said: said)).tag(current)
             }
@@ -658,10 +696,10 @@ private struct PickRow: View {
             // own; and on the Mac, a row of them reads alike whether its segments are few or many.
             VStack(alignment: .leading, spacing: 6) {
                 Text(label)
-                picker.pickerStyle(.segmented).labelsHidden()
+                picker.pickerStyle(.segmented).labelsHidden().accessibilityIdentifier(id)
             }
         } else {
-            picker
+            picker.accessibilityIdentifier(id)
         }
     }
 
@@ -1071,21 +1109,25 @@ private struct LayoutField: View {
     @State private var picking = false
 
     var body: some View {
+        // The row's label names the button, which reads as the layout it shows: the label is said
+        // once, then the layout, and the chevron, which draws it as a menu, is passed over.
         LabeledContent(label) {
             Button {
                 picking = true
             } label: {
+                let shown = value.map { Words.name($0, of: "layout", theme: look) } ?? "None"
                 HStack(spacing: 4) {
-                    Text(value.map { Words.name($0, of: "layout", theme: look) } ?? "None")
+                    Text(shown)
                         .lineLimit(1)
                     Image(systemName: "chevron.up.chevron.down")
                         .imageScale(.small)
                         .foregroundStyle(.secondary)
                 }
+                // The layout's name alone stands for the label: on the iPad a hidden image in a
+                // button's label is still read as an image within it.
+                .accessibilityRepresentation { Text(shown) }
             }
             .help("Choose the slide's layout from the theme's, by their sections")
-            .accessibilityLabel(label)
-            .accessibilityValue(value.map { Words.name($0, of: "layout", theme: look) } ?? "None")
             .accessibilityIdentifier("layout-choose")
             .popover(isPresented: $picking, arrowEdge: .leading) {
                 LayoutPicker(editor: editor, state: state, purpose: .change(names: names, current: value)) { picked in

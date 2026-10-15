@@ -100,6 +100,47 @@ public struct WaitingSlot: Decodable, Sendable, Identifiable, Equatable {
     }
 }
 
+extension WaitingSlot {
+    /// Its words as the canvas may stand them in the slot (PLAN 3.30): on one line, then on two,
+    /// and so on down to the width of its longest word, each line as many whole words as fit, and
+    /// each way the narrowest for its count of lines. The canvas shows the first way that fits the
+    /// slot as it is drawn, so no word is cut, as "A pictur…" was in a slot drawn 92 points wide.
+    public var lines: [[String]] { Self.lines(words) }
+
+    /// `words` on one line, then on two, and so on, as `lines` stands a slot's: none where there
+    /// are none.
+    public static func lines(_ words: String) -> [[String]] {
+        let all = words.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard let longest = all.map(\.count).max() else { return [] }
+        let whole = all.reduce(-1) { $0 + $1.count + 1 }
+        var ways: [[String]] = []
+        // Each width a line may take, in characters, from the words' whole width down to their
+        // longest word's: of two ways on as many lines, the narrower is kept.
+        for most in stride(from: whole, through: longest, by: -1) {
+            let way = packed(all, most: most)
+            if ways.last?.count == way.count {
+                ways[ways.count - 1] = way
+            } else {
+                ways.append(way)
+            }
+        }
+        return ways
+    }
+
+    /// `words` set on lines `most` characters wide at most, each line as many as fit, in order.
+    private static func packed(_ words: [String], most: Int) -> [String] {
+        var lines: [String] = []
+        for word in words {
+            if let last = lines.last, last.count + 1 + word.count <= most {
+                lines[lines.count - 1] = last + " " + word
+            } else {
+                lines.append(word)
+            }
+        }
+        return lines
+    }
+}
+
 /// The node a patch puts in a slot that waits for words (PLAN 3.30): its id, and the patch, one
 /// `add_node`, then the `hide_node`s that keep it to its slide.
 public struct FilledSlot: Decodable, Sendable {

@@ -79,6 +79,9 @@ struct CanvasSelection: View {
     var pen: PenUp? = nil
     var penning: (() -> Void)? = nil
     var inked: (([CGPoint]) -> Void)? = nil
+    /// The revision of the canvas the surface under it painted last (`DeckEditor.redraws`): a stroke
+    /// let go is drawn here until the surface has painted the deck that holds it.
+    var painted: Painted? = nil
     /// Show another state, a slide or a step: where PageDown and PageUp go (PLAN 4.12). None where
     /// the window shows no other.
     var showing: ((String) -> Void)? = nil
@@ -114,6 +117,8 @@ struct CanvasSelection: View {
     @State private var clicks = 1
     /// Whether a press is under way: false again as it ends or the system takes it away.
     @GestureState private var touching = false
+    /// The presses begun, counted as each begins, and the one `press` was set by (`fresh`).
+    @State private var pressCount = PressCount()
     /// What a press would take where the pointer or the Pencil hovers (PLAN 4.5).
     @State private var hovered: Hover?
     /// The menu a long press or a right click asks for: a count, new with each ask, and where,
@@ -127,10 +132,10 @@ struct CanvasSelection: View {
     #endif
     /// Whether a drag from another app is over the canvas, with something it takes (PLAN 3.22).
     @State private var dropping = false
-    /// The pen's stroke under way, canvas units, and the strokes let go that the deck does not
-    /// show yet (PLAN 2.114).
+    /// The pen's stroke under way, canvas units, and the strokes let go that the surface under the
+    /// canvas does not show yet, though the deck holds them (PLAN 2.114).
     @State private var stroke: [CGPoint] = []
-    @State private var wet: [[CGPoint]] = []
+    @State private var wet: [Wet] = []
     /// Where the pen's drag under way began, view points; and where one two fingers stopped began,
     /// which draws nothing until it ends (PLAN 4.3).
     @State private var inkStart: CGPoint?
@@ -181,12 +186,32 @@ struct CanvasSelection: View {
         case fingers
     }
 
+    /// The presses begun on the canvas, counted as each begins, and the one `press` was set by. A
+    /// box SwiftUI does not watch: a press the system takes away (a swipe from the screen's edge,
+    /// say) has no end of its own, and a change handler on `touching` that let it go ran twice in
+    /// one frame when a double tap's first press ended and its second began, which SwiftUI reports
+    /// as a fault. The next press lets it go instead (`fresh`).
+    private final class PressCount {
+        var begun = 0
+        var held = 0
+    }
+
     /// What a press would take where the pointer or the Pencil hovers (PLAN 4.5), as the browser's
     /// canvas shows it: the node a click would select, or the handle of the node selected that a
     /// press would hold, where it stands, canvas units.
     private struct Hover: Equatable {
         var node: String?
         var handle: CGPoint?
+    }
+
+    /// A stroke of the pen let go (PLAN 2.114): its points, canvas units, the pen that drew it, the
+    /// state it was drawn in, and the revision of the canvas whose deck holds it, which the surface
+    /// paints it in.
+    private struct Wet {
+        let points: [CGPoint]
+        let pen: PenUp
+        let state: String
+        let landed: Int
     }
 
     /// A drag under way: the node, how it is held, and where it would land now; with others
@@ -302,7 +327,7 @@ struct CanvasSelection: View {
                         dropped(items, fit.canvas(at))
                     }
                 // The pen taken up (PLAN 2.114): a drag draws a stroke, over what a press would do.
-                if let pen {
+                if pen != nil {
                     Color.clear
                         .contentShape(Rectangle())
                         .gesture(inking(fit))
@@ -317,9 +342,11 @@ struct CanvasSelection: View {
                             CanvasPan(
                                 pan: { by in _ = zoom.pan(by: CGVector(dx: -by.dx, dy: -by.dy)) }, fingers: fingers))
                         #endif
-                    ink(pen, fit: fit)
-                        .allowsHitTesting(false)
                 }
+                // The pen's strokes: the one under way, and those let go that the surface has not
+                // painted yet, the pen up or put down since.
+                ink(fit)
+                    .allowsHitTesting(false)
                 // What a long press or a right click offers, over where it pressed (PLAN 3.23, 4.3);
                 // on the iPad, clear of what it is for.
                 #if os(macOS)
@@ -335,12 +362,12 @@ struct CanvasSelection: View {
                 // the browser's canvas outlines it, or a handle ringed (PLAN 4.5).
                 if press == nil, pen == nil, let over = hovered?.node, let b = boxes.first(where: { $0.node == over }) {
                     outline(framed(b, scale: fit.scale), fit: fit)
-                        .stroke(Color.accentColor.opacity(0.7), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                        .stroke(Marks.color.opacity(0.7), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
                         .allowsHitTesting(false)
                 }
                 if press == nil, pen == nil, let spot = hovered?.handle {
                     Circle()
-                        .stroke(Color.accentColor, lineWidth: 2)
+                        .stroke(Marks.color, lineWidth: 2)
                         .frame(width: 20, height: 20)
                         .position(fit.view(spot))
                         .allowsHitTesting(false)
@@ -349,13 +376,13 @@ struct CanvasSelection: View {
                 ForEach(boxes.filter { also.contains($0.node) }, id: \.node) { other in
                     let by = drag?.edge == nil ? (drag?.by ?? .zero) : .zero
                     outline(framed(other, scale: fit.scale).map { CGPoint(x: $0.x + by.dx, y: $0.y + by.dy) }, fit: fit)
-                        .stroke(Color.accentColor.opacity(0.8), lineWidth: 1.5)
+                        .stroke(Marks.color.opacity(0.8), lineWidth: 1.5)
                         .allowsHitTesting(false)
                 }
                 if let selected = boxes.first(where: { $0.node == node }) {
                     let by = drag?.edge == nil ? (drag?.by ?? .zero) : .zero
                     outline(framed(selected, scale: fit.scale).map { CGPoint(x: $0.x + by.dx, y: $0.y + by.dy) }, fit: fit)
-                        .stroke(Color.accentColor, lineWidth: 1.5)
+                        .stroke(Marks.color, lineWidth: 1.5)
                         .allowsHitTesting(false)
                     // A connector goes where what it joins goes (PLAN 2.109): no handles.
                     if drag == nil, holding == nil, pen == nil, also.isEmpty, !typing.typing, selected.locked == nil,
@@ -365,7 +392,7 @@ struct CanvasSelection: View {
                             let p = selected.onCanvas(edge.point(r))
                             Rectangle()
                                 .fill(Color.white)
-                                .overlay(Rectangle().stroke(Color.accentColor, lineWidth: 1))
+                                .overlay(Rectangle().stroke(Marks.color, lineWidth: 1))
                                 .frame(width: 7, height: 7)
                                 .position(fit.view(p))
                                 .allowsHitTesting(false)
@@ -387,12 +414,12 @@ struct CanvasSelection: View {
                 // A drag from another app over the slide: the slide outlined, where it would go.
                 if dropping {
                     Rectangle()
-                        .strokeBorder(Color.accentColor, lineWidth: 3)
+                        .strokeBorder(Marks.color, lineWidth: 3)
                         .allowsHitTesting(false)
                 }
                 if let r = banded {
                     Path(r).applying(fit.transform)
-                        .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                        .stroke(Marks.color, style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
                         .allowsHitTesting(false)
                 }
                 typed(fit)
@@ -435,8 +462,10 @@ struct CanvasSelection: View {
         }
         .task(id: "\(state)\u{1f}\(editor.revision)") {
             boxes = (try? editor.session.boxes(state: state)) ?? []
-            // The strokes let go show in the deck now, or never will (PLAN 2.114).
-            wet = []
+            // The strokes let go that the surface paints in the deck now are its own to draw (PLAN
+            // 2.114); the rest are drawn here until it has painted them.
+            let onSurface = painted?.revision ?? .max
+            wet.removeAll { $0.landed <= onSurface }
             placements = (try? editor.session.placements(state: state)) ?? [:]
             reads = (try? editor.session.reads(state: state)) ?? []
             // The text typed in, read again where something else changed it.
@@ -452,21 +481,6 @@ struct CanvasSelection: View {
             shaped = node.flatMap { try? session.outline(state: state, node: $0) }
             imaged = node.flatMap { try? session.framing(state: state, node: $0) }
             if let picked = pointPicked, picked >= shaped?.points.count ?? 0 { pointPicked = nil }
-        }
-        .onChange(of: touching) { _, now in
-            // A press the system took away (a swipe from the screen's edge, say) has no end of its
-            // own: what it began stops once the gesture's own end, where there was one, has run.
-            guard !now else { return }
-            Task { @MainActor in
-                guard !touching, press != nil else { return }
-                if case .fingers = press { return }
-                if case .dragging = press { editor.still() }
-                pausing?.cancel()
-                #if !os(macOS)
-                lingering?.cancel()
-                #endif
-                press = nil
-            }
         }
         .onChange(of: typing.node) { was, now in
             // Typing begun where no press began it (the Pencil writing on a text, PLAN 4.4) selects
@@ -485,10 +499,11 @@ struct CanvasSelection: View {
             pointPicked = nil
             keyed = nil
         }
-        .onChange(of: pen != nil, initial: true) { _, up in
+        .task(id: pen != nil) {
             // The pen up (PLAN 2.114): the Pencil draws and writes in no text, typing stops, and
             // the canvas takes the keyboard, so P and Escape put the pen down, however it was taken
             // up.
+            let up = pen != nil
             typing.inking = up
             guard up else { return }
             if typing.typing { typing.leave() }
@@ -535,7 +550,7 @@ struct CanvasSelection: View {
         ForEach(cells.indices, id: \.self) { i in
             let r = cells[i]
             Path(r).applying(fit.transform)
-                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
+                .stroke(Marks.color, style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
         }
         ForEach(guides.indices, id: \.self) { i in
             line(guides[i][0], guides[i][1], fit: fit).stroke(Color.pink, lineWidth: 1)
@@ -568,14 +583,14 @@ struct CanvasSelection: View {
         if typing.typing {
             let covered = typing.covered
             ForEach(covered.indices, id: \.self) { i in
-                outline(covered[i], fit: fit).fill(Color.accentColor.opacity(0.3))
+                outline(covered[i], fit: fit).fill(Marks.color.opacity(0.3))
             }
             let composing = typing.composing
             ForEach(composing.indices, id: \.self) { i in
-                line(composing[i][3], composing[i][2], fit: fit).stroke(Color.accentColor, lineWidth: 1.5)
+                line(composing[i][3], composing[i][2], fit: fit).stroke(Marks.color, lineWidth: 1.5)
             }
             if typing.from == typing.to, let caret = typing.caret, caret.count == 2 {
-                line(caret[0], caret[1], fit: fit).stroke(Color.accentColor, lineWidth: 2)
+                line(caret[0], caret[1], fit: fit).stroke(Marks.color, lineWidth: 2)
             }
         }
     }
@@ -663,20 +678,41 @@ struct CanvasSelection: View {
                 var points = stroke.isEmpty ? [fit.canvas(value.startLocation)] : stroke
                 points.append(fit.canvas(value.location))
                 stroke = []
-                wet.append(points)
+                let before = editor.revision
                 inked?(points)
+                // Drawn on here until the surface paints the deck that holds it, which a busy main
+                // thread may leave a while after the deck took it, as the browser's canvas keeps a
+                // stroke until the drawing shows it; nothing where the deck refused it.
+                if let pen, editor.revision != before {
+                    wet.append(Wet(points: points, pen: pen, state: state, landed: editor.redraws))
+                }
             }
     }
 
-    /// The pen's strokes as they are drawn (PLAN 2.114): those let go that the deck does not show
-    /// yet and the one under way, in the drawing's color and width, round at the ends.
-    private func ink(_ pen: PenUp, fit: Fit) -> some View {
-        Path { path in
-            for points in wet + [stroke] {
-                guard let first = points.first else { continue }
-                path.move(to: fit.view(first))
-                for p in points.dropFirst() { path.addLine(to: fit.view(p)) }
+    /// The pen's strokes as they are drawn (PLAN 2.114): those let go on the state shown that the
+    /// surface under the canvas has not painted yet, though the deck holds them, and the one under
+    /// way, each in its drawing's color and width, round at the ends.
+    private func ink(_ fit: Fit) -> some View {
+        // What the surface painted is read only while a stroke waits for it: else the frames a
+        // drag paints would draw the canvas again each time.
+        let onSurface = wet.isEmpty ? Int.max : painted?.revision ?? .max
+        let unpainted = wet.filter { $0.state == state && $0.landed > onSurface }
+        return ZStack(alignment: .topLeading) {
+            ForEach(unpainted.indices, id: \.self) { i in
+                stroked(unpainted[i].points, pen: unpainted[i].pen, fit: fit)
             }
+            if let pen {
+                stroked(stroke, pen: pen, fit: fit)
+            }
+        }
+    }
+
+    /// A stroke of `pen` through `points`, canvas units, where the view shows them.
+    private func stroked(_ points: [CGPoint], pen: PenUp, fit: Fit) -> some View {
+        Path { path in
+            guard let first = points.first else { return }
+            path.move(to: fit.view(first))
+            for p in points.dropFirst() { path.addLine(to: fit.view(p)) }
         }
         .stroke(pen.color, style: StrokeStyle(lineWidth: pen.width * fit.scale, lineCap: .round, lineJoin: .round))
     }
@@ -684,9 +720,14 @@ struct CanvasSelection: View {
     /// A press: a click where it does not move, else a drag of what it pressed. On the iPad a finger
     /// that stays still offers what is done to what it pressed (PLAN 4.3).
     private func pressing(_ fit: Fit) -> some Gesture {
-        DragGesture(minimumDistance: 0, coordinateSpace: .local)
-            .updating($touching) { _, pressed, _ in pressed = true }
+        let count = pressCount
+        return DragGesture(minimumDistance: 0, coordinateSpace: .local)
+            .updating($touching) { _, pressed, _ in
+                if !pressed { count.begun += 1 }
+                pressed = true
+            }
             .onChanged { value in
+                fresh()
                 let moved = hypot(value.translation.width, value.translation.height)
                 switch press {
                 case nil:
@@ -742,6 +783,7 @@ struct CanvasSelection: View {
                 }
             }
             .onEnded { value in
+                fresh()
                 defer { press = nil }
                 #if !os(macOS)
                 lingering?.cancel()
@@ -976,6 +1018,7 @@ struct CanvasSelection: View {
     /// (PLAN 2.75, 2.89): whether the canvas took it. What it does not take, the input system makes
     /// a command of, and Tab past either end passes the keyboard on.
     private func pressed(_ event: NSEvent) -> Bool {
+        if !touching { letGo() }
         guard press == nil else { return false }
         let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
         guard !flags.contains(.control) else { return false }
@@ -1024,6 +1067,7 @@ struct CanvasSelection: View {
     /// canvas reads it (PLAN 3.17), by UIKit's codes: whether the canvas took it. What it does not
     /// take goes on, so Tab past either end leaves the slide.
     private func pressed(_ key: UIKey) -> Bool {
+        if !touching { letGo() }
         guard press == nil else { return false }
         let flags = key.modifierFlags.intersection([.command, .shift, .alternate, .control])
         guard !flags.contains(.control) else { return false }
@@ -1108,6 +1152,7 @@ struct CanvasSelection: View {
     /// it as a key command rather than a press: what a press of either does. PageDown and PageUp
     /// come so too: the next slide or step, and the one before (PLAN 4.12).
     private func commanded(_ input: String, _ flags: UIKeyModifierFlags) -> Bool {
+        if !touching { letGo() }
         guard press == nil, flags.isDisjoint(with: [.command, .control]) else { return false }
         switch input {
         case UIKeyCommand.inputEscape: return escape()
@@ -1445,7 +1490,9 @@ struct CanvasSelection: View {
 
     /// PageDown, `1`, or PageUp, `-1`, on the canvas (PLAN 4.12, as the browser's slide takes them,
     /// PLAN 2.126): the next slide or step shown, or the one before, the window saying which; past
-    /// either end, that there is none. Whether the canvas took the key.
+    /// either end, that there is none. Zoomed in, the slide turned to shows as close as the last,
+    /// its middle in the middle of the desk, as a presentation app turns a page: where the last was
+    /// panned to may show none of it. Whether the canvas took the key.
     private func page(_ by: Int) -> Bool {
         guard let showing else { return false }
         guard let to = editor.state(from: state, by: by) else {
@@ -1456,6 +1503,7 @@ struct CanvasSelection: View {
         keyOn = nil
         keyed = nil
         showing(to)
+        zoom.center()
         said = "\(Words.slide(to, in: editor.slots)) shown"
         return true
     }
@@ -1529,6 +1577,28 @@ struct CanvasSelection: View {
         offering = (count: (offering?.count ?? 0) + 1, at: shown)
     }
 
+    /// A press began while `press` is still set by an earlier one, which the system took away before
+    /// its end (`PressCount`): that one stops first.
+    private func fresh() {
+        guard pressCount.held != pressCount.begun else { return }
+        pressCount.held = pressCount.begun
+        letGo()
+    }
+
+    /// `press` set by a press the system took away before its end stops as its own end would have
+    /// stopped it: a drag it began drawn back, and what waited on it stopped. Two fingers' press
+    /// stops as they let go (`fingers`).
+    private func letGo() {
+        guard let earlier = press else { return }
+        if case .fingers = earlier { return }
+        if case .dragging = earlier { editor.still() }
+        pausing?.cancel()
+        #if !os(macOS)
+        lingering?.cancel()
+        #endif
+        press = nil
+    }
+
     #if !os(macOS)
     /// A finger pressing still (PLAN 4.3): held long enough, its press offers what is done to what
     /// it pressed, as the Mac's Node menu and Edit menu do to the node selected.
@@ -1536,7 +1606,8 @@ struct CanvasSelection: View {
         lingering?.cancel()
         lingering = Task { @MainActor in
             try? await Task.sleep(for: Self.lingers)
-            guard !Task.isCancelled, case .pressing = press else { return }
+            // A press the system took away offers nothing.
+            guard !Task.isCancelled, touching, case .pressing = press else { return }
             press = .offered
             offer(at: fit.canvas(start), shown: start, fit: fit)
         }
@@ -2070,4 +2141,12 @@ struct PenUp: Equatable {
         let width = ["thick", "regular", "thin"].lazy.compactMap { strokes[$0]?.number }.first ?? 2
         return PenUp(color: color("accent") ?? .accentColor, width: width)
     }
+}
+
+/// The revision of the canvas its surface painted last (`ScaenaView.onPainted`), kept apart from
+/// the window's state: told of each frame a drag paints, the window draws nothing again for it,
+/// and the canvas reads it only while a stroke of the pen let go waits for it (PLAN 2.114).
+@Observable
+final class Painted {
+    var revision = 0
 }

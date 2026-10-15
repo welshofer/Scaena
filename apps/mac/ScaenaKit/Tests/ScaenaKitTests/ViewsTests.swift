@@ -103,6 +103,23 @@ private func alike(_ a: CGRect, _ b: CGRect) -> Bool {
     #expect(abs(zoom.shown.maxX - 1920) < 1e-6 && abs(zoom.slide.maxX - (1016 - Zoom.margin)) < 1e-6, "\(zoom.slide)")
 }
 
+/// A page turned zoomed in (PLAN 4.12): the slide turned to shows as close as the last, its middle
+/// in the middle of the desk, as it is zoomed from fitted, wherever the last was panned to: a
+/// corner of the last may hold nothing of the next. Fitted, the whole slide shows as before.
+@Test func aPageTurnedShowsTheSlidesMiddleAsCloseAsItWas() {
+    var zoom = Zoom(canvas: CGSize(width: 1920, height: 1080), desk: CGSize(width: 1016, height: 596))
+    zoom.center()
+    #expect(zoom.level == 1 && zoom.view == nil, "fitted, the whole slide shows")
+    #expect(alike(zoom.slide, CGRect(x: 28, y: 28, width: 960, height: 540)), "in the middle: \(zoom.slide)")
+    zoom.zoom(to: 2)
+    let middle = zoom.shown
+    for _ in 0..<4 { zoom.pan(1, 1, far: true) }
+    #expect(!alike(zoom.shown, middle), "panned to its corner: \(zoom.shown)")
+    zoom.center()
+    #expect(zoom.level == 2, "as close as it was")
+    #expect(alike(zoom.shown, middle), "its middle in the middle of the desk: \(zoom.shown)")
+}
+
 /// What Tab, Return, a selection by keys, or a panel selects comes into view (PLAN 4.12, as the
 /// browser's, PLAN 2.125): zoomed in, what shows moves the least that shows the box whole, and
 /// nothing where it shows whole already; a box larger than what shows, the least that shows nothing

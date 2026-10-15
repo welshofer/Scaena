@@ -2,8 +2,8 @@
 # The Mac app as someone opens it (PLAN 3.3): the app built in debug, over the debug static library
 # `swift build --product Scaena` linked, made a bundle macOS opens, the trails example saved as a
 # deck and opened in its window, the screen kept in target/mac/window/shots, then a walk of the
-# window, each step's screen kept. Seen, not tested: CI pushes them beside the iPad's
-# (scripts/shots.sh).
+# window, each step's screen kept. Seen more than tested: CI pushes them beside the iPad's
+# (scripts/shots.sh), and the few checks the walk makes fail it at its end where one does not hold.
 #
 #   apps/mac/window.sh   (after `swift build --product Scaena` in apps/mac/ScaenaKit)
 set -euo pipefail
@@ -12,17 +12,37 @@ bin=$(cd "$root/apps/mac/ScaenaKit" && swift build --show-bin-path)
 out="$root/target/mac/window"
 app="$out/Scaena.app"
 rm -rf "$out"
-mkdir -p "$app/Contents/MacOS" "$out/shots"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$out/shots"
 # What it says goes with the screenshots too.
 exec > >(tee "$out/shots/window.txt") 2>&1
 cp "$bin/Scaena" "$app/Contents/MacOS/Scaena"
 # What the canvas holds as VoiceOver hears it, read by the accessibility API (holds.swift).
 swiftc -O -o "$out/holds" "$root/apps/mac/holds.swift" || echo "holds.swift: not built"
 cp "$root/apps/mac/Scaena/Info.plist" "$app/Contents/Info.plist"
+# Its icon, as `build-app.sh` makes it.
+iconutil -c icns -o "$app/Contents/Resources/AppIcon.icns" "$root/apps/mac/Scaena/AppIcon.iconset" || echo "iconutil: no icon"
 codesign --force --sign - "$app"
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app"
 cd "$root"
 cargo run -q -p scaena-cli --locked -- save docs/examples/trails.deck.json --to "$out/trails.scaena"
+# The app's icon and a deck's, as the Finder draws them, kept with the shots: the deck's is the
+# system's folded page with the app's icon on it, over DECK (Info.plist's UTTypeIcons).
+echo "the app's icon: $(plutil -extract CFBundleIconFile raw -o - "$app/Contents/Info.plist" 2>&1), $(sips -g pixelWidth "$app/Contents/Resources/AppIcon.icns" 2>&1 | awk '/pixelWidth/ {print $2}') px"
+for icon in "app:$app" "deck:$out/trails.scaena"; do
+  osascript -l JavaScript - "${icon#*:}" "$out/shots/mac-icon-${icon%%:*}.png" <<'JS' 2>&1 || true
+ObjC.import("AppKit");
+function run(argv) {
+  const icon = $.NSWorkspace.sharedWorkspace.iconForFile(argv[0]);
+  const rep = $.NSBitmapImageRep.alloc.initWithBitmapDataPlanesPixelsWidePixelsHighBitsPerSampleSamplesPerPixelHasAlphaIsPlanarColorSpaceNameBytesPerRowBitsPerPixel(
+    null, 256, 256, 8, 4, true, false, $.NSDeviceRGBColorSpace, 0, 0);
+  $.NSGraphicsContext.saveGraphicsState;
+  $.NSGraphicsContext.setCurrentContext($.NSGraphicsContext.graphicsContextWithBitmapImageRep(rep));
+  icon.drawInRectFromRectOperationFraction($.NSMakeRect(0, 0, 256, 256), $.NSZeroRect, $.NSCompositingOperationSourceOver, 1);
+  $.NSGraphicsContext.restoreGraphicsState;
+  rep.representationUsingTypeProperties($.NSBitmapImageFileTypePNG, $({})).writeToFileAtomically(argv[1], true);
+}
+JS
+done
 system_profiler SPDisplaysDataType | grep -i resolution || true
 open -a "$app" "$out/trails.scaena"
 # The window, its states drawn small, and the canvas painted.
@@ -32,8 +52,14 @@ echo "the canvas as VoiceOver hears it: $("$out/holds" "$(pgrep -n -x Scaena)" c
 
 # A walk of the window, as a person's first minute in it, each step's screen kept and where the
 # window stands said. The pointer is the mouse's own events (`pointer.js`), which the canvas's
-# gestures take; menus and keys go through System Events. Seen, not tested: a step that fails says
-# so and the walk goes on.
+# gestures take; menus and keys go through System Events. Mostly seen, not tested: a step that
+# fails says so and the walk goes on. What the walk holds the app to is a check: one that does not
+# hold says so too, and the walk ends failed once every step is taken and its screen kept.
+failed=""
+failing() {
+  echo "FAILED: $1"
+  failed+=" $1."
+}
 events() { osascript -e "tell application \"System Events\" to $1" 2>&1 || true; }
 app() { events "tell process \"Scaena\" to $1"; }
 window() { app "get {position, size} of window 1" | tr -d ','; }
@@ -55,6 +81,17 @@ holds() {
 # What the element identified as `$1` reads as itself to VoiceOver, by the accessibility API, as
 # `holds` reads what it holds; else its value, by System Events.
 named() { "$out/holds" "$(pgrep -n -x Scaena)" "$1" self 2>/dev/null || frames value "$1"; }
+# The inspector's tabs, the last of the toolbar's items to overflow (PLAN 3.18): each stands in
+# the toolbar, and the tab shown, `$1`, is marked as on, its value 1. A check: each that does not
+# fails the walk, `$2` saying when.
+tabbed() {
+  local tab on framed='^-?[0-9]+ -?[0-9]+ [0-9]+ [0-9]+$'
+  for tab in format animate document; do
+    [[ "$(frames find "tab-$tab")" =~ $framed ]] || failing "$2, the toolbar shows no tab-$tab"
+  done
+  on=$(frames value "tab-$1")
+  [[ "$on" == 1 || "$on" == true ]] || failing "$2, the toolbar does not mark tab-$1 as shown: it reads \"$on\""
+}
 # A menu's item chosen; again a moment later while the app is too busy to be asked, as it may be
 # just after an edit, up to five times.
 menu() {
@@ -177,6 +214,10 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   fi
   echo "what it holds, three deep:"
   frames tree 3
+  # The window narrowed and widened again, the toolbar hidden and shown, then fitted: the
+  # inspector's tabs still stand in the toolbar, the rest of it overflowing first, Format marked
+  # as the tab shown (PLAN 3.18).
+  tabbed format "at the width fitted to the screen"
 
   # A click in the middle of the slide: what draws there selected, and the inspector showing it.
   read -r sx sy sw sh <<<"$(frames find canvas)" || true
@@ -273,11 +314,13 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   events 'keystroke "=" using command down'
   sleep 2
   shot zoomed
-  echo "zoomed twice, the canvas: $(frames find canvas || true); the zoom reads $(frames value zoom), against the slide's own size"
+  zoomed=$(frames find canvas || true)
+  echo "zoomed twice, the canvas: $zoomed; the zoom reads $(frames value zoom), against the slide's own size"
   # Zoomed in with nothing selected (Escape stops typing in the text inserted, then selects what
   # holds it, the slide), → pans a tenth of what shows and Shift+→ half, what the canvas holds
-  # standing elsewhere each time; PageDown shows the next slide or step, the canvas saying so, and
-  # PageUp the slide before again (PLAN 4.12).
+  # standing elsewhere each time; PageDown shows the next slide or step, the canvas saying so, as
+  # close as the last, its middle shown as it was zoomed, wherever the arrows had panned the last;
+  # and PageUp the slide before again (PLAN 4.12).
   events 'key code 53'
   events 'key code 53'
   sleep 1
@@ -290,10 +333,10 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   shot panned
   before=$(named canvas)
   events 'key code 121'
-  echo "PageDown, the canvas shows: $(reads "$before"), and says \"$(frames value hint)\""
+  echo "PageDown, the canvas shows: $(reads "$before"), and says \"$(frames value hint)\" (Slide 2 shown); the canvas at $(frames find canvas || true) (as zoomed: $zoomed), the zoom reading $(frames value zoom)"
   shot paged-down
   events 'key code 116'
-  echo "PageUp, the canvas shows: $(reads "$before" same), and says \"$(frames value hint)\""
+  echo "PageUp, the canvas shows: $(reads "$before" same), and says \"$(frames value hint)\" (Slide 1 shown)"
   events 'keystroke "0" using command down'
   sleep 2
   echo "fitted again, the canvas: $(frames find canvas || true)"
@@ -344,6 +387,9 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
       echo "the slide started holds:"
       holds canvas
       shot started
+      # The picture's place, a slot drawn tall and narrow, says what goes there in words that read
+      # whole: under its icon, on as many lines as they need, never cut (PLAN 3.30).
+      echo "the picture's place says \"$(named waiting-art)\", its words at $(frames find waiting-art)"
       events 'keystroke "z" using command down'
       sleep 2
       echo "⌘Z, the slide shown holds:"
@@ -402,6 +448,9 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
       pointer click $((gx + gw - 6)) $((gy + gh / 2))
       sleep 2
       shot cue-lane
+      # The chart's inspector names its data by its file's name in words, not by the deck's id for
+      # it, and calls a channel that reads no column None, not Default (PLAN 3.18).
+      echo "the chart's data: $(frames value inspector-data); small multiples by: $(holds 'inspector-facet/field' | tr '\n' ';')"
       read -r sx sy sw sh <<<"$(frames find canvas)" || true
       pointer click $((sx + sw / 2)) $((sy + sh / 2))
       sleep 1
@@ -434,8 +483,16 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   menu View Document
   sleep 2
   shot theme
-  # The inspector's tabs stay in the toolbar, the rest of it overflowing first (PLAN 3.18).
+  # The inspector's tabs stay in the toolbar, the rest of it overflowing first, Document marked as
+  # the tab shown (PLAN 3.18).
   echo "the toolbar's Format: $(frames find tab-format); Animate: $(frames find tab-animate); Document: $(frames find tab-document)"
+  tabbed document "the Document tab shown"
+  # Each color's name and what the theme sets in it read whole, the uses under the name on as many
+  # lines as they need, the row as tall as they are, the field beside them as wide as ever: the
+  # paper's, set in the background and in text on the accent, and the second paper's, on a line.
+  for key in paper paper-2; do
+    echo "the theme's $key: \"$(named "theme-name-$key")\" at $(frames find "theme-name-$key"), set in \"$(named "theme-uses-$key")\" at $(frames find "theme-uses-$key"), its field at $(frames find "theme-color-$key")"
+  done
   read -r px py pw ph <<<"$(frames find theme-color-paper)" || true
   if [[ "${ph:-}" =~ ^[0-9]+$ ]]; then
     echo "the theme's paper: $px $py $pw $ph, $(frames value theme-color-paper)"
@@ -504,6 +561,9 @@ if [[ "${lh:-}" =~ ^[0-9]+$ && "${ph:-}" =~ ^[0-9]+$ ]]; then
   pointer drag $((px + pw / 4)) $((py + ph * 3 / 4)) $((px + pw / 2)) $((py + ph * 4 / 5))
   sleep 2
   shot pen-stroke
+  # The stroke shows in the shot whether or not the slide draws it yet: drawn over the slide until
+  # the canvas paints the deck that holds it.
+  echo "a stroke of the pen: the canvas says \"$(frames value hint)\" (A drawing drawn on this slide), and holds $(holds canvas | grep -c 'Drawing' || true) drawing (1)"
   events 'key code 53'
   sleep 1
   offered=$(app 'get name of every menu item of menu 1 of menu bar item "Insert" of menu bar 1' | tr ',' '\n' | grep -o 'Stop Drawing\|Drawing' | head -1 || true)
@@ -544,6 +604,8 @@ menu File "New from a Prompt…"
 sleep 3
 shot prompt
 echo "New from a Prompt: the windows $(app 'get name of every window' | tr '\n' ' '); the topic $(frames find prompt-topic), Generate $(frames find prompt-generate)"
+# Its length a range as it is written, with an en dash, not Narrato's hyphen.
+echo "the length it asks for: $(frames value prompt-length)"
 app 'key code 53' >/dev/null
 sleep 2
 echo "Escape: the windows $(app 'get name of every window' | tr '\n' ' ')"
@@ -567,3 +629,8 @@ fi
 
 # The deck is edited now: no saving it, so no asking.
 pkill -x Scaena || true
+# Every step taken and its screen kept: a check that did not hold fails the walk.
+if [[ -n "$failed" ]]; then
+  echo "the walk failed:$failed"
+  exit 1
+fi
