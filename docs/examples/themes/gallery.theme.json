@@ -332,13 +332,14 @@
       },
       "code": {
         "family": "mono",
-        "size": 26,
+        "size": 32,
         "weight": 400,
         "leading": 1.4,
         "tracking": 0,
         "wrap": "greedy",
         "box": "line",
-        "measure": 72
+        "measure": 72,
+        "minSize": 24
       }
     }
   },

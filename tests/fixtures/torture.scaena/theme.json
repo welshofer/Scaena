@@ -164,6 +164,16 @@
       "emoji": {
         "family": "Noto Color Emoji",
         "file": "fonts/NotoColorEmoji-COLRv1.ttf"
+      },
+      "mono": {
+        "family": "JetBrains Mono",
+        "file": "fonts/JetBrainsMono-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            800
+          ]
+        }
       }
     },
     "scale": {
@@ -530,6 +540,17 @@
         "box": "cap",
         "numeric": "tabular-lining",
         "color": "onSurface"
+      },
+      "code": {
+        "family": "mono",
+        "size": 40,
+        "weight": 400,
+        "leading": 1.4,
+        "features": {
+          "calt": false
+        },
+        "wrap": "greedy",
+        "box": "line"
       }
     }
   },

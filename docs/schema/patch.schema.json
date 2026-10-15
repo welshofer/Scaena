@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/patch-0.27.json",
+  "$id": "https://scaena.dev/schema/patch-0.28.json",
   "title": "Scaena patch",
   "description": "A patch (SPEC §7.3): RFC 6902 ops and semantic ops, applied in order, all or none.",
   "type": "array",
@@ -753,6 +753,10 @@
         "paragraphs": {
           "description": "The paragraphs a state draws (PLAN 2.129, deck format 0.27), counted from 1: one, or the first and the last of a run. The rest are laid out where they stand and not drawn, so a list built by bullet keeps its place as its items come and go. Without it, all.",
           "$ref": "#/$defs/Range"
+        },
+        "code": {
+          "description": "The text is code (SPEC §3.5, ADR-0029; deck format 0.28): set as written, its lines broken only where it breaks them, its tabs standing to stops, grown then shrunk to fit its box, never under 12 pt.",
+          "$ref": "#/$defs/Code"
         }
       },
       "anyOf": [{ "required": ["text"] }, { "required": ["runs"] }]
@@ -1455,6 +1459,19 @@
       }
     },
     "ListKind": { "type": "string", "enum": ["bullet", "number"] },
+    "Code": {
+      "description": "What makes a text code (PLAN 2.131, ADR-0029): the language its words are written in.",
+      "type": "object",
+      "required": ["language"],
+      "additionalProperties": false,
+      "properties": {
+        "language": {
+          "description": "The language its words are written in, a lowercase name: one Scaena knows, by its name or an alias (`rust`, `rs`, `c++`), `plain` for none, or any other, which the generic scanner colors (`scaena_core::code`).",
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9+#._-]{0,31}$"
+        }
+      }
+    },
     "ShapeKind": { "type": "string", "enum": ["rect", "ellipse", "line", "arrow", "polygon", "path"] },
     "Connect": {
       "description": "What a connector joins (PLAN 2.109): the node it runs from, the node it runs to, and how.",
@@ -1922,6 +1939,7 @@
           ]
         },
         "paragraphs": { "anyOf": [{ "$ref": "#/$defs/Range" }, { "type": "null" }] },
+        "code": { "anyOf": [{ "$ref": "#/$defs/CodeDelta" }, { "type": "null" }] },
         "kind": {
           "anyOf": [
             { "$ref": "#/$defs/ShapeKind" },
@@ -2166,6 +2184,14 @@
         "opsz": { "type": ["number", "null"] },
         "case": { "anyOf": [{ "$ref": "#/$defs/Case" }, { "type": "null" }] },
         "color": { "anyOf": [{ "$ref": "#/$defs/Color" }, { "type": "null" }] }
+      }
+    },
+    "CodeDelta": {
+      "description": "`Code` in a state's delta: it merges one level into the tracked value, so every key is optional and null deletes one (SPEC §2.2).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "language": { "anyOf": [{ "pattern": "^[a-z0-9][a-z0-9+#._-]{0,31}$", "type": "string" }, { "type": "null" }] }
       }
     },
     "ConnectDelta": {

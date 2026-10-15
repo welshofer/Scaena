@@ -33,7 +33,8 @@ pub(super) fn token(key: &str) -> String {
 
 /// W210: more words on screen than the theme's `density.maxWordsPerState` (40 when it
 /// says nothing). A word is what whitespace separates, in every visible text node but one that
-/// navigates (`semantic: navigation`: a running head, a section's number), which is read past.
+/// navigates (`semantic: navigation`: a running head, a section's number), which is read past,
+/// and code (PLAN 2.131), whose words are read as code, not counted as prose.
 struct W210Density;
 impl Rule for W210Density {
     fn code(&self) -> &'static str {
@@ -49,10 +50,11 @@ impl Rule for W210Density {
             let words: usize = snap
                 .nodes
                 .iter()
-                .filter(|(id, _)| {
+                .filter(|(id, props)| {
                     cx.deck.nodes.get(*id).is_some_and(|n| {
                         n.node_type == NodeType::Text
                             && n.props.get("semantic").and_then(Value::as_str) != Some("navigation")
+                            && !props.get("code").is_some_and(Value::is_object)
                     })
                 })
                 .map(|(_, props)| words(props))

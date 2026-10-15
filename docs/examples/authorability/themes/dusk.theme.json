@@ -58,7 +58,7 @@
       "quote":    { "family": "display", "size": 64,  "weight": 450, "leading": 1.125, "tracking": -0.01, "opsz": 72,  "wrap": "balance", "box": "cap", "snap": "cap", "measure": 30, "maxLines": 4, "opticalMargins": true, "hangingPunctuation": true },
       "numeral":  { "family": "display", "size": 112, "weight": 500, "leading": 1.0,  "tracking": -0.03,  "opsz": 144, "wrap": "greedy",  "box": "cap", "snap": "cap", "numeric": "tabular-lining" },
       "hero":     { "family": "display", "size": 320, "weight": 600, "leading": 0.9, "tracking": -0.04, "opsz": 144, "wrap": "greedy", "box": "cap", "snap": "cap", "numeric": "proportional-lining", "color": "accent" },
-      "code":     { "family": "mono",    "size": 26,  "weight": 400, "leading": 1.4,  "tracking": 0,      "wrap": "greedy", "box": "line", "measure": 72 }
+      "code":     { "family": "mono",    "size": 32,  "weight": 400, "leading": 1.4,  "tracking": 0,      "wrap": "greedy", "box": "line", "measure": 72, "minSize": 24 }
     }
   },
   "grid": { "columns": 12, "rows": 12, "gutter": 24, "margin": [96, 120], "baseline": 8 },

@@ -18,6 +18,7 @@ use crate::document::{Deck, NodeType, Props};
 use crate::lint::literal;
 use crate::looks::{casts, rounds, see_through};
 use crate::model::check::Checker;
+use crate::model::nodes::TextFit;
 use crate::model::theme::{Theme, Vocabulary};
 use crate::model::values::SplitUnit;
 use crate::tracking::{Lives, layout_lives, layout_takers, lives_shown, merge_props, resolve_states};
@@ -104,8 +105,9 @@ pub struct Field {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub literal: bool,
     /// What the theme gives a text's look where the deck sets none, which the state then shows:
-    /// its role's family, weight, size, italic, case, tracking, or color; how its slot fits it
-    /// (theme format 0.13); where a shape's words stand across it, in its middle (PLAN 2.108);
+    /// its role's family, weight, size, italic, case, tracking, or color; how it fits: as its
+    /// slot fits it (theme format 0.13), else shrunk, for a shape's words and for code (PLAN
+    /// 2.131); where a shape's words stand across it, in its middle (PLAN 2.108);
     /// how a connector runs and a line's ends are drawn where it says none (PLAN 2.128);
     /// and for characters selected, the text's own look where their run sets none, its role and
     /// emphasis too. What an inspector shows in place of a blank. Absent for any other property.
@@ -419,10 +421,11 @@ pub fn choices(
         let role = shown.get("role").and_then(Value::as_str);
         let layout = snapshots[i].layout.as_deref();
         // A shape's words stand in its middle across it where they say nothing (PLAN 2.108).
-        let words = crate::tracking::words_of(deck, own_props).is_some() && prop == "align/x";
+        let in_shape = crate::tracking::words_of(deck, own_props).is_some();
+        let words = in_shape && prop == "align/x";
         let gives = || {
             role_gives(theme, role, prop)
-                .or_else(|| slot_gives(theme, layout, shown.get("at"), prop))
+                .or_else(|| fit_gives(theme, layout, &shown, in_shape, prop))
                 .or_else(|| words.then(|| Value::from("center")))
                 .or_else(|| aligned(theme, layout, &shown, prop))
         };
@@ -468,14 +471,21 @@ fn role_gives(theme: &Theme, role: Option<&str>, prop: &str) -> Option<Value> {
     })
 }
 
-/// What the state's `layout` gives `prop` of a text placed at `at` in one of its slots where
-/// nothing in the deck sets it: how the slot fits it (theme format 0.13), as the engine sets it.
-fn slot_gives(theme: &Theme, layout: Option<&str>, at: Option<&Value>, prop: &str) -> Option<Value> {
+/// How a text fits where nothing in the deck sets `fit`, as the engine sets it (SPEC §3.4,
+/// [`TextFit::effective`]): as the slot of the state's `layout` it is placed in fits it (theme
+/// format 0.13), else by shrinking, for a shape's words (`in_shape`) and for code (ADR-0029). None
+/// for prose its slot gives no fit, which wraps, and for any other property.
+fn fit_gives(theme: &Theme, layout: Option<&str>, shown: &Props, in_shape: bool, prop: &str) -> Option<Value> {
     if prop != "fit" {
         return None;
     }
-    let slot = at?.get("in")?.as_str()?;
-    serde_json::to_value(theme.layouts.get(layout?)?.slots.get(slot)?.fit?).ok()
+    let code = shown.get("code").is_some_and(Value::is_object);
+    let slot = shown.get("at").and_then(|at| at.get("in")).and_then(Value::as_str);
+    let slot = slot.and_then(|slot| theme.layouts.get(layout?)?.slots.get(slot)?.fit);
+    if slot.is_none() && !in_shape && !code {
+        return None;
+    }
+    serde_json::to_value(TextFit::effective(None, slot, in_shape, code)).ok()
 }
 
 /// Where a text's lines stand across its box where nothing in the deck says (`align/x`), as the

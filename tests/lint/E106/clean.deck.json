@@ -1,16 +1,17 @@
 {
-  "scaena": "0.27",
-  "_comment": "E106 clean: every node, at rest and in each state, holds only its own type's properties, in forms its type takes, and sits in a container.",
+  "scaena": "0.28",
+  "_comment": "E106 clean: every node, at rest and in each state, holds only its own type's properties, in forms its type takes, and sits in a container; a code text's language changes in a state.",
   "canvas": { "width": 1920, "height": 1080 },
   "nodes": {
     "headline": { "type": "text", "text": "Growth", "fit": "shrink", "at": { "in": "canvas" } },
     "photo": { "type": "image", "src": "assets/photo.png", "fit": "cover", "alt": "A photo", "at": { "in": "canvas" } },
     "card": { "type": "frame", "padding": 24, "at": { "in": "canvas" } },
-    "tag": { "type": "text", "text": "New", "at": { "parent": "card", "rect": [0, 0, 200, 60] } }
+    "tag": { "type": "text", "text": "New", "at": { "parent": "card", "rect": [0, 0, 200, 60] } },
+    "snippet": { "type": "text", "code": { "language": "rust" }, "text": "fn main() {\n    println!(\"Growth\");\n}", "at": { "in": "canvas" } }
   },
   "states": [
-    { "id": "one", "props": { "headline": {}, "photo": {}, "card": {}, "tag": {} } },
-    { "id": "two", "props": { "headline": { "fit": "wrap", "alt": null }, "photo": { "fit": "contain" } },
+    { "id": "one", "props": { "headline": {}, "photo": {}, "card": {}, "tag": {}, "snippet": {} } },
+    { "id": "two", "props": { "headline": { "fit": "wrap", "alt": null }, "photo": { "fit": "contain" }, "snippet": { "code": { "language": "typescript" }, "text": "console.log(\"Growth\");" } },
       "choreography": [
         { "target": "headline", "split": "words", "enter": "fade", "timing": "with" },
         { "target": "card", "split": "children", "emphasis": "rise" }

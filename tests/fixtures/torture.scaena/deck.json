@@ -1,5 +1,5 @@
 {
-  "scaena": "0.27",
+  "scaena": "0.28",
   "meta": {
     "title": "Typography torture deck",
     "author": "Scaena",
@@ -80,6 +80,16 @@
     {
       "family": "Noto Color Emoji",
       "file": "fonts/NotoColorEmoji-COLRv1.ttf"
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          800
+        ]
+      }
     }
   ],
   "data": {
@@ -5041,6 +5051,24 @@
         ],
         "row": 8
       }
+    },
+    "code-block": {
+      "type": "text",
+      "role": "code",
+      "code": {
+        "language": "typescript"
+      },
+      "text": "\"use strict\";\n\n// Rank talks by votes; ties go by title.\ntype Talk = {\n\ttitle: string;\t// as printed\n\tvotes: number;\t// one per seat\n};\n\nexport function rank(talks: Talk[]): string[] {\n\treturn [...talks]\n\t\t.sort((a, b) => b.votes - a.votes\n\t\t\t|| a.title.localeCompare(b.title))\n\t\t.map((talk) => talk.title);\n}\n\nconsole.log(rank(await loadTalks()).join(\"\\n\"));",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          8
+        ]
+      }
     }
   },
   "states": [
@@ -6351,6 +6379,19 @@
         "cn-rule": {}
       },
       "notes": "Pass: three connectors and a rule, each end drawn as it is named, in the stroke's paint and sized from its width (PLAN 2.128). Upper left: a straight arrow from a card down to another, along the line between their middles, a filled circle on the first card's edge and a filled head on the second's, the shaft stopping at the head's base. Upper right: an elbow line from a card down to an oval, leaving the card's bottom, turning twice at right angles halfway, and meeting the oval's top, a filled diamond at its start and an open head of two strokes at its end. Rows 6-8: a curved arrow from the left card to the right one, one cubic through the elbow's corners, leaving the first card's right side and meeting the second's left side square to them, a square at its start and its head along the curve's end, the shaft cut back on the curve; under it, a dashed thin rule with a square at its left end and a filled head at its right. Every painter draws the curve as the cubic it is."
+    },
+    {
+      "id": "code",
+      "name": "Code, set as written",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "64 · Code, set as written · recorded"
+        },
+        "code-block": {}
+      },
+      "notes": "Pass: sixteen lines of TypeScript set as written in JetBrains Mono, in the text's own color (PLAN 2.131), its role's ligatures off (`calt: false`), so each `=>` draws as typed. Each line breaks only where the text breaks it: nothing wraps, hyphenates, or changes case, and the blank lines stand. The quotation mark that opens line 1 stands on the block's left edge, where prose would hang it into the margin (case 11). Each tab stands to the next stop of four columns: the comments of lines 5 and 6 start in one column, the 21st, and lines 10-13 step in four columns a tab. At the code role's 40 cu the sixteen lines run past rows 2-8, so the block shrinks to 34.5 cu, worked out from one layout: the largest size at which every line fits, and never under 24 cu, 12 pt at presentation size, by itself."
     }
   ],
   "overrides": {
