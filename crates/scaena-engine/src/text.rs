@@ -625,8 +625,10 @@ impl TextEngine {
             }
             None => (spec.spans.iter().map(|s| set_case(&s.text, s.style.case)).collect(), None),
         };
+        // Verse breaks only where it is written to (PLAN O.4b): no line of it takes a hyphen.
+        let unbroken = code.is_some() || spec.wrap.unwrap_or(base.wrap) == Wrap::None;
         if spec.hyphenate
-            && code.is_none()
+            && !unbroken
             && let Some(lang) = spec.lang.as_deref().and_then(hyphen::language)
         {
             let trie = hyphen::trie(lang)?;
@@ -643,8 +645,8 @@ impl TextEngine {
         let empty = text.is_empty();
         let text = if empty { " ".to_string() } else { text };
         let max_width = match spec.measure {
-            Some(chars) => width.min(chars * self.ch(fonts, theme, spec)?),
-            None => width,
+            Some(chars) if !unbroken => width.min(chars * self.ch(fonts, theme, spec)?),
+            _ => width,
         };
         let mut layout = {
             let mut builder = self.lcx.ranged_builder(&mut fonts.cx, &text, 1.0, false);
@@ -702,7 +704,7 @@ impl TextEngine {
         let breaking = Breaking { text: &text, rtl, room, segments: &segments, min_words };
         let requested = spec.wrap.unwrap_or(base.wrap);
         let mut fallback = match requested {
-            _ if code.is_some() => None,
+            _ if unbroken => None,
             Wrap::Greedy => None,
             _ if text.contains(['\n', '\r', '\u{2028}', '\u{2029}']) => Some("hard line break"),
             _ => None,
@@ -718,6 +720,12 @@ impl TextEngine {
             _ if code.is_some() => {
                 layout.break_all_lines(None);
                 Wrap::Greedy
+            }
+            // And so does verse, any text that wraps `none` (PLAN O.4b): 2.131's path, offered
+            // to any text, its lines aligned each as its own.
+            (Wrap::None, _) => {
+                layout.break_all_lines(None);
+                Wrap::None
             }
             (_, Some(_)) | (Wrap::Greedy, _) => {
                 fallback = fallback.or(greedy(&mut layout, breaking, max_width));

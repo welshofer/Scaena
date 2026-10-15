@@ -497,7 +497,7 @@ Every layout also has `in(canvas)`, the whole canvas, and `in(grid)`, the margin
 
 | Names | |
 |---|---|
-| Text roles (`role:`) | `display`, `headline`, `title`, `body`, `caption`, `label`, `axis`, `value`, `lede`, `kicker`, `figure`, `quote`, `numeral`, `hero`, `code` |
+| Text roles (`role:`) | `display`, `headline`, `title`, `body`, `caption`, `label`, `axis`, `value`, `lede`, `kicker`, `figure`, `quote`, `verse`, `numeral`, `hero`, `code` |
 | Motion presets (`enter:`, `exit:`, `emphasis:`) | `appear`, `fade`, `rise`, `words`, `bullets`, `typewriter`, `pop`, `scale`, `fadeScale`, `scaleBig`, `drop`, `moveInLeft`, `moveInRight`, `moveInTop`, `moveInBottom`, `skid`, `spin`, `pivot`, `swing`, `flip`, `grow`, `draw`, `pulse`, `blink`, `jiggle` |
 | Durations (`transition:`, `duration:`) | `fast`, `standard`, `slow` |
 | Easings (`ease:`) | `standard`, `in`, `out`, `linear` |
@@ -601,6 +601,8 @@ state plan layout:statement
   steps text role:body "Hire two engineers\nShip the API\nThe docs first\nThen the SDK" semantic:claim
     list:[{kind: number}, {kind: number}, {kind: bullet, level: 1}, {kind: bullet, level: 1}] at:in(statement)
 ```
+
+**Verse.** A poem goes in the theme's `verse` role, which sets `wrap: none`: its lines break only where you break them, each aligned on its own, so a centered haiku stands each line in the middle. Give it `fit: shrink` and a line too wide shrinks the whole poem, never under the role's `minSize` (W203 past it). Any text may take `wrap: none`. `docs/examples/haiku.deck.json` is a haiku on a slide (SPEC §3.5).
 
 **Code.** A text with `code` is code, set as written; give it the theme's `code` role, JetBrains Mono in the themes that ship. Its lines break only where it breaks them: nothing wraps or hangs, each tab stands to the next stop of four columns, and every line runs left to right. Name the language it is written in, or `plain`. Its words are its `text`, so it takes no `runs` or `list`, and none of what sets prose, such as `measure` or `fit:wrap` (E106 names each). Typed into, its box grows down first, as a presentation app's text box does; then the code shrinks to fit, to 12 pt at presentation size (24 cu on a 1920 × 1080 canvas) and no further unless a `minSize` lets it; code drawn smaller, by a `minSize`, a size of its own, or a `transform`, is W205. Code that still does not fit is W203, with how many of its lines fit. `docs/examples/code.deck.json` is a slide of it and a step that changes it (SPEC §3.5), and `docs/examples/code.deck.scn` its source.
 

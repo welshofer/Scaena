@@ -80,8 +80,11 @@ pub fn reading(t: NodeType, props: &Props) -> Reading {
         }
         _ => Vec::new(),
     };
+    let verse = t == NodeType::Text
+        && kind == Kind::Paragraph
+        && (text("role") == Some("verse") || text("wrap") == Some("none"));
     let alt = alt.filter(|a| !a.is_empty()).map(str::to_string);
-    Reading { kind, alt, lang: text("lang").map(str::to_string), items }
+    Reading { kind, alt, lang: text("lang").map(str::to_string), items, verse }
 }
 
 /// What a reader hears of a node a state shows (SPEC §3.12), as [`html`] reads it, in plain words:
@@ -215,7 +218,12 @@ impl Reader<'_> {
             let _ = write!(out, r#"<div data-node="{}"{}>{listed}</div>"#, attr(id), self.lang(reading));
             return;
         }
-        let _ = write!(out, r#"<{tag} data-node="{}"{}>{}</{tag}>"#, attr(id), self.lang(reading), say(0..words.len()));
+        let mut said = say(0..words.len());
+        // Verse is one paragraph, its lines set apart (PLAN O.4b).
+        if reading.is_some_and(|r| r.verse && r.alt.is_none()) {
+            said = said.replace("\r\n", "\n").replace(['\r', '\u{2028}', '\u{2029}'], "\n").replace('\n', "<br>");
+        }
+        let _ = write!(out, r#"<{tag} data-node="{}"{}>{said}</{tag}>"#, attr(id), self.lang(reading));
     }
 
     /// Bytes `range` of a text's words, from its stretches, as HTML: each stretch that links an
@@ -585,6 +593,36 @@ mod tests {
                 r#"<div role="img" data-node="rev" aria-label="Revenue by quarter, &quot;up&quot;"></div>"#,
                 r#"<table data-node="table"><tr><th scope="col">Region</th><th scope="col">Total</th></tr>"#,
                 r#"<tr><td>North east</td><td></td></tr><tr><td>South</td><td>pre sold</td></tr></table>"#,
+            )
+        );
+    }
+
+    #[test]
+    fn a_verse_reads_as_one_paragraph_its_lines_set_apart() {
+        let deck = Deck::from_json(
+            &json!({
+                "scaena": crate::FORMAT_VERSION,
+                "canvas": { "width": 1920, "height": 1080 },
+                "theme": "theme.json",
+                "nodes": {
+                    "poem": { "type": "text", "role": "verse", "text": "An old silent pond\nA frog jumps into the pond\nSplash! Silence again" },
+                    "set": { "type": "text", "role": "body", "wrap": "none", "text": "one & two\r\nthree" }
+                },
+                "states": [{ "id": "one", "layout": "title", "props": { "poem": {}, "set": {} } }]
+            })
+            .to_string(),
+        )
+        .expect("a deck");
+        assert!(read(NodeType::Text, json!({ "role": "verse" })).verse);
+        assert!(!read(NodeType::Text, json!({ "role": "quote" })).verse);
+        let snaps = crate::resolve_states(&deck).expect("snapshots");
+        let mut list = DisplayList::new([1920.0, 1080.0]);
+        list.ops = vec![layer(Some("poem"), None, vec![]), layer(Some("set"), None, vec![])];
+        assert_eq!(
+            html(&deck, &snaps[0], &list),
+            concat!(
+                r#"<p data-node="poem">An old silent pond<br>A frog jumps into the pond<br>Splash! Silence again</p>"#,
+                r#"<p data-node="set">one &amp; two<br>three</p>"#,
             )
         );
     }

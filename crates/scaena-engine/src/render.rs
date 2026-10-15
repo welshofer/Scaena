@@ -722,6 +722,8 @@ impl Engine {
         // One fit (SPEC §3.4, ADR-0029): the text's own, else its slot's (theme format 0.13), else
         // a shape's words and code shrink, else it wraps. Lint and the editors read it as set.
         let code = spec.code.is_some();
+        // Verse, any text that wraps `none`, breaks only where it is written to (PLAN O.4b).
+        let unbroken = !code && spec.wrap.unwrap_or(spec.role.wrap) == Wrap::None;
         let slot_fit = Grid::slot(theme, template, props.get("at")).and_then(|slot| slot.fit);
         let fit = TextFit::effective(typed_prop::<TextFit>(props, "fit")?, slot_fit, in_shape, code);
         let number = |key: &str| props.get(key).and_then(Value::as_f64).map(|v| v as f32);
@@ -751,6 +753,12 @@ impl Engine {
             // breaks again at another size.
             TextFit::Shrink if code && !fits(&base) => {
                 let floor = spec.code.as_ref().map_or(1.0, |c| c.least);
+                worked_out(&mut lay, &fits, &base, [cell[2], cell[3]], trim, floor)?
+            }
+            // Verse shrinks whole where a line runs too wide, worked out as code is, since no
+            // line of it breaks again at another size, to its `minSize`, else its role's: W203.
+            TextFit::Shrink if unbroken && !fits(&base) => {
+                let floor = number("minSize").or(spec.role.min_size).map_or(0.5, |m| m / spec.role.size).min(1.0);
                 worked_out(&mut lay, &fits, &base, [cell[2], cell[3]], trim, floor)?
             }
             TextFit::Shrink if !fits(&base) => {
@@ -820,7 +828,7 @@ const FIT_STEPS: u32 = 12;
 /// of its own size (ADR-0029).
 const CODE_STEP: f32 = 1.0 / 64.0;
 
-/// The scale at which a code text fits `room`, `[width, height]`, and its layout there, worked out
+/// The scale at which a code text, or verse (PLAN O.4b), fits `room`, `[width, height]`, and its layout there, worked out
 /// from `base`, its layout at its own size: no line of it breaks again at another size, so its
 /// width and its height go as its size. The least of the room over each, then down by
 /// [`CODE_STEP`] while it does not fit (a font whose shapes change with its size, by its `opsz`,
@@ -944,7 +952,8 @@ fn measure_text(
         (None, taffy::AvailableSpace::MinContent) => (0.0, true),
         (None, taffy::AvailableSpace::MaxContent) => (1.0e7, true),
     };
-    let laid = if greedy {
+    // Verse is as wide as its longest line at any room (PLAN O.4b).
+    let laid = if greedy && spec.wrap.unwrap_or(spec.role.wrap) != Wrap::None {
         let spec = TextSpec { wrap: Some(Wrap::Greedy), ..spec.clone() };
         text.layout(fonts, theme, &spec, width)?
     } else {

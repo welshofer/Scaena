@@ -431,6 +431,7 @@ fn the_example_decks_and_b1_lint_clean() {
         "docs/examples/higher-ed.deck.json",
         "docs/examples/ridgeline.deck.json",
         "docs/examples/code.deck.json",
+        "docs/examples/haiku.deck.json",
         "tests/bench/b1.scaena",
     ] {
         let (exit, found) = lint(&Path::new(ROOT).join(bundle));

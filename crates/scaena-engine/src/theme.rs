@@ -112,6 +112,8 @@ pub enum Wrap {
     Greedy,
     Pretty,
     Balance,
+    /// Lines break only where the text breaks them (PLAN O.4b).
+    None,
 }
 
 impl From<node_model::Wrap> for Wrap {
@@ -120,6 +122,7 @@ impl From<node_model::Wrap> for Wrap {
             node_model::Wrap::Greedy => Wrap::Greedy,
             node_model::Wrap::Pretty => Wrap::Pretty,
             node_model::Wrap::Balance => Wrap::Balance,
+            node_model::Wrap::None => Wrap::None,
         }
     }
 }
