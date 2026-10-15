@@ -48,11 +48,6 @@ struct ScaenaApp: App {
     var body: some Scene {
         DocumentGroup(newDocument: { ScaenaDocument() }) { file in
             DeckView(document: file.document)
-                #if !os(macOS)
-                // The launch screen's buttons stay in the window under the deck, out of sight, and
-                // are not read while it is open (`LaunchHidden`).
-                .background(LaunchHidden())
-                #endif
         }
         #if os(macOS)
         // Room for the slides, the slide, and the inspector, as a presentation app opens (PLAN 3.18).

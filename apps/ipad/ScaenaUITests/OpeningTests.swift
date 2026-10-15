@@ -101,8 +101,7 @@ final class OpeningTests: XCTestCase {
         keep(app, as: "b1")
         keepElements(app, as: "b1-elements")
         // What VoiceOver reads is what the window shows (PLAN 3.18): the slide's layout says its
-        // label once, then the layout; a symbol drawn beside a choice is not read; and the launch
-        // screen's buttons, which stay in the window under the deck, out of sight, are not read.
+        // label once, then the layout; and a symbol drawn beside a choice is not read.
         let layout = app.buttons.matching(NSPredicate(format: "identifier == 'layout-choose'")).firstMatch
         XCTAssertTrue(
             layout.waitForExistence(timeout: 10), "the cover's inspector offers no layout: \(app.debugDescription)")
@@ -116,11 +115,6 @@ final class OpeningTests: XCTestCase {
         if draft.exists {
             XCTAssertFalse(
                 draft.images.firstMatch.exists, "the sparkles of Draft Presenter Notes are read: \(draft.debugDescription)")
-        }
-        for title in ["New Deck", "New from a Prompt…"] {
-            let launch = app.buttons.matching(NSPredicate(format: "label == %@", title)).firstMatch
-            XCTAssertTrue(
-                wait(5) { !launch.exists }, "the launch screen's \(title) is read under the deck: \(app.debugDescription)")
         }
     }
 
