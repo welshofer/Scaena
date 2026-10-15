@@ -64,7 +64,7 @@ pub const BASELINES: usize = 2000;
 pub fn grid(deck: &Deck, theme: &Theme, format: Option<&str>) -> Result<Guides, EngineError> {
     let (deck, theme) = project(deck, theme, format)?;
     let canvas = [deck.canvas.width as f32, deck.canvas.height as f32];
-    let grid = Grid::from_theme(&theme, canvas)?;
+    let grid = Grid::from_theme(&theme, canvas)?.mirrored(scaena_core::direction::mirrored(&deck));
     let (columns, rows) = (grid.columns(), grid.rows());
     let baselines = match (theme.grid.baseline.map(|p| p as f32), rows.first(), rows.last()) {
         (Some(pitch), Some(first), Some(last)) if pitch.is_finite() && pitch > 0.0 => {
@@ -121,12 +121,12 @@ pub fn layout(
     };
     let (projected, laid) = project(deck, theme, format)?;
     let canvas = [projected.canvas.width as f32, projected.canvas.height as f32];
-    let grid = Grid::from_theme(&laid, canvas)?;
+    let grid = Grid::from_theme(&laid, canvas)?.mirrored(scaena_core::direction::mirrored(&projected));
     let slots = laid.slots(&name).ok_or_else(|| EngineError::Theme(format!("layout `{name}` is not in the theme")))?;
     let boxes = slots
         .iter()
         .map(|(slot, def)| {
-            let rect = grid.cell(&laid, Some(&name), Some(&serde_json::json!({ "in": slot })))?;
+            let rect = grid.shown(grid.cell(&laid, Some(&name), Some(&serde_json::json!({ "in": slot })))?);
             let value =
                 |r: &Option<scaena_core::model::values::Range>| r.as_ref().and_then(|r| serde_json::to_value(r).ok());
             Ok(SlotBox {
