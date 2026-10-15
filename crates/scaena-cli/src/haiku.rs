@@ -86,27 +86,6 @@ fn sent(request: &scaena_chat::Request) -> scaena_ops::narrative::Reply {
     crate::generate::fetch(&crate::generate::agent(), &request)
 }
 
-/// Today, as the notes say a day: `October 15, 2026`, by the system's clock in UTC.
-fn today() -> String {
-    const MONTHS: [&str; 12] = [
-        "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November",
-        "December",
-    ];
-    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
-    let days = (secs / 86_400) as i64;
-    // Days to a civil date (Howard Hinnant's algorithm).
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = yoe + era * 400 + i64::from(m <= 2);
-    format!("{} {d}, {y}", MONTHS[(m - 1) as usize])
-}
-
 pub fn run(a: HaikuArgs, json: bool) -> Result<ExitCode> {
     let b = scaena_ops::open(&a.bundle).map_err(|e| anyhow!(e))?;
     let provider = match &a.provider {
@@ -175,7 +154,7 @@ pub fn run(a: HaikuArgs, json: bool) -> Result<ExitCode> {
         (Some(state), None, None) => Where::After(state.clone()),
         (None, None, None) => Where::After(a.slide.clone().unwrap_or(last)),
     };
-    let credit = scaena_ops::haiku::credited(&by, &today(), &about);
+    let credit = scaena_ops::haiku::credited(&by, &scaena_ops::haiku::today(), &about);
     let written = scaena_ops::haiku::writing(&b, &poem, note, &to, a.attribution.as_deref(), &credit, a.dry_run)
         .map_err(|e| anyhow!(e))?;
     if json {

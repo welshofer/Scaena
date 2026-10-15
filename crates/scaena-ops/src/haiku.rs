@@ -398,6 +398,35 @@ pub fn writing(
     })
 }
 
+/// Today, as a haiku's notes say a day, `October 15, 2026`, by this machine's clock in UTC: what a
+/// client that gives no date of its own says (the CLI, an agent's server).
+pub fn today() -> String {
+    const MONTHS: [&str; 12] = [
+        "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November",
+        "December",
+    ];
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let z = (secs / 86_400) as i64 + 719_468;
+    // Days to a civil date (Howard Hinnant's).
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{} {d}, {y}", MONTHS[(m - 1) as usize])
+}
+
+/// What `deck_haiku` answers: what to ask, or the haiku written.
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
+#[serde(untagged)]
+pub enum Haikued {
+    Asked(Asking),
+    Written(Written),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -514,6 +514,48 @@ pub struct DeckHistory {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct DeckHaiku {
+    /// The bundle: a directory, a `.scaena` zip, or a `deck.json`.
+    pub bundle: String,
+    /// What the haiku is about. Without it, the slide `slide` names, else the whole talk.
+    #[serde(default)]
+    pub topic: Option<String>,
+    /// The state whose slide the haiku is about.
+    #[serde(default)]
+    pub slide: Option<String>,
+    /// The language it is written in (BCP 47); else the deck's.
+    #[serde(default)]
+    pub lang: Option<String>,
+    /// The poem, a line each: given, it is counted and placed; without it, the tool answers what
+    /// to ask.
+    #[serde(default)]
+    pub lines: Option<Vec<String>>,
+    /// Put it on a new Haiku slide after this state's slide (the default: after `slide`, else after
+    /// the last).
+    #[serde(default)]
+    pub after: Option<String>,
+    /// Put it in this state's slide's empty verse place.
+    #[serde(default)]
+    pub on: Option<String>,
+    /// Put it over this verse text, the looks of the words it keeps kept.
+    #[serde(default)]
+    pub replace: Option<String>,
+    /// Who wrote it, or what it is on, set under it; never filled in for the person.
+    #[serde(default)]
+    pub attribution: Option<String>,
+    /// The model that wrote the lines, which the slide's notes name; else the client.
+    #[serde(default)]
+    pub model: Option<String>,
+    /// The day it was written, as the notes say it (`October 15, 2026`); else this machine's.
+    #[serde(default)]
+    pub date: Option<String>,
+    /// Say what it would write, and write nothing.
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SpineUpdate {
     /// The bundle: a directory, a `.scaena` zip, or a `deck.json`.
     pub bundle: String,
@@ -907,6 +949,46 @@ impl Scaena {
     async fn icon_find(&self, Parameters(a): Parameters<IconFind>) -> Result<Json<scaena_ops::icons::Icons>, String> {
         let limit = a.limit.unwrap_or(20);
         blocking(move || Ok(scaena_ops::icons::find(&a.query, a.weight, limit))).await.map(Json)
+    }
+
+    #[tool(description = "A haiku for the deck (PLAN O.4e, ADR-0030), about `topic`, the slide `slide` shows, or \
+        the whole talk. It calls no model. Without `lines`, it answers what to ask: the instructions and the prompt, \
+        in the deck's language, and how lines are counted; write the poem as asked. With `lines`, it counts them \
+        against 5, 7, and 5 (the engine counts English syllables and Japanese morae) and places them in one patch: \
+        on a new Haiku slide after `after` (else after `slide`, else the last), in `on`'s empty verse place, or over \
+        the verse text `replace`. The slide's notes say which model wrote it (`model`, else this client), when, and \
+        about what; nothing on the slide does. A poem off 5-7-5 is placed all the same: ask once more first.")]
+    async fn deck_haiku(
+        &self,
+        Parameters(a): Parameters<DeckHaiku>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<Json<scaena_ops::haiku::Haikued>, String> {
+        let author = author(&context);
+        let client = context.client_info().map_or_else(|| "an agent".to_string(), |c| c.name.clone());
+        blocking(move || {
+            use scaena_ops::haiku::{Haikued, Poem, Where, Writer};
+            let b = open_by(&a.bundle, author)?;
+            let (about, asking) =
+                scaena_ops::haiku::asking(&b, a.topic.as_deref(), a.slide.as_deref(), a.lang.as_deref(), None)?;
+            let Some(lines) = a.lines else { return Ok(Haikued::Asked(asking)) };
+            let taken = scaena_core::writing::haiku::Taken { lines, reading: None };
+            let poem = Poem::counted(taken, &asking.lang);
+            let last = b.deck.states.last().map(|s| s.id.clone()).unwrap_or_default();
+            let to = match (a.after, a.on, a.replace) {
+                (_, on, Some(node)) => Where::Replace { node, state: on },
+                (_, Some(state), None) => Where::On(state),
+                (Some(state), None, None) => Where::After(state),
+                (None, None, None) => Where::After(a.slide.clone().unwrap_or(last)),
+            };
+            let by = Writer { model: a.model.unwrap_or(client), provider: None };
+            let date = a.date.unwrap_or_else(scaena_ops::haiku::today);
+            let credit = scaena_ops::haiku::credited(&by, &date, &about);
+            let written =
+                scaena_ops::haiku::writing(&b, &poem, None, &to, a.attribution.as_deref(), &credit, a.dry_run)?;
+            Ok(Haikued::Written(written))
+        })
+        .await
+        .map(Json)
     }
 
     #[tool(description = "Replace the deck's spine, as a patch: checked, refused if it makes the deck invalid, \

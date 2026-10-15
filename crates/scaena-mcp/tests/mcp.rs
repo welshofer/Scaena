@@ -94,6 +94,7 @@ async fn the_tools_and_resources_are_listed() {
             "deck_diff",
             "deck_export",
             "deck_find",
+            "deck_haiku",
             "deck_health",
             "deck_history",
             "deck_inspect",
@@ -411,4 +412,41 @@ async fn an_agents_edits_are_its_own_in_a_bundles_history() {
         assert_eq!((last.author.as_deref(), last.message.as_deref()), (Some(&*author), Some("patch: set_text")));
         client.cancel().await.unwrap();
     }
+}
+
+/// `deck_haiku` (PLAN O.4e) calls no model: without lines it says what to ask; with them it counts
+/// and places them in one patch, the notes naming the model it is told of, else the client, and the
+/// history recording the change as the client's.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_haiku_is_asked_then_placed_as_the_clients() {
+    let bundle = scratch("haiku").join("q3");
+    let opts = scaena_store::SaveOptions { subset_fonts: false, now: "2026-10-03T00:00:00Z".into(), history: true };
+    scaena_ops::open(&Path::new(EXAMPLES).join("revenue.deck.json")).unwrap().save(&bundle, &opts).unwrap();
+    let client = connect_as(Some("claude-test")).await;
+    let asked = ok(&client, "deck_haiku", json!({ "bundle": path(&bundle), "topic": "a quarter that doubled" })).await;
+    assert_eq!(asked["prompt"], "Write a haiku about: a quarter that doubled", "{asked}");
+    assert!(asked["instructions"].as_str().unwrap().contains("three lines, of five, seven, and five"));
+    assert!(asked["counted"].as_str().unwrap().starts_with("Syllables"));
+    let talk = ok(&client, "deck_haiku", json!({ "bundle": path(&bundle) })).await;
+    assert!(talk["prompt"].as_str().unwrap().contains("<talk>"), "{talk}");
+
+    let lines = ["Numbers climb at dawn", "the quarter doubles its reach", "we count, and we breathe"];
+    let written = ok(
+        &client,
+        "deck_haiku",
+        json!({ "bundle": path(&bundle), "topic": "a quarter that doubled", "lines": lines, "date": "October 15, 2026" }),
+    )
+    .await;
+    assert_eq!(written["kept"], "kept", "{written}");
+    assert_eq!(written["patched"]["applied"], true);
+    let b = scaena_ops::open(&bundle).unwrap();
+    let state = b.deck.states.iter().find(|s| s.id == written["state"]).unwrap();
+    assert_eq!(state.layout.as_deref(), Some("haiku"));
+    assert_eq!(
+        state.notes.as_deref(),
+        Some("Haiku written by claude-test on October 15, 2026, about a quarter that doubled.")
+    );
+    let last = b.history().unwrap().expect("it keeps history").changes().pop().unwrap();
+    assert_eq!((last.author.as_deref(), last.message.as_deref()), (Some("agent:claude-test"), Some("haiku")));
+    client.cancel().await.unwrap();
 }
