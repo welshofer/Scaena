@@ -691,7 +691,8 @@ impl Session {
     /// locked (PLAN 2.95), the node whose lock holds it: itself, or what holds it; `takesWords`, a
     /// shape that takes words, and `words`, the text that holds a shape's (PLAN 2.108); `joins`,
     /// the two nodes a connector joins, from and to, and `route`, its line's points, which a
-    /// pointer picks it by (PLAN 2.109).
+    /// pointer picks it by (PLAN 2.109); `code`, a code text's language as the deck names it and as
+    /// a person calls it, `{ "language", "said" }`, which its chip shows (PLAN 2.133).
     pub fn boxes_json(&mut self, state: &str) -> Result<Vec<serde_json::Value>, Error> {
         let boxes = self.boxes(state)?;
         // Each connector's line (PLAN 2.109).
@@ -714,6 +715,20 @@ impl Session {
             None
         };
         let locked: Vec<Option<String>> = boxes.iter().map(|b| held(&b.node)).collect();
+        // Each code text's language, as the state shows it (PLAN 2.133).
+        let codes: Vec<Option<serde_json::Value>> = {
+            let snapshots = scaena_core::resolve_states(&self.deck).map_err(|e| Error::Deck(e.to_string()))?;
+            let snap = snapshots.into_iter().find(|s| s.state_id == state);
+            (boxes.iter())
+                .map(|b| {
+                    let over = self.deck.overrides.get(&b.node).and_then(|o| o.get("code"));
+                    let code = over.or_else(|| snap.as_ref()?.nodes.get(&b.node)?.get("code"))?;
+                    let name = code.get("language").and_then(serde_json::Value::as_str).unwrap_or("plain");
+                    let said = scaena_core::code::language(name).map_or(name, |l| l.said);
+                    Some(serde_json::json!({ "language": name, "said": said }))
+                })
+                .collect()
+        };
         // Each shape's words (PLAN 2.108): the text it holds, where the state shows it.
         let words: std::collections::HashMap<&str, &str> = (self.deck.nodes.iter())
             .filter(|(id, _)| boxes.iter().any(|b| b.node == **id))
@@ -727,8 +742,8 @@ impl Session {
                 Some((!matches!(kind, Some("line" | "arrow")), words.get(b.node.as_str()).map(|w| w.to_string())))
             })
             .collect();
-        Ok((boxes.into_iter().zip(locked).zip(shapes).zip(routes))
-            .map(|(((b, locked), shape), route)| {
+        Ok((boxes.into_iter().zip(locked).zip(shapes).zip(routes).zip(codes))
+            .map(|((((b, locked), shape), route), code)| {
                 let mut out =
                     serde_json::json!({ "node": b.node, "rect": b.rect, "parent": b.parent, "draws": b.draws });
                 if let Some(map) = b.transform {
@@ -754,9 +769,28 @@ impl Session {
                 if let Some(by) = locked {
                     out["locked"] = serde_json::json!(by);
                 }
+                if let Some(code) = code {
+                    out["code"] = code;
+                }
                 out
             })
             .collect())
+    }
+
+    /// The words of code text `node` as `state` shows them, the deck's `overrides` over it: what
+    /// Copy Code puts on the clipboard as text (PLAN 2.133). An error where it is no code there.
+    pub fn code_words(&self, state: &str, node: &str) -> Result<String, Error> {
+        let snapshots = scaena_core::resolve_states(&self.deck).map_err(|e| Error::Deck(e.to_string()))?;
+        let mut shown = (snapshots.into_iter().find(|s| s.state_id == state))
+            .and_then(|mut s| s.nodes.remove(node))
+            .ok_or_else(|| Error::Ops(format!("`{node}` is not on screen in `{state}`")))?;
+        if let Some(over) = self.deck.overrides.get(node) {
+            scaena_core::tracking::merge_props(&mut shown, over);
+        }
+        match (shown.get("code").is_some_and(serde_json::Value::is_object), shown.get("text")) {
+            (true, Some(serde_json::Value::String(text))) => Ok(text.clone()),
+            _ => Err(Error::Ops(format!("`{node}` is no code in `{state}`"))),
+        }
     }
 
     /// [`Session::hit`] as a client lists them (ADR-0013): `[{ "node", "rect", "containers",

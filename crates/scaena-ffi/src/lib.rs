@@ -374,7 +374,9 @@ pub unsafe extern "C" fn scaena_picture(bytes: *const u8, len: usize) -> *mut c_
 /// patch would make them; and `reach {ops}`, the states a patch changes. Text typed in place
 /// (PLAN 3.9): `typed {ops, at?}`, `replace_text`, `style_text`, and `list` ops by the user,
 /// validated but not linted, and whether the deck changed; and `bolding` and `italicizing
-/// {state, node, from, to}`, the look ⌘B and ⌘I give characters. A text's characters (PLAN
+/// {state, node, from, to}`, the look ⌘B and ⌘I give characters; and `codeWords {state, node}`,
+/// a code text's words as the state shows them, which Copy Code copies (PLAN 2.133). A text's
+/// characters (PLAN
 /// 3.10): `characterChoices {state, node, from, to}`, what an inspector offers for them; and
 /// `linkAt {state, x, y}`, the link drawn there at rest, where a click goes. Nodes added and
 /// taken away (PLAN 3.11): `inserting {state, n, x, y, named?, with?}`, the patch that inserts
@@ -1361,6 +1363,8 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             let at = optional("at").and_then(scaena_session::store::seconds);
             json!(s.typed(&Value::Array(ops), at).map_err(said)?)
         }
+        // The words of a code text as a state shows them, which Copy Code copies (PLAN 2.133).
+        "codeWords" => json!(s.code_words(arg("state")?, arg("node")?).map_err(said)?),
         // What ⌘B and ⌘I give the characters `from` to `to` (Unicode scalar values): `style_text`'s
         // `look` (PLAN 2.38, 2.40).
         "bolding" | "italicizing" => {

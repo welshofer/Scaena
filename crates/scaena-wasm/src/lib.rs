@@ -668,6 +668,12 @@ impl Player {
         serde_json::to_string(&self.0.character_choices(state, node, from, to).map_err(js)?).map_err(js)
     }
 
+    /// The words of code text `node` as `state` shows them: what Copy Code copies (PLAN 2.133).
+    #[wasm_bindgen(js_name = codeWords)]
+    pub fn code_words(&self, state: &str, node: &str) -> Result<String, JsError> {
+        self.0.code_words(state, node).map_err(js)
+    }
+
     /// What ⌘B gives the characters `from` to `to` (Unicode scalar values) of `node`'s text
     /// in `state`, as JSON: `style_text`'s `look` (PLAN 2.38).
     pub fn bolding(&mut self, state: &str, node: &str, from: usize, to: usize) -> Result<String, JsError> {

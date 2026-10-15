@@ -404,7 +404,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "pasting":
         current(data.source);
         layOut(data.format);
-        return post({ type: "pasted", id: data.id, pasted: JSON.parse(player.pasting(data.clip, data.state, ...data.at)) as Pasted });
+        return post({ type: "pasted", id: data.id, pasted: JSON.parse(player.pasting(data.clip, data.state, ...data.at, JSON.stringify(data.hints ?? {}))) as Pasted });
       case "thumbnails": {
         layOut(data.format);
         const each = data.each ? (thumb: Thumb) => post({ type: "thumbed", id: data.id, thumb }, thumb.pixels ? [thumb.pixels] : []) : undefined;
@@ -456,6 +456,12 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "characterChoices": {
         const choices = JSON.parse(player.characterChoices(data.state, data.node, data.from, data.to)) as Choices;
         return post({ type: "characterChoices", id: data.id, choices });
+      }
+      case "codeWords": {
+        const behind = !player.compiledFrom(data.source);
+        if (behind) saveable(data.source);
+        layOut(data.format, behind);
+        return post({ type: "codeWords", id: data.id, words: player.codeWords(data.state, data.node) });
       }
       case "bolding": {
         const behind = !player.compiledFrom(data.source);
