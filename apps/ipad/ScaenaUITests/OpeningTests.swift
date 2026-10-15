@@ -49,6 +49,22 @@ final class OpeningTests: XCTestCase {
         let audience = app.staticTexts.matching(NSPredicate(format: "label == 'Audience'")).firstMatch
         XCTAssertTrue(audience.exists, "the audience field has no label: \(app.debugDescription)")
         keep(app, as: "prompt")
+        // And in a person's words (PLAN 3.18): a length as a range is written, with an en dash; a
+        // link as what it may be, with an example, not as a syntax. The link's row stands lower in
+        // the brief: where it is not shown, the brief is scrolled up.
+        let length = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'prompt-length'"))
+            .firstMatch
+        XCTAssertTrue(length.waitForExistence(timeout: 5), "the brief has no length: \(app.debugDescription)")
+        let lengthSaid = "\(length.label) \(length.value as? String ?? "")"
+        XCTAssertTrue(
+            lengthSaid.contains("5\u{2013}10 slides"), "the length is not written as a range: \(lengthSaid)")
+        let link = app.textFields.matching(NSPredicate(format: "identifier == 'prompt-link'")).firstMatch
+        if !link.waitForExistence(timeout: 3) { app.swipeUp() }
+        XCTAssertTrue(link.waitForExistence(timeout: 5), "the brief has no link field: \(app.debugDescription)")
+        let hint = link.placeholderValue ?? ""
+        XCTAssertTrue(
+            hint.contains("sec:AAPL") && !hint.contains("TICKER") && !hint.contains("owner/repo"),
+            "the link field reads as a syntax: \(hint)")
         app.buttons["prompt-cancel"].tap()
         XCTAssertTrue(wait(10) { !topic.exists }, "Cancel left the brief up: \(app.debugDescription)")
         XCTAssertTrue(prompting.waitForExistence(timeout: 10), "Cancel went elsewhere than the launch screen: \(app.debugDescription)")
@@ -64,6 +80,28 @@ final class OpeningTests: XCTestCase {
         settle()
         keep(app, as: "b1")
         keepElements(app, as: "b1-elements")
+        // What VoiceOver reads is what the window shows (PLAN 3.18): the slide's layout says its
+        // label once, then the layout; a symbol drawn beside a choice is not read; and the launch
+        // screen's buttons, which stay in the window under the deck, out of sight, are not read.
+        let layout = app.buttons.matching(NSPredicate(format: "identifier == 'layout-choose'")).firstMatch
+        XCTAssertTrue(
+            layout.waitForExistence(timeout: 10), "the cover's inspector offers no layout: \(app.debugDescription)")
+        XCTAssertLessThanOrEqual(
+            layout.label.components(separatedBy: "Layout").count, 2, "the layout says its label twice: \(layout.label)")
+        XCTAssertTrue(
+            layout.label.contains("Title") || (layout.value as? String) == "Title",
+            "the layout does not say the cover's: \(layout.label)")
+        XCTAssertFalse(layout.images.firstMatch.exists, "the layout's chevron is read: \(layout.debugDescription)")
+        let draft = app.buttons.matching(NSPredicate(format: "label == 'Draft Presenter Notes'")).firstMatch
+        if draft.exists {
+            XCTAssertFalse(
+                draft.images.firstMatch.exists, "the sparkles of Draft Presenter Notes are read: \(draft.debugDescription)")
+        }
+        for title in ["New Deck", "New from a Prompt…"] {
+            let launch = app.buttons.matching(NSPredicate(format: "label == %@", title)).firstMatch
+            XCTAssertTrue(
+                wait(5) { !launch.exists }, "the launch screen's \(title) is read under the deck: \(app.debugDescription)")
+        }
     }
 
     /// A text inserted from the toolbar is typed in, its words selected, as a presentation app's

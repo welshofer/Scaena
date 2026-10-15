@@ -137,7 +137,8 @@ try {
   await page.selectOption("#look-data", "@segments");
   check(await reads("q3-chart chart:bar data:@segments x:{field: segment} y:{field: sales}"), "the chart reads the segments and their sales");
   check(!(await source()).includes("series:{field: product}"), "its series, which segments have no column for, goes");
-  check((await status()).startsWith("Data: segments · "), `the status says what changed: ${await status()}`);
+  // The source as a person names it (PLAN 3.18): its rows written in the deck, by its name in words.
+  check((await status()).startsWith("Data: Segments · "), `the status says what changed: ${await status()}`);
 
   // Each a step to undo.
   await page.locator("#overlay").focus();

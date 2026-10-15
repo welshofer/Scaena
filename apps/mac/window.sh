@@ -402,6 +402,9 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
       pointer click $((gx + gw - 6)) $((gy + gh / 2))
       sleep 2
       shot cue-lane
+      # The chart's inspector names its data by its file's name in words, not by the deck's id for
+      # it, and calls a channel that reads no column None, not Default (PLAN 3.18).
+      echo "the chart's data: $(frames value inspector-data); small multiples by: $(holds 'inspector-facet/field' | tr '\n' ';')"
       read -r sx sy sw sh <<<"$(frames find canvas)" || true
       pointer click $((sx + sw / 2)) $((sy + sh / 2))
       sleep 1
@@ -544,6 +547,8 @@ menu File "New from a Prompt…"
 sleep 3
 shot prompt
 echo "New from a Prompt: the windows $(app 'get name of every window' | tr '\n' ' '); the topic $(frames find prompt-topic), Generate $(frames find prompt-generate)"
+# Its length a range as it is written, with an en dash, not Narrato's hyphen.
+echo "the length it asks for: $(frames value prompt-length)"
 app 'key code 53' >/dev/null
 sleep 2
 echo "Escape: the windows $(app 'get name of every window' | tr '\n' ' ')"

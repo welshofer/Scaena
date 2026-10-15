@@ -68,6 +68,10 @@ final class AssistantTests: XCTestCase {
             XCTAssertTrue(wait(5) { kept.exists && kept.label.hasSuffix("st-1") }, "the key is not kept: \(app.debugDescription)")
             XCTAssertFalse(field.exists, "a key kept shows masked, not in a field")
             keep(app, as: "key-kept")
+            // Each provider says what its key is for, as a sentence would (PLAN 3.18).
+            let openai = app.descendants(matching: .any)
+                .matching(NSPredicate(format: "label CONTAINS 'GPT and pictures'")).firstMatch
+            XCTAssertTrue(openai.exists, "OpenAI's key does not say what it is for: \(app.debugDescription)")
             // Replace's tap is Replace's alone: a row's buttons each take their own.
             replace.tap()
             XCTAssertTrue(field.waitForExistence(timeout: 5), "Replace… shows no field")
