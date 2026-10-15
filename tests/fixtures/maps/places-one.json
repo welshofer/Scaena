@@ -1,0 +1,36 @@
+{
+  "results": [
+    {
+      "datasource": {
+        "sourcename": "openstreetmap",
+        "attribution": "© OpenStreetMap contributors",
+        "license": "Open Database License",
+        "url": "https://www.openstreetmap.org/copyright"
+      },
+      "name": "Ferry Building",
+      "country": "United States",
+      "country_code": "us",
+      "state": "California",
+      "city": "San Francisco",
+      "postcode": "94111",
+      "street": "The Embarcadero",
+      "housenumber": "1",
+      "lon": -122.3937,
+      "lat": 37.7955,
+      "result_type": "amenity",
+      "formatted": "Ferry Building, 1 The Embarcadero, San Francisco, CA 94111, United States of America",
+      "address_line1": "Ferry Building",
+      "address_line2": "1 The Embarcadero, San Francisco, CA 94111, United States of America",
+      "rank": {
+        "importance": 0.6,
+        "popularity": 8.4,
+        "confidence": 1,
+        "match_type": "full_match"
+      },
+      "place_id": "recorded-1"
+    }
+  ],
+  "query": {
+    "text": "Ferry Building, San Francisco"
+  }
+}
