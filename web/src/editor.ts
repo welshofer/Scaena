@@ -2134,6 +2134,13 @@ async function edit(source: Source, opened?: Stage) {
       },
       // A picture made by the user's image model in the image's place (PLAN 2.107), unless a lock
       // holds it (PLAN 2.95), which no picture replaces.
+      // A map in the image's place (PLAN O.1c), unless a lock holds it.
+      {
+        label: "Put a map in it…",
+        where: ["node"],
+        applies: () => one() && typeOf(picked()[0]) === "image" && !board.lockedBy(picked()[0]),
+        run: () => void mapping.open(),
+      },
       {
         label: "Make a picture to replace it…",
         where: ["node"],
@@ -2250,9 +2257,8 @@ async function edit(source: Source, opened?: Stage) {
       { label: "Paste", keys: `${MOD}V`, group: "Edit", where: ["canvas"], applies: ready, run: pasted },
       ...inserts,
       icon,
-      // A picture made by the user's image model (PLAN 2.107): in the slide's empty place for one,
-      // else where the pointer last pressed; for an image selected, unless a lock holds it, the
-      // command that replaces it.
+      // A map (ADR-0030, PLAN O.1c): in the slide's empty place for a picture, else where the
+      // pointer last pressed; for an image selected, the command that puts one in it.
       {
         label: "Insert a map…",
         where: ["canvas"],
@@ -2260,12 +2266,9 @@ async function edit(source: Source, opened?: Stage) {
         applies: () => ready(),
         run: () => void mapping.open(),
       },
-      {
-        label: "Put a map in it…",
-        where: ["node"],
-        applies: () => one() && typeOf(picked()[0]) === "image" && !board.lockedBy(picked()[0]),
-        run: () => void mapping.open(),
-      },
+      // A picture made by the user's image model (PLAN 2.107): in the slide's empty place for one,
+      // else where the pointer last pressed; for an image selected, unless a lock holds it, the
+      // command that replaces it.
       {
         label: "Make a picture…",
         where: ["canvas"],

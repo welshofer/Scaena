@@ -485,7 +485,8 @@ impl Session {
         slot: Option<String>,
         rect: [f32; 4],
     ) -> Result<scaena_ops::maps::Target, Error> {
-        scaena_ops::maps::target_for(&self.deck, &self.theme, state, node, slot, rect).map_err(|e| Error::Ops(e.message))
+        scaena_ops::maps::target_for(&self.deck, &self.theme, state, node, slot, rect)
+            .map_err(|e| Error::Ops(e.message))
     }
 
     /// Where a map asked for by `aim` goes, as `map_fetch` asks (PLAN O.1c): the image named, else

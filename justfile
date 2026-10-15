@@ -253,6 +253,7 @@ web-smoke: site
     node web/assistant.mjs
     node web/writing.mjs
     node web/picture.mjs
+    node web/map.mjs
     node web/seeing.mjs
     node web/commands.mjs
     node web/export.mjs

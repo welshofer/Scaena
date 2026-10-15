@@ -3093,7 +3093,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       }
     });
   }
-  listen(overlay, "dragover", (e) => {  listen(overlay, "dragover", (e) => {
+  listen(overlay, "dragover", (e) => {
     const types = e.dataTransfer?.types ?? [];
     if (types.includes("Files") || types.includes(BUNDLE_PATH)) e.preventDefault();
   });

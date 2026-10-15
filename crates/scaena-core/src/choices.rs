@@ -331,7 +331,9 @@ pub fn choices(
         }
         // A pin's label and color where it has a pin; where its credit stands where it was
         // fetched (ADR-0030).
-        if (prop.starts_with("pin/") && !shown.contains_key("pin")) || (prop == "credit" && !shown.contains_key("fetched")) {
+        if (prop.starts_with("pin/") && !shown.contains_key("pin"))
+            || (prop == "credit" && !shown.contains_key("fetched"))
+        {
             return None;
         }
         // A bar chart's bars turn (PLAN 1.29), and a range's values have intervals (PLAN
@@ -452,7 +454,15 @@ pub fn choices(
         Some(Field { prop: prop.into(), takes, value: value.cloned(), lives, literal, theme, words: None })
     });
     let fetched = (node_type == NodeType::Image).then(|| fetched_said(&shown)).flatten();
-    Ok(Choices { node: node.into(), node_type, state: state.into(), fields: fields.collect(), said: None, noun: None, fetched })
+    Ok(Choices {
+        node: node.into(),
+        node_type,
+        state: state.into(),
+        fields: fields.collect(),
+        said: None,
+        noun: None,
+        fetched,
+    })
 }
 
 /// Where a fetched picture came from, said (ADR-0030): "Map from Geoapify, fetched 15 October

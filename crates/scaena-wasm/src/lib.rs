@@ -743,7 +743,13 @@ impl Player {
     /// `node`, the empty place `slot`, or the box `rect`, JSON `[x, y, w, h]`; JSON `{ state, node?,
     /// slot?, rect, style, lang? }`, which `mapping` takes back.
     #[wasm_bindgen(js_name = mapTarget)]
-    pub fn map_target(&self, state: &str, node: Option<String>, slot: Option<String>, rect: &str) -> Result<String, JsError> {
+    pub fn map_target(
+        &self,
+        state: &str,
+        node: Option<String>,
+        slot: Option<String>,
+        rect: &str,
+    ) -> Result<String, JsError> {
         let rect: [f32; 4] = serde_json::from_str(rect).map_err(js)?;
         serde_json::to_string(&self.0.map_target(state, node, slot, rect).map_err(js)?).map_err(js)
     }
