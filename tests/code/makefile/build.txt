@@ -1,0 +1,44 @@
+# Builds the app, and tidies up.
+CC      ?= cc
+CFLAGS  := -O2 -Wall $(EXTRA_CFLAGS)
+SRC     := $(wildcard src/*.c)
+OBJ     := $(patsubst src/%.c,build/%.o,$(SRC))
+VERSION != git describe --tags
+MARK    := \#
+
+.PHONY: all clean test
+
+all: build/app
+
+build/app: $(OBJ) | build
+	@echo "linking $@ from $(words $^) objects"
+	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
+
+build/%.o: src/%.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+build:
+	mkdir -p $@
+
+test: CFLAGS += -g
+test: private LDLIBS += -lasan
+test: all ; ./build/app --self-test
+print-%: ; @echo $*=$($*)
+
+clean:
+	-rm -rf build
+	for f in $(OBJ); do \
+	  echo "removed $$f"; \
+	done
+
+ifeq ($(OS),Windows_NT)
+  EXE := .exe
+else
+  EXE :=
+endif
+
+define banner
+Built $(VERSION) at $(shell date +%F)
+endef
+export banner
+include config.mk

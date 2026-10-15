@@ -1,0 +1,39 @@
+# syntax=docker/dockerfile:1.7
+# check=error=true
+ARG NODE_VERSION=20
+ARG APP_VERSION=1.4
+FROM node:${NODE_VERSION}-alpine AS build
+LABEL org.opencontainers.image.source="https://github.com/example/app" \
+      org.opencontainers.image.description="The app, built here \
+and served by nginx" \
+      maintainer="ops@example.com"
+ENV NODE_ENV=production PATH="/app/node_modules/.bin:$PATH"
+WORKDIR /app
+COPY --chown=node:node package*.json ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --omit=dev && \
+    # Docker drops this comment line
+    npm cache clean --force
+COPY . .
+RUN <<EOF
+set -eux
+if [ -f build.sh ]; then
+  ./build.sh "$NODE_ENV"
+fi
+EOF
+COPY <<-'NOTE' /app/NOTE.txt
+	Built by $USER, not expanded.
+	NOTE
+
+FROM nginx:1.27-alpine
+RUN apk add --no-cache \
+      # what the health check calls
+      curl \
+      tini
+COPY --from=build /app/dist /usr/share/nginx/html
+COPY --from=busybox:1.36 /bin/wget /usr/local/bin/
+EXPOSE 80/tcp 443
+HEALTHCHECK --interval=30s --timeout=3s CMD wget -qO- http://localhost/ || exit 1
+USER 101:101
+ENTRYPOINT ["nginx", "-g", "daemon off;"]
+CMD echo "serving on $PORT"
