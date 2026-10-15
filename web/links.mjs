@@ -4,9 +4,11 @@
 //
 //   node web/links.mjs     (after `just web`; from the repository's root)
 //
-// - The editor: characters selected in a text typed in, ⌘K asks where they go in a field over
-//   them; a state's id, or a web address, links them, one `style_text` of `link`, one step to
-//   undo; words that are neither make nothing and say so; nothing takes a link away. The keys
+// - The editor: characters selected in a text typed in, ⌘K asks where they go in a field above
+//   them, clear of them, captioned and with a placeholder; a state's id, or a web address, links
+//   them, one `style_text` of `link`, one step to undo, and a host typed with no scheme takes
+//   https://; ⌘K on linked characters shows where they go, and a click away keeps the link; words
+//   that are neither make nothing, the field saying why; nothing takes a link away. The keys
 //   sheet lists ⌘K.
 // - The player: a click on the state's link shows that state; a click on the web address's
 //   opens it in a window of its own; a click off every link goes on, as before. The reading
@@ -61,22 +63,52 @@ try {
       },
       [from, to],
     );
-  /** ⌘K, and `words` typed into the field it shows, then Enter. */
+  /** ⌘K, and `words` typed into the field it shows in place of what it holds, then Enter. */
   const link = async (words) => {
     await page.keyboard.press("Control+k");
     const field = await page.waitForSelector("input.note-words", { timeout: 10000 }).catch(() => null);
     if (!field) return false;
+    await page.keyboard.press("Control+a");
     if (words) await page.keyboard.type(words);
+    else await page.keyboard.press("Backspace");
     await page.keyboard.press("Enter");
     return true;
   };
+  /** The field ⌘K shows: what it holds, its caption and placeholder, and whether it covers the
+   * characters selected. */
+  const asked = () =>
+    page.evaluate(() => {
+      const field = document.querySelector("input.note-words");
+      if (!field) return undefined;
+      const box = field.closest(".note-words-box").getBoundingClientRect();
+      const covers = [...document.querySelectorAll("#overlay rect.text-selection")].some((r) => {
+        const c = r.getBoundingClientRect();
+        return c.left < box.right && box.left < c.right && c.top < box.bottom && box.top < c.bottom;
+      });
+      const caption = field.closest(".note-words-box").querySelector(".caption");
+      return { value: field.value, caption: caption.hidden ? "" : caption.textContent, placeholder: field.placeholder, covers };
+    });
 
   const original = await source();
+  /** Typed in the text, from the canvas. */
+  const typeIn = async () => {
+    await page.evaluate(() => window.scaena.canvas.select("link-text"));
+    await page.locator("#overlay").focus();
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => window.scaena.canvas.typing() === "link-text", null, { timeout: 30000 });
+  };
   // Typed in; "Read" chosen.
-  await page.evaluate(() => window.scaena.canvas.select("link-text"));
-  await page.locator("#overlay").focus();
-  await page.keyboard.press("Enter");
-  await page.waitForFunction(() => window.scaena.canvas.typing() === "link-text", null, { timeout: 30000 });
+  await typeIn();
+  await choose(0, 4);
+  await page.keyboard.press("Control+k");
+  await page.waitForSelector("input.note-words", { timeout: 10000 }).catch(() => null);
+  const fresh = await asked();
+  check(
+    fresh?.value === "" && fresh.caption === "Link to" && fresh.placeholder.startsWith("https://") && !fresh.covers,
+    `⌘K asks in a field named for what it asks, which says what goes in it, clear of the characters: ${JSON.stringify(fresh)}`,
+  );
+  await page.keyboard.press("Escape");
+  check(await says("No link made"), `Escape makes none: ${await status()}`);
   await choose(0, 4);
   check(await link("#shapes"), "⌘K asks where the characters go, in a field over them");
   const shapes = await page.evaluate(() => window.scaena.last().slots.find((s) => s.state === "shapes")?.said);
@@ -98,15 +130,37 @@ try {
   await choose(0, 4);
   await link("https://example.com/read");
   check(await comes('{text: Read, link: {href: "https://example.com/read"}}'), "a web address links them to it");
+  // ⌘K again shows where they go; the field left as it was keeps the link.
+  const linked = await source();
+  await choose(0, 4);
+  await page.keyboard.press("Control+k");
+  await page.waitForSelector("input.note-words", { timeout: 10000 }).catch(() => null);
+  const again = await asked();
+  check(again?.value === "https://example.com/read" && again.caption === "Links to", `⌘K on linked characters shows where they go: ${JSON.stringify(again)}`);
+  await page.locator("#status").click();
+  check(await says("link kept"), `a click away keeps the link: ${await status()}`);
+  check((await source()) === linked, "and the deck is as it was");
+  if ((await page.evaluate(() => window.scaena.canvas.typing())) !== "link-text") await typeIn();
   // Nothing takes it away.
   await choose(0, 4);
   await link("");
   check(await back(original), "nothing takes the link away");
-  // Words that are no link make nothing.
+  // A web address typed without its scheme takes https://, as a presentation app's does.
+  await choose(0, 4);
+  await link("en.wikipedia.org/wiki/Hyperlink");
+  check(await comes('{text: Read, link: {href: "https://en.wikipedia.org/wiki/Hyperlink"}}'), "a host and its path link to it, by https://");
+  await page.keyboard.press("Control+z");
+  check(await back(original), "one undo takes it back");
+  // Words that are no link make nothing: the field says why and stays, and Escape leaves it.
   await choose(0, 4);
   const before = await source();
-  await link("not a link");
-  check(await says("is no link"), `words that are no link make nothing, and say so: ${await status()}`);
+  await page.keyboard.press("Control+k");
+  await page.waitForSelector("input.note-words", { timeout: 10000 }).catch(() => null);
+  await page.keyboard.type("not a link");
+  await page.keyboard.press("Enter");
+  const refused = await asked();
+  check(refused?.caption.includes("is no link") && refused.value === "not a link", `words that are no link make nothing, and the field says why: ${JSON.stringify(refused)}`);
+  await page.keyboard.press("Escape");
   check((await source()) === before, "and the deck is as it was");
   await page.keyboard.press("Escape");
 

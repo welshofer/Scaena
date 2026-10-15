@@ -13,6 +13,8 @@
 //   address names that. Save as a folder (any directory handle; here one in the browser's
 //   storage) writes it there and keeps it there: a save then writes there, and the page,
 //   reloaded, opens it from there.
+// - After several New, ⌘Z undoes the deck open's last change once, from a slide focused in the
+//   strip and from a menu in the inspector.
 // - A single-file export's page carries no themes or fonts to make a deck with.
 // Exits 1 on any failure.
 import { readFile } from "node:fs/promises";
@@ -158,6 +160,30 @@ try {
       `${theme} makes a deck on a title slide with no error: ${await errors()}`,
     );
   }
+
+  // After several New, ⌘Z is the deck open's, once, wherever the page does not take it itself:
+  // from its slide focused in the strip, and from a menu in the inspector.
+  const opened = await page.evaluate(() => window.scaena.source());
+  const undone = async () => {
+    await page.waitForFunction((s) => window.scaena.source() === s, opened, { timeout: 30000, polling: 50 }).catch(() => {});
+    return (await page.evaluate(() => window.scaena.source())) === opened;
+  };
+  await page.click("#strip [data-add=step]");
+  await page.waitForFunction(() => document.querySelectorAll("#strip li").length === 2, null, { timeout: 30000 }).catch(() => {});
+  await page.locator("#strip li").last().focus();
+  await page.keyboard.press("Control+z");
+  check(await undone(), "⌘Z with the step added focused in the strip takes it back");
+  const titleNode = /^\s*(\S+) text\b.*\bat:in\(title\)/m.exec(opened)?.[1];
+  await page.waitForFunction((n) => window.scaena.canvas.boxes().some((b) => b.node === n), titleNode, { timeout: 30000 });
+  await page.evaluate((n) => window.scaena.canvas.select(n), titleNode);
+  await page.waitForSelector("#look-role", { timeout: 30000 });
+  const role = await page.inputValue("#look-role");
+  const other = (await page.locator("#look-role option").evaluateAll((os) => os.map((o) => o.value))).find((v) => v && v !== role);
+  await page.selectOption("#look-role", other);
+  await page.waitForFunction((s) => window.scaena.source() !== s, opened, { timeout: 30000 }).catch(() => {});
+  await page.locator("#look-role").focus();
+  await page.keyboard.press("Control+z");
+  check(await undone(), `⌘Z with the inspector's role menu focused takes its change back: ${role} to ${other}`);
 
   const standalone = await readFile("crates/scaena-export/player/standalone.html", "utf8");
   check(!standalone.includes("daybreak.theme.json") && !standalone.includes("Fraunces-VF"), "a single-file export's page carries no themes to make a deck with");

@@ -616,8 +616,10 @@ impl Player {
     /// Where a caret stands in `node`'s text in `state` at rest, in the format shown, as JSON
     /// (ADR-0013, PLAN 2.32), its offsets in UTF-16 code units, as the page counts a string:
     /// `{ "text", "lines": [{ "top", "bottom", "x", "start", "end", "broken", "chars": [[offset,
-    /// lead, trail]] }], "items": [{ "kind", "level", "marker" } | null] }`, canvas units, `items`
-    /// each paragraph as a list's item (PLAN 2.69); `null` for a node that is no text there.
+    /// lead, trail]] }], "items": [{ "kind", "level", "marker" } | null], "links": [[from, to,
+    /// { "href" } | { "state" }]] }`, canvas units, `items` each paragraph as a list's item (PLAN
+    /// 2.69), `links` each stretch a link goes from (PLAN 2.70); `null` for a node that is no text
+    /// there.
     pub fn carets(&mut self, state: &str, node: &str) -> Result<String, JsError> {
         serde_json::to_string(&self.0.carets_json(state, node).map_err(js)?).map_err(js)
     }
@@ -1092,6 +1094,14 @@ impl Player {
     #[wasm_bindgen(js_name = removeFile)]
     pub fn remove_file(&mut self, path: &str) -> Result<(), JsError> {
         self.0.remove_file(path).map_err(js)
+    }
+
+    /// `path`, a file taken out, put back as it was, by its path (PLAN 2.59): the undo of its
+    /// removal in the page's one undo, whatever came after it. Nothing to do where the bundle
+    /// holds it.
+    #[wasm_bindgen(js_name = putBack)]
+    pub fn put_back(&mut self, path: &str) -> Result<(), JsError> {
+        self.0.put_back(path).map_err(js)
     }
 
     /// The deck's data sources, as JSON: `[{ name, file? }]`, in its order, `file` the file each

@@ -21,6 +21,7 @@
 // - Each change is one patch, by the user, one step to undo. What the deck refuses, the status
 //   says why.
 import { type Key, SHIFT } from "./commands";
+import { listen } from "./life";
 import type { At, Cue, Edited, Inspected, Lexicon, Motion } from "./protocol";
 import type { Stage } from "./stage";
 import { moving, named, object, seconds } from "./words";
@@ -348,7 +349,7 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
     along.addEventListener("pointercancel", up);
   }
 
-  lanes.addEventListener("pointerdown", (e) => {
+  listen(lanes, "pointerdown", (e) => {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
     const part = target.closest<HTMLElement>("[data-part]");
@@ -365,7 +366,7 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
       scrub(e, along);
     }
   });
-  lanes.addEventListener("keydown", (e) => {
+  listen(lanes, "keydown", (e) => {
     const part = (e.target as HTMLElement).closest<HTMLElement>("[data-part]");
     // Enter on a bar selects its node, as a press does.
     const motion = part && drawn[Number(part.dataset.bar)]?.motion;
@@ -378,12 +379,12 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
     const by = (e.key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? 100 : STEP);
     void time(drawn[Number(part.dataset.bar)], part.dataset.part as "delay" | "duration", by);
   });
-  lanes.addEventListener("focusin", (e) => {
+  listen(lanes, "focusin", (e) => {
     focused = (e.target as HTMLElement).dataset.key ?? focused;
   });
   play.onclick = () => toggle();
   // A press on the canvas edits the state at rest: the preview goes back to it first.
-  preview.addEventListener("pointerdown", () => void rest(), true);
+  listen(preview, "pointerdown", () => void rest(), { capture: true });
   const before = stage.onAt;
   stage.onAt = (at) => {
     before(at);

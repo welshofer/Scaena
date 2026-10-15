@@ -103,9 +103,15 @@ impl Session {
         Session::open(files)
     }
 
-    /// A `.scaena` zip's bytes, opened.
+    /// A `.scaena` zip's bytes, opened. Bytes that are no zip, or a zip cut short, damaged, or
+    /// with no deck in it, are no bundle, which the error says in a person's words: the page and
+    /// the Mac put the file's name before it.
     pub fn from_zip(bytes: &[u8]) -> Result<Session, Error> {
-        let bundle = Bundle::from_zip(bytes).map_err(|e| Error::Deck(e.to_string()))?;
+        let bundle = Bundle::from_zip(bytes).map_err(|e| match e {
+            StoreError::Zip { .. } | StoreError::Io(_) => Error::NotABundle,
+            StoreError::Missing(path) if path == "deck.json" => Error::NotABundle,
+            e => Error::Deck(e.to_string()),
+        })?;
         let Files::Zip(files) = bundle.files else { unreachable!("a zip opens in memory") };
         Session::open(Arc::unwrap_or_clone(files))
     }
@@ -433,6 +439,20 @@ pub(crate) mod tests {
             let bytes = scaena_store::subset::subset(s.file(&font).unwrap(), &chars.chars().collect()).unwrap();
             s.add_subset(&font, &chars, bytes);
         }
+    }
+
+    /// A file that is no bundle (not a zip, a zip cut short, or one with no deck in it) is
+    /// refused in a person's words, which the page and the Mac put the file's name before.
+    #[test]
+    fn a_file_that_is_no_bundle_is_refused_in_a_persons_words() {
+        let said = |bytes: &[u8]| Session::from_zip(bytes).err().map(|e| e.to_string());
+        let no = Some("it isn't a Scaena file, or it is damaged".to_string());
+        assert_eq!(said(b"Board deck, as plain text"), no, "not a zip");
+        let whole = scaena_store::zip(&files("../../tests/bench/b1.scaena")).unwrap();
+        assert_eq!(said(&whole[..whole.len() / 2]), no, "a download cut short");
+        let none = scaena_store::zip(&BTreeMap::from([("notes.txt".to_string(), b"words".to_vec())])).unwrap();
+        assert_eq!(said(&none), no, "a zip with no deck in it");
+        assert!(Session::from_zip(&whole).is_ok());
     }
 
     #[test]
@@ -1041,5 +1061,30 @@ pub(crate) mod tests {
 
         let saved = s.save(NOW, false, None).unwrap();
         assert!(!saved.files.contains_key("assets/stray.png") && saved.replaced.contains("assets/stray.png"));
+    }
+
+    /// A file taken out is put back by its path, as the browser's one undo does whatever came
+    /// after its removal (PLAN 2.59): a data file's edit since stays, the removal leaves the steps
+    /// the Data panel undoes, and a save keeps the file where the bundle is kept.
+    #[test]
+    fn a_file_taken_out_is_put_back_by_its_path() {
+        let mut files = revenue();
+        files.insert("assets/stray.png".into(), b"not drawn".to_vec());
+        let mut s = Session::open(files).unwrap();
+        let user = Caller { author: "user", at: None };
+        s.remove_file("assets/stray.png").unwrap();
+        // A data file edited after it: the last step of the Data panel's undo.
+        let set = q3(json!([{ "op": "set", "row": 2, "column": "revenue", "value": "4.6" }]));
+        let (_, wrote) = s.data_edit(&set, false, user).unwrap();
+        assert!(wrote);
+        s.put_back("assets/stray.png").unwrap();
+        assert_eq!(s.file("assets/stray.png"), Some(&b"not drawn"[..]));
+        s.put_back("assets/stray.png").unwrap();
+        assert!(s.put_back("assets/never.png").unwrap_err().to_string().contains("was not taken out here"));
+        assert_eq!(s.data_undo(false, user).unwrap().as_deref(), Some("q3"), "the edit since is the panel's to undo");
+        assert_eq!(s.data_undo(false, user).unwrap(), None, "and the removal is not there to undo again");
+        assert_eq!(s.file("assets/stray.png"), Some(&b"not drawn"[..]));
+        let saved = s.save(NOW, false, None).unwrap();
+        assert!(saved.files.contains_key("assets/stray.png") && !saved.replaced.contains("assets/stray.png"));
     }
 }

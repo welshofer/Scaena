@@ -10,6 +10,8 @@
 // - Characters selected in a text go with the question, counted as `replace_text` counts them,
 //   with the text they make; asking keeps them selected, and a `style_text` the model sends with
 //   those offsets gives them that look.
+// - An edit made on a slide Find shows, the source's cursor in another, is undone on that slide,
+//   which stays shown.
 // Exits 1 on any failure.
 import { createServer } from "node:http";
 import { launch, serve } from "./serve.mjs";
@@ -28,6 +30,7 @@ const SCRIPT = {
     ops: [{ op: "set_text", node: "note", text: "Revenue in $M, from the finance ledger." }],
   },
   "Make these bold.": { ops: [{ op: "style_text", node: "title", state: "revenue", from: 0, to: 7, look: { "style/weight": 700 } }] },
+  "Say it in fewer letters.": { ops: [{ op: "replace_text", node: "title", state: "mix", from: 13, to: 20, text: "turned" }] },
 };
 
 /** The words of the last user message, a string or text blocks; none for tool results. */
@@ -164,6 +167,28 @@ try {
   await page.keyboard.press("Escape");
   await undo();
   check(await back(original), "one undo takes it back");
+
+  // Another slide shown by Find, the source's cursor still in revenue: what the assistant changes
+  // there is undone there, and that slide stays shown.
+  const shownState = () => page.evaluate(() => window.scaena.last().states[window.scaena.shown()]?.[0]);
+  await page.evaluate(() => window.scaena.cursor(window.scaena.source().indexOf("state revenue") + "state ".length));
+  await page.waitForFunction(() => window.scaena.last().states[window.scaena.shown()]?.[0] === "revenue", null, { timeout: 30000 }).catch(() => {});
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Control+f");
+  await page.locator('#find input[name="find"]').fill("shifted");
+  await page.waitForFunction(() => document.querySelector("#find output").value === "1 match", null, { timeout: 30000 }).catch(() => {});
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => window.scaena.last().states[window.scaena.shown()]?.[0] === "mix", null, { timeout: 30000 }).catch(() => {});
+  await page.keyboard.press("Escape");
+  done = await ask("Say it in fewer letters.");
+  check(done.kind === "done", `a question about the slide Find shows is answered: ${JSON.stringify(done)}`);
+  await settled();
+  check((await source()).includes("the mix turned") && (await shownState()) === "mix", `its edit made on that slide, shown: ${await shownState()}`);
+  const trips = await page.evaluate(() => window.scaena.trips().length);
+  await undo();
+  check(await back(original), "one undo takes it back");
+  await page.waitForFunction((n) => window.scaena.trips().length > n, trips, { timeout: 30000 }).catch(() => {});
+  check((await shownState()) === "mix", `and the slide it was made on stays shown: ${await shownState()}`);
 } finally {
   await browser.close();
   await site.close();

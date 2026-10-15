@@ -138,10 +138,18 @@
       #overlay .cropping .image-whole { fill: none; stroke: var(--info); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
       #overlay .cropping .crop-frame { fill: none; stroke: var(--info); stroke-width: 2; vector-effect: non-scaling-stroke; }
       #overlay .cropping .focal { fill: none; stroke: var(--info); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
-      input.note-words {
-        position: fixed; transform: translate(-50%, calc(-100% - 6px)); z-index: 30; min-width: 16em;
-        font: inherit; padding: 4px 6px; border: 1px solid var(--info); border-radius: 4px; background: var(--panel); color: var(--ink);
+      .note-words-box {
+        position: fixed; transform: translate(-50%, calc(-100% - 6px)); z-index: 30;
+        display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted);
       }
+      .note-words-box.below { transform: translate(-50%, 6px); }
+      .note-words-box .caption[hidden] { display: none; }
+      .note-words-box .caption { background: var(--panel); padding: 0 4px; border-radius: 3px; align-self: flex-start; }
+      input.note-words {
+        min-width: 16em;
+        font: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid var(--info); border-radius: 4px; background: var(--panel); color: var(--ink);
+      }
+      input.note-words[aria-invalid="true"] { border-color: var(--error); }
       @keyframes blink { 50% { opacity: 0; } }
       @media (prefers-reduced-motion: reduce) { #overlay .caret { animation: none; } }
       /* What typing on the canvas types into (PLAN 2.32): unseen, under the caret, where an input
@@ -584,6 +592,10 @@
       dialog h2 { font-size: 15px; margin: 0 0 12px; }
       dialog form { display: flex; flex-direction: column; gap: 10px; }
       dialog label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
+      /* A PNG's width, on one line, and only for a PNG. */
+      #exporting-size { flex-direction: row; align-items: center; gap: 6px; }
+      #exporting-size[hidden] { display: none; }
+      #exporting-width { width: 7em; }
       dialog input, dialog select { font: inherit; font-size: 14px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; }
       dialog menu { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin: 4px 0 0; padding: 0; }
       #skip { position: fixed; left: 8px; top: -100px; z-index: 30; padding: 6px 10px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; }
@@ -652,7 +664,7 @@
           <button id="new-deck" title="A new deck in a built-in theme">New…</button>
           <button id="new-prompt" title="A new deck written from a prompt by Narrato, grounded in what you give it, with your own key" aria-haspopup="dialog">From a prompt…</button>
           <button id="open-folder" hidden>Open folder…</button>
-          <label class="button">Open .scaena…<input id="open-file" type="file" accept=".scaena" hidden /></label>
+          <button type="button" id="open-scaena">Open .scaena…</button><input id="open-file" type="file" accept=".scaena" hidden />
           <button type="button" id="kept" aria-haspopup="dialog" title="The decks this browser keeps: open, rename, or delete one">Kept in this browser…</button>
           <button id="save" title="Save where the deck is kept (⌘S, Ctrl+S)">Save</button>
           <button id="save-as" title="Save the deck somewhere new, and keep it there">Save as…</button>
@@ -790,8 +802,8 @@
         <section id="files" role="tabpanel" aria-labelledby="tab-files" hidden>
           <p class="files-head">
             <span data-summary></span>
-            <button type="button" data-undo title="Undo the last change to the deck's files (⌘Z in the panel)">Undo</button>
-            <button type="button" data-redo title="Make the last change undone again (⇧⌘Z in the panel)">Redo</button>
+            <button type="button" data-undo title="Undo the last change, a file taken out among them (⌘Z)">Undo</button>
+            <button type="button" data-redo title="Make the last change undone again (⇧⌘Z)">Redo</button>
           </p>
           <div data-files></div>
         </section>

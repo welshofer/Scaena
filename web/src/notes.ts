@@ -37,23 +37,44 @@ export function band(a: MarkNotes, b: MarkNotes) {
 export const unhighlight = (node: string, state: string, n: MarkNotes, fork = false) =>
   [...n.highlighted].sort((a, b) => b - a).map((i) => annotate(node, state, null, i, fork));
 
+/** What a field that asks for words shows beside them: a caption over it, which a person reads
+ * before typing; a placeholder in it while it is empty; where it goes under the words it is about
+ * (client pixels), where there is no room above them; and a `check` of what Enter gives, which
+ * says why it will not do and keeps the field open. */
+export interface Asking {
+  caption?: string;
+  placeholder?: string;
+  below?: number;
+  check?: (words: string) => string | undefined;
+}
+
 /** Ask for words at `at` (client pixels), in a field over the canvas with `initial` in it: Enter, or
  * leaving the field, gives what it holds; Escape gives nothing. */
-export function askWords(at: [number, number], initial: string, label: string): Promise<string | undefined> {
+export function askWords(at: [number, number], initial: string, label: string, asking: Asking = {}): Promise<string | undefined> {
   return new Promise((resolve) => {
-    const field = document.createElement("input");
+    const box = document.createElement("label");
+    box.className = "note-words-box";
+    const caption = box.appendChild(document.createElement("span"));
+    caption.className = "caption";
+    caption.textContent = asking.caption ?? "";
+    caption.hidden = !asking.caption;
+    const field = box.appendChild(document.createElement("input"));
     field.type = "text";
     field.className = "note-words";
     field.value = initial;
+    field.placeholder = asking.placeholder ?? "";
     field.setAttribute("aria-label", label);
-    field.style.left = `${Math.round(at[0])}px`;
-    field.style.top = `${Math.round(at[1])}px`;
-    document.body.append(field);
+    // Above the words it is about, else under them, so they stay in sight.
+    const under = asking.below !== undefined && at[1] < 64;
+    box.classList.toggle("below", under);
+    box.style.left = `${Math.round(at[0])}px`;
+    box.style.top = `${Math.round(under ? asking.below! : at[1])}px`;
+    document.body.append(box);
     let done = false;
     const finish = (words: string | undefined) => {
       if (done) return;
       done = true;
-      field.remove();
+      box.remove();
       resolve(words);
     };
     field.addEventListener("keydown", (e) => {
@@ -61,11 +82,23 @@ export function askWords(at: [number, number], initial: string, label: string): 
       e.stopPropagation();
       if (e.key === "Enter") {
         e.preventDefault();
-        finish(field.value);
+        const why = asking.check?.(field.value);
+        if (why === undefined) return finish(field.value);
+        caption.textContent = why;
+        caption.hidden = false;
+        field.setAttribute("aria-invalid", "true");
+        field.setAttribute("aria-description", why);
       } else if (e.key === "Escape") {
         e.preventDefault();
         finish(undefined);
       }
+    });
+    field.addEventListener("input", () => {
+      if (field.getAttribute("aria-invalid") !== "true") return;
+      field.removeAttribute("aria-invalid");
+      field.removeAttribute("aria-description");
+      caption.textContent = asking.caption ?? "";
+      caption.hidden = !asking.caption;
     });
     field.addEventListener("blur", () => finish(field.value));
     field.focus();

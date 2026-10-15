@@ -13,7 +13,8 @@
 //   and hold are over, as it would with motion. `?motion=full` plays the cues anyway.
 // - Keys: after a click on ▶ the arrow keys still go on, and Enter on it goes on once; the
 //   scrubber says which state it is at. In the editor, a finding is a button that goes to its
-//   line, F8 goes to the next one, and the arrow keys move between the tabs.
+//   line, F8 goes to the next one, and the arrow keys move between the tabs; Tab reaches Open
+//   .scaena…, and Enter on it opens the file picker.
 // Exits 1 on any failure.
 import { execFileSync } from "node:child_process";
 import { mkdir, readFile } from "node:fs/promises";
@@ -190,6 +191,16 @@ try {
   await editor.waitForSelector("#look .fields", { timeout: 30000 }).catch(() => {});
   check((await editor.locator("#look select").count()) > 0, "the inspector shows the title's look to choose");
   await audit(editor, "the editor, a node's look in its inspector");
+  // Open .scaena… is reached by Tab, and Enter on it opens the file picker.
+  await editor.focus("#new-deck");
+  let reached;
+  for (let i = 0; i < 6 && reached !== "open-scaena" && reached !== "save"; i++) {
+    await editor.keyboard.press("Tab");
+    reached = await editor.evaluate(() => document.activeElement?.id);
+  }
+  const chooser = editor.waitForEvent("filechooser", { timeout: 5000 }).catch(() => null);
+  if (reached === "open-scaena") await editor.keyboard.press("Enter");
+  check(reached === "open-scaena" && (await chooser) !== null, `Open .scaena… is reached by Tab, and Enter opens the file picker: ${reached}`);
   const source = await editor.evaluate(() => window.scaena.source());
   const long = "Revenue doubled, and then some";
   await editor.evaluate((t) => window.scaena.type(t), source.replace('"Revenue doubled"', `"${long}"`));
