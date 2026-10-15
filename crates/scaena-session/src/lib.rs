@@ -2146,7 +2146,8 @@ impl Session {
         let mut named = list.clone();
         for op in list {
             let (Some(node), Some(state)) = (op["node"].as_str(), op["state"].as_str()) else { continue };
-            let Some(mut shown) = snapshots.iter().find(|s| s.state_id == state).and_then(|s| s.nodes.get(node).cloned())
+            let Some(mut shown) =
+                snapshots.iter().find(|s| s.state_id == state).and_then(|s| s.nodes.get(node).cloned())
             else {
                 continue;
             };
@@ -3170,7 +3171,8 @@ mod tests {
         let chip = s.boxes_json("close").unwrap().into_iter().find(|b| b["node"] == pasted.id.as_str()).unwrap();
         assert_eq!(chip["code"], serde_json::json!({ "language": "rust", "said": "Rust" }));
         // Prose pastes as words, and Paste as Text pastes code as words too.
-        let prose = scaena_ops::clipboard::of_text(&s.deck, &s.theme, "Margins held through the quarter.", &Default::default());
+        let prose =
+            scaena_ops::clipboard::of_text(&s.deck, &s.theme, "Margins held through the quarter.", &Default::default());
         assert!(prose.unwrap().nodes.values().all(|n| n.get("code").is_none()));
         let plain = scaena_ops::clipboard::Hints { plain: true, ..Default::default() };
         let words = scaena_ops::clipboard::of_text(&s.deck, &s.theme, source, &plain).unwrap();
@@ -4676,7 +4678,10 @@ mod tests {
         );
         s.tool("deck_patch", serde_json::json!({ "ops": pasted.patch }), by).unwrap();
         assert!(stands(&mut s, "close", "body").is_some());
-        assert!(scaena_ops::clipboard::of_text(&s.deck, &s.theme, " \n", &Default::default()).is_err(), "nothing to paste");
+        assert!(
+            scaena_ops::clipboard::of_text(&s.deck, &s.theme, " \n", &Default::default()).is_err(),
+            "nothing to paste"
+        );
     }
 
     /// A CSV dropped on the canvas becomes a data source (the first-deck walk): declared as

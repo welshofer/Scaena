@@ -277,7 +277,9 @@ fn class_named(html: &str) -> Option<String> {
         value.split_ascii_whitespace().find_map(|class| {
             let name = (["language-", "lang-", "highlight-source-", "source-"].iter())
                 .find_map(|p| class.strip_prefix(p))
-                .or_else(|| value.split_ascii_whitespace().any(|c| c == "hljs").then_some(class).filter(|c| *c != "hljs"))?;
+                .or_else(|| {
+                    value.split_ascii_whitespace().any(|c| c == "hljs").then_some(class).filter(|c| *c != "hljs")
+                })?;
             scaena_core::code::language(name).map(|l| l.name.to_string())
         })
     })
@@ -318,7 +320,12 @@ pub fn of_text(deck: &Deck, theme: &Theme, text: &str, hints: &Hints) -> Result<
     if !hints.plain {
         use scaena_core::code::{Detected, detect};
         let (class, mode) = hints.read();
-        let said = scaena_core::code::Hints { file: hints.file.as_deref(), class: class.as_deref(), mode: mode.as_deref(), ..Default::default() };
+        let said = scaena_core::code::Hints {
+            file: hints.file.as_deref(),
+            class: class.as_deref(),
+            mode: mode.as_deref(),
+            ..Default::default()
+        };
         if let Detected::Named(language) | Detected::Likely(language) = detect(text, &said) {
             if theme.code_role().is_some() {
                 return of_code(deck, theme, text, language.name);
@@ -346,7 +353,8 @@ pub fn of_text(deck: &Deck, theme: &Theme, text: &str, hints: &Hints) -> Result<
 /// code pasted from elsewhere pastes as. Refused where the theme keeps no role for code.
 pub fn of_code(deck: &Deck, theme: &Theme, text: &str, language: &str) -> Result<Clip, OpsError> {
     let role = theme.code_role().ok_or_else(|| OpsError::new("the theme keeps no role for code"))?;
-    let look = (theme.typography.roles.get(role)).ok_or_else(|| OpsError::new(format!("the theme has no `{role}` role")))?;
+    let look =
+        (theme.typography.roles.get(role)).ok_or_else(|| OpsError::new(format!("the theme has no `{role}` role")))?;
     let lang = scaena_core::code::lang(language);
     let tab = theme.code.as_ref().and_then(|c| c.tab).map_or(4, usize::from);
     let tidied = scaena_core::code::tidy(text, lang, tab).text;
@@ -831,7 +839,10 @@ mod tests {
     #[test]
     fn an_html_class_names_the_language() {
         assert_eq!(class_named(r#"<pre class="language-rust"><code>fn</code></pre>"#).as_deref(), Some("rust"));
-        assert_eq!(class_named(r#"<div class='highlight'><pre class="hljs python">x</pre></div>"#).as_deref(), Some("python"));
+        assert_eq!(
+            class_named(r#"<div class='highlight'><pre class="hljs python">x</pre></div>"#).as_deref(),
+            Some("python")
+        );
         assert_eq!(class_named(r#"<code class="lang-ts">x</code>"#).as_deref(), Some("typescript"));
         assert_eq!(class_named(r#"<p class="lead">Words</p>"#), None);
         assert_eq!(class_named("<p>no class</p>"), None);
