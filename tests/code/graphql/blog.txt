@@ -1,0 +1,47 @@
+# The blog's schema, and a query against it.
+"""
+A person who writes.
+"""
+type Author implements Node & Entity @key(fields: "id") {
+  id: ID!
+  name: String!
+  posts(first: Int = 10, after: String): [Post!]! @deprecated(reason: "Use feed")
+}
+
+enum Role {
+  ADMIN
+  EDITOR
+}
+
+union SearchResult = Author | Post
+
+scalar DateTime
+
+input PostFilter {
+  tags: [String!]
+  since: DateTime
+}
+
+directive @auth(requires: Role = ADMIN) repeatable on OBJECT | FIELD_DEFINITION
+
+query AuthorPage($id: ID!, $withPosts: Boolean = false) @cached(ttl: 60) {
+  author(id: $id) {
+    ...AuthorFields
+    avatar: picture(size: 64)
+    posts(first: 5, filter: {tags: ["rust", "graphql"], since: "2026-01-01"}) @include(if: $withPosts) {
+      title
+      ... on Draft {
+        editedAt
+      }
+    }
+  }
+}
+
+fragment AuthorFields on Author {
+  name
+  __typename
+}
+
+mutation {
+  publish(id: 42, weight: -1.5e3, pinned: true, note: null) { id }
+}

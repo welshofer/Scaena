@@ -1,0 +1,228 @@
+comment     «/* The site's styles. */\n»
+keyword     «@charset »
+string      «"UTF-8"»
+punctuation «;\n»
+keyword     «@import »
+function    «url»
+punctuation «(»
+string      «"reset.css"»
+punctuation «) »
+constant    «screen»
+punctuation «;\n»
+keyword     «@import »
+function    «url»
+punctuation «(»
+string      «https://fonts.example.com/inter.css»
+punctuation «);\n\n»
+attribute   «:root »
+punctuation «{\n  »
+variable    «--brand»
+punctuation «: »
+constant    «#3366cc»
+punctuation «;\n  »
+variable    «--gap»
+punctuation «: »
+function    «clamp»
+punctuation «(»
+number      «1rem»
+punctuation «, »
+number      «2.5vw»
+punctuation «, »
+number      «2rem»
+punctuation «);\n}\n\n»
+tag         «html»
+punctuation «, »
+tag         «body »
+punctuation «{ »
+property    «margin»
+punctuation «: »
+number      «0»
+punctuation «; »
+property    «font»
+punctuation «: »
+number      «400 1rem»
+operator    «/»
+number      «1.5 »
+string      «"Inter"»
+punctuation «, »
+constant    «system-ui»
+punctuation «, »
+constant    «sans-serif»
+punctuation «; }\n\n»
+attribute   «.card »
+operator    «> »
+tag         «h2 »
+operator    «+ »
+tag         «p»
+attribute   «::first-line»
+punctuation «,\n»
+tag         «a»
+punctuation «[»
+attribute   «href»
+operator    «^=»
+string      «"https" »
+keyword     «i»
+punctuation «]»
+attribute   «:not»
+punctuation «(»
+attribute   «.plain»
+punctuation «)»
+attribute   «::after »
+punctuation «{\n  »
+property    «color»
+punctuation «: »
+function    «var»
+punctuation «(»
+variable    «--brand»
+punctuation «, »
+constant    «#fff»
+punctuation «);\n  »
+property    «content»
+punctuation «: »
+string      «"\\2197"»
+punctuation «;\n  »
+property    «transition»
+punctuation «: »
+constant    «opacity »
+number      «200ms »
+function    «cubic-bezier»
+punctuation «(»
+number      «.2»
+punctuation «, »
+number      «.8»
+punctuation «, »
+number      «.2»
+punctuation «, »
+number      «1»
+punctuation «), »
+constant    «transform »
+number      «.3s»
+punctuation «;\n}\n\n»
+attribute   «#main .grid »
+punctuation «{\n  »
+property    «display»
+punctuation «: »
+constant    «grid»
+punctuation «;\n  »
+property    «grid-template-columns»
+punctuation «: »
+function    «repeat»
+punctuation «(»
+constant    «auto-fill»
+punctuation «, »
+function    «minmax»
+punctuation «(»
+number      «12rem»
+punctuation «, »
+number      «1fr»
+punctuation «));\n  »
+property    «margin»
+punctuation «: »
+number      «-1px »
+constant    «auto »
+number      «0 »
+function    «calc»
+punctuation «(»
+number      «100% »
+operator    «- »
+function    «var»
+punctuation «(»
+variable    «--gap»
+punctuation «) »
+operator    «* »
+number      «2»
+punctuation «) »
+keyword     «!important»
+punctuation «;\n  »
+property    «background»
+punctuation «: »
+function    «url»
+punctuation «(»
+string      «data:image/svg+xml;base64,PHN2Zy8+»
+punctuation «) »
+constant    «no-repeat»
+punctuation «, »
+constant    «#FFFFFF80»
+punctuation «;\n}\n\n»
+keyword     «@media »
+constant    «screen »
+keyword     «and »
+punctuation «(»
+property    «min-width»
+punctuation «: »
+number      «48em»
+punctuation «) »
+keyword     «and »
+punctuation «(»
+property    «prefers-reduced-motion»
+punctuation «: »
+constant    «no-preference»
+punctuation «) {\n  »
+attribute   «.md\\:flex »
+punctuation «{ »
+property    «display»
+punctuation «: »
+constant    «flex»
+punctuation «; }\n  »
+attribute   «.card:hover »
+punctuation «{ »
+property    «box-shadow»
+punctuation «: »
+number      «0 0 0 1px »
+function    «rgba»
+punctuation «(»
+number      «0»
+punctuation «, »
+number      «0»
+punctuation «, »
+number      «0»
+punctuation «, »
+number      «.2»
+punctuation «); }\n}\n\n»
+keyword     «@keyframes »
+constant    «spin »
+punctuation «{\n  »
+keyword     «from »
+punctuation «{ »
+property    «transform»
+punctuation «: »
+function    «rotate»
+punctuation «(»
+number      «0deg»
+punctuation «); }\n  »
+number      «50% »
+punctuation «{ »
+property    «opacity»
+punctuation «: »
+number      «.5»
+punctuation «; }\n  »
+keyword     «to »
+punctuation «{ »
+property    «transform»
+punctuation «: »
+function    «rotate»
+punctuation «(»
+number      «1turn»
+punctuation «); }\n}\n\n»
+keyword     «@supports »
+punctuation «(»
+property    «display»
+punctuation «: »
+constant    «grid»
+punctuation «) »
+keyword     «and »
+punctuation «(»
+keyword     «not »
+punctuation «(»
+property    «display»
+punctuation «: »
+constant    «inline-grid»
+punctuation «)) {\n  »
+attribute   «.grid »
+punctuation «{ »
+property    «gap»
+punctuation «: »
+function    «var»
+punctuation «(»
+variable    «--gap»
+punctuation «); }\n}\n»
