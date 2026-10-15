@@ -92,6 +92,7 @@ schema:
     python3 scripts/build_scripts.py --check
     python3 scripts/build_lint_fonts.py --check
     python3 scripts/build_bench_decks.py --check
+    python3 scripts/build_themes.py --check
     python3 scripts/build_layouts.py --check
     python3 scripts/build_icons.py --check
     python3 scripts/build_app_icon.py --check
