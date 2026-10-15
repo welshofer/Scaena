@@ -43,17 +43,15 @@ struct ScaenaApp: App {
     @State private var prompting = false
     /// The bundle of the deck the brief made, opened once the brief is put away.
     @State private var made: URL?
-    /// How many decks are open. The launch screen's buttons stay in the window under a deck, out of
-    /// sight, so while one is open VoiceOver is not given them.
-    @State private var opened = 0
     #endif
 
     var body: some Scene {
         DocumentGroup(newDocument: { ScaenaDocument() }) { file in
             DeckView(document: file.document)
                 #if !os(macOS)
-                .onAppear { opened += 1 }
-                .onDisappear { opened = max(0, opened - 1) }
+                // The launch screen's buttons stay in the window under the deck, out of sight, and
+                // are not read while it is open (`LaunchHidden`).
+                .background(LaunchHidden())
                 #endif
         }
         #if os(macOS)
@@ -87,12 +85,10 @@ struct ScaenaApp: App {
         // (`DeckView`). Put on the split view (#281), the toolbar showed nowhere.
         DocumentGroupLaunchScene("Scaena") {
             NewDocumentButton("New Deck")
-                .accessibilityHidden(opened > 0)
             Button("New from a Prompt…") {
                 openingLog.debug("New from a Prompt: the brief asked for")
                 prompting = true
             }
-            .accessibilityHidden(opened > 0)
             .fullScreenCover(isPresented: $prompting) {
                 if let made {
                     self.made = nil

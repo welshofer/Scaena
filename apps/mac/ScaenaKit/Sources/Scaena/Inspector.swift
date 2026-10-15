@@ -571,6 +571,9 @@ struct Inspector: View {
             } icon: {
                 Image(systemName: symbol).accessibilityHidden(true)
             }
+            // The title alone stands for the label: on the iPad a hidden image in a button's label
+            // is still read as an image within it.
+            .accessibilityRepresentation { Text(title) }
         }
     }
 
