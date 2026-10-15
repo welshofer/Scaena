@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="feed.xsl"?>
+<!DOCTYPE feed [
+  <!ENTITY brand "Scaena">
+  <!-- Entities the feed uses. -->
+]>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+  <title>&brand; releases</title>
+  <link href="https://example.com/feed.xml" rel="self"/>
+  <updated>2026-10-15T09:00:00Z</updated>
+  <!-- One entry per release. -->
+  <entry>
+    <id>urn:uuid:60a76c80-d399-11d9-b93C-0003939e0af6</id>
+    <title type="html">Code &amp; slides</title>
+    <content type="xhtml">
+      <div xmlns="http://www.w3.org/1999/xhtml"><p>Colored <em>by language</em>.</p></div>
+    </content>
+    <script><![CDATA[
+      if (a < b && b > c) { notify("<new>"); }
+    ]]></script>
+    <xsl:value-of select="count(//entry)"/>
+  </entry>
+</feed>
