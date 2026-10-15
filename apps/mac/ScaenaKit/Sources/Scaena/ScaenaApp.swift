@@ -79,11 +79,17 @@ struct ScaenaApp: App {
         // back stands in the bar over the canvas's column, and the toolbar stands there with it
         // (`DeckView`). Put on the split view (#281), the toolbar showed nowhere.
         DocumentGroupLaunchScene("Scaena") {
+            // The launch screen draws its own button from each of these, which VoiceOver reads,
+            // and keeps these out of sight, in the window under a deck too: they are not read.
+            // A modifier these take after the screen first shows never reaches them, so they are
+            // hidden from the start.
             NewDocumentButton("New Deck")
+                .accessibilityHidden(true)
             Button("New from a Prompt…") {
                 openingLog.debug("New from a Prompt: the brief asked for")
                 prompting = true
             }
+            .accessibilityHidden(true)
             .fullScreenCover(isPresented: $prompting) {
                 if let made {
                     self.made = nil
