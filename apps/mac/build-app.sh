@@ -19,5 +19,7 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin/Scaena" "$app/Contents/MacOS/Scaena"
 cp "$root/apps/mac/Scaena/Info.plist" "$app/Contents/Info.plist"
+# The icon Info.plist names (CFBundleIconFile), made of each size scripts/build_app_icon.py draws.
+iconutil -c icns -o "$app/Contents/Resources/AppIcon.icns" "$root/apps/mac/Scaena/AppIcon.iconset"
 codesign --force --sign - "$app"
 echo "$app"

@@ -350,12 +350,12 @@ struct CanvasSelection: View {
                 // the browser's canvas outlines it, or a handle ringed (PLAN 4.5).
                 if press == nil, pen == nil, let over = hovered?.node, let b = boxes.first(where: { $0.node == over }) {
                     outline(framed(b, scale: fit.scale), fit: fit)
-                        .stroke(Color.accentColor.opacity(0.7), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                        .stroke(Marks.color.opacity(0.7), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
                         .allowsHitTesting(false)
                 }
                 if press == nil, pen == nil, let spot = hovered?.handle {
                     Circle()
-                        .stroke(Color.accentColor, lineWidth: 2)
+                        .stroke(Marks.color, lineWidth: 2)
                         .frame(width: 20, height: 20)
                         .position(fit.view(spot))
                         .allowsHitTesting(false)
@@ -364,13 +364,13 @@ struct CanvasSelection: View {
                 ForEach(boxes.filter { also.contains($0.node) }, id: \.node) { other in
                     let by = drag?.edge == nil ? (drag?.by ?? .zero) : .zero
                     outline(framed(other, scale: fit.scale).map { CGPoint(x: $0.x + by.dx, y: $0.y + by.dy) }, fit: fit)
-                        .stroke(Color.accentColor.opacity(0.8), lineWidth: 1.5)
+                        .stroke(Marks.color.opacity(0.8), lineWidth: 1.5)
                         .allowsHitTesting(false)
                 }
                 if let selected = boxes.first(where: { $0.node == node }) {
                     let by = drag?.edge == nil ? (drag?.by ?? .zero) : .zero
                     outline(framed(selected, scale: fit.scale).map { CGPoint(x: $0.x + by.dx, y: $0.y + by.dy) }, fit: fit)
-                        .stroke(Color.accentColor, lineWidth: 1.5)
+                        .stroke(Marks.color, lineWidth: 1.5)
                         .allowsHitTesting(false)
                     // A connector goes where what it joins goes (PLAN 2.109): no handles.
                     if drag == nil, holding == nil, pen == nil, also.isEmpty, !typing.typing, selected.locked == nil,
@@ -380,7 +380,7 @@ struct CanvasSelection: View {
                             let p = selected.onCanvas(edge.point(r))
                             Rectangle()
                                 .fill(Color.white)
-                                .overlay(Rectangle().stroke(Color.accentColor, lineWidth: 1))
+                                .overlay(Rectangle().stroke(Marks.color, lineWidth: 1))
                                 .frame(width: 7, height: 7)
                                 .position(fit.view(p))
                                 .allowsHitTesting(false)
@@ -402,12 +402,12 @@ struct CanvasSelection: View {
                 // A drag from another app over the slide: the slide outlined, where it would go.
                 if dropping {
                     Rectangle()
-                        .strokeBorder(Color.accentColor, lineWidth: 3)
+                        .strokeBorder(Marks.color, lineWidth: 3)
                         .allowsHitTesting(false)
                 }
                 if let r = banded {
                     Path(r).applying(fit.transform)
-                        .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                        .stroke(Marks.color, style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
                         .allowsHitTesting(false)
                 }
                 typed(fit)
@@ -553,7 +553,7 @@ struct CanvasSelection: View {
         ForEach(cells.indices, id: \.self) { i in
             let r = cells[i]
             Path(r).applying(fit.transform)
-                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
+                .stroke(Marks.color, style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
         }
         ForEach(guides.indices, id: \.self) { i in
             line(guides[i][0], guides[i][1], fit: fit).stroke(Color.pink, lineWidth: 1)
@@ -586,14 +586,14 @@ struct CanvasSelection: View {
         if typing.typing {
             let covered = typing.covered
             ForEach(covered.indices, id: \.self) { i in
-                outline(covered[i], fit: fit).fill(Color.accentColor.opacity(0.3))
+                outline(covered[i], fit: fit).fill(Marks.color.opacity(0.3))
             }
             let composing = typing.composing
             ForEach(composing.indices, id: \.self) { i in
-                line(composing[i][3], composing[i][2], fit: fit).stroke(Color.accentColor, lineWidth: 1.5)
+                line(composing[i][3], composing[i][2], fit: fit).stroke(Marks.color, lineWidth: 1.5)
             }
             if typing.from == typing.to, let caret = typing.caret, caret.count == 2 {
-                line(caret[0], caret[1], fit: fit).stroke(Color.accentColor, lineWidth: 2)
+                line(caret[0], caret[1], fit: fit).stroke(Marks.color, lineWidth: 2)
             }
         }
     }
