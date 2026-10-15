@@ -296,7 +296,7 @@ mod tests {
     fn a_near_miss_is_asked_once_more_then_placed_on_a_new_slide_in_one_patch() {
         let mut s = revenue();
         let first = s.haiku_taken(&HaikuTake { answer: Some(NEAR.into()), ..take(ask("topic")) }).unwrap();
-        let Answered::Again { prompt } = &first.answered else { panic!("asked again: {first:?}") };
+        let Answered::Again { prompt, .. } = &first.answered else { panic!("asked again: {first:?}") };
         assert!(prompt.contains("Its lines count 5, 8, and 5 syllables"));
         assert!(first.placed.is_none());
         // The second keeps to 5-7-5: offered, and placed where it was asked to go.

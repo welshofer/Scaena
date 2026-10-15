@@ -75,6 +75,7 @@ import type {
   Writing,
   WritingAsk,
   WritingCall,
+  HaikuCall,
   Written,
   PictureJob,
 } from "./protocol";
@@ -130,6 +131,7 @@ type Reply = Extract<
       | "stateChoices"
       | "writing"
       | "written"
+      | "haiku"
       | "wrote"
       | "words"
       | "look"
@@ -695,6 +697,13 @@ export class Stage {
   }
 
   /** Ask a model once, with the user's key and nothing to call (PLAN 2.101): its words. */
+  /** What the session says of a haiku (PLAN O.4f): `haiku`, what to ask; `haikuTaken`, what an
+   * answer or lines edited come to, with the patch that places the poem; `verseCounts`, each
+   * line's count as it is edited. */
+  haiku<T>(call: HaikuCall, arg: unknown): Promise<T> {
+    return this.request<"haiku">({ type: "haiku", id: ++this.asked, call, arg }).then(({ result }) => result as T);
+  }
+
   write(call: WritingCall): Promise<{ text: string; usage?: { input: number; output: number } }> {
     return this.request<"wrote">({ type: "write", id: ++this.asked, call }).then(({ text, usage }) => ({ text, usage }));
   }
@@ -1081,6 +1090,7 @@ export class Stage {
       case "stateChoices":
       case "writing":
       case "written":
+      case "haiku":
       case "wrote":
       case "words":
       case "look":
