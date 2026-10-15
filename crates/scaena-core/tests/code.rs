@@ -1,5 +1,5 @@
-//! Code colored by its language (PLAN 2.130, ADR-0029): the scanners' tokens, held to reviewed
-//! goldens, and what every scanner keeps to on any text at all.
+//! Code colored by its language (PLAN 2.130 and 2.134, ADR-0029): the scanners' tokens, held to
+//! reviewed goldens, and what every scanner keeps to on any text at all.
 //!
 //! Each sample in `tests/code/<language>/*.txt` is colored as its golden `.spans` beside it says:
 //! a token to a line, its class and then its text, in `«»`, with `\n`, `\r`, `\t`, and `\\`
@@ -90,7 +90,9 @@ fn spans_cover_the_text_in_order_on_char_boundaries() {
 
 /// Long runs of what opens and does not close, each read in one pass, never again from each of its
 /// bytes: a raw string's `#`s, a regular expression's `/`, type arguments, interpolations, JSX,
-/// C#'s attributes and formats, and the spaces before a name a type declares.
+/// C#'s attributes and formats, and the spaces before a name a type declares; f-strings, heredocs,
+/// `%`-literals, substitutions, prompts, dollar quotes, names in brackets, and the spaces a soft
+/// keyword, a Ruby method's argument, or a heredoc's delimiter is looked for past.
 #[test]
 fn long_runs_read_in_one_pass() {
     let runs = [
@@ -111,6 +113,28 @@ fn long_runs_read_in_one_pass() {
         "[A.".repeat(10_000),
         format!("$\"{{{}", "x:".repeat(15_000)),
         format!("string{}Name", " ".repeat(30_000)),
+        "f\"{".repeat(10_000),
+        "\"#{".repeat(10_000),
+        "%w(".repeat(10_000),
+        "%w[(".repeat(10_000),
+        "<<A ".repeat(10_000),
+        "<<~A\n".repeat(10_000),
+        "\"$(".repeat(10_000),
+        "${".repeat(15_000),
+        "$((".repeat(10_000),
+        "[[ ".repeat(10_000),
+        "$ ".repeat(15_000),
+        "PS> ".repeat(10_000),
+        "@\"".repeat(15_000),
+        "$a$".repeat(10_000),
+        "[a".repeat(15_000),
+        "?".repeat(30_000),
+        ":".repeat(30_000),
+        format!("match{}x:", " ".repeat(30_000)),
+        format!("type{}T", " ".repeat(30_000)),
+        format!("puts{}\"x\"", " ".repeat(30_000)),
+        format!("cat <<{}", " ".repeat(30_000)),
+        format!("cat <<{d}\n{}", format!("{}\n", "X".repeat(999)).repeat(20), d = "X".repeat(1_000)),
     ];
     for lang in langs() {
         for run in &runs {
@@ -146,6 +170,21 @@ fn what_never_closes_runs_to_the_end_in_its_class() {
         ("jsx", "const a = <div>never closed\nlet x = 1;", "never", Class::Plain),
         ("elixir", "x = 1 /* never closed\ny = 2", "/*", Class::Comment),
         ("elixir", "s = \"never closed", "\"", Class::String),
+        ("python", "s = \"\"\"never closed\nx = 1\n", "\"\"\"", Class::String),
+        ("python", "s = rb'''never closed\nx = 1", "rb'''", Class::String),
+        ("ruby", "s = \"never closed\nx = 1\n", "\"", Class::String),
+        ("ruby", "s = <<~EOS\n  never terminated\nx = 1\n", "<<~EOS", Class::String),
+        ("ruby", "x = %w[never closed\ny = 1", "%w[", Class::String),
+        ("ruby", "=begin\nnever ended\nx = 1", "=begin", Class::Comment),
+        ("shell", "echo 'never closed\nls -la", "'", Class::String),
+        ("shell", "cat <<EOF\nnever terminated\nls -la\n", "EOF", Class::String),
+        ("console", "$ echo 'never closed\nprinted\n$ ls\n", "'", Class::String),
+        ("powershell", "$s = 'never closed\nWrite-Host 1", "'", Class::String),
+        ("powershell", "$s = @'\nnever closed\nWrite-Host 1", "@'", Class::String),
+        ("powershell", "<# never closed\nWrite-Host 1", "<#", Class::Comment),
+        ("sql", "SELECT 'never closed\nFROM t;", "'", Class::String),
+        ("sql", "SELECT $$ never closed\nSELECT 1;", "$$", Class::String),
+        ("sql", "SELECT 1; /* never closed\nSELECT 2;", "/*", Class::Comment),
     ];
     for &(name, text, opener, class) in cases {
         let tokens = highlight(text, lang(name));
@@ -156,6 +195,8 @@ fn what_never_closes_runs_to_the_end_in_its_class() {
     // A string that cannot run past its line ends at the line's end.
     let text = "char *s = \"cut short\nint y;";
     assert_eq!(token_at(&highlight(text, lang("c")), text.find("int").unwrap()).0, Class::Type);
+    let text = "s = 'cut short\nx = int(s)";
+    assert_eq!(token_at(&highlight(text, lang("python")), text.find("int").unwrap()).0, Class::Type);
 }
 
 #[test]
@@ -177,6 +218,33 @@ fn nesting_stops_at_eight() {
         let want = if k < MAX_NESTING { Class::Punctuation } else { Class::String };
         assert_eq!(token_at(&tokens, at).0, want, "the {}th `\\(`", k + 1);
     }
+    // Python's f-strings in f-strings, Ruby's `#{` in strings, and Shell's and PowerShell's `$(` in
+    // strings alike: the ninth is its string's own.
+    let cases = [
+        ("python", "f\"{", "}\"", "{"),
+        ("ruby", "\"#{", "}\"", "#{"),
+        ("shell", "\"$(", ")\"", "$("),
+        ("powershell", "\"$(", ")\"", "$("),
+    ];
+    for (name, open, close, opener) in cases {
+        let text = format!("x = {}y{}", open.repeat(12), close.repeat(12));
+        let tokens = highlight(&text, lang(name));
+        let opens: Vec<usize> = text.match_indices(opener).map(|(i, _)| i).take(MAX_NESTING + 1).collect();
+        for (k, &at) in opens.iter().enumerate() {
+            let want = if k < MAX_NESTING { Class::Punctuation } else { Class::String };
+            assert_eq!(token_at(&tokens, at).0, want, "{name}: the {}th {opener:?}", k + 1);
+        }
+    }
+    // Heredocs that wait for their bodies: the ninth `<<` on a line opens none.
+    for (name, text) in
+        [("shell", format!("cat {}\n", "<<A ".repeat(12))), ("ruby", format!("f({})\n", "<<~A, ".repeat(12)))]
+    {
+        let tokens = highlight(&text, lang(name));
+        let ids: Vec<usize> = text.match_indices('A').map(|(i, _)| i).take(MAX_NESTING + 1).collect();
+        for (k, &at) in ids.iter().enumerate() {
+            assert_eq!(token_at(&tokens, at).0 == Class::String, k < MAX_NESTING, "{name}: the {}th heredoc", k + 1);
+        }
+    }
     // JSX elements in elements: the ninth `<a>` is its parent's text.
     let text = format!("x = {}", "<a>".repeat(12));
     let tokens = highlight(&text, lang("jsx"));
@@ -188,6 +256,190 @@ fn nesting_stops_at_eight() {
 }
 
 #[test]
+fn a_console_reads_its_commands_as_shell_or_powershell() {
+    // A prompt is meta, the command after it reads as Shell, or as PowerShell after a PowerShell
+    // prompt, byte for byte, and the lines without a prompt are what the commands printed.
+    let shell = "grep -c \"TODO\" src/*.rs | sort -n # count\n";
+    let powershell = "Get-ChildItem -Path . -Filter *.rs | Measure-Object\n";
+    let text = format!("$ {shell}3\n42 files done\nPS C:\\src> {powershell}Count : 7\n");
+    let console = classes(&text, lang("console"));
+    let command = 2;
+    assert!(console[..command].iter().all(|&c| c == Class::Meta), "the prompt");
+    assert_eq!(&console[command..command + shell.len()], classes(shell, lang("shell")).as_slice());
+    let prompt = text.find("PS C:").unwrap();
+    assert!(console[command + shell.len()..prompt].iter().all(|&c| c == Class::Plain), "what it printed");
+    let command = prompt + "PS C:\\src> ".len();
+    assert!(console[prompt..command].iter().all(|&c| c == Class::Meta), "PowerShell's prompt");
+    assert_eq!(&console[command..command + powershell.len()], classes(powershell, lang("powershell")).as_slice());
+    assert!(console[command + powershell.len()..].iter().all(|&c| c == Class::Plain));
+    // A command goes on over the lines what it opens holds open, past their continuation prompts.
+    let text = "$ cat <<EOF\n> $HOME\n> EOF\ndone\nPS> Get-Item . |\n>> Select-Object Name\nName\n";
+    let tokens = highlight(text, lang("console"));
+    let class = |needle: &str| token_at(&tokens, text.find(needle).unwrap()).0;
+    assert_eq!(class("> $HOME"), Class::Meta);
+    assert_eq!(class("$HOME"), Class::Variable);
+    assert_eq!(class("EOF\ndone"), Class::String);
+    assert_eq!(class("done"), Class::Plain);
+    assert_eq!(class(">> "), Class::Meta);
+    assert_eq!(class("Select-Object"), Class::Function);
+    // Prompts of many shapes; and lines that only look like one are output.
+    let prompts = [
+        "$ ",
+        "# ",
+        "% ",
+        "> ",
+        "user@host:~/src$ ",
+        "[me@box src]# ",
+        "me@box ~ % ",
+        "(venv) $ ",
+        "bash-5.2$ ",
+        "PS> ",
+        "PS C:\\Users\\me> ",
+    ];
+    for prompt in prompts {
+        let line = format!("{prompt}git status\n");
+        let tokens = highlight(&line, lang("console"));
+        assert_eq!(tokens[0], Token { end: prompt.len(), class: Class::Meta }, "{line:?}");
+        assert_eq!(tokens[1].class, Class::Function, "{line:?}");
+    }
+    for line in ["$5 a month\n", "total 48\n", "=> nil\n", ">>> print(1)\n", "  indented output\n"] {
+        assert_eq!(highlight(line, lang("console")), vec![Token { end: line.len(), class: Class::Plain }], "{line:?}");
+    }
+}
+
+#[test]
+fn an_f_string_nests_its_braces() {
+    let text = r#"f"{value:{width}.{digits}f} {d["key"]!r} {{literal}} { {1: 2}[1] } {f"{inner}"}" + tail"#;
+    let tokens = highlight(text, lang("python"));
+    let class = |needle: &str| token_at(&tokens, text.find(needle).unwrap()).0;
+    // A format spec is a string that holds fields of its own.
+    assert_eq!(class("value"), Class::Plain);
+    assert_eq!(class("{width}"), Class::Punctuation);
+    assert_eq!(class("width"), Class::Plain);
+    assert_eq!(class(".{digits}"), Class::String);
+    assert_eq!(class("f}"), Class::String);
+    // A field's strings may take the field's own quotes (PEP 701), and its conversion is an operator.
+    assert_eq!(class("\"key\""), Class::String);
+    assert_eq!(class("key"), Class::String);
+    assert_eq!(class("!r"), Class::Operator);
+    // `{{` is a brace; a dict in a field holds a `:` that begins no format spec.
+    assert_eq!(class("{{literal}}"), Class::String);
+    assert_eq!(class("{1: 2}"), Class::Punctuation);
+    assert_eq!(class("2}"), Class::Number);
+    // An f-string in a field, and the string closes where it began.
+    assert_eq!(class("inner"), Class::Plain);
+    assert_eq!(class("+ tail"), Class::Operator);
+    assert_eq!(class("tail"), Class::Plain);
+    // A named escape's braces are its own, and a raw f-string's `\{` opens a field.
+    let text = r#"f"\N{EM DASH} {a}" rf"\{b}""#;
+    let tokens = highlight(text, lang("python"));
+    let class = |needle: &str| token_at(&tokens, text.find(needle).unwrap()).0;
+    assert_eq!(class("EM DASH"), Class::String);
+    assert_eq!(class("a}"), Class::Plain);
+    assert_eq!(class("b}"), Class::Plain);
+}
+
+#[test]
+fn a_shell_hash_inside_a_word_is_no_comment() {
+    let text = "echo a#b x=1#2 ${#items[@]} $# \"#quoted\" 'a#b';#after\nls # a comment\n";
+    let tokens = highlight(text, lang("shell"));
+    let class = |needle: &str| token_at(&tokens, text.find(needle).unwrap()).0;
+    assert_eq!(class("#b"), Class::Plain);
+    assert_eq!(class("#2"), Class::Plain);
+    assert_eq!(class("#items"), Class::Variable);
+    assert_eq!(class("$#"), Class::Variable);
+    assert_eq!(class("#quoted"), Class::String);
+    // A word starts after `;`, and after a space.
+    assert_eq!(token_at(&tokens, text.find("#after").unwrap()), (Class::Comment, text.find("\nls").unwrap() + 1));
+    assert_eq!(class("ls"), Class::Function);
+    assert_eq!(class("# a comment"), Class::Comment);
+    // In a console's command too.
+    let text = "$ echo a#b # a note\na#b\n";
+    let tokens = highlight(text, lang("console"));
+    assert_eq!(token_at(&tokens, text.find("#b").unwrap()).0, Class::Plain);
+    assert_eq!(token_at(&tokens, text.find("# a note").unwrap()).0, Class::Comment);
+    assert_eq!(token_at(&tokens, text.rfind("a#b").unwrap()).0, Class::Plain);
+}
+
+#[test]
+fn a_heredoc_runs_to_its_terminator() {
+    // Shell: the body expands, and runs to a line that is the delimiter alone; one indented is not.
+    let text = "cat <<EOF > out\nhome: $HOME\n  EOF\nEOF\necho done\n";
+    let tokens = highlight(text, lang("shell"));
+    let class = |needle: &str| token_at(&tokens, text.find(needle).unwrap()).0;
+    assert_eq!(class("out"), Class::Plain);
+    assert_eq!(class("home"), Class::String);
+    assert_eq!(class("$HOME"), Class::Variable);
+    assert_eq!(class("  EOF"), Class::String);
+    assert_eq!(class("echo"), Class::Function);
+    // `<<-` strips its tabs; a quoted delimiter expands nothing; two on a line are read in turn.
+    let text = "cat <<-'END' && diff <<A <<B\n\tno $expansion\n\tEND\na $x\nA\nb\nB\nls\n";
+    let tokens = highlight(text, lang("shell"));
+    let class = |needle: &str| token_at(&tokens, text.find(needle).unwrap()).0;
+    assert_eq!(class("$expansion"), Class::String);
+    assert_eq!(class("$x"), Class::Variable);
+    assert_eq!(class("A\nb"), Class::String);
+    assert_eq!(class("B\nls"), Class::String);
+    assert_eq!(class("ls"), Class::Function);
+    // Ruby: `<<~` lets its terminator be indented and interpolates; code goes on after the opener.
+    let text = "sql = <<~SQL.strip\n  SELECT #{cols} FROM t\n  SQL\nputs sql\nx = <<-'EOS'\n  #{not}\n  EOS\ny = 1\n";
+    let tokens = highlight(text, lang("ruby"));
+    let class = |needle: &str| token_at(&tokens, text.find(needle).unwrap()).0;
+    assert_eq!(class("strip"), Class::Function);
+    assert_eq!(class("SELECT"), Class::String);
+    assert_eq!(class("#{cols}"), Class::Punctuation);
+    assert_eq!(class("cols"), Class::Plain);
+    assert_eq!(class("  SQL"), Class::String);
+    assert_eq!(class("puts"), Class::Function);
+    assert_eq!(class("#{not}"), Class::String);
+    assert_eq!(class("y = 1"), Class::Plain);
+    // PowerShell's here-string runs to the line that starts with its close.
+    let text = "$s = @\"\nHi $name, \"quoted\"\n\"@\nWrite-Host $s\n";
+    let tokens = highlight(text, lang("powershell"));
+    let class = |needle: &str| token_at(&tokens, text.find(needle).unwrap()).0;
+    assert_eq!(class("\"quoted\""), Class::String);
+    assert_eq!(class("$name"), Class::Variable);
+    assert_eq!(class("Write-Host"), Class::Function);
+}
+
+#[test]
+fn a_sql_dollar_body_is_one_string() {
+    let body = "$$\nBEGIN\n  -- no comment here\n  RETURN 'it''s';\nEND;\n$$";
+    let text = format!("CREATE FUNCTION f() RETURNS text AS {body} LANGUAGE plpgsql;\n");
+    let tokens = highlight(&text, lang("sql"));
+    let at = text.find("$$").unwrap();
+    // One string, and the space after it, which goes to the token before.
+    assert_eq!(token_at(&tokens, at), (Class::String, at + body.len() + 1));
+    assert_eq!(token_at(&tokens, text.find("LANGUAGE").unwrap()).0, Class::Keyword);
+    // A tagged body runs to its own tag, past a `$$` in it; `$1` is a variable.
+    let body = "$fn$ SELECT '$$'; $$ $fn$";
+    let text = format!("DO {body}; SELECT $1;");
+    let tokens = highlight(&text, lang("sql"));
+    let at = text.find("$fn$").unwrap();
+    assert_eq!(token_at(&tokens, at), (Class::String, at + body.len()));
+    assert_eq!(token_at(&tokens, text.find("$1").unwrap()).0, Class::Variable);
+}
+
+#[test]
+fn soft_keywords_are_keywords_only_where_they_act_as_keywords() {
+    let text = "match point:\n    case Point(x=0, y=_):\n        pass\n    case _:\n        pass\n\
+                match = re.match(p, s)\ncase(1)\n_ = 1\ntype Pair = tuple[int, int]\nkind = type(x)\n";
+    let tokens = highlight(text, lang("python"));
+    let class = |needle: &str| token_at(&tokens, text.find(needle).unwrap()).0;
+    assert_eq!(class("match point"), Class::Keyword);
+    assert_eq!(class("case Point"), Class::Keyword);
+    assert_eq!(class("_)"), Class::Keyword);
+    assert_eq!(class("_:"), Class::Keyword);
+    assert_eq!(class("match ="), Class::Plain);
+    assert_eq!(class("match(p"), Class::Function);
+    assert_eq!(class("case(1)"), Class::Function);
+    assert_eq!(class("_ = 1"), Class::Plain);
+    assert_eq!(class("type Pair"), Class::Keyword);
+    assert_eq!(class("Pair"), Class::Type);
+    assert_eq!(class("type(x)"), Class::Type);
+}
+
+#[test]
 fn lines_past_a_thousand_are_plain() {
     // A comment that never closes runs to the end of the thousandth line, and the rest is plain:
     // a line ends at a line feed, a carriage return and a line feed, or a carriage return alone.
@@ -196,6 +448,25 @@ fn lines_past_a_thousand_are_plain() {
         let cut = text.match_indices(end).nth(MAX_LINES - 1).map(|(i, _)| i + end.len()).unwrap();
         let want = vec![Token { end: cut, class: Class::Comment }, Token { end: text.len(), class: Class::Plain }];
         assert_eq!(highlight(&text, lang("rust")), want, "lines ended by {end:?}");
+    }
+    // So do what other scanners leave open: a Python string, a Ruby heredoc and embedded
+    // document, a Shell heredoc and a console's, a PowerShell comment, and a SQL comment.
+    let open = [
+        ("python", "\"\"\"", Class::String),
+        ("ruby", "x = <<~EOS", Class::String),
+        ("ruby", "=begin", Class::Comment),
+        ("shell", "cat <<EOF", Class::String),
+        ("console", "$ cat <<EOF", Class::String),
+        ("powershell", "<#", Class::Comment),
+        ("sql", "/*", Class::Comment),
+    ];
+    for (name, opener, class) in open {
+        let text = format!("{opener}\n{}", "x\n".repeat(MAX_LINES + 4));
+        let cut = text.match_indices('\n').nth(MAX_LINES - 1).map(|(i, _)| i + 1).unwrap();
+        let tokens = highlight(&text, lang(name));
+        let [.., before, last] = tokens.as_slice() else { panic!("{name}: too few tokens") };
+        assert_eq!((before.end, before.class), (cut, class), "{name}: {opener:?}");
+        assert_eq!((last.end, last.class), (text.len(), Class::Plain), "{name}: {opener:?}");
     }
     // Code past the thousandth line is one plain token.
     let line = "fn f() { g(1); }\n";
@@ -240,6 +511,20 @@ fn languages_are_sorted_and_each_alias_names_one() {
     assert_eq!(lang("RS"), lang("rust"));
     assert!(matches!(lang("c++"), Lang::Known(l) if l.name == "cpp"));
     assert_eq!(lang("Text"), Lang::Plain);
+    // Each name of 2.134's languages names its own scanner's language.
+    let names = [
+        ("python", ["py", "python3", "PYTHON"].as_slice()),
+        ("ruby", &["rb", "Ruby"]),
+        ("shell", &["bash", "sh", "zsh", "shellscript", "shell-script"]),
+        ("console", &["sh-session", "shellsession", "shell-session"]),
+        ("powershell", &["ps1", "pwsh", "posh", "ps", "PowerShell"]),
+        ("sql", &["postgres", "postgresql", "pgsql", "plpgsql", "mysql", "sqlite", "tsql", "SQL"]),
+    ];
+    for (name, aliases) in names {
+        for alias in aliases {
+            assert!(matches!(lang(alias), Lang::Known(l) if l.name == name), "{alias} names {name}");
+        }
+    }
 }
 
 #[test]
@@ -290,6 +575,7 @@ fn the_sixteen_kinds_are_named_once() {
 }
 
 /// The pieces random text is made of: what opens and closes what the scanners know, and text.
+/// Those after `5.` are the constructs of Python, Ruby, Shell, consoles, PowerShell, and SQL.
 const PIECES: &[&str] = &[
     " ",
     "  ",
@@ -435,6 +721,87 @@ const PIECES: &[&str] = &[
     "::<&str>",
     "| ",
     "5.",
+    "f\"{",
+    "rb'",
+    "t'{",
+    "!r",
+    ":>{",
+    "\\N{",
+    "@dataclass",
+    "match ",
+    "case _:",
+    "type T = ",
+    "def ",
+    "#{",
+    "#@x",
+    "<<~EOS",
+    "<<-EOS",
+    "<<'EOS'",
+    "<<EOF",
+    "<<-'EOF'",
+    "\nEOS\n",
+    "\n\tEOF\n",
+    "%w[",
+    "%i(",
+    "%q{",
+    "%Q<",
+    "%r|",
+    "%(",
+    ":sym",
+    ":\"",
+    "@@x",
+    "$!",
+    "?a",
+    "\n=begin\n",
+    "\n=end\n",
+    "\n__END__\n",
+    "|x|",
+    "&.",
+    "$(",
+    "$((",
+    "))",
+    "${",
+    "$'",
+    ";;",
+    "esac",
+    "case ",
+    " in ",
+    "[[ ",
+    " ]]",
+    "2>&1",
+    "<(",
+    "a#b",
+    "\\\n",
+    "do\n",
+    "done",
+    "then",
+    "\n$ ",
+    "\n# ",
+    "\nPS C:\\> ",
+    "\n> ",
+    "\n>> ",
+    "\nu@h:~$ ",
+    "\n(venv) % ",
+    "@\"\n",
+    "\n\"@",
+    "@'\n",
+    "\n'@",
+    "<#",
+    "#>",
+    "@(",
+    "@{",
+    "[string]",
+    "[Parameter(",
+    "-eq",
+    "Get-Item",
+    "$env:x",
+    "$$",
+    "$t$",
+    "E'",
+    "N'",
+    "[x y]",
+    "SELECT ",
+    "?|",
 ];
 
 /// Openers, and what closes each, nested 100 deep.
@@ -452,6 +819,16 @@ const DEEP: &[(&str, &str)] = &[
     ("/*", "*/"),
     ("#[", "]"),
     ("r#\"", "\"#"),
+    ("f\"{", "}\""),
+    ("\"#{", "}\""),
+    ("%w(", ")"),
+    ("$(", ")"),
+    ("\"$(", ")\""),
+    ("${", "}"),
+    ("$((", "))"),
+    ("@(", ")"),
+    ("<#", "#>"),
+    ("$$", "$$"),
 ];
 
 /// A text of `pieces` pieces at most, picked at random; with `breaks`, line breaks among them.
@@ -489,6 +866,15 @@ fn check(text: &str, lang: Lang) {
     }
     assert_eq!(start, text.len(), "{lang:?}: the tokens stop short of the end of {text:?}");
     assert_eq!(tokens, highlight(text, lang), "{lang:?}: read twice, {text:?} reads otherwise");
+}
+
+/// The class of each byte of `text` in `lang`.
+fn classes(text: &str, lang: Lang) -> Vec<Class> {
+    let mut out = Vec::with_capacity(text.len());
+    for token in highlight(text, lang) {
+        out.resize(token.end, token.class);
+    }
+    out
 }
 
 /// The class of the token that holds byte `at`, and where that token ends.

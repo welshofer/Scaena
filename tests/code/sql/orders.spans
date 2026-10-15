@@ -1,0 +1,205 @@
+comment     «-- Monthly revenue by region, with a running total.\n»
+keyword     «CREATE TABLE IF NOT EXISTS »
+plain       «orders »
+punctuation «(\n    »
+plain       «id          »
+type        «BIGSERIAL »
+keyword     «PRIMARY KEY»
+punctuation «,\n    »
+plain       «customer_id »
+type        «INTEGER »
+keyword     «NOT »
+constant    «NULL »
+keyword     «REFERENCES »
+plain       «customers »
+punctuation «(»
+plain       «id»
+punctuation «) »
+keyword     «ON DELETE CASCADE»
+punctuation «,\n    »
+plain       «region      »
+type        «VARCHAR»
+punctuation «(»
+number      «32»
+punctuation «) »
+keyword     «DEFAULT »
+string      «'north'»
+punctuation «,\n    »
+plain       «total       »
+type        «NUMERIC»
+punctuation «(»
+number      «10»
+punctuation «, »
+number      «2»
+punctuation «) »
+keyword     «CHECK »
+punctuation «(»
+plain       «total »
+operator    «>= »
+number      «0»
+punctuation «),\n    »
+plain       «placed_at   »
+type        «TIMESTAMPTZ »
+keyword     «NOT »
+constant    «NULL »
+keyword     «DEFAULT »
+constant    «CURRENT_TIMESTAMP»
+punctuation «,\n    »
+plain       «"order"     »
+type        «TEXT\n»
+punctuation «);\n\n»
+comment     «/* Rows a year back, and the month each falls in. */\n»
+keyword     «WITH »
+plain       «monthly »
+keyword     «AS »
+punctuation «(\n    »
+keyword     «SELECT »
+function    «date_trunc»
+punctuation «(»
+string      «'month'»
+punctuation «, »
+plain       «o»
+punctuation «.»
+property    «placed_at»
+punctuation «) »
+keyword     «AS »
+plain       «month»
+punctuation «,\n           »
+plain       «o»
+punctuation «.»
+property    «region»
+punctuation «,\n           »
+function    «SUM»
+punctuation «(»
+plain       «o»
+punctuation «.»
+property    «total»
+punctuation «)»
+operator    «::»
+type        «numeric»
+punctuation «(»
+number      «12»
+punctuation «, »
+number      «2»
+punctuation «) »
+keyword     «AS »
+plain       «revenue»
+punctuation «,\n           »
+function    «COUNT»
+punctuation «(»
+operator    «*»
+punctuation «) »
+keyword     «FILTER »
+punctuation «(»
+keyword     «WHERE »
+plain       «o»
+punctuation «.»
+property    «total »
+operator    «> »
+number      «100»
+punctuation «) »
+keyword     «AS »
+plain       «large\n    »
+keyword     «FROM »
+plain       «orders »
+keyword     «AS »
+plain       «o\n    »
+keyword     «WHERE »
+plain       «o»
+punctuation «.»
+property    «placed_at »
+operator    «>= »
+function    «now»
+punctuation «() »
+operator    «- »
+type        «INTERVAL »
+string      «'1 year'\n      »
+keyword     «AND »
+plain       «o»
+punctuation «.»
+property    «region »
+operator    «<> »
+string      «'test' »
+keyword     «AND »
+plain       «o»
+punctuation «.»
+property    «"order" »
+keyword     «IS NOT »
+constant    «NULL\n    »
+keyword     «GROUP BY »
+number      «1»
+punctuation «, »
+number      «2\n»
+punctuation «)\n»
+keyword     «SELECT »
+plain       «month»
+punctuation «, »
+plain       «region»
+punctuation «, »
+plain       «revenue»
+punctuation «,\n       »
+function    «SUM»
+punctuation «(»
+plain       «revenue»
+punctuation «) »
+keyword     «OVER »
+punctuation «(»
+keyword     «PARTITION BY »
+plain       «region »
+keyword     «ORDER BY »
+plain       «month»
+punctuation «) »
+keyword     «AS »
+plain       «running»
+punctuation «,\n       »
+function    «LEFT»
+punctuation «(»
+plain       «region»
+punctuation «, »
+number      «3»
+punctuation «) »
+keyword     «AS »
+plain       «code»
+punctuation «, »
+string      «'it''s ' »
+operator    «|| »
+plain       «region »
+keyword     «AS »
+plain       «note\n»
+keyword     «FROM »
+plain       «monthly\n»
+keyword     «ORDER BY »
+plain       «month »
+keyword     «DESC NULLS LAST\nLIMIT »
+number      «12 »
+keyword     «OFFSET »
+variable    «$1»
+punctuation «;\n\n»
+keyword     «CREATE OR REPLACE FUNCTION »
+function    «touch»
+punctuation «() »
+keyword     «RETURNS trigger AS »
+string      «$$\nBEGIN\n    NEW.placed_at := now(); -- inside the body, 'quoted'\n    RETURN NEW;\nEND;\n$$ »
+keyword     «LANGUAGE »
+plain       «plpgsql»
+punctuation «;\n\n»
+keyword     «SELECT »
+plain       «[Order Details]»
+punctuation «.»
+property    «quantity»
+punctuation «, »
+variable    «@@ROWCOUNT»
+punctuation «, »
+string      «N'naïve'»
+punctuation «, »
+string      «E'tab\\'s'»
+punctuation «, »
+variable    «:name»
+punctuation «, »
+number      «0x1F»
+punctuation «, »
+number      «.5\n»
+keyword     «FROM »
+plain       «[Order Details]»
+punctuation «;\n»
+comment     «# a MySQL comment\n»

@@ -1,0 +1,240 @@
+comment     «# frozen_string_literal: true\n\n»
+keyword     «require »
+string      «"json"\n»
+keyword     «require_relative »
+string      «"lib/book"\n\n»
+keyword     «module »
+type        «Library\n  »
+comment     «# A shelf of books, by their ISBNs.\n  »
+keyword     «class »
+type        «Shelf\n    »
+keyword     «include »
+type        «Enumerable\n    »
+keyword     «attr_reader »
+constant    «:name»
+punctuation «, »
+constant    «:books\n\n    MAX_BOOKS »
+operator    «= »
+number      «1_000\n    »
+constant    «ISBN »
+operator    «= »
+string      «/\\A(?:97[89])?\\d{9}[\\dX]\\z/i\n\n    »
+keyword     «def »
+function    «initialize»
+punctuation «(»
+constant    «name:»
+punctuation «, »
+constant    «books: »
+punctuation «[])\n      »
+variable    «@name »
+operator    «= »
+plain       «name\n      »
+variable    «@books »
+operator    «= »
+plain       «books»
+punctuation «.»
+function    «to_h »
+punctuation «{ »
+operator    «|»
+plain       «b»
+operator    «| »
+punctuation «[»
+plain       «b»
+punctuation «.»
+function    «isbn»
+punctuation «, »
+plain       «b»
+punctuation «] }\n      »
+variable    «@@shelves »
+operator    «||= »
+number      «0\n      »
+variable    «@@shelves »
+operator    «+= »
+number      «1\n    »
+keyword     «end\n\n    def »
+variable    «self»
+punctuation «.»
+function    «load»
+punctuation «(»
+plain       «path»
+punctuation «) »
+operator    «= »
+function    «new»
+punctuation «(»
+operator    «**»
+constant    «JSON»
+punctuation «.»
+function    «parse»
+punctuation «(»
+type        «File»
+punctuation «.»
+function    «read»
+punctuation «(»
+plain       «path»
+punctuation «), »
+constant    «symbolize_names: true»
+punctuation «))\n\n    »
+keyword     «def »
+function    «<=>»
+punctuation «(»
+plain       «other»
+punctuation «)\n      »
+plain       «name »
+operator    «<=> »
+plain       «other»
+punctuation «.»
+function    «name\n    »
+keyword     «end\n\n    def »
+function    «add»
+punctuation «(»
+plain       «book»
+punctuation «)\n      »
+keyword     «raise »
+type        «ArgumentError»
+punctuation «, »
+string      «"bad ISBN: »
+punctuation «#{»
+plain       «book»
+punctuation «.»
+function    «isbn»
+punctuation «}»
+string      «" »
+keyword     «unless »
+plain       «book»
+punctuation «.»
+function    «isbn»
+punctuation «.»
+function    «match?»
+punctuation «(»
+constant    «ISBN»
+punctuation «)\n      »
+keyword     «return »
+variable    «self »
+keyword     «if »
+variable    «@books»
+punctuation «.»
+function    «key?»
+punctuation «(»
+plain       «book»
+punctuation «.»
+function    «isbn»
+punctuation «)\n\n      »
+variable    «@books»
+punctuation «[»
+plain       «book»
+punctuation «.»
+function    «isbn»
+punctuation «] »
+operator    «= »
+plain       «book\n      »
+variable    «self\n    »
+keyword     «end\n\n    def »
+function    «report\n      »
+plain       «titles »
+operator    «= »
+string      «%w[Dune Emma Ulysses]\n      »
+plain       «counts »
+operator    «= »
+constant    «%i(read unread)\n      »
+string      «<<~TEXT»
+punctuation «.»
+function    «strip\n»
+string      «        »
+punctuation «#{»
+plain       «name»
+punctuation «}»
+string      «: »
+punctuation «#{»
+variable    «@books»
+punctuation «.»
+function    «size»
+punctuation «}»
+string      « books, #»
+variable    «@name»
+string      «'s shelf\n        Titles: »
+punctuation «#{»
+plain       «titles»
+punctuation «.»
+function    «join»
+punctuation «(»
+string      «", "»
+punctuation «)}»
+string      « (»
+punctuation «#{»
+plain       «counts»
+punctuation «.»
+function    «first»
+punctuation «}»
+string      «)\n      TEXT\n    »
+keyword     «end\n\n    private\n\n    def »
+function    «pages\n      »
+plain       «total »
+operator    «= »
+plain       «books»
+punctuation «.»
+function    «sum »
+punctuation «{ »
+operator    «|»
+plain       «_»
+punctuation «, »
+plain       «b»
+operator    «| »
+plain       «b»
+punctuation «.»
+function    «pages »
+punctuation «}\n      »
+plain       «half »
+operator    «= »
+plain       «total »
+operator    «/ »
+number      «2.0\n      »
+function    «format»
+punctuation «(»
+string      «"%d pages, %d a half"»
+punctuation «, »
+plain       «total»
+punctuation «, »
+plain       «half»
+punctuation «)\n    »
+keyword     «end\n  end\nend\n\n»
+comment     «=begin\nA comment that runs\nover lines.\n=end\n»
+plain       «shelf »
+operator    «= »
+type        «Library»
+punctuation «::»
+type        «Shelf»
+punctuation «.»
+function    «new»
+punctuation «(»
+constant    «name: »
+string      «"Fiction"»
+punctuation «)\n»
+function    «puts »
+plain       «shelf»
+punctuation «.»
+function    «report»
+punctuation «, »
+string      «?a»
+punctuation «, »
+constant    «:"quoted symbol"»
+punctuation «, »
+string      «%q{raw #{not} interpolated}»
+punctuation «, »
+variable    «$stdout»
+punctuation «.»
+function    «sync\n»
+plain       «words »
+operator    «= »
+plain       «shelf»
+punctuation «.»
+function    «name»
+punctuation «.»
+function    «split»
+punctuation «(»
+string      «/,\\s*/»
+punctuation «).»
+function    «map»
+punctuation «(»
+operator    «&»
+constant    «:upcase»
+punctuation «)\n»

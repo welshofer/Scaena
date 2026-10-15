@@ -1,0 +1,288 @@
+comment     «#!/usr/bin/env python3\n»
+string      «"""An inventory of parts, priced and counted."""\n\n»
+keyword     «from »
+variable    «__future__ »
+keyword     «import »
+plain       «annotations\n\n»
+keyword     «import »
+plain       «re\n»
+keyword     «from »
+plain       «dataclasses »
+keyword     «import »
+plain       «dataclass»
+punctuation «, »
+plain       «field\n»
+keyword     «from »
+plain       «typing »
+keyword     «import »
+type        «Iterator\n\n»
+constant    «PART »
+operator    «= »
+plain       «re»
+punctuation «.»
+function    «compile»
+punctuation «(»
+string      «rb"^(?P<sku>[A-Z]{3})-(\\d+)$"»
+punctuation «)\n»
+constant    «MAX_STOCK»
+punctuation «: »
+type        «int »
+operator    «= »
+number      «1_000\n\n\n»
+attribute   «@dataclass»
+punctuation «(»
+plain       «frozen»
+operator    «=»
+constant    «True»
+punctuation «)\n»
+keyword     «class »
+type        «Part»
+punctuation «:\n    »
+plain       «sku»
+punctuation «: »
+type        «str\n    »
+plain       «price»
+punctuation «: »
+type        «float »
+operator    «= »
+number      «0.0\n    »
+plain       «tags»
+punctuation «: »
+type        «list»
+punctuation «[»
+type        «str»
+punctuation «] »
+operator    «= »
+function    «field»
+punctuation «(»
+plain       «default_factory»
+operator    «=»
+type        «list»
+punctuation «)\n\n    »
+keyword     «def »
+function    «label»
+punctuation «(»
+variable    «self»
+punctuation «, »
+plain       «width»
+punctuation «: »
+type        «int »
+operator    «= »
+number      «12»
+punctuation «) »
+operator    «-> »
+type        «str»
+punctuation «:\n        »
+keyword     «return »
+string      «f"»
+punctuation «{»
+variable    «self»
+punctuation «.»
+property    «sku»
+operator    «!r»
+punctuation «:»
+string      «>»
+punctuation «{»
+plain       «width»
+punctuation «}}»
+string      « costs $»
+punctuation «{»
+variable    «self»
+punctuation «.»
+property    «price»
+punctuation «:»
+string      «,.2f»
+punctuation «}»
+string      « {{each}}"\n\n\n»
+keyword     «type »
+type        «Stock »
+operator    «= »
+type        «dict»
+punctuation «[»
+type        «str»
+punctuation «, »
+type        «int»
+punctuation «]\n\n\n»
+keyword     «class »
+type        «Inventory»
+punctuation «:\n    »
+keyword     «def »
+function    «__init__»
+punctuation «(»
+variable    «self»
+punctuation «, »
+plain       «parts»
+punctuation «: »
+type        «Stock »
+operator    «| »
+constant    «None »
+operator    «= »
+constant    «None»
+punctuation «) »
+operator    «-> »
+constant    «None»
+punctuation «:\n        »
+variable    «self»
+punctuation «.»
+property    «parts »
+operator    «= »
+plain       «parts »
+keyword     «or »
+punctuation «{}\n\n    »
+attribute   «@property\n    »
+keyword     «def »
+function    «total»
+punctuation «(»
+variable    «self»
+punctuation «) »
+operator    «-> »
+type        «int»
+punctuation «:\n        »
+keyword     «return »
+function    «sum»
+punctuation «(»
+variable    «self»
+punctuation «.»
+property    «parts»
+punctuation «.»
+function    «values»
+punctuation «())\n\n    »
+keyword     «async def »
+function    «restock»
+punctuation «(»
+variable    «self»
+punctuation «, »
+plain       «sku»
+punctuation «: »
+type        «str»
+punctuation «, »
+plain       «count»
+punctuation «: »
+type        «int »
+operator    «= »
+number      «1»
+punctuation «) »
+operator    «-> »
+constant    «None»
+punctuation «:\n        »
+keyword     «match »
+plain       «sku»
+punctuation «.»
+function    «split»
+punctuation «(»
+string      «"-"»
+punctuation «):\n            »
+keyword     «case »
+punctuation «[»
+plain       «prefix»
+punctuation «, »
+keyword     «_»
+punctuation «] »
+keyword     «if »
+plain       «prefix »
+keyword     «in »
+punctuation «{»
+string      «"ABC"»
+punctuation «, »
+string      «"XYZ"»
+punctuation «}:\n                »
+variable    «self»
+punctuation «.»
+property    «parts»
+punctuation «[»
+plain       «sku»
+punctuation «] »
+operator    «= »
+function    «min»
+punctuation «(»
+variable    «self»
+punctuation «.»
+property    «parts»
+punctuation «.»
+function    «get»
+punctuation «(»
+plain       «sku»
+punctuation «, »
+number      «0»
+punctuation «) »
+operator    «+ »
+plain       «count»
+punctuation «, »
+constant    «MAX_STOCK»
+punctuation «)\n            »
+keyword     «case _»
+punctuation «:\n                »
+keyword     «raise »
+type        «ValueError»
+punctuation «(»
+string      «f"unknown part: »
+punctuation «{»
+plain       «sku»
+operator    «!r»
+punctuation «}»
+string      «, nested »
+punctuation «{»
+string      «f"»
+punctuation «{»
+plain       «count»
+punctuation «:»
+string      «>»
+punctuation «{»
+number      «3»
+punctuation «}}»
+string      «"»
+punctuation «}»
+string      «"»
+punctuation «)\n\n\n»
+keyword     «if »
+variable    «__name__ »
+operator    «== »
+string      «"__main__"»
+punctuation «:\n    »
+plain       «match »
+operator    «= »
+constant    «PART»
+punctuation «.»
+function    «match»
+punctuation «(»
+string      «b"ABC-42"»
+punctuation «)\n    »
+plain       «inventory »
+operator    «= »
+type        «Inventory»
+punctuation «({»
+string      «"ABC-42"»
+punctuation «: »
+number      «3»
+punctuation «})\n    »
+function    «print»
+punctuation «(»
+plain       «inventory»
+punctuation «.»
+property    «total»
+punctuation «, »
+number      «0x1F»
+punctuation «, »
+number      «1e-3»
+punctuation «, »
+number      «2j»
+punctuation «, »
+number      «5.»
+punctuation «, »
+constant    «...»
+punctuation «, »
+string      «r"\\d+"»
+punctuation «, »
+string      «U'é'»
+punctuation «, »
+string      «'it\\'s'»
+punctuation «, »
+string      «t"»
+punctuation «{»
+plain       «inventory»
+punctuation «}»
+string      «"»
+punctuation «)\n    »
+type        «type »
+operator    «= »
+string      «"a name, not a statement"\n»
