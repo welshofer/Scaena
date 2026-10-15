@@ -275,13 +275,13 @@ impl Lexer<'_> {
     fn block(&mut self, run: usize) -> Result<String, DslError> {
         let start = self.pos;
         let src = self.src;
-        let fence = &src[start..start + run];
+        let fence = said(run);
         self.pos += run;
         let eol = src[self.pos..].find('\n').map_or(src.len(), |i| self.pos + i);
         if !src[self.pos..eol].trim().is_empty() {
             return Err(self.error(
                 start,
-                &format!("a `{fence}` string starts on the next line: nothing may follow the opening `{fence}`"),
+                &format!("a {fence} string starts on the next line: nothing may follow the opening {fence}"),
             ));
         }
         self.pos = (eol + 1).min(src.len());
@@ -289,7 +289,7 @@ impl Lexer<'_> {
         loop {
             if self.pos >= src.len() {
                 // Where it opened: the rest of the source is the string's.
-                let message = format!("this `{fence}` string is not closed: a line of `{fence}` alone closes it");
+                let message = format!("this {fence} string is not closed: a line of {fence} alone closes it");
                 return Err(DslError::span(src, start, run, &message));
             }
             self.line += 1;
@@ -306,7 +306,7 @@ impl Lexer<'_> {
                     } else if line.len() >= strip && line.as_bytes()[..strip].iter().all(|&b| b == b' ') {
                         out.push(line[strip..].to_string());
                     } else {
-                        return Err(self.error(at, &format!("this line is indented less than the closing `{fence}`")));
+                        return Err(self.error(at, &format!("this line is indented less than the closing {fence}")));
                     }
                 }
                 return Ok(out.join("\n"));
@@ -343,25 +343,34 @@ fn closes(line: &str, run: usize) -> bool {
     rest.len() == run && rest.bytes().all(|b| b == b'"')
 }
 
+/// A fence as an error says it: its quotes, or, past a dozen, the quote and how many, so that a
+/// run of a million quotes says so in a few words.
+fn said(run: usize) -> String {
+    match run {
+        ..=12 => format!("`{}`", "\"".repeat(run)),
+        _ => format!("`\"` × {run}"),
+    }
+}
+
 /// How many quotes fence `text` as a block that reads back as exactly `text`: the fewest, three
-/// or more, that no line of it is after its indentation, since that line would close the block.
-/// So code with a line of `"""` alone, as a docstring may open on, takes a fence of four. `None`
-/// where a block would not keep `text` as it is: a tab or a carriage return in it, or a line
-/// that ends in white space, which editors change. Such text is a JSON string.
+/// or more, that no line of it is after its indentation, since that line would close the block
+/// ([`closes`]). So code with a line of `"""` alone, as a docstring may open on, takes a fence of
+/// four. `None` where a block would not keep `text` as it is: a tab or a carriage return in it,
+/// or a line that ends in white space, which editors change. Such text is a JSON string.
 pub fn fence(text: &str) -> Option<usize> {
     if text.contains(['\t', '\r']) {
         return None;
     }
-    // The runs a line of quotes alone rules out, from three up: at most one for each line, so
-    // one of these is free.
+    // The runs that lines of text would close, from three up: at most one for each line, so one
+    // of these is free.
     let mut taken = vec![false; text.bytes().filter(|&b| b == b'\n').count() + 2];
     for line in text.split('\n') {
         if line != line.trim_end() {
             return None;
         }
-        let rest = line.trim_start_matches(' ');
-        if rest.len() >= 3 && rest.bytes().all(|b| b == b'"') && rest.len() - 3 < taken.len() {
-            taken[rest.len() - 3] = true;
+        let run = line.trim_start_matches(' ').len();
+        if (3..taken.len() + 3).contains(&run) && closes(line, run) {
+            taken[run - 3] = true;
         }
     }
     taken.iter().position(|t| !t).map(|free| free + 3)
@@ -515,5 +524,18 @@ mod tests {
         let e = lex("notes \"\"\"\"\n    one\n  two\n   \"\"\"\"\n").unwrap_err();
         assert_eq!((e.line, e.col), (3, 1), "{e}");
         assert!(e.message.contains("indented less than the closing `\"\"\"\"`"), "{e}");
+        // Past a dozen quotes, a message gives the quote and how many, not the run.
+        let e = lex(&format!("a\nnotes {}\n  b", "\"".repeat(12))).unwrap_err();
+        assert_eq!(
+            e.message,
+            format!("this `{0}` string is not closed: a line of `{0}` alone closes it", "\"".repeat(12))
+        );
+        let run = 1 << 20;
+        let e = lex(&format!("a\nnotes {}\n  b", "\"".repeat(run))).unwrap_err();
+        assert_eq!(
+            e.message,
+            format!("this `\"` × {run} string is not closed: a line of `\"` × {run} alone closes it")
+        );
+        assert_eq!((e.line, e.col, e.len), (2, 7, run));
     }
 }

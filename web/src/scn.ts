@@ -52,11 +52,12 @@ export const scn = StreamLanguage.define<State>({
       return "comment";
     }
     // Three quotes or more are a block's fence, and the block starts on the next line where
-    // nothing follows them on theirs. Where something does, the lexer refuses the line, and it
-    // reads as a string to its end.
+    // nothing follows them on theirs but white space, as Rust's `trim` counts it (`\s` would
+    // take U+FEFF and pass over U+0085). Where something does, the lexer refuses the line, and
+    // it reads as a string to its end.
     const fence = stream.match(/^"{3,}/) as RegExpMatchArray | null;
     if (fence) {
-      if (/^\s*$/.test(stream.string.slice(stream.pos))) state.fence = fence[0].length;
+      if (/^\p{White_Space}*$/u.test(stream.string.slice(stream.pos))) state.fence = fence[0].length;
       stream.skipToEnd();
       return "string";
     }

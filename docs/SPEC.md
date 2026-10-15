@@ -290,7 +290,7 @@ Italic is a family's own italic face (PLAN 2.40). A role, or a text's `style` (a
 - It grows, then shrinks. Typed or pasted past the foot of its box, the box grows down to hold its lines at the largest size its box's width lets it, its own at most, since growing down makes it no wider: by its rows on the theme's grid, or by its `rect`'s height, no further than the grid's margin. What the box still cannot hold, it shrinks to fit, worked out from one layout (§3.4), no further than its `minSize`, else its role's, else 12 pt at presentation size, 24 cu where the canvas's shorter side is 1080 cu and in proportion on others, and never above its own size. In a container it asks for its own width at most and the width it shrinks to at least, and stands as tall as the width it is given sets it. Code drawn under 12 pt is **W205**; code that does not fit at its smallest is **W203**, which says how many of its lines fit, or how wide its longest line runs.
 - W210 does not count its words, and W220 passes over it.
 - The themes that ship have a `code` role for it: JetBrains Mono at their body's size, `minSize: 24`.
-- In `.scn`, its lines are a block (§4.2), as `docs/examples/code.deck.scn` writes them.
+- In `.scn`, its lines are a block where one keeps them (§4.2, §4.3), as `docs/examples/code.deck.scn` writes them.
 
 The engine MUST implement:
 - Shaping via `harfrust` (the HarfBuzz port) through `parley` (ligatures, kerning, contextual alternates, OpenType features, variable axes), with per-run `features` and `axes` overrides (§3.3). A run of text in one font is shaped whole across a change of tracking or color, so the font's kerning, ligatures, and contextual forms hold across it; a change of font, size, features, axes, or language shapes each side apart (parley, patched: ADR-0004 finding 21). Font tables and metrics are read with `skrifa` (ADR-0004).
@@ -869,8 +869,8 @@ time        := number ("ms" | "s")
 percent     := number "%"
 ratio       := number ":" number
 word        := [A-Za-z_][A-Za-z0-9_.-]*
-string      := a JSON string on one line | block
-block       := fence, a newline, lines, then the same fence alone on a line
+string      := a JSON string on one line
+             | fence, a newline, lines, then the same fence alone on a line  -- a block
 fence       := `"""` `"`*                                     -- three quotes or more
 ```
 
@@ -907,7 +907,7 @@ The decompiler's output is the canonical form. Every shorthand is used only wher
 - Keys keep the deck's order. A text node's `text`, and an image's `src`, are bare strings where they stand. `at` is written as calls when every key is a word.
 - An integer time takes a unit: `4s` for whole seconds, else `240ms`. This applies to `hold`, `transition`, and a choreography item's `delay`, `stagger`, and `duration`, and to a beat's `duration` (`15s`). A float stays a plain number, since a unit would read it back as an integer.
 - A string is bare when it reads back as itself: a word other than `true`, `false`, and `null`; `@` and a word; a percentage; or a ratio. Otherwise it is JSON-quoted.
-- Notes of several lines, and a code text's `text` of several lines, are a block where one keeps them as they are: its fence the fewest quotes, three or more, that no line of the text is after its indentation, so a line of `"""` alone takes `""""`, and lines of both take `"""""`. Its lines stand two deeper than the line its fence ends, and the props after it go on a line of their own. Text with a tab, a carriage return, or a line that ends in white space stays a JSON string, since an editor may change those.
+- Notes of several lines are a block where one keeps them as they are, and so is a text's `text` of several lines where its node, or the state's change that sets it, has `code`. The fence is the fewest quotes, three or more, that no line of the text is after its indentation, so a line of `"""` alone takes `""""`, and lines of both take `"""""`. It ends its line, and a `notes` line keeps it however long; the block's lines stand two deeper than that line, and the props after it go on a line of their own. Text with a tab, a carriage return, or a line that ends in white space stays a JSON string, since an editor may change those.
 - Lines fill to 100 columns. Props that do not fit continue on lines two deeper.
 
 ---

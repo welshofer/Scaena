@@ -172,6 +172,25 @@ fn the_specs_block_is_canonical() {
     assert_eq!(text.as_str().unwrap().lines().nth(1), Some("    \"\"\""), "{text}");
 }
 
+/// Notes keep their fence on the `notes` line, which holds their string, however far past the
+/// width: lines of every run from 3 to 99 quotes take a fence of 100, in a state's notes and in
+/// a beat's.
+#[test]
+fn notes_keep_their_fence_on_their_line_past_the_width() {
+    let q = |n: usize| "\"".repeat(n);
+    let notes = (3..100).map(q).collect::<Vec<_>>().join("\n");
+    let doc = serde_json::json!({
+        "scaena": scaena_core::FORMAT_VERSION,
+        "canvas": { "width": 1920, "height": 1080 },
+        "spine": { "sections": [{ "id": "open", "beats": [{ "id": "b", "claim": "C", "notes": notes }] }] },
+        "nodes": {},
+        "states": [{ "id": "a", "notes": notes }]
+    });
+    let source = round_trip(&Deck::from_json(&doc.to_string()).unwrap());
+    assert!(source.contains(&format!("\n    notes {}\n      {}\n", q(100), q(3))), "{source}");
+    assert!(source.contains(&format!("\n  notes {}\n    {}\n", q(100), q(3))), "{source}");
+}
+
 /// Code a block would not keep as it is stays a JSON string: a tab, a carriage return, or a
 /// line that ends in white space, which editors change.
 #[test]

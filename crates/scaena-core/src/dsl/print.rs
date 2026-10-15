@@ -80,19 +80,25 @@ impl Printer {
             if let Some(lines) = lines {
                 self.out.push_str(&line);
                 self.out.push('\n');
-                for l in lines.split('\n') {
-                    if l.is_empty() {
-                        self.out.push('\n');
-                    } else {
-                        self.line(depth + 2, l);
-                    }
-                }
+                self.under(depth + 2, lines);
                 ended = true;
             }
         }
         if !ended {
             self.out.push_str(&line);
             self.out.push('\n');
+        }
+    }
+
+    /// A block's lines after its fence, its text's and its closing fence, each at `indent`: an
+    /// empty one empty.
+    fn under(&mut self, indent: usize, lines: &str) {
+        for l in lines.split('\n') {
+            if l.is_empty() {
+                self.out.push('\n');
+            } else {
+                self.line(indent, l);
+            }
         }
     }
 
@@ -362,11 +368,15 @@ impl Printer {
         }
     }
 
+    /// `notes` and its string, a block where one keeps it. Its fence stays on the `notes` line,
+    /// however far past the width, since that line holds the string.
     fn notes(&mut self, indent: usize, notes: &str) {
-        match block(notes) {
-            Some(block) => self.item(indent, "notes", &[block]),
-            None => self.line(indent, &format!("notes {}", quoted(notes))),
-        }
+        let Some(block) = block(notes) else {
+            return self.line(indent, &format!("notes {}", quoted(notes)));
+        };
+        let (fence, lines) = block.split_once('\n').expect("a block has lines after its fence");
+        self.line(indent, &format!("notes {fence}"));
+        self.under(indent + 2, lines);
     }
 }
 
