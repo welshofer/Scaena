@@ -69,6 +69,7 @@ pub mod timeline;
 pub mod tracking;
 pub mod transform;
 pub mod validate;
+pub mod verse;
 pub mod version;
 pub mod words;
 pub mod writing;
