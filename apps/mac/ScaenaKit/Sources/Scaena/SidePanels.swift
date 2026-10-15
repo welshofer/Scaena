@@ -152,14 +152,16 @@ struct InspectorColumn<Formatting: View, Animating: View>: View {
 #if os(macOS)
 /// The inspector's tabs kept in the toolbar as the window narrows (PLAN 3.18, 3.27), as a
 /// presentation app keeps Format, Animate, and Document at its toolbar's end: the other items go
-/// into the toolbar's overflow first, so the toolbar always shows which tab the inspector is open
-/// at. SwiftUI says nothing of an item's priority, so the window's own toolbar items are given it,
-/// found by their ids or their titles, as the toolbar is made and as the window's size changes. It
-/// takes no press.
+/// into the toolbar's overflow first, and the tab shown last of all, so the toolbar always shows
+/// which tab the inspector is open at. SwiftUI says nothing of an item's priority, and sets each
+/// item's again as it updates the toolbar, which it does as nearly anything in the window changes;
+/// the toolbar lays itself out by the priorities it finds then, and not again as one changes. So
+/// each tab, found by its id or its title, is given its priority as the toolbar takes it, before
+/// the toolbar lays it out, and watched: whatever sets it otherwise, it has it back at once, and
+/// the toolbar resized, or hidden and shown, still keeps the tabs. It takes no press.
 struct ToolbarKeeps: NSViewRepresentable {
-    /// The ids of the items kept, and their titles.
-    let ids: [String]
-    let titles: [String]
+    /// The tab the inspector is open at, kept above the others; none while it is put away.
+    let shown: InspectorTab?
 
     func makeNSView(context: Context) -> KeepsView {
         let view = KeepsView()
@@ -168,16 +170,19 @@ struct ToolbarKeeps: NSViewRepresentable {
     }
 
     func updateNSView(_ view: KeepsView, context: Context) {
-        view.ids = Set(ids)
-        view.titles = Set(titles)
+        view.shown = shown
         view.keep()
     }
 
     final class KeepsView: NSView {
-        var ids: Set<String> = []
-        var titles: Set<String> = []
+        var shown: InspectorTab?
         /// What hears the toolbar take an item, while the view is in a window.
         private var adding: NSObjectProtocol?
+        /// The tabs in the window's toolbar, each watched for its priority while the view is in
+        /// the window.
+        private var watched: [Watched] = []
+        /// Whether a tab is being given its priority back: what that sets is not heard again.
+        private var restoring = false
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
@@ -186,13 +191,15 @@ struct ToolbarKeeps: NSViewRepresentable {
             let center = NotificationCenter.default
             if let adding { center.removeObserver(adding) }
             adding = nil
+            watched = []
             guard window != nil else { return }
             // An item the toolbar takes after this is given its priority before the toolbar lays
             // it out, so the toolbar never lays the tabs out in its overflow first.
             let added = NSToolbar.willAddItemNotification
             adding = center.addObserver(forName: added, object: nil, queue: .main) { [weak self] note in
                 guard let item = note.userInfo?["item"] as? NSToolbarItem else { return }
-                MainActor.assumeIsolated { self?.keep(item) }
+                let toolbar = note.object as? NSToolbar
+                MainActor.assumeIsolated { self?.keep(item, in: toolbar) }
             }
             keep()
             // The toolbar's items are made once the window shows: kept again then.
@@ -207,19 +214,60 @@ struct ToolbarKeeps: NSViewRepresentable {
             keep()
         }
 
-        /// Each item kept made high in priority, so that the others overflow first.
+        /// Each tab in the window's toolbar given its priority, so that the other items overflow
+        /// first, and watched.
         func keep() {
-            for item in window?.toolbar?.items ?? [] { keep(item) }
+            guard let toolbar = window?.toolbar else { return }
+            for item in toolbar.items { keep(item, in: toolbar) }
         }
 
-        /// `item` made high in priority where it is one kept.
-        private func keep(_ item: NSToolbarItem) {
-            if item.visibilityPriority != .high && keeps(item) { item.visibilityPriority = .high }
+        /// `item`, which `toolbar` takes or holds, given its priority where it is a tab; watched
+        /// where the toolbar is the window's own, so that another window's tabs are left to it.
+        private func keep(_ item: NSToolbarItem, in toolbar: NSToolbar?) {
+            guard let kept = priority(of: item) else { return }
+            if item.visibilityPriority != kept { item.visibilityPriority = kept }
+            guard let toolbar, toolbar === window?.toolbar else { return }
+            watched.removeAll { $0.item == nil }
+            guard !watched.contains(where: { $0.item === item }) else { return }
+            let watch = Watched(item)
+            // Heard as it is set, before the toolbar lays itself out again: on the main thread,
+            // where the toolbar is updated.
+            watch.hearing = item.observe(\.visibilityPriority) { [weak self] item, _ in
+                guard Thread.isMainThread else { return }
+                MainActor.assumeIsolated { self?.restore(item) }
+            }
+            watched.append(watch)
         }
 
-        private func keeps(_ item: NSToolbarItem) -> Bool {
+        /// `item` given its priority back, where anything set it otherwise, as SwiftUI does each
+        /// time it updates the toolbar.
+        private func restore(_ item: NSToolbarItem) {
+            guard !restoring, let kept = priority(of: item), item.visibilityPriority != kept else { return }
+            restoring = true
+            defer { restoring = false }
+            item.visibilityPriority = kept
+        }
+
+        /// The priority `item` is kept at where it is one of the inspector's tabs, found by its id
+        /// or its title: the tab shown's above the other tabs', theirs above every other item's;
+        /// none for another item, whose priority is SwiftUI's.
+        private func priority(of item: NSToolbarItem) -> NSToolbarItem.VisibilityPriority? {
             let id = item.itemIdentifier.rawValue
-            return ids.contains(id) || ids.contains { id.hasSuffix(".\($0)") } || titles.contains(item.label)
+            let found = InspectorTab.allCases.first { tab in
+                id == tab.rawValue || id.hasSuffix(".\(tab.rawValue)") || item.label == tab.title
+            }
+            guard let tab = found else { return nil }
+            return tab == shown ? .user : .high
+        }
+
+        /// A tab in the window's toolbar, and what hears its priority change.
+        private final class Watched {
+            weak var item: NSToolbarItem?
+            var hearing: NSKeyValueObservation?
+
+            init(_ item: NSToolbarItem) {
+                self.item = item
+            }
         }
     }
 }

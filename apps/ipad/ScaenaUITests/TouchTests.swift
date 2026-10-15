@@ -4,11 +4,12 @@ import XCTest
 /// patch the Mac's pointer makes for it: a tap selects the title, a pinch zooms and another takes
 /// the whole canvas back, a double tap types in it and the keys type there (PLAN 4.4), a drag
 /// moves it, and a long press offers what is done to it, whose Duplicate copies it; then, in the
-/// light table, a slide dragged onto another moves after it, the inspector showing the slide, not
-/// what the canvas had selected. The move and the copy are each one step that the toolbar's Undo
-/// takes back by touch, and a long press on Undo offers Redo, named for the step it makes again as
-/// the Edit menu names it, which makes the copy again (PLAN 4.11). With the pen up, a pinch still
-/// zooms, and draws nothing (PLAN 2.114).
+/// light table, the slides down the side folded away and the toolbar where it was (PLAN 3.14), a
+/// slide dragged onto another moves after it, the inspector showing the slide, not what the canvas
+/// had selected, and the table put away gives the side back. The move and the copy are each one
+/// step that the toolbar's Undo takes back by touch, and a long press on Undo offers Redo, named
+/// for the step it makes again as the Edit menu names it, which makes the copy again (PLAN 4.11).
+/// With the pen up, a pinch still zooms, and draws nothing (PLAN 2.114).
 final class TouchTests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -167,20 +168,26 @@ final class TouchTests: XCTestCase {
         }
 
         try XCTContext.runActivity(named: "In the light table, a slide dragged onto another moves after it") { _ in
+            // The slides down the side, where their first stands before the light table shows.
+            let cells = app.descendants(matching: .any)
+            let side = cells.matching(NSPredicate(format: "identifier == 'state-cover'")).firstMatch
+            guard side.waitForExistence(timeout: 5) else {
+                throw Unseen(description: "no slides down the side: \(app.debugDescription)")
+            }
+            let sideAt = side.frame
             // The toolbar's View menu, as a presentation app's, shows the light table.
             let view = app.buttons.matching(NSPredicate(format: "label == 'View'")).firstMatch
             guard view.waitForExistence(timeout: 5) else {
                 throw Unseen(description: "no View in the toolbar: \(app.debugDescription)")
             }
             view.tap()
-            let table = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Light Table'")).firstMatch
+            let table = cells.matching(NSPredicate(format: "label == 'Light Table'")).firstMatch
             guard table.waitForExistence(timeout: 5) else {
                 throw Unseen(description: "the View menu offers no light table: \(app.debugDescription)")
             }
             table.tap()
             // Each slide reads its number and its steps, and a test finds it by its id: B1's first
             // is the cover, its third belief-1.
-            let cells = app.descendants(matching: .any)
             let cover = cells.matching(NSPredicate(format: "identifier == 'slide-cover'")).firstMatch
             let third = cells.matching(NSPredicate(format: "identifier == 'slide-belief-1'")).firstMatch
             guard cover.waitForExistence(timeout: 10), third.exists, cover.label.hasPrefix("Slide 1"),
@@ -188,7 +195,20 @@ final class TouchTests: XCTestCase {
             else {
                 throw Unseen(description: "the light table shows no cover and belief-1: \(app.debugDescription)")
             }
+            // The slides down the side fold away while the light table shows every slide, as on the
+            // Mac (PLAN 3.14): the table's first slide stands where the side stood, not beside it.
+            // The toolbar stays put: View and Undo at its leading end, before Add Slide.
+            let folded = wait(5) { cover.frame.minX < sideAt.maxX }
             keep(app, as: "slides")
+            XCTAssertTrue(
+                folded, "the slides down the side show beside the light table: its first at \(cover.frame), the side's at \(sideAt)")
+            let add = app.buttons.matching(NSPredicate(format: "identifier == 'add-slide'")).firstMatch
+            guard add.waitForExistence(timeout: 5) else {
+                throw Unseen(description: "no Add Slide in the toolbar: \(app.debugDescription)")
+            }
+            XCTAssertTrue(
+                view.frame.maxX <= add.frame.minX && undo.frame.maxX <= add.frame.minX,
+                "View and Undo left the toolbar's leading end: View at \(view.frame), Undo at \(undo.frame), Add Slide at \(add.frame)")
             // The inspector shows the slide, as a presentation app's light table does: not the
             // copy the canvas had selected, which the table does not show.
             let slideInspector = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'layout-choose'")).firstMatch
@@ -208,6 +228,15 @@ final class TouchTests: XCTestCase {
                 throw Unseen(description: "the cover did not move after belief-1: \(app.debugDescription)")
             }
             keep(app, as: "slide-moved")
+            // Put away, the light table gives the slides down the side back where they stood.
+            view.tap()
+            guard table.waitForExistence(timeout: 5) else {
+                throw Unseen(description: "the View menu offers no light table to put away: \(app.debugDescription)")
+            }
+            table.tap()
+            let back = wait(10) { side.exists && side.isHittable && abs(side.frame.minX - sideAt.minX) < 2 }
+            keep(app, as: "slides-put-away")
+            XCTAssertTrue(back, "the slides down the side did not come back: \(app.debugDescription)")
         }
     }
 

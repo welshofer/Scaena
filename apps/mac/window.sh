@@ -2,8 +2,8 @@
 # The Mac app as someone opens it (PLAN 3.3): the app built in debug, over the debug static library
 # `swift build --product Scaena` linked, made a bundle macOS opens, the trails example saved as a
 # deck and opened in its window, the screen kept in target/mac/window/shots, then a walk of the
-# window, each step's screen kept. Seen, not tested: CI pushes them beside the iPad's
-# (scripts/shots.sh).
+# window, each step's screen kept. Seen more than tested: CI pushes them beside the iPad's
+# (scripts/shots.sh), and the few checks the walk makes fail it at its end where one does not hold.
 #
 #   apps/mac/window.sh   (after `swift build --product Scaena` in apps/mac/ScaenaKit)
 set -euo pipefail
@@ -32,8 +32,14 @@ echo "the canvas as VoiceOver hears it: $("$out/holds" "$(pgrep -n -x Scaena)" c
 
 # A walk of the window, as a person's first minute in it, each step's screen kept and where the
 # window stands said. The pointer is the mouse's own events (`pointer.js`), which the canvas's
-# gestures take; menus and keys go through System Events. Seen, not tested: a step that fails says
-# so and the walk goes on.
+# gestures take; menus and keys go through System Events. Mostly seen, not tested: a step that
+# fails says so and the walk goes on. What the walk holds the app to is a check: one that does not
+# hold says so too, and the walk ends failed once every step is taken and its screen kept.
+failed=""
+failing() {
+  echo "FAILED: $1"
+  failed+=" $1."
+}
 events() { osascript -e "tell application \"System Events\" to $1" 2>&1 || true; }
 app() { events "tell process \"Scaena\" to $1"; }
 window() { app "get {position, size} of window 1" | tr -d ','; }
@@ -55,6 +61,17 @@ holds() {
 # What the element identified as `$1` reads as itself to VoiceOver, by the accessibility API, as
 # `holds` reads what it holds; else its value, by System Events.
 named() { "$out/holds" "$(pgrep -n -x Scaena)" "$1" self 2>/dev/null || frames value "$1"; }
+# The inspector's tabs, the last of the toolbar's items to overflow (PLAN 3.18): each stands in
+# the toolbar, and the tab shown, `$1`, is marked as on, its value 1. A check: each that does not
+# fails the walk, `$2` saying when.
+tabbed() {
+  local tab on framed='^-?[0-9]+ -?[0-9]+ [0-9]+ [0-9]+$'
+  for tab in format animate document; do
+    [[ "$(frames find "tab-$tab")" =~ $framed ]] || failing "$2, the toolbar shows no tab-$tab"
+  done
+  on=$(frames value "tab-$1")
+  [[ "$on" == 1 || "$on" == true ]] || failing "$2, the toolbar does not mark tab-$1 as shown: it reads \"$on\""
+}
 # A menu's item chosen; again a moment later while the app is too busy to be asked, as it may be
 # just after an edit, up to five times.
 menu() {
@@ -177,6 +194,10 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   fi
   echo "what it holds, three deep:"
   frames tree 3
+  # The window narrowed and widened again, the toolbar hidden and shown, then fitted: the
+  # inspector's tabs still stand in the toolbar, the rest of it overflowing first, Format marked
+  # as the tab shown (PLAN 3.18).
+  tabbed format "at the width fitted to the screen"
 
   # A click in the middle of the slide: what draws there selected, and the inspector showing it.
   read -r sx sy sw sh <<<"$(frames find canvas)" || true
@@ -434,8 +455,10 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   menu View Document
   sleep 2
   shot theme
-  # The inspector's tabs stay in the toolbar, the rest of it overflowing first (PLAN 3.18).
+  # The inspector's tabs stay in the toolbar, the rest of it overflowing first, Document marked as
+  # the tab shown (PLAN 3.18).
   echo "the toolbar's Format: $(frames find tab-format); Animate: $(frames find tab-animate); Document: $(frames find tab-document)"
+  tabbed document "the Document tab shown"
   read -r px py pw ph <<<"$(frames find theme-color-paper)" || true
   if [[ "${ph:-}" =~ ^[0-9]+$ ]]; then
     echo "the theme's paper: $px $py $pw $ph, $(frames value theme-color-paper)"
@@ -567,3 +590,8 @@ fi
 
 # The deck is edited now: no saving it, so no asking.
 pkill -x Scaena || true
+# Every step taken and its screen kept: a check that did not hold fails the walk.
+if [[ -n "$failed" ]]; then
+  echo "the walk failed:$failed"
+  exit 1
+fi
