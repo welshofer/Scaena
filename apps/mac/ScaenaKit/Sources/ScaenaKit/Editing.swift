@@ -294,6 +294,14 @@ public struct NodeBox: Decodable, Sendable {
     /// A connector's line, its points in canvas units (PLAN 2.109), which a pointer picks it by:
     /// its box is mostly empty.
     public let route: [[Double]]?
+    /// A code text's language (PLAN 2.133), which its chip shows.
+    public let code: CodeLanguage?
+
+    /// A code text's language: as the deck names it (`cpp`), and as a person calls it (`C++`).
+    public struct CodeLanguage: Decodable, Sendable, Equatable {
+        public let language: String
+        public let said: String
+    }
 
     /// Its box's corners where it is drawn, clockwise from the top left, canvas units.
     public var corners: [CGPoint] { drawn(rect, through: transform) }

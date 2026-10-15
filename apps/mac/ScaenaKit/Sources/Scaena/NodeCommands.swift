@@ -44,6 +44,10 @@ struct DeckActions {
     /// Take up the pen, or put it down (PLAN 2.114), and whether it is taken up.
     var draw: (() -> Void)? = nil
     var drawing = false
+    /// Copy the words of the code selected as text (PLAN 2.133).
+    var copyCode: (() -> Void)? = nil
+    /// Paste the words on the pasteboard as words, never as code (PLAN 2.133).
+    var pasteAsText: (() -> Void)? = nil
     /// Whether a node selected shows on another slide too: Delete from All Slides takes it off
     /// those as well, where Delete takes it off this slide on.
     var deletesElsewhere = false
@@ -123,6 +127,10 @@ struct NodeCommands: Commands {
                 .disabled(panes?.deleteSlide == nil)
         }
         CommandGroup(after: .pasteboard) {
+            Button("Paste as Text") { deck?.pasteAsText?() }
+                .disabled(deck?.pasteAsText == nil)
+            Button("Copy Code") { deck?.copyCode?() }
+                .disabled(deck?.copyCode == nil)
             Divider()
             Button("Duplicate") { deck?.duplicate?() }
                 .keyboardShortcut("d", modifiers: .command)
