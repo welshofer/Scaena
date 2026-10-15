@@ -186,9 +186,11 @@ enum Source {
     Columns,
     /// Fractions of the image, one for each name (PLAN 2.45).
     Fractions(&'static [&'static str]),
+    /// The languages Scaena knows by name, for a code text's (PLAN 2.133, `code::LANGUAGES`).
+    Languages,
 }
 
-use Source::{Columns, Data, Fractions, Names, Schema};
+use Source::{Columns, Data, Fractions, Languages, Names, Schema};
 use Vocabulary as V;
 
 /// What an inspector edits on every node: how far it is turned is its `transform`'s
@@ -220,6 +222,8 @@ fn own(node_type: NodeType) -> &'static [(&'static str, Source)] {
             ("fit", Schema(false)),
             ("wrap", Schema(false)),
             ("maxLines", Schema(false)),
+            // The language a code text is written in (PLAN 2.133): a code text's alone.
+            ("code/language", Languages),
         ],
         NodeType::Shape => &[
             ("fill", Names(V::Color, true)),
@@ -349,6 +353,12 @@ pub fn choices(
                 return None;
             }
         }
+        // A code text's language (PLAN 2.133); and code is set as written, so it takes no `wrap`
+        // and no case (E106).
+        let code = shown.get("code").is_some_and(Value::is_object);
+        if (prop == "code/language" && !code) || (code && matches!(prop, "wrap" | "style/case")) {
+            return None;
+        }
         // A connector goes where what it joins goes (PLAN 2.109): it turns with neither.
         if prop.starts_with("transform/") && crate::tracking::connects_of(own_props).is_some() {
             return None;
@@ -408,6 +418,7 @@ pub fn choices(
                 takes => takes,
             },
             Fractions(names) => Takes::Fractions { names: names.iter().map(|n| n.to_string()).collect() },
+            Languages => Takes::Word { words: crate::code::LANGUAGES.iter().map(|l| l.name.to_string()).collect() },
         };
         let (name, key) = prop.split_once('/').map_or((prop, None), |(n, k)| (n, Some(k)));
         let value = match key {
@@ -596,8 +607,8 @@ pub fn characters(
                 let (def, key) = prop.split_once('/').map_or(("Run", prop), |(_, key)| ("TextStyle", key));
                 allowed(Checker::deck().def_property(def, key)?, overrides)?
             }
-            // A run reads no data and has no image.
-            Data | Columns | Fractions(_) => return None,
+            // A run reads no data, has no image, and is written in its text's language.
+            Data | Columns | Fractions(_) | Languages => return None,
         };
         let value = run.and_then(|r| match prop.split_once('/') {
             Some((name, key)) => r.get(name)?.get(key),
@@ -675,8 +686,8 @@ pub fn state_choices(deck: &Deck, theme: &Theme, state: &str) -> Result<StateCho
                 let (def, name) = key.map_or(("State", prop), |key| ("TransitionSpec", key));
                 allowed(Checker::deck().def_property(def, name)?, overrides)?
             }
-            // A state reads no data and has no image.
-            Data | Columns | Fractions(_) => return None,
+            // A state reads no data, has no image, and is written in no language.
+            Data | Columns | Fractions(_) | Languages => return None,
         };
         let (value, lives) = match (prop, key) {
             ("layout", _) => {
