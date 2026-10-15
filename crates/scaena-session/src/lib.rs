@@ -41,6 +41,8 @@ mod data;
 pub mod editor;
 #[cfg(feature = "editor")]
 mod formats;
+#[cfg(feature = "editor")]
+pub mod haiku;
 #[cfg(feature = "generate")]
 pub mod making;
 #[cfg(feature = "editor")]

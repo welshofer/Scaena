@@ -120,7 +120,7 @@ impl Session {
     }
 
     /// `node`'s props as `state` shows them, its overrides over them.
-    fn props_shown(&self, state: &str, node: &str) -> Result<Props, Error> {
+    pub(crate) fn props_shown(&self, state: &str, node: &str) -> Result<Props, Error> {
         let i = self.deck.state_index(state).ok_or_else(|| Error::Ops(format!("no state `{state}`")))?;
         let snapshots = scaena_core::resolve_states(&self.deck).map_err(|e| Error::Deck(e.to_string()))?;
         let mut shown = (snapshots[i].nodes.get(node).cloned())

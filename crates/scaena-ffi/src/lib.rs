@@ -1431,6 +1431,21 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
                 serde_json::from_value(args.get("ask").cloned().unwrap_or_default()).map_err(said)?;
             value(serde_json::to_value(s.written(&ask, arg("answer")?).map_err(said)?))?
         }
+        // A haiku (PLAN O.4d): what to ask, what an answer comes to with the patch that places
+        // it, and each line's count as it is edited.
+        "haiku" => {
+            let ask: scaena_session::haiku::HaikuAsk = serde_json::from_value(args.clone()).map_err(said)?;
+            value(serde_json::to_value(s.haiku(&ask).map_err(said)?))?
+        }
+        "haikuTaken" => {
+            let take: scaena_session::haiku::HaikuTake = serde_json::from_value(args.clone()).map_err(said)?;
+            value(serde_json::to_value(s.haiku_taken(&take).map_err(said)?))?
+        }
+        "verseCounts" => {
+            let lines: Vec<String> =
+                serde_json::from_value(args.get("lines").cloned().unwrap_or_default()).map_err(said)?;
+            value(serde_json::to_value(s.verse_counts(&lines)))?
+        }
         // The words an editor shows for a state: its objects by what they show, and the theme's
         // names said (PLAN 2.99).
         "words" => value(serde_json::to_value(s.words(arg("state")?).map_err(said)?))?,
