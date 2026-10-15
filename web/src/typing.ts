@@ -348,17 +348,23 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     return true;
   }
 
-  /** Say what typing changes: the states it reaches. */
+  /** Say what typing changes: that it began, at once, then the states it reaches once the worker
+   * says, in its place while the status still says it, so a line said meanwhile (⌘K's "No link
+   * made") stands. */
   async function tellWhere() {
     const now = open;
     if (!now) return;
+    const begun = `Typing in ${around.name(now.node)} · Escape leaves it`;
+    typingSaid = begun;
+    around.say(begun);
     const op = { op: "replace_text", node: now.node, state: now.state, from: 0, to: 0, text: "·", ...(now.fork ? { fork: true } : {}) };
     const states = await stage.reach([op]).catch(() => undefined);
     if (open !== now || !states) return;
     const n = states.length;
     const where = now.fork ? "kept to this slide" : `what is typed shows ${reaching(states, now.state, around.slide)}`;
     typingSaid = `Typing in ${around.name(now.node)} · ${where} · Escape leaves it${now.fork || n < 2 ? "" : "; Alt and a double click keep it to this slide"}`;
-    around.say(typingSaid);
+    if (around.unsay) around.unsay(begun, typingSaid);
+    else around.say(typingSaid);
   }
   /** What the status was last told of typing, which it takes back once typing stops. */
   let typingSaid: string | undefined;
