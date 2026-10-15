@@ -28,6 +28,8 @@ targets:
     platform: iOS
     sources:
       - path: ../mac/ScaenaKit/Sources/Scaena
+      # Its icon and its accent, which scripts/build_app_icon.py writes.
+      - path: Assets.xcassets
     dependencies:
       - package: ScaenaKit
         product: ScaenaKit
@@ -46,8 +48,12 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.welshofer.Scaena
         CODE_SIGN_STYLE: Automatic
         ENABLE_USER_SCRIPT_SANDBOXING: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # A deeper shade of the Dusk accent, which the launch screen's New Deck reads on.
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
   # The remote on an iPhone or an iPad (PLAN 4.10): a show a Mac or an iPad presents, played from
-  # across the room. It holds no deck and no engine, only ScaenaKit's remote.
+  # across the room. It holds no deck and no engine, only ScaenaKit's remote. Its icon is the
+  # app's stage on the ink, and its accent the app's (Remote/Assets.xcassets).
   RemoteApp:
     type: application
     platform: iOS
@@ -63,6 +69,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.welshofer.Scaena.Remote
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_STYLE: Automatic
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
   # The app as someone opens it, driven by XCUITest (PLAN 4.2): `apps/ipad/app-test.sh` runs it.
   ScaenaUITests:
     type: bundle.ui-testing

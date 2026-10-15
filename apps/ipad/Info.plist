@@ -102,6 +102,11 @@
 			</array>
 			<key>UTTypeDescription</key>
 			<string>Scaena Deck</string>
+			<key>UTTypeIcons</key>
+			<dict>
+				<key>UTTypeIconText</key>
+				<string>deck</string>
+			</dict>
 			<key>UTTypeIdentifier</key>
 			<string>com.scaena.deck</string>
 			<key>UTTypeTagSpecification</key>
@@ -120,6 +125,11 @@
 			</array>
 			<key>UTTypeDescription</key>
 			<string>Zipped Scaena Deck</string>
+			<key>UTTypeIcons</key>
+			<dict>
+				<key>UTTypeIconText</key>
+				<string>deck</string>
+			</dict>
 			<key>UTTypeIdentifier</key>
 			<string>com.scaena.deck.zip</string>
 			<key>UTTypeTagSpecification</key>

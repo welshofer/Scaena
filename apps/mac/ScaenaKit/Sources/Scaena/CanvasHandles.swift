@@ -107,15 +107,15 @@ struct HandleMarks: View {
                     path.move(to: view(turn.top))
                     path.addLine(to: view(turn.at))
                 }
-                .stroke(Color.accentColor, lineWidth: 1)
+                .stroke(Marks.color, lineWidth: 1)
                 dot(turn.at, radius: 5, fill: .white)
             }
             if let outline, ["line", "arrow", "polygon"].contains(outline.kind) {
                 ForEach(outline.middles.indices, id: \.self) { i in
-                    dot(outline.middles[i], radius: 3.5, fill: Color.accentColor.opacity(0.35))
+                    dot(outline.middles[i], radius: 3.5, fill: Marks.color.opacity(0.35))
                 }
                 ForEach(outline.drawn.indices, id: \.self) { i in
-                    dot(outline.drawn[i], radius: 5, fill: i == picked ? Color.accentColor : .white)
+                    dot(outline.drawn[i], radius: 5, fill: i == picked ? Marks.color : .white)
                 }
             }
             if let outline, outline.kind == "rect", !outline.radii.isEmpty {
@@ -135,7 +135,7 @@ struct HandleMarks: View {
     private func dot(_ at: CGPoint, radius: CGFloat, fill: Color) -> some View {
         Circle()
             .fill(fill)
-            .overlay(Circle().stroke(Color.accentColor, lineWidth: 1))
+            .overlay(Circle().stroke(Marks.color, lineWidth: 1))
             .frame(width: radius * 2, height: radius * 2)
             .position(view(at))
     }
@@ -145,7 +145,7 @@ struct HandleMarks: View {
         let along = side == .top || side == .bottom
         return RoundedRectangle(cornerRadius: 1.5)
             .fill(Color.white)
-            .overlay(RoundedRectangle(cornerRadius: 1.5).stroke(Color.accentColor, lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: 1.5).stroke(Marks.color, lineWidth: 1))
             .frame(width: along ? 16 : 5, height: along ? 5 : 16)
             .rotationEffect(.radians(angle(framing.transform)))
             .position(view(framing.handle(side, inset: HandleSpacing.inset * fit.units)))
@@ -161,9 +161,9 @@ struct HandleMarks: View {
                 path.move(to: CGPoint(x: p.x, y: p.y - 10))
                 path.addLine(to: CGPoint(x: p.x, y: p.y + 10))
             }
-            .stroke(Color.accentColor, lineWidth: 1)
+            .stroke(Marks.color, lineWidth: 1)
             Circle()
-                .stroke(Color.accentColor, lineWidth: 1.5)
+                .stroke(Marks.color, lineWidth: 1.5)
                 .frame(width: 12, height: 12)
                 .position(p)
         }
@@ -210,13 +210,13 @@ struct HandleHolding: View {
             let (dx, dy) = (Double(p.x) - px, Double(p.y) - py)
             return CGPoint(x: px + dx * c - dy * s, y: py + dx * s + dy * c)
         }
-        return joined(corners, closed: true).stroke(Color.accentColor, style: Self.dashed)
+        return joined(corners, closed: true).stroke(Marks.color, style: Self.dashed)
     }
 
     /// The points as the drag leaves them, joined: a polygon's closed.
     private func reshaped(_ outline: Outline) -> some View {
         joined(holding.points.map { outline.onCanvas($0) }, closed: outline.kind == "polygon")
-            .stroke(Color.accentColor, style: Self.dashed)
+            .stroke(Marks.color, style: Self.dashed)
     }
 
     /// The rect rounded to the step the corner is dragged to.
@@ -224,7 +224,7 @@ struct HandleHolding: View {
         let radius = outline.radii.indices.contains(step) ? outline.radii[step] : 0
         return Path(roundedRect: outline.rect, cornerRadius: CGFloat(radius))
             .applying(map(outline.transform).concatenating(fit.transform))
-            .stroke(Color.accentColor, style: Self.dashed)
+            .stroke(Marks.color, style: Self.dashed)
     }
 
     /// The whole image outlined, what the crop cuts away shaded, the part it keeps, and the focal
@@ -242,9 +242,9 @@ struct HandleHolding: View {
             .fill(Color.black.opacity(0.35), style: FillStyle(eoFill: true))
             Path(framing.whole).applying(m)
                 .stroke(Color.white.opacity(0.8), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-            Path(kept).applying(m).stroke(Color.accentColor, lineWidth: 1.5)
+            Path(kept).applying(m).stroke(Marks.color, lineWidth: 1.5)
             Circle()
-                .stroke(Color.accentColor, lineWidth: 1.5)
+                .stroke(Marks.color, lineWidth: 1.5)
                 .frame(width: 12, height: 12)
                 .position(fit.view(focal))
         }
@@ -300,7 +300,7 @@ struct WaitingOverlay: View {
 
     private func outline(_ slot: WaitingSlot, fit: Fit) -> some View {
         let r = slot.rect.applying(fit.transform)
-        let tint = Color.accentColor
+        let tint = Marks.color
         return RoundedRectangle(cornerRadius: 4)
             .fill(tint.opacity(0.05))
             .overlay {

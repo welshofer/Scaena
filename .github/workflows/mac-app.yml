@@ -10,6 +10,7 @@ on:
       - .github/workflows/mac-app.yml
       - apps/mac/build-app.sh
       - apps/mac/Scaena/Info.plist
+      - apps/mac/Scaena/AppIcon.iconset/**
 permissions:
   contents: read
 jobs:

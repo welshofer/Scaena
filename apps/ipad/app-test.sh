@@ -36,4 +36,12 @@ xcodebuild test-without-building -quiet -project Scaena.xcodeproj -scheme Scaena
 kill "$logging" 2>/dev/null || true
 "$here/results.sh" "$results" "$root/target/ipad/shots"
 cp "$said" "$root/target/ipad/shots/log.txt" 2>/dev/null || true
+# The app carries its icon and its accent, compiled from apps/ipad/Assets.xcassets
+# (scripts/build_app_icon.py): an app built without its icon fails the run, after its tests.
+plist="$built/Build/Products/Debug-iphonesimulator/ScaenaApp.app/Info.plist"
+named() { /usr/libexec/PlistBuddy -c "Print :$1" "$plist" 2>/dev/null; }
+icon=$(named 'CFBundleIcons~ipad:CFBundlePrimaryIcon:CFBundleIconName' || named 'CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName' ||
+  named CFBundleIconName || true)
+echo "the app's icon: ${icon:-none}; its accent: $(named NSAccentColorName || echo none)"
+[ "$icon" = AppIcon ] || status=1
 exit "$status"

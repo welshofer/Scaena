@@ -12,17 +12,37 @@ bin=$(cd "$root/apps/mac/ScaenaKit" && swift build --show-bin-path)
 out="$root/target/mac/window"
 app="$out/Scaena.app"
 rm -rf "$out"
-mkdir -p "$app/Contents/MacOS" "$out/shots"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$out/shots"
 # What it says goes with the screenshots too.
 exec > >(tee "$out/shots/window.txt") 2>&1
 cp "$bin/Scaena" "$app/Contents/MacOS/Scaena"
 # What the canvas holds as VoiceOver hears it, read by the accessibility API (holds.swift).
 swiftc -O -o "$out/holds" "$root/apps/mac/holds.swift" || echo "holds.swift: not built"
 cp "$root/apps/mac/Scaena/Info.plist" "$app/Contents/Info.plist"
+# Its icon, as `build-app.sh` makes it.
+iconutil -c icns -o "$app/Contents/Resources/AppIcon.icns" "$root/apps/mac/Scaena/AppIcon.iconset" || echo "iconutil: no icon"
 codesign --force --sign - "$app"
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app"
 cd "$root"
 cargo run -q -p scaena-cli --locked -- save docs/examples/trails.deck.json --to "$out/trails.scaena"
+# The app's icon and a deck's, as the Finder draws them, kept with the shots: the deck's is the
+# system's folded page with the app's icon on it, over DECK (Info.plist's UTTypeIcons).
+echo "the app's icon: $(plutil -extract CFBundleIconFile raw -o - "$app/Contents/Info.plist" 2>&1), $(sips -g pixelWidth "$app/Contents/Resources/AppIcon.icns" 2>&1 | awk '/pixelWidth/ {print $2}') px"
+for icon in "app:$app" "deck:$out/trails.scaena"; do
+  osascript -l JavaScript - "${icon#*:}" "$out/shots/mac-icon-${icon%%:*}.png" <<'JS' 2>&1 || true
+ObjC.import("AppKit");
+function run(argv) {
+  const icon = $.NSWorkspace.sharedWorkspace.iconForFile(argv[0]);
+  const rep = $.NSBitmapImageRep.alloc.initWithBitmapDataPlanesPixelsWidePixelsHighBitsPerSampleSamplesPerPixelHasAlphaIsPlanarColorSpaceNameBytesPerRowBitsPerPixel(
+    null, 256, 256, 8, 4, true, false, $.NSDeviceRGBColorSpace, 0, 0);
+  $.NSGraphicsContext.saveGraphicsState;
+  $.NSGraphicsContext.setCurrentContext($.NSGraphicsContext.graphicsContextWithBitmapImageRep(rep));
+  icon.drawInRectFromRectOperationFraction($.NSMakeRect(0, 0, 256, 256), $.NSZeroRect, $.NSCompositingOperationSourceOver, 1);
+  $.NSGraphicsContext.restoreGraphicsState;
+  rep.representationUsingTypeProperties($.NSBitmapImageFileTypePNG, $({})).writeToFileAtomically(argv[1], true);
+}
+JS
+done
 system_profiler SPDisplaysDataType | grep -i resolution || true
 open -a "$app" "$out/trails.scaena"
 # The window, its states drawn small, and the canvas painted.
