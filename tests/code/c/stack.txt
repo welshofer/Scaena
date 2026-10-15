@@ -1,0 +1,38 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include "stack.h"
+
+#define CAPACITY 64
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+
+/* A stack of integers,
+   grown on demand. */
+typedef struct {
+    int *items;
+    size_t len, cap;
+} Stack;
+
+struct point { double x, y; };
+
+static int push(Stack *s, int value) {
+    if (s->len == s->cap) {
+        size_t cap = s->cap ? s->cap * 2 : CAPACITY;
+        int *grown = realloc(s->items, cap * sizeof *grown);
+        if (grown == NULL) return -1;  // out of memory
+        s->items = grown;
+        s->cap = cap;
+    }
+    s->items[s->len++] = value;
+    return 0;
+}
+
+int main(void) {
+    Stack s = {0};
+    struct point origin = {.x = 0.0, .y = .5};
+    for (int i = 0; i < 10; i++) push(&s, MAX(i, 3));
+    printf("top: %d, mask: 0x%08X, ratio: %.2f\n", s.items[s.len - 1], 0xFFu, 1.5e-3);
+    char c = '\n';
+    unsigned long big = 1000000UL;
+    free(s.items);
+    return origin.x > 0 ? EXIT_FAILURE : EXIT_SUCCESS;
+}

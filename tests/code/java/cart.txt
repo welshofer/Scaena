@@ -1,0 +1,45 @@
+package com.example.shop;
+
+import java.util.List;
+import java.util.stream.Collectors;
+
+/**
+ * A cart of line items.
+ */
+public final class Cart {
+    private static final int MAX_ITEMS = 100;
+    private final List<Item> items;
+
+    public record Item(String name, int quantity, double price) {}
+
+    public Cart(List<Item> items) {
+        this.items = List.copyOf(items);
+    }
+
+    @Override
+    public String toString() {
+        String summary = items.stream()
+            .map(Item::name)
+            .collect(Collectors.joining(", "));
+        return "Cart[" + summary + "]";
+    }
+
+    public double total() {
+        double sum = 0.0;
+        for (Item item : items) {
+            sum += item.price() * item.quantity();
+        }
+        return sum > 1_000 ? sum * 0.95 : sum;
+    }
+
+    public static void main(String[] args) {
+        var cart = new Cart(List.of(new Item("tea", 2, 4.5)));
+        char sep = '\t';
+        String json = """
+            {"total": %s}
+            """.formatted(cart.total());
+        System.out.println(cart + String.valueOf(sep) + json);
+        Object nothing = null;
+        boolean empty = cart.items.isEmpty() && nothing == null;
+    }
+}

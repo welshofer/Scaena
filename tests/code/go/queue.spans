@@ -1,0 +1,179 @@
+keyword     «package »
+plain       «main\n\n»
+keyword     «import »
+punctuation «(\n\t»
+string      «"errors"\n\t"fmt"\n\t"strings"\n»
+punctuation «)\n\n»
+comment     «// ErrEmpty is returned for an empty queue.\n»
+keyword     «var »
+plain       «ErrEmpty »
+operator    «= »
+plain       «errors»
+punctuation «.»
+function    «New»
+punctuation «(»
+string      «"queue: empty"»
+punctuation «)\n\n»
+keyword     «type »
+type        «Queue»
+punctuation «[»
+plain       «T »
+type        «any»
+punctuation «] »
+keyword     «struct »
+punctuation «{\n\t»
+plain       «items »
+punctuation «[]»
+plain       «T\n»
+punctuation «}\n\n»
+keyword     «func »
+punctuation «(»
+plain       «q »
+operator    «*»
+plain       «Queue»
+punctuation «[»
+plain       «T»
+punctuation «]) »
+function    «Push»
+punctuation «(»
+plain       «item T»
+punctuation «) {\n\t»
+plain       «q»
+punctuation «.»
+property    «items »
+operator    «= »
+function    «append»
+punctuation «(»
+plain       «q»
+punctuation «.»
+property    «items»
+punctuation «, »
+plain       «item»
+punctuation «)\n}\n\n»
+keyword     «func »
+punctuation «(»
+plain       «q »
+operator    «*»
+plain       «Queue»
+punctuation «[»
+plain       «T»
+punctuation «]) »
+function    «Pop»
+punctuation «() (»
+plain       «T»
+punctuation «, »
+type        «error»
+punctuation «) {\n\t»
+keyword     «var »
+plain       «zero T\n\t»
+keyword     «if »
+function    «len»
+punctuation «(»
+plain       «q»
+punctuation «.»
+property    «items»
+punctuation «) »
+operator    «== »
+number      «0 »
+punctuation «{\n\t\t»
+keyword     «return »
+plain       «zero»
+punctuation «, »
+plain       «ErrEmpty\n\t»
+punctuation «}\n\t»
+plain       «item »
+operator    «:= »
+plain       «q»
+punctuation «.»
+property    «items»
+punctuation «[»
+number      «0»
+punctuation «]\n\t»
+plain       «q»
+punctuation «.»
+property    «items »
+operator    «= »
+plain       «q»
+punctuation «.»
+property    «items»
+punctuation «[»
+number      «1»
+punctuation «:]\n\t»
+keyword     «return »
+plain       «item»
+punctuation «, »
+constant    «nil\n»
+punctuation «}\n\n»
+keyword     «type »
+type        «Tagged »
+keyword     «struct »
+punctuation «{\n\t»
+plain       «Name »
+type        «string »
+string      «`json:"name"`\n\t»
+plain       «Size »
+type        «int    »
+string      «`json:"size,omitempty"`\n»
+punctuation «}\n\n»
+keyword     «func »
+function    «main»
+punctuation «() {\n\t»
+plain       «q »
+operator    «:= &»
+plain       «Queue»
+punctuation «[»
+type        «string»
+punctuation «]{}\n\t»
+keyword     «for »
+plain       «_»
+punctuation «, »
+plain       «word »
+operator    «:= »
+keyword     «range »
+plain       «strings»
+punctuation «.»
+function    «Fields»
+punctuation «(»
+string      «"go is fun"»
+punctuation «) {\n\t\t»
+plain       «q»
+punctuation «.»
+function    «Push»
+punctuation «(»
+plain       «word»
+punctuation «)\n\t}\n\t»
+plain       «ch »
+operator    «:= »
+function    «make»
+punctuation «(»
+keyword     «chan »
+type        «int»
+punctuation «, »
+number      «3»
+punctuation «)\n\t»
+keyword     «go func»
+punctuation «() { »
+plain       «ch »
+operator    «<- »
+number      «0x2A »
+punctuation «}()\n\t»
+plain       «r »
+operator    «:= »
+string      «'λ'\n\t»
+plain       «fmt»
+punctuation «.»
+function    «Printf»
+punctuation «(»
+string      «"%v %d %c %v\\n"»
+punctuation «, »
+plain       «q»
+punctuation «.»
+property    «items»
+punctuation «, »
+operator    «<-»
+plain       «ch»
+punctuation «, »
+plain       «r»
+punctuation «, »
+number      «3.14»
+punctuation «)\n}\n»

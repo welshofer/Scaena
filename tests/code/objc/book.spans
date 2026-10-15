@@ -1,0 +1,174 @@
+meta        «#import »
+string      «<Foundation/Foundation.h>\n»
+meta        «#import »
+string      «"Library.h"\n\n»
+constant    «NS_ASSUME_NONNULL_BEGIN\n\n»
+keyword     «@interface »
+type        «Book »
+punctuation «: »
+type        «NSObject\n»
+keyword     «@property »
+punctuation «(»
+plain       «nonatomic»
+punctuation «, »
+plain       «copy»
+punctuation «) »
+type        «NSString »
+operator    «*»
+plain       «title»
+punctuation «;\n»
+keyword     «@property »
+punctuation «(»
+plain       «nonatomic»
+punctuation «, »
+plain       «assign»
+punctuation «) »
+type        «NSInteger »
+plain       «pages»
+punctuation «;\n»
+operator    «- »
+punctuation «(»
+type        «instancetype»
+punctuation «)»
+plain       «initWithTitle»
+punctuation «:(»
+type        «NSString »
+operator    «*»
+punctuation «)»
+plain       «title pages»
+punctuation «:(»
+type        «NSInteger»
+punctuation «)»
+plain       «pages»
+punctuation «;\n»
+keyword     «@end\n\n@implementation »
+type        «Book\n\n»
+operator    «- »
+punctuation «(»
+type        «instancetype»
+punctuation «)»
+plain       «initWithTitle»
+punctuation «:(»
+type        «NSString »
+operator    «*»
+punctuation «)»
+plain       «title pages»
+punctuation «:(»
+type        «NSInteger»
+punctuation «)»
+plain       «pages »
+punctuation «{\n    »
+variable    «self »
+operator    «= »
+punctuation «[»
+variable    «super »
+plain       «init»
+punctuation «];\n    »
+keyword     «if »
+punctuation «(»
+variable    «self»
+punctuation «) {\n        »
+plain       «_title »
+operator    «= »
+punctuation «[»
+plain       «title copy»
+punctuation «];\n        »
+plain       «_pages »
+operator    «= »
+plain       «pages»
+punctuation «;\n    }\n    »
+keyword     «return »
+variable    «self»
+punctuation «;\n}\n\n»
+operator    «- »
+punctuation «(»
+type        «NSString »
+operator    «*»
+punctuation «)»
+plain       «description »
+punctuation «{\n    »
+keyword     «return »
+punctuation «[»
+type        «NSString »
+plain       «stringWithFormat»
+punctuation «:»
+string      «@"%@ (%ld pages)"»
+punctuation «, »
+variable    «self»
+punctuation «.»
+property    «title»
+punctuation «, (»
+type        «long»
+punctuation «)»
+variable    «self»
+punctuation «.»
+property    «pages»
+punctuation «];\n}\n\n»
+keyword     «@end\n\n»
+type        «int »
+function    «main»
+punctuation «(»
+type        «int »
+plain       «argc»
+punctuation «, »
+keyword     «const »
+type        «char »
+operator    «*»
+plain       «argv»
+punctuation «[]) {\n    »
+keyword     «@autoreleasepool »
+punctuation «{\n        »
+type        «Book »
+operator    «*»
+plain       «book »
+operator    «= »
+punctuation «[[»
+type        «Book »
+plain       «alloc»
+punctuation «] »
+plain       «initWithTitle»
+punctuation «:»
+string      «@"Dune" »
+plain       «pages»
+punctuation «:»
+number      «412»
+punctuation «];\n        »
+type        «NSArray»
+operator    «<»
+type        «Book »
+operator    «*> *»
+plain       «shelf »
+operator    «= @»
+punctuation «[»
+plain       «book»
+punctuation «];\n        »
+type        «BOOL »
+plain       «ready »
+operator    «= »
+plain       «shelf»
+punctuation «.»
+property    «count »
+operator    «> »
+number      «0 »
+operator    «? »
+constant    «YES »
+punctuation «: »
+constant    «NO»
+punctuation «;\n        »
+function    «NSLog»
+punctuation «(»
+string      «@"%@ %d"»
+punctuation «, »
+plain       «book»
+punctuation «, »
+plain       «ready»
+punctuation «);\n        »
+type        «id »
+plain       «nothing »
+operator    «= »
+constant    «nil»
+punctuation «;\n    }\n    »
+keyword     «return »
+number      «0»
+punctuation «;\n}\n\n»
+constant    «NS_ASSUME_NONNULL_END\n»

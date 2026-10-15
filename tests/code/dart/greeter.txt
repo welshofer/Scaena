@@ -1,0 +1,46 @@
+import 'dart:async';
+import 'package:flutter/material.dart';
+
+/// A greeting that counts.
+class Greeter extends StatefulWidget {
+  const Greeter({super.key, required this.name});
+
+  final String name;
+
+  @override
+  State<Greeter> createState() => _GreeterState();
+}
+
+class _GreeterState extends State<Greeter> {
+  int _count = 0;
+  late final Timer _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) => setState(() => _count++));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final greeting = 'Hello, ${widget.name}! Seen $_count times.';
+    return Text(greeting, style: const TextStyle(fontSize: 24.0));
+  }
+}
+
+enum Mood { happy, sad }
+
+mixin Logging {
+  void log(String message) => print('[log] $message');
+}
+
+Future<void> main() async {
+  final raw = r'C:\path\no $interpolation';
+  final multi = '''
+Line one
+Line ${1 + 1}
+''';
+  print(raw + multi);
+  dynamic value = null;
+  await Future.delayed(Duration(milliseconds: 0x10));
+}

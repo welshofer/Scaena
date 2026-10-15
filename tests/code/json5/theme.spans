@@ -1,0 +1,46 @@
+comment     «// A theme's notes, as JSON5 writes them.\n»
+punctuation «{\n  »
+property    «name»
+punctuation «: »
+string      «'Dusk'»
+punctuation «,\n  »
+property    «version»
+punctuation «: »
+number      «0x12»
+punctuation «,\n  »
+property    «ratio»
+punctuation «: »
+number      «.5»
+punctuation «,\n  »
+property    «scale»
+punctuation «: »
+number      «2.»
+punctuation «,\n  »
+property    «growth»
+punctuation «: »
+number      «+1.25»
+punctuation «,\n  »
+property    «limits»
+punctuation «: [»
+number      «Infinity»
+punctuation «, »
+number      «-Infinity»
+punctuation «, »
+number      «NaN»
+punctuation «],\n  »
+property    «quote»
+punctuation «: »
+string      «"She said \\"hi\\""»
+punctuation «,\n  »
+property    «trailing»
+punctuation «: [»
+number      «1»
+punctuation «, »
+number      «2»
+punctuation «, »
+number      «3»
+punctuation «,],\n  »
+property    «$schema»
+punctuation «: »
+string      «'theme'»
+punctuation «,\n}\n»

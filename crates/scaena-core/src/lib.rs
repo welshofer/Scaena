@@ -10,6 +10,8 @@
 //! - [`tracking`] — resolves the ordered cue list into absolute snapshots (SPEC §2.2).
 //! - [`timeline`] — easing curves and springs with settle-time computation (SPEC §3.9).
 //! - [`displaylist`] — the painter-agnostic frame description (SPEC §6).
+//! - [`code`] — code on a slide: the languages Scaena knows by name, and the scanners that split
+//!   a code text into tokens for the theme to color (ADR-0029).
 //! - [`color`] — a theme's color literals, hex and Oklab, to the bytes a display list holds.
 //! - [`data`] — data sources read and typed (SPEC §3.10), from bytes the caller hands over.
 //! - [`format`] — number and date formats, d3's grammar (`docs/spec/format.md`).
@@ -38,6 +40,7 @@
 
 pub mod builds;
 pub mod choices;
+pub mod code;
 pub mod color;
 pub mod data;
 pub mod displaylist;

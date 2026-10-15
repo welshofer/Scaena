@@ -1,0 +1,213 @@
+keyword     «using »
+type        «System»
+punctuation «;\n»
+keyword     «using »
+type        «System»
+punctuation «.»
+property    «Collections»
+punctuation «.»
+property    «Generic»
+punctuation «;\n»
+keyword     «using »
+type        «System»
+punctuation «.»
+property    «Diagnostics»
+punctuation «;\n»
+keyword     «using »
+type        «System»
+punctuation «.»
+property    «Threading»
+punctuation «.»
+property    «Tasks»
+punctuation «;\n\n»
+meta        «#nullable »
+plain       «enable\n\n»
+keyword     «namespace »
+type        «Inventory\n»
+punctuation «{\n    [»
+attribute   «Serializable»
+punctuation «]\n    [»
+attribute   «DebuggerDisplay»
+punctuation «(»
+string      «"{Name}"»
+punctuation «)]\n    »
+keyword     «public record »
+type        «Item»
+punctuation «(»
+type        «string »
+plain       «Name»
+punctuation «, »
+type        «decimal »
+plain       «Price»
+punctuation «);\n\n    »
+keyword     «public sealed class »
+type        «Store\n    »
+punctuation «{\n        »
+keyword     «private readonly »
+type        «Dictionary»
+operator    «<»
+type        «string»
+punctuation «, »
+type        «Item»
+operator    «> »
+plain       «_items »
+operator    «= »
+keyword     «new»
+punctuation «();\n        »
+keyword     «public »
+type        «int »
+plain       «Count »
+operator    «=> »
+plain       «_items»
+punctuation «.»
+property    «Count»
+punctuation «;\n        »
+keyword     «public »
+type        «string »
+plain       «Owner »
+punctuation «{ »
+keyword     «get»
+punctuation «; »
+keyword     «init»
+punctuation «; } »
+operator    «= »
+string      «"nobody"»
+punctuation «;\n        »
+keyword     «public »
+type        «string»
+operator    «? »
+plain       «Note »
+punctuation «{ »
+keyword     «get»
+punctuation «; »
+keyword     «set»
+punctuation «; }\n\n        »
+keyword     «public async »
+type        «Task»
+operator    «<»
+type        «bool»
+operator    «> »
+function    «AddAsync»
+punctuation «(»
+type        «Item »
+plain       «item»
+punctuation «)\n        {\n            »
+keyword     «if »
+punctuation «(»
+plain       «_items»
+punctuation «.»
+function    «ContainsKey»
+punctuation «(»
+plain       «item»
+punctuation «.»
+property    «Name»
+punctuation «)) »
+keyword     «return »
+constant    «false»
+punctuation «;\n            »
+plain       «_items»
+punctuation «[»
+plain       «item»
+punctuation «.»
+property    «Name»
+punctuation «] »
+operator    «= »
+plain       «item»
+punctuation «;\n            »
+keyword     «await »
+type        «Task»
+punctuation «.»
+function    «Delay»
+punctuation «(»
+number      «10»
+punctuation «);\n            »
+keyword     «return »
+constant    «true»
+punctuation «;\n        }\n\n        »
+keyword     «public override »
+type        «string »
+function    «ToString»
+punctuation «()\n        {\n            »
+keyword     «var »
+plain       «path »
+operator    «= »
+string      «@"C:\\stores\\""main"""»
+punctuation «;\n            »
+keyword     «var »
+plain       «price »
+operator    «= »
+number      «19.99m»
+punctuation «;\n            »
+keyword     «return »
+string      «$"Store of »
+punctuation «{»
+type        «Count»
+punctuation «}»
+string      « items, {{braces}}, at »
+punctuation «{»
+plain       «path»
+punctuation «}»
+string      « for »
+punctuation «{»
+plain       «price»
+punctuation «:»
+string      «C»
+punctuation «}»
+string      «"»
+punctuation «;\n        }\n    }\n\n    »
+keyword     «public static class »
+type        «Program\n    »
+punctuation «{\n        »
+keyword     «public static async »
+type        «Task »
+function    «Main»
+punctuation «(»
+type        «string»
+punctuation «[] »
+plain       «args»
+punctuation «)\n        {\n            »
+keyword     «var »
+plain       «store »
+operator    «= »
+keyword     «new »
+type        «Store »
+punctuation «{ »
+type        «Owner »
+operator    «= »
+string      «"Ada" »
+punctuation «};\n            »
+keyword     «await »
+plain       «store»
+punctuation «.»
+function    «AddAsync»
+punctuation «(»
+keyword     «new »
+type        «Item»
+punctuation «(»
+string      «"pen"»
+punctuation «, »
+number      «1.5m»
+punctuation «));\n            »
+type        «Console»
+punctuation «.»
+function    «WriteLine»
+punctuation «(»
+plain       «store»
+punctuation «);  »
+comment     «// Store of 1 items\n            »
+type        «char »
+plain       «c »
+operator    «= »
+string      «'x'»
+punctuation «;\n            »
+type        «object»
+operator    «? »
+plain       «nothing »
+operator    «= »
+constant    «null»
+punctuation «;\n            »
+keyword     «var »
+plain       «json »
+operator    «= »
+string      «"""\n                { "raw": "string" }\n                """»
+punctuation «;\n        }\n    }\n}\n»

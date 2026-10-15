@@ -1,0 +1,52 @@
+import SwiftUI
+
+/// A counter that remembers its best.
+@MainActor
+final class Counter: ObservableObject {
+    @Published private(set) var count = 0
+    @Published var best: Int?
+
+    func increment(by step: Int = 1) {
+        count += step
+        if count > (best ?? .min) {
+            best = count
+        }
+    }
+}
+
+struct CounterView: View {
+    @StateObject private var counter = Counter()
+    let title: String
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Text("\(title): \(counter.count)")
+                .font(.largeTitle)
+            Button("Add one") { counter.increment() }
+            if let best = counter.best {
+                Text("Best so far: \(best)")
+            }
+        }
+    }
+}
+
+enum Direction: String, CaseIterable {
+    case north, south
+}
+
+let raw = #"A "raw" string with \#(1 + 1) inside"#
+let poem = """
+    Roses are \(Direction.north.rawValue),
+    numbers are 0x1F and 1_000.5.
+    """
+
+#if DEBUG
+let label = `default`
+#endif
+
+extension Int {
+    var doubled: Int { self * 2 }
+}
+
+let total = [1, 2, 3].map { $0 * 2 }.reduce(0, +)
+/* Swift's block comments /* nest */ too. */

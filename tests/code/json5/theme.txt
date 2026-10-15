@@ -1,0 +1,12 @@
+// A theme's notes, as JSON5 writes them.
+{
+  name: 'Dusk',
+  version: 0x12,
+  ratio: .5,
+  scale: 2.,
+  growth: +1.25,
+  limits: [Infinity, -Infinity, NaN],
+  quote: "She said \"hi\"",
+  trailing: [1, 2, 3,],
+  $schema: 'theme',
+}

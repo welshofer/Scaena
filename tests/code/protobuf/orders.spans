@@ -1,0 +1,148 @@
+keyword     «syntax »
+operator    «= »
+string      «"proto3"»
+punctuation «;\n\n»
+keyword     «package »
+plain       «shop»
+punctuation «.»
+property    «v1»
+punctuation «;\n\n»
+keyword     «import »
+string      «"google/protobuf/timestamp.proto"»
+punctuation «;\n\n»
+keyword     «option »
+plain       «go_package »
+operator    «= »
+string      «"example.com/shop/v1;shopv1"»
+punctuation «;\n\n»
+comment     «// An order, as the API returns it.\n»
+keyword     «message »
+type        «Order »
+punctuation «{\n  »
+type        «int64 »
+plain       «id »
+operator    «= »
+number      «1»
+punctuation «;\n  »
+type        «string »
+plain       «customer »
+operator    «= »
+number      «2»
+punctuation «;\n  »
+keyword     «repeated »
+type        «LineItem »
+plain       «items »
+operator    «= »
+number      «3»
+punctuation «;\n  »
+type        «map»
+operator    «<»
+type        «string»
+punctuation «, »
+type        «string»
+operator    «> »
+plain       «labels »
+operator    «= »
+number      «4»
+punctuation «;\n  »
+plain       «google»
+punctuation «.»
+property    «protobuf»
+punctuation «.»
+type        «Timestamp »
+plain       «placed_at »
+operator    «= »
+number      «5»
+punctuation «;\n\n  »
+keyword     «enum »
+type        «State »
+punctuation «{\n    »
+constant    «STATE_UNSPECIFIED »
+operator    «= »
+number      «0»
+punctuation «;\n    »
+constant    «STATE_OPEN »
+operator    «= »
+number      «1»
+punctuation «;\n    »
+constant    «STATE_SHIPPED »
+operator    «= »
+number      «2»
+punctuation «;\n  }\n  »
+type        «State »
+plain       «state »
+operator    «= »
+number      «6»
+punctuation «;\n\n  »
+keyword     «oneof »
+plain       «payment »
+punctuation «{\n    »
+type        «string »
+plain       «card_token »
+operator    «= »
+number      «7»
+punctuation «;\n    »
+type        «bool »
+plain       «cash »
+operator    «= »
+number      «8»
+punctuation «;\n  }\n\n  »
+keyword     «reserved »
+number      «9 »
+keyword     «to »
+number      «11»
+punctuation «;\n}\n\n»
+keyword     «message »
+type        «LineItem »
+punctuation «{\n  »
+type        «string »
+plain       «sku »
+operator    «= »
+number      «1»
+punctuation «;\n  »
+type        «uint32 »
+plain       «quantity »
+operator    «= »
+number      «2»
+punctuation «;\n  »
+type        «double »
+plain       «unit_price »
+operator    «= »
+number      «3 »
+punctuation «[»
+plain       «deprecated »
+operator    «= »
+constant    «true»
+punctuation «];\n}\n\n»
+keyword     «service »
+type        «Orders »
+punctuation «{\n  »
+keyword     «rpc »
+function    «GetOrder»
+punctuation «(»
+type        «GetOrderRequest»
+punctuation «) »
+keyword     «returns »
+punctuation «(»
+type        «Order»
+punctuation «);\n  »
+keyword     «rpc »
+function    «WatchOrders»
+punctuation «(»
+keyword     «stream »
+type        «GetOrderRequest»
+punctuation «) »
+keyword     «returns »
+punctuation «(»
+keyword     «stream »
+type        «Order»
+punctuation «) {}\n}\n\n»
+comment     «/* Requests carry one id. */\n»
+keyword     «message »
+type        «GetOrderRequest »
+punctuation «{ »
+type        «int64 »
+plain       «id »
+operator    «= »
+number      «1»
+punctuation «; }\n»
