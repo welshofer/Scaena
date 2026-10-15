@@ -15,7 +15,10 @@ fn the_prompts_are_exact() {
          with no title, no quotes, and no comment."
     );
     assert!(haiku::instructions("ja").contains("in Japanese: three lines, of five, seven, and five morae"));
-    assert!(haiku::instructions("ja").ends_with("the poem's reading in hiragana, three lines, so that its morae can be counted."));
+    assert!(
+        haiku::instructions("ja")
+            .ends_with("the poem's reading in hiragana, three lines, so that its morae can be counted.")
+    );
     assert!(haiku::instructions("fr-CA").contains("in French:"));
     assert!(haiku::instructions("x-klingon").contains("in x-klingon:"));
 
@@ -23,7 +26,8 @@ fn the_prompts_are_exact() {
     assert_eq!(haiku::prompt(&topic), "Write a haiku about: the first frost");
     assert_eq!(topic.said(), "the first frost");
 
-    let slide = About::Slide { slide: "Title: Revenue doubled\nText: Up 12%".into(), claim: Some("Growth is back.".into()) };
+    let slide =
+        About::Slide { slide: "Title: Revenue doubled\nText: Up 12%".into(), claim: Some("Growth is back.".into()) };
     assert_eq!(
         haiku::prompt(&slide),
         "Write a haiku about this slide. It reads:\nTitle: Revenue doubled\nText: Up 12%\nThe point it makes: Growth is back."
@@ -74,10 +78,23 @@ fn the_second_ask_gives_each_lines_count() {
 fn an_answer_is_taken_as_three_lines() {
     let lines = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     let want = lines(&["An old silent pond", "A frog jumps into the pond", "Splash! Silence again"]);
-    assert_eq!(haiku::taken("An old silent pond\r\nA frog jumps into the pond\r\nSplash! Silence again\n", "en").lines, want);
-    assert_eq!(haiku::taken("\"An old silent pond\nA frog jumps into the pond\nSplash! Silence again\"", "en").lines, want);
-    assert_eq!(haiku::taken("**The Pond**\n\nAn old silent pond\nA frog jumps into the pond\nSplash! Silence again", "en").lines, want);
-    assert_eq!(haiku::taken("An old silent pond / A frog jumps into the pond / Splash! Silence again", "en").lines, want);
+    assert_eq!(
+        haiku::taken("An old silent pond\r\nA frog jumps into the pond\r\nSplash! Silence again\n", "en").lines,
+        want
+    );
+    assert_eq!(
+        haiku::taken("\"An old silent pond\nA frog jumps into the pond\nSplash! Silence again\"", "en").lines,
+        want
+    );
+    assert_eq!(
+        haiku::taken("**The Pond**\n\nAn old silent pond\nA frog jumps into the pond\nSplash! Silence again", "en")
+            .lines,
+        want
+    );
+    assert_eq!(
+        haiku::taken("An old silent pond / A frog jumps into the pond / Splash! Silence again", "en").lines,
+        want
+    );
     assert_eq!(haiku::taken("", "en").lines, Vec::<String>::new());
     // Japanese: its reading after the empty line.
     let ja = haiku::taken("古池や\n蛙飛び込む\n水の音\n\nふるいけや\nかわずとびこむ\nみずのおと", "ja");

@@ -89,11 +89,8 @@ pub fn note(checked: &Checked, lang: &str) -> Option<String> {
     if matches!(checked.kept, Kept::Kept | Kept::Uncounted) {
         return None;
     }
-    let unit = if lang.split(['-', '_']).next().is_some_and(|c| c.eq_ignore_ascii_case("ja")) {
-        "morae"
-    } else {
-        "syllables"
-    };
+    let unit =
+        if lang.split(['-', '_']).next().is_some_and(|c| c.eq_ignore_ascii_case("ja")) { "morae" } else { "syllables" };
     let counts: Vec<String> = checked.lines.iter().map(|l| haiku::said(l.count)).collect();
     let counts = match counts.as_slice() {
         [a, b, c] => format!("{a}, {b}, and {c}"),
@@ -175,12 +172,19 @@ pub fn placing(
                 .ok_or_else(|| OpsError::new("the Haiku layout has no verse place"))?;
             let unsaid: Option<String> = match attribution {
                 Some(_) => None,
-                None => started.patch.iter().find(|op| slotted(op, ATTRIBUTION)).and_then(|op| op["id"].as_str()).map(str::to_string),
+                None => started
+                    .patch
+                    .iter()
+                    .find(|op| slotted(op, ATTRIBUTION))
+                    .and_then(|op| op["id"].as_str())
+                    .map(str::to_string),
             };
             let mut patch = Vec::new();
             for mut op in started.patch {
                 // The attribution's place waits where the person gave none: never filled in for them.
-                if unsaid.is_some() && [op.get("id"), op.get("node")].into_iter().flatten().any(|v| v.as_str() == unsaid.as_deref()) {
+                if unsaid.is_some()
+                    && [op.get("id"), op.get("node")].into_iter().flatten().any(|v| v.as_str() == unsaid.as_deref())
+                {
                     continue;
                 }
                 if slotted(&op, POEM) {

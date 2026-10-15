@@ -102,8 +102,13 @@ impl Session {
             "talk" => {
                 let deck = &self.deck;
                 let title = deck.meta.as_ref().and_then(|m| m.title.as_deref());
-                let claims: Vec<String> =
-                    deck.spine.iter().flat_map(|s| &s.sections).flat_map(|s| &s.beats).map(|b| b.claim.clone()).collect();
+                let claims: Vec<String> = deck
+                    .spine
+                    .iter()
+                    .flat_map(|s| &s.sections)
+                    .flat_map(|s| &s.beats)
+                    .map(|b| b.claim.clone())
+                    .collect();
                 // The notes, but a haiku's own credit: the poem already in the deck is left out.
                 let notes: Vec<String> = deck
                     .states
@@ -115,7 +120,9 @@ impl Session {
                     .collect();
                 About::Talk { talk: haiku::talk(title, &claims, &notes) }
             }
-            other => return Err(Error::Ops(format!("a haiku is about a topic, this slide, or the talk, not `{other}`"))),
+            other => {
+                return Err(Error::Ops(format!("a haiku is about a topic, this slide, or the talk, not `{other}`")));
+            }
         })
     }
 
@@ -124,6 +131,15 @@ impl Session {
     pub fn haiku(&mut self, ask: &HaikuAsk) -> Result<HaikuWriting, Error> {
         let about = self.about(ask)?;
         let lang = self.language();
+        // A language in a script the theme's fonts do not draw is refused before any call.
+        let named = haiku::language(&lang);
+        if let Some(script) = scaena_ops::scripts::SCRIPTS.iter().find(|s| s.language.eq_ignore_ascii_case(&named))
+            && self.theme.typography.families.get(script.key).is_none_or(|f| f.file != script.file)
+        {
+            return Err(Error::Ops(format!(
+                "this deck's theme has no font for {named}, so a haiku in it could not be drawn: make the deck in {named} first"
+            )));
+        }
         let prompt = match &ask.another {
             Some(poem) if !poem.is_empty() => haiku::another(&about, poem),
             _ => haiku::prompt(&about),
@@ -175,8 +191,16 @@ impl Session {
             },
             other => return Err(Error::Ops(format!("a haiku goes on a new slide or this one, not `{other}`"))),
         };
-        let placed = scaena_ops::haiku::placing(&self.deck, &self.theme, state, lines, take.attribution.as_deref(), &place, &credit)
-            .map_err(|e| Error::Ops(e.to_string()))?;
+        let placed = scaena_ops::haiku::placing(
+            &self.deck,
+            &self.theme,
+            state,
+            lines,
+            take.attribution.as_deref(),
+            &place,
+            &credit,
+        )
+        .map_err(|e| Error::Ops(e.to_string()))?;
         Ok(placed)
     }
 
@@ -223,5 +247,117 @@ impl Session {
     /// the dialog shows beside each line as it is edited.
     pub fn verse_counts(&self, lines: &[String]) -> Checked {
         verse::check(&lines.join("\n"), &self.language())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn revenue() -> Session {
+        let dir = "../../docs/examples";
+        let read = |p: &str| std::fs::read_to_string(format!("{dir}/{p}")).unwrap();
+        let mut s = Session::new(&read("revenue.deck.json"), &read("themes/dusk.theme.json")).unwrap();
+        for path in [
+            "fonts/Fraunces-VF.ttf",
+            "fonts/Inter-VF.ttf",
+            "fonts/JetBrainsMono-VF.ttf",
+            "fonts/Fraunces-Italic-VF.ttf",
+            "fonts/Inter-Italic-VF.ttf",
+            "fonts/JetBrainsMono-Italic-VF.ttf",
+            "data/q3-revenue.csv",
+        ] {
+            s.add_file(path, std::fs::read(format!("{dir}/{path}")).unwrap());
+        }
+        s
+    }
+
+    fn ask(about: &str) -> HaikuAsk {
+        HaikuAsk { state: "revenue".into(), about: about.into(), topic: Some("the quarter".into()), another: None }
+    }
+
+    fn take(ask: HaikuAsk) -> HaikuTake {
+        HaikuTake {
+            ask,
+            answer: None,
+            first: None,
+            lines: None,
+            to: None,
+            node: None,
+            at: None,
+            attribution: None,
+            by: Some(Writer { model: "test-model-1".into(), provider: Some("Anthropic".into()) }),
+            date: Some("October 15, 2026".into()),
+        }
+    }
+
+    const NEAR: &str = "An old silent pond\nA green frog jumps into the pond\nSplash! Silence again";
+    const KEPT: &str = "An old silent pond\nA frog jumps into the pond\nSplash! Silence again";
+
+    #[test]
+    fn a_haiku_is_asked_about_a_topic_the_slide_or_the_talk() {
+        let mut s = revenue();
+        let topic = s.haiku(&ask("topic")).unwrap();
+        assert_eq!(topic.prompt, "Write a haiku about: the quarter");
+        assert!(topic.instructions.contains("in English"));
+        let slide = s.haiku(&ask("slide")).unwrap();
+        assert!(slide.prompt.starts_with("Write a haiku about this slide. It reads:\n"), "{}", slide.prompt);
+        let talk = s.haiku(&ask("talk")).unwrap();
+        assert!(talk.prompt.contains("<talk>\n") && talk.about == "the whole talk", "{}", talk.prompt);
+        let another = HaikuAsk { another: Some(vec!["a".into(), "b".into(), "c".into()]), ..ask("topic") };
+        assert!(s.haiku(&another).unwrap().prompt.ends_with("Write a different haiku from this one:\na\nb\nc"));
+        let none = HaikuAsk { topic: None, ..ask("topic") };
+        assert!(s.haiku(&none).is_err());
+        // A deck in Japanese, in a theme with no font for it, is refused before any call.
+        let mut ja = s.deck.clone();
+        ja.meta.get_or_insert_default().lang = Some("ja".into());
+        s.set_deck(ja);
+        let refused = s.haiku(&ask("topic")).unwrap_err().to_string();
+        assert!(refused.contains("no font for Japanese"), "{refused}");
+    }
+
+    #[test]
+    fn a_near_miss_is_asked_once_more_then_placed_on_a_new_slide_in_one_patch() {
+        let mut s = revenue();
+        let first = s.haiku_taken(&HaikuTake { answer: Some(NEAR.into()), ..take(ask("topic")) }).unwrap();
+        let Answered::Again { prompt } = &first.answered else { panic!("asked again: {first:?}") };
+        assert!(prompt.contains("Its lines count 5, 8, and 5 syllables"));
+        assert!(first.placed.is_none());
+        // The second keeps to 5-7-5: offered, and placed where it was asked to go.
+        let near = Poem::counted(haiku::taken(NEAR, "en"), "en");
+        let second = s
+            .haiku_taken(&HaikuTake {
+                answer: Some(KEPT.into()),
+                first: Some(near),
+                to: Some("new".into()),
+                ..take(ask("topic"))
+            })
+            .unwrap();
+        let Answered::Offer { poem, note } = &second.answered else { panic!("offered") };
+        assert_eq!((poem.lines[1].as_str(), note), ("A frog jumps into the pond", &None));
+        let placed = second.placed.unwrap();
+        let states = s.deck.states.len();
+        s.tool("deck_patch", json!({ "ops": placed.patch }), crate::assistant::Caller { author: "user", at: None })
+            .unwrap();
+        assert_eq!(s.deck.states.len(), states + 1, "one slide");
+        let slide = s.deck.states.iter().find(|st| st.id == placed.state).unwrap();
+        assert_eq!(slide.layout.as_deref(), Some("haiku"));
+        assert_eq!(
+            slide.notes.as_deref(),
+            Some("Haiku written by test-model-1 with your Anthropic key on October 15, 2026, about the quarter.")
+        );
+        assert!(!serde_json::to_string(&s.deck.nodes).unwrap().contains("test-model-1"));
+        // Lines the person edited are offered as they are, and counted as they read.
+        let edited = s
+            .haiku_taken(&HaikuTake {
+                lines: Some(vec!["one two".into(), "three".into(), "four".into()]),
+                ..take(ask("topic"))
+            })
+            .unwrap();
+        let Answered::Offer { poem, .. } = edited.answered else { panic!() };
+        assert_eq!(poem.checked.kept, verse::Kept::Off);
+        let counts = s.verse_counts(&["An old silent pond".into(), "A frog".into()]);
+        assert_eq!(counts.lines.iter().map(|l| l.count.unwrap().low).collect::<Vec<_>>(), [5, 2]);
     }
 }
