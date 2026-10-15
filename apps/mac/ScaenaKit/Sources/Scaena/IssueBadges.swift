@@ -24,6 +24,7 @@ enum Issues {
         case "W311": "A background effect is behind this chart."
         case "W312": "Some of the chart's text is too small to read."
         case "W313": "The chart is too small to read."
+        case "W314": "A credit here can't be read."
         case "W410": "The picture has no description for people who can't see it."
         case "W427": "A figure here no longer matches its data."
         default: nil
@@ -36,6 +37,7 @@ enum Issues {
         case "E110", "E111": "Use a Color That Reads"
         case "E100", "W202": "Shrink to Fit"
         case "W427": "Update the Figure"
+        case "W314": "Put the Credit Below"
         default: "Fix"
         }
     }
