@@ -67,6 +67,14 @@ class FromSpec(unittest.TestCase):
             themes.themed("basel", spec(mode="dark"), BASE)
 
 
+    def test_a_family_the_pinned_table_lacks_is_refused(self):
+        theme = themes.themed("basel", spec(), BASE)
+        self.assertEqual(themes.fonts_of(theme), ["fraunces", "inter", "jetbrains-mono"])
+        theme["type"]["families"]["display"]["family"] = "Comic Sans"
+        with self.assertRaisesRegex(themes.Refused, "Comic Sans"):
+            themes.fonts_of(theme)
+
+
 class Bars(unittest.TestCase):
     def test_basel_meets_every_bar(self):
         self.assertEqual(themes.missed("basel", spec()), [])

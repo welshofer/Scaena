@@ -163,6 +163,9 @@ pub struct TextSpec {
     /// its tabs standing to stops, run left to right, nothing hung, and placed as a block by
     /// `align`, each line from the block's left ([`crate::code`]).
     pub code: Option<crate::code::CodeSpec>,
+    /// Its deck reads right to left (PLAN T.5a): a line's start is the box's right edge, whichever
+    /// way its own words run. Code keeps its columns from the left.
+    pub mirrored: bool,
 }
 
 /// A paragraph as an item of a list (ADR-0018): its kind, its level, 0 the outermost, and its
@@ -595,6 +598,7 @@ impl TextSpec {
             list_indent: 1.2,
             list_gap: 0.4,
             code: None,
+            mirrored: false,
         }
     }
 }
@@ -684,10 +688,17 @@ impl TextEngine {
         }
 
         let rtl = layout.is_rtl();
+        // In a deck that reads right to left, a paragraph that runs left to right starts at the
+        // box's right edge as its others do: its start and end trade places (PLAN T.5a).
+        let align = match spec.align {
+            TextAlign::Start if spec.mirrored && !rtl && code.is_none() => TextAlign::End,
+            TextAlign::End if spec.mirrored && !rtl && code.is_none() => TextAlign::Start,
+            align => align,
+        };
         // Nothing hangs in code: its lines keep the columns they are written in.
         let hang = match code {
             Some(_) => Hang { edge: Edge::Neither, punctuation: false },
-            None => Hang { edge: Edge::from(spec.align), punctuation: spec.hanging_punctuation },
+            None => Hang { edge: Edge::from(align), punctuation: spec.hanging_punctuation },
         };
         // Each paragraph's indent as a list item (ADR-0018).
         let em = spec.role.size;
@@ -742,12 +753,15 @@ impl TextEngine {
         let optical = spec.optical_margins && code.is_none();
         let widow = widowed(&layout, &segments, min_words);
         let words = words(&segments);
+        let widest = layout.lines().map(|l| l.metrics().advance - l.metrics().trailing_whitespace);
+        let widest = widest.fold(0.0, f32::max);
+        // Laid out with no bound, as a chart's labels are, lines align across the widest of them:
+        // a line that runs right to left, or one centered, would otherwise start at infinity.
+        let width = if width.is_finite() { width } else { widest };
         // Code's lines start from the block's left, and `align` places the block: its widest line
         // across the box (ADR-0029).
         let (align, block) = match code {
             Some(_) => {
-                let widest = layout.lines().map(|l| l.metrics().advance - l.metrics().trailing_whitespace);
-                let widest = widest.fold(0.0, f32::max);
                 let block = match spec.align {
                     TextAlign::Start => 0.0,
                     TextAlign::Center => 0.5 * (width - widest),
@@ -755,7 +769,7 @@ impl TextEngine {
                 };
                 (TextAlign::Start, block)
             }
-            None => (spec.align, 0.0),
+            None => (align, 0.0),
         };
         let paragraph = Paragraph {
             wrap,
