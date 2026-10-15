@@ -1,0 +1,51 @@
+deck "Code on a slide" theme:"themes/dusk.theme.json" canvas:1920x1080 author:Scaena
+  created:"2026-10-15T00:00:00Z" lang:en-US
+  description:"Reference deck for code (PLAN 2.131): a text with `code`, set as written in the theme's code role, and a step that changes it."
+
+font Fraunces "fonts/Fraunces-VF.ttf" axes:{wght: [100, 900], opsz: [9, 144]}
+font Inter "fonts/Inter-VF.ttf" axes:{wght: [100, 900], opsz: [14, 32]}
+font "JetBrains Mono" "fonts/JetBrainsMono-VF.ttf" axes:{wght: [100, 800]}
+font Fraunces "fonts/Fraunces-Italic-VF.ttf" style:italic axes:{wght: [100, 900], opsz: [9, 144]}
+font Inter "fonts/Inter-Italic-VF.ttf" style:italic axes:{wght: [100, 900], opsz: [14, 32]}
+font "JetBrains Mono" "fonts/JetBrainsMono-Italic-VF.ttf" style:italic axes:{wght: [100, 800]}
+
+section ranking "Ranking"
+  beat rank "The program lists the talks with the most votes first." states:[rank, ties]
+    notes "Read the sort aloud, then the step that breaks ties."
+
+state rank layout:figure hold:6s
+  title text role:headline "Most votes first" semantic:claim at:in(header)
+  snippet text role:code code:{language: rust} """
+    // A talk on the program, and the votes it drew.
+    struct Talk {
+        title: String,
+        votes: u32,
+    }
+
+    // The talks, most votes first.
+    fn rank(talks: &mut [Talk]) {
+        talks.sort_by(|a, b| b.votes.cmp(&a.votes));
+    }
+    """
+    semantic:evidence
+    alt:"Rust: a Talk has a title and a vote count, and rank sorts the talks by votes, most first."
+    at:in(main)
+
+state ties slide:rank transition:slow hold:6s
+  title "Then by title"
+  snippet """
+    // A talk on the program, and the votes it drew.
+    struct Talk {
+        title: String,
+        votes: u32,
+    }
+
+    // The talks, most votes first; ties by title.
+    fn rank(talks: &mut [Talk]) {
+        talks.sort_by(|a, b| {
+            b.votes.cmp(&a.votes).then_with(|| a.title.cmp(&b.title))
+        });
+    }
+    """
+    alt:"Rust: rank sorts the talks by votes, most first, and ties by title."
+  notes "One line becomes three: the comparison of votes, then of titles where the votes tie."
