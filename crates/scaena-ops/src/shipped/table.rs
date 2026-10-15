@@ -35,7 +35,13 @@ pub(super) const FONTS: [(&str, &[u8]); 8] = [
     ("fonts/JetBrainsMono-VF.ttf", include_bytes!("../../../../docs/examples/fonts/JetBrainsMono-VF.ttf")),
     ("fonts/Fraunces-Italic-VF.ttf", include_bytes!("../../../../docs/examples/fonts/Fraunces-Italic-VF.ttf")),
     ("fonts/Inter-Italic-VF.ttf", include_bytes!("../../../../docs/examples/fonts/Inter-Italic-VF.ttf")),
-    ("fonts/JetBrainsMono-Italic-VF.ttf", include_bytes!("../../../../docs/examples/fonts/JetBrainsMono-Italic-VF.ttf")),
-    ("fonts/InstrumentSerif-Regular.ttf", include_bytes!("../../../../docs/examples/fonts/InstrumentSerif-Regular.ttf")),
+    (
+        "fonts/JetBrainsMono-Italic-VF.ttf",
+        include_bytes!("../../../../docs/examples/fonts/JetBrainsMono-Italic-VF.ttf"),
+    ),
+    (
+        "fonts/InstrumentSerif-Regular.ttf",
+        include_bytes!("../../../../docs/examples/fonts/InstrumentSerif-Regular.ttf"),
+    ),
     ("fonts/InstrumentSerif-Italic.ttf", include_bytes!("../../../../docs/examples/fonts/InstrumentSerif-Italic.ttf")),
 ];

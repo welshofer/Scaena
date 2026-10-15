@@ -343,7 +343,10 @@ def shipped_rs(entries: list[dict], themes: list[dict]) -> str:
         f"pub(super) const FONTS: [(&str, &[u8]); {len(files)}] = [",
     ]
     for f in files:
-        out.append(f'    ({json.dumps(f)}, include_bytes!("../../../../docs/examples/{f}")),')
+        name, bytes_ = json.dumps(f), f'include_bytes!("../../../../docs/examples/{f}")'
+        line = f"    ({name}, {bytes_}),"
+        # As rustfmt sets it: a tuple past the 120 columns of rustfmt.toml on a line of its own each.
+        out += [line] if len(line) <= 120 else ["    (", f"        {name},", f"        {bytes_},", "    ),"]
     out += ["];", ""]
     return "\n".join(out)
 

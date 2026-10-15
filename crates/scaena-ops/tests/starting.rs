@@ -6,13 +6,13 @@ use scaena_ops::lint::{View, lint_state_in};
 use scaena_ops::states::starting;
 use std::path::{Path, PathBuf};
 
-/// The shipped themes, by name: Dusk, its light twin Daybreak, Ember, and Gallery.
-const SHIPPED: [(&str, &str); 4] = [
-    ("dusk", "../../docs/examples/themes/dusk.theme.json"),
-    ("daybreak", "../../docs/examples/authorability/themes/daybreak.theme.json"),
-    ("ember", "../../docs/examples/themes/ember.theme.json"),
-    ("gallery", "../../docs/examples/themes/gallery.theme.json"),
-];
+/// The shipped themes, as the registry lists them (PLAN T.0a): each by its slug and its file.
+fn shipped() -> Vec<(String, String)> {
+    let registry: serde_json::Value =
+        serde_json::from_slice(&std::fs::read("../../docs/themes/registry.json").unwrap()).unwrap();
+    let themes = registry["themes"].as_array().unwrap().iter();
+    themes.map(|t| (t["slug"].as_str().unwrap().into(), format!("../../{}", t["files"][0].as_str().unwrap()))).collect()
+}
 
 /// A new bundle in `theme`, titled, at a place of its own.
 fn made(name: &str, theme: &str) -> PathBuf {
@@ -27,8 +27,8 @@ fn made(name: &str, theme: &str) -> PathBuf {
 fn every_shipped_layout_starts_a_slide_that_lint_finds_nothing_in() {
     // Every layout's findings in every theme, said at once.
     let mut wrong: Vec<String> = Vec::new();
-    for (name, theme) in SHIPPED {
-        let b = scaena_ops::open(&made(name, theme)).unwrap();
+    for (name, theme) in shipped() {
+        let b = scaena_ops::open(&made(&name, &theme)).unwrap();
         let t = scaena_ops::theme(&b).unwrap();
         let files = View::of(&b);
         let first = b.deck.states[0].id.clone();
@@ -69,8 +69,8 @@ fn every_shipped_layout_starts_a_slide_that_lint_finds_nothing_in() {
 fn every_shipped_layout_draws_its_example_in_each_slot_that_waits() {
     use scaena_core::model::theme::Example;
     let mut drawn = 0;
-    for (name, theme) in SHIPPED {
-        let b = scaena_ops::open(&made(&format!("{name}-examples"), theme)).unwrap();
+    for (name, theme) in shipped() {
+        let b = scaena_ops::open(&made(&format!("{name}-examples"), &theme)).unwrap();
         let t = scaena_ops::theme(&b).unwrap();
         let files = View::of(&b);
         let first = b.deck.states[0].id.clone();
@@ -121,9 +121,9 @@ fn every_shipped_layout_draws_its_example_in_each_slot_that_waits() {
 /// reads as the picture's caption.
 #[test]
 fn a_title_slides_byline_is_no_caption_of_its_picture() {
-    for (name, theme) in SHIPPED {
+    for (name, theme) in shipped() {
         let t: scaena_core::model::theme::Theme =
-            serde_json::from_str(&std::fs::read_to_string(theme).unwrap()).unwrap();
+            serde_json::from_str(&std::fs::read_to_string(&theme).unwrap()).unwrap();
         let slots = &t.layouts["title"].slots;
         let span = |slot: &str| -> [u64; 2] {
             let col = serde_json::to_value(slots[slot].col).unwrap();
@@ -143,8 +143,8 @@ fn a_title_slides_byline_is_no_caption_of_its_picture() {
 /// small in the top of the slot.
 #[test]
 fn a_lists_points_are_set_larger_than_the_body() {
-    for (name, path) in SHIPPED {
-        let theme = scaena_core::model::Theme::from_json(&std::fs::read_to_string(path).unwrap()).unwrap();
+    for (name, path) in shipped() {
+        let theme = scaena_core::model::Theme::from_json(&std::fs::read_to_string(&path).unwrap()).unwrap();
         let size = |role: &str| theme.typography.roles[role].size;
         for (layout, slot) in
             [("bullets", "body"), ("numbered", "body"), ("bullets-photo", "body"), ("agenda-photo", "body")]
