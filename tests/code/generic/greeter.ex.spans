@@ -1,0 +1,45 @@
+plain       «defmodule Greeter do\n  »
+operator    «@»
+plain       «moduledoc »
+string      «"Greets people."\n\n  »
+comment     «# Says hello, in a sentence.\n  »
+plain       «def hello»
+punctuation «(»
+plain       «name»
+punctuation «) »
+plain       «when is_binary»
+punctuation «(»
+plain       «name»
+punctuation «) »
+plain       «do\n    »
+string      «"Hello, #{name}!"\n  »
+plain       «end\n\n  def count»
+punctuation «(»
+plain       «list»
+punctuation «), »
+plain       «do»
+punctuation «: »
+plain       «Enum»
+punctuation «.»
+plain       «count»
+punctuation «(»
+plain       «list»
+punctuation «, »
+operator    «&»
+punctuation «(»
+operator    «&»
+number      «1 »
+operator    «> »
+number      «0.5»
+punctuation «))\n»
+plain       «end\n\nIO»
+punctuation «.»
+plain       «puts»
+punctuation «(»
+plain       «Greeter»
+punctuation «.»
+plain       «hello»
+punctuation «(»
+string      «"world"»
+punctuation «)) »
+comment     «; and a note after a semicolon\n»

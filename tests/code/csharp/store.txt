@@ -1,0 +1,48 @@
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+
+#nullable enable
+
+namespace Inventory
+{
+    [Serializable]
+    public record Item(string Name, decimal Price);
+
+    public sealed class Store
+    {
+        private readonly Dictionary<string, Item> _items = new();
+        public int Count => _items.Count;
+        public string Owner { get; init; } = "nobody";
+
+        public async Task<bool> AddAsync(Item item)
+        {
+            if (_items.ContainsKey(item.Name)) return false;
+            _items[item.Name] = item;
+            await Task.Delay(10);
+            return true;
+        }
+
+        public override string ToString()
+        {
+            var path = @"C:\stores\""main""";
+            var price = 19.99m;
+            return $"Store of {Count} items, {{braces}}, at {path} for {price:C}";
+        }
+    }
+
+    public static class Program
+    {
+        public static async Task Main(string[] args)
+        {
+            var store = new Store { Owner = "Ada" };
+            await store.AddAsync(new Item("pen", 1.5m));
+            Console.WriteLine(store);  // Store of 1 items
+            char c = 'x';
+            object? nothing = null;
+            var json = """
+                { "raw": "string" }
+                """;
+        }
+    }
+}

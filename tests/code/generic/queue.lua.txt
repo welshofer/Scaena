@@ -1,0 +1,17 @@
+-- A queue in Lua, which Scaena has no scanner for.
+local Queue = {}
+Queue.__index = Queue
+
+function Queue.new()
+  return setmetatable({ first = 1, last = 0, items = {} }, Queue)
+end
+
+function Queue:push(value)
+  self.last = self.last + 1
+  self.items[self.last] = value
+end
+
+local q = Queue.new()
+q:push("hello")
+q:push('world')
+print(#q.items, 0x1F, 3.14, q.last--[[ inline ]])

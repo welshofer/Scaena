@@ -1,0 +1,31 @@
+import { useState } from 'react';
+
+export default function TodoList({ initial = [] }) {
+  const [todos, setTodos] = useState(initial);
+  const [draft, setDraft] = useState('');
+
+  const add = (event) => {
+    event.preventDefault();
+    if (!draft.trim()) return;
+    setTodos([...todos, { id: Date.now(), text: draft, done: false }]);
+    setDraft('');
+  };
+
+  return (
+    <form onSubmit={add} className="todos">
+      <h2>Todo ({todos.length}), don't wait</h2>
+      <ul>
+        {todos.map((todo) => (
+          <li key={todo.id} data-done={todo.done ? 'yes' : 'no'}>
+            {todo.done ? <s>{todo.text}</s> : todo.text}
+          </li>
+        ))}
+      </ul>
+      <input value={draft} onChange={(e) => setDraft(e.target.value)} />
+      {/* a comment inside JSX */}
+      <>
+        <Button.Primary disabled={todos.length > 10}>Add</Button.Primary>
+      </>
+    </form>
+  );
+}

@@ -1,0 +1,231 @@
+keyword     «package »
+plain       «shop\n\n»
+keyword     «import »
+plain       «scala»
+punctuation «.»
+property    «annotation»
+punctuation «.»
+property    «tailrec\n»
+keyword     «import »
+plain       «scala»
+punctuation «.»
+property    «concurrent»
+punctuation «.{»
+type        «ExecutionContext»
+punctuation «, »
+type        «Future»
+punctuation «}\n\n»
+comment     «/** An order, priced in cents. */\n»
+keyword     «case class »
+type        «Order»
+punctuation «(»
+plain       «id»
+punctuation «: »
+type        «Long»
+punctuation «, »
+plain       «items»
+punctuation «: »
+type        «List»
+punctuation «[»
+type        «String»
+punctuation «], »
+plain       «cents»
+punctuation «: »
+type        «Int»
+punctuation «)\n\n»
+keyword     «sealed trait »
+type        «Payment\n»
+keyword     «object »
+type        «Payment »
+punctuation «{\n  »
+keyword     «case object »
+type        «Cash »
+keyword     «extends »
+type        «Payment\n  »
+keyword     «final case class »
+type        «Card»
+punctuation «(»
+plain       «number»
+punctuation «: »
+type        «String»
+punctuation «) »
+keyword     «extends »
+type        «Payment\n»
+punctuation «}\n\n»
+keyword     «trait »
+type        «Pricing »
+punctuation «{\n  »
+keyword     «def »
+function    «total»
+punctuation «(»
+plain       «order»
+punctuation «: »
+type        «Order»
+punctuation «): »
+type        «BigDecimal »
+operator    «= »
+type        «BigDecimal»
+punctuation «(»
+plain       «order»
+punctuation «.»
+property    «cents»
+punctuation «) »
+operator    «/ »
+number      «100\n»
+punctuation «}\n\n»
+keyword     «object »
+type        «Checkout »
+keyword     «extends »
+type        «Pricing »
+punctuation «{\n  »
+keyword     «private val »
+type        «MaxItems »
+operator    «= »
+number      «50\n  »
+keyword     «val »
+type        «Banner »
+operator    «= »
+string      «"""\n    |Thanks for "shopping"\n    |"""»
+punctuation «.»
+property    «stripMargin\n\n  »
+keyword     «def »
+function    «describe»
+punctuation «(»
+plain       «order»
+punctuation «: »
+type        «Order»
+punctuation «)(»
+keyword     «implicit »
+plain       «ec»
+punctuation «: »
+type        «ExecutionContext»
+punctuation «): »
+type        «Future»
+punctuation «[»
+type        «String»
+punctuation «] »
+operator    «= »
+type        «Future »
+punctuation «{\n    »
+keyword     «val »
+plain       «count »
+operator    «= »
+plain       «order»
+punctuation «.»
+property    «items»
+punctuation «.»
+property    «size\n    »
+string      «s"Order »
+punctuation «${»
+plain       «order»
+punctuation «.»
+property    «id»
+punctuation «}»
+string      « has »
+variable    «$count»
+string      « items, total »
+punctuation «${»
+function    «total»
+punctuation «(»
+plain       «order»
+punctuation «)}»
+string      «"\n  »
+punctuation «}\n\n  »
+keyword     «def »
+function    «pay»
+punctuation «(»
+plain       «payment»
+punctuation «: »
+type        «Payment»
+punctuation «): »
+type        «String »
+operator    «= »
+plain       «payment »
+keyword     «match »
+punctuation «{\n    »
+keyword     «case »
+type        «Payment»
+punctuation «.»
+type        «Cash         »
+operator    «=> »
+string      «"cash"\n    »
+keyword     «case »
+type        «Payment»
+punctuation «.»
+type        «Card»
+punctuation «(»
+plain       «number»
+punctuation «) »
+operator    «=> »
+string      «f"card ending »
+punctuation «${»
+plain       «number»
+punctuation «.»
+function    «takeRight»
+punctuation «(»
+number      «4»
+punctuation «)}»
+string      «%s"\n  »
+punctuation «}\n\n  »
+attribute   «@tailrec\n  »
+keyword     «def »
+function    «gcd»
+punctuation «(»
+plain       «a»
+punctuation «: »
+type        «Int»
+punctuation «, »
+plain       «b»
+punctuation «: »
+type        «Int»
+punctuation «): »
+type        «Int »
+operator    «= »
+keyword     «if »
+punctuation «(»
+plain       «b »
+operator    «== »
+number      «0»
+punctuation «) »
+plain       «a »
+keyword     «else »
+function    «gcd»
+punctuation «(»
+plain       «b»
+punctuation «, »
+plain       «a »
+operator    «% »
+plain       «b»
+punctuation «)\n\n  »
+keyword     «val »
+plain       «doubled »
+operator    «= »
+type        «List»
+punctuation «(»
+number      «1»
+punctuation «, »
+number      «2»
+punctuation «, »
+number      «3»
+punctuation «).»
+function    «map»
+punctuation «(»
+plain       «_ »
+operator    «* »
+number      «2»
+punctuation «).»
+function    «filter»
+punctuation «(»
+plain       «_ »
+operator    «> »
+number      «0x2»
+punctuation «)\n  »
+keyword     «val »
+plain       «ch »
+operator    «= »
+string      «'c'\n  »
+keyword     «val »
+plain       «`type` »
+operator    «= »
+constant    «null\n»
+punctuation «}\n»

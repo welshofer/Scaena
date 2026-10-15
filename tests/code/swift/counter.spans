@@ -1,0 +1,193 @@
+keyword     «import »
+type        «SwiftUI\n\n»
+comment     «/// A counter that remembers its best.\n»
+attribute   «@MainActor\n»
+keyword     «final class »
+type        «Counter»
+punctuation «: »
+type        «ObservableObject »
+punctuation «{\n    »
+attribute   «@Published »
+keyword     «private»
+punctuation «(»
+keyword     «set»
+punctuation «) »
+keyword     «var »
+plain       «count »
+operator    «= »
+number      «0\n    »
+attribute   «@Published »
+keyword     «var »
+plain       «best»
+punctuation «: »
+type        «Int»
+operator    «?\n\n    »
+keyword     «func »
+function    «increment»
+punctuation «(»
+plain       «by step»
+punctuation «: »
+type        «Int »
+operator    «= »
+number      «1»
+punctuation «) {\n        »
+plain       «count »
+operator    «+= »
+plain       «step\n        »
+keyword     «if »
+plain       «count »
+operator    «> »
+punctuation «(»
+plain       «best »
+operator    «?? »
+punctuation «.»
+property    «min»
+punctuation «) {\n            »
+plain       «best »
+operator    «= »
+plain       «count\n        »
+punctuation «}\n    }\n}\n\n»
+keyword     «struct »
+type        «CounterView»
+punctuation «: »
+type        «View »
+punctuation «{\n    »
+attribute   «@StateObject »
+keyword     «private var »
+plain       «counter »
+operator    «= »
+type        «Counter»
+punctuation «()\n    »
+keyword     «let »
+plain       «title»
+punctuation «: »
+type        «String\n\n    »
+keyword     «var »
+plain       «body»
+punctuation «: »
+keyword     «some »
+type        «View »
+punctuation «{\n        »
+type        «VStack»
+punctuation «(»
+plain       «spacing»
+punctuation «: »
+number      «12»
+punctuation «) {\n            »
+type        «Text»
+punctuation «(»
+string      «"»
+punctuation «\\(»
+plain       «title»
+punctuation «)»
+string      «: »
+punctuation «\\(»
+plain       «counter»
+punctuation «.»
+property    «count»
+punctuation «)»
+string      «"»
+punctuation «)\n                .»
+function    «font»
+punctuation «(.»
+property    «largeTitle»
+punctuation «)\n            »
+type        «Button»
+punctuation «(»
+string      «"Add one"»
+punctuation «) { »
+plain       «counter»
+punctuation «.»
+function    «increment»
+punctuation «() }\n            »
+keyword     «if let »
+plain       «best »
+operator    «= »
+plain       «counter»
+punctuation «.»
+property    «best »
+punctuation «{\n                »
+type        «Text»
+punctuation «(»
+string      «"Best so far: »
+punctuation «\\(»
+plain       «best»
+punctuation «)»
+string      «"»
+punctuation «)\n            }\n        }\n    }\n}\n\n»
+keyword     «enum »
+type        «Direction»
+punctuation «: »
+type        «String»
+punctuation «, »
+type        «CaseIterable »
+punctuation «{\n    »
+keyword     «case »
+plain       «north»
+punctuation «, »
+plain       «south\n»
+punctuation «}\n\n»
+keyword     «let »
+plain       «raw »
+operator    «= »
+string      «#"A "raw" string with »
+punctuation «\\#(»
+number      «1 »
+operator    «+ »
+number      «1»
+punctuation «)»
+string      « inside"#\n»
+keyword     «let »
+plain       «poem »
+operator    «= »
+string      «"""\n    Roses are »
+punctuation «\\(»
+type        «Direction»
+punctuation «.»
+property    «north»
+punctuation «.»
+property    «rawValue»
+punctuation «)»
+string      «,\n    numbers are 0x1F and 1_000.5.\n    """\n\n»
+meta        «#if »
+constant    «DEBUG\n»
+keyword     «let »
+plain       «label »
+operator    «= »
+plain       «`default`\n»
+meta        «#endif\n\n»
+keyword     «extension »
+type        «Int »
+punctuation «{\n    »
+keyword     «var »
+plain       «doubled»
+punctuation «: »
+type        «Int »
+punctuation «{ »
+variable    «self »
+operator    «* »
+number      «2 »
+punctuation «}\n}\n\n»
+keyword     «let »
+plain       «total »
+operator    «= »
+punctuation «[»
+number      «1»
+punctuation «, »
+number      «2»
+punctuation «, »
+number      «3»
+punctuation «].»
+property    «map »
+punctuation «{ »
+plain       «$0 »
+operator    «* »
+number      «2 »
+punctuation «}.»
+function    «reduce»
+punctuation «(»
+number      «0»
+punctuation «, »
+operator    «+»
+punctuation «)\n»
+comment     «/* Swift's block comments /* nest */ too. */\n»

@@ -1,0 +1,221 @@
+comment     «#!/usr/bin/env node\n»
+string      «'use strict'»
+punctuation «;\n\n»
+keyword     «import »
+punctuation «{ »
+plain       «readFile »
+punctuation «} »
+keyword     «from »
+string      «'node:fs/promises'»
+punctuation «;\n\n»
+keyword     «const »
+constant    «WORD »
+operator    «= »
+string      «/\\b[a-z]+(?:-[a-z/]+)*\\b/gi»
+punctuation «;\n»
+keyword     «const »
+constant    «MAX_WORDS »
+operator    «= »
+number      «1e3»
+punctuation «;\n\n»
+comment     «/** Counts the words in a file. */\n»
+keyword     «export async function »
+function    «count»
+punctuation «(»
+plain       «path»
+punctuation «, { »
+plain       «limit »
+operator    «= »
+constant    «MAX_WORDS »
+punctuation «} »
+operator    «= »
+punctuation «{}) {\n  »
+keyword     «const »
+plain       «text »
+operator    «= »
+keyword     «await »
+function    «readFile»
+punctuation «(»
+plain       «path»
+punctuation «, »
+string      «'utf8'»
+punctuation «);\n  »
+keyword     «const »
+plain       «words »
+operator    «= »
+plain       «text»
+punctuation «.»
+function    «match»
+punctuation «(»
+constant    «WORD»
+punctuation «) »
+operator    «?? »
+punctuation «[];\n  »
+keyword     «const »
+plain       «ratio »
+operator    «= »
+plain       «words»
+punctuation «.»
+property    «length »
+operator    «/ »
+plain       «limit »
+operator    «/ »
+number      «2»
+punctuation «;\n  »
+keyword     «return »
+punctuation «{ »
+plain       «words»
+punctuation «: »
+plain       «words»
+punctuation «.»
+property    «length»
+punctuation «, »
+plain       «ratio»
+punctuation «, »
+plain       «path »
+punctuation «};\n}\n\n»
+keyword     «class »
+type        «Counter »
+punctuation «{\n  »
+property    «#seen »
+operator    «= »
+keyword     «new »
+type        «Map»
+punctuation «();\n\n  »
+function    «add»
+punctuation «(»
+plain       «word»
+punctuation «) {\n    »
+variable    «this»
+punctuation «.»
+property    «#seen»
+punctuation «.»
+function    «set»
+punctuation «(»
+plain       «word»
+punctuation «, (»
+variable    «this»
+punctuation «.»
+property    «#seen»
+punctuation «.»
+function    «get»
+punctuation «(»
+plain       «word»
+punctuation «) »
+operator    «|| »
+number      «0»
+punctuation «) »
+operator    «+ »
+number      «1»
+punctuation «);\n    »
+keyword     «return »
+variable    «this»
+punctuation «;\n  }\n\n  »
+function    «top»
+punctuation «() {\n    »
+keyword     «return »
+punctuation «[...»
+variable    «this»
+punctuation «.»
+property    «#seen»
+punctuation «].»
+function    «sort»
+punctuation «((»
+plain       «a»
+punctuation «, »
+plain       «b»
+punctuation «) »
+operator    «=> »
+plain       «b»
+punctuation «[»
+number      «1»
+punctuation «] »
+operator    «- »
+plain       «a»
+punctuation «[»
+number      «1»
+punctuation «])[»
+number      «0»
+punctuation «];\n  }\n}\n\n»
+keyword     «const »
+plain       «counter »
+operator    «= »
+keyword     «new »
+type        «Counter»
+punctuation «();\n»
+keyword     «for »
+punctuation «(»
+keyword     «const »
+plain       «w »
+keyword     «of »
+punctuation «[»
+string      «'a'»
+punctuation «, »
+string      «'b'»
+punctuation «, »
+string      «'a'»
+punctuation «]) »
+plain       «counter»
+punctuation «.»
+function    «add»
+punctuation «(»
+plain       «w»
+punctuation «);\n»
+plain       «console»
+punctuation «.»
+function    «log»
+punctuation «(»
+string      «`top: »
+punctuation «${»
+plain       «counter»
+punctuation «.»
+function    «top»
+punctuation «()»
+operator    «?»
+punctuation «.[»
+number      «0»
+punctuation «] »
+operator    «?? »
+string      «'none'»
+punctuation «}»
+string      « of »
+punctuation «${»
+plain       «counter»
+punctuation «.»
+function    «top»
+punctuation «()»
+operator    «?»
+punctuation «.[»
+number      «1»
+punctuation «]}»
+string      «`»
+punctuation «, »
+number      «0x1f»
+punctuation «, »
+number      «10n»
+punctuation «);\n»
+keyword     «if »
+punctuation «(»
+keyword     «typeof »
+plain       «window »
+operator    «=== »
+string      «"undefined" »
+operator    «&& !»
+constant    «null»
+punctuation «) {\n  »
+plain       «console»
+punctuation «.»
+function    «warn»
+punctuation «(»
+string      «`nested »
+punctuation «${»
+string      «`template »
+punctuation «${»
+number      «1 »
+operator    «+ »
+number      «1»
+punctuation «}»
+string      «`»
+punctuation «}»
+string      « done`»
+punctuation «);\n}\n»

@@ -1,0 +1,12 @@
+defmodule Greeter do
+  @moduledoc "Greets people."
+
+  # Says hello, in a sentence.
+  def hello(name) when is_binary(name) do
+    "Hello, #{name}!"
+  end
+
+  def count(list), do: Enum.count(list, &(&1 > 0.5))
+end
+
+IO.puts(Greeter.hello("world")) ; and a note after a semicolon

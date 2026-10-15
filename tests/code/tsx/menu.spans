@@ -1,0 +1,149 @@
+keyword     «import »
+type        «React »
+keyword     «from »
+string      «'react'»
+punctuation «;\n\n»
+keyword     «type »
+type        «Props »
+operator    «= »
+punctuation «{ »
+plain       «title»
+punctuation «: »
+type        «string»
+punctuation «; »
+plain       «items»
+punctuation «: »
+keyword     «readonly »
+type        «string»
+punctuation «[]; »
+plain       «onPick»
+operator    «?»
+punctuation «: (»
+plain       «item»
+punctuation «: »
+type        «string»
+punctuation «) »
+operator    «=> »
+keyword     «void »
+punctuation «};\n\n»
+keyword     «export function »
+function    «Menu»
+punctuation «({ »
+plain       «title»
+punctuation «, »
+plain       «items»
+punctuation «, »
+plain       «onPick »
+punctuation «}: »
+type        «Props»
+punctuation «): »
+type        «JSX»
+punctuation «.»
+type        «Element »
+punctuation «{\n  »
+keyword     «const »
+plain       «sorted »
+operator    «= »
+punctuation «[...»
+plain       «items»
+punctuation «].»
+function    «sort»
+punctuation «((»
+plain       «a»
+punctuation «, »
+plain       «b»
+punctuation «) »
+operator    «=> »
+plain       «a»
+punctuation «.»
+function    «localeCompare»
+punctuation «(»
+plain       «b»
+punctuation «));\n  »
+keyword     «return »
+punctuation «(\n    <»
+tag         «nav »
+attribute   «aria-label»
+operator    «=»
+punctuation «{»
+plain       «title»
+punctuation «}>»
+plain       «\n      »
+punctuation «<»
+tag         «h3»
+punctuation «>{»
+plain       «title»
+punctuation «}</»
+tag         «h3»
+punctuation «>»
+plain       «\n      »
+punctuation «{»
+plain       «sorted»
+punctuation «.»
+property    «length »
+operator    «=== »
+number      «0 »
+operator    «&& »
+punctuation «<»
+tag         «p »
+attribute   «className»
+operator    «=»
+string      «"empty"»
+punctuation «>»
+plain       «Nothing yet»
+punctuation «</»
+tag         «p»
+punctuation «>}»
+plain       «\n      »
+punctuation «{»
+plain       «sorted»
+punctuation «.»
+function    «map»
+punctuation «((»
+plain       «item»
+punctuation «) »
+operator    «=> »
+punctuation «(\n        <»
+tag         «button »
+attribute   «key»
+operator    «=»
+punctuation «{»
+plain       «item»
+punctuation «} »
+attribute   «onClick»
+operator    «=»
+punctuation «{() »
+operator    «=> »
+plain       «onPick»
+operator    «?»
+punctuation «.(»
+plain       «item»
+punctuation «)}>»
+plain       «\n          »
+punctuation «{»
+plain       «item»
+punctuation «.»
+function    «toUpperCase»
+punctuation «()}»
+plain       «\n        »
+punctuation «</»
+tag         «button»
+punctuation «>\n      ))}»
+plain       «\n    »
+punctuation «</»
+tag         «nav»
+punctuation «>\n  );\n}\n\n»
+keyword     «export const »
+plain       «half »
+operator    «= »
+punctuation «(»
+plain       «n»
+punctuation «: »
+type        «number»
+punctuation «): »
+type        «number »
+operator    «=> »
+plain       «n »
+operator    «/ »
+number      «2»
+punctuation «;\n»

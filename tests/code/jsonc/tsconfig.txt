@@ -1,0 +1,10 @@
+{
+  // Compiler options for the editor's pages.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "strict": true, /* everything checked */
+    "lib": ["DOM", "ES2022"],
+  },
+  "include": ["src/**/*.ts"],
+}

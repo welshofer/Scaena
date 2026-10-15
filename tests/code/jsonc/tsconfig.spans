@@ -1,0 +1,27 @@
+punctuation «{\n  »
+comment     «// Compiler options for the editor's pages.\n  »
+property    «"compilerOptions"»
+punctuation «: {\n    »
+property    «"target"»
+punctuation «: »
+string      «"ES2022"»
+punctuation «,\n    »
+property    «"module"»
+punctuation «: »
+string      «"ESNext"»
+punctuation «,\n    »
+property    «"strict"»
+punctuation «: »
+constant    «true»
+punctuation «, »
+comment     «/* everything checked */\n    »
+property    «"lib"»
+punctuation «: [»
+string      «"DOM"»
+punctuation «, »
+string      «"ES2022"»
+punctuation «],\n  },\n  »
+property    «"include"»
+punctuation «: [»
+string      «"src/**/*.ts"»
+punctuation «],\n}\n»

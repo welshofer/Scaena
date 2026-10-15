@@ -1,0 +1,41 @@
+package com.example.notes
+
+import kotlinx.coroutines.delay
+
+/** A note with its tags. */
+data class Note(val id: Long, val title: String, val tags: List<String> = emptyList())
+
+sealed interface Result<out T> {
+    data class Ok<T>(val value: T) : Result<T>
+    data class Failed(val reason: String) : Result<Nothing>
+}
+
+object Notes {
+    private const val MAX_TITLE = 80
+    private val store = mutableMapOf<Long, Note>()
+
+    suspend fun save(note: Note): Result<Note> {
+        if (note.title.length > MAX_TITLE) return Result.Failed("title too long: ${note.title.length}")
+        delay(10L)
+        store[note.id] = note
+        return Result.Ok(note)
+    }
+
+    fun find(tag: String) = store.values.filter { tag in it.tags }.sortedBy { it.title }
+}
+
+fun String.shout(): String = uppercase() + "!"
+
+fun main() {
+    val note = Note(1, "Groceries", listOf("home"))
+    val message = when (val r = runCatching { note.title.shout() }.getOrNull()) {
+        null -> "nothing"
+        else -> "Saved $r with ${note.tags.size} tags"
+    }
+    val raw = """
+        Raw $message, \n stays
+    """.trimIndent()
+    val c = '\u0041'
+    val `in` = 0xFF and 0b1010
+    println(message + raw + c + `in`)
+}

@@ -1,0 +1,87 @@
+comment     «-- A queue in Lua, which Scaena has no scanner for.\n»
+plain       «local Queue »
+operator    «= »
+punctuation «{}\n»
+plain       «Queue»
+punctuation «.»
+plain       «__index »
+operator    «= »
+plain       «Queue\n\nfunction Queue»
+punctuation «.»
+plain       «new»
+punctuation «()\n  »
+plain       «return setmetatable»
+punctuation «({ »
+plain       «first »
+operator    «= »
+number      «1»
+punctuation «, »
+plain       «last »
+operator    «= »
+number      «0»
+punctuation «, »
+plain       «items »
+operator    «= »
+punctuation «{} }, »
+plain       «Queue»
+punctuation «)\n»
+plain       «end\n\nfunction Queue»
+punctuation «:»
+plain       «push»
+punctuation «(»
+plain       «value»
+punctuation «)\n  »
+plain       «self»
+punctuation «.»
+plain       «last »
+operator    «= »
+plain       «self»
+punctuation «.»
+plain       «last »
+operator    «+ »
+number      «1\n  »
+plain       «self»
+punctuation «.»
+plain       «items»
+punctuation «[»
+plain       «self»
+punctuation «.»
+plain       «last»
+punctuation «] »
+operator    «= »
+plain       «value\nend\n\nlocal q »
+operator    «= »
+plain       «Queue»
+punctuation «.»
+plain       «new»
+punctuation «()\n»
+plain       «q»
+punctuation «:»
+plain       «push»
+punctuation «(»
+string      «"hello"»
+punctuation «)\n»
+plain       «q»
+punctuation «:»
+plain       «push»
+punctuation «(»
+string      «'world'»
+punctuation «)\n»
+plain       «print»
+punctuation «(»
+operator    «#»
+plain       «q»
+punctuation «.»
+plain       «items»
+punctuation «, »
+number      «0x1F»
+punctuation «, »
+number      «3.14»
+punctuation «, »
+plain       «q»
+punctuation «.»
+plain       «last»
+operator    «--»
+punctuation «[[ »
+plain       «inline »
+punctuation «]])\n»

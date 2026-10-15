@@ -1,0 +1,20 @@
+import React from 'react';
+
+type Props = { title: string; items: readonly string[]; onPick?: (item: string) => void };
+
+export function Menu({ title, items, onPick }: Props): JSX.Element {
+  const sorted = [...items].sort((a, b) => a.localeCompare(b));
+  return (
+    <nav aria-label={title}>
+      <h3>{title}</h3>
+      {sorted.length === 0 && <p className="empty">Nothing yet</p>}
+      {sorted.map((item) => (
+        <button key={item} onClick={() => onPick?.(item)}>
+          {item.toUpperCase()}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+export const half = (n: number): number => n / 2;

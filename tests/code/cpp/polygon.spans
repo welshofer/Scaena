@@ -1,0 +1,190 @@
+meta        «#include »
+string      «<iostream>\n»
+meta        «#include »
+string      «<vector>\n\n»
+keyword     «namespace »
+type        «geometry »
+punctuation «{\n\n»
+keyword     «template »
+operator    «<»
+keyword     «typename »
+type        «T»
+operator    «>\n»
+keyword     «class »
+type        «Polygon »
+punctuation «{\n»
+keyword     «public»
+punctuation «:\n    »
+keyword     «explicit »
+type        «Polygon»
+punctuation «(»
+plain       «std»
+punctuation «::»
+plain       «vector»
+operator    «<»
+type        «T»
+operator    «> »
+plain       «points»
+punctuation «) : »
+function    «points_»
+punctuation «(»
+plain       «std»
+punctuation «::»
+function    «move»
+punctuation «(»
+plain       «points»
+punctuation «)) {}\n\n    [[»
+plain       «nodiscard»
+punctuation «]] »
+type        «T »
+function    «perimeter»
+punctuation «() »
+keyword     «const noexcept »
+punctuation «{\n        »
+type        «T »
+plain       «total»
+punctuation «{};\n        »
+keyword     «for »
+punctuation «(»
+plain       «std»
+punctuation «::»
+type        «size_t »
+plain       «i »
+operator    «= »
+number      «0»
+punctuation «; »
+plain       «i »
+operator    «< »
+plain       «points_»
+punctuation «.»
+function    «size»
+punctuation «(); »
+operator    «++»
+plain       «i»
+punctuation «) {\n            »
+plain       «total »
+operator    «+= »
+function    «distance»
+punctuation «(»
+plain       «points_»
+punctuation «[»
+plain       «i»
+punctuation «], »
+plain       «points_»
+punctuation «[(»
+plain       «i »
+operator    «+ »
+number      «1»
+punctuation «) »
+operator    «% »
+plain       «points_»
+punctuation «.»
+function    «size»
+punctuation «()]);\n        }\n        »
+keyword     «return »
+plain       «total»
+punctuation «;\n    }\n\n    »
+keyword     «virtual »
+operator    «~»
+type        «Polygon»
+punctuation «() »
+operator    «= »
+keyword     «default»
+punctuation «;\n\n»
+keyword     «private»
+punctuation «:\n    »
+plain       «std»
+punctuation «::»
+plain       «vector»
+operator    «<»
+type        «T»
+operator    «> »
+plain       «points_»
+punctuation «;\n};\n\n}  »
+comment     «// namespace geometry\n\n»
+keyword     «constexpr auto »
+plain       «kLimit »
+operator    «= »
+number      «1'000'000»
+punctuation «;\n»
+keyword     «const »
+type        «char »
+operator    «*»
+plain       «kBanner »
+operator    «= »
+string      «R"banner(\n  Raw "strings" keep \\n as written\n)banner"»
+punctuation «;\n\n»
+type        «int »
+function    «main»
+punctuation «() {\n    »
+keyword     «auto »
+plain       «square »
+operator    «= »
+plain       «geometry»
+punctuation «::»
+type        «Polygon»
+operator    «<»
+type        «double»
+operator    «>»
+punctuation «({»
+number      «0.0»
+punctuation «, »
+number      «1.0»
+punctuation «, »
+number      «2.5»
+punctuation «});\n    »
+keyword     «auto »
+plain       «twice »
+operator    «= »
+punctuation «[»
+operator    «&»
+punctuation «](»
+type        «int »
+plain       «x»
+punctuation «) { »
+keyword     «return »
+plain       «x »
+operator    «* »
+number      «2»
+punctuation «; };\n    »
+keyword     «if »
+punctuation «(»
+plain       «square»
+punctuation «.»
+function    «perimeter»
+punctuation «() »
+operator    «> »
+number      «3.0 »
+operator    «&& »
+function    «twice»
+punctuation «(»
+plain       «kLimit»
+punctuation «) »
+operator    «!= »
+number      «0»
+punctuation «) {\n        »
+plain       «std»
+punctuation «::»
+plain       «cout »
+operator    «<< »
+string      «"big: " »
+operator    «<< »
+plain       «kLimit »
+operator    «<< »
+string      «'\\n'»
+punctuation «;\n    }\n    »
+type        «int »
+operator    «*»
+plain       «p »
+operator    «= »
+constant    «nullptr»
+punctuation «;\n    »
+keyword     «return »
+plain       «p »
+operator    «== »
+constant    «nullptr »
+operator    «? »
+number      «0 »
+punctuation «: »
+number      «1»
+punctuation «;\n}\n»

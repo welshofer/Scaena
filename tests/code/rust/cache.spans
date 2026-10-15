@@ -1,0 +1,338 @@
+comment     «//! A small cache with expiry.\n\n»
+keyword     «use »
+plain       «std»
+punctuation «::»
+plain       «collections»
+punctuation «::»
+type        «HashMap»
+punctuation «;\n»
+keyword     «use »
+plain       «std»
+punctuation «::»
+plain       «time»
+punctuation «::{»
+type        «Duration»
+punctuation «, »
+type        «Instant»
+punctuation «};\n\n»
+attribute   «#[derive»
+punctuation «(»
+type        «Debug»
+punctuation «, »
+type        «Clone»
+punctuation «, »
+type        «PartialEq»
+punctuation «)]\n»
+keyword     «pub struct »
+type        «Entry»
+operator    «<»
+type        «'a»
+punctuation «, »
+type        «T»
+operator    «> »
+punctuation «{\n    »
+plain       «value»
+punctuation «: »
+type        «T»
+punctuation «,\n    »
+plain       «key»
+punctuation «: »
+operator    «&»
+type        «'a str»
+punctuation «,\n    »
+plain       «expires»
+punctuation «: »
+type        «Instant»
+punctuation «,\n}\n\n»
+comment     «/// What can go wrong.\n»
+attribute   «#[derive»
+punctuation «(»
+type        «Debug»
+punctuation «)]\n»
+keyword     «pub enum »
+type        «CacheError »
+punctuation «{\n    »
+type        «Missing»
+punctuation «(»
+type        «String»
+punctuation «),\n    »
+type        «Expired »
+punctuation «{ »
+plain       «since»
+punctuation «: »
+type        «Duration »
+punctuation «},\n}\n\n»
+keyword     «pub struct »
+type        «Cache»
+operator    «<»
+type        «'a»
+punctuation «, »
+type        «T»
+operator    «> »
+punctuation «{\n    »
+plain       «entries»
+punctuation «: »
+type        «HashMap»
+operator    «<&»
+type        «'a str»
+punctuation «, »
+type        «Entry»
+operator    «<»
+type        «'a»
+punctuation «, »
+type        «T»
+operator    «>>»
+punctuation «,\n    »
+plain       «ttl»
+punctuation «: »
+type        «Duration»
+punctuation «,\n}\n\n»
+keyword     «impl»
+operator    «<»
+type        «'a»
+punctuation «, »
+type        «T»
+punctuation «: »
+type        «Clone»
+operator    «> »
+type        «Cache»
+operator    «<»
+type        «'a»
+punctuation «, »
+type        «T»
+operator    «> »
+punctuation «{\n    »
+keyword     «pub const »
+constant    «DEFAULT_TTL»
+punctuation «: »
+type        «Duration »
+operator    «= »
+type        «Duration»
+punctuation «::»
+function    «from_secs»
+punctuation «(»
+number      «60»
+punctuation «);\n\n    »
+keyword     «pub fn »
+function    «new»
+punctuation «() »
+operator    «-> »
+type        «Self »
+punctuation «{\n        »
+type        «Self »
+punctuation «{ »
+plain       «entries»
+punctuation «: »
+type        «HashMap»
+punctuation «::»
+function    «new»
+punctuation «(), »
+plain       «ttl»
+punctuation «: »
+type        «Self»
+punctuation «::»
+constant    «DEFAULT_TTL »
+punctuation «}\n    }\n\n    »
+keyword     «pub fn »
+function    «get»
+punctuation «(»
+operator    «&»
+variable    «self»
+punctuation «, »
+plain       «key»
+punctuation «: »
+operator    «&»
+type        «str»
+punctuation «) »
+operator    «-> »
+type        «Result»
+operator    «<»
+type        «T»
+punctuation «, »
+type        «CacheError»
+operator    «> »
+punctuation «{\n        »
+keyword     «let »
+plain       «entry »
+operator    «= »
+variable    «self»
+punctuation «.»
+property    «entries»
+punctuation «.»
+function    «get»
+punctuation «(»
+plain       «key»
+punctuation «).»
+function    «ok_or_else»
+punctuation «(»
+operator    «|| »
+type        «CacheError»
+punctuation «::»
+type        «Missing»
+punctuation «(»
+plain       «key»
+punctuation «.»
+function    «to_string»
+punctuation «()))»
+operator    «?»
+punctuation «;\n        »
+keyword     «if »
+type        «Instant»
+punctuation «::»
+function    «now»
+punctuation «() »
+operator    «> »
+plain       «entry»
+punctuation «.»
+property    «expires »
+punctuation «{\n            »
+keyword     «return »
+type        «Err»
+punctuation «(»
+type        «CacheError»
+punctuation «::»
+type        «Expired »
+punctuation «{ »
+plain       «since»
+punctuation «: »
+plain       «entry»
+punctuation «.»
+property    «expires»
+punctuation «.»
+function    «elapsed»
+punctuation «() });\n        }\n        »
+type        «Ok»
+punctuation «(»
+plain       «entry»
+punctuation «.»
+property    «value»
+punctuation «.»
+function    «clone»
+punctuation «())\n    }\n}\n\n»
+keyword     «async fn »
+function    «warm»
+punctuation «(»
+plain       «cache»
+punctuation «: »
+operator    «&»
+keyword     «mut »
+type        «Cache»
+operator    «<»
+type        «'static»
+punctuation «, »
+type        «u64»
+operator    «>»
+punctuation «) »
+operator    «-> »
+type        «usize »
+punctuation «{\n    »
+keyword     «let »
+plain       «raw »
+operator    «= »
+string      «r#"{"key": "value"}"#»
+punctuation «;\n    »
+keyword     «let »
+plain       «bytes »
+operator    «= »
+string      «b"bytes\\x00"»
+punctuation «;\n    »
+keyword     «let »
+plain       «c »
+operator    «= »
+string      «'x'»
+punctuation «;\n    »
+keyword     «let »
+plain       «newline »
+operator    «= »
+string      «'\\n'»
+punctuation «;\n    »
+keyword     «let »
+plain       «total»
+punctuation «: »
+type        «u64 »
+operator    «= »
+punctuation «(»
+number      «1»
+punctuation «..»
+operator    «=»
+number      «10»
+punctuation «).»
+function    «map»
+punctuation «(»
+operator    «|»
+plain       «n»
+operator    «| »
+plain       «n »
+operator    «* »
+number      «0x10 »
+operator    «+ »
+number      «1_000»
+punctuation «).»
+function    «sum»
+punctuation «();\n    »
+function    «println!»
+punctuation «(»
+string      «"{raw} {} {:?} {c}{newline}"»
+punctuation «, »
+plain       «total»
+punctuation «, »
+plain       «bytes»
+punctuation «);\n    »
+type        «'outer»
+punctuation «: »
+keyword     «for »
+plain       «i »
+keyword     «in »
+number      «0»
+punctuation «..»
+number      «3 »
+punctuation «{\n        »
+keyword     «if »
+plain       «i »
+operator    «== »
+number      «2 »
+punctuation «{ »
+keyword     «break »
+type        «'outer»
+punctuation «; }\n    }\n    »
+keyword     «let »
+plain       «r#type »
+operator    «= »
+function    «fetch»
+punctuation «().»
+keyword     «await»
+punctuation «;\n    »
+function    «vec!»
+punctuation «[»
+number      «1»
+punctuation «, »
+number      «2»
+punctuation «, »
+number      «3»
+punctuation «].»
+function    «len»
+punctuation «() »
+operator    «+ »
+plain       «r#type\n»
+punctuation «}\n\n»
+comment     «/* Block comments /* nest */ in Rust. */\n»
+keyword     «fn »
+function    «fetch»
+punctuation «() »
+operator    «-> »
+keyword     «impl »
+plain       «std»
+punctuation «::»
+plain       «future»
+punctuation «::»
+type        «Future»
+operator    «<»
+type        «Output »
+operator    «= »
+type        «usize»
+operator    «> »
+punctuation «{ »
+keyword     «async »
+punctuation «{ »
+number      «0 »
+punctuation «} }\n»

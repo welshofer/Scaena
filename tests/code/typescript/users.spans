@@ -1,0 +1,261 @@
+keyword     «import type »
+punctuation «{ »
+type        «Request»
+punctuation «, »
+type        «Response »
+punctuation «} »
+keyword     «from »
+string      «'express'»
+punctuation «;\n\n»
+keyword     «export enum »
+type        «Status »
+punctuation «{\n  »
+type        «Active »
+operator    «= »
+string      «'active'»
+punctuation «,\n  »
+type        «Archived »
+operator    «= »
+string      «'archived'»
+punctuation «,\n}\n\n»
+keyword     «export interface »
+type        «User »
+punctuation «{\n  »
+keyword     «readonly »
+plain       «id»
+punctuation «: »
+type        «number»
+punctuation «;\n  »
+plain       «name»
+punctuation «: »
+type        «string»
+punctuation «;\n  »
+plain       «status»
+punctuation «: »
+type        «Status»
+punctuation «;\n  »
+plain       «tags»
+operator    «?»
+punctuation «: »
+type        «string»
+punctuation «[];\n}\n\n»
+keyword     «type »
+type        «Handler»
+operator    «<»
+type        «T»
+operator    «> = »
+punctuation «(»
+plain       «req»
+punctuation «: »
+type        «Request»
+punctuation «, »
+plain       «res»
+punctuation «: »
+type        «Response»
+punctuation «) »
+operator    «=> »
+type        «Promise»
+operator    «<»
+type        «T»
+operator    «>»
+punctuation «;\n\n»
+keyword     «const »
+constant    «DEFAULT_PAGE_SIZE »
+operator    «= »
+number      «20»
+punctuation «;\n\n»
+attribute   «@Injectable»
+punctuation «()\n»
+keyword     «export class »
+type        «UserService »
+punctuation «{\n  »
+keyword     «private »
+plain       «users »
+operator    «= »
+keyword     «new »
+type        «Map»
+operator    «<»
+type        «number»
+punctuation «, »
+type        «User»
+operator    «>»
+punctuation «();\n\n  »
+function    «constructor»
+punctuation «(»
+keyword     «private readonly »
+plain       «prefix»
+punctuation «: »
+type        «string »
+operator    «= »
+string      «'/users'»
+punctuation «) {}\n\n  »
+keyword     «async »
+function    «find»
+punctuation «(»
+plain       «id»
+punctuation «: »
+type        «number»
+punctuation «): »
+type        «Promise»
+operator    «<»
+type        «User »
+operator    «| »
+constant    «undefined»
+operator    «> »
+punctuation «{\n    »
+keyword     «return »
+variable    «this»
+punctuation «.»
+property    «users»
+punctuation «.»
+function    «get»
+punctuation «(»
+plain       «id»
+punctuation «);\n  }\n\n  »
+function    «list»
+punctuation «(»
+plain       «page »
+operator    «= »
+number      «0»
+punctuation «): »
+type        «User»
+punctuation «[] {\n    »
+keyword     «const »
+plain       «start »
+operator    «= »
+plain       «page »
+operator    «* »
+constant    «DEFAULT_PAGE_SIZE»
+punctuation «;\n    »
+keyword     «return »
+punctuation «[...»
+variable    «this»
+punctuation «.»
+property    «users»
+punctuation «.»
+function    «values»
+punctuation «()].»
+function    «slice»
+punctuation «(»
+plain       «start»
+punctuation «, »
+plain       «start »
+operator    «+ »
+constant    «DEFAULT_PAGE_SIZE»
+punctuation «);\n  }\n}\n\n»
+keyword     «export const »
+plain       «handler»
+punctuation «: »
+type        «Handler»
+operator    «<»
+type        «User»
+punctuation «[]»
+operator    «> = »
+keyword     «async »
+punctuation «(»
+plain       «req»
+punctuation «, »
+plain       «res»
+punctuation «) »
+operator    «=> »
+punctuation «{\n  »
+keyword     «const »
+plain       «service »
+operator    «= »
+keyword     «new »
+type        «UserService»
+punctuation «();\n  »
+keyword     «const »
+plain       «page »
+operator    «= »
+type        «Number»
+punctuation «(»
+plain       «req»
+punctuation «.»
+property    «query»
+punctuation «.»
+property    «page »
+operator    «?? »
+number      «0»
+punctuation «) »
+keyword     «as »
+type        «number»
+punctuation «;\n  »
+keyword     «const »
+plain       «users »
+operator    «= »
+plain       «service»
+punctuation «.»
+function    «list»
+punctuation «(»
+plain       «page»
+punctuation «).»
+function    «filter»
+punctuation «((»
+plain       «u»
+punctuation «): »
+plain       «u »
+keyword     «is »
+type        «User »
+operator    «=> »
+plain       «u»
+punctuation «.»
+property    «status »
+operator    «=== »
+type        «Status»
+punctuation «.»
+type        «Active»
+punctuation «);\n  »
+plain       «res»
+punctuation «.»
+function    «json»
+punctuation «({ »
+plain       «users»
+punctuation «, »
+plain       «next»
+punctuation «: »
+string      «`»
+punctuation «${»
+plain       «req»
+punctuation «.»
+property    «path»
+punctuation «}»
+string      «?page=»
+punctuation «${»
+plain       «page »
+operator    «+ »
+number      «1»
+punctuation «}»
+string      «` »
+punctuation «});\n  »
+keyword     «return »
+plain       «users »
+keyword     «satisfies »
+type        «User»
+punctuation «[];\n};\n\n»
+keyword     «function »
+function    «isKey»
+operator    «<»
+type        «T »
+keyword     «extends »
+type        «object»
+operator    «>»
+punctuation «(»
+plain       «obj»
+punctuation «: »
+type        «T»
+punctuation «, »
+plain       «key»
+punctuation «: »
+keyword     «keyof »
+type        «any»
+punctuation «): »
+plain       «key »
+keyword     «is keyof »
+type        «T »
+punctuation «{\n  »
+keyword     «return »
+plain       «key »
+keyword     «in »
+plain       «obj»
+punctuation «;\n}\n»
