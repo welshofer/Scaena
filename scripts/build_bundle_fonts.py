@@ -8,8 +8,9 @@ Extended-A, and common punctuation, which is what saving a bundle will do (SPEC 
 The example decks are bundles like any other: `scaena validate` and `scaena render`
 work on them as they stand.
 
-Check (no network; CI runs this): every character of every text node's text, in
-every state, maps in its role's own family, under each theme the bundle uses. A
+Check (no network; CI runs this): no font is named by a name its copyright reserves, and
+every character of every text node's text, in every state, maps in its role's own family,
+under each theme the bundle uses. A
 benchmark must also set text in every family it ships: one that silently fell back
 would time the wrong font.
 
@@ -104,10 +105,12 @@ EXAMPLE_FONTS = {
     "Inter-Italic-VF.ttf": INTER_ITALIC,
     "JetBrainsMono-Italic-VF.ttf": JETBRAINS_MONO_ITALIC,
 }
-# The benchmark decks' theme sets the three romans, and adds Source Serif 4, for quotations.
+# The benchmark decks' theme sets the three romans, and adds Source Serif 4, for quotations, renamed
+# Bench Serif: its copyright reserves "Source", which a subset, a Modified Version, may not keep as
+# its name (OFL 1.1, condition 3; ADR-0031, call 5; PLAN T.0f).
 B1_FONTS = {  # bundle file -> (google/fonts path, upstream sha256, theme family)
     **ROMANS,
-    "SourceSerif4-VF.ttf": (
+    "BenchSerif-VF.ttf": (
         "ofl/sourceserif4/SourceSerif4[opsz,wght].ttf",
         "97b2d4da6e3cb494b5a1e66ae176914d852ccabef49e0c02c0df25f3e39aca0b",
         "text",
@@ -117,6 +120,10 @@ B1_LICENSES = {
     **LICENSES,
     "OFL-SourceSerif4.txt": ("ofl/sourceserif4/OFL.txt", "5f94c3fd3a23131a417ab5a0c8452de57e70c3cfb9f604d88241f7065ebf9fd9"),
 }
+# A subset's names that its copyright reserves, and what it is called instead: each name record
+# but the copyright, the trademark, and the license's (KEPT_NAMES) says it so.
+RENAMED = {"BenchSerif-VF.ttf": [("Source Serif 4", "Bench Serif"), ("SourceSerif4", "BenchSerif")]}
+KEPT_NAMES = {0, 7, 13, 14}
 BUNDLES = {
     "b1": {
         "title": "Benchmark B1",
@@ -211,6 +218,7 @@ def build(name: str, decks: list[dict], cache: Path | None) -> None:
         sub = subset.Subsetter(opts)
         sub.populate(unicodes=unicodes)
         sub.subset(font)
+        rename(font, RENAMED.get(file, []))
         out = io.BytesIO()
         font.save(out)
         (fonts / file).write_bytes(out.getvalue())
@@ -241,8 +249,51 @@ def build(name: str, decks: list[dict], cache: Path | None) -> None:
         "(sha256-pinned in the script).",
         "",
     ]
+    for file, names in RENAMED.items():
+        if file in cfg["fonts"]:
+            said = " and ".join(f"“{old}” as “{new}”" for old, new in names)
+            lines += [
+                f"**Renamed:** `{file}` says {said} in every name record but its copyright, trademark, and "
+                "license: its copyright reserves the name “Source”, which a subset may not keep (OFL 1.1, condition 3).",
+                "",
+            ]
     (fonts / "SOURCES.md").write_text("\n".join(lines), encoding="utf-8")
     print(f"built {len(rows)} fonts into {fonts.relative_to(ROOT)}")
+
+
+def rename(font, names: list[tuple[str, str]]) -> None:
+    """`font`'s names, each `(old, new)` replaced in every name record but those KEPT_NAMES holds."""
+    for record in font["name"].names:
+        if record.nameID in KEPT_NAMES:
+            continue
+        text = record.toUnicode()
+        for old, new in names:
+            text = text.replace(old, new)
+        record.string = text
+
+
+def reserved(path: Path) -> bool:
+    """Whether the font at `path` is named by a name its copyright reserves (OFL 1.1, condition 3):
+    a subset is a Modified Version, which may not be. The copyright says "with Reserved Font Name
+    'X'" (or Names, each quoted); a name record outside KEPT_NAMES that says X uses it."""
+    import re
+
+    from fontTools.ttLib import TTFont
+
+    names = TTFont(path, lazy=True)["name"]
+    copyright = names.getDebugName(0) or ""
+    found = re.search(r"Reserved Font Names?\s+(.*)", copyright, re.I)
+    words = re.findall(r"[‘'\"“]([^’'\"”]+)[’'\"”]", found[1]) if found else []
+    used = {
+        (record.nameID, word)
+        for record in names.names
+        if record.nameID not in KEPT_NAMES
+        for word in words
+        if word.casefold() in record.toUnicode().casefold()
+    }
+    for nid, word in sorted(used):
+        print(f"error: {path.relative_to(ROOT)}: name {nid} uses `{word}`, a Reserved Font Name")
+    return bool(used)
 
 
 def merged(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
@@ -347,6 +398,8 @@ def main() -> None:
         decks = [json.loads((cfg["bundle"] / f).read_text(encoding="utf-8")) for f in files]
         if not args.check and (not args.only or name in args.only):
             build(name, decks, args.cache)
+        for font in sorted((cfg["bundle"] / "fonts").glob("*.tt[fc]")):
+            ok &= not reserved(font)
         for file, deck in zip(files, decks):
             label = name if file == cfg["deck"] else file.removesuffix(".deck.json")
             for theme_path in cfg.get("themes", [deck["theme"]]):

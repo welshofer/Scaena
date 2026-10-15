@@ -1,0 +1,51 @@
+%YAML 1.2
+---
+# Runs the checks on every push.
+name: CI
+on:
+  push:
+    branches: [main, "release/**"]
+  pull_request: {types: [opened, synchronize]}
+
+env: &env
+  RUST_BACKTRACE: 1
+  CARGO_TERM_COLOR: always
+  RETRIES: 3
+  TIMEOUT: 2.5
+  DEBUG: false
+  CACHE: ~
+  PATTERN: 'it''s *.rs'
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-14]
+        toolchain: ["1.82", stable]
+    env: *env
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and test
+        run: |
+          cargo build --locked
+          cargo test --locked # every crate
+
+          cargo doc --no-deps
+      - name: Notes
+        if: github.event_name == 'push'
+        run: >-
+          echo "folded into
+          one line"
+      - &cache
+        name: Cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo
+          key: !!str 42
+? complex key
+: complex value
+? [flow, key]
+: {"json":1, "list":[true,null]}
+...
