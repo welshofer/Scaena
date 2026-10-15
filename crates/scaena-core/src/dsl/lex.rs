@@ -1,7 +1,8 @@
 //! The `.scn` lexer: source text to logical lines of tokens (SPEC §4.2).
 //!
-//! A logical line is one physical line, except that a triple-quoted string runs on until
-//! its closing `"""`. Indentation is spaces only. `#` starts a comment, outside strings.
+//! A logical line is one physical line, except that a block runs on until its fence closes
+//! it: a run of three or more `"`, lines, then the same run alone on a line. Indentation is
+//! spaces only. `#` starts a comment, outside strings.
 
 use super::DslError;
 
@@ -9,7 +10,7 @@ use super::DslError;
 pub enum Tok {
     /// A bare word: `[A-Za-z_][A-Za-z0-9_.-]*`.
     Ident(String),
-    /// A string, quoted or triple-quoted, unescaped.
+    /// A string, quoted or a block, unescaped.
     Str(String),
     /// A number as its JSON text; `12cu` is `12`.
     Num(String),
@@ -125,8 +126,10 @@ impl Lexer<'_> {
             '}' => self.one(Tok::RBrace),
             '(' => self.one(Tok::LParen),
             ')' => self.one(Tok::RParen),
-            '"' if self.src[self.pos..].starts_with("\"\"\"") => Tok::Str(self.triple()?),
-            '"' => Tok::Str(self.string()?),
+            '"' => match self.src[self.pos..].bytes().take_while(|&b| b == b'"').count() {
+                run @ 3.. => Tok::Str(self.block(run)?),
+                _ => Tok::Str(self.string()?),
+            },
             '@' => {
                 self.pos += 1;
                 let name = self.word();
@@ -266,30 +269,36 @@ impl Lexer<'_> {
         serde_json::from_str(&self.src[start..self.pos]).map_err(|e| self.error(start, &format!("bad string: {e}")))
     }
 
-    /// `"""`, the rest of its line empty, then lines up to one that holds only `"""`. That
-    /// line's indentation comes off every line before it; the lines join with newlines.
-    fn triple(&mut self) -> Result<String, DslError> {
+    /// A block: its fence, a run of `run` quotes with the rest of its line blank, then lines up
+    /// to the first that closes it ([`closes`]). That line's indentation comes off every line
+    /// before it; the lines join with line feeds.
+    fn block(&mut self, run: usize) -> Result<String, DslError> {
         let start = self.pos;
-        self.pos += 3;
-        let eol = self.src[self.pos..].find('\n').map_or(self.src.len(), |i| self.pos + i);
-        if !self.src[self.pos..eol].trim().is_empty() {
-            return Err(
-                self.error(start, "a `\"\"\"` string starts on the next line: nothing may follow the opening `\"\"\"`")
-            );
+        let src = self.src;
+        let fence = &src[start..start + run];
+        self.pos += run;
+        let eol = src[self.pos..].find('\n').map_or(src.len(), |i| self.pos + i);
+        if !src[self.pos..eol].trim().is_empty() {
+            return Err(self.error(
+                start,
+                &format!("a `{fence}` string starts on the next line: nothing may follow the opening `{fence}`"),
+            ));
         }
-        self.pos = (eol + 1).min(self.src.len());
+        self.pos = (eol + 1).min(src.len());
         let mut lines: Vec<(usize, &str)> = Vec::new();
         loop {
-            if self.pos >= self.src.len() {
-                return Err(self.error(start, "this `\"\"\"` string is not closed"));
+            if self.pos >= src.len() {
+                // Where it opened: the rest of the source is the string's.
+                let message = format!("this `{fence}` string is not closed: a line of `{fence}` alone closes it");
+                return Err(DslError::span(src, start, run, &message));
             }
             self.line += 1;
-            let eol = self.src[self.pos..].find('\n').map_or(self.src.len(), |i| self.pos + i);
-            let text = self.src[self.pos..eol].trim_end_matches('\r');
+            let eol = src[self.pos..].find('\n').map_or(src.len(), |i| self.pos + i);
+            let text = src[self.pos..eol].trim_end_matches('\r');
             let line_start = self.pos;
             self.pos = eol;
-            if text.trim_start() == "\"\"\"" {
-                let strip = text.len() - text.trim_start().len();
+            if closes(text, run) {
+                let strip = text.len() - run;
                 let mut out = Vec::new();
                 for (at, line) in lines {
                     if line.is_empty() {
@@ -297,13 +306,13 @@ impl Lexer<'_> {
                     } else if line.len() >= strip && line.as_bytes()[..strip].iter().all(|&b| b == b' ') {
                         out.push(line[strip..].to_string());
                     } else {
-                        return Err(self.error(at, "this line is indented less than the closing `\"\"\"`"));
+                        return Err(self.error(at, &format!("this line is indented less than the closing `{fence}`")));
                     }
                 }
                 return Ok(out.join("\n"));
             }
             lines.push((line_start, text));
-            self.pos = (eol + 1).min(self.src.len());
+            self.pos = (eol + 1).min(src.len());
         }
     }
 
@@ -324,6 +333,38 @@ impl Lexer<'_> {
     fn error(&self, at: usize, message: &str) -> DslError {
         DslError::at(self.src, at, message)
     }
+}
+
+/// Whether a line of a block, its carriage return taken off, closes the block, whose fence is
+/// `run` quotes: after its indentation of spaces, it is that run and nothing else. A run of
+/// another length is a line of the text.
+fn closes(line: &str, run: usize) -> bool {
+    let rest = line.trim_start_matches(' ');
+    rest.len() == run && rest.bytes().all(|b| b == b'"')
+}
+
+/// How many quotes fence `text` as a block that reads back as exactly `text`: the fewest, three
+/// or more, that no line of it is after its indentation, since that line would close the block.
+/// So code with a line of `"""` alone, as a docstring may open on, takes a fence of four. `None`
+/// where a block would not keep `text` as it is: a tab or a carriage return in it, or a line
+/// that ends in white space, which editors change. Such text is a JSON string.
+pub fn fence(text: &str) -> Option<usize> {
+    if text.contains(['\t', '\r']) {
+        return None;
+    }
+    // The runs a line of quotes alone rules out, from three up: at most one for each line, so
+    // one of these is free.
+    let mut taken = vec![false; text.bytes().filter(|&b| b == b'\n').count() + 2];
+    for line in text.split('\n') {
+        if line != line.trim_end() {
+            return None;
+        }
+        let rest = line.trim_start_matches(' ');
+        if rest.len() >= 3 && rest.bytes().all(|b| b == b'"') && rest.len() - 3 < taken.len() {
+            taken[rest.len() - 3] = true;
+        }
+    }
+    taken.iter().position(|t| !t).map(|free| free + 3)
 }
 
 #[cfg(test)]
@@ -366,10 +407,86 @@ mod tests {
     }
 
     #[test]
-    fn triple_quoted_strings_lose_the_closing_lines_indent() {
+    fn blocks_lose_the_closing_lines_indent() {
         let lines = lex("notes \"\"\"\n    one\n\n      two\n    \"\"\"\nnext\n").unwrap();
         assert_eq!(lines[0].tokens[1].tok, Tok::Str("one\n\n  two".into()));
         assert_eq!(lines[1].line, 6);
+    }
+
+    /// A fence is a run of three or more quotes, and only a line that is the same run after its
+    /// indentation closes its block: a run of another length, or one with more on its line, is a
+    /// line of the text.
+    #[test]
+    fn a_block_closes_only_on_its_own_run() {
+        let q = |n: usize| "\"".repeat(n);
+        let source = format!(
+            "notes {}\n  {}\n  {}\n  x {}\n  {} # no comment\n  {}\nnext\n",
+            q(4),
+            q(3),
+            q(5),
+            q(4),
+            q(4),
+            q(4)
+        );
+        let lines = lex(&source).unwrap();
+        let text = format!("{}\n{}\nx {}\n{} # no comment", q(3), q(5), q(4), q(4));
+        assert_eq!(lines[0].tokens[1].tok, Tok::Str(text));
+        assert_eq!((lines.len(), lines[1].line), (2, 7));
+        // Six quotes open a fence of six, which a line of six closes, CRLF and all.
+        let lines = lex(&format!("notes {}\r\n  a\r\n  {}\r\n", q(6), q(6))).unwrap();
+        assert_eq!(lines[0].tokens[1].tok, Tok::Str("a".into()));
+        // Two are an empty string.
+        assert_eq!(toks("notes \"\""), [Tok::Ident("notes".into()), Tok::Str(String::new())]);
+    }
+
+    /// The fence the printer picks is the fewest quotes, three or more, that no line of the text
+    /// is after its indentation; text a block would not keep as it is has none.
+    #[test]
+    fn a_fence_is_the_shortest_run_no_line_is() {
+        let q = |n: usize| "\"".repeat(n);
+        assert_eq!(fence("one\ntwo"), Some(3));
+        let docstring = format!("def f():\n    {}Return one.{}\n    return 1", q(3), q(3));
+        assert_eq!(fence(&docstring), Some(3), "a docstring on its line");
+        let docstring = format!("def f():\n    {}\n    Return one.\n    {}\n    return 1", q(3), q(3));
+        assert_eq!(fence(&docstring), Some(4), "a docstring's quotes alone on a line");
+        assert_eq!(fence(&format!("{}\n{}", q(3), q(4))), Some(5));
+        assert_eq!(fence(&q(4)), Some(3), "a line of four leaves three free");
+        assert_eq!(fence(&format!("x = {}\nhello{}", q(3), q(3))), Some(3), "quotes at a line's end");
+        assert_eq!(fence(&format!("{}\n{}\n{}\n{}", q(6), q(3), q(5), q(4))), Some(7));
+        assert_eq!(fence(&format!("\u{a0}{}", q(3))), Some(3), "only spaces indent a line");
+        assert_eq!(fence(""), Some(3));
+        for kept in ["a\tb", "a\r\nb", "a\rb", "a \nb", "a\nb ", "a\n \nb", "a\u{a0}\nb", "a\u{3000}"] {
+            assert_eq!(fence(kept), None, "{kept:?}");
+        }
+    }
+
+    /// Text a fence is found for reads back from its block as itself, its lines indented as
+    /// deep as its closing fence, or deeper.
+    #[test]
+    fn a_fenced_text_reads_back_as_itself() {
+        let q = |n: usize| "\"".repeat(n);
+        let texts = [
+            "one".to_string(),
+            "one\ntwo".into(),
+            "\n\nafter two blank lines\n".into(),
+            "  indented\n    more\nnone".into(),
+            format!("def f():\n    {}\n    Return one.\n    {}\n    return 1", q(3), q(3)),
+            format!("{}\n  {}\n{}", q(3), q(4), q(5)),
+            format!("x = {}\nquotes at the end {}", q(3), q(4)),
+            "# not a comment\n\u{a0}\"\"\"\nuni ✓ é 漢字 🇺🇸".into(),
+        ];
+        for text in &texts {
+            let fence = q(fence(text).unwrap());
+            for (open, deeper) in [(0, 0), (0, 2), (2, 4), (4, 4)] {
+                let pad = " ".repeat(deeper);
+                let lines: String =
+                    text.split('\n').map(|l| if l.is_empty() { "\n".into() } else { format!("{pad}{l}\n") }).collect();
+                let source = format!("{}notes {fence}\n{lines}{pad}{fence}\nnext\n", " ".repeat(open));
+                let lines = lex(&source).unwrap_or_else(|e| panic!("{e}\n{source}"));
+                assert_eq!(lines[0].tokens[1].tok, Tok::Str(text.clone()), "{source}");
+                assert_eq!(lines[1].tokens[0].tok, Tok::Ident("next".into()), "{source}");
+            }
+        }
     }
 
     #[test]
@@ -379,5 +496,24 @@ mod tests {
         assert!(lex("x 12px").unwrap_err().message.contains("unit"));
         assert!(lex("x \"open").unwrap_err().message.contains("not closed"));
         assert!(lex("theme:themes/dusk.json").unwrap_err().message.contains("quote it"));
+    }
+
+    /// A block left open is an error at its fence, which says what closes it; a line of a
+    /// shorter or longer run does not.
+    #[test]
+    fn a_block_left_open_says_where_it_opened() {
+        let source = "a\n  notes \"\"\"\"\n    one\n    \"\"\"\n    \"\"\"\"\"\n";
+        let e = lex(source).unwrap_err();
+        assert_eq!((e.line, e.col), (2, 9), "{e}");
+        assert_eq!(&source[e.offset..e.offset + e.len], "\"\"\"\"");
+        assert_eq!(e.message, "this `\"\"\"\"` string is not closed: a line of `\"\"\"\"` alone closes it");
+        let e = lex("notes \"\"\"\"\"").unwrap_err();
+        assert!(e.message.contains("not closed") && e.message.contains("`\"\"\"\"\"`"), "{e}");
+        let e = lex("notes \"\"\"\" one\n  two\n  \"\"\"\"\n").unwrap_err();
+        assert_eq!((e.line, e.col), (1, 7), "{e}");
+        assert!(e.message.contains("nothing may follow the opening `\"\"\"\"`"), "{e}");
+        let e = lex("notes \"\"\"\"\n    one\n  two\n   \"\"\"\"\n").unwrap_err();
+        assert_eq!((e.line, e.col), (3, 1), "{e}");
+        assert!(e.message.contains("indented less than the closing `\"\"\"\"`"), "{e}");
     }
 }

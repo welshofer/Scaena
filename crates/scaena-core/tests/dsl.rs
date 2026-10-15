@@ -41,30 +41,163 @@ fn corpus() -> Vec<(String, String)> {
         .collect()
 }
 
-/// `docs/examples/revenue.deck.scn` is the example deck's canonical source: what the
-/// decompiler writes, and what compiles to the deck. `SCAENA_BLESS=1` rewrites it.
+/// Each example's `.scn` is its deck's canonical source: what the decompiler writes, and what
+/// compiles to the deck. `revenue.deck.scn` is the one SPEC §4.1 shows whole, and
+/// `code.deck.scn` writes its code as blocks (PLAN 2.143). `SCAENA_BLESS=1` rewrites them.
 #[test]
 fn the_example_source_is_its_decks_canonical_source() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/examples");
-    let deck = Deck::from_json(&std::fs::read_to_string(format!("{root}/revenue.deck.json")).unwrap()).unwrap();
-    let path = format!("{root}/revenue.deck.scn");
-    let source = decompile(&deck);
-    // SPEC §4.1 shows it whole.
+    let bless = std::env::var_os("SCAENA_BLESS").is_some();
+    let mut sources = Vec::new();
+    for name in ["revenue", "code"] {
+        let deck = Deck::from_json(&std::fs::read_to_string(format!("{root}/{name}.deck.json")).unwrap()).unwrap();
+        let path = format!("{root}/{name}.deck.scn");
+        let source = decompile(&deck);
+        if bless {
+            std::fs::write(&path, &source).unwrap();
+        }
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), source, "{name}: SCAENA_BLESS=1 rewrites it");
+        assert_eq!(compile(&source).unwrap().to_json().unwrap(), deck.to_json().unwrap(), "{name}");
+        sources.push(source);
+    }
+    assert!(sources[1].contains(" code:{language: rust} \"\"\"\n    // A talk on the program"), "{}", sources[1]);
+    // SPEC §4.1 shows the first whole.
     let spec_path = format!("{root}/../SPEC.md");
     let shown = |spec: &str| -> (String, String, String) {
         let (before, rest) = spec.split_once("```scn\n").unwrap();
         let (shown, after) = rest.split_once("```").unwrap();
         (before.into(), shown.into(), after.into())
     };
-    if std::env::var_os("SCAENA_BLESS").is_some() {
-        std::fs::write(&path, &source).unwrap();
+    if bless {
         let (before, _, after) = shown(&std::fs::read_to_string(&spec_path).unwrap());
-        std::fs::write(&spec_path, format!("{before}```scn\n{source}```{after}")).unwrap();
+        std::fs::write(&spec_path, format!("{before}```scn\n{}```{after}", sources[0])).unwrap();
     }
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), source, "SCAENA_BLESS=1 rewrites it");
-    assert_eq!(compile(&source).unwrap().to_json().unwrap(), deck.to_json().unwrap());
     let (_, in_spec, _) = shown(&std::fs::read_to_string(&spec_path).unwrap());
-    assert_eq!(in_spec, source, "SPEC §4.1 shows the example as it is; SCAENA_BLESS=1 rewrites it");
+    assert_eq!(in_spec, sources[0], "SPEC §4.1 shows the example as it is; SCAENA_BLESS=1 rewrites it");
+}
+
+/// A deck of one code text in `language`: shown as it is in state `one`, and as `then` in
+/// state `two`, beside a text of two lines that is no code.
+fn code_deck(language: &str, text: &str, then: &str) -> Deck {
+    let doc = serde_json::json!({
+        "scaena": scaena_core::FORMAT_VERSION,
+        "canvas": { "width": 1920, "height": 1080 },
+        "nodes": {
+            "snippet": { "type": "text", "role": "code", "code": { "language": language }, "text": text },
+            "note": { "type": "text", "text": "Two lines\nof prose" }
+        },
+        "states": [
+            { "id": "one", "props": { "snippet": {}, "note": {} } },
+            { "id": "two", "props": { "snippet": { "text": then } } }
+        ]
+    });
+    Deck::from_json(&doc.to_string()).unwrap()
+}
+
+/// `deck`'s source, which compiles back to it and decompiles again to itself.
+fn round_trip(deck: &Deck) -> String {
+    let source = decompile(deck);
+    let back = compile(&source).unwrap_or_else(|e| panic!("{e}\n{source}"));
+    assert_eq!(back.to_json().unwrap(), deck.to_json().unwrap(), "\n{source}");
+    assert_eq!(decompile(&back), source, "decompiling is a fixed point");
+    source
+}
+
+/// A code text's lines print as a block, in a node's declaration and in a state's change,
+/// fenced by three quotes where no line is three quotes alone: Python's docstrings among them
+/// (PLAN 2.143). Prose and a line of code stay JSON strings.
+#[test]
+fn a_code_text_prints_as_a_block_and_reads_back() {
+    let docstring = "def area(r):\n    \"\"\"The area of a circle of radius r.\"\"\"\n\n    return math.pi * r**2";
+    let one_line = "area = lambda r: math.pi * r**2";
+    let source = round_trip(&code_deck("python", docstring, one_line));
+    let q = "\"\"\"";
+    assert_eq!(
+        source,
+        format!(
+            "deck canvas:1920x1080\n\nstate one\n  snippet text role:code code:{{language: python}} {q}\n    def area(r):\n        \
+             {q}The area of a circle of radius r.{q}\n\n        return math.pi * r**2\n    {q}\n  \
+             note text \"Two lines\\nof prose\"\n\nstate two\n  snippet \"{one_line}\"\n"
+        )
+    );
+    // The block stands wherever the text does among its props, which go on after it.
+    let mut doc = serde_json::to_value(code_deck("rust", "fn main() {\n    run();\n}", "")).unwrap();
+    doc["nodes"]["snippet"]["semantic"] = "evidence".into();
+    doc["states"][1]["props"]["snippet"] =
+        serde_json::json!({ "text": "fn main() {}\n", "alt": "Rust: an empty main." });
+    let source = round_trip(&Deck::from_json(&doc.to_string()).unwrap());
+    let snippet = "  snippet text role:code code:{language: rust} \"\"\"\n    fn main() {\n        run();\n    }\n    \"\"\"\n    semantic:evidence\n";
+    assert!(source.contains(snippet), "{source}");
+    let change = "  snippet \"\"\"\n    fn main() {}\n\n    \"\"\"\n    alt:\"Rust: an empty main.\"\n";
+    assert!(source.contains(change), "{source}");
+    // A fence past the width starts the next line, and the block's lines stand two deeper.
+    let alt = format!("{} code", "x".repeat(77));
+    doc["states"][1]["props"]["snippet"] = serde_json::json!({ "alt": alt, "text": "a\nb" });
+    let source = round_trip(&Deck::from_json(&doc.to_string()).unwrap());
+    let change = format!("  snippet alt:\"{alt}\"\n    \"\"\"\n      a\n      b\n      \"\"\"\n");
+    assert!(source.ends_with(&change), "{source}");
+}
+
+/// The fence is the shortest run of quotes, three or more, that no line of the code is after
+/// its indentation: a line of three quotes takes four, and lines of three and four take five.
+#[test]
+fn a_block_holding_its_fence_takes_a_longer_one() {
+    let q = |n: usize| "\"".repeat(n);
+    let docstring =
+        format!("def area(r):\n    {}\n    The area of a circle.\n    {}\n    return math.pi * r**2", q(3), q(3));
+    let quotes = format!("{}\n{}\nx = {}", q(3), q(4), q(5));
+    let source = round_trip(&code_deck("python", &docstring, &quotes));
+    let first = format!("code:{{language: python}} {}\n    def area(r):\n        {}\n", q(4), q(3));
+    assert!(source.contains(&first), "{source}");
+    assert!(source.contains(&format!("    return math.pi * r**2\n    {}\n", q(4))), "{source}");
+    let then = format!("  snippet {}\n    {}\n    {}\n    x = {}\n    {}\n", q(5), q(3), q(4), q(5), q(5));
+    assert!(source.contains(&then), "{source}");
+    // A line of four alone leaves three free.
+    let source = round_trip(&code_deck("plain", &format!("{}\nfour", q(4)), ""));
+    assert!(source.contains(&format!(" {}\n    {}\n    four\n    {}\n", q(3), q(4), q(3))), "{source}");
+}
+
+/// SPEC §4.2's block is canonical source: a docstring's quotes alone on lines fence the code
+/// with four.
+#[test]
+fn the_specs_block_is_canonical() {
+    let spec = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/SPEC.md")).unwrap();
+    let (_, rest) = spec.split_once("\n  ```scn\n").expect("SPEC §4.2 shows a block");
+    let (shown, _) = rest.split_once("\n  ```\n").unwrap();
+    let state: String = shown.lines().map(|l| format!("{}\n", l.strip_prefix("  ").unwrap_or(l))).collect();
+    let source = format!("deck canvas:1920x1080\n\n{state}");
+    let deck = compile(&source).unwrap_or_else(|e| panic!("{e}\n{source}"));
+    assert_eq!(decompile(&deck), source);
+    let text = &deck.nodes["sort"].props["text"];
+    assert_eq!(text.as_str().unwrap().lines().nth(1), Some("    \"\"\""), "{text}");
+}
+
+/// Code a block would not keep as it is stays a JSON string: a tab, a carriage return, or a
+/// line that ends in white space, which editors change.
+#[test]
+fn code_with_a_tab_a_return_or_trailing_space_is_a_json_string() {
+    for kept in ["fn f() {\n\treturn;\n}", "a\r\nb", "x = 1 \ny = 2", "x\n  \ny", "a\u{a0}\nb"] {
+        let source = round_trip(&code_deck("rust", kept, kept));
+        assert!(!source.contains("\"\"\""), "{kept:?}:\n{source}");
+        assert!(source.contains(&serde_json::to_string(kept).unwrap()), "{kept:?}:\n{source}");
+    }
+}
+
+/// Source cut anywhere, or with a quote typed anywhere, compiles or says why: a block left open,
+/// fenced by any run, never stops the compiler.
+#[test]
+fn a_source_cut_or_quoted_anywhere_compiles_or_says_why() {
+    let q = |n: usize| "\"".repeat(n);
+    let deck = code_deck("python", &format!("def f():\n    {}\n    Docs.\n    {}\n", q(3), q(3)), &q(4));
+    let source = decompile(&deck);
+    for (at, _) in source.char_indices() {
+        for typed in [source[..at].to_string(), format!("{}\"{}", &source[..at], &source[at..])] {
+            if let Err(e) = scaena_core::dsl::compile_json(&typed) {
+                let end = e.offset + e.len;
+                assert!(typed.is_char_boundary(e.offset) && typed.is_char_boundary(end), "{e:?}\n{typed}");
+            }
+        }
+    }
 }
 
 #[test]
@@ -165,6 +298,21 @@ const STRINGS: &[&str] = &[
     "4s",
     "40ms",
     "media",
+    // Code (PLAN 2.143): docstrings on a line and alone on lines, lines of quotes alone,
+    // indented, and at a line's end, tabs, trailing spaces, CRLFs, a lone CR, and blank lines.
+    "def f():\n    \"\"\"Docs.\"\"\"\n    pass",
+    "def f():\n    \"\"\"\n    Docs.\n    \"\"\"\n    pass",
+    "\"\"\"\n\"\"\"\"",
+    "x\n\"\"\"\"\"\n\"\"\"\"",
+    "  \"\"\"\n    \"\"\"\"\n",
+    "print(\"\"\"\nhi\"\"\")",
+    "\"\"\" # no comment\nx",
+    "\u{a0}\"\"\"\nx",
+    "fn f() {\n\treturn;\n}",
+    "x = 1  \ny = 2",
+    "a = 1\r\nb = 2\r\n",
+    "a\rb\nc",
+    "\n\nx\n\n",
 ];
 const KEYS: &[&str] = &[
     "a",
@@ -194,6 +342,7 @@ const KEYS: &[&str] = &[
     "duration",
     "hold",
     "media",
+    "code",
 ];
 
 fn random_value(r: &mut Rng, depth: usize) -> serde_json::Value {
@@ -238,7 +387,26 @@ fn insert_at(r: &mut Rng, map: &mut serde_json::Map<String, serde_json::Value>, 
 fn mutate(r: &mut Rng, doc: &mut serde_json::Value) {
     use serde_json::Value;
     let node_ids: Vec<String> = doc["nodes"].as_object().unwrap().keys().cloned().collect();
-    match r.below(21) {
+    match r.below(22) {
+        21 => {
+            // A code text, its lines in its node and in a state's change, under an id a line of
+            // a state may start with.
+            let lines: Vec<&str> = STRINGS.iter().copied().filter(|s| s.contains('\n')).collect();
+            let id = r.pick(&["snippet", "notes", "text", "code"]).to_string();
+            let code = serde_json::json!({ "language": *r.pick(&["python", "rust", "plain"]) });
+            let node = serde_json::json!({ "type": "text", "role": "code", "code": code, "text": *r.pick(&lines) });
+            doc["nodes"].as_object_mut().unwrap().insert(id.clone(), node);
+            let states = doc["states"].as_array_mut().unwrap();
+            let i = r.below(states.len());
+            let change = match r.below(3) {
+                0 => serde_json::json!({}),
+                1 => serde_json::json!({ "text": *r.pick(&lines) }),
+                _ => serde_json::json!({ "alt": "Code.", "text": *r.pick(STRINGS), "role": "code" }),
+            };
+            let props =
+                states[i].as_object_mut().unwrap().entry("props").or_insert_with(|| Value::Object(Default::default()));
+            insert_at(r, props.as_object_mut().unwrap(), id, change);
+        }
         17 => {
             // Shuffle `nodes`: declarations in states must keep their order.
             let nodes = doc["nodes"].as_object_mut().unwrap();
@@ -460,6 +628,8 @@ fn any_deck_round_trips() {
         .unwrap_or((0x5ca3_a5ca_3a5c_a3a5, 4000));
     let mut r = Rng(seed);
     let mut tried = 0;
+    // Sources that wrote a block, and a block fenced by more than three quotes.
+    let (mut blocks, mut longer) = (0, 0);
     for _ in 0..count {
         let mut doc = r.pick(&bases).clone();
         for _ in 0..1 + r.below(4) {
@@ -471,8 +641,11 @@ fn any_deck_round_trips() {
         let back = compile(&source).unwrap_or_else(|e| panic!("{e}\n{source}"));
         assert_eq!(back.to_json().unwrap(), deck.to_json().unwrap(), "\n{source}");
         assert_eq!(decompile(&back), source, "decompiling is a fixed point");
+        blocks += usize::from(source.contains("\"\"\"\n"));
+        longer += usize::from(source.contains("\"\"\"\"\n"));
     }
     assert!(tried > count / 2, "only {tried} mutants were decks");
+    assert!(blocks > count / 10 && longer > count / 50, "{blocks} sources wrote a block, {longer} a longer fence");
 }
 
 /// The error `source` compiles to, as (line, column, message, pointer).
@@ -512,6 +685,11 @@ fn errors_say_where_and_what() {
         let notes = format!("{head}state a\n  notes \"\"\"\n    one\n   {c}two\n    \"\"\"\n");
         assert!(error(&notes).2.contains("indented less than the closing"), "{c}");
     }
+    // A block that a line of its own run never closes, where it opened: a line of three quotes
+    // is a line of a block fenced by four.
+    let (line, col, message, _) = error(&format!("{head}state a\n  notes \"\"\"\"\n    one\n    \"\"\"\n"));
+    assert_eq!((line, col), (3, 9));
+    assert_eq!(message, "this `\"\"\"\"` string is not closed: a line of `\"\"\"\"` alone closes it");
     assert!(error(&format!("{head}deck \"again\"\n")).2.contains("one `deck` header"));
 }
 

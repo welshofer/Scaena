@@ -290,6 +290,7 @@ Italic is a family's own italic face (PLAN 2.40). A role, or a text's `style` (a
 - It grows, then shrinks. Typed or pasted past the foot of its box, the box grows down to hold its lines at the largest size its box's width lets it, its own at most, since growing down makes it no wider: by its rows on the theme's grid, or by its `rect`'s height, no further than the grid's margin. What the box still cannot hold, it shrinks to fit, worked out from one layout (§3.4), no further than its `minSize`, else its role's, else 12 pt at presentation size, 24 cu where the canvas's shorter side is 1080 cu and in proportion on others, and never above its own size. In a container it asks for its own width at most and the width it shrinks to at least, and stands as tall as the width it is given sets it. Code drawn under 12 pt is **W205**; code that does not fit at its smallest is **W203**, which says how many of its lines fit, or how wide its longest line runs.
 - W210 does not count its words, and W220 passes over it.
 - The themes that ship have a `code` role for it: JetBrains Mono at their body's size, `minSize: 24`.
+- In `.scn`, its lines are a block (§4.2), as `docs/examples/code.deck.scn` writes them.
 
 The engine MUST implement:
 - Shaping via `harfrust` (the HarfBuzz port) through `parley` (ligatures, kerning, contextual alternates, OpenType features, variable axes), with per-run `features` and `axes` overrides (§3.3). A run of text in one font is shaped whole across a change of tracking or color, so the font's kerning, ligatures, and contextual forms hold across it; a change of font, size, features, axes, or language shapes each side apart (parley, patched: ADR-0004 finding 21). Font tables and metrics are read with `skrifa` (ADR-0004).
@@ -849,7 +850,7 @@ state-line  := "-" id                                         -- the node exits
              | notes
              | prop-line                                      -- the state's own keys
 group-line  := "choreo" … | ("sequence" | "parallel") … | prop-line
-notes       := "notes" string                                 -- `"""` for several lines
+notes       := "notes" string                                 -- a block for several lines
 type        := "text" | "shape" | "image" | "stack" | "grid" | "frame" | "group"
              | ("chart" | "shader") (":" word)?               -- `chart:bar` is type and kind
 props       := (prop | string)*                               -- the string: see below
@@ -868,7 +869,9 @@ time        := number ("ms" | "s")
 percent     := number "%"
 ratio       := number ":" number
 word        := [A-Za-z_][A-Za-z0-9_.-]*
-string      := a JSON string on one line | `"""`, a newline, lines, then `"""` alone on a line
+string      := a JSON string on one line | block
+block       := fence, a newline, lines, then the same fence alone on a line
+fence       := `"""` `"`*                                     -- three quotes or more
 ```
 
 Rules:
@@ -882,6 +885,18 @@ Rules:
 - **`at:` calls.** `col(1-7) row(2) in(title) rect(120, 80, 900, 420)` is `{col: [1, 7], row: 2, in: "title", rect: [120, 80, 900, 420]}`. One argument is the value, several make a list, and a range `a-b` is `[a, b]`. Reserved slots: `in(canvas)` is full-bleed (the whole canvas), and `in(grid)` is the margin box; both exist in every layout template.
 - **Units.** `ms` and `s` are times. A time is milliseconds in the deck (`1.5s` is `1500`), except a beat's `duration`, which is seconds (`15s` is `15`, `500ms` is `0.5`). `cu` is the canvas unit and the default (`12cu` is `12`). `50%` is the string `"50%"`, and `16:9` is the string `"16:9"`. There are no other units. Durations may also be theme names (`standard`).
 - Any key, and any id, may be quoted. A word is a string, except `true`, `false`, and `null`. `@q3` is the string `"@q3"`. A path is a string, so quote it.
+- **Blocks.** A block is a string of several lines written as they read, such as notes or code (§3.5). Its fence is a run of three or more `"` with nothing after it on its line. The first line after it that is the same run, after its indentation of spaces, closes it; a line of a shorter or longer run, or of the run and more, is a line of the text. The closing line's indentation comes off every line before it, each indented at least as deep unless it is empty, and the lines join with line feeds. A block ends its line, so what follows it goes on the next. Code whose docstring stands on lines of its own, as `"""` alone, is fenced by `""""`:
+
+  ```scn
+  state rank layout:figure
+    sort text role:code code:{language: python} at:in(main) """"
+      def rank(talks):
+          """
+          The talks, most votes first.
+          """
+          return sorted(talks, key=lambda t: -t.votes)
+      """"
+  ```
 - The compiler reports an error with its line, its column, and, when it is about part of the deck, a JSON pointer into the compiled deck.
 
 ### 4.3 Canonical form
@@ -891,7 +906,8 @@ The decompiler's output is the canonical form. Every shorthand is used only wher
 - A node is declared in the state that first shows it when that state shows it unchanged, and when declaring it there keeps `nodes` in its order. Otherwise it gets a `node` line, placed so `nodes` keeps its order (between states if need be).
 - Keys keep the deck's order. A text node's `text`, and an image's `src`, are bare strings where they stand. `at` is written as calls when every key is a word.
 - An integer time takes a unit: `4s` for whole seconds, else `240ms`. This applies to `hold`, `transition`, and a choreography item's `delay`, `stagger`, and `duration`, and to a beat's `duration` (`15s`). A float stays a plain number, since a unit would read it back as an integer.
-- A string is bare when it reads back as itself: a word other than `true`, `false`, and `null`; `@` and a word; a percentage; or a ratio. Otherwise it is JSON-quoted. Notes with newlines are a `"""` block when that holds them exactly.
+- A string is bare when it reads back as itself: a word other than `true`, `false`, and `null`; `@` and a word; a percentage; or a ratio. Otherwise it is JSON-quoted.
+- Notes of several lines, and a code text's `text` of several lines, are a block where one keeps them as they are: its fence the fewest quotes, three or more, that no line of the text is after its indentation, so a line of `"""` alone takes `""""`, and lines of both take `"""""`. Its lines stand two deeper than the line its fence ends, and the props after it go on a line of their own. Text with a tab, a carriage return, or a line that ends in white space stays a JSON string, since an editor may change those.
 - Lines fill to 100 columns. Props that do not fit continue on lines two deeper.
 
 ---

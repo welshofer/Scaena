@@ -2,9 +2,11 @@
 //!
 //! Every shorthand is used only where it compiles back to exactly what the deck holds:
 //! keys keep their order, a node is declared in a state only where that keeps `nodes` in
-//! its order, and a time takes a unit only where the number reads back the same. Anything
-//! else is written out as `key:value`.
+//! its order, a time takes a unit only where the number reads back the same, and notes and
+//! a code text's lines are a block only where one keeps them as they are. Anything else is
+//! written out as `key:value`.
 
+use super::lex::fence;
 use super::parse::{DECK_KEYS, KINDED, STATE_WORDS, TYPES};
 use crate::document::Deck;
 use serde_json::{Map, Value};
@@ -48,25 +50,50 @@ impl Printer {
     }
 
     /// `head` and its props, filled to the width; props that do not fit continue on lines
-    /// two deeper.
+    /// two deeper. A prop of several lines is a block ([`block`]): its fence ends the line it
+    /// stands on, its lines stand two deeper than that line, and the props after it continue
+    /// on a line of their own.
     fn item(&mut self, indent: usize, head: &str, props: &[String]) {
         let mut line = format!("{}{head}", " ".repeat(indent));
         let mut alone = head.is_empty();
+        // How deep `line` stands, and whether a block ended the line before it.
+        let mut depth = indent;
+        let mut ended = false;
         for prop in props {
-            if !alone && width(&line) + 1 + width(prop) > WIDTH {
+            let (first, lines) = prop.split_once('\n').map_or((prop.as_str(), None), |(f, l)| (f, Some(l)));
+            if ended {
+                depth = indent + 2;
+                line = format!("{}{first}", " ".repeat(depth));
+                ended = false;
+            } else if !alone && width(&line) + 1 + width(first) > WIDTH {
                 self.out.push_str(&line);
                 self.out.push('\n');
-                line = format!("{}{prop}", " ".repeat(indent + 2));
+                depth = indent + 2;
+                line = format!("{}{first}", " ".repeat(depth));
             } else if alone {
-                line.push_str(prop);
+                line.push_str(first);
                 alone = false;
             } else {
                 line.push(' ');
-                line.push_str(prop);
+                line.push_str(first);
+            }
+            if let Some(lines) = lines {
+                self.out.push_str(&line);
+                self.out.push('\n');
+                for l in lines.split('\n') {
+                    if l.is_empty() {
+                        self.out.push('\n');
+                    } else {
+                        self.line(depth + 2, l);
+                    }
+                }
+                ended = true;
             }
         }
-        self.out.push_str(&line);
-        self.out.push('\n');
+        if !ended {
+            self.out.push_str(&line);
+            self.out.push('\n');
+        }
     }
 
     fn comments(&mut self, indent: usize, text: &str) {
@@ -144,7 +171,7 @@ impl Printer {
             if let Some(c) = keys.comment() {
                 self.comments(0, &c);
             }
-            self.item(0, &format!("override {}", word(id)), &keys.rest(""));
+            self.item(0, &format!("override {}", word(id)), &keys.rest("", false));
         }
         if let Some(sections) = sections
             && d.get("spine").is_some_and(spine_as_sections)
@@ -219,7 +246,7 @@ impl Printer {
         {
             head = format!("{head}:{}", kind.as_str().expect("a word"));
         }
-        self.item(indent, &head, &keys.rest(ty));
+        self.item(indent, &head, &keys.rest(ty, ty == "text" && coded(node)));
     }
 
     fn section(&mut self, s: &Map<String, Value>) {
@@ -282,11 +309,13 @@ impl Printer {
                 continue;
             }
             let ty = nodes.get(id).and_then(|n| n["type"].as_str()).unwrap_or("");
-            let mut keys = Keys::new(delta.as_object().expect("a delta is a map"));
+            let delta = delta.as_object().expect("a delta is a map");
+            let code = ty == "text" && (nodes.get(id).and_then(Value::as_object).is_some_and(coded) || coded(delta));
+            let mut keys = Keys::new(delta);
             if let Some(c) = keys.comment() {
                 self.comments(2, &c);
             }
-            let mut rest = keys.rest(ty);
+            let mut rest = keys.rest(ty, code);
             // A first prop named like a type would read as one: quote its key.
             if let Some(first) = rest.first_mut()
                 && let Some((k, v)) = first.split_once(':')
@@ -334,18 +363,9 @@ impl Printer {
     }
 
     fn notes(&mut self, indent: usize, notes: &str) {
-        if notes.contains('\n') && triple_quotable(notes) {
-            self.line(indent, "notes \"\"\"");
-            for line in notes.split('\n') {
-                if line.is_empty() {
-                    self.out.push('\n');
-                } else {
-                    self.line(indent + 2, line);
-                }
-            }
-            self.line(indent + 2, "\"\"\"");
-        } else {
-            self.line(indent, &format!("notes {}", quoted(notes)));
+        match block(notes) {
+            Some(block) => self.item(indent, "notes", &[block]),
+            None => self.line(indent, &format!("notes {}", quoted(notes))),
         }
     }
 }
@@ -382,8 +402,9 @@ impl<'a> Keys<'a> {
     }
 
     /// Every prop not yet taken, as `key:value`, except a text node's `text` or an image's
-    /// `src`: a bare string where it stands.
-    fn rest(&self, ty: &str) -> Vec<String> {
+    /// `src`: a bare string where it stands, and a code text's lines a block where one keeps
+    /// them.
+    fn rest(&self, ty: &str, code: bool) -> Vec<String> {
         let primary = match ty {
             "text" => Some("text"),
             "image" => Some("src"),
@@ -393,7 +414,9 @@ impl<'a> Keys<'a> {
             .iter()
             .skip(self.at)
             .map(|(k, v)| match v {
-                Value::String(s) if primary == Some(k.as_str()) => quoted(s),
+                Value::String(s) if primary == Some(k.as_str()) => {
+                    code.then(|| block(s)).flatten().unwrap_or_else(|| quoted(s))
+                }
                 _ => prop(k, v),
             })
             .collect()
@@ -617,9 +640,19 @@ fn commentable(c: &str) -> bool {
     !c.contains('\r')
 }
 
-/// Text a `"""` block holds exactly.
-fn triple_quotable(s: &str) -> bool {
-    !s.contains('\r') && !s.contains("\"\"\"") && s.split('\n').all(|l| l == l.trim_end() && !l.contains('\t'))
+/// Text of several lines as a block, where one keeps it as it is ([`fence`]): its fence, its
+/// lines, and its fence again, each a line. Text of one line, or that no block keeps, is none.
+fn block(text: &str) -> Option<String> {
+    if !text.contains('\n') {
+        return None;
+    }
+    let fence = "\"".repeat(fence(text)?);
+    Some(format!("{fence}\n{text}\n{fence}"))
+}
+
+/// Whether a node, or a state's delta for one, makes a text code: a `code` of its own.
+fn coded(props: &Map<String, Value>) -> bool {
+    props.get("code").is_some_and(Value::is_object)
 }
 
 fn width(s: &str) -> usize {
