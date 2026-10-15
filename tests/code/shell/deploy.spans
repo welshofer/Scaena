@@ -1,0 +1,182 @@
+comment     «#!/usr/bin/env bash\n# Deploys a build to a host, and says how it went.\n»
+function    «set »
+plain       «-euo pipefail\n\n»
+keyword     «readonly »
+variable    «HOST»
+operator    «=»
+string      «"»
+variable    «${DEPLOY_HOST:-staging.example.com}»
+string      «"\n»
+keyword     «export »
+variable    «PATH»
+operator    «=»
+string      «"»
+variable    «$HOME»
+string      «/bin:»
+variable    «$PATH»
+string      «"\n»
+keyword     «declare »
+plain       «-a »
+variable    «targets»
+operator    «=»
+punctuation «(»
+plain       «web api »
+string      «"worker 2"»
+punctuation «)\n»
+variable    «retries»
+operator    «=»
+number      «3\n\n»
+function    «log»
+punctuation «() {\n  »
+keyword     «local »
+variable    «level»
+operator    «=»
+variable    «$1»
+punctuation «; »
+function    «shift\n  printf »
+string      «'%s [%s] %s\\n' "»
+punctuation «$(»
+function    «date »
+plain       «+%T»
+punctuation «)»
+string      «" "»
+variable    «$level»
+string      «" "»
+variable    «$*»
+string      «" »
+operator    «>&2\n»
+punctuation «}\n\n»
+keyword     «function »
+function    «build »
+punctuation «{\n  »
+keyword     «if »
+punctuation «[[ »
+operator    «-f »
+plain       «Makefile »
+operator    «&& »
+variable    «$# »
+operator    «-gt »
+number      «0 »
+punctuation «]]; »
+keyword     «then\n    »
+function    «make »
+plain       «-j»
+string      «"»
+punctuation «$(»
+function    «nproc»
+punctuation «)»
+string      «" "»
+variable    «$@»
+string      «" »
+operator    «2>»
+plain       «/dev/null »
+operator    «|| »
+keyword     «return »
+number      «1\n  »
+keyword     «elif »
+punctuation «[ »
+operator    «-x »
+plain       «./build.sh »
+punctuation «]; »
+keyword     «then\n    »
+function    «./build.sh »
+plain       «--release\n  »
+keyword     «fi\n»
+punctuation «}\n\n»
+keyword     «for »
+variable    «target »
+keyword     «in »
+string      «"»
+variable    «${targets[@]}»
+string      «"»
+punctuation «; »
+keyword     «do\n  for »
+punctuation «((»
+variable    «i »
+operator    «= »
+number      «0»
+punctuation «; »
+variable    «i »
+operator    «< »
+variable    «retries»
+punctuation «; »
+variable    «i»
+operator    «++»
+punctuation «)); »
+keyword     «do\n    if »
+function    «build »
+string      «"»
+variable    «$target»
+string      «"»
+punctuation «; »
+keyword     «then\n      »
+function    «log »
+plain       «info »
+string      «"built »
+variable    «$target»
+string      « on try »
+punctuation «$((»
+variable    «i »
+operator    «+ »
+number      «1»
+punctuation «))»
+string      «"\n      »
+keyword     «break\n    fi\n    »
+function    «sleep »
+number      «0.5\n  »
+keyword     «done\ndone\n\ncase »
+string      «"»
+variable    «${1:-}»
+string      «" »
+keyword     «in\n  »
+plain       «start»
+operator    «|»
+plain       «restart»
+punctuation «)\n    »
+function    «sudo systemctl »
+plain       «restart app »
+punctuation «;;\n  »
+plain       «*.tar.gz»
+punctuation «)\n    »
+function    «tar »
+plain       «-xzf »
+string      «"»
+variable    «$1»
+string      «" »
+plain       «-C /opt/app »
+punctuation «;;\n  »
+plain       «*»
+punctuation «)\n    »
+function    «echo »
+string      «"usage: »
+variable    «$0»
+string      « {start|restart|ARCHIVE}" »
+operator    «>&2\n    »
+keyword     «exit »
+number      «64 »
+punctuation «;;\n»
+keyword     «esac\n\n»
+function    «ssh »
+string      «"»
+variable    «$HOST»
+string      «" »
+operator    «<<-»
+string      «EOF\n\tcd /opt/app && git pull\n\techo "deployed at »
+punctuation «$(»
+function    «date»
+punctuation «)»
+string      «" # no comment here\n\tEOF\n\n»
+function    «cat »
+operator    «<<»
+string      «'NOTE' »
+operator    «> »
+plain       «notes.txt\n»
+string      «Nothing in $here expands, `not even this`.\nNOTE\n\n»
+function    «echo »
+plain       «a#b »
+variable    «${#targets[@]} »
+string      «$'tab\\there' »
+punctuation «`»
+function    «whoami»
+punctuation «` »
+comment     «# a comment\n»

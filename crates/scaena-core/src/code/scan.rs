@@ -45,6 +45,34 @@ pub(super) fn line_end(b: &[u8], at: usize, end: usize) -> usize {
     i
 }
 
+/// Where the line `at` stands on ends, past its break: a line feed, a carriage return, or a
+/// carriage return and a line feed. At `end` where no break ends it.
+pub(super) fn line_next(b: &[u8], at: usize, end: usize) -> usize {
+    let i = line_end(b, at, end);
+    if i >= end {
+        i
+    } else if b[i] == b'\r' && i + 1 < end && b[i + 1] == b'\n' {
+        i + 2
+    } else {
+        i + 1
+    }
+}
+
+/// Where the spaces and tabs at `at` end.
+pub(super) fn blanks_end(b: &[u8], at: usize, end: usize) -> usize {
+    let mut i = at;
+    while i < end && matches!(b[i], b' ' | b'\t') {
+        i += 1;
+    }
+    i
+}
+
+/// Whether `table`, sorted and in lowercase, holds `word` in any case: a language that reads
+/// `SELECT` as `select`.
+pub(super) fn holds(table: &[&str], word: &str) -> bool {
+    table.binary_search_by(|w| w.bytes().cmp(word.bytes().map(|c| c.to_ascii_lowercase()))).is_ok()
+}
+
 /// Where the word at `at` ends.
 pub(super) fn word_end(b: &[u8], at: usize, end: usize) -> usize {
     let mut i = at;

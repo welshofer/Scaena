@@ -1,5 +1,5 @@
 {
-  "scaena": "0.27",
+  "scaena": "0.28",
   "_comment": "W322 trigger: an entrance on a node that was already on screen; an exit under a slide transition, which moves the slide left whole.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

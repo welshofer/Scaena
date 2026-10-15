@@ -2,10 +2,10 @@ import ScaenaKit
 import SwiftUI
 
 /// What lint finds that a person can see on a slide and put right there (PLAN 3.20), as a sentence
-/// they would say: text that does not fit or cannot be read, objects that overlap, chart text too
-/// small, a picture with no description, a figure its data no longer gives. The rest (the deck's
-/// structure, its story, its motion, its placement) stays in the View menu's Issues, and with the
-/// CLI, the MCP server, and the browser.
+/// they would say: text that does not fit or cannot be read, objects that overlap, chart text and
+/// code too small, a picture with no description, a figure its data no longer gives. The rest (the
+/// deck's structure, its story, its motion, its placement) stays in the View menu's Issues, and
+/// with the CLI, the MCP server, and the browser.
 enum Issues {
     /// A finding as the canvas says it, where it is one the canvas marks.
     static func said(_ finding: Finding) -> String? {
@@ -16,6 +16,7 @@ enum Issues {
         case "E120": "Some of its characters aren't in its font."
         case "W202": "It runs to more lines than its style allows."
         case "W203": "It doesn't fit, even at its smallest size."
+        case "W205": "The code is too small to read."
         case "W231": "Its font has no italic, so it's set upright."
         case "W232": "Its font has no bold, so it's set in its own weight."
         case "W303": "The slide's number or footer is drawn over it."

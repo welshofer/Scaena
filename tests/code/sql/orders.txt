@@ -1,0 +1,38 @@
+-- Monthly revenue by region, with a running total.
+CREATE TABLE IF NOT EXISTS orders (
+    id          BIGSERIAL PRIMARY KEY,
+    customer_id INTEGER NOT NULL REFERENCES customers (id) ON DELETE CASCADE,
+    region      VARCHAR(32) DEFAULT 'north',
+    total       NUMERIC(10, 2) CHECK (total >= 0),
+    placed_at   TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "order"     TEXT
+);
+
+/* Rows a year back, and the month each falls in. */
+WITH monthly AS (
+    SELECT date_trunc('month', o.placed_at) AS month,
+           o.region,
+           SUM(o.total)::numeric(12, 2) AS revenue,
+           COUNT(*) FILTER (WHERE o.total > 100) AS large
+    FROM orders AS o
+    WHERE o.placed_at >= now() - INTERVAL '1 year'
+      AND o.region <> 'test' AND o."order" IS NOT NULL
+    GROUP BY 1, 2
+)
+SELECT month, region, revenue,
+       SUM(revenue) OVER (PARTITION BY region ORDER BY month) AS running,
+       LEFT(region, 3) AS code, 'it''s ' || region AS note
+FROM monthly
+ORDER BY month DESC NULLS LAST
+LIMIT 12 OFFSET $1;
+
+CREATE OR REPLACE FUNCTION touch() RETURNS trigger AS $$
+BEGIN
+    NEW.placed_at := now(); -- inside the body, 'quoted'
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+SELECT [Order Details].quantity, @@ROWCOUNT, N'naïve', E'tab\'s', :name, 0x1F, .5
+FROM [Order Details];
+# a MySQL comment

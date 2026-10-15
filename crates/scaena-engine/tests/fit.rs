@@ -139,3 +139,37 @@ fn clip_cuts_the_text_to_its_box_and_error_refuses_it() {
     let err = engine(&d).frame(&req).unwrap_err().to_string();
     assert!(err.contains("node `n`") && err.contains("fit: error"), "{err}");
 }
+
+/// Layout and lint read one fit (PLAN 2.131, ADR-0029): a text's own, else its slot's, else
+/// `shrink` for a shape's words and for code, else `wrap`. A slot's shrinking text and a shape's
+/// words that do not fit at their smallest are W203, as a text that says `shrink` is, not E100.
+#[test]
+fn lint_and_layout_read_one_fit() {
+    let mut t: Value = serde_json::from_slice(&read("theme.json")).unwrap();
+    t["layouts"]["specimen"]["slots"]["narrow"] = json!({ "col": [1, 4], "row": 2, "fit": "shrink" });
+    let theme = Theme::from_json(&t.to_string()).unwrap();
+    let long = LONG.repeat(4);
+    let d = deck(json!({
+        "slotted": { "type": "text", "role": "body", "text": long, "at": { "in": "narrow" } },
+        "card": { "type": "shape", "kind": "rect", "at": { "col": [6, 7], "row": 2 } },
+        "words": { "type": "text", "role": "body", "text": long, "at": { "parent": "card" } },
+        "wraps": { "type": "text", "role": "body", "text": long, "at": { "col": [9, 12], "row": 2 } },
+    }));
+    let data = DataFiles::new();
+    let req = FrameRequest { deck: &d, theme: &theme, data: &data, state: "t", t_ms: f64::INFINITY, format: None };
+    let laid = engine(&d).text_layouts(&req, &["slotted", "words", "wraps"]).unwrap();
+    let fits: Vec<_> = laid.iter().map(|p| (p.fit, p.overflow)).collect();
+    use scaena_core::model::nodes::TextFit;
+    assert_eq!(fits, [(TextFit::Shrink, true), (TextFit::Shrink, true), (TextFit::Wrap, true)]);
+    let found = scaena_engine::lint::lint(&mut engine(&d), &d, &theme, &data, None).unwrap();
+    // In the deck's own format: the torture deck lays out in 9:16 too.
+    let said = |node: &str| {
+        let ours = found.iter().filter(|f| f.node.as_deref() == Some(node) && f.format.is_none());
+        let mut codes: Vec<&str> = ours.map(|f| f.code.as_str()).collect();
+        codes.retain(|c| ["E100", "W203"].contains(c));
+        codes
+    };
+    assert_eq!(said("slotted"), ["W203"]);
+    assert_eq!(said("words"), ["W203"]);
+    assert_eq!(said("wraps"), ["E100"]);
+}

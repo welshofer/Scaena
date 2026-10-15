@@ -1,0 +1,27 @@
+$ python3 -m venv .venv && source .venv/bin/activate
+(.venv) $ pip install --upgrade "scaena[cli]"
+Collecting scaena[cli]
+  Downloading scaena-1.2.0-py3-none-any.whl (24 kB)
+Successfully installed scaena-1.2.0
+(.venv) $ cat > deck.scn <<EOF
+> title: "Q3 review"
+> EOF
+user@host:~/talks$ for f in *.scn; do
+> echo "$f"
+> done
+deck.scn
+~/talks $ ls
+deck.scn
+[user@host talks]$ export SCAENA_AUTHOR=jay # who saves
+% git status --short
+ M deck.scn
+# apt install ffmpeg
+PS C:\Users\jay> Get-ChildItem -Path . -Filter *.scn |
+>> Select-Object Name, Length
+
+Name     Length
+----     ------
+deck.scn    412
+
+PS> $PSVersionTable.PSVersion.Major
+7

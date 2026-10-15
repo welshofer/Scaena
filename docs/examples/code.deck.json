@@ -1,0 +1,169 @@
+{
+  "scaena": "0.28",
+  "meta": {
+    "title": "Code on a slide",
+    "author": "Scaena",
+    "created": "2026-10-15T00:00:00Z",
+    "lang": "en-US",
+    "description": "Reference deck for code (PLAN 2.131): a text with `code`, set as written in the theme's code role, and a step that changes it."
+  },
+  "canvas": {
+    "width": 1920.0,
+    "height": 1080.0,
+    "unit": "cu"
+  },
+  "theme": "themes/dusk.theme.json",
+  "fonts": [
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-VF.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          9.0,
+          144.0
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-VF.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          14.0,
+          32.0
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-VF.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          800.0
+        ]
+      }
+    },
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          9.0,
+          144.0
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          14.0,
+          32.0
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100.0,
+          800.0
+        ]
+      }
+    }
+  ],
+  "spine": {
+    "sections": [
+      {
+        "id": "ranking",
+        "title": "Ranking",
+        "beats": [
+          {
+            "id": "rank",
+            "claim": "The program lists the talks with the most votes first.",
+            "states": [
+              "rank",
+              "ties"
+            ],
+            "notes": "Read the sort aloud, then the step that breaks ties."
+          }
+        ]
+      }
+    ]
+  },
+  "nodes": {
+    "title": {
+      "type": "text",
+      "role": "headline",
+      "text": "Most votes first",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      }
+    },
+    "snippet": {
+      "type": "text",
+      "role": "code",
+      "code": {
+        "language": "rust"
+      },
+      "text": "// A talk on the program, and the votes it drew.\nstruct Talk {\n\ttitle: String,\n\tvotes: u32,\n}\n\n// The talks, most votes first.\nfn rank(talks: &mut [Talk]) {\n\ttalks.sort_by(|a, b| b.votes.cmp(&a.votes));\n}",
+      "semantic": "evidence",
+      "alt": "Rust: a Talk has a title and a vote count, and rank sorts the talks by votes, most first.",
+      "at": {
+        "in": "main"
+      }
+    }
+  },
+  "states": [
+    {
+      "id": "rank",
+      "mode": "delta",
+      "layout": "figure",
+      "props": {
+        "title": {},
+        "snippet": {}
+      },
+      "hold": 6000.0
+    },
+    {
+      "id": "ties",
+      "slide": "rank",
+      "mode": "delta",
+      "transition": "slow",
+      "props": {
+        "title": {
+          "text": "Then by title"
+        },
+        "snippet": {
+          "text": "// A talk on the program, and the votes it drew.\nstruct Talk {\n\ttitle: String,\n\tvotes: u32,\n}\n\n// The talks, most votes first; ties by title.\nfn rank(talks: &mut [Talk]) {\n\ttalks.sort_by(|a, b| {\n\t\tb.votes.cmp(&a.votes).then_with(|| a.title.cmp(&b.title))\n\t});\n}",
+          "alt": "Rust: rank sorts the talks by votes, most first, and ties by title."
+        }
+      },
+      "hold": 6000.0,
+      "notes": "One line becomes three: the comparison of votes, then of titles where the votes tie."
+    }
+  ]
+}

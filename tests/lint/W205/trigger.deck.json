@@ -1,0 +1,13 @@
+{
+  "scaena": "0.28",
+  "_comment": "W205 trigger: thirty lines of code whose own minSize lets it shrink to fit, to 13.9 cu, under 24 cu, 12 pt at presentation size.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "nodes": {
+    "code": {"type": "text", "role": "body", "code": {"language": "rust"}, "text": "total += weigh(votes[0]);\ntotal += weigh(votes[1]);\ntotal += weigh(votes[2]);\ntotal += weigh(votes[3]);\ntotal += weigh(votes[4]);\ntotal += weigh(votes[5]);\ntotal += weigh(votes[6]);\ntotal += weigh(votes[7]);\ntotal += weigh(votes[8]);\ntotal += weigh(votes[9]);\ntotal += weigh(votes[10]);\ntotal += weigh(votes[11]);\ntotal += weigh(votes[12]);\ntotal += weigh(votes[13]);\ntotal += weigh(votes[14]);\ntotal += weigh(votes[15]);\ntotal += weigh(votes[16]);\ntotal += weigh(votes[17]);\ntotal += weigh(votes[18]);\ntotal += weigh(votes[19]);\ntotal += weigh(votes[20]);\ntotal += weigh(votes[21]);\ntotal += weigh(votes[22]);\ntotal += weigh(votes[23]);\ntotal += weigh(votes[24]);\ntotal += weigh(votes[25]);\ntotal += weigh(votes[26]);\ntotal += weigh(votes[27]);\ntotal += weigh(votes[28]);\ntotal += weigh(votes[29]);", "minSize": 12, "at": {"in": "main"}}
+  },
+  "states": [
+    {"id": "a", "layout": "figure", "props": {"code": {}}}
+  ]
+}
