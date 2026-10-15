@@ -789,7 +789,7 @@ impl Session {
     pub fn code_words(&self, state: &str, node: &str) -> Result<String, Error> {
         let snapshots = scaena_core::resolve_states(&self.deck).map_err(|e| Error::Deck(e.to_string()))?;
         let mut shown = (snapshots.into_iter().find(|s| s.state_id == state))
-            .and_then(|mut s| s.nodes.remove(node))
+            .and_then(|mut s| s.nodes.shift_remove(node))
             .ok_or_else(|| Error::Ops(format!("`{node}` is not on screen in `{state}`")))?;
         if let Some(over) = self.deck.overrides.get(node) {
             scaena_core::tracking::merge_props(&mut shown, over);

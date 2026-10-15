@@ -791,3 +791,50 @@ impl BundleFiles for With<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Chromium's custom data as a Mac's pasteboard holds it: a pickle of a count, then each type
+    /// and its data as UTF-16, padded to four bytes.
+    fn pickle(pairs: &[(&str, &str)]) -> Vec<u8> {
+        let mut payload = Vec::new();
+        payload.extend((pairs.len() as u32).to_le_bytes());
+        for s in pairs.iter().flat_map(|(k, v)| [k, v]) {
+            let units: Vec<u16> = s.encode_utf16().collect();
+            payload.extend((units.len() as u32).to_le_bytes());
+            payload.extend(units.iter().flat_map(|u| u.to_le_bytes()));
+            while payload.len() % 4 != 0 {
+                payload.push(0);
+            }
+        }
+        let mut out = (payload.len() as u32).to_le_bytes().to_vec();
+        out.extend(payload);
+        out
+    }
+
+    /// VS Code's mode, from Chromium's custom data, names the language of what it copied
+    /// (PLAN 2.133); damaged data names none.
+    #[test]
+    fn vs_codes_mode_is_read_from_chromiums_custom_data() {
+        let data = pickle(&[("text/x-moz-url", "é"), ("vscode-editor-data", r#"{"version":1,"mode":"rust"}"#)]);
+        assert_eq!(custom_data(&data).as_deref(), Some(r#"{"version":1,"mode":"rust"}"#));
+        let hints = Hints { chromium: Some(STANDARD.encode(&data)), ..Default::default() };
+        assert_eq!(hints.read().1.as_deref(), Some("rust"));
+        assert_eq!(custom_data(&data[..data.len() - 3]), None, "cut short");
+        assert_eq!(custom_data(&[0xff; 12]), None);
+        assert_eq!(custom_data(&pickle(&[("text/plain", "x")])), None);
+    }
+
+    /// The class a highlighter writes on a `<pre>` or a `<code>` names the language (PLAN 2.133).
+    #[test]
+    fn an_html_class_names_the_language() {
+        assert_eq!(class_named(r#"<pre class="language-rust"><code>fn</code></pre>"#).as_deref(), Some("rust"));
+        assert_eq!(class_named(r#"<div class='highlight'><pre class="hljs python">x</pre></div>"#).as_deref(), Some("python"));
+        assert_eq!(class_named(r#"<code class="lang-ts">x</code>"#).as_deref(), Some("typescript"));
+        assert_eq!(class_named(r#"<p class="lead">Words</p>"#), None);
+        assert_eq!(class_named("<p>no class</p>"), None);
+        assert_eq!(class_named(&format!("<p class=\"{}", "é".repeat(5000))), None, "cut on a character's boundary");
+    }
+}

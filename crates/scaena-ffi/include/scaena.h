@@ -152,7 +152,10 @@ char *scaena_picture(const uint8_t *bytes, size_t len);
 // patch would make them; and `reach {ops}`, the states a patch changes. Text typed in place
 // (PLAN 3.9): `typed {ops, at?}`, `replace_text`, `style_text`, and `list` ops by the user,
 // validated but not linted, and whether the deck changed; and `bolding` and `italicizing
-// {state, node, from, to}`, the look ⌘B and ⌘I give characters. A text's characters (PLAN
+// {state, node, from, to}`, the look ⌘B and ⌘I give characters; and `codeWords {state, node}`,
+// a code text's words as the state shows them, which Copy Code copies, and `tidied {text,
+// language}`, code pasted into code, tidied (PLAN 2.133). A text's
+// characters (PLAN
 // 3.10): `characterChoices {state, node, from, to}`, what an inspector offers for them; and
 // `linkAt {state, x, y}`, the link drawn there at rest, where a click goes. Nodes added and
 // taken away (PLAN 3.11): `inserting {state, n, x, y, named?, with?}`, the patch that inserts
