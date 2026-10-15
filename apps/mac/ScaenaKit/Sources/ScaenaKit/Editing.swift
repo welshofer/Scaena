@@ -161,10 +161,14 @@ public struct Field: Decodable, Sendable, Identifiable {
     /// What the theme gives a text's look where the deck sets none, which the slide then shows:
     /// its role's family, weight, size, italic, case, tracking, or color. None for the rest.
     public let theme: JSONValue?
+    /// Each value it offers as the engine says it (`words.said`): a language as a person calls it,
+    /// `cpp` as C++ (PLAN 2.133).
+    public let said: [String: String]
 
     public var id: String { prop }
 
-    private enum Keys: String, CodingKey { case prop, takes, value, lives, literal, theme }
+    private enum Keys: String, CodingKey { case prop, takes, value, lives, literal, theme, words }
+    private struct Worded: Decodable { let said: [String: String]? }
 
     public init(from decoder: any Decoder) throws {
         let fields = try decoder.container(keyedBy: Keys.self)
@@ -174,6 +178,7 @@ public struct Field: Decodable, Sendable, Identifiable {
         lives = try fields.decodeIfPresent(Lives.self, forKey: .lives)
         literal = try fields.decodeIfPresent(Bool.self, forKey: .literal) ?? false
         theme = try fields.decodeIfPresent(JSONValue.self, forKey: .theme)
+        said = (try? fields.decodeIfPresent(Worded.self, forKey: .words))??.said ?? [:]
     }
 }
 

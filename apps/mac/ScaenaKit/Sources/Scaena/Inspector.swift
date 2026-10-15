@@ -249,9 +249,13 @@ struct Inspector: View {
                         nothing: Self.nothing.contains(field.prop), id: "inspector-\(field.prop)",
                         said: say, choose: choose)
                 case .word(let words):
+                    // A language as the engine calls it (PLAN 2.133); the rest as the window says them.
                     let said = { (word: String) in
                         Option(
-                            tag: word, title: Words.word(word, of: field.prop, type: choices?.type, sources: sources))
+                            tag: word,
+                            title: field.prop == "code/language"
+                                ? field.said[word] ?? word
+                                : Words.word(word, of: field.prop, type: choices?.type, sources: sources))
                     }
                     PickRow(
                         label: label, value: field.value, options: words.map(said), segmented: words.count <= 2,
