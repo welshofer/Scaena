@@ -3211,6 +3211,7 @@ dependencies = [
  "libm",
  "postcard",
  "regex-lite",
+ "scaena-core",
  "scaena-pixels",
  "schemars",
  "serde",
