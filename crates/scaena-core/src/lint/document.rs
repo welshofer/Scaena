@@ -581,7 +581,12 @@ impl Rule for W410ImageWithoutAlt {
         cx.deck
             .nodes
             .iter()
-            .filter(|(_, n)| n.node_type == NodeType::Image && !n.props.contains_key("alt"))
+            // A map reads as the map of the place it was fetched for (ADR-0030).
+            .filter(|(_, n)| {
+                n.node_type == NodeType::Image
+                    && !n.props.contains_key("alt")
+                    && n.props.get("fetched").and_then(|f| f.get("map")).is_none()
+            })
             .map(|(id, _)| {
                 Finding::new(self.code(), self.severity(), format!("image `{id}` has no `alt` text"))
                     .at(format!("/nodes/{id}"))

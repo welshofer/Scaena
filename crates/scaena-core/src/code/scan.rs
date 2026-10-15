@@ -5,7 +5,12 @@
 //! carriage return, and form feed; any byte above ASCII continues a word. So a token ends on an
 //! ASCII byte or at the text's end, always a character's boundary.
 
-use super::{Class, Token};
+use super::{Class, MAX_NESTING, Token};
+
+/// The byte at `i`, or 0 past the text's end.
+pub(super) fn byte(b: &[u8], i: usize) -> u8 {
+    b.get(i).copied().unwrap_or(0)
+}
 
 /// Whether `b` is whitespace: ASCII space, tab, line feed, carriage return, or form feed.
 pub(super) fn is_space(b: u8) -> bool {
@@ -166,6 +171,56 @@ pub(super) fn cut(text: &str, lines: usize) -> usize {
         }
     }
     b.len()
+}
+
+/// Whether the line from `from` to `to`, its break and the spaces and tabs before it left out,
+/// ends with `last`: a line that goes on, as a Dockerfile's does after its escape.
+pub(super) fn ends_with(b: &[u8], from: usize, to: usize, last: u8) -> bool {
+    let mut k = line_end(b, from, to);
+    while k > from && matches!(b[k - 1], b' ' | b'\t') {
+        k -= 1;
+    }
+    k > from && b[k - 1] == last
+}
+
+/// Brackets open inside one another, each of a kind: the outermost [`MAX_NESTING`] are kept, and
+/// those inside them counted, each taken to be of the innermost kind kept.
+pub(super) struct Nest<K> {
+    kinds: Vec<K>,
+    past: u32,
+}
+
+impl<K: Copy> Nest<K> {
+    pub(super) fn new() -> Self {
+        Nest { kinds: Vec::new(), past: 0 }
+    }
+
+    /// One more open, of `kind`.
+    pub(super) fn push(&mut self, kind: K) {
+        if self.kinds.len() < MAX_NESTING {
+            self.kinds.push(kind);
+        } else {
+            self.past = self.past.saturating_add(1);
+        }
+    }
+
+    /// The innermost closed.
+    pub(super) fn pop(&mut self) {
+        if self.past > 0 {
+            self.past -= 1;
+        } else {
+            self.kinds.pop();
+        }
+    }
+
+    /// The innermost's kind, or `None` where none is open.
+    pub(super) fn top(&self) -> Option<K> {
+        self.kinds.last().copied()
+    }
+
+    pub(super) fn is_empty(&self) -> bool {
+        self.kinds.is_empty()
+    }
 }
 
 /// The tokens a scanner writes, in order: a token in the class of the one before it joins it.

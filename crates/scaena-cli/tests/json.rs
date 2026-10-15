@@ -502,6 +502,14 @@ fn files_says_what_uses_each_and_takes_out_what_nothing_names() {
     assert!(
         card["used"].as_array().unwrap().contains(&serde_json::json!({ "node": "image-cover", "states": ["images"] }))
     );
+    // A fetched picture says where it came from and when (ADR-0030); a picture made here says nothing.
+    assert_eq!(
+        file("assets/map-card.png")["fetched"],
+        serde_json::json!({
+            "from": "geoapify", "service": "Geoapify", "date": "2026-10-15", "said": "From Geoapify, fetched 15 October 2026"
+        })
+    );
+    assert!(card.get("fetched").is_none());
     assert_eq!(
         (file("assets/stray.png")["named"].clone(), file("data/old.csv")["type"].clone()),
         (serde_json::json!([]), "data".into())

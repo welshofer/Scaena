@@ -1,0 +1,178 @@
+comment     «# The blog's schema, and a query against it.\n»
+string      «"""\nA person who writes.\n"""\n»
+keyword     «type »
+type        «Author »
+keyword     «implements »
+type        «Node »
+operator    «& »
+type        «Entity »
+attribute   «@key»
+punctuation «(»
+attribute   «fields»
+punctuation «: »
+string      «"id"»
+punctuation «) {\n  »
+property    «id»
+punctuation «: »
+type        «ID»
+operator    «!\n  »
+property    «name»
+punctuation «: »
+type        «String»
+operator    «!\n  »
+property    «posts»
+punctuation «(»
+attribute   «first»
+punctuation «: »
+type        «Int »
+operator    «= »
+number      «10»
+punctuation «, »
+attribute   «after»
+punctuation «: »
+type        «String»
+punctuation «): [»
+type        «Post»
+operator    «!»
+punctuation «]»
+operator    «! »
+attribute   «@deprecated»
+punctuation «(»
+attribute   «reason»
+punctuation «: »
+string      «"Use feed"»
+punctuation «)\n}\n\n»
+keyword     «enum »
+type        «Role »
+punctuation «{\n  »
+constant    «ADMIN\n  EDITOR\n»
+punctuation «}\n\n»
+keyword     «union »
+type        «SearchResult »
+operator    «= »
+type        «Author »
+operator    «| »
+type        «Post\n\n»
+keyword     «scalar »
+type        «DateTime\n\n»
+keyword     «input »
+type        «PostFilter »
+punctuation «{\n  »
+property    «tags»
+punctuation «: [»
+type        «String»
+operator    «!»
+punctuation «]\n  »
+property    «since»
+punctuation «: »
+type        «DateTime\n»
+punctuation «}\n\n»
+keyword     «directive »
+attribute   «@auth»
+punctuation «(»
+attribute   «requires»
+punctuation «: »
+type        «Role »
+operator    «= »
+constant    «ADMIN»
+punctuation «) »
+keyword     «repeatable on »
+constant    «OBJECT »
+operator    «| »
+constant    «FIELD_DEFINITION\n\n»
+keyword     «query »
+function    «AuthorPage»
+punctuation «(»
+variable    «$id»
+punctuation «: »
+type        «ID»
+operator    «!»
+punctuation «, »
+variable    «$withPosts»
+punctuation «: »
+type        «Boolean »
+operator    «= »
+constant    «false»
+punctuation «) »
+attribute   «@cached»
+punctuation «(»
+attribute   «ttl»
+punctuation «: »
+number      «60»
+punctuation «) {\n  »
+property    «author»
+punctuation «(»
+attribute   «id»
+punctuation «: »
+variable    «$id»
+punctuation «) {\n    »
+operator    «...»
+function    «AuthorFields\n    »
+property    «avatar»
+punctuation «: »
+property    «picture»
+punctuation «(»
+attribute   «size»
+punctuation «: »
+number      «64»
+punctuation «)\n    »
+property    «posts»
+punctuation «(»
+attribute   «first»
+punctuation «: »
+number      «5»
+punctuation «, »
+attribute   «filter»
+punctuation «: {»
+property    «tags»
+punctuation «: [»
+string      «"rust"»
+punctuation «, »
+string      «"graphql"»
+punctuation «], »
+property    «since»
+punctuation «: »
+string      «"2026-01-01"»
+punctuation «}) »
+attribute   «@include»
+punctuation «(»
+attribute   «if»
+punctuation «: »
+variable    «$withPosts»
+punctuation «) {\n      »
+property    «title\n      »
+operator    «... »
+keyword     «on »
+type        «Draft »
+punctuation «{\n        »
+property    «editedAt\n      »
+punctuation «}\n    }\n  }\n}\n\n»
+keyword     «fragment »
+function    «AuthorFields »
+keyword     «on »
+type        «Author »
+punctuation «{\n  »
+property    «name\n  __typename\n»
+punctuation «}\n\n»
+keyword     «mutation »
+punctuation «{\n  »
+property    «publish»
+punctuation «(»
+attribute   «id»
+punctuation «: »
+number      «42»
+punctuation «, »
+attribute   «weight»
+punctuation «: »
+number      «-1.5e3»
+punctuation «, »
+attribute   «pinned»
+punctuation «: »
+constant    «true»
+punctuation «, »
+attribute   «note»
+punctuation «: »
+constant    «null»
+punctuation «) { »
+property    «id »
+punctuation «}\n}\n»
