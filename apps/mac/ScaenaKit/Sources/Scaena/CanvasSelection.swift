@@ -117,6 +117,8 @@ struct CanvasSelection: View {
     @State private var clicks = 1
     /// Whether a press is under way: false again as it ends or the system takes it away.
     @GestureState private var touching = false
+    /// The presses begun, counted as each begins, and the one `press` was set by (`fresh`).
+    @State private var pressCount = PressCount()
     /// What a press would take where the pointer or the Pencil hovers (PLAN 4.5).
     @State private var hovered: Hover?
     /// The menu a long press or a right click asks for: a count, new with each ask, and where,
@@ -182,6 +184,16 @@ struct CanvasSelection: View {
         case offered
         /// Two fingers took the press over, to zoom or pan: the first finger edits nothing.
         case fingers
+    }
+
+    /// The presses begun on the canvas, counted as each begins, and the one `press` was set by. A
+    /// box SwiftUI does not watch: a press the system takes away (a swipe from the screen's edge,
+    /// say) has no end of its own, and a change handler on `touching` that let it go ran twice in
+    /// one frame when a double tap's first press ended and its second began, which SwiftUI reports
+    /// as a fault. The next press lets it go instead (`fresh`).
+    private final class PressCount {
+        var begun = 0
+        var held = 0
     }
 
     /// What a press would take where the pointer or the Pencil hovers (PLAN 4.5), as the browser's
@@ -470,20 +482,6 @@ struct CanvasSelection: View {
             imaged = node.flatMap { try? session.framing(state: state, node: $0) }
             if let picked = pointPicked, picked >= shaped?.points.count ?? 0 { pointPicked = nil }
         }
-        .task(id: touching) {
-            // A press the system took away (a swipe from the screen's edge, say) has no end of its
-            // own: what it began stops once the gesture's own end, where there was one, has run. A
-            // task, not a change handler: a double tap's first press can end and its second begin
-            // within one frame, and SwiftUI runs a change handler once a frame, saying so as a fault.
-            guard !touching, press != nil else { return }
-            if case .fingers = press { return }
-            if case .dragging = press { editor.still() }
-            pausing?.cancel()
-            #if !os(macOS)
-            lingering?.cancel()
-            #endif
-            press = nil
-        }
         .onChange(of: typing.node) { was, now in
             // Typing begun where no press began it (the Pencil writing on a text, PLAN 4.4) selects
             // the text typed in, as a double click does.
@@ -504,8 +502,7 @@ struct CanvasSelection: View {
         .task(id: pen != nil) {
             // The pen up (PLAN 2.114): the Pencil draws and writes in no text, typing stops, and
             // the canvas takes the keyboard, so P and Escape put the pen down, however it was taken
-            // up. A task, as a press's end is (`touching`): SwiftUI runs a change handler once a
-            // frame.
+            // up.
             let up = pen != nil
             typing.inking = up
             guard up else { return }
@@ -723,9 +720,14 @@ struct CanvasSelection: View {
     /// A press: a click where it does not move, else a drag of what it pressed. On the iPad a finger
     /// that stays still offers what is done to what it pressed (PLAN 4.3).
     private func pressing(_ fit: Fit) -> some Gesture {
-        DragGesture(minimumDistance: 0, coordinateSpace: .local)
-            .updating($touching) { _, pressed, _ in pressed = true }
+        let count = pressCount
+        return DragGesture(minimumDistance: 0, coordinateSpace: .local)
+            .updating($touching) { _, pressed, _ in
+                if !pressed { count.begun += 1 }
+                pressed = true
+            }
             .onChanged { value in
+                fresh()
                 let moved = hypot(value.translation.width, value.translation.height)
                 switch press {
                 case nil:
@@ -781,6 +783,7 @@ struct CanvasSelection: View {
                 }
             }
             .onEnded { value in
+                fresh()
                 defer { press = nil }
                 #if !os(macOS)
                 lingering?.cancel()
@@ -1015,6 +1018,7 @@ struct CanvasSelection: View {
     /// (PLAN 2.75, 2.89): whether the canvas took it. What it does not take, the input system makes
     /// a command of, and Tab past either end passes the keyboard on.
     private func pressed(_ event: NSEvent) -> Bool {
+        if !touching { letGo() }
         guard press == nil else { return false }
         let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
         guard !flags.contains(.control) else { return false }
@@ -1063,6 +1067,7 @@ struct CanvasSelection: View {
     /// canvas reads it (PLAN 3.17), by UIKit's codes: whether the canvas took it. What it does not
     /// take goes on, so Tab past either end leaves the slide.
     private func pressed(_ key: UIKey) -> Bool {
+        if !touching { letGo() }
         guard press == nil else { return false }
         let flags = key.modifierFlags.intersection([.command, .shift, .alternate, .control])
         guard !flags.contains(.control) else { return false }
@@ -1147,6 +1152,7 @@ struct CanvasSelection: View {
     /// it as a key command rather than a press: what a press of either does. PageDown and PageUp
     /// come so too: the next slide or step, and the one before (PLAN 4.12).
     private func commanded(_ input: String, _ flags: UIKeyModifierFlags) -> Bool {
+        if !touching { letGo() }
         guard press == nil, flags.isDisjoint(with: [.command, .control]) else { return false }
         switch input {
         case UIKeyCommand.inputEscape: return escape()
@@ -1571,6 +1577,28 @@ struct CanvasSelection: View {
         offering = (count: (offering?.count ?? 0) + 1, at: shown)
     }
 
+    /// A press began while `press` is still set by an earlier one, which the system took away before
+    /// its end (`PressCount`): that one stops first.
+    private func fresh() {
+        guard pressCount.held != pressCount.begun else { return }
+        pressCount.held = pressCount.begun
+        letGo()
+    }
+
+    /// `press` set by a press the system took away before its end stops as its own end would have
+    /// stopped it: a drag it began drawn back, and what waited on it stopped. Two fingers' press
+    /// stops as they let go (`fingers`).
+    private func letGo() {
+        guard let earlier = press else { return }
+        if case .fingers = earlier { return }
+        if case .dragging = earlier { editor.still() }
+        pausing?.cancel()
+        #if !os(macOS)
+        lingering?.cancel()
+        #endif
+        press = nil
+    }
+
     #if !os(macOS)
     /// A finger pressing still (PLAN 4.3): held long enough, its press offers what is done to what
     /// it pressed, as the Mac's Node menu and Edit menu do to the node selected.
@@ -1578,7 +1606,8 @@ struct CanvasSelection: View {
         lingering?.cancel()
         lingering = Task { @MainActor in
             try? await Task.sleep(for: Self.lingers)
-            guard !Task.isCancelled, case .pressing = press else { return }
+            // A press the system took away offers nothing.
+            guard !Task.isCancelled, touching, case .pressing = press else { return }
             press = .offered
             offer(at: fit.canvas(start), shown: start, fit: fit)
         }
