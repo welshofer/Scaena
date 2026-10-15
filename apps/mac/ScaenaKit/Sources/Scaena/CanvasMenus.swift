@@ -80,6 +80,9 @@ enum CanvasOffer {
         if let makePicture = deck.makePicture {
             offers.append(.action("Make a Picture…", symbol: "wand.and.stars", run: makePicture))
         }
+        // A haiku over the verse selected, in the slide's empty verse place, or where the menu was
+        // asked for (PLAN O.4g).
+        if let haiku = deck.haiku { offers.append(.action("Haiku…", symbol: "leaf", run: haiku)) }
         // What the theme and the bundle offer, by kind, landing where the menu was asked for.
         var kinds: [String] = []
         for insert in deck.inserts where !kinds.contains(insert.kind) { kinds.append(insert.kind) }

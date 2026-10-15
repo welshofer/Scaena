@@ -298,6 +298,15 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   shot inserted-menu
   echo "the slide holds, after:"
   holds canvas
+  # Insert › Haiku… (PLAN O.4g): its sheet asks what the poem is about, where it goes, and who
+  # wrote it; CI's Mac keeps no key, so it says where one goes. Escape leaves it.
+  menu Insert "Haiku…"
+  sleep 2
+  shot haiku-sheet
+  echo "Haiku…: the topic $(frames find haiku-topic || true), where it goes $(frames find haiku-where || true)"
+  [[ "$(frames find haiku-topic || true)" =~ [0-9] ]] || failing "Insert › Haiku… opened no sheet"
+  events 'key code 53' >/dev/null
+  sleep 1
   events 'key code 53'
   sleep 1
 
@@ -374,6 +383,19 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
       echo "Frameworks shown: $shown"
       sleep 2
       shot gallery-frameworks
+      # Statements holds the Haiku layout (PLAN O.4c), its poem set as written (O.4g's review).
+      read -r sx sy sw sh <<<"$(frames find section-statements)" || true
+      if [[ "${sh:-}" =~ ^[0-9]+$ ]]; then
+        pointer click $((sx + sw / 2)) $((sy + sh / 2))
+        for _ in $(seq 0 20); do
+          read -r _ _ _ hh <<<"$(frames find start-haiku)" || true
+          [[ "${hh:-}" =~ ^[0-9]+$ ]] && break
+          sleep 1
+        done
+        echo "Statements' Haiku: $(frames find start-haiku || true)"
+        sleep 2
+        shot gallery-haiku
+      fi
       read -r tx ty tw th <<<"$(frames find section-titles)" || true
       [[ "${th:-}" =~ ^[0-9]+$ ]] && pointer click $((tx + tw / 2)) $((ty + th / 2))
       sleep 1
