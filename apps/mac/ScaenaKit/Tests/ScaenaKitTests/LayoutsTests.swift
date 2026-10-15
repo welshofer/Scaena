@@ -12,7 +12,7 @@ import Testing
     #expect(steps == count, "each step judges one layout")
     let drawn = try session.layoutsDrawn(height: 90)
     // The layout it takes now first, nothing found in it; the others, each with an error.
-    #expect(drawn.map(\.suggestion.layout).first == "figure" && drawn.count == 6)
+    #expect(drawn.map(\.suggestion.layout).first == "figure" && drawn.count == 7)
     #expect(drawn.first.map { $0.suggestion.current && $0.suggestion.errors == 0 } == true)
     #expect(drawn.dropFirst().allSatisfy { !$0.suggestion.current && $0.suggestion.errors > 0 })
     #expect(drawn.allSatisfy { $0.image.width == 160 && $0.image.height == 90 })
