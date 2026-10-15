@@ -1,7 +1,7 @@
 //! What an object fetched from outside the deck records (ADR-0030, PLAN O.1a): where it came from,
 //! when, what was asked, and the credit the service's terms ask to be shown with it.
 //!
-//! An image takes `fetched` (deck format 0.31): a map's picture, fetched once, with the user's own
+//! An image takes `fetched` (deck format 0.29): a map's picture, fetched once, with the user's own
 //! key, and kept in the bundle as the image's file. Render never fetches; fetching again is an edit.
 //! The record holds no key, account, or URL that holds one.
 //!
@@ -162,7 +162,8 @@ pub fn instant(at: &str) -> bool {
     if b[16] != b':' {
         return false;
     }
-    let (month, day, hour, minute, second) = (number(5..7), number(8..10), number(11..13), number(14..16), number(17..19));
+    let (month, day, hour, minute, second) =
+        (number(5..7), number(8..10), number(11..13), number(14..16), number(17..19));
     if !(1..=12).contains(&month) || !(1..=31).contains(&day) || hour > 23 || minute > 59 || second > 60 {
         return false;
     }
@@ -180,7 +181,9 @@ pub fn instant(at: &str) -> bool {
     match &b[i..] {
         [b'Z' | b'z'] => true,
         [b'+' | b'-', h1, h2, b':', m1, m2] => {
-            [h1, h2, m1, m2].iter().all(|d| d.is_ascii_digit()) && number(i + 1..i + 3) <= 23 && number(i + 4..i + 6) <= 59
+            [h1, h2, m1, m2].iter().all(|d| d.is_ascii_digit())
+                && number(i + 1..i + 3) <= 23
+                && number(i + 4..i + 6) <= 59
         }
         _ => false,
     }
@@ -195,7 +198,10 @@ pub fn problems(record: &Value) -> Vec<(String, String)> {
     let known = service(&fetched.from);
     if known.is_none() {
         let names: Vec<&str> = SERVICES.iter().map(|s| s.name).collect();
-        out.push(("/from".into(), format!("`{}` is not a service this build knows: {}", fetched.from, names.join(", "))));
+        out.push((
+            "/from".into(),
+            format!("`{}` is not a service this build knows: {}", fetched.from, names.join(", ")),
+        ));
     }
     if !instant(&fetched.at) {
         out.push(("/at".into(), format!("`{}` is not an instant: write it as 2026-10-15T20:12:44Z", fetched.at)));
@@ -214,7 +220,9 @@ mod tests {
 
     #[test]
     fn an_instant_is_written_as_rfc_3339_writes_one() {
-        for at in ["2026-10-15T20:12:44Z", "2026-10-15T20:12:44.123Z", "2026-10-15T20:12:44+02:00", "2026-10-15t20:12:44z"] {
+        for at in
+            ["2026-10-15T20:12:44Z", "2026-10-15T20:12:44.123Z", "2026-10-15T20:12:44+02:00", "2026-10-15t20:12:44z"]
+        {
             assert!(instant(at), "{at}");
         }
         for at in [

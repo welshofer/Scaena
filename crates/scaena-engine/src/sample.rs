@@ -2666,7 +2666,8 @@ fn image_ops(dl: &mut DisplayList, image: &crate::images::ImageNode) -> Vec<Op> 
         ops.extend(words(dl, label));
     }
     if let Some(credit) = &marks.credit {
-        let Op::Layer { node, transform, opacity, blend, clip, ops: inner, .. } = layer(None, [0.0, 0.0], 1.0, words(dl, credit))
+        let Op::Layer { node, transform, opacity, blend, clip, ops: inner, .. } =
+            layer(None, [0.0, 0.0], 1.0, words(dl, credit))
         else {
             unreachable!("`layer` makes layers")
         };

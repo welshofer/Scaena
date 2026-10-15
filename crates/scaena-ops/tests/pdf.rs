@@ -454,7 +454,8 @@ fn a_maps_credit_is_a_paragraph_after_the_figure_with_its_links() {
     let (bytes, _) = exported(&bundle, Some(&["maps".to_string()]), &format!("{}", line!()));
     let lines = structure(&bytes);
     let tags: Vec<&str> = lines.iter().map(|l| l.trim()).collect();
-    let figure = tags.iter().position(|t| t.starts_with("Figure [Map of Ferry Building, marked Ferry Building]")).unwrap();
+    let figure =
+        tags.iter().position(|t| t.starts_with("Figure [Map of Ferry Building, marked Ferry Building]")).unwrap();
     assert_eq!(tags[figure + 1], "P", "its credit, after it: {tags:#?}");
     let pier = tags.iter().position(|t| t.starts_with("Figure [A street map of the waterfront")).unwrap();
     assert_eq!(tags[pier + 1], "P", "{tags:#?}");
@@ -470,7 +471,10 @@ fn a_maps_credit_is_a_paragraph_after_the_figure_with_its_links() {
         .collect();
     uris.sort();
     uris.dedup();
-    assert_eq!(uris, ["https://openmaptiles.org/", "https://www.geoapify.com/", "https://www.openstreetmap.org/copyright"]);
+    assert_eq!(
+        uris,
+        ["https://openmaptiles.org/", "https://www.geoapify.com/", "https://www.openstreetmap.org/copyright"]
+    );
     let content = String::from_utf8_lossy(pdf.pages()[0].page_stream().expect("its content")).into_owned();
     assert!(!content.is_empty());
 }

@@ -20,9 +20,9 @@ use crate::EngineError;
 use crate::charts::{RoundRect, lerp};
 use crate::shadows::Shadow;
 use crate::shapes::{Border, path_of, polyline};
+use crate::text::TextLayout;
 use crate::theme::Theme;
 use scaena_core::adjust::Adjust;
-use crate::text::TextLayout;
 use scaena_core::displaylist::{
     Blend, Cap, Color, FillRule, IDENTITY, Join, MAX_IMAGE_SIDE, Op, Paint, Path, Quality, Rect,
 };
@@ -153,7 +153,7 @@ pub struct ImageNode {
     /// shows in the rest.
     foot: f32,
     /// What the engine draws over the picture (ADR-0030): a pin, its label, and a credit.
-    pub marks: Marks,
+    pub marks: Box<Marks>,
 }
 
 /// What the engine draws over a picture (ADR-0030, decisions 13–14): a pin, its label beside it,
@@ -376,7 +376,7 @@ impl ImageNode {
             under: None,
             border,
             foot: 0.0,
-            marks: Marks::default(),
+            marks: Box::default(),
         })
     }
 

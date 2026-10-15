@@ -41,7 +41,8 @@ fn scene(node: &str, props: Value) -> Scene {
         deck.nodes.get_mut(node).unwrap().props.insert(k, v);
     }
     let data = DataFiles::new();
-    let req = FrameRequest { deck: &deck, theme: &theme, data: &data, state: "maps", t_ms: f64::INFINITY, format: None };
+    let req =
+        FrameRequest { deck: &deck, theme: &theme, data: &data, state: "maps", t_ms: f64::INFINITY, format: None };
     engine.at_rest(&req).unwrap()
 }
 
@@ -105,7 +106,8 @@ fn a_pin_stands_where_its_picture_puts_the_place() {
     // The display list draws it in the image's layer, through the layer's transform.
     let (deck, theme, mut engine) = setup();
     let data = DataFiles::new();
-    let req = FrameRequest { deck: &deck, theme: &theme, data: &data, state: "maps", t_ms: f64::INFINITY, format: None };
+    let req =
+        FrameRequest { deck: &deck, theme: &theme, data: &data, state: "maps", t_ms: f64::INFINITY, format: None };
     let dl = engine.frame(&req).unwrap().display_list;
     let layer = dl
         .ops
@@ -116,14 +118,20 @@ fn a_pin_stands_where_its_picture_puts_the_place() {
         })
         .unwrap();
     assert!(matches!(layer[0], Op::Image { .. }), "the picture first");
-    assert!(matches!(layer[1], Op::Stroke { .. }) && matches!(layer[2], Op::Fill { .. }), "then the pin's ring and the pin");
+    assert!(
+        matches!(layer[1], Op::Stroke { .. }) && matches!(layer[2], Op::Fill { .. }),
+        "then the pin's ring and the pin"
+    );
 }
 
 #[test]
 fn a_pin_outside_what_shows_draws_nothing() {
     // Covering a square box, the picture shows its middle 450 px across: a point at its right
     // edge does not show, and neither does one cropped away.
-    let s = scene("map-inside", json!({ "pin": { "at": [0.97, 0.5], "label": "Far" }, "at": { "rect": [100, 200, 300, 300] } }));
+    let s = scene(
+        "map-inside",
+        json!({ "pin": { "at": [0.97, 0.5], "label": "Far" }, "at": { "rect": [100, 200, 300, 300] } }),
+    );
     let map = image(&s, "map-inside");
     assert!(map.marks.pin.is_none() && map.marks.label.is_none(), "{:?}", map.marks);
     let s = scene("map-inside", json!({ "crop": [0, 0, 0.5, 1], "pin": { "at": [0.75, 0.5] } }));
@@ -135,7 +143,9 @@ fn a_pin_outside_what_shows_draws_nothing() {
 
 #[test]
 fn a_label_stays_inside_and_clear_of_the_credit() {
-    let clear = |a: [f32; 4], b: [f32; 4]| a[0] >= b[0] + b[2] || b[0] >= a[0] + a[2] || a[1] >= b[1] + b[3] || b[1] >= a[1] + a[3];
+    let clear = |a: [f32; 4], b: [f32; 4]| {
+        a[0] >= b[0] + b[2] || b[0] >= a[0] + a[2] || a[1] >= b[1] + b[3] || b[1] >= a[1] + a[3]
+    };
     let inside = |r: [f32; 4], s: [f32; 4]| {
         r[0] >= s[0] - 0.5 && r[1] >= s[1] - 0.5 && r[0] + r[2] <= s[0] + s[2] + 0.5 && r[1] + r[3] <= s[1] + s[3] + 0.5
     };
@@ -168,7 +178,8 @@ fn a_label_stays_inside_and_clear_of_the_credit() {
 fn a_credit_is_drawn_linked_and_never_under_12_pt() {
     let (deck, theme, mut engine) = setup();
     let data = DataFiles::new();
-    let req = FrameRequest { deck: &deck, theme: &theme, data: &data, state: "maps", t_ms: f64::INFINITY, format: None };
+    let req =
+        FrameRequest { deck: &deck, theme: &theme, data: &data, state: "maps", t_ms: f64::INFINITY, format: None };
     let s = engine.at_rest(&req).unwrap();
     for id in ["map-inside", "map-below"] {
         let map = image(&s, id);
@@ -176,7 +187,9 @@ fn a_credit_is_drawn_linked_and_never_under_12_pt() {
         assert!(credit.text.runs.iter().all(|r| r.size >= 24.0), "never under 24 cu at 1080p: {id}");
         assert_eq!(credit.text.written, scaena_core::fetched::said(&deck_credit(&deck, id)));
         let hrefs: Vec<&LinkTarget> = credit.text.underlines.iter().filter_map(|u| u.target.as_ref()).collect();
-        for href in ["https://www.openstreetmap.org/copyright", "https://openmaptiles.org/", "https://www.geoapify.com/"] {
+        for href in
+            ["https://www.openstreetmap.org/copyright", "https://openmaptiles.org/", "https://www.geoapify.com/"]
+        {
             assert!(hrefs.contains(&&LinkTarget::Href(href.into())), "{id} links {href}: {hrefs:?}");
         }
     }
@@ -240,5 +253,8 @@ fn a_credit_that_cannot_be_read_is_w314_with_its_fix() {
     let found = w314(&mut engine, &deck);
     assert_eq!(found.len(), 1, "{found:#?}");
     assert!(found[0].message.contains("covers more than a quarter"), "{}", found[0].message);
-    assert_eq!(found[0].fix.as_deref(), Some(&[json!({ "op": "add", "path": "/nodes/map-inside/credit", "value": "below" })][..]));
+    assert_eq!(
+        found[0].fix.as_deref(),
+        Some(&[json!({ "op": "add", "path": "/nodes/map-inside/credit", "value": "below" })][..])
+    );
 }

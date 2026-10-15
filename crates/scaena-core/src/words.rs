@@ -602,7 +602,17 @@ pub const SHAPES: &[(&str, &str)] = &[
 /// A day, `YYYY-MM-DD`, as a person says it: "15 October 2026"; anything else as it is written.
 pub fn day(date: &str) -> String {
     const MONTHS: [&str; 12] = [
-        "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November",
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
         "December",
     ];
     let part = |r: std::ops::Range<usize>| date.get(r).and_then(|p| p.parse::<usize>().ok());

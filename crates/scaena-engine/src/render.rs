@@ -549,9 +549,10 @@ impl Engine {
             None => None,
         };
         let pin = match props.get("pin") {
-            Some(v) => {
-                Some(serde_json::from_value::<Pin>(v.clone()).map_err(|e| EngineError::Layout(format!("image `pin`: {e}")))?)
-            }
+            Some(v) => Some(
+                serde_json::from_value::<Pin>(v.clone())
+                    .map_err(|e| EngineError::Layout(format!("image `pin`: {e}")))?,
+            ),
             None => None,
         };
         let place = match props.get("credit") {
@@ -653,9 +654,8 @@ impl Engine {
                 };
                 // Beside the pin's head: to its right where it fits, else to its left.
                 let y = (hy - lh / 2.0).clamp(shown[1], (shown[1] + shown[3] - lh).max(shown[1]));
-                let card = [[hx + gap, y, lw, lh], [hx - gap - lw, y, lw, lh]]
-                    .into_iter()
-                    .find(|&r| inside(r) && clear(r));
+                let card =
+                    [[hx + gap, y, lw, lh], [hx - gap - lw, y, lw, lh]].into_iter().find(|&r| inside(r) && clear(r));
                 marks.label = card.map(|rect| Card {
                     rect,
                     fill: Some(surface),
@@ -666,7 +666,7 @@ impl Engine {
             }
             marks.pin = Some(mark);
         }
-        image.marks = marks;
+        image.marks = Box::new(marks);
         Ok(image)
     }
 

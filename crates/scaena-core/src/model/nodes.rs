@@ -453,7 +453,7 @@ node! {
         /// adjusts a picture.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub adjust: Option<ImageAdjust>,
-        /// Where the picture came from (ADR-0030, deck format 0.31): a map fetched once from a
+        /// Where the picture came from (ADR-0030, deck format 0.29): a map fetched once from a
         /// service, with when, what was asked, and the credit its terms ask shown with it, which
         /// the engine draws.
         #[serde(default, skip_serializing_if = "Option::is_none")]

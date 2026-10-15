@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/patch-0.28.json",
+  "$id": "https://scaena.dev/schema/patch-0.29.json",
   "title": "Scaena patch",
   "description": "A patch (SPEC §7.3): RFC 6902 ops and semantic ops, applied in order, all or none.",
   "type": "array",
@@ -824,7 +824,7 @@
           "$ref": "#/$defs/ImageAdjust"
         },
         "fetched": {
-          "description": "Where the picture came from (ADR-0030, deck format 0.31): a map fetched once from a service, with when, what was asked, and the credit its terms ask shown with it, which the engine draws.",
+          "description": "Where the picture came from (ADR-0030, deck format 0.29): a map fetched once from a service, with when, what was asked, and the credit its terms ask shown with it, which the engine draws.",
           "$ref": "#/$defs/Fetched"
         },
         "pin": {

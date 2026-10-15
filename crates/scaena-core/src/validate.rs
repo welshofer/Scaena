@@ -1234,7 +1234,9 @@ fn ends_and_paragraphs(deck: &Deck) -> Vec<Finding> {
             for (below, why) in crate::fetched::problems(record) {
                 let message = format!("`{id}` was fetched: {why}");
                 out.push(
-                    Finding::new("E106", Severity::Error, message).at(format!("{at}/fetched{below}")).node(id.to_string()),
+                    Finding::new("E106", Severity::Error, message)
+                        .at(format!("{at}/fetched{below}"))
+                        .node(id.to_string()),
                 );
             }
         }

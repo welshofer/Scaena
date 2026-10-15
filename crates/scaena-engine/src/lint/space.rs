@@ -415,13 +415,13 @@ impl Rule for W314Credit {
                     || words > credit.text.measure + 0.5
                 {
                     Some("is cut by its box".to_string())
-                } else if let Some(over) = state.scene.nodes[k + 1..]
-                    .iter()
-                    .chain(&state.scene.furniture)
-                    .filter(|n| n.opacity > 0.0)
-                    .find(|n| {
-                        drawn_extent(n).is_some_and(|r| meets(drawn(&state.scene, &n.id, r), (card, Some(map))).is_some())
-                    })
+                } else if let Some(over) =
+                    state.scene.nodes[k + 1..].iter().chain(&state.scene.furniture).filter(|n| n.opacity > 0.0).find(
+                        |n| {
+                            drawn_extent(n)
+                                .is_some_and(|r| meets(drawn(&state.scene, &n.id, r), (card, Some(map))).is_some())
+                        },
+                    )
                 {
                     Some(format!("is covered by `{}`", over.id))
                 } else if inside && credit.rect[2] * credit.rect[3] > 0.25 * shown[2] * shown[3] {
@@ -430,8 +430,7 @@ impl Rule for W314Credit {
                     None
                 };
                 let Some(why) = why else { continue };
-                let entry =
-                    found.entry(node.id.clone()).or_insert_with(|| (state.index, why, inside, Vec::new()));
+                let entry = found.entry(node.id.clone()).or_insert_with(|| (state.index, why, inside, Vec::new()));
                 entry.3.push(state.snapshot.state_id.clone());
             }
         }

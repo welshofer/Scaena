@@ -179,7 +179,8 @@ impl Reader<'_> {
             // A fetched picture's credit, after it (ADR-0030).
             if let Some(credit) = reading.map(|r| &r.credit).filter(|c| !c.is_empty()) {
                 let said: usize = credit.iter().map(|(w, _)| w.len()).sum();
-                let _ = write!(out, r#"<p data-node="{}" data-credit="">{}</p>"#, attr(id), self.linked(credit, 0..said));
+                let _ =
+                    write!(out, r#"<p data-node="{}" data-credit="">{}</p>"#, attr(id), self.linked(credit, 0..said));
             }
         }
     }
