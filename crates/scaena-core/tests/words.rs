@@ -1,15 +1,21 @@
 //! The editors say the same (PLAN 2.99): the Mac's window words what it shows through `Words` and
 //! `Issues` in Swift (PLAN 3.18, 3.20), and the browser's through `scaena_core::words`. These hold
-//! the Swift tables to the Rust ones, so the two cannot drift apart unseen.
+//! the Swift tables to the Rust ones, and the few words each window says on its own, a provider's
+//! answer that is no answer and what is called None, to each other, so the two cannot drift apart
+//! unseen.
 
 use regex_lite::Regex;
 use scaena_core::words;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 const WORDS_SWIFT: &str = include_str!("../../../apps/mac/ScaenaKit/Sources/Scaena/Words.swift");
 const ISSUES_SWIFT: &str = include_str!("../../../apps/mac/ScaenaKit/Sources/Scaena/IssueBadges.swift");
 const CUE_SWIFT: &str = include_str!("../../../apps/mac/ScaenaKit/Sources/Scaena/CueBar.swift");
 const INSPECTOR_SWIFT: &str = include_str!("../../../apps/mac/ScaenaKit/Sources/Scaena/Inspector.swift");
+const DATA_SWIFT: &str = include_str!("../../../apps/mac/ScaenaKit/Sources/Scaena/DataPanel.swift");
+const WHY_SWIFT: &str = include_str!("../../../apps/mac/ScaenaKit/Sources/ScaenaKit/Why.swift");
+const WORDS_TS: &str = include_str!("../../../web/src/words.ts");
+const LOOK_TS: &str = include_str!("../../../web/src/look.ts");
 
 /// The Swift source between `from` and the first `until` after it.
 fn between<'a>(source: &'a str, from: &str, until: &str) -> &'a str {
@@ -189,6 +195,83 @@ fn the_mac_calls_what_leaves_none_none() {
     assert!(!nothing.contains("key"), "a key left unset reads the chart's x");
 }
 
+/// The browser calls a choice None where the Mac does (PLAN 3.18): where nothing set leaves none,
+/// and the theme gives nothing in its place.
+#[test]
+fn the_browser_calls_what_leaves_none_none_as_the_mac_does() {
+    let quoted = Regex::new(r#""([^"]+)""#).unwrap();
+    let set = |source: &str| -> BTreeSet<String> { quoted.captures_iter(source).map(|c| c[1].to_string()).collect() };
+    let mac = set(between(INSPECTOR_SWIFT, "private static let nothing", "]\n"));
+    let browser = set(between(LOOK_TS, "const NOTHING = new Set([", "]);"));
+    assert_eq!(browser, mac, "the browser's None and the Mac's");
+    assert!(LOOK_TS.contains("const nothing = NOTHING.has(f.prop) && !gives;"));
+}
+
+/// Wherever an editor names a data source, it names it as the inspector does (PLAN 3.18), by its
+/// file's name in words: the Mac's Data panel and Insert through `Words.source`, the browser's
+/// Data tab through its twin of `words::source`, and its Insert, marks, and files through the
+/// lexicon's `sources`.
+#[test]
+fn the_editors_name_a_data_source_by_its_file_everywhere() {
+    assert!(DATA_SWIFT.contains("Text(Words.source(source.name, file: source.file)).tag(Optional(source.name))"));
+    assert!(!DATA_SWIFT.contains(r#"Text("\(source.name)"#), "the Data panel names no source by its id");
+    let insertion = between(WORDS_SWIFT, "static func insertion(", "\n    }\n");
+    assert!(insertion.contains("source(insert.name, file: file)"), "{insertion}");
+    let source = between(WORDS_TS, "export function source(", "\n}\n");
+    for step in [
+        r#"file.split("/").pop() ?? file"#,
+        r#"leaf.lastIndexOf(".")"#,
+        "if (said) return said;",
+        "return phrase(name);",
+    ] {
+        assert!(source.contains(step), "{step}: {source}");
+    }
+    let inserting = between(WORDS_TS, "export function inserting(", "\n}\n");
+    assert!(
+        inserting.contains(r#"if (type === "chart" || type === "table") return { kind, said: sourced(words, name) };"#)
+    );
+    assert!(WORDS_TS.contains("words?.sources?.[name] ?? source(name)"));
+}
+
+/// A provider's answer that is no answer is read and said the same in the Mac's `Why` and in the
+/// browser's twin (PLAN 3.18): each class by the same words of the answer, and each sentence word
+/// for word, the provider's name in it.
+#[test]
+fn the_browser_says_a_providers_answer_as_the_mac_does() {
+    // The words each reads an answer by: every string in Swift's `Answer.init` and in the
+    // browser's `unanswered`, less the browser's names for the classes, which Swift writes as cases.
+    let string = Regex::new(r#""((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'"#).unwrap();
+    let words = |source: &str| -> BTreeSet<String> {
+        string
+            .captures_iter(source)
+            .map(|c| c.get(1).or_else(|| c.get(2)).unwrap().as_str().replace("\\\"", "\"").replace("\\'", "'"))
+            .collect()
+    };
+    let classes = words(between(WORDS_TS, "export type Unanswered =", ";\n"));
+    assert_eq!(classes.len(), 10, "{classes:?}");
+    let mac = words(between(WHY_SWIFT, "init(status: Int, body: String) {", "\n        }\n    }\n"));
+    let browser: BTreeSet<String> =
+        words(between(WORDS_TS, "export function unanswered(", "\n}\n")).difference(&classes).cloned().collect();
+    assert!(mac.contains("insufficient_quota") && mac.contains("safety\""), "{mac:?}");
+    assert_eq!(browser, mac, "what an answer's words are read by");
+
+    // Each class's sentence, the provider's name as `{name}`.
+    let swift = Regex::new(r#"case \.(\w+): return "([^"]+)""#).unwrap();
+    let mac: BTreeMap<String, String> = swift
+        .captures_iter(between(WHY_SWIFT, "public static func answered(", "\n    }\n"))
+        .map(|c| (c[1].to_string(), c[2].replace("\\(name)", "{name}")))
+        .collect();
+    let ts = Regex::new(r#"case "(\w+)":\s*return `([^`]+)`;"#).unwrap();
+    let browser: BTreeMap<String, String> = ts
+        .captures_iter(between(WORDS_TS, "export function answered(", "\n}\n"))
+        .map(|c| (c[1].to_string(), c[2].replace("${provider}", "{name}")))
+        .collect();
+    assert_eq!(mac.len(), 9, "every class but no way to the provider, said in place: {mac:?}");
+    assert_eq!(browser, mac, "each sentence");
+    assert!(WHY_SWIFT.contains(r#""\(provider.name) can't be reached. Check your internet connection.""#));
+    assert!(WORDS_TS.contains("`${provider} can't be reached. Check your internet connection.`"));
+}
+
 #[test]
 fn the_mac_says_each_issue_and_its_fix_as_the_browser_does() {
     let said = Regex::new(r#"case ((?:"[EWI]\d+"(?:, )?)+): "([^"]+)""#).unwrap();
@@ -235,7 +318,9 @@ fn a_change_of_the_history_is_said_as_a_person_says_it() {
     assert_eq!(words::change("patch: a_new_op"), "An edit");
     assert_eq!(words::change(""), "A change");
     assert_eq!(words::change("history begins"), "The history begins");
-    assert_eq!(words::change("data_edit sales: 2 cells"), "The data “sales” changed");
+    // A data source by its name in words, never the id the deck writes it with (PLAN 3.18).
+    assert_eq!(words::change("data_edit sales: 2 cells"), "The data “Sales” changed");
+    assert_eq!(words::change("data_attach trail-visitors"), "The data “Trail Visitors” added");
     assert_eq!(words::change("theme --apply themes/daybreak.theme.json"), "The theme Daybreak taken");
     assert_eq!(words::change("theme_edit: colors from assets/photo.jpg"), "The theme given the colors of photo.jpg");
     assert_eq!(words::change("undo patch: replace_text"), "Undone: words typed");

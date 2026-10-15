@@ -82,7 +82,7 @@ struct IconPicker: View {
             found = try session.icons(query, fill: solid, limit: Self.shown)
             failed = nil
         } catch {
-            failed = "The icons could not be read: \(error.localizedDescription)"
+            failed = "The icons couldn't be read. \(Why.said(error))"
         }
     }
 

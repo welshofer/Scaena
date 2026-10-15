@@ -94,7 +94,7 @@ enum CanvasOffer {
                             NodeCommands.kind(kind), symbol: nil,
                             offered.filter { $0.insert.kind == kind }.map { o in
                                 .action(
-                                    Words.insertion(o.insert, among: deck.inserts), symbol: nil,
+                                    Words.insertion(o.insert, among: deck.inserts, sources: deck.sources), symbol: nil,
                                     run: { deck.insert(o.id) })
                             })
                     }))

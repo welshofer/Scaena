@@ -15,7 +15,7 @@
 import { listen, observing } from "./life";
 import { BUNDLE_PATH, type BundleFile, type Edited, type Lexicon, type Named, PICTURE } from "./protocol";
 import type { Stage } from "./stage";
-import { named, object } from "./words";
+import { named, object, sourced } from "./words";
 
 /** What the panel asks of the editor around it. */
 export interface FilesEditor {
@@ -51,7 +51,7 @@ export const size = (bytes: number) =>
   bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${Math.round(bytes / 1024)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 
 /** What uses a file, as a person says it (PLAN 2.99): an image by what it shows, the story's
- * evidence, a font, a data source by its name. */
+ * evidence, a font, a data source by its file's name in words (PLAN 3.18). */
 export function naming(n: Named, words?: Lexicon): string {
   switch (n.by) {
     case "node":
@@ -63,7 +63,7 @@ export function naming(n: Named, words?: Lexicon): string {
     case "theme":
       return `the theme's font ${named(words, "font-family", n.family)}`;
     case "source":
-      return `the data “${n.source}”`;
+      return `the data “${sourced(words, n.source)}”`;
   }
 }
 

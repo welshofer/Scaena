@@ -171,6 +171,12 @@ try {
   const goals = await page.locator("#prompting-goal option").allTextContents();
   check(goals.join() === "Inform,Persuade,Inspire,Sell,Educate,Update Status", `the goals are Narrato's: ${goals}`);
   check((await page.$eval("#prompting-length", (s) => s.value)) === "5-10 slides", "the length is Narrato's default");
+  // Shown as a person writes a range, with an en dash, as the Mac shows it (PLAN 3.18); and a link
+  // asked for by an example in words, not a syntax.
+  const length = await page.$eval("#prompting-length", (s) => s.selectedOptions[0]?.textContent);
+  check(length === "5–10 slides", `the length reads with an en dash: ${length}`);
+  const asking = await page.getAttribute("#prompting-link", "placeholder");
+  check(asking?.startsWith("A web address") && !asking.includes("github:"), `a link is asked for in words: ${asking}`);
   const arcs = await page.locator("#prompting-arc option").allTextContents();
   check(arcs[0] === "The model's choice" && arcs.includes("Problem–Solution"), `the arcs are offered, the model's choice first: ${arcs.length}`);
   const who = await page.textContent("#prompting-who");

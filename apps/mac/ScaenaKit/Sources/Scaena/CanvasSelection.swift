@@ -854,7 +854,7 @@ struct CanvasSelection: View {
                 let holder = transform(of: selected.parent)
                 return held(.turn(Turn(selected, turned: turned, from: point, holder: holder)))
             } catch {
-                said = "Can't be rotated: \(error)"
+                said = "\(name(selected.node, starting: true)) can't be rotated. \(Why.said(error))"
             }
         }
         return nil
@@ -1421,7 +1421,7 @@ struct CanvasSelection: View {
             }
             edit(snapped.patch, as: grow ? "Resize" : "Move")
         } catch {
-            said = "Not moved: \(error)"
+            said = "Not moved. \(Why.said(error))"
         }
     }
 
@@ -1445,7 +1445,7 @@ struct CanvasSelection: View {
             edit(Handling.turning(selected, to: now, in: state, fork: Held.option))
             said = "Rotated to \(now.formatted())°"
         } catch {
-            said = "Can't be rotated: \(error)"
+            said = "\(name(selected, starting: true)) can't be rotated. \(Why.said(error))"
         }
         return true
     }
@@ -1548,7 +1548,7 @@ struct CanvasSelection: View {
             self.node = worded.id
             return typing.enter(worded.id, in: state, at: nil, fork: false)
         } catch {
-            said = "Not given words: \(error)"
+            said = "Not given words. \(Why.said(error))"
             return false
         }
     }
@@ -1688,7 +1688,7 @@ struct CanvasSelection: View {
             }
             press = .dragging(drag)
         } catch {
-            press = .refused("\(held.node) cannot be moved: \(error)")
+            press = .refused("\(name(held.node, starting: true)) can't be moved. \(Why.said(error))")
         }
     }
 
@@ -1702,7 +1702,7 @@ struct CanvasSelection: View {
             return
         }
         if let held = boxes.first(where: { all.contains($0.node) && $0.locked != nil }) {
-            press = .refused("\(held.node) is locked: nothing moves")
+            press = .refused("\(name(held.node, starting: true)) is locked: nothing moves")
             return
         }
         do {
@@ -1713,7 +1713,7 @@ struct CanvasSelection: View {
                     node: first, together: all, targets: targets, at: placements[first], edge: nil, revision: editor.revision
                 ))
         } catch {
-            press = .refused("\(first) cannot be moved: \(error)")
+            press = .refused("\(name(first, starting: true)) can't be moved. \(Why.said(error))")
         }
     }
 

@@ -88,9 +88,11 @@ struct PanelEdits {
     func patch(_ name: String, _ ops: [JSONValue]) -> Bool { patchMade(name, ops) }
 }
 
-/// An edit the deck refused, and why: thrown, nothing made, the window says why.
-struct Refused: Error, CustomStringConvertible {
+/// An edit the deck refused, and why: thrown, nothing made, the window says why (`Why.said`).
+struct Refused: Error, CustomStringConvertible, LocalizedError {
     let description: String
+
+    var errorDescription: String? { description }
 }
 
 /// The inspector's column (PLAN 3.18): the tab chosen. On the Mac the toolbar's Format, Animate,

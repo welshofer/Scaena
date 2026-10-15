@@ -2,6 +2,7 @@
 // results go back, and so on until it answers without a call, the user stops it, or it has
 // called tools as many rounds as one question allows.
 import type { AssistantEvent } from "../protocol";
+import { unasked } from "../words";
 import type { Call, Message, Provider, Result, Tool, Turn } from "./providers";
 
 /** What the page hears as the assistant works. */
@@ -69,7 +70,9 @@ export async function converse(o: Options): Promise<void> {
       });
     } catch (e) {
       if (stopped()) return o.emit({ kind: "done", stop: "stopped" });
-      return o.emit({ kind: "failed", message: e instanceof Error ? e.message : String(e) });
+      // A refusal, or no way to the provider, in a person's words (PLAN 3.18), as the Mac's
+      // assistant says it: never the provider's own, nor its status.
+      return o.emit({ kind: "failed", message: unasked(o.provider.name, e) });
     }
     o.conversation.push({ role: "assistant", text: turn.text, calls: turn.calls, raw: turn.raw });
     if (turn.usage) o.emit({ kind: "usage", ...turn.usage });

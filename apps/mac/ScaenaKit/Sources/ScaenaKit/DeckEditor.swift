@@ -85,15 +85,37 @@ public final class DeckEditor {
         guard valid, error == nil else { throw ScaenaError(message: "the source does not compile: fix it first") }
         let called = try session.tool("deck_patch", ["ops": .array(ops)], author: author)
         guard called.edited else {
-            // What the deck refused, as the browser says it.
-            let refused = called.result["added"]?.array?.first { $0["severity"]?.string == "error" }
-            let why = refused?["message"]?.string.map { "the deck refuses it: \($0)" } ?? "it is there already"
-            throw ScaenaError(message: why)
+            // What the deck refused, as the browser says it (PLAN 2.99, 3.18): what lint found, in
+            // the sentence an editor says it in, never lint's own message, which names what it
+            // finds by the ids the deck writes.
+            guard let refused = called.result["added"]?.array?.first(where: { $0["severity"]?.string == "error" }) else {
+                throw ScaenaError(message: "it is there already")
+            }
+            throw ScaenaError(message: "the deck would not open with it. \(refusal(refused))")
         }
         let before = made
         let next = try session.source()
         _ = take(next)
         return before
+    }
+
+    /// What lint found in a change refused, as an editor says it (`scaena_core::words`, as the
+    /// browser's `finding` says it): the object it is about, by what it shows, or the deck or its
+    /// theme; then what it finds, in a sentence.
+    private func refusal(_ finding: JSONValue) -> String {
+        let state = finding["state"]?.string ?? slots.first?.state ?? ""
+        let words: JSONValue? = try? session.call("words", ["state": .string(state)])
+        let code = finding["code"]?.string ?? ""
+        let found =
+            finding["said"]?.string ?? words?["issues"]?[code]?.string
+            ?? "Something in it isn't written the way the deck allows."
+        let about: String
+        if let node = finding["node"]?.string, let shows = words?["objects"]?[node]?.string {
+            about = shows == words?["kinds"]?[node]?.string ? "The \(shows.lowercased())" : "“\(shows)”"
+        } else {
+            about = finding["file"]?.string == nil ? "The deck" : "The theme"
+        }
+        return "\(about): \(found)"
     }
 
     /// A new deck's one blank state made a title slide in the theme's `title` layout, its words to
@@ -120,7 +142,7 @@ public final class DeckEditor {
         guard valid, error == nil else { throw ScaenaError(message: "the source does not compile: fix it first") }
         guard try session.typed(ops, at: date) else { throw ScaenaError(message: "it reads so already") }
         guard let before = take(try session.source(), lint: false) else {
-            throw ScaenaError(message: error?.message ?? "the deck typed does not validate")
+            throw ScaenaError(message: error?.said ?? "the deck typed does not validate")
         }
         return before
     }
@@ -135,10 +157,10 @@ public final class DeckEditor {
     /// Apply `finding`'s fix (SPEC §7.4): the source the deck had, for an undo.
     @discardableResult
     public func fix(_ finding: Finding) throws -> String {
-        guard let patch = finding.fix, finding.fixable else { throw ScaenaError(message: "\(finding.code) has no fix") }
+        guard let patch = finding.fix, finding.fixable else { throw ScaenaError(message: "there is no fix for it") }
         let fixed = try session.fix(patch)
         guard let before = take(fixed) else {
-            throw ScaenaError(message: error?.message ?? "the fixed deck does not validate")
+            throw ScaenaError(message: error?.said ?? "the fixed deck does not validate")
         }
         return before
     }

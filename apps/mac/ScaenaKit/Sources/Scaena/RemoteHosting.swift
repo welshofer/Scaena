@@ -51,7 +51,9 @@ final class RemoteHost {
             let server = try RemoteServer(name: name)
             server.command = { [weak self] command in self?.perform(command) }
             server.joined = { [weak self] count in self?.joined = count }
-            server.failed = { [weak self] why in self?.trouble = why }
+            // What the network says of it is not a person's words (PLAN 3.18): the window says
+            // what to do.
+            server.failed = { [weak self] _ in self?.trouble = Self.unoffered }
             self.server = server
             self.editor = editor
             self.from = from
@@ -61,8 +63,13 @@ final class RemoteHost {
             trouble = nil
             follow(Presenting.current)
         } catch {
-            trouble = "\(error)"
+            trouble = Self.unoffered
         }
+    }
+
+    /// Why remotes cannot join, in a person's words.
+    private static var unoffered: String {
+        "The deck can't be offered to a remote. Check that this \(Words.device) is on a network, and try again."
     }
 
     /// Offer the deck no more, and let every remote go.

@@ -15,7 +15,8 @@ public struct RemotePresenter: Identifiable, Hashable, Sendable {
 @MainActor @Observable
 public final class RemoteBrowser {
     public private(set) var presenters: [RemotePresenter] = []
-    /// Why none can be found, where it is so: the local network refused, say.
+    /// Why none can be found, where it is so: the local network refused, say, in a person's words
+    /// (PLAN 3.18), not the network's own.
     public private(set) var trouble: String?
     @ObservationIgnored private var browser: NWBrowser?
 
@@ -39,7 +40,7 @@ public final class RemoteBrowser {
         browser.stateUpdateHandler = { [weak self] state in
             MainActor.assumeIsolated {
                 switch state {
-                case .failed(let error), .waiting(let error): self?.trouble = "\(error)"
+                case .failed, .waiting: self?.trouble = Self.unfound
                 case .ready: self?.trouble = nil
                 default: break
                 }
@@ -54,6 +55,10 @@ public final class RemoteBrowser {
         browser = nil
         presenters = []
     }
+
+    /// Why no presenter can be found, and what to do.
+    private static let unfound =
+        "No presenter can be found. Check that this device is on the presenter's network, and that Local Network is on for it in Settings."
 }
 
 /// A remote joined to a presenter (PLAN 4.10): where the show is, as the presenter tells it, and
@@ -116,8 +121,9 @@ public final class RemoteClient {
         case .ready:
             patience?.cancel()
             status = .joined
-        case .failed(let error):
-            lose("\(error)")
+        case .failed:
+            // What the network says of it is not a person's words (PLAN 3.18).
+            lose("The presenter can't be reached. Check that this device is on its network, and try again.")
         case .cancelled:
             if status != .joined { lose("Not joined.") }
         default:

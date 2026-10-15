@@ -137,7 +137,10 @@ export function prompting(
       select.replaceChildren(...values.map(([value, label]) => new Option(label, value, false, value === chosen)));
     };
     options(goal, choices.goals.map((g) => [g, g]), choices.defaults.goal);
-    options(length, choices.lengths.map((l) => [l, l]), choices.defaults.length);
+    // A length as the brief shows it, its range with an en dash, `5–10 slides`, as the Mac shows it;
+    // what is chosen stays Narrato's own words, `5-10 slides`, which its prompts carry byte for
+    // byte (ADR-0026).
+    options(length, choices.lengths.map((l) => [l, l.replaceAll("-", "\u2013")]), choices.defaults.length);
     options(modality, choices.modalities.map((m) => [m.id, m.label]), choices.modalities[0]?.id ?? "");
     options(arc, [["", "The model's choice"], ...choices.arcs.map((a): [string, string] => [a, a])], "");
     audience.placeholder = choices.defaults.audience;

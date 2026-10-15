@@ -63,15 +63,28 @@ public enum Provider: String, Codable, CaseIterable, Identifiable, Sendable {
 
     /// Ask `model` `prompt` once with the user's `key`, told `instructions` (PLAN 2.101), shown
     /// `picture` where there is one (PLAN 2.119): the words it answers. `send` makes the request, as
-    /// the assistant's does.
+    /// the assistant's does. Where none came, why is thrown in a person's words (PLAN 3.18, `Why`):
+    /// the key not accepted, the provider busy, no way to it; never the provider's own.
     public func write(
         model: String, key: String, base: String? = nil, instructions: String, prompt: String,
         picture: String? = nil, send: Assistant.Send = Assistant.urlSession
     ) async throws -> String {
         let request = try onceRequest(
             model: model, key: key, base: base, instructions: instructions, prompt: prompt, picture: picture)
-        let (data, status) = try await send(request.urlRequest())
-        return try answered(status: status, body: String(decoding: data, as: UTF8.self))
+        // What came back: its body and its status.
+        let answer: (Data, Int)
+        do {
+            answer = try await send(request.urlRequest())
+        } catch let error as URLError where error.code != .cancelled {
+            throw ScaenaError(message: Why.unreached(self))
+        }
+        let (data, status) = answer
+        let body = String(decoding: data, as: UTF8.self)
+        do {
+            return try answered(status: status, body: body)
+        } catch {
+            throw ScaenaError(message: Why.answered(self, status: status, body: body))
+        }
     }
 
     private static func call<T: Decodable>(_ method: String, _ args: JSONValue) throws -> T {

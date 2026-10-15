@@ -166,6 +166,24 @@ function part(el: HTMLElement): { node: string; kind: string; says: string } {
 /** A property as a person labels it (PLAN 2.99): `style/family` is Font. */
 const labeled = (f: Field) => f.words?.label ?? f.prop;
 
+/** What has none where the deck sets nothing (PLAN 3.18): a chart's or a table's source, a chart's
+ * channel that reads no column (no series, no small multiples), a picture's mask, and a shadow. The
+ * choice that takes it away is None, as a presentation app calls it, not Default, unless the theme
+ * gives one; the Mac's inspector calls it so (`Inspector.nothing`). */
+const NOTHING = new Set([
+  "data",
+  "x/field",
+  "y/field",
+  "series/field",
+  "color/field",
+  "sizeEncoding/field",
+  "interval/low",
+  "interval/high",
+  "facet/field",
+  "mask",
+  "shadow",
+]);
+
 /** A build written as a call to a preset (`{ preset, delay }`), as a drag of its bar in the cue
  * writes it (SPEC §7.3): the preset it plays. */
 const called = (v: unknown): { preset: string; delay?: number } | undefined =>
@@ -310,8 +328,12 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
       value !== undefined && !known.includes(value) ? `<option value="" selected disabled>${html(spoken(f, value))}</option>` : "";
     // What shows where nothing sets it: the theme's, by what it gives a text's look.
     const gives = f.theme === undefined ? "" : ` (${spoken(f, f.theme)})`;
-    const unset = f.prop === "transition/duration" && cuts() ? "None: it cuts in" : f.prop === "layout" ? "None" : `Default${gives}`;
-    const none = `<option value=""${value === undefined ? " selected" : ""}>${value === undefined || gives ? html(unset) : "—"}</option>`;
+    // Where nothing set leaves none, the choice that takes the value away is None (`NOTHING`), as
+    // the Mac's `PickRow` says it; where the theme gives one, Default is called by it.
+    const nothing = NOTHING.has(f.prop) && !gives;
+    const unset =
+      f.prop === "transition/duration" && cuts() ? "None: it cuts in" : f.prop === "layout" || nothing ? "None" : `Default${gives}`;
+    const none = `<option value=""${value === undefined ? " selected" : ""}>${value === undefined || gives || nothing ? html(unset) : "—"}</option>`;
     const options = (all: string[]) =>
       all.map((o) => `<option value="${html(o)}"${o === value ? " selected" : ""}>${html(f.words?.said[o] ?? o)}</option>`).join("");
     const t = f.takes;

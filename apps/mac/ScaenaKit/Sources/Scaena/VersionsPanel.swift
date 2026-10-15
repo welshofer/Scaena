@@ -105,7 +105,7 @@ struct VersionsPanel: View {
             if state == nil || !states.contains(state ?? "") { state = states.first }
             compared = try editor.session.compareVersions(from: chosen)
         } catch {
-            problem = "\(error)"
+            problem = Why.said(error)
         }
     }
 
@@ -115,7 +115,7 @@ struct VersionsPanel: View {
             drawing = Image(png: try editor.session.versionPNG(state, width: 640))
         } catch {
             drawing = nil
-            problem = "\(error)"
+            problem = Why.said(error)
         }
     }
 
@@ -124,7 +124,7 @@ struct VersionsPanel: View {
             try editor.session.keepHistory()
             keeps = true
         } catch {
-            problem = "\(error)"
+            problem = Why.said(error)
         }
     }
 

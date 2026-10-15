@@ -26,7 +26,7 @@ import { type Key, MOD, SHIFT } from "./commands";
 import { listen, observing } from "./life";
 import type { Edited, Lexicon, Quote, RowEdit, Sheet } from "./protocol";
 import type { Stage } from "./stage";
-import { finding, object } from "./words";
+import { finding, object, source } from "./words";
 
 /** What a cell of the Data tab answers (PLAN 2.65), as the keys sheet lists it. */
 export const dataKeys = (): Key[] => [
@@ -137,7 +137,9 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
       return;
     }
     if (asked !== asking) return;
-    picker.replaceChildren(...got.sources.map((s) => new Option(s.name, s.name)));
+    // Each source as a person names it (PLAN 3.18), as the Mac's picker names it: by its file's
+    // name in words, never by the name the deck writes it with.
+    picker.replaceChildren(...got.sources.map((s) => new Option(source(s.name, s.file), s.name)));
     picker.disabled = got.sources.length === 0;
     if (got.name !== undefined) picker.value = got.name;
     if (!got.sources.length) {
@@ -372,7 +374,7 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
       return editor.say("Click the cell to quote first, with characters selected in a text you're typing in");
     }
     const quote = quoting(shown.name, shown.sheet, row, col);
-    void editor.quote?.(quote, `quotes ${quote.column} of row ${row} of the data “${shown.name}”`);
+    void editor.quote?.(quote, `quotes ${quote.column} of row ${row} of the data “${source(shown.name, shown.file)}”`);
   };
   into.querySelector<HTMLButtonElement>("[data-undo]")!.onclick = () => undo();
   into.querySelector<HTMLButtonElement>("[data-redo]")!.onclick = () => undo(true);

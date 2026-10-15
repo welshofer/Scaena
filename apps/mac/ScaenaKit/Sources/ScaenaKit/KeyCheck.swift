@@ -10,7 +10,8 @@ public enum KeyCheck {
     public enum Verdict: Equatable, Sendable {
         /// The key works: with the number of models it can use, where the answer listed them.
         case accepted(models: Int?)
-        /// The provider refused the key, in a sentence that says why.
+        /// The provider refused the key, or the account it is of cannot use the models, in a
+        /// sentence that says why.
         case refused(String)
         /// The provider could not be asked, or answered with an error of its own, in a sentence.
         case unreachable(String)
@@ -46,40 +47,38 @@ public enum KeyCheck {
     }
 
     /// What `provider`'s answer to the request that lists its models says of the key it was
-    /// asked with.
+    /// asked with, said as the window says it (PLAN 3.18, `Why.answered`): the key not accepted,
+    /// or its account out of credit or without the models, is refused; the provider busy or in
+    /// trouble, or an answer that says nothing of the key, is not checked. No status, and none of
+    /// the provider's own words.
     public static func verdict(_ provider: Provider, status: Int, body: String) -> Verdict {
-        let refused = { (said: String?) in
-            Verdict.refused(said.map { "\(provider.name) refused this key: \($0)" } ?? "\(provider.name) refused this key.")
-        }
-        switch status {
-        case 200..<300:
+        if (200..<300).contains(status) {
             return .accepted(models: (try? provider.models(status: status, body: body)).map(\.count))
-        case 429:
-            // The key is good; the provider is busy, or its quota spent.
+        }
+        let why = Why.answered(provider, status: status, body: body)
+        switch Why.Answer(status: status, body: body) {
+        case .busy where status == 429:
+            // The key is good: the provider is busy.
             return .accepted(models: nil)
-        case 401, 403:
-            return refused(said(body))
-        case 400 where body.localizedCaseInsensitiveContains("key"):
-            // Gemini answers a bad key with a 400 that says so.
-            return refused(said(body))
-        case 500...:
-            return .unreachable("\(provider.name) answered with an error of its own (\(status)). Try again in a moment.")
+        case .notAccepted, .noCredit, .noAccess:
+            return .refused(why)
         default:
-            return refused(said(body) ?? "it answered \(status).")
+            return .unreachable(why)
         }
     }
 
     /// Asks `provider` whether `key` works, by the request that lists its models, through `send`.
     ///
-    /// For the apps' UI tests, `SCAENA_KEY_CHECK` in the environment answers in the provider's
+    /// For the apps' UI tests, `SCAENA_KEY_CHECK` in `environment` answers in the provider's
     /// place: `accept`, `refuse`, or `offline`, and nothing is sent.
     public static func check(
-        _ key: String, for provider: Provider, send: Assistant.Send = Assistant.urlSession
+        _ key: String, for provider: Provider, environment: [String: String] = ProcessInfo.processInfo.environment,
+        send: Assistant.Send = Assistant.urlSession
     ) async -> Verdict {
-        switch ProcessInfo.processInfo.environment["SCAENA_KEY_CHECK"] {
+        switch environment["SCAENA_KEY_CHECK"] {
         case "accept": return .accepted(models: nil)
-        case "refuse": return .refused("\(provider.name) refused this key.")
-        case "offline": return .unreachable("The internet connection appears to be offline.")
+        case "refuse": return .refused(Why.answered(provider, status: 401, body: ""))
+        case "offline": return .unreachable(Why.unreached(provider))
         default: break
         }
         do {
@@ -88,10 +87,9 @@ public enum KeyCheck {
             request.timeoutInterval = 20
             let (data, status) = try await send(request)
             return verdict(provider, status: status, body: String(decoding: data, as: UTF8.self))
-        } catch let error as URLError {
-            return .unreachable(error.localizedDescription)
         } catch {
-            return .unreachable("\(provider.name) could not be asked: \(error)")
+            // No way to the provider, said in a person's words: not the network's own.
+            return .unreachable(Why.said(error, of: provider))
         }
     }
 
@@ -117,7 +115,7 @@ public enum KeyCheck {
         switch environment["SCAENA_KEY_CHECK"] {
         case "accept": return .listed([])
         case "refuse": return .unlisted(whyUnlisted(provider, status: 401, body: ""))
-        case "offline": return .unlisted(unreached(provider))
+        case "offline": return .unlisted(Why.unreached(provider))
         default: break
         }
         do {
@@ -131,38 +129,22 @@ public enum KeyCheck {
             }
             return .unlisted(whyUnlisted(provider, status: status, body: body))
         } catch is URLError {
-            return .unlisted(unreached(provider))
+            return .unlisted(Why.unreached(provider))
         } catch {
-            return .unlisted("\(provider.name)'s models couldn't be listed. Try again in a moment.")
+            return .unlisted(noneListed(provider))
         }
     }
 
-    /// Why `provider`'s answer of `status` lists no models, in a person's words, by what the answer
-    /// says of the key: not accepted, the provider busy or in trouble, or an answer that lists none.
+    /// Why `provider`'s answer of `status` lists no models, in a person's words (`Why.answered`):
+    /// the key not accepted, the account out of credit or without the models, the provider busy
+    /// or in trouble; or an answer that lists none.
     static func whyUnlisted(_ provider: Provider, status: Int, body: String) -> String {
-        switch verdict(provider, status: status, body: body) {
-        case .refused: "\(provider.name) didn't accept your key. Check it, or replace it."
-        case .unreachable: "\(provider.name) couldn't answer just now. Try again in a moment."
-        case .accepted where status == 429: "\(provider.name) is busy. Try again in a moment."
-        case .accepted: "\(provider.name)'s models couldn't be listed. Try again in a moment."
-        }
+        (200..<300).contains(status) ? noneListed(provider) : Why.answered(provider, status: status, body: body)
     }
 
-    /// That `provider` could not be reached, in a person's words.
-    static func unreached(_ provider: Provider) -> String {
-        "\(provider.name) can't be reached. Check your internet connection."
-    }
-
-    /// The message a provider's error answer carries, `{"error": {"message": …}}` in each of
-    /// Anthropic's, OpenAI's, and Gemini's.
-    static func said(_ body: String) -> String? {
-        guard let data = body.data(using: .utf8),
-            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let error = json["error"] as? [String: Any],
-            let message = (error["message"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
-            !message.isEmpty
-        else { return nil }
-        return message
+    /// That `provider` answered with no models a person can choose, in a person's words.
+    static func noneListed(_ provider: Provider) -> String {
+        "\(provider.name)'s models couldn't be listed. Try again in a moment."
     }
 }
 

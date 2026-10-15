@@ -10,7 +10,7 @@
 import { listen } from "./life";
 import type { Edited, WritingAsk, WritingKind, Written } from "./protocol";
 import type { Stage } from "./stage";
-import { quote } from "./words";
+import { quote, unasked } from "./words";
 
 /** Who writes: the assistant's provider, by its name, at its own address or `base`, with the
  * user's key, and the model they picked. */
@@ -138,7 +138,9 @@ export function writer(stage: Stage, host: WritingHost) {
         picture: writing.picture,
       }));
     } catch (e) {
-      if (mine === turn) thinking.textContent = `No answer from ${who.name}: ${said(e)}`;
+      // Why, in a person's words (PLAN 3.18), as the Mac's writing tools say it: never the
+      // provider's own, nor its status.
+      if (mine === turn) thinking.textContent = unasked(who.name, e);
       return;
     }
     if (mine !== turn || !dialog.open) return;

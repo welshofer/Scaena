@@ -125,6 +125,8 @@ struct InsertMenu: View {
     /// What else it offers, last, by what the menu calls each: a file to choose, a picture to make
     /// (PLAN 2.107); none where there is no slide to put one on.
     var also: [(title: String, action: () -> Void)] = []
+    /// The deck's data sources and their files: what a chart or a table is named by (PLAN 3.18).
+    var sources: [DataSource] = []
 
     /// One thing offered, by its place in what the deck offers.
     private struct Offered: Identifiable {
@@ -152,7 +154,7 @@ struct InsertMenu: View {
         ForEach(kinds.indices, id: \.self) { k in
             if k > 0, !offered(kinds[k]).isEmpty { Divider() }
             ForEach(offered(kinds[k])) { item in
-                Button(Words.insertion(item.insert, among: inserts)) { insert(item.id) }
+                Button(Words.insertion(item.insert, among: inserts, sources: sources)) { insert(item.id) }
             }
         }
         if !also.isEmpty {

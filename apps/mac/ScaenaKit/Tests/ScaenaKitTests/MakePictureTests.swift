@@ -102,8 +102,9 @@ private actor Painted {
     #expect(asked.first?.body?.contains("Editorial photography") == true, "the first as a photograph")
     #expect(asked.last?.body?.contains("editorial illustration") == true, "the next as an illustration")
 
-    // Refused: why, and nothing to put.
-    await #expect(throws: ScaenaError.self) {
+    // Refused: why, in a person's words (PLAN 3.18), not the provider's, and nothing to put.
+    let declined = await #expect(throws: ScaenaError.self) {
         _ = try await generator.picture(subject: "refuse this", theme: theme, size: place.size, painter: painter)
     }
+    #expect(declined?.message == "OpenAI's safety system turned that down. Ask in other words.", "\(String(describing: declined))")
 }

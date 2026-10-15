@@ -47,6 +47,9 @@ struct DeckActions {
     /// Whether a node selected shows on another slide too: Delete from All Slides takes it off
     /// those as well, where Delete takes it off this slide on.
     var deletesElsewhere = false
+    /// The deck's data sources and their files: what Insert names a chart's or a table's data by
+    /// (PLAN 3.18).
+    var sources: [DataSource] = []
 }
 
 private struct DeckActionsKey: FocusedValueKey {
@@ -193,7 +196,7 @@ struct NodeCommands: Commands {
     private func offered(of kind: String) -> [Offered] {
         let all = deck?.inserts ?? []
         return all.enumerated().filter { $0.element.kind == kind }.map {
-            Offered(id: $0.offset, name: Words.insertion($0.element, among: all))
+            Offered(id: $0.offset, name: Words.insertion($0.element, among: all, sources: deck?.sources ?? []))
         }
     }
 }

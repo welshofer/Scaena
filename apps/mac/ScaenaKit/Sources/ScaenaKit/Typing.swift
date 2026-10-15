@@ -254,7 +254,7 @@ public final class Typing {
             told = whereTold
             edited?(before, joins)
         } catch {
-            told = "Not typed: \(error)"
+            told = "Not typed. \(Why.said(error))"
             return false
         }
         guard reread() else { return false }
@@ -432,7 +432,7 @@ public final class Typing {
                 state: state, node: node, from: carets.scalars(from), to: carets.scalars(to))
             give(look, said: look["style/weight"]?.number == 700 ? "Bold" : "Not bold")
         } catch {
-            say("Not bold: \(error)")
+            say("Not made bold. \(Why.said(error))")
         }
     }
 
@@ -447,7 +447,7 @@ public final class Typing {
                 state: state, node: node, from: carets.scalars(from), to: carets.scalars(to))
             give(look, said: look["style/italic"]?.bool == true ? "Italic" : "Not italic")
         } catch {
-            say("Not italic: \(error)")
+            say("Not made italic. \(Why.said(error))")
         }
     }
 
@@ -480,7 +480,7 @@ public final class Typing {
             last = nil
             edited?(before, false)
         } catch {
-            say("Not styled: \(error)")
+            say("Not styled. \(Why.said(error))")
             return false
         }
         guard reread(), let found = self.carets else { return false }
@@ -595,7 +595,7 @@ public final class Typing {
             last = nil
             edited?(before, false)
         } catch {
-            say("Not made a list: \(error)")
+            say("Not made a list. \(Why.said(error))")
             return false
         }
         guard reread(), let found = self.carets else { return false }

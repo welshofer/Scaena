@@ -13,7 +13,7 @@
 //   old one's crop taken away: one patch, which one undo takes back.
 // - A picture locked, selected, is not replaced: with no empty place on the slide, the picture
 //   goes where the pointer last pressed, asked for square, and lands in its own proportions.
-// - A provider that refuses says why in the dialog, and nothing changes.
+// - A provider that refuses says why in the dialog, in a person's words, and nothing changes.
 //
 //   node web/picture.mjs     (after `just web`; from the repository's root)
 //
@@ -263,8 +263,13 @@ try {
   await page.click("#picturing-make");
   await page.evaluate(() => window.scaena.picturing.settled());
   const refused = await dialog();
-  check(refused.open && /^No picture: .*rejected by the safety system/.test(refused.status), `a refusal is said in the dialog: ${refused.status}`);
-  check(!/^No picture: slide/.test(refused.status), "and names no slide of a made deck: the picture was for the slide shown");
+  // In a person's words (PLAN 3.18), as the Mac says it: what the refusal means, not the
+  // provider's own words.
+  check(
+    refused.open && refused.status === "No picture was made. OpenAI's safety system turned that down. Ask in other words.",
+    `a refusal is said in the dialog, in a person's words: ${refused.status}`,
+  );
+  check(!/\bslide \d/i.test(refused.status), "and names no slide of a made deck: the picture was for the slide shown");
   check(refused.make, "which asks again");
   check(scripted.painted.length === asked4 + 1, "asked once");
   check((await source()) === pictured, "and nothing changed");

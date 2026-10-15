@@ -575,7 +575,9 @@ struct PromptView: View {
                 #endif
             } catch is CancellationError {
             } catch {
-                say(error.localizedDescription, failed: true)
+                // In a sentence, without the error's wrapping (PLAN 3.18). What the provider said
+                // of the brief stays its own (the generator's tests hold it so).
+                say(Why.said(error), failed: true)
             }
         }
     }
