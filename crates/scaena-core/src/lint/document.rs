@@ -694,20 +694,19 @@ impl Rule for I403UncoloredLanguage {
         Severity::Info
     }
     fn check(&self, cx: &Context) -> Vec<Finding> {
-        use crate::tracking::{Lives, lives, merge_props};
+        use crate::tracking::{Lives, lives};
         let mut out: Vec<Finding> = Vec::new();
         let mut seen: Vec<(String, String, usize)> = Vec::new();
         for (i, snap) in cx.snapshots.iter().enumerate() {
             for (id, props) in &snap.nodes {
-                if cx.deck.nodes.get(id).is_none_or(|n| n.node_type != NodeType::Text) {
+                // The language as the state shows it, the deck's overrides over it, read in place:
+                // most texts are no code, and no props are copied to find so.
+                let over = cx.deck.overrides.get(id);
+                let code = over.and_then(|o| o.get("code")).or_else(|| props.get("code"));
+                let language = code.and_then(|c| c.get("language")).and_then(Value::as_str);
+                if language.is_none() || cx.deck.nodes.get(id).is_none_or(|n| n.node_type != NodeType::Text) {
                     continue;
                 }
-                let over = cx.deck.overrides.get(id);
-                let mut shown = props.clone();
-                if let Some(over) = over {
-                    merge_props(&mut shown, over);
-                }
-                let language = shown.get("code").and_then(|c| c.get("language")).and_then(Value::as_str);
                 let Some(name) = language.filter(|n| matches!(crate::code::lang(n), crate::code::Lang::Generic)) else {
                     continue;
                 };
