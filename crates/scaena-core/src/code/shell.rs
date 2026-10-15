@@ -467,17 +467,22 @@ impl<'t, 'o> Scanner<'t, 'o> {
     }
 
     /// A heredoc's opener here, read, its body waiting for the next line; false where `<<` has
-    /// no delimiter after it.
+    /// no delimiter after it, or where as many heredocs wait as may.
     fn heredoc(&mut self) -> bool {
         let (b, i, end) = (self.b, self.pos, self.end);
+        if self.heres.len() >= MAX_NESTING {
+            return false;
+        }
         let tabs = self.at(i + 2) == b'-';
         let op = i + 2 + usize::from(tabs);
         let k = blanks_end(b, op, end);
         let q = self.at(k);
         let (from, len, expand, to) = if q == b'\'' || q == b'"' {
-            let Some(n) = b[k + 1..line_end(b, k + 1, end)].iter().position(|&c| c == q) else {
+            // The quote that closes the delimiter on its line, looked for no further than it.
+            let n = b[k + 1..end].iter().position(|&c| c == q || is_break(c)).unwrap_or(end - k - 1);
+            if self.at(k + 1 + n) != q {
                 return false;
-            };
+            }
             (k + 1, n, false, k + 2 + n)
         } else {
             let from = k + usize::from(q == b'\\');
@@ -490,7 +495,7 @@ impl<'t, 'o> Scanner<'t, 'o> {
             }
             (from, e - from, q != b'\\', e)
         };
-        if len == 0 || self.heres.len() >= MAX_NESTING {
+        if len == 0 {
             return false;
         }
         self.heres.push(Here { from, len, tabs, expand });

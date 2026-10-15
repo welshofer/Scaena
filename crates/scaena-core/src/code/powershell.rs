@@ -10,14 +10,17 @@
 //! - **Commands**: a word where a command's name stands, first in a statement or a pipeline and
 //!   after `=`, is a function (`Get-ChildItem`, `git`, `./build.ps1`), as a cmdlet's `Verb-Noun`
 //!   is anywhere; there, a word before ` = ` is a hashtable's key, a property. A command's
-//!   arguments are plain words, numbers, and what they expand.
+//!   arguments are plain words, paths, numbers, and what they expand, a path going on after a
+//!   variable (`$PSScriptRoot\lib.ps1`, `${PWD}:/data`).
 //! - **Operators and parameters**: a `-` and a word is an operator where PowerShell has one
-//!   (`-eq`, `-like`, `-not`, `-ceq`), else a parameter, an attribute (`-Path`).
+//!   (`-eq`, `-like`, `-not`, `-ceq`), else a parameter, an attribute (`-Path`), as a program's
+//!   `--name` is.
 //! - **Types and attributes**: `[string]`, `[System.IO.File]`, and `[int[]]` where an operand may
-//!   start are types; `[Parameter(…)]` and `[CmdletBinding()]` are attributes.
+//!   start or after another's `]` are types; `[Parameter(…)]` and `[CmdletBinding()]` are
+//!   attributes.
 //! - Keywords and operators read in any case. After `function` or `filter` a name is a function,
-//!   after `class` or `enum` a type; after a `.` or `::` a member is a property, or a function
-//!   where a `(` follows.
+//!   after `class` or `enum` a type, and an enum's members are constants; after a `.` or `::` a
+//!   member is a property, or a function where a `(` follows.
 //!
 //! At most [`MAX_NESTING`] subexpressions stand open inside strings inside one another, and what
 //! would open one more is read as its string's own characters.
@@ -97,6 +100,14 @@ struct Scanner<'t, 'o> {
     /// How many brackets stand open inside an attribute's arguments, where a word names one of
     /// them: `[Parameter(Mandatory)]`.
     named: Option<u32>,
+    /// Whether a `]` came last, maybe a type's or an attribute's, so a `[` after it may begin
+    /// another: `[Parameter()] [string]`.
+    typed: bool,
+    /// Whether `enum` came last but for its name, so the `{` after it holds its members.
+    enumeration: bool,
+    /// How many brackets stand open inside an enum's braces, where a word first in its statement
+    /// is a member: `enum Color { Red; Green }`.
+    members: Option<u32>,
 }
 
 impl<'t, 'o> Scanner<'t, 'o> {
@@ -117,6 +128,9 @@ impl<'t, 'o> Scanner<'t, 'o> {
             more: false,
             attribute: false,
             named: None,
+            typed: false,
+            enumeration: false,
+            members: None,
         }
     }
 
@@ -226,6 +240,7 @@ impl<'t, 'o> Scanner<'t, 'o> {
         self.more = false;
         let member = std::mem::take(&mut self.member);
         let pending = self.pending.take();
+        let typed = std::mem::take(&mut self.typed);
         let spaced = i == self.start || is_space(b[i - 1]);
         // A subexpression's own close, back in its string.
         if close && depth == 0 && c == b')' {
@@ -255,7 +270,9 @@ impl<'t, 'o> Scanner<'t, 'o> {
         if c == b'$' {
             return self.variable();
         }
-        if c == b'[' && !self.operand && self.bracket() {
+        // A type or an attribute where an operand may start, or after another's `]`:
+        // `[Parameter()][string]$Name`.
+        if c == b'[' && (!self.operand || typed) && self.bracket() {
             return;
         }
         // A line that goes on.
@@ -267,13 +284,15 @@ impl<'t, 'o> Scanner<'t, 'o> {
             self.more = true;
             return;
         }
-        if c == b'-' && is_word_start(next) {
+        if c == b'-' && (is_word_start(next) || (next == b'-' && is_word_start(self.at(i + 2)))) {
             return self.dash();
         }
         // A path where a command's name or an argument stands: `./build.ps1`, `..\src`, `*.txt`,
-        // and `.` alone as an argument; `. ` where a command's name stands dot-sources.
+        // and `.` alone as an argument; `. ` where a command's name stands dot-sources. A point
+        // before a digit begins a number: `.5`.
         if spaced
             && matches!(c, b'.' | b'\\' | b'/' | b'~' | b'*' | b'?')
+            && !(c == b'.' && next.is_ascii_digit())
             && (self.args || (self.command && next != 0 && !is_space(next)))
         {
             let class = if self.command { Class::Function } else { Class::Plain };
@@ -284,7 +303,14 @@ impl<'t, 'o> Scanner<'t, 'o> {
             self.operand = true;
             return self.emit(self.bare_end(i + 1), class);
         }
-        if c.is_ascii_digit() || (c == b'.' && next.is_ascii_digit() && !self.operand) {
+        // A path that goes on after what began it: a backslash is no operator
+        // (`$PSScriptRoot\lib.ps1`), and among a command's arguments neither is a `/` or a `:`
+        // that follows a variable (`${PWD}:/data`).
+        if c == b'\\' || (self.args && self.operand && !spaced && (c == b'/' || (c == b':' && next != b':'))) {
+            self.operand = true;
+            return self.emit(self.bare_end(i + 1), Class::Plain);
+        }
+        if c.is_ascii_digit() || (c == b'.' && next.is_ascii_digit() && (!self.operand || spaced)) {
             self.emit(number_end(b, i, end, false), Class::Number);
             self.operand = true;
             self.command = false;
@@ -330,9 +356,9 @@ impl<'t, 'o> Scanner<'t, 'o> {
         let (b, end) = (self.b, self.end);
         let next = self.at(i + 1);
         if next == b'{' {
-            let line = line_end(b, i + 2, end);
-            let close = b[i + 2..line].iter().position(|&c| c == b'}').map_or(line, |n| i + 3 + n);
-            return Some((close, Class::Variable));
+            // To its `}`, or to its line's end where none closes it, looked for no further.
+            let k = b[i + 2..end].iter().position(|&c| c == b'}' || is_break(c)).map_or(end, |n| i + 2 + n);
+            return Some((k + usize::from(self.at(k) == b'}'), Class::Variable));
         }
         if is_word_start(next) {
             let mut e = word_end(b, i + 1, end);
@@ -401,15 +427,18 @@ impl<'t, 'o> Scanner<'t, 'o> {
             }
         }
         self.operand = true;
+        self.typed = true;
         true
     }
 
-    /// A `-` and a word: an operator where PowerShell has one, else a parameter.
+    /// A `-` and a word: an operator where PowerShell has one, else a parameter; and `--` and a
+    /// word, a program's option, as a parameter (`git commit --amend`).
     fn dash(&mut self) {
         let i = self.pos;
-        let j = word_end(self.b, i + 1, self.end);
+        let double = self.at(i + 1) == b'-';
+        let j = word_end(self.b, i + 1 + usize::from(double), self.end);
         let word = self.text.get(i + 1..j).unwrap_or_default();
-        let class = if operator(word) { Class::Operator } else { Class::Attribute };
+        let class = if !double && operator(word) { Class::Operator } else { Class::Attribute };
         self.operand = false;
         self.command = false;
         self.emit(j, class);
@@ -454,6 +483,9 @@ impl<'t, 'o> Scanner<'t, 'o> {
         } else if self.named.is_some() && self.named == self.depth() {
             // An attribute's argument: `Mandatory`, `Position = 0`.
             Class::Property
+        } else if command && self.members.is_some() && self.members == self.depth() {
+            // An enum's member: `Red`, `Green = 2`.
+            Class::Constant
         } else if !self.args && holds(KEYWORDS, word) {
             self.keyword(word);
             Class::Keyword
@@ -484,6 +516,7 @@ impl<'t, 'o> Scanner<'t, 'o> {
         } else {
             None
         };
+        self.enumeration = is("enum");
         self.command = is("return") || is("throw") || is("in");
         self.args = false;
     }
@@ -498,6 +531,9 @@ impl<'t, 'o> Scanner<'t, 'o> {
                 if std::mem::take(&mut self.attribute) && c == b'(' {
                     self.named = self.depth();
                 }
+                if c == b'{' && std::mem::take(&mut self.enumeration) {
+                    self.members = self.depth();
+                }
                 command = true;
                 (i + 1, Class::Punctuation)
             }
@@ -507,8 +543,12 @@ impl<'t, 'o> Scanner<'t, 'o> {
             }
             b')' | b'}' | b']' => {
                 self.nest(false);
-                if self.named.is_some_and(|named| self.depth().is_none_or(|depth| depth < named)) {
+                let depth = self.depth();
+                if self.named.is_some_and(|named| depth.is_none_or(|depth| depth < named)) {
                     self.named = None;
+                }
+                if self.members.is_some_and(|members| depth.is_none_or(|depth| depth < members)) {
+                    self.members = None;
                 }
                 (i + 1, Class::Punctuation)
             }
@@ -530,8 +570,10 @@ impl<'t, 'o> Scanner<'t, 'o> {
                 (i + 1, Class::Operator)
             }
             b',' | b'.' | b':' => (i + 1, Class::Punctuation),
+            // An assignment, after which a command may stand; among a command's arguments, a
+            // part of one: `--name=web`.
             b'=' if next != b'=' => {
-                command = true;
+                command = !self.args;
                 (i + 1, Class::Operator)
             }
             // An escaped character.
@@ -541,6 +583,7 @@ impl<'t, 'o> Scanner<'t, 'o> {
         };
         self.member = (c == b'.' && end == i + 1 && !command) || (c == b':' && next == b':');
         self.operand = matches!(c, b')' | b']' | b'}');
+        self.typed = c == b']';
         if command || matches!(c, b')' | b'}') {
             self.args = false;
         }

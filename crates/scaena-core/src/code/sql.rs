@@ -416,6 +416,7 @@ const KEYWORDS: &[&str] = &[
     "show",
     "similar",
     "some",
+    "stable",
     "stored",
     "table",
     "temp",

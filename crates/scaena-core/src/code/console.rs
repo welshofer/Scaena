@@ -3,7 +3,7 @@
 //!
 //! - **A prompt** at a line's start is meta: a sign, `$`, `#`, `%`, or `>`, then a space or the
 //!   line's end, maybe after who and where (`user@host:~/code$`, `[user@host code]$`,
-//!   `user@host ~ %`, `bash-5.2$`) and a virtual environment's name (`(venv) $`); or
+//!   `user@host ~ %`, `~/code $`, `bash-5.2$`) and a virtual environment's name (`(venv) $`); or
 //!   PowerShell's, `PS`, maybe a path, and `>` (`PS C:\Users\me>`).
 //! - **The command** after a prompt is read as Shell, or as PowerShell after a PowerShell prompt,
 //!   over the lines what it opens holds open: a quote, a heredoc, a `\` or a `|` at a line's end,
@@ -86,8 +86,8 @@ fn prompt(b: &[u8], pos: usize, next: usize, last: Reader) -> Option<(usize, Rea
     if let Some(end) = sign(i) {
         return Some((end, Reader::Shell));
     }
-    // Who and where before the sign: `[user@host code]`, or a run that holds an `@` or a `:`, or
-    // names a shell (`bash-5.2`), the sign maybe last in it.
+    // Who and where before the sign: `[user@host code]`, or a run that holds an `@` or a `:`,
+    // starts at home (`~/code`), or names a shell (`bash-5.2`), the sign maybe last in it.
     let head = if at(i) == b'[' {
         (i + 1..limit).find(|&k| b[k] == b']')? + 1
     } else {
@@ -96,7 +96,7 @@ fn prompt(b: &[u8], pos: usize, next: usize, last: Reader) -> Option<(usize, Rea
         let shell = ["bash", "sh", "zsh", "ksh", "dash"].iter().any(|s| {
             word.starts_with(s.as_bytes()) && word.get(s.len()).is_none_or(|&c| matches!(c, b'-' | b'$' | b'#' | b'%'))
         });
-        if !(shell || word.iter().any(|&c| matches!(c, b'@' | b':'))) {
+        if !(shell || word.first() == Some(&b'~') || word.iter().any(|&c| matches!(c, b'@' | b':'))) {
             return None;
         }
         if e > i + 1

@@ -1,7 +1,7 @@
 comment     «#!/usr/bin/env python3\n»
 string      «"""An inventory of parts, priced and counted."""\n\n»
 keyword     «from »
-variable    «__future__ »
+plain       «__future__ »
 keyword     «import »
 plain       «annotations\n\n»
 keyword     «import »

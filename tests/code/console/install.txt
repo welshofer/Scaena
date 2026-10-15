@@ -10,6 +10,8 @@ user@host:~/talks$ for f in *.scn; do
 > echo "$f"
 > done
 deck.scn
+~/talks $ ls
+deck.scn
 [user@host talks]$ export SCAENA_AUTHOR=jay # who saves
 % git status --short
  M deck.scn

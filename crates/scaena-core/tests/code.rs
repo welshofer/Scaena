@@ -90,9 +90,10 @@ fn spans_cover_the_text_in_order_on_char_boundaries() {
 
 /// Long runs of what opens and does not close, each read in one pass, never again from each of its
 /// bytes: a raw string's `#`s, a regular expression's `/`, type arguments, interpolations, JSX,
-/// C#'s attributes and formats, and the spaces before a name a type declares; f-strings, heredocs,
-/// `%`-literals, substitutions, prompts, dollar quotes, names in brackets, and the spaces a soft
-/// keyword, a Ruby method's argument, or a heredoc's delimiter is looked for past.
+/// C#'s attributes and formats, and the spaces before a name a type declares; f-strings, heredocs
+/// and their quoted delimiters, `%`-literals, substitutions, prompts, dollar quotes, names in
+/// brackets and braces, and the spaces a soft keyword, a Ruby method's argument, or a heredoc's
+/// delimiter is looked for past.
 #[test]
 fn long_runs_read_in_one_pass() {
     let runs = [
@@ -119,8 +120,10 @@ fn long_runs_read_in_one_pass() {
         "%w[(".repeat(10_000),
         "<<A ".repeat(10_000),
         "<<~A\n".repeat(10_000),
+        "<<'A' ".repeat(6_000),
         "\"$(".repeat(10_000),
         "${".repeat(15_000),
+        "${a}".repeat(8_000),
         "$((".repeat(10_000),
         "[[ ".repeat(10_000),
         "$ ".repeat(15_000),
@@ -140,6 +143,30 @@ fn long_runs_read_in_one_pass() {
         for run in &runs {
             check(run, lang);
         }
+    }
+}
+
+/// What looks for its close no further than its line's end reads that line once, however many
+/// open on it: a heredoc's quoted delimiter in Shell, a console's command, and Ruby, and
+/// PowerShell's `${…}`. A quarter of a megabyte of each on one line reads in milliseconds, where
+/// reading the rest of the line again from each opener took up to half a minute.
+#[test]
+fn a_line_of_openers_is_read_once() {
+    let runs = [
+        ("shell", "cat <<'A' "),
+        ("shell", "cat <<\"A\" "),
+        ("console", "$ cat <<'A' "),
+        ("ruby", "f(<<~'A', "),
+        ("powershell", "${a}"),
+        ("powershell", "\"${a}\" "),
+    ];
+    for (name, piece) in runs {
+        let text = piece.repeat((256 << 10) / piece.len());
+        let started = std::time::Instant::now();
+        let tokens = highlight(&text, lang(name));
+        let took = started.elapsed();
+        assert_eq!(tokens.last().map(|t| t.end), Some(text.len()), "{name}: {piece:?}");
+        assert!(took < std::time::Duration::from_secs(5), "{name}: 256 KB of {piece:?} in {took:?}");
     }
 }
 

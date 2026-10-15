@@ -24,6 +24,20 @@ variable    «$Keep »
 operator    «= »
 number      «5»
 punctuation «,\n    [»
+attribute   «ValidateSet»
+punctuation «(»
+string      «'zip'»
+punctuation «, »
+string      «'tar'»
+punctuation «)][»
+type        «string»
+punctuation «]»
+variable    «$Format »
+operator    «= »
+string      «'zip'»
+punctuation «,\n    [»
+attribute   «Parameter»
+punctuation «()] [»
 type        «switch»
 punctuation «]»
 variable    «$Force\n»
@@ -191,3 +205,29 @@ string      «'*Kept*'»
 punctuation «) { »
 string      «"it's ""ok""" »
 punctuation «}\n»
+operator    «. »
+variable    «$PSScriptRoot»
+plain       «\\lib\\common.ps1\n»
+keyword     «enum »
+type        «Level »
+punctuation «{ »
+constant    «Low»
+punctuation «; »
+constant    «High »
+operator    «= »
+number      «2 »
+punctuation «}\n»
+variable    «$ratio »
+operator    «= »
+number      «.5\n»
+function    «git »
+plain       «commit »
+attribute   «--amend --no-edit\n»
+function    «docker »
+plain       «run »
+attribute   «--name»
+operator    «=»
+plain       «backup »
+attribute   «-v »
+variable    «${PWD}»
+plain       «:/data alpine\n»

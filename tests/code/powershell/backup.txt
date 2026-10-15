@@ -10,7 +10,8 @@ param(
     [string]$Source,
 
     [int]$Keep = 5,
-    [switch]$Force
+    [ValidateSet('zip', 'tar')][string]$Format = 'zip',
+    [Parameter()] [switch]$Force
 )
 
 $ErrorActionPreference = 'Stop'
@@ -53,3 +54,8 @@ Nothing in $here expands.
 '@
 $sizes = 1kb, 0x10, 2.5 | ForEach-Object { $_ * 2 }
 if ($sizes.Count -ge 3 -and $summary -like '*Kept*') { "it's ""ok""" }
+. $PSScriptRoot\lib\common.ps1
+enum Level { Low; High = 2 }
+$ratio = .5
+git commit --amend --no-edit
+docker run --name=backup -v ${PWD}:/data alpine

@@ -12,8 +12,9 @@
 //!   a statement whose line ends with a `:`, `_` in a case's pattern, and `type` first in a
 //!   statement that names a type (`type Pair = tuple[int, int]`).
 //! - A word is a keyword, a constant, a type, or a variable (`self`, `cls`) where the tables hold
-//!   it; after `def` or `class`, the function's or the class's name; after a `.`, a property, or
-//!   a function where a `(` follows; else, by its case and what follows it: a constant in capitals
+//!   it; after `def` or `class`, the function's or the class's name; after a `from` that begins
+//!   a statement, the module's, plain (`from __future__ import`); after a `.`, a property, or a
+//!   function where a `(` follows; else, by its case and what follows it: a constant in capitals
 //!   (`MAX_SIZE`), a type that starts with one (`ValueError`), a variable between double
 //!   underscores (`__name__`), a function where a `(` follows, or plain.
 //!
@@ -277,6 +278,8 @@ impl Scanner<'_, '_> {
             self.pending = match word {
                 "def" => Some(Class::Function),
                 "class" => Some(Class::Type),
+                // The module a statement imports from, a name as any module's is: `__future__`.
+                "from" if statement => Some(Class::Plain),
                 _ => None,
             };
             Class::Keyword

@@ -16,7 +16,8 @@
 //!   `def`, a method's name is a function, an operator's too (`def <=>(other)`); after a `.` or
 //!   `&.`, a method, which is a function; after `::`, a type, a constant, or a method. Else, by
 //!   its case and what follows it: a constant in capitals (`MAX_SIZE`), a type that starts with
-//!   one (`Comparable`), a function where a `(` or an argument follows (`puts "hi"`), or plain.
+//!   one (`Comparable`), a function where a `(`, an argument, or a block follows (`puts "hi"`,
+//!   `expect {`, and `before do` first on its line), or plain.
 //! - `=begin` … `=end` is a comment, and the lines after `__END__` are plain.
 //!
 //! At most [`MAX_NESTING`] interpolations stand open inside one another, and as many heredocs wait
@@ -397,10 +398,11 @@ impl Scanner<'_, '_> {
         }
         let q = self.at(k);
         let (from, name, interp, end) = if matches!(q, b'"' | b'\'' | b'`') {
-            let line = line_end(b, k + 1, len);
-            let Some(n) = b[k + 1..line].iter().position(|&c| c == q) else {
+            // The quote that closes the identifier on its line, looked for no further than it.
+            let n = b[k + 1..].iter().position(|&c| c == q || is_break(c)).unwrap_or(len - k - 1);
+            if self.at(k + 1 + n) != q {
                 return false;
-            };
+            }
             (k + 1, n, q != b'\'', k + 2 + n)
         } else if q.is_ascii_uppercase() || q == b'_' || (q.is_ascii_lowercase() && indent && !self.operand) {
             let e = word_end(b, k, len);
@@ -468,7 +470,7 @@ impl Scanner<'_, '_> {
             Class::Constant
         } else if capital {
             if self.at(j) == b'(' { Class::Function } else { Class::Type }
-        } else if self.at(self.blanks(j)) == b'(' || self.argument(j) {
+        } else if matches!(self.at(self.blanks(j)), b'(' | b'{') || self.argument(j) || self.block(i, j) {
             Class::Function
         } else {
             Class::Plain
@@ -480,7 +482,7 @@ impl Scanner<'_, '_> {
     /// Whether the word that ends at `j` is a method given an argument with no parentheses: a
     /// space or more, then what can only begin an argument, a string, a symbol, a variable, a
     /// number, a heredoc, a `%`-literal, a regular expression, or a name that is no keyword
-    /// (`puts "hi"`, `include Comparable`, `puts <<~EOS`, `p total`).
+    /// (`puts "hi"`, `has_many :posts`, `puts <<~EOS`, `p total`, `puts $0`).
     fn argument(&self, j: usize) -> bool {
         let k = self.blanks(j);
         if k == j {
@@ -490,7 +492,7 @@ impl Scanner<'_, '_> {
         match c {
             b'"' | b'\'' | b'@' => true,
             b':' => is_word_start(next) || matches!(next, b'"' | b'\''),
-            b'$' => is_word_start(next),
+            b'$' => self.sigil(k).is_some(),
             b'<' => {
                 let id = self.at(k + 3);
                 next == b'<'
@@ -513,6 +515,20 @@ impl Scanner<'_, '_> {
             }
             _ => false,
         }
+    }
+
+    /// Whether the word from `i` to `j`, first on its line, is a method given a block by the `do`
+    /// after it: `before do`, `setup do`.
+    fn block(&self, i: usize, j: usize) -> bool {
+        let k = self.blanks(j);
+        if k == j || !self.b[k..].starts_with(b"do") || is_word(self.at(k + 2)) {
+            return false;
+        }
+        let mut s = i;
+        while s > 0 && matches!(self.b[s - 1], b' ' | b'\t') {
+            s -= 1;
+        }
+        s == 0 || is_break(self.b[s - 1])
     }
 
     /// After `def`: its receiver, where it names one (`self.`, `Config.`), and its name, an

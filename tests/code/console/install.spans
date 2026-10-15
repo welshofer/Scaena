@@ -34,6 +34,9 @@ string      «"\n»
 meta        «> »
 keyword     «done\n»
 plain       «deck.scn\n»
+meta        «~/talks $ »
+function    «ls\n»
+plain       «deck.scn\n»
 meta        «[user@host talks]$ »
 keyword     «export »
 variable    «SCAENA_AUTHOR»

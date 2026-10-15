@@ -59,3 +59,12 @@ over lines.
 shelf = Library::Shelf.new(name: "Fiction")
 puts shelf.report, ?a, :"quoted symbol", %q{raw #{not} interpolated}, $stdout.sync
 words = shelf.name.split(/,\s*/).map(&:upcase)
+warn $0, $!.message if $DEBUG
+
+RSpec.describe Library::Shelf do
+  before do
+    @shelf = Library::Shelf.new(name: "Test")
+  end
+
+  it { expect { @shelf.add(nil) }.to raise_error(NoMethodError) }
+end

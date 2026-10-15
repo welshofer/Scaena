@@ -238,3 +238,47 @@ punctuation «(»
 operator    «&»
 constant    «:upcase»
 punctuation «)\n»
+function    «warn »
+variable    «$0»
+punctuation «, »
+variable    «$!»
+punctuation «.»
+function    «message »
+keyword     «if »
+variable    «$DEBUG\n\n»
+type        «RSpec»
+punctuation «.»
+function    «describe »
+type        «Library»
+punctuation «::»
+type        «Shelf »
+keyword     «do\n  »
+function    «before »
+keyword     «do\n    »
+variable    «@shelf »
+operator    «= »
+type        «Library»
+punctuation «::»
+type        «Shelf»
+punctuation «.»
+function    «new»
+punctuation «(»
+constant    «name: »
+string      «"Test"»
+punctuation «)\n  »
+keyword     «end\n\n  »
+function    «it »
+punctuation «{ »
+function    «expect »
+punctuation «{ »
+variable    «@shelf»
+punctuation «.»
+function    «add»
+punctuation «(»
+constant    «nil»
+punctuation «) }.»
+function    «to raise_error»
+punctuation «(»
+type        «NoMethodError»
+punctuation «) }\n»
+keyword     «end\n»
