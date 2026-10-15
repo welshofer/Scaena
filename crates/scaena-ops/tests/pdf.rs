@@ -97,6 +97,42 @@ fn a_photo_goes_in_as_its_own_jpeg_without_what_it_says() {
     }
 }
 
+/// A print workflow's photo, CMYK as Photoshop writes it (PLAN 2.127), goes into a PDF as its own
+/// JPEG too, its inks inverted as Adobe's marker means them, so that a viewer draws the picture
+/// its inks print and not its negative. A viewer turns inks into light by a profile of its own,
+/// where the slide takes them as a naive separation prints them: the page is near the slide, not
+/// the same, its yellow corner yellow.
+#[test]
+fn a_print_photo_goes_in_as_its_own_jpeg_drawn_as_its_inks_print() {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("print.scaena");
+    copy_dir(Path::new(TORTURE), &dir);
+    std::fs::copy("../../tests/fixtures/jpeg/cmyk.jpg", dir.join("assets/print.jpg")).unwrap();
+    let torture: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.join("deck.json")).unwrap()).unwrap();
+    let deck = serde_json::json!({
+        "scaena": torture["scaena"], "canvas": { "width": 1920, "height": 1080 }, "theme": "theme.json",
+        "fonts": torture["fonts"],
+        "nodes": { "print": { "type": "image", "src": "assets/print.jpg", "fit": "fill",
+            "alt": "A print workflow's photo", "at": { "rect": [0, 0, 1920, 1080] } } },
+        "states": [{ "id": "print", "props": { "print": {} } }],
+    });
+    std::fs::write(dir.join("deck.json"), serde_json::to_vec(&deck).unwrap()).unwrap();
+    let bundle = scaena_ops::open(&dir).unwrap();
+    let whole = PdfSettings { shader_scale: 1.0, shader_quality: None };
+    let (bytes, _) = pdf_document(&bundle, None, &whole).unwrap();
+    let has = |s: &[u8]| bytes.windows(s.len()).any(|w| w == s);
+    assert!(has(b"/DCTDecode") && has(b"/DeviceCMYK"), "the photo's own JPEG, in its inks");
+    assert!(has(b"/Decode[1 0 1 0 1 0 1 0]"), "inverted as Adobe's marker means them");
+    let page = rasterize(bytes).remove(0);
+    let cpu = render(&dir, &Request { state: "print".to_string(), ..Request::default() }).unwrap();
+    let cpu = Raster::from_png(&cpu.png).unwrap();
+    let off: u64 = page.rgba.iter().zip(&cpu.rgba).map(|(a, b)| u64::from(a.abs_diff(*b))).sum();
+    let mean = off as f64 / (f64::from(cpu.width * cpu.height) * 3.0);
+    // hayro's profile takes it some 22 off the slide; its negative would be more than 100 off.
+    assert!(mean < 40.0, "the page is off the slide by {mean:.1} a channel on average");
+    let corner = &page.rgba[(10 * page.width as usize + 10) * 4..][..3];
+    assert!(corner[0] > 200 && corner[1] > 180 && corner[2] < 100, "its yellow corner: {corner:?}");
+}
+
 /// The PDF's structure, an element a line, indented by depth: its type, then its alt
 /// text in brackets and its language in braces, if it has them.
 fn structure(pdf: &[u8]) -> Vec<String> {

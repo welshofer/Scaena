@@ -205,6 +205,49 @@ fn a_connector_joins_two_nodes_of_their_own_and_is_placed_by_them() {
     );
 }
 
+/// A line's ends and a curved route (PLAN 2.128), and the paragraphs a text draws (PLAN 2.129):
+/// ends only on a line or an arrow, wherever they are written, and paragraphs that run forward.
+#[test]
+fn ends_are_a_lines_and_paragraphs_run_forward() {
+    let found = |nodes: Value, delta: Value| -> Vec<String> {
+        let ids: Vec<String> = nodes.as_object().unwrap().keys().cloned().collect();
+        let mut d = deck(nodes, json!([{ "id": "s", "shows": ids }]));
+        for (id, props) in delta.as_object().unwrap() {
+            d.states[0].props.insert(id.clone(), serde_json::from_value(props.clone()).unwrap());
+        }
+        let json = serde_json::to_string(&d).unwrap();
+        let mut out: Vec<String> = (validate_bundle(&json, &Bare).unwrap().into_iter())
+            .filter(|f| f.code == "E106")
+            .map(|f| format!("{}: {}", f.path.unwrap_or_default(), f.message))
+            .collect();
+        out.sort();
+        out
+    };
+    let ends = json!({ "start": "circle", "end": "open" });
+    let nodes = json!({
+        "a": { "type": "text", "text": "A\nB\nC" },
+        "b": { "type": "text", "text": "B" },
+        "ab": { "type": "shape", "kind": "arrow", "connect": { "from": "a", "to": "b", "route": "curved" }, "ends": ends },
+        "rule": { "type": "shape", "kind": "line", "ends": { "end": "diamond" } }
+    });
+    let none = Vec::<String>::new();
+    assert_eq!(found(nodes.clone(), json!({ "a": { "paragraphs": [1, 2] }, "b": { "paragraphs": 1 } })), none);
+    assert_eq!(
+        found(nodes.clone(), json!({ "a": { "paragraphs": [3, 2] } })),
+        ["/states/0/props/a/paragraphs: `a` draws paragraphs 3 to 2, which run backward: write [2, 3]"]
+    );
+    let boxed = json!({ "box": { "type": "shape", "kind": "rect", "ends": ends } });
+    assert_eq!(
+        found(boxed, json!({})),
+        ["/nodes/box/ends: `box`, a rect, has no ends to draw: only a line or an arrow has ends"]
+    );
+    // Written on a text, it is another type's property too.
+    let mut words = nodes;
+    words["b"]["ends"] = json!({ "end": "arrow" });
+    let said = found(words, json!({}));
+    assert!(said.iter().any(|f| f.starts_with("/nodes/b/ends: `b`,")), "{said:?}");
+}
+
 #[test]
 fn a_connector_leaves_wherever_either_end_does() {
     let nodes = json!({

@@ -411,9 +411,9 @@
         "required": ["node", "motion", "units", "start", "stagger", "duration", "end", "moving", "delay", "curve"]
       },
       "SplitUnit": {
-        "description": "What a choreographed entrance splits its target into.",
+        "description": "What a choreographed entrance splits its target into. A text's `paragraphs` are the stretches\nits hard line breaks end, a list's items (deck format 0.27, theme format 0.17).",
         "type": "string",
-        "enum": ["lines", "words", "glyphs", "children", "marks"]
+        "enum": ["lines", "words", "glyphs", "paragraphs", "children", "marks"]
       },
       "LookChange": {
         "description": "A look as what it changes from rest.",
@@ -695,7 +695,7 @@
             "type": "boolean"
           },
           "theme": {
-            "description": "What the theme gives a text's look where the deck sets none, which the state then shows:\nits role's family, weight, size, italic, case, tracking, or color; how its slot fits it\n(theme format 0.13); where a shape's words stand across it, in its middle (PLAN 2.108);\nand for characters selected, the text's own look where their run sets none, its role and\nemphasis too. What an inspector shows in place of a blank. Absent for any other property."
+            "description": "What the theme gives a text's look where the deck sets none, which the state then shows:\nits role's family, weight, size, italic, case, tracking, or color; how its slot fits it\n(theme format 0.13); where a shape's words stand across it, in its middle (PLAN 2.108);\nhow a connector runs and a line's ends are drawn where it says none (PLAN 2.128);\nand for characters selected, the text's own look where their run sets none, its role and\nemphasis too. What an inspector shows in place of a blank. Absent for any other property."
           }
         },
         "required": ["prop", "takes"]

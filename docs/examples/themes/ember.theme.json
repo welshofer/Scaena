@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.16",
+  "scaena-theme": "0.17",
   "name": "Ember",
   "description": "Near-black surface, warm white ink, one signal orange. Serif claims and figures over a neutral sans; data in quiet grays with the orange spent on the point.",
   "tokens": {
@@ -613,6 +613,22 @@
         "ease": "out",
         "duration": "fast",
         "description": "Word-by-word rise."
+      },
+      "bullets": {
+        "from": {
+          "opacity": 0,
+          "transform": {
+            "translate": [
+              0,
+              16
+            ]
+          }
+        },
+        "split": "paragraphs",
+        "stagger": 240,
+        "ease": "out",
+        "duration": "standard",
+        "description": "By bullet: each paragraph, a list's item, rises in on a click of its own; in one click, one after another."
       },
       "typewriter": {
         "from": {

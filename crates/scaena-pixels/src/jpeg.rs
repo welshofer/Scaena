@@ -13,10 +13,14 @@
 //!
 //! It reads baseline, extended, and progressive JPEGs coded by Huffman tables at 8 bits a sample:
 //! gray, or three components that are YCbCr (or RGB, where an Adobe marker or the components' ids
-//! say so), sampled at factors that divide the largest, with restart intervals or without. It
-//! refuses, saying why, arithmetic coding, lossless and hierarchical JPEGs, 12 bits a sample,
-//! CMYK, and a height that only a DNL marker gives. A file cut short is drawn as far as it goes,
-//! as libjpeg draws it; a code no Huffman table holds is an error.
+//! say so), or four that are a print workflow's inks, sampled at factors that divide the largest,
+//! with restart intervals or without. Four components are CMYK, or YCCK where an Adobe marker
+//! says they are transformed, as Photoshop writes both: inverted, as Adobe's marker means them, so
+//! each ink takes away from white its share of what black leaves (`255 − ink`, times
+//! `(255 − black) / 255`), in integers as zune-jpeg works it. It refuses, saying why, arithmetic
+//! coding, lossless and hierarchical JPEGs, 12 bits a sample, and a height that only a DNL marker
+//! gives. A file cut short is drawn as far as it goes, as libjpeg draws it; a code no Huffman
+//! table holds is an error.
 //!
 //! The EXIF orientation is read, and [`decode`] applies it: the picture as it is meant to be seen.
 //! [`stripped`] is the file without what it says beyond its picture, for the exports that carry
@@ -48,7 +52,7 @@ pub struct Header {
     /// As stored, before the orientation turns it.
     pub width: u32,
     pub height: u32,
-    /// 1 (gray) or 3.
+    /// 1 (gray), 3, or 4 (CMYK or YCCK).
     pub components: u8,
     pub progressive: bool,
     /// The EXIF orientation, 1–8: how the stored picture turns to be seen. 1 where the file
@@ -449,12 +453,17 @@ struct Frame {
     mcuy: usize,
 }
 
-/// How three components are colored.
+/// How the components are colored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Color {
     Gray,
     YCbCr,
     Rgb,
+    /// Four inks, inverted as Adobe's marker means them.
+    Cmyk,
+    /// Cyan, magenta, and yellow coded as YCbCr codes red, green, and blue, then black: Adobe's
+    /// transform 2.
+    Ycck,
 }
 
 struct Decoder<'a> {
@@ -633,10 +642,8 @@ impl<'a> Decoder<'a> {
             )));
         }
         let n = usize::from(head[5]);
-        match n {
-            1 | 3 => {}
-            4 => return Err(JpegError("a CMYK JPEG; save it as RGB".into())),
-            _ => return Err(JpegError::damaged(&format!("a frame of {n} components"))),
+        if !matches!(n, 1 | 3 | 4) {
+            return Err(JpegError::damaged(&format!("a frame of {n} components")));
         }
         let specs = p.get(6..6 + 3 * n).ok_or_else(cut)?;
         let mut components = Vec::with_capacity(n);
@@ -913,6 +920,19 @@ impl<'a> Decoder<'a> {
                         *px = ycbcr(rows[0][x], rows[1][x], rows[2][x]);
                     }
                 }
+                Color::Cmyk => {
+                    for (x, px) in out.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+                        let k = rows[3][x] as u8;
+                        *px = [inked(rows[0][x] as u8, k), inked(rows[1][x] as u8, k), inked(rows[2][x] as u8, k), 255];
+                    }
+                }
+                Color::Ycck => {
+                    for (x, px) in out.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+                        let [c, m, y, _] = ycbcr(rows[0][x], rows[1][x], rows[2][x]);
+                        let k = rows[3][x] as u8;
+                        *px = [inked(255 - c, k), inked(255 - m, k), inked(255 - y, k), 255];
+                    }
+                }
             }
         }
         Ok(Decoded { width: w as u32, height: h as u32, rgba })
@@ -920,11 +940,14 @@ impl<'a> Decoder<'a> {
 
     /// How the components are colored, as libjpeg reads it: one is gray; three are YCbCr where a
     /// JFIF marker says so, RGB where an Adobe marker says they are not transformed, or with
-    /// neither marker, where their ids spell R, G, B; and YCbCr otherwise.
+    /// neither marker, where their ids spell R, G, B; and YCbCr otherwise. Four are CMYK where an
+    /// Adobe marker says they are not transformed, or there is none, and YCCK otherwise.
     fn color(&self) -> Color {
         let Some(frame) = &self.frame else { return Color::Gray };
-        if frame.components.len() == 1 {
-            return Color::Gray;
+        match frame.components.len() {
+            1 => return Color::Gray,
+            4 => return if matches!(self.adobe, None | Some(0)) { Color::Cmyk } else { Color::Ycck },
+            _ => {}
         }
         let rgb_ids = frame.components.iter().map(|c| c.id).eq(*b"RGB");
         match self.adobe {
@@ -1006,6 +1029,13 @@ fn ycbcr(y: i16, cb: i16, cr: i16) -> [u8; 4] {
     let y = i32::from(y) * Y + ROUND;
     let clamp = |v: i32| (v >> 14).clamp(0, 255) as u8;
     [clamp(y + cr * CR), clamp(y + cr * G_CR + cb * G_CB), clamp(y + cb * CB), 255]
+}
+
+/// An inverted ink `v` under an inverted black `k`, as a share of white: `v × k / 255`, rounded
+/// as zune-jpeg rounds it, in integers.
+fn inked(v: u8, k: u8) -> u8 {
+    let t = i32::from(v) * i32::from(k) + 128;
+    ((t + (t >> 8)) >> 8) as u8
 }
 
 /// A block of a sequential scan, decoded, dequantized, and transformed into `out`, `stride`
@@ -1336,7 +1366,6 @@ mod tests {
     #[test]
     fn what_it_cannot_read_it_refuses_saying_why() {
         let refused = |bytes: &[u8]| decode(bytes).unwrap_err().to_string();
-        assert!(refused(&fixture("cmyk.jpg")).contains("CMYK"));
         assert!(refused(b"\x89PNG\r\n\x1a\n").contains("not a JPEG"));
         // The frame of a baseline JPEG, marked lossless, arithmetic, at 12 bits, or with no height.
         let file = fixture("baseline-444.jpg");
@@ -1357,6 +1386,36 @@ mod tests {
         assert!(refused(&huge).contains("at most 8192 px a side"));
         // Its header says how large it is, which an editor offers a smaller copy of.
         assert_eq!(Header::read(&huge).unwrap().width, 9000);
+    }
+
+    /// A print workflow's photo, CMYK as Photoshop writes it, inverted under an Adobe marker, and
+    /// YCCK, sampled and progressive, is the picture its inks print: each ink takes its share of
+    /// white away under what black leaves, so both are the RGB photo they were separated from,
+    /// as near as a JPEG's loss lets them be (libjpeg's reading is as far off), its yellow corner
+    /// yellow. The YCCK file's black is sampled at half, which softens its edges.
+    #[test]
+    fn cmyk_and_ycck_read_as_the_picture_their_inks_print() {
+        assert_eq!((inked(255, 255), inked(255, 0), inked(0, 255), inked(128, 128)), (255, 0, 0, 64));
+        let rgb = decode(&fixture("baseline-444.jpg")).unwrap();
+        for (name, near) in [("cmyk.jpg", 6.0), ("ycck.jpg", 18.0)] {
+            let file = fixture(name);
+            let h = Header::read(&file).unwrap();
+            assert_eq!((h.width, h.height, h.components), (67, 45, 4), "{name}");
+            let d = decode(&file).unwrap();
+            assert_eq!((d.width, d.height), (67, 45), "{name}");
+            let px = |x: usize, y: usize| &d.rgba[(y * 67 + x) * 4..(y * 67 + x) * 4 + 4];
+            assert!(matches!(px(1, 1), [r, g, b, 255] if *r > 200 && *g > 200 && *b < 90), "{name}: {:?}", px(1, 1));
+            let off: u64 = (d.rgba.iter().zip(&rgb.rgba)).map(|(a, b)| u64::from(a.abs_diff(*b))).sum();
+            let mean = off as f64 / (67.0 * 45.0 * 3.0);
+            assert!(mean < near, "{name}: off the RGB photo by {mean:.1} a channel on average");
+        }
+        // Without an Adobe marker four components are CMYK; with one, transformed, YCCK.
+        let mut bare = fixture("cmyk.jpg");
+        let adobe = bare.windows(5).position(|w| w == b"Adobe").unwrap();
+        bare[adobe + 11] = 2;
+        assert_ne!(decode(&bare).unwrap(), decode(&fixture("cmyk.jpg")).unwrap(), "read as YCCK");
+        bare[adobe..adobe + 5].copy_from_slice(b"Other");
+        assert_eq!(decode(&bare).unwrap(), decode(&fixture("cmyk.jpg")).unwrap(), "no marker: CMYK");
     }
 
     /// A damaged file is drawn as far as it goes or refused, never a panic or a hang: every
@@ -1382,6 +1441,7 @@ mod tests {
             "restart-progressive.jpg",
             "sampled-411.jpg",
             "orientation-6.jpg",
+            "ycck.jpg",
         ]
         .iter()
         .map(|n| fixture(n))

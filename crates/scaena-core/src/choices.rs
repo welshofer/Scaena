@@ -19,6 +19,7 @@ use crate::lint::literal;
 use crate::looks::{casts, rounds, see_through};
 use crate::model::check::Checker;
 use crate::model::theme::{Theme, Vocabulary};
+use crate::model::values::SplitUnit;
 use crate::tracking::{Lives, layout_lives, layout_takers, lives_shown, merge_props, resolve_states};
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -105,6 +106,7 @@ pub struct Field {
     /// What the theme gives a text's look where the deck sets none, which the state then shows:
     /// its role's family, weight, size, italic, case, tracking, or color; how its slot fits it
     /// (theme format 0.13); where a shape's words stand across it, in its middle (PLAN 2.108);
+    /// how a connector runs and a line's ends are drawn where it says none (PLAN 2.128);
     /// and for characters selected, the text's own look where their run sets none, its role and
     /// emphasis too. What an inspector shows in place of a blank. Absent for any other property.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -222,6 +224,10 @@ fn own(node_type: NodeType) -> &'static [(&'static str, Source)] {
             ("stroke/paint", Names(V::Color, true)),
             ("stroke/width", Names(V::Stroke, true)),
             ("radius", Names(V::Radius, true)),
+            // How a connector runs, and what a line's ends are drawn with (PLAN 2.128).
+            ("connect/route", Schema(false)),
+            ("ends/start", Schema(false)),
+            ("ends/end", Schema(false)),
             // The shadow it casts (PLAN 2.115).
             ("shadow", Names(V::Shadow, false)),
         ],
@@ -333,6 +339,8 @@ pub fn choices(
                 "radius" => kind == "rect",
                 "fill" => !matches!(kind, "line" | "arrow"),
                 "shadow" => matches!(kind, "rect" | "ellipse"),
+                "ends/start" | "ends/end" => matches!(kind, "line" | "arrow"),
+                "connect/route" => shown.contains_key("connect"),
                 _ => true,
             };
             if !draws {
@@ -375,6 +383,10 @@ pub fn choices(
                             kind && p.split.is_none_or(|split| split.owned(node_type, emphasis))
                         })
                     });
+                    // A build by bullet moves a text's paragraphs (PLAN 2.129): a text of two or
+                    // more with words offers it.
+                    let bullets = node_type == NodeType::Text && crate::builds::paragraphs(&shown).len() >= 2;
+                    names.retain(|n| bullets || presets.get(n).and_then(|p| p.split) != Some(SplitUnit::Paragraphs));
                 }
                 Takes::Name { of, names, overrides }
             }
@@ -414,10 +426,26 @@ pub fn choices(
                 .or_else(|| words.then(|| Value::from("center")))
                 .or_else(|| aligned(theme, layout, &shown, prop))
         };
-        let theme = (node_type == NodeType::Text).then(gives).flatten();
+        let theme = match node_type {
+            NodeType::Text => gives(),
+            NodeType::Shape => drawn_with(&shown, prop),
+            _ => None,
+        };
         Some(Field { prop: prop.into(), takes, value: value.cloned(), lives, literal, theme, words: None })
     });
     Ok(Choices { node: node.into(), node_type, state: state.into(), fields: fields.collect(), said: None, noun: None })
+}
+
+/// How a line is drawn where nothing in the deck says (PLAN 2.128): a connector runs straight, a
+/// line's ends are bare, and an arrow's last is a filled head. None for any other property.
+fn drawn_with(shown: &Props, prop: &str) -> Option<Value> {
+    let arrow = shown.get("kind").and_then(Value::as_str) == Some("arrow");
+    match prop {
+        "connect/route" => Some(Value::from("straight")),
+        "ends/start" => Some(Value::from("none")),
+        "ends/end" => Some(Value::from(if arrow { "arrow" } else { "none" })),
+        _ => None,
+    }
 }
 
 /// What the theme gives `prop` of a text set in `role` where nothing in the deck sets it: the

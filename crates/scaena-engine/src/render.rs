@@ -739,6 +739,14 @@ impl Engine {
         let clip = (fit == TextFit::Clip).then_some(cell);
         let top = text_top(cell, align_y, &text, trim);
         let origin = [cell[0], top + to_grid(lines, spec.role.snap, align_y, top, &text)];
+        // The paragraphs a state draws (PLAN 2.129): laid out whole, so each keeps its place.
+        let text = match props.get("paragraphs") {
+            Some(drawn) => {
+                let drawn = scaena_core::lists::drawn(Some(drawn), text.paragraph_count());
+                text.keeping(|p| drawn.contains(&p))
+            }
+            None => text,
+        };
         Ok(PlacedText { cell, origin, text, scale, overflow, clip })
     }
 }

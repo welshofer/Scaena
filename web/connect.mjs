@@ -13,6 +13,10 @@
 // - A drag of the title off the grid moves the title, and the arrow runs from where it went.
 // - Undo takes back the drag, then the arrow.
 // - Joined again, ] turns it not, and says to move either end.
+// - Its style (PLAN 2.128): the inspector offers its Connection (Straight, Corner, Curved) after
+//   its Border, and its Line Start and Line End, showing it drawn straight with a head at its
+//   end. Curved is one `choose`, its line the curve, which a click picks it along; a circle at
+//   its start another. Each one step to undo.
 // - The title, the note, and the arrow selected together: ⌘D copies the three, the copy of the
 //   arrow joining the copies; ⌘G groups the title and the note, the arrow still joining them from
 //   outside the group. The note and the arrow selected: Delete takes the two out. Each is one
@@ -199,6 +203,46 @@ try {
   await page.keyboard.press("]");
   await page.waitForTimeout(500);
   check((await source()) === again && /move either/.test(await status()), `] turns it not, and says to move either end: ${await status()}`);
+
+  // Its style (PLAN 2.128): the inspector offers its Connection and its Line Start and Line End
+  // beside its Border, each showing what it is drawn with where the deck says none.
+  await page.waitForSelector("#look-connect-route", { timeout: 30000 }).catch(() => {});
+  const options = (id) => page.evaluate((i) => [...document.querySelectorAll(`#${i} option`)].map((o) => o.textContent), id);
+  const offeredFields = await page.evaluate(() => window.scaena.look.offered()?.fields.map((f) => f.prop) ?? []);
+  check(
+    offeredFields.indexOf("stroke/width") >= 0 && offeredFields.indexOf("stroke/width") < offeredFields.indexOf("connect/route"),
+    `its Connection stands after its Border: ${offeredFields}`,
+  );
+  const routes = await options("look-connect-route");
+  check(["Straight", "Corner", "Curved"].every((r) => routes.includes(r)), `Connection: ${routes}`);
+  const ends = await options("look-ends-end");
+  check(["None", "Arrow", "Open Arrow", "Circle", "Square", "Diamond"].every((e) => ends.includes(e)), `Line End: ${ends}`);
+  check((await options("look-ends-start")).includes("Circle"), "and Line Start");
+  const given = await page.evaluate(() =>
+    Object.fromEntries((window.scaena.look.offered()?.fields ?? []).filter((f) => f.theme !== undefined).map((f) => [f.prop, f.theme])),
+  );
+  check(given["connect/route"] === "straight" && given["ends/end"] === "arrow" && given["ends/start"] === "none", `drawn straight, its last end a head: ${JSON.stringify(given)}`);
+  // Curved: one `choose`, a cubic the canvas picks it along.
+  await page.selectOption("#look-connect-route", "curved");
+  check(await reads("curved"), `Curved is written on the connector: ${declared(await source(), "title-to-note")}`);
+  const curved = await source();
+  const bent = (await boxOf("title-to-note"))?.route ?? [];
+  check(bent.length === 17, `its line is the curve, traced: ${bent.length} points`);
+  const onCurve = bent[8] ?? along;
+  await page.keyboard.press("Escape");
+  await page.mouse.click(...(await client(onCurve)));
+  check(await selects("title-to-note"), `a click on the curve selects it: ${await selected()}`);
+  // A circle at its start: another `choose`.
+  await page.waitForSelector("#look-ends-start", { timeout: 30000 }).catch(() => {});
+  await page.selectOption("#look-ends-start", "circle");
+  check(await reads("circle"), `Line Start's circle is written on it: ${declared(await source(), "title-to-note")}`);
+  check(/ends/.test(declared(await source(), "title-to-note")), "as its ends");
+  // Each one step to undo.
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Control+z");
+  check(await back(curved), "undo takes the circle back");
+  await page.keyboard.press("Control+z");
+  check(await back(again), "and the curve");
 
   // The three together: duplicated, the copy of the arrow joining the copies.
   const three = await choose(middle(note), along);

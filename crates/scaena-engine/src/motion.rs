@@ -57,17 +57,23 @@ pub fn items(
         let chart = node.node_type == NodeType::Chart;
         let (now, before) = (to.nodes.get(id), from.and_then(|f| f.nodes.get(id)));
         let stays = matched && now.is_some() && before.is_some();
+        // A text built by bullet reads its presets for its paragraphs (PLAN 2.129), which enter
+        // and leave as the paragraphs it draws do, while the text stays.
+        let (gains, loses) = match (now, before) {
+            (Some(now), Some(before)) if stays && node.node_type == NodeType::Text => bullets(before, now),
+            _ => (false, false),
+        };
         // A chart reads its presets for its marks, which enter and leave as its data
         // changes even while the chart stays.
         if let Some(props) = now
-            && (!stays || chart)
+            && (!stays || chart || gains)
             && !covered(id, Kind::Enter)
             && let Some(preset) = props.get("enter")
         {
             items.push(Item::Cue(own(theme, id, preset, Kind::Enter, chart, Timing::With)?));
         }
         if let Some(props) = before
-            && (!stays || chart)
+            && (!stays || chart || loses)
             && !slide
             && !covered(id, Kind::Exit)
             && let Some(preset) = props.get("exit")
@@ -89,6 +95,25 @@ pub fn items(
         }
     }
     Ok(items)
+}
+
+/// Whether a text that stays from `before` to `now`, its words as they were, draws a paragraph
+/// with words it did not (PLAN 2.129), and whether it draws one no longer.
+fn bullets(before: &scaena_core::document::Props, now: &scaena_core::document::Props) -> (bool, bool) {
+    // Both drawing the same paragraphs, as every text not built by bullet does, neither does.
+    if before.get("paragraphs") == now.get("paragraphs")
+        || scaena_core::reading::words(before) != scaena_core::reading::words(now)
+    {
+        return (false, false);
+    }
+    let drawn = |props: &scaena_core::document::Props| {
+        let range = scaena_core::lists::drawn(props.get("paragraphs"), scaena_core::builds::count(props));
+        let mut inked = scaena_core::builds::paragraphs(props);
+        inked.retain(|p| range.contains(p));
+        inked
+    };
+    let (was, is) = (drawn(before), drawn(now));
+    (is.iter().any(|p| !was.contains(p)), was.iter().any(|p| !is.contains(p)))
 }
 
 /// Whether a cue of `items` splits a node into units only layout counts: lines, words,

@@ -32,6 +32,7 @@ enum Words {
         "opacity": "Opacity", "transform/rotate": "Rotation", "enter": "Build In", "exit": "Build Out",
         "alt": "Description", "semantic": "Part in the Story", "focal": "Focal Point", "crop": "Crop",
         "radius": "Corners", "fill": "Fill", "stroke/paint": "Border", "stroke/width": "Border Width",
+        "connect/route": "Connection", "ends/start": "Line Start", "ends/end": "Line End",
         "data": "Data", "kind": "Chart", "orient": "Bars Run", "x/field": "Across", "x/type": "Across Are",
         "y/field": "Up", "y/type": "Up Are", "series/field": "Series", "color/field": "Color By",
         "sizeEncoding/field": "Size By", "interval/low": "Low End", "interval/high": "High End",
@@ -112,6 +113,21 @@ enum Words {
         case ("axis", "y"): return "Down"
         case ("labels/show", "auto"): return "Automatic"
         case ("labels/show", "ends"): return "First and Last"
+        case ("connect/route", "straight"): return "Straight"
+        case ("connect/route", "elbow"): return "Corner"
+        case ("connect/route", "curved"): return "Curved"
+        case ("ends/start", "none"): return "None"
+        case ("ends/start", "arrow"): return "Arrow"
+        case ("ends/start", "open"): return "Open Arrow"
+        case ("ends/start", "circle"): return "Circle"
+        case ("ends/start", "square"): return "Square"
+        case ("ends/start", "diamond"): return "Diamond"
+        case ("ends/end", "none"): return "None"
+        case ("ends/end", "arrow"): return "Arrow"
+        case ("ends/end", "open"): return "Open Arrow"
+        case ("ends/end", "circle"): return "Circle"
+        case ("ends/end", "square"): return "Square"
+        case ("ends/end", "diamond"): return "Diamond"
         case (_, "quantitative"): return "Numbers"
         case (_, "ordinal"): return "In Order"
         case (_, "nominal"): return "Names"
@@ -157,7 +173,7 @@ enum Words {
 
     /// The shipped themes' builds whose names say them in fewer words than a person would (PLAN 2.112).
     private static let presets: [String: String] = [
-        "words": "Word by Word", "fadeScale": "Fade and Scale", "scaleBig": "Scale Big",
+        "words": "Word by Word", "bullets": "By Bullet", "fadeScale": "Fade and Scale", "scaleBig": "Scale Big",
         "moveInLeft": "Move In from Left", "moveInRight": "Move In from Right", "moveInTop": "Move In from Top",
         "moveInBottom": "Move In from Bottom",
     ]
@@ -293,8 +309,8 @@ enum Words {
     static func motion(_ kind: String?, split: String? = nil) -> String {
         let does = ["enter": "Enters", "exit": "Leaves", "emphasis": "Emphasis", "anim": "Moves"][kind ?? ""] ?? phrase(kind ?? "")
         let by = [
-            "lines": "Line by Line", "words": "Word by Word", "glyphs": "Letter by Letter", "children": "One by One",
-            "marks": "Mark by Mark",
+            "lines": "Line by Line", "words": "Word by Word", "glyphs": "Letter by Letter",
+            "paragraphs": "Bullet by Bullet", "children": "One by One", "marks": "Mark by Mark",
         ][split ?? ""]
         return by.map { "\(does) \($0)" } ?? does
     }

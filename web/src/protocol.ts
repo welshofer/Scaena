@@ -1634,7 +1634,7 @@ export type Curve = { ease: [number, number, number, number] } | { spring: { sti
 export interface Motion {
   node: string;
   motion: "enter" | "exit" | "emphasis" | "anim";
-  /** What it moves one at a time: lines, words, glyphs, children, or marks. */
+  /** What it moves one at a time: lines, words, glyphs, paragraphs, children, or marks. */
   split?: string | null;
   units: number;
   start: number;

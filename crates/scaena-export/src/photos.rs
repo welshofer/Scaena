@@ -18,12 +18,7 @@ fn photos_decode_as_zune_jpeg_does() {
     for path in names {
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
         let bytes = std::fs::read(&path).unwrap();
-        let ours = scaena_core::jpeg::decode_stored(&bytes);
-        if name == "cmyk.jpg" {
-            assert!(ours.unwrap_err().to_string().contains("CMYK"), "{name} is refused, saying why");
-            continue;
-        }
-        let ours = ours.unwrap_or_else(|e| panic!("{name}: {e}"));
+        let ours = scaena_core::jpeg::decode_stored(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
         let theirs = image::load_from_memory_with_format(&bytes, image::ImageFormat::Jpeg).unwrap().to_rgba8();
         assert_eq!((ours.width, ours.height), theirs.dimensions(), "{name}: its size");
         let differ: Vec<usize> = (0..ours.rgba.len()).filter(|&i| ours.rgba[i] != theirs.as_raw()[i]).collect();
@@ -41,5 +36,5 @@ fn photos_decode_as_zune_jpeg_does() {
         }
         read += 1;
     }
-    assert!(read >= 17, "read {read} JPEGs");
+    assert!(read >= 19, "read {read} JPEGs");
 }

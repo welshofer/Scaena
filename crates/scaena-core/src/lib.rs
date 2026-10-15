@@ -36,6 +36,7 @@
 //!
 //! Invariant: nothing in this crate reads a clock, a font, or the filesystem.
 
+pub mod builds;
 pub mod choices;
 pub mod color;
 pub mod data;
@@ -82,10 +83,10 @@ pub use tracking::{Snapshot, resolve_states};
 
 /// The `deck.json` format version this crate reads and writes (its `scaena` key). Bump per
 /// SPEC §3.1; `docs/schema/deck.schema.json` takes its `$id` and version pattern from it.
-pub const FORMAT_VERSION: &str = "0.26";
+pub const FORMAT_VERSION: &str = "0.27";
 
 /// The theme format version (a theme's `scaena-theme` key), versioned apart from decks.
-pub const THEME_FORMAT_VERSION: &str = "0.16";
+pub const THEME_FORMAT_VERSION: &str = "0.17";
 
 /// The oldest deck format this crate reads (SPEC §3.1, [`version`]). Every format since has only
 /// added to what a deck may say, so a deck saved in one reads as the current format. A format
