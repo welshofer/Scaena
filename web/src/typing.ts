@@ -285,9 +285,11 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
   let bounds: { start: number; fromEnd: number } | undefined;
   /** A change is with the worker, or the text is being read again; another waits for it. */
   let sending = false;
-  /** Typing left while a change was with the worker, straight after keys (Escape, or a press
-   * elsewhere): the text as it was typed then, and the text and source that change came to, once
-   * it is made. What was typed after it is made then (`finish`), so leaving loses no key. */
+  /** Typing left while a change was with the worker, or the text was being read again, straight
+   * after keys (Escape, or a press elsewhere): the text as it was typed then, and the text and
+   * source what was typed is a change of: as the deck read them when typing was left, then as the
+   * change came to them, or the text as it was read again. What was typed is made then (`finish`),
+   * so leaving loses no key. */
   let finishing:
     | { now: NonNullable<typeof open>; value: string; end: number; bounds: typeof bounds; text?: string; read?: string }
     | undefined;
@@ -404,7 +406,8 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
       const typed = await stage.type(around.source(), [op], { index: now.index, state: now.state, node: now.node }, around.format());
       around.typed(typed.source, typed.edited, false);
       made = undefined;
-      if (open === now) {
+      if (open !== now) onto(now, typed.carets?.text, typed.source);
+      else {
         if (!typed.carets) leave();
         else {
           [carets, read] = [typed.carets, typed.source];
@@ -497,10 +500,9 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
       const typed = await stage.type(around.source(), [op], { index: now.index, state: now.state, node: now.node }, around.format());
       around.typed(typed.source, typed.edited, false);
       made = undefined;
-      if (open === now) {
-        if (!typed.carets) leave();
-        else [carets, read] = [typed.carets, typed.source];
-      }
+      if (open !== now) onto(now, typed.carets?.text, typed.source);
+      else if (!typed.carets) leave();
+      else [carets, read] = [typed.carets, typed.source];
       around.say(`${sentence(around.name(now.node))}: ${done}`);
       return true;
     } catch (e) {
@@ -625,7 +627,8 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
   function leave() {
     if (!open) return;
     const was = open.node;
-    if (sending && carets && area.value !== carets.text) finishing = { now: open, value: area.value, end: area.selectionEnd, bounds };
+    if (sending && carets && area.value !== carets.text)
+      finishing = { now: open, value: area.value, end: area.selectionEnd, bounds, text: carets.text, read };
     open = carets = read = undefined;
     on = goal = anchor = bounds = undefined;
     behind = false;
@@ -677,7 +680,9 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
       read = typed.source;
     } catch (e) {
       around.say(`Not typed: ${said(e)}`);
-      // What the deck reads stands: the textarea goes back to it.
+      // What the deck reads stands: the textarea goes back to it, and what was typed after the
+      // change, typing left meanwhile, is not made either.
+      if (finishing?.now === now) finishing = undefined;
       if (open === now && carets) {
         const at = Math.min(area.selectionStart, carets.text.length);
         area.value = carets.text;
@@ -688,6 +693,29 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
       around.draw();
       settle();
     }
+  }
+
+  /** Typing in `now` was left while its text was read again, or a look or a list was given it,
+   * with keys typed meanwhile (`finishing`): what was typed goes onto the text as the deck reads
+   * it now, `text` from `source`, as the textarea's own would (`follow`), to be made next
+   * (`finish`). With the text gone, or changed where it was typed, it is not made, and the status
+   * says so. */
+  function onto(now: NonNullable<typeof open>, text: string | undefined, source: string) {
+    const left = finishing;
+    if (left?.now !== now || left.text === undefined) return;
+    if (text === undefined) {
+      finishing = undefined;
+      return around.say(`Not typed in ${around.name(now.node)}: the deck changed as typing ended`);
+    }
+    if (text !== left.text) {
+      const next = follow(left.text, text, left.value, left.end, left.bounds);
+      if (next.lost) {
+        finishing = undefined;
+        return around.say("Not typed: the text changed where it was typed");
+      }
+      [left.value, left.end, left.bounds] = [next.value, next.at, next.bounds];
+    }
+    [left.text, left.read] = [text, source];
   }
 
   /** What was typed when typing was left with a change still with the worker, made once that change
@@ -740,7 +768,10 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     sending = true;
     const found = await stage.carets(source, now.state, now.node, around.format()).catch(() => null);
     sending = false;
-    if (open !== now) return settle();
+    if (open !== now) {
+      onto(now, found?.text, source);
+      return settle();
+    }
     if (!found) return leave();
     const was = carets.text;
     // Something else changed the source: what is typed next is a step to undo of its own.

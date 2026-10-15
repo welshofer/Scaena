@@ -1,0 +1,70 @@
+# frozen_string_literal: true
+
+require "json"
+require_relative "lib/book"
+
+module Library
+  # A shelf of books, by their ISBNs.
+  class Shelf
+    include Enumerable
+    attr_reader :name, :books
+
+    MAX_BOOKS = 1_000
+    ISBN = /\A(?:97[89])?\d{9}[\dX]\z/i
+
+    def initialize(name:, books: [])
+      @name = name
+      @books = books.to_h { |b| [b.isbn, b] }
+      @@shelves ||= 0
+      @@shelves += 1
+    end
+
+    def self.load(path) = new(**JSON.parse(File.read(path), symbolize_names: true))
+
+    def <=>(other)
+      name <=> other.name
+    end
+
+    def add(book)
+      raise ArgumentError, "bad ISBN: #{book.isbn}" unless book.isbn.match?(ISBN)
+      return self if @books.key?(book.isbn)
+
+      @books[book.isbn] = book
+      self
+    end
+
+    def report
+      titles = %w[Dune Emma Ulysses]
+      counts = %i(read unread)
+      <<~TEXT.strip
+        #{name}: #{@books.size} books, #@name's shelf
+        Titles: #{titles.join(", ")} (#{counts.first})
+      TEXT
+    end
+
+    private
+
+    def pages
+      total = books.sum { |_, b| b.pages }
+      half = total / 2.0
+      format("%d pages, %d a half", total, half)
+    end
+  end
+end
+
+=begin
+A comment that runs
+over lines.
+=end
+shelf = Library::Shelf.new(name: "Fiction")
+puts shelf.report, ?a, :"quoted symbol", %q{raw #{not} interpolated}, $stdout.sync
+words = shelf.name.split(/,\s*/).map(&:upcase)
+warn $0, $!.message if $DEBUG
+
+RSpec.describe Library::Shelf do
+  before do
+    @shelf = Library::Shelf.new(name: "Test")
+  end
+
+  it { expect { @shelf.add(nil) }.to raise_error(NoMethodError) }
+end

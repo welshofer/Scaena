@@ -1,0 +1,233 @@
+comment     «#Requires -Version 7.0\n<#\n.SYNOPSIS\n    Backs up a folder, keeping the newest copies.\n#>\n»
+punctuation «[»
+attribute   «CmdletBinding»
+punctuation «(»
+property    «SupportsShouldProcess»
+punctuation «)]\n»
+keyword     «param»
+punctuation «(\n    [»
+attribute   «Parameter»
+punctuation «(»
+property    «Mandatory »
+operator    «= »
+constant    «$true»
+punctuation «)]\n    [»
+attribute   «ValidateNotNullOrEmpty»
+punctuation «()]\n    [»
+type        «string»
+punctuation «]»
+variable    «$Source»
+punctuation «,\n\n    [»
+type        «int»
+punctuation «]»
+variable    «$Keep »
+operator    «= »
+number      «5»
+punctuation «,\n    [»
+attribute   «ValidateSet»
+punctuation «(»
+string      «'zip'»
+punctuation «, »
+string      «'tar'»
+punctuation «)][»
+type        «string»
+punctuation «]»
+variable    «$Format »
+operator    «= »
+string      «'zip'»
+punctuation «,\n    [»
+attribute   «Parameter»
+punctuation «()] [»
+type        «switch»
+punctuation «]»
+variable    «$Force\n»
+punctuation «)\n\n»
+variable    «$ErrorActionPreference »
+operator    «= »
+string      «'Stop'\n»
+variable    «$stamp »
+operator    «= »
+function    «Get-Date »
+attribute   «-Format »
+string      «"yyyyMMdd-HHmmss"\n»
+variable    «$target »
+operator    «= »
+function    «Join-Path »
+variable    «$env:TEMP »
+string      «"backup-»
+variable    «$stamp»
+string      «"\n\n»
+keyword     «function »
+function    «Get-OldBackups »
+punctuation «{\n    »
+keyword     «param»
+punctuation «([»
+type        «string»
+punctuation «]»
+variable    «$Path»
+punctuation «, [»
+type        «int»
+punctuation «]»
+variable    «$Count»
+punctuation «)\n    »
+function    «Get-ChildItem »
+attribute   «-Path »
+variable    «$Path »
+attribute   «-Directory »
+operator    «|\n        »
+function    «Sort-Object »
+plain       «LastWriteTime »
+attribute   «-Descending »
+operator    «|\n        »
+function    «Select-Object »
+attribute   «-Skip »
+variable    «$Count\n»
+punctuation «}\n\n»
+variable    «$options »
+operator    «= »
+punctuation «@{\n    »
+property    «Path        »
+operator    «= »
+variable    «$Source\n    »
+property    «Destination »
+operator    «= »
+variable    «$target\n    »
+property    «Recurse     »
+operator    «= »
+constant    «$true\n»
+punctuation «}\n\n»
+keyword     «try »
+punctuation «{\n    »
+keyword     «if »
+punctuation «(»
+variable    «$Force »
+operator    «-or -not »
+punctuation «(»
+function    «Test-Path »
+variable    «$target»
+punctuation «)) {\n        »
+function    «Copy-Item »
+variable    «@options »
+attribute   «-ErrorAction »
+plain       «Stop\n        »
+function    «Write-Host »
+string      «"Copied »
+punctuation «$(»
+variable    «$options»
+punctuation «.»
+property    «Path»
+punctuation «)»
+string      « to »
+variable    «${target}»
+string      «" »
+attribute   «-ForegroundColor »
+plain       «Green\n    »
+punctuation «}\n    »
+keyword     «foreach »
+punctuation «(»
+variable    «$old »
+keyword     «in »
+function    «Get-OldBackups »
+attribute   «-Path »
+variable    «$env:TEMP »
+attribute   «-Count »
+variable    «$Keep»
+punctuation «) {\n        »
+function    «Remove-Item »
+variable    «$old»
+punctuation «.»
+property    «FullName »
+attribute   «-Recurse -WhatIf»
+punctuation «:(»
+operator    «-not »
+variable    «$Force»
+punctuation «)\n    }\n}\n»
+keyword     «catch »
+punctuation «[»
+type        «System»
+punctuation «.»
+type        «IO»
+punctuation «.»
+type        «IOException»
+punctuation «] {\n    »
+function    «Write-Error »
+string      «"Backup failed: »
+variable    «$_»
+string      «"\n    »
+keyword     «exit »
+number      «1\n»
+punctuation «}\n\n»
+variable    «$summary »
+operator    «= »
+string      «@"\nSource: »
+variable    «$Source»
+string      «\nKept:   »
+variable    «$Keep»
+string      « copies, at most »
+punctuation «$([»
+type        «math»
+punctuation «]::»
+function    «Max»
+punctuation «(»
+variable    «$Keep»
+punctuation «, »
+number      «1»
+punctuation «))»
+string      «\n"@\n»
+variable    «$literal »
+operator    «= »
+string      «@'\nNothing in $here expands.\n'@\n»
+variable    «$sizes »
+operator    «= »
+number      «1kb»
+punctuation «, »
+number      «0x10»
+punctuation «, »
+number      «2.5 »
+operator    «| »
+function    «ForEach-Object »
+punctuation «{ »
+variable    «$_ »
+operator    «* »
+number      «2 »
+punctuation «}\n»
+keyword     «if »
+punctuation «(»
+variable    «$sizes»
+punctuation «.»
+property    «Count »
+operator    «-ge »
+number      «3 »
+operator    «-and »
+variable    «$summary »
+operator    «-like »
+string      «'*Kept*'»
+punctuation «) { »
+string      «"it's ""ok""" »
+punctuation «}\n»
+operator    «. »
+variable    «$PSScriptRoot»
+plain       «\\lib\\common.ps1\n»
+keyword     «enum »
+type        «Level »
+punctuation «{ »
+constant    «Low»
+punctuation «; »
+constant    «High »
+operator    «= »
+number      «2 »
+punctuation «}\n»
+variable    «$ratio »
+operator    «= »
+number      «.5\n»
+function    «git »
+plain       «commit »
+attribute   «--amend --no-edit\n»
+function    «docker »
+plain       «run »
+attribute   «--name»
+operator    «=»
+plain       «backup »
+attribute   «-v »
+variable    «${PWD}»
+plain       «:/data alpine\n»
