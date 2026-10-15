@@ -571,6 +571,9 @@ struct Inspector: View {
             } icon: {
                 Image(systemName: symbol).accessibilityHidden(true)
             }
+            // The title alone stands for the label: on the iPad a hidden image in a button's label
+            // is still read as an image within it.
+            .accessibilityRepresentation { Text(title) }
         }
     }
 
@@ -1112,14 +1115,17 @@ private struct LayoutField: View {
             Button {
                 picking = true
             } label: {
+                let shown = value.map { Words.name($0, of: "layout", theme: look) } ?? "None"
                 HStack(spacing: 4) {
-                    Text(value.map { Words.name($0, of: "layout", theme: look) } ?? "None")
+                    Text(shown)
                         .lineLimit(1)
                     Image(systemName: "chevron.up.chevron.down")
                         .imageScale(.small)
                         .foregroundStyle(.secondary)
-                        .accessibilityHidden(true)
                 }
+                // The layout's name alone stands for the label: on the iPad a hidden image in a
+                // button's label is still read as an image within it.
+                .accessibilityRepresentation { Text(shown) }
             }
             .help("Choose the slide's layout from the theme's, by their sections")
             .accessibilityIdentifier("layout-choose")
