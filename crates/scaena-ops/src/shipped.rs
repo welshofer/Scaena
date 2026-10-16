@@ -5,6 +5,13 @@
 //! italic: Inter and JetBrains Mono. The first three set display in Fraunces, and Gallery in
 //! Instrument Serif (PLAN 2.102). Each font carries its copyright and its license (the SIL Open
 //! Font License) in its own name table.
+//!
+//! Every font every theme in the registry names is carried, compressed, and inflated the first
+//! time a deck needs it (PLAN T.0c, ADR-0031 call 3): the build script finds each in the
+//! repository or the sha256 cache, by `shipped/fonts.tsv`, and reaches no network. A deck made or
+//! re-themed takes only its theme's fonts.
+
+use std::sync::OnceLock;
 
 /// A theme that ships.
 #[derive(Debug, Clone, Copy)]
@@ -14,11 +21,36 @@ pub struct Shipped {
     /// Its file's name in a bundle's `themes/`.
     pub file: &'static str,
     pub text: &'static str,
+    /// The fonts it names, by the paths it gives them: each family's, then their italics'.
+    pub font_files: &'static [&'static str],
+}
+
+impl Shipped {
+    /// The fonts this theme names, each by the path it gives it: what a deck made in it, or put
+    /// in it, takes, and no other family's.
+    pub fn fonts(&self) -> impl Iterator<Item = (&'static str, &'static [u8])> {
+        self.font_files.iter().filter_map(|path| Some((*path, font(path)?)))
+    }
+}
+
+/// A font carried in the binary, deflated.
+struct Font {
+    path: &'static str,
+    /// Its family's key in `scripts/build_bundle_fonts.py`'s pinned table.
+    #[cfg_attr(not(test), allow(dead_code))]
+    family: &'static str,
+    /// Its size inflated.
+    size: usize,
+    packed: &'static [u8],
 }
 
 mod table;
 
-use table::FONTS;
+include!(concat!(env!("OUT_DIR"), "/fonts.rs"));
+
+/// Each font inflated, the first time it is asked for.
+static INFLATED: [OnceLock<Vec<u8>>; FONTS.len()] = [const { OnceLock::new() }; FONTS.len()];
+
 /// Every theme that ships, as `docs/themes/registry.json` lists them (PLAN T.0a, ADR-0031):
 /// `scripts/build_themes.py` writes the table from it.
 pub use table::THEMES;
@@ -30,12 +62,26 @@ pub fn theme(name: &str) -> Option<Shipped> {
 
 /// Every font the themes that ship name, each by the path it gives it.
 pub fn fonts() -> impl Iterator<Item = (&'static str, &'static [u8])> {
-    FONTS.into_iter()
+    FONTS.iter().filter_map(|f| Some((f.path, font(f.path)?)))
 }
 
 /// A font a theme that ships names, by the path it gives it.
 pub fn font(path: &str) -> Option<&'static [u8]> {
-    FONTS.iter().find(|(p, _)| *p == path).map(|(_, bytes)| *bytes)
+    let i = FONTS.iter().position(|f| f.path == path)?;
+    Some(INFLATED[i].get_or_init(|| inflated(&FONTS[i])))
+}
+
+/// What the binary carries of the fonts, `(inflated, deflated)` bytes: what T.0c records.
+pub fn carried() -> (usize, usize) {
+    FONTS.iter().fold((0, 0), |(a, b), f| (a + f.size, b + f.packed.len()))
+}
+
+fn inflated(font: &Font) -> Vec<u8> {
+    use std::io::Read as _;
+    let mut bytes = Vec::with_capacity(font.size);
+    // The build deflated these bytes itself; a failure here is a broken build, not a deck's.
+    flate2::read::DeflateDecoder::new(font.packed).read_to_end(&mut bytes).expect("a font the build deflated");
+    bytes
 }
 
 /// The names of the themes that ship, as a sentence lists them.
@@ -63,15 +109,51 @@ mod tests {
         for theme in THEMES {
             let parsed: serde_json::Value = serde_json::from_str(theme.text).unwrap();
             let families = parsed["type"]["families"].as_object().unwrap();
+            let mut named = Vec::new();
             for family in families.values() {
                 let file = family["file"].as_str().unwrap();
                 assert!(font(file).is_some(), "{}: {file}", theme.name);
+                if !named.contains(&file) {
+                    named.push(file);
+                }
+            }
+            for family in families.values() {
                 let italic = family["italic"]["file"].as_str().expect("every family that ships has an italic");
                 assert!(font(italic).is_some(), "{}: {italic}", theme.name);
+                if !named.contains(&italic) {
+                    named.push(italic);
+                }
             }
+            // What a deck made in it takes: its own fonts, and no other theme's (PLAN T.0c).
+            let given: Vec<&str> = theme.fonts().map(|(path, _)| path).collect();
+            assert_eq!(given, named, "{}", theme.name);
         }
         assert_eq!(theme("Ember").map(|t| t.file), Some("ember.theme.json"));
         assert!(theme("ember.theme.json").is_none());
+    }
+
+    /// Every font the binary carries is one a theme in the registry names, of a family the
+    /// registry gives that theme, carried deflated and inflated whole (PLAN T.0c).
+    #[test]
+    fn every_font_carried_is_a_registry_familys() {
+        let registry: serde_json::Value =
+            serde_json::from_str(include_str!("../../../docs/themes/registry.json")).unwrap();
+        for entry in registry["themes"].as_array().unwrap() {
+            let theme = theme(entry["slug"].as_str().unwrap()).unwrap();
+            let keys: Vec<&str> = entry["fonts"].as_array().unwrap().iter().map(|k| k.as_str().unwrap()).collect();
+            for path in theme.font_files {
+                let carried = FONTS.iter().find(|f| f.path == *path).unwrap();
+                assert!(keys.contains(&carried.family), "{}: {path} is of `{}`", theme.name, carried.family);
+            }
+        }
+        for f in &FONTS {
+            assert!(THEMES.iter().any(|t| t.font_files.contains(&f.path)), "{} is carried for no theme", f.path);
+            let bytes = font(f.path).unwrap();
+            assert_eq!(bytes.len(), f.size, "{}", f.path);
+            assert!(bytes.starts_with(&[0, 1, 0, 0]) || bytes.starts_with(b"OTTO"), "{} is a font", f.path);
+        }
+        let (inflated, deflated) = carried();
+        assert!(deflated < inflated, "{deflated} deflated of {inflated}");
     }
 
     /// The themes that ship offer the same builds, a presentation app's (PLAN 2.112), and the same
