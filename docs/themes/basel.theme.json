@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.20",
+  "scaena-theme": "0.21",
   "name": "Basel",
   "description": "Swiss: flush-left Inter at huge sizes on warm white, red the only color, hairlines on the grid's lines. Needs no font beyond the four's.",
   "tokens": {
@@ -1009,6 +1009,9 @@
   },
   "density": {
     "maxWordsPerState": 40
+  },
+  "pictures": {
+    "frame": "none"
   },
   "furniture": {
     "number": { "col": [12, 12], "role": "label", "align": "end" },

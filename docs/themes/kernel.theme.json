@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.20",
+  "scaena-theme": "0.21",
   "name": "Kernel",
   "description": "Systems: titles in JetBrains Mono over Inter on a dark ground, a terminal green accent, and code cards that read at the back of a hall. Needs no font beyond the four's.",
   "tokens": {
@@ -990,6 +990,9 @@
   },
   "density": {
     "maxWordsPerState": 40
+  },
+  "pictures": {
+    "frame": "none"
   },
   "furniture": {
     "number": { "col": [12, 12], "role": "label", "align": "end" },
