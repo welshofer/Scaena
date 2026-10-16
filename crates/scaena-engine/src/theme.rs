@@ -407,6 +407,16 @@ impl Theme {
         })
     }
 
+    /// How the theme frames its pictures (PLAN T.3a): its keyline and its mat, each a width and
+    /// a color, from the picture out; none where it says none.
+    pub fn frame(&self) -> Result<Option<crate::images::Frame>, EngineError> {
+        let Some(pictures) = &self.pictures else { return Ok(None) };
+        let band = |b: Option<&model::Band>| b.map(|b| Ok::<_, EngineError>((b.width as f32, self.color(&b.color)?)));
+        let (keyline, mat) = pictures.frame.bands();
+        let (keyline, mat) = (band(keyline).transpose()?, band(mat).transpose()?);
+        Ok((keyline.is_some() || mat.is_some()).then_some(crate::images::Frame { keyline, mat }))
+    }
+
     /// A stroke token's width.
     pub fn stroke(&self, name: &str) -> Result<f32, EngineError> {
         self.tokens
