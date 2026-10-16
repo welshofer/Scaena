@@ -6,6 +6,10 @@
 //   swatch picks one, the value takes any the theme reads. Beside it, the color roles that name it.
 // - A type role is its family, one of the theme's, its size, weight, leading, and tracking.
 // - The spacing is the grid's gutter, margins, and baseline, and the space unit.
+// - Code (PLAN 2.144): each kind of code token in a person's words, in the color it is drawn in,
+//   which a swatch picks or one of the theme's colors names, or the accent derives where the theme
+//   names none; marked where a color named was moved to read on its ground. Each change is one
+//   edit at `/code/syntax/<kind>/color`.
 // - From a photo (PLAN 2.94): each PNG and JPEG the bundle holds, a click giving the theme its
 //   colors, as `scaena theme --from-photo` does: the photo's hues for the accents and the hue it
 //   leans to for the neutrals, on the theme's own tones, each color text is set in kept where it
@@ -16,7 +20,7 @@
 // - The panel shows the theme frames are drawn in: an undo, a re-theme, or the assistant's edit
 //   shows here as it does on the canvas.
 import { observing } from "./life";
-import type { BundleFile, Lexicon, ThemeEdited } from "./protocol";
+import type { BundleFile, CodeColor, Lexicon, ThemeEdited } from "./protocol";
 import type { Stage } from "./stage";
 import { named, object as objectSaid } from "./words";
 
@@ -66,6 +70,9 @@ export function themePanel(stage: Stage, into: HTMLElement, editor: ThemeEditor)
   const photos = into.querySelector<HTMLUListElement>("[data-photos]")!;
   const roles = into.querySelector<HTMLTableSectionElement>("[data-roles] tbody")!;
   const spacing = into.querySelector<HTMLElement>("[data-spacing]")!;
+  const code = into.querySelector<HTMLUListElement>("[data-code]")!;
+  /** How each kind of code token is drawn in the theme as the panel last read it (PLAN 2.144). */
+  let codes: CodeColor[] = [];
   /** The theme as the panel last drew it, and its text and where it lives. */
   let theme: Json | undefined;
   let drawn: { theme: string; text: string } | undefined;
@@ -99,12 +106,15 @@ export function themePanel(stage: Stage, into: HTMLElement, editor: ThemeEditor)
           head.textContent = "The deck names no theme: choose one above the canvas.";
           colors.replaceChildren();
           roles.replaceChildren();
+          code.replaceChildren();
           spacing.replaceChildren();
           return;
         }
         drawPhotos(await editor.photos().catch(() => []));
         if (asked !== reading) return;
         if (drawn && drawn.theme === got.theme && drawn.text === got.text) return;
+        codes = await stage.codeColors().catch(() => []);
+        if (asked !== reading) return;
         drawn = got;
         try {
           theme = object(JSON.parse(got.text));
@@ -169,6 +179,7 @@ export function themePanel(stage: Stage, into: HTMLElement, editor: ThemeEditor)
     drawColors();
     drawRoles();
     drawSpacing();
+    drawCode();
   }
 
   function drawColors() {
@@ -297,6 +308,57 @@ export function themePanel(stage: Stage, into: HTMLElement, editor: ThemeEditor)
     spacing.replaceChildren(...fields);
   }
 
+  /** The edit that names `value` the color of code's `kind`, or, with none, lets the accent derive
+   * it: the objects it goes in added where the theme has none, and a kind left with nothing taken
+   * away. */
+  function codeColored(kind: string, value: string | undefined): unknown[] {
+    const look = object(theme?.code);
+    const syntax = object(look?.syntax);
+    const held = object(syntax?.[kind]);
+    if (value === undefined) {
+      if (!held || !("color" in held)) return [];
+      return Object.keys(held).length > 1 ? [{ op: "remove", path: pointer("code", "syntax", kind, "color") }] : [{ op: "remove", path: pointer("code", "syntax", kind) }];
+    }
+    if (!look) return [{ op: "add", path: pointer("code"), value: { syntax: { [kind]: { color: value } } } }];
+    if (!syntax) return [{ op: "add", path: pointer("code", "syntax"), value: { [kind]: { color: value } } }];
+    if (!held) return [{ op: "add", path: pointer("code", "syntax", kind), value: { color: value } }];
+    return [{ op: "color" in held ? "replace" : "add", path: pointer("code", "syntax", kind, "color"), value }];
+  }
+
+  function drawCode() {
+    const names = [...Object.keys(object(object(theme?.tokens)?.roles) ?? {}), ...Object.keys(object(object(theme?.tokens)?.color) ?? {})];
+    const offered = [...new Set(names)];
+    code.replaceChildren(
+      ...codes.map((c) => {
+        const li = document.createElement("li");
+        li.dataset.syntax = c.kind;
+        const swatch = Object.assign(document.createElement("input"), { type: "color", value: c.drawn });
+        swatch.setAttribute("aria-label", `${c.said}: pick a color`);
+        swatch.addEventListener("change", () => {
+          const ops = codeColored(c.kind, swatch.value);
+          if (swatch.value !== c.drawn && ops.length) commit(ops, `${c.said} in code: ${swatch.value}`);
+        });
+        const id = `theme-code-${c.kind}`;
+        const label = Object.assign(document.createElement("label"), { htmlFor: id, textContent: c.said });
+        const pick = Object.assign(document.createElement("select"), { id });
+        pick.append(new Option("From the accent", "", c.named === undefined, c.named === undefined));
+        for (const name of offered) pick.append(new Option(said("color", name), name, name === c.named, name === c.named));
+        if (c.named !== undefined && !offered.includes(c.named)) pick.append(new Option(c.named, c.named, true, true));
+        pick.addEventListener("change", () => {
+          const value = pick.value || undefined;
+          const what = value ? `${c.said} in code: ${said("color", value)}` : `${c.said} in code: from the accent`;
+          const ops = codeColored(c.kind, value);
+          if (ops.length) commit(ops, what);
+        });
+        li.append(swatch, label, pick);
+        // Where the color drawn is not the one named: derived, or moved to read.
+        const note = c.named === undefined ? "from the accent" : c.moved ? "moved to read on the slide" : "";
+        if (note) li.append(Object.assign(document.createElement("span"), { className: "uses", textContent: note }));
+        return li;
+      }),
+    );
+  }
+
   observing(
     new MutationObserver(() => {
       if (!into.hidden) void refresh();
@@ -313,6 +375,8 @@ export function themePanel(stage: Stage, into: HTMLElement, editor: ThemeEditor)
     },
     /** The theme as the panel last drew it, for a test. */
     theme: () => theme,
+    /** How each kind of code token is drawn, as the panel last read it, for a test. */
+    codes: () => codes,
     /** Edit the theme by `ops`, as a change in the panel does. */
     change: (ops: unknown[], what = "an edit") => settle(change(ops, what)),
     /** Give the theme the colors of the image `path` the bundle holds, as its button does. */
