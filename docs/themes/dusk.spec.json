@@ -1,0 +1,153 @@
+{
+  "name": "Dusk",
+  "description": "Dark surface, warm paper-white ink, one accent. Display type set tight with optical sizing; body set loose.",
+  "mode": "dark",
+  "colors": {
+    "ink": "#F2F0E9",
+    "paper": "#101014",
+    "paper-2": "#17171D",
+    "accent": "#FF6A3D",
+    "accent-2": "#FFC857",
+    "muted": "#8A8A96",
+    "line": "#2A2A33"
+  },
+  "data": {
+    "categorical": [
+      "#E4DFD3",
+      "#B4B2BB",
+      "#9C9AA5",
+      "#86848F"
+    ],
+    "sequential": [
+      "#2A2A33",
+      "#5C3326",
+      "#8F4129",
+      "#C4532F",
+      "#FF6A3D"
+    ],
+    "diverging": [
+      "#4FB3BF",
+      "#17171D",
+      "#FF6A3D"
+    ]
+  },
+  "families": {
+    "display": {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          9,
+          144
+        ],
+        "SOFT": [
+          0,
+          100
+        ],
+        "WONK": [
+          0,
+          1
+        ]
+      },
+      "italic": {
+        "file": "fonts/Fraunces-Italic-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            900
+          ],
+          "opsz": [
+            9,
+            144
+          ],
+          "SOFT": [
+            0,
+            100
+          ],
+          "WONK": [
+            0,
+            1
+          ]
+        }
+      },
+      "fallback": [
+        "body"
+      ]
+    },
+    "body": {
+      "family": "Inter",
+      "file": "fonts/Inter-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          14,
+          32
+        ]
+      },
+      "italic": {
+        "file": "fonts/Inter-Italic-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            900
+          ],
+          "opsz": [
+            14,
+            32
+          ]
+        }
+      },
+      "features": {
+        "cv11": true,
+        "ss01": false
+      }
+    },
+    "mono": {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          800
+        ]
+      },
+      "italic": {
+        "file": "fonts/JetBrainsMono-Italic-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            800
+          ]
+        }
+      }
+    }
+  },
+  "voice": "dusk",
+  "margin": [
+    96,
+    120
+  ],
+  "shaders": {
+    "palettes": {
+      "ambient": [
+        "#1B1430",
+        "#3A1F4F",
+        "#B0452C",
+        "#FF6A3D"
+      ],
+      "texture": [
+        "#0E0C14",
+        "#2B1A1A",
+        "#7A2E1E",
+        "#FFC857"
+      ]
+    }
+  }
+}
