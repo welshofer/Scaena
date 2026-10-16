@@ -81,7 +81,7 @@ fn a_tables_fetched_data_is_credited_at_its_foot() {
 
     // Its rows edited since they came: the credit says so, as CC BY asks.
     let mut edited = deck.clone();
-    edited.data.get_mut("boston").unwrap().fetched.as_mut().unwrap().edited = true;
+    edited.data.get_mut("boston").unwrap().fetched.as_mut().unwrap()["edited"] = true.into();
     let req = FrameRequest { deck: &edited, ..req };
     let scene = engine.at_rest(&req).unwrap();
     let said: String = scene

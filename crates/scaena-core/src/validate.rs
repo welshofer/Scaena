@@ -1261,9 +1261,8 @@ fn ends_and_paragraphs(deck: &Deck) -> Vec<Finding> {
 fn fetched_sources(deck: &Deck) -> Vec<Finding> {
     let mut out = Vec::new();
     for (name, source) in &deck.data {
-        let Some(fetched) = &source.fetched else { continue };
-        let Ok(record) = serde_json::to_value(fetched) else { continue };
-        for (below, why) in crate::fetched::problems(&record) {
+        let Some(record) = &source.fetched else { continue };
+        for (below, why) in crate::fetched::problems(record) {
             let message = format!("data `{name}` was fetched: {why}");
             out.push(Finding::new("E106", Severity::Error, message).at(format!("/data/{}/fetched{below}", esc(name))));
         }

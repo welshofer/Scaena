@@ -168,7 +168,17 @@ pub struct DataSource {
     /// Where its rows came from (ADR-0030, deck format 0.30): a forecast fetched once into the
     /// deck, credited at the foot of each chart or table that reads it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fetched: Option<crate::fetched::Fetched>,
+    #[schemars(with = "Option<crate::fetched::Fetched>")]
+    pub fetched: Option<Value>,
+}
+
+impl DataSource {
+    /// Its `fetched` record, read; none where it has none, or one the schema refuses. Kept as
+    /// written in the deck, and read where it is needed, so a deck's serializers carry no code of
+    /// its own for it (SPEC §15).
+    pub fn fetched(&self) -> Option<crate::fetched::Fetched> {
+        serde_json::from_value(self.fetched.clone()?).ok()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
