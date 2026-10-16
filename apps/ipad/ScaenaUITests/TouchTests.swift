@@ -167,6 +167,33 @@ final class TouchTests: XCTestCase {
             }
         }
 
+        try XCTContext.runActivity(named: "A long press offers Map…, whose sheet asks where, and Cancel puts it away") { _ in
+            // PLAN O.1d: Insert › Map… from the long press, as the Mac's right click offers it.
+            title.press(forDuration: 1.2)
+            let offered = app.descendants(matching: .any)
+            let map = offered.matching(NSPredicate(format: "label == 'Map…'")).firstMatch
+            // The edit menu pages its actions: past the first page, the way on shows the rest.
+            for _ in 0..<6 where !map.waitForExistence(timeout: 1) {
+                let on = offered.matching(NSPredicate(format: "label IN {'Next', 'Forward', 'Show More Items'}")).firstMatch
+                guard on.exists else { break }
+                on.tap()
+            }
+            guard map.waitForExistence(timeout: 2) else {
+                keep(app, as: "no-map")
+                throw Unseen(description: "a long press offered no Map…: \(app.debugDescription)")
+            }
+            map.tap()
+            let place = offered.matching(NSPredicate(format: "identifier == 'map-where'")).firstMatch
+            guard place.waitForExistence(timeout: 5) else {
+                throw Unseen(description: "Map… opened no sheet asking where: \(app.debugDescription)")
+            }
+            keep(app, as: "map")
+            app.buttons.matching(NSPredicate(format: "label == 'Cancel'")).firstMatch.tap()
+            guard wait(5, { !place.exists }) else {
+                throw Unseen(description: "Cancel left the map's sheet: \(app.debugDescription)")
+            }
+        }
+
         try XCTContext.runActivity(named: "In the light table, a slide dragged onto another moves after it") { _ in
             // The slides down the side, where their first stands before the light table shows.
             let cells = app.descendants(matching: .any)

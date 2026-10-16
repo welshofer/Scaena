@@ -201,3 +201,53 @@ fn each_map_step_out_of_order_says_why() {
     assert!(after.contains("`map` first"), "{after}");
     unsafe { scaena_generator_free(g) };
 }
+
+/// A step of the conversation `chat`, as the envelope it returns.
+fn chat_step(chat: *mut ScaenaChat, s: *mut ScaenaSession, method: &str, args: Value) -> Value {
+    let called = unsafe { scaena_chat_call(chat, s, c(method).as_ptr(), c(&args.to_string()).as_ptr()) };
+    serde_json::from_str(&took(called)).unwrap()
+}
+
+/// The assistant's `map_fetch` on the Mac (PLAN O.1d): the session refuses to run it, since the
+/// client makes its requests, and Swift hands back what it fetched and put, by the call's place in
+/// the model's answer (`ran`), which the next request carries as that call's result.
+#[test]
+fn the_assistants_map_fetch_is_answered_by_what_swift_ran() {
+    let s = open(B1);
+    let mut error = null_mut();
+    let chat = unsafe { scaena_chat_new(c(r#"{"provider":"anthropic","model":"a-model"}"#).as_ptr(), &mut error) };
+    assert!(!chat.is_null(), "a conversation begins: {}", took(error));
+    assert!(
+        chat_step(chat, s, "ask", json!({ "text": "Put a map of the Ferry Building on the cover." }))["ok"].is_null()
+    );
+    let input = json!({ "place": "Ferry Building, San Francisco", "state": "cover" });
+    let call = json!({ "type": "tool_use", "id": "t1", "name": "map_fetch", "input": input });
+    let answer = json!({ "content": [call], "stop_reason": "tool_use" }).to_string();
+    let next = chat_step(chat, null_mut(), "answer", json!({ "status": 200, "body": answer }));
+    assert_eq!(next["ok"]["calls"][0]["name"], "map_fetch", "{next}");
+
+    // Run by the session, it is refused: the client fetches the map.
+    let refused = chat_step(chat, s, "run", json!({ "call": next["ok"]["calls"][0] }));
+    assert_eq!(refused["ok"]["error"], true, "{refused}");
+    assert!(refused["ok"]["json"].as_str().unwrap().contains("the client fetches the map"), "{refused}");
+
+    // What Swift fetched and put, handed back as the call's result.
+    let put = json!({ "placed": { "node": "map", "said": "Map of Ferry Building from Geoapify added" } }).to_string();
+    let ran = chat_step(chat, s, "ran", json!({ "index": 0, "json": put, "edited": true }));
+    assert_eq!(
+        (&ran["ok"]["id"], &ran["ok"]["edited"], &ran["ok"]["error"]),
+        (&json!("t1"), &json!(true), &json!(false))
+    );
+    assert!(chat_step(chat, s, "ran", json!({ "index": 1, "json": "{}" }))["error"]["message"].is_string(), "one call");
+    assert_eq!(chat_step(chat, null_mut(), "next", Value::Null)["ok"], json!(true));
+    let request = chat_step(chat, null_mut(), "request", json!({ "key": "sk-test" }));
+    let body: Value = serde_json::from_str(request["ok"]["body"].as_str().unwrap()).unwrap();
+    let results = body["messages"].as_array().unwrap().last().unwrap()["content"].clone();
+    let result = results.as_array().unwrap().iter().find(|r| r["tool_use_id"] == "t1").unwrap().clone();
+    assert!(result.to_string().contains("Map of Ferry Building from Geoapify added"), "{result}");
+    assert!(result["is_error"].as_bool() != Some(true), "{result}");
+    unsafe {
+        scaena_chat_free(chat);
+        scaena_session_free(s);
+    }
+}
