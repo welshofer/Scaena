@@ -217,6 +217,7 @@ let current:
       say: (text: string) => void;
       kept: () => string | undefined;
       rekeep: (from: string, to?: string) => Promise<void>;
+      typeTitle: () => Promise<boolean>;
     }
   | undefined;
 
@@ -402,9 +403,11 @@ async function controls() {
   };
   making.onclose = () => {
     if (making.returnValue !== "create") return;
-    // The slide takes the keys once the deck is open, not New…, which a space would open again.
+    // The deck opens typing in its title, its words selected, so the first keys replace them; else
+    // the slide takes the keys, not New…, which a space would open again.
+    const was = current;
     void open({ create: { theme: theme.value, title: title.value.trim() || "Untitled" } })
-      .then(() => $<HTMLElement>("#overlay").focus())
+      .then(async () => current !== was && ((await current?.typeTitle()) || $<HTMLElement>("#overlay").focus()))
       .catch(failed);
   };
   // From a prompt (PLAN G.5): a deck Narrato writes, made in a worker of its own.
@@ -523,6 +526,8 @@ async function edit(source: Source, opened?: Stage) {
       return undefined;
     }
   };
+  /** Whether the deck is kept nowhere yet: made by New, or from files dropped. */
+  const unkept = () => !where && ("create" in source || "files" in source);
   const tell = () => {
     const kinds = {
       folder: `In the folder ${where?.name}`,
@@ -540,14 +545,29 @@ async function edit(source: Source, opened?: Stage) {
         : new URLSearchParams({ bundle: where ? `${where.kind}:${where.name}` : (params.get("bundle") ?? fallback) });
     if (params.has("painter")) playing.set("painter", painter);
     play.href = `index.html?${playing}`;
-    // Nor a new deck, until it is saved.
-    play.hidden = where?.kind === "folder" || (!where && ("create" in source || "files" in source));
+    play.hidden = where?.kind === "folder";
+    play.title = unkept() ? "The player, on the deck kept in this browser first" : "The player, on the deck as last saved";
     // A served bundle saves to its folder alone.
     $<HTMLButtonElement>("#save-as").hidden = where?.kind === "serve";
   };
   address(where);
   tell();
   void listKept();
+  // A new deck plays once it is kept: Play keeps it in this browser first, as its first save does,
+  // then opens the player on it, in the window opened as it was pressed.
+  play.onclick = (e) => {
+    if (!unkept()) return;
+    e.preventDefault();
+    const shown = window.open("about:blank", "_blank");
+    void save()
+      .then((done) => {
+        if (!done) return void shown?.close();
+        say("Kept in this browser to play it");
+        if (shown) shown.location.href = play.href;
+        else window.open(play.href, "_blank");
+      })
+      .catch(failed);
+  };
 
   /** What the last edit came to, and each edit's round trip for the page's own record. */
   let last: Edited | undefined;
@@ -2647,6 +2667,12 @@ async function edit(source: Source, opened?: Stage) {
       toldOf = view.state.doc.toString();
     },
     kept: () => (where?.kind === "opfs" ? where.name : undefined),
+    // New's deck opens typing in its title, its words selected (PLAN 3.21): whether it does.
+    typeTitle: async () => {
+      const node = /^\s*(\S+) text\b[^\n]*\bat:in\(title\)/m.exec(view.state.doc.toString())?.[1];
+      if (node) await board.typeOver(node).catch(() => {});
+      return node !== undefined && board.typing() === node;
+    },
     // The deck open here, renamed where the browser keeps it, is kept under its new name: the
     // address and the bar follow.
     rekeep: async (from, to) => {
