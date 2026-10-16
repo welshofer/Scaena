@@ -33,6 +33,25 @@ private let torture = repository.appending(path: "tests/fixtures/torture.scaena"
     #expect(try color() == "#101014", "undone: the theme written back")
 }
 
+/// Every theme that ships makes a deck, on the Mac and the iPad alike, with its own fonts and no
+/// other theme's, and saves it with them; a deck put in each other theme takes that one too (PLAN
+/// T.0c): the static library carries every family, and hands over only the theme's own.
+@Test func everyThemeThatShipsMakesAndSavesADeckWithItsFontsAlone() throws {
+    let shipped = try ScaenaSession.create(theme: "Dusk", title: "Themes").shippedThemes()
+    #expect(!shipped.isEmpty)
+    for theme in shipped {
+        let made = try ScaenaSession.create(theme: theme.name, title: "Field notes")
+        let fonts = try made.bundleFiles().filter { $0.type == "font" }
+        #expect(!fonts.isEmpty, "\(theme.name) carries fonts")
+        #expect(fonts.allSatisfy { !$0.named.isEmpty }, "\(theme.name): each font one its theme names")
+        let saved = try made.save()
+        #expect(saved.files.filter { $0.hasPrefix("fonts/") }.count == fonts.count, "\(theme.name): saved with its fonts")
+        for other in shipped where other.name != theme.name {
+            #expect(try made.retheme(ships: other.name).applied, "\(theme.name) → \(other.name)")
+        }
+    }
+}
+
 /// A change the deck refuses is said as the window says it (PLAN 3.18), as the browser's `finding`
 /// says it: what lint found, in a sentence, by the object it is about or the deck; never lint's own
 /// message, which names what it finds by the ids the deck writes.
