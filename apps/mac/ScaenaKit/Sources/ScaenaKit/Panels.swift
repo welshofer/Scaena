@@ -16,12 +16,36 @@ private func messages(_ errors: [JSONValue]) -> [String] {
     errors.compactMap { $0["message"]?.string }
 }
 
-/// A theme that ships (SPEC §3.6): its name, as `retheme(ships:)` takes it, and its file.
+/// A theme that ships (SPEC §3.6): its name, as `retheme(ships:)` takes it, its family, the
+/// section a chooser offers it under (PLAN T.0d), and its file.
 public struct ShippedTheme: Decodable, Identifiable, Equatable, Sendable {
     public let name: String
+    public let family: String
     public let file: String
 
     public var id: String { name }
+}
+
+/// A family of the themes that ship, as a chooser's section offers it (PLAN T.0d): its name and
+/// its themes, in the registry's order.
+public struct ThemeFamily: Identifiable, Equatable, Sendable {
+    public let name: String
+    public let themes: [ShippedTheme]
+
+    public var id: String { name }
+}
+
+extension [ShippedTheme] {
+    /// These themes by family, each family a section, in the order the list first names it.
+    public var byFamily: [ThemeFamily] {
+        var order: [String] = []
+        var held: [String: [ShippedTheme]] = [:]
+        for theme in self {
+            if held[theme.family] == nil { order.append(theme.family) }
+            held[theme.family, default: []].append(theme)
+        }
+        return order.map { ThemeFamily(name: $0, themes: held[$0] ?? []) }
+    }
 }
 
 /// The theme the deck names, and the theme files the bundle holds.
@@ -344,7 +368,7 @@ public struct Restored: Decodable, Sendable {
 extension ScaenaSession {
     // MARK: The theme
 
-    /// The themes that ship: Dusk, Daybreak, Ember, and Gallery.
+    /// The themes that ship: Dusk, Daybreak, Ember, and Salon, each with its family.
     public func shippedThemes() throws -> [ShippedTheme] { try call("shippedThemes") }
 
     /// The theme the deck names, and the theme files the bundle holds.

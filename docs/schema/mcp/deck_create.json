@@ -1,6 +1,6 @@
 {
   "name": "deck_create",
-  "description": "Make a bundle: a theme and its fonts, data files, and a deck pointed at them (or one state with nothing on screen). The theme is one that ships, by name (dusk, daybreak, ember, gallery), or a theme file. Checked as `deck_lint` checks a bundle, and written only if it validates.",
+  "description": "Make a bundle: a theme and its fonts, data files, and a deck pointed at them (or one state with nothing on screen). The theme is one that ships, by name (dusk, daybreak, ember, salon), or a theme file. Checked as `deck_lint` checks a bundle, and written only if it validates.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$defs": {
@@ -32,7 +32,7 @@
         "type": "string"
       },
       "theme": {
-        "description": "The theme to start from: one that ships, by its name (`dusk`, `daybreak`, `ember`, or `gallery`),\nwhich comes with its fonts; or a theme file, copied in with the fonts its families\nname (from beside it, or above it).",
+        "description": "The theme to start from: one that ships, by its name (`dusk`, `daybreak`, `ember`, or `salon`),\nwhich comes with its fonts; or a theme file, copied in with the fonts its families\nname (from beside it, or above it).",
         "type": "string"
       },
       "deck": {
@@ -84,6 +84,10 @@
             "description": "A JSON Patch (RFC 6902) that resolves the finding. Only safe, non-content fixes.",
             "type": ["array", "null"],
             "items": true
+          },
+          "refresh": {
+            "description": "The data source to fetch again, where what resolves the finding is a fetch, which no patch\nmakes (W428, ADR-0030): the source's name, without its `@`.",
+            "type": ["string", "null"]
           }
         },
         "required": ["code", "severity", "message"]

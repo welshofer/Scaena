@@ -43,6 +43,10 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 /// One bundle open for editing.
 pub struct ScaenaSession(Session);
 
+/// The deck a session compiled last, taken to be laid out on every state for lint on a thread
+/// of its own (PLAN 4.13): [`scaena_laying_new`].
+pub struct ScaenaLaying(scaena_session::editor::Laying);
+
 /// A bundle's files, gathered to open it.
 pub struct ScaenaFiles(BTreeMap<String, Vec<u8>>);
 
@@ -190,6 +194,14 @@ pub unsafe extern "C" fn scaena_files_free(files: *mut ScaenaFiles) {
     }
 }
 
+/// The themes that ship, in the registry's order: each by its name, as `retheme {ships}` and
+/// `scaena_create` take it, with its family, the section a chooser offers it under (PLAN T.0d), and
+/// its file's name in a bundle.
+pub(crate) fn shipped_themes() -> Value {
+    let shipped = scaena_ops::shipped::THEMES.iter();
+    Value::Array(shipped.map(|t| json!({ "name": t.name, "family": t.family, "file": t.file })).collect())
+}
+
 /// `session`, a bundle just opened, its theme given the layout library of the theme that ships by
 /// its name where it is an older copy of it (PLAN 3.31): by the user, for the next save to keep,
 /// so Add Slide offers every layout the theme ships, by section, and every slide draws as it did.
@@ -244,7 +256,7 @@ pub unsafe extern "C" fn scaena_open_zip(bytes: *const u8, len: usize, error: *m
 }
 
 /// A new bundle (PLAN 2.12, 3.3), as New makes one in the browser and `deck_create` does: the
-/// theme that ships as `theme` (`dusk`, `daybreak`, `ember`, or `gallery`), the fonts it names,
+/// theme that ships as `theme` (`dusk`, `daybreak`, `ember`, or `salon`), the fonts it names,
 /// and one state with nothing on it, titled `title`. Kept nowhere until it is saved. Null where
 /// no such theme ships, `*error` then saying why.
 ///
@@ -261,10 +273,7 @@ pub unsafe extern "C" fn scaena_create(
         let title = unsafe { text(title, "title") }?;
         let shipped = scaena_ops::shipped::theme(name)
             .ok_or_else(|| said(format!("`{name}` is not a theme that ships: {}", scaena_ops::shipped::names())))?;
-        let mut fonts = BTreeMap::new();
-        for (path, bytes) in scaena_ops::shipped::fonts() {
-            fonts.insert(path.to_string(), bytes.to_vec());
-        }
+        let fonts: BTreeMap<String, Vec<u8>> = shipped.fonts().map(|(p, b)| (p.to_string(), b.to_vec())).collect();
         Session::create(shipped.file, shipped.text, &fonts, title).map_err(said)
     });
     match made {
@@ -285,6 +294,72 @@ pub unsafe extern "C" fn scaena_session_free(session: *mut ScaenaSession) {
     if !session.is_null() {
         // SAFETY: the caller gives a handle this library made and has not freed.
         drop(unsafe { Box::from_raw(session) });
+    }
+}
+
+/// The deck `session` compiled last, taken to be linted on every state away from the session
+/// (PLAN 4.13): [`scaena_laying_lay`] lays it out on whatever thread calls it, while `session`
+/// answers calls on its own thread, and [`scaena_lint_laid`] hands what it found back. Null
+/// where no source compiled to a deck that validates. Free with [`scaena_laying_free`].
+///
+/// # Safety
+/// `session` is a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_laying_new(session: *mut ScaenaSession) -> *mut ScaenaLaying {
+    let taken = guarded(|| Ok(unsafe { handle(session, "session") }?.0.laying()));
+    match taken {
+        Ok(Some(laying)) => Box::into_raw(Box::new(ScaenaLaying(laying))),
+        _ => std::ptr::null_mut(),
+    }
+}
+
+/// Lay `laying`'s deck out on every state and run lint's layout rules on it, with an engine of
+/// its own: the slow part of `lint`, on the thread that calls it, which touches no session.
+/// False where `laying` is null or the engine stopped.
+///
+/// # Safety
+/// `laying` is a live handle from [`scaena_laying_new`], used by one thread at a time.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_laying_lay(laying: *mut ScaenaLaying) -> bool {
+    guarded(|| {
+        unsafe { handle(laying, "laying") }?.0.lay();
+        Ok(())
+    })
+    .is_ok()
+}
+
+/// What lint finds on every state of the deck `session` compiled last, as `lint` with no state
+/// says it, from what `laying` found, laying nothing out, dates judged at `now` (RFC 3339, or
+/// null for none), as `lint` judges them: `{"ok": {"linting"}}`, `linting` null where the deck
+/// changed after `laying` was taken from it, or it was not laid out.
+///
+/// # Safety
+/// `session` and `laying` are live handles, on the session's thread; `now` a NUL-terminated
+/// string, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_lint_laid(
+    session: *mut ScaenaSession,
+    laying: *mut ScaenaLaying,
+    now: *const c_char,
+) -> *mut c_char {
+    envelope(guarded(|| {
+        let session = unsafe { handle(session, "session") }?;
+        let laying = unsafe { handle(laying, "laying") }?;
+        let now = unsafe { maybe_text(now, "now") }?.and_then(scaena_session::store::seconds);
+        let linted = session.0.lint_laid(&laying.0, now).map_err(said)?;
+        Ok(json!({ "linting": serde_json::to_value(linted).map_err(said)? }))
+    }))
+}
+
+/// Free a laying.
+///
+/// # Safety
+/// `laying` is a live handle from [`scaena_laying_new`], or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_laying_free(laying: *mut ScaenaLaying) {
+    if !laying.is_null() {
+        // SAFETY: the caller gives a handle this library made and has not freed.
+        drop(unsafe { Box::from_raw(laying) });
     }
 }
 
@@ -1124,7 +1199,8 @@ pub extern "C" fn scaena_generator_new() -> *mut ScaenaGenerator {
 }
 
 /// What a brief may ask, as `{"ok": value}`: Narrato's goals, lengths, and ways a deck is
-/// delivered (`{id, label}`), the audiences its personas name, its arcs, and the defaults.
+/// delivered (`{id, label}`), the audiences its personas name, its arcs, and the defaults; and the
+/// themes that ship, as `shippedThemes` lists them, to make the deck in.
 #[unsafe(no_mangle)]
 pub extern "C" fn scaena_generator_choices() -> *mut c_char {
     envelope(guarded(|| Ok(generate::choices())))
@@ -1338,7 +1414,10 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         "source" => json!(s.source()),
         "compiledFrom" => json!(s.compiled_from(arg("source")?)),
         "compile" => value(serde_json::to_value(s.compile(arg("source")?)))?,
-        "lint" => value(serde_json::to_value(s.lint(optional("state")).map_err(said)?))?,
+        "lint" => {
+            let now = optional("now").and_then(scaena_session::store::seconds);
+            value(serde_json::to_value(s.lint(optional("state"), now).map_err(said)?))?
+        }
         "fix" => {
             let patch: Vec<Value> = args
                 .get("patch")
@@ -1563,20 +1642,14 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         // put in another, one the bundle holds by its path or one that ships by its name, with its
         // fonts; and the theme edited by RFC 6902 operations, or to a photo's colors, with the file
         // it wrote, before and after, for the undo.
-        "shippedThemes" => {
-            let shipped = scaena_ops::shipped::THEMES.iter().map(|t| json!({ "name": t.name, "file": t.file }));
-            Value::Array(shipped.collect())
-        }
+        "shippedThemes" => shipped_themes(),
         "retheme" => {
             let themed = match optional("ships") {
                 Some(name) => {
                     let shipped = scaena_ops::shipped::theme(name).ok_or_else(|| {
                         said(format!("`{name}` is not a theme that ships: {}", scaena_ops::shipped::names()))
                     })?;
-                    let mut fonts = BTreeMap::new();
-                    for (path, bytes) in scaena_ops::shipped::fonts() {
-                        fonts.insert(path.to_string(), bytes.to_vec());
-                    }
+                    let fonts = shipped.fonts().map(|(p, b)| (p.to_string(), b.to_vec())).collect();
                     s.retheme(&format!("themes/{}", shipped.file), Some(shipped.text), fonts, at())
                 }
                 None => s.retheme(arg("path")?, None, BTreeMap::new(), at()),

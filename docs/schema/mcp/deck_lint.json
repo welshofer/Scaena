@@ -19,6 +19,11 @@
         "description": "Apply the fixes lint offers (each checked by laying its state out again; never a\nchange of content), write the deck, and lint again.",
         "type": "boolean",
         "default": false
+      },
+      "now": {
+        "description": "The moment to judge dates at (W428: a forecast that has passed): an instant, as\n2026-10-15T20:00:00Z, or a day, as 2026-10-15. Without it, no date is judged.",
+        "type": ["string", "null"],
+        "default": null
       }
     },
     "additionalProperties": false,
@@ -51,6 +56,10 @@
             "description": "A JSON Patch (RFC 6902) that resolves the finding. Only safe, non-content fixes.",
             "type": ["array", "null"],
             "items": true
+          },
+          "refresh": {
+            "description": "The data source to fetch again, where what resolves the finding is a fetch, which no patch\nmakes (W428, ADR-0030): the source's name, without its `@`.",
+            "type": ["string", "null"]
           }
         },
         "required": ["code", "severity", "message"]

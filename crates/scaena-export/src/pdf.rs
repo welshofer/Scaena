@@ -467,8 +467,11 @@ impl Cx<'_, '_> {
                     let pushed = self.open(transform, *opacity, *blend, clip.as_ref());
                     let xf = xf * affine(transform);
                     let mut cells = BTreeMap::new();
+                    let mut credits = Vec::new();
                     for child in inner {
                         match child {
+                            // Its data's credit (ADR-0030): a paragraph after it.
+                            op if is_credit(op) => credits.push(self.tagged(op, xf)),
                             Op::Layer { cell: Some([row, column]), .. } => {
                                 let id = self.tagged(child, xf);
                                 cells.insert((*row, *column), id);
@@ -489,6 +492,9 @@ impl Cx<'_, '_> {
                         table.push(Node::from(TagGroup::with_children(Tag::TR, cells.collect())));
                     }
                     out.push(element(Tag::Table.with_summary(alt).into(), reading, table));
+                    for credit in credits {
+                        out.push(element(Tag::P.into(), reading, vec![credit.into()]));
+                    }
                 }
                 Kind::Group if !whole && alt.is_none() => {
                     let pushed = self.open(transform, *opacity, *blend, clip.as_ref());
@@ -909,9 +915,11 @@ fn list_at(paras: &[Para], mut i: usize, level: u8, kind: ListKind) -> (Node, us
     (TagGroup::with_children(Tag::L(numbering), items).into(), i)
 }
 
-/// Whether `op` is the layer a fetched picture's credit is drawn in (ADR-0030).
+/// Whether `op` is the layer a fetched picture's credit is drawn in, or the credit at the foot of a
+/// chart or a table whose data was fetched (ADR-0030).
 fn is_credit(op: &Op) -> bool {
-    matches!(op, Op::Layer { cell: Some(cell), .. } if *cell == scaena_core::fetched::CREDIT_CELL)
+    use scaena_core::fetched::{CREDIT_CELL, FOOT_CELL};
+    matches!(op, Op::Layer { cell: Some(cell), .. } if *cell == CREDIT_CELL || *cell == FOOT_CELL)
 }
 
 fn element(tag: TagKind, reading: Option<&Reading>, children: Vec<Node>) -> Node {

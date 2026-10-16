@@ -25,6 +25,8 @@ CI keeps; `--offline` reads the cache alone and fails on what it lacks.
     python3 scripts/build_bundle_fonts.py --check   # check only
     python3 scripts/build_bundle_fonts.py --fetch   # every family into ~/.cache/scaena-fonts
     python3 scripts/build_bundle_fonts.py --fetch --offline   # the cache holds every family
+    python3 scripts/build_bundle_fonts.py --fetch --shipped   # what the registry's themes name, which
+                                                              # scaena-ops' build carries (PLAN T.0c)
 """
 
 import argparse
@@ -964,6 +966,25 @@ def family_files(family: dict) -> list[tuple[str, str]]:
     return [f for f in (family["upright"], family["italic"], family["license"]) if f]
 
 
+def fetch_shipped(cache: Path, offline: bool) -> None:
+    """The upstream files scaena-ops' build carries from the cache (PLAN T.0c): each row of
+    `crates/scaena-ops/src/shipped/fonts.tsv`, which `build_themes.py` writes, whose source is
+    `sha256:…`. The four's files are in git, so with only the four nothing is fetched."""
+    carried = ROOT / "crates/scaena-ops/src/shipped/fonts.tsv"
+    n = 0
+    for line in carried.read_text(encoding="utf-8").splitlines():
+        if line.startswith("#") or not line.strip():
+            continue
+        path, key, source = line.split("\t")
+        if not source.startswith("sha256:"):
+            continue
+        family, expected = FAMILIES[key], source.removeprefix("sha256:")
+        upstream = next(p for p, sha in family_files(family) if sha == expected)
+        pinned(family.get("source", GOOGLE_FONTS), upstream, expected, cache, offline)
+        n += 1
+    print(f"{n} files the shipped themes name from {cache}{' (offline)' if offline else ''}")
+
+
 def fetch_families(cache: Path, offline: bool) -> None:
     """Every family's files into `cache`, each held to its sha256."""
     n = 0
@@ -1128,9 +1149,10 @@ def main() -> None:
     ap.add_argument("--only", action="append", choices=list(BUNDLES), help="build only this bundle (repeatable); all are checked")
     ap.add_argument("--fetch", action="store_true", help="fetch every family a theme names into the cache, then stop")
     ap.add_argument("--offline", action="store_true", help="with --fetch: download nothing, and fail on a file the cache lacks")
+    ap.add_argument("--shipped", action="store_true", help="with --fetch: only the files scaena-ops' build carries from the cache (PLAN T.0c)")
     args = ap.parse_args()
     if args.fetch:
-        fetch_families(args.cache or CACHE, args.offline)
+        (fetch_shipped if args.shipped else fetch_families)(args.cache or CACHE, args.offline)
         return
     ok = held_to_the_save() & pins_agree()
     for sources in every_sources():

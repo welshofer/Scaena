@@ -30,16 +30,19 @@ struct ThemePanel: View {
     var body: some View {
         Form {
             Section("Theme") {
-                // Each theme by its name: those the deck holds, then those that come with Scaena.
+                // Each theme by its name: those the deck holds, then those that come with Scaena,
+                // by family, each family a section (PLAN T.0d).
                 Picker("Theme", selection: chosen) {
                     Section("In This Deck") {
                         ForEach(themes?.files ?? [], id: \.self) { file in
                             Text(Words.theme(file)).tag(file)
                         }
                     }
-                    Section("Built In") {
-                        ForEach(shipped) { ships in
-                            Text(Words.phrase(ships.name)).tag("ships:\(ships.name)")
+                    ForEach(shipped.byFamily) { family in
+                        Section(family.name) {
+                            ForEach(family.themes) { ships in
+                                Text(Words.phrase(ships.name)).tag("ships:\(ships.name)")
+                            }
                         }
                     }
                 }

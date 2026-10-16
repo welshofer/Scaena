@@ -21,6 +21,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      # The fonts the shipped themes name that git does not hold, which scaena-ops' build
+      # carries, from the cache the schema job keeps, fetched by sha256 where it lacks them
+      # (PLAN T.0c). The build itself reaches no network.
+      - uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/scaena-fonts
+          key: fonts-${{ hashFiles('scripts/build_bundle_fonts.py') }}
+          restore-keys: fonts-
+      - run: python3 scripts/build_bundle_fonts.py --fetch --shipped
       - run: apps/mac/build-app.sh "$RUNNER_TEMP/out"
       - run: cd "$RUNNER_TEMP/out" && ditto -c -k --keepParent Scaena.app Scaena.app.zip
       - uses: actions/upload-artifact@v4
