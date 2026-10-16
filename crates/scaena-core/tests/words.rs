@@ -333,3 +333,20 @@ fn a_change_of_the_history_is_said_as_a_person_says_it() {
     assert_eq!(words::author("agent:"), "the assistant");
     assert_eq!(words::author("jay"), "jay");
 }
+
+/// A haiku off 5-7-5 is said with its counts (PLAN O.4h).
+#[test]
+fn a_haiku_off_5_7_5_is_said_with_its_counts() {
+    let measure = serde_json::json!({ "counts": [[5, 5], [8, 8], [5, 5]], "targets": [5, 7, 5] });
+    assert_eq!(
+        words::said("I404", Some(&measure)).as_deref(),
+        Some("This haiku's lines count 5, 8, and 5, not 5, 7, and 5.")
+    );
+    let either = serde_json::json!({ "counts": [[5, 5], [6, 7], [3, 3]] });
+    assert_eq!(
+        words::said("I404", Some(&either)).as_deref(),
+        Some("This haiku's lines count 5, 6 or 7, and 3, not 5, 7, and 5.")
+    );
+    assert_eq!(words::said("I404", None).as_deref(), words::issue("I404"));
+    assert_eq!(words::said("E100", None).as_deref(), words::issue("E100"));
+}

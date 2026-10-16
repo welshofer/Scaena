@@ -34,6 +34,10 @@ pub const LABELS: &[(&str, &str)] = &[
     ("adjust/contrast", "Contrast"),
     ("adjust/saturation", "Saturation"),
     ("adjust/warmth", "Warmth"),
+    // A fetched map's pin and credit (ADR-0030).
+    ("pin/label", "Label"),
+    ("pin/color", "Pin"),
+    ("credit", "Credit"),
     ("wrap", "Line Breaks"),
     ("maxLines", "Most Lines"),
     ("opacity", "Opacity"),
@@ -95,6 +99,8 @@ pub fn label(prop: &str) -> String {
 /// `cover` is its Fill. A word any property takes is in [`ANY_WORDS`].
 pub const WORDS: &[(&str, &str, &str)] = &[
     ("fit", "cover", "Fill"),
+    ("credit", "inside", "On the Map"),
+    ("credit", "below", "Below the Map"),
     ("mask", "ellipse", "Oval"),
     ("fit", "contain", "Fit"),
     ("fit", "fill", "Stretch"),
@@ -669,6 +675,7 @@ pub const MARKED: &[(&str, &str)] = &[
     ("W314", "A credit here can't be read."),
     ("W410", "The picture has no description for people who can't see it."),
     ("W427", "A figure here no longer matches its data."),
+    ("I404", "This haiku's lines don't count 5, 7, and 5."),
 ];
 
 /// The rest of what lint finds, said in a sentence, by its code (PLAN 2.99): the deck's structure,
@@ -713,6 +720,29 @@ pub const LISTED: &[(&str, &str)] = &[
 /// it lists ([`LISTED`]). None for a code lint does not have.
 pub fn issue(code: &str) -> Option<&'static str> {
     MARKED.iter().chain(LISTED).find(|(c, _)| *c == code).map(|(_, said)| *said)
+}
+
+/// What lint finds, said in a sentence, from the finding itself where its measure says more than
+/// its code: a haiku's counts (I404, PLAN O.4h), "This haiku's lines count 5, 8, and 5, not 5,
+/// 7, and 5."; else [`issue`].
+pub fn said(code: &str, measure: Option<&serde_json::Value>) -> Option<String> {
+    if code == "I404"
+        && let Some(counts) = measure.and_then(|m| m.get("counts")).and_then(serde_json::Value::as_array)
+        && counts.len() == 3
+    {
+        let said: Vec<String> = counts
+            .iter()
+            .map(|c| {
+                match (c.get(0).and_then(serde_json::Value::as_u64), c.get(1).and_then(serde_json::Value::as_u64)) {
+                    (Some(low), Some(high)) if low != high => format!("{low} or {high}"),
+                    (Some(low), _) => low.to_string(),
+                    _ => "?".to_string(),
+                }
+            })
+            .collect();
+        return Some(format!("This haiku's lines count {}, {}, and {}, not 5, 7, and 5.", said[0], said[1], said[2]));
+    }
+    issue(code).map(str::to_string)
 }
 
 /// Whether an editor marks what lint finds by `code` on its object on the canvas.

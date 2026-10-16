@@ -6,7 +6,7 @@
 // carries neither.
 import initResources, { list, text } from "@scaena/resources";
 import { findIcons, iconSet } from "../icon-set";
-import type { Rewritten, Seeing } from "../protocol";
+import type { MapAsk, MapRefresh, MapTarget, Mapped, Rewritten, Seeing } from "../protocol";
 import { converse, type Event } from "./converse";
 import { type Call, type Message, type ProviderId, providers, type Result } from "./providers";
 import { type Listed, seen, system } from "./prompt";
@@ -27,6 +27,10 @@ export interface Session {
   formats(): string[];
   /** The theme frames are drawn in, as JSON `{ theme, text }`; none where the deck names none. */
   themeText(): string | undefined;
+  /** Where a map goes, what fetching one again asks, and the ops that put one (PLAN O.1c), JSON. */
+  mapAiming(aim: string): string;
+  mapRefreshing(state: string, node: string, zoom?: number, lat?: number, lon?: number): string;
+  mapping(target: string, fetched: string, pin: string, label: string | undefined, png: Uint8Array): string;
 }
 
 /** What a tool returned (`ToolResult`). */
@@ -50,6 +54,8 @@ export interface Asking {
   base?: string;
   text: string;
   seeing?: Seeing;
+  /** The Geoapify key kept, which `map_fetch` fetches a map with (ADR-0030). */
+  mapKey?: string;
 }
 
 /** The conversation, kept between questions until the page forgets it. */
@@ -87,7 +93,7 @@ export async function ask(
     system: prompt,
     tools: tools(names),
     conversation,
-    call: (call) => run(session, call, edited, `agent:${asking.model}`),
+    call: (call) => run(session, call, edited, `agent:${asking.model}`, asking.mapKey),
     emit,
     signal,
   });
@@ -143,6 +149,7 @@ async function run(
   call: Call,
   edited: (source: string, files: Rewritten[]) => Promise<void>,
   author: string,
+  mapKey?: string,
 ): Promise<{ result: Result; summary: string; made: boolean }> {
   const answer = (json: string, error: boolean): { result: Result; summary: string; made: boolean } => ({
     result: { id: call.id, name: call.name, json, error },
@@ -151,6 +158,7 @@ async function run(
   });
   if (call.name === "resource_read") return answer(...read(session, call.args));
   if (call.name === "icon_find") return answer(...(await iconFind(call.args)));
+  if (call.name === "map_fetch") return mapFetch(session, call, edited, author, mapKey);
   let out: { result: Result; summary: string; made: boolean };
   let changed: boolean;
   let files: Rewritten[] = [];
@@ -190,6 +198,80 @@ function read(session: Session, args: unknown): [string, boolean] {
     if (found !== undefined) return [found, false];
   }
   return [JSON.stringify({ message: `no resource \`${uri}\`: scaena://spec is the specification's index, and the system prompt lists the rest` }), true];
+}
+
+/** `map_fetch` (ADR-0030, PLAN O.1c), run as Insert › Map… runs: where the map goes, by the
+ * session (`into`, else the state's empty place for a picture, else `at`); each GET made here by
+ * the generator's plan with the Geoapify key kept; and the map put there as one `deck_patch` by the
+ * assistant, its picture in the bundle. A name that matches several places answers them, to ask
+ * again with `pick`; a refresh asks for what its map asked. Its answer is the MCP tool's. */
+async function mapFetch(
+  session: Session,
+  call: Call,
+  edited: (source: string, files: Rewritten[]) => Promise<void>,
+  author: string,
+  key: string | undefined,
+): Promise<{ result: Result; summary: string; made: boolean }> {
+  const stop = (message: string) => ({
+    result: { id: call.id, name: call.name, json: JSON.stringify({ message }), error: true },
+    summary: summary(call.name, JSON.stringify({ message }), true),
+    made: false,
+  });
+  const a = (call.args ?? {}) as {
+    place?: string;
+    refresh?: string;
+    state?: string;
+    into?: string;
+    at?: [number, number, number, number];
+    show?: MapAsk["show"];
+    zoom?: number;
+    label?: string;
+    style?: string;
+    pick?: number;
+    places?: boolean;
+    center?: [number, number];
+  };
+  if (!key) return stop("no Geoapify key is kept: the person keeps one in Insert › Map…, from geoapify.com");
+  try {
+    const p = session;
+    const { fetchMap } = await import("@scaena/generate");
+    let target: MapTarget;
+    let ask: MapAsk;
+    let label = a.label;
+    if (a.refresh) {
+      if (a.place) return stop("a refresh asks for what its map asked: name no place");
+      const state = a.state ?? session.states()[0];
+      const again = JSON.parse(p.mapRefreshing(state, a.refresh, a.zoom, a.center?.[0], a.center?.[1])) as MapRefresh;
+      target = again.target;
+      ask = { place: again.asked, known: again.place, center: again.center, zoom: again.zoom, style: a.style ?? again.style, size: [target.rect[2], target.rect[3]], lang: target.lang };
+      label ??= again.label ?? "";
+    } else {
+      if (!a.place) return stop("say where: an address, a place, or `lat, lon`");
+      target = JSON.parse(p.mapAiming(JSON.stringify({ state: a.state, into: a.into, at: a.at }))) as MapTarget;
+      if (a.pick === 0) return stop("pick a place from 1, as they are listed");
+      ask = {
+        place: a.place,
+        ...(a.zoom !== undefined ? { zoom: a.zoom } : { show: a.show ?? "neighborhood" }),
+        style: a.style ?? target.style,
+        size: [target.rect[2], target.rect[3]],
+        lang: target.lang,
+        ...(a.pick !== undefined ? { pick: a.pick - 1 } : {}),
+        ...(a.places ? { list: true } : {}),
+      };
+    }
+    const got = await fetchMap(ask, key);
+    if (got.places) {
+      const json = JSON.stringify({ target, places: got.places });
+      return { result: { id: call.id, name: call.name, json, error: false }, summary: `${got.places.length} places match`, made: true };
+    }
+    if (!got.map) return stop("no map came back");
+    const mapped = JSON.parse(p.mapping(JSON.stringify(target), JSON.stringify(got.map.fetched), JSON.stringify(got.map.pin), label, new Uint8Array(got.map.png))) as Mapped;
+    const patched = await run(session, { id: call.id, name: "deck_patch", args: { ops: mapped.ops } }, edited, author);
+    const json = JSON.stringify({ target, placed: { node: mapped.node, src: mapped.src, place: mapped.place, said: mapped.said, ...(JSON.parse(patched.result.json) as object) } });
+    return { result: { id: call.id, name: call.name, json, error: patched.result.error }, summary: patched.result.error ? patched.summary : mapped.said, made: patched.made };
+  } catch (e) {
+    return stop(e instanceof Error ? e.message : String(e));
+  }
 }
 
 /** `icon_find`: the icons that ship (PLAN 2.104), found in the set the page carries beside it, by

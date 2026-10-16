@@ -29,6 +29,9 @@ enum Words {
         "maxLines": "Most Lines", "mask": "Mask", "shadow": "Shadow",
         "adjust/exposure": "Exposure", "adjust/contrast": "Contrast", "adjust/saturation": "Saturation",
         "adjust/warmth": "Warmth",
+        "pin/label": "Label",
+        "pin/color": "Pin",
+        "credit": "Credit",
         "opacity": "Opacity", "transform/rotate": "Rotation", "enter": "Build In", "exit": "Build Out",
         "alt": "Description", "semantic": "Part in the Story", "focal": "Focal Point", "crop": "Crop",
         "radius": "Corners", "fill": "Fill", "stroke/paint": "Border", "stroke/width": "Border Width",
@@ -80,6 +83,8 @@ enum Words {
     static func word(_ word: String, of prop: String, type: String?, sources: [DataSource] = []) -> String {
         switch (prop, word) {
         case ("fit", "cover"): return "Fill"
+        case ("credit", "inside"): return "On the Map"
+        case ("credit", "below"): return "Below the Map"
         case ("mask", "ellipse"): return "Oval"
         case ("fit", "contain"): return "Fit"
         case ("fit", "fill"): return "Stretch"

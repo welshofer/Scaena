@@ -1061,6 +1061,33 @@
         </menu>
       </form>
     </dialog>
+    <dialog id="mapping" aria-labelledby="mapping-title">
+      <form method="dialog">
+        <h2 id="mapping-title">Insert a map</h2>
+        <label>Where <input id="mapping-where" name="where" type="search" required autocomplete="off" placeholder="An address, a place, or 37.7955, -122.3937"></label>
+        <ul id="mapping-places" class="choices" aria-label="Places it matches" hidden></ul>
+        <div class="fields">
+          <label>Show <select id="mapping-show" name="show">
+            <option value="block">A block</option>
+            <option value="neighborhood" selected>A neighborhood</option>
+            <option value="city">A city</option>
+            <option value="region">A region</option>
+          </select></label>
+          <label>Label <input id="mapping-label" name="label" placeholder="The place's name"></label>
+        </div>
+        <div id="mapping-key-row" hidden>
+          <label>Geoapify key <input id="mapping-key" name="key" type="password" autocomplete="off" placeholder="From geoapify.com: its Free plan will do"></label>
+          <label class="check"><input id="mapping-keep" type="checkbox"> Keep it on this device</label>
+        </div>
+        <p class="note" id="mapping-goes"></p>
+        <p class="note">The words you type and the map's area go to Geoapify, under its terms. The map is kept in the deck, with the credit its data asks.</p>
+        <p id="mapping-status" aria-live="polite"></p>
+        <menu>
+          <button type="button" id="mapping-cancel">Cancel</button>
+          <button value="fetch" id="mapping-fetch">Fetch</button>
+        </menu>
+      </form>
+    </dialog>
     <dialog id="keys" aria-labelledby="keys-title">
       <form method="dialog">
         <h2 id="keys-title">Keys</h2>

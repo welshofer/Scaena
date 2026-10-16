@@ -3287,6 +3287,7 @@ dependencies = [
  "base64 0.23.1",
  "scaena-core",
  "scaena-narrato",
+ "scaena-objects",
  "scaena-ops",
  "scaena-sources",
  "serde",
@@ -3501,6 +3502,7 @@ dependencies = [
  "scaena-store",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.21",
  "vello",
  "wasm-bindgen",
@@ -3780,8 +3782,6 @@ dependencies = [
 [[package]]
 name = "skrifa"
 version = "0.44.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "819ab7d62b1d3e72d9d9dea5650bac30424f9111364bb94928dbf5ecad1baa68"
 dependencies = [
  "bytemuck",
  "read-fonts 0.41.0",

@@ -478,6 +478,60 @@ impl Session {
         Ok(())
     }
 
+    /// Where a map goes in `state` (ADR-0030, PLAN O.1c), as an editor found the place itself: the
+    /// image `node`, the empty place for a picture `slot`, or a box `rect` (canvas units); with the
+    /// style the theme's surface asks and the deck's language, which the plan reads.
+    #[cfg(feature = "editor")]
+    pub fn map_target(
+        &self,
+        state: &str,
+        node: Option<String>,
+        slot: Option<String>,
+        rect: [f32; 4],
+    ) -> Result<scaena_ops::maps::Target, Error> {
+        scaena_ops::maps::target_for(&self.deck, &self.theme, state, node, slot, rect)
+            .map_err(|e| Error::Ops(e.message))
+    }
+
+    /// Where a map asked for by `aim` goes, as `map_fetch` asks (PLAN O.1c): the image named, else
+    /// the state's first empty place for a picture, else the box asked.
+    #[cfg(feature = "editor")]
+    pub fn map_aiming(&self, aim: &scaena_ops::maps::Aim) -> Result<scaena_ops::maps::Target, Error> {
+        scaena_ops::maps::aiming(&self.bundle(), aim).map_err(|e| Error::Ops(e.message))
+    }
+
+    /// What a map fetched takes to put where `target` says (PLAN O.1c): its picture joins the
+    /// bundle, named by its content, and the ops that show it are an editor's to make its patch
+    /// of, one step to undo. `fetched` is its record, `pin` where the place stands in it, and
+    /// `label` the pin's label: the place's name where none is given, none where it is empty.
+    #[cfg(feature = "editor")]
+    pub fn mapping(
+        &mut self,
+        target: &scaena_ops::maps::Target,
+        fetched: scaena_core::fetched::Fetched,
+        pin: [f64; 2],
+        label: Option<String>,
+        png: Vec<u8>,
+    ) -> Result<scaena_ops::maps::Mapped, Error> {
+        let fetch = scaena_ops::maps::Fetch { png, fetched, pin, label };
+        let mapped = scaena_ops::maps::mapped(&self.bundle(), target, &fetch).map_err(|e| Error::Ops(e.message))?;
+        self.add_file(&mapped.src, fetch.png);
+        Ok(mapped)
+    }
+
+    /// What fetching image `node`'s map again in `state` asks for (PLAN O.1c): its place and view,
+    /// or `zoom` or `center` where given, for the box it has now.
+    #[cfg(feature = "editor")]
+    pub fn map_refreshing(
+        &self,
+        state: &str,
+        node: &str,
+        zoom: Option<f64>,
+        center: Option<scaena_core::fetched::LatLon>,
+    ) -> Result<scaena_ops::maps::Refresh, Error> {
+        scaena_ops::maps::refreshing(&self.bundle(), Some(state), node, zoom, center).map_err(|e| Error::Ops(e.message))
+    }
+
     /// The image files the deck names: each to hand over with [`Session::add_file`].
     pub fn image_files(&self) -> Vec<String> {
         self.deck.image_files()
@@ -5178,7 +5232,7 @@ mod tests {
         s.set_deck(rename(&s.deck, "assets/copy.png", "assets/absent.png"));
         let err = s.frame("images", f64::INFINITY).unwrap_err();
         assert!(matches!(&err, Error::Missing(p) if p == "assets/absent.png"), "{err}");
-        assert_eq!(s.states().len(), 67);
+        assert_eq!(s.states().len(), 68);
     }
 
     /// A pen's drawing and an icon are each a path on a view (PLAN 2.104, 2.114): the drawing,
