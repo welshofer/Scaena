@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 mod generate;
+mod maps;
 mod sources;
 
 #[derive(Parser)]
@@ -313,6 +314,53 @@ enum Cmd {
         /// Say what would be taken out, and write nothing.
         #[arg(long, requires = "remove")]
         dry_run: bool,
+    },
+    /// Put a map on a slide (ADR-0030, PLAN O.1b): a picture of PLACE (an address, a place, or
+    /// `lat, lon`) from Geoapify, with your own key ($GEOAPIFY_API_KEY), kept in the bundle and drawn
+    /// with a pin, its label, and the credit Geoapify's terms ask. The place's words go to its
+    /// geocoder, and the map's middle, size, and zoom to its static map. It goes in the image
+    /// `--into` names, else the slide's first empty place for a picture, else a new image at `--at`,
+    /// in one patch. A name that matches several places lists them and exits 2: ask again with
+    /// `--pick N`. `--places` lists what PLACE finds and writes nothing. `--refresh NODE` fetches an
+    /// image's map again, its place and view, or `--zoom` or `--center`.
+    Map {
+        bundle: PathBuf,
+        /// Where: an address, a place, or `lat, lon`.
+        #[arg(required_unless_present = "refresh", conflicts_with = "refresh")]
+        place: Option<String>,
+        /// What the box spans across: block, neighborhood (the default), city, or region.
+        #[arg(long, conflicts_with = "zoom")]
+        show: Option<String>,
+        /// Geoapify's zoom, 1 to 20.
+        #[arg(long)]
+        zoom: Option<f64>,
+        /// The pin's label: the place's name where none is given; "" for none.
+        #[arg(long)]
+        label: Option<String>,
+        /// light or dark, as the theme's surface asks where none is given, or bright.
+        #[arg(long)]
+        style: Option<String>,
+        /// The state it goes in: the first, where none is named.
+        #[arg(long)]
+        state: Option<String>,
+        /// An image it goes in, in place of what it shows.
+        #[arg(long, value_name = "NODE")]
+        into: Option<String>,
+        /// The box a new image takes, in canvas units.
+        #[arg(long, value_name = "X,Y,W,H", value_delimiter = ',')]
+        at: Option<Vec<f32>>,
+        /// Which of the places a name matches, from 1, as `--places` lists them.
+        #[arg(long, value_name = "N")]
+        pick: Option<usize>,
+        /// List what PLACE finds, and write nothing.
+        #[arg(long)]
+        places: bool,
+        /// Fetch this image's map again.
+        #[arg(long, value_name = "NODE")]
+        refresh: Option<String>,
+        /// A refresh's middle.
+        #[arg(long, value_name = "LAT,LON", value_delimiter = ',', requires = "refresh")]
+        center: Option<Vec<f64>>,
     },
     /// The icons that ship (PLAN 2.104): Phosphor's, MIT, each found when every word asked
     /// begins a word of its name, its tags, or its categories, its name asked whole first; with
@@ -710,6 +758,30 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Patch { bundle, ops, dry_run } => patch(&bundle, &ops, dry_run, cli.json),
         Cmd::Data { bundle, source, edits, dry_run } => data(&bundle, &source, edits.as_deref(), dry_run, cli.json),
         Cmd::Files { bundle, remove, dry_run } => files(&bundle, remove.as_deref(), dry_run, cli.json),
+        Cmd::Map { bundle, place, show, zoom, label, style, state, into, at, pick, places, refresh, center } => {
+            if at.as_ref().is_some_and(|v| v.len() != 4) {
+                anyhow::bail!("--at takes four numbers: X,Y,W,H");
+            }
+            if center.as_ref().is_some_and(|v| v.len() != 2) {
+                anyhow::bail!("--center takes two numbers: LAT,LON");
+            }
+            let a = scaena_mcp::maps::MapFetch {
+                bundle: bundle.to_string_lossy().into_owned(),
+                place,
+                refresh,
+                state,
+                into,
+                at: at.map(|v| [v[0], v[1], v[2], v[3]]),
+                show,
+                zoom,
+                label,
+                style,
+                pick,
+                places,
+                center: center.map(|v| [v[0], v[1]]),
+            };
+            map(&a, cli.json)
+        }
         Cmd::Health { bundle } => health(&bundle, cli.json),
         Cmd::Icons { query, fill, limit } => icons(&query.join(" "), fill, limit, cli.json),
         Cmd::History { bundle, at, scn, diff, restore, dry_run } => {
@@ -732,7 +804,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Serve { bundle, port } => serve(&bundle, port, cli.json),
         Cmd::Generate(args) => generate::run(*args, cli.json),
         Cmd::Mcp => {
-            scaena_mcp::stdio().context("serving MCP on stdio")?;
+            let transport = std::sync::Arc::new(maps::Ureq::new());
+            scaena_mcp::stdio_with(transport).context("serving MCP on stdio")?;
             Ok(ExitCode::SUCCESS)
         }
     }
@@ -1239,6 +1312,9 @@ fn files(bundle: &Path, remove: Option<&[String]>, dry_run: bool, json: bool) ->
         println!("{heading}");
         for f in of {
             println!("  {}  {}", f.path, size(f.bytes));
+            if let Some(fetched) = &f.fetched {
+                println!("    {}", fetched.said);
+            }
             if f.named.is_empty() {
                 println!("    nothing names it: --remove {} takes it out", f.path);
                 continue;
@@ -1250,6 +1326,47 @@ fn files(bundle: &Path, remove: Option<&[String]>, dry_run: bool, json: bool) ->
             }
         }
     }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `scaena map`: the map fetched and put on the slide, or the places a name matches, which exit
+/// 2 where one was to be picked.
+fn map(a: &scaena_mcp::maps::MapFetch, json: bool) -> Result<ExitCode> {
+    let b = open(Path::new(&a.bundle))?;
+    let done = scaena_mcp::maps::fetch(&b, a, &maps::Ureq::new())?;
+    let choose = done.placed.is_none() && !a.places;
+    if json && choose {
+        let message = format!(
+            "“{}” matches {} places: pick one with --pick N",
+            a.place.as_deref().unwrap_or_default(),
+            done.places.len()
+        );
+        return Ok(stop(true, serde_json::json!({ "exit": 2, "message": message, "places": done.places })));
+    }
+    if json {
+        println!("{}", serde_json::to_string_pretty(&done)?);
+        return Ok(ExitCode::SUCCESS);
+    }
+    if !done.places.is_empty() {
+        for (n, f) in done.places.iter().enumerate() {
+            let kind = f.kind.as_deref().map(|k| format!(" ({k})")).unwrap_or_default();
+            println!("{}. {}{kind}  {}, {}", n + 1, f.address, f.lat, f.lon);
+        }
+        if choose {
+            eprintln!("error: it matches {} places: pick one with --pick N", done.places.len());
+            return Ok(ExitCode::from(2));
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+    let placed = done.placed.expect("a map placed where no place is to be picked");
+    if !placed.patched.applied {
+        println!("refused: {}", placed.said);
+        for f in &placed.patched.added {
+            println!("  {} {}", f.code, f.message);
+        }
+        return Ok(ExitCode::from(1));
+    }
+    println!("{}: `{}`, {}", placed.said, placed.node, placed.src);
     Ok(ExitCode::SUCCESS)
 }
 

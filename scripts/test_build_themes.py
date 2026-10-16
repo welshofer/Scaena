@@ -40,13 +40,19 @@ class FromSpec(unittest.TestCase):
         self.assertEqual(theme["motion"], BASE["motion"])
         self.assertEqual(theme["type"]["roles"], BASE["voices"]["dusk"]["roles"])
         # Each key where the four put it; the base's empty places left out.
-        self.assertEqual(list(theme), [k for k in BASE if k not in ("voices", "layouts")])
+        self.assertEqual(list(theme), [k for k, v in BASE.items() if k not in ("voices", "layouts") and v is not None or k in ("name", "description")])
         self.assertNotIn("null", json.dumps(theme))
         text = themes.written(theme, None, BASE)
         out = json.loads(text)
         self.assertEqual(list(out)[list(out).index("grid") + 1], "layouts")
         self.assertEqual(out["layouts"], {})
         self.assertNotIn("furniture", out)
+
+    def test_a_specs_code_look_lands_after_the_density(self):
+        code = {"role": "code", "tab": 4}
+        theme = themes.themed("basel", spec(code=code), BASE)
+        self.assertEqual(theme["code"], code)
+        self.assertEqual(list(theme)[-2:], ["density", "code"])
 
     def test_a_role_delta_changes_only_what_it_names_and_null_takes_a_key_away(self):
         theme = themes.themed("basel", spec(roles={"display": {"size": 160, "opsz": None}}, stroke={"thick": 5}), BASE)
@@ -65,6 +71,14 @@ class FromSpec(unittest.TestCase):
             themes.themed("basel", spec(voice="loud"), BASE)
         with self.assertRaisesRegex(themes.Refused, "dark theme"):
             themes.themed("basel", spec(mode="dark"), BASE)
+
+
+    def test_a_family_the_pinned_table_lacks_is_refused(self):
+        theme = themes.themed("basel", spec(), BASE)
+        self.assertEqual(themes.fonts_of(theme), ["fraunces", "inter", "jetbrains-mono"])
+        theme["type"]["families"]["display"]["family"] = "Comic Sans"
+        with self.assertRaisesRegex(themes.Refused, "Comic Sans"):
+            themes.fonts_of(theme)
 
 
 class Bars(unittest.TestCase):

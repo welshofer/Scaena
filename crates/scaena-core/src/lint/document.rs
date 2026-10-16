@@ -23,6 +23,7 @@ pub(super) fn rules() -> Vec<Box<dyn Rule>> {
         Box::new(I400NoopState),
         Box::new(I401NodeNeverVisible),
         Box::new(I402OverrideCount),
+        Box::new(I403UncoloredLanguage),
     ]
 }
 
@@ -581,7 +582,12 @@ impl Rule for W410ImageWithoutAlt {
         cx.deck
             .nodes
             .iter()
-            .filter(|(_, n)| n.node_type == NodeType::Image && !n.props.contains_key("alt"))
+            // A map reads as the map of the place it was fetched for (ADR-0030).
+            .filter(|(_, n)| {
+                n.node_type == NodeType::Image
+                    && !n.props.contains_key("alt")
+                    && n.props.get("fetched").and_then(|f| f.get("map")).is_none()
+            })
             .map(|(id, _)| {
                 Finding::new(self.code(), self.severity(), format!("image `{id}` has no `alt` text"))
                     .at(format!("/nodes/{id}"))
@@ -677,4 +683,106 @@ impl Rule for I402OverrideCount {
             })
             .collect()
     }
+}
+
+/// I403: a code text in a language no scanner of its own colors (ADR-0029, PLAN 2.132), which the
+/// generic scanner colors: its strings, numbers, comments, and brackets, and none of its words.
+/// One finding a text and language, where the language is written, in the first state it shows
+/// in, with every state it shows so in. The hint names the language Scaena knows whose name, or
+/// one of its aliases, is within two letters of it, if one is.
+struct I403UncoloredLanguage;
+impl Rule for I403UncoloredLanguage {
+    fn code(&self) -> &'static str {
+        "I403"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Info
+    }
+    fn check(&self, cx: &Context) -> Vec<Finding> {
+        use crate::tracking::{Lives, lives};
+        let mut out: Vec<Finding> = Vec::new();
+        let mut seen: Vec<(String, String, usize)> = Vec::new();
+        for (i, snap) in cx.snapshots.iter().enumerate() {
+            for (id, props) in &snap.nodes {
+                // The language as the state shows it, the deck's overrides over it, read in place:
+                // most texts are no code, and no props are copied to find so.
+                let over = cx.deck.overrides.get(id);
+                let code = over.and_then(|o| o.get("code")).or_else(|| props.get("code"));
+                let language = code.and_then(|c| c.get("language")).and_then(Value::as_str);
+                if language.is_none() || cx.deck.nodes.get(id).is_none_or(|n| n.node_type != NodeType::Text) {
+                    continue;
+                }
+                let Some(name) = language.filter(|n| matches!(crate::code::lang(n), crate::code::Lang::Generic)) else {
+                    continue;
+                };
+                if let Some((_, _, at)) = seen.iter().find(|(n, l, _)| n == id && l == name) {
+                    if let Some(states) = out[*at].measure.as_mut().and_then(|m| m["states"].as_array_mut()) {
+                        states.push(snap.state_id.clone().into());
+                    }
+                    continue;
+                }
+                let written = over.and_then(|o| o.get("code")).is_some_and(|c| c.get("language").is_some());
+                let at = match (written, lives(cx.deck, i, id, "code", &["language"])) {
+                    (true, _) => format!("/overrides/{}", token(id)),
+                    (false, Lives::State(j)) => format!("/states/{j}/props/{}", token(id)),
+                    (false, Lives::Node) => format!("/nodes/{}", token(id)),
+                };
+                let hint = match nearest(name) {
+                    Some(near) => format!(
+                        "Did you mean `{near}`? Name a language Scaena knows to color its words too, or `plain` to \
+                         color nothing."
+                    ),
+                    None => "Name a language Scaena knows to color its words too, or `plain` to color nothing.".into(),
+                };
+                seen.push((id.clone(), name.to_string(), out.len()));
+                out.push(
+                    Finding::new(
+                        self.code(),
+                        self.severity(),
+                        format!(
+                            "`{id}` is code in `{name}`, which no scanner of its own colors: only its strings, numbers, \
+                             comments, and brackets are colored"
+                        ),
+                    )
+                    .at(format!("{at}/code/language"))
+                    .state(snap.state_id.clone())
+                    .node(id.clone())
+                    .measure(serde_json::json!({ "language": name, "states": [snap.state_id] }))
+                    .hint(hint),
+                );
+            }
+        }
+        out
+    }
+}
+
+/// The language Scaena knows by a name or an alias within two letters of `name`, as edits of one
+/// letter count them, the nearest, and the first in the table's order of those as near; none where
+/// no name is that near, or as near as `name` is long.
+fn nearest(name: &str) -> Option<&'static str> {
+    let mut best: Option<(usize, &'static str)> = None;
+    for language in crate::code::LANGUAGES {
+        for known in std::iter::once(&language.name).chain(language.aliases) {
+            let d = edits(name.as_bytes(), known.as_bytes());
+            if d <= 2 && d < name.len() && best.is_none_or(|(b, _)| d < b) {
+                best = Some((d, language.name));
+            }
+        }
+    }
+    best.map(|(_, name)| name)
+}
+
+/// How many letters must be put in, taken out, or changed to make `a` into `b` (Levenshtein).
+fn edits(a: &[u8], b: &[u8]) -> usize {
+    let mut row: Vec<usize> = (0..=b.len()).collect();
+    for (i, x) in a.iter().enumerate() {
+        let mut diagonal = row[0];
+        row[0] = i + 1;
+        for (j, y) in b.iter().enumerate() {
+            let above = row[j + 1];
+            row[j + 1] = (above + 1).min(row[j] + 1).min(diagonal + usize::from(x != y));
+            diagonal = above;
+        }
+    }
+    row[b.len()]
 }

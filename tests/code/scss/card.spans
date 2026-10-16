@@ -1,0 +1,223 @@
+comment     «// Cards, nested as SCSS writes them.\n»
+keyword     «@use »
+string      «"sass:math"»
+punctuation «;\n\n»
+variable    «$gap»
+punctuation «: »
+number      «1.5rem »
+keyword     «!default»
+punctuation «;\n»
+variable    «$prefix»
+punctuation «: »
+constant    «ui»
+punctuation «;\n»
+variable    «$brand»
+punctuation «: »
+constant    «#3366cc»
+punctuation «;\n»
+variable    «$breakpoints»
+punctuation «: (»
+property    «small»
+punctuation «: »
+number      «576px»
+punctuation «, »
+property    «medium»
+punctuation «: »
+number      «768px»
+punctuation «, »
+string      «"large"»
+punctuation «: »
+number      «992px»
+punctuation «);\n\n»
+keyword     «@mixin »
+function    «respond»
+punctuation «(»
+variable    «$name»
+punctuation «) {\n  »
+keyword     «@media »
+punctuation «(»
+property    «min-width»
+punctuation «: »
+function    «map-get»
+punctuation «(»
+variable    «$breakpoints»
+punctuation «, »
+variable    «$name»
+punctuation «)) { »
+keyword     «@content»
+punctuation «; }\n}\n\n»
+keyword     «@function »
+function    «half»
+punctuation «(»
+variable    «$value»
+punctuation «) {\n  »
+keyword     «@return »
+function    «math.div»
+punctuation «(»
+variable    «$value»
+punctuation «, »
+number      «2»
+punctuation «);\n}\n\n»
+attribute   «%card-base »
+punctuation «{ »
+property    «border-radius»
+punctuation «: »
+number      «8px»
+punctuation «; }\n\n»
+attribute   «.card »
+punctuation «{\n  »
+keyword     «@extend »
+attribute   «%card-base »
+keyword     «!optional»
+punctuation «;\n  »
+property    «padding»
+punctuation «: »
+variable    «$gap »
+function    «half»
+punctuation «(»
+variable    «$gap»
+punctuation «);\n  »
+property    «margin»
+punctuation «: »
+variable    «math.$pi »
+operator    «* »
+number      «1px»
+punctuation «;\n  »
+property    «color»
+punctuation «: »
+function    «rgba»
+punctuation «(»
+variable    «$brand»
+punctuation «, »
+number      «.9»
+punctuation «);\n  »
+property    «font»
+punctuation «: {\n    »
+property    «family»
+punctuation «: »
+string      «"Inter"»
+punctuation «, »
+constant    «sans-serif»
+punctuation «;\n    »
+property    «weight»
+punctuation «: »
+number      «400»
+punctuation «;\n  }\n\n  »
+keyword     «&»
+attribute   «__title »
+punctuation «{ »
+property    «font-weight»
+punctuation «: »
+number      «600»
+punctuation «; }\n  »
+keyword     «&»
+attribute   «:hover»
+punctuation «, »
+keyword     «&»
+attribute   «.is-active »
+punctuation «{ »
+property    «box-shadow»
+punctuation «: »
+number      «0 0 0 1px »
+function    «lighten»
+punctuation «(»
+variable    «$brand»
+punctuation «, »
+number      «20%»
+punctuation «); }\n  »
+operator    «> »
+attribute   «.icon-»
+punctuation «#{»
+variable    «$name»
+punctuation «} { »
+property    «width»
+punctuation «: #{»
+variable    «$gap »
+operator    «* »
+number      «2»
+punctuation «}; }\n  »
+attribute   «.»
+punctuation «#{»
+variable    «$prefix»
+punctuation «}»
+attribute   «-badge »
+punctuation «{ »
+property    «margin-left»
+punctuation «: »
+constant    «auto»
+punctuation «; }\n  »
+keyword     «@at-root »
+attribute   «.card-grid »
+punctuation «{ »
+property    «display»
+punctuation «: »
+constant    «grid»
+punctuation «; »
+property    «gap»
+punctuation «: »
+variable    «$gap»
+punctuation «; }\n\n  »
+keyword     «@include »
+function    «respond»
+punctuation «(»
+constant    «medium»
+punctuation «) {\n    »
+property    «padding»
+punctuation «: »
+variable    «$gap »
+operator    «* »
+number      «2»
+punctuation «;\n  }\n\n  »
+keyword     «@each »
+variable    «$size»
+punctuation «, »
+variable    «$width »
+keyword     «in »
+punctuation «(»
+property    «sm»
+punctuation «: »
+number      «10rem»
+punctuation «, »
+property    «lg»
+punctuation «: »
+number      «20rem»
+punctuation «) {\n    »
+keyword     «&»
+attribute   «--»
+punctuation «#{»
+variable    «$size»
+punctuation «} { »
+property    «max-width»
+punctuation «: »
+variable    «$width»
+punctuation «; }\n  }\n\n  »
+keyword     «@if »
+variable    «$gap »
+operator    «> »
+number      «1rem »
+keyword     «and not »
+variable    «$compact »
+punctuation «{\n    »
+property    «margin-bottom»
+punctuation «: »
+variable    «$gap»
+punctuation «;\n  } »
+keyword     «@else if »
+variable    «$gap »
+operator    «== »
+number      «0 »
+punctuation «{\n    »
+property    «margin»
+punctuation «: »
+number      «0»
+punctuation «;\n  } »
+keyword     «@else »
+punctuation «{\n    »
+property    «content»
+punctuation «: »
+string      «"gap: »
+punctuation «#{»
+variable    «$gap»
+punctuation «}»
+string      «"»
+punctuation «;\n  }\n}\n»

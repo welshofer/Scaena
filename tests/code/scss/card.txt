@@ -1,0 +1,50 @@
+// Cards, nested as SCSS writes them.
+@use "sass:math";
+
+$gap: 1.5rem !default;
+$prefix: ui;
+$brand: #3366cc;
+$breakpoints: (small: 576px, medium: 768px, "large": 992px);
+
+@mixin respond($name) {
+  @media (min-width: map-get($breakpoints, $name)) { @content; }
+}
+
+@function half($value) {
+  @return math.div($value, 2);
+}
+
+%card-base { border-radius: 8px; }
+
+.card {
+  @extend %card-base !optional;
+  padding: $gap half($gap);
+  margin: math.$pi * 1px;
+  color: rgba($brand, .9);
+  font: {
+    family: "Inter", sans-serif;
+    weight: 400;
+  }
+
+  &__title { font-weight: 600; }
+  &:hover, &.is-active { box-shadow: 0 0 0 1px lighten($brand, 20%); }
+  > .icon-#{$name} { width: #{$gap * 2}; }
+  .#{$prefix}-badge { margin-left: auto; }
+  @at-root .card-grid { display: grid; gap: $gap; }
+
+  @include respond(medium) {
+    padding: $gap * 2;
+  }
+
+  @each $size, $width in (sm: 10rem, lg: 20rem) {
+    &--#{$size} { max-width: $width; }
+  }
+
+  @if $gap > 1rem and not $compact {
+    margin-bottom: $gap;
+  } @else if $gap == 0 {
+    margin: 0;
+  } @else {
+    content: "gap: #{$gap}";
+  }
+}

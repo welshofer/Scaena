@@ -1,0 +1,47 @@
+# A web server behind its security group.
+terraform {
+  required_version = ">= 1.6"
+  required_providers {
+    aws = { source = "hashicorp/aws", version = "~> 5.0" }
+  }
+}
+
+variable "instance_count" {
+  type        = number
+  default     = 2
+  description = "How many servers run."
+}
+
+variable "tags" {
+  type    = map(string)
+  default = {}
+}
+
+locals {
+  name   = "web-${var.environment}"
+  ports  = [80, 443]
+  enable = var.instance_count > 0 && !var.paused
+}
+
+resource "aws_instance" "web" {
+  count         = var.instance_count
+  ami           = data.aws_ami.ubuntu.id
+  instance_type = "t3.micro" // the smallest that serves
+  tags          = merge(var.tags, { Name = "${local.name}-${count.index}" })
+
+  /* Start the server
+     with its user data. */
+  user_data = <<-EOT
+    #!/bin/bash
+    echo "Serving ${local.name} on port ${local.ports[0]}" > /tmp/index.html
+    %{ if var.instance_count > 1 }echo "one of many"%{ endif }
+  EOT
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+output "addresses" {
+  value = [for server in aws_instance.web : server.public_ip if server.public_ip != null]
+}

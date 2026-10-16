@@ -1,0 +1,177 @@
+comment     «# A web server behind its security group.\n»
+keyword     «terraform »
+punctuation «{\n  »
+property    «required_version »
+operator    «= »
+string      «">= 1.6"\n  »
+keyword     «required_providers »
+punctuation «{\n    »
+property    «aws »
+operator    «= »
+punctuation «{ »
+property    «source »
+operator    «= »
+string      «"hashicorp/aws"»
+punctuation «, »
+property    «version »
+operator    «= »
+string      «"~> 5.0" »
+punctuation «}\n  }\n}\n\n»
+keyword     «variable »
+string      «"instance_count" »
+punctuation «{\n  »
+property    «type        »
+operator    «= »
+type        «number\n  »
+property    «default     »
+operator    «= »
+number      «2\n  »
+property    «description »
+operator    «= »
+string      «"How many servers run."\n»
+punctuation «}\n\n»
+keyword     «variable »
+string      «"tags" »
+punctuation «{\n  »
+property    «type    »
+operator    «= »
+type        «map»
+punctuation «(»
+type        «string»
+punctuation «)\n  »
+property    «default »
+operator    «= »
+punctuation «{}\n}\n\n»
+keyword     «locals »
+punctuation «{\n  »
+property    «name   »
+operator    «= »
+string      «"web-»
+punctuation «${»
+variable    «var»
+punctuation «.»
+property    «environment»
+punctuation «}»
+string      «"\n  »
+property    «ports  »
+operator    «= »
+punctuation «[»
+number      «80»
+punctuation «, »
+number      «443»
+punctuation «]\n  »
+property    «enable »
+operator    «= »
+variable    «var»
+punctuation «.»
+property    «instance_count »
+operator    «> »
+number      «0 »
+operator    «&& !»
+variable    «var»
+punctuation «.»
+property    «paused\n»
+punctuation «}\n\n»
+keyword     «resource »
+string      «"aws_instance" "web" »
+punctuation «{\n  »
+property    «count         »
+operator    «= »
+variable    «var»
+punctuation «.»
+property    «instance_count\n  ami           »
+operator    «= »
+variable    «data»
+punctuation «.»
+property    «aws_ami»
+punctuation «.»
+property    «ubuntu»
+punctuation «.»
+property    «id\n  instance_type »
+operator    «= »
+string      «"t3.micro" »
+comment     «// the smallest that serves\n  »
+property    «tags          »
+operator    «= »
+function    «merge»
+punctuation «(»
+variable    «var»
+punctuation «.»
+property    «tags»
+punctuation «, { »
+property    «Name »
+operator    «= »
+string      «"»
+punctuation «${»
+variable    «local»
+punctuation «.»
+property    «name»
+punctuation «}»
+string      «-»
+punctuation «${»
+variable    «count»
+punctuation «.»
+property    «index»
+punctuation «}»
+string      «" »
+punctuation «})\n\n  »
+comment     «/* Start the server\n     with its user data. */\n  »
+property    «user_data »
+operator    «= <<-»
+string      «EOT\n    #!/bin/bash\n    echo "Serving »
+punctuation «${»
+variable    «local»
+punctuation «.»
+property    «name»
+punctuation «}»
+string      « on port »
+punctuation «${»
+variable    «local»
+punctuation «.»
+property    «ports»
+punctuation «[»
+number      «0»
+punctuation «]}»
+string      «" > /tmp/index.html\n    »
+punctuation «%{ »
+keyword     «if »
+variable    «var»
+punctuation «.»
+property    «instance_count »
+operator    «> »
+number      «1 »
+punctuation «}»
+string      «echo "one of many"»
+punctuation «%{ »
+keyword     «endif »
+punctuation «}»
+string      «\n  EOT\n\n  »
+keyword     «lifecycle »
+punctuation «{\n    »
+property    «create_before_destroy »
+operator    «= »
+constant    «true\n  »
+punctuation «}\n}\n\n»
+keyword     «output »
+string      «"addresses" »
+punctuation «{\n  »
+property    «value »
+operator    «= »
+punctuation «[»
+keyword     «for »
+plain       «server »
+keyword     «in »
+plain       «aws_instance»
+punctuation «.»
+property    «web »
+operator    «: »
+plain       «server»
+punctuation «.»
+property    «public_ip »
+keyword     «if »
+plain       «server»
+punctuation «.»
+property    «public_ip »
+operator    «!= »
+constant    «null»
+punctuation «]\n}\n»

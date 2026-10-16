@@ -26,9 +26,10 @@
 //! would open one more is read as its string's own characters.
 
 use super::scan::{
-    Spans, blanks_end, holds, is_break, is_space, is_word, is_word_start, line_end, line_next, number_end, space_end,
-    word_end,
+    Spans, blanks_end, ends_with, holds, is_break, is_space, is_word, is_word_start, line_end, line_next, number_end,
+    space_end, word_end,
 };
+use super::tables::{Table, words};
 use super::{Class, MAX_NESTING};
 
 /// How far a type in brackets is looked through for its `]`.
@@ -71,6 +72,40 @@ pub(super) fn command<'t>(text: &'t str, out: &mut Spans<'t>, at: usize) -> usiz
         line = next;
     }
     line
+}
+
+/// Writes the tokens of a Dockerfile instruction's command from `at`, where a `SHELL` instruction
+/// names PowerShell or the escape is a backtick, and gives where it ends: past its last line. The
+/// command goes on past a line that ends with `escape`, spaces and tabs after it, as Docker joins
+/// them. Docker drops the comments and the blank lines among the lines it joins, so the command
+/// goes on after each as it was before it. What else it leaves open closes at its last line's end,
+/// where the instruction ends.
+pub(super) fn instruction<'t>(text: &'t str, out: &mut Spans<'t>, at: usize, escape: u8) -> usize {
+    let b = text.as_bytes();
+    let mut scanner = Scanner::new(text, out, at);
+    let mut line = line_next(b, at, b.len());
+    scanner.run(line);
+    let mut goes_on = ends_with(b, at, line, escape);
+    while line < b.len() && goes_on {
+        let next = line_next(b, line, b.len());
+        let first = blanks_end(b, line, next);
+        if first == line_end(b, line, next) || b[first] == b'#' {
+            scanner.dropped(line, next);
+        } else {
+            scanner.line(line);
+            scanner.run(next);
+            goes_on = ends_with(b, line, next, escape);
+        }
+        line = next;
+    }
+    line
+}
+
+/// Writes the tokens of `text` from `from` to `to` as a PowerShell script: the heredoc a
+/// Dockerfile's `RUN` runs where its shell is PowerShell.
+pub(super) fn script<'t>(text: &'t str, out: &mut Spans<'t>, from: usize, to: usize) {
+    let mut scanner = Scanner::new(text, out, from);
+    scanner.run(to);
 }
 
 struct Scanner<'t, 'o> {
@@ -161,8 +196,23 @@ impl<'t, 'o> Scanner<'t, 'o> {
     /// The command goes on at `start`, past a continuation prompt, which is meta.
     fn resume(&mut self, start: usize) {
         self.out.push(start, Class::Meta);
+        self.line(start);
+    }
+
+    /// The command goes on at `start`, where a line begins.
+    fn line(&mut self, start: usize) {
         self.pos = start;
         self.start = start;
+    }
+
+    /// The comment or the blank line from `line` to `next`, which Docker drops from the lines it
+    /// joins: a comment, and the command goes on after it as it was before it.
+    fn dropped(&mut self, line: usize, next: usize) {
+        let end = line_end(self.b, line, next);
+        self.out.space(blanks_end(self.b, line, end));
+        self.out.push(end, Class::Comment);
+        self.out.space(next);
+        self.line(next);
     }
 
     /// The byte at `i`, or 0 at or past where this run stops.
@@ -486,7 +536,7 @@ impl<'t, 'o> Scanner<'t, 'o> {
         } else if command && self.members.is_some() && self.members == self.depth() {
             // An enum's member: `Red`, `Green = 2`.
             Class::Constant
-        } else if !self.args && holds(KEYWORDS, word) {
+        } else if !self.args && holds(&KEYWORDS, word) {
             self.keyword(word);
             Class::Keyword
         } else if let Some(class) = pending {
@@ -682,104 +732,116 @@ fn cmdlet(word: &str) -> bool {
 /// Whether `-` and `word` are an operator, in any case: `-eq`, and `-ceq` and `-ieq`, which
 /// compare with case or without.
 fn operator(word: &str) -> bool {
-    holds(OPERATORS, word)
+    holds(&OPERATORS, word)
         || (word.len() > 2
             && matches!(word.as_bytes()[0], b'c' | b'i' | b'C' | b'I')
-            && holds(CASED, word.get(1..).unwrap_or_default()))
+            && holds(&CASED, word.get(1..).unwrap_or_default()))
 }
 
 // The tables, each sorted and in lowercase, so a word is found by binary search in any case
 // (`every_table_is_sorted`).
 
-const KEYWORDS: &[&str] = &[
-    "begin",
-    "break",
-    "catch",
-    "class",
-    "clean",
-    "continue",
-    "data",
-    "default",
-    "do",
-    "dynamicparam",
-    "else",
-    "elseif",
-    "end",
-    "enum",
-    "exit",
-    "filter",
-    "finally",
-    "for",
-    "foreach",
-    "function",
-    "hidden",
-    "if",
-    "in",
-    "param",
-    "process",
-    "return",
-    "static",
-    "switch",
-    "throw",
-    "trap",
-    "try",
-    "until",
-    "using",
-    "while",
-];
+const KEYWORDS: Table = words!(
+    "powershell/keywords",
+    [
+        "begin",
+        "break",
+        "catch",
+        "class",
+        "clean",
+        "continue",
+        "data",
+        "default",
+        "do",
+        "dynamicparam",
+        "else",
+        "elseif",
+        "end",
+        "enum",
+        "exit",
+        "filter",
+        "finally",
+        "for",
+        "foreach",
+        "function",
+        "hidden",
+        "if",
+        "in",
+        "param",
+        "process",
+        "return",
+        "static",
+        "switch",
+        "throw",
+        "trap",
+        "try",
+        "until",
+        "using",
+        "while",
+    ]
+);
 /// The operators after a `-`.
-const OPERATORS: &[&str] = &[
-    "and",
-    "as",
-    "band",
-    "bnot",
-    "bor",
-    "bxor",
-    "contains",
-    "eq",
-    "f",
-    "ge",
-    "gt",
-    "in",
-    "is",
-    "isnot",
-    "join",
-    "le",
-    "like",
-    "lt",
-    "match",
-    "ne",
-    "not",
-    "notcontains",
-    "notin",
-    "notlike",
-    "notmatch",
-    "or",
-    "replace",
-    "shl",
-    "shr",
-    "split",
-    "xor",
-];
+const OPERATORS: Table = words!(
+    "powershell/operators",
+    [
+        "and",
+        "as",
+        "band",
+        "bnot",
+        "bor",
+        "bxor",
+        "contains",
+        "eq",
+        "f",
+        "ge",
+        "gt",
+        "in",
+        "is",
+        "isnot",
+        "join",
+        "le",
+        "like",
+        "lt",
+        "match",
+        "ne",
+        "not",
+        "notcontains",
+        "notin",
+        "notlike",
+        "notmatch",
+        "or",
+        "replace",
+        "shl",
+        "shr",
+        "split",
+        "xor",
+    ]
+);
 /// The operators that compare with case or without after a `c` or an `i`: `-ceq`, `-ilike`.
-const CASED: &[&str] = &[
-    "contains",
-    "eq",
-    "ge",
-    "gt",
-    "in",
-    "le",
-    "like",
-    "lt",
-    "match",
-    "ne",
-    "notcontains",
-    "notin",
-    "notlike",
-    "notmatch",
-    "replace",
-    "split",
-];
+const CASED: Table = words!(
+    "powershell/cased",
+    [
+        "contains",
+        "eq",
+        "ge",
+        "gt",
+        "in",
+        "le",
+        "like",
+        "lt",
+        "match",
+        "ne",
+        "notcontains",
+        "notin",
+        "notlike",
+        "notmatch",
+        "replace",
+        "split",
+    ]
+);
+
+/// Every table this scanner reads, in the order its file lists them (`tables::written`).
+pub(super) const WORDS: &[Table] = &[KEYWORDS, OPERATORS, CASED];
 
 #[cfg(test)]
 mod tests {
@@ -793,6 +855,6 @@ mod tests {
             assert!(table.windows(2).all(|w| w[0] < w[1]), "not sorted: {table:?}");
             assert!(table.iter().all(|w| w.bytes().all(|c| c.is_ascii_lowercase())), "{table:?}");
         }
-        assert!(holds(KEYWORDS, "ForEach") && holds(OPERATORS, "EQ") && operator("CLike") && !operator("Path"));
+        assert!(holds(&KEYWORDS, "ForEach") && holds(&OPERATORS, "EQ") && operator("CLike") && !operator("Path"));
     }
 }

@@ -141,7 +141,8 @@ export function filesPanel(stage: Stage, into: HTMLElement, editor: FilesEditor)
       })
       .join("");
     const insert = drags ? ` <button type="button" data-insert aria-label="Insert ${html(fileName(f.path))}">Insert</button>` : "";
-    return `<li data-path="${path}"${drags ? ' draggable="true"' : ""}><span class="name" title="${path}">${html(fileName(f.path))}</span> <span class="size">${size(f.bytes)}</span>${insert}${uses}${used ? `<ul class="used">${used}</ul>` : ""}</li>`;
+    const fetched = f.fetched ? `<p class="fetched">${html(f.fetched.said)}</p>` : "";
+    return `<li data-path="${path}"${drags ? ' draggable="true"' : ""}><span class="name" title="${path}">${html(fileName(f.path))}</span> <span class="size">${size(f.bytes)}</span>${insert}${fetched}${uses}${used ? `<ul class="used">${used}</ul>` : ""}</li>`;
   }
 
   /** `path` taken out of the bundle: one change, which the editor's undo takes back. */

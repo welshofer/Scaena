@@ -28,7 +28,7 @@ pub fn with_overrides(deck: &Deck, snap: &Snapshot) -> Snapshot {
 /// A text node's look as the cascade resolved it: what `scaena inspect --resolved` shows.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct Look {
-    /// The role it is set in: its own, or its slot's.
+    /// The role it is set in: its own, or for code the theme's code role, else its slot's.
     pub role: String,
     /// The family's name, as its font names it.
     pub family: String,
@@ -44,7 +44,7 @@ pub struct Look {
 /// A text node's look: its role (or the slot's) after its `style`.
 pub fn look(theme: &Theme, props: &Props, slot_role: Option<&str>) -> Result<Look, EngineError> {
     let role = node_role(theme, props, slot_role)?;
-    let name = props.get("role").and_then(Value::as_str).or(slot_role).unwrap_or_default().to_string();
+    let name = role_name(theme, props, slot_role).unwrap_or_default().to_string();
     let family = theme.families().get(&role.family).map_or(role.family.clone(), |f| f.family.clone());
     let color = role.color.clone().unwrap_or_else(|| "onSurface".into());
     let hex = theme.color(&color)?.to_hex();
@@ -62,16 +62,23 @@ pub fn look(theme: &Theme, props: &Props, slot_role: Option<&str>) -> Result<Loo
     })
 }
 
-/// What a node's props set it in: its role (or the slot's), refined by its `style`.
+/// What a node's props set it in: its role, refined by its `style`.
 pub fn node_role(theme: &Theme, props: &Props, slot_role: Option<&str>) -> Result<TextRole, EngineError> {
-    let name = props
-        .get("role")
-        .and_then(Value::as_str)
-        .or(slot_role)
+    let name = role_name(theme, props, slot_role)
         .ok_or_else(|| EngineError::Layout("text node has no `role` and its slot gives none".into()))?;
     let mut role = theme.text_role(name)?;
     refine(&mut role, style(props.get("style"))?.as_ref());
     Ok(role)
+}
+
+/// The role a text node is set in: its own; else, for code, the role the theme keeps for code
+/// (`Theme::code_role`, ADR-0029), else `body`; else its slot's.
+pub fn role_name<'a>(theme: &'a Theme, props: &'a Props, slot_role: Option<&'a str>) -> Option<&'a str> {
+    match props.get("role").and_then(Value::as_str) {
+        Some(own) => Some(own),
+        None if crate::code::is_code(props) => Some(theme.code_role().unwrap_or("body")),
+        None => slot_role,
+    }
 }
 
 /// What one run is set in: in its own role, else in the node's (style and all), then the

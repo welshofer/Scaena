@@ -599,6 +599,29 @@ pub const SHAPES: &[(&str, &str)] = &[
     ("callout", "Callout"),
 ];
 
+/// A day, `YYYY-MM-DD`, as a person says it: "15 October 2026"; anything else as it is written.
+pub fn day(date: &str) -> String {
+    const MONTHS: [&str; 12] = [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    ];
+    let part = |r: std::ops::Range<usize>| date.get(r).and_then(|p| p.parse::<usize>().ok());
+    match (part(0..4), part(5..7), part(8..10)) {
+        (Some(y), Some(m @ 1..=12), Some(d)) if date.len() == 10 => format!("{d} {} {y}", MONTHS[m - 1]),
+        _ => date.to_string(),
+    }
+}
+
 /// A shape's kind said: `rect` as Rectangle.
 pub fn shape(kind: &str) -> String {
     SHAPES.iter().find(|(k, _)| *k == kind).map_or_else(|| phrase(kind), |(_, said)| said.to_string())
@@ -622,6 +645,7 @@ pub const MARKED: &[(&str, &str)] = &[
     ("W311", "A background effect is behind this chart."),
     ("W312", "Some of the chart's text is too small to read."),
     ("W313", "The chart is too small to read."),
+    ("W314", "A credit here can't be read."),
     ("W410", "The picture has no description for people who can't see it."),
     ("W427", "A figure here no longer matches its data."),
 ];
@@ -661,6 +685,7 @@ pub const LISTED: &[(&str, &str)] = &[
     ("I400", "This step is the same as the one before it."),
     ("I401", "It never shows on any slide."),
     ("I402", "Settings of its own keep a theme change from reaching it."),
+    ("I403", "Its code is in a language Scaena colors only by its strings, numbers, and comments."),
 ];
 
 /// What lint finds, said in a sentence, by its code: what an editor marks ([`MARKED`]), then what
@@ -680,6 +705,7 @@ pub fn fixing(code: &str) -> &'static str {
         "E110" | "E111" => "Use a Color That Reads",
         "E100" | "W202" => "Shrink to Fit",
         "W427" => "Update the Figure",
+        "W314" => "Put the Credit Below",
         _ => "Fix",
     }
 }

@@ -14,6 +14,9 @@
 //! - **Python, Ruby, Shell, PowerShell, and SQL**, each by a scanner of its own (PLAN 2.134).
 //! - **A console session**: its prompts, the commands after them read as Shell or as PowerShell,
 //!   and what they print.
+//! - **Data, config, and markup** (PLAN 2.135): YAML, TOML, INI, HCL, and GraphQL; a Dockerfile,
+//!   which reads its commands as Shell or PowerShell, and a Makefile, which reads its recipes as
+//!   Shell; a diff; HTML and XML, by one scanner; and CSS and SCSS, by one.
 //! - **The generic scanner**, for a language Scaena has no scanner for: its strings, numbers,
 //!   comments, and brackets.
 //!
@@ -32,24 +35,36 @@
 
 mod clike;
 mod console;
+mod css;
+mod diff;
+mod dockerfile;
 mod generic;
+mod graphql;
+mod hcl;
+mod ini;
 mod json;
+mod makefile;
+mod markup;
 mod powershell;
 mod python;
 mod ruby;
 mod scan;
 mod shell;
 mod sql;
+pub mod tables;
+mod toml;
+mod yaml;
 
 use std::fmt;
 
 /// The most lines of a code text that are colored: the lines after them are one plain token.
 pub const MAX_LINES: usize = 1_000;
 
-/// The most interpolations (`${…}` in a template, `\(…)` in a Swift string, `{…}` in an f-string,
-/// `#{…}` in Ruby, `$(…)` in Shell and PowerShell), JSX elements, and JSX expressions that stand
-/// open inside one another, and the most heredocs that wait for their bodies. What would open one
-/// more is read as what it stands in: a ninth `${` as its string's own characters.
+/// The most interpolations (`${…}` in a template and in HCL, `%{…}` in HCL, `\(…)` in a Swift
+/// string, `{…}` in an f-string, `#{…}` in Ruby and SCSS, `$(…)` in Shell, PowerShell, and Make),
+/// JSX elements, and JSX expressions that stand open inside one another, and the most heredocs
+/// that wait for their bodies. What would open one more is read as what it stands in: a ninth
+/// `${` as its string's own characters.
 pub const MAX_NESTING: usize = 8;
 
 /// A kind of token, which the theme gives a color, a weight, and an italic (ADR-0029).
@@ -155,6 +170,8 @@ pub struct Language {
     pub said: &'static str,
     /// The extensions of its files, lowercase and without their point.
     pub extensions: &'static [&'static str],
+    /// The names its files go by whole, as written: `Dockerfile`, `Makefile`.
+    pub files: &'static [&'static str],
     /// The programs a script's first line runs it with: `node` in `#!/usr/bin/env node`.
     pub interpreters: &'static [&'static str],
     /// What colors it.
@@ -196,6 +213,30 @@ pub(crate) enum Scan {
     PowerShell,
     /// SQL's.
     Sql,
+    /// YAML's.
+    Yaml,
+    /// TOML's.
+    Toml,
+    /// A Dockerfile's, which reads its commands as Shell or PowerShell.
+    Dockerfile,
+    /// A diff's.
+    Diff,
+    /// INI's.
+    Ini,
+    /// HCL's.
+    Hcl,
+    /// GraphQL's.
+    GraphQl,
+    /// A Makefile's, which reads its recipes as Shell.
+    Makefile,
+    /// HTML's.
+    Html,
+    /// XML's.
+    Xml,
+    /// CSS's.
+    Css,
+    /// SCSS's.
+    Scss,
 }
 
 /// How a code text's language colors it.
@@ -219,6 +260,7 @@ pub static LANGUAGES: &[Language] = &[
         aliases: &[],
         said: "C",
         extensions: &["c", "h"],
+        files: &[],
         interpreters: &[],
         scan: Scan::CLike(&clike::C),
     },
@@ -227,6 +269,7 @@ pub static LANGUAGES: &[Language] = &[
         aliases: &["sh-session", "shell-session", "shellsession"],
         said: "Console",
         extensions: &["sh-session"],
+        files: &[],
         interpreters: &[],
         scan: Scan::Console,
     },
@@ -235,6 +278,7 @@ pub static LANGUAGES: &[Language] = &[
         aliases: &["c++", "cc", "cxx", "hpp"],
         said: "C++",
         extensions: &["c++", "cc", "cpp", "cxx", "h++", "hh", "hpp", "hxx", "ipp", "tpp"],
+        files: &[],
         interpreters: &[],
         scan: Scan::CLike(&clike::CPP),
     },
@@ -243,30 +287,97 @@ pub static LANGUAGES: &[Language] = &[
         aliases: &["c#", "cs"],
         said: "C#",
         extensions: &["cs", "csx"],
+        files: &[],
         interpreters: &[],
         scan: Scan::CLike(&clike::CSHARP),
+    },
+    Language {
+        name: "css",
+        aliases: &[],
+        said: "CSS",
+        extensions: &["css"],
+        files: &[],
+        interpreters: &[],
+        scan: Scan::Css,
     },
     Language {
         name: "dart",
         aliases: &[],
         said: "Dart",
         extensions: &["dart"],
+        files: &[],
         interpreters: &["dart"],
         scan: Scan::CLike(&clike::DART),
+    },
+    Language {
+        name: "diff",
+        aliases: &["patch", "udiff"],
+        said: "Diff",
+        extensions: &["diff", "patch", "rej"],
+        files: &[],
+        interpreters: &[],
+        scan: Scan::Diff,
+    },
+    Language {
+        name: "dockerfile",
+        aliases: &["containerfile", "docker"],
+        said: "Dockerfile",
+        extensions: &["containerfile", "dockerfile"],
+        files: &["Containerfile", "Dockerfile"],
+        interpreters: &[],
+        scan: Scan::Dockerfile,
     },
     Language {
         name: "go",
         aliases: &["golang"],
         said: "Go",
         extensions: &["go"],
+        files: &[],
         interpreters: &[],
         scan: Scan::CLike(&clike::GO),
+    },
+    Language {
+        name: "graphql",
+        aliases: &["gql"],
+        said: "GraphQL",
+        extensions: &["gql", "graphql", "graphqls"],
+        files: &[],
+        interpreters: &[],
+        scan: Scan::GraphQl,
+    },
+    Language {
+        name: "hcl",
+        aliases: &["terraform", "tf", "tfvars"],
+        said: "HCL",
+        extensions: &["hcl", "nomad", "tf", "tfvars"],
+        files: &[],
+        interpreters: &[],
+        scan: Scan::Hcl,
+    },
+    Language {
+        name: "html",
+        aliases: &["htm", "xhtml"],
+        said: "HTML",
+        extensions: &["htm", "html", "xht", "xhtml"],
+        files: &[],
+        interpreters: &[],
+        scan: Scan::Html,
+    },
+    Language {
+        name: "ini",
+        aliases: &["cfg", "conf", "dosini", "editorconfig", "properties"],
+        said: "INI",
+        extensions: &["cfg", "conf", "ini", "properties"],
+        files: &[".editorconfig", ".gitconfig", ".gitmodules"],
+        interpreters: &[],
+        scan: Scan::Ini,
     },
     Language {
         name: "java",
         aliases: &[],
         said: "Java",
         extensions: &["java"],
+        files: &[],
         interpreters: &[],
         scan: Scan::CLike(&clike::JAVA),
     },
@@ -275,6 +386,7 @@ pub static LANGUAGES: &[Language] = &[
         aliases: &["cjs", "js", "mjs"],
         said: "JavaScript",
         extensions: &["cjs", "js", "mjs"],
+        files: &[],
         interpreters: &["bun", "node", "nodejs"],
         scan: Scan::CLike(&clike::JAVASCRIPT),
     },
@@ -283,6 +395,7 @@ pub static LANGUAGES: &[Language] = &[
         aliases: &["jsonl"],
         said: "JSON",
         extensions: &["geojson", "json", "jsonl"],
+        files: &[],
         interpreters: &[],
         scan: Scan::Json,
     },
@@ -291,6 +404,7 @@ pub static LANGUAGES: &[Language] = &[
         aliases: &[],
         said: "JSON5",
         extensions: &["json5"],
+        files: &[],
         interpreters: &[],
         scan: Scan::Json,
     },
@@ -299,6 +413,7 @@ pub static LANGUAGES: &[Language] = &[
         aliases: &[],
         said: "JSON with Comments",
         extensions: &["jsonc"],
+        files: &[],
         interpreters: &[],
         scan: Scan::Json,
     },
@@ -307,6 +422,7 @@ pub static LANGUAGES: &[Language] = &[
         aliases: &[],
         said: "JSX",
         extensions: &["jsx"],
+        files: &[],
         interpreters: &[],
         scan: Scan::CLike(&clike::JAVASCRIPT),
     },
@@ -315,14 +431,25 @@ pub static LANGUAGES: &[Language] = &[
         aliases: &["kt", "kts"],
         said: "Kotlin",
         extensions: &["kt", "kts"],
+        files: &[],
         interpreters: &[],
         scan: Scan::CLike(&clike::KOTLIN),
+    },
+    Language {
+        name: "makefile",
+        aliases: &["make", "mk"],
+        said: "Makefile",
+        extensions: &["mak", "make", "mk"],
+        files: &["GNUmakefile", "Makefile", "makefile"],
+        interpreters: &["gmake", "make"],
+        scan: Scan::Makefile,
     },
     Language {
         name: "objc",
         aliases: &["obj-c", "objective-c", "objectivec"],
         said: "Objective-C",
         extensions: &["m", "mm"],
+        files: &[],
         interpreters: &[],
         scan: Scan::CLike(&clike::OBJC),
     },
@@ -331,6 +458,7 @@ pub static LANGUAGES: &[Language] = &[
         aliases: &["plaintext", "text", "txt"],
         said: "Plain Text",
         extensions: &["text", "txt"],
+        files: &[],
         interpreters: &[],
         scan: Scan::Plain,
     },
@@ -339,6 +467,7 @@ pub static LANGUAGES: &[Language] = &[
         aliases: &["posh", "ps", "ps1", "pwsh"],
         said: "PowerShell",
         extensions: &["ps1", "psd1", "psm1"],
+        files: &[],
         interpreters: &["powershell", "pwsh"],
         scan: Scan::PowerShell,
     },
@@ -347,6 +476,7 @@ pub static LANGUAGES: &[Language] = &[
         aliases: &["proto"],
         said: "Protocol Buffers",
         extensions: &["proto"],
+        files: &[],
         interpreters: &[],
         scan: Scan::CLike(&clike::PROTOBUF),
     },
@@ -355,6 +485,7 @@ pub static LANGUAGES: &[Language] = &[
         aliases: &["py", "python3"],
         said: "Python",
         extensions: &["py", "pyi", "pyw"],
+        files: &[],
         interpreters: &["pypy", "pypy3", "python", "python2", "python3"],
         scan: Scan::Python,
     },
@@ -363,6 +494,7 @@ pub static LANGUAGES: &[Language] = &[
         aliases: &["rb"],
         said: "Ruby",
         extensions: &["gemspec", "rake", "rb", "ru"],
+        files: &[],
         interpreters: &["jruby", "ruby"],
         scan: Scan::Ruby,
     },
@@ -371,6 +503,7 @@ pub static LANGUAGES: &[Language] = &[
         aliases: &["rs"],
         said: "Rust",
         extensions: &["rs"],
+        files: &[],
         interpreters: &[],
         scan: Scan::CLike(&clike::RUST),
     },
@@ -379,14 +512,25 @@ pub static LANGUAGES: &[Language] = &[
         aliases: &["sc"],
         said: "Scala",
         extensions: &["sc", "scala"],
+        files: &[],
         interpreters: &["scala"],
         scan: Scan::CLike(&clike::SCALA),
+    },
+    Language {
+        name: "scss",
+        aliases: &[],
+        said: "SCSS",
+        extensions: &["scss"],
+        files: &[],
+        interpreters: &[],
+        scan: Scan::Scss,
     },
     Language {
         name: "shell",
         aliases: &["bash", "sh", "shell-script", "shellscript", "zsh"],
         said: "Shell",
         extensions: &["bash", "ksh", "sh", "zsh"],
+        files: &[],
         interpreters: &["ash", "bash", "dash", "ksh", "sh", "zsh"],
         scan: Scan::Shell,
     },
@@ -395,6 +539,7 @@ pub static LANGUAGES: &[Language] = &[
         aliases: &["mysql", "pgsql", "plpgsql", "postgres", "postgresql", "sqlite", "tsql"],
         said: "SQL",
         extensions: &["ddl", "pgsql", "sql"],
+        files: &[],
         interpreters: &["psql", "sqlite3"],
         scan: Scan::Sql,
     },
@@ -403,14 +548,25 @@ pub static LANGUAGES: &[Language] = &[
         aliases: &[],
         said: "Swift",
         extensions: &["swift"],
+        files: &[],
         interpreters: &["swift"],
         scan: Scan::CLike(&clike::SWIFT),
+    },
+    Language {
+        name: "toml",
+        aliases: &[],
+        said: "TOML",
+        extensions: &["toml"],
+        files: &["Cargo.lock", "Pipfile"],
+        interpreters: &[],
+        scan: Scan::Toml,
     },
     Language {
         name: "tsx",
         aliases: &[],
         said: "TSX",
         extensions: &["tsx"],
+        files: &[],
         interpreters: &[],
         scan: Scan::CLike(&clike::TSX),
     },
@@ -419,14 +575,34 @@ pub static LANGUAGES: &[Language] = &[
         aliases: &["cts", "mts", "ts"],
         said: "TypeScript",
         extensions: &["cts", "mts", "ts"],
+        files: &[],
         interpreters: &["deno", "ts-node"],
         scan: Scan::CLike(&clike::TYPESCRIPT),
+    },
+    Language {
+        name: "xml",
+        aliases: &["plist", "rss", "svg", "xsd", "xsl", "xslt"],
+        said: "XML",
+        extensions: &["atom", "csproj", "plist", "rss", "svg", "xml", "xsd", "xsl", "xslt"],
+        files: &[],
+        interpreters: &[],
+        scan: Scan::Xml,
+    },
+    Language {
+        name: "yaml",
+        aliases: &["yml"],
+        said: "YAML",
+        extensions: &["yaml", "yml"],
+        files: &[],
+        interpreters: &[],
+        scan: Scan::Yaml,
     },
     Language {
         name: "zig",
         aliases: &[],
         said: "Zig",
         extensions: &["zig"],
+        files: &[],
         interpreters: &[],
         scan: Scan::CLike(&clike::ZIG),
     },
@@ -467,6 +643,18 @@ pub fn highlight(text: &str, lang: Lang) -> Vec<Token> {
         Lang::Known(Language { scan: Scan::Console, .. }) => console::scan(head, &mut out),
         Lang::Known(Language { scan: Scan::PowerShell, .. }) => powershell::scan(head, &mut out),
         Lang::Known(Language { scan: Scan::Sql, .. }) => sql::scan(head, &mut out),
+        Lang::Known(Language { scan: Scan::Yaml, .. }) => yaml::scan(head, &mut out),
+        Lang::Known(Language { scan: Scan::Toml, .. }) => toml::scan(head, &mut out),
+        Lang::Known(Language { scan: Scan::Dockerfile, .. }) => dockerfile::scan(head, &mut out),
+        Lang::Known(Language { scan: Scan::Diff, .. }) => diff::scan(head, &mut out),
+        Lang::Known(Language { scan: Scan::Ini, .. }) => ini::scan(head, &mut out),
+        Lang::Known(Language { scan: Scan::Hcl, .. }) => hcl::scan(head, &mut out),
+        Lang::Known(Language { scan: Scan::GraphQl, .. }) => graphql::scan(head, &mut out),
+        Lang::Known(Language { scan: Scan::Makefile, .. }) => makefile::scan(head, &mut out),
+        Lang::Known(Language { scan: Scan::Html, .. }) => markup::scan(head, &mut out, true),
+        Lang::Known(Language { scan: Scan::Xml, .. }) => markup::scan(head, &mut out, false),
+        Lang::Known(Language { scan: Scan::Css, .. }) => css::scan(head, &mut out, false),
+        Lang::Known(Language { scan: Scan::Scss, .. }) => css::scan(head, &mut out, true),
     }
     let mut tokens = out.finish();
     if head.len() < text.len() {

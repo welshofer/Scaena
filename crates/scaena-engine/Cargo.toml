@@ -9,11 +9,15 @@ repository.workspace = true
 authors.workspace = true
 
 [features]
-default = ["hyphenation"]
+default = ["hyphenation", "code-tables"]
 # The seventeen languages' hyphenation patterns compiled in (`hyphen`, ADR-0015): the CLI, the
 # MCP server, and the player's module. The editor's module leaves them out, and its page hands a
 # language's patterns over the first time a text hyphenates in it.
 hyphenation = []
+# The word tables the code scanners read compiled in (`code`, PLAN 2.132), where the patterns are:
+# the editor's module leaves them out too, and its page hands a scanner's tables over the first
+# time a code text it colors lays out.
+code-tables = ["scaena-core/code-tables"]
 
 [dependencies]
 scaena-core.workspace = true

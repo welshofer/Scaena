@@ -24,10 +24,15 @@
 //!
 //! A console reads a command line by line ([`command`]): the scanner stops at each line's end and
 //! goes on where the next line's continuation prompt ends, while what the command opened is open.
+//! A Dockerfile's `RUN` reads its command over the lines Docker joins ([`instruction`]), and its
+//! script heredoc whole ([`script`]); a Makefile's recipe reads a line at a time, after Make
+//! expands what it writes ([`recipe`]).
 
 use super::scan::{
-    Spans, blanks_end, is_break, is_space, is_word, is_word_start, line_end, line_next, number_end, space_end, word_end,
+    Spans, blanks_end, ends_with, is_break, is_space, is_word, is_word_start, line_end, line_next, number_end,
+    space_end, word_end,
 };
+use super::tables::{Table, words};
 use super::{Class, MAX_NESTING};
 
 /// What the next word is in its command.
@@ -107,6 +112,60 @@ pub(super) fn command<'t>(text: &'t str, out: &mut Spans<'t>, at: usize) -> usiz
     line
 }
 
+/// Writes the tokens of a Dockerfile instruction's command from `at` (`RUN`'s, `CMD`'s), and gives
+/// where it ends: past its last line. The command goes on past a line that ends with `escape`,
+/// spaces and tabs after it, as Docker joins them, and over a heredoc's body to its terminator.
+/// Docker drops the comments and the blank lines among the lines it joins, so the command goes on
+/// after each as it was before it. What else it leaves open closes at its last line's end, where
+/// the instruction ends.
+pub(super) fn instruction<'t>(text: &'t str, out: &mut Spans<'t>, at: usize, escape: u8) -> usize {
+    let b = text.as_bytes();
+    let mut scanner = Scanner::new(text, out, at);
+    let mut line = line_next(b, at, b.len());
+    scanner.run(line);
+    let mut goes_on = ends_with(b, at, line, escape);
+    while line < b.len() && (goes_on || scanner.waits()) {
+        let next = line_next(b, line, b.len());
+        let first = blanks_end(b, line, next);
+        if !scanner.waits() && (first == line_end(b, line, next) || b[first] == b'#') {
+            scanner.dropped(line, next);
+        } else {
+            scanner.line(line);
+            scanner.run(next);
+            goes_on = ends_with(b, line, next, escape);
+        }
+        line = next;
+    }
+    line
+}
+
+/// Writes the tokens of `text` from `from` to `to` as a Shell script: the heredoc a Dockerfile's
+/// `RUN` runs.
+pub(super) fn script<'t>(text: &'t str, out: &mut Spans<'t>, from: usize, to: usize) {
+    let mut scanner = Scanner::new(text, out, from);
+    scanner.run(to);
+}
+
+/// Writes the tokens of a Makefile's recipe line from `at`, past its tab and its prefixes, and
+/// gives where it ends: past its last line. Make expands what the line writes before a shell
+/// reads it (`$(CC)`, `${SRC}`, `$@`), in quotes of either kind too, and `$$` is the shell's
+/// `$`. The line goes on past a `\` that ends it; what else it leaves open closes at its end, as
+/// each line runs in a shell of its own.
+pub(super) fn recipe<'t>(text: &'t str, out: &mut Spans<'t>, at: usize) -> usize {
+    let b = text.as_bytes();
+    let mut scanner = Scanner::new(text, out, at);
+    scanner.make = true;
+    let (mut from, mut line) = (at, line_next(b, at, b.len()));
+    scanner.run(line);
+    while line < b.len() && b[from..line_end(b, from, line)].ends_with(b"\\") {
+        let next = line_next(b, line, b.len());
+        scanner.line(line);
+        scanner.run(next);
+        (from, line) = (line, next);
+    }
+    line
+}
+
 /// How long the continuation prompt is that starts the line at `at`: `> `, or a word and `> `.
 fn continuation(b: &[u8], at: usize, end: usize) -> usize {
     let line = line_end(b, at, end);
@@ -153,6 +212,8 @@ struct Scanner<'t, 'o> {
     heres: Vec<Here>,
     /// Whether the command goes on past this line: after a backslash, `|`, `&&`, or `||`.
     more: bool,
+    /// Whether Make expands what the text writes before the shell reads it: a recipe's line.
+    make: bool,
 }
 
 impl<'t, 'o> Scanner<'t, 'o> {
@@ -175,6 +236,7 @@ impl<'t, 'o> Scanner<'t, 'o> {
             cases: 0,
             heres: Vec::new(),
             more: false,
+            make: false,
         }
     }
 
@@ -210,11 +272,31 @@ impl<'t, 'o> Scanner<'t, 'o> {
             && matches!(self.stack[0], Frame::Code { depth: 0, .. })
     }
 
+    /// Whether a heredoc waits for its body, or its body is being read.
+    fn waits(&self) -> bool {
+        !self.heres.is_empty() || self.stack.iter().any(|f| matches!(f, Frame::Here(_)))
+    }
+
     /// The command goes on at `start`, past a continuation prompt, which is meta.
     fn resume(&mut self, start: usize) {
         self.out.push(start, Class::Meta);
+        self.line(start);
+    }
+
+    /// The command goes on at `start`, where a line begins.
+    fn line(&mut self, start: usize) {
         self.pos = start;
         self.start = start;
+    }
+
+    /// The comment or the blank line from `line` to `next`, which Docker drops from the lines it
+    /// joins: a comment, and the command goes on after it as it was before it.
+    fn dropped(&mut self, line: usize, next: usize) {
+        let end = line_end(self.b, line, next);
+        self.out.space(blanks_end(self.b, line, end));
+        self.out.push(end, Class::Comment);
+        self.out.space(next);
+        self.line(next);
     }
 
     /// The byte at `i`, or 0 at or past where this run stops.
@@ -713,8 +795,48 @@ impl<'t, 'o> Scanner<'t, 'o> {
     }
 
     /// `$` and what it expands: a substitution, an expansion, a quote, or a variable. A `$`
-    /// that expands nothing is in `rest`, the class of what it stands in.
+    /// that expands nothing is in `rest`, the class of what it stands in. In a recipe, Make
+    /// expands it first: `$(…)`, `${…}`, and a variable of one character (`$@`) are its
+    /// variables, and `$$` is the shell's `$`.
     fn dollar(&mut self, quoted: bool, rest: Class) {
+        let i = self.pos;
+        let next = self.at(i + 1);
+        if self.make {
+            return match next {
+                b'$' => {
+                    self.pos = i + 1;
+                    self.expand(quoted, rest)
+                }
+                b'(' | b'{' => self.emit(self.expansion(i), Class::Variable),
+                c if c != 0 && !is_space(c) => self.emit(i + 2, Class::Variable),
+                _ => self.emit(i + 1, rest),
+            };
+        }
+        self.expand(quoted, rest)
+    }
+
+    /// Where Make's expansion at `i`, `$(…)` or `${…}`, ends: past the bracket that closes it,
+    /// those of its kind inside it counted, or at its line's end.
+    fn expansion(&self, i: usize) -> usize {
+        let (open, close) = if self.at(i + 1) == b'(' { (b'(', b')') } else { (b'{', b'}') };
+        let mut depth = 0u32;
+        let mut k = i + 1;
+        while k < self.end && !is_break(self.b[k]) {
+            if self.b[k] == open {
+                depth += 1;
+            } else if self.b[k] == close {
+                depth -= 1;
+                if depth == 0 {
+                    return k + 1;
+                }
+            }
+            k += 1;
+        }
+        k
+    }
+
+    /// The shell's `$` and what it expands.
+    fn expand(&mut self, quoted: bool, rest: Class) {
         let i = self.pos;
         let next = self.at(i + 1);
         if next == b'(' && self.can_nest() {
@@ -753,9 +875,13 @@ impl<'t, 'o> Scanner<'t, 'o> {
         self.emit(i + 1, rest);
     }
 
-    /// Whether a `$` at `i` expands what follows it, in a string or a heredoc.
+    /// Whether a `$` at `i` expands what follows it, in a string or a heredoc: in a recipe, Make
+    /// expands any `$` that a space or its line's end does not follow.
     fn expands(&self, i: usize) -> bool {
         let next = self.at(i + 1);
+        if self.make {
+            return next != 0 && !is_space(next);
+        }
         next.is_ascii_alphanumeric() || b"_({@*#?-$!".contains(&next)
     }
 
@@ -798,7 +924,8 @@ impl<'t, 'o> Scanner<'t, 'o> {
         self.emit(end, Class::String);
     }
 
-    /// One step of a string in single quotes, to its close.
+    /// One step of a string in single quotes, to its close, or, in a recipe, to what Make
+    /// expands in it; its `$$` stays the string's own.
     fn single(&mut self, escapes: bool) {
         let (b, end) = (self.b, self.end);
         let mut i = self.pos;
@@ -808,6 +935,12 @@ impl<'t, 'o> Scanner<'t, 'o> {
                 b'\'' => {
                     self.emit(i + 1, Class::String);
                     return self.pop();
+                }
+                b'$' if self.make && self.at(i + 1) == b'$' => i += 2,
+                b'$' if self.make && self.expands(i) => {
+                    self.out.push(i, Class::String);
+                    self.pos = i;
+                    return self.dollar(false, Class::String);
                 }
                 _ => i += 1,
             }
@@ -966,13 +1099,20 @@ fn number(word: &str) -> bool {
 
 /// The shell's reserved words, the builtins that declare names, and those that leave a loop or
 /// a function.
-const KEYWORDS: &[&str] = &[
-    "break", "case", "continue", "coproc", "declare", "do", "done", "elif", "else", "esac", "exit", "export", "fi",
-    "for", "function", "if", "local", "readonly", "return", "select", "then", "time", "typeset", "unset", "until",
-    "while",
-];
+const KEYWORDS: Table = words!(
+    "shell/keywords",
+    [
+        "break", "case", "continue", "coproc", "declare", "do", "done", "elif", "else", "esac", "exit", "export", "fi",
+        "for", "function", "if", "local", "readonly", "return", "select", "then", "time", "typeset", "unset", "until",
+        "while",
+    ]
+);
 /// The commands that run the command after them.
-const WRAPPERS: &[&str] = &["builtin", "command", "env", "exec", "nice", "nohup", "sudo", "xargs"];
+const WRAPPERS: Table =
+    words!("shell/wrappers", ["builtin", "command", "env", "exec", "nice", "nohup", "sudo", "xargs"]);
+
+/// Every table this scanner reads, in the order its file lists them (`tables::written`).
+pub(super) const WORDS: &[Table] = &[KEYWORDS, WRAPPERS];
 
 #[cfg(test)]
 mod tests {

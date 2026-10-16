@@ -8,6 +8,16 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+default = ["code-tables"]
+# The word tables the code scanners read compiled in (`code::tables`, ADR-0029): natively, and in
+# the player's module, which a single-file export carries offline. The editor's module leaves them
+# out, and its page hands a scanner's tables over the first time a code text it colors lays out.
+code-tables = []
+# The table of English words the syllable rules miss, compiled in (`verse`, PLAN O.4a): the CLI,
+# the MCP server, and the C ABI. The editor's module leaves it out and hands it over (ADR-0015).
+syllables = []
+
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
@@ -24,3 +34,7 @@ libm.workspace = true
 # decoder, a crate of their own so the browser's modules build them for speed and the rest of
 # core for size (PLAN 2.98).
 scaena-pixels.workspace = true
+
+[dev-dependencies]
+# Its own tests count with the table compiled in (`verse`).
+scaena-core = { path = ".", features = ["syllables"] }

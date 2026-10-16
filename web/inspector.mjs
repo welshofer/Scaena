@@ -202,7 +202,7 @@ try {
   const titled = await page.evaluate(() => document.querySelector("#look h2")?.textContent);
   check(titled === "Slide 2, step 2", `with nothing selected, the inspector shows the slide's step: ${titled}`);
   const layouts = await page.evaluate(() => window.scaena.look.offered()?.fields.find((f) => f.prop === "layout")?.takes.names ?? []);
-  const may = "metric-trend,figure,narrow-figure,bar-chart,line-chart,table,full";
+  const may = "metric-trend,figure,narrow-figure,bar-chart,line-chart,table,positioning-map,full";
   check(layouts.join() === may, `its layout takes the theme's layouts with a slot for each node: ${layouts}`);
   check((await page.textContent("#look-layout"))?.startsWith("Chart"), `it shows the layout \`mix\` takes, by the theme's name for it: ${await page.textContent("#look-layout")}`);
   // Its button opens those layouts by their sections, each drawn, the one it takes outlined (PLAN 3.31).
@@ -216,8 +216,8 @@ try {
     blank: document.querySelector("#starting button.blank")?.hidden,
   }));
   check(
-    picker.title === "Layout" && picker.counted === 7 && picker.selected === "Charts" && picker.current === "figure" && picker.blank,
-    `the Layout button opens the seven by their sections, at figure's: ${JSON.stringify(picker)}`,
+    picker.title === "Layout" && picker.counted === 8 && picker.selected === "Charts" && picker.current === "figure" && picker.blank,
+    `the Layout button opens the eight by their sections, at figure's: ${JSON.stringify(picker)}`,
   );
   await page.keyboard.press("Escape");
   const from = await page.evaluate(() => document.querySelector("#look-layout")?.closest(".control")?.nextElementSibling?.textContent);

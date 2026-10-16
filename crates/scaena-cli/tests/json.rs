@@ -387,7 +387,8 @@ fn inspect_says_what_a_state_offers() {
     let field = |prop: &str| c["fields"].as_array().unwrap().iter().find(|f| f["prop"] == prop).unwrap().clone();
     let layout = field("layout");
     assert_eq!(layout["takes"]["of"], "layout");
-    let names = ["metric-trend", "figure", "narrow-figure", "bar-chart", "line-chart", "table", "full"];
+    let names =
+        ["metric-trend", "figure", "narrow-figure", "bar-chart", "line-chart", "table", "positioning-map", "full"];
     assert_eq!(layout["takes"]["names"], serde_json::json!(names), "{layout:#}");
     assert_eq!(
         (layout["value"].as_str(), &layout["lives"]),
@@ -405,7 +406,7 @@ fn inspect_says_what_a_state_offers() {
     let out = scaena(&["inspect", EXAMPLE, "--state", "mix", "--state-choices"]);
     let text = String::from_utf8(out.stdout).unwrap();
     assert!(text.contains("choices for state mix:"), "{text}");
-    let line = "layout               figure, set in revenue · metric-trend, figure, narrow-figure, bar-chart, line-chart, table, full";
+    let line = "layout               figure, set in revenue · metric-trend, figure, narrow-figure, bar-chart, line-chart, table, positioning-map, full";
     assert!(text.contains(line), "{text}");
     assert!(text.contains("transition/ease      not set · standard, in, out, linear"), "{text}");
 }
@@ -501,6 +502,14 @@ fn files_says_what_uses_each_and_takes_out_what_nothing_names() {
     assert!(
         card["used"].as_array().unwrap().contains(&serde_json::json!({ "node": "image-cover", "states": ["images"] }))
     );
+    // A fetched picture says where it came from and when (ADR-0030); a picture made here says nothing.
+    assert_eq!(
+        file("assets/map-card.png")["fetched"],
+        serde_json::json!({
+            "from": "geoapify", "service": "Geoapify", "date": "2026-10-15", "said": "From Geoapify, fetched 15 October 2026"
+        })
+    );
+    assert!(card.get("fetched").is_none());
     assert_eq!(
         (file("assets/stray.png")["named"].clone(), file("data/old.csv")["type"].clone()),
         (serde_json::json!([]), "data".into())

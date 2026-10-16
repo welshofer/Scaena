@@ -1,5 +1,5 @@
-//! Code colored by its language (PLAN 2.130 and 2.134, ADR-0029): the scanners' tokens, held to
-//! reviewed goldens, and what every scanner keeps to on any text at all.
+//! Code colored by its language (PLAN 2.130, 2.134, and 2.135, ADR-0029): the scanners' tokens,
+//! held to reviewed goldens, and what every scanner keeps to on any text at all.
 //!
 //! Each sample in `tests/code/<language>/*.txt` is colored as its golden `.spans` beside it says:
 //! a token to a line, its class and then its text, in `«»`, with `\n`, `\r`, `\t`, and `\\`
@@ -93,7 +93,9 @@ fn spans_cover_the_text_in_order_on_char_boundaries() {
 /// C#'s attributes and formats, and the spaces before a name a type declares; f-strings, heredocs
 /// and their quoted delimiters, `%`-literals, substitutions, prompts, dollar quotes, names in
 /// brackets and braces, and the spaces a soft keyword, a Ruby method's argument, or a heredoc's
-/// delimiter is looked for past.
+/// delimiter is looked for past; and YAML's block scalars and flow collections, TOML's headers,
+/// a Dockerfile's words and directives, a hunk's headers, templates, Make's directives and
+/// expansions, tags, attributes, entities, and CSS's statements.
 #[test]
 fn long_runs_read_in_one_pass() {
     let runs = [
@@ -138,6 +140,25 @@ fn long_runs_read_in_one_pass() {
         format!("puts{}\"x\"", " ".repeat(30_000)),
         format!("cat <<{}", " ".repeat(30_000)),
         format!("cat <<{d}\n{}", format!("{}\n", "X".repeat(999)).repeat(20), d = "X".repeat(1_000)),
+        "- ".repeat(15_000),
+        "key: |\n".repeat(5_000),
+        "[{".repeat(15_000),
+        "[a.".repeat(10_000),
+        "\"\"\"".repeat(10_000),
+        "ENV a=".repeat(5_000),
+        "COPY a ".repeat(5_000),
+        "RUN [\"a\", ".repeat(3_000),
+        "@@ -1".repeat(6_000),
+        "\"%{".repeat(10_000),
+        "<<EOT ".repeat(5_000),
+        "override ".repeat(3_000),
+        "$(a ".repeat(8_000),
+        "<a b=".repeat(6_000),
+        "&#x".repeat(10_000),
+        "<!x \"".repeat(6_000),
+        "a{".repeat(15_000),
+        "#{a".repeat(10_000),
+        "a\\{".repeat(10_000),
     ];
     for lang in langs() {
         for run in &runs {
@@ -148,26 +169,81 @@ fn long_runs_read_in_one_pass() {
 
 /// What looks for its close no further than its line's end reads that line once, however many
 /// open on it: a heredoc's quoted delimiter in Shell, a console's command, and Ruby, and
-/// PowerShell's `${…}`. A quarter of a megabyte of each on one line reads in milliseconds, where
-/// reading the rest of the line again from each opener took up to half a minute.
+/// PowerShell's `${…}`; a Dockerfile's words, its exec form's strings, and its escapes; and Make's
+/// directives. A quarter of a megabyte of each on one line reads in milliseconds, where reading
+/// the rest of the line again from each opener took up to half a minute.
 #[test]
 fn a_line_of_openers_is_read_once() {
+    // Each run is a head, and openers after it.
     let runs = [
-        ("shell", "cat <<'A' "),
-        ("shell", "cat <<\"A\" "),
-        ("console", "$ cat <<'A' "),
-        ("ruby", "f(<<~'A', "),
-        ("powershell", "${a}"),
-        ("powershell", "\"${a}\" "),
+        ("shell", "", "cat <<'A' "),
+        ("shell", "", "cat <<\"A\" "),
+        ("console", "", "$ cat <<'A' "),
+        ("ruby", "", "f(<<~'A', "),
+        ("powershell", "", "${a}"),
+        ("powershell", "", "\"${a}\" "),
+        ("dockerfile", "ENV ", "a="),
+        ("dockerfile", "COPY ", "a "),
+        ("dockerfile", "CMD [", "\"a\", "),
+        ("dockerfile", "ENV ", "\\a "),
+        ("makefile", "", "override "),
+        ("makefile", "", "else "),
     ];
-    for (name, piece) in runs {
-        let text = piece.repeat((256 << 10) / piece.len());
+    for (name, head, piece) in runs {
+        let text = format!("{head}{}", piece.repeat((256 << 10) / piece.len()));
         let started = std::time::Instant::now();
         let tokens = highlight(&text, lang(name));
         let took = started.elapsed();
         assert_eq!(tokens.last().map(|t| t.end), Some(text.len()), "{name}: {piece:?}");
         assert!(took < std::time::Duration::from_secs(5), "{name}: 256 KB of {piece:?} in {took:?}");
     }
+}
+
+/// 2.135's languages each read a megabyte of each of their constructs' openers in one pass, on one
+/// line and on lines of a kilobyte: none reads on again from each opener, as a Dockerfile's words
+/// and Make's directives once did, a megabyte of either taking minutes.
+#[test]
+fn a_megabyte_of_openers_reads_in_one_pass() {
+    const OPENERS: &[(&str, &[&str])] = &[
+        ("yaml", &["- ", "? ", "key: ", "\"", "'", "&a ", "*a ", "!!str ", "|", ">-", "[", "{", "#", "---", "a: |\n "]),
+        ("toml", &["[", "[[", "[a.", "\"", "'", "\"\"\"", "'''", "{", "a=", "a = [", "x = {", "1979-05-27 ", "\"\\"]),
+        ("dockerfile", &["RUN ", "RUN [\"a\", ", "CMD [\"a\",", "COPY <<EOF ", "ENV a=", "ENV ", "ENV \\a "]),
+        ("dockerfile", &["ENV a=\"", "FROM a AS ", "LABEL \"a\"=", "ARG ", "EXPOSE 1 ", "COPY a ", "COPY '"]),
+        ("dockerfile", &["COPY ${", "ONBUILD ", "RUN echo \"$(", "\\", "--a=", "a "]),
+        ("diff", &["+", "-", " ", "@@ ", "@@ -1", "@@@", "--- ", "+++ ", "diff ", "\\ "]),
+        ("hcl", &["${", "%{", "\"${", "\"%{", "<<EOT ", "<<a", "a = ", "a {", "a.", "/*", "\"", "a b ", "$${"]),
+        ("graphql", &["{", "(", "[", "\"", "\"\"\"", "$a", "@a(", "...", "query ", "a: ", "on ", "type A {", "= "]),
+        ("makefile", &["$(", "${", "$(shell ", "a:", "a=", "\techo $(", "ifeq (", "export ", "else "]),
+        ("makefile", &["override ", "a: ; ", "$$", "\techo \"$(", "\techo '", "define a\n", "a: b | "]),
+        ("ini", &["[", "a=", "${", "%(", "a=${", "a=%(", "a=$", "\"", ";", "\\"]),
+        ("html", &["<", "<a ", "<a b=", "<a b=\"", "<!--", "<![CDATA[", "<?", "<!", "<!x \"", "&", "&#x"]),
+        ("html", &["&a", "</a", "<title>&a", "<script>"]),
+        ("xml", &["<", "<a b=\"&", "<!DOCTYPE a [", "<!ENTITY a \"", "]]>", "&#"]),
+        ("css", &["{", "a{", "a:", ".a", "#a", "#fff ", "@media (a:", "url(", "url(a", "\"", "(", "[", "/*"]),
+        ("css", &["a[", "a\\{", "-1px ", "a{b:c"]),
+        ("scss", &["#{", "\"#{", "#{a", "$a:", "&-", "@include a(", "a.b(", "a:#{", "a{#{", "//", "%a"]),
+    ];
+    std::thread::scope(|scope| {
+        for &(name, pieces) in OPENERS {
+            scope.spawn(move || {
+                for piece in pieces {
+                    let row = piece.repeat(1024 / piece.len()).replace(['\n', '\r'], " ");
+                    let one = piece.repeat((1 << 20) / piece.len());
+                    let many = format!("{row}\n").repeat((1 << 20) / (row.len() + 1));
+                    for text in [one, many] {
+                        let started = std::time::Instant::now();
+                        let tokens = highlight(&text, lang(name));
+                        let took = started.elapsed();
+                        assert_eq!(tokens.last().map(|t| t.end), Some(text.len()), "{name}: {piece:?}");
+                        assert!(
+                            took < std::time::Duration::from_secs(5),
+                            "{name}: a megabyte of {piece:?} in {took:?}"
+                        );
+                    }
+                }
+            });
+        }
+    });
 }
 
 #[test]
@@ -212,6 +288,22 @@ fn what_never_closes_runs_to_the_end_in_its_class() {
         ("sql", "SELECT 'never closed\nFROM t;", "'", Class::String),
         ("sql", "SELECT $$ never closed\nSELECT 1;", "$$", Class::String),
         ("sql", "SELECT 1; /* never closed\nSELECT 2;", "/*", Class::Comment),
+        ("yaml", "key: \"never closed\nnext: 1\n", "\"", Class::String),
+        ("yaml", "key: 'never closed\nnext: 1", "'", Class::String),
+        ("yaml", "run: |\n  never dedented\n  next: 1\n", "  never", Class::String),
+        ("toml", "s = \"\"\"\nnever closed\nx = 1\n", "\"\"\"", Class::String),
+        ("toml", "s = '''never closed\nx = 1", "'''", Class::String),
+        ("dockerfile", "COPY <<EOF /etc/x\nnever terminated\nRUN ls\n", "never", Class::String),
+        ("hcl", "x = <<EOT\nnever terminated\ny = 1\n", "never", Class::String),
+        ("hcl", "x = 1 /* never closed\ny = 2", "/*", Class::Comment),
+        ("graphql", "\"\"\"never closed\ntype A { a: B }", "\"\"\"", Class::String),
+        ("html", "<p>a <!-- never closed\n<b>x</b>", "<!--", Class::Comment),
+        ("html", "<script>never closed</div>\n<p>", "never", Class::Plain),
+        ("html", "<a href=\"never closed\n<b>x</b>", "\"", Class::String),
+        ("xml", "<a><![CDATA[never closed <b/>\n", "never", Class::String),
+        ("xml", "<?xml never closed\n<a/>", "<?", Class::Meta),
+        ("css", "a { color: red; } /* never closed\nb { }", "/*", Class::Comment),
+        ("scss", "a { b: c; } /* never closed\nd { }", "/*", Class::Comment),
     ];
     for &(name, text, opener, class) in cases {
         let tokens = highlight(text, lang(name));
@@ -224,6 +316,16 @@ fn what_never_closes_runs_to_the_end_in_its_class() {
     assert_eq!(token_at(&highlight(text, lang("c")), text.find("int").unwrap()).0, Class::Type);
     let text = "s = 'cut short\nx = int(s)";
     assert_eq!(token_at(&highlight(text, lang("python")), text.find("int").unwrap()).0, Class::Type);
+    let cut = [
+        ("toml", "s = \"cut short\nx = 1", "x", Class::Property),
+        ("toml", "s = \"cut short \\\nx = 1", "x", Class::Property),
+        ("hcl", "x = \"cut short\ny = 1", "y", Class::Property),
+        ("graphql", "\"cut short\nquery Q { a }", "query", Class::Keyword),
+        ("dockerfile", "ENV A=\"cut short\nRUN ls", "RUN", Class::Keyword),
+    ];
+    for (name, text, after, class) in cut {
+        assert_eq!(token_at(&highlight(text, lang(name)), text.find(after).unwrap()).0, class, "{name}: {text:?}");
+    }
 }
 
 #[test]
@@ -262,10 +364,31 @@ fn nesting_stops_at_eight() {
             assert_eq!(token_at(&tokens, at).0, want, "{name}: the {}th {opener:?}", k + 1);
         }
     }
+    // HCL's templates in strings and SCSS's interpolations in strings alike.
+    let cases = [("hcl", "x = ", "\"${", "}\"", "${"), ("scss", "a { b: ", "\"#{", "}\"", "#{")];
+    for (name, before, open, close, opener) in cases {
+        let text = format!("{before}{}y{} }}", open.repeat(12), close.repeat(12));
+        let tokens = highlight(&text, lang(name));
+        let opens: Vec<usize> = text.match_indices(opener).map(|(i, _)| i).take(MAX_NESTING + 1).collect();
+        for (k, &at) in opens.iter().enumerate() {
+            let want = if k < MAX_NESTING { Class::Punctuation } else { Class::String };
+            assert_eq!(token_at(&tokens, at).0, want, "{name}: the {}th {opener:?}", k + 1);
+        }
+    }
+    // Make's calls in calls: the ninth `$(` is its call's own text.
+    let text = format!("x = {}y{}\n", "$(call ".repeat(12), ")".repeat(12));
+    let tokens = highlight(&text, lang("makefile"));
+    let opens: Vec<usize> = text.match_indices("$(").map(|(i, _)| i).take(MAX_NESTING + 1).collect();
+    for (k, &at) in opens.iter().enumerate() {
+        let want = if k < MAX_NESTING { Class::Punctuation } else { Class::Plain };
+        assert_eq!(token_at(&tokens, at).0, want, "makefile: the {}th `$(`", k + 1);
+    }
     // Heredocs that wait for their bodies: the ninth `<<` on a line opens none.
-    for (name, text) in
-        [("shell", format!("cat {}\n", "<<A ".repeat(12))), ("ruby", format!("f({})\n", "<<~A, ".repeat(12)))]
-    {
+    for (name, text) in [
+        ("shell", format!("cat {}\n", "<<A ".repeat(12))),
+        ("ruby", format!("f({})\n", "<<~A, ".repeat(12))),
+        ("dockerfile", format!("COPY {}/x\n", "<<A ".repeat(12))),
+    ] {
         let tokens = highlight(&text, lang(name));
         let ids: Vec<usize> = text.match_indices('A').map(|(i, _)| i).take(MAX_NESTING + 1).collect();
         for (k, &at) in ids.iter().enumerate() {
@@ -466,6 +589,182 @@ fn soft_keywords_are_keywords_only_where_they_act_as_keywords() {
     assert_eq!(class("type(x)"), Class::Type);
 }
 
+/// `ARG` names each of its variables, a default after its `=`; `ENV`'s old form, a name then its
+/// value, takes the rest of the line as the value.
+#[test]
+fn a_dockerfile_arg_names_each_variable() {
+    let text = "ARG TARGETOS TARGETARCH\nARG A B=2\nENV PATH /usr/bin:$PATH\n";
+    let tokens = highlight(text, lang("dockerfile"));
+    let class = |needle: &str| token_at(&tokens, text.find(needle).unwrap()).0;
+    assert_eq!(class("TARGETOS"), Class::Variable);
+    assert_eq!(class("TARGETARCH"), Class::Variable);
+    assert_eq!(class("A B"), Class::Variable);
+    assert_eq!(class("B=2"), Class::Variable);
+    assert_eq!(class("2\n"), Class::Number);
+    assert_eq!(class("PATH /"), Class::Variable);
+    assert_eq!(class("/usr"), Class::Plain);
+}
+
+#[test]
+fn a_dockerfile_reads_its_commands_as_shell() {
+    // `RUN`, `CMD`, `ENTRYPOINT`, and a health check's `CMD` read as Shell, byte for byte, over the
+    // lines the escape joins.
+    let joined = "apt-get update && \\\n    apt-get install -y --no-install-recommends \"curl=$CURL\" \\\n    && rm -rf /var/lib/apt/lists/*\n";
+    let looped = "for f in *.conf; do cp \"$f\" /etc/; done\n";
+    let tested = "[ -f /run/ready ] || exit 1\n";
+    let cases = [("RUN", joined), ("CMD", looped), ("ENTRYPOINT", looped), ("HEALTHCHECK --interval=5s CMD", tested)];
+    for (instruction, command) in cases {
+        let text = format!("FROM debian:12\n{instruction} {command}COPY . /app\n");
+        let docker = classes(&text, lang("dockerfile"));
+        // An image's tag is a name, not a number.
+        assert!(docker[5..14].iter().all(|&c| c == Class::Plain), "debian:12");
+        let at = text.find(command).unwrap();
+        assert_eq!(&docker[at..at + command.len()], classes(command, lang("shell")).as_slice(), "{instruction}");
+        assert_eq!(docker[text.find("COPY").unwrap()], Class::Keyword, "{instruction}: the next instruction");
+    }
+    // A heredoc that is the whole command is its script, read as Shell to its terminator.
+    let script = "set -e\nif [ -n \"$CI\" ]; then\n  make test\nfi\n";
+    let text = format!("RUN <<EOF\n{script}EOF\nCOPY . .\n");
+    let docker = classes(&text, lang("dockerfile"));
+    let at = text.find(script).unwrap();
+    assert_eq!(&docker[at..at + script.len()], classes(script, lang("shell")).as_slice());
+    assert_eq!(docker[text.rfind("EOF").unwrap()], Class::String);
+    // Docker drops a comment and a blank line among the lines it joins, so the words after them
+    // go on the command: `curl` and `git` are arguments, not commands.
+    let text = "RUN apt-get install -y \\\n  # the tools\n  curl \\\n\n  git\n";
+    let tokens = highlight(text, lang("dockerfile"));
+    let class = |needle: &str| token_at(&tokens, text.find(needle).unwrap()).0;
+    assert_eq!(class("# the tools"), Class::Comment);
+    assert_eq!(class("curl"), Class::Plain);
+    assert_eq!(class("git"), Class::Plain);
+    // Where `SHELL` names PowerShell, or the escape is a backtick, commands read as PowerShell.
+    let command = "Get-ChildItem -Path C:\\app | Remove-Item -Recurse\n";
+    for head in ["SHELL [\"pwsh\", \"-Command\"]\n", "# escape=`\nFROM windows\n"] {
+        let text = format!("{head}RUN {command}");
+        let docker = classes(&text, lang("dockerfile"));
+        let at = text.find(command).unwrap();
+        assert_eq!(&docker[at..], classes(command, lang("powershell")).as_slice(), "{head:?}");
+    }
+}
+
+#[test]
+fn a_makefile_reads_its_recipes_as_shell() {
+    // A recipe's line reads as Shell, byte for byte, after its tab.
+    let recipe = "if [ -d build ]; then rm -rf build; fi && echo \"cleaned\" | tee log\n";
+    let text = format!("clean:\n\t{recipe}");
+    let make = classes(&text, lang("makefile"));
+    let at = text.find(recipe).unwrap();
+    assert_eq!(&make[at..], classes(recipe, lang("shell")).as_slice());
+    // Make expands what it writes first: `$(CC)` and `$@` are variables, in quotes too, and `$$`
+    // is the shell's `$`.
+    let text = "app: main.o\n\t@$(CC) -o $@ $^ && echo \"$(VERSION) in $$HOME\"\n";
+    let tokens = highlight(text, lang("makefile"));
+    let class = |needle: &str| token_at(&tokens, text.find(needle).unwrap()).0;
+    assert_eq!(class("@"), Class::Operator);
+    assert_eq!(class("$(CC)"), Class::Variable);
+    assert_eq!(class("$@"), Class::Variable);
+    assert_eq!(class("$(VERSION)"), Class::Variable);
+    assert_eq!(class(" in "), Class::String);
+    assert_eq!(class("$$HOME"), Class::Variable);
+    // What follows a rule's `;` is its recipe, prefixes and all, and an `=` in it is the shell's:
+    // the rule sets no variable. One it does set may be made private first.
+    let text = "print-%: ; @echo $*=$($*)\ntest: private CFLAGS += -g\n";
+    let tokens = highlight(text, lang("makefile"));
+    let class = |needle: &str| token_at(&tokens, text.find(needle).unwrap()).0;
+    assert_eq!(class("@echo"), Class::Operator);
+    assert_eq!(class("echo"), Class::Function);
+    assert_eq!(class("$*="), Class::Variable);
+    assert_eq!(class("=$("), Class::Plain);
+    assert_eq!(class("private"), Class::Keyword);
+    assert_eq!(class("CFLAGS"), Class::Variable);
+}
+
+#[test]
+fn a_yaml_block_scalar_runs_to_its_dedent() {
+    // A body runs over the lines indented past the node that holds it, blank lines among them, to
+    // the first line that is not: `#` in it begins no comment.
+    let text = "steps:\n  - run: |\n      echo one # no comment\n\n      echo two\n    name: build\n  - name: >-\n      \
+                folded\n      lines\nnext: |2\n    indented past\n  its indicator\nlast: 1\n";
+    let tokens = highlight(text, lang("yaml"));
+    let at = |needle: &str| text.find(needle).unwrap();
+    let class = |needle: &str| token_at(&tokens, at(needle)).0;
+    assert_eq!(class("|\n"), Class::Operator);
+    assert_eq!(token_at(&tokens, at("echo one")), (Class::String, at("name: build")));
+    assert_eq!(class("# no comment"), Class::String);
+    assert_eq!(class("echo two"), Class::String);
+    assert_eq!(class("name: build"), Class::Property);
+    assert_eq!(token_at(&tokens, at("folded")), (Class::String, at("next")));
+    assert_eq!(token_at(&tokens, at("indented")), (Class::String, at("last")));
+    assert_eq!(class("last"), Class::Property);
+    assert_eq!(class("1\n"), Class::Number);
+    // At a document's top, a body runs to the marker that ends the document.
+    let text = "--- |\nline one\nline two\n...\n--- >\nnext document\n";
+    let tokens = highlight(text, lang("yaml"));
+    let at = |needle: &str| text.find(needle).unwrap();
+    assert_eq!(token_at(&tokens, at("line one")), (Class::String, at("...")));
+    assert_eq!(token_at(&tokens, at("...")).0, Class::Meta);
+    assert_eq!(token_at(&tokens, at("next document")), (Class::String, text.len()));
+}
+
+#[test]
+fn a_diff_line_is_what_its_first_character_makes_it() {
+    // In a hunk, its header's counts say how many lines it holds, so lines that only look like a
+    // file's header are taken away and added.
+    let text = "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,3 +1,3 @@ fn main() {\n context\n-old\n+new\n--- \
+                removed, though it looks like a header\n+++ added, though it looks like one\n";
+    let tokens = highlight(text, lang("diff"));
+    let at = |needle: &str| text.find(needle).unwrap();
+    let class = |needle: &str| token_at(&tokens, at(needle)).0;
+    assert_eq!(class("diff --git"), Class::Meta);
+    assert_eq!(class("--- a/f"), Class::Meta);
+    assert_eq!(class("+++ b/f"), Class::Meta);
+    assert_eq!(class("@@ -1,3"), Class::Meta);
+    assert_eq!(class("fn main"), Class::Plain);
+    assert_eq!(class(" context"), Class::Plain);
+    assert_eq!(token_at(&tokens, at("-old")), (Class::Deleted, at("+new")));
+    assert_eq!(class("+new"), Class::Inserted);
+    assert_eq!(class("--- removed"), Class::Deleted);
+    assert_eq!(class("+++ added"), Class::Inserted);
+    // With no hunk, a line is what its first character makes it all the same, but for the line
+    // that begins a mail's signature.
+    let text = "-before\n+after\n unchanged\n\\ No newline at end of file\n-- \n2.45.0\n";
+    let tokens = highlight(text, lang("diff"));
+    let class = |needle: &str| token_at(&tokens, text.find(needle).unwrap()).0;
+    assert_eq!(class("-before"), Class::Deleted);
+    assert_eq!(class("+after"), Class::Inserted);
+    assert_eq!(class("unchanged"), Class::Plain);
+    assert_eq!(class("\\ No newline"), Class::Comment);
+    assert_eq!(class("-- \n"), Class::Plain);
+    // A mail's message, from its headers to its patch, is plain, whatever its lines begin with.
+    let text = "From 3f2a9c1 Mon Sep 17 00:00:00 2001\nSubject: [PATCH] Fix the cache\n\n- keeps entries\n\
+                + drops none\n---\n f | 2 +-\n\ndiff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-a\n+b\n";
+    let tokens = highlight(text, lang("diff"));
+    let class = |needle: &str| token_at(&tokens, text.find(needle).unwrap()).0;
+    assert_eq!(class("- keeps"), Class::Plain);
+    assert_eq!(class("+ drops"), Class::Plain);
+    assert_eq!(class("---\n f"), Class::Meta);
+    assert_eq!(class("-a"), Class::Deleted);
+    assert_eq!(class("+b"), Class::Inserted);
+}
+
+#[test]
+fn a_css_color_is_a_color_not_a_comment() {
+    let text = "a { color: #fff; border: 1px solid #3366CC80; background: linear-gradient(#000, #abcd) }\n\
+                #main > .x { color: #F00 }\n";
+    for name in ["css", "scss"] {
+        let tokens = highlight(text, lang(name));
+        for color in ["#fff", "#3366CC80", "#000", "#abcd", "#F00"] {
+            let at = text.find(color).unwrap();
+            assert_eq!(token_at(&tokens, at).0, Class::Constant, "{name}: {color}");
+            assert_eq!(token_at(&tokens, at + color.len() - 1).0, Class::Constant, "{name}: {color}");
+        }
+        // An id in a selector is a selector's.
+        assert_eq!(token_at(&tokens, text.find("#main").unwrap()).0, Class::Attribute, "{name}");
+    }
+    // The generic scanner, which knows no CSS, read a color after a space as a comment.
+    assert_eq!(token_at(&highlight(text, Lang::Generic), text.find("#fff").unwrap()).0, Class::Comment);
+}
+
 #[test]
 fn lines_past_a_thousand_are_plain() {
     // A comment that never closes runs to the end of the thousandth line, and the rest is plain:
@@ -477,7 +776,9 @@ fn lines_past_a_thousand_are_plain() {
         assert_eq!(highlight(&text, lang("rust")), want, "lines ended by {end:?}");
     }
     // So do what other scanners leave open: a Python string, a Ruby heredoc and embedded
-    // document, a Shell heredoc and a console's, a PowerShell comment, and a SQL comment.
+    // document, a Shell heredoc and a console's, a PowerShell comment, a SQL comment, YAML's block
+    // scalar and quoted scalar, TOML's multi-line string, the heredocs of a Dockerfile and of HCL,
+    // HCL's and CSS's comments, GraphQL's block string, and markup's comment and CDATA.
     let open = [
         ("python", "\"\"\"", Class::String),
         ("ruby", "x = <<~EOS", Class::String),
@@ -486,6 +787,17 @@ fn lines_past_a_thousand_are_plain() {
         ("console", "$ cat <<EOF", Class::String),
         ("powershell", "<#", Class::Comment),
         ("sql", "/*", Class::Comment),
+        ("yaml", "--- |", Class::String),
+        ("yaml", "key: \"", Class::String),
+        ("toml", "s = \"\"\"", Class::String),
+        ("dockerfile", "COPY <<EOF /x", Class::String),
+        ("hcl", "x = <<EOT", Class::String),
+        ("hcl", "/*", Class::Comment),
+        ("graphql", "\"\"\"", Class::String),
+        ("html", "<!--", Class::Comment),
+        ("xml", "<![CDATA[", Class::String),
+        ("css", "/*", Class::Comment),
+        ("scss", "/*", Class::Comment),
     ];
     for (name, opener, class) in open {
         let text = format!("{opener}\n{}", "x\n".repeat(MAX_LINES + 4));
@@ -495,6 +807,11 @@ fn lines_past_a_thousand_are_plain() {
         assert_eq!((before.end, before.class), (cut, class), "{name}: {opener:?}");
         assert_eq!((last.end, last.class), (text.len(), Class::Plain), "{name}: {opener:?}");
     }
+    // A diff's lines are what their first characters make them, to the thousandth.
+    let text = "+x\n".repeat(MAX_LINES + 4);
+    let want =
+        vec![Token { end: 3 * MAX_LINES, class: Class::Inserted }, Token { end: text.len(), class: Class::Plain }];
+    assert_eq!(highlight(&text, lang("diff")), want);
     // Code past the thousandth line is one plain token.
     let line = "fn f() { g(1); }\n";
     let text = line.repeat(MAX_LINES + 5);
@@ -513,6 +830,7 @@ fn languages_are_sorted_and_each_alias_names_one() {
     let mut names = BTreeMap::new();
     let mut extensions = BTreeMap::new();
     let mut interpreters = BTreeMap::new();
+    let mut files = BTreeMap::new();
     for known in LANGUAGES {
         for name in std::iter::once(&known.name).chain(known.aliases) {
             assert!(lowercase_name(name), "{name}: a language's name is lowercase");
@@ -533,7 +851,17 @@ fn languages_are_sorted_and_each_alias_names_one() {
                 panic!("{interpreter} runs {other} and {}", known.name);
             }
         }
+        for file in known.files {
+            assert!(!file.is_empty() && !file.contains(['/', '\\']), "{file:?}: a file's name");
+            if let Some(other) = files.insert(*file, known.name) {
+                panic!("{file} is {other}'s and {}'s", known.name);
+            }
+        }
         assert!(!known.said.is_empty(), "{} says nothing", known.name);
+    }
+    // The files a language's files are named whole: a Dockerfile, and a Makefile.
+    for (file, name) in [("Dockerfile", "dockerfile"), ("Makefile", "makefile"), ("GNUmakefile", "makefile")] {
+        assert_eq!(files.get(file), Some(&name), "{file}");
     }
     assert_eq!(lang("RS"), lang("rust"));
     assert!(matches!(lang("c++"), Lang::Known(l) if l.name == "cpp"));
@@ -546,6 +874,26 @@ fn languages_are_sorted_and_each_alias_names_one() {
         ("console", &["sh-session", "shellsession", "shell-session"]),
         ("powershell", &["ps1", "pwsh", "posh", "ps", "PowerShell"]),
         ("sql", &["postgres", "postgresql", "pgsql", "plpgsql", "mysql", "sqlite", "tsql", "SQL"]),
+    ];
+    for (name, aliases) in names {
+        for alias in aliases {
+            assert!(matches!(lang(alias), Lang::Known(l) if l.name == name), "{alias} names {name}");
+        }
+    }
+    // And each of 2.135's.
+    let names = [
+        ("yaml", ["yml", "YAML"].as_slice()),
+        ("toml", &["TOML"]),
+        ("dockerfile", &["docker", "containerfile", "Dockerfile"]),
+        ("diff", &["patch", "udiff"]),
+        ("hcl", &["tf", "terraform", "tfvars"]),
+        ("graphql", &["gql"]),
+        ("makefile", &["make", "mk"]),
+        ("ini", &["cfg", "conf", "properties", "editorconfig", "dosini"]),
+        ("html", &["htm", "xhtml"]),
+        ("xml", &["svg", "plist", "xsl", "xslt", "xsd", "rss"]),
+        ("css", &["CSS"]),
+        ("scss", &["SCSS"]),
     ];
     for (name, aliases) in names {
         for alias in aliases {
@@ -602,7 +950,9 @@ fn the_sixteen_kinds_are_named_once() {
 }
 
 /// The pieces random text is made of: what opens and closes what the scanners know, and text.
-/// Those after `5.` are the constructs of Python, Ruby, Shell, consoles, PowerShell, and SQL.
+/// Those after `5.` are the constructs of Python, Ruby, Shell, consoles, PowerShell, and SQL, and
+/// those after `?|` of YAML, TOML, Dockerfiles, diffs, HCL, GraphQL, Makefiles, INI, HTML, XML,
+/// CSS, and SCSS.
 const PIECES: &[&str] = &[
     " ",
     "  ",
@@ -829,6 +1179,86 @@ const PIECES: &[&str] = &[
     "[x y]",
     "SELECT ",
     "?|",
+    "\n---\n",
+    "\n...\n",
+    "- ",
+    "? ",
+    ": ",
+    "key: ",
+    "|\n  ",
+    ">-\n",
+    "|2\n",
+    "&anchor ",
+    "*alias",
+    "!!str ",
+    "%YAML 1.2\n",
+    "\n[table]\n",
+    "[[",
+    "]]",
+    "a.b = ",
+    "1979-05-27T07:32:00Z",
+    "0xDEAD_BEEF",
+    "-inf",
+    "\nRUN ",
+    "\nFROM ",
+    "\nENV ",
+    "\nCOPY ",
+    "\nCMD [\"",
+    "# escape=`\n",
+    " \\\n",
+    "--mount=",
+    "<<EOF\n",
+    "\nEOF\n",
+    "\n+",
+    "\n-",
+    "\n@@ -1,2 +1,3 @@",
+    "\n--- a/x\n",
+    "\n+++ b/x\n",
+    "\ndiff --git ",
+    "\n\\ No newline",
+    "%{",
+    "$${",
+    "<<EOT\n",
+    "\nEOT\n",
+    "resource \"",
+    "query ",
+    "fragment ",
+    "...",
+    "@include(",
+    "\n\t",
+    ":=",
+    "?=",
+    "\ndefine ",
+    "\nendef\n",
+    "ifeq (",
+    ".PHONY:",
+    "$@",
+    "\n[section]\n",
+    "%(x)s",
+    "<!--",
+    "-->",
+    "<![CDATA[",
+    "]]>",
+    "<?",
+    "?>",
+    "<!DOCTYPE ",
+    "&amp;",
+    "&#x1F;",
+    "<script>",
+    "</script>",
+    "<style>",
+    "</style>",
+    "<title>",
+    "@media ",
+    "#fff",
+    "!important",
+    "url(",
+    "--gap",
+    "::before",
+    "[type=",
+    "@mixin ",
+    "&-",
+    "%placeholder",
 ];
 
 /// Openers, and what closes each, nested 100 deep.
@@ -856,6 +1286,18 @@ const DEEP: &[(&str, &str)] = &[
     ("@(", ")"),
     ("<#", "#>"),
     ("$$", "$$"),
+    ("- [", "]"),
+    ("{a: ", "}"),
+    ("[[", "]]"),
+    ("x = {", "}"),
+    ("\"%{", "}\""),
+    ("<<EOT\n", "\nEOT\n"),
+    ("$(a ", ")"),
+    ("<!--", "-->"),
+    ("<![CDATA[", "]]>"),
+    ("<a b=\"", "\">"),
+    ("a { b: #{", "} }"),
+    ("@media (", ") {}"),
 ];
 
 /// A text of `pieces` pieces at most, picked at random; with `breaks`, line breaks among them.
@@ -981,5 +1423,82 @@ impl Rng {
 
     fn pick<'a, T>(&mut self, items: &'a [T]) -> &'a T {
         &items[self.below(items.len())]
+    }
+}
+
+/// The word tables the scanners read are a file each, which the editor's page hands its module the
+/// first time a code text it colors lays out (PLAN 2.132, ADR-0015): `crates/scaena-core/code/`
+/// holds each file as the tables compiled in write it, which `just bless` writes, and a file reads
+/// back as those tables, key for key and word for word.
+#[test]
+fn each_file_of_tables_is_the_tables_compiled_in() {
+    use scaena_core::code::tables::{FILES, compiled, read, written};
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("code");
+    let bless = std::env::var_os("SCAENA_BLESS").is_some();
+    let mut keys = Vec::new();
+    for name in FILES {
+        let text = written(name).expect("this build compiles the tables in");
+        let path = root.join(format!("{name}.txt"));
+        if bless {
+            std::fs::create_dir_all(&root).unwrap();
+            std::fs::write(&path, &text).unwrap();
+        }
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap_or_default(),
+            text,
+            "{}: bless with SCAENA_BLESS=1",
+            path.display()
+        );
+        let tables = compiled(name).unwrap();
+        let back = read(&text);
+        assert_eq!(back.len(), tables.len(), "{name}");
+        for ((key, words), (read_key, read_words)) in tables.iter().zip(&back) {
+            assert_eq!((key, words.to_vec()), (read_key, read_words.clone()), "{name}");
+            assert!(key.starts_with(&format!("{name}/")) && !words.is_empty(), "{key}");
+            assert!(words.iter().all(|w| !w.is_empty() && !w.contains('\n')), "{key}");
+            keys.push(key.to_string());
+        }
+    }
+    let count = keys.len();
+    keys.sort();
+    keys.dedup();
+    assert_eq!(keys.len(), count, "a key names two tables");
+}
+
+/// Every word list a scanner reads is a table of its file (`words!`), so the editor's module
+/// leaves none of them in: no scanner keeps a list of words a module carries whole, and each
+/// module lists each table it writes in its `WORDS`.
+#[test]
+fn every_word_list_a_scanner_reads_is_a_table() {
+    use scaena_core::code::tables::{FILES, compiled};
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/code");
+    for file in entries(&dir) {
+        let source = std::fs::read_to_string(&file).unwrap();
+        let code = source.split("#[cfg(test)]").next().unwrap_or_default();
+        let name = file.file_stem().unwrap().to_string_lossy().into_owned();
+        assert!(!code.contains(": &[&str] = &["), "{name}: a list of words is a table (`words!`)");
+        // A table's key may stand on the line after `words!(`.
+        let tables = code.split("words!(").skip(1).filter(|rest| rest.trim_start().starts_with('"')).count();
+        match FILES.iter().find(|f| **f == name) {
+            Some(f) => assert_eq!(compiled(f).unwrap().len(), tables, "{name}: a table missing from its `WORDS`"),
+            None => assert_eq!(tables, 0, "{name} writes tables but is no file of them"),
+        }
+    }
+}
+
+/// A file of tables is taken only for its own name, with its own tables, and a build that compiles
+/// them in has every file already.
+#[test]
+fn a_file_of_tables_is_taken_only_as_itself() {
+    use scaena_core::code::tables::{FILES, files, hand, has};
+    assert!(hand("cobol", "cobol/keywords\nmove\n\n").unwrap_err().contains("no file of code tables"));
+    assert!(FILES.iter().all(|f| has(f)));
+    assert_eq!(files(lang("rust")), ["clike"]);
+    assert_eq!(files(lang("console")), ["powershell", "shell"]);
+    assert!(files(lang("json")).is_empty() && files(lang("plain")).is_empty() && files(lang("lua")).is_empty());
+    for language in LANGUAGES {
+        for file in files(lang(language.name)) {
+            assert!(FILES.contains(file), "{}: {file}", language.name);
+        }
     }
 }

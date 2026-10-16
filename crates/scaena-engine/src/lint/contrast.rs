@@ -112,6 +112,8 @@ struct Run {
     opacity: f64,
     display: bool,
     size: f32,
+    /// Whether it is a code text's (ADR-0029): a token in the color its kind is drawn in.
+    code: bool,
 }
 
 /// Each run of `t` placed at `origin`, as boxes from its glyphs' advances and its line's
@@ -138,11 +140,12 @@ fn to_screen(cx: &Cx) -> f32 {
 }
 
 /// The runs a state's text draws; the nodes that draw only text (text nodes, tables),
-/// whose layers the backdrop leaves out; and the charts, whose glyphs it leaves out.
-fn texts(cx: &Cx, state: &Laid) -> (Vec<Run>, BTreeSet<String>, BTreeSet<String>) {
+/// whose layers the backdrop leaves out; and the charts, whose glyphs it leaves out, and the
+/// pictures with words on them (ADR-0030), whose words' layers it leaves out.
+fn texts(cx: &Cx, state: &Laid) -> (Vec<Run>, BTreeSet<String>, Charts) {
     let screen = to_screen(cx);
     let mut out = Vec::new();
-    let (mut ids, mut charts) = (BTreeSet::new(), BTreeSet::new());
+    let (mut ids, mut charts, mut pictures) = (BTreeSet::new(), BTreeSet::new(), BTreeSet::new());
     // A node's opacity times its groups'.
     let composite = |id: &str| {
         let mut alpha = 1.0_f64;
@@ -180,12 +183,27 @@ fn texts(cx: &Cx, state: &Laid) -> (Vec<Run>, BTreeSet<String>, BTreeSet<String>
                     c.texts().map(move |(part, l)| (&l.text, at(&cell, l.origin), l.opacity, Some(part)))
                 })
                 .collect(),
+            // A picture's pin label and credit (ADR-0030), on the picture.
+            Content::Image(image) => {
+                let marks = [&image.marks.label, &image.marks.credit];
+                let placed: Vec<_> = (marks.into_iter().flatten())
+                    .map(|card| (&card.text, at(&image.rect, card.origin), 1.0, None))
+                    .collect();
+                if placed.is_empty() {
+                    continue;
+                }
+                placed
+            }
             _ => continue,
         };
+        // What is under a chart's text, or a picture's, is the rest of it: only its glyphs, or
+        // its words' layers, are taken away.
         match node.content {
             Content::Chart { .. } => charts.insert(node.id.clone()),
+            Content::Image(_) => pictures.insert(node.id.clone()),
             _ => ids.insert(node.id.clone()),
         };
+        let code = shows_code(cx, state, &node.id);
         for (t, origin, own, part) in placed {
             let said = part.map(|_| t.text.replace('\u{AD}', ""));
             for (rect, color, size) in runs(t, origin) {
@@ -202,22 +220,56 @@ fn texts(cx: &Cx, state: &Laid) -> (Vec<Run>, BTreeSet<String>, BTreeSet<String>
                     opacity,
                     display: px >= 24.0 || (px >= 18.67 && t.weight >= 700.0 && t.lighter.is_empty()),
                     size: px,
+                    code,
                 });
             }
         }
     }
-    (out, ids, charts)
+    (out, ids, Charts { charts, pictures })
+}
+
+/// What the backdrop takes the text out of: charts, whose glyphs go, and pictures, whose words'
+/// layers go, underlines and all.
+struct Charts {
+    charts: BTreeSet<String>,
+    pictures: BTreeSet<String>,
+}
+
+impl Charts {
+    fn contains(&self, id: &str) -> bool {
+        self.charts.contains(id) || self.pictures.contains(id)
+    }
+}
+
+/// Whether node `id` is a code text in `state` (ADR-0029), the deck's overrides over its props.
+fn shows_code(cx: &Cx, state: &Laid, id: &str) -> bool {
+    match cx.deck.overrides.get(id).and_then(|o| o.get("code")) {
+        Some(code) => code.is_object(),
+        None => state.snapshot.nodes.get(id).is_some_and(crate::code::is_code),
+    }
 }
 
 /// `ops` without the layers of `ids`, and without the glyphs in the layers of `charts`,
 /// wherever they sit.
-fn strip(ops: &mut Vec<Op>, ids: &BTreeSet<String>, charts: &BTreeSet<String>) {
+fn strip(ops: &mut Vec<Op>, ids: &BTreeSet<String>, charts: &Charts) {
     ops.retain(|op| !matches!(op, Op::Layer { node: Some(id), .. } if ids.contains(id)));
     for op in ops {
         match op {
-            Op::Layer { node: Some(id), ops, .. } if charts.contains(id) => unglyph(ops),
+            Op::Layer { node: Some(id), ops, .. } if charts.charts.contains(id) => unglyph(ops),
+            Op::Layer { node: Some(id), ops, .. } if charts.pictures.contains(id) => unword(ops),
             Op::Layer { ops, .. } => strip(ops, ids, charts),
             _ => {}
+        }
+    }
+}
+
+/// `ops` without the layers that hold words, at any depth: a picture's label and credit, each
+/// with its underlines (ADR-0030).
+fn unword(ops: &mut Vec<Op>) {
+    ops.retain(|op| !matches!(op, Op::Layer { ops, .. } if ops.iter().any(|o| matches!(o, Op::Glyphs { .. }))));
+    for op in ops {
+        if let Op::Layer { ops, .. } = op {
+            unword(ops);
         }
     }
 }
@@ -353,7 +405,7 @@ fn times(state: &Laid) -> Vec<f64> {
 /// count (`false`).
 fn behind(
     state: &Laid,
-    (ids, charts): (&BTreeSet<String>, &BTreeSet<String>),
+    (ids, charts): (&BTreeSet<String>, &Charts),
     backdrop: &mut dyn Backdrop,
     scale: f32,
     t: f64,
@@ -394,6 +446,8 @@ struct Worst {
     background: [u8; 3],
     text: [f64; 3],
     size: f32,
+    /// Whether its text is code, which takes the theme's code colors (ADR-0029).
+    code: bool,
     states: Vec<String>,
 }
 
@@ -442,8 +496,12 @@ pub fn check(
                 }
                 failed.insert(&run.subject);
                 // A node's own text, which a color of the theme can fix (PLAN 2.82); the slide's
-                // furniture is the theme's to color.
-                if run.subject.1.is_none() && !crate::furniture::is_furniture(&run.subject.0) {
+                // furniture is the theme's to color, and so is code, each token in its kind's color.
+                if run.subject.1.is_none()
+                    && !run.code
+                    && !crate::furniture::is_furniture(&run.subject.0)
+                    && !charts.contains(&run.subject.0)
+                {
                     let reading = Faint { under, opacity: run.opacity, needs };
                     faint.entry(run.subject.0.clone()).or_default().push(reading);
                 }
@@ -455,6 +513,7 @@ pub fn check(
                     background: bg,
                     text: run.color,
                     size: run.size,
+                    code: run.code,
                     states: Vec::new(),
                 };
                 match worst.get_mut(&run.subject) {
@@ -476,7 +535,7 @@ pub fn check(
     let hex = |c: [u8; 3]| format!("#{:02X}{:02X}{:02X}", c[0], c[1], c[2]);
     Ok(worst
         .into_iter()
-        .map(|((node, part), Worst { ratio: r, said, needs, index, background: bg, text: fg, size, states })| {
+        .map(|((node, part), Worst { ratio: r, said, needs, index, background: bg, text: fg, size, code: coded, states })| {
             let (code, class) = if needs > 3.0 { ("E110", "body") } else { ("E111", "display") };
             let fg = hex(fg.map(|c| (c * 255.0).round() as u8));
             let reads = format!("{r:.2}:1 contrast with what is behind it; {class} text needs {needs}:1");
@@ -492,6 +551,19 @@ pub fn check(
                     .measure(measure)
                     .hint("Give the theme's furniture a color that reads against what is behind it, or leave the number and footer off the slide (`furniture: false` on its first state).");
             }
+            let picture = cx.deck.nodes.get(&node).is_some_and(|n| n.node_type == NodeType::Image);
+            if picture {
+                let measure = json!({
+                    "ratio": (r * 100.0).round() / 100.0, "needs": needs, "text": fg, "background": hex(bg),
+                    "size": size, "states": states,
+                });
+                return cx
+                    .finding(code, Severity::Error, cx.laid(index), format!("the words on picture `{node}` have {reads}"))
+                    .at(cx.node_path(&node))
+                    .node(node)
+                    .measure(measure)
+                    .hint("Give the theme's `label` and `caption` roles colors that read on its surface, which their cards are drawn in.");
+            }
             let finding = match part {
                 None => cx.finding(code, Severity::Error, cx.laid(index), format!("text `{node}` has {reads}")),
                 Some(part) => cx.finding(
@@ -506,6 +578,9 @@ pub fn check(
                 "size": size, "states": states,
             });
             let hint = match part {
+                // Code's colors are held to read on the slide's surface (ADR-0029): what is behind
+                // this is something else.
+                None if coded => "Its colors are the theme's code colors, which read on the slide's surface: set it where the surface is behind it, or change what is behind it.",
                 None => "Set it in a color role with more contrast against what is behind it, or change what is behind it.",
                 Some(part) => {
                     measure["part"] = part.name().into();

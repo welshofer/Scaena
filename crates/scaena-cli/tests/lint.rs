@@ -67,7 +67,7 @@ fn lint(bundle: &Path) -> (i32, Vec<Value>) {
 }
 
 /// Each rule's trigger, and where in the deck it finds what it finds.
-const RULES: [(&str, &[&str]); 41] = [
+const RULES: [(&str, &[&str]); 43] = [
     ("E100", &["/nodes/t"]),
     ("E101", &["/nodes/b", "/nodes/note", "/nodes/src"]),
     ("E110", &["/nodes/t"]),
@@ -92,6 +92,7 @@ const RULES: [(&str, &[&str]); 41] = [
     ("W311", &["/nodes/bg"]),
     ("W312", &["/nodes/c"]),
     ("W313", &["/nodes/c"]),
+    ("W314", &["/nodes/map"]),
     ("W320", &["/states/0"]),
     ("W321", &["/states/0/choreography"]),
     ("W322", &["/states/1/choreography/0", "/states/2/choreography/0"]),
@@ -109,6 +110,7 @@ const RULES: [(&str, &[&str]); 41] = [
     ("I400", &["/states/1"]),
     ("I401", &["/nodes/ghost"]),
     ("I402", &["/overrides/t"]),
+    ("I403", &["/nodes/cobol/code/language", "/nodes/slip/code/language"]),
 ];
 
 #[test]
@@ -143,7 +145,7 @@ fn deck(data: Value, nodes: Value) -> Value {
     let props: serde_json::Map<String, Value> =
         nodes.as_object().unwrap().keys().map(|k| (k.clone(), serde_json::json!({}))).collect();
     serde_json::json!({
-        "scaena": "0.28",
+        "scaena": "0.29",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [
@@ -189,6 +191,30 @@ fn chart_text_is_judged_in_its_color_over_what_the_chart_paints() {
     let dir = bundle("chart-note-clean", &deck(sales(), chart), |_| {});
     let (_, found) = lint(&dir);
     assert!(contrast(&found).is_empty(), "{found:#?}");
+}
+
+/// Code is judged at the colors it is drawn in (PLAN 2.132): a keyword color the theme names that
+/// would not read on the slide is drawn held to read, and passes. Over a light shape the colors held
+/// for the slide do not read, which lint says are the theme's code colors: it offers no color of
+/// the node's own.
+#[test]
+fn code_is_judged_at_the_colors_it_is_drawn_in() {
+    let code = serde_json::json!({
+        "type": "text", "role": "body", "code": { "language": "rust" },
+        "text": "fn main() {\n    let greeting = \"hello\"; // says hi\n}", "at": { "in": "main" }
+    });
+    let keywords_in_line =
+        |t: &mut Value| t["code"] = serde_json::json!({ "syntax": { "keyword": { "color": "line" } } });
+    let held = deck(serde_json::json!({}), serde_json::json!({ "n": code }));
+    let (_, found) = lint(&bundle("code-held", &held, keywords_in_line));
+    assert!(contrast(&found).is_empty(), "{found:#?}");
+    let light = serde_json::json!({ "type": "shape", "kind": "rect", "fill": "ink", "z": -1, "at": { "in": "main" } });
+    let over = deck(serde_json::json!({}), serde_json::json!({ "under": light, "n": code }));
+    let (_, found) = lint(&bundle("code-over-light", &over, keywords_in_line));
+    let bad = contrast(&found);
+    assert!(!bad.is_empty() && bad.iter().all(|f| f["path"] == "/nodes/n"), "{found:#?}");
+    assert!(bad[0]["hint"].as_str().unwrap().contains("theme's code colors"), "{:#?}", bad[0]);
+    assert!(bad[0].get("fix").is_none(), "{:#?}", bad[0]);
 }
 
 #[test]

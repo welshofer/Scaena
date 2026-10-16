@@ -425,7 +425,7 @@ impl Engine {
         snap: &Snapshot,
     ) -> Result<Scene, EngineError> {
         let canvas = canvas(deck);
-        let grid = Grid::from_theme(theme, canvas)?;
+        let grid = Grid::from_theme(theme, canvas)?.mirrored(scaena_core::direction::mirrored(deck));
         let snap = &cascade::with_overrides(deck, snap);
         let mut placement = self.place(deck, theme, data, &grid, snap)?;
         let mut tree = tree(deck, snap, &placement)?;
@@ -486,7 +486,8 @@ impl Engine {
                     Content::Shape(ShapeNode::resolve(props, theme, rect).map_err(|e| in_node(id, e))?)
                 }
                 NodeType::Image => {
-                    Content::Image(ImageNode::resolve(props, theme, &self.images, rect).map_err(|e| in_node(id, e))?)
+                    let image = ImageNode::resolve(props, theme, &self.images, rect).map_err(|e| in_node(id, e))?;
+                    Content::Image(self.mark_image(deck, theme, props, image).map_err(|e| in_node(id, e))?)
                 }
                 // A container draws its `fill` and `stroke` under its children, if it has them.
                 NodeType::Stack | NodeType::Grid | NodeType::Frame => {
@@ -522,7 +523,152 @@ impl Engine {
             tracks: placement.tracks,
             furniture,
             joins,
+            mirrored: grid.is_mirrored(),
         })
+    }
+
+    /// What the engine draws over a picture (ADR-0030, decisions 13–14), laid out with it: the
+    /// credit its `fetched` record asks, in the `caption` role, never under 24 cu where the canvas's
+    /// shorter side is 1080, on a card in the bottom-left corner of what shows, or below the
+    /// picture inside its box; and its `pin`, Phosphor's `map-pin` 48 cu tall with its tip on the
+    /// point it marks, its label in the `label` role on a card beside it, inside what shows and
+    /// clear of the credit. A pin outside what shows draws nothing.
+    fn mark_image(
+        &mut self,
+        deck: &Deck,
+        theme: &Theme,
+        props: &Props,
+        mut image: ImageNode,
+    ) -> Result<ImageNode, EngineError> {
+        use crate::images::{Card, Marks, PinMark};
+        use scaena_core::fetched::{CreditPlace, Fetched, Pin};
+        let fetched = match props.get("fetched") {
+            Some(v) => Some(
+                serde_json::from_value::<Fetched>(v.clone())
+                    .map_err(|e| EngineError::Layout(format!("image `fetched`: {e}")))?,
+            ),
+            None => None,
+        };
+        let pin = match props.get("pin") {
+            Some(v) => Some(
+                serde_json::from_value::<Pin>(v.clone())
+                    .map_err(|e| EngineError::Layout(format!("image `pin`: {e}")))?,
+            ),
+            None => None,
+        };
+        let place = match props.get("credit") {
+            Some(v) => serde_json::from_value::<CreditPlace>(v.clone())
+                .map_err(|_| EngineError::Layout(format!("image `credit` {v}: inside or below")))?,
+            None => CreditPlace::Inside,
+        };
+        let credit: Vec<Value> = fetched
+            .iter()
+            .flat_map(|f| &f.credit)
+            .filter(|r| !r.text.is_empty())
+            .map(|r| match &r.link {
+                Some(href) => serde_json::json!({ "text": r.text, "link": { "href": href } }),
+                None => serde_json::json!({ "text": r.text }),
+            })
+            .collect();
+        if credit.is_empty() && pin.is_none() {
+            return Ok(image);
+        }
+        // Sizes at 1080p, in proportion on another canvas.
+        let [cw, ch] = canvas(deck);
+        let k = cw.min(ch) / 1080.0;
+        let surface = theme_color(theme, "surface")?;
+        let mut marks = Marks::default();
+        let [_, _, w, h] = image.rect;
+        if !credit.is_empty() {
+            let mut words = Props::new();
+            words.insert("type".into(), "text".into());
+            words.insert("runs".into(), Value::Array(credit));
+            words.insert("role".into(), "caption".into());
+            let size = cascade::node_role(theme, &words, None)?.size;
+            if size < MIN_CREDIT * k {
+                words.insert("style".into(), serde_json::json!({ "size": MIN_CREDIT * k }));
+            }
+            let spec = text_spec(deck, theme, &words, None)?;
+            let size = spec.role.size;
+            match place {
+                CreditPlace::Below => {
+                    let text = self.text.layout(&mut self.fonts, theme, &spec, w)?;
+                    let gap = (0.5 * size).round();
+                    let tall = (text.height + gap).min(h);
+                    let y = h - text.height;
+                    image = image.keeping(tall);
+                    marks.credit = Some(Card {
+                        rect: [0.0, y, text.width, text.height],
+                        fill: None,
+                        radius: 0.0,
+                        origin: [0.0, y],
+                        text,
+                    });
+                }
+                CreditPlace::Inside => {
+                    let [dx, dy, dw, dh] = image.shown();
+                    let pad = (0.4 * size).round();
+                    // Clear of the credit the service writes in the bottom right.
+                    let room = (dw * CREDIT_SHARE - 2.0 * pad).max(size);
+                    let text = self.text.layout(&mut self.fonts, theme, &spec, room)?;
+                    let (cw, chh) = (text.width + 2.0 * pad, text.height + 2.0 * pad);
+                    let rect = [dx, dy + dh - chh, cw, chh];
+                    marks.credit = Some(Card {
+                        rect,
+                        fill: Some(surface),
+                        radius: pad / 2.0,
+                        origin: [rect[0] + pad, rect[1] + pad],
+                        text,
+                    });
+                }
+            }
+        }
+        if let Some(pin) = pin
+            && let Some(tip) = image.spot([pin.at[0] as f32, pin.at[1] as f32])
+        {
+            let color = theme_color(theme, pin.color.as_deref().unwrap_or("accent"))?;
+            let mark = PinMark { tip, height: PIN_HEIGHT * k, color, ring: surface };
+            if let Some(label) = pin.label.as_deref().filter(|l| !l.trim().is_empty()) {
+                let mut words = Props::new();
+                words.insert("type".into(), "text".into());
+                words.insert("text".into(), label.into());
+                words.insert("role".into(), "label".into());
+                let spec = text_spec(deck, theme, &words, None)?;
+                let size = spec.role.size;
+                let shown = image.shown();
+                let pad = (0.4 * size).round();
+                let text = self.text.layout(&mut self.fonts, theme, &spec, (shown[2] - 2.0 * pad).max(size))?;
+                let (lw, lh) = (text.width + 2.0 * pad, text.height + 2.0 * pad);
+                let [hx, hy] = mark.head();
+                let gap = mark.width() / 2.0 + pad / 2.0;
+                let inside = |r: Rect| {
+                    r[0] >= shown[0] - 0.5
+                        && r[1] >= shown[1] - 0.5
+                        && r[0] + r[2] <= shown[0] + shown[2] + 0.5
+                        && r[1] + r[3] <= shown[1] + shown[3] + 0.5
+                };
+                let clear = |r: Rect| {
+                    marks.credit.as_ref().is_none_or(|c| {
+                        let c = c.rect;
+                        r[0] >= c[0] + c[2] || c[0] >= r[0] + r[2] || r[1] >= c[1] + c[3] || c[1] >= r[1] + r[3]
+                    })
+                };
+                // Beside the pin's head: to its right where it fits, else to its left.
+                let y = (hy - lh / 2.0).clamp(shown[1], (shown[1] + shown[3] - lh).max(shown[1]));
+                let card =
+                    [[hx + gap, y, lw, lh], [hx - gap - lw, y, lw, lh]].into_iter().find(|&r| inside(r) && clear(r));
+                marks.label = card.map(|rect| Card {
+                    rect,
+                    fill: Some(surface),
+                    radius: pad / 2.0,
+                    origin: [rect[0] + pad, rect[1] + pad],
+                    text,
+                });
+            }
+            marks.pin = Some(mark);
+        }
+        image.marks = Box::new(marks);
+        Ok(image)
     }
 
     /// The slide's number and footer in `snap`, laid out where the theme places them (ADR-0028):
@@ -577,8 +723,9 @@ impl Engine {
         // Held to the grid of the format laid out, which may have fewer columns.
         let a = a.clamp(1, last);
         let b = b.clamp(a, last);
-        let [x0, _] = columns[(a - 1) as usize];
-        let [_, x1] = columns[(b - 1) as usize];
+        // Its first column and its last, which stand right to left in a deck that reads so.
+        let (first, last) = (columns[(a - 1) as usize], columns[(b - 1) as usize]);
+        let (x0, x1) = (first[0].min(last[0]), first[1].max(last[1]));
         let size = canvas(deck);
         let rows = grid.rows();
         let (y0, y1) = match item.edge {
@@ -639,7 +786,7 @@ impl Engine {
         if let Some(node) = nodes.iter().find(|n| !snap.nodes.contains_key(**n)) {
             return Err(EngineError::Layout(format!("node `{node}` is not visible in state `{}`", req.state)));
         }
-        let grid = Grid::from_theme(theme, canvas(deck))?;
+        let grid = Grid::from_theme(theme, canvas(deck))?.mirrored(scaena_core::direction::mirrored(deck));
         let placement = self.place(deck, theme, req.data, &grid, snap)?;
         let mut placed = Vec::with_capacity(nodes.len());
         for node in nodes {
@@ -1155,6 +1302,17 @@ fn in_node(id: &str, e: EngineError) -> EngineError {
     }
 }
 
+/// A pin's height where the canvas's shorter side is 1080 (ADR-0030).
+const PIN_HEIGHT: f32 = 48.0;
+
+/// The least size a credit is set at where the canvas's shorter side is 1080: 12 pt at
+/// presentation size (ADR-0030).
+pub const MIN_CREDIT: f32 = 24.0;
+
+/// How much of what shows of a picture a credit inside it may run across: the rest of its foot
+/// is the service's own credit's.
+const CREDIT_SHARE: f32 = 0.7;
+
 fn theme_color(theme: &Theme, name: &str) -> Result<Color, EngineError> {
     theme.color(name)
 }
@@ -1165,10 +1323,16 @@ fn theme_color(theme: &Theme, name: &str) -> Result<Color, EngineError> {
 fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>) -> Result<TextSpec, EngineError> {
     let str_prop = |key: &str| props.get(key).and_then(Value::as_str);
     let mut role = cascade::node_role(theme, props, slot_role)?;
-    // Code is set as written (ADR-0029): no case, no measure, no hyphens, nothing hung.
-    let code = crate::code::CodeSpec::of(props, role.size, role.min_size, canvas(deck));
-    if code.is_some() {
+    // Code is set as written (ADR-0029): no case, no measure, no hyphens, nothing hung. It is
+    // colored by its language in the theme's colors, each held to read on its ground: the
+    // surface, which it is drawn on (PLAN 2.132).
+    let mut code = crate::code::CodeSpec::of(props, role.size, role.min_size, canvas(deck));
+    if let Some(code) = &mut code {
         role.case = None;
+        let look = theme.code.as_ref();
+        code.tab = look.and_then(|c| c.tab).map_or(crate::code::TAB, usize::from);
+        let [r, g, b, _] = theme_color(theme, "surface")?.0;
+        code.looks = Some(Box::new(theme.code_looks([r, g, b], &role)?));
     }
     let (role_measure, hanging, optical, hyphenate) =
         (role.measure, role.hanging_punctuation, role.optical_margins, role.hyphenate);
@@ -1237,6 +1401,7 @@ fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>)
             list_indent: list_indent as f32,
             list_gap: list_gap as f32,
             code,
+            mirrored: scaena_core::direction::mirrored(deck),
         });
     }
     let items = list_marks(theme, props, &written)?;
@@ -1259,6 +1424,7 @@ fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>)
         list_indent: list_indent as f32,
         list_gap: list_gap as f32,
         code: None,
+        mirrored: scaena_core::direction::mirrored(deck),
     })
 }
 

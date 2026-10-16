@@ -35,6 +35,10 @@
             "description": "The nodes drawn from it, in the deck's order, each with the states that show it so.",
             "type": "array",
             "items": { "$ref": "#/$defs/Used" }
+          },
+          "fetched": {
+            "description": "Where a picture fetched from a service came from (ADR-0030): what an image drawn from it\nrecords.",
+            "anyOf": [{ "$ref": "#/$defs/FetchedFrom" }, { "type": "null" }]
           }
         },
         "required": ["path", "type", "bytes", "named", "used"]
@@ -88,6 +92,20 @@
         "type": "object",
         "properties": { "node": { "type": "string" }, "states": { "type": "array", "items": { "type": "string" } } },
         "required": ["node", "states"]
+      },
+      "FetchedFrom": {
+        "description": "A fetched picture's service and the day its answer came.",
+        "type": "object",
+        "properties": {
+          "from": { "description": "The service, by Scaena's name for it: `geoapify`.", "type": "string" },
+          "service": { "description": "Its name as a person reads it: `Geoapify`.", "type": "string" },
+          "date": { "description": "The day its answer came, `YYYY-MM-DD`, in UTC.", "type": "string" },
+          "said": {
+            "description": "Where it came from, as an editor says it: \"From Geoapify, fetched 15 October 2026\".",
+            "type": "string"
+          }
+        },
+        "required": ["from", "service", "date", "said"]
       }
     },
     "properties": {

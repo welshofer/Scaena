@@ -23,6 +23,7 @@ members = [
   "crates/scaena-chat",
   "crates/scaena-narrato",
   "crates/scaena-sources",
+  "crates/scaena-objects",
   "crates/scaena-generator",
 ]
 default-members = [
@@ -46,7 +47,9 @@ authors = ["Jay Welshofer"]
 
 [workspace.dependencies]
 # internal
-scaena-core   = { path = "crates/scaena-core" }
+# Without the word tables the code scanners read, which the editor's module leaves out (PLAN
+# 2.132): the engine's `code-tables` asks for them where the hyphenation patterns are asked for.
+scaena-core   = { path = "crates/scaena-core", default-features = false }
 scaena-pixels = { path = "crates/scaena-pixels" }
 # Without its hyphenation patterns, which the editor's module leaves out (ADR-0015): a crate
 # that lays out natively asks for them.
@@ -63,6 +66,7 @@ scaena-history = { path = "crates/scaena-history" }
 scaena-chat   = { path = "crates/scaena-chat" }
 scaena-narrato = { path = "crates/scaena-narrato" }
 scaena-sources = { path = "crates/scaena-sources" }
+scaena-objects = { path = "crates/scaena-objects" }
 
 # serialization / schema
 serde      = { version = "1.0", features = ["derive"] }

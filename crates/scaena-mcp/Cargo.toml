@@ -18,6 +18,7 @@ scaena-core.workspace = true
 # Narrative health (PLAN G.9), whose measures are Narrato's.
 scaena-ops = { workspace = true, features = ["shipped", "narrato"] }
 scaena-resources.workspace = true
+scaena-objects.workspace = true
 rmcp.workspace = true
 tokio.workspace = true
 base64.workspace = true
@@ -27,7 +28,8 @@ serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
-# Its hyphenation patterns, which the tests' decks hyphenate by (ADR-0015).
-scaena-engine = { workspace = true, features = ["hyphenation"] }
+# Its hyphenation patterns and the code scanners' tables, which the tests' decks hyphenate and
+# color by (ADR-0015, PLAN 2.132).
+scaena-engine = { workspace = true, features = ["hyphenation", "code-tables"] }
 rmcp = { workspace = true, features = ["client"] }
 scaena-store.workspace = true

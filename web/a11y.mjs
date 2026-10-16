@@ -191,14 +191,17 @@ try {
   await editor.waitForSelector("#look .fields", { timeout: 30000 }).catch(() => {});
   check((await editor.locator("#look select").count()) > 0, "the inspector shows the title's look to choose");
   await audit(editor, "the editor, a node's look in its inspector");
-  // Open .scaena… is reached by Tab, and Enter on it opens the file picker.
+  // Open .scaena… is reached by Tab, and Enter on it opens the file picker. The wait for the
+  // picker starts before the first Tab: Playwright only catches a file chooser once its waiting
+  // has turned interception on, which it does asynchronously, and a picker opened before that
+  // passes it by.
+  const chooser = editor.waitForEvent("filechooser", { timeout: 5000 }).catch(() => null);
   await editor.focus("#new-deck");
   let reached;
   for (let i = 0; i < 6 && reached !== "open-scaena" && reached !== "save"; i++) {
     await editor.keyboard.press("Tab");
     reached = await editor.evaluate(() => document.activeElement?.id);
   }
-  const chooser = editor.waitForEvent("filechooser", { timeout: 5000 }).catch(() => null);
   if (reached === "open-scaena") await editor.keyboard.press("Enter");
   check(reached === "open-scaena" && (await chooser) !== null, `Open .scaena… is reached by Tab, and Enter opens the file picker: ${reached}`);
   const source = await editor.evaluate(() => window.scaena.source());

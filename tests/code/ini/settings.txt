@@ -1,0 +1,32 @@
+; Settings for the build, read by configparser.
+# A hash begins a comment too.
+root = true
+
+[*]
+indent_style = space
+indent_size = 4
+insert_final_newline = yes
+
+[*.{js,json,yml}]
+indent_size = 2
+
+[remote "origin"]
+	url = https://github.com/example/app.git
+	fetch = +refs/heads/*:refs/remotes/origin/*
+
+[paths]
+home = /var/lib/app
+data = ${home}/data
+logs = %(home)s/logs
+timeout: 30
+ratio = -0.75
+description = A value that runs
+    onto the next line
+greeting = Hello, \
+    world
+
+[options.entry_points]
+console_scripts =
+    app = app.cli:main
+    app-admin = app.admin:run
+! A .properties file writes a comment so.

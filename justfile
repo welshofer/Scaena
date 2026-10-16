@@ -24,18 +24,20 @@ test-gpu:
     cargo test -p scaena-paint -p scaena-cli --features gpu --locked
 
 # Re-bless the generated schemas (PLAN 1.1) and the MCP tools' (PLAN 1.17), the code samples' spans
-# (PLAN 2.130), then the torture goldens: display lists first, then the rasters painted from them, and
-# each shipped theme's layout starts' digests (PLAN T.0e). Only after reviewing the diffs in docs/schema/,
-# tests/code/actual/, and tests/golden/**/actual/ (written by a failing `just test`).
+# (PLAN 2.130), then the torture goldens and the right-to-left decks' (PLAN T.5a): display lists first, then
+# the rasters painted from them, and each shipped theme's layout starts' digests (PLAN T.0e). Only after
+# reviewing the diffs in docs/schema/, tests/code/actual/, and tests/golden/**/actual/ (written by a failing
+# `just test`).
 bless:
     SCAENA_BLESS=1 cargo test -p scaena-core --test schemas --locked
     SCAENA_BLESS=1 cargo test -p scaena-core --test code --locked
     SCAENA_BLESS=1 cargo test -p scaena-mcp --test schemas --locked
     SCAENA_BLESS=1 cargo test -p scaena-ffi --test header --locked
     SCAENA_BLESS=1 cargo test -p scaena-engine --test torture --locked
+    SCAENA_BLESS=1 cargo test -p scaena-engine --test rtl --locked
     SCAENA_BLESS=1 cargo test -p scaena-paint --test torture_rasters --locked
     SCAENA_BLESS=1 cargo test -p scaena-cli --test sheet --locked
-    rm -rf tests/golden/torture/actual tests/code/actual tests/golden/themes/actual
+    rm -rf tests/golden/torture/actual tests/golden/rtl/actual tests/code/actual tests/golden/themes/actual
 
 # The Mac's C ABI from C (PLAN 3.1): the static library built, a C program compiled against
 # `scaena.h` with every warning an error, linked with the system libraries rustc names, and run
@@ -77,8 +79,8 @@ ipad-gate UDID="":
     apps/ipad/gate.sh {{UDID}}
 
 # The engine, both painters, and the WASM bindings must keep compiling for the browser (PLAN 0.1, 0.8):
-# with every feature, and as the player's engine alone, without the hyphenation patterns the
-# editor's module leaves out (ADR-0015).
+# with every feature, and as the player's engine alone, without the hyphenation patterns and the
+# code scanners' word tables the editor's module leaves out (ADR-0015, PLAN 2.132).
 wasm-check:
     cargo clippy -p scaena-engine -p scaena-paint -p scaena-session -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf -p scaena-generator --all-features --target wasm32-unknown-unknown --locked -- -D warnings
     cargo clippy -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --locked -- -D warnings
@@ -93,9 +95,11 @@ schema:
     python3 scripts/build_scripts.py --check
     python3 scripts/build_lint_fonts.py --check
     python3 scripts/build_bench_decks.py --check
+    python3 scripts/build_rtl_decks.py --check
     python3 scripts/build_themes.py --check
     python3 scripts/build_layouts.py --check
     python3 scripts/build_icons.py --check
+    python3 scripts/build_syllables.py --check
     python3 scripts/build_app_icon.py --check
 
 # The scripts' own tests: the bench gate's judgment (PLAN 1.24); and the browser's assistant, held to
@@ -154,8 +158,9 @@ spike: wasm-smoke
 # into crates/scaena-resources/pkg (PLAN 2.6), the PDF painter, which a page loads to export a
 # PDF, into crates/scaena-pdf/pkg (PLAN 2.54),
 # and the player's engine alone, without the editor's operations, into crates/scaena-wasm/player:
-# what a single-file HTML export carries (PLAN 2.5), with every language's hyphenation patterns,
-# which the editor's module leaves out and its page fetches as a text needs them (ADR-0015). Cargo keeps each feature set's build, so
+# what a single-file HTML export carries (PLAN 2.5), with every language's hyphenation patterns
+# and the code scanners' word tables, which the editor's module leaves out and its page fetches as
+# a text needs them (ADR-0015, PLAN 2.132). Cargo keeps each feature set's build, so
 # building one after the other rebuilds neither. All of them by the `wasm` profile (Cargo.toml):
 # release's, with what runs as a deck is read or edited, not each frame, built for size (SPEC §15).
 # Needs `cargo install wasm-bindgen-cli --version 0.2.129` (the version in Cargo.lock).
@@ -167,7 +172,7 @@ wasm:
     wasm-bindgen --target web --out-dir crates/scaena-resources/pkg target/wasm32-unknown-unknown/wasm/scaena_resources.wasm
     wasm-bindgen --target web --out-dir crates/scaena-pdf/pkg target/wasm32-unknown-unknown/wasm/scaena_pdf.wasm
     wasm-bindgen --target web --out-dir crates/scaena-generator/pkg target/wasm32-unknown-unknown/wasm/scaena_generator.wasm
-    cargo build -p scaena-wasm --no-default-features --features gpu,cpu,hyphenation --target wasm32-unknown-unknown --profile wasm --locked
+    cargo build -p scaena-wasm --no-default-features --features gpu,cpu,hyphenation,code-tables --target wasm32-unknown-unknown --profile wasm --locked
     wasm-bindgen --target web --out-dir crates/scaena-wasm/player target/wasm32-unknown-unknown/wasm/scaena_wasm.wasm
 
 # The WebGPU page in headless Chromium: WASM display lists hash to the native digests and

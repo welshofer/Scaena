@@ -2,13 +2,14 @@
 """The shipped themes, each written from its spec and a shared base (PLAN T.0a, ADR-0031).
 
 - **The registry,** `docs/themes/registry.json`, lists each theme: its slug, its name, its family,
-  its geometry family, its fonts' keys (their directories at google/fonts), and its file or files.
+  its geometry family, its fonts' keys (as `build_bundle_fonts.py`'s pinned table names them), and
+  its file or files.
   Its description, mode, colors, and type voice are its spec's, copied in here for the clients
   that list themes.
 - **A spec,** `docs/themes/<slug>.spec.json`, holds only what sets the theme apart from the shared
   base, `docs/themes/base.json`: its name and description, its mode, its seven colors, its data
   palettes, its families, its type voice and each role's deltas, its margin, its shader palettes,
-  and any chart, table, stroke, or shader preset unlike the base's.
+  its code's look (`code`, theme format 0.18), and any chart, table, stroke, or shader preset unlike the base's.
 - **The base** holds what every theme shares: motion, shadows, density, space, radius, stroke, the
   color roles, the grid but its margin, the shader presets, the charts and tables, and the three
   type voices (Dusk's, Ember's, and Gallery's) a spec starts its roles from. A key the base sets
@@ -63,6 +64,7 @@ SPEC_KEYS = {
     "shaders": ("shaders",),
     "charts": ("charts",),
     "tables": ("tables",),
+    "code": ("code",),
 }
 # What a spec holds that is the registry's, not the file's.
 SPEC_ONLY = {"mode", "voice", "contrast"}
@@ -294,13 +296,21 @@ def written(theme: dict, old: str | None, base: dict) -> str:
 # The registry and what reads it.
 
 
-def slug_of_font(family: str) -> str:
-    """A font's key: its directory at google/fonts."""
-    return re.sub(r"[^a-z0-9]", "", family.lower())
+def font_keys() -> dict[str, str]:
+    """Each family's key in `build_bundle_fonts.py`'s pinned table (PLAN T.0b), by its name."""
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import build_bundle_fonts  # noqa: PLC0415
+
+    return {f["name"]: key for key, f in build_bundle_fonts.FAMILIES.items()}
 
 
 def fonts_of(theme: dict) -> list[str]:
-    return [slug_of_font(f["family"]) for f in theme["type"]["families"].values()]
+    """The keys of the families `theme` names, in its order; a family the table does not pin is refused."""
+    keys = font_keys()
+    missing = [f["family"] for f in theme["type"]["families"].values() if f["family"] not in keys]
+    if missing:
+        raise Refused(f"{theme['name']} names families build_bundle_fonts.py does not pin: {missing}")
+    return [keys[f["family"]] for f in theme["type"]["families"].values()]
 
 
 def font_files(themes: list[dict]) -> list[str]:
@@ -430,8 +440,13 @@ def build(registry: dict, base: dict, specs: dict) -> tuple[dict[Path, str], lis
             wrong.append(f"{slug}: its family is one of {', '.join(FAMILIES)}")
         if e.get("geometry") not in slugs:
             wrong.append(f"{slug}: its geometry family is a theme's slug: {e.get('geometry')!r}")
-        if e.get("fonts") != fonts_of(theme):
-            wrong.append(f"{slug}: the registry's fonts {e.get('fonts')} are not its families' {fonts_of(theme)}")
+        try:
+            fonts = fonts_of(theme)
+        except Refused as r:
+            wrong.append(str(r))
+            continue
+        if e.get("fonts") != fonts:
+            wrong.append(f"{slug}: the registry's fonts {e.get('fonts')} are not its families' {fonts}")
         for f in font_files([theme]):
             if not (FONTS.parent / f).exists():
                 wrong.append(f"{slug}: it names {f}, which is not in docs/examples/fonts")

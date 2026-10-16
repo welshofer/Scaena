@@ -66,8 +66,10 @@ export default defineConfig({
       "@scaena/assistant": join(web, "src/no-assistant.ts"),
       "@scaena/themes": join(web, "src/no-themes.ts"),
       "@scaena/generate": join(web, "src/no-generate.ts"),
-      // The player's module has every language's hyphenation patterns compiled in (ADR-0015).
+      // The player's module has every language's hyphenation patterns compiled in (ADR-0015),
+      // and every table the code scanners read (PLAN 2.132).
       "@scaena/hyphenation": join(web, "src/no-hyphenation.ts"),
+      "@scaena/code-tables": join(web, "src/no-code-tables.ts"),
     },
   },
   worker: { format: "iife" },

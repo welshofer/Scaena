@@ -521,6 +521,17 @@ impl LoadedTheme {
                 }
             }
         }
+        // How code is set and colored (ADR-0029): the role it is set in, and each kind's color.
+        if let Some(code) = &t.code {
+            if let Some(role) = &code.role {
+                need(t.typography.roles.contains_key(role), "text role", role, "/code/role".into());
+            }
+            let syntax = code.syntax.as_ref();
+            for class in crate::code::Class::KINDS {
+                let Some(color) = syntax.and_then(|s| s.of(class)).and_then(|l| l.color.as_ref()) else { continue };
+                need(self.color(color), "color", color, format!("/code/syntax/{}/color", class.name()));
+            }
+        }
         // A slide's number and footer (ADR-0028): their roles and colors, the layouts they are left
         // off, and their columns on the grid.
         let mut past = Vec::new();
@@ -1195,8 +1206,9 @@ fn connectors(deck: &Deck) -> Vec<Finding> {
 }
 
 /// E106: ends on a shape that is no line or arrow, which has none to draw them on (PLAN 2.128),
-/// and a text's `paragraphs` that run backward (PLAN 2.129), wherever either is written: in the
-/// node's own props, a state's delta, or the deck's `overrides`.
+/// a text's `paragraphs` that run backward (PLAN 2.129), and a `fetched` record from a service this
+/// build does not know, at no instant, or with no credit where its service asks one (ADR-0030),
+/// wherever each is written: in the node's own props, a state's delta, or the deck's `overrides`.
 fn ends_and_paragraphs(deck: &Deck) -> Vec<Finding> {
     let mut out = Vec::new();
     let mut written: Vec<(String, &str, &Props)> = Vec::new();
@@ -1228,6 +1240,16 @@ fn ends_and_paragraphs(deck: &Deck) -> Vec<Finding> {
             out.push(
                 Finding::new("E106", Severity::Error, message).at(format!("{at}/paragraphs")).node(id.to_string()),
             );
+        }
+        if let Some(record) = props.get("fetched").filter(|_| node.node_type == NodeType::Image) {
+            for (below, why) in crate::fetched::problems(record) {
+                let message = format!("`{id}` was fetched: {why}");
+                out.push(
+                    Finding::new("E106", Severity::Error, message)
+                        .at(format!("{at}/fetched{below}"))
+                        .node(id.to_string()),
+                );
+            }
         }
     }
     out
@@ -2235,6 +2257,13 @@ impl Names<'_> {
         }
         if let Some(paint) = props.get("stroke").and_then(|s| s.get("paint")) {
             self.paint(paint, &format!("{at}/stroke/paint"), state, node_);
+        }
+        // A pin's color (ADR-0030).
+        if node_type == NodeType::Image
+            && let Some(color) = props.get("pin").and_then(|p| p.get("color")).and_then(Value::as_str)
+        {
+            let defined = self.theme.color(color);
+            self.need(defined, "color", color, format!("{at}/pin/color"), state, node_);
         }
         // The theme's shadow by name, or the color of one written out (PLAN 2.115).
         match props.get("shadow") {

@@ -33,11 +33,13 @@ indexmap.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-# Its hyphenation patterns, which the tests' decks hyphenate by (ADR-0015).
-scaena-engine = { workspace = true, features = ["hyphenation"] }
+# Its hyphenation patterns and the code scanners' tables, which the tests' decks hyphenate and
+# color by (ADR-0015, PLAN 2.132).
+scaena-engine = { workspace = true, features = ["hyphenation", "code-tables"] }
 hayro.workspace = true
 # Rasterizes SVGs to compare with the painters (PLAN 1.21). Without its text feature: an
 # SVG's text is the transparent layer a reader selects, which no painter draws.
