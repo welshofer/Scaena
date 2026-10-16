@@ -275,6 +275,7 @@ pub fn validate_bundle(deck_json: &str, files: &dyn BundleFiles) -> Result<Vec<F
         out.extend(validate(&deck));
         out.extend(connectors(&deck));
         out.extend(ends_and_paragraphs(&deck));
+        out.extend(fetched_sources(&deck));
         out.extend(type_changes(&deck));
         out.extend(missing_files(&deck, theme.as_ref(), files));
         // Tracking that fails (reported above) leaves no states to resolve.
@@ -1270,6 +1271,20 @@ fn ends_and_paragraphs(deck: &Deck) -> Vec<Finding> {
                         .node(id.to_string()),
                 );
             }
+        }
+    }
+    out
+}
+
+/// E106: a data source's `fetched` record (ADR-0030) from a service this build does not know, at
+/// no instant, or with an empty credit where its service asks for one.
+fn fetched_sources(deck: &Deck) -> Vec<Finding> {
+    let mut out = Vec::new();
+    for (name, source) in &deck.data {
+        let Some(record) = &source.fetched else { continue };
+        for (below, why) in crate::fetched::problems(record) {
+            let message = format!("data `{name}` was fetched: {why}");
+            out.push(Finding::new("E106", Severity::Error, message).at(format!("/data/{}/fetched{below}", esc(name))));
         }
     }
     out

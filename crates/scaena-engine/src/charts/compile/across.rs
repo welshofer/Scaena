@@ -265,6 +265,7 @@ pub(in crate::charts) fn layout(parts: Parts) -> Result<ChartLayout, EngineError
     let base = to_x(0.0_f64.clamp(lo, hi));
     let zero_ruled = lo <= 0.0 && 0.0 <= hi;
     let mut out = ChartLayout {
+        credit: None,
         kind,
         horizontal: true,
         base,

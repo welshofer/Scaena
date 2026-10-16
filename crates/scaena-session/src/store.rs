@@ -386,7 +386,7 @@ pub(crate) mod tests {
             let source = made.source();
             assert!(source.starts_with(&format!("deck \"Field notes\" theme:\"themes/{file}\"")), "{source}");
             assert!(made.compile(&source).valid, "{file}: {source}");
-            let linted = made.lint(None).unwrap();
+            let linted = made.lint(None, None).unwrap();
             let errors: Vec<&str> = (linted.findings.iter())
                 .filter(|f| f.finding.severity == Severity::Error)
                 .map(|f| f.finding.code.as_str())
@@ -646,7 +646,7 @@ pub(crate) mod tests {
         assert_eq!(s.files(), saved.files.keys().cloned().collect::<Vec<_>>());
         assert!(s.source().contains("Revenue more than doubled") && !s.source().contains("Inter-VF.ttf"));
         assert_eq!(drawn(&mut s, &saved.saved.renamed), before, "a save changes no frame");
-        assert!(s.lint(None).is_ok());
+        assert!(s.lint(None, None).is_ok());
     }
 
     /// A frame held for its shaders' rows when the page saves is painted after it, as it was

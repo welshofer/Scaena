@@ -1346,7 +1346,10 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         "source" => json!(s.source()),
         "compiledFrom" => json!(s.compiled_from(arg("source")?)),
         "compile" => value(serde_json::to_value(s.compile(arg("source")?)))?,
-        "lint" => value(serde_json::to_value(s.lint(optional("state")).map_err(said)?))?,
+        "lint" => {
+            let now = optional("now").and_then(scaena_session::store::seconds);
+            value(serde_json::to_value(s.lint(optional("state"), now).map_err(said)?))?
+        }
         "fix" => {
             let patch: Vec<Value> = args
                 .get("patch")

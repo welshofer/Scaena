@@ -124,7 +124,7 @@ Rules:
 
 ```jsonc
 {
-  "scaena": "0.30",
+  "scaena": "0.31",
   "meta":   { "title": "...", "author": "...", "created": "...", "lang": "en-US" },
   "canvas": { "width": 1920, "height": 1080, "unit": "cu" },   // canvas units; 1 cu = 1 px at 1080p
   "formats": ["16:9", "9:16"],                               // the formats it is laid out in too (§3.4)
@@ -726,6 +726,12 @@ Lint **W320** flags more than N concurrent animated nodes (theme-tunable, defaul
 - **History.** The history records each edit with the file's bytes (§8.1).
 - **Quotes.** Each figure a run quotes from the source is set again in the same change, with the claims that hold it (§3.5, ADR-0019); the result names the texts (`quoted`).
 
+**Fetched** (deck format 0.31, ADR-0030, PLAN O.2a). A source whose rows came from a service records it in `fetched`, the record a fetched picture takes (§3.3): `{ from, at, asked, credit, license?, terms?, kept?, edited?, forecast? }`. Render never fetches: a forecast's rows are written inline, so every export carries them, and fetching again is an edit.
+- `from` is `open-meteo` for a forecast (`scaena_core::fetched::SERVICES`). `terms` says which of the service's terms the fetch came under where the request itself says so: Open-Meteo's `free` service or its `customer` one, a key of the user's own. `kept` says the person keeps it as of its date, so lint judges no date in it (W428). `edited` says its rows were edited since they came: `data_edit` on a fetched source sets it in the same change, and the credit says "edited", as CC BY asks a change to be indicated.
+- `forecast` says what was asked: the `place` (`{ name, region?, country?, lat, lon, zone, offset }`, `zone` its IANA time zone and `offset` the seconds from UTC its days were cut by), the `period` (`day` or `hour`), and the `units` its figures came in (`metric` or `us`). A day's rows are `date`, `sky` (the WMO weather code), `high`, `low`, `rain` (the chance, in percent), `amount`, `wind`, and `direction`; an hour's are `time`, `sky`, `temperature`, `rain`, `amount`, `wind`, `direction`, and `day` (daylight). `scaena_core::weather` holds every WMO code Open-Meteo documents, each to a sky, its icon by day and by night, and its words in the languages of `docs/spec/format.md`.
+- **The credit** is drawn at the foot of each chart and table that reads the source, across its box in the theme's `caption` role, never under 24 cu at 1080p (12 pt at presentation size), the rest laid out above it: a forecast's place and its date at the place, then the record's `credit`, each run that links a `link` op, then "edited" where `edited` is set. It reads after the chart or the table, as a paragraph with its links, and a tagged PDF carries it so; its layer in the display list says so by its `cell`, `[4294967295, 4294967295]`. **W314** finds one that cannot be read. No theme or deck can hide it.
+- The same E106 as a picture's record. Nothing in it takes a key.
+
 **Transforms** (PLAN 1.9). A chart or a table MAY read its data through `dataTransform`: steps that run in order, each an object that names one step.
 - `{ "filter": "<expr>" }` keeps the rows where the expression is true.
 - `{ "derive": { "<column>": "<expr>", … } }` adds a column per expression, in order, each able to read the ones before it. A name that is already a column replaces it.
@@ -1023,7 +1029,7 @@ scaena new       <dir> [--theme dusk|daybreak|ember|salon|theme.json] [--title T
 scaena compile   <deck.scn> [-o deck.json]            # DSL → JSON, validated
 scaena decompile <bundle> [-o deck.scn]               # JSON → DSL (canonical form)
 scaena validate  <bundle>                             # schema + semantic validation
-scaena lint      <bundle> [--state ID] [--json] [--fix] [--severity error|warning|info]
+scaena lint      <bundle> [--state ID] [--json] [--fix] [--severity error|warning|info] [--now INSTANT|DAY]
 scaena inspect   <bundle> [--state ID] [--resolved] [--timeline] [--data] [--boxes] [--at X,Y] [--targets NODE [--snap HOW --to X,Y,W,H [--fork]]] [--arrange A,B,… (--align EDGE | --spread WAY | --order HOW | --before NODE | --after NODE | --into NODE | --by DX,DY [--free]) [--fork]] [--choices NODE] [--look NODE [--onto A,B,…]] [--inserts] [--layouts] [--layers] [--format F]   # snapshot, styles, cue, rows, where nodes stand and may go, several arranged at once, what a node's look may be, a look copied and pasted, what may be inserted, the layouts a state may take, the layers
 scaena render    <bundle> --state ID [--t MS] [--format 9:16] [--size WxH] [--out frame.png] [--display-list out.json] [--painter cpu|gpu]
 scaena export    <bundle> --format pdf|png|svg|mp4|webm|prores|html|spine [--states a,b] [--size WxH] [--fps 60] [--audio FILE] [--painter cpu|gpu] [--out DIR|FILE]
@@ -1274,7 +1280,7 @@ An editor puts a box about the pointer, snapped to the theme's grid as a dropped
 | `deck_patch` | `scaena patch` (§7.3). | `{ applied, patch, added, removed, errors, states }` |
 | `deck_find` | `scaena find`: `find`, `case`, `words`, `replace`, and `dry_run`. | `{ found, matches, replaced? }` |
 | `data_edit` | `scaena data`: `source`, `edits`, and `dry_run` (§3.10). With no `edits`, the source as a sheet, read. | `{ edited, source, file?, sheet, added, removed, errors, refused }` |
-| `deck_lint` | `scaena lint`, with `state`, `severity`, and `fix`. | `{ findings, fixed?, errors, laid }` |
+| `deck_lint` | `scaena lint`, with `state`, `severity`, `fix`, and `now`, the moment to judge dates at (W428); without it, none is judged. | `{ findings, fixed?, errors, laid }` |
 | `deck_inspect` | `scaena inspect`, with `state`, `resolved`, `timeline`, `data`, `boxes`, `at` (`[x, y]`), `targets`, `snap`, `to` (`[x, y, w, h]`), `fork`, `arrange` (the nodes) with one of `align`, `spread`, `order`, `before`, `after`, `into`, or `by` (`[dx, dy]`, with `free`), `choices`, `state_choices`, `look` with `onto` (the nodes), `inserts`, `layouts`, `layers`, and `format`. | `{ states }` |
 | `deck_render` | `scaena render`: `state`, `t`, `format`, `size`, `painter`, and `out`. | the PNG as image content, and `{ state, size, span_ms, digest, painter, out?, ms }` as text |
 | `deck_export` | `scaena export`: `format`, `states`, `out`, `size`, `fps`, `audio`, and `painter` (a video's: `gpu` in a server built with it). All but the spine needs `out`. An export still going after 40 s answers `running` (see **Long exports**). | `{ format, out?, spine?, pages?, files?, size?, frames?, fps?, duration_ms?, timeline?, chapters?, painter?, adapter?, bytes? }`, or `{ format, out, running }` |
@@ -1384,7 +1390,11 @@ Every patch becomes a CRDT change (§8, PLAN 1.23).
   "fix": [ { "op": "add", "path": "/nodes/title/fit", "value": "shrink" } ] }
 ```
 
-`fix` is optional and MUST be a valid patch (§7.3). A fix never changes content, and lint keeps one only after laying its state out again with it applied: the text fits, within its lines, at a size its bounds allow; a text reads in the color a contrast fix chooses wherever the choice reaches (§7.5). `lint --fix` applies every fix, each at most once, writes the deck canonically, and lints again. Under `--json` it prints `{ "fixed": [findings], "findings": [what remains] }`.
+`fix` is optional and MUST be a valid patch (§7.3). A finding a fetch resolves, which no patch makes, carries no fix; its `refresh` names the data source to fetch again (W428, ADR-0030), and an editor offers Refresh and Keep as It Is.
+
+**Lint's date** (ADR-0030, decision 8). What was fetched passes its date, so lint takes `now` from whoever runs it: `scaena lint --now` (an instant, or a day at its start in UTC), else `SOURCE_DATE_EPOCH`, else the clock; `deck_lint`'s `now`; and, in an editor, the client's clock at each lint. Without `now`, no date is judged. Render and validation read no clock, and nothing of it enters the CRDT.
+
+ A fix never changes content, and lint keeps one only after laying its state out again with it applied: the text fits, within its lines, at a size its bounds allow; a text reads in the color a contrast fix chooses wherever the choice reaches (§7.5). `lint --fix` applies every fix, each at most once, writes the deck canonically, and lints again. Under `--json` it prints `{ "fixed": [findings], "findings": [what remains] }`.
 
 **What `lint` runs**, in order:
 - The bundle's validation, as `validate` runs it (E102–E106).
@@ -1443,6 +1453,7 @@ Three families. **Mechanical** rules say "this cannot be shown" (1xx). **Design*
 | W425 | warn | two consecutive beats with the same claim, ignoring case, spacing, and the closing stop |
 | W426 | warn | a beat that comes after another in the spine while its states play before that one's: the PDF reads a deck in spine order and the video in state order, so the two would tell the story in different orders (§3.11). A beat stands where its first state plays; one with no states the deck has is not judged |
 | W427 | warn | a figure a run quotes (§3.5) that its data no longer gives, a file changed by other means than a data edit, at the run's `text`; and each word that holds the old figure as a word where the text shows it (a beat's claim or notes, a state's notes, a node's description, PLAN 2.90), where it is written, the message saying which. Each with the fix that writes the figure the data gives |
+| W428 | warn | a fetched forecast (ADR-0030) whose first period's day has passed at its place at lint's `now` (§7.4): `now` plus the offset its days were cut by. One finding at each node that shows it, in the first state that does, else one at the source, each naming the source in `refresh` and carrying no fix. A source `kept` as of its date is not judged, and no date is judged without `now` |
 | I400 | info | state identical to previous (no-op cue) |
 | I401 | info | node never visible |
 | I402 | info | override makes node theme-unsafe (count) |

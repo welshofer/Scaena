@@ -654,6 +654,7 @@ pub const MARKED: &[(&str, &str)] = &[
     ("W314", "A credit here can't be read."),
     ("W410", "The picture has no description for people who can't see it."),
     ("W427", "A figure here no longer matches its data."),
+    ("W428", "This forecast has passed."),
     ("I404", "This haiku's lines don't count 5, 7, and 5."),
 ];
 
@@ -739,6 +740,10 @@ pub fn fixing(code: &str) -> &'static str {
         _ => "Fix",
     }
 }
+
+/// What an editor offers for a finding a fetch resolves, which carries `refresh` and no fix
+/// (W428, ADR-0030): fetch it again, or keep it as of its date.
+pub const REFRESHING: [&str; 2] = ["Refresh", "Keep as It Is"];
 
 /// A theme file as a person names its theme: `themes/dusk.theme.json` as `Dusk`.
 pub fn theme(file: &str) -> String {

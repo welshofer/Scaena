@@ -5265,7 +5265,7 @@ mod shipped {
         s.frame(&state, f64::INFINITY).expect("the slide draws");
         let source = s.source();
         assert!(s.compile(&source).valid);
-        let linted = s.lint(Some(&state)).unwrap();
+        let linted = s.lint(Some(&state), None).unwrap();
         let said: Vec<(&str, &str)> =
             linted.findings.iter().map(|f| (f.finding.code.as_str(), f.finding.message.as_str())).collect();
         assert!(said.iter().any(|(code, message)| *code == "W232" && message.contains("`title-title`")), "{said:?}");
