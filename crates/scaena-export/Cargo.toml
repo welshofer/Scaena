@@ -30,7 +30,8 @@ flate2.workspace = true
 gpu = ["scaena-paint/gpu"]
 
 [dev-dependencies]
-# Its hyphenation patterns, which the tests' decks hyphenate by (ADR-0015).
-scaena-engine = { workspace = true, features = ["hyphenation"] }
+# Its hyphenation patterns and the code scanners' tables, which the tests' decks hyphenate and
+# color by (ADR-0015, PLAN 2.132).
+scaena-engine = { workspace = true, features = ["hyphenation", "code-tables"] }
 # The syllable table compiled in (PLAN O.4a).
 scaena-core = { workspace = true, features = ["syllables"] }

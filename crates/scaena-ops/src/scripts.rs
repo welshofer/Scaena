@@ -194,12 +194,14 @@ pub fn needed(
 }
 
 /// `theme`, the JSON of a theme, with `script`'s family: its font at `script.file`, named last
-/// in the fallbacks of the family of every role but code's. Taking it twice changes nothing.
+/// in the fallbacks of the family of every role but the one code is set in (`Theme::code_role`,
+/// ADR-0029). Taking it twice changes nothing.
 pub fn taken(theme: &str, script: &Script) -> Result<String, OpsError> {
     let model: Theme = serde_json::from_str(theme).context("the theme")?;
+    let code = model.code_role();
     let mut keys: Vec<String> = Vec::new();
     for (role, r) in &model.typography.roles {
-        if role != "code" && r.family != script.key && !keys.contains(&r.family) {
+        if Some(role.as_str()) != code && r.family != script.key && !keys.contains(&r.family) {
             keys.push(r.family.clone());
         }
     }
@@ -226,7 +228,7 @@ pub fn taken(theme: &str, script: &Script) -> Result<String, OpsError> {
     let baseline = theme.pointer("/grid/baseline").and_then(Value::as_f64).filter(|b| *b > 0.0);
     let roles = (theme.pointer_mut("/type/roles").and_then(Value::as_object_mut))
         .ok_or_else(|| OpsError::new("the theme names no roles"))?;
-    for (_, role) in roles.iter_mut().filter(|(name, _)| name.as_str() != "code") {
+    for (_, role) in roles.iter_mut().filter(|(name, _)| Some(name.as_str()) != code) {
         let Some(role) = role.as_object_mut() else { continue };
         let size = role.get("size").and_then(Value::as_f64).unwrap_or(0.0);
         let leading = role.get("leading").and_then(Value::as_f64).unwrap_or(0.0);
@@ -303,6 +305,17 @@ mod tests {
         assert_eq!(theme["type"]["families"]["body"]["fallback"], json!(["japanese"]));
         assert_eq!(theme["type"]["families"]["mono"].get("fallback"), None, "code keeps its own");
         assert_eq!(super::taken(&taken, japanese).unwrap(), taken, "taken twice, the same");
+        // A theme that keeps another role for code (ADR-0029) keeps that role's family out: a role
+        // named `code` that code is not set in is a text role as any other.
+        let mut other: Value = serde_json::from_str(&dusk).unwrap();
+        other["type"]["families"]["typewriter"] = other["type"]["families"]["mono"].clone();
+        other["type"]["roles"]["source"] = other["type"]["roles"]["code"].clone();
+        other["type"]["roles"]["source"]["family"] = json!("typewriter");
+        other["code"] = json!({ "role": "source" });
+        let theme: Value = serde_json::from_str(&super::taken(&other.to_string(), japanese).unwrap()).unwrap();
+        assert_eq!(theme["type"]["families"]["typewriter"].get("fallback"), None, "code keeps its own");
+        assert_eq!(theme["type"]["families"]["mono"]["fallback"], json!(["japanese"]), "`code` is no code role");
+        assert_eq!(theme["type"]["roles"]["source"], other["type"]["roles"]["source"], "nor are its lines opened");
     }
 
     /// A deck in Japanese or Hindi takes its script's font (PLAN G.22): the theme's own faces set

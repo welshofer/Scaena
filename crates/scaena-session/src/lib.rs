@@ -3051,6 +3051,24 @@ mod tests {
         assert_eq!(s.carets("close", &id).unwrap().unwrap().text, lines);
     }
 
+    /// Insert's text in the role the theme keeps for code is code (PLAN 2.132, ADR-0029): in no
+    /// language until one is named, and set in that role; no other text Insert offers is code.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn inserted_code_is_code_in_the_themes_code_role() {
+        let mut s = revenue();
+        let by = assistant::Caller { author: "user", at: None };
+        let inserts = s.inserts();
+        let code = inserts.iter().position(|i| i.label == "Text · code").expect("Dusk keeps a code role");
+        assert_eq!(inserts[code].node["code"], serde_json::json!({ "language": "plain" }));
+        assert!(inserts.iter().filter(|i| i.label != "Text · code").all(|i| i.node.get("code").is_none()));
+        let added = s.inserting("close", code, [960.0, 540.0], None).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": added.patch }), by).unwrap();
+        let props = &s.deck().nodes[&added.id].props;
+        assert_eq!(props.get("role"), Some(&serde_json::json!("code")));
+        assert_eq!(props.get("code"), Some(&serde_json::json!({ "language": "plain" })));
+    }
+
     /// Characters selected on the canvas take a look (PLAN 2.38): ⌘B's from the weight the
     /// engine sets them in, and the inspector's from the run of the first of them.
     #[cfg(feature = "editor")]

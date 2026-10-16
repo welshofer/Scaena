@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/theme-0.18.json",
+  "$id": "https://scaena.dev/schema/theme-0.19.json",
   "title": "Scaena theme (design system)",
   "description": "Tokens, typographic roles, layout templates, motion, and palettes. Documents reference these by name; they never store resolved values. See docs/SPEC.md §3.6.",
   "type": "object",
   "required": ["scaena-theme", "name", "tokens", "type", "grid", "layouts", "motion"],
   "additionalProperties": false,
   "properties": {
-    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.18(\\.[0-9]+)?$" },
+    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.19(\\.[0-9]+)?$" },
     "name": { "type": "string", "minLength": 1 },
     "description": { "type": "string" },
     "tokens": { "$ref": "#/$defs/Tokens" },
@@ -36,6 +36,10 @@
     "shaders": { "$ref": "#/$defs/Shaders" },
     "charts": { "$ref": "#/$defs/Charts" },
     "tables": { "$ref": "#/$defs/Tables" },
+    "code": {
+      "description": "How code is set and colored (theme format 0.18, ADR-0029): the role a code text is set in, its tab stops, and each kind of token's look.",
+      "$ref": "#/$defs/CodeLook"
+    },
     "density": { "$ref": "#/$defs/Density" },
     "furniture": {
       "description": "A slide's number and footer: where each stands and in what type, and the layouts a slide shows neither on (theme format 0.14, ADR-0028). The deck says whether they show.",
@@ -984,6 +988,68 @@
       "type": "object",
       "additionalProperties": false,
       "properties": { "role": { "type": "string" }, "color": { "type": "string" } }
+    },
+    "CodeLook": {
+      "description": "How code is set and colored (SPEC §3.6, ADR-0029; theme format 0.18). A kind of token the theme names no color for takes one derived from its accent, and every color code is drawn in is held, where it is drawn, to read on its ground.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "description": "The text role a code text is set in where it names none: the theme's `code` role when unset, else `body`.",
+          "type": "string"
+        },
+        "tab": {
+          "description": "The columns between tab stops; 4 when unset.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16
+        },
+        "syntax": { "description": "Each kind of token's look, by the kind's name.", "$ref": "#/$defs/Syntax" }
+      }
+    },
+    "Syntax": {
+      "description": "Each kind of token's look in code (ADR-0029), by the kind's name: the 16 kinds the scanners read. A kind left out is derived.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "keyword": { "$ref": "#/$defs/SyntaxLook" },
+        "type": { "$ref": "#/$defs/SyntaxLook" },
+        "function": { "$ref": "#/$defs/SyntaxLook" },
+        "string": { "$ref": "#/$defs/SyntaxLook" },
+        "number": { "$ref": "#/$defs/SyntaxLook" },
+        "constant": { "$ref": "#/$defs/SyntaxLook" },
+        "comment": { "$ref": "#/$defs/SyntaxLook" },
+        "operator": { "$ref": "#/$defs/SyntaxLook" },
+        "punctuation": { "$ref": "#/$defs/SyntaxLook" },
+        "property": { "$ref": "#/$defs/SyntaxLook" },
+        "attribute": { "$ref": "#/$defs/SyntaxLook" },
+        "tag": { "$ref": "#/$defs/SyntaxLook" },
+        "variable": { "$ref": "#/$defs/SyntaxLook" },
+        "meta": { "$ref": "#/$defs/SyntaxLook" },
+        "inserted": { "$ref": "#/$defs/SyntaxLook" },
+        "deleted": { "$ref": "#/$defs/SyntaxLook" }
+      }
+    },
+    "SyntaxLook": {
+      "description": "A kind of token's look in code: its color, weight, and italic, each the derived one where unset.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "color": {
+          "description": "A color token or role, or a literal, which a theme may hold: drawn a step lighter or darker where its ground needs it to read.",
+          "type": "string"
+        },
+        "weight": {
+          "description": "Its weight: else the text's, and 600 at least for a keyword.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "italic": {
+          "description": "Whether it is set in its family's italic face, where the family has one: else as the text is, and in italic for a comment.",
+          "type": "boolean"
+        }
+      }
     },
     "Density": {
       "type": "object",
