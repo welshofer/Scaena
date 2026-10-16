@@ -88,7 +88,7 @@ class FromSpec(unittest.TestCase):
 
 
     def test_the_four_name_every_italic_and_keep_nothing_whole(self):
-        for slug in ("dusk", "daybreak", "ember", "gallery"):
+        for slug in ("dusk", "daybreak", "ember", "salon"):
             self.assertEqual(themes.faces(themes.themed(slug, SPECS[slug], BASE)), [], slug)
 
     def test_only_a_family_whose_script_sets_no_italic_is_upright_by_design(self):

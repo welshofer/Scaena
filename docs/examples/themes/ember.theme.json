@@ -1040,6 +1040,9 @@
   "density": {
     "maxWordsPerState": 40
   },
+  "pictures": {
+    "frame": "none"
+  },
   "furniture": {
     "number": { "col": [12, 12], "role": "label", "align": "end" },
     "footer": { "col": [1, 8], "role": "label" },

@@ -524,6 +524,9 @@
     "maxWordsPerState": 40
   },
   "code": null,
+  "pictures": {
+    "frame": "none"
+  },
   "voices": {
     "dusk": {
       "scale": {

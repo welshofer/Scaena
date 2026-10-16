@@ -1513,6 +1513,9 @@
   "density": {
     "maxWordsPerState": 40
   },
+  "pictures": {
+    "frame": "none"
+  },
   "furniture": {
     "number": {
       "col": [
