@@ -141,6 +141,57 @@ pub struct Ask {
     pub browser: bool,
 }
 
+/// What a client asks a map for, as JSON (PLAN O.1c, O.1d): the browser's sheet and the Mac's ask
+/// so, and [`Asked::ask`] reads it as an [`Ask`]. `show` names a [`Show`] and `zoom` a zoom, which
+/// wins; neither shows the neighborhood.
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Asked {
+    pub place: String,
+    #[serde(default)]
+    pub known: Option<Place>,
+    #[serde(default)]
+    pub center: Option<LatLon>,
+    #[serde(default)]
+    pub zoom: Option<f64>,
+    #[serde(default)]
+    pub show: Option<String>,
+    pub style: String,
+    pub size: [f64; 2],
+    #[serde(default)]
+    pub lang: Option<String>,
+    #[serde(default)]
+    pub pick: Option<usize>,
+    #[serde(default)]
+    pub list: bool,
+}
+
+impl Asked {
+    /// What it asks, `browser` saying whether the client is one, which sets its own User-Agent.
+    pub fn ask(self, browser: bool) -> Result<Ask, ObjectError> {
+        let view = match (self.zoom, self.show.as_deref()) {
+            (Some(z), _) => View::Zoom(z),
+            (None, Some(name)) => {
+                View::Show(Show::named(name).ok_or_else(|| ObjectError::Asked(format!("show `{name}`")))?)
+            }
+            (None, None) => View::Show(Show::Neighborhood),
+        };
+        let style = Style::named(&self.style).ok_or_else(|| ObjectError::Asked(format!("style `{}`", self.style)))?;
+        Ok(Ask {
+            place: self.place,
+            known: self.known,
+            center: self.center,
+            view,
+            style,
+            size: self.size,
+            lang: self.lang,
+            pick: self.pick,
+            list: self.list,
+            browser,
+        })
+    }
+}
+
 /// A map fetched: the picture, and all its record says but when its answer came, which the client
 /// that asked knows by its clock.
 #[derive(Debug, Clone, PartialEq)]

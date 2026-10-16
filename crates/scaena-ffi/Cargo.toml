@@ -17,6 +17,8 @@ scaena-session = { workspace = true, features = ["generate", "shipped"] }
 # Narrato's requests and answers, the sources read, and the theme a deck is made in (PLAN G.6).
 scaena-narrato.workspace = true
 scaena-sources.workspace = true
+# A map from Geoapify, by the plan Swift runs with URLSession (ADR-0030, PLAN O.1d).
+scaena-objects.workspace = true
 # The syllable table compiled in (PLAN O.4a), so lint counts a haiku (I404).
 scaena-core = { workspace = true, features = ["syllables"] }
 # The CRDT a save records the history in, and the subsetter a save shrinks fonts with: what the
