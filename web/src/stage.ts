@@ -51,6 +51,7 @@ import type {
   Themed,
   ThemeEdited,
   ThemeText,
+  CodeColor,
   Themes,
   Thumb,
   Rewritten,
@@ -156,6 +157,7 @@ type Reply = Extract<
       | "restored"
       | "filesWritten"
       | "themeText"
+      | "codeColors"
       | "themeEdited"
       | "carets"
       | "characterChoices"
@@ -606,6 +608,11 @@ export class Stage {
       if (done.edited) this.moved(done.edited);
       return done;
     });
+  }
+
+  /** Each kind of code token as the theme draws it (PLAN 2.144). */
+  codeColors(): Promise<CodeColor[]> {
+    return this.request<"codeColors">({ type: "codeColors", id: ++this.asked }).then(({ colors }) => colors);
   }
 
   /** The theme frames are drawn in, as its text (PLAN 2.61); null where the deck names none. */
@@ -1143,6 +1150,7 @@ export class Stage {
       case "restored":
       case "filesWritten":
       case "themeText":
+      case "codeColors":
       case "themeEdited":
       case "carets":
       case "characterChoices":

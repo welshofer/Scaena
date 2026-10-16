@@ -1198,6 +1198,8 @@ export type ToWorker =
   | { type: "restoreVersion"; id: number; source: string; version: Version; index: number; format?: string }
   /** The theme frames are drawn in, as its text (PLAN 2.61). */
   | { type: "themeText"; id: number }
+  /** Each kind of code token as the theme draws it (PLAN 2.144). */
+  | { type: "codeColors"; id: number }
   /** The theme the deck names edited by `ops`, RFC 6902 operations on it, as one change by the
    * user, the deck `source` compiles to drawn in it; refused where the deck would not validate in
    * it (ADR-0016). */
@@ -1541,6 +1543,18 @@ export interface Themes {
 
 /** The theme frames are drawn in (PLAN 2.61): the file the deck names, or `(inline)`, and its
  * JSON as text. */
+/** One kind of code token as the theme draws it (PLAN 2.144): the kind as the theme keys it
+ * (`keyword`) and as a person calls it (Keywords), the color it is drawn in, `#rrggbb`, the color
+ * the theme names for it (none where it is derived from the accent), and whether that was moved to
+ * read on its ground. */
+export interface CodeColor {
+  kind: string;
+  said: string;
+  drawn: string;
+  named?: string;
+  moved: boolean;
+}
+
 export interface ThemeText {
   theme: string;
   text: string;
@@ -1930,6 +1944,7 @@ export type FromWorker =
   | { type: "restored"; id: number; restored: Restored; files: Rewritten[]; source?: string; edited?: Edited }
   | { type: "filesWritten"; id: number; edited?: Edited }
   | { type: "themeText"; id: number; theme: ThemeText | null }
+  | { type: "codeColors"; id: number; colors: CodeColor[] }
   /** What a theme edit did; where it wrote, the theme file before and after (none for an inline
    * theme), the deck's source after, and what the edit came to. */
   | { type: "themeEdited"; id: number; result: ThemeEdited; files: Rewritten[]; source?: string; edited?: Edited }

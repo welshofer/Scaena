@@ -713,6 +713,13 @@ impl Player {
         self.0.theme_text().map(|t| t.to_string())
     }
 
+    /// Each kind of code token as the theme draws it, as JSON (PLAN 2.144): `[{ kind, said, drawn,
+    /// named?, moved }]`, what the Theme tab's Code shows.
+    #[wasm_bindgen(js_name = codeColors)]
+    pub fn code_colors(&self) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.code_colors().map_err(js)?).map_err(js)
+    }
+
     /// The words an editor shows for `state`, as JSON (PLAN 2.99): `{ objects, kinds, names,
     /// motions, splits, shapes }`, each object it shows named by what it shows and by its kind,
     /// and each of the theme's names said.
