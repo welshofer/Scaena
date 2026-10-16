@@ -137,4 +137,29 @@ mod tests {
             assert_eq!(shadows(theme), first, "{}", theme.name);
         }
     }
+
+    /// Every theme that ships sets verse (PLAN O.4b): upright, `wrap: none`, in a color that reads
+    /// at 4.5:1 or more on each of its surfaces.
+    #[test]
+    fn every_theme_that_ships_sets_verse_that_reads() {
+        fn luminance(c: scaena_core::displaylist::Color) -> f64 {
+            let lin = |v: u8| {
+                let v = f64::from(v) / 255.0;
+                if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+            };
+            0.2126 * lin(c.0[0]) + 0.7152 * lin(c.0[1]) + 0.0722 * lin(c.0[2])
+        }
+        for shipped in THEMES {
+            let theme = scaena_engine::theme::Theme::from_json(shipped.text).unwrap();
+            let verse = theme.typography.roles.get("verse").expect(shipped.name);
+            assert_eq!(verse.wrap, Some(scaena_core::model::nodes::Wrap::None), "{}", shipped.name);
+            assert_ne!(verse.italic, Some(true), "{}", shipped.name);
+            let ink = luminance(theme.color(verse.color.as_deref().unwrap_or("onSurface")).unwrap());
+            for surface in ["surface", "surface-2"] {
+                let paper = luminance(theme.color(surface).unwrap());
+                let ratio = (ink.max(paper) + 0.05) / (ink.min(paper) + 0.05);
+                assert!(ratio >= 4.5, "{} verse on {surface}: {ratio:.2}:1", shipped.name);
+            }
+        }
+    }
 }

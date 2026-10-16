@@ -1,5 +1,5 @@
 {
-  "scaena": "0.29",
+  "scaena": "0.30",
   "_comment": "E106 clean: every node, at rest and in each state, holds only its own type's properties, in forms its type takes, and sits in a container; a code text's language changes in a state.",
   "canvas": { "width": 1920, "height": 1080 },
   "nodes": {

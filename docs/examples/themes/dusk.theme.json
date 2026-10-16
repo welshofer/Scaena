@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.18",
+  "scaena-theme": "0.19",
   "name": "Dusk",
   "description": "Dark surface, warm paper-white ink, one accent. Display type set tight with optical sizing; body set loose.",
   "tokens": {
@@ -343,6 +343,23 @@
         "snap": "cap",
         "measure": 30,
         "maxLines": 4,
+        "opticalMargins": true,
+        "hangingPunctuation": true
+      },
+      "verse": {
+        "family": "display",
+        "size": 64,
+        "weight": 400,
+        "leading": 1.5,
+        "tracking": 0,
+        "opsz": 72,
+        "axes": {
+          "SOFT": 50
+        },
+        "wrap": "none",
+        "box": "cap",
+        "snap": "cap",
+        "minSize": 40,
         "opticalMargins": true,
         "hangingPunctuation": true
       },
