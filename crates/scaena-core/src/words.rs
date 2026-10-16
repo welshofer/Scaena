@@ -901,6 +901,9 @@ pub fn choices(choices: &mut Choices, deck: &Deck, theme: &Theme) {
     // Drawing (PLAN 2.114).
     let props = shown.as_ref().and_then(|nodes| nodes.get(&choices.node));
     choices.noun = Some(props.map_or(kind(Some(choices.node_type)), |p| kind_of(choices.node_type, p)).to_string());
+    if choices.node_type == NodeType::Image {
+        choices.framed = frame(theme);
+    }
     let chart =
         props.and_then(|p| p.get("kind")).and_then(Value::as_str).filter(|_| choices.node_type == NodeType::Chart);
     let horizontal = props.and_then(|p| p.get("orient")).and_then(Value::as_str) == Some("horizontal");
@@ -919,6 +922,24 @@ pub fn choices(choices: &mut Choices, deck: &Deck, theme: &Theme) {
         }
         f.words = Some(words);
     }
+}
+
+/// How `theme` frames its pictures, said (PLAN T.3a): `A 24 pt mat in Text and a 2 pt keyline in
+/// Accent, the theme's`; none where it frames none.
+pub fn frame(theme: &Theme) -> Option<String> {
+    let (keyline, mat) = theme.pictures.as_ref()?.frame.bands();
+    let band = |b: Option<&crate::model::theme::Band>, what: &str| {
+        b.map(|b| format!("a {} pt {what} in {}", number(b.width), named(Vocabulary::Color, &b.color, theme)))
+    };
+    let bands: Vec<String> = [band(mat, "mat"), band(keyline, "keyline")].into_iter().flatten().collect();
+    let first = bands.first()?;
+    let said = format!(
+        "{}{}{}",
+        first[..1].to_uppercase(),
+        &first[1..],
+        bands.get(1).map_or(String::new(), |b| format!(" and {b}"))
+    );
+    Some(format!("{said}, the theme's"))
 }
 
 /// A chart's channel as a presentation app labels it on a chart of `kind`: a donut's categories
@@ -1105,6 +1126,27 @@ pub fn lexicon(deck: &Deck, theme: &Theme, state: &str) -> Result<Lexicon, Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A picture's frame said as the inspector shows it (PLAN T.3a): the mat first, by its width
+    /// and its color as the theme's names say it; none where the theme frames none.
+    #[test]
+    fn a_frame_reads_as_its_bands() {
+        const DUSK: &str = include_str!("../../../docs/examples/themes/dusk.theme.json");
+        let dusk = Theme::from_json(DUSK).unwrap();
+        assert_eq!(frame(&dusk), None, "Dusk frames none");
+        let (accent, surface) = (named(Vocabulary::Color, "accent", &dusk), named(Vocabulary::Color, "surface", &dusk));
+        let mut raw: Value = serde_json::from_str(DUSK).unwrap();
+        let mut framed = |frame: Value| {
+            raw["pictures"] = serde_json::json!({ "frame": frame });
+            super::frame(&Theme::from_value(&raw).unwrap())
+        };
+        let both = framed(serde_json::json!({
+            "keyline": { "color": "accent", "width": 2 }, "mat": { "color": "surface", "width": 24 }
+        }));
+        assert_eq!(both.unwrap(), format!("A 24 pt mat in {surface} and a 2 pt keyline in {accent}, the theme's"));
+        let line = framed(serde_json::json!({ "keyline": { "color": "accent", "width": 1.5 } }));
+        assert_eq!(line.unwrap(), format!("A 1.5 pt keyline in {accent}, the theme's"));
+    }
 
     #[test]
     fn a_name_reads_as_words() {
