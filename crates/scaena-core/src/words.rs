@@ -192,6 +192,27 @@ pub const COLORS: &[(&str, &str)] = &[
     ("onAccent", "Text on Accent"),
 ];
 
+/// A kind of code token as a person calls it (PLAN 2.144), by the name a theme keys its look by
+/// (`code::Class::name`), in `code::Class::KINDS`' order: what the Theme tab lists.
+pub const SYNTAX: [(&str, &str); 16] = [
+    ("keyword", "Keywords"),
+    ("type", "Types"),
+    ("function", "Functions"),
+    ("string", "Strings"),
+    ("number", "Numbers"),
+    ("constant", "Constants"),
+    ("comment", "Comments"),
+    ("operator", "Operators"),
+    ("punctuation", "Punctuation"),
+    ("property", "Properties"),
+    ("attribute", "Attributes"),
+    ("tag", "Tags"),
+    ("variable", "Variables"),
+    ("meta", "Directives"),
+    ("inserted", "Lines Added"),
+    ("deleted", "Lines Taken Away"),
+];
+
 /// An easing by what it does.
 pub const EASINGS: &[(&str, &str)] = &[("in", "Ease In"), ("out", "Ease Out")];
 

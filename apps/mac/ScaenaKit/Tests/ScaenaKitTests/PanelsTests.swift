@@ -53,6 +53,30 @@ private let torture = repository.appending(path: "tests/fixtures/torture.scaena"
     }
 }
 
+/// Code's colors in the theme panel (PLAN 2.144): each kind as it is drawn, derived where the theme
+/// names none; one named is one theme edit, the objects it goes in added, which writing the theme
+/// back undoes; and From the Accent takes the name away.
+@Test func codesColorsAreEditedAsTheBrowsersThemeTabEditsThem() throws {
+    let session = try ScaenaSession(directory: b1)
+    let codes = try session.codeColors()
+    #expect(codes.map(\.kind).prefix(3) == ["keyword", "type", "function"] && codes.count == 16)
+    #expect(codes.allSatisfy { $0.named == nil && !$0.moved && $0.drawn.hasPrefix("#") && $0.said.count > 1 })
+
+    let theme = try session.themeText()?.json
+    let named = CodeColor.coloring("keyword", "onSurfaceMuted", in: theme)
+    #expect(named.count == 1 && named[0]["path"]?.string == "/code")
+    let edited = try session.themeEdit(named)
+    #expect(edited.applied && edited.files.count == 1)
+    #expect(try session.codeColors().first?.named == "onSurfaceMuted")
+    let now = try session.themeText()?.json
+    #expect(CodeColor.coloring("keyword", "accent", in: now).first?["op"]?.string == "replace")
+    #expect(CodeColor.coloring("string", "accent", in: now).first?["path"]?.string == "/code/syntax/string")
+    #expect(CodeColor.coloring("keyword", nil, in: now).first?["path"]?.string == "/code/syntax/keyword")
+    #expect(CodeColor.coloring("string", nil, in: now).isEmpty, "a kind derived already changes nothing")
+    try session.write(edited.files.map { (path: $0.path, text: $0.before) })
+    #expect(try session.codeColors().first?.named == nil, "undone: the theme written back")
+}
+
 /// A change the deck refuses is said as the window says it (PLAN 3.18), as the browser's `finding`
 /// says it: what lint found, in a sentence, by the object it is about or the deck; never lint's own
 /// message, which names what it finds by the ids the deck writes.

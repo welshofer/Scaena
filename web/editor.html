@@ -412,6 +412,8 @@
       #theming ul { list-style: none; margin: 0; padding: 0; }
       #theming [data-color] { display: grid; grid-template-columns: 2em 6.5em minmax(0, 1fr); gap: 2px 6px; align-items: center; padding: 2px 0; font-size: 12px; }
       #theming [data-color] label { overflow-wrap: anywhere; }
+      #theming [data-syntax] { display: grid; grid-template-columns: 2em 6.5em minmax(0, 1fr); gap: 2px 6px; align-items: center; padding: 2px 0; font-size: 12px; }
+      #theming [data-syntax] .uses { grid-column: 2 / 4; color: var(--muted); font-size: 11px; }
       #theming [data-color] .uses { grid-column: 2 / 4; color: var(--muted); font-size: 11px; }
       #theming input[type="color"], #theming .swatch { width: 2em; height: 1.6em; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 4px; background-color: var(--panel); box-sizing: border-box; }
       #theming input[type="text"], #theming input[type="number"], #theming select { font: inherit; font-size: 12px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; min-width: 0; box-sizing: border-box; }
@@ -799,6 +801,9 @@
           </div>
           <h3 id="theming-spacing">Spacing</h3>
           <div data-spacing role="group" aria-labelledby="theming-spacing"></div>
+          <h3 id="theming-code">Code</h3>
+          <p class="hint">Each kind of word in code, in the color it is drawn in. A color the theme names is held to read on the slide; the rest follow the accent.</p>
+          <ul data-code aria-labelledby="theming-code"></ul>
         </section>
         <section id="files" role="tabpanel" aria-labelledby="tab-files" hidden>
           <p class="files-head">
