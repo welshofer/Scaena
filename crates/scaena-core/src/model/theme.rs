@@ -49,7 +49,7 @@ pub struct Theme {
     /// shows neither on (theme format 0.14, ADR-0028). The deck says whether they show.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub furniture: Option<Furniture>,
-    /// How its pictures are framed (theme format 0.20, PLAN T.3a, ADR-0031): every image takes
+    /// How its pictures are framed (theme format 0.21, PLAN T.3a, ADR-0031): every image takes
     /// the frame, and no image says otherwise. None where it says none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pictures: Option<Pictures>,

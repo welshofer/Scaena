@@ -2333,7 +2333,7 @@ What each must keep, whatever its batch:
     - Lyceum's body is Open Sans (call 12). Equator is multi-script by design and exempt.
     - Haven sets no role in italics or capitals, and opens letter and line spacing as WCAG 1.4.12 allows.
     - Tests: decision 8's checks on each; a person's review.
-- [x] T.3a A picture's frame or mat, in every theme (ADR-0031, decision 3; theme format 0.20). *Can go ahead now, and lands before batch 3.*
+- [x] T.3a A picture's frame or mat, in every theme (ADR-0031, decision 3; theme format 0.21). *Can go ahead now, and lands before batch 3.*
     - **Landed:** a theme's `pictures.frame`, `none` or a `keyline` and a `mat`, each a theme color and a width, drawn by the engine inside each image's box as rings of fill under the picture, which is fitted, cropped, and focused in what they leave (`scaena_engine::images::Frame`); the four at `none` in `docs/themes/base.json`, their layout digests unmoved. The torture deck's `images`, `shadows`, and `maps` drawn in a framed copy of its theme (`<state>+mat`, `<state>+keyline`) are goldens every painter draws, and the SVG and PDF writers are tested on them (`crates/scaena-export/tests/frames.rs`). The inspector says a picture's frame (`Choices.framed`) and offers nothing; the Theme tab, which edits colors, roles, and spacing, does not offer it yet, and a theme edit sets it.
     - A theme says how its pictures are framed: a mat of a theme color around the picture, a keyline, or none. Every image takes its theme's frame, and no image property overrides it, so the deck format does not change.
     - The four take none, so nothing they draw changes. Darkroom, Viewfinder, Postcard, and Vow use it.

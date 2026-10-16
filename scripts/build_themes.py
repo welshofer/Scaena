@@ -10,7 +10,7 @@
   base, `docs/themes/base.json`: its name and description, its mode, its seven colors, its data
   palettes, its families, its type voice and each role's deltas, its margin, its shader palettes,
   its code's look (`code`, theme format 0.18), its pictures' frame (`pictures`, theme format
-  0.20), and any chart, table, stroke, or shader preset unlike the base's.
+  0.21), and any chart, table, stroke, or shader preset unlike the base's.
 - **The base** holds what every theme shares: motion, shadows, density, space, radius, stroke, the
   color roles, the grid but its margin, the shader presets, the charts and tables, and the three
   type voices (Dusk's, Ember's, and Gallery's) a spec starts its roles from. A key the base sets
