@@ -18,6 +18,7 @@ scaena-core.workspace = true
 # Narrative health (PLAN G.9), whose measures are Narrato's.
 scaena-ops = { workspace = true, features = ["shipped", "narrato"] }
 scaena-resources.workspace = true
+scaena-objects.workspace = true
 rmcp.workspace = true
 tokio.workspace = true
 base64.workspace = true

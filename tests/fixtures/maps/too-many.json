@@ -1,0 +1,5 @@
+{
+  "statusCode": 429,
+  "error": "Too Many Requests",
+  "message": "You have exceeded the credits limit for today"
+}
