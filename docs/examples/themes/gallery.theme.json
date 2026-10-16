@@ -942,7 +942,7 @@
     "maxTicks": 5,
     "weather": {
       "period": {
-        "role": "label"
+        "role": "axis"
       },
       "high": {
         "role": "value",

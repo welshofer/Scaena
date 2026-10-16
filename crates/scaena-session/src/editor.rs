@@ -693,8 +693,10 @@ mod tests {
         let judged: Vec<(&str, bool, usize)> =
             suggested.iter().map(|(x, _)| (x.layout.as_str(), x.current, x.errors)).collect();
         assert_eq!(judged[0], ("figure", true, 0), "{judged:?}");
-        assert_eq!(judged.len(), 7, "{judged:?}");
-        assert!(judged[1..].iter().all(|&(_, current, errors)| !current && errors > 0), "{judged:?}");
+        assert_eq!(judged.len(), 8, "{judged:?}");
+        // The Forecast layout (PLAN O.2f) draws any chart as cleanly, across the slide.
+        assert_eq!(judged[1], ("forecast", false, 0), "{judged:?}");
+        assert!(judged[2..].iter().all(|&(_, current, errors)| !current && errors > 0), "{judged:?}");
         // As the bundle's lint judges them, the CLI's.
         let b = scaena_ops::open(std::path::Path::new("../../docs/examples/revenue.deck.json")).unwrap();
         let cli = scaena_ops::layouts::suggest(&b, "revenue", None).unwrap();

@@ -458,6 +458,7 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `chart-bullets` | `kicker`, `header`, `main`, `body` | Chart and Bullets, in Charts |
 | `two-charts` | `kicker`, `header`, `first-title`, `second-title`, `first-chart`, `second-chart` | Two Charts, in Charts |
 | `positioning-map` | `kicker`, `header`, `main`, `takeaway`, `note` | Positioning Map, in Charts |
+| `forecast` | `kicker`, `header`, `main`, `note` | Forecast, in Charts |
 | `full` | `kicker`, `header`, `main`, `note` | Full Bleed, in Pictures |
 | `art-left` | `kicker`, `header`, `art`, `body` | Art Left, in Pictures |
 | `art-right` | `kicker`, `header`, `body`, `art` | Art Right, in Pictures |

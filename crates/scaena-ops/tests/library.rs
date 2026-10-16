@@ -64,9 +64,13 @@ fn an_older_copy_takes_the_library_and_draws_as_it_did() {
 
     // Nothing else of the theme changes but the format it is written in, which reads, the builds
     // it lacked (PLAN 2.112), and the shadows it lacked (PLAN 2.115).
-    for part in ["name", "description", "grid", "shaders", "charts", "tables", "density"] {
+    for part in ["name", "description", "grid", "shaders", "tables", "density"] {
         assert_eq!(theme[part], older[part], "{part}");
     }
+    // Its charts, but a forecast's look, which it lacked (PLAN O.2f).
+    let mut charts = theme["charts"].clone();
+    assert_eq!(charts.as_object_mut().unwrap().remove("weather"), Some(shipped["charts"]["weather"].clone()));
+    assert_eq!(charts, older["charts"], "charts");
     let mut tokens = theme["tokens"].clone();
     tokens.as_object_mut().unwrap().remove("shadow");
     assert_eq!(tokens, older["tokens"], "tokens, but the shadows");

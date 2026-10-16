@@ -37,7 +37,7 @@ fn a_state_is_offered_each_layout_that_draws_it_otherwise_judged_by_lint_best_fi
     // The layout it takes now first, with nothing to patch, and those it draws alike beside it.
     let now = &suggested[0];
     assert!(now.current && now.patch.is_empty() && now.reach.is_empty(), "{now:?}");
-    assert_eq!(now.alike, ["poster", "table", "full", "photo-caption"]);
+    assert_eq!(now.alike, ["poster", "table", "forecast", "full", "photo-caption"]);
     // Each other is one `set_state`, changes this state alone, and makes the slide's errors.
     // Risk Matrix and Positioning Map set the note beside what the slide holds, alike.
     assert_eq!(suggested[2].alike, ["positioning-map"]);
@@ -93,7 +93,7 @@ fn a_clean_layout_that_draws_the_state_otherwise_is_suggested() {
         ],
         "{suggested:#?}"
     );
-    assert_eq!(suggested[0].alike, ["poster", "figure", "table", "photo-caption"]);
+    assert_eq!(suggested[0].alike, ["poster", "figure", "table", "forecast", "photo-caption"]);
 }
 
 #[test]

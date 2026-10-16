@@ -48,7 +48,9 @@ impl Session {
         let theme: Value = serde_json::from_slice(bytes).map_err(|e| Error::Ops(format!("{path}: {e}")))?;
         let shipped: Value =
             serde_json::from_str(shipped).map_err(|e| Error::Ops(format!("the theme that ships: {e}")))?;
-        let Some((theme, brought)) = scaena_ops::theme::library(&theme, &shipped, self.shows_code(), self.shows_forecast()) else {
+        let Some((theme, brought)) =
+            scaena_ops::theme::library(&theme, &shipped, self.shows_code(), self.shows_forecast())
+        else {
             return Ok(None);
         };
         let text = serde_json::to_string_pretty(&theme).map_err(|e| Error::Ops(e.to_string()))? + "\n";

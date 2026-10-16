@@ -984,7 +984,7 @@
     },
     "weather": {
       "period": {
-        "role": "label"
+        "role": "axis"
       },
       "high": {
         "role": "value",

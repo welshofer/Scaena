@@ -272,9 +272,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                 None => None,
             },
             WeatherPart::Wind => match p.wind {
-                Some(v) => {
-                    Some(Laid::Text(set(format!("{} {wind_unit}", v.round() as i64), &role, &color, k)?))
-                }
+                Some(v) => Some(Laid::Text(set(format!("{} {wind_unit}", v.round() as i64), &role, &color, k)?)),
                 None => None,
             },
         })

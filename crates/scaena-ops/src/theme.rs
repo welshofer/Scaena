@@ -633,7 +633,8 @@ fn drawn_in(look: &Value, copy: &Value, taken: &serde_json::Map<String, Value>) 
     let color = |c: &str| c.starts_with('#') || has("/tokens/color", c) || has("/tokens/roles", c);
     let texts = ["period", "high", "low", "chance", "caption"].into_iter().filter_map(|k| look.get(k));
     let texts_drawn = texts.into_iter().all(|t| {
-        t.get("role").and_then(Value::as_str).is_none_or(role) && t.get("color").and_then(Value::as_str).is_none_or(color)
+        t.get("role").and_then(Value::as_str).is_none_or(role)
+            && t.get("color").and_then(Value::as_str).is_none_or(color)
     });
     let icon = look.pointer("/icon/color").and_then(Value::as_str).is_none_or(color);
     texts_drawn && icon && look.get("band").and_then(Value::as_str).is_none_or(color)
