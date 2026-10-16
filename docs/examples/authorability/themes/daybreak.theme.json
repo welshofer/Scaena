@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.19",
+  "scaena-theme": "0.20",
   "name": "Daybreak",
   "description": "Warm paper surface, near-black ink, one deep teal accent. Same families, roles, layouts, and presets as Dusk: a deck moves between them by swapping the file.",
   "tokens": {
@@ -488,6 +488,7 @@
     "chart-bullets":         { "name": "Chart and Bullets", "description": "A chart, and beside it the points it makes.", "group": "Charts", "slots": { "kicker": { "col": [9, 12], "row": [11, 12], "align": { "x": "end" }, "role": "kicker" }, "header": { "col": [1, 10], "row": [1, 2], "role": "headline", "prompt": "What this slide says" }, "main": { "col": [1, 7], "row": [3, 10], "prompt": "A chart", "example": { "chart": "stackedBar" } }, "body": { "col": [9, 12], "row": [3, 10], "role": "body", "prompt": { "bullet": ["The first point", "The second", "The third"] } } } },
     "two-charts":            { "name": "Two Charts", "description": "Two charts side by side, each under its heading.", "group": "Charts", "slots": { "kicker": { "col": [9, 12], "row": [11, 12], "align": { "x": "end" }, "role": "kicker" }, "header": { "col": [1, 10], "row": [1, 2], "role": "headline", "prompt": "What this slide says" }, "first-title": { "col": [1, 6], "row": [3, 4], "role": "title", "prompt": "The first" }, "second-title": { "col": [7, 12], "row": [3, 4], "role": "title", "prompt": "The second" }, "first-chart": { "col": [1, 6], "row": [5, 10], "prompt": "A chart", "example": { "chart": "bar" } }, "second-chart": { "col": [7, 12], "row": [5, 10], "prompt": "A chart", "example": { "chart": "line" } } } },
     "positioning-map":       { "name": "Positioning Map", "description": "Each player placed by two measures, a dot apiece, ours marked: where we stand among them.", "group": "Charts", "slots": { "kicker": { "col": [9, 12], "row": [11, 12], "align": { "x": "end" }, "role": "kicker" }, "header": { "col": [1, 10], "row": [1, 2], "role": "headline", "prompt": "What this slide says" }, "main": { "col": [1, 8], "row": [3, 10], "prompt": "A scatter of the players", "example": { "chart": "scatter" } }, "takeaway": { "col": [9, 12], "row": [3, 6], "role": "lede", "prompt": "Where we stand, in a sentence" }, "note": { "col": [9, 12], "row": [7, 8], "role": "caption", "prompt": "Each dot a player, ours marked" } } },
+    "forecast":              { "name": "Forecast", "description": "A headline, the forecast across the slide, and a caption on what it holds.", "group": "Charts", "slots": { "kicker": { "col": [9, 12], "row": [11, 12], "align": { "x": "end" }, "role": "kicker" }, "header": { "col": [1, 10], "row": [1, 2], "role": "headline", "prompt": "What this slide says" }, "main": { "col": [1, 12], "row": [4, 9], "prompt": "A forecast", "example": { "chart": "weather" } }, "note": { "col": [1, 8], "row": [11, 11], "role": "caption", "prompt": "What the week holds" } } },
     "full":                  { "name": "Full Bleed", "description": "A headline over one thing that fills the grid, a picture, a chart, or a table, and a note on it.", "group": "Pictures", "slots": { "kicker": { "col": [9, 12], "row": [11, 12], "role": "kicker", "align": { "x": "end" } }, "header": { "col": [1, 8], "row": [1, 2], "role": "headline", "prompt": "What this shows" }, "main": { "col": [1, 12], "row": [1, 12], "prompt": "A picture, a chart, or a table", "example": { "picture": "backdrop" } }, "note": { "col": [1, 8], "row": [11, 12], "role": "caption", "prompt": "A note on it, or its source" } } },
     "art-left":              { "name": "Art Left", "description": "The art, then the claim's case beside it.", "group": "Pictures", "slots": { "kicker": { "col": [9, 12], "row": [11, 12], "role": "kicker", "align": { "x": "end" } }, "header": { "col": [1, 8], "row": [1, 2], "role": "headline", "prompt": "What this slide says" }, "art": { "col": [1, 5], "row": [3, 12], "prompt": "A picture", "example": { "picture": "backdrop" } }, "body": { "col": [7, 12], "row": [3, 10], "role": "body", "prompt": "Words beside the picture, a sentence or two." } } },
     "art-right":             { "name": "Art Right", "description": "The claim's case, then the art beside it.", "group": "Pictures", "slots": { "kicker": { "col": [9, 12], "row": [11, 12], "role": "kicker", "align": { "x": "end" } }, "header": { "col": [1, 8], "row": [1, 2], "role": "headline", "prompt": "What this slide says" }, "body": { "col": [1, 6], "row": [3, 10], "role": "body", "prompt": "Words beside the picture, a sentence or two." }, "art": { "col": [8, 12], "row": [3, 10], "prompt": "A picture", "example": { "picture": "backdrop" } } } },
@@ -979,7 +980,33 @@
       "role": "value"
     },
     "strokeWidth": "regular",
-    "maxTicks": 5
+    "maxTicks": 5,
+    "weather": {
+      "period": {
+        "role": "label"
+      },
+      "high": {
+        "role": "value",
+        "color": "onSurface"
+      },
+      "low": {
+        "role": "value",
+        "color": "onSurfaceMuted"
+      },
+      "chance": {
+        "role": "axis",
+        "color": "accent"
+      },
+      "caption": {
+        "role": "axis",
+        "color": "onSurfaceMuted"
+      },
+      "icon": {
+        "color": "accent",
+        "weight": "regular"
+      },
+      "band": "surface-2"
+    }
   },
   "tables": {
     "header": {

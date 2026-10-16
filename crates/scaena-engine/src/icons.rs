@@ -1,4 +1,4 @@
-//! A forecast's icons (ADR-0030, PLAN O.2b): Phosphor's, in their regular weight, a line each in
+//! A forecast's icons (ADR-0030, PLAN O.2b): Phosphor's, in their regular and fill weights, a line each in
 //! `icons/weather.txt`, `name path`. They are compiled in natively and in the player's module
 //! (`weather-icons`). The editor's module leaves them out, and its page hands the file over the
 //! first time a forecast lays out, held to its SHA-256, as the hyphenation patterns are (ADR-0015).
@@ -73,11 +73,12 @@ mod tests {
     fn every_sky_has_its_icon() {
         for code in scaena_core::weather::CODES {
             for day in [true, false] {
-                let path = super::weather(code.sky.icon(day)).unwrap();
-                assert!(path.starts_with('M'), "{}", code.code);
+                for name in [code.sky.icon(day).to_string(), format!("{}-fill", code.sky.icon(day))] {
+                    assert!(super::weather(&name).unwrap().starts_with('M'), "{}", code.code);
+                }
             }
         }
-        assert!(super::weather("drop").is_ok() && super::weather("wind").is_ok());
+        assert!(super::weather("drop").is_ok() && super::weather("wind-fill").is_ok());
         assert!(super::weather("umbrella").is_err());
     }
 }

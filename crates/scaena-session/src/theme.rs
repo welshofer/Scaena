@@ -48,7 +48,7 @@ impl Session {
         let theme: Value = serde_json::from_slice(bytes).map_err(|e| Error::Ops(format!("{path}: {e}")))?;
         let shipped: Value =
             serde_json::from_str(shipped).map_err(|e| Error::Ops(format!("the theme that ships: {e}")))?;
-        let Some((theme, brought)) = scaena_ops::theme::library(&theme, &shipped, self.shows_code()) else {
+        let Some((theme, brought)) = scaena_ops::theme::library(&theme, &shipped, self.shows_code(), self.shows_forecast()) else {
             return Ok(None);
         };
         let text = serde_json::to_string_pretty(&theme).map_err(|e| Error::Ops(e.to_string()))? + "\n";
@@ -77,6 +77,20 @@ impl Session {
             s.nodes.iter().any(|(id, props)| {
                 deck.nodes.get(id).is_some_and(|n| n.node_type == scaena_core::document::NodeType::Text)
                     && code(id, props)
+            })
+        })
+    }
+
+    /// Whether a state of the deck shows a weather chart (PLAN O.2f): one the look a theme brings
+    /// for a forecast would draw otherwise. A deck whose states do not resolve is taken to show one.
+    fn shows_forecast(&self) -> bool {
+        let deck = self.deck();
+        let Ok(snapshots) = scaena_core::resolve_states(deck) else { return true };
+        snapshots.iter().any(|s| {
+            s.nodes.iter().any(|(id, props)| {
+                let kind = deck.overrides.get(id).and_then(|o| o.get("kind")).or_else(|| props.get("kind"));
+                deck.nodes.get(id).is_some_and(|n| n.node_type == scaena_core::document::NodeType::Chart)
+                    && kind.and_then(Value::as_str) == Some("weather")
             })
         })
     }

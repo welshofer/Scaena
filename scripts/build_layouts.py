@@ -1009,6 +1009,15 @@ layout("Charts", "positioning-map", "Each player placed by two measures, a dot a
     "note": slot((9, 12), (7, 8), "caption", "Each dot a player, ours marked"),
 })
 
+# A forecast across the slide (ADR-0030, PLAN O.2f): the week, or a day by the hour, under its
+# headline, and a caption on what it holds. The theme's `charts.weather` sets its look.
+layout("Charts", "forecast", "A headline, the forecast across the slide, and a caption on what it holds.", {
+    "kicker": KICKER,
+    "header": header(),
+    "main": slot((1, 12), (4, 9), prompt="A forecast", example=chart("weather")),
+    "note": slot((1, 8), (11, 11), "caption", "What the week holds"),
+})
+
 # Comparison ------------------------------------------------------------------------------------
 
 # Features down the side, a product to each pair of columns: a check, a full ball, or an empty one,
@@ -1295,7 +1304,7 @@ NAMES = {
     "quiz": "Quiz",
     # The rest of S.1's, by the sections above
     "kpi-dashboard": "KPI Dashboard", "status-report": "Status Report", "market-size": "Market Size",
-    "positioning-map": "Positioning Map", "feature-grid": "Feature Grid", "risk-matrix": "Risk Matrix",
+    "positioning-map": "Positioning Map", "forecast": "Forecast", "feature-grid": "Feature Grid", "risk-matrix": "Risk Matrix",
     "business-model-canvas": "Business Model Canvas", "logo-wall": "Logo Wall", "device-mockup": "Device Mockup",
     "buyer-persona": "Buyer Persona",
 }

@@ -13,6 +13,7 @@ use crate::theme::Numeric;
 use scaena_core::document::Props;
 use scaena_core::format::{DateFormat, Locale, MINUS};
 use scaena_core::model::nodes::{Weather, WeatherPart};
+use scaena_core::model::theme::{IconWeight, TableText};
 use scaena_core::model::values::AnnotationKind;
 use scaena_core::weather::Units;
 use serde_json::Value;
@@ -196,18 +197,35 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     let tick_role = charts.and_then(|c| c.axis.as_ref()).and_then(|a| a.role.clone()).unwrap_or_else(|| "label".into());
     let label_role =
         charts.and_then(|c| c.label.as_ref()).and_then(|l| l.role.clone()).unwrap_or_else(|| "label".into());
-    let strong = theme.color("onSurface")?;
-    let muted = theme.color("onSurfaceMuted")?;
+    // The theme's forecast look (PLAN O.2f): each part's role and color, the icons', and the band's.
+    let look = charts.and_then(|c| c.weather.clone()).unwrap_or_default();
+    let text = |t: &Option<TableText>, role: &str, color: &str| -> (String, String) {
+        let t = t.as_ref();
+        let role = t.and_then(|t| t.role.clone()).unwrap_or_else(|| role.into());
+        (role, t.and_then(|t| t.color.clone()).unwrap_or_else(|| color.into()))
+    };
+    let period_look = text(&look.period, &tick_role, "onSurface");
+    let high_look = text(&look.high, &label_role, "onSurface");
+    let low_look = text(&look.low, &label_role, "onSurfaceMuted");
+    let chance_look = text(&look.chance, &tick_role, "onSurfaceMuted");
+    let caption_look = text(&look.caption, &tick_role, "onSurfaceMuted");
+    let icon_look = look.icon.clone().unwrap_or_default();
+    let strong = theme.color(icon_look.color.as_deref().unwrap_or("onSurface"))?;
+    let fill = icon_look.weight == Some(IconWeight::Fill);
+    let muted = theme.color(&chance_look.1)?;
     let gap = theme.tokens.space.unit as f32;
-    let band = theme.color(spec.band.as_deref().unwrap_or("surface-2"))?;
+    let band = theme.color(spec.band.as_deref().or(look.band.as_deref()).unwrap_or("surface-2"))?;
 
     // Which periods are drawn: every hour that fits, stepping by 1, 2, 3, or 6.
     let across = size[0] >= size[1];
     let lone = periods.len() == 1;
-    let unit = |part: WeatherPart| -> &str {
+    let unit = |part: WeatherPart| -> &(String, String) {
         match part {
-            WeatherPart::Period | WeatherPart::Words | WeatherPart::Chance | WeatherPart::Wind => &tick_role,
-            _ => &label_role,
+            WeatherPart::Period | WeatherPart::Sky => &period_look,
+            WeatherPart::High => &high_look,
+            WeatherPart::Low => &low_look,
+            WeatherPart::Chance => &chance_look,
+            WeatherPart::Words | WeatherPart::Wind => &caption_look,
         }
     };
 
@@ -230,32 +248,32 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         Units::Us => "mph",
     };
     let mut lay = |p: &Period, part: WeatherPart, k: f32| -> Result<Option<Laid>, EngineError> {
-        let role = unit(part).to_string();
+        let (role, color) = unit(part).clone();
         Ok(match part {
-            WeatherPart::Period => Some(Laid::Text(set(p.name.clone(), &role, "onSurface", k)?)),
+            WeatherPart::Period => Some(Laid::Text(set(p.name.clone(), &role, &color, k)?)),
             WeatherPart::Sky => p.code.map(|c| Laid::Icon { name: c.sky.icon(p.day), words: c.said(lang).into() }),
             WeatherPart::Words => match p.code {
-                Some(c) => Some(Laid::Text(set(c.said(lang).into(), &role, "onSurfaceMuted", k)?)),
+                Some(c) => Some(Laid::Text(set(c.said(lang).into(), &role, &color, k)?)),
                 None => None,
             },
             WeatherPart::High => match p.high {
-                Some(v) => Some(Laid::Text(set(degrees(v), &role, "onSurface", if lone { 2.0 * k } else { k })?)),
+                Some(v) => Some(Laid::Text(set(degrees(v), &role, &color, if lone { 2.0 * k } else { k })?)),
                 None => None,
             },
             WeatherPart::Low => match p.low {
-                Some(v) => Some(Laid::Text(set(degrees(v), &role, "onSurfaceMuted", k)?)),
+                Some(v) => Some(Laid::Text(set(degrees(v), &role, &color, k)?)),
                 None => None,
             },
             WeatherPart::Chance => match p.chance {
                 Some(v) => Some(Laid::Chance {
-                    text: set(format!("{}%", v.round() as i64), &role, "onSurfaceMuted", k)?,
+                    text: set(format!("{}%", v.round() as i64), &role, &color, k)?,
                     drop: v >= DROP_FROM,
                 }),
                 None => None,
             },
             WeatherPart::Wind => match p.wind {
                 Some(v) => {
-                    Some(Laid::Text(set(format!("{} {wind_unit}", v.round() as i64), &role, "onSurfaceMuted", k)?))
+                    Some(Laid::Text(set(format!("{} {wind_unit}", v.round() as i64), &role, &color, k)?))
                 }
                 None => None,
             },
@@ -371,7 +389,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                         out.ticks.push(label);
                     }
                     Laid::Icon { name, words } => {
-                        let outline = Icon::outline(name)?;
+                        let outline = Icon::outline(name, fill)?;
                         out.icons.push(Icon { key, cell, at, size: icon, name, outline, color: strong, words });
                     }
                     Laid::Chance { text, drop } => {
@@ -388,7 +406,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                                 at: [at[0], y],
                                 size,
                                 name: "drop",
-                                outline: Icon::outline("drop")?,
+                                outline: Icon::outline("drop", fill)?,
                                 color: muted,
                                 words: String::new(),
                             });

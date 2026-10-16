@@ -501,6 +501,31 @@ impl LoadedTheme {
                     need(self.stroke(stroke), "stroke", stroke, "/charts/annotation/stroke".into());
                 }
             }
+            if let Some(weather) = &charts.weather {
+                let texts = [
+                    ("period", &weather.period),
+                    ("high", &weather.high),
+                    ("low", &weather.low),
+                    ("chance", &weather.chance),
+                    ("caption", &weather.caption),
+                ];
+                for (key, text) in texts {
+                    let Some(text) = text else { continue };
+                    if let Some(role) = &text.role {
+                        let at = format!("/charts/weather/{key}/role");
+                        need(t.typography.roles.contains_key(role), "text role", role, at);
+                    }
+                    if let Some(color) = &text.color {
+                        need(self.color(color), "color", color, format!("/charts/weather/{key}/color"));
+                    }
+                }
+                if let Some(color) = weather.icon.as_ref().and_then(|i| i.color.as_ref()) {
+                    need(self.color(color), "color", color, "/charts/weather/icon/color".into());
+                }
+                if let Some(band) = &weather.band {
+                    need(self.color(band), "color", band, "/charts/weather/band".into());
+                }
+            }
         }
         if let Some(tables) = &t.tables {
             for (key, text) in [("header", &tables.header), ("cell", &tables.cell)] {

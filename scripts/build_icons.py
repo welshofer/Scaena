@@ -13,7 +13,8 @@ radius; quadratics and smooth curves become the cubics they are.
 Check (no network; CI runs this): docs/icons/phosphor.json is sorted by name, each name is unique
 and in kebab case, and each path is of those four commands, starts with a move, and stays in the
 icons' 256 by 256 view; and the paths the engine compiles in (`map-pin` in its fill weight, the pin
-a picture's `pin` draws, and a forecast's eleven in their regular weight, ADR-0030) are the set's.
+a picture's `pin` draws, and a forecast's eleven in their regular and fill weights, ADR-0030) are the
+set's.
 
     python3 scripts/build_icons.py            # fetch the package, write the icons, then check
     python3 scripts/build_icons.py --cache ~/.cache/scaena-icons
@@ -370,7 +371,7 @@ def compiled(doc: dict) -> str:
     lines = [
         f"//! Phosphor Icons {VERSION} (MIT, docs/icons/LICENSE-phosphor.txt) the engine draws itself, each",
         "//! path on the icons' 256 by 256 view: `map-pin` in its fill weight, the pin a picture's `pin`",
-        "//! draws, and a forecast's icons in their regular weight (ADR-0030). Written by",
+        "//! draws, and a forecast's icons in their regular and fill weights (ADR-0030). Written by",
         "//! scripts/build_icons.py from docs/icons/phosphor.json, which its `--check` holds this file to.",
         "",
     ]
@@ -380,7 +381,8 @@ def compiled(doc: dict) -> str:
     digest = hashlib.sha256(weather_file(doc).encode("utf-8")).hexdigest()
     lines += [
         "",
-        "/// The SHA-256 of `icons/weather.txt`, a forecast's icons in their regular weight, a line each,",
+        "/// The SHA-256 of `icons/weather.txt`, a forecast's icons in their regular and fill weights,",
+        "/// a line each,",
         "/// `name path` (ADR-0030): what is handed over where they are not compiled in is held to it.",
         f'pub const WEATHER_SHA256: &str = "{digest}";',
     ]
@@ -388,9 +390,11 @@ def compiled(doc: dict) -> str:
 
 
 def weather_file(doc: dict) -> str:
-    """A forecast's icons, a line each: `name path`, in their regular weight."""
+    """A forecast's icons, a line each: `name path` in their regular weight, then `name-fill path`
+    in their fill weight, which a theme's `charts.weather.icon.weight` asks for (PLAN O.2f)."""
     by_name = {icon["name"]: icon for icon in doc["icons"]}
-    return "".join(f"{name} {by_name[name]['regular']}\n" for name in WEATHER_ICONS)
+    regular = "".join(f"{name} {by_name[name]['regular']}\n" for name in WEATHER_ICONS)
+    return regular + "".join(f"{name}-fill {by_name[name]['fill']}\n" for name in WEATHER_ICONS)
 
 
 WRITTEN = re.compile(r"(?:M-?[\d.]+,-?[\d.]+|L-?[\d.]+,-?[\d.]+|C(?:-?[\d.]+,){5}-?[\d.]+|Z)+")

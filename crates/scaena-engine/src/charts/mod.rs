@@ -867,10 +867,10 @@ pub struct Icon {
 }
 
 impl Icon {
-    /// The outline of the icon `name` on its 256 by 256 view (ADR-0030): compiled in, or handed
-    /// over (ADR-0015).
-    pub fn outline(name: &str) -> Result<Path, EngineError> {
-        let svg = crate::icons::weather(name)?;
+    /// The outline of the icon `name` on its 256 by 256 view (ADR-0030), in Phosphor's fill
+    /// weight where `fill` (PLAN O.2f): compiled in, or handed over (ADR-0015).
+    pub fn outline(name: &str, fill: bool) -> Result<Path, EngineError> {
+        let svg = if fill { crate::icons::weather(&format!("{name}-fill"))? } else { crate::icons::weather(name)? };
         let bez = kurbo::BezPath::from_svg(&svg)
             .map_err(|e| EngineError::Layout(format!("the icon `{name}` does not parse: {e}")))?;
         Ok(crate::shapes::path_of(&bez))
