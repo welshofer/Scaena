@@ -1,6 +1,7 @@
 // The languages' hyphenation patterns (ADR-0015), which the editor's module leaves out: the
 // build copies each file beside the pages, and the worker fetches one the first time a text
-// hyphenates in its language. A single-file export's worker is built with `no-hyphenation.ts`:
+// hyphenates in its language; and a forecast's icons (ADR-0030), fetched the first time a forecast
+// lays out. A single-file export's worker is built with `no-hyphenation.ts`:
 // its module, the player's, has every language compiled in.
 import ca from "../../crates/scaena-engine/hyphenation/ca.bin?url";
 import cs from "../../crates/scaena-engine/hyphenation/cs.bin?url";
@@ -19,6 +20,11 @@ import ru from "../../crates/scaena-engine/hyphenation/ru.bin?url";
 import sv from "../../crates/scaena-engine/hyphenation/sv.bin?url";
 import tr from "../../crates/scaena-engine/hyphenation/tr.bin?url";
 import uk from "../../crates/scaena-engine/hyphenation/uk.bin?url";
+
+import weather from "../../crates/scaena-engine/icons/weather.txt?url";
+
+/** Where the page has a forecast's icons, which the editor's module leaves out too (ADR-0030). */
+export const weatherIcons: string | undefined = weather;
 
 /** Each language's patterns by its code (`de`), and where the page has them. */
 export const hyphenation: Record<string, string> = { en, de, fr, es, it, pt, nl, sv, da, fi, pl, cs, ru, uk, tr, el, ca };

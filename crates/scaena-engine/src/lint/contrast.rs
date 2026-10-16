@@ -295,11 +295,12 @@ fn glyphs(op: &Op) -> Option<Op> {
             }
             Some(white)
         }
-        Op::Layer { node, cell, transform, clip, ops, .. } => {
+        Op::Layer { node, cell, label, transform, clip, ops, .. } => {
             let ops: Vec<Op> = ops.iter().filter_map(glyphs).collect();
             (!ops.is_empty()).then(|| Op::Layer {
                 node: node.clone(),
                 cell: *cell,
+                label: label.clone(),
                 transform: *transform,
                 opacity: 1.0,
                 blend: Blend::Normal,

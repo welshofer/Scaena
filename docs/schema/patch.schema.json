@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/patch-0.30.json",
+  "$id": "https://scaena.dev/schema/patch-0.31.json",
   "title": "Scaena patch",
   "description": "A patch (SPEC §7.3): RFC 6902 ops and semantic ops, applied in order, all or none.",
   "type": "array",
@@ -1051,7 +1051,11 @@
         "axes": { "$ref": "#/$defs/ChartAxes" },
         "labels": { "$ref": "#/$defs/ChartLabels" },
         "legend": { "$ref": "#/$defs/Legend" },
-        "annotations": { "type": "array", "items": { "$ref": "#/$defs/Annotation" } }
+        "annotations": { "type": "array", "items": { "$ref": "#/$defs/Annotation" } },
+        "weather": {
+          "description": "A `weather` chart's fields, units, and parts (deck format 0.31, ADR-0030): any other kind is E106.",
+          "$ref": "#/$defs/Weather"
+        }
       }
     },
     "TableNode": {
@@ -1783,9 +1787,9 @@
       ]
     },
     "ChartKind": {
-      "description": "v1 chart kinds (SPEC §3.7); waffle and heatmap are deferred. A `slope` compares two states, a line a series from the first to the second, both ends labeled and the change said; a `range` spans the value axis at each category, a dumbbell between its series or each value with its `interval` (PLAN 1.30).",
+      "description": "v1 chart kinds (SPEC §3.7); waffle and heatmap are deferred. A `slope` compares two states, a line a series from the first to the second, both ends labeled and the change said; a `range` spans the value axis at each category, a dumbbell between its series or each value with its `interval` (PLAN 1.30); a `weather` chart draws a forecast, a column for each period, its sky's icon and its figures (ADR-0030).",
       "type": "string",
-      "enum": ["bar", "stackedBar", "line", "area", "scatter", "dot", "donut", "slope", "range"]
+      "enum": ["bar", "stackedBar", "line", "area", "scatter", "dot", "donut", "slope", "range", "weather"]
     },
     "ChartOrient": {
       "description": "Which way a chart's bars run (SPEC §3.7, PLAN 1.29).",
@@ -1961,6 +1965,63 @@
     "Scalar": {
       "description": "A number, or text: a category, a series, or a date.",
       "anyOf": [{ "type": "number" }, { "type": "string" }]
+    },
+    "Weather": {
+      "description": "What a `weather` chart draws (SPEC §3.7, ADR-0030 decision 19): a column for each period of a forecast, across the box, or a row down a box taller than wide, each its name, its sky's icon, and its figures.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fields": {
+          "description": "The columns each part reads, where they are not the forecast's own.",
+          "$ref": "#/$defs/WeatherFields"
+        },
+        "units": {
+          "description": "The units it shows its figures in: the source's by default. They convert at layout.",
+          "$ref": "#/$defs/Units"
+        },
+        "show": {
+          "description": "The parts each period shows, in this order; `period`, `sky`, `high`, `low`, and `chance` when unset.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/WeatherPart" }
+        },
+        "every": {
+          "description": "Hours between columns of a forecast by the hour; unset, 1, 2, 3, or 6, the least that fits.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 24
+        },
+        "band": {
+          "description": "The theme color a highlighted period stands on: `surface-2` when unset.",
+          "type": "string"
+        }
+      }
+    },
+    "WeatherFields": {
+      "description": "The columns a `weather` chart reads its parts from (ADR-0030, decision 18).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sky": { "description": "The WMO code of each period's sky: `sky`.", "type": "string" },
+        "high": { "description": "The high: `high` by the day, `temperature` by the hour.", "type": "string" },
+        "low": { "description": "The low: `low`.", "type": "string" },
+        "chance": { "description": "The chance of rain, in percent: `rain`.", "type": "string" },
+        "wind": { "description": "The wind's speed: `wind`.", "type": "string" },
+        "day": { "description": "Whether an hour is in daylight: `day`.", "type": "string" }
+      }
+    },
+    "WeatherPart": {
+      "description": "A part of a `weather` chart's period.",
+      "oneOf": [
+        { "type": "string", "enum": ["high", "low", "wind"] },
+        { "description": "Its name: the weekday, or the hour.", "type": "string", "const": "period" },
+        { "description": "The sky's icon.", "type": "string", "const": "sky" },
+        { "description": "The sky in words.", "type": "string", "const": "words" },
+        {
+          "description": "The chance of rain, with a drop where it is 10% or more.",
+          "type": "string",
+          "const": "chance"
+        }
+      ]
     },
     "TableColumn": {
       "description": "One column of a table.",
@@ -2214,6 +2275,7 @@
         "annotations": {
           "anyOf": [{ "type": "array", "items": { "$ref": "#/$defs/Annotation" } }, { "type": "null" }]
         },
+        "weather": { "anyOf": [{ "$ref": "#/$defs/WeatherDelta" }, { "type": "null" }] },
         "columns": {
           "anyOf": [{ "minItems": 1, "type": "array", "items": { "$ref": "#/$defs/TableColumn" } }, { "type": "null" }]
         },
@@ -2550,6 +2612,18 @@
       "properties": {
         "place": { "anyOf": [{ "$ref": "#/$defs/LegendPlace" }, { "type": "null" }] },
         "title": { "type": ["string", "null"] }
+      }
+    },
+    "WeatherDelta": {
+      "description": "`Weather` in a state's delta: it merges one level into the tracked value, so every key is optional and null deletes one (SPEC §2.2).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fields": { "anyOf": [{ "$ref": "#/$defs/WeatherFields" }, { "type": "null" }] },
+        "units": { "anyOf": [{ "$ref": "#/$defs/Units" }, { "type": "null" }] },
+        "show": { "anyOf": [{ "items": { "$ref": "#/$defs/WeatherPart" }, "type": "array" }, { "type": "null" }] },
+        "every": { "anyOf": [{ "maximum": 24, "type": "integer", "minimum": 1 }, { "type": "null" }] },
+        "band": { "type": ["string", "null"] }
       }
     },
     "ChoreoItem": {

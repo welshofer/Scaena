@@ -12,7 +12,7 @@
 <canvas id="stage"></canvas>
 <p><select id="state"></select> <select id="format"><option value="">own canvas</option></select> <span id="status">loading…</span></p>
 <script type="module">
-  import init, { Player, Canvas, setHyphenation } from "./pkg/scaena_wasm.js";
+  import init, { Player, Canvas, setHyphenation, setIcons } from "./pkg/scaena_wasm.js";
   const status = document.getElementById("status");
   try {
     await init();
@@ -23,6 +23,14 @@
     setHyphenation((code) => {
       const request = new XMLHttpRequest();
       request.open("GET", `../../scaena-engine/hyphenation/${code}.bin`, false);
+      request.overrideMimeType("text/plain; charset=x-user-defined");
+      request.send();
+      return request.status === 200 ? Uint8Array.from(request.responseText, (c) => c.charCodeAt(0) & 0xff) : undefined;
+    });
+    // And a forecast's icons (ADR-0030), the first time a forecast lays out.
+    setIcons(() => {
+      const request = new XMLHttpRequest();
+      request.open("GET", "../../scaena-engine/icons/weather.txt", false);
       request.overrideMimeType("text/plain; charset=x-user-defined");
       request.send();
       return request.status === 200 ? Uint8Array.from(request.responseText, (c) => c.charCodeAt(0) & 0xff) : undefined;

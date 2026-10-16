@@ -456,7 +456,7 @@ extension ScaenaSession {
     public func lint(state: String? = nil, now: Date = Date()) throws -> Linting {
         var args: [String: JSONValue] = ["now": .string(now.formatted(.iso8601))]
         if let state { args["state"] = .string(state) }
-        return try call("lint", args)
+        return try call("lint", .object(args))
     }
 
     /// The source compiled last with `patch`, a finding's fix, applied: the fixed deck as `.scn`.

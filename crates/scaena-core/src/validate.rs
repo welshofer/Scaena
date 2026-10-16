@@ -1014,10 +1014,11 @@ fn annotations(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
 /// interval, so one with neither draws nothing. Each finding points at what set it in the
 /// state.
 fn projections(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
-    const ONLY: [(&str, &[&str], &str); 3] = [
+    const ONLY: [(&str, &[&str], &str); 4] = [
         ("projected", &["line", "area"], "marks the rows of a line or an area; a `{kind}` chart draws none"),
         ("orient", &["bar", "stackedBar"], "turns a bar chart's bars; a `{kind}` chart has none"),
         ("interval", &["range"], "gives a range's values their intervals; a `{kind}` chart has none"),
+        ("weather", &["weather"], "says what a forecast draws; a `{kind}` chart draws none"),
     ];
     let mut out = Vec::new();
     let mut seen = HashSet::new();
@@ -1601,6 +1602,44 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
                     ),
                 };
                 found("E103", here("interval", &format!("/{end}")), message);
+            }
+            // A forecast's fields, each a column of its data, and each sky a WMO code Open-Meteo
+            // documents (ADR-0030).
+            if props.get("kind").and_then(Value::as_str) == Some("weather") {
+                let fields = props.get("weather").and_then(|w| w.get("fields")).and_then(Value::as_object);
+                for (part, field) in fields.into_iter().flatten() {
+                    let Some(field) = field.as_str() else { continue };
+                    if column(field).is_none() {
+                        found("E103", here("weather", &format!("/fields/{part}")), missing(field));
+                    }
+                }
+                let sky = fields.and_then(|f| f.get("sky")).and_then(Value::as_str);
+                if let Some(c) = table.column(sky.unwrap_or("sky")) {
+                    for row in &table.rows {
+                        if let Datum::Number(code) = row[c]
+                            && crate::weather::code(code).is_none()
+                        {
+                            let path = match sky {
+                                Some(_) => here("weather", "/fields/sky"),
+                                None => here("data", ""),
+                            };
+                            let message = format!(
+                                "{read}'s `{}` holds {code}, which is no WMO weather code Open-Meteo documents",
+                                sky.unwrap_or("sky")
+                            );
+                            found("E103", path, message);
+                            break;
+                        }
+                    }
+                }
+                let x = props.get("x").and_then(|e| e.get("field")).and_then(Value::as_str);
+                let period = x.or_else(|| ["date", "time"].into_iter().find(|f| table.column(f).is_some()));
+                if period.is_none_or(|p| column(p) != Some(ColumnType::Date)) {
+                    let message = format!(
+                        "a weather chart keys its periods by a column of dates, `date` or `time`, which {read} lacks"
+                    );
+                    found("E103", here("data", ""), message);
+                }
             }
             // Keys, which must be unique (SPEC §3.3, §3.7), made as rendering makes them. A
             // column that is not there was reported above.

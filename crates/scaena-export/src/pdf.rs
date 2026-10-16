@@ -468,13 +468,18 @@ impl Cx<'_, '_> {
                     let xf = xf * affine(transform);
                     let mut cells = BTreeMap::new();
                     let mut credits = Vec::new();
+                    // What a cell that draws no glyphs says: a forecast's sky (ADR-0030).
+                    let mut said: BTreeMap<(u32, u32), String> = BTreeMap::new();
                     for child in inner {
                         match child {
                             // Its data's credit (ADR-0030): a paragraph after it.
                             op if is_credit(op) => credits.push(self.tagged(op, xf)),
-                            Op::Layer { cell: Some([row, column]), .. } => {
+                            Op::Layer { cell: Some([row, column]), label, .. } => {
                                 let id = self.tagged(child, xf);
                                 cells.insert((*row, *column), id);
+                                if let Some(label) = label {
+                                    said.insert((*row, *column), label.clone());
+                                }
                             }
                             // Its rules.
                             _ => self.artifact(Artifact::new(ArtifactType::Layout, None), child, xf),
@@ -484,9 +489,10 @@ impl Cx<'_, '_> {
                     self.close(pushed);
                     let mut table = Vec::with_capacity(rows.len());
                     for (row, cells) in rows {
-                        let cells = cells.into_iter().map(|id| {
+                        let cells = cells.into_iter().enumerate().map(|(column, id)| {
                             let cell: TagKind =
                                 if row == 0 { Tag::TH(TableHeaderScope::Column).into() } else { Tag::TD.into() };
+                            let cell = cell.with_alt_text(said.get(&(row, column as u32)).cloned());
                             Node::from(TagGroup::with_children(cell, vec![id.into()]))
                         });
                         table.push(Node::from(TagGroup::with_children(Tag::TR, cells.collect())));
@@ -784,6 +790,7 @@ impl Cx<'_, '_> {
         list.ops.push(Op::Layer {
             node: None,
             cell: None,
+            label: None,
             transform: (Affine::translate((-x0, -y0)) * xf).as_coeffs().map(|v| v as f32),
             opacity: 1.0,
             blend: Blend::Normal,

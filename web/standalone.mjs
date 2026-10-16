@@ -63,6 +63,8 @@ async function painted(dir, frames) {
   // The editor's module is handed the hyphenation patterns it leaves out, here from the
   // repository, as its page hands them over (ADR-0015); the player's has them compiled in.
   glue.setHyphenation((code) => readFileSync(`crates/scaena-engine/hyphenation/${code}.bin`));
+  // And a forecast's icons (ADR-0030).
+  glue.setIcons(() => readFileSync("crates/scaena-engine/icons/weather.txt"));
   const deck = readFileSync(join(bundle, "deck.json"), "utf8");
   const theme = JSON.parse(deck).theme;
   const player = new glue.Player(deck, readFileSync(join(bundle, theme), "utf8"));

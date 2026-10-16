@@ -13,8 +13,8 @@
 // The CPU painter shares a shader's rows with helpers, each a worker started as this one was,
 // holding the engine's module and no deck (PLAN 2.28): a worker whose first message is `help`
 // is one.
-import { hyphenation } from "@scaena/hyphenation";
-import init, { Canvas, Player, engineModule, setHyphenation, shaderRows } from "@scaena/wasm";
+import { hyphenation, weatherIcons } from "@scaena/hyphenation";
+import init, { Canvas, Player, engineModule, setHyphenation, setIcons, shaderRows } from "@scaena/wasm";
 import { deleteKept, keptBundle, newBundle, readAll, remove, renameKept, write } from "./folders";
 import { finding } from "./words";
 import type {
@@ -692,7 +692,17 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
  * engine asks the first time a text hyphenates in it, in the middle of a layout, so they are
  * fetched at once, as a worker may. The player's module has every language, and never asks. */
 function patterns(code: string): Uint8Array | undefined {
-  const url = hyphenation[code];
+  return fetched(hyphenation[code]);
+}
+
+/** A forecast's icons, which the editor's module leaves out too (ADR-0030): fetched as the
+ * patterns are, the first time a forecast lays out. */
+function icons(): Uint8Array | undefined {
+  return fetched(weatherIcons);
+}
+
+/** The bytes at `url`, fetched at once, in the middle of a layout. */
+function fetched(url: string | undefined): Uint8Array | undefined {
   if (!url) return undefined;
   const request = new XMLHttpRequest();
   request.open("GET", url, false);
@@ -717,6 +727,7 @@ interface DeckFiles {
 async function open(source: Source, painter: Painter, target: OffscreenCanvas, engine?: WebAssembly.Module) {
   await init(engine && { module_or_path: engine });
   setHyphenation(patterns);
+  setIcons(icons);
   canvas = target;
   if (painter !== "cpu") {
     // Ask for an adapter before WebGPU takes the canvas: a canvas WebGPU holds takes no other
@@ -905,8 +916,9 @@ async function shipped(theme: string): Promise<{ file: string; text: string; fon
  * what it came to. The page opens it as it opens any bundle's files. */
 async function generating(job: Generate, engine?: WebAssembly.Module) {
   await init(engine && { module_or_path: engine });
-  // Lint lays the deck's texts out, which can hyphenate them.
+  // Lint lays the deck's texts out, which can hyphenate them, and its forecasts.
   setHyphenation(patterns);
+  setIcons(icons);
   const { generate } = await import("@scaena/generate");
   const theme = await shipped(job.theme);
   const { files, made, title } = await generate(job, theme, (event) => post({ type: "generating", event }));

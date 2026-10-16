@@ -12,8 +12,12 @@ authors.workspace = true
 default = ["hyphenation"]
 # The seventeen languages' hyphenation patterns compiled in (`hyphen`, ADR-0015): the CLI, the
 # MCP server, and the player's module. The editor's module leaves them out, and its page hands a
-# language's patterns over the first time a text hyphenates in it.
-hyphenation = []
+# language's patterns over the first time a text hyphenates in it. What the editor's module leaves
+# out, the forecast's icons too, goes with them.
+hyphenation = ["weather-icons"]
+# A forecast's icons compiled in (`icons`, ADR-0030): where the editor's module leaves them out, its
+# page hands them over the first time a forecast lays out (ADR-0015).
+weather-icons = []
 
 [dependencies]
 scaena-core.workspace = true

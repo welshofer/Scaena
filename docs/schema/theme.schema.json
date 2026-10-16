@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/theme-0.17.json",
+  "$id": "https://scaena.dev/schema/theme-0.18.json",
   "title": "Scaena theme (design system)",
   "description": "Tokens, typographic roles, layout templates, motion, and palettes. Documents reference these by name; they never store resolved values. See docs/SPEC.md §3.6.",
   "type": "object",
   "required": ["scaena-theme", "name", "tokens", "type", "grid", "layouts", "motion"],
   "additionalProperties": false,
   "properties": {
-    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.17(\\.[0-9]+)?$" },
+    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.18(\\.[0-9]+)?$" },
     "name": { "type": "string", "minLength": 1 },
     "description": { "type": "string" },
     "tokens": { "$ref": "#/$defs/Tokens" },
@@ -587,9 +587,9 @@
       ]
     },
     "ChartKind": {
-      "description": "v1 chart kinds (SPEC §3.7); waffle and heatmap are deferred. A `slope` compares two states, a line a series from the first to the second, both ends labeled and the change said; a `range` spans the value axis at each category, a dumbbell between its series or each value with its `interval` (PLAN 1.30).",
+      "description": "v1 chart kinds (SPEC §3.7); waffle and heatmap are deferred. A `slope` compares two states, a line a series from the first to the second, both ends labeled and the change said; a `range` spans the value axis at each category, a dumbbell between its series or each value with its `interval` (PLAN 1.30); a `weather` chart draws a forecast, a column for each period, its sky's icon and its figures (ADR-0030).",
       "type": "string",
-      "enum": ["bar", "stackedBar", "line", "area", "scatter", "dot", "donut", "slope", "range"]
+      "enum": ["bar", "stackedBar", "line", "area", "scatter", "dot", "donut", "slope", "range", "weather"]
     },
     "TextFit": {
       "description": "What a text node does when its text does not fit (SPEC §3.4).",

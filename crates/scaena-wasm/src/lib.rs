@@ -302,6 +302,20 @@ pub fn set_hyphenation(loader: js_sys::Function) {
     });
 }
 
+/// Where this thread's engine gets a forecast's icons that its module leaves out (ADR-0030,
+/// ADR-0015): `loader` returns the bytes of `icons/weather.txt` as a `Uint8Array`, or anything
+/// else where it has none. It is asked the first time a forecast lays out, in the middle of a
+/// layout, so it answers at once. What it returns is held to the file's SHA-256. The player's
+/// module has them compiled in, and never asks.
+#[cfg(feature = "cpu")]
+#[wasm_bindgen(js_name = setIcons)]
+pub fn set_icons(loader: js_sys::Function) {
+    scaena_engine::icons::set_loader(move || {
+        let bytes = loader.call0(&JsValue::NULL).ok()?;
+        bytes.dyn_into::<js_sys::Uint8Array>().ok().map(|bytes| bytes.to_vec())
+    });
+}
+
 /// The module this is, compiled: a page hands it to the workers it starts beside the
 /// engine's, which instantiate it rather than fetch and compile it again (PLAN 2.28).
 #[wasm_bindgen(js_name = engineModule)]

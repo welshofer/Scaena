@@ -77,6 +77,8 @@ pub fn reading(t: NodeType, props: &Props) -> Reading {
             Some("title") => Kind::Heading(2),
             _ => Kind::Paragraph,
         },
+        // A forecast reads as a table, the sky in words (ADR-0030).
+        NodeType::Chart if text("kind") == Some("weather") => Kind::Table,
         NodeType::Image | NodeType::Chart => Kind::Figure,
         NodeType::Table => Kind::Table,
         NodeType::Shape | NodeType::Shader if alt.is_some() => Kind::Figure,
@@ -327,14 +329,20 @@ impl Reader<'_> {
     }
 }
 
-/// A table's cells, by row and column, each with the text it draws.
+/// A table's cells, by row and column, each with the text it draws, or the words its layer says
+/// for what it draws where it draws no glyphs (a forecast's sky).
 fn cells(ops: &[Op]) -> BTreeMap<(u32, u32), String> {
     let mut cells = BTreeMap::new();
     for op in ops {
-        if let Op::Layer { cell: Some(at @ [row, column]), ops, .. } = op
+        if let Op::Layer { cell: Some(at @ [row, column]), label, ops, .. } = op
             && *at != crate::fetched::FOOT_CELL
         {
-            cells.insert((*row, *column), drawn(ops));
+            let said = drawn(ops);
+            let said = match (said.trim().is_empty(), label) {
+                (true, Some(label)) => label.clone(),
+                _ => said,
+            };
+            cells.insert((*row, *column), said);
         }
     }
     cells
@@ -537,6 +545,7 @@ mod tests {
         Op::Layer {
             node: node.map(str::to_string),
             cell,
+            label: None,
             transform: IDENTITY,
             opacity: 1.0,
             blend: Blend::Normal,
@@ -705,5 +714,47 @@ mod tests {
         let parts = parts(&deck, &snaps[0], &list);
         let said: Vec<&str> = parts.iter().map(|p| p.role).collect();
         assert_eq!(said.last(), Some(&"paragraph"), "{parts:?}");
+    }
+
+    /// A forecast (ADR-0030, PLAN O.2b) reads as a table, a row a period, each sky's cell the sky
+    /// in words its layer says where it draws no glyphs.
+    #[test]
+    fn a_forecast_reads_as_a_table_the_sky_in_words() {
+        assert_eq!(read(NodeType::Chart, json!({ "kind": "weather" })).kind, Kind::Table);
+        let deck = Deck::from_json(
+            &json!({
+                "scaena": crate::FORMAT_VERSION, "canvas": { "width": 1920, "height": 1080 }, "theme": "theme.json",
+                "nodes": { "w": { "type": "chart", "kind": "weather", "data": "@week" } },
+                "states": [{ "id": "one", "props": { "w": {} } }]
+            })
+            .to_string(),
+        )
+        .expect("a deck");
+        let snaps = crate::resolve_states(&deck).expect("snapshots");
+        let sky = |at: [u32; 2], words: &str| Op::Layer {
+            node: None,
+            cell: Some(at),
+            label: Some(words.into()),
+            transform: IDENTITY,
+            opacity: 1.0,
+            blend: Blend::Normal,
+            clip: None,
+            ops: vec![],
+        };
+        let mut list = DisplayList::new([1920.0, 1080.0]);
+        list.ops = vec![layer(
+            Some("w"),
+            None,
+            vec![
+                layer(None, Some([1, 0]), vec![glyphs("Thu", 0.0)]),
+                sky([1, 1], "Light rain"),
+                layer(None, Some([2, 0]), vec![glyphs("Fri", 0.0)]),
+                sky([2, 1], "Clear"),
+            ],
+        )];
+        assert_eq!(
+            html(&deck, &snaps[0], &list),
+            r#"<table data-node="w"><tr><td>Thu</td><td>Light rain</td></tr><tr><td>Fri</td><td>Clear</td></tr></table>"#
+        );
     }
 }

@@ -358,6 +358,7 @@ impl Slide {
         let layer = |transform: Affine, opacity: f32, clip: Option<Path>, ops: Vec<Op>| Op::Layer {
             node: None,
             cell: None,
+            label: None,
             transform,
             opacity,
             blend: Blend::Normal,
@@ -672,7 +673,7 @@ fn looked(op: Op, seen: Seen) -> Op {
     if seen.leaves_layer() {
         return op;
     }
-    let Op::Layer { node, cell, transform, opacity, blend, clip, mut ops } = op else { return op };
+    let Op::Layer { node, cell, label, transform, opacity, blend, clip, mut ops } = op else { return op };
     if scaena_core::pose::invert(&seen.map).is_none() {
         ops.clear();
     }
@@ -680,7 +681,7 @@ fn looked(op: Op, seen: Seen) -> Op {
         ops.iter_mut().for_each(|op| tint(op, color, q as f32));
     }
     let transform = compose(seen.map, transform.map(f64::from)).map(|v| v as f32);
-    Op::Layer { node, cell, transform, opacity: opacity * seen.opacity as f32, blend, clip, ops }
+    Op::Layer { node, cell, label, transform, opacity: opacity * seen.opacity as f32, blend, clip, ops }
 }
 
 /// A group as the fold below keys it: its id, and whether its layer is the one in the
@@ -1042,12 +1043,15 @@ impl Transition {
                 && matches!(c.motion, Motion::Exit(_)) == source
                 && self.applies(&c.motion, &node.id)
         });
-        let (Some(cue), Op::Layer { node, cell, transform, opacity, blend, clip, .. }) = (cue, &op) else { return op };
+        let (Some(cue), Op::Layer { node, cell, label, transform, opacity, blend, clip, .. }) = (cue, &op) else {
+            return op;
+        };
         let split = text_split(cue.split).expect("found by its split");
         let ops = unit_ops(dl, &placed.text, split, cue, t);
         Op::Layer {
             node: node.clone(),
             cell: *cell,
+            label: label.clone(),
             transform: *transform,
             opacity: *opacity,
             blend: *blend,
@@ -1204,7 +1208,14 @@ impl Transition {
                         (None, None) => unreachable!("a chart track has a side"),
                     };
                     let clip_y = [-origin[1], dl.viewport[1]];
-                    let mut ops = plan.sample(&mut dl, a.map(|c| c.2), b.map(|c| c.2), p, t_ms, [enter, exit], clip_y);
+                    let weather = |c: Option<&(&SceneNode, Rect, &ChartLayout)>| {
+                        c.is_some_and(|c| c.2.kind == ChartKind::Weather)
+                    };
+                    let mut ops = match weather(a.as_ref()) || weather(b.as_ref()) {
+                        // A forecast's parts move by their period's key (ADR-0030).
+                        true => weather_between(&mut dl, a.map(|c| c.2), b.map(|c| c.2), p),
+                        false => plan.sample(&mut dl, a.map(|c| c.2), b.map(|c| c.2), p, t_ms, [enter, exit], clip_y),
+                    };
                     let feet = (a.and_then(|c| c.2.credit.as_ref()), b.and_then(|c| c.2.credit.as_ref()));
                     ops.extend(feet_between(&mut dl, feet.0, feet.1, p));
                     let op = chart_layer(id, origin, width, dl.viewport[1], opacity, ops);
@@ -1255,12 +1266,12 @@ impl Transition {
                         }
                     }
                     let clip = b.clip.map(|[x, y, w, h]| Path::rect([x - origin[0], y - origin[1], w, h]));
-                    let Op::Layer { node, cell, transform, opacity, blend, ops, .. } =
+                    let Op::Layer { node, cell, label, transform, opacity, blend, ops, .. } =
                         layer(Some(&y.id), origin, opacity, ops)
                     else {
                         unreachable!("`layer` makes layers")
                     };
-                    dl.ops.push(looked(Op::Layer { node, cell, transform, opacity, blend, clip, ops }, seen));
+                    dl.ops.push(looked(Op::Layer { node, cell, label, transform, opacity, blend, clip, ops }, seen));
                 }
                 Track::Words { from: i, to: j, plan } => {
                     let (x, y) = (&from[*i], &to[*j]);
@@ -1278,12 +1289,12 @@ impl Transition {
                     let clip = (a.clip.is_some() && b.clip.is_some())
                         .then(|| b.clip.map(|[x, y, w, h]| Path::rect([x - origin[0], y - origin[1], w, h])))
                         .flatten();
-                    let Op::Layer { node, cell, transform, opacity, blend, ops, .. } =
+                    let Op::Layer { node, cell, label, transform, opacity, blend, ops, .. } =
                         layer(Some(&y.id), origin, lerp(x.opacity, y.opacity, p), ops)
                     else {
                         unreachable!("`layer` makes layers")
                     };
-                    dl.ops.push(looked(Op::Layer { node, cell, transform, opacity, blend, clip, ops }, seen));
+                    dl.ops.push(looked(Op::Layer { node, cell, label, transform, opacity, blend, clip, ops }, seen));
                 }
             }
         }
@@ -1512,6 +1523,7 @@ impl WordPlan {
         let word = |dl: &mut DisplayList, runs: &[GlyphRun], w: &Word, transform: [f32; 6], opacity: f32| Op::Layer {
             node: None,
             cell: None,
+            label: None,
             transform,
             opacity,
             blend: Blend::Normal,
@@ -1607,7 +1619,16 @@ fn unit_ops_of(dl: &mut DisplayList, text: &TextLayout, units: Vec<TextUnit>, cu
         let [a, b, c, d, e, f] = look.affine(unit_box(text, &unit.glyphs)).map(|v| v as f32);
         let transform = [a, b, c, d, e, f];
         let opacity = look.opacity as f32;
-        layers.push(Op::Layer { node: None, cell: None, transform, opacity, blend: Blend::Normal, clip: None, ops });
+        layers.push(Op::Layer {
+            node: None,
+            cell: None,
+            label: None,
+            transform,
+            opacity,
+            blend: Blend::Normal,
+            clip: None,
+            ops,
+        });
     }
     let rest = subset(text, |r, g| !taken.contains(&(r, g)));
     let mut ops = glyph_ops(dl, &text.text, &starts, &rest);
@@ -1731,6 +1752,83 @@ fn table_ops(dl: &mut DisplayList, table: &TableLayout) -> Vec<Op> {
     ops
 }
 
+/// A forecast's parts `p` of the way from `a`'s to `b`'s (ADR-0030), each part matched by its
+/// period's key: a highlight's band, then each text and icon in a layer that says its cell, an
+/// icon's saying the sky in words. One on both sides moves; one whose words or icon changed, or on
+/// one side only, fades where it is. At rest, `a` and `b` are the same chart at 1.
+fn weather_between(dl: &mut DisplayList, a: Option<&ChartLayout>, b: Option<&ChartLayout>, p: f32) -> Vec<Op> {
+    let empty = |c: Option<&ChartLayout>| c.is_none_or(|c| c.kind != ChartKind::Weather);
+    let (a, b) = (a.filter(|_| !empty(a)), b.filter(|_| !empty(b)));
+    let mut ops = Vec::new();
+    for (i, j) in pair(notes_of(a), notes_of(b), |n| &n.key) {
+        let band = |c: Option<&ChartLayout>, k: Option<usize>| k.and_then(|k| c?.notes[k].band);
+        match (band(a, i), band(b, j)) {
+            (Some((r, c)), Some((s, d))) => ops.push(band_op(lerp4(r, s, p), mix(c, d, p), 1.0)),
+            (Some((r, c)), None) => ops.push(band_op(r, c, 1.0 - p)),
+            (None, Some((s, d))) => ops.push(band_op(s, d, p)),
+            (None, None) => {}
+        }
+    }
+    let cell = |at: Option<[u32; 2]>, label: Option<&str>, origin: Point, alpha: f32, inner: Vec<Op>| Op::Layer {
+        node: None,
+        cell: at,
+        label: label.filter(|l| !l.is_empty()).map(str::to_string),
+        transform: [1.0, 0.0, 0.0, 1.0, origin[0], origin[1]],
+        opacity: alpha,
+        blend: Blend::Normal,
+        clip: None,
+        ops: inner,
+    };
+    for (i, j) in pair(ticks_of(a), ticks_of(b), |l| &l.key) {
+        let (x, y) = (i.map(|i| &ticks_of(a)[i]), j.map(|j| &ticks_of(b)[j]));
+        let mut draw = |l: &Label, origin: Point, alpha: f32| {
+            let inner = text_ops(dl, &l.text);
+            ops.push(cell(l.cell, None, origin, alpha * l.opacity, inner));
+        };
+        match (x, y) {
+            (Some(x), Some(y)) if x.text.text == y.text.text => draw(y, lerp2(x.origin, y.origin, p), 1.0),
+            (x, y) => {
+                if let Some(x) = x {
+                    draw(x, x.origin, 1.0 - p);
+                }
+                if let Some(y) = y {
+                    draw(y, y.origin, p);
+                }
+            }
+        }
+    }
+    let icons =
+        |c: Option<&ChartLayout>| -> Vec<crate::charts::Icon> { c.map(|c| c.icons.clone()).unwrap_or_default() };
+    let (ia, ib) = (icons(a), icons(b));
+    for (i, j) in pair(&ia, &ib, |n| &n.key) {
+        let (x, y) = (i.map(|i| &ia[i]), j.map(|j| &ib[j]));
+        let mut draw = |n: &crate::charts::Icon, at: Point, size: f32, alpha: f32| {
+            // On its view, scaled to its size.
+            let k = size / 256.0;
+            let fill = Op::Fill { path: n.outline.clone(), rule: FillRule::NonZero, paint: Paint::Solid(n.color) };
+            let Op::Layer { node, cell: at_cell, label, opacity, blend, clip, ops: inner, .. } =
+                cell(n.cell, Some(&n.words), at, alpha, vec![fill])
+            else {
+                unreachable!("`cell` makes layers")
+            };
+            let transform = [k, 0.0, 0.0, k, at[0], at[1]];
+            ops.push(Op::Layer { node, cell: at_cell, label, transform, opacity, blend, clip, ops: inner });
+        };
+        match (x, y) {
+            (Some(x), Some(y)) if x.name == y.name => draw(y, lerp2(x.at, y.at, p), lerp(x.size, y.size, p), 1.0),
+            (x, y) => {
+                if let Some(x) = x {
+                    draw(x, x.at, x.size, 1.0 - p);
+                }
+                if let Some(y) = y {
+                    draw(y, y.at, y.size, p);
+                }
+            }
+        }
+    }
+    ops
+}
+
 /// The credit at a chart's or a table's foot (ADR-0030), at `origin` in it: a layer of its own that
 /// says it is the credit ([`scaena_core::fetched::FOOT_CELL`]), each run a link where it links.
 fn foot_op(dl: &mut DisplayList, foot: &crate::charts::Foot, origin: Point, opacity: f32) -> Op {
@@ -1739,7 +1837,7 @@ fn foot_op(dl: &mut DisplayList, foot: &crate::charts::Foot, origin: Point, opac
     else {
         unreachable!("`layer` makes layers")
     };
-    Op::Layer { node, cell: Some(scaena_core::fetched::FOOT_CELL), transform, opacity, blend, clip, ops }
+    Op::Layer { node, cell: Some(scaena_core::fetched::FOOT_CELL), label: None, transform, opacity, blend, clip, ops }
 }
 
 /// The credit at a chart's or a table's foot `p` of the way from `a`'s to `b`'s: one credit that
@@ -2296,6 +2394,12 @@ fn notes_of(c: Option<&ChartLayout>) -> &[Note] {
 /// titles, and the legend. A faceted chart's panels draw where each stands (PLAN 1.31).
 /// `clip_y` is the plot clip's top and height.
 fn chart_ops(dl: &mut DisplayList, chart: &ChartLayout, clip_y: [f32; 2]) -> Vec<Op> {
+    // A forecast reads as a table: its parts drawn cell by cell (ADR-0030).
+    if chart.kind == ChartKind::Weather {
+        let mut ops = weather_between(dl, Some(chart), Some(chart), 1.0);
+        ops.extend(chart.credit.as_ref().map(|f| foot_op(dl, f, f.origin, 1.0)));
+        return ops;
+    }
     let mut ops: Vec<Op> =
         chart.notes.iter().filter_map(|n| n.band).map(|(rect, color)| band_op(rect, color, 1.0)).collect();
     let rules = chart.y_axis.iter().chain(&chart.x_grid).filter_map(|t| t.rule.as_ref());
@@ -2334,6 +2438,7 @@ fn panel_layer(at: Point, width: f32, clip_y: [f32; 2], ops: Vec<Op>) -> Op {
     Op::Layer {
         node: None,
         cell: None,
+        label: None,
         transform: [1.0, 0.0, 0.0, 1.0, at[0], at[1]],
         opacity: 1.0,
         blend: Blend::Normal,
@@ -2351,6 +2456,7 @@ fn plot_layer(span: Option<[f32; 2]>, clip_y: [f32; 2], ops: Vec<Op>) -> Vec<Op>
     vec![Op::Layer {
         node: None,
         cell: None,
+        label: None,
         transform: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
         opacity: 1.0,
         blend: Blend::Normal,
@@ -2674,6 +2780,7 @@ fn chart_layer(id: &str, origin: Point, width: f32, canvas_height: f32, opacity:
     Op::Layer {
         node: Some(id.to_string()),
         cell: None,
+        label: None,
         transform: [1.0, 0.0, 0.0, 1.0, origin[0], origin[1]],
         opacity,
         blend: Blend::Normal,
@@ -2706,7 +2813,7 @@ fn image_ops(dl: &mut DisplayList, image: &crate::images::ImageNode) -> Vec<Op> 
             unreachable!("`layer` makes layers")
         };
         let cell = Some(scaena_core::fetched::CREDIT_CELL);
-        ops.push(Op::Layer { node, cell, transform, opacity, blend, clip, ops: inner });
+        ops.push(Op::Layer { node, cell, label: None, transform, opacity, blend, clip, ops: inner });
     }
     ops
 }
@@ -2715,6 +2822,7 @@ fn layer(node: Option<&str>, origin: Point, opacity: f32, ops: Vec<Op>) -> Op {
     Op::Layer {
         node: node.map(str::to_string),
         cell: None,
+        label: None,
         transform: [1.0, 0.0, 0.0, 1.0, origin[0], origin[1]],
         opacity,
         blend: Blend::Normal,
@@ -2730,19 +2838,19 @@ fn cell_layer(dl: &mut DisplayList, cell: &Cell, origin: Point, opacity: f32) ->
     else {
         unreachable!("`layer` makes layers")
     };
-    Op::Layer { node, cell: Some(cell.at), transform, opacity, blend, clip, ops }
+    Op::Layer { node, cell: Some(cell.at), label: None, transform, opacity, blend, clip, ops }
 }
 
 /// A text node's layer at `origin`, clipped to its box under `fit: clip` (the clip moves
 /// with the text).
 fn text_layer(dl: &mut DisplayList, id: &str, placed: &PlacedText, origin: Point, opacity: f32) -> Op {
-    let Op::Layer { node, cell, transform, opacity, blend, ops, .. } =
+    let Op::Layer { node, cell, label, transform, opacity, blend, ops, .. } =
         layer(Some(id), origin, opacity, item_ops(dl, &placed.text))
     else {
         unreachable!("`layer` makes layers")
     };
     let clip = placed.clip.map(|[x, y, w, h]| Path::rect([x - placed.origin[0], y - placed.origin[1], w, h]));
-    Op::Layer { node, cell, transform, opacity, blend, clip, ops }
+    Op::Layer { node, cell, label, transform, opacity, blend, clip, ops }
 }
 
 /// A text's runs as glyph ops; in a list (ADR-0018), each paragraph's in layers of its own, as
@@ -2772,7 +2880,16 @@ fn item_ops(dl: &mut DisplayList, text: &TextLayout) -> Vec<Op> {
             let Op::Layer { node, transform, opacity, blend, clip, ops, .. } = layer(None, [0.0, 0.0], 1.0, ops) else {
                 unreachable!("`layer` makes layers")
             };
-            out.push(Op::Layer { node, cell: Some([k as u32, part]), transform, opacity, blend, clip, ops });
+            out.push(Op::Layer {
+                node,
+                cell: Some([k as u32, part]),
+                label: None,
+                transform,
+                opacity,
+                blend,
+                clip,
+                ops,
+            });
         }
     }
     out
@@ -3125,6 +3242,7 @@ mod tests {
             categories: Vec::new(),
             highlights: Vec::new(),
             panels: Vec::new(),
+            icons: Vec::new(),
         }
     }
 
