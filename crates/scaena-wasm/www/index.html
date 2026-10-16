@@ -12,7 +12,7 @@
 <canvas id="stage"></canvas>
 <p><select id="state"></select> <select id="format"><option value="">own canvas</option></select> <span id="status">loading…</span></p>
 <script type="module">
-  import init, { Player, Canvas, setCodeTables, setHyphenation } from "./pkg/scaena_wasm.js";
+  import init, { Player, Canvas, setCodeTables, setHyphenation, setIcons } from "./pkg/scaena_wasm.js";
   const status = document.getElementById("status");
   try {
     await init();
@@ -30,6 +30,8 @@
     };
     setHyphenation((code) => fetchedNow(`../../scaena-engine/hyphenation/${code}.bin`));
     setCodeTables((name) => fetchedNow(`../../scaena-core/code/${name}.txt`));
+    // And a forecast's icons (ADR-0030), the first time a forecast lays out.
+    setIcons(() => fetchedNow("../../scaena-engine/icons/weather.txt"));
     const bundle = new URLSearchParams(location.search).get("bundle") ?? "../../../tests/fixtures/torture.scaena";
     const get = async (path) => {
       const r = await fetch(`${bundle}/${path}`);

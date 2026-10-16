@@ -671,6 +671,8 @@ state rank layout:figure
 
 **A forecast.** A forecast is a data source fetched once into the deck, its rows written inline, with the record a map takes: `fetched:{from: open-meteo, at: …, asked: "Boston", credit: […], forecast: {place: {name: Boston, zone: America/New_York, offset: -14400, …}, period: day, units: metric}}`. Each chart or table that reads it carries the credit at its foot, after the place and the forecast's day there, and "edited" once `data_edit` has changed a row. Its days pass, so `scaena lint` judges them at `--now` (an instant or a day; else `SOURCE_DATE_EPOCH`, else the clock): W428 says a forecast's first day has passed at its place, and names the source to fetch again in `refresh`. `kept: true` keeps it as of its date, and lint judges no date in it (SPEC §3.10, §7.4).
 
+**A forecast's chart.** `kind: weather` draws a forecast as the weather on a phone draws it: a column for each day or hour across its box (a row down a box taller than wide), each its name, its sky's icon, its high, its low, and its chance of rain, with a drop where it is 10% or more. `weather:{show: [period, sky, words, high, low, chance, wind]}` picks the parts and their order, `units: us` or `metric` converts at layout, and `every: 3` sets the hours between columns; a `highlight` annotation at a day's date, or an hour's time, sets it on a band (SPEC §3.7).
+
 For tables, stats, rows of cards, other chart kinds, and shader backgrounds, see SPEC §3.3 and the trails example.
 
 ## Present and export

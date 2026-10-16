@@ -124,7 +124,7 @@ Rules:
 
 ```jsonc
 {
-  "scaena": "0.31",
+  "scaena": "0.32",
   "meta":   { "title": "...", "author": "...", "created": "...", "lang": "en-US" },
   "canvas": { "width": 1920, "height": 1080, "unit": "cu" },   // canvas units; 1 cu = 1 px at 1080p
   "formats": ["16:9", "9:16"],                               // the formats it is laid out in too (§3.4)
@@ -341,7 +341,7 @@ See `docs/schema/theme.schema.json`. Shape:
 
 ```jsonc
 {
-  "scaena-theme": "0.23",
+  "scaena-theme": "0.24",
   "name": "Dusk",
   "tokens": {
     "color":  { "ink": "#...", "paper": "#...", "accent": "#...", "muted": "...", "...": "..." },
@@ -447,7 +447,7 @@ A chart is a declarative spec compiled to **marks**; it never stores pixels.
 ```jsonc
 {
   "type": "chart",
-  "kind": "bar",                       // v1: bar | stackedBar | line | area | scatter | dot | donut | slope | range
+  "kind": "bar",                       // v1: bar | stackedBar | line | area | scatter | dot | donut | slope | range | weather
                                        // deferred (not v1, not scheduled): waffle | heatmap
   "orient": "horizontal",              // bar | stackedBar: bars across, categories down the side (PLAN 1.29)
   "interval": { "low": "p10", "high": "p90" },  // range: the fields of each value's interval (PLAN 1.30)
@@ -564,6 +564,14 @@ Rules:
   - The plot leaves room above it for a callout's text and a rule's text, as it does for value labels.
   - Annotations match from state to state by kind, axis, and place among the chart's annotations of both: the second `y` rule is the second `y` rule. A matched rule, band, or leader moves to its next place, as a new value moves the axis; changed text cross-fades as it moves; one on one side only fades where it is. A highlight that moves brightens and dims the marks, lines, labels, and legend entries it passes between.
   - The editor makes them from a chart's marks (§9.2.4, PLAN 2.67): a mark picked offers to highlight it, call it out, rule its value, or band from it to another, each an `annotate` op (§7.3).
+
+**Weather** (deck format 0.32, ADR-0030 decision 19, PLAN O.2b). A `weather` chart draws a forecast (§3.10): a column for each period across its box, or a row down it where the box is taller than wide (a 9:16 format), and one period alone drawn large, its icon at the left and its high at twice its role's size. Its periods are keyed by time: its `x` field, else the source's `date` or `time`, a column of dates.
+- **What a period shows**, `weather.show`, in its order: `period` (the weekday, `%a`, or the hour as the time axis prints hours, `%-I %p`), `sky` (its icon), `words` (the sky in words, in the deck's language), `high`, `low` (in `onSurfaceMuted`), `chance` (the chance of rain, a drop beside it where it is 10% or more), and `wind`; `period`, `sky`, `high`, `low`, and `chance` when unset. The period and the small parts are set in `charts.axis.role`, the figures in `charts.label.role`, each in tabular lining figures.
+- **The icons** are Phosphor's regular `sun`, `cloud-sun`, `cloud`, `cloud-fog`, `cloud-rain`, `cloud-snow`, `cloud-lightning`, `moon`, `cloud-moon`, `drop`, and `wind` (MIT), compiled into the engine by `scripts/build_icons.py --weather` and held by its `--check`. Each WMO code's sky has its icon (`scaena_core::weather`); an hour of night (its `day` is false or 0) takes the moon where the sky is clear or partly cloudy.
+- **`weather.fields`** names the columns the parts read where they are not the forecast's own: `sky`, `high` (`temperature` by the hour), `low`, `chance` (`rain`), `wind`, and `day`. **`weather.units`**, `metric` or `us`, the source's by default, converts at layout (°C and km/h, or °F and mph), so a change of units fetches nothing. **`weather.every`** sets the hours between columns; unset, the least of 1, 2, 3, or 6 that fits. **`weather.band`** is the theme color a highlighted period stands on, `surface-2` by default.
+- A `highlight` annotation's `x` names periods by ISO 8601, a day's date or an hour's time, and sets each on a band. A column too narrow, or a row too short, for its parts sets them smaller, which W312 finds; a box too small, W313.
+- It reads as a table (§3.12): a row a period, a cell a part, each sky's cell the sky in words; its layer says so by its `label` (§6), and a tagged PDF tags it as a table. Between states its parts move by their period's key, and a highlight's band moves to its next period.
+- `weather` on another kind is **E106**; a field it names that its data lacks, a sky that is no WMO code Open-Meteo documents, and data with no dates to key its periods are **E103**. A slot's `example` may be `{ "chart": "weather" }` (theme format 0.24).
 
 `axes` takes `x` and `y`, each `{ "show", "gridlines", "title" }`; `labels` takes `show` (`auto` | `all` | `ends` | `none`), `role`, and `collide`. A text node's `axes` is another property (§3.3).
 
@@ -1008,7 +1016,7 @@ Rules:
 - Fonts are referenced by index into `fonts` (bundle font ids, in first-use order); painters receive the subset bytes once. A variable instance is its normalized coordinates (F2Dot14, in the font's `fvar` axis order), the exact values `vello` and `vello_cpu` take.
 - Glyph positions are final (post-shaping, post-kerning); painters never shape text. **This is the parity guarantee.**
 - A glyph run says what it sets (PLAN 1.20): `text` is the text of its clusters, cut from the node's laid-out text (after `case`, with the soft hyphens hyphenation inserts), and `clusters` holds each glyph's cluster start in it, in bytes. A cluster runs to the next larger start or to the end of `text`, so a ligature says all its letters and a base and its marks share their cluster. A hyphen drawn at a break says the soft hyphen (U+00AD) it stands for. Painters draw from `glyphs` alone; exports a reader copies, searches, or hears (PDF, SVG) map glyphs to text through these. A run written before glyph runs carried text reads with none.
-- A table cell's layer says where the cell stands: `cell` is `[row, column]`, with row 0 the header row, the body's rows from 1, and columns in the order the table shows them. A `link` op (PLAN 2.70) is where a link in a text is followed: `rect`, the words' box on their line in its layer's space, and `target`, `{ "href" }` or `{ "state" }`. It draws nothing; `DisplayList::links` gives each on the canvas through the layers that hold it. A text that is a list (§3.5) draws each paragraph in layers of its own, `cell` `[paragraph, 0]` its marker and `[paragraph, 1]` its words, and a text that is no list draws in one. Every other layer's `cell` is null. Painters draw without it; exports that read a table as a table (a tagged PDF, §3.12) take its rows and columns from it.
+- A table cell's layer says where the cell stands: `cell` is `[row, column]`, with row 0 the header row, the body's rows from 1, and columns in the order the table shows them. A `link` op (PLAN 2.70) is where a link in a text is followed: `rect`, the words' box on their line in its layer's space, and `target`, `{ "href" }` or `{ "state" }`. It draws nothing; `DisplayList::links` gives each on the canvas through the layers that hold it. A text that is a list (§3.5) draws each paragraph in layers of its own, `cell` `[paragraph, 0]` its marker and `[paragraph, 1]` its words, and a text that is no list draws in one. Every other layer's `cell` is null. Painters draw without it; exports that read a table as a table (a tagged PDF, §3.12) take its rows and columns from it. A layer's `label` (deck format 0.32) is the words a reader hears for what it draws where it draws no glyphs: a forecast's sky, drawn as an icon in its cell, says the sky in words, which a tagged PDF gives its cell as alternate text. It is null where there is none.
 - Gradient paints (`linear` from `start` to `end`, `radial` about `center` out to `radius`, `sweep` about `center` from `startAngle` to `endAngle`, radians from the positive x axis, clockwise with y down) blend their stops in Oklab with premultiplied alpha. A linear or radial gradient holds its end colors past its ends; a sweep repeats, so one that starts off the x axis runs all the way round. Both painters build them through peniko from one conversion (`scaena-paint`'s `convert`), which adds sRGB stops between the given ones, close enough that blending them in sRGB stays within 0.01 of the Oklab blend: vello's GPU ramp blends stops in sRGB whatever the gradient asks (ADR-0004 finding 12).
 - Shader ops carry parameters, not pixels: `kind`, `seed`, `t` (seconds on the global timeline), `rect` (in its layer's space), the resolved `palette`, and typed `params`, all numbers (a name a kind lists is its place in the list: a gradient's `shape` is 0 linear, 1 radial, 2 conic). A painter runs the kind's CPU reference or its WGSL twin (§3.8) at the centers of the device pixels the rect covers and places the result texel for pixel. Per-pixel noise such as grain is per device pixel, so it depends on the output size, which is a render input.
 - An `image` op's `asset` is the image's content id, `sha256:<hex>`, or that id with an adjustment after it (PLAN 2.117, §3.3): `sha256:<hex>+adjust(e,c,s,w)`, each of the four in thousandths from −1000 to 1000. A painter makes those pixels from the image's own the first time a display list names them, and keeps the latest few.

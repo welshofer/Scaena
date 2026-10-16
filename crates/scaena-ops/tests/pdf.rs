@@ -479,16 +479,21 @@ fn a_maps_credit_is_a_paragraph_after_the_figure_with_its_links() {
     assert!(!content.is_empty());
 }
 
-/// A table whose data was fetched (ADR-0030, PLAN O.2a) is a table in the PDF, then the credit at
-/// its foot a paragraph after it, its links URI actions: the weather example's one page.
+/// A forecast's data was fetched (ADR-0030, PLAN O.2a, O.2b): its weather chart is a table in the
+/// PDF, a row a period and each sky's cell its words, then the credit at its foot a paragraph after
+/// it, its links URI actions: the weather example's first page.
 #[test]
-fn a_fetched_tables_credit_is_a_paragraph_after_the_table() {
+fn a_forecast_is_a_table_then_its_credit_a_paragraph() {
     use hayro::hayro_syntax::object::{Array, Dict};
     let bundle = scaena_ops::open(Path::new("../../docs/examples/weather.deck.json")).unwrap();
     let (bytes, _) = exported(&bundle, None, &format!("{}", line!()));
     let lines = structure(&bytes);
     let tags: Vec<&str> = lines.iter().map(|l| l.trim()).collect();
     let table = tags.iter().position(|t| t.starts_with("Table")).unwrap_or_else(|| panic!("{tags:#?}"));
+    let rows = tags[table..].iter().take_while(|t| !t.starts_with('P')).filter(|t| **t == "TR").count();
+    assert_eq!(rows, 7, "a row a day: {tags:#?}");
+    let skies: Vec<&str> = tags[table..].iter().take(48).filter(|t| t.starts_with("TD [")).copied().collect();
+    assert_eq!(skies[2], "TD [Rain]", "Saturday's sky in words: {skies:#?}");
     let after = tags[table + 1..].iter().find(|t| !t.starts_with("TR") && !t.starts_with("TH") && !t.starts_with("TD"));
     assert_eq!(after, Some(&"P"), "its credit, after it: {tags:#?}");
     let pdf = hayro::hayro_syntax::Pdf::new(Arc::new(bytes)).expect("the PDF parses");
