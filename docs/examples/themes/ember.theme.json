@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.20",
+  "scaena-theme": "0.21",
   "name": "Ember",
   "description": "Near-black surface, warm white ink, one signal orange. Serif claims and figures over a neutral sans; data in quiet grays with the orange spent on the point.",
   "tokens": {
@@ -1030,6 +1030,9 @@
   },
   "density": {
     "maxWordsPerState": 40
+  },
+  "pictures": {
+    "frame": "none"
   },
   "furniture": {
     "number": { "col": [12, 12], "role": "label", "align": "end" },
