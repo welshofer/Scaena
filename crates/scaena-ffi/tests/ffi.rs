@@ -1599,3 +1599,70 @@ fn a_writing_tool_asks_once_and_its_answer_is_one_patch() {
     assert!(refused["error"]["message"].as_str().is_some_and(|m| m.contains("no task")), "{refused}");
     unsafe { scaena_session_free(s) };
 }
+
+/// Every theme in the registry, made through the C ABI as the Mac and the iPad make a deck, and
+/// saved (PLAN T.0c): the static library carries every family, a deck takes its theme's fonts and
+/// no other's, and a deck put in another theme takes that theme's alone.
+#[test]
+fn every_theme_in_the_registry_makes_and_saves_a_deck_with_its_fonts_alone() {
+    let registry: Value =
+        serde_json::from_str(&std::fs::read_to_string("../../docs/themes/registry.json").unwrap()).unwrap();
+    let fonts_of = |file: &str| -> Vec<String> {
+        let theme: Value = serde_json::from_str(&std::fs::read_to_string(format!("../../{file}")).unwrap()).unwrap();
+        let mut fonts = Vec::new();
+        for family in theme["type"]["families"].as_object().unwrap().values() {
+            for f in [&family["file"], &family["italic"]["file"]].into_iter().filter_map(Value::as_str) {
+                if !fonts.contains(&f.to_string()) {
+                    fonts.push(f.to_string());
+                }
+            }
+        }
+        fonts.sort();
+        fonts
+    };
+    let held = |s: *mut ScaenaSession| -> Vec<String> {
+        let files = call(s, "files", Value::Null);
+        let mut fonts: Vec<String> = files
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .filter(|f| f.starts_with("fonts/"))
+            .map(str::to_string)
+            .collect();
+        fonts.sort();
+        fonts
+    };
+    let themes = registry["themes"].as_array().unwrap();
+    for theme in themes {
+        let (name, fonts) = (theme["name"].as_str().unwrap(), fonts_of(theme["files"][0].as_str().unwrap()));
+        let mut error = null_mut();
+        let s = unsafe { scaena_create(c(name).as_ptr(), c("Field notes").as_ptr(), &mut error) };
+        assert!(!s.is_null(), "{name}: made: {}", took(error));
+        assert_eq!(held(s), fonts, "{name}: its fonts alone");
+        let saved = unsafe { scaena_save(s, c("2026-10-16T12:00:00Z").as_ptr(), false, &mut error) };
+        assert!(!saved.is_null(), "{name}: saved: {}", took(error));
+        let listed: Value = serde_json::from_str(&took(unsafe { scaena_saved_list(saved) })).unwrap();
+        let saved_fonts = listed["ok"]["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .filter(|f| f.starts_with("fonts/"))
+            .count();
+        assert_eq!(saved_fonts, fonts.len(), "{name}: saved with its fonts: {listed}");
+        unsafe { scaena_saved_free(saved) };
+        // Put in each other theme, the deck takes that theme's fonts, and only those it lacks.
+        for other in themes.iter().filter(|t| t != &theme) {
+            let before = held(s);
+            let slug = other["slug"].as_str().unwrap();
+            let themed = call(s, "retheme", json!({ "ships": slug }));
+            assert_eq!(themed["applied"], true, "{name} → {slug}: {themed}");
+            let added: Vec<String> = held(s).into_iter().filter(|f| !before.contains(f)).collect();
+            let wanted = fonts_of(other["files"][0].as_str().unwrap());
+            assert!(added.iter().all(|f| wanted.contains(f)), "{name} → {slug}: {added:?}");
+            assert!(wanted.iter().all(|f| held(s).contains(f)), "{name} → {slug}: {wanted:?}");
+        }
+        unsafe { scaena_session_free(s) };
+    }
+}
