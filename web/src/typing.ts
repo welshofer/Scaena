@@ -77,6 +77,8 @@ export interface Around {
   /** Typing in `node` has stopped: a shape's words give what is selected back to their shape
    * (PLAN 2.108). */
   left?(node: string): void;
+  /** The language `node` is written in, where it is code (PLAN 2.133). */
+  code?(node: string): string | undefined;
 }
 
 /** Characters selected in a text typed in: from `from` to `to`, Unicode scalar values, as
@@ -336,6 +338,10 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     const source = around.source();
     const found = await stage.carets(source, shown.state, node, around.format());
     if (!found) return false;
+    // Typing began in this text while its carets were read: Insert types in a text it inserts
+    // (PLAN 3.21), and a double click on it meanwhile waits its turn behind that. What is typed
+    // there stands, so no key typed since is lost.
+    if (open?.node === node && open.state === shown.state) return true;
     leave();
     open = { node, state: shown.state, index: shown.index, fork };
     carets = found;
@@ -856,6 +862,25 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     const [start, end] = [area.selectionStart, area.selectionEnd];
     const fromEnd = area.value.length - end;
     bounds = bounds ? { start: Math.min(bounds.start, start), fromEnd: Math.min(bounds.fromEnd, fromEnd) } : { start, fromEnd };
+  });
+  // Code pasted into code (PLAN 2.133): tidied as a paste of code is, the indentation its lines
+  // share taken off, then each line after the first indented as the line it is pasted into is.
+  area.addEventListener("paste", (e) => {
+    const language = open && around.code?.(open.node);
+    const words = e.clipboardData?.getData("text/plain");
+    if (!language || !words) return;
+    e.preventDefault();
+    const [start, end] = [area.selectionStart, area.selectionEnd];
+    void stage.tidied(words, language).then((tidied) => {
+      if (area.selectionStart !== start || area.selectionEnd !== end) return;
+      const line = area.value.slice(area.value.lastIndexOf("\n", start - 1) + 1, start);
+      const indent = /^[ \t]*/.exec(line)?.[0] ?? "";
+      const text = tidied.replace(/\n/g, `\n${indent}`);
+      const fromEnd = area.value.length - end;
+      bounds = bounds ? { start: Math.min(bounds.start, start), fromEnd: Math.min(bounds.fromEnd, fromEnd) } : { start, fromEnd };
+      area.setRangeText(text, start, end, "end");
+      area.dispatchEvent(new InputEvent("input", { inputType: "insertFromPaste", data: text }));
+    });
   });
   area.addEventListener("input", (e) => {
     keys = keys ? { ...keys, last: e.timeStamp } : { first: e.timeStamp, last: e.timeStamp };

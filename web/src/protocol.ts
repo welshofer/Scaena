@@ -98,6 +98,20 @@ export interface NodeBox {
   /** A connector's line, its points in canvas units (PLAN 2.109), which a pointer picks it by: its
    * box is mostly empty. */
   route?: [number, number][];
+  /** A code text's language (PLAN 2.133): as the deck names it, and as a person calls it, which
+   * its chip shows. */
+  code?: { language: string; said: string };
+}
+
+/** What says pasted words are code, and in which language (PLAN 2.133): `plain` pastes them as
+ * words whatever they look like (Paste as Text); `html` is the HTML copied with them, whose class
+ * may name it (`language-rust`); `vscode` VS Code's `vscode-editor-data`, its `mode`; `file` the
+ * name of the file they came from. */
+export interface PasteHints {
+  plain?: boolean;
+  html?: string;
+  vscode?: string;
+  file?: string;
 }
 
 /** A map of canvas points, `[a, b, c, d, e, f]`: `x' = a·x + c·y + e`, `y' = b·x + d·y + f`. */
@@ -1043,6 +1057,10 @@ export type ToWorker =
   /** What ⌘B gives those characters, from the weight the engine sets each in, in the deck the
    * editor's `source` compiles to, laid out in `format` (PLAN 2.38): `style_text`'s `look`. */
   | { type: "bolding"; id: number; source: string; state: string; node: string; from: number; to: number; format?: string }
+  /** The words of code text `node` as `state` shows them, which Copy Code copies (PLAN 2.133). */
+  | { type: "codeWords"; id: number; source: string; state: string; node: string; format?: string }
+  /** `text` tidied as a paste of code in `language` is (PLAN 2.133). */
+  | { type: "tidied"; id: number; text: string; language: string }
   | { type: "italicizing"; id: number; source: string; state: string; node: string; from: number; to: number; format?: string }
   /** The theme the deck names, and the theme files the bundle holds (PLAN 2.39). */
   | { type: "themes"; id: number }
@@ -1087,7 +1105,7 @@ export type ToWorker =
   /** The patch that pastes `clip`, the clipboard's text, entering in `state` about `at` (canvas
    * units), on the deck the editor's `source` compiles to: a clip pastes what it holds, other
    * text a text in the theme's body role (PLAN 2.37). */
-  | { type: "pasting"; id: number; source: string; state: string; clip: string; at: [number, number]; format?: string }
+  | { type: "pasting"; id: number; source: string; state: string; clip: string; at: [number, number]; format?: string; hints?: PasteHints }
   /** Each state at rest in `format`, painted by the CPU painter `height` pixels high, for the
    * state strip (PLAN 2.35): only those whose drawing is not the one `known` holds (each state's
    * digest, as the strip last had it) come with pixels. With `each`, each painted is sent as it is
@@ -1865,6 +1883,8 @@ export type FromWorker =
   | { type: "carets"; id: number; carets: Carets | null }
   | { type: "characterChoices"; id: number; choices: Choices }
   | { type: "bolding"; id: number; look: Record<string, unknown> }
+  | { type: "codeWords"; id: number; words: string }
+  | { type: "tidied"; id: number; text: string }
   | { type: "italicizing"; id: number; look: Record<string, unknown> }
   | { type: "themes"; id: number; themes: Themes }
   /** A theme chosen: what it did, as `theme --apply` says it, and unless it was refused, the

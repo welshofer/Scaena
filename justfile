@@ -244,6 +244,7 @@ web-smoke: site
     node web/rotate.mjs
     node web/clipboard.mjs
     node web/paste.mjs
+    node web/code.mjs
     node web/charts.mjs
     node web/several.mjs
     node web/group.mjs

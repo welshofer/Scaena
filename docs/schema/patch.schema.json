@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/patch-0.32.json",
+  "$id": "https://scaena.dev/schema/patch-0.33.json",
   "title": "Scaena patch",
   "description": "A patch (SPEC §7.3): RFC 6902 ops and semantic ops, applied in order, all or none.",
   "type": "array",
@@ -676,6 +676,10 @@
         "forecast": {
           "description": "A forecast, as it was asked (PLAN O.2a): the place, the period, and the units.",
           "$ref": "#/$defs/Forecast"
+        },
+        "stock": {
+          "description": "A price series, as it was asked and as far as it runs (PLAN O.3a, deck format 0.33).",
+          "$ref": "#/$defs/Stock"
         }
       }
     },
@@ -809,6 +813,43 @@
       "type": "string",
       "enum": ["metric", "us"]
     },
+    "Stock": {
+      "description": "A price series as it was fetched (ADR-0030, decision 22): the symbol, the range, where it trades and in what, and the last price's civil time there. Its rows are `time`, `close`, and `base`, in a CSV under `data/`.",
+      "type": "object",
+      "required": ["symbol", "range", "zone", "through"],
+      "additionalProperties": false,
+      "properties": {
+        "symbol": {
+          "description": "The ticker symbol, as the service names it: `AAPL`.",
+          "type": "string",
+          "minLength": 1
+        },
+        "range": { "description": "How far back the series runs.", "$ref": "#/$defs/Range" },
+        "exchange": {
+          "description": "The exchange it trades on, as the service names it: `NASDAQ`.",
+          "type": "string"
+        },
+        "currency": {
+          "description": "The currency its prices are in, ISO 4217: `USD`.",
+          "type": "string",
+          "pattern": "^[A-Z]{3}$"
+        },
+        "zone": {
+          "description": "The exchange's time zone, by its IANA name, in which the rows' times are civil: `America/New_York`.",
+          "type": "string",
+          "minLength": 1
+        },
+        "through": {
+          "description": "The last price's civil time in the exchange's zone: a day, `2026-10-15`, or a close at its bar's end, `2026-10-15T16:00`.",
+          "type": "string"
+        }
+      }
+    },
+    "Range": {
+      "description": "How far back a price series runs: a day, a week, a month, three months, a year, or the year to date.",
+      "type": "string",
+      "enum": ["1d", "1w", "1m", "3m", "1y", "ytd"]
+    },
     "Id": {
       "description": "A slug: unique within its collection (SPEC §3.2).",
       "type": "string",
@@ -926,7 +967,7 @@
         },
         "paragraphs": {
           "description": "The paragraphs a state draws (PLAN 2.129, deck format 0.27), counted from 1: one, or the first and the last of a run. The rest are laid out where they stand and not drawn, so a list built by bullet keeps its place as its items come and go. Without it, all.",
-          "$ref": "#/$defs/Range"
+          "$ref": "#/$defs/Range2"
         },
         "code": {
           "description": "The text is code (SPEC §3.5, ADR-0029; deck format 0.28): set as written, its lines broken only where it breaks them, its tabs standing to stops, grown then shrunk to fit its box, never under 12 pt.",
@@ -1333,8 +1374,8 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "col": { "$ref": "#/$defs/Range" },
-        "row": { "$ref": "#/$defs/Range" },
+        "col": { "$ref": "#/$defs/Range2" },
+        "row": { "$ref": "#/$defs/Range2" },
         "in": { "description": "Named slot in the state's layout template, or `canvas` or `grid`.", "type": "string" },
         "parent": {
           "description": "The container this node is in: a `stack`, `grid`, `frame`, or `group` (ADR-0008). A text's may be a shape, other than a line or an arrow: the text is the shape's words, which it places in the room inside it, with no other key of `at` (PLAN 2.108).",
@@ -1352,7 +1393,7 @@
         "offset": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
       }
     },
-    "Range": {
+    "Range2": {
       "description": "A grid index or an inclusive [start, end] range (1-based).",
       "anyOf": [
         { "type": "integer", "minimum": 1 },
@@ -1941,7 +1982,7 @@
       "properties": {
         "kind": { "$ref": "#/$defs/AnnotationKind" },
         "at": {
-          "description": "Where it stands, by kind: a rule at `x` or `y`, a band from one to another of either, a callout at `x` (and `y`, or a `series`), a highlight on categories `x` and series.",
+          "description": "Where it stands, by kind: a rule at `x` or `y`, a band from one to another of either, a callout at `x` (and `y`, or a `series`), a highlight on categories `x` and series, or, naming neither, on every mark.",
           "$ref": "#/$defs/AnnotationAt"
         },
         "text": { "description": "What it says; a highlight says nothing.", "type": "string" },
@@ -2220,7 +2261,7 @@
             { "type": "null" }
           ]
         },
-        "paragraphs": { "anyOf": [{ "$ref": "#/$defs/Range" }, { "type": "null" }] },
+        "paragraphs": { "anyOf": [{ "$ref": "#/$defs/Range2" }, { "type": "null" }] },
         "code": { "anyOf": [{ "$ref": "#/$defs/CodeDelta" }, { "type": "null" }] },
         "kind": {
           "anyOf": [
@@ -2385,8 +2426,8 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "col": { "anyOf": [{ "$ref": "#/$defs/Range" }, { "type": "null" }] },
-        "row": { "anyOf": [{ "$ref": "#/$defs/Range" }, { "type": "null" }] },
+        "col": { "anyOf": [{ "$ref": "#/$defs/Range2" }, { "type": "null" }] },
+        "row": { "anyOf": [{ "$ref": "#/$defs/Range2" }, { "type": "null" }] },
         "in": { "type": ["string", "null"] },
         "parent": { "anyOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] },
         "index": { "anyOf": [{ "minimum": 0, "type": "integer" }, { "type": "null" }] },
@@ -2524,7 +2565,8 @@
         "terms": { "anyOf": [{ "$ref": "#/$defs/Terms" }, { "type": "null" }] },
         "kept": { "type": ["boolean", "null"] },
         "edited": { "type": ["boolean", "null"] },
-        "forecast": { "anyOf": [{ "$ref": "#/$defs/Forecast" }, { "type": "null" }] }
+        "forecast": { "anyOf": [{ "$ref": "#/$defs/Forecast" }, { "type": "null" }] },
+        "stock": { "anyOf": [{ "$ref": "#/$defs/Stock" }, { "type": "null" }] }
       }
     },
     "PinDelta": {

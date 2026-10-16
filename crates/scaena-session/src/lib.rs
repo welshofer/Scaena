@@ -782,7 +782,8 @@ impl Session {
     /// locked (PLAN 2.95), the node whose lock holds it: itself, or what holds it; `takesWords`, a
     /// shape that takes words, and `words`, the text that holds a shape's (PLAN 2.108); `joins`,
     /// the two nodes a connector joins, from and to, and `route`, its line's points, which a
-    /// pointer picks it by (PLAN 2.109).
+    /// pointer picks it by (PLAN 2.109); `code`, a code text's language as the deck names it and as
+    /// a person calls it, `{ "language", "said" }`, which its chip shows (PLAN 2.133).
     pub fn boxes_json(&mut self, state: &str) -> Result<Vec<serde_json::Value>, Error> {
         let boxes = self.boxes(state)?;
         // Each connector's line (PLAN 2.109).
@@ -805,6 +806,20 @@ impl Session {
             None
         };
         let locked: Vec<Option<String>> = boxes.iter().map(|b| held(&b.node)).collect();
+        // Each code text's language, as the state shows it (PLAN 2.133).
+        let codes: Vec<Option<serde_json::Value>> = {
+            let snapshots = scaena_core::resolve_states(&self.deck).map_err(|e| Error::Deck(e.to_string()))?;
+            let snap = snapshots.into_iter().find(|s| s.state_id == state);
+            (boxes.iter())
+                .map(|b| {
+                    let over = self.deck.overrides.get(&b.node).and_then(|o| o.get("code"));
+                    let code = over.or_else(|| snap.as_ref()?.nodes.get(&b.node)?.get("code"))?;
+                    let name = code.get("language").and_then(serde_json::Value::as_str).unwrap_or("plain");
+                    let said = scaena_core::code::language(name).map_or(name, |l| l.said);
+                    Some(serde_json::json!({ "language": name, "said": said }))
+                })
+                .collect()
+        };
         // Each shape's words (PLAN 2.108): the text it holds, where the state shows it.
         let words: std::collections::HashMap<&str, &str> = (self.deck.nodes.iter())
             .filter(|(id, _)| boxes.iter().any(|b| b.node == **id))
@@ -818,8 +833,8 @@ impl Session {
                 Some((!matches!(kind, Some("line" | "arrow")), words.get(b.node.as_str()).map(|w| w.to_string())))
             })
             .collect();
-        Ok((boxes.into_iter().zip(locked).zip(shapes).zip(routes))
-            .map(|(((b, locked), shape), route)| {
+        Ok((boxes.into_iter().zip(locked).zip(shapes).zip(routes).zip(codes))
+            .map(|((((b, locked), shape), route), code)| {
                 let mut out =
                     serde_json::json!({ "node": b.node, "rect": b.rect, "parent": b.parent, "draws": b.draws });
                 if let Some(map) = b.transform {
@@ -845,9 +860,35 @@ impl Session {
                 if let Some(by) = locked {
                     out["locked"] = serde_json::json!(by);
                 }
+                if let Some(code) = code {
+                    out["code"] = code;
+                }
                 out
             })
             .collect())
+    }
+
+    /// `text` tidied as a paste of code in `language` is (PLAN 2.133, `code::tidy`), its tabs to the
+    /// stops the theme sets for code: what a paste into a code text being typed in puts there.
+    pub fn tidied(&self, text: &str, language: &str) -> String {
+        let tab = self.theme.code.as_ref().and_then(|c| c.tab).map_or(4, usize::from);
+        scaena_core::code::tidy(text, scaena_core::code::lang(language), tab).text
+    }
+
+    /// The words of code text `node` as `state` shows them, the deck's `overrides` over it: what
+    /// Copy Code puts on the clipboard as text (PLAN 2.133). An error where it is no code there.
+    pub fn code_words(&self, state: &str, node: &str) -> Result<String, Error> {
+        let snapshots = scaena_core::resolve_states(&self.deck).map_err(|e| Error::Deck(e.to_string()))?;
+        let mut shown = (snapshots.into_iter().find(|s| s.state_id == state))
+            .and_then(|mut s| s.nodes.shift_remove(node))
+            .ok_or_else(|| Error::Ops(format!("`{node}` is not on screen in `{state}`")))?;
+        if let Some(over) = self.deck.overrides.get(node) {
+            scaena_core::tracking::merge_props(&mut shown, over);
+        }
+        match (shown.get("code").is_some_and(serde_json::Value::is_object), shown.get("text")) {
+            (true, Some(serde_json::Value::String(text))) => Ok(text.clone()),
+            _ => Err(Error::Ops(format!("`{node}` is no code in `{state}`"))),
+        }
     }
 
     /// [`Session::hit`] as a client lists them (ADR-0013): `[{ "node", "rect", "containers",
@@ -2172,6 +2213,10 @@ impl Session {
         // A text typed past the foot of its cells grows to hold its lines, in the same change.
         let grown = if typing { self.growing(ops)? } else { None };
         let ops = grown.as_ref().unwrap_or(ops);
+        // Code pasted over the whole of a Plain Text code text takes the language it reads as, in
+        // the same run of typing (PLAN 2.133): `typing` is decided before the `choose` goes on.
+        let named = if typing { self.naming(ops)? } else { None };
+        let ops = named.as_ref().unwrap_or(ops);
         let what = typing.then_some(store::TYPED);
         let (patched, write) = scaena_ops::patch::typing(&self.bundle(), ops, what, self.validated.clone())?;
         if patched.refused {
@@ -2179,6 +2224,42 @@ impl Session {
             return Err(Error::Ops(format!("the deck refuses it: {}", why.map_or("", |f| f.message.as_str()))));
         }
         self.write(write, assistant::Caller { author: "user", at })
+    }
+
+    /// `ops`, a run of typing, with the `choose` of `code/language` that gives each code text in
+    /// `plain` its words were all replaced in the language they read as (`code::detect`, PLAN
+    /// 2.133): a paste over a Plain Text block. `None` where none takes one.
+    #[cfg(feature = "editor")]
+    fn naming(&self, ops: &serde_json::Value) -> Result<Option<serde_json::Value>, Error> {
+        use scaena_core::code::{Detected, detect};
+        let Some(list) = ops.as_array() else { return Ok(None) };
+        let snapshots = scaena_core::resolve_states(&self.deck).map_err(|e| Error::Deck(e.to_string()))?;
+        let mut named = list.clone();
+        for op in list {
+            let (Some(node), Some(state)) = (op["node"].as_str(), op["state"].as_str()) else { continue };
+            let Some(mut shown) =
+                snapshots.iter().find(|s| s.state_id == state).and_then(|s| s.nodes.get(node).cloned())
+            else {
+                continue;
+            };
+            if let Some(over) = self.deck.overrides.get(node) {
+                scaena_core::tracking::merge_props(&mut shown, over);
+            }
+            let plain = shown.get("code").and_then(|c| c.get("language")).and_then(serde_json::Value::as_str);
+            let Some(text) = shown.get("text").and_then(serde_json::Value::as_str).filter(|_| plain == Some("plain"))
+            else {
+                continue;
+            };
+            let whole = op["from"].as_u64() == Some(0) && op["to"].as_u64() == Some(text.chars().count() as u64);
+            let Some(pasted) = op["text"].as_str().filter(|_| whole) else { continue };
+            if let Detected::Named(language) | Detected::Likely(language) = detect(pasted, &Default::default())
+                && language.name != "plain"
+            {
+                let value = language.name;
+                named.push(serde_json::json!({ "op": "choose", "node": node, "state": state, "prop": "code/language", "value": value }));
+            }
+        }
+        Ok((named.len() > list.len()).then_some(serde_json::Value::Array(named)))
     }
 
     /// `ops`, a run of typing, with the `place` that grows each text it types past the foot of
@@ -3227,6 +3308,61 @@ mod tests {
         let props = &s.deck().nodes[&added.id].props;
         assert_eq!(props.get("role"), Some(&serde_json::json!("code")));
         assert_eq!(props.get("code"), Some(&serde_json::json!({ "language": "plain" })));
+    }
+
+    /// Code pasted is a code text in its language, tidied and sized to its lines; Copy Code gives
+    /// its words back; and its box says its language, which its chip shows (PLAN 2.133).
+    #[cfg(feature = "editor")]
+    #[test]
+    fn pasted_code_is_a_code_text_sized_to_its_lines() {
+        let mut s = revenue();
+        let by = || assistant::Caller { author: "user", at: None };
+        let source = "\tfn main() {\r\n\t    println!(\"hi\");\r\n\t}\r\n";
+        let hints = scaena_ops::clipboard::Hints { file: Some("main.rs".into()), ..Default::default() };
+        let clip = scaena_ops::clipboard::of_text(&s.deck, &s.theme, source, &hints).unwrap();
+        let pasted = s.pasting(&clip, "close", [960.0, 540.0]).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": pasted.patch }), by()).unwrap();
+        let props = &s.deck().nodes[&pasted.id].props;
+        assert_eq!(props.get("code"), Some(&serde_json::json!({ "language": "rust" })));
+        assert_eq!(props.get("text"), Some(&serde_json::json!("fn main() {\n    println!(\"hi\");\n}")));
+        // Three lines in a box no taller than they need, and no shorter than a twelfth of the canvas.
+        let [_, _, _, h] = pasted.cell;
+        assert!(h <= 1080.0 / 4.0, "{:?}", pasted.cell);
+        assert_eq!(s.code_words("close", &pasted.id).unwrap(), "fn main() {\n    println!(\"hi\");\n}");
+        assert!(s.code_words("close", "title").is_err(), "a text that is no code");
+        let chip = s.boxes_json("close").unwrap().into_iter().find(|b| b["node"] == pasted.id.as_str()).unwrap();
+        assert_eq!(chip["code"], serde_json::json!({ "language": "rust", "said": "Rust" }));
+        // Prose pastes as words, and Paste as Text pastes code as words too.
+        let prose =
+            scaena_ops::clipboard::of_text(&s.deck, &s.theme, "Margins held through the quarter.", &Default::default());
+        assert!(prose.unwrap().nodes.values().all(|n| n.get("code").is_none()));
+        let plain = scaena_ops::clipboard::Hints { plain: true, ..Default::default() };
+        let words = scaena_ops::clipboard::of_text(&s.deck, &s.theme, source, &plain).unwrap();
+        assert!(words.nodes.values().all(|n| n.get("code").is_none() && n["role"] == "body"));
+        assert_eq!(s.tidied("\t\tx = 1\n\t\ty = 2\n", "python"), "x = 1\ny = 2");
+    }
+
+    /// Code pasted over the whole of a Plain Text block takes the language it reads as, in the same
+    /// run of typing, and still grows (PLAN 2.133).
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_plain_text_block_takes_its_pastes_language() {
+        let mut s = revenue();
+        let by = assistant::Caller { author: "user", at: None };
+        let code = s.inserts().iter().position(|i| i.label == "Text · code").unwrap();
+        let added = s.inserting("close", code, [960.0, 540.0], None).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": added.patch }), by).unwrap();
+        let typed_over = s.code_words("close", &added.id).unwrap().chars().count();
+        let python = "import sys\n\ndef main(argv):\n    for arg in argv[1:]:\n        print(arg)\n    return 0\n";
+        let ops = serde_json::json!([{ "op": "replace_text", "node": added.id, "state": "close", "from": 0, "to": typed_over, "text": python }]);
+        assert!(s.typed(&ops, None).unwrap());
+        let props = &s.deck().nodes[&added.id].props;
+        assert_eq!(props.get("code"), Some(&serde_json::json!({ "language": "python" })));
+        assert_eq!(s.code_words("close", &added.id).unwrap(), python);
+        // A paste over part of it, or over a block in a language, names none.
+        let ops = serde_json::json!([{ "op": "replace_text", "node": added.id, "state": "close", "from": 0, "to": 6, "text": "SELECT" }]);
+        assert!(s.typed(&ops, None).unwrap());
+        assert_eq!(s.deck().nodes[&added.id].props.get("code"), Some(&serde_json::json!({ "language": "python" })));
     }
 
     /// Characters selected on the canvas take a look (PLAN 2.38): ⌘B's from the weight the
@@ -4695,7 +4831,7 @@ mod tests {
         .unwrap();
         assert!(refused(&newer).contains("newer"), "{}", refused(&newer));
         assert!(refused(r#"{ "kind": "scaena/clip", "version": 1 }"#).contains("damaged"));
-        let text = scaena_ops::clipboard::of_text(&s.deck, &s.theme, "Margins held.\n").unwrap();
+        let text = scaena_ops::clipboard::of_text(&s.deck, &s.theme, "Margins held.\n", &Default::default()).unwrap();
         let pasted = s.pasting(&text, "close", [960.0, 900.0]).unwrap();
         assert_eq!(pasted.id, "body");
         assert_eq!(
@@ -4704,7 +4840,10 @@ mod tests {
         );
         s.tool("deck_patch", serde_json::json!({ "ops": pasted.patch }), by).unwrap();
         assert!(stands(&mut s, "close", "body").is_some());
-        assert!(scaena_ops::clipboard::of_text(&s.deck, &s.theme, " \n").is_err(), "nothing to paste");
+        assert!(
+            scaena_ops::clipboard::of_text(&s.deck, &s.theme, " \n", &Default::default()).is_err(),
+            "nothing to paste"
+        );
     }
 
     /// A CSV dropped on the canvas becomes a data source (the first-deck walk): declared as

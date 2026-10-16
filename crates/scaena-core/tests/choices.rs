@@ -1036,3 +1036,22 @@ fn a_shapes_words_show_themselves_centered() {
     // A text of its own shows where its slot sets its lines: from their start (PLAN 3.25).
     assert_eq!(field(&offered(&doc, "revenue", "title"), "align/x").theme, Some(json!("start")));
 }
+
+/// A code text offers its language, each said as a person calls it, and neither a case nor a
+/// way to wrap, which code does not take (PLAN 2.133, ADR-0029).
+#[test]
+fn a_code_text_offers_its_language() {
+    let mut doc = example();
+    doc["nodes"]["title"]["code"] = json!({ "language": "cpp" });
+    let c = offered(&doc, "revenue", "title");
+    let language = field(&c, "code/language");
+    let Takes::Word { words } = &language.takes else { panic!("{language:?}") };
+    assert!(words.iter().any(|w| w == "rust") && words.iter().any(|w| w == "plain"), "{words:?}");
+    assert_eq!((language.value.clone(), language.lives.clone()), (Some(json!("cpp")), Some(Where::Node)));
+    assert!(c.fields.iter().all(|f| f.prop != "wrap" && f.prop != "style/case"));
+    let theme = Theme::from_json(DUSK).unwrap();
+    let said = scaena_core::words::field(language, &theme);
+    assert_eq!((said.label.as_str(), said.said["cpp"].as_str()), ("Language", "C++"));
+    // A text that is no code offers none.
+    assert!(offered(&example(), "revenue", "title").fields.iter().all(|f| f.prop != "code/language"));
+}

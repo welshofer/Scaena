@@ -450,6 +450,22 @@ struct CanvasSelection: View {
                             .position(marked(mark, fit: fit))
                     }
                 }
+                // The language of the code selected, a chip on its top right corner (PLAN 2.133); not
+                // while a drag, a handle, or typing goes on.
+                if drag == nil, holding == nil, pen == nil, !typing.typing, also.isEmpty, let node,
+                    let coded = boxes.first(where: { $0.node == node && $0.transform == nil }),
+                    let code = coded.code, coded.rect.count == 4
+                {
+                    let chip = CodeChip(code: code, languages: { languages(of: node) }) { language in
+                        let op: JSONValue = [
+                            "op": "choose", "node": .string(node), "prop": "code/language", "value": .string(language),
+                            "state": .string(state),
+                        ]
+                        make([op], "Change Language")
+                    }
+                    let corner = fit.view(CGPoint(x: coded.rect[0] + coded.rect[2], y: coded.rect[1]))
+                    chip.position(x: corner.x - chip.width / 2, y: corner.y - 14)
+                }
                 // Each empty slot's words, which a press fills it from (PLAN 3.30); not while a drag,
                 // a handle, or typing goes on.
                 if drag == nil, holding == nil, pen == nil, !typing.typing {
@@ -1902,6 +1918,15 @@ struct CanvasSelection: View {
 
     /// Where `mark` stands on the view: at its box's top right corner; outside it, past the corner
     /// handle, where that box is selected and its handles show, so the mark covers none of them.
+    /// The languages code text `node` may be written in, as the inspector's Language offers them
+    /// (PLAN 2.133).
+    private func languages(of node: String) -> [(name: String, said: String)] {
+        let fields = (try? editor.session.choices(state: state, node: node))?.fields ?? []
+        guard let field = fields.first(where: { $0.prop == "code/language" }), case .word(let words) = field.takes
+        else { return [] }
+        return words.map { (name: $0, said: field.said[$0] ?? $0) }
+    }
+
     private func marked(_ mark: Mark, fit: Fit) -> CGPoint {
         let at = fit.view(mark.at)
         guard mark.id == node, also.isEmpty else { return at }

@@ -2061,6 +2061,27 @@ async function edit(source: Source, opened?: Stage) {
     if (!text) return say("The clipboard holds nothing to paste");
     await board.paste(text);
   };
+  /** The words of the code selected, as the slide shows them, put on the clipboard as text (PLAN
+   * 2.133): no look, no clip. */
+  const copyCode = async (node: string) => {
+    const now = showing();
+    if (!now) return;
+    try {
+      const words = await stage.codeWords(view.state.doc.toString(), now.state, node, format());
+      await navigator.clipboard.writeText(words);
+      say(`The code copied as text: ${words.split("\n").length} lines`);
+    } catch (e) {
+      say(`Not copied: ${said(e)}`);
+    }
+  };
+  /** The clipboard's text pasted as words, never as code (PLAN 2.133). */
+  const pastedAsText = async () => {
+    overlay.focus();
+    const text = await navigator.clipboard.readText().catch((e) => void say(`Not pasted: ${said(e)}`));
+    if (text === undefined) return;
+    if (!text) return say("The clipboard holds nothing to paste");
+    await board.paste(text, { plain: true });
+  };
   /** Whether the canvas takes a gesture: the source compiles, the assistant is not at work, and no
    * text is typed in. */
   const ready = () => showing() !== undefined && board.typing() === undefined;
@@ -2200,6 +2221,8 @@ async function edit(source: Source, opened?: Stage) {
       pressing("Duplicate", `${MOD}D`, "d", mod(), "Edit"),
       { label: "Copy", keys: `${MOD}C`, group: "Edit", where: ["node", "layer"], applies: any, run: () => clip("copy") },
       { label: "Cut", keys: `${MOD}X`, group: "Edit", where: ["node", "layer"], applies: any, run: () => clip("cut") },
+      // A code text's words as text, for an editor or a terminal (PLAN 2.133).
+      { label: "Copy Code", where: ["node"], applies: () => one() && !!board.boxes().find((b) => b.node === picked()[0])?.code, run: () => copyCode(picked()[0]) },
       // A look copied and pasted (PLAN 2.58): Option makes ⌥C a character, so the key goes by its place.
       pressing("Copy the look", `${MOD_ALT}C`, "c", mod({ altKey: true, code: "KeyC" }), "Edit", one),
       pressing("Paste the look", `${MOD_ALT}V`, "v", mod({ altKey: true, code: "KeyV" }), "Edit", () => any() && board.copiedLook() !== undefined),
@@ -2291,6 +2314,8 @@ async function edit(source: Source, opened?: Stage) {
     const icon: Command = { label: "Insert an icon…", group: "Draw and insert", where: ["canvas"], applies: ready, run: () => void insertIcon() };
     return [
       { label: "Paste", keys: `${MOD}V`, group: "Edit", where: ["canvas"], applies: ready, run: pasted },
+      // Words that look like code pasted as words (PLAN 2.133).
+      { label: "Paste as Text", where: ["canvas"], applies: ready, run: pastedAsText },
       ...inserts,
       icon,
       // A map (ADR-0030, PLAN O.1c): in the slide's empty place for a picture, else where the

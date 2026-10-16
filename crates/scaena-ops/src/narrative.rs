@@ -3095,10 +3095,11 @@ fn chart_node(chart: &ChartData, data: &str, layout: &str, title: &str, takeaway
     {
         node["annotations"] = json!([{ "kind": "highlight", "at": { "x": x } }]);
     }
-    // A line of one series is what its slide is about, drawn in the signal color, and the year
-    // its headline names is marked on it (G.19).
+    // A line of one series is what its slide is about, drawn in the signal color by a highlight
+    // that names nothing, every mark lit (deck format 0.33), and the year its headline names is
+    // marked on it (G.19).
     if kind == "line" && !several {
-        let mut notes = vec![json!({ "kind": "highlight", "at": { "x": chart.categories } })];
+        let mut notes = vec![json!({ "kind": "highlight", "at": {} })];
         notes.extend(period(chart, [Some(title), takeaway]));
         node["annotations"] = json!(notes);
     }
@@ -3706,16 +3707,10 @@ mod tests {
         // A line of one series is drawn in the signal color, the year its headline names marked:
         // "Since 1980", a band from it to the last year. Its figure grows as large as its column
         // takes, to a scorecard's, and the words under it to the body's (G.19).
-        let years: Vec<Value> = made.deck["data"][source]["source"]["inline"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|r| r["category"].clone())
-            .collect();
         assert_eq!(
             warming["annotations"],
             json!([
-                { "kind": "highlight", "at": { "x": years } },
+                { "kind": "highlight", "at": {} },
                 { "kind": "band", "at": { "x": ["1980", "2024"] }, "text": "Since 1980" },
             ])
         );

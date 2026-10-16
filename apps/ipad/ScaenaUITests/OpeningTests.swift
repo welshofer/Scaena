@@ -132,6 +132,38 @@ final class OpeningTests: XCTestCase {
         settle()
         keep(app, as: "inserted")
     }
+
+    /// Code pasted on the slide is a code text in its language, its chip saying which (PLAN 2.133).
+    @MainActor
+    func testCodePastedShowsItsLanguage() throws {
+        let app = launched()
+        try openB1(in: app)
+        UIPasteboard.general.string = "fn main() {\n    let total = 42;\n    println!(\"{total}\");\n}\n"
+        let canvas = app.descendants(matching: .any).matching(identifier: "canvas").firstMatch
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "no canvas: \(app.debugDescription)")
+        // A long press on the title offers the edit menu, as TouchTests's does, and its Paste is the
+        // canvas's: ⌘V from XCUITest's keyboard reached no paste on the simulator.
+        let title = canvas.descendants(matching: .any).matching(NSPredicate(format: "label == 'Scaena'")).firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 10), "no title on the canvas: \(app.debugDescription)")
+        title.press(forDuration: 1.2)
+        let paste = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Paste'")).firstMatch
+        guard paste.waitForExistence(timeout: 10) else {
+            keep(app, as: "no-paste-offered")
+            throw Unseen(description: "the long press offers no Paste: \(app.debugDescription)")
+        }
+        paste.tap()
+        // The menu's Paste reads what the test put on the pasteboard, which iPadOS guards with its
+        // Allow Paste prompt: the system's, not the app's, whose main thread waits on the answer, so
+        // the app is asked nothing until it is answered.
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let allow = springboard.buttons["Allow Paste"]
+        if allow.waitForExistence(timeout: 10) { allow.tap() }
+        let chip = app.descendants(matching: .any).matching(identifier: "code-chip").firstMatch
+        XCTAssertTrue(chip.waitForExistence(timeout: 10), "the code pasted shows no chip: \(app.debugDescription)")
+        XCTAssertEqual(chip.value as? String, "Rust", "the chip does not say Rust: \(chip.debugDescription)")
+        settle()
+        keep(app, as: "code-pasted")
+    }
 }
 
 /// How words read on what they are drawn over, as the screen shows them (WCAG 2): the color most of

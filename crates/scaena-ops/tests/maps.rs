@@ -61,6 +61,7 @@ fn fetch(png: Vec<u8>, zoom: f64) -> Fetch {
         kept: false,
         edited: false,
         forecast: None,
+        stock: None,
     };
     Fetch { png, fetched, pin: [0.5, 0.5], label: None }
 }
