@@ -750,6 +750,29 @@ impl Session {
         Ok(self.at_rest(state)?.hit(point))
     }
 
+    /// Each kind of code token as the theme the deck names draws it (PLAN 2.144, ADR-0029), in
+    /// `code::Class::KINDS`' order: what the Theme tab's Code shows. Code is drawn on the theme's
+    /// surface until it has a card of its own (PLAN 2.136), in the theme's code role.
+    #[cfg(feature = "editor")]
+    pub fn code_colors(&self) -> Result<Vec<CodeColor>, Error> {
+        use scaena_core::code::Class;
+        let theme = &self.theme;
+        let role = theme.text_role(theme.code_role().unwrap_or("body")).map_err(|e| Error::Ops(e.to_string()))?;
+        let [r, g, b, _] = theme.color("surface").map_err(|e| Error::Ops(e.to_string()))?.0;
+        let looks = theme.code_looks([r, g, b], &role).map_err(|e| Error::Ops(e.to_string()))?;
+        let syntax = theme.code.as_ref().and_then(|c| c.syntax.as_ref());
+        let hex = |[r, g, b, _]: [u8; 4]| format!("#{r:02x}{g:02x}{b:02x}");
+        Ok((Class::KINDS.iter().zip(scaena_core::words::SYNTAX))
+            .map(|(&class, (kind, said))| {
+                let named = syntax.and_then(|s| s.of(class)).and_then(|l| l.color.clone());
+                let drawn = hex(looks[class as usize].color);
+                // A color the theme names that does not read on its ground is drawn a step from it.
+                let moved = named.as_deref().and_then(|n| theme.color(n).ok()).is_some_and(|c| hex(c.0) != drawn);
+                CodeColor { kind: kind.to_string(), said: said.to_string(), drawn, named, moved }
+            })
+            .collect())
+    }
+
     /// [`Session::boxes`] as a client lists them (ADR-0013): `[{ "node", "rect": [x, y, w, h],
     /// "parent"?, "draws", "transform"?, "locked"?, "takesWords"?, "words"?, "joins"?, "route"?
     /// }]`, canvas units. `transform` is where its own and its containers' draw it from `rect`
@@ -2403,6 +2426,24 @@ fn utf16(text: &str) -> impl Fn(usize) -> usize + '_ {
     move |byte| at[at.partition_point(|&(b, _)| b < byte).min(at.len() - 1)].1
 }
 
+/// One kind of code token as the theme draws it (PLAN 2.144): what the Theme tab's Code shows.
+#[cfg(feature = "editor")]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct CodeColor {
+    /// The kind, as the theme keys its look: `keyword`.
+    pub kind: String,
+    /// The kind as a person calls it: Keywords.
+    pub said: String,
+    /// The color its tokens are drawn in, on the ground they are drawn on: `#rrggbb`.
+    pub drawn: String,
+    /// The color the theme names for it, a name or a literal; none where it is derived from the
+    /// accent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub named: Option<String>,
+    /// The color named is drawn a step lighter or darker, held to read on its ground.
+    pub moved: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3146,6 +3187,30 @@ mod tests {
 
     /// Insert's text in the role the theme keeps for code is code (PLAN 2.132, ADR-0029): in no
     /// language until one is named, and set in that role; no other text Insert offers is code.
+    /// Each kind of code token as the theme draws it (PLAN 2.144): derived where the theme names
+    /// none, the theme's where it names one, and moved where that does not read on the surface.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn code_colors_say_how_each_kind_is_drawn() {
+        let mut s = revenue();
+        let colors = s.code_colors().unwrap();
+        let kinds: Vec<&str> = colors.iter().map(|c| c.kind.as_str()).collect();
+        assert_eq!(kinds, scaena_core::code::Class::KINDS.map(|c| c.name()));
+        assert_eq!((colors[0].said.as_str(), colors[6].said.as_str()), ("Keywords", "Comments"));
+        assert!(colors.iter().all(|c| c.named.is_none() && !c.moved && c.drawn.len() == 7), "{colors:?}");
+        // Dusk is dark: its surface, named for strings, cannot read on itself, and is moved.
+        let syntax = serde_json::json!({ "keyword": { "color": "accent" }, "string": { "color": "surface" } });
+        let ops = serde_json::json!([{ "op": "add", "path": "/code", "value": { "syntax": syntax } }]);
+        let by = assistant::Caller { author: "user", at: None };
+        s.tool("theme_edit", serde_json::json!({ "ops": ops }), by).unwrap();
+        let colors = s.code_colors().unwrap();
+        assert_eq!(colors[0].named.as_deref(), Some("accent"));
+        let string = colors.iter().find(|c| c.kind == "string").unwrap();
+        assert_eq!(string.named.as_deref(), Some("surface"));
+        assert!(string.moved, "{string:?}");
+        assert!(colors.iter().filter(|c| c.named.is_none()).all(|c| !c.moved));
+    }
+
     #[cfg(feature = "editor")]
     #[test]
     fn inserted_code_is_code_in_the_themes_code_role() {

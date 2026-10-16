@@ -213,7 +213,8 @@ char *scaena_picture(const uint8_t *bytes, size_t len);
 // `{id, patch}`. The panels (PLAN 3.15), each edit by the user at `at` (RFC 3339) where given:
 // `shippedThemes`; `retheme {path | ships, at?}`, the deck in a theme the bundle holds or one
 // that ships, as `theme --apply` says it; `themeEdit {ops | photo, dryRun?, at?}`, `{edited,
-// files}`, the theme file written before and after for the undo; `bundleFiles` and `removeFile
+// files}`, the theme file written before and after for the undo; `codeColors`, each kind of code
+// token as the theme draws it (PLAN 2.144); `bundleFiles` and `removeFile
 // {path}`; `dataSources`, `dataSheet {name}`, `dataEdit {source, edits, at?}`, `{result,
 // wrote}`, and `dataUndo {redo?, at?}`, the file an edit wrote or a removal took out put back or
 // written again; and, from the bundle's history, `versions`, each with what its change did
