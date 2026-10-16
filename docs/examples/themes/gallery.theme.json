@@ -307,6 +307,19 @@
         "hangingPunctuation": true,
         "italic": true
       },
+      "verse": {
+        "family": "display",
+        "size": 64,
+        "weight": 400,
+        "leading": 1.5,
+        "tracking": 0,
+        "wrap": "none",
+        "box": "cap",
+        "snap": "cap",
+        "minSize": 40,
+        "opticalMargins": true,
+        "hangingPunctuation": true
+      },
       "numeral": {
         "family": "display",
         "size": 120,
