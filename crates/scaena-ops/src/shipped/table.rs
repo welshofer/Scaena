@@ -4,7 +4,7 @@
 use super::Shipped;
 
 /// Every theme that ships, in the registry's order.
-pub const THEMES: [Shipped; 4] = [
+pub const THEMES: [Shipped; 6] = [
     Shipped {
         name: "dusk",
         file: "dusk.theme.json",
@@ -24,6 +24,12 @@ pub const THEMES: [Shipped; 4] = [
         name: "gallery",
         file: "gallery.theme.json",
         text: include_str!("../../../../docs/examples/themes/gallery.theme.json"),
+    },
+    Shipped { name: "basel", file: "basel.theme.json", text: include_str!("../../../../docs/themes/basel.theme.json") },
+    Shipped {
+        name: "kernel",
+        file: "kernel.theme.json",
+        text: include_str!("../../../../docs/themes/kernel.theme.json"),
     },
 ];
 

@@ -8,6 +8,8 @@ import dusk from "../../docs/examples/themes/dusk.theme.json?url";
 import daybreak from "../../docs/examples/authorability/themes/daybreak.theme.json?url";
 import ember from "../../docs/examples/themes/ember.theme.json?url";
 import gallery from "../../docs/examples/themes/gallery.theme.json?url";
+import basel from "../../docs/themes/basel.theme.json?url";
+import kernel from "../../docs/themes/kernel.theme.json?url";
 import frauncesVFFont from "../../docs/examples/fonts/Fraunces-VF.ttf?url";
 import interVFFont from "../../docs/examples/fonts/Inter-VF.ttf?url";
 import jetBrainsMonoVFFont from "../../docs/examples/fonts/JetBrainsMono-VF.ttf?url";
@@ -23,6 +25,8 @@ export const themes: Record<string, { file: string; url: string }> = {
   Daybreak: { file: "daybreak.theme.json", url: daybreak },
   Ember: { file: "ember.theme.json", url: ember },
   Gallery: { file: "gallery.theme.json", url: gallery },
+  Basel: { file: "basel.theme.json", url: basel },
+  Kernel: { file: "kernel.theme.json", url: kernel },
 };
 
 /** The fonts the themes name, by the paths they give them, and where the page has each: each

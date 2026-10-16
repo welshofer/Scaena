@@ -10,7 +10,7 @@ private let torture = repository.appending(path: "tests/fixtures/torture.scaena"
 /// a dry run writing nothing, the file written before and after for the undo, which writes it back.
 @Test func theThemeIsEditedAndAnotherTakenAsTheBrowsersThemeTabDoes() throws {
     let made = try ScaenaSession.create(theme: "Dusk", title: "Trail report")
-    #expect(try made.shippedThemes().map(\.name) == ["dusk", "daybreak", "ember", "gallery"])
+    #expect(try made.shippedThemes().map(\.name) == ["dusk", "daybreak", "ember", "gallery", "basel", "kernel"])
     #expect(try made.themes().current == "themes/dusk.theme.json")
     let themed = try made.retheme(ships: "daybreak")
     #expect(themed.applied && !themed.refused && themed.theme == "themes/daybreak.theme.json")

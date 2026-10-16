@@ -1,0 +1,177 @@
+{
+  "name": "Basel",
+  "description": "Swiss: flush-left Inter at huge sizes on warm white, red the only color, hairlines on the grid's lines. Needs no font beyond the four's.",
+  "mode": "light",
+  "colors": {
+    "ink": "#111111",
+    "paper": "#F5F5F2",
+    "paper-2": "#DEDED9",
+    "accent": "#B80F2A",
+    "accent-2": "#1F3FBF",
+    "muted": "#474747",
+    "line": "#C9C9C3"
+  },
+  "data": {
+    "categorical": [
+      "#2A2A2A",
+      "#646464",
+      "#454545",
+      "#555555"
+    ],
+    "sequential": [
+      "#DEDED9",
+      "#EBC3C9",
+      "#D97F8D",
+      "#C8475B",
+      "#B80F2A"
+    ],
+    "diverging": [
+      "#1F3FBF",
+      "#DEDED9",
+      "#B80F2A"
+    ]
+  },
+  "families": {
+    "display": {
+      "family": "Inter",
+      "file": "fonts/Inter-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          14,
+          32
+        ]
+      },
+      "italic": {
+        "file": "fonts/Inter-Italic-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            900
+          ],
+          "opsz": [
+            14,
+            32
+          ]
+        }
+      },
+      "features": {
+        "cv11": true,
+        "ss01": false
+      },
+      "fallback": [
+        "body"
+      ]
+    },
+    "body": {
+      "family": "Inter",
+      "file": "fonts/Inter-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          14,
+          32
+        ]
+      },
+      "italic": {
+        "file": "fonts/Inter-Italic-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            900
+          ],
+          "opsz": [
+            14,
+            32
+          ]
+        }
+      },
+      "features": {
+        "cv11": true,
+        "ss01": false
+      }
+    },
+    "mono": {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          800
+        ]
+      },
+      "italic": {
+        "file": "fonts/JetBrainsMono-Italic-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            800
+          ]
+        }
+      }
+    }
+  },
+  "voice": "dusk",
+  "roles": {
+    "display": {
+      "weight": 700,
+      "tracking": -0.035,
+      "opsz": 32,
+      "measure": 18
+    },
+    "headline": {
+      "weight": 650,
+      "tracking": -0.025,
+      "opsz": 32,
+      "measure": 28
+    },
+    "figure": {
+      "weight": 650,
+      "opsz": 32
+    },
+    "quote": {
+      "weight": 500,
+      "tracking": -0.015,
+      "opsz": 32,
+      "measure": 35
+    },
+    "verse": {
+      "opsz": 32,
+      "axes": null
+    },
+    "numeral": {
+      "weight": 650,
+      "opsz": 32
+    },
+    "hero": {
+      "weight": 700,
+      "opsz": 32
+    }
+  },
+  "margin": [
+    96,
+    120
+  ],
+  "shaders": {
+    "palettes": {
+      "ambient": [
+        "#F1EFEA",
+        "#E2DFD8",
+        "#EBC3C9",
+        "#D97F8D"
+      ],
+      "texture": [
+        "#F5F5F2",
+        "#E8E6E0",
+        "#D8B4B9",
+        "#B80F2A"
+      ]
+    }
+  }
+}

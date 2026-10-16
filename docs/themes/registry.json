@@ -47,6 +47,30 @@
       "mode": "light",
       "colors": { "ink": "#151515", "paper": "#FCFCFA", "paper-2": "#F1F1EC", "accent": "#2340D9", "accent-2": "#D9481F", "muted": "#66665F", "line": "#E0E0D8" },
       "voice": "gallery"
+    },
+    {
+      "slug": "basel",
+      "name": "Basel",
+      "family": "Editorial",
+      "geometry": "dusk",
+      "fonts": ["inter", "jetbrains-mono"],
+      "files": ["docs/themes/basel.theme.json"],
+      "description": "Swiss: flush-left Inter at huge sizes on warm white, red the only color, hairlines on the grid's lines. Needs no font beyond the four's.",
+      "mode": "light",
+      "colors": { "ink": "#111111", "paper": "#F5F5F2", "paper-2": "#DEDED9", "accent": "#B80F2A", "accent-2": "#1F3FBF", "muted": "#474747", "line": "#C9C9C3" },
+      "voice": "dusk"
+    },
+    {
+      "slug": "kernel",
+      "name": "Kernel",
+      "family": "Systems",
+      "geometry": "dusk",
+      "fonts": ["jetbrains-mono", "inter"],
+      "files": ["docs/themes/kernel.theme.json"],
+      "description": "Systems: titles in JetBrains Mono over Inter on a dark ground, a terminal green accent, and code cards that read at the back of a hall. Needs no font beyond the four's.",
+      "mode": "dark",
+      "colors": { "ink": "#E8ECF1", "paper": "#0F1218", "paper-2": "#212734", "accent": "#9ADE7B", "accent-2": "#82AAFF", "muted": "#A0AAB8", "line": "#2D3442" },
+      "voice": "dusk"
     }
   ]
 }
