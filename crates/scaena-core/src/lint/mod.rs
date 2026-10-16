@@ -177,7 +177,8 @@ pub fn dated(deck: &Deck, now: i64) -> Vec<Finding> {
         let first = first.and_then(Value::as_str);
         let message: Box<dyn Fn(&str) -> String> = if crate::fetched::passed(fetched, first, now) {
             let Some(forecast) = &fetched.forecast else { continue };
-            let day = first.map_or_else(|| crate::fetched::date(&fetched.at).unwrap_or("").into(), |d| d[..10].into());
+            let day: String =
+                first.map_or_else(|| crate::fetched::date(&fetched.at).unwrap_or("").into(), |d| d[..10].into());
             let place = forecast.place.name.clone();
             Box::new(move |what: &str| {
                 format!("{what} forecast `@{name}` starts on {day}, a day that has passed in {place}")

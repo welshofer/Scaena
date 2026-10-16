@@ -490,7 +490,10 @@ pub fn problems(record: &Value) -> Vec<(String, String)> {
     }
     if let Some(stock) = fetched.stock.as_ref().filter(|s| !civil_time(&s.through)) {
         let at = &stock.through;
-        out.push(("/stock/through".into(), format!("`{at}` is no civil time: write it as 2026-10-15 or 2026-10-15T16:00")));
+        out.push((
+            "/stock/through".into(),
+            format!("`{at}` is no civil time: write it as 2026-10-15 or 2026-10-15T16:00"),
+        ));
     }
     if known.is_some_and(|s| s.credited) && said(&fetched.credit).trim().is_empty() {
         let title = known.map_or("", |s| s.title);
@@ -574,7 +577,8 @@ mod tests {
         for at in ["2026-10-15", "2026-10-15T16:00", "2026-10-15T09:35:00"] {
             assert!(civil_time(at), "{at}");
         }
-        for at in ["2026-10-15T16:00Z", "2026-10-15 16:00", "2026-10-15T24:00", "2026-13-01", "2026-10-15T16", "today"] {
+        for at in ["2026-10-15T16:00Z", "2026-10-15 16:00", "2026-10-15T24:00", "2026-13-01", "2026-10-15T16", "today"]
+        {
             assert!(!civil_time(at), "{at}");
         }
         assert_eq!(city("America/New_York"), "New York");
