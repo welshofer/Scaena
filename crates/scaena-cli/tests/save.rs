@@ -136,3 +136,36 @@ fn saving_twice_writes_the_same_bytes_and_a_true_manifest() {
     let again = dir.join("again");
     assert_eq!(save(unzipped.to_str().unwrap(), &again), Vec::<(String, String)>::new());
 }
+
+fn copy_dir(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let path = entry.unwrap().path();
+        let target = to.join(path.file_name().unwrap());
+        if path.is_dir() { copy_dir(&path, &target) } else { std::fs::copy(&path, &target).map(|_| ()).unwrap() }
+    }
+}
+
+/// `scaena save` never subsets a family its theme keeps whole (ADR-0031, call 5), as Hanji's
+/// Pretendard will be: B1 with Bench Serif so marked keeps its bytes, and the rest are subset.
+#[test]
+fn scaena_save_keeps_a_family_its_theme_keeps_whole() {
+    let dir = scratch("whole");
+    let marked = dir.join("b1");
+    copy_dir(Path::new(B1), &marked);
+    let theme = std::fs::read_to_string(marked.join("theme.json")).unwrap();
+    let edited = theme.replacen(r#""family": "Bench Serif","#, r#""family": "Bench Serif", "whole": true,"#, 1);
+    assert_ne!(edited, theme);
+    std::fs::write(marked.join("theme.json"), edited).unwrap();
+    let out = scaena(&["--json", "save", marked.to_str().unwrap(), "--to", dir.join("saved").to_str().unwrap()]);
+    let saved: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let subset: Vec<&str> = saved["subset"].as_array().unwrap().iter().map(|s| s[0].as_str().unwrap()).collect();
+    assert_eq!(subset, ["fonts/Fraunces-VF.ttf", "fonts/Inter-VF.ttf", "fonts/JetBrainsMono-VF.ttf"]);
+    let renamed = saved["renamed"].as_array().unwrap();
+    let new = renamed.iter().find(|r| r[0] == "fonts/BenchSerif-VF.ttf").unwrap()[1].as_str().unwrap();
+    assert_eq!(
+        std::fs::read(dir.join("saved").join(new)).unwrap(),
+        std::fs::read(format!("{B1}/fonts/BenchSerif-VF.ttf")).unwrap(),
+        "kept whole, byte for byte"
+    );
+}

@@ -81,6 +81,35 @@ class FromSpec(unittest.TestCase):
             themes.fonts_of(theme)
 
 
+    def test_the_four_name_every_italic_and_keep_nothing_whole(self):
+        for slug in ("dusk", "daybreak", "ember", "gallery"):
+            self.assertEqual(themes.faces(themes.themed(slug, SPECS[slug], BASE)), [], slug)
+
+    def test_only_a_family_whose_script_sets_no_italic_is_upright_by_design(self):
+        theme = themes.themed("basel", spec(), BASE)
+        body = theme["type"]["families"]["body"]
+        del body["italic"]
+        self.assertRegex(" ".join(themes.faces(theme)), "`body` \\(Inter\\) names no italic")
+        body["upright"] = True
+        self.assertRegex(" ".join(themes.faces(theme)), "pinned table has its italic")
+        # Noto Sans JP, which has none and sets Japanese: upright by design.
+        body.update(family="Noto Sans JP", file="fonts/NotoSansJP-VF.ttf")
+        self.assertEqual(themes.faces(theme), [])
+        body["italic"] = {"file": "fonts/NotoSansJP-VF.ttf"}
+        self.assertRegex(" ".join(themes.faces(theme)), "upright by design and names an italic")
+
+    def test_a_family_whose_name_is_reserved_is_kept_whole_and_no_other(self):
+        theme = themes.themed("basel", spec(), BASE)
+        body = theme["type"]["families"]["body"]
+        del body["italic"]
+        body.update(family="Pretendard", file="fonts/Pretendard-VF.ttf", upright=True)
+        self.assertRegex(" ".join(themes.faces(theme)), "license reserves \\(Pretendard\\): keep it `whole`")
+        body["whole"] = True
+        self.assertEqual(themes.faces(theme), [])
+        # Noto Sans JP reserves "Source", which its name does not use: subset as any other.
+        body.update(family="Noto Sans JP", file="fonts/NotoSansJP-VF.ttf")
+        self.assertRegex(" ".join(themes.faces(theme)), "reserves no name it uses")
+
 class Bars(unittest.TestCase):
     def test_basel_meets_every_bar(self):
         self.assertEqual(themes.missed("basel", spec()), [])

@@ -94,97 +94,18 @@ fn a_family_without_an_italic_sets_it_upright_and_says_so() {
     assert!(set(&mut fonts, &theme, &[("Revenue doubled", false)]).upright.is_empty());
 }
 
+/// A family upright by design, whose script sets no italic (ADR-0031, call 6), names no italic
+/// and sets italic text upright as one that lost it does, and W231 reads it all the same.
 #[test]
-fn a_familys_italic_face_is_its_own_and_italic() {
-    let fonts = fonts();
-    // The roman named as the italic: upright.
-    let roman = dusk(|t| t["type"]["families"]["body"]["italic"]["file"] = "fonts/Inter-VF.ttf".into());
-    let e = fonts.check_theme(&roman).unwrap_err().to_string();
-    assert!(e.contains("family `body`'s italic: fonts/Inter-VF.ttf is upright, not an italic"), "{e}");
-    // Another family's italic.
-    let other = dusk(|t| t["type"]["families"]["body"]["italic"]["file"] = "fonts/Fraunces-Italic-VF.ttf".into());
-    let e = fonts.check_theme(&other).unwrap_err().to_string();
-    assert!(
-        e.contains("family `body`'s italic: fonts/Fraunces-Italic-VF.ttf provides [\"Fraunces\"], not `Inter`"),
-        "{e}"
-    );
-    // One the bundle lacks.
-    let missing = dusk(|t| t["type"]["families"]["body"]["italic"]["file"] = "fonts/Missing.ttf".into());
-    let e = fonts.check_theme(&missing).unwrap_err().to_string();
-    assert!(e.contains("family `body`'s italic: fonts/Missing.ttf is not in the bundle"), "{e}");
-}
-
-#[test]
-fn command_i_toggles_italic_by_what_each_character_asks() {
+fn a_family_upright_by_design_sets_italic_upright_and_says_so() {
     let mut fonts = fonts();
-    let theme = dusk(|_| {});
-    // "Revenue " upright, "doubled" italic by its own style.
-    let carets = set(&mut fonts, &theme, &[("Revenue ", false), ("doubled", true)]).carets([0.0, 0.0]);
-    let italic = |from: usize, to: usize| carets.italicizing(from, to)["style/italic"].clone();
-    assert_eq!(italic(0, 7), serde_json::json!(true), "upright characters: italic");
-    assert_eq!(italic(0, 15), serde_json::json!(true), "some upright: all italic");
-    assert_eq!(italic(8, 15), serde_json::Value::Null, "all italic by their own style: taken away");
-
-    // Characters italic by their role take `false` to stand upright.
-    let role = theme.text_role("body").unwrap();
-    let mut spec = TextSpec::plain(role, "quoted");
-    spec.spans[0].style.italic = true;
-    spec.spans[0].base_italic = true;
-    let carets = TextEngine::new().layout(&mut fonts, &theme, &spec, 1600.0).unwrap().carets([0.0, 0.0]);
-    assert_eq!(carets.italicizing(0, 6)["style/italic"], serde_json::json!(false));
-    // Even where the family has no italic face: what is asked, not what is set.
-    let plain = dusk(|t| {
-        t["type"]["families"]["body"].as_object_mut().unwrap().remove("italic");
+    let theme = dusk(|t| {
+        let body = t["type"]["families"]["body"].as_object_mut().unwrap();
+        body.remove("italic");
+        body.insert("upright".into(), true.into());
     });
-    let carets = set(&mut fonts, &plain, &[("doubled", true)]).carets([0.0, 0.0]);
-    assert_eq!(carets.italicizing(0, 7)["style/italic"], serde_json::Value::Null);
-}
-
-/// Gallery's display family, Instrument Serif, is one weight, with no `wght` axis. A run asked
-/// to be bold is set in that weight, the glyphs and advances the font has, none emboldened,
-/// and the layout names the font set lighter than asked (lint W232). The run keeps the weight
-/// it asks for, which ⌘B reads.
-#[test]
-fn a_family_of_one_weight_sets_a_heavier_run_in_its_own_weight() {
-    let theme = Theme::from_json(&String::from_utf8(read("themes/gallery.theme.json")).unwrap()).unwrap();
-    let mut fonts = BundleFonts::new();
-    for file in ["InstrumentSerif-Regular.ttf", "InstrumentSerif-Italic.ttf", "Inter-VF.ttf", "Inter-Italic-VF.ttf"]
-        .into_iter()
-        .chain(["JetBrainsMono-VF.ttf", "JetBrainsMono-Italic-VF.ttf"])
-    {
-        let path = format!("fonts/{file}");
-        fonts.register(&path, read(&path)).unwrap();
-    }
-    fonts.check_theme(&theme).unwrap();
-    let set = |fonts: &mut BundleFonts, role: &str, weight: Option<f32>| {
-        let role = theme.text_role(role).unwrap();
-        let mut spec = TextSpec::plain(role.clone(), "");
-        spec.spans = [("Revenue ", None), ("doubled", weight)]
-            .into_iter()
-            .map(|(text, weight)| {
-                let mut span = TextSpec::plain(role.clone(), text).spans.remove(0);
-                if let Some(weight) = weight {
-                    span.style.weight = weight;
-                }
-                span
-            })
-            .collect();
-        TextEngine::new().layout(fonts, &theme, &spec, 1600.0).unwrap()
-    };
-    let glyphs = |text: &TextLayout| -> Vec<(u32, f32, f32)> {
-        text.runs.iter().flat_map(|r| r.glyphs.iter().map(|g| (g.id, g.x, g.y))).collect()
-    };
-
-    let plain = set(&mut fonts, "headline", None);
-    let bold = set(&mut fonts, "headline", Some(700.0));
-    assert!(plain.lighter.is_empty());
-    assert_eq!(bold.lighter, ["fonts/InstrumentSerif-Regular.ttf"], "the font set lighter than asked");
-    assert!(faces(&bold).iter().all(|f| *f == "fonts/InstrumentSerif-Regular.ttf"), "{:?}", faces(&bold));
-    assert_eq!(glyphs(&bold), glyphs(&plain), "the font's own glyphs and advances");
-    assert_eq!(bold.looks.iter().map(|l| l.weight).collect::<Vec<_>>(), [400.0, 700.0], "the weight asked");
-
-    // Inter, with its `wght` axis, sets the run bold: nothing to say.
-    let inter = set(&mut fonts, "body", Some(700.0));
-    assert!(inter.lighter.is_empty());
-    assert_ne!(glyphs(&inter), glyphs(&set(&mut fonts, "body", None)));
+    assert_eq!(theme.families()["body"].upright, Some(true));
+    let text = set(&mut fonts, &theme, &[("doubled", true)]);
+    assert_eq!(faces(&text), ["fonts/Inter-VF.ttf"]);
+    assert_eq!(text.upright, ["body"], "what W231 reads");
 }

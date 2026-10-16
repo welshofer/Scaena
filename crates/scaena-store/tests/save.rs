@@ -110,6 +110,45 @@ fn keeping_fonts_whole_keeps_their_bytes() {
     }
 }
 
+/// A family its theme keeps whole is never subset (ADR-0031, call 5): B1 with Bench Serif marked
+/// so, as Hanji will mark Pretendard, whose license reserves its name. Bench Serif is Source
+/// Serif 4 renamed, a family whose name was reserved; which family is marked does not matter to
+/// the save, which reads only the mark.
+#[test]
+fn a_family_kept_whole_keeps_its_bytes_when_the_rest_are_subset() {
+    let b1 = Path::new("../../tests/bench/b1.scaena");
+    let dir = scratch("kept-whole").join("b1");
+    copy_dir(b1, &dir);
+    let theme = std::fs::read_to_string(dir.join("theme.json")).unwrap();
+    let marked = theme.replacen(r#""family": "Bench Serif","#, r#""family": "Bench Serif", "whole": true,"#, 1);
+    assert_ne!(marked, theme);
+    std::fs::write(dir.join("theme.json"), marked).unwrap();
+
+    let bundle = Bundle::open(&dir).unwrap();
+    let (_, subsetting) = bundle.subsetting().unwrap();
+    assert!(!subsetting.contains(&"fonts/BenchSerif-VF.ttf".to_string()), "nothing to subset: {subsetting:?}");
+    assert_eq!(subsetting.len(), 3, "{subsetting:?}");
+
+    let out = scratch("kept-whole").join("saved");
+    let saved = bundle.save(&out, &opts()).unwrap();
+    let subset: Vec<&str> = saved.subset.iter().map(|(path, _, _)| path.as_str()).collect();
+    assert_eq!(subset.len(), 3, "{subset:?}");
+    assert!(!subset.contains(&"fonts/BenchSerif-VF.ttf"));
+    for (old, new) in saved.renamed.iter().filter(|(old, _)| old.starts_with("fonts/")) {
+        let before = std::fs::read(b1.join(old)).unwrap();
+        let after = std::fs::read(out.join(new)).unwrap();
+        if old == "fonts/BenchSerif-VF.ttf" {
+            assert_eq!(after, before, "kept whole, byte for byte");
+        } else {
+            assert_ne!(after, before, "{old} is subset");
+        }
+    }
+    // And again, from what it saved: the mark travels with the theme.
+    let again = Bundle::open(&out).unwrap().saving(&opts()).unwrap();
+    let whole = std::fs::read(b1.join("fonts/BenchSerif-VF.ttf")).unwrap();
+    assert!(again.files.values().any(|bytes| *bytes == whole), "still whole after a second save");
+}
+
 /// Every file under `dir`, by its path inside it.
 fn read_all(dir: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
     let bundle = Bundle::open(dir).unwrap();

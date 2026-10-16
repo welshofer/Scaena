@@ -58,20 +58,49 @@ mod tests {
         assert_eq!(THEMES.iter().map(|t| t.name).collect::<Vec<_>>(), slugs);
     }
 
+    /// Each family of a theme that has no italic and does not say it is upright by design: a
+    /// family whose script sets no italic, as Japanese and Korean do not, says so (`upright`,
+    /// ADR-0031, call 6), and one that merely lost its italic does not ship.
+    fn without_italics(theme: &serde_json::Value) -> Vec<String> {
+        let families = theme["type"]["families"].as_object().unwrap();
+        (families.iter())
+            .filter(|(_, f)| f.get("italic").is_none() && f.get("upright") != Some(&serde_json::Value::Bool(true)))
+            .map(|(key, _)| key.clone())
+            .collect()
+    }
+
     #[test]
     fn every_font_a_theme_that_ships_names_ships_with_it() {
         for theme in THEMES {
             let parsed: serde_json::Value = serde_json::from_str(theme.text).unwrap();
+            assert_eq!(without_italics(&parsed), Vec::<String>::new(), "{}: a family lost its italic", theme.name);
             let families = parsed["type"]["families"].as_object().unwrap();
             for family in families.values() {
                 let file = family["file"].as_str().unwrap();
                 assert!(font(file).is_some(), "{}: {file}", theme.name);
-                let italic = family["italic"]["file"].as_str().expect("every family that ships has an italic");
-                assert!(font(italic).is_some(), "{}: {italic}", theme.name);
+                if let Some(italic) = family.get("italic") {
+                    let italic = italic["file"].as_str().unwrap();
+                    assert!(font(italic).is_some(), "{}: {italic}", theme.name);
+                }
             }
         }
         assert_eq!(theme("Ember").map(|t| t.file), Some("ember.theme.json"));
         assert!(theme("ember.theme.json").is_none());
+    }
+
+    /// A family upright by design ships without an italic, as Washi's and Hanji's will (ADR-0031,
+    /// call 6); a Latin family that lost its italic, and says nothing, does not.
+    #[test]
+    fn only_a_family_upright_by_design_ships_without_an_italic() {
+        let mut theme: serde_json::Value = serde_json::from_str(THEMES[0].text).unwrap();
+        let families = theme["type"]["families"].as_object_mut().unwrap();
+        let key = families.keys().next().unwrap().clone();
+        families[&key].as_object_mut().unwrap().remove("italic");
+        assert_eq!(without_italics(&theme), vec![key.clone()], "a family that lost its italic is refused");
+        theme["type"]["families"][&key]["upright"] = serde_json::Value::Bool(true);
+        assert_eq!(without_italics(&theme), Vec::<String>::new(), "a family upright by design ships");
+        let parsed: scaena_core::model::theme::Theme = serde_json::from_value(theme).unwrap();
+        assert_eq!(parsed.typography.families[&key].upright, Some(true));
     }
 
     /// The themes that ship offer the same builds, a presentation app's (PLAN 2.112), and the same
