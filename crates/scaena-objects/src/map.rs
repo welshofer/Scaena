@@ -164,6 +164,10 @@ impl Map {
             credit: self.credit.clone(),
             license: Some(LICENSE.into()),
             map: Some(self.map.clone()),
+            terms: None,
+            kept: false,
+            edited: false,
+            forecast: None,
         }
     }
 

@@ -57,6 +57,10 @@ fn fetch(png: Vec<u8>, zoom: f64) -> Fetch {
             size: [800, 450],
             scale: 2,
         }),
+        terms: None,
+        kept: false,
+        edited: false,
+        forecast: None,
     };
     Fetch { png, fetched, pin: [0.5, 0.5], label: None }
 }
