@@ -2380,6 +2380,7 @@ What each must keep, whatever its batch:
     - Tests: as S.1's.
 - [ ] S.3 The last 14 (ADR-0031, decision 7). *Unscheduled but for the first five.*
     - Five need nothing new and can go ahead after S.2: Seating Chart, Exhibit Callout, Concept of Operations, Brand Board, and Fine Print, with the search name Disclosures.
+    - **Landed:** those five, in every shipped theme: Seating Chart in Diagrams, six tables as circles, each its number and its guests either side; Exhibit Callout in Pictures, a page with its passage ringed and the passage enlarged beside it; Concept of Operations in Briefing, phases across as chevrons and lines of effort down, a card in each cell; Brand Board and Fine Print in Editorial, the logo and its use, three swatches, and the type, and a disclaimer in the caption role, which Add Slide's search also finds as Disclosures. The library is 168 layouts in 16 sections; each new start's digest is kept, the 163 before unchanged.
     - Nine wait on what the format lacks, each its own design and ADR:
       - Waterfall and Mekko, on chart kinds;
       - Forest Plot, on `range` running across;

@@ -1382,6 +1382,83 @@ layout("Closing", "join-or-scan", "A code to scan and the link to type: to join,
 })
 
 # ---------------------------------------------------------------------------------------------
+# The first five of ADR-0031's last slide types (PLAN S.3): those that need nothing new.
+
+# Diagrams --------------------------------------------------------------------------------------
+
+# Six tables in two rows of three, a circle in the middle of each third, each its number in the
+# middle and its guests down either side of it.
+SEATS = [(c, r) for r in [(3, 6), (7, 10)] for c in [(2, 3), (6, 7), (10, 11)]]
+GUESTS = [("Ana\nBen", "Cy\nDee"), ("Eve\nFin", "Gus\nHal"), ("Ida\nJo", "Kai\nLu"), ("Max\nNia", "Oli\nPam"), ("Quin\nRo", "Sam\nTess"), ("Uma\nVic", "Wes\nZoe")]
+layout("Diagrams", "seating-chart", "Tables as circles, each its number in the middle and its guests around it: who sits where.", {
+    "kicker": KICKER,
+    "header": header("Where everyone sits"),
+    **{f"{o}-table": slot(c, r, prompt={"shape": "ellipse", "fill": "surface-2"}) for o, (c, r) in zip(ORDINALS, SEATS)},
+    **{o: slot(c, r, "figure", str(i + 1), align={"x": "center", "y": "center"}) for i, (o, (c, r)) in enumerate(zip(ORDINALS, SEATS))},
+    **{f"{o}-left": slot((c[0] - 1, c[0] - 1), r, "caption", g[0], align={"x": "center", "y": "center"}) for o, (c, r), g in zip(ORDINALS, SEATS, GUESTS)},
+    **{f"{o}-right": slot((c[1] + 1, c[1] + 1), r, "caption", g[1], align={"x": "center", "y": "center"}) for o, (c, r), g in zip(ORDINALS, SEATS, GUESTS)},
+}, ember={
+    # Ember's rows a row lower, each table as tall as on Dusk's grid, not stretched to the foot.
+    f"{o}{k}": ((c[0] - 1, c[0] - 1) if k == "-left" else (c[1] + 1, c[1] + 1) if k == "-right" else c, (r[0] + 1, r[1] + 1))
+    for o, (c, r) in zip(ORDINALS, SEATS) for k in ["-table", "", "-left", "-right"]
+})
+
+# Pictures --------------------------------------------------------------------------------------
+
+# The page at the left, its passage ringed, and the passage enlarged beside it.
+PASSAGE = (6, 7)
+layout("Pictures", "exhibit-callout", "A page of a document with its key passage ringed, and the passage enlarged beside it.", {
+    "kicker": KICKER,
+    "header": header("What the document says"),
+    "page": slot((1, 5), (3, 10), prompt="A page of the document", example=PICTURE),
+    "ring": ring((2, 5), PASSAGE, shape="rect"),
+    "pointer": arrow((6, 6), PASSAGE, (x_of(6, "left"), mid_y(PASSAGE)), (x_of(6, "right"), mid_y(PASSAGE)), stroke="accent"),
+    "passage-card": card((7, 12), (3, 9)),
+    "passage": slot((7, 12), (3, 8), "quote", "The passage, enlarged", inset=48, align={"y": "center"}),
+    "source": slot((7, 12), (10, 10), "caption", "The exhibit, and its page"),
+})
+
+# Briefing --------------------------------------------------------------------------------------
+
+# Phases across, as chevrons, each pointing to the next; the lines of effort down the side; and a
+# card in each cell for what that line does in that phase.
+PHASES = [(4, 6), (7, 9), (10, 12)]
+EFFORTS = [(4, 5), (6, 7), (8, 9)]
+layout("Briefing", "concept-of-operations", "Phases across and lines of effort down, a card in each cell for what each line does in each phase.", {
+    "kicker": KICKER,
+    "header": header(),
+    **{f"{o}-phase-shape": slot(c, (3, 3), prompt={"shape": "polygon", "fill": "surface-2", "points": CHEVRON_FIRST if i == 0 else CHEVRON}) for i, (o, c) in enumerate(zip(ORDINALS, PHASES))},
+    **{f"{p}-{o}-card": box(c, r, inset=8) for p, r in zip(ORDINALS, EFFORTS) for o, c in zip(ORDINALS, PHASES)},
+    **{f"{o}-phase": slot(c, (3, 3), "label", w, align={"x": "center", "y": "center"}) for o, c, w in zip(ORDINALS, PHASES, ["Prepare", "Act", "Hand over"])},
+    **{f"{p}-effort": slot((1, 3), r, "body", w, align={"y": "center"}) for p, r, w in zip(ORDINALS, EFFORTS, ["People", "Systems", "Partners"])},
+    **{f"{p}-{o}": slot(c, r, "body", w, inset=24, align={"y": "center"}) for p, r, ws in zip(ORDINALS, EFFORTS, [["Hire", "Train", "Rotate"], ["Build", "Run", "Retire"], ["Brief", "Join", "Lead"]]) for o, c, w in zip(ORDINALS, PHASES, ws)},
+})
+
+# Editorial -------------------------------------------------------------------------------------
+
+# The logo and how to use it at the left; the palette's swatches, each named, and the type at the
+# right.
+SWATCHES = [(6, 7), (8, 9), (10, 11)]
+layout("Editorial", "brand-board", "A brand on one slide: its logo and how to use it, its colors, and its type.", {
+    "kicker": KICKER,
+    "header": header("The brand, at a glance"),
+    "logo": slot((1, 4), (3, 7), prompt="The logo", example=PICTURE, inset=24),
+    "logo-frame": slot((1, 4), (3, 7), prompt={"shape": "rect", "stroke": "line"}),
+    "logo-use": slot((1, 4), (8, 10), "caption", "Clear space all round, the height of the mark. Never stretched or recolored."),
+    **{f"{o}-swatch": card(c, (3, 5), fill=f) for o, c, f in zip(ORDINALS, SWATCHES, ["accent", "accent-2", "surface-2"])},
+    **{o: slot(c, (6, 6), "label", w) for o, c, w in zip(ORDINALS, SWATCHES, ["Primary", "Second", "Ground"])},
+    "type-sample": slot((6, 7), (8, 10), "display", "Aa", align={"y": "cap"}),
+    "type-title": slot((8, 12), (8, 9), "headline", "Our headlines"),
+    "type": slot((8, 12), (10, 10), "body", "And the words under them"),
+})
+
+layout("Editorial", "fine-print", "A safe-harbor statement or a disclaimer, in small type: what the audience is told before or after the talk.", {
+    "kicker": KICKER,
+    "header": header("Forward-looking statements"),
+    "body": slot((1, 10), (3, 10), "caption", "This presentation contains forward-looking statements. They involve risks and uncertainties, and actual results may differ materially. We assume no obligation to update them."),
+})
+
+# ---------------------------------------------------------------------------------------------
 # The 47 the themes had: the section each is offered in, and what its picture shows in each slot
 # that waits.
 
@@ -1536,6 +1613,9 @@ NAMES = {
     "positioning-map": "Positioning Map", "feature-grid": "Feature Grid", "risk-matrix": "Risk Matrix",
     "business-model-canvas": "Business Model Canvas", "logo-wall": "Logo Wall", "device-mockup": "Device Mockup",
     "buyer-persona": "Buyer Persona",
+    # S.3's first five
+    "seating-chart": "Seating Chart", "exhibit-callout": "Exhibit Callout",
+    "concept-of-operations": "Concept of Operations", "brand-board": "Brand Board", "fine-print": "Fine Print",
 }
 
 # The descriptions of the layouts the themes had, where one named what a person never reads in an
