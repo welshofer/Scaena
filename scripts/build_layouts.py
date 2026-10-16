@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""The shipped themes' library of layouts (PLAN 3.30, 3.31), written into Dusk, Daybreak, Ember, and Gallery.
+"""The themes' library of layouts (PLAN 3.30, 3.31), written into each theme `docs/themes/registry.json` lists.
 
 Each layout is a slide a person starts from Add Slide: slots on the theme's 12 × 12 grid, each
 saying what goes in it. This script holds the library's catalog: the sections it is offered in,
 in order, and every layout in each: the 47 the themes had, and those added since. It writes each
 theme file's `layouts`, and nothing else in it.
 
-- **The layouts the themes had** keep the slots each theme gave them: Ember's sit where its design
-  wants them, and Dusk's and Daybreak's are one. This script puts each in its section and gives
+- **The layouts are keyed by geometry family** (PLAN T.0a), as the registry names each theme's:
+  Dusk's grid, which Daybreak and Gallery share, or Ember's. A theme draws its family's layouts,
+  and a new theme, whose file holds none, takes the older ones from its family's first file.
+- **The layouts the themes had** keep the slots each family gave them: Ember's sit where its design
+  wants them, and Dusk's family's are one. This script puts each in its section and gives
   the slots that wait for a picture or a figure an `example`, what the layout's picture shows there.
 - **The layouts added since** are written here, once, on Dusk's grid: a headline in rows 1–2, what
   the slide holds in rows 3–10, and the kicker at the foot on the right. Ember's are made from
@@ -28,13 +31,14 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-THEMES = {
-    "dusk": [ROOT / "docs/examples/themes/dusk.theme.json", ROOT / "docs/examples/authorability/themes/dusk.theme.json"],
-    "daybreak": [ROOT / "docs/examples/authorability/themes/daybreak.theme.json"],
-    "ember": [ROOT / "docs/examples/themes/ember.theme.json"],
-    # Gallery (PLAN 2.102) takes Daybreak's layouts, on the same grid.
-    "gallery": [ROOT / "docs/examples/themes/gallery.theme.json"],
-}
+REGISTRY = ROOT / "docs/themes/registry.json"
+
+
+def themes(registry):
+    """Each theme the registry lists, in its order: its slug, its geometry family, and its files.
+    A theme's layouts are its family's (PLAN T.0a): Dusk's grid, which Daybreak and Gallery share
+    (PLAN 2.102), or Ember's."""
+    return [(e["slug"], e["geometry"], [ROOT / f for f in e["files"]]) for e in registry["themes"]]
 
 # The sections Add Slide offers the layouts in, in order.
 SECTIONS = [
@@ -1463,10 +1467,9 @@ def timeline_rows(top, last=10):
 
 TITLE_KICKER = {"kicker": {"col": [1, 8], "row": [11, 12], "align": {"y": "end"}}}
 
+# By geometry family.
 OLD_SLOTS_IN = {
     "dusk": {"stat": {"number": {"row": [3, 7]}}, "timeline": timeline_rows(3), "title": TITLE_KICKER},
-    "daybreak": {"stat": {"number": {"row": [3, 7]}}, "timeline": timeline_rows(3), "title": TITLE_KICKER},
-    "gallery": {"title": TITLE_KICKER},
     "ember": {"timeline": timeline_rows(4, last=12)},
 }
 
@@ -1570,18 +1573,16 @@ NAMES = {
 }
 
 # The descriptions of the layouts the themes had, where one named what a person never reads in an
-# editor's window, a slot or a lint code (PLAN 3.18): by theme, `*` for each.
+# editor's window, a slot or a lint code (PLAN 3.18): by geometry family, `*` for each.
 DESCRIPTIONS = {
     "title": {"*": "The opening: the talk's title, a line on what it's about, and a picture beside them."},
     "figure": {
         "dusk": "A headline, the figure that shows it, and a note on it, each in its own rows: the data on the plain surface, with no picture behind it.",
-        "daybreak": "A headline, the figure that shows it, and a note on it, each in its own rows: the data on the plain surface, with no picture behind it.",
     },
     "narrow-figure": {"*": "A headline, a chart of two or three bars, and a note on it beside the chart."},
     "split": {"*": "Words, and the chart or table beside them: the data on the plain surface, with no picture behind it."},
     "full": {
         "dusk": "A headline over one thing that fills the grid, a picture, a chart, or a table, and a note on it.",
-        "daybreak": "A headline over one thing that fills the grid, a picture, a chart, or a table, and a note on it.",
     },
 }
 
@@ -1667,30 +1668,31 @@ def checked(theme, name, slots, new):
         assert 1 <= col[0] <= col[1] <= 12 and 1 <= row[0] <= row[1] <= 12, f"{theme}'s {name}: `{k}` is off the grid"
 
 
-def library(theme, old):
+def library(theme, old, geometry):
     """The theme's layouts, in the library's order: those it had, put in their sections and given
-    their examples, and those added here, Ember's made from Dusk's."""
+    their examples, and those added here, Ember's made from Dusk's, each as its geometry family
+    lays it out."""
     out = {}
     for section in SECTIONS:
         for name in ORDER[section]:
             if name in NEW:
                 spec = NEW[name]
                 slots = spec["slots"]
-                if theme == "ember":
+                if geometry == "ember":
                     slots = ember_slots(name, slots, spec["ember"])
                 layout = {"name": NAMES[name], "description": spec["description"], "group": section, "slots": slots}
             else:
                 assert name in old, f"{theme} has no layout `{name}`"
                 had = json.loads(json.dumps(old[name]))
                 told = DESCRIPTIONS.get(name, {})
-                described = told.get(theme, told.get("*", had.get("description")))
+                described = told.get(geometry, told.get("*", had.get("description")))
                 layout = {"name": NAMES[name], "description": described, "group": section}
                 layout.update({k: v for k, v in had.items() if k not in layout})
                 for key, example in OLD_EXAMPLES.get(name, {}).items():
                     layout["slots"][key]["example"] = example
                 for key, changes in OLD_SLOTS.get(name, {}).items():
                     layout["slots"][key].update(changes)
-                for key, changes in OLD_SLOTS_IN.get(theme, {}).get(name, {}).items():
+                for key, changes in OLD_SLOTS_IN.get(geometry, {}).get(name, {}).items():
                     layout["slots"][key].update(changes)
             checked(theme, name, layout["slots"], name in NEW)
             out[name] = layout
@@ -1763,17 +1765,31 @@ def written(text, layouts):
     return "\n".join(lines)
 
 
+def olds(listed):
+    """The layouts each theme had, by its first file: its own, and where its file lacks one, as a
+    new theme's does, the first file of its geometry family's (PLAN T.0a)."""
+    first = {}
+    out = {}
+    for slug, geometry, paths in listed:
+        own = json.loads(paths[0].read_text())["layouts"]
+        first.setdefault(geometry, own)
+        out[slug] = {**first[geometry], **own}
+    return out
+
+
 def main():
     check = "--check" in sys.argv[1:]
-    listed = {n for names in ORDER.values() for n in names}
-    assert set(NAMES) == listed, f"named but not offered, or offered but not named: {sorted(set(NAMES) ^ listed)}"
-    assert set(DESCRIPTIONS) <= listed, sorted(set(DESCRIPTIONS) - listed)
+    listed = themes(json.loads(REGISTRY.read_text()))
+    had = olds(listed)
+    offered = {n for names in ORDER.values() for n in names}
+    assert set(NAMES) == offered, f"named but not offered, or offered but not named: {sorted(set(NAMES) ^ offered)}"
+    assert set(DESCRIPTIONS) <= offered, sorted(set(DESCRIPTIONS) - offered)
     stale = []
-    for theme, paths in THEMES.items():
+    for slug, geometry, paths in listed:
+        layouts = library(slug, had[slug], geometry)
         for path in paths:
             text = path.read_text()
-            old = json.loads(text)["layouts"]
-            out = written(text, library(theme, old))
+            out = written(text, layouts)
             json.loads(out)
             if out != text:
                 stale.append(path)

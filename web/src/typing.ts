@@ -308,6 +308,10 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
   let keys: { first: number; last: number } | undefined;
   /** When the last key of the change made before it was typed, in this text. */
   let made: number | undefined;
+  /** The source the last change typed in this text made: what was typed when typing was left
+   * joins that change's step to undo only where the source is still what it made. Read again
+   * because something else changed it, or with nothing made yet, it is a step of its own. */
+  let ours: string | undefined;
 
   /** Show the caret at `from`–`to` in the textarea, on line `line` where it could stand on two. */
   function put(from: number, to = from, line?: number, backward = false) {
@@ -336,7 +340,7 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     open = { node, state: shown.state, index: shown.index, fork };
     carets = found;
     read = source;
-    keys = made = undefined;
+    keys = made = ours = undefined;
     area.hidden = false;
     area.value = found.text;
     area.setAttribute("aria-label", `Typing in ${around.name(node)}, where it stands`);
@@ -672,6 +676,7 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     sending = true;
     try {
       const typed = await stage.type(source, [op], { index: now.index, state: now.state, node: now.node }, around.format());
+      ours = typed.source;
       around.typed(typed.source, typed.edited, joins);
       if (finishing?.now === now && typed.carets) [finishing.text, finishing.read] = [typed.carets.text, typed.source];
       if (open !== now) return;
@@ -742,7 +747,12 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     sending = true;
     try {
       const typed = await stage.type(source, [op], { index: now.index, state: now.state, node: now.node }, around.format());
-      around.typed(typed.source, typed.edited, true);
+      // Part of the burst it ended only where the change before it was this text's own: typing
+      // left while the text was read again, before anything typed was made, is a step of its own,
+      // so an undo goes back to what was there, a save included.
+      const joins = ours !== undefined && ours === source;
+      ours = typed.source;
+      around.typed(typed.source, typed.edited, joins);
     } catch (e) {
       around.say(`Not typed: ${said(e)}`);
     } finally {
