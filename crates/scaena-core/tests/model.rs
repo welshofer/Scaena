@@ -20,7 +20,7 @@ const DECKS: &[(&str, &str)] = &[
 const THEMES: &[(&str, &str)] = &[
     ("dusk", include_str!("../../../docs/examples/themes/dusk.theme.json")),
     ("ember", include_str!("../../../docs/examples/themes/ember.theme.json")),
-    ("gallery", include_str!("../../../docs/examples/themes/gallery.theme.json")),
+    ("salon", include_str!("../../../docs/examples/themes/salon.theme.json")),
     ("authorability dusk", include_str!("../../../docs/examples/authorability/themes/dusk.theme.json")),
     ("authorability daybreak", include_str!("../../../docs/examples/authorability/themes/daybreak.theme.json")),
     ("torture", include_str!("../../../tests/fixtures/torture.scaena/theme.json")),

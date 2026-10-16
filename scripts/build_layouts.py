@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The shipped themes' library of layouts (PLAN 3.30, 3.31), written into Dusk, Daybreak, Ember, and Gallery.
+"""The shipped themes' library of layouts (PLAN 3.30, 3.31), written into Dusk, Daybreak, Ember, and Salon.
 
 Each layout is a slide a person starts from Add Slide: slots on the theme's 12 × 12 grid, each
 saying what goes in it. This script holds the library's catalog: the sections it is offered in,
@@ -32,8 +32,8 @@ THEMES = {
     "dusk": [ROOT / "docs/examples/themes/dusk.theme.json", ROOT / "docs/examples/authorability/themes/dusk.theme.json"],
     "daybreak": [ROOT / "docs/examples/authorability/themes/daybreak.theme.json"],
     "ember": [ROOT / "docs/examples/themes/ember.theme.json"],
-    # Gallery (PLAN 2.102) takes Daybreak's layouts, on the same grid.
-    "gallery": [ROOT / "docs/examples/themes/gallery.theme.json"],
+    # Salon, which shipped as Gallery (PLAN 2.102, T.0d), takes Daybreak's layouts, on the same grid.
+    "salon": [ROOT / "docs/examples/themes/salon.theme.json"],
 }
 
 # The sections Add Slide offers the layouts in, in order.
@@ -1206,7 +1206,7 @@ TITLE_KICKER = {"kicker": {"col": [1, 8], "row": [11, 12], "align": {"y": "end"}
 OLD_SLOTS_IN = {
     "dusk": {"stat": {"number": {"row": [3, 7]}}, "timeline": timeline_rows(3), "title": TITLE_KICKER},
     "daybreak": {"stat": {"number": {"row": [3, 7]}}, "timeline": timeline_rows(3), "title": TITLE_KICKER},
-    "gallery": {"title": TITLE_KICKER},
+    "salon": {"title": TITLE_KICKER},
     "ember": {"timeline": timeline_rows(4, last=12)},
 }
 

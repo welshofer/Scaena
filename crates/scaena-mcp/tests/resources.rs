@@ -91,7 +91,7 @@ const THEMES: [(&str, &str); 4] = [
     ("scaena://examples/dusk.theme.json", "../../docs/examples/themes/dusk.theme.json"),
     ("scaena://examples/daybreak.theme.json", "../../docs/examples/authorability/themes/daybreak.theme.json"),
     ("scaena://examples/ember.theme.json", "../../docs/examples/themes/ember.theme.json"),
-    ("scaena://examples/gallery.theme.json", "../../docs/examples/themes/gallery.theme.json"),
+    ("scaena://examples/salon.theme.json", "../../docs/examples/themes/salon.theme.json"),
 ];
 
 /// Each layout of a theme as its layouts' index names it, and the uri of the part that holds it.

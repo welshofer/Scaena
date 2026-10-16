@@ -42,7 +42,7 @@ enum Cmd {
     /// (PLAN 2.13): a theme, its fonts, and one state with nothing on it, titled `--title`.
     New {
         dir: PathBuf,
-        /// A theme that ships (`dusk`, `daybreak`, `ember`, `gallery`), which comes with its fonts; or a
+        /// A theme that ships (`dusk`, `daybreak`, `ember`, `salon`), which comes with its fonts; or a
         /// theme file, whose fonts are beside it or above it.
         #[arg(long, default_value = "dusk")]
         theme: String,
@@ -412,7 +412,9 @@ enum Cmd {
     /// its colors a photo's (`--from-photo`, PLAN 2.94).
     Theme {
         bundle: PathBuf,
-        /// The theme file to apply. A theme outside the bundle is copied to `themes/`.
+        /// The theme file to apply. A theme outside the bundle is copied to `themes/`. Where no
+        /// such file is, a theme that ships, by its name (`dusk`, `daybreak`, `ember`, `salon`),
+        /// copied in with its fonts.
         #[arg(long, required_unless_present_any = ["edit", "from_photo"])]
         apply: Option<PathBuf>,
         /// The edit: a JSON array of RFC 6902 operations on the theme the deck names, each

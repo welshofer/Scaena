@@ -21,6 +21,8 @@ public struct BriefChoices: Decodable, Sendable {
     public let audiences: [String]
     public let arcs: [String]
     public let defaults: Defaults
+    /// The themes that ship, to make the deck in, each with its family (PLAN T.0d).
+    public let themes: [ShippedTheme]
 }
 
 /// Narrato's brief (`scaena_narrato::Brief`): what the deck is about, in the user's words, and what

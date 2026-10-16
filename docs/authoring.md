@@ -82,7 +82,7 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - Each burst of typing is one ⌘Z. The text reflows as you type, and lint says at once if it no longer fits. Escape, or a click outside the text, stops typing.
   - **Links.** Select some words and press ⌘K (Ctrl+K). In the field above them, type a web address (`https://…`, `mailto:…` for an email, or just `example.com/page`, which takes `https://`), a slide's number, or the id of one of your states, and press Enter: the words are underlined and go there when the deck is played, in the single file, and in a PDF. On words linked already, the field shows where they go; click away or press Escape to keep the link, or empty the field and press Enter to take it away. Each is one ⌘Z.
   - **Lists.** Press ⌘⇧8 (Ctrl+Shift+8) for bullets, or ⌘⇧7 for numbers, on the paragraphs your selection touches; press it again to take them out of the list. In a list, Enter starts the next item, and Enter in an empty item ends the list; Tab moves an item a level in, and Shift+Tab out. Tab in a line that is no item makes it one, a level in. Backspace at the start of an item takes its bullet off (or moves it a level out first), and a second Backspace joins it to the line above. With a text selected and not typed in, the keys act on all of it. Your theme draws the markers and the indents. Each is one ⌘Z.
-  - Select some words and press ⌘B (Ctrl+B) to make them bold, or, bold already, not: a family of one weight, as Gallery's serif is, sets them in its own weight and says so (W232). ⌘I (Ctrl+I) sets them in italic, or not: the italic is the family's own, and a theme whose family has none sets them upright and says so (W231). With words selected, the inspector shows their look instead of the text's: choose a role or a color there and only those words take it. Each is one ⌘Z.
+  - Select some words and press ⌘B (Ctrl+B) to make them bold, or, bold already, not: a family of one weight, as Salon's serif is, sets them in its own weight and says so (W232). ⌘I (Ctrl+I) sets them in italic, or not: the italic is the family's own, and a theme whose family has none sets them upright and says so (W231). With words selected, the inspector shows their look instead of the text's: choose a role or a color there and only those words take it. Each is one ⌘Z.
 - **Choose a look.** With an object selected, the inspector shows what your theme offers for it: a text's role, family, weight, color, and fit, a shape's fill and stroke, a chart's kind, an entrance and an exit, and more.
   - Each choice is one ⌘Z, and goes where the value is set: in the state that sets it, or in the object itself. The status says in how many states it shows. Tick "only in" to keep it to the state shown.
   - A color or a length you write out yourself, and any text size, is an override: it goes in the deck's `overrides`, holds in every state, and a new theme does not change it. The inspector marks it so. The × beside a value takes it away where it is set, so what is under it shows.
@@ -161,7 +161,7 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
 
 | | |
 |---|---|
-| **New…** | a new deck: a title and a theme (Dusk, Daybreak, Ember, or Gallery), with its fonts, on a title slide whose words you type over. It is kept nowhere until you save it. |
+| **New…** | a new deck: a title and a theme (Dusk, Daybreak, Ember, or Salon), with its fonts, on a title slide whose words you type over. It is kept nowhere until you save it. |
 | **Open folder…** (Chrome, Edge) | a bundle folder on your disk. **Save** writes back into it. Use this to keep your work as files. |
 | **Open .scaena…** | a `.scaena` file, copied into the browser's storage. |
 | **Kept in this browser…** | the bundles this browser keeps. A deck opened from the site's own folder saves here, under its name. Each is opened by its name, renamed with **Rename…**, or deleted with **Delete…**, which asks first; the deck open is renamed where it is and saves there from then on, and is not deleted. |
@@ -190,7 +190,7 @@ cargo install --path crates/scaena-cli --locked    # puts `scaena` in ~/.cargo/b
 **The loop.** Start a deck, turn it into source, serve it, and write:
 
 ```sh
-scaena new talk --theme dusk --title "Field notes"   # a new deck: dusk, daybreak, ember, or gallery
+scaena new talk --theme dusk --title "Field notes"   # a new deck: dusk, daybreak, ember, or salon
 scaena decompile talk -o talk/deck.scn            # the deck as source
 scaena serve talk                                 # then open http://localhost:4848/, and leave it running
 ```
@@ -220,7 +220,7 @@ scaena render talk --state revenue --out revenue.png && open revenue.png
   - `scaena patch` makes edits as JSON operations (SPEC §7.3).
   - `scaena data talk q3` shows a data source's rows as written, each by its index, and any value its column does not read. `--edits` sets cells, adds rows, and takes them away, in one write of the file that keeps every other byte (SPEC §3.10).
   - `scaena files talk` lists the bundle's images, fonts, and data, what names each, and the objects drawn from each, in which states. `--remove` takes out files nothing names, and refuses the rest.
-  - `scaena theme talk --edit ops.json` edits the theme the deck names by JSON Patch operations on it (`/tokens/color/accent`, `/type/roles/body/size`), refused where the deck would not check in the theme it leaves; `--apply theme.json` swaps in another theme (SPEC §3.6).
+  - `scaena theme talk --edit ops.json` edits the theme the deck names by JSON Patch operations on it (`/tokens/color/accent`, `/type/roles/body/size`), refused where the deck would not check in the theme it leaves; `--apply theme.json` swaps in another theme, and `--apply salon` one that ships, by its name, with its fonts (SPEC §3.6).
   - `scaena map talk "Ferry Building, San Francisco"` puts a map on a slide: a picture from Geoapify, with your own key in `GEOAPIFY_API_KEY` (from geoapify.com; its Free plan will do), in the slide's empty place for a picture, or the image `--into` names, or a new one `--at X,Y,W,H`. The place's words go to Geoapify, and the map's middle and size. `--show city` takes in more, `--places` lists what a name finds, and `--pick 2` takes the second. `--refresh map --zoom 16` fetches it again. The picture stays in the bundle, so the deck draws offline.
   - `scaena history talk` lists the versions its history keeps. `--at 3` prints version 3's deck, `--diff 3` says what changed from it to the deck now (`--diff 3,5` from one version to another), and `--restore 3` makes it the deck again, with its data files, as one change.
 
@@ -359,7 +359,7 @@ What the props mean is in SPEC §3: the objects in §3.3, layout in §3.4, type 
 
 ## The theme's names
 
-The shipped themes, Dusk, Daybreak, Ember, and Gallery, share these names, so a deck moves between them with no other change (`scaena theme --apply`). A name the theme does not have is E102. A test holds this section to the themes.
+The shipped themes, Dusk, Daybreak, Ember, and Salon, share these names, so a deck moves between them with no other change (`scaena theme --apply`). A name the theme does not have is E102. A test holds this section to the themes.
 
 Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type over, a picture, a chart, or a card, a rule, an arrow, or a chevron. Add Slide in the editor offers every layout by the gallery's sections, Titles, Statements, Lists, Comparison, Frameworks, Process, Time, Numbers, Charts, Pictures, People, Editorial, Diagrams, Briefing, Classroom, and Closing, each under its name and drawn as its picture: the slide it starts, a picture in each picture's place and a chart or a table in each figure's, as its slots' `example`s say (PLAN 3.30, 3.31). A new slide in one has the words in its slots and its cards and rules; its pictures and figures wait for you. Its search finds a layout by its name, what it is for, its section, or another name people call it: Kanban finds Roadmap, and Mind Map finds Hub and Spoke. A slot that `bleed`s reaches the canvas's edge: `photo` is a picture edge to edge, and `photo-left` one off the left edge. `scripts/build_layouts.py` writes the library into each theme.
 

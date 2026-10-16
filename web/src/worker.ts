@@ -763,12 +763,13 @@ async function open(source: Source, painter: Painter, target: OffscreenCanvas, e
  * section, each drawn as it is used, and every slide as it was. A page with no themes beside it,
  * as a single file has, opens the deck as it is, and so does one that cannot fetch the theme. */
 async function library() {
-  const { themes } = await import("@scaena/themes");
+  const { themes, aliases } = await import("@scaena/themes");
   if (!Object.keys(themes).length) return;
   try {
     const text = player.themeText();
     const name = text ? (JSON.parse((JSON.parse(text) as ThemeText).text) as { name?: unknown }).name : undefined;
-    const shipped = typeof name === "string" ? themes[name] : undefined;
+    // A copy named as the theme shipped before is its copy too: Gallery's is Salon's (PLAN T.0d).
+    const shipped = typeof name === "string" ? (themes[name] ?? themes[aliases[name] ?? ""]) : undefined;
     if (!shipped) return;
     const response = await fetch(shipped.url);
     if (response.ok) player.library(await response.text(), new Date().toISOString());
@@ -892,8 +893,8 @@ async function fetched(deck: string): Promise<Player> {
 /** The theme that ships as `theme`, which the page carries (`themes.ts`), fetched now: its file's
  * name, its text, and the fonts it names, by the paths its families give them. */
 async function shipped(theme: string): Promise<{ file: string; text: string; fonts: Map<string, Uint8Array> }> {
-  const { themes, fonts } = await import("@scaena/themes");
-  const chosen = themes[theme];
+  const { themes, aliases, fonts } = await import("@scaena/themes");
+  const chosen = themes[theme] ?? themes[aliases[theme] ?? ""];
   if (!chosen) throw new Error(`no theme ships as ${theme}: ${Object.keys(themes).join(", ") || "none here"}`);
   const fetched = async (url: string) => {
     const response = await fetch(url);
