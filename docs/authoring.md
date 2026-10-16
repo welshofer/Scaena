@@ -153,7 +153,7 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - Each choice is one ⌘Z.
 - **See.** The preview on the right shows the state the cursor is in, at rest.
   - **Play** opens the player in a new tab, with the motion, on the deck as last saved. A folder opened from disk has no Play: the player cannot open it. A new deck has none until its first save.
-  - In the player, → and ← step, and F is fullscreen. Past the last slide, a black screen says the show has ended, and → again leaves it. **Presenter** opens your notes, the next state, a timer you can pause and reset, and the time of day in a second window, and **Edit** goes back to the editor.
+  - In the player, → and ← step, and F is fullscreen. Past the last slide, a black screen says the show has ended, and stays until a click, Escape, or ← leaves it. **Presenter** opens your notes, the next state, a timer you can pause and reset, and the time of day in a second window, and **Edit** goes back to the editor.
 - **Check.** Each edit lints the state shown, and every state once you stop typing.
   - Findings stand in the gutter at the line they are about, and in the list under the source. F8 goes to the next one.
   - On the preview, a mark at the corner of an object counts the findings about it, red for an error, yellow for a warning. A mark at the top left counts those about the state itself. The strip counts each state's. Click a mark to read its findings and take a fix; "In the source" goes to the line.
