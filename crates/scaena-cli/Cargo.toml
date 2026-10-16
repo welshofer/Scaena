@@ -22,7 +22,9 @@ gpu = ["scaena-ops/gpu", "scaena-mcp/gpu", "scaena-paint/gpu"]
 scaena-chat.workspace = true
 # The syllable table compiled in (PLAN O.4a), so lint counts a haiku (I404).
 scaena-core = { workspace = true, features = ["syllables"] }
-scaena-engine = { workspace = true, features = ["hyphenation"] }
+# Every language's hyphenation patterns and the code scanners' tables compiled in (ADR-0015,
+# PLAN 2.132).
+scaena-engine = { workspace = true, features = ["hyphenation", "code-tables"] }
 scaena-paint.workspace = true
 scaena-export.workspace = true
 scaena-store.workspace = true
@@ -33,6 +35,7 @@ scaena-mcp.workspace = true
 scaena-serve.workspace = true
 scaena-narrato.workspace = true
 scaena-sources.workspace = true
+scaena-objects.workspace = true
 ureq.workspace = true
 clap.workspace = true
 miette.workspace = true

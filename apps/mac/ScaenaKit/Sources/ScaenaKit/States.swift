@@ -182,13 +182,15 @@ public struct Starter: Decodable, Sendable, Identifiable, Equatable {
     /// The gallery's section it is offered under (`Titles`, `Lists`, `Pictures`); none for the
     /// blank slide, which comes last.
     public let group: String?
+    /// The other names a search finds it by (ADR-0031): Roadmap's Kanban.
+    public let also: [String]
     /// Its picture's size, pixels: none for one listed before it is drawn.
     public let width: Int
     public let height: Int
 
     public var id: String { layout ?? "" }
 
-    private enum Keys: String, CodingKey { case layout, name, description, group, width, height }
+    private enum Keys: String, CodingKey { case layout, name, description, group, also, width, height }
 
     public init(from decoder: any Decoder) throws {
         let fields = try decoder.container(keyedBy: Keys.self)
@@ -196,14 +198,16 @@ public struct Starter: Decodable, Sendable, Identifiable, Equatable {
         name = try fields.decodeIfPresent(String.self, forKey: .name)
         description = try fields.decodeIfPresent(String.self, forKey: .description)
         group = try fields.decodeIfPresent(String.self, forKey: .group)
+        also = try fields.decodeIfPresent([String].self, forKey: .also) ?? []
         width = try fields.decodeIfPresent(Int.self, forKey: .width) ?? 0
         height = try fields.decodeIfPresent(Int.self, forKey: .height) ?? 0
     }
 
     /// Whether it is found by what a person typed (PLAN 3.31): each word of `words`, in any case,
-    /// in its name, what it is for, its section, or its key, as a deck's source names it.
+    /// in its name, what it is for, its section, its key, as a deck's source names it, or another
+    /// name people search for it by (Kanban, for Roadmap; ADR-0031).
     public func matches(_ words: String) -> Bool {
-        let said = [name ?? "Blank", description ?? "", group ?? "", layout ?? ""].joined(separator: " ")
+        let said = ([name ?? "Blank", description ?? "", group ?? "", layout ?? ""] + also).joined(separator: " ")
         return words.split(whereSeparator: \.isWhitespace).allSatisfy { said.localizedStandardContains($0) }
     }
 }

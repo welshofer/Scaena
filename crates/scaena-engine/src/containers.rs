@@ -57,8 +57,9 @@ pub struct Placement {
     pub joined: HashMap<String, Vec<[f32; 2]>>,
 }
 
-/// A grid's tracks, each `[start, end]` in canvas units: columns left to right, rows top to
-/// bottom. A placement by cells takes a range of them, 1-based.
+/// A grid's tracks, each `[start, end]` in canvas units: columns first to last, left to right or,
+/// in a deck that reads right to left, right to left; rows top to bottom. A placement by cells
+/// takes a range of them, 1-based.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Tracks {
     pub columns: Vec<[f32; 2]>,
@@ -246,6 +247,17 @@ pub fn place(
             return Err(e);
         }
         flow.read(node, [cell[0], cell[1]], &mut placement.boxes, &mut placement.tracks)?;
+    }
+    // A deck that reads right to left stands mirrored (PLAN T.5a): every box, and each grid
+    // container's tracks, as far from the canvas's right edge as it was laid out from its left.
+    if grid.is_mirrored() {
+        for rect in placement.boxes.values_mut() {
+            *rect = grid.shown(*rect);
+        }
+        for column in placement.tracks.values_mut().flat_map(|t| t.columns.iter_mut()) {
+            let [x, _, w, _] = grid.shown([column[0], 0.0, column[1] - column[0], 0.0]);
+            *column = [x, x + w];
+        }
     }
     // The words in a shape take the room inside it (PLAN 2.108), wherever the shape was placed.
     for (id, parent) in &placement.parents {

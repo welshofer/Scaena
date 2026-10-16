@@ -381,6 +381,8 @@ export interface Starter {
   description: string | null;
   /** The gallery's section it is offered under; none for the blank slide. */
   group: string | null;
+  /** The other names a search finds it by (ADR-0031): Roadmap's Kanban. */
+  also?: string[];
   /** Its picture, straight-alpha RGBA: none, 0 × 0, for one listed before it is drawn. */
   width: number;
   height: number;

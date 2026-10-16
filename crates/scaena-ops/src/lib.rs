@@ -30,6 +30,7 @@ pub mod ink;
 pub mod inspect;
 pub mod layouts;
 pub mod lint;
+pub mod maps;
 #[cfg(feature = "narrato")]
 pub mod narrative;
 pub mod patch;

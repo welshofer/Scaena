@@ -1,4 +1,5 @@
-//! A theme's colors from a photo (PLAN 2.94): the photo's hues on the theme's own tones.
+//! A theme's colors from a photo (PLAN 2.94): the photo's hues on the theme's own tones. And the
+//! colors code is drawn in (PLAN 2.132), each held to read where it is drawn.
 //!
 //! [`read`] reads a photo's colors from a sample of its pixels in Oklab, where a distance is a
 //! difference seen:
@@ -18,6 +19,13 @@
 //!   that sets text in it is display-sized, as lint judges text (E110, E111).
 //! - A data palette's color that is one of the theme's colors becomes that color's new value;
 //!   any other is a neutral or turns with the accent, as above.
+//! - A color the theme sets code in (`code.syntax`, ADR-0029) reads on the surfaces as body text
+//!   does: one of the theme's colors is held so with the colors text is set in, and one written
+//!   out is a neutral or turns with the accent, then is held so.
+//!
+//! It also colors code where the theme names no color for a kind of token ([`syntax`]): each kind
+//! a color derived from the accent, and every color code is drawn in held to read on the ground it
+//! is drawn on by the least step of lightness ([`held`]), as the engine draws it.
 //!
 //! Every step is `f64` through `libm`, so a photo makes the same theme natively and in the
 //! browser (SPEC §13).
@@ -217,29 +225,43 @@ pub fn theme(theme: &Value, read: &Read) -> Result<Vec<Set>, String> {
             None => needs.push((name, ratio)),
         }
     }
+    // Each color of the theme code is set in (ADR-0029) reads on the surfaces as body text does.
+    let syntax = object("/code/syntax");
+    for look in syntax.into_iter().flat_map(|s| s.values()) {
+        let Some(asked) = look.get("color").and_then(Value::as_str) else { continue };
+        let Some(name) = named(asked).or_else(|| has(asked).then(|| asked.to_string())) else { continue };
+        match needs.iter_mut().find(|(n, _)| *n == name) {
+            Some((_, r)) => *r = r.max(BODY),
+            None => needs.push((name, BODY)),
+        }
+    }
     let lin = linear();
     let bytes_now = |now: &[(String, Lch)], name: &str| now.iter().find(|(n, _)| n == name).map(|(_, c)| bytes(*c));
     let grounds: Vec<[u8; 3]> = surfaces.iter().filter_map(|s| bytes_now(&now, s)).collect();
     let dark = grounds.iter().map(|g| luminance(&lin, *g)).fold(0.0, f64::max) < 0.18;
+    let least = |c: Lch| grounds.iter().map(|g| contrast(&lin, bytes(c), *g)).fold(f64::INFINITY, f64::min);
+    // `c` moved the least step of lightness away from the surfaces that reads at `ratio`.
+    let reading = |c: Lch, ratio: f64| {
+        if least(c) >= ratio {
+            return c;
+        }
+        let (mut near, mut far) = (c.l, if dark { 1.0 } else { 0.0 });
+        for _ in 0..32 {
+            let mid = (near + far) / 2.0;
+            match least(Lch { l: mid, ..c }) >= ratio {
+                true => far = mid,
+                false => near = mid,
+            }
+        }
+        Lch { l: far, ..c }
+    };
     let mut reads: Vec<(String, [f64; 2])> = Vec::new();
     for (name, ratio) in &needs {
         if surfaces.contains(name) {
             continue;
         }
         let Some(slot) = now.iter_mut().find(|(n, _)| n == name) else { continue };
-        let least = |c: Lch| grounds.iter().map(|g| contrast(&lin, bytes(c), *g)).fold(f64::INFINITY, f64::min);
-        if least(slot.1) < *ratio {
-            // The least step of lightness away from the surfaces that reads.
-            let (mut near, mut far) = (slot.1.l, if dark { 1.0 } else { 0.0 });
-            for _ in 0..32 {
-                let mid = (near + far) / 2.0;
-                match least(Lch { l: mid, ..slot.1 }) >= *ratio {
-                    true => far = mid,
-                    false => near = mid,
-                }
-            }
-            slot.1.l = far;
-        }
+        slot.1 = reading(slot.1, *ratio);
         reads.push((name.clone(), [least(slot.1), *ratio]));
     }
 
@@ -278,6 +300,25 @@ pub fn theme(theme: &Value, read: &Read) -> Result<Vec<Set>, String> {
         let path = format!("/tokens/data/{}", key.replace('~', "~0").replace('/', "~1"));
         out.push(Set { path, was: json!(was), now: json!(now), reads: None });
     }
+    // A color code is set in that the theme writes out, not one of its colors, turns with the
+    // accent as a theme color would, or takes the cast where it is a neutral, then reads on the
+    // surfaces as body text does (ADR-0029).
+    for (kind, look) in syntax.into_iter().flatten() {
+        let Some(literal) = look.get("color").and_then(Value::as_str) else { continue };
+        if named(literal).is_some() || has(literal) {
+            continue;
+        }
+        let Ok(parsed) = color::parse(literal) else { continue };
+        let [r, g, b, a] = parsed.0;
+        let c = lch_of([r, g, b]);
+        let to = reading(if c.c < NEUTRAL { tint(c) } else { turn(c) }, BODY);
+        let now = match near(bytes(to), [r, g, b]) {
+            true => literal.to_string(),
+            false => hex(bytes(to), (a < 255).then_some(a)),
+        };
+        let path = format!("/code/syntax/{}/color", kind.replace('~', "~0").replace('/', "~1"));
+        out.push(Set { path, was: json!(literal), now: json!(now), reads: Some([least(to), BODY]) });
+    }
     Ok(out)
 }
 
@@ -287,6 +328,147 @@ pub fn ops(sets: &[Set]) -> Vec<Value> {
     (sets.iter().filter(|s| s.was != s.now))
         .map(|s| json!({ "op": "replace", "path": s.path, "value": s.now }))
         .collect()
+}
+
+/// WCAG's ratio for body text, which every color code is drawn in reads at on its ground
+/// (ADR-0029).
+pub const READS: f64 = BODY;
+
+/// The ratio a code text's keywords read at where their ground allows it (ADR-0029): WCAG's
+/// enhanced ratio, so the words that shape a block stand out from the rest.
+pub const STRONG: f64 = 7.0;
+
+/// The WCAG contrast ratio of two sRGB colors, as lint reads it (E110, E111).
+pub fn ratio(x: [u8; 3], y: [u8; 3]) -> f64 {
+    contrast(&linear(), x, y)
+}
+
+/// `color` held to read at `ratio`:1 on `ground` by the least step of lightness (ADR-0029): as it
+/// is where it reads; else moved in Oklch lightness, its hue kept and its chroma lessened where
+/// sRGB shows less there, to the nearest lightness on either side that reads. Where none does, it
+/// is the end, black or white, that reads best. Each side is bisected as [`theme`] bisects, 32
+/// steps, so the step is the least to within a 4-billionth of the lightness.
+pub fn held(color: [u8; 3], ground: [u8; 3], ratio: f64) -> [u8; 3] {
+    let lin = linear();
+    let reads = |c: Lch| contrast(&lin, bytes(c), ground) >= ratio;
+    let start = lch_of(color);
+    if contrast(&lin, color, ground) >= ratio {
+        return color;
+    }
+    // Away from where it is, toward `end`: the nearest lightness that reads, if any does. From a
+    // color that does not read, the colors toward either end read nowhere, then everywhere past
+    // where they first do, so the side bisects.
+    let side = |end: f64| -> Option<f64> {
+        if !reads(Lch { l: end, ..start }) {
+            return None;
+        }
+        let (mut near, mut far) = (start.l, end);
+        for _ in 0..32 {
+            let mid = (near + far) / 2.0;
+            match reads(Lch { l: mid, ..start }) {
+                true => far = mid,
+                false => near = mid,
+            }
+        }
+        Some(far)
+    };
+    let l = match (side(0.0), side(1.0)) {
+        (Some(dark), Some(light)) if start.l - dark <= light - start.l => dark,
+        (_, Some(light)) => light,
+        (Some(dark), None) => dark,
+        // Nothing reads: the end that reads best.
+        (None, None) => match contrast(&lin, [0; 3], ground) >= contrast(&lin, [255; 3], ground) {
+            true => 0.0,
+            false => 1.0,
+        },
+    };
+    bytes(Lch { l, ..start })
+}
+
+/// [`held`] at [`STRONG`] where `ground` allows it, else at [`READS`].
+pub fn held_strong(color: [u8; 3], ground: [u8; 3]) -> [u8; 3] {
+    let strong = held(color, ground, STRONG);
+    match ratio(strong, ground) >= STRONG {
+        true => strong,
+        false => held(color, ground, READS),
+    }
+}
+
+/// The color each kind of token in code takes where the theme names none (ADR-0029), in
+/// `crate::code::Class::KINDS`' order, each held to read on `ground`: keywords at [`STRONG`]:1
+/// where it allows, every other kind at [`READS`]:1. `text` is the color the code's plain words
+/// are set in, `accent` and `second` the theme's accent and `accent-2`, and `muted` its muted
+/// text's color.
+///
+/// - **Keywords** are the accent, and a tag is a keyword's color.
+/// - **Numbers and constants** are `accent-2` where it is chromatic and 45° or more from the
+///   accent; else the accent turned 60°.
+/// - **Strings, types, functions, properties, and variables** are the accent turned 150°, 210°,
+///   270°, 330°, and 90°, at its lightness, its chroma held to 0.08–0.16. An attribute is a
+///   function's color.
+/// - **Comments and meta** are the muted color; **operators and punctuation** the text's color,
+///   a third of the way to the muted one in Oklab.
+/// - **Inserted and deleted** lines are green and red whatever the accent: hues 145° and 25°.
+///
+/// A neutral accent gives neutral kinds, each the gray it would be at its lightness: they are
+/// told apart by weight and italic, which the engine gives keywords and comments.
+pub fn syntax(
+    ground: [u8; 3],
+    text: [u8; 3],
+    accent: [u8; 3],
+    second: Option<[u8; 3]>,
+    muted: [u8; 3],
+) -> [[u8; 3]; 16] {
+    let lin = linear();
+    let a = lch_of(accent);
+    let neutral = a.c < NEUTRAL;
+    let chroma = if neutral { 0.0 } else { a.c.clamp(0.08, 0.16) };
+    let turned = |degrees: f64| bytes(Lch { l: a.l, c: chroma, h: (a.h + degrees).rem_euclid(360.0) });
+    // A diff's lines keep their green and red on a neutral accent too.
+    let hue = |degrees: f64| bytes(Lch { l: a.l, c: if neutral { 0.12 } else { chroma }, h: degrees });
+    let keyword = match neutral {
+        true => bytes(Lch { c: 0.0, ..a }),
+        false => accent,
+    };
+    let numbers = match second.map(|s| (s, lch_of(s))) {
+        Some((s, c)) if !neutral && c.c >= NEUTRAL && apart(c.h, a.h) >= 45.0 => s,
+        _ => turned(60.0),
+    };
+    // The text's color a third of the way to the muted one, in Oklab.
+    let between = {
+        let [t, m] = [text, muted].map(|c| oklab(c.map(|v| lin[v as usize])));
+        let mixed = [0, 1, 2].map(|i| t[i] + (m[i] - t[i]) / 3.0);
+        color::oklab_to_linear(mixed).map(color::encode)
+    };
+    let function = turned(270.0);
+    // Class::KINDS' order: keyword, type, function, string, number, constant, comment, operator,
+    // punctuation, property, attribute, tag, variable, meta, inserted, deleted.
+    let kinds = [
+        keyword,
+        turned(210.0),
+        function,
+        turned(150.0),
+        numbers,
+        numbers,
+        muted,
+        between,
+        between,
+        turned(330.0),
+        function,
+        keyword,
+        turned(90.0),
+        muted,
+        hue(145.0),
+        hue(25.0),
+    ];
+    let mut out = [[0; 3]; 16];
+    for (i, kind) in kinds.into_iter().enumerate() {
+        out[i] = match i {
+            0 | 11 => held_strong(kind, ground),
+            _ => held(kind, ground, READS),
+        };
+    }
+    out
 }
 
 /// A color in Oklch: lightness, chroma, and hue in degrees.
@@ -506,6 +688,133 @@ mod tests {
         let (was, now) = (lch_of(rgb(accent.was.as_str().unwrap())), lch_of(rgb(accent.now.as_str().unwrap())));
         assert!(now.l < was.l - 0.05, "darker: {was:?} → {now:?}");
         assert!(apart(now.h, read.hues[0].degrees) < 3.0, "the photo's hue: {now:?}");
+    }
+
+    /// A color code is drawn in is held to read on its ground by the least step of lightness
+    /// (ADR-0029): kept where it reads, else moved to the nearest lightness that reads, its hue
+    /// kept; black or white, whichever reads best, where no lightness reads.
+    #[test]
+    fn a_code_color_is_held_to_read_by_the_least_step() {
+        let mut seed = 0x2545_F491_4F6C_DD1Du64;
+        let mut byte = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed >> 32) as u8
+        };
+        let grounds = [rgb("#101014"), rgb("#FBFAF6"), rgb("#808080"), rgb("#2F6FD0"), rgb("#F2C81E")];
+        for ground in grounds {
+            for _ in 0..300 {
+                let color = [byte(), byte(), byte()];
+                for wanted in [READS, STRONG] {
+                    let held = held(color, ground, wanted);
+                    if ratio(color, ground) >= wanted {
+                        assert_eq!(held, color, "{color:?} reads on {ground:?} as it is");
+                        continue;
+                    }
+                    if ratio([0; 3], ground).max(ratio([255; 3], ground)) < wanted {
+                        assert!(held == [0; 3] || held == [255; 3], "{color:?} on {ground:?}: {held:?}");
+                        continue;
+                    }
+                    assert!(ratio(held, ground) >= wanted, "{color:?} on {ground:?} at {wanted}: {held:?}");
+                    // The least step: most of the way back toward where it was does not read.
+                    let (from, to) = (lch_of(color), lch_of(held));
+                    if (from.l - to.l).abs() > 0.02 {
+                        let back = bytes(Lch { l: from.l + (to.l - from.l) * 0.9, ..from });
+                        assert!(
+                            ratio(back, ground) < wanted,
+                            "{color:?} on {ground:?}: {held:?} is past the least step"
+                        );
+                    }
+                    if from.c > 0.08 && to.c > 0.04 {
+                        assert!(apart(from.h, to.h) < 8.0, "{color:?} keeps its hue: {from:?} → {to:?}");
+                    }
+                }
+            }
+        }
+        // Where both sides read, the nearer: a mid gray on a mid ground goes the shorter way.
+        let ground = rgb("#777777");
+        let held = held([0x80, 0x80, 0x80], ground, READS);
+        assert!(lch_of(held).l < lch_of(ground).l, "black reads on it and white does not: {held:?}");
+    }
+
+    /// Each kind of token takes a color derived from the theme that reads on its ground (ADR-0029):
+    /// keywords at 7:1 where the ground allows, the rest at 4.5:1; keywords in the accent's hue,
+    /// numbers in `accent-2`'s where it is 45° or more from it, a diff's lines green and red, and
+    /// grays for the rest where the accent is a neutral.
+    #[test]
+    fn each_kind_of_token_takes_a_color_that_reads_on_its_ground() {
+        use crate::code::Class;
+        let at = |class: Class| Class::KINDS.iter().position(|k| *k == class).unwrap();
+        let themes = [
+            // Dusk, Daybreak, Ember, and a neutral accent on a mid gray, where 7:1 cannot be had.
+            ("#101014", "#F2F0E9", "#FF6A3D", Some("#FFC857"), "#8A8A96"),
+            ("#FBFAF6", "#16140F", "#0F766E", Some("#C2410C"), "#6B675E"),
+            ("#0E0E12", "#F6F4EF", "#FF4100", Some("#FFB27A"), "#BEBDC3"),
+            ("#808080", "#000000", "#444444", None, "#202020"),
+        ];
+        for (ground, text, accent, second, muted) in themes {
+            let (ground, accent) = (rgb(ground), rgb(accent));
+            let second = second.map(rgb);
+            let kinds = syntax(ground, rgb(text), accent, second, rgb(muted));
+            let strong = ratio([0; 3], ground).max(ratio([255; 3], ground)) >= STRONG;
+            for (class, color) in Class::KINDS.into_iter().zip(kinds) {
+                let wanted = match class {
+                    Class::Keyword | Class::Tag if strong => STRONG,
+                    _ => READS,
+                };
+                assert!(ratio(color, ground) >= wanted, "{class:?} on {ground:?}: {color:?}");
+            }
+            let hue = |class: Class| lch_of(kinds[at(class)]).h;
+            let (inserted, deleted) = (hue(Class::Inserted), hue(Class::Deleted));
+            assert!(apart(inserted, 145.0) < 12.0 && apart(deleted, 25.0) < 12.0, "{inserted} {deleted}");
+            if lch_of(accent).c < NEUTRAL {
+                for class in [Class::Keyword, Class::Type, Class::String, Class::Number, Class::Function] {
+                    assert!(lch_of(kinds[at(class)]).c < 0.02, "{class:?} is a gray on a neutral accent");
+                }
+                continue;
+            }
+            assert!(apart(hue(Class::Keyword), lch_of(accent).h) < 8.0, "keywords are the accent");
+            assert_eq!(kinds[at(Class::Tag)], kinds[at(Class::Keyword)]);
+            assert_eq!(kinds[at(Class::Attribute)], kinds[at(Class::Function)]);
+            let second = lch_of(second.unwrap());
+            if apart(second.h, lch_of(accent).h) >= 45.0 {
+                assert!(apart(hue(Class::Number), second.h) < 8.0, "numbers are accent-2");
+            }
+            // Strings, types, and functions stand apart from the keywords and from each other.
+            for (x, y) in
+                [(Class::String, Class::Keyword), (Class::Type, Class::String), (Class::Function, Class::Type)]
+            {
+                assert!(apart(hue(x), hue(y)) >= 30.0, "{x:?} and {y:?}");
+            }
+        }
+    }
+
+    /// A photo turns a theme's code colors with its others (ADR-0029): a color the theme names for
+    /// code reads on the surfaces as body text does, and one written out turns with the accent, then
+    /// reads; the photo taken again changes nothing more.
+    #[test]
+    fn a_photo_turns_the_code_colors_and_each_reads() {
+        let mut theme: Value = serde_json::from_str(DUSK).unwrap();
+        theme["code"] = json!({ "syntax": { "comment": { "color": "line" }, "string": { "color": "#2E8B57" } } });
+        let (rgba, w, h) = photo(200, &[(BLUE, 120), (ORANGE, 60), (GRAY, 20)]);
+        let read = read(&rgba, w, h);
+        let set = super::theme(&theme, &read).unwrap();
+        let get = |path: &str| set.iter().find(|s| s.path == path).unwrap_or_else(|| panic!("{path}: {set:?}"));
+        // The rule color, which code's comments are set in, now reads as body text does.
+        let [ratio, needs] = get("/tokens/color/line").reads.unwrap();
+        assert!(needs == BODY && ratio >= BODY, "{ratio} {needs}");
+        let string = get("/code/syntax/string/color");
+        assert_eq!(string.was, json!("#2E8B57"));
+        let [ratio, needs] = string.reads.unwrap();
+        assert!(needs == BODY && ratio >= BODY, "{string:?}");
+        let accent = get("/tokens/color/accent");
+        let turned = lch_of(rgb(accent.now.as_str().unwrap())).h - lch_of(rgb(accent.was.as_str().unwrap())).h;
+        let (was, now) = (lch_of(rgb("#2E8B57")), lch_of(rgb(string.now.as_str().unwrap())));
+        assert!(apart(now.h, (was.h + turned).rem_euclid(360.0)) < 3.0, "{was:?} → {now:?}, turned {turned}");
+        let mut edited = theme.clone();
+        crate::patch::apply(&mut edited, &ops(&set)).unwrap();
+        assert_eq!(super::ops(&super::theme(&edited, &read).unwrap()), Vec::<Value>::new());
     }
 
     #[test]
