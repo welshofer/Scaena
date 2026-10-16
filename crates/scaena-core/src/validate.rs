@@ -522,6 +522,17 @@ impl LoadedTheme {
                 }
             }
         }
+        // How code is set and colored (ADR-0029): the role it is set in, and each kind's color.
+        if let Some(code) = &t.code {
+            if let Some(role) = &code.role {
+                need(t.typography.roles.contains_key(role), "text role", role, "/code/role".into());
+            }
+            let syntax = code.syntax.as_ref();
+            for class in crate::code::Class::KINDS {
+                let Some(color) = syntax.and_then(|s| s.of(class)).and_then(|l| l.color.as_ref()) else { continue };
+                need(self.color(color), "color", color, format!("/code/syntax/{}/color", class.name()));
+            }
+        }
         // A slide's number and footer (ADR-0028): their roles and colors, the layouts they are left
         // off, and their columns on the grid.
         let mut past = Vec::new();
@@ -1251,9 +1262,8 @@ fn ends_and_paragraphs(deck: &Deck) -> Vec<Finding> {
 fn fetched_sources(deck: &Deck) -> Vec<Finding> {
     let mut out = Vec::new();
     for (name, source) in &deck.data {
-        let Some(fetched) = &source.fetched else { continue };
-        let Ok(record) = serde_json::to_value(fetched) else { continue };
-        for (below, why) in crate::fetched::problems(&record) {
+        let Some(record) = &source.fetched else { continue };
+        for (below, why) in crate::fetched::problems(record) {
             let message = format!("data `{name}` was fetched: {why}");
             out.push(Finding::new("E106", Severity::Error, message).at(format!("/data/{}/fetched{below}", esc(name))));
         }

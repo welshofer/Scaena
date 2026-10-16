@@ -1425,3 +1425,80 @@ impl Rng {
         &items[self.below(items.len())]
     }
 }
+
+/// The word tables the scanners read are a file each, which the editor's page hands its module the
+/// first time a code text it colors lays out (PLAN 2.132, ADR-0015): `crates/scaena-core/code/`
+/// holds each file as the tables compiled in write it, which `just bless` writes, and a file reads
+/// back as those tables, key for key and word for word.
+#[test]
+fn each_file_of_tables_is_the_tables_compiled_in() {
+    use scaena_core::code::tables::{FILES, compiled, read, written};
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("code");
+    let bless = std::env::var_os("SCAENA_BLESS").is_some();
+    let mut keys = Vec::new();
+    for name in FILES {
+        let text = written(name).expect("this build compiles the tables in");
+        let path = root.join(format!("{name}.txt"));
+        if bless {
+            std::fs::create_dir_all(&root).unwrap();
+            std::fs::write(&path, &text).unwrap();
+        }
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap_or_default(),
+            text,
+            "{}: bless with SCAENA_BLESS=1",
+            path.display()
+        );
+        let tables = compiled(name).unwrap();
+        let back = read(&text);
+        assert_eq!(back.len(), tables.len(), "{name}");
+        for ((key, words), (read_key, read_words)) in tables.iter().zip(&back) {
+            assert_eq!((key, words.to_vec()), (read_key, read_words.clone()), "{name}");
+            assert!(key.starts_with(&format!("{name}/")) && !words.is_empty(), "{key}");
+            assert!(words.iter().all(|w| !w.is_empty() && !w.contains('\n')), "{key}");
+            keys.push(key.to_string());
+        }
+    }
+    let count = keys.len();
+    keys.sort();
+    keys.dedup();
+    assert_eq!(keys.len(), count, "a key names two tables");
+}
+
+/// Every word list a scanner reads is a table of its file (`words!`), so the editor's module
+/// leaves none of them in: no scanner keeps a list of words a module carries whole, and each
+/// module lists each table it writes in its `WORDS`.
+#[test]
+fn every_word_list_a_scanner_reads_is_a_table() {
+    use scaena_core::code::tables::{FILES, compiled};
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/code");
+    for file in entries(&dir) {
+        let source = std::fs::read_to_string(&file).unwrap();
+        let code = source.split("#[cfg(test)]").next().unwrap_or_default();
+        let name = file.file_stem().unwrap().to_string_lossy().into_owned();
+        assert!(!code.contains(": &[&str] = &["), "{name}: a list of words is a table (`words!`)");
+        // A table's key may stand on the line after `words!(`.
+        let tables = code.split("words!(").skip(1).filter(|rest| rest.trim_start().starts_with('"')).count();
+        match FILES.iter().find(|f| **f == name) {
+            Some(f) => assert_eq!(compiled(f).unwrap().len(), tables, "{name}: a table missing from its `WORDS`"),
+            None => assert_eq!(tables, 0, "{name} writes tables but is no file of them"),
+        }
+    }
+}
+
+/// A file of tables is taken only for its own name, with its own tables, and a build that compiles
+/// them in has every file already.
+#[test]
+fn a_file_of_tables_is_taken_only_as_itself() {
+    use scaena_core::code::tables::{FILES, files, hand, has};
+    assert!(hand("cobol", "cobol/keywords\nmove\n\n").unwrap_err().contains("no file of code tables"));
+    assert!(FILES.iter().all(|f| has(f)));
+    assert_eq!(files(lang("rust")), ["clike"]);
+    assert_eq!(files(lang("console")), ["powershell", "shell"]);
+    assert!(files(lang("json")).is_empty() && files(lang("plain")).is_empty() && files(lang("lua")).is_empty());
+    for language in LANGUAGES {
+        for file in files(lang(language.name)) {
+            assert!(FILES.contains(file), "{}: {file}", language.name);
+        }
+    }
+}

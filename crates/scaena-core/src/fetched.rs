@@ -173,8 +173,8 @@ pub fn service(name: &str) -> Option<&'static Service> {
 /// rows were edited since they came, as CC BY asks.
 pub fn reads(deck: &crate::Deck, props: &crate::document::Props) -> Option<Vec<CreditRun>> {
     let name = props.get("data").and_then(Value::as_str)?.strip_prefix('@')?;
-    let fetched = deck.data.get(name)?.fetched.as_ref()?;
-    Some(foot(fetched, deck.meta.as_ref().and_then(|m| m.lang.as_deref())))
+    let fetched = deck.data.get(name)?.fetched()?;
+    Some(foot(&fetched, deck.meta.as_ref().and_then(|m| m.lang.as_deref())))
 }
 
 /// The runs of the credit a fetched data source's `fetched` record draws at the foot of what reads

@@ -182,7 +182,7 @@ fn weather(test: &str) -> PathBuf {
 #[test]
 fn an_edit_of_fetched_rows_marks_them_edited() {
     let dir = weather("fetched");
-    let edited = |dir: &Path| scaena_ops::open(dir).unwrap().deck.data["boston"].fetched.as_ref().unwrap().edited;
+    let edited = |dir: &Path| scaena_ops::open(dir).unwrap().deck.data["boston"].fetched().unwrap().edited;
     assert!(!edited(&dir));
     // A cell set to what it holds changes nothing, and marks nothing.
     let same =

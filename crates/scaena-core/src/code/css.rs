@@ -27,6 +27,7 @@
 //! would open one more is read as what it stands in.
 
 use super::scan::{Spans, block_comment_end, byte, is_break, is_space, is_word, is_word_start, line_end, space_end};
+use super::tables::{Table, words};
 use super::{Class, MAX_NESTING};
 
 /// What is being read.
@@ -472,7 +473,7 @@ impl Scanner<'_, '_> {
         // A prelude's keywords; in a value, SCSS's `and`, `or`, and `not`.
         let keyword = match at {
             At::Declaration => self.scss && matches!(word, b"and" | b"not" | b"or"),
-            _ => KEYWORDS.binary_search(&word).is_ok(),
+            _ => KEYWORDS.holds(word),
         };
         let class = if first {
             Class::Function
@@ -617,8 +618,13 @@ fn url_end(b: &[u8], at: usize) -> usize {
 }
 
 /// The keywords of at-rules' preludes and of SCSS's expressions, sorted.
-const KEYWORDS: &[&[u8]] =
-    &[b"and", b"as", b"from", b"hide", b"if", b"in", b"not", b"only", b"or", b"show", b"through", b"to", b"with"];
+const KEYWORDS: Table = words!(
+    "css/keywords",
+    ["and", "as", "from", "hide", "if", "in", "not", "only", "or", "show", "through", "to", "with"]
+);
+
+/// The tables above, in the file they are handed over in (`code::tables`).
+pub(super) const WORDS: &[Table] = &[KEYWORDS];
 
 #[cfg(test)]
 mod tests {

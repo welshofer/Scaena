@@ -136,8 +136,8 @@ pub fn editing(b: &Bundle, req: &DataEdit, linted: bool) -> Result<(DataEdited, 
     }
     // Rows fetched from a service and edited since say so in their credit, as CC BY asks a change
     // to be indicated (ADR-0030): in the same change.
-    if let Some(fetched) = deck.data.get_mut(name).and_then(|d| d.fetched.as_mut()) {
-        fetched.edited = true;
+    if let Some(serde_json::Value::Object(fetched)) = deck.data.get_mut(name).and_then(|d| d.fetched.as_mut()) {
+        fetched.insert("edited".into(), true.into());
     }
     // The deck and its files as the edits leave them, checked as `validate` checks a bundle: a
     // validation finding they add refuses them all.

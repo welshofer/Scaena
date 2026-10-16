@@ -170,7 +170,7 @@ pub fn dated(deck: &Deck, now: i64) -> Vec<Finding> {
     let mut out = Vec::new();
     let snapshots = crate::tracking::resolve_states(deck).unwrap_or_default();
     for (name, source) in &deck.data {
-        let Some(fetched) = &source.fetched else { continue };
+        let Some(fetched) = &source.fetched() else { continue };
         let rows = source.source.get("inline").and_then(Value::as_array);
         let first = rows.and_then(|r| r.first()).and_then(|row| row.get("date").or_else(|| row.get("time")));
         let first = first.and_then(Value::as_str);

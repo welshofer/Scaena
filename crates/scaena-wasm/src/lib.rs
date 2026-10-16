@@ -316,6 +316,22 @@ pub fn set_icons(loader: js_sys::Function) {
     });
 }
 
+/// Where this thread's engine gets a file of the word tables the code scanners read that its
+/// module leaves out (PLAN 2.132), as `setHyphenation` gets a language's patterns: `loader`, given
+/// the file's name (`clike`), returns the bytes of `crates/scaena-core/code/clike.txt` as a
+/// `Uint8Array`, or anything else where it has none. It is asked the first time a code text in a
+/// language that reads the file lays out, in the middle of a layout, so it answers at once. What it
+/// returns is held to the file's SHA-256. The player's module has every table compiled in, and
+/// never asks.
+#[cfg(feature = "cpu")]
+#[wasm_bindgen(js_name = setCodeTables)]
+pub fn set_code_tables(loader: js_sys::Function) {
+    scaena_engine::code::set_loader(move |name| {
+        let bytes = loader.call1(&JsValue::NULL, &JsValue::from_str(name)).ok()?;
+        bytes.dyn_into::<js_sys::Uint8Array>().ok().map(|bytes| bytes.to_vec())
+    });
+}
+
 /// The module this is, compiled: a page hands it to the workers it starts beside the
 /// engine's, which instantiate it rather than fetch and compile it again (PLAN 2.28).
 #[wasm_bindgen(js_name = engineModule)]

@@ -99,8 +99,8 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     let source = props.get("data").and_then(Value::as_str).and_then(|d| d.strip_prefix('@'));
     let source = source.ok_or_else(|| EngineError::Layout("chart has no `data`".into()))?;
     let (table, _) = data::traced(data::load(cx.deck, cx.data, source)?, props.get("dataTransform"))?;
-    let fetched = cx.deck.data.get(source).and_then(|d| d.fetched.as_ref());
-    let forecast = fetched.and_then(|f| f.forecast.as_ref());
+    let fetched = cx.deck.data.get(source).and_then(|d| d.fetched());
+    let forecast = fetched.as_ref().and_then(|f| f.forecast.as_ref());
     let lang = cx.deck.meta.as_ref().and_then(|m| m.lang.as_deref());
     let locale = Locale::of(lang);
 
