@@ -476,7 +476,8 @@ pub unsafe extern "C" fn scaena_picture(bytes: *const u8, len: usize) -> *mut c_
 /// `{id, patch}`. The panels (PLAN 3.15), each edit by the user at `at` (RFC 3339) where given:
 /// `shippedThemes`; `retheme {path | ships, at?}`, the deck in a theme the bundle holds or one
 /// that ships, as `theme --apply` says it; `themeEdit {ops | photo, dryRun?, at?}`, `{edited,
-/// files}`, the theme file written before and after for the undo; `bundleFiles` and `removeFile
+/// files}`, the theme file written before and after for the undo; `codeColors`, each kind of code
+/// token as the theme draws it (PLAN 2.144); `bundleFiles` and `removeFile
 /// {path}`; `dataSources`, `dataSheet {name}`, `dataEdit {source, edits, at?}`, `{result,
 /// wrote}`, and `dataUndo {redo?, at?}`, the file an edit wrote or a removal took out put back or
 /// written again; and, from the bundle's history, `versions`, each with what its change did
@@ -1849,6 +1850,8 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             json!({ "current": current, "files": files })
         }
         "themeText" => s.theme_text().unwrap_or(Value::Null),
+        // Each kind of code token as the theme draws it, what the Theme tab's Code shows (PLAN 2.144).
+        "codeColors" => value(serde_json::to_value(s.code_colors().map_err(said)?))?,
         "keepHistory" => {
             s.keep_history();
             Value::Null
