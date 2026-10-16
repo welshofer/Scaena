@@ -123,7 +123,7 @@ const RULES: [(&str, &[&str]); 45] = [
     ("W425", &["/spine/sections/0/beats/1/claim"]),
     ("W426", &["/spine/sections/0/beats/1"]),
     ("W427", &["/nodes/c/runs/1/text", "/spine/sections/0/beats/0/claim"]),
-    ("W428", &["/nodes/t"]),
+    ("W428", &["/data/prices", "/nodes/t"]),
     ("I400", &["/states/1"]),
     ("I401", &["/nodes/ghost"]),
     ("I402", &["/overrides/t"]),
@@ -163,7 +163,7 @@ fn deck(data: Value, nodes: Value) -> Value {
     let props: serde_json::Map<String, Value> =
         nodes.as_object().unwrap().keys().map(|k| (k.clone(), serde_json::json!({}))).collect();
     serde_json::json!({
-        "scaena": "0.32",
+        "scaena": "0.33",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [
@@ -477,6 +477,7 @@ fn the_example_decks_and_b1_lint_clean() {
         "docs/examples/code.deck.json",
         "docs/examples/weather.deck.json",
         "docs/examples/haiku.deck.json",
+        "docs/examples/stock.deck.json",
         "tests/bench/b1.scaena",
     ] {
         let (exit, found) = lint(&Path::new(ROOT).join(bundle));
@@ -522,8 +523,9 @@ fn lint_takes_its_date_from_now_then_source_date_epoch() {
             .unwrap();
         serde_json::from_slice::<Value>(&out.stdout).unwrap().as_array().unwrap().clone()
     };
-    // 2026-10-15T18:00:00Z, and 2026-10-01T18:00:00Z.
-    assert_eq!(w428(&epoch("1792087200")), 1);
+    // 2026-10-15T18:00:00Z, when the forecast has passed and the day's prices are more than a day
+    // old, and 2026-10-01T18:00:00Z.
+    assert_eq!(w428(&epoch("1792087200")), 2);
     assert_eq!(w428(&epoch("1790877600")), 0);
     let out = scaena(&["--json", "lint", dir.to_str().unwrap(), "--now", "soon"]);
     assert_eq!(out.status.code(), Some(2));

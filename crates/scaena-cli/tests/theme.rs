@@ -405,6 +405,7 @@ fn every_example_deck_moves_between_the_shipped_themes() {
         "code.deck.json",
         "weather.deck.json",
         "haiku.deck.json",
+        "stock.deck.json",
         "authorability",
     ];
     let shipped = shipped();
