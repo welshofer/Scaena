@@ -64,7 +64,7 @@ fn a_haiku_slide_in_one_patch_names_its_model_in_the_notes_alone() {
             // The attribution is what the person gave, or waits empty: never filled in for them.
             let said: Vec<&str> =
                 state.props.keys().filter_map(|id| deck.nodes[id].props.get("text")?.as_str()).collect();
-            assert_eq!(said.iter().any(|t| *t == "after Bashō"), attribution.is_some(), "{name}: {said:?}");
+            assert_eq!(said.contains(&"after Bashō"), attribution.is_some(), "{name}: {said:?}");
             assert!(!said.iter().any(|t| t.contains("Who wrote it")), "{name}: {said:?}");
             // Nothing on the slide names the model.
             let shown = serde_json::to_string(&deck.nodes).unwrap();
@@ -106,7 +106,7 @@ fn a_haiku_fills_the_slides_empty_verse_place_or_replaces_the_verse_selected() {
     // look kept on the word the new poem keeps.
     let mut runs = filled.clone();
     let node = runs.nodes.get_mut(&placed.node).unwrap();
-    node.props.remove("text");
+    node.props.shift_remove("text");
     node.props.insert(
         "runs".into(),
         json!([{ "text": "Winter", "emphasis": "high" }, { "text": " rain on glass\nthe projector hums along\nslides wait in the dark" }]),
