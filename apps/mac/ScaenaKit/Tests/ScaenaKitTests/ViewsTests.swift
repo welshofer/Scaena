@@ -184,9 +184,12 @@ private func alike(_ a: CGRect, _ b: CGRect) -> Bool {
 /// The formats side by side (PLAN 3.16, as the browser's, PLAN 2.62, 2.85): the canvas shown in
 /// 9:16 and back, one the deck does not list refused; a node given a layout of its own there,
 /// once; and each finding saying the formats it holds in.
-@Test func theCanvasIsShownInAFormatAndANodePlacedAnewThere() throws {
+@Test func theCanvasIsShownInAFormatAndANodePlacedAnewThere() async throws {
     let editor = DeckEditor(session: try ScaenaSession(directory: torture))
     let session = editor.session
+    // Every state linted, as the window lints it once it opens (PLAN 4.13).
+    await editor.lintEvery()
+    #expect(editor.whole)
     #expect(try session.formats() == ["9:16"])
     // Its own canvas named by its shape, as the strip names it, and the one format laid out anew.
     let sizes = try session.sizes()
@@ -207,7 +210,6 @@ private func alike(_ a: CGRect, _ b: CGRect) -> Bool {
 
     try editor.show(format: nil)
     #expect(try editor.format == nil && session.canvasSize() == CGSize(width: 1920, height: 1080))
-    editor.lintEvery()
     #expect(editor.findings.contains { $0.state == "shapes" && $0.formats == ["", "9:16"] })
 }
 

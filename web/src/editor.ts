@@ -53,6 +53,7 @@ import {
   lineNumbers,
 } from "@codemirror/view";
 import { themes } from "@scaena/themes";
+import { familySections } from "./theme-families";
 import { panel } from "./assistant/panel";
 import { TOOLS, writer } from "./writing";
 import { load } from "./assistant/keys";
@@ -393,7 +394,7 @@ async function controls() {
   const making = $<HTMLDialogElement>("#making");
   const title = $<HTMLInputElement>("#making-name");
   const theme = $<HTMLSelectElement>("#making-theme");
-  theme.replaceChildren(...Object.keys(themes).map((t) => new Option(t, t)));
+  theme.replaceChildren(...familySections());
   // The theme chosen, as its title slide drawn at build (PLAN T.0c).
   const preview = $<HTMLImageElement>("#making-preview");
   const previewed = () => {
@@ -1370,9 +1371,9 @@ async function edit(source: Source, opened?: Stage) {
     const inBundle = Object.assign(document.createElement("optgroup"), { label: "In this deck" });
     for (const file of held.files) inBundle.append(new Option(themeName(file), `path:${file}`, file === held.current, file === held.current));
     if (held.current === "(inline)") inBundle.append(new Option("The deck’s own", "", true, true));
-    const ships = Object.assign(document.createElement("optgroup"), { label: "Built in" });
-    for (const name of Object.keys(themes)) ships.append(new Option(name, `ships:${name}`));
-    themePicker.replaceChildren(...[inBundle, ships].filter((g) => g.children.length > 0));
+    // The themes that ship, by family, each family a section (PLAN T.0d).
+    const ships = familySections((name) => `ships:${name}`);
+    themePicker.replaceChildren(...[inBundle, ...ships].filter((g) => g.children.length > 0));
   }
   themePicker.onchange = async () => {
     const chosen = themePicker.value;

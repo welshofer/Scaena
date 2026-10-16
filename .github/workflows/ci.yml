@@ -109,8 +109,10 @@ jobs:
       contents: write
     # A stalled GPU readback or test must fail the job, not hold a runner for six hours. A run
     # with nothing in its cache, as the first after the cache's key changes, builds everything:
-    # #103's took 39 minutes on Linux and 27 on macOS.
-    timeout-minutes: 60
+    # #103's took 39 minutes on Linux and 27 on macOS. A pull request's run on macOS restores
+    # nothing, since only `main` saves and `main` runs Linux, so it builds everything each time:
+    # #413's took 59 minutes, and #402's ran out of 60.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       # The debug test binaries, built once without `gpu` and once with it, outgrow the Linux

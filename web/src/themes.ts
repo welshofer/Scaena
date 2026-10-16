@@ -9,11 +9,11 @@
 import dusk from "../../docs/examples/themes/dusk.theme.json?url";
 import daybreak from "../../docs/examples/authorability/themes/daybreak.theme.json?url";
 import ember from "../../docs/examples/themes/ember.theme.json?url";
-import gallery from "../../docs/examples/themes/gallery.theme.json?url";
+import salon from "../../docs/examples/themes/salon.theme.json?url";
 import duskThumbnail from "../../target/themes/dusk.png?url";
 import daybreakThumbnail from "../../target/themes/daybreak.png?url";
 import emberThumbnail from "../../target/themes/ember.png?url";
-import galleryThumbnail from "../../target/themes/gallery.png?url";
+import salonThumbnail from "../../target/themes/salon.png?url";
 import frauncesVFFont from "../../docs/examples/fonts/Fraunces-VF.ttf?url";
 import interVFFont from "../../docs/examples/fonts/Inter-VF.ttf?url";
 import jetBrainsMonoVFFont from "../../docs/examples/fonts/JetBrainsMono-VF.ttf?url";
@@ -23,13 +23,20 @@ import jetBrainsMonoItalicVFFont from "../../docs/examples/fonts/JetBrainsMono-I
 import instrumentSerifRegularFont from "../../docs/examples/fonts/InstrumentSerif-Regular.ttf?url";
 import instrumentSerifItalicFont from "../../docs/examples/fonts/InstrumentSerif-Italic.ttf?url";
 
-/** Each theme by its name: its file's name in a bundle (`themes/…`), where the page has it, and
- * where it has its thumbnail, its title slide drawn small. */
-export const themes: Record<string, { file: string; url: string; thumbnail: string }> = {
-  Dusk: { file: "dusk.theme.json", url: dusk, thumbnail: duskThumbnail },
-  Daybreak: { file: "daybreak.theme.json", url: daybreak, thumbnail: daybreakThumbnail },
-  Ember: { file: "ember.theme.json", url: ember, thumbnail: emberThumbnail },
-  Gallery: { file: "gallery.theme.json", url: gallery, thumbnail: galleryThumbnail },
+/** Each theme by its name, in the registry's order: its family, the section a chooser offers it
+ * under (PLAN T.0d), its file's name in a bundle (`themes/…`), where the page has it, and where
+ * it has its thumbnail, its title slide drawn small (PLAN T.0c). */
+export const themes: Record<string, { family: string; file: string; url: string; thumbnail: string }> = {
+  Dusk: { family: "Stage", file: "dusk.theme.json", url: dusk, thumbnail: duskThumbnail },
+  Daybreak: { family: "Executive", file: "daybreak.theme.json", url: daybreak, thumbnail: daybreakThumbnail },
+  Ember: { family: "Analyst", file: "ember.theme.json", url: ember, thumbnail: emberThumbnail },
+  Salon: { family: "Editorial", file: "salon.theme.json", url: salon, thumbnail: salonThumbnail },
+};
+
+/** The names a theme answers to besides its own, each with the name it is: an older name a deck
+ * or a bundle may still give it (PLAN T.0d). */
+export const aliases: Record<string, string> = {
+  Gallery: "Salon",
 };
 
 /** The fonts the themes name, by the paths they give them, and where the page has each: each
