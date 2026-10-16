@@ -496,10 +496,10 @@ impl Session {
     /// The slides a person may start after the slide of `state`, the state shown (PLAN 3.30), as
     /// each layout's picture shows it (PLAN 3.31): one in each of the theme's layouts, in its
     /// order, then a blank one; or those `only` names, in its order, a null among them the blank
-    /// one. Each is the slide [`scaena_ops::states::example`] makes, its words to type over and an
-    /// example in each slot that gives one, laid out in the format shown and painted at rest
-    /// `height` pixels high by a CPU painter of its own, a box of the theme's second surface
-    /// (`surface-2`) in each other slot that waits for a picture or a figure. Each as JSON: its
+    /// one. Each is the slide [`scaena_ops::states::pictured`] draws, its words to type over, an
+    /// example in each slot that gives one, and a box of the theme's second surface (`surface-2`)
+    /// in each other slot that waits for a picture or a figure, laid out in the format shown and
+    /// painted at rest `height` pixels high by a CPU painter of its own. Each as JSON: its
     /// `layout` (none for the blank one), the layout's `name`, `description`, and `group`, and its
     /// picture's `width` and `height`, the pictures kept until [`Session::starter_picture`] takes
     /// each. Nothing is made, and the pictures leave off the deck's slide number and footer, which
@@ -518,7 +518,6 @@ impl Session {
         if let Some(deck) = base.as_object_mut() {
             deck.remove("furniture");
         }
-        let fill = ["surface-2", "line"].into_iter().find(|c| self.theme.tokens.roles.contains_key(*c));
         let layouts: Vec<Option<String>> = match only {
             Some(only) => only
                 .iter()
@@ -530,33 +529,15 @@ impl Session {
         let mut painter = scaena_paint::cpu::CpuPainter::default();
         let (mut listed, mut painted) = (Vec::with_capacity(layouts.len()), Vec::with_capacity(layouts.len()));
         for layout in layouts {
-            let started = match layout.as_deref() {
-                Some(name) => scaena_ops::states::example(&self.deck, &self.theme, state, name),
-                None => scaena_ops::states::starting(&self.deck, &self.theme, state, None),
-            }
-            .map_err(|e| Error::Ops(e.message))?;
-            let mut patch = started.patch;
-            // A box where a picture or a figure goes and no example is given, drawn under the
-            // words: in the picture only.
+            let started = scaena_ops::states::pictured(&self.deck, &self.theme, state, layout.as_deref())
+                .map_err(|e| Error::Ops(e.message))?;
+            let patch = started.patch;
             let template = layout.as_deref().and_then(|name| self.theme.layouts.get(name));
             let (name, description, group) = (
                 template.and_then(|t| t.name.clone()),
                 template.and_then(|t| t.description.clone()),
                 template.and_then(|t| t.group.clone()),
             );
-            let waits = |s: &scaena_core::model::theme::Slot| {
-                s.role.is_none()
-                    && s.example.is_none()
-                    && matches!(s.prompt, Some(scaena_core::model::theme::Prompt::Words(_)))
-            };
-            let waiting = template.into_iter().flat_map(|t| &t.slots).filter(|(_, s)| waits(s));
-            for (n, (slot, _)) in waiting.enumerate() {
-                let Some(fill) = fill else { break };
-                let node =
-                    serde_json::json!({ "type": "shape", "kind": "rect", "fill": fill, "at": { "in": slot }, "z": -1 });
-                let id = format!("{}-waiting-{n}", started.id);
-                patch.push(serde_json::json!({ "op": "add_node", "id": id, "node": node, "state": started.id }));
-            }
             let doc = scaena_core::patch::compile(&base, &patch, &Handed(&self.files))
                 .map_err(|e| Error::Ops(format!("{e:?}")))?
                 .doc;
