@@ -687,6 +687,7 @@ impl Session {
     /// Each kind of code token as the theme the deck names draws it (PLAN 2.144, ADR-0029), in
     /// `code::Class::KINDS`' order: what the Theme tab's Code shows. Code is drawn on the theme's
     /// surface until it has a card of its own (PLAN 2.136), in the theme's code role.
+    #[cfg(feature = "editor")]
     pub fn code_colors(&self) -> Result<Vec<CodeColor>, Error> {
         use scaena_core::code::Class;
         let theme = &self.theme;
@@ -2360,6 +2361,7 @@ fn utf16(text: &str) -> impl Fn(usize) -> usize + '_ {
 }
 
 /// One kind of code token as the theme draws it (PLAN 2.144): what the Theme tab's Code shows.
+#[cfg(feature = "editor")]
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct CodeColor {
     /// The kind, as the theme keys its look: `keyword`.
@@ -3092,6 +3094,7 @@ mod tests {
     /// language until one is named, and set in that role; no other text Insert offers is code.
     /// Each kind of code token as the theme draws it (PLAN 2.144): derived where the theme names
     /// none, the theme's where it names one, and moved where that does not read on the surface.
+    #[cfg(feature = "editor")]
     #[test]
     fn code_colors_say_how_each_kind_is_drawn() {
         let mut s = revenue();
