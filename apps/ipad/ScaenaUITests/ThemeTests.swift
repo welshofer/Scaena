@@ -141,16 +141,19 @@ final class ThemeTests: XCTestCase {
         }
 
         try XCTContext.runActivity(named: "Code's keywords named a color are one step to undo") { _ in
-            // The Code section stands under Spacing, near the panel's foot: scrolled to as a person
-            // scrolls, until the keywords' row shows (PLAN 2.144).
+            // The Code section stands under Spacing, near the foot of a panel some pages long:
+            // scrolled to as a person scrolls, until the keywords' row shows (PLAN 2.144). Each drag
+            // starts in the panel's right margin, beside the steppers and clear of the fields, at a
+            // point of the window that stays in the panel however far it has scrolled: a row
+            // dragged once has gone above the window, and a press there drags nothing.
             let keywords = app.staticTexts.matching(NSPredicate(format: "identifier == 'theme-code-keyword'")).firstMatch
             let derived = any.matching(NSPredicate(format: "label == 'From the accent'")).firstMatch
-            let anyRow = app.buttons.matching(NSPredicate(format: "label MATCHES %@", ".+, [0-9]+ pt")).firstMatch
-            for _ in 0..<6 where !(keywords.exists && keywords.isHittable) {
-                guard anyRow.exists else { break }
-                let from = anyRow.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-                from.press(
-                    forDuration: 0.1, thenDragTo: from.withOffset(CGVector(dx: 0, dy: -400)), withVelocity: .slow,
+            let window = app.windows.firstMatch.frame
+            let margin = app.windows.firstMatch.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: window.maxX - 55, dy: window.maxY * 0.75))
+            for _ in 0..<12 where !(keywords.exists && keywords.isHittable) {
+                margin.press(
+                    forDuration: 0.1, thenDragTo: margin.withOffset(CGVector(dx: 0, dy: -400)), withVelocity: .slow,
                     thenHoldForDuration: 0.5)
             }
             guard keywords.waitForExistence(timeout: 10), derived.exists else {
