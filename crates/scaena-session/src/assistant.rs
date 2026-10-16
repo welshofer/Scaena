@@ -187,6 +187,8 @@ struct DeckLint {
     severity: SeverityArg,
     #[serde(default)]
     fix: bool,
+    #[serde(default)]
+    now: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -385,7 +387,15 @@ impl Session {
                         (f.findings, Some(f.fixed), true, deck)
                     }
                     false => {
-                        let l = scaena_ops::lint::lint(&b)?;
+                        // Dates are judged at the moment asked, else at the call's (ADR-0030).
+                        let now =
+                            match a.now.as_deref() {
+                                Some(now) => Some(scaena_core::fetched::moment(now).ok_or_else(|| {
+                                    ops(format!("deck_lint: `now` `{now}` is not an instant or a day"))
+                                })?),
+                                None => by.at,
+                            };
+                        let l = scaena_ops::lint::lint_at(&b, now)?;
                         (l.findings, None, l.laid, None)
                     }
                 };
