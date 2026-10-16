@@ -415,25 +415,35 @@ def ident(path: str) -> str:
 
 
 def themes_ts(entries: list[dict], themes: list[dict]) -> str:
-    files = font_files(themes)
+    sources = font_sources(themes)
     imports = [(ident(e["slug"]), "../../" + e["files"][0]) for e in entries]
-    imports += [(ident(f) + "Font", "../../docs/examples/" + f) for f in files]
+    # Each drawn small by the CPU painter at build, which `web/vite.config.ts` runs first (PLAN T.0c).
+    imports += [(ident(e["slug"]) + "Thumbnail", f"../../target/themes/{e['slug']}.png") for e in entries]
+    # A font git holds from the repository; any other from the sha256 cache, by its pin.
+    imports += [
+        (ident(path) + "Font", "../../" + source if not source.startswith("sha256:") else "@scaena/font-cache/" + source.removeprefix("sha256:"))
+        for path, _, source in sources
+    ]
     out = [
         "// What the editor starts a new deck from (PLAN 2.12): the themes that ship, which share one",
         "// vocabulary on one grid (SPEC §3.6), and the fonts they name, as docs/themes/registry.json",
         "// lists them. The build copies each file beside the pages, and the worker fetches them to make a",
         "// deck, and a theme to bring its layout library into a bundle's older copy of it (PLAN 3.31). A",
         "// single-file export's worker is built with `no-themes.ts`: its page plays a bundle, and never",
-        "// makes one. Written by scripts/build_themes.py from the registry; do not edit by hand.",
+        "// makes one. Each theme's thumbnail is its title slide drawn at build by the CPU painter, and a",
+        "// font git does not hold comes from the sha256 cache (PLAN T.0c). Written by",
+        "// scripts/build_themes.py from the registry; do not edit by hand.",
     ]
     out += [f'import {name} from "{path}?url";' for name, path in imports]
     out += [
         "",
-        "/** Each theme by its name: its file's name in a bundle (`themes/…`), and where the page has it. */",
-        "export const themes: Record<string, { file: string; url: string }> = {",
+        "/** Each theme by its name: its file's name in a bundle (`themes/…`), where the page has it, and",
+        " * where it has its thumbnail, its title slide drawn small. */",
+        "export const themes: Record<string, { file: string; url: string; thumbnail: string }> = {",
     ]
     for e in entries:
-        out.append(f'  {e["name"]}: {{ file: {json.dumps(Path(e["files"][0]).name)}, url: {ident(e["slug"])} }},')
+        slug = ident(e["slug"])
+        out.append(f'  {e["name"]}: {{ file: {json.dumps(Path(e["files"][0]).name)}, url: {slug}, thumbnail: {slug}Thumbnail }},')
     out += [
         "};",
         "",
@@ -441,7 +451,7 @@ def themes_ts(entries: list[dict], themes: list[dict]) -> str:
         " * family's, and its italic's (PLAN 2.40). */",
         "export const fonts: Record<string, string> = {",
     ]
-    out += [f"  {json.dumps(f)}: {ident(f)}Font," for f in files]
+    out += [f"  {json.dumps(path)}: {ident(path)}Font," for path, _, _ in sources]
     out += ["};", ""]
     return "\n".join(out)
 

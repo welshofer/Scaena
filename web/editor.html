@@ -597,6 +597,7 @@
       #exporting-size[hidden] { display: none; }
       #exporting-width { width: 7em; }
       dialog input, dialog select { font: inherit; font-size: 14px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; }
+      #making-preview { width: 100%; height: auto; aspect-ratio: 16 / 9; border: 1px solid var(--line); border-radius: 4px; }
       dialog menu { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin: 4px 0 0; padding: 0; }
       #skip { position: fixed; left: 8px; top: -100px; z-index: 30; padding: 6px 10px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; }
       #skip:focus { top: 8px; }
@@ -868,6 +869,7 @@
         <h2 id="making-title">New deck</h2>
         <label>Title <input id="making-name" name="title" required autocomplete="off" value="Untitled" /></label>
         <label>Theme <select id="making-theme" name="theme"></select></label>
+        <img id="making-preview" width="240" height="135" alt="" />
         <p class="note">A title slide to type over, on a 16:9 canvas, with the theme and its fonts. It is kept nowhere until you save it.</p>
         <menu>
           <button value="cancel" formnovalidate>Cancel</button>

@@ -392,6 +392,17 @@ async function controls() {
   const title = $<HTMLInputElement>("#making-name");
   const theme = $<HTMLSelectElement>("#making-theme");
   theme.replaceChildren(...Object.keys(themes).map((t) => new Option(t, t)));
+  // The theme chosen, as its title slide drawn at build (PLAN T.0c).
+  const preview = $<HTMLImageElement>("#making-preview");
+  const previewed = () => {
+    const chosen = themes[theme.value];
+    preview.hidden = !chosen;
+    if (!chosen) return;
+    preview.src = chosen.thumbnail;
+    preview.alt = `A title slide in ${theme.value}`;
+  };
+  theme.onchange = previewed;
+  previewed();
   $<HTMLButtonElement>("#new-deck").onclick = () => {
     making.returnValue = "";
     making.showModal();
