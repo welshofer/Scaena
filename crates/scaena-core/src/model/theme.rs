@@ -358,6 +358,17 @@ pub struct Family {
     /// such text upright: no italic is synthesized (lint W231).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub italic: Option<Face>,
+    /// Upright by design: the family has no italic because its script sets none, as Japanese
+    /// and Korean do not (ADR-0031, call 6), so it names none. A family that names no italic
+    /// without saying so has merely lost it. Text set `italic` in either is set upright, and
+    /// lint W231 says so all the same.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upright: Option<bool>,
+    /// Kept whole: a save never subsets the family's files, its italic's among them (ADR-0031,
+    /// call 5). A font whose license reserves its name, as Pretendard's does, may not carry the
+    /// name in a subset, which the OFL counts a Modified Version (OFL 1.1, condition 3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub whole: Option<bool>,
     /// Other families in this theme, in order. Bundle-only; system fonts are never consulted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback: Option<Vec<String>>,

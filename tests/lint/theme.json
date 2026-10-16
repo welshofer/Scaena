@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.22",
+  "scaena-theme": "0.23",
   "name": "Fixture",
   "description": "The smallest complete theme: what the validation fixtures in tests/lint/ name.",
   "tokens": {

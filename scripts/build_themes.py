@@ -319,6 +319,44 @@ def fonts_of(theme: dict) -> list[str]:
     return [keys[f["family"]] for f in theme["type"]["families"].values()]
 
 
+# Scripts that set no italic, as the pinned table names them: a family that covers one may be
+# upright by design (ADR-0031, call 6).
+UNSLANTED = ("Han", "kana", "Hangul", "Arabic", "Hebrew", "Devanagari", "Thai")
+
+
+def faces(theme: dict) -> list[str]:
+    """What is wrong with each family's italic and whether it is kept whole, by the pinned table
+    (ADR-0031, calls 5 and 6): a family names its italic, or says it is `upright` by design, which
+    only a family whose script sets no italic, and that has none, may; and a family whose name its
+    license reserves is kept `whole`, since a subset may not carry the name, and no other is."""
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import build_bundle_fonts  # noqa: PLC0415
+
+    pinned = {f["name"]: f for f in build_bundle_fonts.FAMILIES.values()}
+    wrong = []
+    for key, f in theme["type"]["families"].items():
+        p = pinned.get(f["family"])
+        if p is None:
+            continue
+        said = f"{theme['name']}: family `{key}` ({f['family']})"
+        upright = f.get("upright") is True
+        if upright and "italic" in f:
+            wrong.append(f"{said} is upright by design and names an italic")
+        elif upright and p["italic"] is not None:
+            wrong.append(f"{said} is upright by design, but the pinned table has its italic")
+        elif upright and not any(s.startswith(UNSLANTED) for s in p["scripts"]):
+            wrong.append(f"{said} is upright by design, but none of its scripts sets no italic: {', '.join(p['scripts'])}")
+        elif not upright and "italic" not in f:
+            wrong.append(f"{said} names no italic: name it, or say `upright` where its script sets none")
+        reserves = [r for r in p.get("reserved", ()) if r in f["family"]]
+        whole = f.get("whole") is True
+        if reserves and not whole:
+            wrong.append(f"{said} is a name its license reserves ({', '.join(reserves)}): keep it `whole`")
+        elif whole and not reserves:
+            wrong.append(f"{said} is kept whole, but its license reserves no name it uses")
+    return wrong
+
+
 def font_files(themes: list[dict]) -> list[str]:
     """Every font file the themes name, by the path they give it: for each theme in turn, the
     uprights it adds, then their italics."""
@@ -485,6 +523,7 @@ def build(registry: dict, base: dict, specs: dict) -> tuple[dict[Path, str], lis
         except Refused as r:
             wrong.append(str(r))
             continue
+        wrong.extend(f"{slug}: {w}" for w in faces(theme))
         if e.get("fonts") != fonts:
             wrong.append(f"{slug}: the registry's fonts {e.get('fonts')} are not its families' {fonts}")
         for f in font_files([theme]):

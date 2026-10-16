@@ -515,6 +515,27 @@ fn a_familys_italic_face_is_a_file_the_bundle_holds_and_the_deck_lists() {
     );
 }
 
+/// A family upright by design names no italic (ADR-0031, call 6); one kept whole is checked as
+/// any other (call 5).
+#[test]
+fn a_family_upright_by_design_names_no_italic() {
+    let files = EditedTheme(|t| {
+        t.replace(r#""file": "fonts/Body.ttf" }"#, r#""file": "fonts/Body.ttf", "upright": true, "whole": true }"#)
+    });
+    assert!(placed(&files).is_empty(), "{:?}", placed(&files));
+    let files = EditedTheme(|t| {
+        t.replace(
+            r#""file": "fonts/Body.ttf" }"#,
+            r#""file": "fonts/Body.ttf", "upright": true, "italic": { "file": "fonts/Body.ttf" } }"#,
+        )
+    });
+    let found = validate_bundle(fixture!("E102", "clean"), &files).unwrap();
+    let upright = found.iter().find(|f| f.code == "E106").expect("E106");
+    assert_eq!(upright.path.as_deref(), Some("/type/families/body/italic"));
+    assert_eq!(upright.file.as_deref(), Some("theme.json"));
+    assert!(upright.message.contains("upright by design"), "{}", upright.message);
+}
+
 #[test]
 fn a_deck_that_is_not_json_is_an_error_not_a_finding() {
     assert!(validate_bundle("{ \"scaena\": ", &Fixtures).is_err());

@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/theme-0.22.json",
+  "$id": "https://scaena.dev/schema/theme-0.24.json",
   "title": "Scaena theme (design system)",
   "description": "Tokens, typographic roles, layout templates, motion, and palettes. Documents reference these by name; they never store resolved values. See docs/SPEC.md §3.6.",
   "type": "object",
   "required": ["scaena-theme", "name", "tokens", "type", "grid", "layouts", "motion"],
   "additionalProperties": false,
   "properties": {
-    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.22(\\.[0-9]+)?$" },
+    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.24(\\.[0-9]+)?$" },
     "name": { "type": "string", "minLength": 1 },
     "description": { "type": "string" },
     "tokens": { "$ref": "#/$defs/Tokens" },
@@ -268,6 +268,14 @@
         "italic": {
           "description": "Its italic face (SPEC §3.5), which text set `italic` takes. A family without one sets such text upright: no italic is synthesized (lint W231).",
           "$ref": "#/$defs/Face"
+        },
+        "upright": {
+          "description": "Upright by design: the family has no italic because its script sets none, as Japanese and Korean do not (ADR-0031, call 6), so it names none. A family that names no italic without saying so has merely lost it. Text set `italic` in either is set upright, and lint W231 says so all the same.",
+          "type": "boolean"
+        },
+        "whole": {
+          "description": "Kept whole: a save never subsets the family's files, its italic's among them (ADR-0031, call 5). A font whose license reserves its name, as Pretendard's does, may not carry the name in a subset, which the OFL counts a Modified Version (OFL 1.1, condition 3).",
+          "type": "boolean"
         },
         "fallback": {
           "description": "Other families in this theme, in order. Bundle-only; system fonts are never consulted.",
@@ -569,7 +577,7 @@
       "maxItems": 4
     },
     "Example": {
-      "description": "What a layout's picture shows in a slot that waits (PLAN 3.31): `{ \"picture\": \"backdrop\" }`, `{ \"chart\": \"bar\" }`, `{ \"table\": 3 }`, or `{ \"map\": \"backdrop\" }` (theme format 0.22).",
+      "description": "What a layout's picture shows in a slot that waits (PLAN 3.31): `{ \"picture\": \"backdrop\" }`, `{ \"chart\": \"bar\" }`, or `{ \"table\": 3 }`.",
       "oneOf": [
         {
           "description": "A picture, drawn by the theme's shader preset of this name.",
@@ -591,13 +599,6 @@
           "required": ["table"],
           "additionalProperties": false,
           "properties": { "table": { "type": "integer", "minimum": 2, "maximum": 7 } }
-        },
-        {
-          "description": "A map's place (ADR-0030, PLAN O.1e, theme format 0.22): the picture this shader preset draws, with a pin and a label over it, and no provider's map. Insert › Map… fills the place.",
-          "type": "object",
-          "required": ["map"],
-          "additionalProperties": false,
-          "properties": { "map": { "type": "string", "minLength": 1 } }
         }
       ]
     },

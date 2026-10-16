@@ -2355,10 +2355,11 @@ What each must keep, whatever its batch:
     - Left open: the browser's and the Mac's own snapping of a drag (`snapOf`, `Targets.snap`) reads tracks left to right, so a drag in a mirrored deck does not yet snap where it is dropped; and the layout guides' slot drags write cells as drawn.
     - A deck whose language runs right to left lays every layout out mirrored, in every theme, at layout time. Photographs, logos, and digits are not mirrored, as Apple's guidelines say.
     - Tests: golden display lists of an Arabic and a Hebrew deck; `starting.rs` mirrored; the reader's order.
-- [ ] T.5b Faces without italics, and families kept whole (ADR-0031, decision 5; theme format, next free). *Can go ahead now.*
+- [x] T.5b Faces without italics, and families kept whole (ADR-0031, decision 5; theme format, next free). *Can go ahead now.*
     - **Italics.** A family whose script has no italic convention ships without one (call 6). W231 still warns where a text asks for italic.
     - **Kept whole.** A family whose license reserves its name (call 5), as Pretendard's does, is kept whole by every save: the CLI's, the browser's subsetter, and the Mac's.
     - Tests: `shipped.rs` over the exemption; a save keeping Pretendard whole, byte for byte.
+    - **Landed** (theme format 0.23): a family's `upright: true` says it has no italic by design, and names none (E106 where it does); its `whole: true` keeps its files out of every save's subsetter, since `Bundle::subsetting` leaves them out and `saving_with` writes them as they are, which the CLI's save, the single-file export, and the session the browser and the Mac share all go through. `build_themes.py` refuses a family with no italic that does not say `upright`, `upright` on a family whose script sets italic or that has one, a family whose name its license reserves that is not `whole`, and `whole` on one whose name is free. The saves are tested on B1 with Bench Serif marked whole, since Pretendard is fetched at build and not in git: the save reads only the mark, never the family.
 - [ ] T.5 Batch 5: Postcard, Lambda, Runtime, Saffron, Qalam, Washi, and Hanji (after T.4, T.5a, and T.5b). *Can go ahead after its predecessors.*
     - Tests: decision 8's checks on each; a person's review.
 - [ ] T.6 The four held to the new bars (ADR-0031). *Later: a reviewed change of its own, after the fifty (call 10).*

@@ -188,3 +188,19 @@ fn a_family_of_one_weight_sets_a_heavier_run_in_its_own_weight() {
     assert!(inter.lighter.is_empty());
     assert_ne!(glyphs(&inter), glyphs(&set(&mut fonts, "body", None)));
 }
+
+/// A family upright by design, whose script sets no italic (ADR-0031, call 6), names no italic
+/// and sets italic text upright as one that lost it does, and W231 reads it all the same.
+#[test]
+fn a_family_upright_by_design_sets_italic_upright_and_says_so() {
+    let mut fonts = fonts();
+    let theme = dusk(|t| {
+        let body = t["type"]["families"]["body"].as_object_mut().unwrap();
+        body.remove("italic");
+        body.insert("upright".into(), true.into());
+    });
+    assert_eq!(theme.families()["body"].upright, Some(true));
+    let text = set(&mut fonts, &theme, &[("doubled", true)]);
+    assert_eq!(faces(&text), ["fonts/Inter-VF.ttf"]);
+    assert_eq!(text.upright, ["body"], "what W231 reads");
+}
