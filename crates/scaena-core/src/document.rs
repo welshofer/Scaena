@@ -165,6 +165,20 @@ pub struct DataSource {
     pub schema: Option<IndexMap<String, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parse: Option<IndexMap<String, String>>,
+    /// Where its rows came from (ADR-0030, deck format 0.31): a forecast fetched once into the
+    /// deck, credited at the foot of each chart or table that reads it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<crate::fetched::Fetched>")]
+    pub fetched: Option<Value>,
+}
+
+impl DataSource {
+    /// Its `fetched` record, read; none where it has none, or one the schema refuses. Kept as
+    /// written in the deck, and read where it is needed, so a deck's serializers carry no code of
+    /// its own for it (SPEC §15).
+    pub fn fetched(&self) -> Option<crate::fetched::Fetched> {
+        serde_json::from_value(self.fetched.clone()?).ok()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

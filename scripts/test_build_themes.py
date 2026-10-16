@@ -52,7 +52,13 @@ class FromSpec(unittest.TestCase):
         code = {"role": "code", "tab": 4}
         theme = themes.themed("basel", spec(code=code), BASE)
         self.assertEqual(theme["code"], code)
-        self.assertEqual(list(theme)[-2:], ["density", "code"])
+        self.assertEqual(list(theme)[-3:], ["density", "code", "pictures"])
+
+    def test_a_specs_frame_takes_the_place_of_the_bases_none(self):
+        self.assertEqual(themes.themed("basel", spec(), BASE)["pictures"], {"frame": "none"})
+        frame = {"mat": {"color": "surface", "width": 24}, "keyline": {"color": "line", "width": 1}}
+        theme = themes.themed("basel", spec(pictures={"frame": frame}), BASE)
+        self.assertEqual(theme["pictures"], {"frame": frame})
 
     def test_a_role_delta_changes_only_what_it_names_and_null_takes_a_key_away(self):
         theme = themes.themed("basel", spec(roles={"display": {"size": 160, "opsz": None}}, stroke={"thick": 5}), BASE)
@@ -79,6 +85,62 @@ class FromSpec(unittest.TestCase):
         theme["type"]["families"]["display"]["family"] = "Comic Sans"
         with self.assertRaisesRegex(themes.Refused, "Comic Sans"):
             themes.fonts_of(theme)
+
+
+    def test_the_four_name_every_italic_and_keep_nothing_whole(self):
+        for slug in ("dusk", "daybreak", "ember", "salon"):
+            self.assertEqual(themes.faces(themes.themed(slug, SPECS[slug], BASE)), [], slug)
+
+    def test_only_a_family_whose_script_sets_no_italic_is_upright_by_design(self):
+        theme = themes.themed("basel", spec(), BASE)
+        body = theme["type"]["families"]["body"]
+        del body["italic"]
+        self.assertRegex(" ".join(themes.faces(theme)), "`body` \\(Inter\\) names no italic")
+        body["upright"] = True
+        self.assertRegex(" ".join(themes.faces(theme)), "pinned table has its italic")
+        # Noto Sans JP, which has none and sets Japanese: upright by design.
+        body.update(family="Noto Sans JP", file="fonts/NotoSansJP-VF.ttf")
+        self.assertEqual(themes.faces(theme), [])
+        body["italic"] = {"file": "fonts/NotoSansJP-VF.ttf"}
+        self.assertRegex(" ".join(themes.faces(theme)), "upright by design and names an italic")
+
+    def test_a_family_whose_name_is_reserved_is_kept_whole_and_no_other(self):
+        theme = themes.themed("basel", spec(), BASE)
+        body = theme["type"]["families"]["body"]
+        del body["italic"]
+        body.update(family="Pretendard", file="fonts/Pretendard-VF.ttf", upright=True)
+        self.assertRegex(" ".join(themes.faces(theme)), "license reserves \\(Pretendard\\): keep it `whole`")
+        body["whole"] = True
+        self.assertEqual(themes.faces(theme), [])
+        # Noto Sans JP reserves "Source", which its name does not use: subset as any other.
+        body.update(family="Noto Sans JP", file="fonts/NotoSansJP-VF.ttf")
+        self.assertRegex(" ".join(themes.faces(theme)), "reserves no name it uses")
+
+
+class Carried(unittest.TestCase):
+    """Where scaena-ops' build finds each font a theme names (PLAN T.0c)."""
+
+    def test_the_fours_fonts_come_from_git(self):
+        theme = themes.themed("basel", spec(), BASE)
+        sources = themes.font_sources([theme])
+        self.assertEqual([p for p, _, _ in sources], themes.font_files([theme]))
+        self.assertEqual(sources[0], ("fonts/Fraunces-VF.ttf", "fraunces", "docs/examples/fonts/Fraunces-VF.ttf"))
+
+    def test_a_family_git_lacks_comes_from_the_cache_by_its_pin(self):
+        theme = themes.themed("basel", spec(), BASE)
+        body = theme["type"]["families"]["body"]
+        body.update(family="Geist", file="fonts/Geist[wght].ttf", italic={"file": "fonts/Geist-Italic[wght].ttf"})
+        pins = themes.pinned_families()["geist"]
+        sources = {p: (k, s) for p, k, s in themes.font_sources([theme])}
+        self.assertEqual(sources["fonts/Geist[wght].ttf"], ("geist", "sha256:" + pins["upright"][1]))
+        self.assertEqual(sources["fonts/Geist-Italic[wght].ttf"], ("geist", "sha256:" + pins["italic"][1]))
+        self.assertIn("fonts/Geist-Italic[wght].ttf\tgeist\tsha256:", themes.carried_tsv([theme]))
+
+    def test_a_face_the_table_pins_none_of_is_refused_naming_its_family(self):
+        theme = themes.themed("basel", spec(), BASE)
+        theme["type"]["families"]["body"].update(family="Pretendard", file="fonts/Pretendard.otf", italic={"file": "fonts/Pretendard-Italic.otf"})
+        with self.assertRaisesRegex(themes.Refused, "Pretendard's italic"):
+            themes.font_sources([theme])
 
 
 class Bars(unittest.TestCase):
@@ -131,7 +193,7 @@ class TheFour(unittest.TestCase):
                 self.assertEqual(out[path], path.read_text(encoding="utf-8"), f)
 
     def test_the_exemption_is_the_four_and_each_still_needs_it(self):
-        self.assertEqual(themes.AS_THEY_SHIP, {"dusk", "daybreak", "ember", "gallery"})
+        self.assertEqual(themes.AS_THEY_SHIP, {"dusk", "daybreak", "ember", "salon"})
         self.assertLessEqual(themes.AS_THEY_SHIP, {e["slug"] for e in REGISTRY["themes"]})
         for slug in themes.AS_THEY_SHIP:
             self.assertTrue(themes.missed(slug, SPECS[slug]), f"{slug} meets every bar: lift its exemption (PLAN T.6)")

@@ -94,19 +94,19 @@ impl Checker {
     /// `docs/schema/deck.schema.json`.
     pub fn deck() -> &'static Checker {
         static DECK: OnceLock<Checker> = OnceLock::new();
-        DECK.get_or_init(|| Checker::new(committed(include_str!("../../../../docs/schema/deck.schema.json"))))
+        DECK.get_or_init(|| Checker::new(committed(include_str!(concat!(env!("OUT_DIR"), "/deck.schema.json")))))
     }
 
     /// `docs/schema/theme.schema.json`.
     pub fn theme() -> &'static Checker {
         static THEME: OnceLock<Checker> = OnceLock::new();
-        THEME.get_or_init(|| Checker::new(committed(include_str!("../../../../docs/schema/theme.schema.json"))))
+        THEME.get_or_init(|| Checker::new(committed(include_str!(concat!(env!("OUT_DIR"), "/theme.schema.json")))))
     }
 
     /// `docs/schema/spine.schema.json`: what `export --format spine` writes (SPEC §10).
     pub fn spine() -> &'static Checker {
         static SPINE: OnceLock<Checker> = OnceLock::new();
-        SPINE.get_or_init(|| Checker::new(committed(include_str!("../../../../docs/schema/spine.schema.json"))))
+        SPINE.get_or_init(|| Checker::new(committed(include_str!(concat!(env!("OUT_DIR"), "/spine.schema.json")))))
     }
 
     fn new(root: Value) -> Checker {

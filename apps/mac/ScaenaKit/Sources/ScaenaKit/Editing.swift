@@ -1,3 +1,4 @@
+import CScaena
 import CoreGraphics
 import Foundation
 
@@ -87,6 +88,28 @@ public struct Linting: Decodable, Sendable {
     public let whole: Bool
 }
 
+/// The deck a session compiled last, taken to be laid out on every state for lint on a thread of
+/// its own (PLAN 4.13): it shares the bundle's files with the session, and builds an engine of its
+/// own, so laying it out touches nothing the session's thread uses. Sendable: it is taken on the
+/// session's thread, laid out on one other, and handed back after, one thread at a time.
+public final class Laying: @unchecked Sendable {
+    let handle: OpaquePointer
+
+    init(handle: OpaquePointer) {
+        self.handle = handle
+    }
+
+    deinit {
+        scaena_laying_free(handle)
+    }
+
+    /// Lay the deck out on every state and run lint's layout rules on it: the slow part of a lint
+    /// of every state, on the thread that calls it. Once.
+    public func lay() {
+        _ = scaena_laying_lay(handle)
+    }
+}
+
 /// What an inspector offers (PLAN 2.33, 2.36): each property of a node in a state, or of the
 /// state itself, with what it takes, the value shown, and where that value lives.
 public struct Choices: Decodable, Sendable {
@@ -101,6 +124,12 @@ public struct Choices: Decodable, Sendable {
     /// `Star`), a container with a panel of its own a `Card`; `Icon` for a filled path on a view,
     /// which the icon picker replaces (PLAN G.23), and a pen's drawing, stroked, a `Drawing`.
     public let noun: String?
+    /// Where a fetched picture came from, as the Format tab's Map section heads it (ADR-0030): "Map
+    /// from Geoapify, fetched 15 October 2026".
+    public let fetched: String?
+    /// A picture's frame, said, where its theme frames pictures (PLAN T.3a): the theme's, which
+    /// nothing on the picture changes, so the inspector shows it and offers nothing.
+    public let framed: String?
 
     /// Whether the writing tools have words to write for what is offered (PLAN 2.101): a text's, a
     /// picture's description, or the slide's notes. A shape, a chart, a table, or a group has none,
@@ -451,10 +480,33 @@ extension ScaenaSession {
     public func compile(_ source: String) throws -> Compiling { try call("compile", ["source": .string(source)]) }
 
     /// Lint the deck compiled last: every state, or with `state` the layout rules on that state
-    /// alone, the others' findings kept from the last time they ran on every state.
-    public func lint(state: String? = nil) throws -> Linting {
-        guard let state else { return try call("lint") }
-        return try call("lint", ["state": .string(state)])
+    /// alone, the others' findings kept from the last time they ran on every state. Dates are
+    /// judged at `now`, the Mac's clock (W428, ADR-0030).
+    public func lint(state: String? = nil, now: Date = Date()) throws -> Linting {
+        var args: [String: JSONValue] = ["now": .string(now.formatted(.iso8601))]
+        if let state { args["state"] = .string(state) }
+        return try call("lint", .object(args))
+    }
+
+    /// The deck compiled last, taken to be linted on every state away from the session (PLAN
+    /// 4.13): laid out on another thread while the session answers on its own, then handed back
+    /// to `lint(laid:)`. None where no source compiled to a deck that validates.
+    public func laying() -> Laying? {
+        scaena_laying_new(handle).map(Laying.init)
+    }
+
+    /// What lint finds on every state, as `lint()` says it, from what `laid` found once laid out,
+    /// laying nothing out here: none where the deck changed after it was taken (another source
+    /// compiled, a file handed over, the theme edited), so an older deck's findings never stand
+    /// for this one's, or where it was not laid out. Dates are judged at `now`, as `lint()` judges
+    /// them.
+    public func lint(laid: Laying, now: Date = Date()) throws -> Linting? {
+        try Self.decode(scaena_lint_laid(handle, laid.handle, now.formatted(.iso8601)), as: Laid.self).linting
+    }
+
+    /// What `scaena_lint_laid` answers: the linting, or none where it is stale.
+    private struct Laid: Decodable {
+        let linting: Linting?
     }
 
     /// The source compiled last with `patch`, a finding's fix, applied: the fixed deck as `.scn`.

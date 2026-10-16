@@ -3,7 +3,7 @@
 // makes one. It is made in an engine's worker of its own, which starts as the dialog opens and
 // loads the generator's module while the brief is written; Cancel stops it, and the deck open is
 // untouched until the new one opens, kept nowhere until it is saved.
-import { themes } from "@scaena/themes";
+import { familySections } from "./theme-families";
 import { load, settings } from "./assistant/keys";
 import type { Choices, FromWorker, Generate, Generated, GeneratingEvent, Source, ToWorker } from "./protocol";
 import type { Engine } from "./stage";
@@ -103,7 +103,7 @@ export function prompting(
   const who = $<HTMLParagraphElement>("#prompting-who");
   const progress = $<HTMLOListElement>("#prompting-progress");
   const go = $<HTMLButtonElement>("#prompting-go");
-  theme.replaceChildren(...Object.keys(themes).map((t) => new Option(t, t)));
+  theme.replaceChildren(...familySections());
 
   let given: Given[] = [];
   /** The worker the deck is made in, from the dialog's opening until it closes. */

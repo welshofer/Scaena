@@ -89,3 +89,29 @@ async fn an_agent_fixes_what_lint_finds_then_renders() {
     client.cancel().await.unwrap();
     assert!(child.wait().await.unwrap().success());
 }
+
+/// `deck_create` takes every theme in the registry by its name, offline, with its fonts alone
+/// (PLAN T.0c): the server carries every family in its binary.
+#[tokio::test(flavor = "multi_thread")]
+async fn deck_create_takes_every_theme_in_the_registry_by_its_name() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let registry: Value =
+        serde_json::from_slice(&std::fs::read(root.join("docs/themes/registry.json")).unwrap()).unwrap();
+    let (client, _child) = serve().await;
+    for theme in registry["themes"].as_array().unwrap() {
+        let slug = theme["slug"].as_str().unwrap();
+        let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("mcp-registry-{slug}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        let made = ok(&client, "deck_create", json!({ "bundle": dir, "theme": slug, "title": "Field notes" })).await;
+        assert_eq!(made["errors"], 0, "{slug}: {made:#}");
+        let file = Path::new(theme["files"][0].as_str().unwrap()).file_name().unwrap();
+        let named = std::fs::read_to_string(dir.join("themes").join(file)).unwrap();
+        let named: Value = serde_json::from_str(&named).unwrap();
+        for family in named["type"]["families"].as_object().unwrap().values() {
+            for file in [&family["file"], &family["italic"]["file"]].into_iter().filter_map(Value::as_str) {
+                assert!(dir.join(file).is_file(), "{slug}: {file}");
+            }
+        }
+    }
+    client.cancel().await.unwrap();
+}

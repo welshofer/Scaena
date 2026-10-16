@@ -74,7 +74,18 @@ export interface Around {
   /** Ask the model the assistant uses to write `kind` for `node`, a text, or for the state shown
    * (PLAN 2.101): offered to take or leave. */
   write(kind: WritingKind, node?: string): void;
+  /** Fetch the map image `node` shows again (ADR-0030, PLAN O.1c): `in` or `out` a step, centered
+   * on its pin, or as it was asked. */
+  remap?(node: string, how: "in" | "out" | "pin" | "again"): void;
 }
+
+/** What fetches a map again (PLAN O.1c), and what each does: each one fetch, one step to undo. */
+const MAPPING: ["in" | "out" | "pin" | "again", string, string][] = [
+  ["in", "Zoom In", "Fetched again a step nearer, about where it is centered"],
+  ["out", "Zoom Out", "Fetched again a step further, about where it is centered"],
+  ["pin", "Center on the Pin", "Fetched again centered on the place its pin marks"],
+  ["again", "Fetch Again", "Fetched again as it was asked: the map as Geoapify draws it now"],
+];
 
 /** The writing tools a text offers, and what each does (PLAN 2.101). */
 const WRITING: [WritingKind, string, string][] = [
@@ -529,6 +540,14 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     const writing = writes.length
       ? `<div class="arrange writing"><span class="arrange-kind">Writing</span><span class="arrange-buttons" role="group" aria-label="Writing">${writes.join("")}</span></div>`
       : "";
+    // A fetched map (ADR-0030): where it came from, and what fetches it again, a zoom step nearer
+    // or further, centered on its pin, or as it was; its pin's label and color and its credit
+    // are among its fields.
+    const fetched = picture && "fetched" in offered ? (offered as { fetched?: string }).fetched : undefined;
+    const map = fetched?.startsWith("Map ")
+      ? `<h3 class="map-title">Map</h3><p class="named">${html(fetched)}</p>
+      <div class="arrange"><span class="arrange-kind">Fetch</span><span class="arrange-buttons" role="group" aria-label="Fetch the map again">${MAPPING.map(([how, label, title]) => `<button type="button" data-remap="${how}" title="${html(title)}">${label}</button>`).join("")}</span></div>`
+      : "";
     // The slide's number and footer (ADR-0028), where the theme places them: the deck's, and this
     // slide's own say.
     const furniture = !chars && !nodes.length && "furniture" in offered ? offered.furniture : undefined;
@@ -540,6 +559,9 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
         <label for="look-furniture">This slide</label><span class="control"><select id="look-furniture" data-furnish="slide"><option value=""${furniture.slide === undefined ? " selected" : ""}>As its layout has them</option><option value="yes"${furniture.slide === true ? " selected" : ""}>Shows them</option><option value="no"${furniture.slide === false ? " selected" : ""}>Hides them</option></select></span><span class="lives">${furniture.shown ? "Shown" : "Hidden"}</span>
       </div>`
       : "";
+    // A picture's frame is its theme's (PLAN T.3a): said, and offered nowhere.
+    const framed = !chars && nodes.length === 1 && "framed" in offered && offered.framed;
+    const framing = framed ? `<p class="framed"><span class="arrange-kind">Frame</span> ${html(framed)}</p>` : "";
     // The layouts the state may take, drawn (PLAN 2.92): where there is more than one.
     const layout = !chars && !("node" in offered) ? offered.fields.find((f) => f.prop === "layout") : undefined;
     const choosing = layout?.takes.kind === "name" && layout.takes.names.length > 1;
@@ -551,7 +573,9 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
       ${arrange || grouping ? `<div class="arrange">${arrange}${grouping}</div>` : ""}
       ${text ? writing : ""}
       ${layouts}
+      ${map}
       <div class="fields">${rows.join("")}</div>
+      ${framing}
       ${furnishing}
       ${text ? "" : writing}
       ${reading}`;
@@ -855,6 +879,8 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     if ((e.target as Element).closest("[data-ungroup]")) void around.ungroup();
     if ((e.target as Element).closest("[data-pick]")) around.pick();
     if ((e.target as Element).closest("[data-pick-layout]")) void pickLayout();
+    const remap = (e.target as Element).closest<HTMLElement>("[data-remap]");
+    if (remap?.dataset.remap && offered && "node" in offered) around.remap?.(offered.node, remap.dataset.remap as "in" | "out" | "pin" | "again");
     const writing = (e.target as Element).closest<HTMLElement>("[data-write]");
     if (writing?.dataset.write && offered) around.write(writing.dataset.write as WritingKind, "node" in offered ? offered.node : undefined);
     const reading = (e.target as Element).closest<HTMLElement>("[data-read]");

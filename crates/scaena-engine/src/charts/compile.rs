@@ -357,6 +357,7 @@ fn facets(cx: &mut Ctx, props: &Props, facet: &Map<String, Value>, size: [f32; 2
     }
     let horizontal = panels.first().is_some_and(|p| p.chart.horizontal);
     Ok(ChartLayout {
+        credit: None,
         kind,
         horizontal,
         base: 0.0,
@@ -1347,6 +1348,7 @@ fn compile_in(
     // A rule at 0 where the value axis reaches it: else no rule reads as zero.
     let zero_ruled = !donut && lo <= 0.0 && 0.0 <= hi;
     let mut out = ChartLayout {
+        credit: None,
         kind,
         horizontal: false,
         base,

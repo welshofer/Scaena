@@ -115,6 +115,23 @@ fn only_a_copy_of_the_theme_takes_it() {
     assert!(library(&older, &dusk, false).is_none(), "another theme's library");
 }
 
+/// A copy named Gallery, as Salon shipped before it was renamed (PLAN T.0d), is Salon's copy and
+/// takes its library, keeping its own name; Dusk's library it does not take.
+#[test]
+fn a_copy_named_gallery_is_salons() {
+    let shipped = read("../../docs/examples/themes/salon.theme.json");
+    let mut older = shipped.clone();
+    older["name"] = json!("Gallery");
+    older["layouts"].as_object_mut().unwrap().remove("agenda");
+    let (theme, brought) = library(&older, &shipped, false).expect("a copy named Gallery takes Salon's library");
+    assert_eq!(brought.theme, "Salon");
+    assert_eq!(brought.added, ["agenda"]);
+    assert_eq!(theme["name"], "Gallery");
+    assert_eq!(keys(&theme), keys(&shipped));
+    let dusk = read("../../docs/examples/themes/dusk.theme.json");
+    assert!(library(&older, &dusk, false).is_none(), "another theme's library");
+}
+
 /// A layout of the copy's own stays, after the library's; a layout that sets words in a role the
 /// copy cannot take is left out; and an example drawn by a preset the copy lacks is left off.
 #[test]

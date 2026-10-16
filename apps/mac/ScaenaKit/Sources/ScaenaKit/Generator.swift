@@ -21,6 +21,8 @@ public struct BriefChoices: Decodable, Sendable {
     public let audiences: [String]
     public let arcs: [String]
     public let defaults: Defaults
+    /// The themes that ship, to make the deck in, each with its family (PLAN T.0d).
+    public let themes: [ShippedTheme]
 }
 
 /// Narrato's brief (`scaena_narrato::Brief`): what the deck is about, in the user's words, and what
@@ -201,7 +203,7 @@ public final class Generator {
 
     private let made = Made()
     private var handle: OpaquePointer { made.pointer }
-    private let send: Send
+    let send: Send
     /// Where a script's font is kept once fetched, by its digest (PLAN G.22).
     private let fonts: URL?
     /// The script whose font the engine was given, so that it is not handed over twice.
@@ -232,7 +234,7 @@ public final class Generator {
         try ScaenaSession.decode(scaena_generator_choices(), as: BriefChoices.self)
     }
 
-    private func step<T: Decodable>(_ method: String, _ args: [String: JSONValue] = [:], bytes: Data? = nil) throws -> T {
+    func step<T: Decodable>(_ method: String, _ args: [String: JSONValue] = [:], bytes: Data? = nil) throws -> T {
         let json = String(decoding: try JSONEncoder().encode(JSONValue.object(args)), as: UTF8.self)
         guard let bytes else {
             return try ScaenaSession.decode(scaena_generator_call(handle, method, json, nil, 0), as: T.self)

@@ -88,6 +88,23 @@ pub fn lint(b: &Bundle) -> Result<Linted, OpsError> {
     lint_in(&b.deck, &View::of(b))
 }
 
+/// What `lint` finds in a bundle at `now`, seconds since the epoch: what [`lint`] finds, and the
+/// dates `now` judges (W428, ADR-0030).
+pub fn lint_at(b: &Bundle, now: Option<i64>) -> Result<Linted, OpsError> {
+    Ok(dated(lint(b)?, &b.deck, now))
+}
+
+/// `linted` with what `now` (seconds since the epoch) judges of `deck`: each fetched object that
+/// has passed its date (W428, ADR-0030, decision 8). Lint is handed its date by whoever runs it;
+/// without one, it judges none.
+pub fn dated(mut linted: Linted, deck: &Deck, now: Option<i64>) -> Linted {
+    if let Some(now) = now {
+        linted.findings.extend(scaena_core::lint::dated(deck, now));
+        scaena_core::lint::sort(&mut linted.findings);
+    }
+    linted
+}
+
 /// What `lint` finds in `deck` with the files `files`.
 pub fn lint_in(deck: &Deck, files: &View) -> Result<Linted, OpsError> {
     lint_scoped(deck, files, None)
