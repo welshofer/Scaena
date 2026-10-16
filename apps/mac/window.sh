@@ -310,6 +310,17 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   events 'key code 53'
   sleep 1
 
+  # Insert › Map… (PLAN O.1d): its sheet asks where, how much it shows, and the pin's label, and,
+  # with no Geoapify key kept, for one. Escape puts it away, nothing fetched.
+  app 'click menu bar item "Insert" of menu bar 1' >/dev/null
+  sleep 1
+  app 'click menu item "Map…" of menu 1 of menu bar item "Insert" of menu bar 1' >/dev/null
+  sleep 2
+  shot mac-map
+  echo "Insert › Map…: Where at $(frames find map-where), the key's field at $(frames find map-key)"
+  events 'key code 53'
+  sleep 1
+
   # The safe area (PLAN 3.29): View › Show Safe Area shades a strip 3/8 inch in from each edge of
   # the slide, a guide that holds nothing off it; the item then reads Hide and takes it away.
   toggle "Safe Area"

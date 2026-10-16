@@ -53,8 +53,11 @@ import {
   lineNumbers,
 } from "@codemirror/view";
 import { themes } from "@scaena/themes";
+import { familySections } from "./theme-families";
 import { panel } from "./assistant/panel";
 import { TOOLS, writer } from "./writing";
+import { load } from "./assistant/keys";
+import { mapper } from "./maps";
 import { haikuKeys, haikuer } from "./haiku";
 import { picturer } from "./picturing";
 import { sourceOf } from "./bundle";
@@ -392,7 +395,7 @@ async function controls() {
   const making = $<HTMLDialogElement>("#making");
   const title = $<HTMLInputElement>("#making-name");
   const theme = $<HTMLSelectElement>("#making-theme");
-  theme.replaceChildren(...Object.keys(themes).map((t) => new Option(t, t)));
+  theme.replaceChildren(...familySections());
   $<HTMLButtonElement>("#new-deck").onclick = () => {
     making.returnValue = "";
     making.showModal();
@@ -806,6 +809,9 @@ async function edit(source: Source, opened?: Stage) {
       return picking.pick({ purpose: { names, current }, source: view.state.doc.toString(), state: now.state, format: format() });
     },
     write: (kind, node) => write(kind, node),
+    // A map fetched again (PLAN O.1c), with the Geoapify key kept: none kept, Insert › Map… asks.
+    remap: (node, how) =>
+      void load("geoapify").then((kept) => (kept?.key ? board.refreshMap(node, kept.key, how) : say("No Geoapify key is kept: Insert › Map… keeps one"))),
   });
 
   /** The cue of the state shown (PLAN 2.44), under the preview: once the canvas is there. */
@@ -1282,6 +1288,7 @@ async function edit(source: Source, opened?: Stage) {
   /** The Insert menu's own choices beside what the deck offers: a picture made (PLAN 2.107), and
    * a draw tool by its key (PLAN 2.123). */
   const MAKE_PICTURE = "make-picture";
+  const INSERT_MAP = "insert-map";
   const HAIKU = "haiku";
   const DRAW = "draw:";
   let offered = "";
@@ -1321,6 +1328,7 @@ async function edit(source: Source, opened?: Stage) {
       icon,
       draw,
       new Option("Make a picture…", MAKE_PICTURE),
+      new Option("Map…", INSERT_MAP),
       new Option("Haiku…", HAIKU),
     );
   }
@@ -1330,6 +1338,7 @@ async function edit(source: Source, opened?: Stage) {
     if (!chosen?.value) return;
     if (chosen.value === "icon") return void insertIcon();
     if (chosen.value === MAKE_PICTURE) return void picturing.open();
+    if (chosen.value === INSERT_MAP) return void mapping.open();
     if (chosen.value === HAIKU) return void haiku.open();
     // A draw tool is its key's gesture: chosen again while it is taken up, it stays so.
     if (chosen.value.startsWith(DRAW)) {
@@ -1355,9 +1364,9 @@ async function edit(source: Source, opened?: Stage) {
     const inBundle = Object.assign(document.createElement("optgroup"), { label: "In this deck" });
     for (const file of held.files) inBundle.append(new Option(themeName(file), `path:${file}`, file === held.current, file === held.current));
     if (held.current === "(inline)") inBundle.append(new Option("The deck’s own", "", true, true));
-    const ships = Object.assign(document.createElement("optgroup"), { label: "Built in" });
-    for (const name of Object.keys(themes)) ships.append(new Option(name, `ships:${name}`));
-    themePicker.replaceChildren(...[inBundle, ships].filter((g) => g.children.length > 0));
+    // The themes that ship, by family, each family a section (PLAN T.0d).
+    const ships = familySections((name) => `ships:${name}`);
+    themePicker.replaceChildren(...[inBundle, ...ships].filter((g) => g.children.length > 0));
   }
   themePicker.onchange = async () => {
     const chosen = themePicker.value;
@@ -1977,6 +1986,17 @@ async function edit(source: Source, opened?: Stage) {
       $("#key").focus();
     },
   });
+  /** Insert › Map… (ADR-0030, PLAN O.1c): a map of a place, fetched once from Geoapify with the
+   * user's own key, in the image selected, the slide's empty place for a picture, or where they
+   * last pressed; one patch, one step to undo. */
+  const mapping = mapper(stage, {
+    target: async () => {
+      if (!ready()) return "Nothing to put a map in yet: the deck must compile first, with no text typed in";
+      return (await board.mapTarget()) ?? "Nothing to put a map in yet: the deck must compile first";
+    },
+    put: (target, map, label) => board.putMap(target, map, label),
+    say,
+  });
   /** A haiku (PLAN O.4f): about a topic, this slide, or the whole talk, by the model the assistant
    * uses, counted 5-7-5 and asked once more where it is off, then placed in one patch. */
   const haiku = haikuer(stage, {
@@ -2150,6 +2170,13 @@ async function edit(source: Source, opened?: Stage) {
       },
       // A picture made by the user's image model in the image's place (PLAN 2.107), unless a lock
       // holds it (PLAN 2.95), which no picture replaces.
+      // A map in the image's place (PLAN O.1c), unless a lock holds it.
+      {
+        label: "Put a map in it…",
+        where: ["node"],
+        applies: () => one() && typeOf(picked()[0]) === "image" && !board.lockedBy(picked()[0]),
+        run: () => void mapping.open(),
+      },
       {
         label: "Make a picture to replace it…",
         where: ["node"],
@@ -2266,6 +2293,15 @@ async function edit(source: Source, opened?: Stage) {
       { label: "Paste", keys: `${MOD}V`, group: "Edit", where: ["canvas"], applies: ready, run: pasted },
       ...inserts,
       icon,
+      // A map (ADR-0030, PLAN O.1c): in the slide's empty place for a picture, else where the
+      // pointer last pressed; for an image selected, the command that puts one in it.
+      {
+        label: "Insert a map…",
+        where: ["canvas"],
+        group: "Draw and insert",
+        applies: () => ready(),
+        run: () => void mapping.open(),
+      },
       // A picture made by the user's image model (PLAN 2.107): in the slide's empty place for one,
       // else where the pointer last pressed; for an image selected, unless a lock holds it, the
       // command that replaces it.
@@ -2706,6 +2742,8 @@ async function edit(source: Source, opened?: Stage) {
       writing,
       /** Make a picture (PLAN 2.107): the dialog opened, and the last picture made and put, settled. */
       picturing,
+      /** Insert › Map… (PLAN O.1c): the sheet opened, and the last map fetched and put, settled. */
+      mapping,
       /** A haiku (PLAN O.4f): the dialog opened, and the last asked and taken, settled. */
       haiku,
       /** The canvas: what it selected, what stands where, and its drag. */

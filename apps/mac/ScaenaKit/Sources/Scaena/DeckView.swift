@@ -66,6 +66,8 @@ struct DeckView: View {
     /// and the deck's theme, its JSON, whose palette colors it.
     @State private var picturing: PictureTarget?
     @State private var picturingTheme = ""
+    /// Where a map goes, while Insert › Map…'s sheet asks where it is of (PLAN O.1d).
+    @State private var mapping: MapTarget?
     /// Where a haiku goes, while Haiku…'s sheet asks for one (PLAN O.4g).
     @State private var haikuing: HaikuTarget?
     /// The light table shown in place of the canvas, and the slides selected on it (PLAN 3.14).
@@ -277,7 +279,8 @@ struct DeckView: View {
     private func inspecting(_ tab: InspectorTab) -> some View {
         Inspector(
             editor: editor, state: inspected, node: $node, also: $also, typing: typing, tab: tab, offer: { asked = $0 },
-            reveal: { picked in if let shown { bringIntoView(picked, in: shown) } }
+            reveal: { picked in if let shown { bringIntoView(picked, in: shown) } },
+            remap: { node, how in remap(node, how) }
         ) { ops in
             perform { try document.make(ops, undo: undo) }
         }
@@ -451,6 +454,7 @@ struct DeckView: View {
                     [
                         (title: "Choose Picture…", action: { choosingPicture = true }),
                         (title: "Make a Picture…", action: { makePicture(in: state) }),
+                        (title: "Map…", action: { insertMap(in: state) }),
                     ]
                 } ?? [])
         case .chart:
@@ -741,10 +745,11 @@ struct DeckView: View {
                 if typing?.typing != true { elsewhere = shown.map { showsElsewhere(in: $0) } ?? false }
             }
             .task(id: editor.revision) {
-                // Every state is linted once edits stop, as in the browser.
+                // Every state is linted once the deck opens and once edits stop, as in the
+                // browser, away from the window, which answers meanwhile (PLAN 4.13).
                 try? await Task.sleep(for: .milliseconds(700))
                 guard !Task.isCancelled, !editor.whole else { return }
-                editor.lintEvery()
+                await editor.lintEvery()
             }
     }
 
@@ -792,6 +797,9 @@ struct DeckView: View {
             }
             .sheet(item: $picturing) { target in
                 PictureSheet(target: target, theme: picturingTheme) { made in putPicture(made, at: target) }
+            }
+            .sheet(item: $mapping) { target in
+                MapSheet(target: target) { map, label in putMap(map, at: target, label: label) }
             }
             .sheet(item: $haikuing) { target in
                 HaikuSheet(session: editor.session, target: target) { placed in putHaiku(placed) }
@@ -1111,6 +1119,7 @@ struct DeckView: View {
         made.choosePicture = { choosingPicture = true }
         made.chooseIcon = { choosingIcon = true }
         made.makePicture = { makePicture(in: shown) }
+        made.insertMap = { insertMap(in: shown) }
         made.haiku = { writeHaiku(in: shown) }
         made.draw = { takePen() }
         made.drawing = pen != nil
@@ -1737,6 +1746,55 @@ struct DeckView: View {
             node = put.node
             also = []
             said = put.said
+        }
+    }
+
+    /// Insert › Map… (PLAN O.1d): its sheet opened for where a map for `state` goes, as the browser
+    /// finds it: the image selected, alone, which it takes the place of; the slide's empty place for
+    /// a picture; or where the pointer last pressed.
+    private func insertMap(in state: String) {
+        perform { mapping = try editor.session.mapTarget(state: state, selected: selection, pressed: pointed) }
+    }
+
+    /// The map fetched put where it was asked for, in the state it was asked for in: one patch, one
+    /// step to undo, the image it went to selected.
+    private func putMap(_ map: FetchedMap, at target: MapTarget, label: String?) {
+        perform {
+            let put = try editor.session.mapping(map, at: target, label: label)
+            try document.make(put.patch, undo: undo, named: "Insert Map")
+            node = put.node
+            also = []
+            said = put.said
+        }
+    }
+
+    /// The map image `node` shows on the slide shown, fetched again (PLAN O.1d), as the browser's
+    /// Map section fetches it: a zoom step nearer or further, centered on its pin, or as it was;
+    /// the new picture shown in its place, one patch, one step to undo.
+    private func remap(_ node: String, _ how: MapRemap) {
+        guard let state = shown else { return }
+        guard let key = Keychain().geoapify else {
+            failure = "No Geoapify key is kept: add one in Settings."
+            return
+        }
+        said = "Fetching the map again…"
+        Task { @MainActor in
+            do {
+                let again = try editor.session.mapRefreshing(state: state, node: node)
+                let step = how == .nearer ? 1.0 : how == .further ? -1.0 : 0
+                let zoom = min(20, max(1, again.zoom + step))
+                let center = how == .pin ? again.pinned : again.center
+                let answer = try await Generator().map(MapAsk(again: again, zoom: zoom, center: center), key: key)
+                guard case .map(let map) = answer else {
+                    failure = "Not fetched: no map came back."
+                    return
+                }
+                let put = try editor.session.mapping(map, at: again.target, label: again.label ?? "")
+                try document.make(put.patch, undo: undo, named: "Fetch Map Again")
+                said = "Map of \(put.place) fetched \(how.did)"
+            } catch {
+                failure = "Not fetched: \(Why.said(error))"
+            }
         }
     }
 

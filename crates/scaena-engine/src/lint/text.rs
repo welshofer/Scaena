@@ -563,15 +563,23 @@ impl Rule for W231Upright {
                     "text `{id}` asks for italic, but {} {has} no italic face: it is set upright",
                     named.join(" and ")
                 );
+                // A family upright by design has no italic to name: its script sets none
+                // (ADR-0031, call 6).
+                let by_design =
+                    (upright.iter()).all(|f| cx.theme.families().get(f).is_some_and(|d| d.upright == Some(true)));
+                let hint = if by_design {
+                    "The family is upright by design, since its script sets no italic: take `italic` away, or set \
+                     the text in a family that has one."
+                } else {
+                    "Name the family's italic face in the theme (`italic: { \"file\": … }`) and add its file to \
+                     the bundle, or take `italic` away."
+                };
                 out.push(
                     cx.finding(self.code(), self.severity(), state, message)
                         .at(cx.node_path(id))
                         .node(id)
                         .measure(json!({ "upright": upright }))
-                        .hint(
-                            "Name the family's italic face in the theme (`italic: { \"file\": … }`) and add its file to \
-                             the bundle, or take `italic` away.",
-                        ),
+                        .hint(hint),
                 );
             }
         }

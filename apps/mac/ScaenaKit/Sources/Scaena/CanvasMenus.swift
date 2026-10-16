@@ -80,6 +80,10 @@ enum CanvasOffer {
         if let makePicture = deck.makePicture {
             offers.append(.action("Make a Picture…", symbol: "wand.and.stars", run: makePicture))
         }
+        // A map of a place (PLAN O.1d), there as a picture made goes.
+        if let insertMap = deck.insertMap {
+            offers.append(.action("Map…", symbol: "map", run: insertMap))
+        }
         // A haiku over the verse selected, in the slide's empty verse place, or where the menu was
         // asked for (PLAN O.4g).
         if let haiku = deck.haiku { offers.append(.action("Haiku…", symbol: "leaf", run: haiku)) }

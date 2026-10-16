@@ -34,6 +34,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      # The fonts the shipped themes name that git does not hold, which scaena-ops' build
+      # carries, from the cache the schema job keeps, fetched by sha256 where it lacks them
+      # (PLAN T.0c). The build itself reaches no network.
+      - uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/scaena-fonts
+          key: fonts-${{ hashFiles('scripts/build_bundle_fonts.py') }}
+          restore-keys: fonts-
+      - run: python3 scripts/build_bundle_fonts.py --fetch --shipped
       # The CLI must match the wasm-bindgen version in Cargo.lock: built once, then restored.
       - uses: actions/cache@v4
         with:

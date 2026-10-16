@@ -9,12 +9,12 @@ use scaena_ops::lint::{View, lint_state_in};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
-const SHIPPED: [(&str, &str); 4] = [
-    ("dusk", "../../docs/examples/themes/dusk.theme.json"),
-    ("daybreak", "../../docs/examples/authorability/themes/daybreak.theme.json"),
-    ("ember", "../../docs/examples/themes/ember.theme.json"),
-    ("gallery", "../../docs/examples/themes/gallery.theme.json"),
-];
+/// The shipped themes, as the registry lists them (PLAN T.0a): each by its slug and its file.
+fn shipped() -> Vec<(String, String)> {
+    let registry: Value = serde_json::from_slice(&std::fs::read("../../docs/themes/registry.json").unwrap()).unwrap();
+    let themes = registry["themes"].as_array().unwrap().iter();
+    themes.map(|t| (t["slug"].as_str().unwrap().into(), format!("../../{}", t["files"][0].as_str().unwrap()))).collect()
+}
 
 const POEM: [&str; 3] = ["Winter rain on glass", "the projector hums along", "slides wait in the dark"];
 
@@ -49,8 +49,8 @@ fn a_haiku_slide_in_one_patch_names_its_model_in_the_notes_alone() {
         credit,
         "Haiku written by test-model-1 with your Anthropic key on October 15, 2026, about a rainy keynote."
     );
-    for (name, theme) in SHIPPED {
-        let b = scaena_ops::open(&made(name, theme)).unwrap();
+    for (name, theme) in shipped() {
+        let b = scaena_ops::open(&made(&name, &theme)).unwrap();
         let t = scaena_ops::theme(&b).unwrap();
         let files = View::of(&b);
         let first = b.deck.states[0].id.clone();
@@ -85,7 +85,7 @@ fn a_haiku_slide_in_one_patch_names_its_model_in_the_notes_alone() {
 
 #[test]
 fn a_haiku_fills_the_slides_empty_verse_place_or_replaces_the_verse_selected() {
-    let (_, theme) = SHIPPED[0];
+    let (_, theme) = &shipped()[0];
     let b = scaena_ops::open(&made("places", theme)).unwrap();
     let t = scaena_ops::theme(&b).unwrap();
     let files = View::of(&b);

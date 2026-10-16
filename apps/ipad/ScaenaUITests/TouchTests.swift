@@ -168,6 +168,31 @@ final class TouchTests: XCTestCase {
             }
         }
 
+        try XCTContext.runActivity(named: "The Image menu offers Map…, whose sheet asks where, and Cancel puts it away") { _ in
+            // PLAN O.1d: Insert › Map… from the toolbar's Image menu, as the Mac's offers it.
+            let offered = app.descendants(matching: .any)
+            let image = offered.matching(NSPredicate(format: "identifier == 'insert-Image'")).firstMatch
+            guard image.waitForExistence(timeout: 5) else {
+                throw Unseen(description: "no Image in the toolbar: \(app.debugDescription)")
+            }
+            image.tap()
+            let map = offered.matching(NSPredicate(format: "label == 'Map…'")).firstMatch
+            guard map.waitForExistence(timeout: 5) else {
+                keep(app, as: "no-map")
+                throw Unseen(description: "the Image menu offers no Map…: \(app.debugDescription)")
+            }
+            map.tap()
+            let place = offered.matching(NSPredicate(format: "identifier == 'map-where'")).firstMatch
+            guard place.waitForExistence(timeout: 5) else {
+                throw Unseen(description: "Map… opened no sheet asking where: \(app.debugDescription)")
+            }
+            keep(app, as: "map")
+            app.buttons.matching(NSPredicate(format: "label == 'Cancel'")).firstMatch.tap()
+            guard wait(5, { !place.exists }) else {
+                throw Unseen(description: "Cancel left the map's sheet: \(app.debugDescription)")
+            }
+        }
+
         try XCTContext.runActivity(named: "A long press where nothing draws offers Haiku…, whose sheet asks what it is about") { _ in
             // Where nothing draws, nothing is selected and the slide waits for no verse: the
             // sheet asks where the poem goes too (PLAN O.4g).
