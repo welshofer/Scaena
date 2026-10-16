@@ -39,9 +39,11 @@ fn a_state_is_offered_each_layout_that_draws_it_otherwise_judged_by_lint_best_fi
     assert!(now.current && now.patch.is_empty() && now.reach.is_empty(), "{now:?}");
     assert_eq!(now.alike, ["poster", "table", "full", "photo-caption"]);
     // Each other is one `set_state`, changes this state alone, and makes the slide's errors.
-    // Risk Matrix and Positioning Map set the note beside what the slide holds, alike; and Two
-    // Figures and Map its headline and its note where each other does (PLAN O.1e).
+    // Risk Matrix and Positioning Map set the note beside what the slide holds, alike, and
+    // Pictograph sets it under its figures as Two Figures does; Two Figures and Map set its
+    // headline and its note where each other does (PLAN O.1e).
     assert_eq!(suggested[2].alike, ["positioning-map"]);
+    assert_eq!(suggested[3].alike, ["pictograph"]);
     let two = suggested.iter().find(|s| s.layout == "two-figures").unwrap();
     assert_eq!(two.alike, ["map"]);
     for other in &suggested[1..] {

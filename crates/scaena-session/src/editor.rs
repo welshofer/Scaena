@@ -698,8 +698,8 @@ mod tests {
         let before = s.pixels("revenue", f64::INFINITY, 160).unwrap();
         let listed = s.starters_painted("revenue", 90, None).unwrap();
         let layouts: Vec<&str> = listed.iter().map(|one| one["layout"].as_str().unwrap_or("blank")).collect();
-        assert_eq!(layouts.len(), 148, "Dusk's 147 layouts, then a blank slide: {layouts:?}");
-        assert_eq!((layouts[0], layouts[147]), ("title", "blank"));
+        assert_eq!(layouts.len(), 167, "Dusk's 166 layouts, then a blank slide: {layouts:?}");
+        assert_eq!((layouts[0], layouts[166]), ("title", "blank"));
         let bullets = &listed[layouts.iter().position(|l| *l == "bullets").unwrap()];
         assert_eq!(bullets["description"], "A headline, and the points that make its case.");
         assert_eq!((bullets["name"].as_str(), bullets["group"].as_str()), (Some("Bullets"), Some("Lists")));
@@ -709,7 +709,7 @@ mod tests {
         assert_eq!(roadmap["also"], serde_json::json!(["Kanban"]), "and by another name a search finds it by");
         assert_eq!(swot["also"], serde_json::json!([]));
         assert!(
-            listed[147]["name"].is_null() && listed[147]["description"].is_null() && listed[147]["group"].is_null()
+            listed[166]["name"].is_null() && listed[166]["description"].is_null() && listed[166]["group"].is_null()
         );
         let mut pictures: Vec<scaena_paint::Raster> = Vec::new();
         for (i, one) in listed.iter().enumerate() {

@@ -538,7 +538,7 @@ impl Slot {
 }
 
 /// What a layout's picture shows in a slot that waits (PLAN 3.31): `{ "picture": "backdrop" }`,
-/// `{ "chart": "bar" }`, `{ "table": 3 }`, or `{ "map": "backdrop" }` (theme format 0.20).
+/// `{ "chart": "bar" }`, `{ "table": 3 }`, or `{ "map": "backdrop" }` (theme format 0.22).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "lowercase")]
 pub enum Example {
@@ -546,9 +546,10 @@ pub enum Example {
     Picture(#[schemars(length(min = 1))] String),
     /// A chart of this kind, of a few rows made up for it.
     Chart(super::nodes::ChartKind),
-    /// A table of this many columns, of a few rows made up for it.
-    Table(#[schemars(range(min = 2, max = 6))] u32),
-    /// A map's place (ADR-0030, PLAN O.1e, theme format 0.20): the picture this shader preset
+    /// A table of this many columns, of a few rows made up for it: seven are a week's days, a
+    /// month's calendar (theme format 0.18, PLAN S.2).
+    Table(#[schemars(range(min = 2, max = 7))] u32),
+    /// A map's place (ADR-0030, PLAN O.1e, theme format 0.22): the picture this shader preset
     /// draws, with a pin and a label over it, and no provider's map. Insert › Map… fills the
     /// place.
     Map(#[schemars(length(min = 1))] String),
