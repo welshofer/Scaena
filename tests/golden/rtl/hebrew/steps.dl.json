@@ -8,19 +8,19 @@
   ],
   "ops":[
     {"fill":{"path":"M0 0L1920 0L1920 1080L0 1080Z","rule":"nonzero","paint":{"solid":"#101014FF"}}},
-    {"layer":{"node":"steps-first-chevron","cell":null,"transform":[1.0,0.0,0.0,1.0,1398.0,248.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"steps-first-chevron","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,1398.0,248.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"fill":{"path":"M402 0L56.28125 0L0 102L56.28125 204L402 204Z","rule":"nonzero","paint":{"solid":"#17171DFF"}}}
     ]}},
-    {"layer":{"node":"steps-second-chevron","cell":null,"transform":[1.0,0.0,0.0,1.0,972.0,248.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"steps-second-chevron","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,972.0,248.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"fill":{"path":"M402 0L56.28125 0L0 102L56.28125 204L402 204L345.71875 102Z","rule":"nonzero","paint":{"solid":"#17171DFF"}}}
     ]}},
-    {"layer":{"node":"steps-third-chevron","cell":null,"transform":[1.0,0.0,0.0,1.0,546.0,248.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"steps-third-chevron","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,546.0,248.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"fill":{"path":"M402 0L56.28125 0L0 102L56.28125 204L402 204L345.71875 102Z","rule":"nonzero","paint":{"solid":"#17171DFF"}}}
     ]}},
-    {"layer":{"node":"steps-fourth-chevron","cell":null,"transform":[1.0,0.0,0.0,1.0,120.0,248.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"steps-fourth-chevron","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,120.0,248.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"fill":{"path":"M402 0L56.28125 0L0 102L56.28125 204L402 204L345.71875 102Z","rule":"nonzero","paint":{"solid":"#17171DFF"}}}
     ]}},
-    {"layer":{"node":"steps-header","cell":null,"transform":[1.0,0.0,0.0,1.0,404.0,82.078125],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"steps-header","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,404.0,82.078125],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"glyphs":{"font":0,"size":80.0,"coords":[9216,0],"paint":{"solid":"#F2F0E9FF"},"text":"עובדים","glyphs":[
         [7,827.3594,71.046875],
         [33,879.2031,71.046875],
@@ -48,7 +48,7 @@
         [1,1344.875,71.046875]
       ],"clusters":[4,2,0]}}
     ]}},
-    {"layer":{"node":"steps-first-title","cell":null,"transform":[1.0,0.0,0.0,1.0,1422.0,325.25],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"steps-first-title","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,1422.0,325.25],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"glyphs":{"font":0,"size":48.0,"coords":[10240,0],"paint":{"solid":"#F2F0E9FF"},"text":"מודדים","glyphs":[
         [7,103.53125,45.03125],
         [33,135.03125,45.03125],
@@ -58,7 +58,7 @@
         [18,217.92188,45.03125]
       ],"clusters":[10,8,6,4,2,0]}}
     ]}},
-    {"layer":{"node":"steps-first","cell":null,"transform":[1.0,0.0,0.0,1.0,1398.0,479.57812],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"steps-first","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,1398.0,479.57812],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"glyphs":{"font":0,"size":32.0,"coords":[6144,0],"paint":{"solid":"#F2F0E9FF"},"text":"שכונה","glyphs":[
         [11,148.14062,32.421875],
         [20,168.20312,32.421875],
@@ -87,7 +87,7 @@
         [12,380.8125,32.421875]
       ],"clusters":[12,10,8,6,4,2,0]}}
     ]}},
-    {"layer":{"node":"steps-second-title","cell":null,"transform":[1.0,0.0,0.0,1.0,996.0,325.25],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"steps-second-title","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,996.0,325.25],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"glyphs":{"font":0,"size":48.0,"coords":[10240,0],"paint":{"solid":"#F2F0E9FF"},"text":"מתכננים","glyphs":[
         [7,90.546875,45.03125],
         [33,122.046875,45.03125],
@@ -98,7 +98,7 @@
         [18,230.90625,45.03125]
       ],"clusters":[12,10,8,6,4,2,0]}}
     ]}},
-    {"layer":{"node":"steps-second","cell":null,"transform":[1.0,0.0,0.0,1.0,972.0,479.57812],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"steps-second","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,972.0,479.57812],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"glyphs":{"font":0,"size":32.0,"coords":[6144,0],"paint":{"solid":"#F2F0E9FF"},"text":"רבעון","glyphs":[
         [8,75.796875,32.421875],
         [30,86.3125,32.421875],
@@ -137,7 +137,7 @@
         [24,381.42188,32.421875]
       ],"clusters":[6,4,2,0]}}
     ]}},
-    {"layer":{"node":"steps-third-title","cell":null,"transform":[1.0,0.0,0.0,1.0,570.0,325.25],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"steps-third-title","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,570.0,325.25],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"glyphs":{"font":0,"size":48.0,"coords":[10240,0],"paint":{"solid":"#F2F0E9FF"},"text":"בונים","glyphs":[
         [7,123.53125,45.03125],
         [33,155.01562,45.03125],
@@ -146,7 +146,7 @@
         [4,202.78125,45.03125]
       ],"clusters":[8,6,4,2,0]}}
     ]}},
-    {"layer":{"node":"steps-third","cell":null,"transform":[1.0,0.0,0.0,1.0,546.0,479.57812],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"steps-third","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,546.0,479.57812],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"glyphs":{"font":0,"size":32.0,"coords":[6144,0],"paint":{"solid":"#F2F0E9FF"},"text":"לתיקון","glyphs":[
         [8,97.71875,32.421875],
         [30,108.234375,32.421875],
@@ -179,7 +179,7 @@
         [29,384.20312,32.421875]
       ],"clusters":[10,8,6,4,2,0]}}
     ]}},
-    {"layer":{"node":"steps-fourth-title","cell":null,"transform":[1.0,0.0,0.0,1.0,144.0,325.25],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"steps-fourth-title","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,144.0,325.25],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"glyphs":{"font":0,"size":48.0,"coords":[10240,0],"paint":{"solid":"#F2F0E9FF"},"text":"בודקים","glyphs":[
         [7,103.9375,45.03125],
         [33,135.4375,45.03125],
@@ -189,7 +189,7 @@
         [4,222.35938,45.03125]
       ],"clusters":[10,8,6,4,2,0]}}
     ]}},
-    {"layer":{"node":"steps-fourth","cell":null,"transform":[1.0,0.0,0.0,1.0,120.0,479.57812],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"steps-fourth","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,120.0,479.57812],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"glyphs":{"font":0,"size":32.0,"coords":[6144,0],"paint":{"solid":"#F2F0E9FF"},"text":"חודש","glyphs":[
         [25,134.85938,32.421875],
         [5,158.21875,32.421875],
