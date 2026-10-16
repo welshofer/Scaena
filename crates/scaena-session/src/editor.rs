@@ -99,7 +99,7 @@ pub struct Located {
     /// What it finds, in a sentence a person would say (PLAN 2.99, `scaena_core::words::issue`),
     /// its fix as a button names it, and whether an editor marks it on its object.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub said: Option<&'static str>,
+    pub said: Option<String>,
     pub fixing: &'static str,
     pub marked: bool,
 }
@@ -107,7 +107,7 @@ pub struct Located {
 impl Located {
     /// `finding`, at `at`, holding in `formats`: worded as an editor shows it.
     fn new(finding: Finding, at: Option<Place>, fixable: bool, shown: bool, formats: Vec<String>) -> Located {
-        let said = scaena_core::words::issue(&finding.code);
+        let said = scaena_core::words::said(&finding.code, finding.measure.as_ref());
         let fixing = scaena_core::words::fixing(&finding.code);
         let marked = scaena_core::words::marked(&finding.code);
         Located { finding, at, fixable, shown, formats, said, fixing, marked }
@@ -698,8 +698,8 @@ mod tests {
         let before = s.pixels("revenue", f64::INFINITY, 160).unwrap();
         let listed = s.starters_painted("revenue", 90, None).unwrap();
         let layouts: Vec<&str> = listed.iter().map(|one| one["layout"].as_str().unwrap_or("blank")).collect();
-        assert_eq!(layouts.len(), 145, "Dusk's 144 layouts, then a blank slide: {layouts:?}");
-        assert_eq!((layouts[0], layouts[144]), ("title", "blank"));
+        assert_eq!(layouts.len(), 164, "Dusk's 163 layouts, then a blank slide: {layouts:?}");
+        assert_eq!((layouts[0], layouts[163]), ("title", "blank"));
         let bullets = &listed[layouts.iter().position(|l| *l == "bullets").unwrap()];
         assert_eq!(bullets["description"], "A headline, and the points that make its case.");
         assert_eq!((bullets["name"].as_str(), bullets["group"].as_str()), (Some("Bullets"), Some("Lists")));
@@ -709,7 +709,7 @@ mod tests {
         assert_eq!(roadmap["also"], serde_json::json!(["Kanban"]), "and by another name a search finds it by");
         assert_eq!(swot["also"], serde_json::json!([]));
         assert!(
-            listed[144]["name"].is_null() && listed[144]["description"].is_null() && listed[144]["group"].is_null()
+            listed[163]["name"].is_null() && listed[163]["description"].is_null() && listed[163]["group"].is_null()
         );
         let mut pictures: Vec<scaena_paint::Raster> = Vec::new();
         for (i, one) in listed.iter().enumerate() {
