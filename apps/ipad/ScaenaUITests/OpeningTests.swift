@@ -141,13 +141,17 @@ final class OpeningTests: XCTestCase {
         UIPasteboard.general.string = "fn main() {\n    let total = 42;\n    println!(\"{total}\");\n}\n"
         let canvas = app.descendants(matching: .any).matching(identifier: "canvas").firstMatch
         XCTAssertTrue(canvas.waitForExistence(timeout: 10), "no canvas: \(app.debugDescription)")
-        // A tap on the title selects it and gives the canvas the keyboard, as KeysTests's does: ⌘V is
-        // then the canvas's paste. A tap where nothing draws leaves the keys where they were.
+        // A long press on the title offers the edit menu, as TouchTests's does, and its Paste is the
+        // canvas's: ⌘V from XCUITest's keyboard reached no paste on the simulator.
         let title = canvas.descendants(matching: .any).matching(NSPredicate(format: "label == 'Scaena'")).firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: 10), "no title on the canvas: \(app.debugDescription)")
-        title.tap()
-        XCTAssertTrue(wait(5) { title.isSelected }, "the title is not selected: \(app.debugDescription)")
-        app.typeKey("v", modifierFlags: .command)
+        title.press(forDuration: 1.2)
+        let paste = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Paste'")).firstMatch
+        guard paste.waitForExistence(timeout: 10) else {
+            keep(app, as: "no-paste-offered")
+            throw Unseen(description: "the long press offers no Paste: \(app.debugDescription)")
+        }
+        paste.tap()
         // iPadOS may ask once whether the app may read what another put on the pasteboard, in the
         // app's window or the system's.
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
