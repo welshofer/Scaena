@@ -402,7 +402,10 @@ async function controls() {
   };
   making.onclose = () => {
     if (making.returnValue !== "create") return;
-    void open({ create: { theme: theme.value, title: title.value.trim() || "Untitled" } }).catch(failed);
+    // The slide takes the keys once the deck is open, not New…, which a space would open again.
+    void open({ create: { theme: theme.value, title: title.value.trim() || "Untitled" } })
+      .then(() => $<HTMLElement>("#overlay").focus())
+      .catch(failed);
   };
   // From a prompt (PLAN G.5): a deck Narrato writes, made in a worker of its own.
   prompting(
