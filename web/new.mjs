@@ -111,6 +111,11 @@ try {
     .waitForFunction(() => window.scaena.canvas.waiting().find((w) => w.slot === "art"), null, { timeout: 30000 })
     .then((h) => h.jsonValue(), () => undefined);
   check(art?.typed === false, `its picture's place outlined: ${art?.words}`);
+  // The slide has the keys, not New…, so a space opens no second New.
+  check((await page.evaluate(() => document.activeElement?.id)) === "overlay", "the slide has the keys once the deck opens");
+  await page.keyboard.press("Space");
+  await page.waitForTimeout(300);
+  check(!(await page.locator("#making").evaluate((d) => d.open)), "a space then opens no second New");
   // Made as the deck was made: an undo has nothing to take back.
   await page.locator("#overlay").focus();
   await page.keyboard.press("Control+z");
