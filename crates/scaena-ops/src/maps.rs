@@ -41,21 +41,21 @@ pub struct Aim {
 }
 
 /// Where a map goes, and what it is fetched for.
-#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Target {
     pub state: String,
     /// The image it goes in.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub node: Option<String>,
     /// The empty place for a picture it fills.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slot: Option<String>,
     /// The box it is drawn in, canvas units: the picture is asked for at its size.
     pub rect: [f32; 4],
     /// The picture's style, as the theme's surface asks: `light` or `dark`.
     pub style: String,
     /// The deck's language, which the geocoder names places in.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lang: Option<String>,
 }
 
@@ -100,6 +100,23 @@ pub struct Refresh {
     /// The pin's label now, which a refresh keeps.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+}
+
+/// The target of a map in `state` that an editor found itself (the image selected, an empty place
+/// for a picture, or where the pointer last pressed): with the style `theme`'s surface asks and the
+/// deck's language.
+pub fn target_for(
+    deck: &scaena_core::Deck,
+    theme: &scaena_engine::theme::Theme,
+    state: &str,
+    node: Option<String>,
+    slot: Option<String>,
+    rect: [f32; 4],
+) -> Result<Target, OpsError> {
+    let surface = theme.color("surface").context("the theme's surface")?;
+    let style = if luminance(surface.0) < 0.18 { "dark" } else { "light" }.to_string();
+    let lang = deck.meta.as_ref().and_then(|m| m.lang.clone());
+    Ok(Target { state: state.into(), node, slot, rect, style, lang })
 }
 
 /// Where a map asked for by `aim` goes in `b`'s deck, and the box it is fetched for.
@@ -176,8 +193,21 @@ pub fn refreshing(
     })
 }
 
-/// [`place`] with nothing written: what it puts where, and what to write, unless it is refused.
-pub fn placing(b: &Bundle, target: &Target, fetch: &Fetch) -> Result<(Placed, Option<Write>), OpsError> {
+/// What putting `fetch` where `target` says takes, worked out and nothing checked: the image that
+/// shows it, its picture's path, the place it marks, what an editor says of it, and the ops, which
+/// an editor makes its own patch of (the browser's Insert › Map…), the picture joining the bundle
+/// at `src` beside it.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct Mapped {
+    pub node: String,
+    pub src: String,
+    pub place: String,
+    pub said: String,
+    pub ops: Vec<Value>,
+}
+
+/// The ops that put `fetch` where `target` says in `b`'s deck ([`Mapped`]).
+pub fn mapped(b: &Bundle, target: &Target, fetch: &Fetch) -> Result<Mapped, OpsError> {
     let deck = &b.deck;
     scaena_engine::images::ImageInfo::read(&fetch.png).map_err(|e| OpsError::new(format!("the map's picture: {e}")))?;
     let hex: String = Sha256::digest(&fetch.png).iter().map(|x| format!("{x:02x}")).collect();
@@ -227,6 +257,12 @@ pub fn placing(b: &Bundle, target: &Target, fetch: &Fetch) -> Result<(Placed, Op
             (id, ops, format!("Map of {place} from {service} added"))
         }
     };
+    Ok(Mapped { node, src, place, said, ops })
+}
+
+/// [`place`] with nothing written: what it puts where, and what to write, unless it is refused.
+pub fn placing(b: &Bundle, target: &Target, fetch: &Fetch) -> Result<(Placed, Option<Write>), OpsError> {
+    let Mapped { node, src, place, said, ops } = mapped(b, target, fetch)?;
     let mut files = BTreeMap::new();
     files.insert(src.clone(), fetch.png.clone());
     let (patched, write) = crate::patch::patching_with(b, &Value::Array(ops), Some(&said), files)?;

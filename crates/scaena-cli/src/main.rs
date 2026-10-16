@@ -413,11 +413,13 @@ enum Cmd {
     /// changes in what `validate` and `lint` find. A theme that would leave the deck invalid
     /// is refused. Or edit the theme the deck names (`--edit`, ADR-0016): its colors, type,
     /// and spacing, refused as a re-theme is where the deck would not validate in it. Or give
-    /// its colors a photo's (`--from-photo`, PLAN 2.94).
+    /// its colors a photo's (`--from-photo`, PLAN 2.94). Or draw a theme's contact sheet
+    /// (`--sheet`, PLAN T.0e), which needs no bundle.
     Theme {
-        bundle: PathBuf,
+        #[arg(required_unless_present = "sheet")]
+        bundle: Option<PathBuf>,
         /// The theme file to apply. A theme outside the bundle is copied to `themes/`.
-        #[arg(long, required_unless_present_any = ["edit", "from_photo"])]
+        #[arg(long, required_unless_present_any = ["edit", "from_photo", "sheet"])]
         apply: Option<PathBuf>,
         /// The edit: a JSON array of RFC 6902 operations on the theme the deck names, each
         /// path a JSON Pointer into it (`/tokens/color/accent`), or `-` for stdin. The theme
@@ -438,6 +440,14 @@ enum Cmd {
         /// and the new one is copied in for a patch with the `retheme` op and the fixes.
         #[arg(long, requires = "apply")]
         force: bool,
+        /// Draw every layout of THEME, a theme that ships by name or a theme file, started as
+        /// Add Slide starts it with its examples, on one PNG by its sections (`--out`), and say
+        /// each start's display-list digest, which `tests/golden/themes/` keeps to catch drift.
+        #[arg(long, value_name = "THEME", conflicts_with_all = ["bundle", "apply", "edit", "from_photo"], requires = "out")]
+        sheet: Option<String>,
+        /// Where `--sheet` writes its PNG.
+        #[arg(long, requires = "sheet")]
+        out: Option<PathBuf>,
     },
     /// The web player and editor on a bundle's folder, on this machine only (PLAN 2.11): a
     /// `deck.scn` saved there compiles into `deck.json`, and the pages show each change.
@@ -787,12 +797,15 @@ fn run(cli: Cli) -> Result<ExitCode> {
             let query = scaena_core::patch::Query { find: text, case, words };
             find(&bundle, &query, replace.as_deref(), dry_run, cli.json)
         }
-        Cmd::Theme { bundle, apply, edit, from_photo, dry_run, force } => match (apply, edit, from_photo) {
-            (Some(apply), ..) => theme_apply(&bundle, &apply, dry_run, force, cli.json),
-            (None, Some(edit), _) => theme_edit(&bundle, &edit, dry_run, cli.json),
-            (None, None, Some(photo)) => theme_photo(&bundle, &photo, dry_run, cli.json),
-            (None, None, None) => unreachable!("clap asks for --apply, --edit, or --from-photo"),
-        },
+        Cmd::Theme { bundle, apply, edit, from_photo, dry_run, force, sheet, out } => {
+            match (bundle, apply, edit, from_photo, sheet.zip(out)) {
+                (_, _, _, _, Some((sheet, out))) => theme_sheet(&sheet, &out, cli.json),
+                (Some(bundle), Some(apply), ..) => theme_apply(&bundle, &apply, dry_run, force, cli.json),
+                (Some(bundle), None, Some(edit), ..) => theme_edit(&bundle, &edit, dry_run, cli.json),
+                (Some(bundle), None, None, Some(photo), _) => theme_photo(&bundle, &photo, dry_run, cli.json),
+                _ => unreachable!("clap asks for a bundle and --apply, --edit, or --from-photo, or for --sheet"),
+            }
+        }
         Cmd::Serve { bundle, port } => serve(&bundle, port, cli.json),
         Cmd::Generate(args) => generate::run(*args, cli.json),
         Cmd::Mcp => {
@@ -1041,6 +1054,26 @@ fn theme_edit(bundle: &Path, ops: &Path, dry_run: bool, json: bool) -> Result<Ex
         .with_context(|| format!("{} is not a JSON array of JSON Patch operations (RFC 6902)", ops.display()))?;
     let t = scaena_ops::theme::theme_edit(&b, &scaena_ops::theme::ThemeEdit { ops, photo: None }, dry_run)?;
     print_theme_edit(&t, dry_run, json)
+}
+
+/// `scaena theme --sheet` (PLAN T.0e): a theme's contact sheet, every layout started as Add
+/// Slide starts it, written as a PNG; each start's display-list digest said, by its layout.
+fn theme_sheet(theme: &str, out: &Path, json: bool) -> Result<ExitCode> {
+    let sheet = scaena_ops::sheet::sheet(theme, true)?;
+    let png = sheet.png.as_ref().context("the sheet was drawn")?;
+    std::fs::write(out, png).with_context(|| format!("writing {}", out.display()))?;
+    if json {
+        let mut v = serde_json::to_value(&sheet)?;
+        v["out"] = serde_json::json!(out);
+        println!("{}", serde_json::to_string_pretty(&v)?);
+    } else {
+        let [w, h] = sheet.size.unwrap_or_default();
+        println!("{}: {} layouts on {} ({w} × {h})", sheet.theme, sheet.starts.len(), out.display());
+        for start in &sheet.starts {
+            println!("  {}  {}", start.digest, start.layout);
+        }
+    }
+    Ok(ExitCode::SUCCESS)
 }
 
 /// `scaena theme --from-photo` (PLAN 2.94): the theme's colors edited to a photo's, as `--edit`

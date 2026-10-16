@@ -825,6 +825,69 @@ export interface Health {
  * an illustration or a photo, in the theme's palette; by the best image model the key kept for
  * `provider` lists, at `base` where it is not the provider's own; for a place `width` × `height`
  * on the slide, which frames it. */
+/** Where a map goes (ADR-0030, PLAN O.1c): the image it shows in, the empty place for a picture
+ * it fills, or a box; with the style the theme's surface asks and the deck's language. */
+export interface MapTarget {
+  state: string;
+  node?: string;
+  slot?: string;
+  rect: [number, number, number, number];
+  style: "light" | "dark";
+  lang?: string;
+}
+
+/** What a map is asked for, as the generator's `MapFetching` takes it. */
+export interface MapAsk {
+  place: string;
+  known?: { name?: string; lat: number; lon: number };
+  center?: { lat: number; lon: number };
+  zoom?: number;
+  show?: "block" | "neighborhood" | "city" | "region";
+  style: string;
+  size: [number, number];
+  lang?: string;
+  pick?: number;
+  list?: boolean;
+}
+
+/** A place a name matched, to pick one of. */
+export interface MapPlace {
+  name: string;
+  address: string;
+  lat: number;
+  lon: number;
+  kind?: string;
+}
+
+/** A map fetched: its record, where its place stands in the picture, the place's name, and the
+ * picture. */
+export interface FetchedMap {
+  fetched: unknown;
+  pin: [number, number];
+  place: string;
+  png: ArrayBuffer;
+}
+
+/** What putting a map takes: the image, its picture's path, the place, what is said, the ops. */
+export interface Mapped {
+  node: string;
+  src: string;
+  place: string;
+  said: string;
+  ops: unknown[];
+}
+
+/** What fetching an image's map again asks for. */
+export interface MapRefresh {
+  target: MapTarget;
+  asked: string;
+  place: { name?: string; lat: number; lon: number };
+  center: { lat: number; lon: number };
+  zoom: number;
+  style: string;
+  label?: string;
+}
+
 export interface PictureJob {
   subject: string;
   look: "illustration" | "photo";
@@ -1105,6 +1168,10 @@ export type ToWorker =
   /** A picture made by the user's image model, in the deck's theme (PLAN 2.107), by the
    * generator's module. */
   | { type: "makePicture"; id: number; picture: PictureJob }
+  | { type: "mapTarget"; id: number; source: string; state: string; node?: string; slot?: string; rect: [number, number, number, number] }
+  | { type: "fetchMap"; id: number; ask: MapAsk; key: string }
+  | { type: "mapping"; id: number; source: string; target: MapTarget; fetched: unknown; pin: [number, number]; label?: string; png: ArrayBuffer }
+  | { type: "mapRefreshing"; id: number; source: string; state: string; node: string; zoom?: number; center?: { lat: number; lon: number } }
   /** `path` taken out of the bundle, by the user: one nothing names (PLAN 2.59). */
   | { type: "removeFile"; id: number; source: string; path: string; index: number; format?: string }
   /** `path`, taken out, put back by its path: the undo of its removal in the editor's one undo
@@ -1292,6 +1359,8 @@ export interface Asking {
   base?: string;
   text: string;
   seeing?: Seeing;
+  /** The Geoapify key kept, which `map_fetch` fetches a map with (ADR-0030). */
+  mapKey?: string;
 }
 
 /** What a person asks a model to write (PLAN 2.101): a text's words proofread, tightened, or
@@ -1739,6 +1808,10 @@ export type FromWorker =
   | { type: "layers"; id: number; layers: Layer[] }
   /** The patch that adds a node: an insert, or a copy. */
   | { type: "adding"; id: number; added: Added }
+  | { type: "mapTargeted"; id: number; target: MapTarget }
+  | { type: "mapFetched"; id: number; places?: MapPlace[]; map?: FetchedMap }
+  | { type: "mapped"; id: number; mapped: Mapped }
+  | { type: "mapRefresh"; id: number; refresh: MapRefresh }
   /** Copies of several nodes (PLAN 2.42). */
   | { type: "duplicated"; id: number; duplicated: Duplicated }
   /** The words of a shape to type in, given it where it has none (PLAN 2.108). */

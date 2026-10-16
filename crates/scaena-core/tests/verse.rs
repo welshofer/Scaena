@@ -198,3 +198,77 @@ fn counting_is_total_on_any_text() {
     let long = "a".repeat(10_000) + &"bcd".repeat(5_000);
     assert!(verse::count(&long, "en").is_some());
 }
+
+/// I404 (PLAN O.4h): a verse text of three lines, in English or in kana alone, off 5-7-5; one
+/// finding per text, at the first state that shows it, with its counts and no fix.
+#[test]
+fn i404_judges_a_haiku_in_english_or_kana_alone() {
+    use scaena_core::Deck;
+    use scaena_core::model::theme::Theme;
+    let theme: Theme = serde_json::from_str(include_str!("../../../tests/lint/theme.json")).unwrap();
+    let lint = |lang: &str, nodes: serde_json::Value| {
+        let ids: Vec<String> = nodes.as_object().unwrap().keys().cloned().collect();
+        let states: Vec<serde_json::Value> = ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| serde_json::json!({ "id": format!("s{i}"), "mode": "absolute", "layout": "full", "props": { id: {} } }))
+            .chain([serde_json::json!({ "id": "again", "layout": "full" })])
+            .collect();
+        let deck = serde_json::json!({
+            "scaena": scaena_core::FORMAT_VERSION, "meta": { "lang": lang },
+            "canvas": { "width": 1920, "height": 1080 }, "theme": "theme.json",
+            "nodes": nodes, "states": states,
+        });
+        let deck = Deck::from_json(&deck.to_string()).unwrap();
+        scaena_core::lint::lint_document(&deck, Some(&theme))
+            .into_iter()
+            .filter(|f| f.code == "I404")
+            .map(|f| (f.node.unwrap(), f.state.unwrap(), f.message, f.measure.unwrap(), f.fix.is_none()))
+            .collect::<Vec<_>>()
+    };
+    let verse =
+        |text: &str| serde_json::json!({ "type": "text", "role": "verse", "text": text, "at": { "in": "main" } });
+    let found = lint(
+        "en-US",
+        serde_json::json!({
+            "off": verse("An old silent pond\nA green frog jumps into the pond\nSplash! Silence again"),
+            "kept": verse("An old silent pond\nA frog jumps into the pond\nSplash! Silence again"),
+            "four": verse("one\ntwo\nthree\nfour"),
+            "kanji": verse("古池や\n蛙飛び込む\n水の音"),
+            "kana": verse("ふるいけや\nかわずとびこむよ\nみずのおと"),
+            "body": { "type": "text", "role": "body", "text": "Pond\nFrog\nSplash", "at": { "in": "main" } },
+        }),
+    );
+    let said: Vec<(&str, &str, &str)> =
+        found.iter().map(|(n, s, m, _, _)| (n.as_str(), s.as_str(), m.as_str())).collect();
+    assert_eq!(
+        said,
+        [
+            ("off", "s0", "This haiku's lines count 5, 8, and 5, not 5, 7, and 5."),
+            ("kana", "s4", "This haiku's lines count 5, 8, and 5, not 5, 7, and 5."),
+        ]
+    );
+    assert_eq!(found[0].3["counts"], serde_json::json!([[5, 5], [8, 8], [5, 5]]));
+    assert_eq!(found[1].3["unit"], "morae");
+    assert!(found.iter().all(|f| f.4), "no fix");
+    // In another language, English words are not judged; kana alone still are.
+    let found = lint(
+        "fr",
+        serde_json::json!({ "off": verse("An old silent pond\nA green frog jumps into the pond\nSplash! Silence again") }),
+    );
+    assert!(found.is_empty(), "{found:?}");
+    // A text in a slot whose role is verse is judged as one in the role.
+    let mut slotted = verse("An old silent pond\nA green frog jumps into the pond\nSplash! Silence again");
+    slotted.as_object_mut().unwrap().remove("role");
+    let mut theme_slot: serde_json::Value =
+        serde_json::from_str(include_str!("../../../tests/lint/theme.json")).unwrap();
+    theme_slot["layouts"]["full"]["slots"]["main"]["role"] = serde_json::json!("verse");
+    let theme: Theme = serde_json::from_value(theme_slot).unwrap();
+    let deck = serde_json::json!({
+        "scaena": scaena_core::FORMAT_VERSION, "meta": { "lang": "en" },
+        "canvas": { "width": 1920, "height": 1080 }, "theme": "theme.json",
+        "nodes": { "p": slotted }, "states": [{ "id": "s", "layout": "full", "props": { "p": {} } }],
+    });
+    let deck = Deck::from_json(&deck.to_string()).unwrap();
+    assert!(scaena_core::lint::lint_document(&deck, Some(&theme)).iter().any(|f| f.code == "I404"));
+}

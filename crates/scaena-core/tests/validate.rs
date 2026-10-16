@@ -182,7 +182,7 @@ fn e102_says_what_the_theme_has() {
     assert_eq!(says("/states/0/layout"), "layout `titel` is not in the theme, which has title, full");
     assert_eq!(
         says("/nodes/title/role"),
-        "text role `headlin` is not in the theme, which has display, headline, body, caption, label, numeral"
+        "text role `headlin` is not in the theme, which has display, headline, body, verse, caption, label, numeral"
     );
     assert_eq!(says("/nodes/title/enter"), "motion preset `slide` is not in the theme, which has fade, rise, grow");
     assert_eq!(says("/nodes/bg/palette"), "shader palette `sunset` is not in the theme, which has ambient");

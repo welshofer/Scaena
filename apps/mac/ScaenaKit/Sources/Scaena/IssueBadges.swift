@@ -28,6 +28,7 @@ enum Issues {
         case "W410": "The picture has no description for people who can't see it."
         case "W427": "A figure here no longer matches its data."
         case "W428": "This forecast has passed."
+        case "I404": "This haiku's lines don't count 5, 7, and 5."
         default: nil
         }
     }
