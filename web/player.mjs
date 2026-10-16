@@ -475,13 +475,17 @@ try {
   const shownBox = await presenter.locator("#stage").boundingBox();
   await presenter.mouse.move(shownBox.x + shownBox.width / 4, shownBox.y + shownBox.height / 4);
   await presenter.mouse.move(shownBox.x + shownBox.width / 2, shownBox.y + shownBox.height / 2, { steps: 3 });
-  await player.waitForFunction(() => window.scaena.laser().point, null, { timeout: 5000 }).catch(() => {});
+  // The move's three steps are three points, each its own message: wait for the last.
+  await player
+    .waitForFunction(() => { const p = window.scaena.laser().point; return !!p && Math.abs(p[0] - 0.5) < 0.01 && Math.abs(p[1] - 0.5) < 0.01; }, null, { timeout: 5000 })
+    .catch(() => {});
   dot = await laser();
   const centered = (p) => p && Math.abs(p[0] - 0.5) < 0.01 && Math.abs(p[1] - 0.5) < 0.01;
   check(dot.on && !dot.hidden && centered(dot.point), `its L and its pointer put the laser on the room's slide: ${dot.point}`);
-  const mirrored = await presenter
-    .waitForFunction(() => window.scaena.pointed(), null, { timeout: 5000 })
-    .then((h) => h.jsonValue(), () => null);
+  await presenter
+    .waitForFunction(() => { const p = window.scaena.pointed(); return !!p && Math.abs(p[0] - 0.5) < 0.01 && Math.abs(p[1] - 0.5) < 0.01; }, null, { timeout: 5000 })
+    .catch(() => {});
+  const mirrored = await presenter.evaluate(() => window.scaena.pointed());
   check(centered(mirrored), `and it draws the dot where it points: ${mirrored}`);
   // A black screen takes the dot with the slide, though the presenter's pointer still points over
   // its slide, clear of what it says in the middle, and the slide back brings it back there.

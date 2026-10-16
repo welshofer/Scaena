@@ -449,7 +449,10 @@ pub unsafe extern "C" fn scaena_picture(bytes: *const u8, len: usize) -> *mut c_
 /// patch would make them; and `reach {ops}`, the states a patch changes. Text typed in place
 /// (PLAN 3.9): `typed {ops, at?}`, `replace_text`, `style_text`, and `list` ops by the user,
 /// validated but not linted, and whether the deck changed; and `bolding` and `italicizing
-/// {state, node, from, to}`, the look ⌘B and ⌘I give characters. A text's characters (PLAN
+/// {state, node, from, to}`, the look ⌘B and ⌘I give characters; and `codeWords {state, node}`,
+/// a code text's words as the state shows them, which Copy Code copies, and `tidied {text,
+/// language}`, code pasted into code, tidied (PLAN 2.133). A text's
+/// characters (PLAN
 /// 3.10): `characterChoices {state, node, from, to}`, what an inspector offers for them; and
 /// `linkAt {state, x, y}`, the link drawn there at rest, where a click goes. Nodes added and
 /// taken away (PLAN 3.11): `inserting {state, n, x, y, named?, with?}`, the patch that inserts
@@ -1441,6 +1444,10 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             let at = optional("at").and_then(scaena_session::store::seconds);
             json!(s.typed(&Value::Array(ops), at).map_err(said)?)
         }
+        // The words of a code text as a state shows them, which Copy Code copies (PLAN 2.133).
+        "codeWords" => json!(s.code_words(arg("state")?, arg("node")?).map_err(said)?),
+        // Code pasted into code, tidied as a paste of code is (PLAN 2.133).
+        "tidied" => json!(s.tidied(arg("text")?, arg("language")?)),
         // What ⌘B and ⌘I give the characters `from` to `to` (Unicode scalar values): `style_text`'s
         // `look` (PLAN 2.38, 2.40).
         "bolding" | "italicizing" => {
@@ -1809,10 +1816,17 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         }
         "pasting" => {
             let text = arg("text")?;
-            // A clip pastes what it holds; other text, a text in the theme's body role.
+            // A clip pastes what it holds; other text, code where `hints` or how it reads say so
+            // (PLAN 2.133), else a text in the theme's body role.
             let clip = match scaena_ops::clipboard::read(text).map_err(said)? {
                 Some(clip) => clip,
-                None => scaena_ops::clipboard::of_text(s.deck(), s.theme(), text).map_err(said)?,
+                None => {
+                    let hints: scaena_ops::clipboard::Hints = match args.get("hints") {
+                        Some(h) => serde_json::from_value(h.clone()).map_err(said)?,
+                        None => Default::default(),
+                    };
+                    scaena_ops::clipboard::of_text(s.deck(), s.theme(), text, &hints).map_err(said)?
+                }
             };
             let at = [number("x")? as f32, number("y")? as f32];
             value(serde_json::to_value(s.pasting(&clip, arg("state")?, at).map_err(said)?))?

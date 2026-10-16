@@ -168,6 +168,20 @@ public final class Typing {
         replace(range, with: text)
     }
 
+    /// Words pasted where the selection is (PLAN 2.133): into code, tidied as a paste of code is,
+    /// then each line after the first indented as the line it is pasted into is; else as typed.
+    public func paste(_ text: String) {
+        guard let language = box?.code?.language, let carets else { return insert(text) }
+        let tidied = (try? editor.session.tidied(text, language: language)) ?? text
+        let written = carets.text as NSString
+        let at = min(selection.location, written.length)
+        let before = written.range(of: "\n", options: .backwards, range: NSRange(location: 0, length: at))
+        let from = before.location == NSNotFound ? 0 : before.location + 1
+        let line = written.substring(with: NSRange(location: from, length: at - from))
+        let indent = String(line.prefix { $0 == " " || $0 == "\t" })
+        insert(tidied.replacingOccurrences(of: "\n", with: "\n" + indent))
+    }
+
     /// An input method's composition, `text`, typed in place of the selection or the composition
     /// before it, `selected` its selection inside it.
     public func mark(_ text: String, selected: NSRange) {

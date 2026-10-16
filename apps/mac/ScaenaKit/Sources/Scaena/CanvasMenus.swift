@@ -25,6 +25,13 @@ enum CanvasOffer {
         }
         offers.append(.action("Paste", symbol: "doc.on.clipboard", run: { clip(.paste) }))
         guard let deck else { return offers }
+        // Words pasted as words, and code copied as text (PLAN 2.133).
+        if let pasteAsText = deck.pasteAsText {
+            offers.append(.action("Paste as Text", symbol: "text.alignleft", run: pasteAsText))
+        }
+        if let copyCode = deck.copyCode {
+            offers.append(.action("Copy Code", symbol: "chevron.left.forwardslash.chevron.right", run: copyCode))
+        }
         offers.append(.divider)
         if let duplicate = deck.duplicate {
             offers.append(.action("Duplicate", symbol: "plus.square.on.square", run: duplicate))

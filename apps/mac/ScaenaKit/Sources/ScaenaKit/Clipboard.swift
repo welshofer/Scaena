@@ -101,12 +101,30 @@ extension ScaenaSession {
     }
 
     /// The patch that pastes `text` in `state` about `point` (canvas units), as Insert places a
-    /// node (PLAN 2.37): a clip's nodes under ids new to the deck, or other text as a text in the
-    /// theme's body role. The files a clip carries that the bundle lacks are handed over.
-    public func pasting(_ text: String, state: String, at point: CGPoint) throws -> Pasted {
+    /// node (PLAN 2.37): a clip's nodes under ids new to the deck; code, where `hints` or how it
+    /// reads say it is (PLAN 2.133), a code text in its language, tidied; or other text as a text in
+    /// the theme's body role. The files a clip carries that the bundle lacks are handed over.
+    public func pasting(_ text: String, state: String, at point: CGPoint, hints: PasteHints = PasteHints()) throws
+        -> Pasted
+    {
         try call(
             "pasting",
-            ["text": .string(text), "state": .string(state), "x": .number(Double(point.x)), "y": .number(Double(point.y))])
+            [
+                "text": .string(text), "state": .string(state), "x": .number(Double(point.x)),
+                "y": .number(Double(point.y)), "hints": hints.json,
+            ])
+    }
+
+    /// The words of code text `node` as `state` shows them: what Copy Code puts on the pasteboard
+    /// as text (PLAN 2.133).
+    public func codeWords(state: String, node: String) throws -> String {
+        try call("codeWords", ["state": .string(state), "node": .string(node)])
+    }
+
+    /// `text` tidied as a paste of code in `language` is (PLAN 2.133): line ends made one, a fence
+    /// and the indentation its lines share taken off, tabs to the theme's stops.
+    public func tidied(_ text: String, language: String) throws -> String {
+        try call("tidied", ["text": .string(text), "language": .string(language)])
     }
 
     /// `node`'s look as `state` shows it (PLAN 2.58): what ⌥⌘C copies, each property its type's
@@ -145,6 +163,35 @@ extension ScaenaSession {
     }
 }
 
+/// What says words pasted are code, and in which language (PLAN 2.133), as the engine reads it
+/// (`scaena_ops::clipboard::Hints`): `plain` pastes them as words whatever they look like (Paste
+/// as Text); `html`, the HTML copied with them, whose class may name it; `chromium`, Chromium's
+/// custom data, in base64, where VS Code puts its mode; and `file`, the name of the file they came
+/// from.
+public struct PasteHints: Equatable, Sendable {
+    public var plain = false
+    public var html: String?
+    public var chromium: String?
+    public var file: String?
+
+    public init(plain: Bool = false, html: String? = nil, chromium: String? = nil, file: String? = nil) {
+        self.plain = plain
+        self.html = html
+        self.chromium = chromium
+        self.file = file
+    }
+
+    /// As the engine reads it.
+    var json: JSONValue {
+        var out: [String: JSONValue] = [:]
+        if plain { out["plain"] = .bool(true) }
+        if let html { out["html"] = .string(html) }
+        if let chromium { out["chromium"] = .string(chromium) }
+        if let file { out["file"] = .string(file) }
+        return .object(out)
+    }
+}
+
 /// What another app, or this one, put on the pasteboard, as the canvas pastes it (PLAN 2.37,
 /// 2.96): a clip of nodes; a file, a screenshot or a file copied in the Finder, the words beside
 /// it only naming it; or words, which a sheet's cells are, and a clip copied as text.
@@ -167,6 +214,31 @@ public enum Pasteboard: Equatable, Sendable {
         let words = board.string(forType: .string) ?? ""
         if let found = held(board), namesOnly(words, found.name) { return .file(found.data, name: found.name) }
         return words.isEmpty ? nil : .words(words)
+    }
+
+    /// The words `board` holds, whatever else it holds: what Paste as Text pastes (PLAN 2.133).
+    @MainActor
+    public static func words(_ board: NSPasteboard = .general) -> String? {
+        board.string(forType: .string).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// Where Chromium puts a page's custom data on the pasteboard, VS Code's mode among it.
+    static let chromiumType = NSPasteboard.PasteboardType("org.chromium.web-custom-data")
+
+    /// What `board` says of the words it holds (PLAN 2.133): the HTML copied with them, and
+    /// Chromium's custom data, where VS Code says their language.
+    @MainActor
+    public static func hints(_ board: NSPasteboard = .general) -> PasteHints {
+        PasteHints(
+            html: board.string(forType: .html),
+            chromium: board.data(forType: chromiumType)?.base64EncodedString())
+    }
+
+    /// Put `words` on `board` as text alone: what Copy Code copies (PLAN 2.133).
+    @MainActor
+    public static func write(words: String, to board: NSPasteboard = .general) {
+        board.clearContents()
+        board.setString(words, forType: .string)
     }
 
     /// Put `clip`, a clip's text, on `board`: as a clip, and as its text, which the browser reads.
@@ -198,6 +270,27 @@ public enum Pasteboard: Equatable, Sendable {
         let words = board.string ?? ""
         if let found = held(board), namesOnly(words, found.name) { return .file(found.data, name: found.name) }
         return words.isEmpty ? nil : .words(words)
+    }
+
+    /// What `board` says of the words it holds (PLAN 2.133): the HTML copied with them, and
+    /// Chromium's custom data, where VS Code says their language.
+    @MainActor
+    public static func hints(_ board: UIPasteboard = .general) -> PasteHints {
+        let html = board.data(forPasteboardType: UTType.html.identifier).flatMap { String(data: $0, encoding: .utf8) }
+        let chromium = board.data(forPasteboardType: "org.chromium.web-custom-data")?.base64EncodedString()
+        return PasteHints(html: html, chromium: chromium)
+    }
+
+    /// The words `board` holds, whatever else it holds: what Paste as Text pastes (PLAN 2.133).
+    @MainActor
+    public static func words(_ board: UIPasteboard = .general) -> String? {
+        board.string.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// Put `words` on `board` as text alone: what Copy Code copies (PLAN 2.133).
+    @MainActor
+    public static func write(words: String, to board: UIPasteboard = .general) {
+        board.string = words
     }
 
     /// Put `clip`, a clip's text, on `board`: as a clip, and as its text, which the browser reads.

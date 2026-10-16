@@ -700,6 +700,18 @@ impl Player {
         serde_json::to_string(&self.0.character_choices(state, node, from, to).map_err(js)?).map_err(js)
     }
 
+    /// `text` tidied as a paste of code in `language` is (PLAN 2.133, `code::tidy`), its tabs to the
+    /// theme's stops.
+    pub fn tidied(&self, text: &str, language: &str) -> String {
+        self.0.tidied(text, language)
+    }
+
+    /// The words of code text `node` as `state` shows them: what Copy Code copies (PLAN 2.133).
+    #[wasm_bindgen(js_name = codeWords)]
+    pub fn code_words(&self, state: &str, node: &str) -> Result<String, JsError> {
+        self.0.code_words(state, node).map_err(js)
+    }
+
     /// What ⌘B gives the characters `from` to `to` (Unicode scalar values) of `node`'s text
     /// in `state`, as JSON: `style_text`'s `look` (PLAN 2.38).
     pub fn bolding(&mut self, state: &str, node: &str, from: usize, to: usize) -> Result<String, JsError> {
@@ -935,11 +947,15 @@ impl Player {
     /// The patch that pastes what the clipboard holds in `state` about `x`, `y` (PLAN 2.37), as
     /// JSON: `{ id, cell, also?, patch, files, findings }`, `also` the copies of the others
     /// copied with the first (PLAN 2.42). A clip as [`Player::copying`] gives it pastes what it
-    /// holds; other text, a text in the theme's body role.
-    pub fn pasting(&mut self, text: &str, state: &str, x: f32, y: f32) -> Result<String, JsError> {
+    /// holds; other text, code in its language where `hints` (JSON, `scaena_ops::clipboard::Hints`)
+    /// or how it reads say it is code (PLAN 2.133), else a text in the theme's body role.
+    pub fn pasting(&mut self, text: &str, state: &str, x: f32, y: f32, hints: &str) -> Result<String, JsError> {
         let clip = match scaena_ops::clipboard::read(text).map_err(js)? {
             Some(clip) => clip,
-            None => scaena_ops::clipboard::of_text(self.0.deck(), self.0.theme(), text).map_err(js)?,
+            None => {
+                let hints: scaena_ops::clipboard::Hints = serde_json::from_str(hints).map_err(js)?;
+                scaena_ops::clipboard::of_text(self.0.deck(), self.0.theme(), text, &hints).map_err(js)?
+            }
         };
         serde_json::to_string(&self.0.pasting(&clip, state, [x, y]).map_err(js)?).map_err(js)
     }

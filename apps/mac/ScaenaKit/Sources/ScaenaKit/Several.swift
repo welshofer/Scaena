@@ -92,13 +92,17 @@ extension ScaenaSession {
 }
 
 extension Field {
-    init(prop: String, takes: Takes, value: JSONValue?, lives: Lives?, literal: Bool, theme: JSONValue? = nil) {
+    init(
+        prop: String, takes: Takes, value: JSONValue?, lives: Lives?, literal: Bool, theme: JSONValue? = nil,
+        said: [String: String] = [:]
+    ) {
         self.prop = prop
         self.takes = takes
         self.value = value
         self.lives = lives
         self.literal = literal
         self.theme = theme
+        self.said = said
     }
 
     /// What every one of several nodes' inspectors offers (PLAN 2.42), as the browser's inspector
@@ -116,7 +120,7 @@ extension Field {
             let theme = others.allSatisfy { $0.theme == field.theme } ? field.theme : nil
             return Field(
                 prop: field.prop, takes: field.takes, value: alike ? field.value : nil, lives: lives,
-                literal: alike && field.literal, theme: theme)
+                literal: alike && field.literal, theme: theme, said: field.said)
         }
     }
 }
