@@ -40,7 +40,13 @@ import Testing
     window.editor.shown = "cover"
     let linting = Task { await window.editor.lintEvery() }
     // Laid out away from the window, which answers meanwhile: an edit made before it comes back.
-    while !window.editor.linting { await Task.yield() }
+    // Waited for a minute at most, sleeping between looks, so a lint that never begins fails the
+    // test rather than holding the main actor in a loop.
+    let deadline = ContinuousClock.now + .seconds(60)
+    while !window.editor.linting && ContinuousClock.now < deadline {
+        try await Task.sleep(for: .milliseconds(5))
+    }
+    try #require(window.editor.linting, "every state being linted")
     let typed: JSONValue = [
         "op": "replace_text", "state": "cover", "node": "title", "from": 0, "to": 0, "text": "Edited. ",
     ]

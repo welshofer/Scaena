@@ -8,7 +8,7 @@
   ],
   "ops":[
     {"fill":{"path":"M0 0L1920 0L1920 1080L0 1080Z","rule":"nonzero","paint":{"solid":"#101014FF"}}},
-    {"layer":{"node":"points-header","cell":null,"transform":[1.0,0.0,0.0,1.0,404.0,87.6875],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"points-header","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,404.0,87.6875],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"glyphs":{"font":0,"size":80.0,"coords":[4587,0],"paint":{"solid":"#F2F0E9FF"},"text":"تغيّر","glyphs":[
         [22,1029.0469,65.4375],
         [106,1064.875,77.203125],
@@ -38,13 +38,13 @@
         [60,1354.3125,65.4375]
       ],"clusters":[2,0]}}
     ]}},
-    {"layer":{"node":"points-body","cell":null,"transform":[1.0,0.0,0.0,1.0,546.0,251.28125],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-      {"layer":{"node":null,"cell":[0,0],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"points-body","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,546.0,251.28125],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[0,0],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":2,"size":40.0,"coords":[16384,0],"paint":{"solid":"#8A8A96FF"},"text":"•","glyphs":[
           [400,1222.0,36.71875]
         ],"clusters":[0]}}
       ]}},
-      {"layer":{"node":null,"cell":[0,1],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[0,1],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":2,"size":40.0,"coords":[16384,0],"paint":{"solid":"#8A8A96FF"},"text":"2024\n","glyphs":[
           [299,653.5469,36.71875],
           [297,675.78125,36.71875],
@@ -108,12 +108,12 @@
           [3,1196.6875,36.71875]
         ],"clusters":[8,8,6,6,4,4,2,2,0]}}
       ]}},
-      {"layer":{"node":null,"cell":[1,0],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[1,0],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":2,"size":40.0,"coords":[16384,0],"paint":{"solid":"#8A8A96FF"},"text":"•","glyphs":[
           [400,1222.0,84.71875]
         ],"clusters":[0]}}
       ]}},
-      {"layer":{"node":null,"cell":[1,1],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[1,1],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[],"paint":{"solid":"#8A8A96FF"},"text":"الآن\n","glyphs":[
           [96,760.71875,91.4375],
           [61,750.4844,84.71875],
@@ -168,12 +168,12 @@
           [7,1196.7969,84.71875]
         ],"clusters":[6,4,4,2,0,0]}}
       ]}},
-      {"layer":{"node":null,"cell":[2,0],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[2,0],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":2,"size":40.0,"coords":[16384,0],"paint":{"solid":"#8A8A96FF"},"text":"•","glyphs":[
           [400,1222.0,132.71875]
         ],"clusters":[0]}}
       ]}},
-      {"layer":{"node":null,"cell":[2,1],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[2,1],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[],"paint":{"solid":"#8A8A96FF"},"text":"شخص","glyphs":[
           [28,581.40625,132.71875],
           [96,638.5156,137.15625],
