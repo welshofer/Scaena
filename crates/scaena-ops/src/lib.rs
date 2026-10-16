@@ -40,6 +40,7 @@ pub mod sheet;
 #[cfg(feature = "shipped")]
 pub mod shipped;
 pub mod states;
+pub mod stock;
 pub mod theme;
 
 pub use scaena_store::Bundle;

@@ -1,0 +1,233 @@
+{
+  "scaena": "0.33",
+  "meta": {
+    "title": "Three months of ACME",
+    "lang": "en-US",
+    "description": "A price series kept in the deck as a CSV under data/, with the record of where it came from and how far it runs, drawn as a lit line on a time axis with the credit at its foot (PLAN O.3a, ADR-0030). ACME and its prices are made up for the example, standing in for a recorded series, and the series is kept as of its date."
+  },
+  "canvas": {
+    "width": 1920.0,
+    "height": 1080.0,
+    "unit": "cu"
+  },
+  "theme": "themes/dusk.theme.json",
+  "fonts": [
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-VF.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          9.0,
+          144.0
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-VF.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          14.0,
+          32.0
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-VF.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          800.0
+        ]
+      }
+    },
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          9.0,
+          144.0
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          14.0,
+          32.0
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100.0,
+          800.0
+        ]
+      }
+    }
+  ],
+  "data": {
+    "acme": {
+      "source": "data/acme.csv",
+      "schema": {
+        "time": "date",
+        "close": "number",
+        "base": "number"
+      },
+      "fetched": {
+        "from": "twelve-data",
+        "at": "2026-10-15T20:15:02Z",
+        "asked": "ACME",
+        "kept": true,
+        "credit": [
+          {
+            "text": "Data provided by Twelve Data",
+            "link": "https://twelvedata.com"
+          }
+        ],
+        "stock": {
+          "symbol": "ACME",
+          "range": "3m",
+          "exchange": "NASDAQ",
+          "currency": "USD",
+          "zone": "America/New_York",
+          "through": "2026-10-15"
+        }
+      }
+    }
+  },
+  "nodes": {
+    "title": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "fit": "shrink",
+      "at": {
+        "in": "header"
+      },
+      "runs": [
+        {
+          "text": "ACME is "
+        },
+        {
+          "text": "up",
+          "quote": {
+            "data": "@acme",
+            "dataTransform": [
+              {
+                "aggregate": {
+                  "last": "last(close)",
+                  "base": "last(base)"
+                }
+              },
+              {
+                "derive": {
+                  "change": "abs(last / base - 1)",
+                  "way": "if(last >= base, 'up', 'down')"
+                }
+              }
+            ],
+            "column": "way"
+          }
+        },
+        {
+          "text": " "
+        },
+        {
+          "text": "7.3%",
+          "quote": {
+            "data": "@acme",
+            "dataTransform": [
+              {
+                "aggregate": {
+                  "last": "last(close)",
+                  "base": "last(base)"
+                }
+              },
+              {
+                "derive": {
+                  "change": "abs(last / base - 1)",
+                  "way": "if(last >= base, 'up', 'down')"
+                }
+              }
+            ],
+            "column": "change",
+            "format": ".1%"
+          }
+        },
+        {
+          "text": " over three months"
+        }
+      ]
+    },
+    "prices": {
+      "type": "chart",
+      "kind": "line",
+      "data": "@acme",
+      "x": {
+        "field": "time",
+        "type": "temporal"
+      },
+      "y": {
+        "field": "close",
+        "type": "quantitative",
+        "format": "$,.2f"
+      },
+      "axes": {
+        "y": {
+          "show": false
+        }
+      },
+      "labels": {
+        "show": "ends"
+      },
+      "annotations": [
+        {
+          "kind": "highlight",
+          "at": {}
+        }
+      ],
+      "alt": "ACME's daily closes from July 15 to October 15, 2026: $182.40 to $195.80, up 7.3%.",
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      }
+    }
+  },
+  "states": [
+    {
+      "id": "three-months",
+      "layout": "figure",
+      "props": {
+        "title": {},
+        "prices": {}
+      }
+    }
+  ]
+}
