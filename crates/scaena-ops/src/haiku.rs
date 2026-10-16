@@ -451,12 +451,14 @@ pub fn today() -> String {
     format!("{} {d}, {y}", MONTHS[(m - 1) as usize])
 }
 
-/// What `deck_haiku` answers: what to ask, or the haiku written.
-#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
-#[serde(untagged)]
-pub enum Haikued {
-    Asked(Asking),
-    Written(Written),
+/// What `deck_haiku` answers: what to ask, or the haiku written. One object with either's fields, since an MCP
+/// tool's output is an object.
+#[derive(Debug, Clone, Default, Serialize, schemars::JsonSchema)]
+pub struct Haikued {
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub asked: Option<Asking>,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub written: Option<Written>,
 }
 
 #[cfg(test)]

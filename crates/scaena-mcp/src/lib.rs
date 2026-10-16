@@ -1023,7 +1023,7 @@ impl Scaena {
             let b = open_by(&a.bundle, author)?;
             let (about, asking) =
                 scaena_ops::haiku::asking(&b, a.topic.as_deref(), a.slide.as_deref(), a.lang.as_deref(), None)?;
-            let Some(lines) = a.lines else { return Ok(Haikued::Asked(asking)) };
+            let Some(lines) = a.lines else { return Ok(Haikued { asked: Some(asking), ..Haikued::default() }) };
             let taken = scaena_core::writing::haiku::Taken { lines, reading: None };
             let poem = Poem::counted(taken, &asking.lang);
             let last = b.deck.states.last().map(|s| s.id.clone()).unwrap_or_default();
@@ -1038,7 +1038,7 @@ impl Scaena {
             let credit = scaena_ops::haiku::credited(&by, &date, &about);
             let written =
                 scaena_ops::haiku::writing(&b, &poem, None, &to, a.attribution.as_deref(), &credit, a.dry_run)?;
-            Ok(Haikued::Written(written))
+            Ok(Haikued { written: Some(written), ..Haikued::default() })
         })
         .await
         .map(Json)

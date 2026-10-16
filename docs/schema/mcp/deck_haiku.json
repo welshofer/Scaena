@@ -65,41 +65,6 @@
   "outputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$defs": {
-      "Asking": {
-        "description": "What a client asks a model for a haiku about a bundle's deck (PLAN O.4e): about `topic` where\none is given, else the slide `slide` shows, else the whole talk; in `lang`, else the deck's.",
-        "type": "object",
-        "properties": {
-          "instructions": { "description": "What the model is told it does.", "type": "string" },
-          "prompt": { "description": "What it is asked.", "type": "string" },
-          "lang": { "description": "The language it is asked in, BCP 47.", "type": "string" },
-          "about": { "description": "What the haiku is about, as its slide's notes will say it.", "type": "string" },
-          "counted": { "description": "How its lines are counted: syllables, morae, or not at all.", "type": "string" }
-        },
-        "required": ["instructions", "prompt", "lang", "about", "counted"]
-      },
-      "Written": {
-        "description": "A haiku written into a bundle (PLAN O.4e): the poem as counted, the note where it is off\n5-7-5, where it went, and what the patch did.",
-        "type": "object",
-        "properties": {
-          "lines": { "type": "array", "items": { "type": "string" } },
-          "counts": {
-            "description": "Each line's count, a range where it may be said two ways; none where it is uncounted.",
-            "type": "array",
-            "items": {
-              "type": ["array", "null"],
-              "items": { "type": "integer", "minimum": 0 },
-              "minItems": 2,
-              "maxItems": 2
-            }
-          },
-          "kept": { "description": "`kept`, `near`, `off`, or `uncounted`.", "type": "string" },
-          "note": { "type": ["string", "null"] },
-          "state": { "description": "The state it is on, and its text node.", "type": "string" },
-          "node": { "type": "string" },
-          "patched": { "$ref": "#/$defs/Patched" }
-        },
-        "required": ["lines", "counts", "kept", "state", "node", "patched"]
-      },
       "Patched": {
         "description": "What a patch did, or would do.",
         "type": "object",
@@ -228,6 +193,29 @@
       },
       "Severity": { "type": "string", "enum": ["info", "warning", "error"] }
     },
-    "anyOf": [{ "$ref": "#/$defs/Asking" }, { "$ref": "#/$defs/Written" }]
+    "properties": {
+      "instructions": { "description": "What the model is told it does.", "type": "string" },
+      "prompt": { "description": "What it is asked.", "type": "string" },
+      "lang": { "description": "The language it is asked in, BCP 47.", "type": "string" },
+      "about": { "description": "What the haiku is about, as its slide's notes will say it.", "type": "string" },
+      "counted": { "description": "How its lines are counted: syllables, morae, or not at all.", "type": "string" },
+      "lines": { "type": "array", "items": { "type": "string" } },
+      "counts": {
+        "description": "Each line's count, a range where it may be said two ways; none where it is uncounted.",
+        "type": "array",
+        "items": {
+          "type": ["array", "null"],
+          "items": { "type": "integer", "minimum": 0 },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      },
+      "kept": { "description": "`kept`, `near`, `off`, or `uncounted`.", "type": "string" },
+      "note": { "type": ["string", "null"] },
+      "state": { "description": "The state it is on, and its text node.", "type": "string" },
+      "node": { "type": "string" },
+      "patched": { "$ref": "#/$defs/Patched" }
+    },
+    "type": "object"
   }
 }
