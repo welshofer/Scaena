@@ -48,6 +48,8 @@ sha2.workspace = true
 # Its hyphenation patterns and the code scanners' tables, which the tests' decks hyphenate and
 # color by (ADR-0015, PLAN 2.132).
 scaena-engine = { workspace = true, features = ["hyphenation", "code-tables"] }
+# The syllable table compiled in (PLAN O.4a).
+scaena-core = { workspace = true, features = ["syllables"] }
 hayro.workspace = true
 # Rasterizes SVGs to compare with the painters (PLAN 1.21). Without its text feature: an
 # SVG's text is the transparent layer a reader selects, which no painter draws.

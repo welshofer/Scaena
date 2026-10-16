@@ -67,7 +67,7 @@ fn lint(bundle: &Path) -> (i32, Vec<Value>) {
 }
 
 /// Each rule's trigger, and where in the deck it finds what it finds.
-const RULES: [(&str, &[&str]); 43] = [
+const RULES: [(&str, &[&str]); 44] = [
     ("E100", &["/nodes/t"]),
     ("E101", &["/nodes/b", "/nodes/note", "/nodes/src"]),
     ("E110", &["/nodes/t"]),
@@ -111,6 +111,7 @@ const RULES: [(&str, &[&str]); 43] = [
     ("I401", &["/nodes/ghost"]),
     ("I402", &["/overrides/t"]),
     ("I403", &["/nodes/cobol/code/language", "/nodes/slip/code/language"]),
+    ("I404", &["/nodes/poem"]),
 ];
 
 #[test]
@@ -457,6 +458,7 @@ fn the_example_decks_and_b1_lint_clean() {
         "docs/examples/higher-ed.deck.json",
         "docs/examples/ridgeline.deck.json",
         "docs/examples/code.deck.json",
+        "docs/examples/haiku.deck.json",
         "tests/bench/b1.scaena",
     ] {
         let (exit, found) = lint(&Path::new(ROOT).join(bundle));

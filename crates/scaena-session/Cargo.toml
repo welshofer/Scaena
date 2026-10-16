@@ -46,6 +46,8 @@ thiserror.workspace = true
 # Its hyphenation patterns and the code scanners' tables, which the tests' decks hyphenate and
 # color by (ADR-0015, PLAN 2.132).
 scaena-engine = { workspace = true, features = ["hyphenation", "code-tables"] }
+# The syllable table compiled in (PLAN O.4a).
+scaena-core = { workspace = true, features = ["syllables"] }
 # What a page loads to record a save in a bundle's history (PLAN 2.9), called here as Rust.
 scaena-history.workspace = true
 # Reads back the zip of every slide's PNG (PLAN 2.122).
