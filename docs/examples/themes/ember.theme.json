@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.18",
+  "scaena-theme": "0.19",
   "name": "Ember",
   "description": "Near-black surface, warm white ink, one signal orange. Serif claims and figures over a neutral sans; data in quiet grays with the orange spent on the point.",
   "tokens": {
@@ -224,6 +224,22 @@
         "box": "cap",
         "measure": 34,
         "maxLines": 3,
+        "opticalMargins": true,
+        "hangingPunctuation": true
+      },
+      "verse": {
+        "family": "display",
+        "size": 48,
+        "weight": 400,
+        "leading": 1.5,
+        "tracking": 0,
+        "opsz": 48,
+        "axes": {
+          "SOFT": 50
+        },
+        "wrap": "none",
+        "box": "cap",
+        "minSize": 32,
         "opticalMargins": true,
         "hangingPunctuation": true
       },
