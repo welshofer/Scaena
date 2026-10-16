@@ -204,7 +204,7 @@ struct CanvasMenu: UIViewRepresentable {
             _ interaction: UIEditMenuInteraction, menuFor configuration: UIEditMenuConfiguration,
             suggestedActions: [UIMenuElement]
         ) -> UIMenu? {
-            UIMenu(children: CanvasMenu.items(deck, clip: clip, suggested: suggestedActions))
+            UIMenu(children: CanvasMenu.items(deck, clip: clip))
         }
 
         /// The menu stands clear of what it is for, as much of it as the canvas shows; at the press
@@ -222,43 +222,29 @@ struct CanvasMenu: UIViewRepresentable {
     /// What the menu offers (`CanvasOffer`, as the Mac's right click offers it, PLAN 3.23), as
     /// iPadOS's edit menu shows it: no lines between kinds.
     ///
-    /// A paste is the system's own command, sent through the responder chain as UIKit sends ⌘V
-    /// and its edit menu's Paste: what it reads of the pasteboard then asks nothing of the person,
-    /// where an action that reads it on its own raises iPadOS's Allow Paste. The system's item
-    /// where `suggested` holds one, else a command of the same action.
-    static func items(
-        _ deck: DeckActions?, clip: @escaping (Clipping) -> Void, suggested: [UIMenuElement] = []
-    ) -> [UIMenuElement] {
-        CanvasOffer.offers(deck, clip: clip).compactMap { element($0, suggested: suggested) }
+    /// A paste is a command of the system's own edit, sent through the responder chain as UIKit
+    /// sends ⌘V: what it reads of the pasteboard then asks nothing of the person, where an action
+    /// that reads it on its own raises iPadOS's Allow Paste. It keeps the menu's own title, as
+    /// short as the rest: the system's "Paste and Match Style" pushes Duplicate onto the menu's
+    /// next page.
+    static func items(_ deck: DeckActions?, clip: @escaping (Clipping) -> Void) -> [UIMenuElement] {
+        CanvasOffer.offers(deck, clip: clip).compactMap(element)
     }
 
-    private static func element(_ offer: CanvasOffer, suggested: [UIMenuElement]) -> UIMenuElement? {
+    private static func element(_ offer: CanvasOffer) -> UIMenuElement? {
         switch offer {
         case .action(let title, let symbol, _, let edit?, _):
-            let action = Edits.action(edit)
-            if let system = command(action, in: suggested) { return system }
-            return UICommand(title: title, image: symbol.flatMap { UIImage(systemName: $0) }, action: action)
+            return UICommand(title: title, image: symbol.flatMap { UIImage(systemName: $0) }, action: Edits.action(edit))
         case .action(let title, let symbol, let destructive, nil, let run):
             let attributes: UIMenuElement.Attributes = destructive ? .destructive : []
             return UIAction(title: title, image: symbol.flatMap { UIImage(systemName: $0) }, attributes: attributes) { _ in
                 run()
             }
         case .menu(let title, let symbol, let children):
-            return UIMenu(
-                title: title, image: symbol.flatMap { UIImage(systemName: $0) },
-                children: children.compactMap { element($0, suggested: suggested) })
+            return UIMenu(title: title, image: symbol.flatMap { UIImage(systemName: $0) }, children: children.compactMap(element))
         case .divider:
             return nil
         }
-    }
-
-    /// The system's command for `action` among `elements`, at any depth.
-    private static func command(_ action: Selector, in elements: [UIMenuElement]) -> UICommand? {
-        for element in elements {
-            if let system = element as? UICommand, system.action == action { return system }
-            if let menu = element as? UIMenu, let found = command(action, in: menu.children) { return found }
-        }
-        return nil
     }
 
     /// The view the menu is shown over, which answers its pastes where the responder chain brings
