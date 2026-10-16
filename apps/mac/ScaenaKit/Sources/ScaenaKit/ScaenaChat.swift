@@ -324,6 +324,18 @@ public final class ScaenaChat {
         try step("run", ["index": .number(Double(index)), "at": .string(date.formatted(.iso8601))], on: session)
     }
 
+    /// The last answer's call `index`, run by the client itself (`map_fetch`, whose requests the
+    /// client makes, PLAN O.1d): `json` its result, an error where `error`, `edited` whether it
+    /// changed the deck. What the model is told, as `run` gives it.
+    public func ran(_ index: Int, json: String, error: Bool, edited: Bool) throws -> Ran {
+        try step(
+            "ran",
+            [
+                "index": .number(Double(index)), "json": .string(json), "error": .bool(error),
+                "edited": .bool(edited),
+            ])
+    }
+
     /// Hand the calls' results to the model, every call answered, those not run as stopped:
     /// whether it may be asked again, or the question has taken its rounds.
     public func next() throws -> Bool {

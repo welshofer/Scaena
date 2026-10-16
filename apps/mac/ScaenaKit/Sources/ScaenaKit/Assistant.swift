@@ -48,6 +48,10 @@ public final class Assistant {
     /// Hears each change the assistant makes to the deck: the source it replaced and the files it
     /// wrote beside the deck, for an undo.
     @ObservationIgnored public var edited: (_ before: String, _ files: [Rewritten]) -> Void = { _, _ in }
+    /// The Geoapify key `map_fetch` fetches a map with (ADR-0030, PLAN O.1d): the Keychain's.
+    @ObservationIgnored public var mapKey: () -> String? = { Keychain().geoapify }
+    /// How `map_fetch` makes each of Geoapify's requests: `URLSession` in the app.
+    @ObservationIgnored public var mapSend: Generator.Send = { await GeneratorReply.made($0) }
 
     private let send: Send
     @ObservationIgnored private var chat: ScaenaChat?
@@ -139,7 +143,14 @@ public final class Assistant {
                         // A call the user stopped before it ran is answered as stopped.
                         if Task.isCancelled { break }
                         let at = add(.call(name: call.name, args: call.args, ran: nil))
-                        let ran = try chat.run(index, on: editor.session)
+                        // A map is fetched here, as Insert › Map… fetches one: the client makes
+                        // Geoapify's requests (PLAN O.1d).
+                        let ran: Ran
+                        if call.name == "map_fetch" {
+                            ran = try await mapFetch(index, args: call.args, chat: chat)
+                        } else {
+                            ran = try chat.run(index, on: editor.session)
+                        }
                         entries[at].kind = .call(name: call.name, args: call.args, ran: ran)
                         if ran.edited || !ran.rewritten.isEmpty, let before = editor.reread() {
                             edited(before, ran.rewritten)
@@ -157,6 +168,75 @@ public final class Assistant {
             settle(chat)
         } catch {
             if Task.isCancelled { settle(chat) } else { add(.failed(Why.said(error, of: chat.provider))) }
+        }
+    }
+
+    /// `map_fetch` (ADR-0030, PLAN O.1d), the last answer's call `index`, run as Insert › Map… runs:
+    /// where the map goes, by the session (`into`, else the state's empty place for a picture, else
+    /// `at`); each request made here with the Geoapify key kept; and the map put there as one
+    /// `deck_patch` by the model's agent, its picture in the bundle. A name that matches several
+    /// places answers them, to ask again with `pick`; a refresh asks for what its map asked. Its
+    /// answer is the MCP tool's, as the browser's assistant gives it.
+    private func mapFetch(_ index: Int, args: JSONValue, chat: ScaenaChat) async throws -> Ran {
+        func answer(_ value: JSONValue, error: Bool = false, edited: Bool = false) throws -> Ran {
+            let json = String(decoding: try JSONEncoder().encode(value), as: UTF8.self)
+            return try chat.ran(index, json: json, error: error, edited: edited)
+        }
+        func stop(_ message: String) throws -> Ran { try answer(["message": .string(message)], error: true) }
+        guard let key = mapKey() else {
+            return try stop("no Geoapify key is kept: the person keeps one in Settings, from geoapify.com")
+        }
+        let session = editor.session
+        do {
+            let target: MapTarget
+            var ask: MapAsk
+            var label = args["label"]?.string
+            if let refresh = args["refresh"]?.string {
+                if args["place"]?.string != nil {
+                    return try stop("a refresh asks for what its map asked: name no place")
+                }
+                guard let state = try args["state"]?.string ?? session.states().first else {
+                    return try stop("the deck has no state")
+                }
+                let center = args["center"]?.array
+                let again = try session.mapRefreshing(
+                    state: state, node: refresh, zoom: args["zoom"]?.number, lat: center?.first?.number,
+                    lon: center?.dropFirst().first?.number)
+                target = again.target
+                ask = MapAsk(again: again, zoom: again.zoom, center: again.center)
+                label = label ?? again.label ?? ""
+            } else {
+                guard let place = args["place"]?.string, !place.isEmpty else {
+                    return try stop("say where: an address, a place, or `lat, lon`")
+                }
+                var aim: [String: JSONValue] = [:]
+                for name in ["state", "into", "at"] { aim[name] = args[name] }
+                target = try session.call("mapAiming", .object(["aim": .object(aim)]))
+                if args["pick"]?.number == 0 { return try stop("pick a place from 1, as they are listed") }
+                let show = args["show"]?.string.flatMap(MapShow.init(rawValue:)) ?? .neighborhood
+                ask = MapAsk(place: place, show: show, target: target, pick: args["pick"]?.number.map { Int($0) - 1 })
+                ask.zoom = args["zoom"]?.number
+                ask.list = args["places"]?.bool ?? false
+            }
+            if let style = args["style"]?.string { ask.style = style }
+            switch try await Generator(send: mapSend).map(ask, key: key) {
+            case .places(let places):
+                return try answer(["target": try JSONValue.encoded(target), "places": try JSONValue.encoded(places)])
+            case .map(let map):
+                let put = try session.mapping(map, at: target, label: label)
+                let called = try session.tool("deck_patch", ["ops": .array(put.patch)], author: "agent:\(chat.model)")
+                var placed: [String: JSONValue] = [
+                    "node": .string(put.node), "src": .string(put.src), "place": .string(put.place),
+                    "said": .string(put.said),
+                ]
+                for (name, value) in called.result.object ?? [:] where placed[name] == nil { placed[name] = value }
+                return try answer(
+                    ["target": try JSONValue.encoded(target), "placed": .object(placed)], edited: called.edited)
+            }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as ScaenaError {
+            return try stop(error.message)
         }
     }
 
