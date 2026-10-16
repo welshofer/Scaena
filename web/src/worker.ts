@@ -46,6 +46,9 @@ import type {
   Look,
   Put,
   BundleFile,
+  MapRefresh,
+  MapTarget,
+  Mapped,
   Compared,
   Restored,
   Rewritten,
@@ -565,6 +568,29 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         const bytes = made.bytes.slice().buffer as ArrayBuffer;
         return post({ type: "pictureMade", id: data.id, bytes, ext: made.ext, alt: made.alt, model: made.model }, [bytes]);
       }
+      case "mapTarget":
+        current(data.source);
+        return post({ type: "mapTargeted", id: data.id, target: JSON.parse(player.mapTarget(data.state, data.node, data.slot, JSON.stringify(data.rect))) as MapTarget });
+      case "fetchMap": {
+        const { fetchMap } = await import("@scaena/generate");
+        const fetched = await fetchMap(data.ask, data.key);
+        if (!fetched.map) return post({ type: "mapFetched", id: data.id, places: fetched.places });
+        return post({ type: "mapFetched", id: data.id, map: fetched.map }, [fetched.map.png]);
+      }
+      case "mapping":
+        current(data.source);
+        return post({
+          type: "mapped",
+          id: data.id,
+          mapped: JSON.parse(player.mapping(JSON.stringify(data.target), JSON.stringify(data.fetched), JSON.stringify(data.pin), data.label, new Uint8Array(data.png))) as Mapped,
+        });
+      case "mapRefreshing":
+        current(data.source);
+        return post({
+          type: "mapRefresh",
+          id: data.id,
+          refresh: JSON.parse(player.mapRefreshing(data.state, data.node, data.zoom, data.center?.lat, data.center?.lon)) as MapRefresh,
+        });
       case "removeFile":
       case "putBack": {
         compiles(data.source);

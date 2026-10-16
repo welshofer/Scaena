@@ -10,7 +10,7 @@
 // and kept in the browser's cache for the next deck (PLAN G.22, ADR-0027).
 import { Making, scriptChecked, scriptFor, scriptTaken, writable } from "@scaena/wasm";
 import { findIcons, iconSet } from "./icon-set";
-import type { Choices, Generate, Generated, GeneratingEvent, Health, PictureJob } from "./protocol";
+import type { Choices, FetchedMap, Generate, Generated, GeneratingEvent, Health, MapAsk, MapPlace, PictureJob } from "./protocol";
 import { answered } from "./words";
 
 type Generator = typeof import("@scaena/generator");
@@ -344,6 +344,47 @@ export async function picture(
   if (!path || !bytes) throw unmade();
   const alt = (JSON.parse(made.placed) as Record<string, { alt: string }>)["0"]?.alt ?? job.subject.trim();
   return { bytes, ext: path.replace(/^.*\./, ""), alt, model: made.model };
+}
+
+/** A map from Geoapify (ADR-0030, PLAN O.1c), fetched by the generator's plan with the user's
+ * `key`, each GET made here by `fetch`, the key in the slot the request names and never written
+ * down: the places a name matched, to pick one of, or the map. A refusal is said in Geoapify's
+ * own words; no answer, as the browser says why. */
+export async function fetchMap(
+  ask: MapAsk,
+  key: string,
+): Promise<{ places?: MapPlace[]; map?: FetchedMap }> {
+  const g = await generator();
+  const plan = new g.MapFetching(JSON.stringify(ask));
+  try {
+    let get = JSON.parse(plan.first()) as { url: string; headers: [string, string][]; most: number };
+    for (;;) {
+      let response: Response;
+      try {
+        response = await fetch(g.keyedUrl(JSON.stringify(get), key), { headers: Object.fromEntries(get.headers) });
+      } catch {
+        // The browser says no more than that it failed, which names no key.
+        throw new Error(navigator.onLine === false ? "this browser is offline" : "Geoapify could not be reached");
+      }
+      const body = new Uint8Array(await response.arrayBuffer());
+      if (body.length > get.most) throw new Error("Geoapify answered with more than a map holds");
+      const kind = response.headers.get("content-type") ?? "";
+      const at = new Date().toISOString().replace(/\.\d+Z$/, "Z");
+      const step = JSON.parse(plan.answer(response.status, kind, body, at)) as {
+        get?: typeof get;
+        choose?: MapPlace[];
+        done?: { fetched: unknown; pin: [number, number]; place: string };
+      };
+      if (step.get) get = step.get;
+      else if (step.choose) return { places: step.choose };
+      else if (step.done) {
+        const png = plan.png().slice().buffer as ArrayBuffer;
+        return { map: { ...step.done, png } };
+      } else throw new Error("the map's plan said nothing");
+    }
+  } finally {
+    plan.free();
+  }
 }
 
 /** Deep research on the brief's topic (PLAN G.8), its report kept among `sources`: Gemini's agent

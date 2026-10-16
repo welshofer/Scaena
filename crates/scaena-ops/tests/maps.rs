@@ -151,3 +151,25 @@ fn fetching_again_asks_for_the_same_view_and_keeps_both_pictures() {
     let err = refreshing(&b, Some("intro"), "title", None, None).unwrap_err();
     assert!(err.message.contains("was not fetched"), "{err}");
 }
+
+/// What an editor makes its own patch of (PLAN O.1c): the target it found itself, with the style
+/// the theme's surface asks, and the ops that put the map there, which a patch applies as `place`
+/// writes them.
+#[test]
+fn an_editor_takes_the_ops_and_makes_its_own_patch() {
+    let dir = bundle("editor");
+    let b = scaena_ops::open(&dir).unwrap();
+    let theme = scaena_ops::theme(&b).unwrap();
+    let target =
+        scaena_ops::maps::target_for(&b.deck, &theme, "revenue", None, None, [96.0, 96.0, 640.0, 360.0]).unwrap();
+    assert_eq!((target.style.as_str(), target.lang.as_deref()), ("dark", Some("en-US")));
+    let mapped = scaena_ops::maps::mapped(&b, &target, &fetch(picture(7), 15.0)).unwrap();
+    assert_eq!((mapped.node.as_str(), mapped.said.as_str()), ("map", "Map of Ferry Building from Geoapify added"));
+    assert_eq!(mapped.ops[0]["op"], "add_node");
+    // With its picture in the bundle, the ops are one patch that applies.
+    std::fs::create_dir_all(dir.join("assets")).unwrap();
+    std::fs::write(dir.join(&mapped.src), picture(7)).unwrap();
+    let b = scaena_ops::open(&dir).unwrap();
+    let patched = scaena_ops::patch::patch(&b, &serde_json::Value::Array(mapped.ops), false).unwrap();
+    assert!(patched.applied, "{patched:#?}");
+}

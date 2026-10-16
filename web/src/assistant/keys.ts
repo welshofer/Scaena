@@ -7,7 +7,10 @@
 import type { ProviderId } from "../protocol";
 import { answered, answerOf, unanswered } from "../words";
 
-const item = (provider: ProviderId) => `scaena.key.${provider}`;
+/** Whose key: an assistant's provider, or a service a map is fetched from (ADR-0030). */
+export type KeyFor = ProviderId | "geoapify";
+
+const item = (provider: KeyFor) => `scaena.key.${provider}`;
 
 /** The key that encrypts the keys kept on this device: made once, kept in IndexedDB, never
  * extractable. */
@@ -35,7 +38,7 @@ const base64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes));
 const bytesOf = (text: string) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
 
 /** The key for `provider`, and whether it is kept on this device; none if there is none. */
-export async function load(provider: ProviderId): Promise<{ key: string; kept: boolean } | undefined> {
+export async function load(provider: KeyFor): Promise<{ key: string; kept: boolean } | undefined> {
   const session = sessionStorage.getItem(item(provider));
   if (session) return { key: session, kept: false };
   const stored = localStorage.getItem(item(provider));
@@ -52,7 +55,7 @@ export async function load(provider: ProviderId): Promise<{ key: string; kept: b
 }
 
 /** Keep `key` for `provider`: for this tab, or on this device, encrypted. */
-export async function store(provider: ProviderId, key: string, kept: boolean) {
+export async function store(provider: KeyFor, key: string, kept: boolean) {
   forget(provider);
   if (!kept) return sessionStorage.setItem(item(provider), key);
   const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -61,7 +64,7 @@ export async function store(provider: ProviderId, key: string, kept: boolean) {
 }
 
 /** Forget the key for `provider`, wherever it is kept. */
-export function forget(provider: ProviderId) {
+export function forget(provider: KeyFor) {
   sessionStorage.removeItem(item(provider));
   localStorage.removeItem(item(provider));
 }

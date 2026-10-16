@@ -3287,6 +3287,7 @@ dependencies = [
  "base64 0.23.1",
  "scaena-core",
  "scaena-narrato",
+ "scaena-objects",
  "scaena-ops",
  "scaena-sources",
  "serde",
