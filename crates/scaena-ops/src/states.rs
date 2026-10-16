@@ -310,8 +310,34 @@ fn example_chart(kind: scaena_core::model::nodes::ChartKind) -> (Vec<Value>, Val
     }
 }
 
-/// A few rows made up for a table of `columns` columns (PLAN 3.31): a plan and how it went.
+/// A few rows made up for a table of `columns` columns (PLAN 3.31): a plan and how it went; or,
+/// of seven, a month's calendar, a week to each row, with what falls on a few of its days (PLAN
+/// S.2).
 fn example_table(columns: u32) -> Vec<Value> {
+    if columns >= 7 {
+        let days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+        let falls = |day: u32| match day {
+            3 => " Kickoff",
+            12 => " Review",
+            19 => " Launch",
+            27 => " Retro",
+            _ => "",
+        };
+        return (0..5)
+            .map(|week| {
+                Value::Object(
+                    days.iter()
+                        .enumerate()
+                        .map(|(i, d)| {
+                            let day = week * 7 + i as u32 + 1;
+                            let cell = if day <= 30 { format!("{day}{}", falls(day)) } else { String::new() };
+                            (d.to_string(), json!(cell))
+                        })
+                        .collect(),
+                )
+            })
+            .collect();
+    }
     let rows = [
         ("Trail crews", "$48,000", "$51,200", "On track", "Q2", "Ana"),
         ("Bridges", "$32,000", "$29,400", "Done", "Q1", "Ben"),

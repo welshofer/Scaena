@@ -673,3 +673,102 @@ mod tests {
         assert_eq!((next["wait"].as_u64(), next["progress"].as_str()), (Some(30_000), Some("Reading 12 sources")));
     }
 }
+
+/// What the browser asks a map for (PLAN O.1c), as JSON: as `scaena_objects::map::Ask`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MapAsk {
+    place: String,
+    #[serde(default)]
+    known: Option<scaena_core::fetched::Place>,
+    #[serde(default)]
+    center: Option<scaena_core::fetched::LatLon>,
+    #[serde(default)]
+    zoom: Option<f64>,
+    #[serde(default)]
+    show: Option<String>,
+    style: String,
+    size: [f64; 2],
+    #[serde(default)]
+    lang: Option<String>,
+    #[serde(default)]
+    pick: Option<usize>,
+    #[serde(default)]
+    list: bool,
+}
+
+/// A map being fetched from Geoapify (ADR-0030, PLAN O.1c), the page making each GET by `fetch`
+/// with the user's key in the slot the request names (`keyedUrl`): its first request, then each
+/// answer handed back, until it offers places to pick from or the map is fetched.
+#[wasm_bindgen]
+pub struct MapFetching {
+    plan: scaena_objects::map::MapPlan,
+    first: Option<scaena_objects::Get>,
+    done: Option<scaena_objects::map::Map>,
+}
+
+#[wasm_bindgen]
+impl MapFetching {
+    /// The plan for `ask` (JSON, as `MapAsk`), the browser setting its own User-Agent.
+    #[wasm_bindgen(constructor)]
+    pub fn new(ask: &str) -> Result<MapFetching, JsError> {
+        use scaena_objects::map::{Ask, Show, Style, View};
+        let a: MapAsk = serde_json::from_str(ask).map_err(error)?;
+        let view = match (a.zoom, a.show.as_deref()) {
+            (Some(z), _) => View::Zoom(z),
+            (None, Some(name)) => View::Show(Show::named(name).ok_or_else(|| error(format!("show `{name}`")))?),
+            (None, None) => View::Show(Show::Neighborhood),
+        };
+        let style = Style::named(&a.style).ok_or_else(|| error(format!("style `{}`", a.style)))?;
+        let ask = Ask {
+            place: a.place,
+            known: a.known,
+            center: a.center,
+            view,
+            style,
+            size: a.size,
+            lang: a.lang,
+            pick: a.pick,
+            list: a.list,
+            browser: true,
+        };
+        let (plan, first) = scaena_objects::map::MapPlan::new(ask).map_err(error)?;
+        Ok(MapFetching { plan, first: Some(first), done: None })
+    }
+
+    /// The first request, JSON `{ url, headers, most, service, key }`.
+    pub fn first(&mut self) -> Result<String, JsError> {
+        let get = self.first.take().ok_or_else(|| error("the first request was asked for already"))?;
+        Ok(serde_json::to_string(&get).expect("a request is JSON"))
+    }
+
+    /// The answer to the last request: JSON `{ get }`, the next; `{ choose: [place] }`, the places
+    /// a name matched; or `{ done: { fetched, pin, place } }`, the map, its picture by `png`; its
+    /// record says its answer came `at` (RFC 3339, UTC, by the page's clock).
+    pub fn answer(&mut self, status: u16, kind: &str, body: Vec<u8>, at: &str) -> Result<String, JsError> {
+        use scaena_objects::{Answer, Plan, Step};
+        let answer = Answer { status, kind: kind.into(), body };
+        match self.plan.answer(&answer).map_err(error)? {
+            Step::Get(get) => Ok(json!({ "get": get }).to_string()),
+            Step::Choose(found) => Ok(json!({ "choose": found }).to_string()),
+            Step::Done(map) => {
+                let said = json!({ "done": { "fetched": map.fetched(at), "pin": map.pin, "place": map.place_name() } });
+                self.done = Some(map);
+                Ok(said.to_string())
+            }
+        }
+    }
+
+    /// The map's picture, once it is fetched.
+    pub fn png(&mut self) -> Result<Vec<u8>, JsError> {
+        Ok(self.done.take().ok_or_else(|| error("no map is fetched yet"))?.png)
+    }
+}
+
+/// The URL to send for `get` (JSON, a `MapFetching` request), `key` in its query where the key goes
+/// there: what the page sends and never writes down.
+#[wasm_bindgen(js_name = keyedUrl)]
+pub fn keyed_url(get: &str, key: &str) -> Result<String, JsError> {
+    let get: scaena_objects::Get = serde_json::from_str(get).map_err(error)?;
+    Ok(get.keyed_url(key))
+}
