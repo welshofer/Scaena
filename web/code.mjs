@@ -12,8 +12,6 @@
 // Exits 1 on any failure.
 import { launch, serve } from "./serve.mjs";
 
-import { launch, serve } from "./serve.mjs";
-
 const server = await serve();
 const failures = [];
 const check = (ok, what) => {
@@ -80,18 +78,16 @@ try {
     await page.mouse.click(cx, cy);
     await page.waitForFunction(() => !window.scaena.canvas.busy(), null, { timeout: 30000 });
   };
-  /** A paste on the canvas, focused, as ⌘V fires it: `data` by media type, and `files`, each
-   * `{ name, type, url }` fetched from the site or `{ name, type, webp }` drawn as a WebP. */
-  const paste = (data, files = []) =>
-    page.evaluate(
-      async ([data, files]) => {
-        const held = new DataTransfer();
-        for (const [type, value] of Object.entries(data)) held.setData(type, value);
-        for (const f of files) {
-          let bytes;
-          if (f.url) bytes = await (await fetch(f.url)).arrayBuffer();
-          else {
-            const canvas = new OffscreenCanvas(64, 48);
+  /** A paste on the canvas, focused, as ⌘V fires it: `data` by media type. */
+  const paste = (data) =>
+    page.evaluate((data) => {
+      const held = new DataTransfer();
+      for (const [type, value] of Object.entries(data)) held.setData(type, value);
+      const e = new ClipboardEvent("paste", { clipboardData: held, bubbles: true, cancelable: true });
+      document.querySelector("#overlay").focus();
+      document.querySelector("#overlay").dispatchEvent(e);
+      return e.defaultPrevented;
+    }, data);
 
   /** Run the command `label` from the palette, as Ctrl+K and its name typed then Enter run it. */
   const run = async (label) => {
@@ -171,3 +167,4 @@ try {
   await server.close();
 }
 console.log(failures.length ? `${failures.length} failure(s): ${failures.join("; ")}` : "code pastes as code in its language, tidied, which its chip changes");
+process.exit(failures.length ? 1 : 0);
