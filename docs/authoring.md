@@ -362,7 +362,7 @@ What the props mean is in SPEC §3: the objects in §3.3, layout in §3.4, type 
 
 The shipped themes, Dusk, Daybreak, Ember, and Gallery, share these names, so a deck moves between them with no other change (`scaena theme --apply`). A name the theme does not have is E102. A test holds this section to the themes.
 
-Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type over, a picture, a chart, or a card, a rule, an arrow, or a chevron. Add Slide in the editor offers every layout by the gallery's sections, Titles, Statements, Lists, Comparison, Frameworks, Process, Time, Numbers, Charts, Pictures, People, Editorial, Diagrams, Briefing, Classroom, and Closing, each under its name and drawn as its picture: the slide it starts, a picture in each picture's place and a chart or a table in each figure's, as its slots' `example`s say (PLAN 3.30, 3.31). A new slide in one has the words in its slots and its cards and rules; its pictures and figures wait for you. Its search finds a layout by its name, what it is for, its section, or another name people call it: Kanban finds Roadmap, and Mind Map finds Hub and Spoke. A slot that `bleed`s reaches the canvas's edge: `photo` is a picture edge to edge, and `photo-left` one off the left edge. `scripts/build_layouts.py` writes the library into each theme.
+Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type over, a picture, a chart, or a card, a rule, an arrow, or a chevron. Add Slide in the editor offers every layout by the gallery's sections, Titles, Statements, Lists, Comparison, Frameworks, Process, Time, Numbers, Charts, Pictures, People, Editorial, Diagrams, Briefing, Classroom, and Closing, each under its name and drawn as its picture: the slide it starts, a picture in each picture's place, a chart or a table in each figure's, and the theme's picture with a pin over it in each map's, as its slots' `example`s say (PLAN 3.30, 3.31, O.1e); Insert › Map… fills a map's place. A new slide in one has the words in its slots and its cards and rules; its pictures and figures wait for you. Its search finds a layout by its name, what it is for, its section, or another name people call it: Kanban finds Roadmap, and Mind Map finds Hub and Spoke. A slot that `bleed`s reaches the canvas's edge: `photo` is a picture edge to edge, and `photo-left` one off the left edge. `scripts/build_layouts.py` writes the library into each theme.
 
 | Layout | Its slots | In the gallery |
 |---|---|---|
@@ -478,6 +478,9 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `photo-grid-text` | `first-art`, `second-art`, `third-art`, `fourth-art`, `header`, `body` | Photo Grid and Words, in Pictures |
 | `logo-wall` | `kicker`, `header`, `logo-1`, `logo-2`, `logo-3`, `logo-4`, `logo-5`, `logo-6`, `logo-7`, `logo-8`, `logo-9`, `logo-10`, `logo-11`, `logo-12` | Logo Wall, in Pictures |
 | `device-mockup` | `kicker`, `header`, `screen`, `frame`, `base`, `title`, `body` | Device Mockup, in Pictures |
+| `map` | `kicker`, `header`, `art`, `note` | Map, in Pictures |
+| `map-words` | `art`, `header`, `body` | Map and Words, in Pictures |
+| `map-full` | `art`, `header` | Full-Bleed Map, in Pictures |
 | `team` | `kicker`, `header`, `first-art`, `second-art`, `third-art`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Team, in People |
 | `testimonials` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `first`, `second`, `third`, `first-note`, `second-note`, `third-note` | Testimonials, in People |
 | `quote-portrait` | `art`, `quote`, `who` | Quote and Portrait, in People |

@@ -117,6 +117,26 @@ fn every_shipped_layout_draws_its_example_in_each_slot_that_waits() {
                         assert_eq!(node["kind"], serde_json::to_value(kind).unwrap());
                     }
                     Example::Table(_) => assert_eq!(node["type"], "table"),
+                    Example::Map(preset) => {
+                        // A map's place: the picture, then a pin and a label over it (PLAN O.1e).
+                        assert_eq!(
+                            (node["preset"].as_str(), &node["z"]),
+                            (Some(preset.as_str()), &serde_json::json!(-2))
+                        );
+                        let over: Vec<_> = (deck.nodes.values())
+                            .map(|n| serde_json::to_value(n).unwrap())
+                            .filter(|n| n["at"]["in"] == *slot && n["type"] != "shader")
+                            .collect();
+                        assert!(
+                            over.iter().any(|n| n["kind"] == "path" && n["fill"] == "accent"),
+                            "{name}'s {layout}: a pin"
+                        );
+                        assert!(
+                            over.iter().any(|n| n["type"] == "text" && n["role"] == "label"),
+                            "{name}'s {layout}: a label"
+                        );
+                        seeds.push(node["seed"].as_u64().unwrap());
+                    }
                 }
                 drawn += 1;
             }

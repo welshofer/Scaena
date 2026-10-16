@@ -3039,8 +3039,16 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   async function mapTarget(): Promise<MapTarget | undefined> {
     const shown = editor.shown();
     if (!shown) return undefined;
-    const place = await pictureTarget();
+    let place = await pictureTarget();
     if (!place) return undefined;
+    // The empty place for a picture the pointer last pressed in, a map's place among them, before
+    // the first (PLAN O.1e).
+    if (place.node === undefined) {
+      const [px, py] = landing();
+      const waits = await stage.waits(shown.state, editor.format()).catch((): Waiting[] => []);
+      const under = waits.find((w) => w.picture && px >= w.rect[0] && px <= w.rect[0] + w.rect[2] && py >= w.rect[1] && py <= w.rect[1] + w.rect[3]);
+      if (under) place = { slot: under.slot, at: [under.rect[0] + under.rect[2] / 2, under.rect[1] + under.rect[3] / 2], width: under.rect[2], height: under.rect[3] };
+    }
     const [x, y] = place.at;
     const rect: [number, number, number, number] =
       place.node !== undefined || place.slot !== undefined
