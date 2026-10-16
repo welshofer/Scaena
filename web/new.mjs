@@ -86,6 +86,8 @@ try {
   await ready("field-notes-whats-next");
   const made = await where();
   check(made.where === undefined && !made.dirty, `a new deck is kept nowhere, named for its title: ${JSON.stringify(made)}`);
+  const told = await page.locator("#where").innerText();
+  check(told === "Field notes: what’s next, not saved", `the line under the slide names it by its title, not its slug: ${told}`);
   const source = await page.evaluate(() => window.scaena.source());
   check(source.includes('deck "Field notes: what’s next"') && source.includes('theme:"themes/daybreak.theme.json"'), `its source has its title and its theme: ${source.split("\n")[0]}`);
   check(

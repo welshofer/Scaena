@@ -54,7 +54,7 @@ try {
   const dusk = await drawn(page);
   const first = await offered(page);
   check(
-    first.includes("In this deck/Dusk*") &&
+    first.includes("In this deck/Dusk (this deck’s copy)*") &&
       ["Stage/Dusk", "Executive/Daybreak", "Analyst/Ember", "Editorial/Salon"].every((t) => first.includes(t)),
     `the picker offers the deck's Dusk, chosen, and the themes built in, by family: ${first.join(", ")}`,
   );
@@ -70,7 +70,7 @@ try {
   const day = await drawn(page);
   check(day !== dusk, "the preview is drawn in Daybreak");
   const after = await offered(page);
-  check(after.includes("In this deck/Daybreak*") && after.includes("In this deck/Dusk"), `the deck holds it now, chosen: ${after.join(", ")}`);
+  check(after.includes("In this deck/Daybreak (this deck’s copy)*") && after.includes("In this deck/Dusk (this deck’s copy)"), `the deck holds it now, chosen: ${after.join(", ")}`);
 
   // One undo: Dusk again, drawn as it was.
   await page.locator("#overlay").focus();
@@ -79,8 +79,8 @@ try {
   check(back, "one undo puts the source back");
   await settled(page);
   check((await drawn(page)) === dusk, "and the preview is drawn in Dusk again");
-  await page.waitForFunction(() => document.querySelector("#theme option:checked")?.textContent === "Dusk", null, { timeout: 30000 }).catch(() => {});
-  check((await offered(page)).includes("In this deck/Dusk*"), "the picker shows Dusk again");
+  await page.waitForFunction(() => document.querySelector("#theme option:checked")?.textContent === "Dusk (this deck’s copy)", null, { timeout: 30000 }).catch(() => {});
+  check((await offered(page)).includes("In this deck/Dusk (this deck’s copy)*"), "the picker shows Dusk again");
 
   // The trails example in Daybreak: the storm slide's words would be dark on its dark photo, so the
   // re-theme sets each in Daybreak's color that reads there, and says so (PLAN 2.82).

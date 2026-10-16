@@ -95,7 +95,7 @@ try {
     return { invalid: cell.getAttribute("aria-invalid"), title: cell.title, listed: [...document.querySelectorAll("#data [data-problems] li")].map((li) => li.textContent) };
   });
   check(
-    marked.invalid === "true" && marked.title.includes("`n/a` is not a number") && marked.listed.length === 1 && marked.listed[0].startsWith("revenue, row 3"),
+    marked.invalid === "true" && marked.title.includes("`n/a` is not a number") && marked.listed.length === 1 && marked.listed[0].startsWith("revenue, row 4"),
     `the cell that does not read is marked, with why, and listed: ${JSON.stringify(marked)}`,
   );
   await page.addScriptTag({ path: axe });
@@ -113,7 +113,7 @@ try {
   await page.setViewportSize({ width: 1600, height: 1100 });
 
   // Fixed: the deck validates.
-  await set(3, 2, "19.8", "Row 3, revenue: set");
+  await set(3, 2, "19.8", "Row 4, revenue: set");
   await page.waitForFunction(() => window.scaena.last()?.valid, null, { timeout: 60000 }).catch(() => {});
   const fixed = await page.evaluate(() => ({
     valid: window.scaena.last().valid,
@@ -141,7 +141,7 @@ try {
   await page.waitForFunction(() => window.scaena.at()?.index === 1, null, { timeout: 30000 }).catch(() => {});
   await page.waitForTimeout(300);
   const before = await page.locator("#stage").screenshot();
-  await set(2, 2, "4.6", "Row 2, revenue: set");
+  await set(2, 2, "4.6", "Row 3, revenue: set");
   await page.waitForTimeout(500);
   const after = await page.locator("#stage").screenshot();
   check((await value(2, 2)) === "4.6", "the cell holds what it was set to");

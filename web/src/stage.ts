@@ -218,6 +218,8 @@ export class Stage {
   /** What takes each thumbnail as it is painted, by the request's id. */
   private thumbing = new Map<number, (thumb: Thumb) => void>();
   private asked = 0;
+  /** The name each file dropped had, by its path in the bundle, which names it by its content. */
+  private dropped = new Map<string, string>();
 
   /** Workers that work out shaders' rows for the engine's worker, when it asks (PLAN 2.28). */
   private helpers: Worker[] = [];
@@ -994,7 +996,15 @@ export class Stage {
   /** Add a file dropped on the page to the bundle; resolves to its path there. A picture an image
    * could not show, one too large among them, is refused and kept out of the bundle. */
   drop(name: string, bytes: ArrayBuffer): Promise<string> {
-    return this.request<"dropped">({ type: "drop", id: ++this.asked, name, bytes }).then(({ path }) => path);
+    return this.request<"dropped">({ type: "drop", id: ++this.asked, name, bytes }).then(({ path }) => {
+      this.dropped.set(path, name);
+      return path;
+    });
+  }
+
+  /** The name the file at `path` had when it was dropped on this page, where it was. */
+  droppedAs(path: string): string | undefined {
+    return this.dropped.get(path);
   }
 
   /** What the PNG or JPEG `bytes` are as a picture, read as the engine reads it before it is
