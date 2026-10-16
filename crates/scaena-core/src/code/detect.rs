@@ -9,8 +9,8 @@
 //!   knows gives the language its words score, or plain text.
 //! - **One line.** A text of one line is prose unless something names it.
 //! - **What it looks like.** Each of the first [`READ_LINES`] lines, within [`READ_BYTES`], adds
-//!   points to the languages its shape belongs to: `fn ` first on a line to Rust, `def …:` to
-//!   Python, `<!DOCTYPE html` to HTML, a prompt (`$ git status`) to a console session, and so on;
+//!   points to the languages its shape belongs to: `fn ` first on a line to Rust, `def …:` and
+//!   the indented body under it, `print(`, and an f-string to Python, `<!DOCTYPE html` to HTML, a prompt (`$ git status`) to a console session, and so on;
 //!   a text that is one JSON object or array scores JSON [`JSON_WHOLE`]. A superset scores what
 //!   its subset scores: TypeScript JavaScript's, SCSS CSS's, C++ C's.
 //! - **The rule.** The best score is likely where it reaches [`LIKELY`] and the lines that read as
@@ -451,6 +451,9 @@ struct Scores {
     key: Option<usize>,
     /// Whether the line before was a Makefile rule's head or its recipe.
     rule: bool,
+    /// The indentation of a Python block's head, `def …:` or `if …:`, which a deeper line under
+    /// it opens.
+    block: Option<usize>,
     /// A diff's hunks, and its lines that add or take away.
     hunks: usize,
     changes: i32,
@@ -465,7 +468,7 @@ impl Scores {
 
 /// The language `text`'s signals make likely, none where none is (see the module's rule).
 fn scored(text: &str) -> Option<&'static Language> {
-    let mut s = Scores { points: [0; 34], hit: false, code: 0, prose: 0, key: None, rule: false, hunks: 0, changes: 0 };
+    let mut s = Scores { points: [0; 34], hit: false, code: 0, prose: 0, key: None, rule: false, block: None, hunks: 0, changes: 0 };
     let mut read = 0usize;
     let mut first = true;
     for raw in text.split('\n').take(READ_LINES) {
@@ -523,6 +526,12 @@ fn signals(s: &mut Scores, line: &str, t: &str, indent: usize, first: bool) {
     let b = t.as_bytes();
     let word = t.split([' ', '\t']).next().unwrap_or(t);
 
+    // A Python block's body, indented under its head.
+    if let Some(at) = s.block.take()
+        && indent > at
+    {
+        s.add(PYTHON, 2);
+    }
     // A YAML key alone opens what a deeper line under it holds.
     if let Some(at) = s.key.take()
         && indent > at
@@ -777,6 +786,17 @@ fn signals(s: &mut Scores, line: &str, t: &str, indent: usize, first: bool) {
     }
     if t.contains("__init__") || t.contains("__name__") || t.contains("self.") && !t.ends_with(';') {
         s.add(PYTHON, 2);
+    }
+    if t.ends_with(':') && PYTHON_BLOCKS.iter().any(|k| t.starts_with(k)) {
+        s.block = Some(indent);
+    }
+    // `print(` first on a line, Swift's too; and an f-string, Python's alone.
+    if t.starts_with("print(") {
+        s.add(PYTHON, 2);
+        s.add(SWIFT, 1);
+    }
+    if f_string(t) {
+        s.add(PYTHON, 3);
     }
     if t == "end" || t.starts_with("elsif ") || t.starts_with("unless ") {
         s.add(RUBY, 3);
@@ -1095,6 +1115,18 @@ fn import(s: &mut Scores, module: &str) {
     } else if m.bytes().all(|c| c.is_ascii_alphanumeric() || b"_., ".contains(&c)) {
         s.add(PYTHON, 3);
     }
+}
+
+/// What opens a Python block, at the start of a line that ends `:`.
+const PYTHON_BLOCKS: [&str; 13] =
+    ["def ", "async def ", "class ", "if ", "elif ", "else:", "for ", "while ", "with ", "try:", "except", "finally:", "match "];
+
+/// Whether `t` holds an f-string, `f"…"` or `f'…'`: an `f` that starts a word, then a quote.
+fn f_string(t: &str) -> bool {
+    let b = t.as_bytes();
+    b.windows(2).enumerate().any(|(i, w)| {
+        w[0] == b'f' && (w[1] == b'"' || w[1] == b'\'') && (i == 0 || !(b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_'))
+    })
 }
 
 /// Whether `t` starts with `prefix`, in any case.

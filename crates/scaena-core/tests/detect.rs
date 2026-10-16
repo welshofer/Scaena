@@ -121,6 +121,14 @@ const CODE: &[(&str, &str)] = &[
         "export function Card({ title }) {\n  return (\n    <div className=\"card\">\n      <h2>{title}</h2>\n    </div>\n  );\n}\n",
     ),
     ("ini", "[core]\n\teditor = vim\n\tautocrlf = input\n[user]\n\tname = Ann\n\temail = ann@example.com\n"),
+    // Short snippets pasted as plain text, with no fence or file to name them: what a person
+    // copies from a page or a chat.
+    ("python", "def greet(name):\n    print(f\"Hello, {name}\")\n"),
+    ("python", "import os\n\nfor name in os.listdir(\".\"):\n    print(name)\n"),
+    ("python", "class Point:\n    def __init__(self, x, y):\n        self.x = x\n        self.y = y\n"),
+    ("javascript", "function total(items) {\n  return items.reduce((sum, item) => sum + item.price, 0);\n}\n"),
+    ("rust", "fn main() {\n    let name = \"Ann\";\n    println!(\"Hello, {name}\");\n}\n"),
+    ("sql", "SELECT name, email\nFROM users\nWHERE active = 1\nORDER BY name;\n"),
 ];
 
 /// Words, not code: each pastes as text.
@@ -146,6 +154,10 @@ const PROSE: &[&str] = &[
     "Anna Lee <anna@example.com>\nJay Park <jay@example.com>\nDana Cho <dana@example.com>\n",
     "Select the text you want to change.\nUpdate the theme from the Theme tab.\nOrder the slides by dragging them.\n",
     "If the chart looks squashed, make it larger.\nFor more room, choose a layout with one column.\n",
+    // Close to Python's shape: a lowercase head with a colon, lines indented under it, a print.
+    "if we win the deal:\n    we hire two people\n    we open the Berlin office\n",
+    "Notes from class:\n    try the new layout\n    print the handouts, twenty copies\n",
+    "for the offsite:\n    book the venue\n    order lunch for twelve\n",
 ];
 
 fn named(name: &str) -> Detected {
