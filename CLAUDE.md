@@ -35,6 +35,7 @@ crates/scaena-sources  what a generated deck is grounded in, from bytes: Office 
 crates/scaena-generator a deck made from a prompt as its own WASM module, which a page loads to make one: Narrato, the sources, research, and the deck built  (PLAN G.5)
 vendor/parley          parley 0.11.1, patched: a change of spacing keeps a run shaped whole (ADR-0004 finding 21)
 vendor/skera           skera 0.7.0, patched: the repacker weighs a 32-bit offset alike on wasm32, so the browser subsets as the CLI does (ADR-0004 finding 24)
+vendor/skrifa          skrifa 0.44.0, patched: every pen draws a glyph through one instance of its scalers, so the editor's module carries them once (PLAN 2.146)
 docs/                  SPEC, PLAN, MANIFESTO, adr/, schema/, examples/
 skills/                agent skills (SKILL.md) that drive the CLI/MCP
 tests/                 golden display lists, golden rasters, lint fixtures, parity harness, bench decks B1–B3
