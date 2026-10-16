@@ -21,6 +21,7 @@ use crate::model::theme::Theme;
 use crate::tracking::Snapshot;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
@@ -56,6 +57,10 @@ pub struct Finding {
     /// A JSON Patch (RFC 6902) that resolves the finding. Only safe, non-content fixes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fix: Option<Vec<Value>>,
+    /// The data source to fetch again, where what resolves the finding is a fetch, which no patch
+    /// makes (W428, ADR-0030): the source's name, without its `@`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh: Option<String>,
 }
 
 impl Finding {
@@ -72,6 +77,7 @@ impl Finding {
             measure: None,
             hint: None,
             fix: None,
+            refresh: None,
         }
     }
     pub fn file(mut self, file: impl Into<String>) -> Self {
@@ -104,6 +110,10 @@ impl Finding {
     }
     pub fn fix(mut self, ops: Vec<Value>) -> Self {
         self.fix = Some(ops);
+        self
+    }
+    pub fn refresh(mut self, source: impl Into<String>) -> Self {
+        self.refresh = Some(source.into());
         self
     }
 }
@@ -150,6 +160,55 @@ pub fn check(deck: &Deck, theme: Option<&Theme>) -> Vec<Finding> {
         }
     }
     findings
+}
+
+/// W428 (ADR-0030, decision 21): each fetched forecast whose first period's day has passed at its
+/// place at `now`, seconds since the epoch, unless it is `kept`: one finding at each node that
+/// shows it, in the first state that does, else one at the source. Each names the source to
+/// fetch again in `refresh`, since a fetch is no patch. Lint judges no date without `now`.
+pub fn dated(deck: &Deck, now: i64) -> Vec<Finding> {
+    let mut out = Vec::new();
+    let snapshots = crate::tracking::resolve_states(deck).unwrap_or_default();
+    for (name, source) in &deck.data {
+        let Some(fetched) = &source.fetched() else { continue };
+        let rows = source.source.get("inline").and_then(Value::as_array);
+        let first = rows.and_then(|r| r.first()).and_then(|row| row.get("date").or_else(|| row.get("time")));
+        let first = first.and_then(Value::as_str);
+        if !crate::fetched::passed(fetched, first, now) {
+            continue;
+        }
+        let Some(forecast) = &fetched.forecast else { continue };
+        let day = first.map_or_else(|| crate::fetched::date(&fetched.at).unwrap_or("").to_string(), |d| d[..10].into());
+        let message = |what: &str| {
+            format!("{what} forecast `@{name}` starts on {day}, a day that has passed in {}", forecast.place.name)
+        };
+        let hint = "Fetch it again, or keep it as it is (`fetched.kept`).";
+        let reads = format!("@{name}");
+        let mut shown = BTreeSet::new();
+        for snap in &snapshots {
+            for (id, props) in &snap.nodes {
+                if props.get("data").and_then(Value::as_str) == Some(reads.as_str()) && shown.insert(id.clone()) {
+                    out.push(
+                        Finding::new("W428", Severity::Warning, message(&format!("`{id}` shows the")))
+                            .at(format!("/nodes/{}", document::token(id)))
+                            .state(snap.state_id.clone())
+                            .node(id.clone())
+                            .hint(hint)
+                            .refresh(name.clone()),
+                    );
+                }
+            }
+        }
+        if shown.is_empty() {
+            out.push(
+                Finding::new("W428", Severity::Warning, message("the"))
+                    .at(format!("/data/{}", document::token(name)))
+                    .hint(hint)
+                    .refresh(name.clone()),
+            );
+        }
+    }
+    out
 }
 
 /// Findings in report order: errors first, then by code, then where they are.

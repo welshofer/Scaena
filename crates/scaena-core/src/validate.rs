@@ -275,6 +275,7 @@ pub fn validate_bundle(deck_json: &str, files: &dyn BundleFiles) -> Result<Vec<F
         out.extend(validate(&deck));
         out.extend(connectors(&deck));
         out.extend(ends_and_paragraphs(&deck));
+        out.extend(fetched_sources(&deck));
         out.extend(type_changes(&deck));
         out.extend(missing_files(&deck, theme.as_ref(), files));
         // Tracking that fails (reported above) leaves no states to resolve.
@@ -293,6 +294,7 @@ pub fn validate_bundle(deck_json: &str, files: &dyn BundleFiles) -> Result<Vec<F
         out.extend(cues(&deck, theme.as_ref()));
         if let Some(theme) = &theme {
             out.extend(theme.undefined_names());
+            out.extend(theme.upright_italics());
             out.extend(theme_names(&deck, snapshots.as_deref(), theme));
             out.extend(shader_presets(&deck, snapshots.as_deref().unwrap_or_default(), theme));
         }
@@ -407,6 +409,17 @@ impl LoadedTheme {
             Some(file) => finding.file(file.clone()),
             None => finding,
         }
+    }
+
+    /// E106: a family upright by design that names an italic all the same (ADR-0031, call 6).
+    fn upright_italics(&self) -> Vec<Finding> {
+        (self.theme.typography.families.iter())
+            .filter(|(_, f)| f.upright == Some(true) && f.italic.is_some())
+            .map(|(key, _)| {
+                let message = format!("font family `{key}` is upright by design, so it names no italic");
+                self.finding("E106", message, &format!("/type/families/{}/italic", esc(key)))
+            })
+            .collect()
     }
 
     /// E102: names the theme uses that it does not define.
@@ -530,6 +543,14 @@ impl LoadedTheme {
             for class in crate::code::Class::KINDS {
                 let Some(color) = syntax.and_then(|s| s.of(class)).and_then(|l| l.color.as_ref()) else { continue };
                 need(self.color(color), "color", color, format!("/code/syntax/{}/color", class.name()));
+            }
+        }
+        // A picture's frame (PLAN T.3a): each band's color.
+        if let Some(pictures) = &t.pictures {
+            let (keyline, mat) = pictures.frame.bands();
+            for (key, band) in [("keyline", keyline), ("mat", mat)] {
+                let Some(band) = band else { continue };
+                need(self.color(&band.color), "color", &band.color, format!("/pictures/frame/{key}/color"));
             }
         }
         // A slide's number and footer (ADR-0028): their roles and colors, the layouts they are left
@@ -1250,6 +1271,20 @@ fn ends_and_paragraphs(deck: &Deck) -> Vec<Finding> {
                         .node(id.to_string()),
                 );
             }
+        }
+    }
+    out
+}
+
+/// E106: a data source's `fetched` record (ADR-0030) from a service this build does not know, at
+/// no instant, or with an empty credit where its service asks for one.
+fn fetched_sources(deck: &Deck) -> Vec<Finding> {
+    let mut out = Vec::new();
+    for (name, source) in &deck.data {
+        let Some(record) = &source.fetched else { continue };
+        for (below, why) in crate::fetched::problems(record) {
+            let message = format!("data `{name}` was fetched: {why}");
+            out.push(Finding::new("E106", Severity::Error, message).at(format!("/data/{}/fetched{below}", esc(name))));
         }
     }
     out

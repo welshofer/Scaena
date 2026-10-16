@@ -22,6 +22,9 @@ use std::collections::BTreeMap;
 /// A table laid out for one snapshot, relative to its cell.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TableLayout {
+    /// The credit its data's service asks, at its foot (ADR-0030): none where its data was
+    /// fetched from no service. Its rows are laid out above it.
+    pub credit: Option<crate::charts::Foot>,
     /// The header row's cells, keyed by column; none without a header.
     pub header: Vec<Cell>,
     /// The body's cells, row by row, keyed by row and column.
@@ -325,6 +328,7 @@ impl Typeset {
         // Rows: each its tallest text with `row_gap` above and below, the cells' first
         // baselines on one line.
         let mut out = TableLayout {
+            credit: None,
             header: Vec::new(),
             cells: Vec::new(),
             rule: None,
