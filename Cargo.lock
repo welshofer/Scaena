@@ -3353,6 +3353,7 @@ name = "scaena-ops"
 version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
+ "flate2",
  "hayro",
  "indexmap",
  "resvg",

@@ -87,6 +87,32 @@ class FromSpec(unittest.TestCase):
             themes.fonts_of(theme)
 
 
+class Carried(unittest.TestCase):
+    """Where scaena-ops' build finds each font a theme names (PLAN T.0c)."""
+
+    def test_the_fours_fonts_come_from_git(self):
+        theme = themes.themed("basel", spec(), BASE)
+        sources = themes.font_sources([theme])
+        self.assertEqual([p for p, _, _ in sources], themes.font_files([theme]))
+        self.assertEqual(sources[0], ("fonts/Fraunces-VF.ttf", "fraunces", "docs/examples/fonts/Fraunces-VF.ttf"))
+
+    def test_a_family_git_lacks_comes_from_the_cache_by_its_pin(self):
+        theme = themes.themed("basel", spec(), BASE)
+        body = theme["type"]["families"]["body"]
+        body.update(family="Geist", file="fonts/Geist[wght].ttf", italic={"file": "fonts/Geist-Italic[wght].ttf"})
+        pins = themes.pinned_families()["geist"]
+        sources = {p: (k, s) for p, k, s in themes.font_sources([theme])}
+        self.assertEqual(sources["fonts/Geist[wght].ttf"], ("geist", "sha256:" + pins["upright"][1]))
+        self.assertEqual(sources["fonts/Geist-Italic[wght].ttf"], ("geist", "sha256:" + pins["italic"][1]))
+        self.assertIn("fonts/Geist-Italic[wght].ttf\tgeist\tsha256:", themes.carried_tsv([theme]))
+
+    def test_a_face_the_table_pins_none_of_is_refused_naming_its_family(self):
+        theme = themes.themed("basel", spec(), BASE)
+        theme["type"]["families"]["body"].update(family="Pretendard", file="fonts/Pretendard.otf", italic={"file": "fonts/Pretendard-Italic.otf"})
+        with self.assertRaisesRegex(themes.Refused, "Pretendard's italic"):
+            themes.font_sources([theme])
+
+
 class Bars(unittest.TestCase):
     def test_basel_meets_every_bar(self):
         self.assertEqual(themes.missed("basel", spec()), [])
