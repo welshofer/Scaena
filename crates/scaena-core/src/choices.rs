@@ -47,6 +47,11 @@ pub struct Choices {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(skip)]
     pub noun: Option<String>,
+    /// Where a fetched picture came from, as an editor's Map section heads it (ADR-0030): "Map
+    /// from Geoapify, fetched 15 October 2026".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
+    pub fetched: Option<String>,
 }
 
 /// What an inspector offers for a state itself (PLAN 2.36).
@@ -254,6 +259,11 @@ fn own(node_type: NodeType) -> &'static [(&'static str, Source)] {
             ("adjust/contrast", Schema(false)),
             ("adjust/saturation", Schema(false)),
             ("adjust/warmth", Schema(false)),
+            // A pin's label and color, where it has one, and where a fetched picture's credit
+            // stands (ADR-0030).
+            ("pin/label", Schema(false)),
+            ("pin/color", Names(V::Color, false)),
+            ("credit", Schema(false)),
         ],
         NodeType::Shader => &[("preset", Names(V::ShaderPreset, false)), ("palette", Names(V::ShaderPalette, false))],
         // What a chart reads, and how (PLAN 2.41): its source, each channel's field and the
@@ -321,6 +331,13 @@ pub fn choices(
         // under a mask but an oval or that lets what is under it show, or a container with no
         // panel.
         if (prop == "radius" && !rounds(node_type, &shown)) || (prop == "shadow" && !casts(node_type, &shown, clear)) {
+            return None;
+        }
+        // A pin's label and color where it has a pin; where its credit stands where it was
+        // fetched (ADR-0030).
+        if (prop.starts_with("pin/") && !shown.contains_key("pin"))
+            || (prop == "credit" && !shown.contains_key("fetched"))
+        {
             return None;
         }
         // A bar chart's bars turn (PLAN 1.29), and a range's values have intervals (PLAN
@@ -447,7 +464,26 @@ pub fn choices(
         };
         Some(Field { prop: prop.into(), takes, value: value.cloned(), lives, literal, theme, words: None })
     });
-    Ok(Choices { node: node.into(), node_type, state: state.into(), fields: fields.collect(), said: None, noun: None })
+    let fetched = (node_type == NodeType::Image).then(|| fetched_said(&shown)).flatten();
+    Ok(Choices {
+        node: node.into(),
+        node_type,
+        state: state.into(),
+        fields: fields.collect(),
+        said: None,
+        noun: None,
+        fetched,
+    })
+}
+
+/// Where a fetched picture came from, said (ADR-0030): "Map from Geoapify, fetched 15 October
+/// 2026"; none for a picture with no record that reads.
+fn fetched_said(shown: &Props) -> Option<String> {
+    let record: crate::fetched::Fetched = serde_json::from_value(shown.get("fetched")?.clone()).ok()?;
+    let service = crate::fetched::service(&record.from).map_or(record.from.clone(), |s| s.title.to_string());
+    let what = if record.map.is_some() { "Map" } else { "Picture" };
+    let day = crate::fetched::date(&record.at).map(crate::words::day)?;
+    Some(format!("{what} from {service}, fetched {day}"))
 }
 
 /// How a line is drawn where nothing in the deck says (PLAN 2.128): a connector runs straight, a
@@ -633,6 +669,7 @@ pub fn characters(
         fields: fields.collect(),
         said: None,
         noun: None,
+        fetched: None,
     })
 }
 
@@ -813,6 +850,39 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// A fetched map offers its pin's label and color and where its credit stands (ADR-0030), and a
+    /// picture with neither offers none of them.
+    #[test]
+    fn a_map_offers_its_pin_and_its_credit() {
+        let theme = Theme::from_json(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();
+        let mut doc: Value = serde_json::from_str(include_str!("../../../docs/examples/revenue.deck.json")).unwrap();
+        doc["nodes"]["photo"] = json!({ "type": "image", "src": "assets/p.png", "at": { "in": "canvas" } });
+        doc["nodes"]["map"] = json!({
+            "type": "image", "src": "assets/m.png", "at": { "in": "canvas" },
+            "fetched": { "from": "geoapify", "at": "2026-10-15T20:12:44Z", "asked": "x",
+                         "credit": [{ "text": "© OpenStreetMap contributors" }] },
+            "pin": { "at": [0.5, 0.5], "label": "Here" }
+        });
+        doc["states"][0]["props"]["photo"] = json!({});
+        doc["states"][0]["props"]["map"] = json!({});
+        let deck: Deck = serde_json::from_value(doc).unwrap();
+        let files = std::collections::BTreeMap::<String, Vec<u8>>::new();
+        let state = deck.states[0].id.clone();
+        let props = |node: &str| -> Vec<String> {
+            choices(&deck, &theme, &state, node, &files).unwrap().fields.into_iter().map(|f| f.prop).collect()
+        };
+        let map = props("map");
+        for prop in ["pin/label", "pin/color", "credit"] {
+            assert!(map.iter().any(|p| p == prop), "{prop}: {map:?}");
+        }
+        assert!(props("photo").iter().all(|p| !p.starts_with("pin/") && p != "credit"));
+        let label = choices(&deck, &theme, &state, "map", &files).unwrap();
+        let label = label.fields.iter().find(|f| f.prop == "pin/label").unwrap();
+        assert_eq!(label.value, Some(json!("Here")));
+        let heading = choices(&deck, &theme, &state, "map", &files).unwrap().fetched;
+        assert_eq!(heading.as_deref(), Some("Picture from Geoapify, fetched 15 October 2026"));
     }
 
     /// Each property an inspector offers, on a node, on characters, or on a state, has a label

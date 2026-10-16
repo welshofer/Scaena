@@ -56,6 +56,8 @@ serde_json.workspace = true
 thiserror.workspace = true
 wasm-bindgen.workspace = true
 js-sys = { workspace = true, optional = true }
+# The syllable table handed over is held to its SHA-256 (PLAN O.4a).
+sha2.workspace = true
 vello = { workspace = true, optional = true }
 wasm-bindgen-futures = { workspace = true, optional = true }
 web-sys = { workspace = true, optional = true, features = ["HtmlCanvasElement", "OffscreenCanvas", "console"] }
@@ -64,5 +66,7 @@ web-sys = { workspace = true, optional = true, features = ["HtmlCanvasElement", 
 # Its hyphenation patterns and the code scanners' tables, which the tests' decks hyphenate and
 # color by (ADR-0015, PLAN 2.132).
 scaena-engine = { workspace = true, features = ["hyphenation", "code-tables"] }
+# The syllable table compiled in (PLAN O.4a).
+scaena-core = { workspace = true, features = ["syllables"] }
 # What a page loads to record a save in a bundle's history (PLAN 2.9), called here as Rust.
 scaena-history.workspace = true

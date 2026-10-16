@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/theme-0.18.json",
+  "$id": "https://scaena.dev/schema/theme-0.20.json",
   "title": "Scaena theme (design system)",
   "description": "Tokens, typographic roles, layout templates, motion, and palettes. Documents reference these by name; they never store resolved values. See docs/SPEC.md §3.6.",
   "type": "object",
   "required": ["scaena-theme", "name", "tokens", "type", "grid", "layouts", "motion"],
   "additionalProperties": false,
   "properties": {
-    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.18(\\.[0-9]+)?$" },
+    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.20(\\.[0-9]+)?$" },
     "name": { "type": "string", "minLength": 1 },
     "description": { "type": "string" },
     "tokens": { "$ref": "#/$defs/Tokens" },
@@ -336,7 +336,11 @@
         "color": { "description": "Color role or token; defaults to onSurface.", "type": "string" }
       }
     },
-    "Wrap": { "type": "string", "enum": ["greedy", "pretty", "balance"] },
+    "Wrap": {
+      "description": "How a text's lines break where its words run past its width (SPEC §3.5).",
+      "type": "string",
+      "enum": ["greedy", "pretty", "balance", "none"]
+    },
     "TextBox": { "type": "string", "enum": ["cap", "line"] },
     "Snap": {
       "description": "What of a text role sits on the baseline grid (SPEC §3.4).",
@@ -582,11 +586,11 @@
           "properties": { "chart": { "$ref": "#/$defs/ChartKind" } }
         },
         {
-          "description": "A table of this many columns, of a few rows made up for it.",
+          "description": "A table of this many columns, of a few rows made up for it: seven are a week's days, a month's calendar (theme format 0.18, PLAN S.2).",
           "type": "object",
           "required": ["table"],
           "additionalProperties": false,
-          "properties": { "table": { "type": "integer", "minimum": 2, "maximum": 6 } }
+          "properties": { "table": { "type": "integer", "minimum": 2, "maximum": 7 } }
         }
       ]
     },

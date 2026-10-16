@@ -13,6 +13,8 @@
 // - In 9:16, the marks and the counts are what lint found laying 9:16 out, and the document
 //   rules'; on the deck's own canvas again, its own.
 // - axe-core finds nothing against WCAG 2.1 AA in the marks, the strip, or a mark opened.
+// - In the haiku example, a poem of 5, 8, and 5 is I404, said with its counts, the syllable table
+//   handed to the editor's module (PLAN O.4h).
 // Exits 1 on any failure.
 import { createRequire } from "node:module";
 import { launch, serve } from "./serve.mjs";
@@ -181,6 +183,19 @@ try {
     "on the deck's own canvas again, its own",
   );
   check(await page.evaluate(() => window.scaena.last().valid), "the source compiles and validates");
+
+  // A haiku off 5-7-5 (PLAN O.4h): the worker counts it with the syllable table it is handed the
+  // first time a line counts, and lint marks the poem with its counts in a sentence.
+  await page.goto(`${server.origin}/web/dist/editor.html?painter=cpu&source=open&bundle=/docs/examples/haiku.deck.json`);
+  await page.waitForFunction(() => window.scaena?.last()?.whole, null, { timeout: 120000 });
+  const haiku = await source();
+  check(!(await page.evaluate(() => window.scaena.last().findings.some((f) => f.code === "I404"))), "a haiku of 5, 7, and 5 is not marked");
+  await page.evaluate((s) => window.scaena.type(s), haiku.replace("A frog jumps", "A green frog jumps"));
+  check(
+    await until(() => window.scaena.last().findings.some((f) => f.code === "I404" && f.node === "poem" && f.said === "This haiku's lines count 5, 8, and 5, not 5, 7, and 5.")),
+    "one of 5, 8, and 5 is, with its counts, the table handed over",
+  );
+  check(await until(() => window.scaena.canvas.marks().some((m) => m.node === "poem")), "and marked on the poem");
 } catch (e) {
   failures.push(`error: ${e.message}`);
 } finally {

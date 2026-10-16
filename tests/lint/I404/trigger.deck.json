@@ -1,0 +1,43 @@
+{
+  "scaena": "0.30",
+  "_comment": "I404 trigger: a haiku in the verse role whose lines count 5, 11, and 2.",
+  "meta": {
+    "lang": "en-US"
+  },
+  "canvas": {
+    "width": 1920,
+    "height": 1080
+  },
+  "theme": "theme.json",
+  "fonts": [
+    {
+      "family": "Roboto Serif",
+      "file": "fonts/RobotoSerif-VF.ttf"
+    },
+    {
+      "family": "EB Garamond",
+      "file": "fonts/EBGaramond-VF.ttf"
+    }
+  ],
+  "nodes": {
+    "poem": {
+      "type": "text",
+      "role": "verse",
+      "text": "An old silent pond\nA frog jumps into the water of the pond\nSplash! Gone.",
+      "fit": "shrink",
+      "at": {
+        "in": "main"
+      }
+    }
+  },
+  "states": [
+    {
+      "id": "s0",
+      "mode": "absolute",
+      "layout": "full",
+      "props": {
+        "poem": {}
+      }
+    }
+  ]
+}
