@@ -770,6 +770,9 @@ export interface BundleFile {
   bytes: number;
   named: Named[];
   used: { node: string; states: string[] }[];
+  /** Where a picture fetched from a service came from (ADR-0030): "From Geoapify, fetched 15
+   * October 2026". */
+  fetched?: { from: string; service: string; date: string; said: string };
 }
 
 /** What names a file of the bundle. */
