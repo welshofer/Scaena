@@ -103,6 +103,36 @@ try {
     check((await accent()) === "#B97CFF", `the menu gives the theme the photo's colors: ${await accent()}`);
   }
 
+  // A photo dropped on this page is said by the name of the file dropped (the QA pass's J5), not
+  // by the content's hash the bundle names it by.
+  const bytes = await page.evaluate(async () => {
+    const canvas = new OffscreenCanvas(64, 64);
+    const g = canvas.getContext("2d");
+    g.fillStyle = "#1f8a8a";
+    g.fillRect(0, 0, 64, 64);
+    g.fillStyle = "#f2a33a";
+    g.fillRect(0, 32, 64, 32);
+    return [...new Uint8Array(await (await canvas.convertToBlob({ type: "image/png" })).arrayBuffer())];
+  });
+  const transfer = await page.evaluateHandle((b) => {
+    const dt = new DataTransfer();
+    dt.items.add(new File([new Uint8Array(b)], "harbor.png", { type: "image/png" }));
+    return dt;
+  }, bytes);
+  const r = await page.locator("#overlay").boundingBox();
+  await page.dispatchEvent("#overlay", "drop", { dataTransfer: transfer, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 });
+  await page.waitForFunction(() => /harbor\.png/.test(document.querySelector("#status").textContent), null, { timeout: 30000 }).catch(() => {});
+  await page.click("#tab-theming");
+  const harbor = page.locator("#theming [data-photo]", { hasText: "harbor.png" });
+  await harbor.first().waitFor({ timeout: 30000 }).catch(() => {});
+  check((await harbor.count()) === 1, `the photo dropped is listed by the name it was dropped as: ${await page.locator("#theming [data-photos]").innerText()}`);
+  if ((await harbor.count()) === 1) {
+    await harbor.first().click();
+    await settled();
+    await page.waitForFunction(() => document.querySelector("#status").textContent.includes("colors from harbor.png"), null, { timeout: 30000 }).catch(() => {});
+    check((await status()).includes("colors from harbor.png"), `its colors are said to come from harbor.png: ${await status()}`);
+  }
+
   // Nothing against WCAG 2.1 AA with the tab shown.
   await page.addScriptTag({ path: axe });
   const found = await page.evaluate(async () => {

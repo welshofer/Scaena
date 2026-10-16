@@ -228,14 +228,14 @@ try {
     const set = Math.round((Number(held) + 0.4) * 10) / 10;
     await cell.fill(String(set));
     await cell.press("Enter");
-    await until("the cell set", () => /^Row 0, .*: set/.test(document.querySelector("#status").textContent));
+    await until("the cell set", () => /^Row 1, .*: set/.test(document.querySelector("#status").textContent));
     // The chart drawn again: the canvas as painted is not what it was.
     let now = await painted();
     for (let i = 0; i < 40 && differ(was, now) <= 100; i++) {
       await page.waitForTimeout(250);
       now = await painted();
     }
-    check(differ(was, now) > 100, `a cell set (${columns[number + 1]} of row 0: ${held} → ${set}) draws the chart again: ${differ(was, now)} pixels changed · ${await status()}`);
+    check(differ(was, now) > 100, `a cell set (${columns[number + 1]} of row 1: ${held} → ${set}) draws the chart again: ${differ(was, now)} pixels changed · ${await status()}`);
   });
 
   // 5. A figure quoted from the Data tab into the title's characters.
