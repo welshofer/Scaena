@@ -674,29 +674,6 @@ mod tests {
     }
 }
 
-/// What the browser asks a map for (PLAN O.1c), as JSON: as `scaena_objects::map::Ask`.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct MapAsk {
-    place: String,
-    #[serde(default)]
-    known: Option<scaena_core::fetched::Place>,
-    #[serde(default)]
-    center: Option<scaena_core::fetched::LatLon>,
-    #[serde(default)]
-    zoom: Option<f64>,
-    #[serde(default)]
-    show: Option<String>,
-    style: String,
-    size: [f64; 2],
-    #[serde(default)]
-    lang: Option<String>,
-    #[serde(default)]
-    pick: Option<usize>,
-    #[serde(default)]
-    list: bool,
-}
-
 /// A map being fetched from Geoapify (ADR-0030, PLAN O.1c), the page making each GET by `fetch`
 /// with the user's key in the slot the request names (`keyedUrl`): its first request, then each
 /// answer handed back, until it offers places to pick from or the map is fetched.
@@ -709,29 +686,12 @@ pub struct MapFetching {
 
 #[wasm_bindgen]
 impl MapFetching {
-    /// The plan for `ask` (JSON, as `MapAsk`), the browser setting its own User-Agent.
+    /// The plan for `ask` (JSON, as `scaena_objects::map::Asked`), the browser setting its own
+    /// User-Agent.
     #[wasm_bindgen(constructor)]
     pub fn new(ask: &str) -> Result<MapFetching, JsError> {
-        use scaena_objects::map::{Ask, Show, Style, View};
-        let a: MapAsk = serde_json::from_str(ask).map_err(error)?;
-        let view = match (a.zoom, a.show.as_deref()) {
-            (Some(z), _) => View::Zoom(z),
-            (None, Some(name)) => View::Show(Show::named(name).ok_or_else(|| error(format!("show `{name}`")))?),
-            (None, None) => View::Show(Show::Neighborhood),
-        };
-        let style = Style::named(&a.style).ok_or_else(|| error(format!("style `{}`", a.style)))?;
-        let ask = Ask {
-            place: a.place,
-            known: a.known,
-            center: a.center,
-            view,
-            style,
-            size: a.size,
-            lang: a.lang,
-            pick: a.pick,
-            list: a.list,
-            browser: true,
-        };
+        let asked: scaena_objects::map::Asked = serde_json::from_str(ask).map_err(error)?;
+        let ask = asked.ask(true).map_err(error)?;
         let (plan, first) = scaena_objects::map::MapPlan::new(ask).map_err(error)?;
         Ok(MapFetching { plan, first: Some(first), done: None })
     }

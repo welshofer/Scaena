@@ -31,6 +31,7 @@ struct KeysSettings: View {
             ForEach(Provider.allCases) { provider in
                 ProviderKey(provider: provider)
             }
+            GeoapifyKey()
         }
         .formStyle(.grouped)
         #if os(macOS)
@@ -412,6 +413,72 @@ extension Provider {
         case .anthropic: Color(red: 0.80, green: 0.47, blue: 0.36)
         case .openai: Color(white: 0.2)
         case .gemini: Color(red: 0.26, green: 0.46, blue: 0.93)
+        }
+    }
+}
+
+/// The Geoapify key, which Insert › Map… fetches maps with (ADR-0030, PLAN O.1d): masked where one
+/// is kept, with Remove; else a field to keep one. Geoapify says whether it takes the key when a
+/// map is first asked for; the key goes to Geoapify alone, in each request's query.
+private struct GeoapifyKey: View {
+    private let keychain = Keychain()
+    @State private var kept: String?
+    @State private var typed = ""
+    @State private var failure: String?
+
+    var body: some View {
+        Section {
+            HStack(spacing: 10) {
+                Image(systemName: "map")
+                    .font(.title3)
+                    .foregroundStyle(.tint)
+                    .frame(width: 28)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Geoapify").font(.headline)
+                    Text("Maps").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                Text(kept == nil ? "No key" : "Kept")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityElement(children: .combine)
+            if let kept {
+                LabeledContent("Key") {
+                    Text(KeyCheck.masked(kept))
+                        .font(.body.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+                Button("Remove Key", role: .destructive) { keep(nil) }
+                    .accessibilityIdentifier("remove-geoapify")
+            } else {
+                SecureField("Key", text: $typed)
+                    .onSubmit { keep(typed) }
+                    .accessibilityIdentifier("key-geoapify")
+                Button("Keep Key") { keep(typed) }
+                    .disabled(typed.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            if let failure {
+                Label(failure, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundStyle(.red)
+            }
+        } footer: {
+            Link("Get a Geoapify key", destination: URL(string: "https://myprojects.geoapify.com/")!)
+                .font(.callout)
+        }
+        .onAppear { kept = keychain.geoapify }
+    }
+
+    private func keep(_ key: String?) {
+        let key = key?.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            try keychain.setGeoapify(key)
+            kept = keychain.geoapify
+            typed = ""
+            failure = nil
+        } catch {
+            failure = Why.said(error)
         }
     }
 }

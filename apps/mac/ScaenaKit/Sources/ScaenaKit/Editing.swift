@@ -124,6 +124,9 @@ public struct Choices: Decodable, Sendable {
     /// `Star`), a container with a panel of its own a `Card`; `Icon` for a filled path on a view,
     /// which the icon picker replaces (PLAN G.23), and a pen's drawing, stroked, a `Drawing`.
     public let noun: String?
+    /// Where a fetched picture came from, as the Format tab's Map section heads it (ADR-0030): "Map
+    /// from Geoapify, fetched 15 October 2026".
+    public let fetched: String?
 
     /// Whether the writing tools have words to write for what is offered (PLAN 2.101): a text's, a
     /// picture's description, or the slide's notes. A shape, a chart, a table, or a group has none,

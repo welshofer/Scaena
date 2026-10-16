@@ -43,6 +43,8 @@ pub struct Generating {
     /// The font for the script the deck is written in, where the theme's fonts do not draw it,
     /// once Swift has fetched it and its digest is the one pinned (PLAN G.22).
     script: Option<(&'static Script, Vec<u8>)>,
+    /// A map being fetched from Geoapify (ADR-0030, PLAN O.1d), and the map once it is.
+    map: Option<scaena_objects::map::MapPlan>,
 }
 
 /// The pictures made (`Painting::finish`): where each slide's is kept, their bytes by their paths
@@ -65,6 +67,14 @@ struct Written {
 /// A request as Swift makes it (`ProviderRequest`): its body the text to send.
 fn request(r: Request) -> Value {
     json!({ "method": r.method, "url": r.url, "headers": r.headers, "body": r.body.map(|b| b.to_string()) })
+}
+
+/// A GET a map's plan asks for, as a request, `key` in the slot the plan names: what Swift sends
+/// and never writes down.
+fn keyed(g: &scaena_objects::Get, key: &str) -> Value {
+    let headers: serde_json::Map<String, Value> =
+        g.keyed_headers(key).into_iter().map(|(k, v)| (k, Value::String(v))).collect();
+    json!({ "method": "GET", "url": g.keyed_url(key), "headers": headers, "most": g.most })
 }
 
 /// A GET a link's plan asks for, as a request, with the most bytes of its answer to read.
@@ -363,6 +373,56 @@ impl Generating {
                 };
                 let ext = put.src.rsplit_once('.').map_or("png", |(_, ext)| ext);
                 json!({ "bytes": base64::engine::general_purpose::STANDARD.encode(bytes), "ext": ext, "alt": put.alt })
+            }
+            "map" => {
+                // A map of a place a person names (ADR-0030, PLAN O.1d): `ask` as the browser's
+                // sheet asks (`scaena_objects::map::Asked`), `key` the user's Geoapify key, which
+                // goes in the request's query alone: `{request}`, the first GET to make.
+                let ask: scaena_objects::map::Asked =
+                    serde_json::from_value(args.get("ask").cloned().unwrap_or(Value::Null))
+                        .map_err(|e| said(format!("map: `ask`: {e}")))?;
+                let key = arg("key")?;
+                if key.trim().is_empty() {
+                    return Err(said("map: no Geoapify key: keep one in Settings"));
+                }
+                let (plan, first) = scaena_objects::map::MapPlan::new(ask.ask(false).map_err(said)?).map_err(said)?;
+                self.map = Some(plan);
+                json!({ "request": keyed(&first, key) })
+            }
+            "mapAnswered" => {
+                // The answer to the last GET `map` asked for, its body `bytes`, `status` and `kind`
+                // its status and content type, `at` when it came (RFC 3339, UTC, by Swift's clock):
+                // `{request}`, the next; `{choose: [place]}`, the places a name matched, to ask
+                // again with a `pick`; or `{map: {fetched, pin, place, png}}`, the picture in
+                // base64, for the session's `mapping`.
+                use scaena_objects::{Answer, Plan, Step};
+                let plan = self.map.as_mut().ok_or_else(|| said("mapAnswered: no map is asked: `map` first"))?;
+                let status = args.get("status").and_then(Value::as_u64).ok_or_else(|| said("mapAnswered: `status`"))?;
+                let answer = Answer {
+                    status: u16::try_from(status).map_err(|_| said("mapAnswered: `status`"))?,
+                    kind: args.get("kind").and_then(Value::as_str).unwrap_or_default().to_string(),
+                    body: bytes.to_vec(),
+                };
+                let step = plan.answer(&answer).map_err(|e| {
+                    self.map = None;
+                    said(e)
+                })?;
+                match step {
+                    Step::Get(next) => json!({ "request": keyed(&next, arg("key")?) }),
+                    Step::Choose(found) => {
+                        self.map = None;
+                        json!({ "choose": found })
+                    }
+                    Step::Done(map) => {
+                        self.map = None;
+                        json!({ "map": {
+                            "fetched": map.fetched(arg("at")?),
+                            "pin": map.pin,
+                            "place": map.place_name(),
+                            "png": base64::engine::general_purpose::STANDARD.encode(&map.png),
+                        } })
+                    }
+                }
             }
             "make" => {
                 let shipped = shipped(arg("theme")?)?;
