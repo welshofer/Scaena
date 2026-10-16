@@ -29,6 +29,9 @@ struct Inspector: View {
     /// Bring an object the list of objects on the slide selects into view, where the slide is
     /// zoomed in (PLAN 4.12).
     var reveal: ((String) -> Void)? = nil
+    /// Fetch the map image `node` shows again (PLAN O.1d): a step nearer or further, centered on its
+    /// pin, or as it was.
+    var remap: ((String, MapRemap) -> Void)? = nil
     let make: ([JSONValue]) -> Void
     @State private var layers: [Layer] = []
     @State private var choices: Choices?
@@ -82,6 +85,9 @@ struct Inspector: View {
                         ForEach(shelf.fields) { field in row(field, in: state) }
                         if shelf.part == .arrange, let placed, let node = choices?.node {
                             PlaceRows(box: placed) { to in place(node, to: to, in: state) }
+                        }
+                        if shelf.part == .map, let node = choices?.node {
+                            fetching(node)
                         }
                     }
                 }
@@ -137,7 +143,29 @@ struct Inspector: View {
 
     /// Where a field shows, in the order the sections stand.
     private enum Part: Int, CaseIterable {
-        case main, adjust, fitting, arrange, description, notes, transition, advance, builds, more
+        case main, map, adjust, fitting, arrange, description, notes, transition, advance, builds, more
+    }
+
+    /// Where a fetched map came from, and what fetches it again (ADR-0030, PLAN O.1d), as the
+    /// browser's Map section offers it: each one fetch, one step to undo.
+    @ViewBuilder private func fetching(_ node: String) -> some View {
+        if let fetched = choices?.fetched {
+            Text(fetched)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("map-fetched")
+        }
+        if let remap {
+            HStack {
+                ForEach(MapRemap.allCases) { how in
+                    Button(how.title) { remap(node, how) }
+                        .help(how.help)
+                        .accessibilityIdentifier("remap-\(how.rawValue)")
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
     }
 
     /// The fields offered under this tab, in sections.
@@ -171,6 +199,7 @@ struct Inspector: View {
         case "alt": return (.format, .description)
         case "opacity", "transform/rotate": return (.format, .arrange)
         case "wrap", "maxLines": return (.format, .fitting)
+        case "pin/label", "pin/color", "credit": return (.format, .map)
         case _ where prop.hasPrefix("adjust/"): return (.format, .adjust)
         case "fit": return (.format, type == "text" ? .fitting : .main)
         case "semantic", "x/type", "y/type", "sizeEncoding/field", "key", "labels/role", "focal", "crop":
@@ -184,6 +213,7 @@ struct Inspector: View {
     private func title(_ part: Part, type: String?, noun: String?, node: Bool) -> String {
         switch part {
         case .main: characters != nil ? "Selected Text" : node ? (noun ?? Words.kind(type)) : "Slide"
+        case .map: "Map"
         case .adjust: "Adjust Image"
         case .fitting: "Fitting"
         case .arrange: "Arrange"
