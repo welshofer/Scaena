@@ -1,6 +1,8 @@
 import CoreGraphics
+import Dispatch
 import Foundation
 import Observation
+import Synchronization
 
 /// A deck open for editing, as the browser's editor keeps one (PLAN 2.3, 3.4): the session, the
 /// deck as `.scn` as the source pane shows it, and what compiling and lint found.
@@ -8,10 +10,12 @@ import Observation
 /// The source is what the deck is made from. A patch (a gesture, a choice in the inspector) makes
 /// the deck's source again, a finding's fix rewrites it, and a source typed is compiled as it
 /// stands: each is compiled, becomes the deck where it validates, and lints the state shown at
-/// once; `lintEvery` lints every state once edits stop. Each edit that changes the deck gives
-/// back the source it replaced, which `restore` makes the deck again: an undo, or its redo.
+/// once; `lintEvery` lints every state once the deck opens and once edits stop, laid out away
+/// from the caller's thread so the window answers meanwhile (PLAN 4.13). Each edit that changes
+/// the deck gives back the source it replaced, which `restore` makes the deck again: an undo, or
+/// its redo.
 ///
-/// Use it from one thread at a time, as the session.
+/// Use it from one thread at a time, as the session: the window's, the main actor.
 @Observable
 public final class DeckEditor {
     public let session: ScaenaSession
@@ -36,6 +40,11 @@ public final class DeckEditor {
     public private(set) var findings: [Finding] = []
     /// Whether lint ran on every state, or on the state shown with the rest kept.
     public private(set) var whole = false
+    /// Whether every state is being linted away from the window (PLAN 4.13): its findings come
+    /// when it is done, where the deck has not changed since it began.
+    public var linting: Bool { lints > 0 }
+    /// The lints of every state begun and not yet done.
+    private var lints = 0
     /// The state the window shows: where an edit is linted at once.
     public var shown: String?
     /// The format frames are laid out in (PLAN 2.62, 3.16): one of the deck's `formats`, or none
@@ -64,6 +73,10 @@ public final class DeckEditor {
 
     /// The source the deck was made from last: what an undo of the next edit makes it again.
     @ObservationIgnored private var made = ""
+    /// Bumped by each source compiled: a lint of every state begun before it is of another deck.
+    @ObservationIgnored private var compiled = 0
+    /// Where every state is linted, away from the window (PLAN 4.13).
+    @ObservationIgnored private let linter = Linter()
     /// Each state drawn small, by the digest of its drawing at rest and the width asked.
     @ObservationIgnored private var drawings: [String: (digest: String, width: Int, image: CGImage)] = [:]
     /// Each slide to start as its layout's picture shows it (PLAN 3.31), by its layout, `""` the
@@ -72,7 +85,8 @@ public final class DeckEditor {
 
     public init(session: ScaenaSession) {
         self.session = session
-        // Compiled as the browser opens a deck, and linted on every state, none being shown yet.
+        // Compiled as the browser opens a deck. Its every state is linted once the window shows
+        // it (`lintEvery`), away from the window: opening waits on no lint (PLAN 4.13).
         let source = (try? session.source()) ?? ""
         _ = take(source)
     }
@@ -220,16 +234,25 @@ public final class DeckEditor {
     }
 
     /// Lint the state shown, laid out alone, the others' findings kept: what an edit shows at once.
+    /// With no state shown, what compiling found stands until `lintEvery` comes back.
     public func lintShown() {
-        guard let shown else { return lintEvery() }
-        guard let linting = try? session.lint(state: shown) else { return }
+        guard let shown, let linting = try? session.lint(state: shown) else { return }
         findings = linting.findings
         whole = linting.whole
     }
 
-    /// Lint every state, in every format: once edits stop.
-    public func lintEvery() {
-        guard let linting = try? session.lint() else { return }
+    /// Lint every state, in every format: once the deck opens, and once edits stop (PLAN 4.13).
+    /// The deck as it stands is laid out on a queue of its own, one lint at a time, while the
+    /// caller's actor (the window's) goes on answering; its findings are taken on that actor
+    /// when it is done. A lint of a deck an edit has changed since it began is dropped, so what
+    /// an older deck had never replaces what lint found in this one.
+    public func lintEvery(isolation: isolated (any Actor)? = #isolation) async {
+        guard valid, let laying = session.laying() else { return }
+        let began = compiled
+        lints += 1
+        defer { lints -= 1 }
+        await linter.lay(laying, for: began)
+        guard began == compiled, let linting = try? session.lint(laid: laying) else { return }
         findings = linting.findings
         whole = linting.whole
     }
@@ -280,6 +303,8 @@ public final class DeckEditor {
     /// `lint`, the state shown is linted at once; without, the findings shown wait for `lintEvery`.
     private func take(_ next: String, lint: Bool = true) -> String? {
         source = next
+        compiled += 1
+        linter.latest.store(compiled, ordering: .relaxed)
         guard let compiling = try? session.compile(next) else {
             error = nil
             valid = false
@@ -307,5 +332,25 @@ public final class DeckEditor {
         findings = compiling.findings
         lintShown()
         return before
+    }
+}
+
+/// Where a deck's every state is linted, away from the window (PLAN 4.13): one lint at a time on
+/// a queue of its own, so lints begun as edits stop wait for the one before rather than share the
+/// machine with it, and one of a deck an edit has changed since it was begun is not laid out.
+private final class Linter: Sendable {
+    private let queue = DispatchQueue(label: "ScaenaKit.lint", qos: .utility)
+    /// The deck compiled last, as `DeckEditor` counts them.
+    let latest = Atomic<Int>(0)
+
+    /// Lay `laying` out, taken from the deck `began` counts, on the queue: once the lints before
+    /// it are done, and only where no other deck has been compiled since.
+    func lay(_ laying: Laying, for began: Int) async {
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            queue.async {
+                if self.latest.load(ordering: .relaxed) == began { laying.lay() }
+                done.resume()
+            }
+        }
     }
 }

@@ -43,6 +43,10 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 /// One bundle open for editing.
 pub struct ScaenaSession(Session);
 
+/// The deck a session compiled last, taken to be laid out on every state for lint on a thread
+/// of its own (PLAN 4.13): [`scaena_laying_new`].
+pub struct ScaenaLaying(scaena_session::editor::Laying);
+
 /// A bundle's files, gathered to open it.
 pub struct ScaenaFiles(BTreeMap<String, Vec<u8>>);
 
@@ -282,6 +286,72 @@ pub unsafe extern "C" fn scaena_session_free(session: *mut ScaenaSession) {
     if !session.is_null() {
         // SAFETY: the caller gives a handle this library made and has not freed.
         drop(unsafe { Box::from_raw(session) });
+    }
+}
+
+/// The deck `session` compiled last, taken to be linted on every state away from the session
+/// (PLAN 4.13): [`scaena_laying_lay`] lays it out on whatever thread calls it, while `session`
+/// answers calls on its own thread, and [`scaena_lint_laid`] hands what it found back. Null
+/// where no source compiled to a deck that validates. Free with [`scaena_laying_free`].
+///
+/// # Safety
+/// `session` is a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_laying_new(session: *mut ScaenaSession) -> *mut ScaenaLaying {
+    let taken = guarded(|| Ok(unsafe { handle(session, "session") }?.0.laying()));
+    match taken {
+        Ok(Some(laying)) => Box::into_raw(Box::new(ScaenaLaying(laying))),
+        _ => std::ptr::null_mut(),
+    }
+}
+
+/// Lay `laying`'s deck out on every state and run lint's layout rules on it, with an engine of
+/// its own: the slow part of `lint`, on the thread that calls it, which touches no session.
+/// False where `laying` is null or the engine stopped.
+///
+/// # Safety
+/// `laying` is a live handle from [`scaena_laying_new`], used by one thread at a time.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_laying_lay(laying: *mut ScaenaLaying) -> bool {
+    guarded(|| {
+        unsafe { handle(laying, "laying") }?.0.lay();
+        Ok(())
+    })
+    .is_ok()
+}
+
+/// What lint finds on every state of the deck `session` compiled last, as `lint` with no state
+/// says it, from what `laying` found, laying nothing out, dates judged at `now` (RFC 3339, or
+/// null for none), as `lint` judges them: `{"ok": {"linting"}}`, `linting` null where the deck
+/// changed after `laying` was taken from it, or it was not laid out.
+///
+/// # Safety
+/// `session` and `laying` are live handles, on the session's thread; `now` a NUL-terminated
+/// string, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_lint_laid(
+    session: *mut ScaenaSession,
+    laying: *mut ScaenaLaying,
+    now: *const c_char,
+) -> *mut c_char {
+    envelope(guarded(|| {
+        let session = unsafe { handle(session, "session") }?;
+        let laying = unsafe { handle(laying, "laying") }?;
+        let now = unsafe { maybe_text(now, "now") }?.and_then(scaena_session::store::seconds);
+        let linted = session.0.lint_laid(&laying.0, now).map_err(said)?;
+        Ok(json!({ "linting": serde_json::to_value(linted).map_err(said)? }))
+    }))
+}
+
+/// Free a laying.
+///
+/// # Safety
+/// `laying` is a live handle from [`scaena_laying_new`], or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_laying_free(laying: *mut ScaenaLaying) {
+    if !laying.is_null() {
+        // SAFETY: the caller gives a handle this library made and has not freed.
+        drop(unsafe { Box::from_raw(laying) });
     }
 }
 
