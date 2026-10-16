@@ -80,6 +80,10 @@ enum CanvasOffer {
         if let makePicture = deck.makePicture {
             offers.append(.action("Make a Picture…", symbol: "wand.and.stars", run: makePicture))
         }
+        // A map of a place (PLAN O.1d), there as a picture made goes.
+        if let insertMap = deck.insertMap {
+            offers.append(.action("Map…", symbol: "map", run: insertMap))
+        }
         // What the theme and the bundle offer, by kind, landing where the menu was asked for.
         var kinds: [String] = []
         for insert in deck.inserts where !kinds.contains(insert.kind) { kinds.append(insert.kind) }

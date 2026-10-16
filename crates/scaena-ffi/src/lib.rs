@@ -1465,6 +1465,50 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             let with = args.get("with").and_then(Value::as_object);
             value(serde_json::to_value(s.inserting_with(state, n, at, optional("named"), with).map_err(said)?))?
         }
+        // Where a map goes in `state` (ADR-0030, PLAN O.1d), as the browser's canvas finds it:
+        // the image `node`, the empty place for a picture `slot`, or the box `rect` (canvas units),
+        // with the style the theme's surface asks and the deck's language: a target.
+        "mapTarget" => {
+            let rect = args.get("rect").cloned().ok_or_else(|| said(format!("{method}: `rect` is the box")))?;
+            let rect: [f32; 4] = serde_json::from_value(rect).map_err(said)?;
+            let target = s.map_target(
+                arg("state")?,
+                optional("node").map(str::to_string),
+                optional("slot").map(str::to_string),
+                rect,
+            );
+            value(serde_json::to_value(target.map_err(said)?))?
+        }
+        // Where a map asked for by `aim` goes, as the assistant's `map_fetch` asks (`{state?, into?,
+        // at?}`): a target.
+        "mapAiming" => {
+            let aim = serde_json::from_value(args.get("aim").cloned().unwrap_or(Value::Null)).map_err(said)?;
+            value(serde_json::to_value(s.map_aiming(&aim).map_err(said)?))?
+        }
+        // A map fetched put where `target` says: `png` its picture in base64, which joins the
+        // bundle, `fetched` its record, `pin` where its place stands, `label` the pin's label (the
+        // place's name where none is given, none where it is empty): `{node, src, place, said,
+        // ops}`, the ops Swift makes one patch of, one step to undo.
+        "mapping" => {
+            use base64::Engine;
+            let get = |key: &str| args.get(key).cloned().ok_or_else(|| said(format!("{method}: `{key}`")));
+            let target = serde_json::from_value(get("target")?).map_err(said)?;
+            let fetched = serde_json::from_value(get("fetched")?).map_err(said)?;
+            let pin: [f64; 2] = serde_json::from_value(get("pin")?).map_err(said)?;
+            let png = base64::engine::general_purpose::STANDARD.decode(arg("png")?).map_err(said)?;
+            let label = optional("label").map(str::to_string);
+            value(serde_json::to_value(s.mapping(&target, fetched, pin, label, png).map_err(said)?))?
+        }
+        // What fetching image `node`'s map again in `state` asks for, at `zoom` or centered on
+        // `lat`, `lon` where given: its target, what was asked, its place, center, zoom, style, and
+        // label.
+        "mapRefreshing" => {
+            let number = |key: &str| args.get(key).and_then(Value::as_f64);
+            let center = number("lat").zip(number("lon")).map(|(lat, lon)| scaena_core::fetched::LatLon { lat, lon });
+            value(serde_json::to_value(
+                s.map_refreshing(arg("state")?, arg("node")?, number("zoom"), center).map_err(said)?,
+            ))?
+        }
         // The icons that ship, found by `query`'s words, in `weight` (`regular` or `fill`), at most
         // `limit` (PLAN 2.104): `{icons, found}`, as `scaena icons` finds them.
         "icons" => {

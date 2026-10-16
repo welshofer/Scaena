@@ -95,7 +95,7 @@ pub use tracking::{Snapshot, resolve_states};
 pub const FORMAT_VERSION: &str = "0.31";
 
 /// The theme format version (a theme's `scaena-theme` key), versioned apart from decks.
-pub const THEME_FORMAT_VERSION: &str = "0.19";
+pub const THEME_FORMAT_VERSION: &str = "0.20";
 
 /// The oldest deck format this crate reads (SPEC §3.1, [`version`]). Every format since has only
 /// added to what a deck may say, so a deck saved in one reads as the current format. A format
