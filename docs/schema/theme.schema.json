@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/theme-0.23.json",
+  "$id": "https://scaena.dev/schema/theme-0.25.json",
   "title": "Scaena theme (design system)",
   "description": "Tokens, typographic roles, layout templates, motion, and palettes. Documents reference these by name; they never store resolved values. See docs/SPEC.md §3.6.",
   "type": "object",
   "required": ["scaena-theme", "name", "tokens", "type", "grid", "layouts", "motion"],
   "additionalProperties": false,
   "properties": {
-    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.23(\\.[0-9]+)?$" },
+    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.25(\\.[0-9]+)?$" },
     "name": { "type": "string", "minLength": 1 },
     "description": { "type": "string" },
     "tokens": { "$ref": "#/$defs/Tokens" },
@@ -614,9 +614,9 @@
       ]
     },
     "ChartKind": {
-      "description": "v1 chart kinds (SPEC §3.7); waffle and heatmap are deferred. A `slope` compares two states, a line a series from the first to the second, both ends labeled and the change said; a `range` spans the value axis at each category, a dumbbell between its series or each value with its `interval` (PLAN 1.30).",
+      "description": "v1 chart kinds (SPEC §3.7); waffle and heatmap are deferred. A `slope` compares two states, a line a series from the first to the second, both ends labeled and the change said; a `range` spans the value axis at each category, a dumbbell between its series or each value with its `interval` (PLAN 1.30); a `weather` chart draws a forecast, a column for each period, its sky's icon and its figures (ADR-0030).",
       "type": "string",
-      "enum": ["bar", "stackedBar", "line", "area", "scatter", "dot", "donut", "slope", "range"]
+      "enum": ["bar", "stackedBar", "line", "area", "scatter", "dot", "donut", "slope", "range", "weather"]
     },
     "TextFit": {
       "description": "What a text node does when its text does not fit (SPEC §3.4).",
@@ -874,6 +874,10 @@
         "projected": {
           "description": "Forecasts and estimates (PLAN 1.28): how a line dashes through what is projected, how much lighter an area is under it, and what its value labels add.",
           "$ref": "#/$defs/ChartProjected"
+        },
+        "weather": {
+          "description": "A forecast's look (ADR-0030, PLAN O.2f): its texts' roles and colors, its icons, and the band a highlight sets its period on.",
+          "$ref": "#/$defs/WeatherLook"
         }
       }
     },
@@ -968,6 +972,58 @@
         }
       }
     },
+    "WeatherLook": {
+      "description": "How a weather chart draws (SPEC §3.7; theme format 0.25), every one a role or a token.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "period": {
+          "description": "Each period's name: the axis's role in `onSurface` when unset.",
+          "$ref": "#/$defs/TableText"
+        },
+        "high": {
+          "description": "The high: the value labels' role in `onSurface` when unset.",
+          "$ref": "#/$defs/TableText"
+        },
+        "low": {
+          "description": "The low: the value labels' role in `onSurfaceMuted` when unset.",
+          "$ref": "#/$defs/TableText"
+        },
+        "chance": {
+          "description": "The chance of rain: the axis's role in `onSurfaceMuted` when unset.",
+          "$ref": "#/$defs/TableText"
+        },
+        "caption": {
+          "description": "The sky in words and the wind: the axis's role in `onSurfaceMuted` when unset.",
+          "$ref": "#/$defs/TableText"
+        },
+        "icon": { "description": "The sky's icons.", "$ref": "#/$defs/WeatherIcon" },
+        "band": { "description": "The band a highlight sets its period on: `surface-2` when unset.", "type": "string" }
+      }
+    },
+    "TableText": {
+      "description": "A table's text: a role, and a color token or role.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "role": { "type": "string" }, "color": { "type": "string" } }
+    },
+    "WeatherIcon": {
+      "description": "A forecast's icons: their color and their weight.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "color": {
+          "description": "`onSurface` when unset; the drop beside a chance of rain takes the chance's color.",
+          "type": "string"
+        },
+        "weight": { "description": "Phosphor's weight: `regular` when unset.", "$ref": "#/$defs/IconWeight" }
+      }
+    },
+    "IconWeight": {
+      "description": "An icon's weight: Phosphor's outlines, or its filled shapes.",
+      "type": "string",
+      "enum": ["regular", "fill"]
+    },
     "Tables": {
       "description": "Table styles (SPEC §3.6), every one a role, a token, or a length.",
       "type": "object",
@@ -1001,12 +1057,6 @@
           "type": "boolean"
         }
       }
-    },
-    "TableText": {
-      "description": "A table's text: a role, and a color token or role.",
-      "type": "object",
-      "additionalProperties": false,
-      "properties": { "role": { "type": "string" }, "color": { "type": "string" } }
     },
     "CodeLook": {
       "description": "How code is set and colored (SPEC §3.6, ADR-0029; theme format 0.18). A kind of token the theme names no color for takes one derived from its accent, and every color code is drawn in is held, where it is drawn, to read on its ground.",

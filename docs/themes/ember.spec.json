@@ -163,6 +163,15 @@
       "color": "accent",
       "stroke": "thin",
       "dimmed": 0.45
+    },
+    "weather": {
+      "chance": {
+        "color": "accent-2"
+      },
+      "icon": {
+        "color": "accent",
+        "weight": "fill"
+      }
     }
   },
   "tables": {

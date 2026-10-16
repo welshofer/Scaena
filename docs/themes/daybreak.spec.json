@@ -149,5 +149,16 @@
         "#C2410C"
       ]
     }
+  },
+  "charts": {
+    "weather": {
+      "chance": {
+        "color": "accent"
+      },
+      "icon": {
+        "color": "accent",
+        "weight": "regular"
+      }
+    }
   }
 }

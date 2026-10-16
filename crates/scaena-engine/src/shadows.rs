@@ -93,6 +93,7 @@ impl Shadow {
         Op::Layer {
             node: None,
             cell: None,
+            label: None,
             transform: [sx, 0.0, 0.0, sy, x, y],
             opacity: 1.0,
             blend: Blend::Normal,

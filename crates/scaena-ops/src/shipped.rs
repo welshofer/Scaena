@@ -273,4 +273,36 @@ mod tests {
             }
         }
     }
+
+    /// Every theme that ships gives a forecast its look (PLAN O.2f), whose words read at 4.5:1 on
+    /// the surface and on the band a highlight sets its period on, and whose icons at 3:1.
+    #[test]
+    fn every_theme_that_ships_draws_a_forecast_that_reads() {
+        for theme in THEMES {
+            let parsed: serde_json::Value = serde_json::from_str(theme.text).unwrap();
+            let hex = |name: &str| -> [u8; 3] {
+                let name = parsed["tokens"]["roles"][name].as_str().unwrap_or(name);
+                let literal = parsed["tokens"]["color"][name].as_str().unwrap_or(name);
+                let c = scaena_core::color::parse(literal).unwrap_or_else(|e| panic!("{}: {name}: {e}", theme.name));
+                [c.0[0], c.0[1], c.0[2]]
+            };
+            let look = &parsed["charts"]["weather"];
+            assert!(look.is_object(), "{} gives a forecast its look", theme.name);
+            let grounds = [hex("surface"), hex(look["band"].as_str().unwrap_or("surface-2"))];
+            let texts = [("period", "onSurface"), ("high", "onSurface"), ("low", "onSurfaceMuted")];
+            let texts = texts.into_iter().chain([("chance", "onSurfaceMuted"), ("caption", "onSurfaceMuted")]);
+            for (part, default) in texts {
+                let color = hex(look[part]["color"].as_str().unwrap_or(default));
+                for ground in grounds {
+                    let ratio = scaena_core::palette::ratio(color, ground);
+                    assert!(ratio >= 4.5, "{}: the {part} reads at {ratio:.2}:1", theme.name);
+                }
+            }
+            let icon = hex(look["icon"]["color"].as_str().unwrap_or("onSurface"));
+            for ground in grounds {
+                let ratio = scaena_core::palette::ratio(icon, ground);
+                assert!(ratio >= 3.0, "{}: the icon stands at {ratio:.2}:1", theme.name);
+            }
+        }
+    }
 }

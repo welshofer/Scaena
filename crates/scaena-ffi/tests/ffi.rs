@@ -1562,9 +1562,11 @@ fn a_states_layouts_are_judged_a_step_at_a_time_and_drawn_small() {
         .map(|x| (x["layout"].as_str().unwrap_or(""), x["current"] == true, x["errors"].as_u64().unwrap_or(0)))
         .collect();
     // As the session judges them on its own: the layout it takes now first, the others with errors.
-    assert_eq!(judged.len(), 7, "{suggested}");
+    assert_eq!(judged.len(), 8, "{suggested}");
     assert_eq!(judged[0], ("figure", true, 0), "{suggested}");
-    assert!(judged[1..].iter().all(|&(_, current, errors)| !current && errors > 0), "{suggested}");
+    // The Forecast layout (PLAN O.2f) draws any chart as cleanly, across the slide.
+    assert_eq!(judged[1], ("forecast", false, 0), "{suggested}");
+    assert!(judged[2..].iter().all(|&(_, current, errors)| !current && errors > 0), "{suggested}");
     for (i, x) in list.iter().enumerate() {
         let mut error = null_mut();
         let picture = unsafe { scaena_layout_pixels(s, i, &mut error) };

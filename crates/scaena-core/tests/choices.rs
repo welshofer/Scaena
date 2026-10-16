@@ -625,7 +625,17 @@ fn a_state_offers_its_layout_transition_hold_and_notes() {
     let Takes::Name { of: Vocabulary::Layout, names, overrides: false } = &layout.takes else { panic!("{layout:?}") };
     assert_eq!(
         names,
-        &["metric-trend", "figure", "narrow-figure", "bar-chart", "line-chart", "table", "positioning-map", "full"],
+        &[
+            "metric-trend",
+            "figure",
+            "narrow-figure",
+            "bar-chart",
+            "line-chart",
+            "table",
+            "positioning-map",
+            "forecast",
+            "full"
+        ],
         "the theme's layouts with a slot for each node `revenue` and `mix` place in one, in its order"
     );
     assert_eq!(shown(layout), (Some(json!("figure")), Some(Where::State("revenue".into()))));
@@ -679,7 +689,7 @@ fn a_state_offers_its_layout_transition_hold_and_notes() {
     let blank = state(&doc, "blank");
     assert_eq!(shown(own(&blank, "layout")), (None, None));
     let Takes::Name { names, .. } = &own(&blank, "layout").takes else { panic!() };
-    assert_eq!(names.len(), 172, "with nothing placed in a slot, every layout fits: {names:?}");
+    assert_eq!(names.len(), 173, "with nothing placed in a slot, every layout fits: {names:?}");
     let deck: Deck = serde_json::from_value(example()).unwrap();
     assert!(state_choices(&deck, &Theme::from_json(DUSK).unwrap(), "nowhere").is_err());
 }

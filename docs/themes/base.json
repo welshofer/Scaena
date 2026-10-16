@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.23",
+  "scaena-theme": "0.25",
   "name": null,
   "description": null,
   "tokens": {
@@ -509,7 +509,29 @@
     "pointRadius": null,
     "barGap": null,
     "maxTicks": 5,
-    "annotation": null
+    "annotation": null,
+    "weather": {
+      "period": {
+        "role": "axis"
+      },
+      "high": {
+        "role": "value",
+        "color": "onSurface"
+      },
+      "low": {
+        "role": "value",
+        "color": "onSurfaceMuted"
+      },
+      "chance": {
+        "role": "axis"
+      },
+      "caption": {
+        "role": "axis",
+        "color": "onSurfaceMuted"
+      },
+      "icon": null,
+      "band": "surface-2"
+    }
   },
   "tables": {
     "header": {

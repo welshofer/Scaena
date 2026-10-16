@@ -368,6 +368,8 @@ pub enum ChartKind {
     Slope,
     /// A span on the value axis at each category (PLAN 1.30).
     Range,
+    /// A forecast's periods, each its sky's icon and its figures (ADR-0030).
+    Weather,
 }
 
 impl ChartKind {
@@ -485,11 +487,14 @@ pub struct Label {
     /// A projected value's label, which says so after the value (PLAN 1.28): it does not
     /// count from one value to the next, as a value alone does, but cross-fades.
     pub noted: bool,
+    /// The table cell it stands in, `[row, column]`, where its chart reads as a table: a
+    /// forecast's (ADR-0030).
+    pub cell: Option<[u32; 2]>,
 }
 
 impl Label {
     pub fn new(key: impl Into<String>, origin: [f32; 2], text: TextLayout, value: Option<ValueLabel>) -> Label {
-        Label { key: key.into(), origin, text, value, opacity: 1.0, noted: false }
+        Label { key: key.into(), origin, text, value, opacity: 1.0, noted: false, cell: None }
     }
 }
 
@@ -837,6 +842,75 @@ pub struct ChartLayout {
     /// Small multiples (PLAN 1.31): each panel, keyed by its facet's value, and where its
     /// chart's cell stands in this one's. A chart with panels draws them alone.
     pub panels: Vec<Panel>,
+    /// A forecast's icons (ADR-0030): each sky's, and each drop beside a chance of rain.
+    pub icons: Vec<Icon>,
+}
+
+/// An icon a chart draws (ADR-0030): Phosphor's, its outline on its 256 by 256 view, drawn at
+/// `size` with its top-left at `at`, relative to the chart.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Icon {
+    /// What it matches in the next state: its period and its part.
+    pub key: String,
+    /// The table cell it stands in, `[row, column]`, as a weather chart reads; none for a drop,
+    /// which stands beside its figure's cell.
+    pub cell: Option<[u32; 2]>,
+    pub at: [f32; 2],
+    pub size: f32,
+    /// Its name, as Phosphor names it: `cloud-rain`.
+    pub name: &'static str,
+    /// Its outline on its view, as laid out: frames read no icon's file.
+    pub outline: Path,
+    pub color: Color,
+    /// What a reader hears for it: the sky in words; none for a drop beside its figure.
+    pub words: String,
+}
+
+impl Icon {
+    /// The outline of the icon `name` on its 256 by 256 view (ADR-0030), in Phosphor's fill
+    /// weight where `fill` (PLAN O.2f): compiled in, or handed over (ADR-0015).
+    pub fn outline(name: &str, fill: bool) -> Result<Path, EngineError> {
+        let svg = if fill { crate::icons::weather(&format!("{name}-fill"))? } else { crate::icons::weather(name)? };
+        let bez = kurbo::BezPath::from_svg(&svg)
+            .map_err(|e| EngineError::Layout(format!("the icon `{name}` does not parse: {e}")))?;
+        Ok(crate::shapes::path_of(&bez))
+    }
+}
+
+impl ChartLayout {
+    /// A chart of `kind` that draws nothing yet, reading `source`.
+    pub fn empty(kind: ChartKind, source: String) -> ChartLayout {
+        ChartLayout {
+            credit: None,
+            kind,
+            horizontal: false,
+            base: 0.0,
+            baseline: None,
+            marks: Vec::new(),
+            ticks: Vec::new(),
+            labels: Vec::new(),
+            numerals: None,
+            paths: Vec::new(),
+            y_scale: LinearScale { domain: [0.0, 1.0], range: [0.0, 1.0] },
+            plot: [0.0; 4],
+            clip: None,
+            y_axis: Vec::new(),
+            titles: Vec::new(),
+            legend: Vec::new(),
+            x_grid: Vec::new(),
+            collisions: Vec::new(),
+            crowded: Vec::new(),
+            covers: Vec::new(),
+            notes: Vec::new(),
+            source,
+            rows: BTreeMap::new(),
+            places: BTreeMap::new(),
+            categories: Vec::new(),
+            highlights: Vec::new(),
+            panels: Vec::new(),
+            icons: Vec::new(),
+        }
+    }
 }
 
 /// The credit a chart's or a table's fetched data asks, set at its foot (ADR-0030, decision 6), in
@@ -960,6 +1034,7 @@ pub struct Ctx<'a> {
 }
 
 mod compile;
+pub mod weather;
 pub(crate) use compile::datum_key;
 pub use compile::{color_keys, compile};
 

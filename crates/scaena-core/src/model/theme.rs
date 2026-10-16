@@ -865,6 +865,58 @@ pub struct Charts {
     /// how much lighter an area is under it, and what its value labels add.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub projected: Option<ChartProjected>,
+    /// A forecast's look (ADR-0030, PLAN O.2f): its texts' roles and colors, its icons, and
+    /// the band a highlight sets its period on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weather: Option<WeatherLook>,
+}
+
+/// How a weather chart draws (SPEC §3.7; theme format 0.25), every one a role or a token.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct WeatherLook {
+    /// Each period's name: the axis's role in `onSurface` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub period: Option<TableText>,
+    /// The high: the value labels' role in `onSurface` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub high: Option<TableText>,
+    /// The low: the value labels' role in `onSurfaceMuted` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub low: Option<TableText>,
+    /// The chance of rain: the axis's role in `onSurfaceMuted` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chance: Option<TableText>,
+    /// The sky in words and the wind: the axis's role in `onSurfaceMuted` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caption: Option<TableText>,
+    /// The sky's icons.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<WeatherIcon>,
+    /// The band a highlight sets its period on: `surface-2` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub band: Option<String>,
+}
+
+/// A forecast's icons: their color and their weight.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct WeatherIcon {
+    /// `onSurface` when unset; the drop beside a chance of rain takes the chance's color.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    /// Phosphor's weight: `regular` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weight: Option<IconWeight>,
+}
+
+/// An icon's weight: Phosphor's outlines, or its filled shapes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum IconWeight {
+    #[default]
+    Regular,
+    Fill,
 }
 
 /// How a chart shows the rows its `projected` marks (SPEC §3.7).

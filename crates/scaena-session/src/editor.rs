@@ -798,8 +798,10 @@ mod tests {
         let judged: Vec<(&str, bool, usize)> =
             suggested.iter().map(|(x, _)| (x.layout.as_str(), x.current, x.errors)).collect();
         assert_eq!(judged[0], ("figure", true, 0), "{judged:?}");
-        assert_eq!(judged.len(), 7, "{judged:?}");
-        assert!(judged[1..].iter().all(|&(_, current, errors)| !current && errors > 0), "{judged:?}");
+        assert_eq!(judged.len(), 8, "{judged:?}");
+        // The Forecast layout (PLAN O.2f) draws any chart as cleanly, across the slide.
+        assert_eq!(judged[1], ("forecast", false, 0), "{judged:?}");
+        assert!(judged[2..].iter().all(|&(_, current, errors)| !current && errors > 0), "{judged:?}");
         // As the bundle's lint judges them, the CLI's.
         let b = scaena_ops::open(std::path::Path::new("../../docs/examples/revenue.deck.json")).unwrap();
         let cli = scaena_ops::layouts::suggest(&b, "revenue", None).unwrap();
@@ -826,8 +828,8 @@ mod tests {
         let before = s.pixels("revenue", f64::INFINITY, 160).unwrap();
         let listed = s.starters_painted("revenue", 90, None).unwrap();
         let layouts: Vec<&str> = listed.iter().map(|one| one["layout"].as_str().unwrap_or("blank")).collect();
-        assert_eq!(layouts.len(), 173, "Dusk's 172 layouts, then a blank slide: {layouts:?}");
-        assert_eq!((layouts[0], layouts[172]), ("title", "blank"));
+        assert_eq!(layouts.len(), 174, "Dusk's 173 layouts, then a blank slide: {layouts:?}");
+        assert_eq!((layouts[0], layouts[173]), ("title", "blank"));
         let bullets = &listed[layouts.iter().position(|l| *l == "bullets").unwrap()];
         assert_eq!(bullets["description"], "A headline, and the points that make its case.");
         assert_eq!((bullets["name"].as_str(), bullets["group"].as_str()), (Some("Bullets"), Some("Lists")));
@@ -839,7 +841,7 @@ mod tests {
         let fine = &listed[layouts.iter().position(|l| *l == "fine-print").unwrap()];
         assert_eq!(fine["also"], serde_json::json!(["Disclosures"]), "Fine Print, by Disclosures (PLAN S.3)");
         assert!(
-            listed[172]["name"].is_null() && listed[172]["description"].is_null() && listed[172]["group"].is_null()
+            listed[173]["name"].is_null() && listed[173]["description"].is_null() && listed[173]["group"].is_null()
         );
         let mut pictures: Vec<scaena_paint::Raster> = Vec::new();
         for (i, one) in listed.iter().enumerate() {

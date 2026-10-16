@@ -6,7 +6,7 @@
   ],
   "ops":[
     {"fill":{"path":"M0 0L1920 0L1920 1080L0 1080Z","rule":"nonzero","paint":{"solid":"#FBFAF6FF"}}},
-    {"layer":{"node":"case","cell":null,"transform":[1.0,0.0,0.0,1.0,96.0,90.90625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"case","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,96.0,90.90625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"51 · Lists · recorded","glyphs":[
         [265,0.0,20.71875],
         [261,13.203125,20.71875],
@@ -31,13 +31,13 @@
         [141,214.625,20.71875]
       ],"clusters":[0,1,2,3,5,6,7,8,9,10,11,12,14,15,16,17,18,19,20,21,22]}}
     ]}},
-    {"layer":{"node":"list-points","cell":null,"transform":[1.0,0.0,0.0,1.0,96.0,210.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-      {"layer":{"node":null,"cell":[0,0],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"list-points","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,96.0,210.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[0,0],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"•","glyphs":[
           [329,15.4375,40.65625]
         ],"clusters":[0]}}
       ]}},
-      {"layer":{"node":null,"cell":[0,1],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[0,1],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"Bullets hang at the theme's indent, each ","glyphs":[
           [14,48.0,40.65625],
           [210,74.234375,40.65625],
@@ -124,12 +124,12 @@
           [186,822.40625,94.65625]
         ],"clusters":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39]}}
       ]}},
-      {"layer":{"node":null,"cell":[1,0],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[1,0],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"•","glyphs":[
           [329,15.4375,148.65625]
         ],"clusters":[0]}}
       ]}},
-      {"layer":{"node":null,"cell":[1,1],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[1,1],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"A second point\n","glyphs":[
           [4,48.0,148.65625],
           [1,75.84375,148.65625],
@@ -147,12 +147,12 @@
           [207,323.51562,148.65625]
         ],"clusters":[0,1,2,3,4,5,6,7,8,9,10,11,12,13]}}
       ]}},
-      {"layer":{"node":null,"cell":[2,0],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[2,0],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"–","glyphs":[
           [283,55.796875,202.65625]
         ],"clusters":[0]}}
       ]}},
-      {"layer":{"node":null,"cell":[2,1],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[2,1],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"A point under it, a level in, with the ","glyphs":[
           [4,96.0,202.65625],
           [1,123.84375,202.65625],
@@ -216,12 +216,12 @@
           [207,416.35938,256.65625]
         ],"clusters":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18]}}
       ]}},
-      {"layer":{"node":null,"cell":[3,0],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[3,0],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"·","glyphs":[
           [328,117.921875,310.65625]
         ],"clusters":[0]}}
       ]}},
-      {"layer":{"node":null,"cell":[3,1],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[3,1],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"And one more level in\n","glyphs":[
           [4,144.0,310.65625],
           [181,171.84375,310.65625],
@@ -246,12 +246,12 @@
           [181,536.2344,310.65625]
         ],"clusters":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]}}
       ]}},
-      {"layer":{"node":null,"cell":[4,0],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[4,0],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"•","glyphs":[
           [329,15.4375,364.65625]
         ],"clusters":[0]}}
       ]}},
-      {"layer":{"node":null,"cell":[4,1],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[4,1],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"Back out to the first level","glyphs":[
           [14,48.0,364.65625],
           [124,74.4375,364.65625],
@@ -282,14 +282,14 @@
         ],"clusters":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,18,19,20,21,22,23,24,25,26]}}
       ]}}
     ]}},
-    {"layer":{"node":"list-steps","cell":null,"transform":[1.0,0.0,0.0,1.0,972.0,210.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-      {"layer":{"node":null,"cell":[0,0],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"list-steps","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,972.0,210.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[0,0],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"1.","glyphs":[
           [261,-0.5625,40.65625],
           [310,21.84375,40.65625]
         ],"clusters":[0,0]}}
       ]}},
-      {"layer":{"node":null,"cell":[0,1],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[0,1],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"Numbers count by level\n","glyphs":[
           [60,48.0,40.65625],
           [210,79.234375,40.65625],
@@ -315,13 +315,13 @@
           [176,490.76562,40.65625]
         ],"clusters":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21]}}
       ]}},
-      {"layer":{"node":null,"cell":[1,0],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[1,0],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"2.","glyphs":[
           [262,-0.5625,94.65625],
           [310,21.84375,94.65625]
         ],"clusters":[0,0]}}
       ]}},
-      {"layer":{"node":null,"cell":[1,1],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[1,1],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"The count goes on\n","glyphs":[
           [86,48.0,94.65625],
           [161,74.59375,94.65625],
@@ -342,13 +342,13 @@
           [181,376.04688,94.65625]
         ],"clusters":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]}}
       ]}},
-      {"layer":{"node":null,"cell":[2,0],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[2,0],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"a.","glyphs":[
           [124,48.203125,148.65625],
           [310,69.84375,148.65625]
         ],"clusters":[0,0]}}
       ]}},
-      {"layer":{"node":null,"cell":[2,1],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[2,1],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"A sub-step, lettered\n","glyphs":[
           [4,96.0,148.65625],
           [1,123.84375,148.65625],
@@ -372,13 +372,13 @@
           [141,444.6875,148.65625]
         ],"clusters":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]}}
       ]}},
-      {"layer":{"node":null,"cell":[3,0],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[3,0],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"b.","glyphs":[
           [134,46.15625,202.65625],
           [310,69.84375,202.65625]
         ],"clusters":[0,0]}}
       ]}},
-      {"layer":{"node":null,"cell":[3,1],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[3,1],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"Another\n","glyphs":[
           [4,96.0,202.65625],
           [181,123.84375,202.65625],
@@ -389,13 +389,13 @@
           [197,236.59375,202.65625]
         ],"clusters":[0,1,2,3,4,5,6]}}
       ]}},
-      {"layer":{"node":null,"cell":[4,0],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[4,0],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"i.","glyphs":[
           [163,105.203125,256.65625],
           [310,117.84375,256.65625]
         ],"clusters":[0,0]}}
       ]}},
-      {"layer":{"node":null,"cell":[4,1],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[4,1],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"And one in roman numerals\n","glyphs":[
           [4,144.0,256.65625],
           [181,171.84375,256.65625],
@@ -424,13 +424,13 @@
           [201,655.9531,256.65625]
         ],"clusters":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24]}}
       ]}},
-      {"layer":{"node":null,"cell":[5,0],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[5,0],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"3.","glyphs":[
           [263,-0.5625,310.65625],
           [310,21.84375,310.65625]
         ],"clusters":[0,0]}}
       ]}},
-      {"layer":{"node":null,"cell":[5,1],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[5,1],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"The outer count goes on where it was\n","glyphs":[
           [86,48.0,310.65625],
           [161,74.59375,310.65625],
@@ -470,7 +470,7 @@
           [201,743.28125,310.65625]
         ],"clusters":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35]}}
       ]}},
-      {"layer":{"node":null,"cell":[6,1],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[6,1],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"A plain paragraph starts it again\n","glyphs":[
           [4,0.0,364.65625],
           [1,27.84375,364.65625],
@@ -507,26 +507,26 @@
           [181,585.125,364.65625]
         ],"clusters":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32]}}
       ]}},
-      {"layer":{"node":null,"cell":[7,0],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[7,0],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"1.","glyphs":[
           [261,-0.5625,418.65625],
           [310,21.84375,418.65625]
         ],"clusters":[0,0]}}
       ]}},
-      {"layer":{"node":null,"cell":[7,1],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[7,1],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"One\n","glyphs":[
           [65,48.0,418.65625],
           [181,79.6875,418.65625],
           [143,105.359375,418.65625]
         ],"clusters":[0,1,2]}}
       ]}},
-      {"layer":{"node":null,"cell":[8,0],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[8,0],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"2.","glyphs":[
           [262,-0.5625,472.65625],
           [310,21.84375,472.65625]
         ],"clusters":[0,0]}}
       ]}},
-      {"layer":{"node":null,"cell":[8,1],"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":[8,1],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"Two","glyphs":[
           [86,48.0,472.65625],
           [222,74.484375,472.65625],

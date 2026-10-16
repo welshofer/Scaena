@@ -509,6 +509,9 @@ pub struct Library {
     /// Whether the look the theme gives code (PLAN 2.132), which the copy lacked, was brought: only
     /// into a copy whose deck shows no code text, so no code draws otherwise than it did.
     pub code: bool,
+    /// Whether the look the theme gives a forecast (PLAN O.2f), which the copy lacked, was brought:
+    /// only into a copy whose deck shows no weather chart, so none draws otherwise than it did.
+    pub weather: bool,
 }
 
 /// Whether a theme named `copy` is the theme that ships as `name`: the same name, or one it
@@ -538,7 +541,7 @@ pub fn same(copy: &str, name: &str) -> bool {
 /// text, `code_shown` false (PLAN 2.132): a code text it shows keeps the colors it is drawn in. None
 /// where `theme` is not a copy of `shipped`, another name or another grid, or has every layout,
 /// name, placement, build, and look it would bring.
-pub fn library(theme: &Value, shipped: &Value, code_shown: bool) -> Option<(Value, Library)> {
+pub fn library(theme: &Value, shipped: &Value, code_shown: bool, forecast_shown: bool) -> Option<(Value, Library)> {
     let name = shipped.get("name")?.as_str()?;
     // A copy named as the theme shipped before is its copy too: Gallery's is Salon's (PLAN T.0d).
     if !same(theme.get("name")?.as_str()?, name) {
@@ -608,12 +611,20 @@ pub fn library(theme: &Value, shipped: &Value, code_shown: bool) -> Option<(Valu
     // has: the theme's own colors would recolor code a slide shows.
     let code = shipped.get("code").filter(|_| theme.get("code").is_none() && !code_shown);
     brought.code = code.is_some();
+    // A forecast's look (PLAN O.2f), where the copy has none, its roles and colors are the copy's, and
+    // nothing in the deck draws a forecast in the one it has.
+    let weather = shipped
+        .pointer("/charts/weather")
+        .filter(|_| theme.pointer("/charts/weather").is_none() && !forecast_shown)
+        .filter(|look| drawn_in(look, theme, &taken));
+    brought.weather = weather.is_some();
     if brought.added.is_empty()
         && brought.named.is_empty()
         && !brought.furniture
         && builds.is_none()
         && shadows.is_none()
         && code.is_none()
+        && weather.is_none()
     {
         return None;
     }
@@ -639,10 +650,30 @@ pub fn library(theme: &Value, shipped: &Value, code_shown: bool) -> Option<(Valu
     if let Some(code) = code {
         theme["code"] = code.clone();
     }
+    if let Some(weather) = weather {
+        if !theme.get("charts").is_some_and(Value::is_object) {
+            theme["charts"] = Value::Object(serde_json::Map::new());
+        }
+        theme["charts"]["weather"] = weather.clone();
+    }
     if let Some(version) = shipped.get("scaena-theme") {
         theme["scaena-theme"] = version.clone();
     }
     Some((theme, brought))
+}
+
+/// Whether every role and color `look` names, a forecast's look, is one `copy` has or `taken` adds.
+fn drawn_in(look: &Value, copy: &Value, taken: &serde_json::Map<String, Value>) -> bool {
+    let has = |at: &str, name: &str| copy.pointer(at).and_then(Value::as_object).is_some_and(|m| m.contains_key(name));
+    let role = |r: &str| has("/type/roles", r) || taken.contains_key(r);
+    let color = |c: &str| c.starts_with('#') || has("/tokens/color", c) || has("/tokens/roles", c);
+    let texts = ["period", "high", "low", "chance", "caption"].into_iter().filter_map(|k| look.get(k));
+    let texts_drawn = texts.into_iter().all(|t| {
+        t.get("role").and_then(Value::as_str).is_none_or(role)
+            && t.get("color").and_then(Value::as_str).is_none_or(color)
+    });
+    let icon = look.pointer("/icon/color").and_then(Value::as_str).is_none_or(color);
+    texts_drawn && icon && look.get("band").and_then(Value::as_str).is_none_or(color)
 }
 
 /// The shadows `copy` takes from `shipped` (PLAN 2.115): every one the theme ships, in its order,

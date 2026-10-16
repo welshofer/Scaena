@@ -579,7 +579,77 @@ node! {
         pub legend: Option<Legend>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub annotations: Option<Vec<Annotation>>,
+        /// A `weather` chart's fields, units, and parts (deck format 0.32, ADR-0030): any other
+        /// kind is E106.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub weather: Option<Weather>,
     }
+}
+
+/// What a `weather` chart draws (SPEC §3.7, ADR-0030 decision 19): a column for each period of a
+/// forecast, across the box, or a row down a box taller than wide, each its name, its sky's icon,
+/// and its figures.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Weather {
+    /// The columns each part reads, where they are not the forecast's own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fields: Option<WeatherFields>,
+    /// The units it shows its figures in: the source's by default. They convert at layout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub units: Option<crate::weather::Units>,
+    /// The parts each period shows, in this order; `period`, `sky`, `high`, `low`, and `chance`
+    /// when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub show: Option<Vec<WeatherPart>>,
+    /// Hours between columns of a forecast by the hour; unset, 1, 2, 3, or 6, the least that fits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 1, max = 24))]
+    pub every: Option<u32>,
+    /// The theme color a highlighted period stands on: `surface-2` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub band: Option<String>,
+}
+
+/// The columns a `weather` chart reads its parts from (ADR-0030, decision 18).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct WeatherFields {
+    /// The WMO code of each period's sky: `sky`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sky: Option<String>,
+    /// The high: `high` by the day, `temperature` by the hour.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub high: Option<String>,
+    /// The low: `low`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub low: Option<String>,
+    /// The chance of rain, in percent: `rain`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chance: Option<String>,
+    /// The wind's speed: `wind`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wind: Option<String>,
+    /// Whether an hour is in daylight: `day`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub day: Option<String>,
+}
+
+/// A part of a `weather` chart's period.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum WeatherPart {
+    /// Its name: the weekday, or the hour.
+    Period,
+    /// The sky's icon.
+    Sky,
+    /// The sky in words.
+    Words,
+    High,
+    Low,
+    /// The chance of rain, with a drop where it is 10% or more.
+    Chance,
+    Wind,
 }
 
 node! {
@@ -633,7 +703,8 @@ pub enum ColumnAlign {
 /// v1 chart kinds (SPEC §3.7); waffle and heatmap are deferred. A `slope` compares two
 /// states, a line a series from the first to the second, both ends labeled and the change
 /// said; a `range` spans the value axis at each category, a dumbbell between its series or
-/// each value with its `interval` (PLAN 1.30).
+/// each value with its `interval` (PLAN 1.30); a `weather` chart draws a forecast, a column for
+/// each period, its sky's icon and its figures (ADR-0030).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum ChartKind {
@@ -646,6 +717,8 @@ pub enum ChartKind {
     Donut,
     Slope,
     Range,
+    // A forecast: a column for each period, its sky's icon and its figures (ADR-0030).
+    Weather,
 }
 
 /// How a chart splits into small multiples (SPEC §3.7, PLAN 1.31).

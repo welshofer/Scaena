@@ -22,7 +22,7 @@ fn keys(theme: &Value) -> Vec<String> {
 #[test]
 fn an_older_copy_takes_the_library_and_draws_as_it_did() {
     let (older, shipped) = (read(OLDER), read(SHIPPED));
-    let (theme, brought) = library(&older, &shipped, false).expect("an older copy takes the library");
+    let (theme, brought) = library(&older, &shipped, false, false).expect("an older copy takes the library");
 
     // Every layout the theme ships, in the library's order, each by name in its section.
     assert_eq!(keys(&theme), keys(&shipped));
@@ -68,9 +68,13 @@ fn an_older_copy_takes_the_library_and_draws_as_it_did() {
 
     // Nothing else of the theme changes but the format it is written in, which reads, the builds
     // it lacked (PLAN 2.112), and the shadows it lacked (PLAN 2.115).
-    for part in ["name", "description", "grid", "shaders", "charts", "tables", "density"] {
+    for part in ["name", "description", "grid", "shaders", "tables", "density"] {
         assert_eq!(theme[part], older[part], "{part}");
     }
+    // Its charts, but a forecast's look, which it lacked (PLAN O.2f).
+    let mut charts = theme["charts"].clone();
+    assert_eq!(charts.as_object_mut().unwrap().remove("weather"), Some(shipped["charts"]["weather"].clone()));
+    assert_eq!(charts, older["charts"], "charts");
     let mut tokens = theme["tokens"].clone();
     tokens.as_object_mut().unwrap().remove("shadow");
     assert_eq!(tokens, older["tokens"], "tokens, but the shadows");
@@ -96,7 +100,7 @@ fn an_older_copy_takes_the_library_and_draws_as_it_did() {
     scaena_engine::theme::Theme::from_json(&theme.to_string()).expect("the theme reads");
 
     // Taken once, the library brings nothing more.
-    assert!(library(&theme, &shipped, false).is_none());
+    assert!(library(&theme, &shipped, false, false).is_none());
 }
 
 /// Only a copy of the theme takes its library: not another theme, nor one on another grid, nor
@@ -106,13 +110,13 @@ fn only_a_copy_of_the_theme_takes_it() {
     let (older, shipped) = (read(OLDER), read(SHIPPED));
     let mut other = older.clone();
     other["name"] = json!("Mine");
-    assert!(library(&other, &shipped, false).is_none(), "another theme");
+    assert!(library(&other, &shipped, false, false).is_none(), "another theme");
     let mut regridded = older.clone();
     regridded["grid"]["rows"] = json!(8);
-    assert!(library(&regridded, &shipped, false).is_none(), "another grid");
-    assert!(library(&shipped, &shipped, false).is_none(), "the theme as it ships");
+    assert!(library(&regridded, &shipped, false, false).is_none(), "another grid");
+    assert!(library(&shipped, &shipped, false, false).is_none(), "the theme as it ships");
     let dusk = read("../../docs/examples/themes/dusk.theme.json");
-    assert!(library(&older, &dusk, false).is_none(), "another theme's library");
+    assert!(library(&older, &dusk, false, false).is_none(), "another theme's library");
 }
 
 /// A copy named Gallery, as Salon shipped before it was renamed (PLAN T.0d), is Salon's copy and
@@ -123,13 +127,13 @@ fn a_copy_named_gallery_is_salons() {
     let mut older = shipped.clone();
     older["name"] = json!("Gallery");
     older["layouts"].as_object_mut().unwrap().remove("agenda");
-    let (theme, brought) = library(&older, &shipped, false).expect("a copy named Gallery takes Salon's library");
+    let (theme, brought) = library(&older, &shipped, false, false).expect("a copy named Gallery takes Salon's library");
     assert_eq!(brought.theme, "Salon");
     assert_eq!(brought.added, ["agenda"]);
     assert_eq!(theme["name"], "Gallery");
     assert_eq!(keys(&theme), keys(&shipped));
     let dusk = read("../../docs/examples/themes/dusk.theme.json");
-    assert!(library(&older, &dusk, false).is_none(), "another theme's library");
+    assert!(library(&older, &dusk, false, false).is_none(), "another theme's library");
 }
 
 /// A layout of the copy's own stays, after the library's; a layout that sets words in a role the
@@ -138,13 +142,13 @@ fn a_copy_named_gallery_is_salons() {
 fn the_copy_keeps_its_own_and_takes_only_what_it_can_draw() {
     let (mut older, mut shipped) = (read(OLDER), read(SHIPPED));
     older["layouts"]["mine"] = older["layouts"]["title"].clone();
-    let (theme, _) = library(&older, &shipped, false).unwrap();
+    let (theme, _) = library(&older, &shipped, false, false).unwrap();
     assert_eq!(keys(&theme).last().map(String::as_str), Some("mine"), "the copy's own, after the library's");
     assert_eq!(theme["layouts"]["mine"], older["layouts"]["mine"], "and as it was");
 
     // `hero` in a family the copy does not have: no layout that sets a number in it.
     shipped["type"]["roles"]["hero"]["family"] = json!("nonesuch");
-    let (theme, brought) = library(&older, &shipped, false).unwrap();
+    let (theme, brought) = library(&older, &shipped, false, false).unwrap();
     assert!(brought.roles == ["verse"] && theme["type"]["roles"].get("hero").is_none(), "{:?}", brought.roles);
     let sets_hero = |layout: &Value| layout["slots"].as_object().unwrap().values().any(|s| s["role"] == "hero");
     assert!(brought.added.iter().all(|k| !sets_hero(&theme["layouts"][k])), "{:?}", brought.added);
@@ -158,7 +162,7 @@ fn the_copy_keeps_its_own_and_takes_only_what_it_can_draw() {
     // No `backdrop` in the copy: no picture drawn by it, where the library would put one.
     let (mut older, shipped) = (read(OLDER), read(SHIPPED));
     older["shaders"]["presets"].as_object_mut().unwrap().remove("backdrop");
-    let (theme, _) = library(&older, &shipped, false).unwrap();
+    let (theme, _) = library(&older, &shipped, false, false).unwrap();
     let drawn = theme["layouts"].as_object().unwrap().values().flat_map(|l| l["slots"].as_object().unwrap().values());
     assert!(drawn.filter_map(|s| s.get("example")).all(|e| e.get("picture").is_none()));
 }
@@ -207,18 +211,43 @@ fn codes_look_comes_only_where_no_code_shows() {
     shipped["code"] =
         json!({ "syntax": { "keyword": { "color": "accent-2", "weight": 800 }, "comment": { "italic": false } } });
 
-    let (theme, brought) = library(&older, &shipped, true).expect("the copy takes the library");
+    let (theme, brought) = library(&older, &shipped, true, false).expect("the copy takes the library");
     assert!(!brought.code && theme.get("code").is_none(), "code shows: no look of the theme's");
     assert_eq!(code_digest(&theme), code_digest(&older), "the code draws as it did");
 
-    let (theme, brought) = library(&older, &shipped, false).expect("the copy takes the library");
+    let (theme, brought) = library(&older, &shipped, false, false).expect("the copy takes the library");
     assert!(brought.code);
     assert_eq!(theme["code"], shipped["code"]);
     assert_ne!(code_digest(&theme), code_digest(&older), "code typed in from now on takes the look");
 
     let mut own = older.clone();
     own["code"] = json!({ "tab": 2 });
-    let (theme, brought) = library(&own, &shipped, false).expect("the copy takes the library");
+    let (theme, brought) = library(&own, &shipped, false, false).expect("the copy takes the library");
     assert!(!brought.code);
     assert_eq!(theme["code"], json!({ "tab": 2 }), "a look of its own stays");
+}
+
+/// The look a theme gives a forecast (PLAN O.2f) comes into an older copy only where the deck shows
+/// no weather chart, every role and color it names the copy's: a copy with a look of its own keeps
+/// that.
+#[test]
+fn a_forecasts_look_comes_only_where_no_forecast_shows() {
+    let (older, shipped) = (read(OLDER), read(SHIPPED));
+    let (theme, brought) = library(&older, &shipped, false, false).expect("the copy takes the library");
+    assert!(brought.weather);
+    assert_eq!(theme["charts"]["weather"], shipped["charts"]["weather"]);
+
+    let (theme, brought) = library(&older, &shipped, false, true).expect("the copy takes the library");
+    assert!(!brought.weather && theme.pointer("/charts/weather").is_none(), "a forecast shows: no look of the theme's");
+
+    let mut own = older.clone();
+    own["charts"]["weather"] = json!({ "band": "surface" });
+    let (theme, brought) = library(&own, &shipped, false, false).expect("the copy takes the library");
+    assert!(!brought.weather);
+    assert_eq!(theme["charts"]["weather"], json!({ "band": "surface" }), "a look of its own stays");
+
+    let mut other = shipped.clone();
+    other["charts"]["weather"]["high"]["role"] = json!("headline-xl");
+    let (theme, brought) = library(&older, &other, false, false).expect("the copy takes the library");
+    assert!(!brought.weather && theme.pointer("/charts/weather").is_none(), "a role the copy lacks");
 }

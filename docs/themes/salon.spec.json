@@ -123,5 +123,16 @@
         }
       }
     }
+  },
+  "charts": {
+    "weather": {
+      "chance": {
+        "color": "accent"
+      },
+      "icon": {
+        "color": "onSurface",
+        "weight": "regular"
+      }
+    }
   }
 }

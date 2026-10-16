@@ -468,6 +468,7 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `chart-bullets` | `kicker`, `header`, `main`, `body` | Chart and Bullets, in Charts |
 | `two-charts` | `kicker`, `header`, `first-title`, `second-title`, `first-chart`, `second-chart` | Two Charts, in Charts |
 | `positioning-map` | `kicker`, `header`, `main`, `takeaway`, `note` | Positioning Map, in Charts |
+| `forecast` | `kicker`, `header`, `main`, `note` | Forecast, in Charts |
 | `full` | `kicker`, `header`, `main`, `note` | Full Bleed, in Pictures |
 | `art-left` | `kicker`, `header`, `art`, `body` | Art Left, in Pictures |
 | `art-right` | `kicker`, `header`, `body`, `art` | Art Right, in Pictures |
@@ -670,6 +671,8 @@ state rank layout:figure
 **A map.** A map is a picture a service drew, fetched once into the bundle when it is made, and an image that says so: its `fetched` record names the service, when its answer came, what was asked, and the credit its terms ask shown with it, as runs with their links (`fetched:{from: geoapify, at: "2026-10-15T20:12:44Z", asked: "Ferry Building", credit: […]}`). The engine draws that credit with the picture, in the theme's caption role and never under 12 pt, on a card in its bottom-left corner, or under it with `credit:below`; no deck or theme can hide it, and W314 says where it cannot be read. `pin:{at: [0.5, 0.5], label: "Ferry Building"}` puts Phosphor's map pin on the point of the picture `at` names, in fractions of the whole image as `crop` is, in the accent unless its `color` names another of the theme's, its label on a card beside it. Any image may take a pin. A map with no `alt` reads as the map of its place (SPEC §3.3).
 
 **A forecast.** A forecast is a data source fetched once into the deck, its rows written inline, with the record a map takes: `fetched:{from: open-meteo, at: …, asked: "Boston", credit: […], forecast: {place: {name: Boston, zone: America/New_York, offset: -14400, …}, period: day, units: metric}}`. Each chart or table that reads it carries the credit at its foot, after the place and the forecast's day there, and "edited" once `data_edit` has changed a row. Its days pass, so `scaena lint` judges them at `--now` (an instant or a day; else `SOURCE_DATE_EPOCH`, else the clock): W428 says a forecast's first day has passed at its place, and names the source to fetch again in `refresh`. `kept: true` keeps it as of its date, and lint judges no date in it (SPEC §3.10, §7.4).
+
+**A forecast's chart.** `kind: weather` draws a forecast as the weather on a phone draws it: a column for each day or hour across its box (a row down a box taller than wide), each its name, its sky's icon, its high, its low, and its chance of rain, with a drop where it is 10% or more. `weather:{show: [period, sky, words, high, low, chance, wind]}` picks the parts and their order, `units: us` or `metric` converts at layout, and `every: 3` sets the hours between columns; a `highlight` annotation at a day's date, or an hour's time, sets it on a band (SPEC §3.7).
 
 For tables, stats, rows of cards, other chart kinds, and shader backgrounds, see SPEC §3.3 and the trails example.
 

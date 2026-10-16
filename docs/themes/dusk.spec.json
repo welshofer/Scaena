@@ -149,5 +149,16 @@
         "#FFC857"
       ]
     }
+  },
+  "charts": {
+    "weather": {
+      "chance": {
+        "color": "accent-2"
+      },
+      "icon": {
+        "color": "accent-2",
+        "weight": "regular"
+      }
+    }
   }
 }
