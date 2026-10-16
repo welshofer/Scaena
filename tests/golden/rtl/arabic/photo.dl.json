@@ -8,10 +8,10 @@
   ],
   "ops":[
     {"fill":{"path":"M0 0L1920 0L1920 1080L0 1080Z","rule":"nonzero","paint":{"solid":"#101014FF"}}},
-    {"layer":{"node":"photo-picture","cell":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"photo-picture","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"image":{"asset":"sha256:3d5f90cf0309fa7ccd35986c83d1f375b415f4714823676df4afa35b077cb6ea","src":[27.328125,0.0,105.328125,120.0],"dst":[0.0,0.0,948.0,1080.0],"quality":"high"}}
     ]}},
-    {"layer":{"node":"photo-header","cell":null,"transform":[1.0,0.0,0.0,1.0,1114.0,239.6875],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"photo-header","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,1114.0,239.6875],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"glyphs":{"font":0,"size":80.0,"coords":[4587,0],"paint":{"solid":"#F2F0E9FF"},"text":"الأرض","glyphs":[
         [96,426.79688,69.84375],
         [27,346.40625,65.4375],
@@ -30,7 +30,7 @@
         [38,644.9531,65.4375]
       ],"clusters":[4,2,0]}}
     ]}},
-    {"layer":{"node":"photo-body","cell":null,"transform":[1.0,0.0,0.0,1.0,1114.0,481.82812],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"photo-body","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,1114.0,481.82812],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"glyphs":{"font":2,"size":32.0,"coords":[16384,0],"paint":{"solid":"#F2F0E9FF"},"text":" ","glyphs":[
         [630,83.921875,30.171875]
       ],"clusters":[0]}},
