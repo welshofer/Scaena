@@ -48,6 +48,19 @@ try {
       () => true,
       () => false,
     );
+  /** Whether the cue draws the bar `key` with its `field` within `slack` of `value`, within a while:
+   * after an edit, the lanes are drawn again from the worker's timeline after the source's trip. */
+  const drawnWith = (key, field, value, slack = 0) =>
+    page
+      .waitForFunction(
+        ([k, f, v, s]) => window.scaena.cue.bars().some((b) => b.key === k && Math.abs(b[f] - v) <= s),
+        [key, field, value, slack],
+        { timeout: 30000, polling: 50 },
+      )
+      .then(
+        () => true,
+        () => false,
+      );
   const trips = () => page.evaluate(() => window.scaena.trips().length);
   /** Once the status says `what`. */
   const says = (what) =>
@@ -152,7 +165,7 @@ try {
   check(await says(": waits 0.25 s"), `→ moves it 10 ms, said in seconds: ${await status()}`);
   await redrawn(n);
   check((await source()).includes("choreo subtitle enter:rise delay:250ms"), "written in the choreography item");
-  check((await bar("subtitle enter"))?.from === 250, "and the bar is drawn there");
+  check(await drawnWith("subtitle enter", "from", 250), `and the bar is drawn there: ${JSON.stringify(await bar("subtitle enter"))}`);
   await undo();
   check((await source()) === original, "one undo takes it back");
 
@@ -161,6 +174,7 @@ try {
   await drag('#cue [data-key="subtitle enter/delay"]', await pixels(300));
   check(await says(": waits "), `a drag moves it: ${await status()}`);
   await redrawn(n);
+  await drawnWith("subtitle enter", "delay", 540, 20);
   const dragged = await bar("subtitle enter");
   check(Math.abs(dragged.delay - 540) <= 20 && dragged.delay % 10 === 0, `about 300 ms later, in whole tens: ${dragged.delay}`);
   await undo();
@@ -171,6 +185,7 @@ try {
   await drag('#cue [data-key="subtitle enter/duration"]', await pixels(200));
   check(await says(": lasts "), `its end sets its duration: ${await status()}`);
   await redrawn(n);
+  await drawnWith("subtitle enter", "duration", 620, 20);
   const longer = await bar("subtitle enter");
   check(Math.abs(longer.duration - 620) <= 20, `about 200 ms longer than the theme's 420: ${longer.duration}`);
   check(/choreo subtitle enter:rise delay:240ms duration:\d+ms/.test(await source()), "written on the item");

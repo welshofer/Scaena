@@ -1,5 +1,5 @@
 import Foundation
-import ScaenaKit
+@testable import ScaenaKit
 import Testing
 
 /// The window answers while the deck is linted (PLAN 4.13): B1 opens, its slides drawn and
@@ -38,20 +38,19 @@ import Testing
 @Test @MainActor func aLintOfADeckChangedSinceItBeganIsDropped() async throws {
     let window = Window(editor: DeckEditor(session: try ScaenaSession(directory: b1)))
     window.editor.shown = "cover"
-    let linting = Task { await window.editor.lintEvery() }
-    // Laid out away from the window, which answers meanwhile: an edit made before it comes back.
-    // Waited for a minute at most, sleeping between looks, so a lint that never begins fails the
-    // test rather than holding the main actor in a loop.
-    let deadline = ContinuousClock.now + .seconds(60)
-    while !window.editor.linting && ContinuousClock.now < deadline {
-        try await Task.sleep(for: .milliseconds(5))
-    }
-    try #require(window.editor.linting, "every state being linted")
     let typed: JSONValue = [
         "op": "replace_text", "state": "cover", "node": "title", "from": 0, "to": 0, "text": "Edited. ",
     ]
-    try window.editor.make([typed])
-    await linting.value
+    // The edit is made once the lint has taken the deck and counted itself, on the window's
+    // actor, before it waits for the layout: under way, with no flag polled to catch it by.
+    var edited: Result<String, any Error>?
+    window.editor.begun = {
+        #expect(window.editor.linting, "every state being linted")
+        edited = Result { try window.editor.make([typed]) }
+    }
+    await window.editor.lintEvery()
+    window.editor.begun = nil
+    _ = try #require(edited, "the lint of every state began").get()
     #expect(!window.editor.whole && !window.editor.linting, "the lint of the deck before the edit is dropped")
 
     await window.editor.lintEvery()
