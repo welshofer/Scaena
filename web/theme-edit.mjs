@@ -9,6 +9,8 @@
 //   theme: the deck is drawn in it, its source as it was, and the status says so.
 // - ⌘Z in the source writes the theme back, the deck drawn as it was; ⇧⌘Z edits it again.
 // - A value the theme's schema refuses is refused, with why, the theme as it was.
+// - Code's kinds are each in the color they are drawn in, derived from the accent; one named is one
+//   edit, which ⌘Z takes back (PLAN 2.144).
 // - A save records each edit in the history, by the user, and nothing as changed outside Scaena.
 // - axe-core finds nothing against WCAG 2.1 AA with the tab shown.
 // Exits 1 on any failure.
@@ -124,6 +126,22 @@ try {
   const refused = await status();
   check(refused.startsWith("Theme not changed: The theme: ") && !/\b[EWI]\d{3}\b/.test(refused), `a color the theme cannot read is refused, with why, in a sentence: ${refused}`);
   check((await theme())?.tokens?.color?.paper === "#0B0B10" && (await paper.inputValue()) === "#0B0B10", "and the theme, and the tab, are as they were");
+
+  // Code (PLAN 2.144): each kind shown in the color it is drawn in, derived from the accent;
+  // one named is one edit at /code/syntax/<kind>/color, which ⌘Z takes back.
+  const codes = () => page.evaluate(() => window.scaena.theme.codes());
+  const derived = await codes();
+  check(derived.length === 16 && derived.every((c) => /^#[0-9a-f]{6}$/.test(c.drawn) && c.named === undefined), `code's kinds, each drawn and derived: ${JSON.stringify(derived.slice(0, 2))}`);
+  const keyword = page.locator('#theming [data-syntax="keyword"]');
+  check((await keyword.locator("label").textContent()) === "Keywords" && (await keyword.locator('input[type="color"]').inputValue()) === derived[0].drawn, "Keywords, its swatch the color it is drawn in");
+  check((await keyword.locator(".uses").textContent()) === "from the accent", "marked as derived");
+  await keyword.locator("select").selectOption("onSurfaceMuted");
+  await settled();
+  await page.waitForFunction(() => window.scaena.theme.theme()?.code?.syntax?.keyword?.color === "onSurfaceMuted", null, { timeout: 30000 }).catch(() => {});
+  check((await theme())?.code?.syntax?.keyword?.color === "onSurfaceMuted", `the keywords named Muted Text: ${await status()}`);
+  check((await codes())[0].named === "onSurfaceMuted", "and the tab says so");
+  await press("Control+z", () => !window.scaena.theme.theme()?.code);
+  check(!(await theme())?.code && (await codes())[0].named === undefined, "⌘Z takes it back");
 
   // A save records each edit, by the user, and nothing as changed outside Scaena.
   const saved = await page.evaluate(() => window.scaena.save());

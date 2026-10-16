@@ -22,6 +22,8 @@ struct ThemePanel: View {
     @State private var photos: [String] = []
     /// The type roles in the order the theme writes them, as Insert › Text lists them.
     @State private var roleOrder: [String] = []
+    /// How each kind of code token is drawn (PLAN 2.144).
+    @State private var codes: [CodeColor] = []
 
     private var theme: JSONValue? { text?.json }
 
@@ -78,6 +80,16 @@ struct ThemePanel: View {
                     edit([put("/tokens/space/unit", .number($0), over: space)], "Space Unit")
                 }
             }
+            Section("Code") {
+                // Each kind of code token in the color it is drawn in: one the theme names, or one the
+                // accent derives where it names none (PLAN 2.144).
+                ForEach(codes) { code in
+                    CodeRow(code: code, said: Words.syntax(code.kind), names: colorNames) { value in
+                        let ops = CodeColor.coloring(code.kind, value, in: theme)
+                        return !ops.isEmpty && edit(ops, "\(Words.syntax(code.kind)) Color")
+                    }
+                }
+            }
             Section("From a photo") {
                 if photos.isEmpty {
                     Text("The bundle holds no PNG or JPEG photo.").foregroundStyle(.secondary)
@@ -103,6 +115,14 @@ struct ThemePanel: View {
         }
         photos = images.filter(photo).map(\.path)
         roleOrder = ((try? session.inserts()) ?? []).filter { $0.kind == "Text" }.map(\.name)
+        codes = (try? session.codeColors()) ?? []
+    }
+
+    /// The theme's colors a kind of code may be named: its color roles, then its tokens, each once.
+    private var colorNames: [(key: String, name: String)] {
+        let roles = (theme?["tokens"]?["roles"]?.object ?? [:]).keys.sorted()
+        let tokens = (theme?["tokens"]?["color"]?.object ?? [:]).keys.sorted().filter { !roles.contains($0) }
+        return (roles + tokens).map { (key: $0, name: Words.name($0, of: "color", theme: nil)) }
     }
 
     /// The theme the deck names, or another chosen: one that ships by `ships:` and its name.
@@ -511,5 +531,75 @@ private func selectWhole(_ focused: FocusState<Bool>.Binding) {
         _ = UIApplication.shared.sendAction(
             #selector(UIResponderStandardEditActions.selectAll(_:)), to: nil, from: nil, for: nil)
         #endif
+    }
+}
+
+/// A kind of code token (PLAN 2.144): its swatch in the color it is drawn in, which picks a color of
+/// its own, its name, and the theme's color it is named, or From the Accent; marked where the
+/// accent derives it, or where the color named was moved to read on the slide.
+private struct CodeRow: View {
+    let code: CodeColor
+    let said: String
+    let names: [(key: String, name: String)]
+    /// Name its color, or let the accent derive it: whether it was.
+    let set: (String?) -> Bool
+    @State private var settling: Task<Void, Never>?
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ColorPicker(said, selection: swatch, supportsOpacity: false)
+                .labelsHidden()
+            VStack(alignment: .leading, spacing: 1) {
+                Text(said)
+                    .accessibilityIdentifier("theme-code-\(code.kind)")
+                if let note {
+                    Text(note)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Picker(said, selection: named) {
+                Text("From the Accent").tag("")
+                ForEach(names, id: \.key) { name in
+                    Text(name.name).tag(name.key)
+                }
+                if let own = code.named, !names.contains(where: { $0.key == own }) {
+                    Text(own).tag(own)
+                }
+            }
+            .labelsHidden()
+            .fixedSize()
+            .accessibilityIdentifier("theme-code-color-\(code.kind)")
+        }
+    }
+
+    /// Where the color drawn is not the one named: derived, or moved to read.
+    private var note: String? {
+        code.named == nil ? "From the accent" : code.moved ? "Moved to read on the slide" : nil
+    }
+
+    private var named: Binding<String> {
+        Binding(
+            get: { code.named ?? "" },
+            set: { picked in
+                guard picked != (code.named ?? "") else { return }
+                _ = set(picked.isEmpty ? nil : picked)
+            })
+    }
+
+    /// The swatch: the color drawn; a color picked, its hex, once the picker rests.
+    private var swatch: Binding<Color> {
+        Binding(
+            get: { ThemeLook.hex(code.drawn) ?? .clear },
+            set: { picked in
+                guard let hex = ThemeLook.hex(picked), hex.lowercased() != code.drawn.lowercased() else { return }
+                settling?.cancel()
+                settling = Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(400))
+                    guard !Task.isCancelled else { return }
+                    _ = set(hex)
+                }
+            })
     }
 }

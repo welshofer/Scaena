@@ -69,6 +69,7 @@ import type {
   Themed,
   ThemeEdited,
   ThemeText,
+  CodeColor,
   Themes,
   ToHelper,
   ToWorker,
@@ -651,6 +652,8 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         const next = player.source();
         return post({ type: "restored", id: data.id, ...done, source: next, edited: await edit(next, data.index, data.format) });
       }
+      case "codeColors":
+        return post({ type: "codeColors", id: data.id, colors: JSON.parse(player.codeColors()) as CodeColor[] });
       case "themeText": {
         const text = player.themeText();
         return post({ type: "themeText", id: data.id, theme: text ? (JSON.parse(text) as ThemeText) : null });

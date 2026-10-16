@@ -140,6 +140,44 @@ final class ThemeTests: XCTestCase {
             XCTAssertTrue(says(32).waitForExistence(timeout: 10), "⌘Z did not take the step back")
         }
 
+        try XCTContext.runActivity(named: "Code's keywords named a color are one step to undo") { _ in
+            // The Code section stands under Spacing, near the foot of a panel some pages long:
+            // scrolled to as a person scrolls, until the keywords' row shows (PLAN 2.144). Each drag
+            // starts in the panel's right margin, beside the steppers and clear of the fields, at a
+            // point of the window that stays in the panel however far it has scrolled: a row
+            // dragged once has gone above the window, and a press there drags nothing.
+            let keywords = app.staticTexts.matching(NSPredicate(format: "identifier == 'theme-code-keyword'")).firstMatch
+            let derived = any.matching(NSPredicate(format: "label == 'From the accent'")).firstMatch
+            let window = app.windows.firstMatch.frame
+            let margin = app.windows.firstMatch.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: window.maxX - 55, dy: window.maxY * 0.75))
+            for _ in 0..<12 where !(keywords.exists && keywords.isHittable) {
+                margin.press(
+                    forDuration: 0.1, thenDragTo: margin.withOffset(CGVector(dx: 0, dy: -400)), withVelocity: .slow,
+                    thenHoldForDuration: 0.5)
+            }
+            guard keywords.waitForExistence(timeout: 10), derived.exists else {
+                keep(app, as: "no-code-colors")
+                throw Unseen(description: "the theme shows no code colors: \(app.debugDescription)")
+            }
+            keep(app, as: "theme-code")
+            let pick = any.matching(NSPredicate(format: "identifier == 'theme-code-color-keyword'")).firstMatch
+            guard pick.waitForExistence(timeout: 5) else {
+                throw Unseen(description: "the keywords have no color to pick: \(app.debugDescription)")
+            }
+            pick.tap()
+            let muted = app.buttons.matching(NSPredicate(format: "label == 'Muted Text'")).firstMatch
+            guard muted.waitForExistence(timeout: 5) else {
+                keep(app, as: "no-code-menu")
+                throw Unseen(description: "the keywords' colors offer no Muted Text: \(app.debugDescription)")
+            }
+            muted.tap()
+            XCTAssertTrue(wait(10) { "\(pick.label) \(pick.value as? String ?? "")".contains("Muted Text") }, "the keywords are not Muted Text: \(pick.debugDescription)")
+            keep(app, as: "theme-code-named")
+            app.typeKey("z", modifierFlags: .command)
+            XCTAssertTrue(wait(10) { "\(pick.label) \(pick.value as? String ?? "")".contains("From the Accent") }, "⌘Z did not take the keywords' color back: \(pick.debugDescription)")
+        }
+
         // The inspector as the other tests find it.
         if tab("Format").exists { tab("Format").tap() }
     }
