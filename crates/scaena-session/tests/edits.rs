@@ -87,9 +87,9 @@ fn bundles(all: bool) -> Vec<Bundle> {
         out.push(Bundle { name, deck, theme, files });
     };
     let examples_named: &[&'static str] = if all {
-        &["revenue", "charts", "code", "trails", "ridgeline", "higher-ed"]
+        &["revenue", "charts", "code", "haiku", "trails", "ridgeline", "higher-ed"]
     } else {
-        &["revenue", "charts", "code"]
+        &["revenue", "charts", "code", "haiku"]
     };
     for &name in examples_named {
         add(name, &examples.join(format!("{name}.deck.json")), shared.clone(), &examples);

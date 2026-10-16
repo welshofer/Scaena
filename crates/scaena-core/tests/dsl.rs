@@ -13,6 +13,7 @@ fn corpus() -> Vec<(String, String)> {
         "docs/examples/higher-ed.deck.json".into(),
         "docs/examples/code.deck.json".into(),
         "docs/examples/weather.deck.json".into(),
+        "docs/examples/haiku.deck.json".into(),
         "docs/examples/authorability/deck.json".into(),
         "tests/fixtures/torture.scaena/deck.json".into(),
         "tests/bench/b1.scaena/deck.json".into(),

@@ -524,7 +524,7 @@ fn a_deck_that_is_not_json_is_an_error_not_a_finding() {
 fn e103_two_rows_one_mark() {
     // A mark is known by its key, else its category, with its series beside it.
     let deck = serde_json::json!({
-        "scaena": "0.30",
+        "scaena": "0.31",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -568,7 +568,7 @@ fn what_marks_a_row_projected_is_a_column_that_can_hold_it() {
     let props: serde_json::Map<String, serde_json::Value> =
         nodes.keys().map(|k| (k.clone(), serde_json::json!({}))).collect();
     let deck = serde_json::json!({
-        "scaena": "0.30",
+        "scaena": "0.31",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -606,7 +606,7 @@ fn only_a_bar_charts_bars_turn() {
         c
     };
     let deck = serde_json::json!({
-        "scaena": "0.30",
+        "scaena": "0.31",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -632,7 +632,7 @@ fn a_slope_compares_two_states_and_a_range_spans_something() {
     // range's, each end a column of numbers (E106, E103); a range with no series, color, or
     // interval spans nothing (E106).
     let deck = serde_json::json!({
-        "scaena": "0.30",
+        "scaena": "0.31",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -680,7 +680,7 @@ fn small_multiples_facet_by_a_field_of_their_data() {
             "y": { "field": "v" }, "facet": facet, "alt": "", "at": { "in": "main" } })
     };
     let deck = serde_json::json!({
-        "scaena": "0.30",
+        "scaena": "0.31",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -797,7 +797,7 @@ fn a_code_text_takes_none_of_what_code_does_not_use() {
         node
     };
     let deck = serde_json::json!({
-        "scaena": "0.30",
+        "scaena": "0.31",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -861,6 +861,17 @@ fn a_code_text_takes_none_of_what_code_does_not_use() {
         "`later` is code, which never wraps: it shrinks to fit without `fit: wrap`"
     );
     assert_eq!(say("/nodes/snippet/style/case"), "`snippet` is code, set as written: it takes no `style.case`");
+}
+
+#[test]
+fn a_wrap_of_none_validates_and_an_unknown_wrap_is_e106() {
+    let mut deck: serde_json::Value = serde_json::from_str(fixture!("E106", "clean")).unwrap();
+    let text = deck["nodes"].as_object().unwrap().iter().find(|(_, n)| n["type"] == "text" && n.get("code").is_none());
+    let id = text.map(|(id, _)| id.clone()).expect("a text");
+    deck["nodes"][&id]["wrap"] = serde_json::json!("none");
+    assert_eq!(findings(&deck.to_string()), Vec::<String>::new());
+    deck["nodes"][&id]["wrap"] = serde_json::json!("verse");
+    assert_eq!(findings(&deck.to_string()), vec![format!("E106 /nodes/{id}/wrap")]);
 }
 
 /// A fetched picture (ADR-0030): its record, its pin, and where its credit goes round-trip through
