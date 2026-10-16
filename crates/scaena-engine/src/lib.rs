@@ -36,6 +36,7 @@ pub mod fonts;
 pub mod geometry;
 pub mod guides;
 pub mod hyphen;
+pub mod icons;
 pub mod images;
 pub mod layout;
 pub mod lint;

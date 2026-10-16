@@ -14,8 +14,17 @@
 // holding the engine's module and no deck (PLAN 2.28): a worker whose first message is `help`
 // is one.
 import { codeTables } from "@scaena/code-tables";
-import { hyphenation, verse } from "@scaena/hyphenation";
-import init, { Canvas, Player, engineModule, setCodeTables, setHyphenation, setVerse, shaderRows } from "@scaena/wasm";
+import { hyphenation, verse, weatherIcons } from "@scaena/hyphenation";
+import init, {
+  Canvas,
+  Player,
+  engineModule,
+  setCodeTables,
+  setHyphenation,
+  setIcons,
+  setVerse,
+  shaderRows,
+} from "@scaena/wasm";
 import { deleteKept, keptBundle, newBundle, readAll, remove, renameKept, write } from "./folders";
 import { finding } from "./words";
 import type {
@@ -733,6 +742,12 @@ function tables(name: string): Uint8Array | undefined {
   return fetchedNow(codeTables[name]);
 }
 
+/** A forecast's icons, which the editor's module leaves out too (ADR-0030): fetched as the
+ * patterns are, the first time a forecast lays out. */
+function icons(): Uint8Array | undefined {
+  return fetchedNow(weatherIcons);
+}
+
 /** The bytes at `url`, fetched at once, as a worker may: none where there is no such file. */
 function fetchedNow(url: string | undefined): Uint8Array | undefined {
   if (!url) return undefined;
@@ -775,6 +790,7 @@ async function open(source: Source, painter: Painter, target: OffscreenCanvas, e
   setHyphenation(patterns);
   setCodeTables(tables);
   setVerse(syllables);
+  setIcons(icons);
   canvas = target;
   if (painter !== "cpu") {
     // Ask for an adapter before WebGPU takes the canvas: a canvas WebGPU holds takes no other
@@ -964,10 +980,11 @@ async function shipped(theme: string): Promise<{ file: string; text: string; fon
  * what it came to. The page opens it as it opens any bundle's files. */
 async function generating(job: Generate, engine?: WebAssembly.Module) {
   await init(engine && { module_or_path: engine });
-  // Lint lays the deck's texts out, which can hyphenate them and color their code, and counts a haiku.
+  // Lint lays the deck's texts out, which can hyphenate them and color their code, counts a haiku, and lays out its forecasts.
   setHyphenation(patterns);
   setCodeTables(tables);
   setVerse(syllables);
+  setIcons(icons);
   const { generate } = await import("@scaena/generate");
   const theme = await shipped(job.theme);
   const { files, made, title } = await generate(job, theme, (event) => post({ type: "generating", event }));

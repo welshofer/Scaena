@@ -82,6 +82,7 @@ fn a_kept_context_paints_what_a_new_one_does() {
     let layer = Op::Layer {
         node: None,
         cell: None,
+        label: None,
         transform: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
         opacity: 0.5,
         blend: Blend::Normal,

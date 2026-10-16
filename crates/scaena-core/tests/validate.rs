@@ -545,7 +545,7 @@ fn a_deck_that_is_not_json_is_an_error_not_a_finding() {
 fn e103_two_rows_one_mark() {
     // A mark is known by its key, else its category, with its series beside it.
     let deck = serde_json::json!({
-        "scaena": "0.31",
+        "scaena": "0.32",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -589,7 +589,7 @@ fn what_marks_a_row_projected_is_a_column_that_can_hold_it() {
     let props: serde_json::Map<String, serde_json::Value> =
         nodes.keys().map(|k| (k.clone(), serde_json::json!({}))).collect();
     let deck = serde_json::json!({
-        "scaena": "0.31",
+        "scaena": "0.32",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -627,7 +627,7 @@ fn only_a_bar_charts_bars_turn() {
         c
     };
     let deck = serde_json::json!({
-        "scaena": "0.31",
+        "scaena": "0.32",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -653,7 +653,7 @@ fn a_slope_compares_two_states_and_a_range_spans_something() {
     // range's, each end a column of numbers (E106, E103); a range with no series, color, or
     // interval spans nothing (E106).
     let deck = serde_json::json!({
-        "scaena": "0.31",
+        "scaena": "0.32",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -701,7 +701,7 @@ fn small_multiples_facet_by_a_field_of_their_data() {
             "y": { "field": "v" }, "facet": facet, "alt": "", "at": { "in": "main" } })
     };
     let deck = serde_json::json!({
-        "scaena": "0.31",
+        "scaena": "0.32",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -818,7 +818,7 @@ fn a_code_text_takes_none_of_what_code_does_not_use() {
         node
     };
     let deck = serde_json::json!({
-        "scaena": "0.31",
+        "scaena": "0.32",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -975,4 +975,41 @@ fn a_fetched_sources_record_is_checked_and_its_date_is_not() {
         findings(&deck(fetched("weatherwise", "yesterday"))),
         ["E106 /data/week/fetched/at", "E106 /data/week/fetched/from"]
     );
+}
+
+/// A weather chart (ADR-0030, PLAN O.2b): `weather` on another kind is E106; a field it names that
+/// its data lacks, a sky that is no WMO code Open-Meteo documents, and data with no dates to key its
+/// periods are E103.
+#[test]
+fn a_weather_charts_fields_and_skies_are_its_datas() {
+    let deck = |nodes: serde_json::Value, rows: serde_json::Value| {
+        let props: serde_json::Map<String, serde_json::Value> =
+            nodes.as_object().unwrap().keys().map(|k| (k.clone(), serde_json::json!({}))).collect();
+        serde_json::json!({
+            "scaena": scaena_core::FORMAT_VERSION,
+            "canvas": { "width": 1920, "height": 1080 },
+            "theme": "theme.json",
+            "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
+            "data": { "week": {
+                "source": { "inline": rows },
+                "schema": { "date": "date", "sky": "number", "high": "number", "low": "number" }
+            } },
+            "nodes": nodes,
+            "states": [{ "id": "a", "layout": "full", "props": props }]
+        })
+        .to_string()
+    };
+    let rows = serde_json::json!([{ "date": "2026-10-15", "sky": 3, "high": 17, "low": 9 }]);
+    let fine = serde_json::json!({ "w": { "type": "chart", "kind": "weather", "data": "@week", "alt": "", "at": { "in": "main" } } });
+    assert!(findings(&deck(fine, rows.clone())).is_empty());
+    let wrong = serde_json::json!({
+        "b": { "type": "chart", "kind": "bar", "data": "@week", "x": { "field": "date" }, "y": { "field": "high" },
+               "weather": { "units": "us" }, "alt": "", "at": { "in": "main" } },
+        "w": { "type": "chart", "kind": "weather", "data": "@week", "weather": { "fields": { "wind": "gusts" } },
+               "alt": "", "at": { "in": "main" } }
+    });
+    assert_eq!(findings(&deck(wrong, rows)), ["E103 /nodes/w/weather/fields/wind", "E106 /nodes/b/weather"]);
+    let unknown = serde_json::json!([{ "date": "2026-10-15", "sky": 4, "high": 17, "low": 9 }]);
+    let w = serde_json::json!({ "w": { "type": "chart", "kind": "weather", "data": "@week", "alt": "", "at": { "in": "main" } } });
+    assert_eq!(findings(&deck(w, unknown)), ["E103 /nodes/w/data"]);
 }

@@ -260,7 +260,7 @@ pub fn pictured(deck: &Deck, theme: &Theme, shown: &str, layout: Option<&str>) -
 /// A few rows made up for a chart of `kind` (PLAN 3.31), their schema, and the chart that reads
 /// them, its data not yet named: six months for a bar, a dot, a line, or an area; three kinds of
 /// work a quarter for a stack; four slices of a donut; a scatter's dozen points; two years of four
-/// teams for a slope or a range.
+/// teams for a slope or a range; a week's forecast for a weather chart.
 fn example_chart(kind: scaena_core::model::nodes::ChartKind) -> (Vec<Value>, Value, Value) {
     use scaena_core::model::nodes::ChartKind;
     let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
@@ -333,6 +333,20 @@ fn example_chart(kind: scaena_core::model::nodes::ChartKind) -> (Vec<Value>, Val
                 }
             };
             (rows, json!({ "year": "string", "team": "string", "score": "number" }), node)
+        }
+        ChartKind::Weather => {
+            // A week of June, by the day, as a forecast reads (ADR-0030).
+            let week = [(2, 24.0, 15.0, 10.0), (0, 27.0, 16.0, 0.0), (61, 21.0, 14.0, 80.0), (3, 22.0, 13.0, 30.0)];
+            let week = week.iter().chain(&[(1, 25.0, 14.0, 5.0), (95, 23.0, 17.0, 60.0), (0, 28.0, 18.0, 0.0)]);
+            let rows = week
+                .enumerate()
+                .map(|(i, (sky, high, low, rain))| {
+                    json!({ "date": format!("2026-06-{:02}", i + 1), "sky": sky, "high": high, "low": low, "rain": rain })
+                })
+                .collect();
+            let schema =
+                json!({ "date": "date", "sky": "number", "high": "number", "low": "number", "rain": "number" });
+            (rows, schema, json!({ "type": "chart", "kind": kind, "x": { "field": "date", "type": "temporal" } }))
         }
     }
 }

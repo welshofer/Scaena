@@ -1,5 +1,5 @@
 {
-  "scaena": "0.31",
+  "scaena": "0.32",
   "_comment": "W232 trigger: body text asks for weight 700, and the theme's serif family is Instrument Serif, a family of one weight with no `wght` axis. No bold is synthesized: it is set in the family's own weight.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "one-weight.theme.json",
