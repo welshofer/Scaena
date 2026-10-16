@@ -10,7 +10,8 @@
 //!   directory. `crates/scaena-wasm/www/smoke.mjs` reads `vello` on WebGPU back from its
 //!   page's canvas into `wasm-smoke/`; `web/smoke.mjs` screenshots the web player's frames
 //!   into `player-webgpu/` and `player-cpu/` (PLAN 2.1). Skipped when the variable is unset;
-//!   required, state by state, for each directory it names.
+//!   required, frame by frame, for each directory it names and each frame `raw.fnv1a` names:
+//!   the browser draws the deck as it is, not a golden drawn in an edited theme (PLAN T.3a).
 //!
 //! A failing pair writes its diff image (`diff::image`: red over ΔE 1, magenta for a
 //! half-range step, blue for tolerated differences) to
@@ -65,6 +66,13 @@ fn painters_agree_within_spec_tolerance() {
         eprintln!("the browser's: skipped: SCAENA_WEB_PNGS is unset (`just spike` and `just web-smoke` set it)");
     }
 
+    // The browser's pages draw the deck's own frames, which `raw.fnv1a` names; a golden drawn in an
+    // edited theme (`images+mat`, PLAN T.3a) is the native painters' alone.
+    let drawn: std::collections::BTreeSet<String> = std::fs::read_to_string(format!("{GOLDEN}/raw.fnv1a"))
+        .unwrap()
+        .lines()
+        .filter_map(|l| l.split(' ').next().map(str::to_string))
+        .collect();
     let mut failures = Vec::new();
     for (state, dl) in &dls {
         let read = |path: &std::path::Path| {
@@ -75,7 +83,7 @@ fn painters_agree_within_spec_tolerance() {
         if let Some((painter, _)) = gpu.as_mut() {
             rasters.push(("gpu", painter.paint(dl, &store, 1.0).unwrap_or_else(|e| panic!("{state}: {e}"))));
         }
-        for (name, dir) in &web {
+        for (name, dir) in web.iter().filter(|_| drawn.contains(state)) {
             rasters.push((name, read(&dir.join(format!("{state}.png")))));
         }
         let mut row = format!("{state:<14}");

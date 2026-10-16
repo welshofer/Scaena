@@ -54,8 +54,9 @@ try {
   const dusk = await drawn(page);
   const first = await offered(page);
   check(
-    first.includes("In this deck/Dusk*") && ["Dusk", "Daybreak", "Ember", "Gallery"].every((t) => first.includes(`Built in/${t}`)),
-    `the picker offers the deck's Dusk, chosen, and the themes built in: ${first.join(", ")}`,
+    first.includes("In this deck/Dusk*") &&
+      ["Stage/Dusk", "Executive/Daybreak", "Analyst/Ember", "Editorial/Salon"].every((t) => first.includes(t)),
+    `the picker offers the deck's Dusk, chosen, and the themes built in, by family: ${first.join(", ")}`,
   );
 
   // Daybreak, which ships.

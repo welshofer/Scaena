@@ -87,6 +87,7 @@ pub const ALSO_CALLED: &[(&str, &[&str])] = &[
     ("table", &["Rubric"]),
     ("closing", &["Thank You"]),
     ("chyron", &["Lower Third Lyrics"]),
+    ("fine-print", &["Disclosures"]),
 ];
 
 /// The other names a layout is searched for by, as [`ALSO_CALLED`] gives them: none for most.
@@ -148,8 +149,8 @@ pub fn starting(deck: &Deck, theme: &Theme, shown: &str, layout: Option<&str>) -
 /// The patch that draws `layout`'s picture after `shown`'s slide (PLAN 3.31): the slide
 /// [`starting`] makes, and in each slot that waits with an `example`, what it says: a picture
 /// drawn by the theme's shader preset, under the cards and the words over it, each picture on the
-/// slide with a seed of its own; or a chart or a table of a few rows made up for it, written
-/// inline. An editor draws it, so a
+/// slide with a seed of its own; a map's place, that picture with a pin and a label over it (PLAN
+/// O.1e); or a chart or a table of a few rows made up for it, written inline. An editor draws it, so a
 /// layout's picture shows what each slot is for, and never saves it.
 pub fn example(deck: &Deck, theme: &Theme, shown: &str, layout: &str) -> Result<AddedState, OpsError> {
     let mut started = starting(deck, theme, shown, Some(layout))?;
@@ -177,6 +178,29 @@ pub fn example(deck: &Deck, theme: &Theme, shown: &str, layout: &str) -> Result<
                 node["data"] = json!(format!("@{id}"));
                 node["at"] = json!({ "in": slot });
                 node
+            }
+            Example::Map(preset) => {
+                let Some(p) = presets.and_then(|p| p.get(preset)) else {
+                    return Err(OpsError::new(format!("the theme has no shader preset `{preset}`")));
+                };
+                seed += 1;
+                // A pin, its tip at the place's middle, and a label under it, over the picture: a
+                // map's place, drawn with no provider's map (ADR-0030).
+                let pin = named(deck, &format!("{id}-pin"), &ids);
+                let pinned = json!({
+                    "type": "shape", "kind": "path", "path": MAP_PIN, "view": [0, 0, 1000, 1000], "fill": "accent",
+                    "semantic": "decoration", "at": { "in": slot },
+                });
+                started.patch.push(json!({ "op": "add_node", "id": pin, "node": pinned, "state": started.id }));
+                ids.push(pin);
+                let label = named(deck, &format!("{id}-label"), &ids);
+                let labeled = json!({
+                    "type": "text", "role": "label", "text": "A place", "at": { "in": slot },
+                    "align": { "x": "center", "y": "center" }, "transform": { "translate": [0, 40] },
+                });
+                started.patch.push(json!({ "op": "add_node", "id": label, "node": labeled, "state": started.id }));
+                ids.push(label);
+                json!({ "type": "shader", "kind": p.kind, "preset": preset, "seed": seed, "at": { "in": slot }, "z": -2 })
             }
             Example::Table(columns) => {
                 let rows = example_table(*columns);
@@ -206,6 +230,29 @@ pub fn example(deck: &Deck, theme: &Theme, shown: &str, layout: &str) -> Result<
                 .collect()
         };
         started.patch.splice(at..at, ops);
+    }
+    Ok(started)
+}
+
+/// A map's pin on a view of 1000 × 1000 (PLAN O.1e): a drop whose tip stands at the middle, as a
+/// pin marks its place.
+const MAP_PIN: &str = "M500 380C470 380 446 404 446 434C446 470 500 500 500 500C500 500 554 470 554 434C554 404 530 380 500 380ZM500 412C512 412 522 422 522 434C522 446 512 456 500 456C488 456 478 446 478 434C478 422 488 412 500 412Z";
+/// The patch that draws the picture a picker shows of a slide started after `shown`'s slide
+/// (PLAN 3.30, 3.31): in `layout`, the slide [`example`] makes, and a box of the theme's second
+/// surface (`surface-2`, else `line`) under the words in each other slot that waits for a picture
+/// or a figure; with none, the blank slide [`starting`] makes. What Add Slide draws of each layout,
+/// and what a theme's contact sheet draws (PLAN T.0e); an editor never saves it.
+pub fn pictured(deck: &Deck, theme: &Theme, shown: &str, layout: Option<&str>) -> Result<AddedState, OpsError> {
+    let Some(name) = layout else { return starting(deck, theme, shown, None) };
+    let mut started = example(deck, theme, shown, name)?;
+    let fill = ["surface-2", "line"].into_iter().find(|c| theme.tokens.roles.contains_key(*c));
+    let waits = |s: &Slot| s.role.is_none() && s.example.is_none() && matches!(s.prompt, Some(Prompt::Words(_)));
+    let waiting = theme.layouts.get(name).into_iter().flat_map(|t| &t.slots).filter(|(_, s)| waits(s));
+    for (n, (slot, _)) in waiting.enumerate() {
+        let Some(fill) = fill else { break };
+        let node = json!({ "type": "shape", "kind": "rect", "fill": fill, "at": { "in": slot }, "z": -1 });
+        let id = format!("{}-waiting-{n}", started.id);
+        started.patch.push(json!({ "op": "add_node", "id": id, "node": node, "state": started.id }));
     }
     Ok(started)
 }
@@ -304,8 +351,34 @@ fn example_chart(kind: scaena_core::model::nodes::ChartKind) -> (Vec<Value>, Val
     }
 }
 
-/// A few rows made up for a table of `columns` columns (PLAN 3.31): a plan and how it went.
+/// A few rows made up for a table of `columns` columns (PLAN 3.31): a plan and how it went; or,
+/// of seven, a month's calendar, a week to each row, with what falls on a few of its days (PLAN
+/// S.2).
 fn example_table(columns: u32) -> Vec<Value> {
+    if columns >= 7 {
+        let days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+        let falls = |day: u32| match day {
+            3 => " Kickoff",
+            12 => " Review",
+            19 => " Launch",
+            27 => " Retro",
+            _ => "",
+        };
+        return (0..5)
+            .map(|week| {
+                Value::Object(
+                    days.iter()
+                        .enumerate()
+                        .map(|(i, d)| {
+                            let day = week * 7 + i as u32 + 1;
+                            let cell = if day <= 30 { format!("{day}{}", falls(day)) } else { String::new() };
+                            (d.to_string(), json!(cell))
+                        })
+                        .collect(),
+                )
+            })
+            .collect();
+    }
     let rows = [
         ("Trail crews", "$48,000", "$51,200", "On track", "Q2", "Ana"),
         ("Bridges", "$32,000", "$29,400", "Done", "Q1", "Ben"),

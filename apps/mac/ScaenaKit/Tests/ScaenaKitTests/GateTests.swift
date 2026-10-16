@@ -104,6 +104,12 @@ func aFortyStateDeckShowsItsFirstFrameSoonAfterOpening() throws {
         withExtendedLifetime(second) {}
         return spent
     }
+    // As the window opens it: the deck's source compiled for editing, with no lint on the way,
+    // its every state linted away from the window after (PLAN 4.13).
+    let editing = clock.now
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let edited = clock.now - editing
+    #expect(editor.valid && !editor.whole, "opening lints nothing")
     // vello, or the CPU painter on the iPad simulator, whose GPU runs no vello (PLAN 4.1).
     let painter = (try? surface.adapter()["painter"]?.string) ?? "unknown"
     print(
@@ -113,7 +119,7 @@ func aFortyStateDeckShowsItsFirstFrameSoonAfterOpening() throws {
         "gate \(gate), criterion 2, where the time goes: the GPU made as the app starts \(ms(started)); then"
             + " files read and session opened \(ms(opened - start)), timeline \(ms(timed - opened)),"
             + " surface \(ms(made - timed)), first frame \(ms(painted - made)); a second surface \(ms(remade))."
-            + " From the app's start: \(ms(started + took))")
+            + " From the app's start: \(ms(started + took)). Opened for editing, no lint on the way: \(ms(edited)).")
     #expect(timeline.count == 40)
     #expect(took < .seconds(5), "B1's first frame took \(took)")
 }

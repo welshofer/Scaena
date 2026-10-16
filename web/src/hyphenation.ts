@@ -28,3 +28,10 @@ export const weatherIcons: string | undefined = weather;
 
 /** Each language's patterns by its code (`de`), and where the page has them. */
 export const hyphenation: Record<string, string> = { en, de, fr, es, it, pt, nl, sv, da, fi, pl, cs, ru, uk, tr, el, ca };
+
+// The table of English words the syllable rules miss (PLAN O.4a), which the editor's module also
+// leaves out: the worker fetches it the first time a line of verse counts.
+import verseTable from "../../crates/scaena-core/src/verse/words.txt?url";
+
+/** Where the page has the syllable table. */
+export const verse: string | undefined = verseTable;

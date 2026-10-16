@@ -182,7 +182,7 @@ fn e102_says_what_the_theme_has() {
     assert_eq!(says("/states/0/layout"), "layout `titel` is not in the theme, which has title, full");
     assert_eq!(
         says("/nodes/title/role"),
-        "text role `headlin` is not in the theme, which has display, headline, body, caption, label, numeral"
+        "text role `headlin` is not in the theme, which has display, headline, body, verse, caption, label, numeral"
     );
     assert_eq!(says("/nodes/title/enter"), "motion preset `slide` is not in the theme, which has fade, rise, grow");
     assert_eq!(says("/nodes/bg/palette"), "shader palette `sunset` is not in the theme, which has ambient");
@@ -513,6 +513,27 @@ fn a_familys_italic_face_is_a_file_the_bundle_holds_and_the_deck_lists() {
         serde_json::json!({ "family": "Body", "file": "fonts/Body-Italic.ttf", "style": "italic" }),
         "{fix}"
     );
+}
+
+/// A family upright by design names no italic (ADR-0031, call 6); one kept whole is checked as
+/// any other (call 5).
+#[test]
+fn a_family_upright_by_design_names_no_italic() {
+    let files = EditedTheme(|t| {
+        t.replace(r#""file": "fonts/Body.ttf" }"#, r#""file": "fonts/Body.ttf", "upright": true, "whole": true }"#)
+    });
+    assert!(placed(&files).is_empty(), "{:?}", placed(&files));
+    let files = EditedTheme(|t| {
+        t.replace(
+            r#""file": "fonts/Body.ttf" }"#,
+            r#""file": "fonts/Body.ttf", "upright": true, "italic": { "file": "fonts/Body.ttf" } }"#,
+        )
+    });
+    let found = validate_bundle(fixture!("E102", "clean"), &files).unwrap();
+    let upright = found.iter().find(|f| f.code == "E106").expect("E106");
+    assert_eq!(upright.path.as_deref(), Some("/type/families/body/italic"));
+    assert_eq!(upright.file.as_deref(), Some("theme.json"));
+    assert!(upright.message.contains("upright by design"), "{}", upright.message);
 }
 
 #[test]

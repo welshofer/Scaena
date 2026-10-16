@@ -17,6 +17,11 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::Path;
 
+mod aliases;
+/// The names the themes that ship answer to besides their own (PLAN T.0d): `scripts/build_themes.py`
+/// writes them from `docs/themes/registry.json`.
+pub use aliases::ALIASES;
+
 /// What a re-theme did, or would do.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct Themed {
@@ -48,8 +53,10 @@ pub struct Themed {
 }
 
 /// Point the bundle's deck at the theme file `theme`, copying it to `themes/` unless it is
-/// in the bundle already. A family whose file the bundle does not hold is set in the bundle
-/// font of that family, if it has one: a saved bundle names fonts by their content. One it has
+/// in the bundle already; where no such file is, at the theme that ships by that name, with its
+/// fonts, in a build that carries them, as `create` takes one (PLAN T.0d). A family whose file the
+/// bundle does not hold is set in the bundle font of that family, if it has one: a saved bundle
+/// names fonts by their content. One it has
 /// none of comes from the theme's own bundle, beside the theme file, and is copied in with it
 /// (`beside`), so a theme in a typeface the deck has never used brings it. The deck's `fonts`
 /// lists each of the theme's families the bundle holds, as rendering needs it to (E102). A text the theme leaves too faint to read is set in its color that reads where
@@ -64,7 +71,15 @@ pub struct Themed {
 /// E111), is set in the theme's color that reads there, as the error's fix offers (PLAN 2.82,
 /// `recolored`), so a deck reads in a theme it takes as it read in its own.
 pub fn theme_apply(b: &Bundle, theme: &Path, dry_run: bool, force: bool) -> Result<Themed, OpsError> {
-    let text = std::fs::read_to_string(theme).with_context(|| format!("reading {}", theme.display()))?;
+    #[cfg(feature = "shipped")]
+    if !theme.exists()
+        && let Some(t) = theme.to_str().and_then(crate::shipped::theme)
+    {
+        let fonts = crate::shipped::fonts().map(|(path, bytes)| (path.to_string(), bytes.to_vec())).collect();
+        return applying(b, &format!("themes/{}", t.file), t.text, &fonts, true, dry_run, force);
+    }
+    let text = std::fs::read_to_string(theme)
+        .with_context(|| format!("reading {}{}", theme.display(), crate::create::or_shipped()))?;
     // Where it goes: where it already is inside a bundle directory, else `themes/`.
     let inside = match &b.files {
         scaena_store::Files::Dir(root) => match (root.canonicalize(), theme.canonicalize()) {
@@ -76,7 +91,21 @@ pub fn theme_apply(b: &Bundle, theme: &Path, dry_run: bool, force: bool) -> Resu
     let name = theme.file_name().and_then(|n| n.to_str()).context("the theme has no file name")?;
     let rel = inside.clone().unwrap_or_else(|| format!("themes/{name}"));
     let fonts = if inside.is_some() { BTreeMap::new() } else { beside(theme, &text) };
-    let (themed, write) = theming(b, &rel, &text, &fonts, inside.is_none(), force, true)?;
+    applying(b, &rel, &text, &fonts, inside.is_none(), dry_run, force)
+}
+
+/// The deck put in the theme `text`, at `rel` in the bundle, copied there with `copy`, and
+/// written unless `dry_run`.
+fn applying(
+    b: &Bundle,
+    rel: &str,
+    text: &str,
+    fonts: &BTreeMap<String, Vec<u8>>,
+    copy: bool,
+    dry_run: bool,
+    force: bool,
+) -> Result<Themed, OpsError> {
+    let (themed, write) = theming(b, rel, text, fonts, copy, force, true)?;
     if !dry_run {
         if !themed.refused {
             write_deck(b, &write.deck, write.files, &write.why)?;
@@ -482,6 +511,12 @@ pub struct Library {
     pub code: bool,
 }
 
+/// Whether a theme named `copy` is the theme that ships as `name`: the same name, or one it
+/// shipped under before (PLAN T.0d), so a bundle's copy of Gallery is Salon's.
+pub fn same(copy: &str, name: &str) -> bool {
+    copy == name || ALIASES.iter().any(|(alias, is)| alias.eq_ignore_ascii_case(copy) && is.eq_ignore_ascii_case(name))
+}
+
 /// `theme`, a bundle's copy of the theme that ships as `shipped`, with the layout library that
 /// theme ships now brought in (PLAN 3.31, SPEC §3.6): what an editor opens a deck in where its
 /// theme was copied into its bundle before the library grew, so Add Slide offers every layout, by
@@ -505,7 +540,8 @@ pub struct Library {
 /// name, placement, build, and look it would bring.
 pub fn library(theme: &Value, shipped: &Value, code_shown: bool) -> Option<(Value, Library)> {
     let name = shipped.get("name")?.as_str()?;
-    if theme.get("name")?.as_str()? != name {
+    // A copy named as the theme shipped before is its copy too: Gallery's is Salon's (PLAN T.0d).
+    if !same(theme.get("name")?.as_str()?, name) {
         return None;
     }
     let tracks = |t: &Value| (t.pointer("/grid/columns").cloned(), t.pointer("/grid/rows").cloned());

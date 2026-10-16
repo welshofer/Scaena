@@ -21,7 +21,7 @@ use serde::Serialize;
 
 /// Where the user's key goes in a request: a query parameter, or a header, by its name. The
 /// client puts it there as it sends.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(tag = "in", content = "name", rename_all = "lowercase")]
 pub enum Key {
     Query(String),
@@ -30,7 +30,7 @@ pub enum Key {
 
 /// A request the client makes: a GET of `url` with `headers`, its answer held to `most` bytes, the
 /// user's key for `service` in `key`'s slot.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
 pub struct Get {
     pub url: String,
     pub headers: Vec<(String, String)>,

@@ -24,6 +24,7 @@ pub(super) fn rules() -> Vec<Box<dyn Rule>> {
         Box::new(I401NodeNeverVisible),
         Box::new(I402OverrideCount),
         Box::new(I403UncoloredLanguage),
+        Box::new(I404Haiku),
     ]
 }
 
@@ -683,6 +684,84 @@ impl Rule for I402OverrideCount {
             })
             .collect()
     }
+}
+
+/// I404 (PLAN O.4h, ADR-0030 decision 30): a text in the verse role whose words are three lines,
+/// in English or in kana alone, that does not count 5, 7, and 5 (`scaena_core::verse`). One
+/// finding per text, at the first state that shows it, its counts in `measure`, and no fix: a
+/// poem's words are its author's. A line that cannot be counted, a fourth line, or another
+/// language leaves it unjudged.
+struct I404Haiku;
+impl Rule for I404Haiku {
+    fn code(&self) -> &'static str {
+        "I404"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Info
+    }
+    fn check(&self, cx: &Context) -> Vec<Finding> {
+        let deck_lang = cx.deck.meta.as_ref().and_then(|m| m.lang.as_deref()).unwrap_or("");
+        let mut out = Vec::new();
+        for (id, node) in &cx.deck.nodes {
+            if node.node_type != NodeType::Text {
+                continue;
+            }
+            let Some(snap) = cx.snapshots.iter().find(|s| s.nodes.contains_key(id)) else { continue };
+            let props = &snap.nodes[id];
+            if role(cx, snap.layout.as_deref(), props).as_deref() != Some("verse") {
+                continue;
+            }
+            let words = crate::reading::words(props);
+            let lines: Vec<&str> = words.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+            if lines.len() != 3 {
+                continue;
+            }
+            // Kana alone counts as morae, whatever the deck's language; else English counts.
+            let kana = lines.iter().all(|l| crate::verse::morae(l).is_some());
+            let lang = match props.get("lang").and_then(Value::as_str).unwrap_or(deck_lang) {
+                _ if kana => "ja",
+                l if l.split(['-', '_']).next().is_some_and(|c| c.eq_ignore_ascii_case("en")) => "en",
+                _ => continue,
+            };
+            let checked = crate::verse::check(&lines.join("\n"), lang);
+            if matches!(checked.kept, crate::verse::Kept::Kept | crate::verse::Kept::Uncounted) {
+                continue;
+            }
+            let counts: Vec<String> = checked
+                .lines
+                .iter()
+                .filter_map(|l| l.count)
+                .map(|c| if c.low == c.high { c.low.to_string() } else { format!("{}–{}", c.low, c.high) })
+                .collect();
+            let [a, b, c] = [&counts[0], &counts[1], &counts[2]];
+            out.push(
+                Finding::new(
+                    self.code(),
+                    self.severity(),
+                    format!("This haiku's lines count {a}, {b}, and {c}, not 5, 7, and 5."),
+                )
+                .at(format!("/nodes/{id}"))
+                .node(id.clone())
+                .state(snap.state_id.clone())
+                .measure(serde_json::json!({
+                    "counts": checked.lines.iter().filter_map(|l| l.count).map(|c| [c.low, c.high]).collect::<Vec<_>>(),
+                    "targets": crate::verse::HAIKU,
+                    "unit": if lang == "ja" { "morae" } else { "syllables" },
+                }))
+                .hint("A haiku's lines count 5, 7, and 5. The words are the poet's to change, or to keep."),
+            );
+        }
+        out
+    }
+}
+
+/// A text's role as a state shows it: its own, else its slot's in the state's layout.
+fn role(cx: &Context, layout: Option<&str>, props: &Props) -> Option<String> {
+    if let Some(role) = props.get("role").and_then(Value::as_str) {
+        return Some(role.to_string());
+    }
+    let slot = props.get("at")?.get("in")?.as_str()?;
+    cx.theme?.layouts.get(layout?)?.slots.get(slot)?.role.clone()
 }
 
 /// I403: a code text in a language no scanner of its own colors (ADR-0029, PLAN 2.132), which the

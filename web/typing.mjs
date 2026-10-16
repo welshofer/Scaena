@@ -373,6 +373,14 @@ try {
     const title = /^\s*title text[^"\n]*"([^"]*)"/m.exec(after)?.[1];
     check(reading, "the keys and Escape came while the text was read again");
     check(title === "Q3 Review Alpha" && after.includes("the shape of the company"), `keys typed while the text is read again, then Escape, go in once each: ${JSON.stringify(title)}`);
+    // Made once the text is read, before anything else typed was: a step of its own, so one undo
+    // takes back what was typed and nothing before it, as after a save.
+    await reread.locator("#overlay").focus();
+    await reread.keyboard.press("Control+z");
+    await reread.waitForFunction(() => !window.scaena.source().includes("Alpha"), null, { timeout: 30000 }).catch(() => {});
+    const undone = await reread.evaluate(() => window.scaena.source());
+    const was = /^\s*title text[^"\n]*"([^"]*)"/m.exec(undone)?.[1];
+    check(was === "Q3 Review" && undone.includes("the shape of the company"), `one undo takes back what was typed, and only it: ${JSON.stringify(was)}`);
   }
 } catch (e) {
   failures.push(String(e));

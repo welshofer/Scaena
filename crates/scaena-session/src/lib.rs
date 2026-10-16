@@ -478,6 +478,60 @@ impl Session {
         Ok(())
     }
 
+    /// Where a map goes in `state` (ADR-0030, PLAN O.1c), as an editor found the place itself: the
+    /// image `node`, the empty place for a picture `slot`, or a box `rect` (canvas units); with the
+    /// style the theme's surface asks and the deck's language, which the plan reads.
+    #[cfg(feature = "editor")]
+    pub fn map_target(
+        &self,
+        state: &str,
+        node: Option<String>,
+        slot: Option<String>,
+        rect: [f32; 4],
+    ) -> Result<scaena_ops::maps::Target, Error> {
+        scaena_ops::maps::target_for(&self.deck, &self.theme, state, node, slot, rect)
+            .map_err(|e| Error::Ops(e.message))
+    }
+
+    /// Where a map asked for by `aim` goes, as `map_fetch` asks (PLAN O.1c): the image named, else
+    /// the state's first empty place for a picture, else the box asked.
+    #[cfg(feature = "editor")]
+    pub fn map_aiming(&self, aim: &scaena_ops::maps::Aim) -> Result<scaena_ops::maps::Target, Error> {
+        scaena_ops::maps::aiming(&self.bundle(), aim).map_err(|e| Error::Ops(e.message))
+    }
+
+    /// What a map fetched takes to put where `target` says (PLAN O.1c): its picture joins the
+    /// bundle, named by its content, and the ops that show it are an editor's to make its patch
+    /// of, one step to undo. `fetched` is its record, `pin` where the place stands in it, and
+    /// `label` the pin's label: the place's name where none is given, none where it is empty.
+    #[cfg(feature = "editor")]
+    pub fn mapping(
+        &mut self,
+        target: &scaena_ops::maps::Target,
+        fetched: scaena_core::fetched::Fetched,
+        pin: [f64; 2],
+        label: Option<String>,
+        png: Vec<u8>,
+    ) -> Result<scaena_ops::maps::Mapped, Error> {
+        let fetch = scaena_ops::maps::Fetch { png, fetched, pin, label };
+        let mapped = scaena_ops::maps::mapped(&self.bundle(), target, &fetch).map_err(|e| Error::Ops(e.message))?;
+        self.add_file(&mapped.src, fetch.png);
+        Ok(mapped)
+    }
+
+    /// What fetching image `node`'s map again in `state` asks for (PLAN O.1c): its place and view,
+    /// or `zoom` or `center` where given, for the box it has now.
+    #[cfg(feature = "editor")]
+    pub fn map_refreshing(
+        &self,
+        state: &str,
+        node: &str,
+        zoom: Option<f64>,
+        center: Option<scaena_core::fetched::LatLon>,
+    ) -> Result<scaena_ops::maps::Refresh, Error> {
+        scaena_ops::maps::refreshing(&self.bundle(), Some(state), node, zoom, center).map_err(|e| Error::Ops(e.message))
+    }
+
     /// The image files the deck names: each to hand over with [`Session::add_file`].
     pub fn image_files(&self) -> Vec<String> {
         self.deck.image_files()
@@ -5177,7 +5231,7 @@ mod shipped {
     use super::*;
     use serde_json::json;
 
-    /// A new deck in the theme that ships as `theme` (`gallery.theme.json`), as New makes one, a
+    /// A new deck in the theme that ships as `theme` (`salon.theme.json`), as New makes one, a
     /// slide started in its `layout` after the first: the session, and the slide's state.
     pub(crate) fn started(theme: &str, layout: &str) -> (Session, String) {
         let examples = std::path::Path::new("../../docs/examples");
@@ -5196,12 +5250,12 @@ mod shipped {
         (s, started.id)
     }
 
-    /// ⌘B on words of a Gallery headline, set in Instrument Serif, a family of one weight: the
+    /// ⌘B on words of a Salon headline, set in Instrument Serif, a family of one weight: the
     /// words are set in its weight, none synthesized, and lint says so (W232). The slide draws,
     /// every edit after it is made, and ⌘B takes the weight away again.
     #[test]
     fn a_bold_word_in_a_family_of_one_weight_is_set_in_its_weight() {
-        let (mut s, state) = started("gallery.theme.json", "title");
+        let (mut s, state) = started("salon.theme.json", "title");
         let by = assistant::Caller { author: "user", at: None };
         let look = s.bolding(&state, "title-title", 0, 3).unwrap();
         assert_eq!(look, json!({ "style/weight": 700 }));
