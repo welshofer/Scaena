@@ -26,6 +26,10 @@ cpu = ["scaena-session/cpu", "scaena-paint/cpu", "dep:js-sys", "dep:web-sys", "w
 # single-file export carries offline (PLAN 2.5). The editor's leaves them out, and its page
 # hands a language's patterns over the first time a text hyphenates in it (ADR-0015).
 hyphenation = ["scaena-engine/hyphenation"]
+# The word tables the code scanners read compiled in, where the patterns are: the player's module.
+# The editor's leaves them out, and its page hands a scanner's tables over the first time a code
+# text it colors lays out (PLAN 2.132).
+code-tables = ["scaena-engine/code-tables"]
 # The source editor (PLAN 2.3): the session's editing (`scaena-session`'s `editor`, ADR-0021),
 # for a page: it compiles `.scn`, lints with fixes, inspects, opens and saves bundles in memory
 # (PLAN 2.4), and starts new ones from a theme and its fonts, which the page hands over as a
@@ -59,8 +63,9 @@ wasm-bindgen-futures = { workspace = true, optional = true }
 web-sys = { workspace = true, optional = true, features = ["HtmlCanvasElement", "OffscreenCanvas", "console"] }
 
 [dev-dependencies]
-# Its hyphenation patterns, which the tests' decks hyphenate by (ADR-0015).
-scaena-engine = { workspace = true, features = ["hyphenation"] }
+# Its hyphenation patterns and the code scanners' tables, which the tests' decks hyphenate and
+# color by (ADR-0015, PLAN 2.132).
+scaena-engine = { workspace = true, features = ["hyphenation", "code-tables"] }
 # The syllable table compiled in (PLAN O.4a).
 scaena-core = { workspace = true, features = ["syllables"] }
 # What a page loads to record a save in a bundle's history (PLAN 2.9), called here as Rust.

@@ -151,9 +151,10 @@ export default defineConfig({
   // which the worker loads the first time it is asked something (PLAN 2.6); the themes a new
   // deck starts from, with their fonts, which it loads only to make one (PLAN 2.12); the
   // PDF painter, which it loads the first time a PDF is exported (PLAN 2.54); the generator,
-  // which a worker of its own loads to make a deck from a prompt (PLAN G.5); and the
-  // hyphenation patterns the engine's module leaves out, each fetched the first time a text
-  // hyphenates in its language (ADR-0015).
+  // which a worker of its own loads to make a deck from a prompt (PLAN G.5); the hyphenation
+  // patterns the engine's module leaves out, each fetched the first time a text hyphenates in its
+  // language (ADR-0015); and the code scanners' tables it leaves out too, each fetched the first
+  // time a code text in a language that reads it lays out (PLAN 2.132).
   resolve: {
     alias: {
       "@scaena/wasm": join(repo, "crates/scaena-wasm/www/pkg/scaena_wasm.js"),
@@ -166,6 +167,7 @@ export default defineConfig({
       "@scaena/assistant": join(web, "src/assistant/index.ts"),
       "@scaena/themes": join(web, "src/themes.ts"),
       "@scaena/hyphenation": join(web, "src/hyphenation.ts"),
+      "@scaena/code-tables": join(web, "src/code-tables.ts"),
     },
   },
   worker: { format: "es" },

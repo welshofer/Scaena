@@ -50,6 +50,9 @@ SECTIONS = [
     "Pictures",
     "People",
     "Editorial",
+    "Diagrams",
+    "Briefing",
+    "Classroom",
     "Closing",
 ]
 
@@ -880,6 +883,280 @@ layout("Closing", "call-to-action", "One thing to do next, set large, and a butt
 }, ember={"statement": ((1, 10), (3, 8)), "button-card": ((1, 4), (10, 11)), "button": ((1, 4), (10, 11))})
 
 # ---------------------------------------------------------------------------------------------
+# The first sixteen of ADR-0031's slide types (PLAN S.1), each drawn as its table says.
+
+# Where a point of the grid stands in a slot, as a fraction of it, on Dusk's grid (Daybreak's and
+# Gallery's are alike, and Ember's rows near enough): what a line or an arrow's `points` give.
+ROW, ROW_GUTTER, TOP = 52, 24, 96
+
+
+def x_of(c, side):
+    width, gutter, margin = 1920, 24, 120
+    track = (width - 2 * margin - 11 * gutter) / 12
+    return margin + (c - 1) * (track + gutter) + (track if side == "right" else 0)
+
+
+def y_of(r, side):
+    return TOP + (r - 1) * (ROW + ROW_GUTTER) + (ROW if side == "bottom" else 0)
+
+
+def at(col, row, x, y):
+    """The point `(x, y)`, canvas units, as a fraction of the slot in `col` and `row`."""
+    left, right = x_of(col[0], "left"), x_of(col[1], "right")
+    top, bottom = y_of(row[0], "top"), y_of(row[1], "bottom")
+    return [round((x - left) / (right - left), 3), round((y - top) / (bottom - top), 3)]
+
+
+def arrow(col, row, start, end, stroke="onSurfaceMuted"):
+    """An arrow in `col` and `row` from `start` to `end`, each a point of the canvas."""
+    return rule(col, row, points=[at(col, row, *start), at(col, row, *end)], shape="arrow", stroke=stroke)
+
+
+def box(col, row, fill="surface-2", inset=None):
+    """A card that stands in from its cells by `inset` on each side, as words on it do."""
+    return slot(col, row, prompt={"shape": "rect", "fill": fill}, inset=inset)
+
+
+DIAMOND = [[0.5, 0], [1, 0.5], [0.5, 1], [0, 0.5]]
+
+# Numbers ---------------------------------------------------------------------------------------
+
+layout("Numbers", "kpi-dashboard", "Four measures in a row, each its figure and how it moved, and the trends under them.", {
+    "kicker": KICKER,
+    "header": header(),
+    **{f"{o}-figure": slot(c, (3, 4), "figure", w, align={"y": "end"}) for o, c, w in zip(ORDINALS, QUARTERS, ["$4.2M", "38%", "12k", "2.1%"])},
+    **{f"{o}-title": slot(c, (5, 5), "label", w) for o, c, w in zip(ORDINALS, QUARTERS, ["Revenue", "Margin", "Users", "Churn"])},
+    **{o: slot(c, (6, 6), "caption", w) for o, c, w in zip(ORDINALS, QUARTERS, ["Up 12%", "Up 3 points", "Up 9%", "Down 0.4 points"])},
+    "first-chart": slot(HALVES[0], (7, 10), prompt="A chart of a trend", example=chart("line")),
+    "second-chart": slot(HALVES[1], (7, 10), prompt="A chart of a trend", example=chart("bar")),
+})
+
+# Workstreams, each on its row: its name, its state's icon and word, what comes next, and its risk.
+STREAMS = [(4, 5), (6, 7), (8, 9)]
+layout("Numbers", "status-report", "Where each workstream stands: its status, its next milestone, and its risk.", {
+    "kicker": KICKER,
+    "header": header(),
+    "first-card": card((1, 12), STREAMS[0]),
+    "third-card": card((1, 12), STREAMS[2]),
+    **{f"{k}-label": slot(c, (3, 3), "label", w) for k, c, w in zip(["stream", "status", "next", "risk"], [(1, 3), (4, 6), (7, 9), (10, 12)], ["Workstream", "Status", "Next milestone", "Risk"])},
+    **{f"{o}-icon": icon((4, 4), r, i, inset=16, fill=f) for o, r, i, f in zip(ORDINALS, STREAMS, ["check-circle", "warning-circle", "x-circle"], ["accent", "accent-2", "onSurfaceMuted"])},
+    **{o: slot((1, 3), r, "body", w, inset=24, align={"y": "center"}) for o, r, w in zip(ORDINALS, STREAMS, ["Design", "Build", "Launch"])},
+    **{f"{o}-status": slot((5, 6), r, "body", w, align={"y": "center"}) for o, r, w in zip(ORDINALS, STREAMS, ["On track", "At risk", "Late"])},
+    **{f"{o}-next": slot((7, 9), r, "body", w, align={"y": "center"}) for o, r, w in zip(ORDINALS, STREAMS, ["Review, May 2", "Beta, June 9", "Launch, July 1"])},
+    **{f"{o}-risk": slot((10, 12), r, "caption", w, inset=24, align={"y": "center"}) for o, r, w in zip(ORDINALS, STREAMS, ["None", "Hiring", "Vendor delay"])},
+})
+
+# Three markets, each inside the last, set on one baseline: the circles as round as the grid's
+# tracks make them, in their columns' middle; and each one's figure and name beside it, at its top.
+MARKETS = [((2, 6), (3, 12)), ((3, 5), (7, 12)), ((4, 4), (11, 12))]
+layout("Numbers", "market-size", "How large the market is: the total, the part we can serve, and the part we can win, each inside the last.", {
+    "header": header(),
+    "first-circle": slot(*MARKETS[0], prompt={"shape": "ellipse", "fill": "surface-2"}),
+    "second-circle": slot(*MARKETS[1], prompt={"shape": "ellipse", "stroke": "accent"}),
+    "third-circle": slot(*MARKETS[2], prompt={"shape": "ellipse", "fill": "accent"}),
+    **{f"{o}-figure": slot((8, 9), (r, r + 1), "figure", w) for o, r, w in zip(ORDINALS, [3, 7, 11], ["$48B", "$12B", "$2B"])},
+    **{f"{o}-title": slot((10, 12), (r, r), "label", w) for o, r, w in zip(ORDINALS, [3, 7, 11], ["Total market", "Serviceable", "Obtainable"])},
+    **{o: slot((10, 12), (r + 1, r + 1), "caption", w) for o, r, w in zip(ORDINALS, [3, 7, 11], ["Everyone who could buy", "Those we can reach", "What we can win"])},
+}, ember={
+    "first-circle": ((2, 6), (4, 12)), "second-circle": ((3, 5), (7, 12)), "third-circle": ((4, 4), (11, 12)),
+    **{f"{o}-figure": ((8, 9), (r, r + 1)) for o, r in zip(ORDINALS, [4, 7, 11])},
+    **{f"{o}-title": ((10, 12), r) for o, r in zip(ORDINALS, [4, 7, 11])},
+    **{o: ((10, 12), r + 1) for o, r in zip(ORDINALS, [4, 7, 11])},
+})
+
+# Diagrams --------------------------------------------------------------------------------------
+
+layout("Diagrams", "flowchart", "Steps and a yes-or-no decision, joined by arrows: what happens, and what happens when it doesn't.", {
+    "kicker": KICKER,
+    "header": header(),
+    "first-card": card((1, 2), (5, 6)),
+    "first-arrow": arrow((3, 3), (5, 6), (x_of(3, "left"), y_of(5, "bottom") + 12), (x_of(3, "right"), y_of(5, "bottom") + 12)),
+    "decision-shape": slot((4, 6), (4, 7), prompt={"shape": "polygon", "fill": "surface-2", "points": DIAMOND}),
+    "yes-arrow": arrow((7, 7), (5, 6), (x_of(7, "left"), y_of(5, "bottom") + 12), (x_of(7, "right"), y_of(5, "bottom") + 12)),
+    "second-card": card((8, 10), (5, 6)),
+    "no-arrow": arrow((5, 5), (8, 8), (x_of(5, "left") + 67, y_of(8, "top")), (x_of(5, "left") + 67, y_of(8, "bottom"))),
+    "third-card": card((4, 6), (9, 10)),
+    "back-arrow": rule((1, 3), (7, 10), points=[
+        at((1, 3), (7, 10), x_of(4, "left") - 12, y_of(9, "bottom") + 12),
+        at((1, 3), (7, 10), (x_of(1, "left") + x_of(2, "right")) / 2, y_of(9, "bottom") + 12),
+        at((1, 3), (7, 10), (x_of(1, "left") + x_of(2, "right")) / 2, y_of(7, "top")),
+    ], shape="arrow", stroke="onSurfaceMuted"),
+    "first": slot((1, 2), (5, 6), "title", "Start", inset=24, align={"x": "center", "y": "center"}),
+    "decision": slot((4, 6), (5, 6), "title", "Ready?", align={"x": "center", "y": "center"}),
+    "yes": slot((7, 7), (4, 4), "label", "Yes", align={"x": "center", "y": "end"}),
+    "second": slot((8, 10), (5, 6), "title", "Ship it", inset=24, align={"x": "center", "y": "center"}),
+    "no": slot((6, 6), (8, 8), "label", "No", align={"y": "center"}),
+    "third": slot((4, 6), (9, 10), "title", "Fix it", inset=24, align={"x": "center", "y": "center"}),
+})
+
+# Three lanes, a row apart, the arrows between them in the rows they leave.
+LANES = [(3, 4), (6, 7), (9, 10)]
+SWIM = [((3, 5), LANES[0]), ((3, 5), LANES[1]), ((7, 9), LANES[1]), ((7, 9), LANES[2]), ((11, 12), LANES[2])]
+layout("Diagrams", "swimlane", "Steps across lanes, one lane for each role: who does what, and where the work changes hands.", {
+    "kicker": KICKER,
+    "header": header(),
+    **{f"{o}-lane": card((1, 12), r) for o, r in zip(ORDINALS, LANES)},
+    **{f"{o}-step": box(c, r, fill="surface", inset=12) for o, (c, r) in zip(ORDINALS, SWIM)},
+    "first-arrow": arrow((4, 4), (4, 6), (x_of(4, "left") + 67, y_of(4, "bottom") - 12), (x_of(4, "left") + 67, y_of(6, "top") + 12)),
+    "second-arrow": arrow((5, 7), (6, 7), (x_of(5, "right") - 12, y_of(6, "bottom") + 12), (x_of(7, "left") + 12, y_of(6, "bottom") + 12)),
+    "third-arrow": arrow((8, 8), (7, 9), (x_of(8, "left") + 67, y_of(7, "bottom") - 12), (x_of(8, "left") + 67, y_of(9, "top") + 12)),
+    "fourth-arrow": arrow((9, 11), (9, 10), (x_of(9, "right") - 12, y_of(9, "bottom") + 12), (x_of(11, "left") + 12, y_of(9, "bottom") + 12)),
+    **{f"{o}-role": slot((1, 2), r, "label", w, inset=24, align={"y": "center"}) for o, r, w in zip(ORDINALS, LANES, ["Customer", "Sales", "Finance"])},
+    **{o: slot(c, r, "body", w, inset=24, align={"y": "center"}) for o, (c, r), w in zip(ORDINALS, SWIM, ["Asks for a quote", "Writes the quote", "Approves it", "Sends the invoice", "Pays"])},
+})
+
+# Charts ----------------------------------------------------------------------------------------
+
+layout("Charts", "positioning-map", "Each player placed by two measures, a dot apiece, ours marked: where we stand among them.", {
+    "kicker": KICKER,
+    "header": header(),
+    "main": slot((1, 8), (3, 10), prompt="A scatter of the players", example=chart("scatter")),
+    "takeaway": slot((9, 12), (3, 6), "lede", "Where we stand, in a sentence"),
+    "note": slot((9, 12), (7, 8), "caption", "Each dot a player, ours marked"),
+})
+
+# Comparison ------------------------------------------------------------------------------------
+
+# Features down the side, a product to each pair of columns: a check, a full ball, or an empty one,
+# each a character every shipped face draws (no shipped face draws a half ball).
+FEATURES = [(4, 5), (6, 7), (8, 9), (10, 11)]
+PRODUCTS = [(5, 6), (7, 8), (9, 10), (11, 12)]
+GRID_MARKS = [["✓", "✓", "✓", "✓"], ["●", "●", "○", "●"], ["●", "○", "○", "●"], ["✓", "○", "○", "✓"]]
+layout("Comparison", "feature-grid", "Features down the side and a column for each product or plan, each marked with a check or a ball.", {
+    "header": header(),
+    "first-card": card((1, 12), FEATURES[0]),
+    "third-card": card((1, 12), FEATURES[2]),
+    **{f"{o}-product": slot(c, (3, 3), "label", w, align={"x": "center"}) for o, c, w in zip(ORDINALS, PRODUCTS, ["Ours", "Theirs", "Basic", "Pro"])},
+    **{o: slot((1, 4), r, "body", w, inset=24, align={"y": "center"}) for o, r, w in zip(ORDINALS, FEATURES, ["Works offline", "Shares by link", "Keeps a history", "Exports a PDF"])},
+    **{f"{o}-{p}": slot(c, r, "title", m, align={"x": "center", "y": "center"}) for o, r, marks in zip(ORDINALS, FEATURES, GRID_MARKS) for p, c, m in zip(ORDINALS, PRODUCTS, marks)},
+})
+
+# Frameworks ------------------------------------------------------------------------------------
+
+# Likelihood up the side, impact across, a column and a row to each cell, each cell shaded by the
+# two together toward the accent: the theme's second surface, its rule, then its accent.
+LIKELY = [4, 5, 6, 7, 8]
+IMPACT = [(c, c) for c in range(3, 8)]
+SHADES = ["surface-2"] * 4 + ["line"] * 2 + ["accent"] * 3
+layout("Frameworks", "risk-matrix", "Each risk placed by how likely it is and how much it would hurt, the cells shaded from calm to grave.", {
+    "kicker": KICKER,
+    "header": header(),
+    **{f"cell-{5 - li}-{ii + 1}": card(c, (r, r), fill=SHADES[(4 - li) + ii]) for li, r in enumerate(LIKELY) for ii, c in enumerate(IMPACT)},
+    "likely-title": slot((1, 2), (3, 3), "label", "Likelihood"),
+    **{f"likely-{5 - i}": slot((1, 2), (r, r), "caption", w, align={"y": "center"}) for i, r, w in zip(range(5), LIKELY, ["Almost certain", "Likely", "Possible", "Unlikely", "Rare"])},
+    **{f"impact-{i + 1}": slot(c, (9, 9), "caption", w, align={"x": "center"}) for i, c, w in zip(range(5), IMPACT, ["Minor", "Moderate", "Major", "Severe", "Critical"])},
+    "impact-title": slot((3, 7), (10, 10), "label", "Impact", align={"x": "center"}),
+    "first": slot(IMPACT[1], (6, 6), "body", "Hiring", align={"x": "center", "y": "center"}),
+    "second": slot(IMPACT[0], (5, 5), "body", "Churn", align={"x": "center", "y": "center"}),
+    "third": slot(IMPACT[3], (8, 8), "body", "Outage", align={"x": "center", "y": "center"}),
+    "takeaway": slot((9, 12), (3, 6), "lede", "What to watch, and why"),
+    "note": slot((9, 12), (7, 8), "caption", "Each risk where it stands today"),
+})
+
+# The nine blocks as the canvas sets them: five columns over two, the value in the middle.
+CANVAS = {
+    "partners": ((1, 2), (3, 8), "Key partners"),
+    "activities": ((3, 4), (3, 5), "Key activities"),
+    "resources": ((3, 4), (6, 8), "Key resources"),
+    "value": ((5, 8), (3, 8), "Value propositions"),
+    "relationships": ((9, 10), (3, 5), "Customer relationships"),
+    "channels": ((9, 10), (6, 8), "Channels"),
+    "segments": ((11, 12), (3, 8), "Customer segments"),
+    "costs": ((1, 6), (9, 10), "Cost structure"),
+    "revenue": ((7, 12), (9, 10), "Revenue streams"),
+}
+layout("Frameworks", "business-model-canvas", "The nine blocks of a business model, from its partners to its customers, its costs, and its revenue.", {
+    "kicker": KICKER,
+    "header": header(),
+    **{f"{k}-card": card(c, r) for k, (c, r, _) in CANVAS.items()},
+    **{k: slot(c, (r[0], r[0] + 1), "label", w, inset=16) for k, (c, r, w) in CANVAS.items()},
+    "value-words": slot((5, 8), (5, 8), "body", "What we give that no one else does", inset=16),
+})
+
+# Editorial -------------------------------------------------------------------------------------
+
+layout("Editorial", "case-study", "One customer's story: a picture, the challenge, what was done, and the results.", {
+    "kicker": KICKER,
+    "header": header("A customer, and what changed"),
+    "art": picture((1, 4), (3, 10)),
+    "challenge-title": slot((6, 12), (3, 3), "label", "The challenge"),
+    "challenge": slot((6, 12), (4, 5), "body", "What stood in their way"),
+    "done-title": slot((6, 12), (6, 6), "label", "What we did"),
+    "done": slot((6, 12), (7, 8), "body", "What we did about it"),
+    "result-figure": slot((6, 8), (9, 10), "figure", "+38%", align={"y": "end"}),
+    "result": slot((9, 12), (9, 10), "caption", "What changed, and by how much", align={"y": "end"}),
+})
+
+# Pictures --------------------------------------------------------------------------------------
+
+layout("Pictures", "logo-wall", "Twelve customers' or partners' logos, four to a row, each set at one height.", {
+    "kicker": KICKER,
+    "header": header("Who we work with"),
+    **{f"logo-{i + 1}": slot(c, r, prompt="A logo", example=PICTURE, inset=24) for i, (c, r) in enumerate((c, r) for r in [(3, 4), (6, 7), (9, 10)] for c in QUARTERS)},
+})
+
+layout("Pictures", "device-mockup", "A screenshot in a laptop's frame, and what it shows beside it.", {
+    "kicker": KICKER,
+    "header": header(),
+    "screen": slot((1, 7), (3, 9), prompt="A screenshot", example=PICTURE, inset=16),
+    "frame": slot((1, 7), (3, 9), prompt={"shape": "rect", "stroke": "onSurfaceMuted"}),
+    "base": slot((1, 7), (10, 10), prompt={"shape": "polygon", "fill": "line", "points": [[0, 0], [1, 0], [0.97, 0.4], [0.03, 0.4]]}),
+    "title": slot((9, 12), (3, 4), "title", "What it shows"),
+    "body": slot((9, 12), (5, 8), "body", "What a person does here, in a sentence or two."),
+})
+
+# People ----------------------------------------------------------------------------------------
+
+layout("People", "buyer-persona", "A customer as a person: their picture, their name and role, their goals, and what gets in their way.", {
+    "kicker": KICKER,
+    "art": picture((1, 4), (3, 10), "A picture of them"),
+    "name": slot((6, 12), (3, 4), "headline", "A name"),
+    "role": slot((6, 12), (5, 5), "label", "What they do"),
+    "goals-title": slot((6, 8), (7, 7), "title", "Goals"),
+    "goals": slot((6, 8), (8, 10), "body", {"bullet": ["What they want", "What success is"]}),
+    "pains-title": slot((10, 12), (7, 7), "title", "Pains"),
+    "pains": slot((10, 12), (8, 10), "body", {"bullet": ["What gets in the way", "What they fear"]}),
+}, ember={"art": ((1, 4), (3, 11)), "name": ((6, 12), (3, 4)), "role": ((6, 12), (5, 5)), "goals-title": ((6, 8), (7, 7)), "goals": ((6, 8), (8, 11)), "pains-title": ((10, 12), (7, 7)), "pains": ((10, 12), (8, 11))})
+
+# Briefing --------------------------------------------------------------------------------------
+
+QUAD = [((1, 6), (3, 6)), ((7, 12), (3, 6)), ((1, 6), (7, 10)), ((7, 12), (7, 10))]
+layout("Briefing", "quad-chart", "Four quarters on one slide: a picture and the dates, the objectives, the team, and the milestones.", {
+    "kicker": KICKER,
+    "header": header(),
+    "art": picture((1, 4), (3, 6)),
+    **{f"{k}-card": card(c, r) for k, (c, r) in zip(["objectives", "team", "milestones"], QUAD[1:])},
+    "dates-title": slot((5, 6), (3, 4), "label", "Dates"),
+    "dates": slot((5, 6), (5, 6), "caption", "June to December"),
+    **{f"{k}-title": slot(c, (r[0], r[0] + 1), "label", w, inset=24) for k, (c, r), w in zip(["objectives", "team", "milestones"], QUAD[1:], ["Objectives", "Team", "Milestones"])},
+    "objectives": slot(QUAD[1][0], (5, 6), "caption", {"bullet": ["The first", "The second"]}, inset=24),
+    "team": slot(QUAD[2][0], (9, 10), "caption", "Who leads, and who builds", inset=24),
+    "milestones": slot(QUAD[3][0], (9, 10), "caption", {"bullet": ["Design, August", "Launch, December"]}, inset=24),
+})
+
+layout("Briefing", "decision-brief", "The bottom line first, then the issue, the options, what we recommend, and the decision we need.", {
+    "kicker": KICKER,
+    "header": header(),
+    "bottom-card": card((1, 12), (3, 4)),
+    "bottom-title": slot((1, 3), (3, 4), "label", "Bottom line", inset=24, align={"y": "center"}),
+    "bottom": slot((4, 12), (3, 4), "lede", "What we ask, in a sentence", inset=24, align={"y": "center"}),
+    **{f"{o}-card": card(c, (6, 10)) for o, c in zip(ORDINALS, QUARTERS)},
+    "mark": rule(QUARTERS[2], (6, 6), points=[[0, 0], [1, 0]], stroke="accent"),
+    **{f"{o}-title": slot(c, (6, 7), "label", w, inset=24) for o, c, w in zip(ORDINALS, QUARTERS, ["The issue", "The options", "We recommend", "We need"])},
+    **{o: slot(c, (8, 10), "body", w, inset=24) for o, c, w in zip(ORDINALS, QUARTERS, ["What is at stake", "What we could do", "What we should do", "Your decision, by when"])},
+})
+
+# Classroom -------------------------------------------------------------------------------------
+
+layout("Classroom", "quiz", "A question and four answers, each on its card: add a build to reveal the right one.", {
+    "kicker": KICKER,
+    "header": header("The question, in a line?"),
+    **{f"{o}-card": card(c, r) for o, (c, r) in zip(ORDINALS, QUAD)},
+    **{f"{o}-letter": slot((c[0], c[0]), r, "figure", w, inset=24, align={"y": "center"}) for o, (c, r), w in zip(ORDINALS, QUAD, "ABCD")},
+    **{o: slot((c[0] + 1, c[1]), r, "title", "An answer", inset=24, align={"y": "center"}) for o, (c, r) in zip(ORDINALS, QUAD)},
+})
+
+# ---------------------------------------------------------------------------------------------
 # The 47 the themes had: the section each is offered in, and what its picture shows in each slot
 # that waits.
 
@@ -1015,10 +1292,18 @@ NAMES = {
     # Editorial
     "definition": "Definition", "letter": "Letter", "memo": "Memo", "receipt": "Receipt",
     "chyron": "Lower Third", "headline": "Front Page", "faq": "FAQ", "glossary": "Glossary",
-    "magazine": "Magazine Spread",
+    "magazine": "Magazine Spread", "case-study": "Case Study",
     # Closing
     "closing": "Closing", "next-steps": "Next Steps", "the-ask": "The Ask", "qa": "Q&A", "contact": "Contact",
     "takeaways": "Takeaways", "call-to-action": "Call to Action",
+    # Diagrams, Briefing, and Classroom (PLAN S.1)
+    "flowchart": "Flowchart", "swimlane": "Swimlane", "quad-chart": "Quad Chart", "decision-brief": "Decision Brief",
+    "quiz": "Quiz",
+    # The rest of S.1's, by the sections above
+    "kpi-dashboard": "KPI Dashboard", "status-report": "Status Report", "market-size": "Market Size",
+    "positioning-map": "Positioning Map", "feature-grid": "Feature Grid", "risk-matrix": "Risk Matrix",
+    "business-model-canvas": "Business Model Canvas", "logo-wall": "Logo Wall", "device-mockup": "Device Mockup",
+    "buyer-persona": "Buyer Persona",
 }
 
 # The descriptions of the layouts the themes had, where one named what a person never reads in an
