@@ -24,7 +24,7 @@ import AppKit
     try editor.make(pasted.patch)
 
     let box = try #require(try session.boxes(state: "goal").first { $0.node == pasted.id })
-    #expect(box.code == NodeBox.CodeLanguage(language: "rust", said: "Rust"))
+    #expect(box.code?.language == "rust" && box.code?.said == "Rust")
     #expect(try session.codeWords(state: "goal", node: pasted.id) == "fn main() {\n    let total = 42;\n}")
     let language = try #require(try session.choices(state: "goal", node: pasted.id).fields.first { $0.prop == "code/language" })
     #expect(language.said["cpp"] == "C++" && language.value?.string == "rust")
