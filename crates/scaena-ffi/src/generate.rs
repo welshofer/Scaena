@@ -51,9 +51,14 @@ pub struct Generating {
 /// in the bundle, and why each other asked for was not.
 type Painted = (Pictures, BTreeMap<String, Vec<u8>>, Vec<String>);
 
-/// What a brief may ask, as every client offers it (`scaena_narrato::brief::choices`).
+/// What a brief may ask, as every client offers it (`scaena_narrato::brief::choices`), and the
+/// themes that ship, by family, to make the deck in (PLAN T.0d).
 pub fn choices() -> Value {
-    scaena_narrato::brief::choices()
+    let mut choices = scaena_narrato::brief::choices();
+    if let Some(choices) = choices.as_object_mut() {
+        choices.insert("themes".into(), crate::shipped_themes());
+    }
+    choices
 }
 
 /// The narrative being written, the PDFs handed to the model beside its prompt, and what each
@@ -438,10 +443,8 @@ impl Generating {
                 let (placed, assets, unmade) = self.painted.clone().unwrap_or_default();
                 let mut built = scaena_ops::narrative::deck(narrative, &model, &placed).map_err(said)?;
                 built.assets = assets;
-                let mut fonts = BTreeMap::new();
-                for (path, bytes) in scaena_ops::shipped::fonts() {
-                    fonts.insert(path.to_string(), bytes.to_vec());
-                }
+                let mut fonts: BTreeMap<String, Vec<u8>> =
+                    shipped.fonts().map(|(p, b)| (p.to_string(), b.to_vec())).collect();
                 let theme = match &self.script {
                     Some((script, bytes)) => {
                         fonts.insert(script.file.to_string(), bytes.clone());

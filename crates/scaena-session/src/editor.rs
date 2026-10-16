@@ -39,6 +39,75 @@ pub(crate) struct Laid {
     nodes: BTreeMap<String, BTreeSet<String>>,
 }
 
+/// The deck a session compiled last, taken from it to be laid out on every state by the layout
+/// rules on a thread of its own, while the session answers on its own (PLAN 4.13): the work of
+/// [`Session::lint`] on every state that takes time, which [`Session::lint_laid`] takes back. It
+/// holds the deck and the bundle's files as they were, and an engine it builds itself.
+pub struct Laying {
+    /// The source the deck was compiled from, the bundle's files, and the theme's JSON: what
+    /// tells the deck it was taken from from any other.
+    source: String,
+    files: Arc<BTreeMap<String, Vec<u8>>>,
+    theme_json: String,
+    deck: Deck,
+    theme: Theme,
+    /// The pictures the session has decoded, which the engine built here takes rather than
+    /// decoding them again.
+    kept: Arc<scaena_paint::Assets>,
+    data: DataFiles,
+    timed: scaena_engine::Timed,
+    validated: Option<Vec<Finding>>,
+    /// What it found once laid out, or why it could not be.
+    laid: Option<Result<LaidOut, String>>,
+}
+
+/// What a [`Laying`] found: validation's findings, and the layout rules' where they ran.
+#[derive(Clone)]
+struct LaidOut {
+    found: Vec<Finding>,
+    layout: Option<Vec<Finding>>,
+}
+
+impl Laying {
+    /// Lay the deck out on every state and run the layout rules on it, as [`Session::lint`] does
+    /// on every state, with an engine of its own: the slow part, on whatever thread calls it.
+    pub fn lay(&mut self) {
+        let laid = (|| -> Result<LaidOut, Error> {
+            let found = match &self.validated {
+                Some(found) => found.clone(),
+                None => {
+                    let json = self.deck.to_json().map_err(|e| Error::Deck(e.to_string()))?;
+                    validate_bundle(&json, &Handed(&self.files)).map_err(|e| Error::Deck(e.to_string()))?
+                }
+            };
+            let mut layout = None;
+            lint_validated(&self.deck, found.clone(), Some(self.theme_json.as_str()), |theme| {
+                let (engine, store) = crate::engine_for(&self.deck, &self.theme, &self.files, &self.kept)
+                    .map_err(|e| scaena_ops::OpsError::new(e.to_string()))?;
+                let mut engine = engine.with_timed(self.timed.clone());
+                let found = layout_rules(&mut engine, &self.deck, theme, &self.data, &store, None)?;
+                layout = Some(found.clone());
+                Ok(found)
+            })
+            .map_err(|e| Error::Ops(e.message))?;
+            Ok(LaidOut { found, layout })
+        })();
+        self.laid = Some(laid.map_err(|e| e.to_string()));
+    }
+
+    /// Whether it has been laid out.
+    pub fn laid(&self) -> bool {
+        self.laid.is_some()
+    }
+}
+
+/// A [`Laying`] goes to another thread and back: it shares nothing with the session that a
+/// thread writes.
+const _: fn() = || {
+    fn sent<T: Send>() {}
+    sent::<Laying>();
+};
+
 /// Each state of `deck` by its id, with the nodes it shows and those that leave in its cue:
 /// what a finding in that state can be about, or owe something to.
 fn nodes(deck: &Deck) -> BTreeMap<String, BTreeSet<String>> {
@@ -237,7 +306,55 @@ impl Session {
     /// took a node out of, keeps nothing until they run on every state again, since what they
     /// found there can be about that node, or owe something to it (a collision, or the
     /// contrast of text over it).
-    pub fn lint(&mut self, only: Option<&str>) -> Result<Linting, Error> {
+    ///
+    /// Dates are judged at `now`, seconds since the epoch by the client's clock at each lint, as its
+    /// edits take theirs (W428, ADR-0030); without it, none is.
+    pub fn lint(&mut self, only: Option<&str>, now: Option<i64>) -> Result<Linting, Error> {
+        self.linted(only, None, now)
+    }
+
+    /// The deck compiled last, as the layout rules lay it out on every state away from the
+    /// session (PLAN 4.13): a client lays it out on a thread of its own ([`Laying::lay`]) while
+    /// the session goes on answering, and hands it back to [`Session::lint_laid`]. Nothing where
+    /// no source compiled to a deck that validates. Shares the bundle's files and the pictures
+    /// decoded with the session, copying neither.
+    pub fn laying(&self) -> Option<Laying> {
+        let edit = self.edit.as_ref()?;
+        let deck = edit.compiled.deck()?;
+        Some(Laying {
+            source: edit.source.clone(),
+            deck,
+            theme: self.theme.clone(),
+            theme_json: self.theme_json.clone(),
+            files: Arc::clone(&self.files),
+            kept: Arc::clone(&self.store),
+            data: self.data.clone(),
+            timed: self.engine.as_ref().map_or_else(|| self.timed.clone(), Engine::timed),
+            validated: self.validated.clone(),
+            laid: None,
+        })
+    }
+
+    /// Lint the deck compiled last on every state, as [`Session::lint`] does, with what
+    /// `laying` laid out: validation, the document rules, and what the layout rules found
+    /// there, laying nothing out here (PLAN 4.13). Nothing where the deck has changed since
+    /// `laying` was taken from it (another source compiled, a file handed over, the theme
+    /// edited), so what lint found in an older deck never stands for this one's, or where it
+    /// has not been laid out. Dates are judged at `now`, as [`Session::lint`] judges them.
+    pub fn lint_laid(&mut self, laying: &Laying, now: Option<i64>) -> Result<Option<Linting>, Error> {
+        let current = self.edit.as_ref().is_some_and(|edit| edit.source == laying.source)
+            && Arc::ptr_eq(&self.files, &laying.files)
+            && self.theme_json == laying.theme_json;
+        match &laying.laid {
+            Some(Ok(laid)) if current => self.linted(None, Some(laid.clone()), now).map(Some),
+            Some(Err(why)) if current => Err(Error::Ops(why.clone())),
+            _ => Ok(None),
+        }
+    }
+
+    /// Lint the deck compiled last, as [`Session::lint`] says; with `given`, on every state
+    /// with what a [`Laying`] found, laying nothing out.
+    fn linted(&mut self, only: Option<&str>, given: Option<LaidOut>, now: Option<i64>) -> Result<Linting, Error> {
         let every = self.every();
         let edit = self.edit.as_ref().ok_or(Error::NothingCompiled)?;
         let Some(deck) = edit.compiled.deck() else {
@@ -248,23 +365,33 @@ impl Session {
                 whole: only.is_none(),
             });
         };
-        self.build()?;
+        if given.is_none() {
+            self.build()?;
+        }
         let Session { engine, store, data, theme_json, laid, files, validated, .. } = self;
-        let engine = engine.as_mut().expect("built above");
         let mut fresh = None;
         // What the layout rules found, this time and kept from the last: what holds only in the
         // format it was laid out in.
         let mut layout = Vec::new();
         // What validation found when the deck was compiled, which nothing has changed since.
-        let found = match validated {
-            Some(found) => found.clone(),
-            None => {
+        let (found, given) = match (given, validated) {
+            (Some(given), _) => (given.found, Some(given.layout)),
+            (None, Some(found)) => (found.clone(), None),
+            (None, None) => {
                 let json = deck.to_json().map_err(|e| Error::Deck(e.to_string()))?;
-                validate_bundle(&json, &Handed(files)).map_err(|e| Error::Deck(e.to_string()))?
+                (validate_bundle(&json, &Handed(files)).map_err(|e| Error::Deck(e.to_string()))?, None)
             }
         };
         let linted = lint_validated(&deck, found, Some(theme_json.as_str()), |theme| {
-            let found = layout_rules(engine, &deck, theme, data, store, only)?;
+            let found = match given {
+                // Laid out away from the session, the same deck in the same theme: the rules
+                // run on it there when they would here.
+                Some(given) => given.unwrap_or_default(),
+                None => {
+                    let engine = engine.as_mut().expect("built above");
+                    layout_rules(engine, &deck, theme, data, store, only)?
+                }
+            };
             fresh = Some(found.clone());
             layout = match only {
                 None => found,
@@ -284,6 +411,7 @@ impl Session {
             Ok(layout.clone())
         })
         .map_err(|e| Error::Ops(e.message))?;
+        let linted = scaena_ops::lint::dated(linted, &deck, now);
         match (fresh, only) {
             (Some(findings), None) => *laid = Laid { findings, nodes: nodes(&deck) },
             // A deck the layout rules cannot run on has nothing laid out to keep.
@@ -698,8 +826,8 @@ mod tests {
         let before = s.pixels("revenue", f64::INFINITY, 160).unwrap();
         let listed = s.starters_painted("revenue", 90, None).unwrap();
         let layouts: Vec<&str> = listed.iter().map(|one| one["layout"].as_str().unwrap_or("blank")).collect();
-        assert_eq!(layouts.len(), 164, "Dusk's 163 layouts, then a blank slide: {layouts:?}");
-        assert_eq!((layouts[0], layouts[163]), ("title", "blank"));
+        assert_eq!(layouts.len(), 173, "Dusk's 172 layouts, then a blank slide: {layouts:?}");
+        assert_eq!((layouts[0], layouts[172]), ("title", "blank"));
         let bullets = &listed[layouts.iter().position(|l| *l == "bullets").unwrap()];
         assert_eq!(bullets["description"], "A headline, and the points that make its case.");
         assert_eq!((bullets["name"].as_str(), bullets["group"].as_str()), (Some("Bullets"), Some("Lists")));
@@ -708,8 +836,10 @@ mod tests {
         let roadmap = &listed[layouts.iter().position(|l| *l == "roadmap").unwrap()];
         assert_eq!(roadmap["also"], serde_json::json!(["Kanban"]), "and by another name a search finds it by");
         assert_eq!(swot["also"], serde_json::json!([]));
+        let fine = &listed[layouts.iter().position(|l| *l == "fine-print").unwrap()];
+        assert_eq!(fine["also"], serde_json::json!(["Disclosures"]), "Fine Print, by Disclosures (PLAN S.3)");
         assert!(
-            listed[163]["name"].is_null() && listed[163]["description"].is_null() && listed[163]["group"].is_null()
+            listed[172]["name"].is_null() && listed[172]["description"].is_null() && listed[172]["group"].is_null()
         );
         let mut pictures: Vec<scaena_paint::Raster> = Vec::new();
         for (i, one) in listed.iter().enumerate() {
@@ -813,7 +943,7 @@ mod tests {
             assert!(line.starts_with(&format!("state {id} ")), "{id} at {at}: {}", line.lines().next().unwrap_or(""));
         }
         assert!(s.source().contains("The same bars, stacked."));
-        let linted = s.lint(None).unwrap();
+        let linted = s.lint(None, None).unwrap();
         assert!(linted.laid);
         assert!(!linted.findings.iter().any(|f| f.finding.severity == Severity::Error), "{:?}", linted.findings);
     }
@@ -851,7 +981,7 @@ mod tests {
         let long = "Revenue doubled, and then some";
         let source = s.source().replace("\"Revenue doubled\"", &format!("\"{long}\""));
         assert!(s.compile(&source).valid);
-        let linted = s.lint(None).unwrap();
+        let linted = s.lint(None, None).unwrap();
         let overflow =
             (linted.findings.iter()).find(|f| f.finding.code == "E100" && f.fixable).expect("an E100 with a fix");
         let at = overflow.at.expect("placed in the source");
@@ -862,7 +992,7 @@ mod tests {
         let fixed = s.fix(overflow.finding.fix.as_deref().unwrap()).unwrap();
         assert!(fixed.contains(long));
         assert!(s.compile(&fixed).valid);
-        let after = s.lint(None).unwrap();
+        let after = s.lint(None, None).unwrap();
         assert!(!after.findings.iter().any(|f| f.finding.code == "E100"), "{:?}", after.findings);
     }
 
@@ -872,7 +1002,7 @@ mod tests {
         let long = "Revenue doubled, and then some";
         let source = s.source().replace("\"Revenue doubled\"", &format!("\"{long}\""));
         assert!(s.compile(&source).valid);
-        let whole = s.lint(None).unwrap();
+        let whole = s.lint(None, None).unwrap();
         assert!(whole.whole && whole.laid);
         let said = |l: &Linting, state: &str| {
             let mut found: Vec<String> = (l.findings.iter())
@@ -886,7 +1016,7 @@ mod tests {
         };
         // Each state alone finds what the whole lint finds in it, and keeps the rest.
         for state in ["intro", "revenue", "mix", "close"] {
-            let one = s.lint(Some(state)).unwrap();
+            let one = s.lint(Some(state), None).unwrap();
             assert!(!one.whole);
             for other in ["intro", "revenue", "mix", "close"] {
                 assert_eq!(said(&one, other), said(&whole, other), "{state}: {other}");
@@ -895,8 +1025,58 @@ mod tests {
         assert!(said(&whole, "revenue").iter().any(|f| f.starts_with("E100")));
         // The headline put right: linting its state drops what the whole lint found there.
         assert!(s.compile(&s.source().replace(long, "Revenue doubled")).valid);
-        let one = s.lint(Some("revenue")).unwrap();
+        let one = s.lint(Some("revenue"), None).unwrap();
         assert!(!said(&one, "revenue").iter().any(|f| f.starts_with("E100")), "{:?}", said(&one, "revenue"));
+    }
+
+    /// The lint of every state laid out on a thread of its own (PLAN 4.13): what it finds is
+    /// what `lint` finds on every state, the session answering meanwhile; a lint of one state
+    /// after it keeps the rest as after `lint`; and one taken from a deck changed since is
+    /// dropped, never standing for the deck now.
+    #[test]
+    fn a_lint_laid_out_away_from_the_session_is_the_sessions_and_a_stale_one_is_dropped() {
+        let mut s = revenue();
+        let long = "Revenue doubled, and then some";
+        let source = s.source().replace("\"Revenue doubled\"", &format!("\"{long}\""));
+        assert!(s.compile(&source).valid);
+        let mut laying = s.laying().unwrap();
+        assert!(!laying.laid());
+        assert!(s.lint_laid(&laying, None).unwrap().is_none(), "nothing laid out yet");
+        let laying = std::thread::spawn(move || {
+            laying.lay();
+            laying
+        });
+        // The session answers while the deck is laid out away from it.
+        assert!(s.pixels("intro", f64::INFINITY, 64).is_ok());
+        let laying = laying.join().unwrap();
+        assert!(laying.laid());
+        let laid = s.lint_laid(&laying, None).unwrap().unwrap();
+        assert!(laid.whole && laid.laid);
+        let whole = s.lint(None, None).unwrap();
+        assert_eq!(written(&laid), written(&whole));
+        assert!(written(&laid).iter().any(|f| f.contains("E100")));
+
+        // Taken back, it is what a lint of one state keeps of the rest, as a whole lint's is.
+        let mut fresh = revenue();
+        assert!(fresh.compile(&source).valid);
+        let mut laying = fresh.laying().unwrap();
+        laying.lay();
+        assert!(fresh.lint_laid(&laying, None).unwrap().is_some());
+        assert_eq!(written(&fresh.lint(Some("mix"), None).unwrap()), written(&s.lint(Some("mix"), None).unwrap()));
+
+        // Another source compiled since: dropped.
+        let mut stale = fresh.laying().unwrap();
+        stale.lay();
+        assert!(fresh.compile(&source.replace(long, "Revenue doubled")).valid);
+        assert!(fresh.lint_laid(&stale, None).unwrap().is_none(), "another source");
+        // A file handed over since, the source the same: dropped.
+        let mut stale = fresh.laying().unwrap();
+        stale.lay();
+        fresh.add_file("notes.txt", b"later".to_vec());
+        assert!(fresh.lint_laid(&stale, None).unwrap().is_none(), "another file");
+        // Nothing compiled to a deck that validates: nothing to lay out.
+        assert!(!fresh.compile("state {").valid);
+        assert!(fresh.laying().is_none());
     }
 
     /// Each finding, written out as the page reads it.
@@ -924,7 +1104,7 @@ mod tests {
         let mut s = revenue();
         let original = s.source();
         assert!(s.compile(&with_a_copy(&original)).valid);
-        let whole = s.lint(None).unwrap();
+        let whole = s.lint(None, None).unwrap();
         let found = |code: &str, state: &str, node: &str| {
             (whole.findings.iter())
                 .map(|f| &f.finding)
@@ -934,10 +1114,10 @@ mod tests {
         assert!(found("E110", "revenue", "note"), "the note over the copy: {:#?}", written(&whole));
         // Undone, in `mix`: the lint of that state alone finds what the lint of every state does.
         assert!(s.compile(&original).valid);
-        let one = s.lint(Some("mix")).unwrap();
+        let one = s.lint(Some("mix"), None).unwrap();
         assert!(!one.whole);
         assert!(!written(&one).iter().any(|f| f.contains("rev-2")), "{:#?}", written(&one));
-        assert_eq!(written(&one), written(&s.lint(None).unwrap()));
+        assert_eq!(written(&one), written(&s.lint(None, None).unwrap()));
     }
 
     /// A state an edit took out, with what the lint of every state found in it.
@@ -947,12 +1127,12 @@ mod tests {
         let original = s.source();
         let long = "Thank you, every one of you, for coming tonight".repeat(4);
         assert!(s.compile(&format!("{original}\nstate encore\n  title \"{long}\"\n")).valid);
-        let whole = s.lint(None).unwrap();
+        let whole = s.lint(None, None).unwrap();
         let encore = |l: &Linting| l.findings.iter().any(|f| f.finding.state.as_deref() == Some("encore"));
         let overflow = |f: &Located| f.finding.code == "E100" && f.finding.state.as_deref() == Some("encore");
         assert!(whole.findings.iter().any(overflow), "{:#?}", written(&whole));
         assert!(s.compile(&original).valid);
-        let one = s.lint(Some("revenue")).unwrap();
+        let one = s.lint(Some("revenue"), None).unwrap();
         assert!(!encore(&one), "{:#?}", written(&one));
     }
 
@@ -963,11 +1143,11 @@ mod tests {
         let mut s = revenue();
         let copied = with_a_copy(&s.source());
         assert!(s.compile(&copied).valid);
-        let whole = s.lint(None).unwrap();
+        let whole = s.lint(None, None).unwrap();
         let tall = |l: &Linting| l.findings.iter().any(|f| f.finding.format.as_deref() == Some("9:16"));
         assert!(tall(&whole), "{:#?}", written(&whole));
         assert!(s.compile(&copied.replace("formats:[16:9, 9:16]", "formats:[16:9]")).valid);
-        let one = s.lint(Some("intro")).unwrap();
+        let one = s.lint(Some("intro"), None).unwrap();
         assert!(!tall(&one), "{:#?}", written(&one));
     }
 
@@ -992,7 +1172,7 @@ mod tests {
         };
         let document = |code: &str| matches!(code, "W301" | "W302");
         // On the deck's own canvas: what names no format.
-        let own = found(&s.lint(None).unwrap());
+        let own = found(&s.lint(None, None).unwrap());
         assert!(own.contains(&("E100".into(), None, true)) && own.contains(&("W301".into(), None, true)), "{own:?}");
         assert!(own.contains(&("E100".into(), Some("9:16".into()), false)), "{own:?}");
         assert!(own.iter().all(|(_, format, shown)| *shown == format.is_none()), "{own:?}");
@@ -1005,14 +1185,14 @@ mod tests {
                 .map(|f| (f.finding.code.clone(), f.finding.format.clone(), f.formats.clone()))
                 .collect()
         };
-        let every = listed(&s.lint(None).unwrap());
+        let every = listed(&s.lint(None, None).unwrap());
         let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<Vec<_>>();
         assert!(every.contains(&("E100".into(), None, names(&["", "16:9"]))), "{every:?}");
         assert!(every.contains(&("E100".into(), Some("9:16".into()), names(&["9:16"]))), "{every:?}");
         assert!(every.contains(&("W301".into(), None, names(&["", "16:9", "9:16"]))), "{every:?}");
         // In `9:16`: what laying it out there found, and the document rules'.
         s.set_format(Some("9:16")).unwrap();
-        let tall = found(&s.lint(Some("revenue")).unwrap());
+        let tall = found(&s.lint(Some("revenue"), None).unwrap());
         assert!(
             tall.contains(&("E100".into(), None, false)) && tall.contains(&("W301".into(), None, true)),
             "{tall:?}"
@@ -1024,7 +1204,7 @@ mod tests {
         assert!(tall.iter().all(|f| f.2 == held(f)), "{tall:?}");
         // `16:9` lays out as the deck's own canvas, and lint does not lay it out again.
         s.set_format(Some("16:9")).unwrap();
-        let wide = found(&s.lint(None).unwrap());
+        let wide = found(&s.lint(None, None).unwrap());
         assert_eq!(wide, own);
         // What compiling finds holds in every format.
         let found = s.compile(&source.replace("@q3", "@q4")).findings;

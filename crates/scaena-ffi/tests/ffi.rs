@@ -320,6 +320,56 @@ fn an_older_theme_that_ships_opens_with_its_library() {
     unsafe { scaena_session_free(s) };
 }
 
+/// A deck whose bundle took Salon when it shipped as Gallery (PLAN T.0d): its copy named Gallery,
+/// at `themes/gallery.theme.json`, opens as before, in its own copy, and takes Salon's library.
+#[test]
+fn a_bundle_that_names_gallery_opens_as_before() {
+    let mut error = null_mut();
+    let made = unsafe { scaena_create(c("gallery").as_ptr(), c("A Gallery deck").as_ptr(), &mut error) };
+    assert!(!made.is_null(), "made: {}", took(error));
+    let saved = unsafe { scaena_save(made, c("2026-10-06T12:00:00Z").as_ptr(), false, &mut error) };
+    assert!(!saved.is_null(), "saved: {}", took(error));
+    let listed: Value = serde_json::from_str(&took(unsafe { scaena_saved_list(saved) })).unwrap();
+    let files = scaena_files_new();
+    let mut kept = 0;
+    for path in listed["ok"]["files"].as_array().unwrap().iter().filter_map(Value::as_str) {
+        let bytes = unsafe { scaena_saved_file(saved, c(path).as_ptr()) };
+        let mut held = unsafe { std::slice::from_raw_parts(bytes.data, bytes.len) }.to_vec();
+        unsafe { scaena_bytes_free(bytes) };
+        let mut path = path.to_string();
+        if path == "deck.json" {
+            held =
+                String::from_utf8(held).unwrap().replace("themes/salon.theme.json", "themes/gallery.theme.json").into();
+        } else if path == "themes/salon.theme.json" {
+            // Gallery as it was named, before its library grew: its first ten layouts.
+            let mut older: Value = serde_json::from_slice(&held).unwrap();
+            older["name"] = json!("Gallery");
+            let layouts = older["layouts"].as_object_mut().unwrap();
+            let later: Vec<String> = layouts.keys().skip(10).cloned().collect();
+            for key in later {
+                layouts.remove(&key);
+            }
+            kept = layouts.len();
+            held = serde_json::to_vec_pretty(&older).unwrap();
+            path = "themes/gallery.theme.json".into();
+        }
+        assert!(unsafe { scaena_files_add(files, c(&path).as_ptr(), held.as_ptr(), held.len()) });
+    }
+    unsafe { scaena_saved_free(saved) };
+    unsafe { scaena_session_free(made) };
+
+    let s = unsafe { scaena_open(files, &mut error) };
+    assert!(!s.is_null(), "opens: {}", took(error));
+    assert_eq!(call(s, "themes", Value::Null)["current"], "themes/gallery.theme.json");
+    let starters = call(s, "starters", Value::Null);
+    let shipped: Value =
+        serde_json::from_str(&std::fs::read_to_string("../../docs/examples/themes/salon.theme.json").unwrap()).unwrap();
+    let all = shipped["layouts"].as_object().unwrap().len();
+    assert!(kept < all);
+    assert_eq!(starters.as_array().unwrap().len(), all + 1, "Salon's every layout, and a blank slide");
+    unsafe { scaena_session_free(s) };
+}
+
 #[test]
 fn every_misuse_is_an_error_never_a_crash() {
     let s = open(B1);
@@ -1243,7 +1293,9 @@ fn revenue() -> *mut ScaenaSession {
 fn the_theme_is_edited_and_another_taken_as_the_browsers_theme_tab_does() {
     let shipped = call(revenue(), "shippedThemes", Value::Null);
     let names: Vec<&str> = shipped.as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
-    assert_eq!(names, ["dusk", "daybreak", "ember", "gallery"], "{shipped}");
+    assert_eq!(names, ["dusk", "daybreak", "ember", "salon"], "{shipped}");
+    let families: Vec<&str> = shipped.as_array().unwrap().iter().filter_map(|t| t["family"].as_str()).collect();
+    assert_eq!(families, ["Stage", "Executive", "Analyst", "Editorial"], "{shipped}");
 
     let s = revenue();
     let themed = call(s, "retheme", json!({ "ships": "daybreak", "at": "2026-10-08T12:00:00Z" }));

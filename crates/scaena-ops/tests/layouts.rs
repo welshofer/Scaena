@@ -40,9 +40,11 @@ fn a_state_is_offered_each_layout_that_draws_it_otherwise_judged_by_lint_best_fi
     assert_eq!(now.alike, ["poster", "table", "full", "photo-caption"]);
     // Each other is one `set_state`, changes this state alone, and makes the slide's errors.
     // Risk Matrix and Positioning Map set the note beside what the slide holds, alike, and
-    // Pictograph sets it under its figures as Two Figures does.
+    // Pictograph sets it under its figures as Two Figures does, and Map sets its headline and
+    // its note where Two Figures does (PLAN O.1e).
     assert_eq!(suggested[2].alike, ["positioning-map"]);
-    assert_eq!(suggested[3].alike, ["pictograph"]);
+    assert_eq!(suggested[3].layout, "two-figures");
+    assert_eq!(suggested[3].alike, ["pictograph", "map"]);
     for other in &suggested[1..] {
         assert!(!other.current && other.errors > 0, "{other:?}");
         assert!(other.alike.is_empty() || ["risk-matrix", "two-figures"].contains(&other.layout.as_str()), "{other:?}");
@@ -102,12 +104,12 @@ fn a_clean_layout_that_draws_the_state_otherwise_is_suggested() {
 fn the_layouts_that_draw_a_state_alike_fold_into_the_one_it_takes() {
     let b = scaena_ops::open(Path::new(TRAILS)).unwrap();
     // The agenda's header is the one node in a slot. Most layouts put it in the same place, folded
-    // into the one the agenda takes; four put it elsewhere: beside a picture off either edge, as
-    // `photo-grid-text` does `photo-left`'s, and beside an agenda's topics, with a picture or
-    // without (PLAN 3.30, 3.31).
+    // into the one the agenda takes; five put it elsewhere: beside a picture off either edge, as
+    // `photo-grid-text` does `photo-left`'s, over a map across the slide, and beside an agenda's
+    // topics, with a picture or without (PLAN 3.30, 3.31, O.1e).
     let suggested = suggest(&b, "agenda", None).unwrap();
     let names: Vec<&str> = suggested.iter().map(|s| s.layout.as_str()).collect();
-    assert_eq!(names, ["full", "agenda-photo", "photo-left", "photo-right", "agenda"], "{suggested:#?}");
+    assert_eq!(names, ["full", "agenda-photo", "photo-left", "map-full", "photo-right", "agenda"], "{suggested:#?}");
     assert!(suggested[0].current && suggested[1..].iter().all(|s| !s.current));
     assert_eq!(suggested[2].alike, ["photo-grid-text"]);
     assert_eq!(suggested[0].alike[..4], ["title-only", "manifesto", "bullets", "numbered"]);

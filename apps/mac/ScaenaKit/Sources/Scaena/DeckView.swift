@@ -742,10 +742,11 @@ struct DeckView: View {
                 if typing?.typing != true { elsewhere = shown.map { showsElsewhere(in: $0) } ?? false }
             }
             .task(id: editor.revision) {
-                // Every state is linted once edits stop, as in the browser.
+                // Every state is linted once the deck opens and once edits stop, as in the
+                // browser, away from the window, which answers meanwhile (PLAN 4.13).
                 try? await Task.sleep(for: .milliseconds(700))
                 guard !Task.isCancelled, !editor.whole else { return }
-                editor.lintEvery()
+                await editor.lintEvery()
             }
     }
 

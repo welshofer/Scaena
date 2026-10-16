@@ -138,7 +138,7 @@ mod tests {
     #[test]
     fn the_current_format_reads_as_written() {
         assert_eq!(DECK.read(crate::FORMAT_VERSION), crate::FORMAT_VERSION);
-        assert_eq!(DECK.read("0.30.1"), "0.30.1");
+        assert_eq!(DECK.read("0.31.1"), "0.31.1");
         assert_eq!(DECK.unread(crate::FORMAT_VERSION), None);
         assert_eq!(THEME.unread(crate::THEME_FORMAT_VERSION), None);
     }

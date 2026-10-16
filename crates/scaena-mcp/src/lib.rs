@@ -298,7 +298,7 @@ pub struct BundleArg {
 pub struct DeckCreate {
     /// Where the bundle goes: a directory that is not there yet, or is empty.
     pub bundle: String,
-    /// The theme to start from: one that ships, by its name (`dusk`, `daybreak`, `ember`, or `gallery`),
+    /// The theme to start from: one that ships, by its name (`dusk`, `daybreak`, `ember`, or `salon`),
     /// which comes with its fonts; or a theme file, copied in with the fonts its families
     /// name (from beside it, or above it).
     pub theme: String,
@@ -405,6 +405,10 @@ pub struct DeckLint {
     /// change of content), write the deck, and lint again.
     #[serde(default)]
     pub fix: bool,
+    /// The moment to judge dates at (W428: a forecast that has passed): an instant, as
+    /// 2026-10-15T20:00:00Z, or a day, as 2026-10-15. Without it, no date is judged.
+    #[serde(default)]
+    pub now: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -489,7 +493,9 @@ pub struct DeckDiff {
 pub struct ThemeApply {
     /// The bundle: a directory, a `.scaena` zip, or a `deck.json`.
     pub bundle: String,
-    /// The theme file; one outside the bundle is copied to `themes/`.
+    /// The theme file; one outside the bundle is copied to `themes/`. Where no such file is, a
+    /// theme that ships, by its name (`dusk`, `daybreak`, `ember`, or `salon`), copied in with its
+    /// fonts.
     pub theme: String,
     #[serde(default)]
     pub dry_run: bool,
@@ -602,7 +608,7 @@ pub struct Rendered {
 #[tool_router]
 impl Scaena {
     #[tool(description = "Make a bundle: a theme and its fonts, data files, and a deck pointed at them \
-        (or one state with nothing on screen). The theme is one that ships, by name (dusk, daybreak, ember, gallery), or a \
+        (or one state with nothing on screen). The theme is one that ships, by name (dusk, daybreak, ember, salon), or a \
         theme file. Checked as `deck_lint` checks a bundle, and written only if it validates.")]
     async fn deck_create(
         &self,
@@ -673,6 +679,14 @@ impl Scaena {
         };
         let author = author(&context);
         blocking(move || {
+            let now = match a.now.as_deref() {
+                Some(now) => Some(scaena_core::fetched::moment(now).ok_or_else(|| {
+                    OpsError::new(format!(
+                        "`now` `{now}` is not an instant or a day: write 2026-10-15T20:00:00Z or 2026-10-15"
+                    ))
+                })?),
+                None => None,
+            };
             let b = open_by(&a.bundle, author)?;
             let (findings, fixed, laid) = match a.fix {
                 true => {
@@ -680,7 +694,7 @@ impl Scaena {
                     (f.findings, Some(f.fixed), true)
                 }
                 false => {
-                    let l = scaena_ops::lint::lint(&b)?;
+                    let l = scaena_ops::lint::lint_at(&b, now)?;
                     (l.findings, None, l.laid)
                 }
             };
@@ -818,8 +832,8 @@ impl Scaena {
             .map(|changes| Json(Diffed { changes }))
     }
 
-    #[tool(description = "Re-theme: point the deck at another theme, copied into the bundle, and say what that \
-        changes in what lint finds. A text the theme leaves too faint to read where it stands is set in the \
+    #[tool(description = "Re-theme: point the deck at another theme, a file or one that ships by name (dusk, \
+        daybreak, ember, salon), copied into the bundle with its fonts, and say what that changes in what lint finds. A text the theme leaves too faint to read where it stands is set in the \
         theme's color that reads there, as its contrast error's fix offers (`recolored`); the deck is not otherwise \
         touched. A theme that \
         would leave the deck invalid, as one that lacks a name it uses does, is refused (`refused`, and its \
@@ -986,7 +1000,7 @@ impl ServerHandler for Scaena {
         ServerConfig::new(capabilities).with_server_info(server).with_instructions(
             "Scaena decks are states over one scene graph: nodes exist for the whole deck, each state says what changes, \
              and the theme owns type and layout, so a deck names roles, slots, and presets, never pixels. Make a bundle \
-             with deck_create (a theme that ships, dusk, daybreak, ember, or gallery, needs no file), attach data with data_attach, edit with deck_patch, check with deck_lint, and look with \
+             with deck_create (a theme that ships, dusk, daybreak, ember, or salon, needs no file), attach data with data_attach, edit with deck_patch, check with deck_lint, and look with \
              deck_render. The resources hold the schemas, the lint catalog, the specification by section (scaena://spec is \
              its index), the skills (procedures to follow: scaena://skills/author-deck first), and examples.",
         )
