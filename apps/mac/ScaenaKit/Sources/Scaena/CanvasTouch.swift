@@ -170,8 +170,8 @@ struct CanvasMenu: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
+    func makeUIView(context: Context) -> Edits {
+        let view = Edits()
         view.backgroundColor = .clear
         let menus = UIEditMenuInteraction(delegate: context.coordinator)
         view.addInteraction(menus)
@@ -179,11 +179,13 @@ struct CanvasMenu: UIViewRepresentable {
         return view
     }
 
-    func updateUIView(_ view: UIView, context: Context) {
+    func updateUIView(_ view: Edits, context: Context) {
         let held = context.coordinator
         held.deck = deck
         held.clip = clip
         held.around = around
+        view.clip = clip
+        view.pastesText = deck?.pasteAsText != nil
         guard let asked, asked.count != held.shown else { return }
         held.shown = asked.count
         held.menus?.presentEditMenu(with: UIEditMenuConfiguration(identifier: nil, sourcePoint: asked.at))
@@ -202,7 +204,7 @@ struct CanvasMenu: UIViewRepresentable {
             _ interaction: UIEditMenuInteraction, menuFor configuration: UIEditMenuConfiguration,
             suggestedActions: [UIMenuElement]
         ) -> UIMenu? {
-            UIMenu(children: CanvasMenu.items(deck, clip: clip))
+            UIMenu(children: CanvasMenu.items(deck, clip: clip, suggested: suggestedActions))
         }
 
         /// The menu stands clear of what it is for, as much of it as the canvas shows; at the press
@@ -219,21 +221,74 @@ struct CanvasMenu: UIViewRepresentable {
 
     /// What the menu offers (`CanvasOffer`, as the Mac's right click offers it, PLAN 3.23), as
     /// iPadOS's edit menu shows it: no lines between kinds.
-    static func items(_ deck: DeckActions?, clip: @escaping (Clipping) -> Void) -> [UIMenuElement] {
-        CanvasOffer.offers(deck, clip: clip).compactMap(element)
+    ///
+    /// A paste is the system's own command, sent through the responder chain as UIKit sends ⌘V
+    /// and its edit menu's Paste: what it reads of the pasteboard then asks nothing of the person,
+    /// where an action that reads it on its own raises iPadOS's Allow Paste. The system's item
+    /// where `suggested` holds one, else a command of the same action.
+    static func items(
+        _ deck: DeckActions?, clip: @escaping (Clipping) -> Void, suggested: [UIMenuElement] = []
+    ) -> [UIMenuElement] {
+        CanvasOffer.offers(deck, clip: clip).compactMap { element($0, suggested: suggested) }
     }
 
-    private static func element(_ offer: CanvasOffer) -> UIMenuElement? {
+    private static func element(_ offer: CanvasOffer, suggested: [UIMenuElement]) -> UIMenuElement? {
         switch offer {
-        case .action(let title, let symbol, let destructive, let run):
+        case .action(let title, let symbol, _, let edit?, _):
+            let action = Edits.action(edit)
+            if let system = command(action, in: suggested) { return system }
+            return UICommand(title: title, image: symbol.flatMap { UIImage(systemName: $0) }, action: action)
+        case .action(let title, let symbol, let destructive, nil, let run):
             let attributes: UIMenuElement.Attributes = destructive ? .destructive : []
             return UIAction(title: title, image: symbol.flatMap { UIImage(systemName: $0) }, attributes: attributes) { _ in
                 run()
             }
         case .menu(let title, let symbol, let children):
-            return UIMenu(title: title, image: symbol.flatMap { UIImage(systemName: $0) }, children: children.compactMap(element))
+            return UIMenu(
+                title: title, image: symbol.flatMap { UIImage(systemName: $0) },
+                children: children.compactMap { element($0, suggested: suggested) })
         case .divider:
             return nil
+        }
+    }
+
+    /// The system's command for `action` among `elements`, at any depth.
+    private static func command(_ action: Selector, in elements: [UIMenuElement]) -> UICommand? {
+        for element in elements {
+            if let system = element as? UICommand, system.action == action { return system }
+            if let menu = element as? UIMenu, let found = command(action, in: menu.children) { return found }
+        }
+        return nil
+    }
+
+    /// The view the menu is shown over, which answers its pastes where the responder chain brings
+    /// them here: a paste the system sends reads the pasteboard with no Allow Paste.
+    final class Edits: UIView {
+        var clip: (Clipping) -> Void = { _ in }
+        /// Whether the menu offers Paste as Text.
+        var pastesText = false
+
+        static func action(_ edit: CanvasOffer.Edit) -> Selector {
+            switch edit {
+            case .paste: #selector(UIResponderStandardEditActions.paste(_:))
+            case .pasteAsText: #selector(UIResponderStandardEditActions.pasteAndMatchStyle(_:))
+            }
+        }
+
+        override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+            switch action {
+            case Self.action(.paste): true
+            case Self.action(.pasteAsText): pastesText
+            default: super.canPerformAction(action, withSender: sender)
+            }
+        }
+
+        override func paste(_ sender: Any?) {
+            clip(.paste)
+        }
+
+        override func pasteAndMatchStyle(_ sender: Any?) {
+            clip(.pasteAsText)
         }
     }
 }
