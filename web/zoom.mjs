@@ -106,6 +106,10 @@ try {
     const m = await trips();
     await page.keyboard.press("Control+z");
     await settled(m);
+    // Back where it was on the canvas too: the worker can answer, and the canvas be idle, before it
+    // has the undone deck's boxes, and what is read of the node next (the middle a zoom is about)
+    // would be where the drag left it.
+    await page.waitForFunction(([n, r]) => window.scaena.canvas.boxes().find((b) => b.node === n)?.rect.join() === r, [node, [x, y, w, h].join()], { timeout: 60000, polling: 50 }).catch(() => {});
     return landed;
   };
   // A drag at the whole canvas, to hold the zoomed one to.
@@ -189,6 +193,7 @@ try {
   for (let k = 1; k <= 6; k++) await page.mouse.move(mx - 30 * k, my - 20 * k);
   await page.mouse.up();
   await page.keyboard.up(" ");
+  const spaced = await page.evaluate(() => window.scaena.canvas.keys());
   const to = await view();
   check(to[0] > from[0] && to[1] > from[1], `Space and a drag pan: ${from.slice(0, 2).map(Math.round)} → ${to.slice(0, 2).map(Math.round)}`);
   check((await page.evaluate(() => window.scaena.canvas.selected())) === selectedBefore && (await trips()) === unchanged, "selecting and changing nothing");
@@ -199,6 +204,10 @@ try {
   await page.locator("#overlay").focus();
   await page.keyboard.press("Escape");
   await page.waitForFunction(() => window.scaena.canvas.selected() === undefined, null, { timeout: 10000 }).catch(() => {});
+  // Where the keys went, said where Escape left something selected: the canvas's key state once
+  // Space was let go, and now, with the focus, the view, and what is selected.
+  const escaped = await page.evaluate(() => ({ selected: window.scaena.canvas.selected(), view: window.scaena.canvas.view().map(Math.round), keys: window.scaena.canvas.keys() }));
+  check(escaped.selected === undefined, `Escape selects nothing: ${JSON.stringify({ ...escaped, spaced })}`);
   const middle = await view();
   const keyed = async (key) => {
     const was = (await view()).join();
