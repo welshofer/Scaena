@@ -322,7 +322,9 @@ interface Press {
   click?: string;
   released?: boolean;
   asking?: boolean;
-  moved?: Starting & { client: [number, number] };
+  /** Where the pointer is, moved while the engine says what was pressed; `went` once it has gone
+   * past the slop since the press, wherever it is now: a drag, as one is past the slop at once. */
+  moved?: Starting & { client: [number, number]; went: boolean };
   /** On the one node selected already: a click there picks a chart's mark or annotation (PLAN 2.67). */
   within?: boolean;
   /** On an annotation of the chart selected: a drag moves a callout. */
@@ -2176,13 +2178,19 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     return { how, to, by, held };
   }
 
+  /** What the drag asks the worker with its pointer where it is now: one question asked once. */
+  function asking(d: Drag, aim = aimed(d)) {
+    return JSON.stringify([aim.by, aim.how, d.alt, d.loose]);
+  }
+
   /** Ask where the drag lands now, and paint its node there: one request at a time, the latest
    * pointer's. */
   async function pump(d: Drag) {
     const shown = editor.shown();
     if (busy || drag !== d || !shown) return;
-    const { how, to, by, held } = aimed(d);
-    const asked = JSON.stringify([by, how, d.alt, d.loose]);
+    const aim = aimed(d);
+    const { how, to, by, held } = aim;
+    const asked = asking(d, aim);
     if (asked === d.asked) return;
     d.asked = asked;
     d.how = how;
@@ -3576,7 +3584,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     // Moved past the slop before the engine answered, as a drag made while the worker paints is:
     // the press was a drag all along, from where the pointer is now, dropped there if let go.
     const moved = mine.moved;
-    const far = moved !== undefined && Math.hypot(moved.client[0] - client[0], moved.client[1] - client[1]) >= SLOP;
+    const far = moved?.went === true;
     if (far && mine.marquee && (press === mine || mine.released)) {
       if (press === mine) press = undefined;
       marquee = { from, at: moved.at, adding: shift };
@@ -3789,7 +3797,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       return;
     }
     if (press.asking) {
-      press.moved = { at, shift: e.shiftKey, alt: e.altKey, loose: e.metaKey || e.ctrlKey, client: [e.clientX, e.clientY] };
+      const went = press.moved?.went === true || Math.hypot(e.clientX - press.client[0], e.clientY - press.client[1]) >= SLOP;
+      press.moved = { at, shift: e.shiftKey, alt: e.altKey, loose: e.metaKey || e.ctrlKey, client: [e.clientX, e.clientY], went };
       return;
     }
     const far = Math.hypot(e.clientX - press.client[0], e.clientY - press.client[1]) >= SLOP;
@@ -3884,7 +3893,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     // A click on a chart's mark, or a table's row, chooses its rows where the data is shown (PLAN 2.64).
     if (!clicked.shift) void editor.pointedAt?.(clicked.from, false);
     if (clicked.asking) {
-      clicked.moved = { at: point(e), shift: e.shiftKey, alt: e.altKey, loose: e.metaKey || e.ctrlKey, client: [e.clientX, e.clientY] };
+      const went = clicked.moved?.went === true || Math.hypot(e.clientX - clicked.client[0], e.clientY - clicked.client[1]) >= SLOP;
+      clicked.moved = { at: point(e), shift: e.shiftKey, alt: e.altKey, loose: e.metaKey || e.ctrlKey, client: [e.clientX, e.clientY], went };
       clicked.released = true;
     } else if (clicked.toggle !== undefined) toggle(clicked.toggle);
     else if (clicked.marquee) select(clicked.click);
@@ -4460,6 +4470,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     /** Whether a drag is under way, or its request with the worker, or what stands where is asked
      * again: until it is answered, the boxes are the deck's before the last edit. */
     busy: () => busy || refreshing > 0 || drag !== undefined || starting !== undefined || reshaping !== undefined || cropping !== undefined,
+    /** Whether the drag under way has its answer for where its pointer is now: what it shows and
+     * says, its guides among them, are for that place, not one the pointer has left. */
+    answered: () => drag !== undefined && !busy && drag.asked === asking(drag),
     /** The text typed in, if one is. */
     typing: () => text.node(),
     /** Once every change typed so far is made, typing left with one under way among them: what a
