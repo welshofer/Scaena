@@ -193,33 +193,33 @@ static ALL: LazyLock<Vec<Served>> = LazyLock::new(|| {
         // The index says each section once, with the part that holds its layouts, and each layout
         // by its name and what it is for under its section: 172 layouts said each with its section
         // and its part would not arrive whole (S.3).
-        let mut sections: Vec<(String, Map<String, Value>, Map<String, Value>)> = Vec::new();
+        let mut sections: Vec<Section> = Vec::new();
         for (name, layout) in layouts.as_object().into_iter().flatten() {
             let group = layout["group"].as_str().unwrap_or("Other");
-            let at = match sections.iter().position(|(g, _, _)| g == group) {
+            let at = match sections.iter().position(|s| s.group == group) {
                 Some(at) => at,
                 None => {
-                    sections.push((group.to_string(), Map::new(), Map::new()));
+                    sections.push(Section { group: group.to_string(), held: Map::new(), said: Map::new() });
                     sections.len() - 1
                 }
             };
-            sections[at].1.insert(name.clone(), layout.clone());
+            sections[at].held.insert(name.clone(), layout.clone());
             let mut said = Map::new();
             for key in ["name", "description"] {
                 if let Some(v) = layout.get(key) {
                     said.insert(key.into(), v.clone());
                 }
             }
-            sections[at].2.insert(name.clone(), Value::Object(said));
+            sections[at].said.insert(name.clone(), Value::Object(said));
         }
         let mut index = Map::new();
-        for (group, _, said) in &sections {
-            let part = json!({ "$ref": format!("{uri}/layouts/{}", section(group)), "layouts": said });
-            index.insert(group.clone(), part);
+        for s in &sections {
+            let part = json!({ "$ref": format!("{uri}/layouts/{}", section(&s.group)), "layouts": s.said });
+            index.insert(s.group.clone(), part);
         }
         let layouts_about = format!("{about}: its layouts by section, each by its name");
         out.push(listed(&format!("{uri}/layouts"), &layouts_about, JSON, &part(&Value::Object(index))));
-        for (group, held, _) in sections {
+        for Section { group, held, .. } in sections {
             let mut served = listed(
                 &format!("{uri}/layouts/{}", section(&group)),
                 &format!("{about}: its layouts in {group}, each slot with what goes in it"),
@@ -232,6 +232,13 @@ static ALL: LazyLock<Vec<Served>> = LazyLock::new(|| {
     }
     out
 });
+
+/// A section of a theme's layouts: its name, its layouts whole, and each as the index says it.
+struct Section {
+    group: String,
+    held: Map<String, Value>,
+    said: Map<String, Value>,
+}
 
 /// The part of a theme's uri that holds a section's layouts: `Titles` as `titles`.
 fn section(group: &str) -> String {
