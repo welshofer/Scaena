@@ -94,15 +94,16 @@ const THEMES: [(&str, &str); 4] = [
     ("scaena://examples/salon.theme.json", "../../docs/examples/themes/salon.theme.json"),
 ];
 
-/// Each layout of a theme as its layouts' index names it, and the uri of the part that holds it.
+/// Each layout of a theme as its layouts' index names it, and the uri of the part that holds it:
+/// its section's.
 async fn sections(client: &Client, (uri, _): (&str, &str)) -> BTreeMap<String, String> {
     let index: Map<String, Value> = serde_json::from_str(&read(client, &format!("{uri}/layouts")).await).unwrap();
     let mut out = BTreeMap::new();
-    for (name, said) in index {
-        let at = said["$ref"].as_str().unwrap();
-        let (part, pointer) = at.split_once('#').unwrap();
-        assert_eq!(pointer, format!("/{name}"), "{uri}: {name} points at itself");
-        out.insert(name, part.to_string());
+    for (_, section) in index {
+        let part = section["$ref"].as_str().unwrap();
+        for name in section["layouts"].as_object().unwrap().keys() {
+            out.insert(name.clone(), part.to_string());
+        }
     }
     out
 }
@@ -119,18 +120,24 @@ async fn a_theme_is_its_parts() {
         let index: Map<String, Value> = serde_json::from_str(&read(&client, &format!("{uri}/layouts")).await).unwrap();
         let mut parts: BTreeMap<String, Map<String, Value>> = BTreeMap::new();
         let mut layouts = Map::new();
-        for (name, said) in &index {
-            let held = &file["layouts"][name];
-            for key in ["name", "description", "group"] {
-                assert_eq!(said[key], held[key], "{uri}: {name}'s {key}");
-            }
-            let part = said["$ref"].as_str().unwrap().split_once('#').unwrap().0.to_string();
+        for (group, section) in &index {
+            let part = section["$ref"].as_str().unwrap().to_string();
             if !parts.contains_key(&part) {
                 let read = read(&client, &part).await;
                 parts.insert(part.clone(), serde_json::from_str(&read).unwrap());
             }
-            layouts.insert(name.clone(), parts[&part][name].clone());
+            for (name, said) in section["layouts"].as_object().unwrap() {
+                let held = &file["layouts"][name];
+                for key in ["name", "description"] {
+                    assert_eq!(said[key], held[key], "{uri}: {name}'s {key}");
+                }
+                assert_eq!(held["group"], serde_json::json!(group), "{uri}: {name} under its section");
+                layouts.insert(name.clone(), parts[&part][name].clone());
+            }
         }
+        // In the file's order, as the parts keep it.
+        let layouts: Map<String, Value> =
+            file["layouts"].as_object().unwrap().keys().map(|name| (name.clone(), layouts[name].clone())).collect();
         assert_eq!(parts.len(), 16, "{uri}: a part for each section");
         let listed: Vec<String> = client.list_all_resources().await.unwrap().iter().map(|r| r.uri.clone()).collect();
         assert!(parts.keys().all(|p| !listed.contains(p)), "{uri}: read by the index, not listed");

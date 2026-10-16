@@ -190,30 +190,36 @@ static ALL: LazyLock<Vec<Served>> = LazyLock::new(|| {
         theme["layouts"] = serde_json::json!({ "$ref": format!("{uri}/layouts") });
         let part = |v: &Value| serde_json::to_string(v).expect("JSON prints");
         out.push(listed(&uri, about, JSON, &part(&theme)));
-        let mut index = Map::new();
-        let mut sections: Vec<(String, Map<String, Value>)> = Vec::new();
+        // The index says each section once, with the part that holds its layouts, and each layout
+        // by its name and what it is for under its section: 172 layouts said each with its section
+        // and its part would not arrive whole (S.3).
+        let mut sections: Vec<(String, Map<String, Value>, Map<String, Value>)> = Vec::new();
         for (name, layout) in layouts.as_object().into_iter().flatten() {
             let group = layout["group"].as_str().unwrap_or("Other");
-            let at = match sections.iter().position(|(g, _)| g == group) {
+            let at = match sections.iter().position(|(g, _, _)| g == group) {
                 Some(at) => at,
                 None => {
-                    sections.push((group.to_string(), Map::new()));
+                    sections.push((group.to_string(), Map::new(), Map::new()));
                     sections.len() - 1
                 }
             };
             sections[at].1.insert(name.clone(), layout.clone());
             let mut said = Map::new();
-            for key in ["name", "description", "group"] {
+            for key in ["name", "description"] {
                 if let Some(v) = layout.get(key) {
                     said.insert(key.into(), v.clone());
                 }
             }
-            said.insert("$ref".into(), json!(format!("{uri}/layouts/{}#/{name}", section(group))));
-            index.insert(name.clone(), Value::Object(said));
+            sections[at].2.insert(name.clone(), Value::Object(said));
         }
-        let layouts_about = format!("{about}: its layouts, each by its name and section");
+        let mut index = Map::new();
+        for (group, _, said) in &sections {
+            let part = json!({ "$ref": format!("{uri}/layouts/{}", section(group)), "layouts": said });
+            index.insert(group.clone(), part);
+        }
+        let layouts_about = format!("{about}: its layouts by section, each by its name");
         out.push(listed(&format!("{uri}/layouts"), &layouts_about, JSON, &part(&Value::Object(index))));
-        for (group, held) in sections {
+        for (group, held, _) in sections {
             let mut served = listed(
                 &format!("{uri}/layouts/{}", section(&group)),
                 &format!("{about}: its layouts in {group}, each slot with what goes in it"),
