@@ -167,20 +167,18 @@ final class TouchTests: XCTestCase {
             }
         }
 
-        try XCTContext.runActivity(named: "A long press offers Map…, whose sheet asks where, and Cancel puts it away") { _ in
-            // PLAN O.1d: Insert › Map… from the long press, as the Mac's right click offers it.
-            title.press(forDuration: 1.2)
+        try XCTContext.runActivity(named: "The Image menu offers Map…, whose sheet asks where, and Cancel puts it away") { _ in
+            // PLAN O.1d: Insert › Map… from the toolbar's Image menu, as the Mac's offers it.
             let offered = app.descendants(matching: .any)
-            let map = offered.matching(NSPredicate(format: "label == 'Map…'")).firstMatch
-            // The edit menu pages its actions: past the first page, the way on shows the rest.
-            for _ in 0..<6 where !map.waitForExistence(timeout: 1) {
-                let on = offered.matching(NSPredicate(format: "label IN {'Next', 'Forward', 'Show More Items'}")).firstMatch
-                guard on.exists else { break }
-                on.tap()
+            let image = offered.matching(NSPredicate(format: "identifier == 'insert-Image'")).firstMatch
+            guard image.waitForExistence(timeout: 5) else {
+                throw Unseen(description: "no Image in the toolbar: \(app.debugDescription)")
             }
-            guard map.waitForExistence(timeout: 2) else {
+            image.tap()
+            let map = offered.matching(NSPredicate(format: "label == 'Map…'")).firstMatch
+            guard map.waitForExistence(timeout: 5) else {
                 keep(app, as: "no-map")
-                throw Unseen(description: "a long press offered no Map…: \(app.debugDescription)")
+                throw Unseen(description: "the Image menu offers no Map…: \(app.debugDescription)")
             }
             map.tap()
             let place = offered.matching(NSPredicate(format: "identifier == 'map-where'")).firstMatch
