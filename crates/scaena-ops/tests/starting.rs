@@ -249,8 +249,8 @@ fn every_shipped_layout_starts_a_slide_mirrored_where_the_deck_reads_right_to_le
 /// theme's verse role, and lint finds nothing in it, in every theme.
 #[test]
 fn a_haiku_slide_counts_5_7_5_in_every_theme() {
-    for (name, theme) in SHIPPED {
-        let b = scaena_ops::open(&made(&format!("haiku-{name}"), theme)).unwrap();
+    for (name, theme) in shipped() {
+        let b = scaena_ops::open(&made(&format!("haiku-{name}"), &theme)).unwrap();
         let t = scaena_ops::theme(&b).unwrap();
         let first = b.deck.states[0].id.clone();
         let started = starting(&b.deck, &t, &first, Some("haiku")).unwrap();
