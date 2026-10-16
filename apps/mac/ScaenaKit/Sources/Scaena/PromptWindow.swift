@@ -229,11 +229,15 @@ struct PromptView: View {
                         ForEach(choices?.lengths ?? [], id: \.self) { Text(Self.said(length: $0)).tag($0) }
                     }
                     .accessibilityIdentifier("prompt-length")
+                    // The themes that ship, by family, each family a section (PLAN T.0d).
                     Picker("Theme", selection: $theme) {
-                        Text("Dusk").tag("dusk")
-                        Text("Daybreak").tag("daybreak")
-                        Text("Ember").tag("ember")
-                        Text("Gallery").tag("gallery")
+                        ForEach((choices?.themes ?? []).byFamily) { family in
+                            Section(family.name) {
+                                ForEach(family.themes) { ships in
+                                    Text(Words.phrase(ships.name)).tag(ships.name)
+                                }
+                            }
+                        }
                     }
                 }
                 Section {
@@ -386,6 +390,8 @@ struct PromptView: View {
             if goal.isEmpty { goal = choices?.defaults.goal ?? "" }
             if length.isEmpty { length = choices?.defaults.length ?? "" }
             if modality.isEmpty { modality = choices?.modalities.first?.id ?? "" }
+            // A theme kept by the name it shipped under before: Gallery is Salon (PLAN T.0d).
+            if theme == "gallery" { theme = "salon" }
         }
     }
 

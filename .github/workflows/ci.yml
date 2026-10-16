@@ -109,8 +109,10 @@ jobs:
       contents: write
     # A stalled GPU readback or test must fail the job, not hold a runner for six hours. A run
     # with nothing in its cache, as the first after the cache's key changes, builds everything:
-    # #103's took 39 minutes on Linux and 27 on macOS.
-    timeout-minutes: 60
+    # #103's took 39 minutes on Linux and 27 on macOS. A pull request's run on macOS restores
+    # nothing, since only `main` saves and `main` runs Linux, so it builds everything each time:
+    # #413's took 59 minutes, and #402's ran out of 60.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       # The debug test binaries, built once without `gpu` and once with it, outgrow the Linux
@@ -168,7 +170,28 @@ jobs:
               *) flags+=(-Xlinker "$1"); shift ;;
             esac
           done
-          cd apps/mac/ScaenaKit && swift test "${flags[@]}" && swift build --product Scaena "${flags[@]}"
+          cd apps/mac/ScaenaKit
+          swift build --build-tests "${flags[@]}"
+          # The tests run under a watchdog: they take under a minute, so one still running after
+          # twelve is stuck. Then the stack of every thread of every test process is printed, and
+          # the step fails, rather than the job waiting out its timeout with nothing to show.
+          swift test --skip-build "${flags[@]}" &
+          tested=$!
+          for _ in $(seq 720); do kill -0 "$tested" 2>/dev/null || break; sleep 1; done
+          if kill -0 "$tested" 2>/dev/null; then
+            echo "::error::ScaenaKit's tests were still running after 12 minutes: each test process's stacks follow"
+            for pid in $(pgrep -f 'swiftpm-testing-helper|xctest|ScaenaKitPackageTests'); do
+              echo "::group::$pid $(ps -o command= -p "$pid" | cut -c1-200)"
+              sample "$pid" 3 -mayDie -file "$RUNNER_TEMP/sample-$pid.txt" >/dev/null 2>&1 || true
+              cat "$RUNNER_TEMP/sample-$pid.txt" 2>/dev/null || echo "no sample"
+              echo "::endgroup::"
+            done
+            pkill -9 -f 'swiftpm-testing-helper|xctest|ScaenaKitPackageTests' || true
+            kill -9 "$tested" 2>/dev/null || true
+            exit 1
+          fi
+          wait "$tested"
+          swift build --product Scaena "${flags[@]}"
       # The app as someone opens it, the trails example in its window, pushed to the branch
       # `shots/pr-N-mac` beside the iPad's, where a reviewer without the run's artifacts fetches it
       # (scripts/shots.sh). Seen more than tested: the shots are pushed whatever the walk found, and

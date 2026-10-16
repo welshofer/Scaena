@@ -16,12 +16,36 @@ private func messages(_ errors: [JSONValue]) -> [String] {
     errors.compactMap { $0["message"]?.string }
 }
 
-/// A theme that ships (SPEC §3.6): its name, as `retheme(ships:)` takes it, and its file.
+/// A theme that ships (SPEC §3.6): its name, as `retheme(ships:)` takes it, its family, the
+/// section a chooser offers it under (PLAN T.0d), and its file.
 public struct ShippedTheme: Decodable, Identifiable, Equatable, Sendable {
     public let name: String
+    public let family: String
     public let file: String
 
     public var id: String { name }
+}
+
+/// A family of the themes that ship, as a chooser's section offers it (PLAN T.0d): its name and
+/// its themes, in the registry's order.
+public struct ThemeFamily: Identifiable, Equatable, Sendable {
+    public let name: String
+    public let themes: [ShippedTheme]
+
+    public var id: String { name }
+}
+
+extension [ShippedTheme] {
+    /// These themes by family, each family a section, in the order the list first names it.
+    public var byFamily: [ThemeFamily] {
+        var order: [String] = []
+        var held: [String: [ShippedTheme]] = [:]
+        for theme in self {
+            if held[theme.family] == nil { order.append(theme.family) }
+            held[theme.family, default: []].append(theme)
+        }
+        return order.map { ThemeFamily(name: $0, themes: held[$0] ?? []) }
+    }
 }
 
 /// The theme the deck names, and the theme files the bundle holds.
@@ -32,6 +56,40 @@ public struct Themes: Decodable, Equatable, Sendable {
 }
 
 /// The theme the deck names, as its text: what the theme panel shows (PLAN 2.61).
+/// One kind of code token as the theme draws it (PLAN 2.144): the kind as the theme keys its look
+/// (`keyword`) and as a person calls it (Keywords), the color it is drawn in (`#rrggbb`), the color
+/// the theme names for it (none where the accent derives it), and whether that was moved to read
+/// on its ground.
+public struct CodeColor: Decodable, Sendable, Identifiable {
+    public let kind: String
+    public let said: String
+    public let drawn: String
+    public let named: String?
+    public let moved: Bool
+
+    public var id: String { kind }
+
+    /// The edit of `theme` that names `value` the color of code's `kind`, or, with none, lets the
+    /// accent derive it: the objects it goes in added where the theme has none, and a kind left
+    /// with nothing taken away. None where nothing changes.
+    public static func coloring(_ kind: String, _ value: String?, in theme: JSONValue?) -> [JSONValue] {
+        let code = theme?["code"]
+        let syntax = code?["syntax"]
+        let held = syntax?[kind]
+        let path = "/code/syntax/\(kind)"
+        guard let value else {
+            guard let held, held["color"] != nil else { return [] }
+            let alone = (held.object?.count ?? 0) <= 1
+            return [["op": "remove", "path": .string(alone ? path : "\(path)/color")]]
+        }
+        let color = JSONValue.string(value)
+        guard code != nil else { return [["op": "add", "path": "/code", "value": ["syntax": [kind: ["color": color]]]]] }
+        guard syntax != nil else { return [["op": "add", "path": "/code/syntax", "value": [kind: ["color": color]]]] }
+        guard let held else { return [["op": "add", "path": .string(path), "value": ["color": color]]] }
+        return [["op": .string(held["color"] == nil ? "add" : "replace"), "path": .string("\(path)/color"), "value": color]]
+    }
+}
+
 public struct ThemeText: Decodable, Sendable {
     /// Its path in the bundle, or `(inline)`.
     public let theme: String
@@ -310,7 +368,7 @@ public struct Restored: Decodable, Sendable {
 extension ScaenaSession {
     // MARK: The theme
 
-    /// The themes that ship: Dusk, Daybreak, Ember, and Gallery.
+    /// The themes that ship: Dusk, Daybreak, Ember, and Salon, each with its family.
     public func shippedThemes() throws -> [ShippedTheme] { try call("shippedThemes") }
 
     /// The theme the deck names, and the theme files the bundle holds.
@@ -318,6 +376,10 @@ extension ScaenaSession {
 
     /// The theme the deck names, as its text; none where it names none.
     public func themeText() throws -> ThemeText? { try call("themeText") }
+
+    /// Each kind of code token as the theme draws it (PLAN 2.144): what the Theme panel's Code
+    /// shows.
+    public func codeColors() throws -> [CodeColor] { try call("codeColors") }
 
     /// The deck put in the theme the bundle holds at `path` (PLAN 2.39), by the user: refused, the
     /// deck keeping its own, where it would not validate in it.

@@ -78,6 +78,8 @@ fn the_mac_says_each_word_as_the_browser_does() {
 #[test]
 fn the_mac_names_colors_easings_presets_shapes_and_kinds_as_the_browser_does() {
     assert_eq!(dictionary(between(WORDS_SWIFT, "private static let colors", "]\n")), table(words::COLORS));
+    // Code's kinds as the Theme panel lists them (PLAN 2.144).
+    assert_eq!(dictionary(between(WORDS_SWIFT, "private static let syntaxes", "]\n")), table(&words::SYNTAX));
     assert_eq!(dictionary(between(WORDS_SWIFT, "private static let easings", "]\n")), table(words::EASINGS));
     assert_eq!(dictionary(between(WORDS_SWIFT, "private static let presets", "]\n")), table(words::PRESETS));
     // Build Out's names, each build as it leaves (PLAN 2.116).

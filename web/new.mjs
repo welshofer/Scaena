@@ -76,7 +76,9 @@ try {
 
   // New, from its dialog.
   const themes = await page.locator("#making-theme option").allTextContents();
-  check(themes.join() === "Dusk,Daybreak,Ember,Gallery", `New offers the themes that ship: ${themes}`);
+  check(themes.join() === "Dusk,Daybreak,Ember,Salon", `New offers the themes that ship: ${themes}`);
+  const families = await page.locator("#making-theme optgroup").evaluateAll((gs) => gs.map((g) => g.label));
+  check(families.join() === "Stage,Executive,Analyst,Editorial", `New offers them by family, each a section: ${families}`);
   await page.click("#new-deck");
   await page.fill("#making-name", "Field notes: what’s next");
   await page.selectOption("#making-theme", "Daybreak");

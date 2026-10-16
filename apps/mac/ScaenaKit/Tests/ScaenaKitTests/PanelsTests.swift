@@ -10,7 +10,8 @@ private let torture = repository.appending(path: "tests/fixtures/torture.scaena"
 /// a dry run writing nothing, the file written before and after for the undo, which writes it back.
 @Test func theThemeIsEditedAndAnotherTakenAsTheBrowsersThemeTabDoes() throws {
     let made = try ScaenaSession.create(theme: "Dusk", title: "Trail report")
-    #expect(try made.shippedThemes().map(\.name) == ["dusk", "daybreak", "ember", "gallery"])
+    #expect(try made.shippedThemes().map(\.name) == ["dusk", "daybreak", "ember", "salon"])
+    #expect(try made.shippedThemes().byFamily.map(\.name) == ["Stage", "Executive", "Analyst", "Editorial"])
     #expect(try made.themes().current == "themes/dusk.theme.json")
     let themed = try made.retheme(ships: "daybreak")
     #expect(themed.applied && !themed.refused && themed.theme == "themes/daybreak.theme.json")
@@ -31,6 +32,30 @@ private let torture = repository.appending(path: "tests/fixtures/torture.scaena"
     #expect(try color() == "#0B0B10")
     try session.write(edited.files.map { (path: $0.path, text: $0.before) })
     #expect(try color() == "#101014", "undone: the theme written back")
+}
+
+/// Code's colors in the theme panel (PLAN 2.144): each kind as it is drawn, derived where the theme
+/// names none; one named is one theme edit, the objects it goes in added, which writing the theme
+/// back undoes; and From the Accent takes the name away.
+@Test func codesColorsAreEditedAsTheBrowsersThemeTabEditsThem() throws {
+    let session = try ScaenaSession(directory: b1)
+    let codes = try session.codeColors()
+    #expect(codes.map(\.kind).prefix(3) == ["keyword", "type", "function"] && codes.count == 16)
+    #expect(codes.allSatisfy { $0.named == nil && !$0.moved && $0.drawn.hasPrefix("#") && $0.said.count > 1 })
+
+    let theme = try session.themeText()?.json
+    let named = CodeColor.coloring("keyword", "onSurfaceMuted", in: theme)
+    #expect(named.count == 1 && named[0]["path"]?.string == "/code")
+    let edited = try session.themeEdit(named)
+    #expect(edited.applied && edited.files.count == 1)
+    #expect(try session.codeColors().first?.named == "onSurfaceMuted")
+    let now = try session.themeText()?.json
+    #expect(CodeColor.coloring("keyword", "accent", in: now).first?["op"]?.string == "replace")
+    #expect(CodeColor.coloring("string", "accent", in: now).first?["path"]?.string == "/code/syntax/string")
+    #expect(CodeColor.coloring("keyword", nil, in: now).first?["path"]?.string == "/code/syntax/keyword")
+    #expect(CodeColor.coloring("string", nil, in: now).isEmpty, "a kind derived already changes nothing")
+    try session.write(edited.files.map { (path: $0.path, text: $0.before) })
+    #expect(try session.codeColors().first?.named == nil, "undone: the theme written back")
 }
 
 /// A change the deck refuses is said as the window says it (PLAN 3.18), as the browser's `finding`

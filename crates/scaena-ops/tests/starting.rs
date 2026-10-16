@@ -117,6 +117,26 @@ fn every_shipped_layout_draws_its_example_in_each_slot_that_waits() {
                         assert_eq!(node["kind"], serde_json::to_value(kind).unwrap());
                     }
                     Example::Table(_) => assert_eq!(node["type"], "table"),
+                    Example::Map(preset) => {
+                        // A map's place: the picture, then a pin and a label over it (PLAN O.1e).
+                        assert_eq!(
+                            (node["preset"].as_str(), &node["z"]),
+                            (Some(preset.as_str()), &serde_json::json!(-2))
+                        );
+                        let over: Vec<_> = (deck.nodes.values())
+                            .map(|n| serde_json::to_value(n).unwrap())
+                            .filter(|n| n["at"]["in"] == *slot && n["type"] != "shader")
+                            .collect();
+                        assert!(
+                            over.iter().any(|n| n["kind"] == "path" && n["fill"] == "accent"),
+                            "{name}'s {layout}: a pin"
+                        );
+                        assert!(
+                            over.iter().any(|n| n["type"] == "text" && n["role"] == "label"),
+                            "{name}'s {layout}: a label"
+                        );
+                        seeds.push(node["seed"].as_u64().unwrap());
+                    }
                 }
                 drawn += 1;
             }
@@ -243,4 +263,27 @@ fn every_shipped_layout_starts_a_slide_mirrored_where_the_deck_reads_right_to_le
     }
     assert!(compared > 1000, "boxes compared: {compared}");
     assert!(wrong.is_empty(), "{} wrong:\n{}", wrong.len(), wrong.join("\n"));
+}
+
+/// A slide started in the Haiku layout (PLAN O.4c) holds its prompt's own 5-7-5, centered in the
+/// theme's verse role, and lint finds nothing in it, in every theme.
+#[test]
+fn a_haiku_slide_counts_5_7_5_in_every_theme() {
+    for (name, theme) in shipped() {
+        let b = scaena_ops::open(&made(&format!("haiku-{name}"), &theme)).unwrap();
+        let t = scaena_ops::theme(&b).unwrap();
+        let first = b.deck.states[0].id.clone();
+        let started = starting(&b.deck, &t, &first, Some("haiku")).unwrap();
+        let poem = started.patch.iter().find(|op| op["op"] == "add_node" && op["node"]["at"]["in"] == "poem").unwrap();
+        assert_eq!(poem["node"]["role"], "verse", "{name}");
+        let text = poem["node"]["text"].as_str().unwrap();
+        let checked = scaena_core::verse::check(text, "en");
+        assert_eq!(checked.kept, scaena_core::verse::Kept::Kept, "{name}: {checked:?}");
+        let layout = &t.layouts["haiku"];
+        assert_eq!(layout.name.as_deref(), Some("Haiku"));
+        assert_eq!(layout.group.as_deref(), Some("Statements"));
+        let order: Vec<&String> = t.layouts.keys().collect();
+        let at = |k: &str| order.iter().position(|o| *o == k).unwrap();
+        assert_eq!(at("haiku"), at("key-point") + 1, "{name}: after Key Point");
+    }
 }

@@ -41,9 +41,10 @@ import Testing
 /// The editor's loop (PLAN 2.3, 3.4): a choice is a patch, the deck's source compiled again and
 /// the state shown linted; a finding's fix is one click; and each gives back the source an undo
 /// makes the deck again.
-@Test func aChoiceIsLintedAndItsFixIsOneClick() throws {
+@Test func aChoiceIsLintedAndItsFixIsOneClick() async throws {
     let editor = DeckEditor(session: try ScaenaSession(directory: b1))
     #expect(editor.valid && editor.error == nil)
+    await editor.lintEvery()
     #expect(editor.whole && editor.findings.isEmpty)
     #expect(editor.slots.count == 40)
     editor.shown = "cover"
@@ -78,7 +79,7 @@ import Testing
     #expect(throws: ScaenaError.self) { try editor.make([same]) }
 
     // Every state linted once edits stop.
-    editor.lintEvery()
+    await editor.lintEvery()
     #expect(editor.whole)
 }
 
