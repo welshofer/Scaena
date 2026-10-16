@@ -549,6 +549,7 @@ impl ImageNode {
             Op::Layer {
                 node: None,
                 cell: None,
+                label: None,
                 transform: IDENTITY,
                 opacity,
                 blend: Blend::Normal,
@@ -609,6 +610,7 @@ impl ImageNode {
             Op::Layer {
                 node: None,
                 cell: None,
+                label: None,
                 transform: [1.0, 0.0, 0.0, 1.0, x, y],
                 opacity: *shown,
                 blend: Blend::Normal,
@@ -624,6 +626,7 @@ impl ImageNode {
         let layer = Op::Layer {
             node: None,
             cell: None,
+            label: None,
             transform: IDENTITY,
             opacity: 1.0,
             blend: Blend::Normal,
