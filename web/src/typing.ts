@@ -336,6 +336,10 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     const source = around.source();
     const found = await stage.carets(source, shown.state, node, around.format());
     if (!found) return false;
+    // Typing began in this text while its carets were read: Insert types in a text it inserts
+    // (PLAN 3.21), and a double click on it meanwhile waits its turn behind that. What is typed
+    // there stands, so no key typed since is lost.
+    if (open?.node === node && open.state === shown.state) return true;
     leave();
     open = { node, state: shown.state, index: shown.index, fork };
     carets = found;
