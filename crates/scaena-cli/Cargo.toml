@@ -18,7 +18,8 @@ path = "src/main.rs"
 gpu = ["scaena-ops/gpu", "scaena-mcp/gpu", "scaena-paint/gpu"]
 
 [dependencies]
-scaena-core.workspace = true
+# The syllable table compiled in (PLAN O.4a), so lint counts a haiku (I404).
+scaena-core = { workspace = true, features = ["syllables"] }
 # Every language's hyphenation patterns and the code scanners' tables compiled in (ADR-0015,
 # PLAN 2.132).
 scaena-engine = { workspace = true, features = ["hyphenation", "code-tables"] }

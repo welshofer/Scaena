@@ -302,6 +302,22 @@ pub fn set_hyphenation(loader: js_sys::Function) {
     });
 }
 
+/// Where this thread's engine gets the table of English words the syllable rules miss, which the
+/// editor's module leaves out (PLAN O.4a, ADR-0015): `loader` returns `verse/words.txt`'s text,
+/// or anything else where the page has none. It is asked the first time an English line counts,
+/// so it answers at once, and what it returns is held to the table's SHA-256. Without it, an
+/// English line is uncounted. The player's module counts nothing, and never asks.
+#[cfg(feature = "cpu")]
+#[wasm_bindgen(js_name = setVerse)]
+pub fn set_verse(loader: js_sys::Function) {
+    use sha2::{Digest, Sha256};
+    scaena_core::verse::set_loader(move || {
+        let text = loader.call0(&JsValue::NULL).ok()?.as_string()?;
+        let digest: String = Sha256::digest(text.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
+        (digest == scaena_core::verse::TABLE_SHA256).then_some(text)
+    });
+}
+
 /// Where this thread's engine gets a file of the word tables the code scanners read that its
 /// module leaves out (PLAN 2.132), as `setHyphenation` gets a language's patterns: `loader`, given
 /// the file's name (`clike`), returns the bytes of `crates/scaena-core/code/clike.txt` as a
