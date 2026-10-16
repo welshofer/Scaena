@@ -374,6 +374,7 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `title-split` | `art`, `title`, `subtitle`, `kicker` | Title beside Photo, in Titles |
 | `section-photo` | `art`, `number`, `title`, `support` | Section and Photo, in Titles |
 | `section-number` | `kicker`, `number`, `title`, `support` | Section Number, in Titles |
+| `paper-title` | `title`, `authors`, `affiliations`, `venue`, `first-logo`, `second-logo` | Paper Title, in Titles |
 | `statement` | `kicker`, `statement`, `support` | Statement, in Statements |
 | `poster` | `kicker`, `statement`, `support`, `note`, `art` | Poster, in Statements |
 | `quote` | `quote`, `who` | Quote, in Statements |
@@ -381,6 +382,7 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `big-question` | `kicker`, `question`, `support` | Big Question, in Statements |
 | `manifesto` | `kicker`, `header`, `body` | Manifesto, in Statements |
 | `key-point` | `kicker`, `card`, `point`, `follow` | Key Point, in Statements |
+| `lyrics` | `art`, `words`, `credit` | Lyrics, in Statements |
 | `bullets` | `kicker`, `header`, `body` | Bullets, in Lists |
 | `numbered` | `kicker`, `header`, `body` | Numbered List, in Lists |
 | `agenda` | `kicker`, `header`, `body` | Agenda, in Lists |
@@ -420,6 +422,7 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `hub-spoke` | `kicker`, `header`, `hub-circle`, `first-spoke`, `second-spoke`, `third-spoke`, `fourth-spoke`, `hub`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Hub and Spoke, in Frameworks |
 | `risk-matrix` | `kicker`, `header`, `cell-5-1`, `cell-5-2`, `cell-5-3`, `cell-5-4`, `cell-5-5`, `cell-4-1`, `cell-4-2`, `cell-4-3`, `cell-4-4`, `cell-4-5`, `cell-3-1`, `cell-3-2`, `cell-3-3`, `cell-3-4`, `cell-3-5`, `cell-2-1`, `cell-2-2`, `cell-2-3`, `cell-2-4`, `cell-2-5`, `cell-1-1`, `cell-1-2`, `cell-1-3`, `cell-1-4`, `cell-1-5`, `likely-title`, `likely-5`, `likely-4`, `likely-3`, `likely-2`, `likely-1`, `impact-1`, `impact-2`, `impact-3`, `impact-4`, `impact-5`, `impact-title`, `first`, `second`, `third`, `takeaway`, `note` | Risk Matrix, in Frameworks |
 | `business-model-canvas` | `kicker`, `header`, `partners-card`, `activities-card`, `resources-card`, `value-card`, `relationships-card`, `channels-card`, `segments-card`, `costs-card`, `revenue-card`, `partners`, `activities`, `resources`, `value`, `relationships`, `channels`, `segments`, `costs`, `revenue`, `value-words` | Business Model Canvas, in Frameworks |
+| `maturity-model` | `kicker`, `header`, `first-step`, `second-step`, `third-step`, `fourth-step`, `fifth-step`, `here-arrow`, `here`, `takeaway`, `first`, `second`, `third`, `fourth`, `fifth` | Maturity Model, in Frameworks |
 | `steps` | `kicker`, `header`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Steps, in Process |
 | `process` | `kicker`, `header`, `first-chevron`, `second-chevron`, `third-chevron`, `fourth-chevron`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Process, in Process |
 | `how-it-works` | `kicker`, `header`, `first-number`, `second-number`, `third-number`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | How It Works, in Process |
@@ -433,6 +436,8 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `gantt` | `kicker`, `header`, `first-month`, `second-month`, `third-month`, `first-bar`, `second-bar`, `third-bar`, `fourth-bar`, `first`, `second`, `third`, `fourth` | Gantt Chart, in Time |
 | `year` | `kicker`, `header`, `month-1`, `month-2`, `month-3`, `month-4`, `month-5`, `month-6`, `month-7`, `month-8`, `month-9`, `month-10`, `month-11`, `month-12`, `first-card`, `second-card`, `third-card`, `fourth-card`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Year at a Glance, in Time |
 | `timeline-photos` | `kicker`, `header`, `first-art`, `second-art`, `third-art`, `fourth-art`, `first-date`, `second-date`, `third-date`, `fourth-date`, `first`, `second`, `third`, `fourth` | Timeline with Photos, in Time |
+| `month` | `kicker`, `header`, `main` | Month, in Time |
+| `event` | `art`, `tag`, `date`, `what`, `where` | Event, in Time |
 | `stat` | `kicker`, `number`, `claim`, `detail`, `under` | Stat, in Numbers |
 | `big-number` | `number`, `claim`, `under` | Big Number, in Numbers |
 | `two-numbers` | `kicker`, `first-title`, `second-title`, `first`, `second` | Two Numbers, in Numbers |
@@ -448,6 +453,7 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `kpi-dashboard` | `kicker`, `header`, `first-figure`, `second-figure`, `third-figure`, `fourth-figure`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth`, `first-chart`, `second-chart` | KPI Dashboard, in Numbers |
 | `status-report` | `kicker`, `header`, `first-card`, `third-card`, `stream-label`, `status-label`, `next-label`, `risk-label`, `first-icon`, `second-icon`, `third-icon`, `first`, `second`, `third`, `first-status`, `second-status`, `third-status`, `first-next`, `second-next`, `third-next`, `first-risk`, `second-risk`, `third-risk` | Status Report, in Numbers |
 | `market-size` | `header`, `first-circle`, `second-circle`, `third-circle`, `first-figure`, `second-figure`, `third-figure`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Market Size, in Numbers |
+| `pictograph` | `kicker`, `header`, `figure-1`, `figure-2`, `figure-3`, `figure-4`, `figure-5`, `figure-6`, `figure-7`, `figure-8`, `figure-9`, `figure-10`, `number`, `claim`, `note` | Pictograph, in Numbers |
 | `figure` | `kicker`, `header`, `main`, `note` | Chart, in Charts |
 | `narrow-figure` | `kicker`, `header`, `main`, `note` | Narrow Chart, in Charts |
 | `split` | `body`, `main` | Chart and Words, in Charts |
@@ -478,6 +484,7 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `photo-grid-text` | `first-art`, `second-art`, `third-art`, `fourth-art`, `header`, `body` | Photo Grid and Words, in Pictures |
 | `logo-wall` | `kicker`, `header`, `logo-1`, `logo-2`, `logo-3`, `logo-4`, `logo-5`, `logo-6`, `logo-7`, `logo-8`, `logo-9`, `logo-10`, `logo-11`, `logo-12` | Logo Wall, in Pictures |
 | `device-mockup` | `kicker`, `header`, `screen`, `frame`, `base`, `title`, `body` | Device Mockup, in Pictures |
+| `property` | `art`, `price`, `address`, `beds`, `baths`, `area`, `second-art` | Property, in Pictures |
 | `team` | `kicker`, `header`, `first-art`, `second-art`, `third-art`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Team, in People |
 | `testimonials` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `first`, `second`, `third`, `first-note`, `second-note`, `third-note` | Testimonials, in People |
 | `quote-portrait` | `art`, `quote`, `who` | Quote and Portrait, in People |
@@ -498,11 +505,21 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `glossary` | `kicker`, `header`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Glossary, in Editorial |
 | `magazine` | `kicker`, `header`, `first`, `pull`, `second` | Magazine Spread, in Editorial |
 | `case-study` | `kicker`, `header`, `art`, `challenge-title`, `challenge`, `done-title`, `done`, `result-figure`, `result` | Case Study, in Editorial |
+| `certificate` | `border`, `kind`, `presented`, `name`, `for`, `first-line`, `second-line`, `first-sign`, `second-sign` | Certificate, in Editorial |
+| `references` | `kicker`, `header`, `body` | References, in Editorial |
+| `patient-case` | `kicker`, `header`, `art`, `presentation-title`, `history-title`, `findings-title`, `presentation`, `history`, `findings` | Patient Case, in Editorial |
 | `flowchart` | `kicker`, `header`, `first-card`, `first-arrow`, `decision-shape`, `yes-arrow`, `second-card`, `no-arrow`, `third-card`, `back-arrow`, `first`, `decision`, `yes`, `second`, `no`, `third` | Flowchart, in Diagrams |
 | `swimlane` | `kicker`, `header`, `first-lane`, `second-lane`, `third-lane`, `first-step`, `second-step`, `third-step`, `fourth-step`, `fifth-step`, `first-arrow`, `second-arrow`, `third-arrow`, `fourth-arrow`, `first-role`, `second-role`, `third-role`, `first`, `second`, `third`, `fourth`, `fifth` | Swimlane, in Diagrams |
+| `decision-tree` | `kicker`, `header`, `choice-card`, `first-chance-shape`, `second-chance-shape`, `first-branch`, `second-branch`, `first-first-branch`, `first-second-branch`, `second-first-branch`, `second-second-branch`, `choice`, `first`, `second`, `first-first-odds`, `first-second-odds`, `second-first-odds`, `second-second-odds`, `first-first`, `first-second`, `second-first`, `second-second` | Decision Tree, in Diagrams |
+| `fishbone` | `kicker`, `header`, `spine`, `first-bone`, `second-bone`, `third-bone`, `fourth-bone`, `head-card`, `head`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Fishbone, in Diagrams |
+| `architecture` | `kicker`, `header`, `client-first-card`, `client-second-card`, `client-third-card`, `service-first-card`, `service-second-card`, `service-third-card`, `data-card`, `first-call`, `second-call`, `third-call`, `first-query`, `second-query`, `third-query`, `client-tier`, `service-tier`, `data-tier`, `client-first`, `client-second`, `client-third`, `service-first`, `service-second`, `service-third`, `data` | Architecture, in Diagrams |
+| `issue-tree` | `kicker`, `header`, `root-card`, `first-card`, `second-card`, `first-branch`, `second-branch`, `first-first-branch`, `first-second-branch`, `second-first-branch`, `second-second-branch`, `root`, `first`, `second`, `first-first`, `first-second`, `second-first`, `second-second` | Issue Tree, in Diagrams |
 | `quad-chart` | `kicker`, `header`, `art`, `objectives-card`, `team-card`, `milestones-card`, `dates-title`, `dates`, `objectives-title`, `team-title`, `milestones-title`, `objectives`, `team`, `milestones` | Quad Chart, in Briefing |
 | `decision-brief` | `kicker`, `header`, `bottom-card`, `bottom-title`, `bottom`, `first-card`, `second-card`, `third-card`, `fourth-card`, `mark`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Decision Brief, in Briefing |
+| `incident-review` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `fourth-card`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Incident Review, in Briefing |
+| `options-compared` | `kicker`, `header`, `first-card`, `third-card`, `chosen`, `option-label`, `first-criterion`, `second-criterion`, `third-criterion`, `total-label`, `first`, `second`, `third`, `first-first`, `first-second`, `first-third`, `second-first`, `second-second`, `second-third`, `third-first`, `third-second`, `third-third`, `first-total`, `second-total`, `third-total` | Options Compared, in Briefing |
 | `quiz` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `fourth-card`, `first-letter`, `second-letter`, `third-letter`, `fourth-letter`, `first`, `second`, `third`, `fourth` | Quiz, in Classroom |
+| `game-board` | `kicker`, `header`, `first-first-card`, `first-second-card`, `first-third-card`, `second-first-card`, `second-second-card`, `second-third-card`, `third-first-card`, `third-second-card`, `third-third-card`, `fourth-first-card`, `fourth-second-card`, `fourth-third-card`, `first-category`, `second-category`, `third-category`, `fourth-category`, `first-first`, `first-second`, `first-third`, `second-first`, `second-second`, `second-third`, `third-first`, `third-second`, `third-third`, `fourth-first`, `fourth-second`, `fourth-third` | Game Board, in Classroom |
 | `closing` | `kicker`, `statement`, `support` | Closing, in Closing |
 | `next-steps` | `kicker`, `header`, `action-label`, `owner-label`, `when-label`, `first-card`, `second-card`, `first`, `second`, `third`, `first-owner`, `second-owner`, `third-owner`, `first-when`, `second-when`, `third-when` | Next Steps, in Closing |
 | `the-ask` | `kicker`, `ask`, `first`, `second`, `third` | The Ask, in Closing |
@@ -510,6 +527,8 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `contact` | `art`, `thanks`, `name`, `details` | Contact, in Closing |
 | `takeaways` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `first-number`, `second-number`, `third-number`, `first`, `second`, `third` | Takeaways, in Closing |
 | `call-to-action` | `kicker`, `statement`, `button-card`, `button` | Call to Action, in Closing |
+| `acknowledgments` | `kicker`, `header`, `thanks`, `names`, `logo-1`, `logo-2`, `logo-3`, `logo-4`, `logo-5`, `logo-6` | Acknowledgments, in Closing |
+| `join-or-scan` | `kicker`, `code`, `ask`, `link`, `how` | Join or Scan, in Closing |
 
 Every layout also has `in(canvas)`, the whole canvas, and `in(grid)`, the margins' box. `at:col(1-6) row(2-8)` places by the theme's 12 × 12 grid instead.
 
