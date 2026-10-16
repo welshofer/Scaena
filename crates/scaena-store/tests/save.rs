@@ -117,7 +117,8 @@ fn keeping_fonts_whole_keeps_their_bytes() {
 #[test]
 fn a_family_kept_whole_keeps_its_bytes_when_the_rest_are_subset() {
     let b1 = Path::new("../../tests/bench/b1.scaena");
-    let dir = scratch("kept-whole").join("b1");
+    let base = scratch("kept-whole");
+    let dir = base.join("b1");
     copy_dir(b1, &dir);
     let theme = std::fs::read_to_string(dir.join("theme.json")).unwrap();
     let marked = theme.replacen(r#""family": "Bench Serif","#, r#""family": "Bench Serif", "whole": true,"#, 1);
@@ -129,7 +130,7 @@ fn a_family_kept_whole_keeps_its_bytes_when_the_rest_are_subset() {
     assert!(!subsetting.contains(&"fonts/BenchSerif-VF.ttf".to_string()), "nothing to subset: {subsetting:?}");
     assert_eq!(subsetting.len(), 3, "{subsetting:?}");
 
-    let out = scratch("kept-whole").join("saved");
+    let out = base.join("saved");
     let saved = bundle.save(&out, &opts()).unwrap();
     let subset: Vec<&str> = saved.subset.iter().map(|(path, _, _)| path.as_str()).collect();
     assert_eq!(subset.len(), 3, "{subset:?}");
