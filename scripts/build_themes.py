@@ -305,12 +305,13 @@ def font_keys() -> dict[str, str]:
 
 
 def fonts_of(theme: dict) -> list[str]:
-    """The keys of the families `theme` names, in its order; a family the table does not pin is refused."""
+    """The keys of the families `theme` names, each once, in its order; a family the table does not pin
+    is refused."""
     keys = font_keys()
     missing = [f["family"] for f in theme["type"]["families"].values() if f["family"] not in keys]
     if missing:
         raise Refused(f"{theme['name']} names families build_bundle_fonts.py does not pin: {missing}")
-    return [keys[f["family"]] for f in theme["type"]["families"].values()]
+    return list(dict.fromkeys(keys[f["family"]] for f in theme["type"]["families"].values()))
 
 
 def font_files(themes: list[dict]) -> list[str]:
@@ -337,11 +338,14 @@ def shipped_rs(entries: list[dict], themes: list[dict]) -> str:
     ]
     for e in entries:
         first = e["files"][0]
-        out += [
+        name, file, text = json.dumps(e["slug"]), json.dumps(Path(first).name), f'include_str!("../../../../{first}")'
+        line = f"    Shipped {{ name: {name}, file: {file}, text: {text} }},"
+        # As rustfmt sets it: on one line where it fits the 120 columns, else a field to a line.
+        out += [line] if len(line) <= 120 else [
             "    Shipped {",
-            f"        name: {json.dumps(e['slug'])},",
-            f"        file: {json.dumps(Path(first).name)},",
-            f'        text: include_str!("../../../../{first}"),',
+            f"        name: {name},",
+            f"        file: {file},",
+            f"        text: {text},",
             "    },",
         ]
     files = font_files(themes)

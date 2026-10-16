@@ -344,9 +344,13 @@ pub fn creating(
     let mut fonts = Vec::new();
     for family in parsed.pointer("/type/families").and_then(Value::as_object).into_iter().flat_map(|f| f.values()) {
         let Some(name) = family["family"].as_str() else { continue };
-        // The family's own face, and its italic (PLAN 2.40).
+        // The family's own face, and its italic (PLAN 2.40): a file two families share, as
+        // Basel's display and body share Inter, listed once (ADR-0031).
         for (face, style) in [(family, None), (&family["italic"], Some("italic"))] {
             let Some(file) = face["file"].as_str() else { continue };
+            if files.contains_key(file) {
+                continue;
+            }
             files.insert(file.to_string(), font(file)?);
             let mut entry = json!({ "family": name, "file": file });
             if let Some(style) = style {

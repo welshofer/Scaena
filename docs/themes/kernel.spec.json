@@ -1,0 +1,175 @@
+{
+  "name": "Kernel",
+  "description": "Systems: titles in JetBrains Mono over Inter on a dark ground, a terminal green accent, and code cards that read at the back of a hall. Needs no font beyond the four's.",
+  "mode": "dark",
+  "colors": {
+    "ink": "#E8ECF1",
+    "paper": "#0F1218",
+    "paper-2": "#212734",
+    "accent": "#9ADE7B",
+    "accent-2": "#82AAFF",
+    "muted": "#A0AAB8",
+    "line": "#2D3442"
+  },
+  "data": {
+    "categorical": [
+      "#DDE2E9",
+      "#A9B2BF",
+      "#8F99A8",
+      "#7A8494"
+    ],
+    "sequential": [
+      "#2D3442",
+      "#35503A",
+      "#4D7E46",
+      "#72AE5F",
+      "#9ADE7B"
+    ],
+    "diverging": [
+      "#82AAFF",
+      "#212734",
+      "#9ADE7B"
+    ]
+  },
+  "families": {
+    "display": {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          800
+        ]
+      },
+      "italic": {
+        "file": "fonts/JetBrainsMono-Italic-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            800
+          ]
+        }
+      },
+      "fallback": [
+        "body"
+      ]
+    },
+    "body": {
+      "family": "Inter",
+      "file": "fonts/Inter-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          14,
+          32
+        ]
+      },
+      "italic": {
+        "file": "fonts/Inter-Italic-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            900
+          ],
+          "opsz": [
+            14,
+            32
+          ]
+        }
+      },
+      "features": {
+        "cv11": true,
+        "ss01": false
+      }
+    },
+    "mono": {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          800
+        ]
+      },
+      "italic": {
+        "file": "fonts/JetBrainsMono-Italic-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            800
+          ]
+        }
+      }
+    }
+  },
+  "voice": "dusk",
+  "roles": {
+    "display": {
+      "weight": 700,
+      "tracking": -0.02,
+      "opsz": null,
+      "measure": 19,
+      "hangingPunctuation": false
+    },
+    "headline": {
+      "weight": 650,
+      "tracking": -0.015,
+      "opsz": null,
+      "measure": 29,
+      "size": 68,
+      "hangingPunctuation": false
+    },
+    "figure": {
+      "weight": 650,
+      "opsz": null
+    },
+    "quote": {
+      "weight": 450,
+      "tracking": -0.01,
+      "opsz": null,
+      "measure": 37,
+      "size": 56,
+      "hangingPunctuation": false
+    },
+    "verse": {
+      "opsz": null,
+      "axes": null,
+      "hangingPunctuation": false
+    },
+    "numeral": {
+      "weight": 600,
+      "opsz": null
+    },
+    "hero": {
+      "weight": 700,
+      "opsz": null
+    },
+    "code": {
+      "size": 36,
+      "weight": 450
+    }
+  },
+  "margin": [
+    96,
+    120
+  ],
+  "shaders": {
+    "palettes": {
+      "ambient": [
+        "#0F1218",
+        "#17202B",
+        "#1F3A2B",
+        "#3F6B45"
+      ],
+      "texture": [
+        "#0C0F14",
+        "#1A2230",
+        "#2D4A35",
+        "#9ADE7B"
+      ]
+    }
+  }
+}
