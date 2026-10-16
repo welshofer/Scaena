@@ -77,6 +77,10 @@ public final class DeckEditor {
     @ObservationIgnored private var compiled = 0
     /// Where every state is linted, away from the window (PLAN 4.13).
     @ObservationIgnored private let linter = Linter()
+    /// For a test: called on the caller's actor once a lint of every state has taken the deck it
+    /// lints and counted itself, before it waits for the layout, so an edit made there is one
+    /// made while it is under way, with no clock to catch it by (PLAN 4.13).
+    @ObservationIgnored var begun: (() -> Void)?
     /// Each state drawn small, by the digest of its drawing at rest and the width asked.
     @ObservationIgnored private var drawings: [String: (digest: String, width: Int, image: CGImage)] = [:]
     /// Each slide to start as its layout's picture shows it (PLAN 3.31), by its layout, `""` the
@@ -251,6 +255,7 @@ public final class DeckEditor {
         let began = compiled
         lints += 1
         defer { lints -= 1 }
+        begun?()
         await linter.lay(laying, for: began)
         guard began == compiled, let linting = try? session.lint(laid: laying) else { return }
         findings = linting.findings
