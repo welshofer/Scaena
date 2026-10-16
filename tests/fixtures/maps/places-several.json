@@ -1,0 +1,58 @@
+{
+  "results": [
+    {
+      "datasource": {
+        "sourcename": "openstreetmap",
+        "attribution": "© OpenStreetMap contributors",
+        "license": "Open Database License",
+        "url": "https://www.openstreetmap.org/copyright"
+      },
+      "name": "Springfield",
+      "country": "United States",
+      "state": "Illinois",
+      "lon": -89.6501,
+      "lat": 39.799,
+      "result_type": "city",
+      "formatted": "Springfield, IL, United States of America",
+      "address_line1": "Springfield",
+      "place_id": "recorded-2"
+    },
+    {
+      "datasource": {
+        "sourcename": "whosonfirst",
+        "attribution": "Who's On First",
+        "license": "See https://www.whosonfirst.org/docs/licenses/",
+        "url": "https://www.whosonfirst.org/docs/licenses/"
+      },
+      "name": "Springfield",
+      "country": "United States",
+      "state": "Massachusetts",
+      "lon": -72.5898,
+      "lat": 42.1015,
+      "result_type": "city",
+      "formatted": "Springfield, MA, United States of America",
+      "address_line1": "Springfield",
+      "place_id": "recorded-3"
+    },
+    {
+      "datasource": {
+        "sourcename": "openstreetmap",
+        "attribution": "© OpenStreetMap contributors",
+        "license": "Open Database License",
+        "url": "https://www.openstreetmap.org/copyright"
+      },
+      "name": "Springfield",
+      "country": "United States",
+      "state": "Missouri",
+      "lon": -93.2923,
+      "lat": 37.209,
+      "result_type": "city",
+      "formatted": "Springfield, MO, United States of America",
+      "address_line1": "Springfield",
+      "place_id": "recorded-4"
+    }
+  ],
+  "query": {
+    "text": "Springfield"
+  }
+}
