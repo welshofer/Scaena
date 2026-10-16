@@ -225,6 +225,22 @@ opt-level = "z"
 opt-level = "z"
 [profile.wasm.package.regex-lite]
 opt-level = "z"
+# The engine (PLAN 2.146): layout, charts, and lint run as a deck is laid out, and a frame
+# samples what they laid out. Built for size with the fonts' tables and outlines and the maps
+# they hash in, the editor's module is 315 KB less gzipped. In V8, B1's and B3's frames sample
+# faster than before, since a frame reads its slot from the timeline the session keeps rather
+# than serializing the deck to fingerprint it, and B2's take 0.40 ms, 18% longer; laying B1's
+# states out takes 13% longer and linting them 28% (B2's 48%).
+[profile.wasm.package.scaena-engine]
+opt-level = "z"
+[profile.wasm.package.read-fonts]
+opt-level = "z"
+[profile.wasm.package.skrifa]
+opt-level = "z"
+[profile.wasm.package.indexmap]
+opt-level = "z"
+[profile.wasm.package.hashbrown]
+opt-level = "z"
 # The generator's own module (PLAN G.5), which the editor loads to make a deck from a prompt: its
 # requests built, its answers and the files a deck is grounded in read, each once.
 [profile.wasm.package.scaena-generator]
