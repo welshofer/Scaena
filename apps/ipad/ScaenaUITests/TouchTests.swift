@@ -198,7 +198,15 @@ final class TouchTests: XCTestCase {
             // sheet asks where the poem goes too (PLAN O.4g).
             canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.97)).press(forDuration: 1.2)
             let haiku = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Haiku…'")).firstMatch
-            guard haiku.waitForExistence(timeout: 5) else {
+            // iPadOS pages a long edit menu: Haiku… may stand past its first page, where a person
+            // finds it by Forward.
+            let forward = app.buttons["Forward"]
+            var pages = 0
+            while !haiku.waitForExistence(timeout: 2), forward.exists, pages < 4 {
+                forward.tap()
+                pages += 1
+            }
+            guard haiku.waitForExistence(timeout: 3) else {
                 keep(app, as: "no-haiku")
                 throw Unseen(description: "a long press offered no Haiku…: \(app.debugDescription)")
             }
