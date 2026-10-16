@@ -95,6 +95,10 @@ pub enum Op {
         /// read a table as a table (a tagged PDF) take its cells from these (SPEC §6).
         #[serde(default)]
         cell: Option<[u32; 2]>,
+        /// The words a reader hears for what it draws where it draws no glyphs: a forecast's sky
+        /// drawn as an icon in its cell (ADR-0030). Null for every other layer.
+        #[serde(default)]
+        label: Option<String>,
         transform: Affine,
         opacity: f32,
         blend: Blend,
@@ -562,6 +566,7 @@ impl DisplayList {
         let ops = vec![Op::Layer {
             node: None,
             cell: None,
+            label: None,
             transform: [1.0, 0.0, 0.0, 1.0, -x, -y],
             opacity: 1.0,
             blend: Blend::Normal,
@@ -873,6 +878,7 @@ mod tests {
         dl.ops.push(Op::Layer {
             node: Some("title".into()),
             cell: Some([1, 2]),
+            label: None,
             transform: [0.999_962, 0.008_727, -0.008_727, 0.999_962, 96.0, -3.5],
             opacity: 0.3,
             blend: Blend::Multiply,
@@ -964,6 +970,7 @@ mod tests {
         dl.ops.push(Op::Layer {
             node: Some("t".into()),
             cell: None,
+            label: None,
             transform: IDENTITY,
             opacity: 1.0,
             blend: Blend::Normal,
@@ -986,7 +993,7 @@ mod tests {
   ],
   "ops":[
     {"fill":{"path":"M0 0L2 0L2 1.5L0 1.5Z","rule":"nonzero","paint":{"solid":"#16140FFF"}}},
-    {"layer":{"node":"t","cell":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"t","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"glyphs":{"font":0,"size":64.0,"coords":[],"paint":{"solid":"#16140FFF"},"text":"ab","glyphs":[
         [1,0.5,2.0],
         [2,30.25,2.0]

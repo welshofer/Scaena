@@ -66,6 +66,8 @@ async function painted(dir, frames) {
   // player's has them compiled in.
   glue.setHyphenation((code) => readFileSync(`crates/scaena-engine/hyphenation/${code}.bin`));
   glue.setCodeTables((name) => readFileSync(`crates/scaena-core/code/${name}.txt`));
+  // And a forecast's icons (ADR-0030).
+  glue.setIcons(() => readFileSync("crates/scaena-engine/icons/weather.txt"));
   const deck = readFileSync(join(bundle, "deck.json"), "utf8");
   const theme = JSON.parse(deck).theme;
   const player = new glue.Player(deck, readFileSync(join(bundle, theme), "utf8"));

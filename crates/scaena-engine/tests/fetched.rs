@@ -1,5 +1,5 @@
 //! The credit at the foot of a chart or a table whose data was fetched from a service (ADR-0030,
-//! PLAN O.2a), on `docs/examples/weather.deck.json`: the place and the forecast's day there, then
+//! PLAN O.2a), on `docs/examples/weather.deck.json` with its week shown as a table: the place and the forecast's day there, then
 //! the service's credit, each run linked where it links, in a layer of its own below the rows,
 //! never under 12 pt at presentation size, and "edited" once its rows were edited.
 
@@ -18,8 +18,15 @@ fn read(path: &str) -> Vec<u8> {
     std::fs::read(format!("{EXAMPLES}/{path}")).unwrap()
 }
 
+/// The weather example, its week shown as a table.
 fn setup() -> (Deck, Theme, Engine) {
-    let deck: Deck = serde_json::from_slice(&read("weather.deck.json")).unwrap();
+    let mut deck: Deck = serde_json::from_slice(&read("weather.deck.json")).unwrap();
+    let table = serde_json::json!({
+        "type": "table", "data": "@boston", "key": "date",
+        "columns": [{ "field": "date", "title": "Day", "format": "%a %b %-d" }, { "field": "high", "title": "High" }],
+        "at": { "in": "main" }
+    });
+    deck.nodes.insert("week".into(), serde_json::from_value(table).unwrap());
     let theme = Theme::from_json(&String::from_utf8(read("themes/dusk.theme.json")).unwrap()).unwrap();
     let mut fonts = BundleFonts::new();
     for font in &deck.fonts {
