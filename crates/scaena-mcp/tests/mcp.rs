@@ -286,6 +286,34 @@ async fn an_agent_builds_a_deck_with_the_tools_alone() {
     client.cancel().await.unwrap();
 }
 
+/// A theme that ships, by its name, as deck_create takes one (PLAN T.0d): copied into the bundle
+/// with its fonts, and Salon by `gallery`, the name it shipped under, too.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_theme_that_ships_applies_by_its_name() {
+    let client = connect().await;
+    let dir = scratch("theme-by-name").join("deck");
+    let bundle = path(&dir);
+    ok(&client, "deck_create", json!({ "bundle": bundle, "theme": "dusk", "title": "Q3" })).await;
+    let named = |dir: &Path| -> Value {
+        serde_json::from_str::<Value>(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap()["theme"]
+            .clone()
+    };
+    for (name, file) in [
+        ("Salon", "themes/salon.theme.json"),
+        ("ember", "themes/ember.theme.json"),
+        ("gallery", "themes/salon.theme.json"),
+    ] {
+        let themed = ok(&client, "theme_apply", json!({ "bundle": bundle, "theme": name })).await;
+        assert_eq!(themed["applied"], true, "{name}: {themed:#}");
+        assert_eq!(named(&dir), json!(file), "{name}");
+    }
+    assert!(dir.join("fonts/InstrumentSerif-Regular.ttf").is_file(), "Salon's display family, copied in");
+    let none = call(&client, "theme_apply", json!({ "bundle": bundle, "theme": "sepia" })).await;
+    assert_eq!(none.is_error, Some(true));
+    assert!(text(&none).contains("nor is it a theme that ships: dusk, daybreak, ember, salon"), "{}", text(&none));
+    client.cancel().await.unwrap();
+}
+
 /// A theme's colors from a photo the bundle holds (PLAN 2.94): what the photo's colors are, and
 /// each of the theme's as it would be, with nothing written under a dry run.
 #[tokio::test(flavor = "multi_thread")]

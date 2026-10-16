@@ -32,6 +32,29 @@ pub struct Fetched {
     /// A map's view, as it was asked (PLAN O.1b).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub map: Option<MapAsked>,
+    /// Which of the service's terms applied, where the request itself says so: Open-Meteo's
+    /// `free` service or its `customer` one (deck format 0.31).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terms: Option<Terms>,
+    /// The person keeps it as of its date: lint does not judge its date (W428).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub kept: bool,
+    /// Its rows were edited since they came, which the credit says, as CC BY asks.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub edited: bool,
+    /// A forecast, as it was asked (PLAN O.2a): the place, the period, and the units.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forecast: Option<crate::weather::Forecast>,
+}
+
+/// Which of a service's terms a fetch came under.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Terms {
+    /// The service's free terms: Open-Meteo's, for non-commercial use.
+    Free,
+    /// The terms of the user's own subscription: Open-Meteo's `customer-` hosts.
+    Customer,
 }
 
 /// A run of a credit: its words, and where they link.
@@ -114,6 +137,10 @@ pub enum CreditPlace {
     Below,
 }
 
+/// The `cell` of the layer the credit at a chart's or a table's foot is drawn in (ADR-0030): what a
+/// tagged PDF reads as a paragraph after the figure or the table, apart from the table's cells.
+pub const FOOT_CELL: [u32; 2] = [u32::MAX, u32::MAX];
+
 /// The `cell` of the layer a picture's credit is drawn in, inside the picture's own (ADR-0030):
 /// what a tagged PDF reads as a paragraph after the figure.
 pub const CREDIT_CELL: [u32; 2] = [0, 1];
@@ -130,11 +157,62 @@ pub struct Service {
 }
 
 /// The services this build knows.
-pub const SERVICES: &[Service] = &[Service { name: "geoapify", title: "Geoapify", credited: true }];
+pub const SERVICES: &[Service] = &[
+    Service { name: "geoapify", title: "Geoapify", credited: true },
+    Service { name: "open-meteo", title: "Open-Meteo", credited: true },
+];
 
 /// The service `name`, if this build knows it.
 pub fn service(name: &str) -> Option<&'static Service> {
     SERVICES.iter().find(|s| s.name == name)
+}
+
+/// The credit drawn at the foot of a chart or a table whose props are `props` (ADR-0030, decision
+/// 6): none where the data source it reads was fetched from no service. A forecast's names its
+/// place and the forecast's date there first; then the service's credit; then "edited" where its
+/// rows were edited since they came, as CC BY asks.
+pub fn reads(deck: &crate::Deck, props: &crate::document::Props) -> Option<Vec<CreditRun>> {
+    let name = props.get("data").and_then(Value::as_str)?.strip_prefix('@')?;
+    let fetched = deck.data.get(name)?.fetched()?;
+    Some(foot(&fetched, deck.meta.as_ref().and_then(|m| m.lang.as_deref())))
+}
+
+/// The runs of the credit a fetched data source's `fetched` record draws at the foot of what reads
+/// it, in the deck's language `lang` (ADR-0030).
+pub fn foot(fetched: &Fetched, lang: Option<&str>) -> Vec<CreditRun> {
+    let mut out = Vec::new();
+    let plain = |text: String| CreditRun { text, link: None };
+    if let Some(forecast) = &fetched.forecast {
+        let place = &forecast.place;
+        let named = match &place.region {
+            Some(region) if !region.is_empty() && *region != place.name => format!("{}, {region}", place.name),
+            _ => place.name.clone(),
+        };
+        out.push(plain(named));
+        if let Some(at) = seconds(&fetched.at) {
+            let day = civil((at + i64::from(place.offset)).div_euclid(86_400));
+            out.push(plain(format!(" · {}", said_day(&day, lang))));
+        }
+        out.push(plain(" · ".into()));
+    }
+    out.extend(fetched.credit.iter().filter(|r| !r.text.is_empty()).cloned());
+    if fetched.edited {
+        out.push(plain(" · edited".into()));
+    }
+    out
+}
+
+/// A day, `YYYY-MM-DD`, as a chart's foot prints it in language `lang`: `Oct 15, 2026` in American
+/// English, `15 Oct 2026` elsewhere, in the language's own short month.
+pub fn said_day(day: &str, lang: Option<&str>) -> String {
+    let locale = crate::format::Locale::of(lang);
+    let part = |r: std::ops::Range<usize>| day.get(r).and_then(|p| p.parse::<usize>().ok());
+    let (Some(y), Some(m @ 1..=12), Some(d)) = (part(0..4), part(5..7), part(8..10)) else { return day.into() };
+    let month = locale.short_months[m - 1];
+    match locale.tag {
+        "en-US" => format!("{month} {d}, {y}"),
+        _ => format!("{d} {month} {y}"),
+    }
 }
 
 /// A record's credit, its runs end to end: what a reader hears.
@@ -187,6 +265,86 @@ pub fn instant(at: &str) -> bool {
         }
         _ => false,
     }
+}
+
+/// Seconds since the epoch at instant `at` (RFC 3339), if it is one.
+pub fn seconds(at: &str) -> Option<i64> {
+    if !instant(at) {
+        return None;
+    }
+    let number = |r: std::ops::Range<usize>| at.get(r).and_then(|s| s.parse::<i64>().ok());
+    let days = days(&at[..10])?;
+    let (h, m, s) = (number(11..13)?, number(14..16)?, number(17..19)?);
+    let offset = match at.as_bytes()[at.len() - 1] {
+        b'Z' | b'z' => 0,
+        _ => {
+            let o = &at[at.len() - 6..];
+            let sign = if o.starts_with('-') { -1 } else { 1 };
+            sign * (o[1..3].parse::<i64>().ok()? * 3600 + o[4..6].parse::<i64>().ok()? * 60)
+        }
+    };
+    Some(days * 86_400 + h * 3600 + m * 60 + s - offset)
+}
+
+/// A moment lint judges dates at (`scaena lint --now`, `deck_lint`'s `now`): an instant as RFC 3339
+/// writes one, or a day, `YYYY-MM-DD`, at its start in UTC; seconds since the epoch.
+pub fn moment(now: &str) -> Option<i64> {
+    match now.len() {
+        10 => days(now).map(|d| d * 86_400),
+        _ => seconds(now),
+    }
+}
+
+/// Days since 1970-01-01 of the civil day `date` (`YYYY-MM-DD`, or the date at the head of a
+/// civil time), if it is one.
+pub fn days(date: &str) -> Option<i64> {
+    let part = |r: std::ops::Range<usize>| date.get(r).and_then(|s| s.parse::<i64>().ok());
+    let b = date.as_bytes();
+    if b.len() < 10 || b[4] != b'-' || b[7] != b'-' || !date[..4].bytes().all(|d| d.is_ascii_digit()) {
+        return None;
+    }
+    let (y, m, d) = (part(0..4)?, part(5..7)?, part(8..10)?);
+    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+        return None;
+    }
+    // Howard Hinnant's days_from_civil.
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    Some(era * 146_097 + doe - 719_468)
+}
+
+/// The civil day `days` after 1970-01-01, as `YYYY-MM-DD`.
+pub fn civil(days: i64) -> String {
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
+/// Whether a forecast has passed at `now` (seconds since the epoch, ADR-0030 decision 21): the day
+/// of its first period, `first` (a date or a civil time), is before the day at its place, `now`
+/// plus the offset its days were cut by. A record kept as of its date has not.
+pub fn passed(fetched: &Fetched, first: Option<&str>, now: i64) -> bool {
+    let Some(forecast) = fetched.forecast.as_ref().filter(|_| !fetched.kept) else { return false };
+    let offset = i64::from(forecast.place.offset);
+    // Without rows, the day it was fetched at its place.
+    let first = match first.and_then(days) {
+        Some(day) => day,
+        None => match seconds(&fetched.at) {
+            Some(at) => (at + offset).div_euclid(86_400),
+            None => return false,
+        },
+    };
+    first < (now + offset).div_euclid(86_400)
 }
 
 /// What is wrong with a `fetched` record as written, each with the pointer below the record it
@@ -242,6 +400,59 @@ mod tests {
         assert_eq!(crate::words::day("2026-10-15"), "15 October 2026");
         assert_eq!(crate::words::day("2026-01-05"), "5 January 2026");
         assert_eq!(crate::words::day("someday"), "someday");
+    }
+
+    #[test]
+    fn instants_and_days_count_from_the_epoch() {
+        assert_eq!(seconds("1970-01-01T00:00:00Z"), Some(0));
+        assert_eq!(seconds("2026-10-15T20:12:44Z"), Some(1_792_095_164));
+        assert_eq!(seconds("2026-10-15T16:12:44-04:00"), seconds("2026-10-15T20:12:44Z"));
+        assert_eq!(seconds("today"), None);
+        assert_eq!(moment("2026-10-15"), seconds("2026-10-15T00:00:00Z"));
+        assert_eq!(moment("2026-10-15T20:12:44.5Z"), seconds("2026-10-15T20:12:44Z"));
+        for day in ["1970-01-01", "2000-02-29", "2026-10-15", "1969-12-31", "2100-03-01"] {
+            assert_eq!(civil(days(day).unwrap()), day);
+        }
+        assert_eq!(days("2026-13-01"), None);
+        assert_eq!(said_day("2026-10-15", Some("en-US")), "Oct 15, 2026");
+        assert_eq!(said_day("2026-10-15", Some("en-GB")), "15 Oct 2026");
+    }
+
+    fn forecast(name: &str, offset: i32, first: &str) -> (Fetched, String) {
+        let record = json!({
+            "from": "open-meteo", "at": "2026-10-15T12:00:00Z", "asked": name,
+            "credit": [{ "text": "Weather data by Open-Meteo.com", "link": "https://open-meteo.com/" }],
+            "forecast": { "place": { "name": name, "lat": 0, "lon": 0, "zone": "Etc/UTC", "offset": offset },
+                          "period": "day", "units": "metric" }
+        });
+        (serde_json::from_value(record).unwrap(), first.to_string())
+    }
+
+    /// A day is over at a place by its own clock (ADR-0030, decision 21): 05:00 on Oct 16 in UTC is
+    /// past midnight in Boston, and still Oct 15 in Honolulu.
+    #[test]
+    fn a_day_is_over_in_boston_but_not_in_honolulu() {
+        let now = seconds("2026-10-16T05:00:00Z").unwrap();
+        let (boston, first) = forecast("Boston", -4 * 3600, "2026-10-15");
+        let (honolulu, _) = forecast("Honolulu", -10 * 3600, "2026-10-15");
+        assert!(passed(&boston, Some(&first), now));
+        assert!(!passed(&honolulu, Some(&first), now));
+        // Kept as of its date, it has not passed.
+        assert!(!passed(&Fetched { kept: true, ..boston.clone() }, Some(&first), now));
+        // Without rows, the day it was fetched there.
+        assert!(passed(&boston, None, now));
+        // A map has no date to pass.
+        assert!(!passed(&Fetched { forecast: None, ..boston }, Some(&first), now));
+    }
+
+    #[test]
+    fn a_forecasts_foot_names_its_place_and_its_day_there() {
+        let (mut boston, _) = forecast("Boston", -4 * 3600, "2026-10-15");
+        boston.at = "2026-10-16T02:00:00Z".into();
+        let said = |f: &Fetched| said(&foot(f, Some("en-US")));
+        assert_eq!(said(&boston), "Boston · Oct 15, 2026 · Weather data by Open-Meteo.com");
+        boston.edited = true;
+        assert_eq!(said(&boston), "Boston · Oct 15, 2026 · Weather data by Open-Meteo.com · edited");
     }
 
     #[test]

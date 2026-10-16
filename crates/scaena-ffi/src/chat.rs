@@ -78,6 +78,32 @@ impl Asking {
                 self.ran.push(result);
                 ran
             }
+            "ran" => {
+                // A call of the last answer that Swift ran itself, by its place in it: `map_fetch`,
+                // whose requests the client makes (ADR-0030, PLAN O.1d). `json` is its result, an
+                // error where `error`, and `edited` whether it changed the deck: what `run` gives.
+                let index = args.get("index").and_then(Value::as_u64).ok_or_else(|| said("ran: `index`"))?;
+                let call = (self.calls().and_then(|calls| calls.get(index as usize)).cloned())
+                    .ok_or_else(|| said(format!("ran: the last answer made no call {index}")))?;
+                let json = arg("json")?.to_string();
+                let error = args.get("error").and_then(Value::as_bool).unwrap_or(false);
+                let edited = args.get("edited").and_then(Value::as_bool).unwrap_or(false);
+                let ran = json!({
+                    "id": call.id,
+                    "name": call.name,
+                    "error": error,
+                    "summary": scaena_chat::summary(&call.name, &json, error),
+                    "made": scaena_chat::made(&call.name, &json, error),
+                    "json": json,
+                    "png": null,
+                    "edited": edited,
+                    "rewritten": [],
+                });
+                // In place of what the session answered for it, where it was run there first.
+                self.ran.retain(|r| r.id != call.id);
+                self.ran.push(ToolResult { id: call.id, name: call.name, json, error, png: None });
+                ran
+            }
             "next" => {
                 let results = self.answered().ok_or_else(|| said("next: the model's last answer made no calls"))?;
                 json!(self.chat.results(results))

@@ -1,6 +1,6 @@
 # Gate 4
 
-Phase 4's exit criteria (PLAN, "Exit criteria (gate 4)"), each with its evidence so far. Every task of Phase 4 has landed (4.1–4.12). What the gate still needs is a real iPad. CI's iPad is a simulator on a virtual Mac: its GPU lacks what vello needs, so it paints with the CPU painter, and its timings are a virtual machine's.
+Phase 4's exit criteria (PLAN, "Exit criteria (gate 4)"), each with its evidence so far. Every task of Phase 4 has landed (4.1–4.13). What the gate still needs is a real iPad. CI's iPad is a simulator on a virtual Mac: its GPU lacks what vello needs, so it paints with the CPU painter, and its timings are a virtual machine's.
 
 **Where it stands:**
 - **Criterion 1** (same pixels as the web player, on an iPad's GPU). The same frame is met on CI's simulator: the torture deck's display lists there are the goldens'. The same pixels on an iPad's GPU wait on an iPad, since vello never runs on the simulator.

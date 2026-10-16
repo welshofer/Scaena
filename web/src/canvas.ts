@@ -72,7 +72,7 @@ import { listen } from "./life";
 import { marks } from "./marks";
 import { fitting } from "./pictures";
 import { BUNDLE_PATH, CLIP, DATA, PICTURE } from "./protocol";
-import type { Added, Arrange, Cells, DataMark, Diagram, Edited, Finding, Framing, Grid, Insert, LayoutSlots, Lexicon, Look, Map6, NodeBox, NoteMark, Outline, Rect, SlotBox, SnapMode, Snapped, Targets, Waiting } from "./protocol";
+import type { Added, Arrange, Cells, DataMark, Diagram, Edited, FetchedMap, Finding, Framing, Grid, Insert, LayoutSlots, Lexicon, Look, Map6, MapTarget, NodeBox, NoteMark, Outline, Rect, SlotBox, SnapMode, Snapped, Targets, Waiting } from "./protocol";
 import { pointer } from "./theme-panel";
 import * as notes from "./notes";
 import { annotate, askWords, markName, noteName } from "./notes";
@@ -713,6 +713,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   let early = 0;
   /** A drag's request is with the worker: the next waits for it, so a fast drag never queues. */
   let busy = false;
+  /** How many asks of what stands where are under way (`refresh`). */
+  let refreshing = 0;
   /** The gesture being made into a patch: the next waits for it, so each is made on the source the
    * one before left, as a key held down repeats. */
   let making: Promise<void> = Promise.resolve();
@@ -876,10 +878,23 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (!(await text.enter(node, at, fork, all))) editor.say(`${Called(node)} is no text: only a text takes typing`);
   }
 
-  /** What stands where in the state shown, asked again: the deck, the state, or the format changed. */
+  /** What stands where in the state shown, asked again: the deck, the state, or the format changed.
+   * Until the boxes are laid, the canvas is busy: a compile records its trip before the canvas asks
+   * again, and what is read of the boxes meanwhile is the deck's before it. */
   async function refresh() {
+    refreshing++;
+    let laid = false;
+    try {
+      laid = await boxesAgain();
+    } finally {
+      refreshing--;
+    }
+    if (laid) await text.sync();
+  }
+  /** The boxes of the state shown asked again and laid; whether they were. */
+  async function boxesAgain(): Promise<boolean> {
     const shown = editor.shown();
-    if (!shown) return;
+    if (!shown) return false;
     const [was, format] = [size, editor.format()];
     const ruling = ruled || safeShown ? stage.grid(format).catch(() => undefined) : undefined;
     const waiting = fresh.has(shown.state) ? stage.waits(shown.state, format).catch((): Waiting[] => []) : Promise.resolve([]);
@@ -894,7 +909,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     try {
       ({ boxes, size } = await asking);
     } catch (e) {
-      if (/^unknown state /.test(said(e))) return;
+      if (/^unknown state /.test(said(e))) return false;
       throw e;
     }
     if (ruling) grid = await ruling;
@@ -913,7 +928,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     draw();
     if (slotting) void relayout();
     void stage.inserts().then((i) => (offered = i), () => {});
-    await text.sync();
+    return true;
   }
 
   /** How close the preview is: 1 shows the whole canvas (PLAN 2.46). */
@@ -3032,6 +3047,75 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       }
     });
   }
+  /** Where a map goes on the slide shown (ADR-0030, PLAN O.1c), found as a picture's place is: the
+   * image selected, unless a lock holds it, which shows the map in place of what it showed; else
+   * the first empty place for a picture on the slide; else where the pointer last pressed, in a
+   * box a third of the canvas wide, as wide as a map is drawn, 16 by 9. */
+  async function mapTarget(): Promise<MapTarget | undefined> {
+    const shown = editor.shown();
+    if (!shown) return undefined;
+    let place = await pictureTarget();
+    if (!place) return undefined;
+    // The empty place for a picture the pointer last pressed in, a map's place among them, before
+    // the first (PLAN O.1e).
+    if (place.node === undefined) {
+      const [px, py] = landing();
+      const waits = await stage.waits(shown.state, editor.format()).catch((): Waiting[] => []);
+      const under = waits.find((w) => w.picture && px >= w.rect[0] && px <= w.rect[0] + w.rect[2] && py >= w.rect[1] && py <= w.rect[1] + w.rect[3]);
+      if (under) place = { slot: under.slot, at: [under.rect[0] + under.rect[2] / 2, under.rect[1] + under.rect[3] / 2], width: under.rect[2], height: under.rect[3] };
+    }
+    const [x, y] = place.at;
+    const rect: [number, number, number, number] =
+      place.node !== undefined || place.slot !== undefined
+        ? [x - place.width / 2, y - place.height / 2, place.width, place.height]
+        : [Math.round(x - size[0] / 6), Math.round(y - (size[0] / 3) * (9 / 32)), Math.round(size[0] / 3), Math.round((size[0] / 3) * (9 / 16))];
+    return stage.mapTarget(editor.source(), shown.state, { node: place.node, slot: place.slot, rect });
+  }
+
+  /** A map fetched (PLAN O.1c) put where `target` says: its picture joins the bundle, named by its
+   * content, and the image shows it with its record and its pin, or a new image does, entering in
+   * the state shown and kept to its slide. One patch, one step to undo. */
+  function putMap(target: MapTarget, map: FetchedMap, label: string | undefined) {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      if (!shown) return editor.say(WAITING);
+      try {
+        const mapped = await stage.mapping(editor.source(), target, map, label);
+        await change(mapped.ops, "Placing the map…", `${mapped.said} · ${MOD}Z undoes it`, mapped.node);
+      } catch (e) {
+        editor.say(`Not placed: ${said(e)}`);
+      }
+    });
+  }
+
+  /** The map image `node` shows, fetched again (PLAN O.1c): as it was asked (`again`), a zoom step
+   * nearer (`in`) or further (`out`), or centered on the place its pin marks (`pin`); the new
+   * picture shown in its place, one patch, one step to undo, the old one kept in the bundle until
+   * Files takes it out. */
+  function refreshMap(node: string, key: string, how: "in" | "out" | "pin" | "again") {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      if (!shown) return editor.say(WAITING);
+      if (navigator.onLine === false) return editor.say("Not fetched: this browser is offline, and the map is as it was");
+      try {
+        editor.say("Fetching the map again…");
+        const again = await stage.mapRefreshing(editor.source(), shown.state, node);
+        const zoom = Math.min(20, Math.max(1, again.zoom + (how === "in" ? 1 : how === "out" ? -1 : 0)));
+        const center = how === "pin" ? { lat: again.place.lat, lon: again.place.lon } : again.center;
+        const [, , w, h] = again.target.rect;
+        const got = await stage.fetchMap(
+          { place: again.asked, known: again.place, center, zoom, style: again.style, size: [w, h], lang: again.target.lang },
+          key,
+        );
+        if (!got.map) throw new Error("no map came back");
+        const mapped = await stage.mapping(editor.source(), again.target, got.map, again.label ?? "");
+        const did = how === "in" ? "a step nearer" : how === "out" ? "a step further" : how === "pin" ? "centered on its pin" : "again";
+        await change(mapped.ops, "Placing the map…", `Map of ${mapped.place} fetched ${did} · ${MOD}Z undoes it`, node);
+      } catch (e) {
+        editor.say(`Not fetched: ${said(e)}`);
+      }
+    });
+  }
   listen(overlay, "dragover", (e) => {
     const types = e.dataTransfer?.types ?? [];
     if (types.includes("Files") || types.includes(BUNDLE_PATH)) e.preventDefault();
@@ -4173,6 +4257,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     waiting: () => waits,
     /** Where a picture made for the slide shown goes, and the place it is framed for (PLAN 2.107). */
     pictureTarget,
+    mapTarget,
+    putMap,
+    refreshMap,
     /** A picture made put where it was asked for: one patch, one step to undo (PLAN 2.107). */
     putPicture,
     /** A slide made here: its layout's empty slots are outlined once it shows. */
@@ -4214,6 +4301,19 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     /** The mark of the chart selected picked, the annotation selected, and the mark a band begun
      * starts at (PLAN 2.67). */
     picked: () => picked?.mark,
+    /** Where the canvas's keys stand, for a test that finds a key not taken: the node a selection
+     * by keys is on, Space held and tapped, a pan or a drag under way, and the handles keyed. */
+    keys: () => ({
+      keyOn,
+      spaced,
+      tapped,
+      panning: panning !== undefined,
+      drag: drag !== undefined || starting !== undefined || press !== undefined,
+      handling: handling?.node,
+      picked: picked !== undefined,
+      noted: noted !== undefined,
+      focus: document.activeElement === overlay ? "overlay" : (document.activeElement?.id || document.activeElement?.tagName),
+    }),
     noted: () => noted?.note,
     banding: () => banding?.from,
     /** The layout of the state shown as its slots, to edit, or not, as the Layout button does; a
@@ -4309,8 +4409,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       const shown = editor.shown();
       return shown ? stage.targets(shown.state, node, editor.format()) : Promise.reject(new Error("nothing is shown"));
     },
-    /** Whether a drag is under way, or its request with the worker. */
-    busy: () => busy || drag !== undefined || starting !== undefined || reshaping !== undefined || cropping !== undefined,
+    /** Whether a drag is under way, or its request with the worker, or what stands where is asked
+     * again: until it is answered, the boxes are the deck's before the last edit. */
+    busy: () => busy || refreshing > 0 || drag !== undefined || starting !== undefined || reshaping !== undefined || cropping !== undefined,
     /** The text typed in, if one is. */
     typing: () => text.node(),
     /** Once every change typed so far is made, typing left with one under way among them: what a

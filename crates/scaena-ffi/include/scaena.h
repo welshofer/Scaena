@@ -19,6 +19,10 @@ typedef struct ScaenaFiles ScaenaFiles;
 // request and hands each answer back. Free with [`scaena_generator_free`].
 typedef struct ScaenaGenerator ScaenaGenerator;
 
+// The deck a session compiled last, taken to be laid out on every state for lint on a thread
+// of its own (PLAN 4.13): [`scaena_laying_new`].
+typedef struct ScaenaLaying ScaenaLaying;
+
 // A save: every file of the bundle as saved, for the caller to write where it keeps the
 // bundle, then to [adopt](scaena_adopt).
 typedef struct ScaenaSaved ScaenaSaved;
@@ -86,7 +90,7 @@ struct ScaenaSession *scaena_open(struct ScaenaFiles *files, char **error);
 struct ScaenaSession *scaena_open_zip(const uint8_t *bytes, size_t len, char **error);
 
 // A new bundle (PLAN 2.12, 3.3), as New makes one in the browser and `deck_create` does: the
-// theme that ships as `theme` (`dusk`, `daybreak`, `ember`, or `gallery`), the fonts it names,
+// theme that ships as `theme` (`dusk`, `daybreak`, `ember`, or `salon`), the fonts it names,
 // and one state with nothing on it, titled `title`. Kept nowhere until it is saved. Null where
 // no such theme ships, `*error` then saying why.
 //
@@ -99,6 +103,39 @@ struct ScaenaSession *scaena_create(const char *theme, const char *title, char *
 // # Safety
 // `session` is a live handle from [`scaena_open`] or [`scaena_open_zip`], or null.
 void scaena_session_free(struct ScaenaSession *session);
+
+// The deck `session` compiled last, taken to be linted on every state away from the session
+// (PLAN 4.13): [`scaena_laying_lay`] lays it out on whatever thread calls it, while `session`
+// answers calls on its own thread, and [`scaena_lint_laid`] hands what it found back. Null
+// where no source compiled to a deck that validates. Free with [`scaena_laying_free`].
+//
+// # Safety
+// `session` is a live handle.
+struct ScaenaLaying *scaena_laying_new(struct ScaenaSession *session);
+
+// Lay `laying`'s deck out on every state and run lint's layout rules on it, with an engine of
+// its own: the slow part of `lint`, on the thread that calls it, which touches no session.
+// False where `laying` is null or the engine stopped.
+//
+// # Safety
+// `laying` is a live handle from [`scaena_laying_new`], used by one thread at a time.
+bool scaena_laying_lay(struct ScaenaLaying *laying);
+
+// What lint finds on every state of the deck `session` compiled last, as `lint` with no state
+// says it, from what `laying` found, laying nothing out, dates judged at `now` (RFC 3339, or
+// null for none), as `lint` judges them: `{"ok": {"linting"}}`, `linting` null where the deck
+// changed after `laying` was taken from it, or it was not laid out.
+//
+// # Safety
+// `session` and `laying` are live handles, on the session's thread; `now` a NUL-terminated
+// string, or null.
+char *scaena_lint_laid(struct ScaenaSession *session, struct ScaenaLaying *laying, const char *now);
+
+// Free a laying.
+//
+// # Safety
+// `laying` is a live handle from [`scaena_laying_new`], or null.
+void scaena_laying_free(struct ScaenaLaying *laying);
 
 // Hand over a file at any time, by its path in the bundle: an image dropped, a font, data. One
 // the deck draws with builds the engine again on the next frame. False where an argument is
@@ -454,7 +491,8 @@ void scaena_chat_free(struct ScaenaChat *chat);
 struct ScaenaGenerator *scaena_generator_new(void);
 
 // What a brief may ask, as `{"ok": value}`: Narrato's goals, lengths, and ways a deck is
-// delivered (`{id, label}`), the audiences its personas name, its arcs, and the defaults.
+// delivered (`{id, label}`), the audiences its personas name, its arcs, and the defaults; and the
+// themes that ship, as `shippedThemes` lists them, to make the deck in.
 char *scaena_generator_choices(void);
 
 // One step of the generation `generator`, as `{"ok": value}` or `{"error": {"message"}}`, with

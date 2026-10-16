@@ -181,4 +181,5 @@ private func anthropic(_ text: String) -> Data {
     #expect(choices.lengths.contains(choices.defaults.length))
     #expect(choices.arcs.contains("Problem–Solution"))
     #expect(!choices.modalities.isEmpty)
+    #expect(choices.themes.map(\.name) == ["dusk", "daybreak", "ember", "salon"])
 }
