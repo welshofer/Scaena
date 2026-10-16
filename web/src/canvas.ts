@@ -322,7 +322,9 @@ interface Press {
   click?: string;
   released?: boolean;
   asking?: boolean;
-  moved?: Starting & { client: [number, number] };
+  /** Where the pointer is, moved while the engine says what was pressed; `went` once it has gone
+   * past the slop since the press, wherever it is now: a drag, as one is past the slop at once. */
+  moved?: Starting & { client: [number, number]; went: boolean };
   /** On the one node selected already: a click there picks a chart's mark or annotation (PLAN 2.67). */
   within?: boolean;
   /** On an annotation of the chart selected: a drag moves a callout. */
@@ -3511,7 +3513,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     // Moved past the slop before the engine answered, as a drag made while the worker paints is:
     // the press was a drag all along, from where the pointer is now, dropped there if let go.
     const moved = mine.moved;
-    const far = moved !== undefined && Math.hypot(moved.client[0] - client[0], moved.client[1] - client[1]) >= SLOP;
+    const far = moved?.went === true;
     if (far && mine.marquee && (press === mine || mine.released)) {
       if (press === mine) press = undefined;
       marquee = { from, at: moved.at, adding: shift };
@@ -3724,7 +3726,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       return;
     }
     if (press.asking) {
-      press.moved = { at, shift: e.shiftKey, alt: e.altKey, loose: e.metaKey || e.ctrlKey, client: [e.clientX, e.clientY] };
+      const went = press.moved?.went === true || Math.hypot(e.clientX - press.client[0], e.clientY - press.client[1]) >= SLOP;
+      press.moved = { at, shift: e.shiftKey, alt: e.altKey, loose: e.metaKey || e.ctrlKey, client: [e.clientX, e.clientY], went };
       return;
     }
     const far = Math.hypot(e.clientX - press.client[0], e.clientY - press.client[1]) >= SLOP;
