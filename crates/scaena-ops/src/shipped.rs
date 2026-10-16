@@ -1,10 +1,12 @@
 //! The themes that ship (SPEC §3.6), with their fonts, carried in the binary: what a deck starts
 //! from where no theme file is at hand (PLAN 2.13). The registry, `docs/themes/registry.json`,
 //! lists them, each written from its spec (PLAN T.0a, ADR-0031). Dusk, Daybreak, Ember, and
-//! Gallery share one vocabulary on one grid, and the same body and mono fonts, each with its
-//! italic: Inter and JetBrains Mono. The first three set display in Fraunces, and Gallery in
-//! Instrument Serif (PLAN 2.102). Each font carries its copyright and its license (the SIL Open
-//! Font License) in its own name table.
+//! Salon share one vocabulary on one grid, and the same body and mono fonts, each with its
+//! italic: Inter and JetBrains Mono. The first three set display in Fraunces, and Salon in
+//! Instrument Serif (PLAN 2.102). Each is found by its name, one word, in any case; Salon by
+//! `gallery` too, the name it shipped under, so a deck that names Gallery opens as before (PLAN
+//! T.0d). Each font carries its copyright and its license (the SIL Open Font License) in its own
+//! name table.
 //!
 //! Every font every theme in the registry names is carried, compressed, and inflated the first
 //! time a deck needs it (PLAN T.0c, ADR-0031 call 3): the build script finds each in the
@@ -16,8 +18,10 @@ use std::sync::OnceLock;
 /// A theme that ships.
 #[derive(Debug, Clone, Copy)]
 pub struct Shipped {
-    /// Its name, as `create` takes it: `dusk`, `daybreak`, `ember`, or `gallery`.
+    /// Its name, as `create` takes it: `dusk`, `daybreak`, `ember`, or `salon`.
     pub name: &'static str,
+    /// Its family, the section a chooser offers it under (PLAN T.0d): `Stage`, `Editorial`, ….
+    pub family: &'static str,
     /// Its file's name in a bundle's `themes/`.
     pub file: &'static str,
     pub text: &'static str,
@@ -46,6 +50,8 @@ struct Font {
 
 mod table;
 
+use crate::theme::ALIASES;
+
 include!(concat!(env!("OUT_DIR"), "/fonts.rs"));
 
 /// Each font inflated, the first time it is asked for.
@@ -55,8 +61,10 @@ static INFLATED: [OnceLock<Vec<u8>>; FONTS.len()] = [const { OnceLock::new() }; 
 /// `scripts/build_themes.py` writes the table from it.
 pub use table::THEMES;
 
-/// The theme that ships as `name`, in any case.
+/// The theme that ships as `name`, in any case, or by a name it shipped under before (PLAN T.0d):
+/// `gallery` is Salon.
 pub fn theme(name: &str) -> Option<Shipped> {
+    let name = ALIASES.iter().find(|(alias, _)| alias.eq_ignore_ascii_case(name)).map_or(name, |(_, is)| *is);
     THEMES.into_iter().find(|t| t.name.eq_ignore_ascii_case(name))
 }
 
@@ -93,6 +101,7 @@ pub fn names() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::theme::same;
 
     /// The themes that ship are the registry's, in its order (PLAN T.0a).
     #[test]
@@ -104,10 +113,40 @@ mod tests {
         assert_eq!(THEMES.iter().map(|t| t.name).collect::<Vec<_>>(), slugs);
     }
 
+    /// Each name is one word, its slug, and Salon answers to the name it shipped under (PLAN T.0d).
+    #[test]
+    fn each_theme_is_found_by_its_name_and_salon_by_gallery() {
+        for t in THEMES {
+            assert!(t.name.chars().all(|c| c.is_ascii_lowercase()), "{}", t.name);
+            let named =
+                serde_json::from_str::<serde_json::Value>(t.text).unwrap()["name"].as_str().unwrap().to_string();
+            assert!(named.eq_ignore_ascii_case(t.name), "{}: {named}", t.name);
+            assert_eq!(theme(&named).map(|s| s.name), Some(t.name));
+        }
+        for name in ["gallery", "Gallery", "GALLERY", "salon"] {
+            assert_eq!(theme(name).map(|t| t.file), Some("salon.theme.json"), "{name}");
+        }
+        assert!(
+            same("Gallery", "Salon") && same("Salon", "Salon") && !same("Gallery", "Dusk") && !same("Dusk", "Salon")
+        );
+    }
+
+    /// Each family of a theme that has no italic and does not say it is upright by design: a
+    /// family whose script sets no italic, as Japanese and Korean do not, says so (`upright`,
+    /// ADR-0031, call 6), and one that merely lost its italic does not ship.
+    fn without_italics(theme: &serde_json::Value) -> Vec<String> {
+        let families = theme["type"]["families"].as_object().unwrap();
+        (families.iter())
+            .filter(|(_, f)| f.get("italic").is_none() && f.get("upright") != Some(&serde_json::Value::Bool(true)))
+            .map(|(key, _)| key.clone())
+            .collect()
+    }
+
     #[test]
     fn every_font_a_theme_that_ships_names_ships_with_it() {
         for theme in THEMES {
             let parsed: serde_json::Value = serde_json::from_str(theme.text).unwrap();
+            assert_eq!(without_italics(&parsed), Vec::<String>::new(), "{}: a family lost its italic", theme.name);
             let families = parsed["type"]["families"].as_object().unwrap();
             let mut named = Vec::new();
             for family in families.values() {
@@ -118,7 +157,8 @@ mod tests {
                 }
             }
             for family in families.values() {
-                let italic = family["italic"]["file"].as_str().expect("every family that ships has an italic");
+                let Some(italic) = family.get("italic") else { continue };
+                let italic = italic["file"].as_str().unwrap();
                 assert!(font(italic).is_some(), "{}: {italic}", theme.name);
                 if !named.contains(&italic) {
                     named.push(italic);
@@ -130,6 +170,21 @@ mod tests {
         }
         assert_eq!(theme("Ember").map(|t| t.file), Some("ember.theme.json"));
         assert!(theme("ember.theme.json").is_none());
+    }
+
+    /// A family upright by design ships without an italic, as Washi's and Hanji's will (ADR-0031,
+    /// call 6); a Latin family that lost its italic, and says nothing, does not.
+    #[test]
+    fn only_a_family_upright_by_design_ships_without_an_italic() {
+        let mut theme: serde_json::Value = serde_json::from_str(THEMES[0].text).unwrap();
+        let families = theme["type"]["families"].as_object_mut().unwrap();
+        let key = families.keys().next().unwrap().clone();
+        families[&key].as_object_mut().unwrap().remove("italic");
+        assert_eq!(without_italics(&theme), vec![key.clone()], "a family that lost its italic is refused");
+        theme["type"]["families"][&key]["upright"] = serde_json::Value::Bool(true);
+        assert_eq!(without_italics(&theme), Vec::<String>::new(), "a family upright by design ships");
+        let parsed: scaena_core::model::theme::Theme = serde_json::from_value(theme).unwrap();
+        assert_eq!(parsed.typography.families[&key].upright, Some(true));
     }
 
     /// Every font the binary carries is one a theme in the registry names, of a family the

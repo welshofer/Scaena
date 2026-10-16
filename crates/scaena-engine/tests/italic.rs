@@ -140,13 +140,13 @@ fn command_i_toggles_italic_by_what_each_character_asks() {
     assert_eq!(carets.italicizing(0, 7)["style/italic"], serde_json::Value::Null);
 }
 
-/// Gallery's display family, Instrument Serif, is one weight, with no `wght` axis. A run asked
+/// Salon's display family, Instrument Serif, is one weight, with no `wght` axis. A run asked
 /// to be bold is set in that weight, the glyphs and advances the font has, none emboldened,
 /// and the layout names the font set lighter than asked (lint W232). The run keeps the weight
 /// it asks for, which ⌘B reads.
 #[test]
 fn a_family_of_one_weight_sets_a_heavier_run_in_its_own_weight() {
-    let theme = Theme::from_json(&String::from_utf8(read("themes/gallery.theme.json")).unwrap()).unwrap();
+    let theme = Theme::from_json(&String::from_utf8(read("themes/salon.theme.json")).unwrap()).unwrap();
     let mut fonts = BundleFonts::new();
     for file in ["InstrumentSerif-Regular.ttf", "InstrumentSerif-Italic.ttf", "Inter-VF.ttf", "Inter-Italic-VF.ttf"]
         .into_iter()
@@ -187,4 +187,20 @@ fn a_family_of_one_weight_sets_a_heavier_run_in_its_own_weight() {
     let inter = set(&mut fonts, "body", Some(700.0));
     assert!(inter.lighter.is_empty());
     assert_ne!(glyphs(&inter), glyphs(&set(&mut fonts, "body", None)));
+}
+
+/// A family upright by design, whose script sets no italic (ADR-0031, call 6), names no italic
+/// and sets italic text upright as one that lost it does, and W231 reads it all the same.
+#[test]
+fn a_family_upright_by_design_sets_italic_upright_and_says_so() {
+    let mut fonts = fonts();
+    let theme = dusk(|t| {
+        let body = t["type"]["families"]["body"].as_object_mut().unwrap();
+        body.remove("italic");
+        body.insert("upright".into(), true.into());
+    });
+    assert_eq!(theme.families()["body"].upright, Some(true));
+    let text = set(&mut fonts, &theme, &[("doubled", true)]);
+    assert_eq!(faces(&text), ["fonts/Inter-VF.ttf"]);
+    assert_eq!(text.upright, ["body"], "what W231 reads");
 }

@@ -7,6 +7,7 @@ use super::Shipped;
 pub const THEMES: [Shipped; 4] = [
     Shipped {
         name: "dusk",
+        family: "Stage",
         file: "dusk.theme.json",
         text: include_str!("../../../../docs/examples/themes/dusk.theme.json"),
         font_files: &[
@@ -20,6 +21,7 @@ pub const THEMES: [Shipped; 4] = [
     },
     Shipped {
         name: "daybreak",
+        family: "Executive",
         file: "daybreak.theme.json",
         text: include_str!("../../../../docs/examples/authorability/themes/daybreak.theme.json"),
         font_files: &[
@@ -33,6 +35,7 @@ pub const THEMES: [Shipped; 4] = [
     },
     Shipped {
         name: "ember",
+        family: "Analyst",
         file: "ember.theme.json",
         text: include_str!("../../../../docs/examples/themes/ember.theme.json"),
         font_files: &[
@@ -45,9 +48,10 @@ pub const THEMES: [Shipped; 4] = [
         ],
     },
     Shipped {
-        name: "gallery",
-        file: "gallery.theme.json",
-        text: include_str!("../../../../docs/examples/themes/gallery.theme.json"),
+        name: "salon",
+        family: "Editorial",
+        file: "salon.theme.json",
+        text: include_str!("../../../../docs/examples/themes/salon.theme.json"),
         font_files: &[
             "fonts/InstrumentSerif-Regular.ttf",
             "fonts/Inter-VF.ttf",

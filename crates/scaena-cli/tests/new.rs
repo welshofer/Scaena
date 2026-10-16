@@ -74,7 +74,7 @@ fn a_new_bundle_needs_a_place_of_its_own_and_a_theme_there_is() {
     let lacking = json(&scaena(&["--json", "new", nowhere.to_str().unwrap(), "--theme", "midnight"]));
     assert_eq!(lacking["error"]["exit"], 2);
     let said = lacking["error"]["message"].as_str().unwrap();
-    assert!(said.contains("nor is it a theme that ships: dusk, daybreak, ember, gallery"), "{said}");
+    assert!(said.contains("nor is it a theme that ships: dusk, daybreak, ember, salon"), "{said}");
     assert!(!nowhere.exists(), "nothing is made");
 }
 

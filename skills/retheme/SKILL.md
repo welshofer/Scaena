@@ -24,7 +24,7 @@ A theme change is a pure re-render: swap `theme`, and the next frame is in the n
    - So is every cell past the new theme's grid, a node's `at.col` or `at.row` or a slot it stands in. Its message names the grid's size; place the node again, by slot where you can, since a slot moves with the theme.
    - Each E102 for a name lists the names of that kind the new theme has ("layout `figure` is not in the theme, which has title, full, chart"). Choose from them; there is no need to guess.
 2. **Fix what the delta reports**, in the deck or by choosing another theme.
-   - Names are the swap contract. The shipped themes, Dusk, Daybreak, Ember, and Gallery, share one vocabulary (SPEC §3.6), so a deck moves between them with no E102, and the delta holds only what the new look breaks.
+   - Names are the swap contract. The shipped themes, Dusk, Daybreak, Ember, and Salon, share one vocabulary (SPEC §3.6), so a deck moves between them with no E102, and the delta holds only what the new look breaks.
    - A palette or slot named for a theme (`dusk`) rather than its job (`ambient`) is the theme's problem, not the deck's.
 3. **Swap.**
    - Run it again without the dry run. It copies the theme into `themes/` and points the deck at it.
