@@ -863,6 +863,17 @@ fn a_code_text_takes_none_of_what_code_does_not_use() {
     assert_eq!(say("/nodes/snippet/style/case"), "`snippet` is code, set as written: it takes no `style.case`");
 }
 
+#[test]
+fn a_wrap_of_none_validates_and_an_unknown_wrap_is_e106() {
+    let mut deck: serde_json::Value = serde_json::from_str(fixture!("E106", "clean")).unwrap();
+    let text = deck["nodes"].as_object().unwrap().iter().find(|(_, n)| n["type"] == "text" && n.get("code").is_none());
+    let id = text.map(|(id, _)| id.clone()).expect("a text");
+    deck["nodes"][&id]["wrap"] = serde_json::json!("none");
+    assert_eq!(findings(&deck.to_string()), Vec::<String>::new());
+    deck["nodes"][&id]["wrap"] = serde_json::json!("verse");
+    assert_eq!(findings(&deck.to_string()), vec![format!("E106 /nodes/{id}/wrap")]);
+}
+
 /// A fetched picture (ADR-0030): its record, its pin, and where its credit goes round-trip through
 /// the model and the schema; a service this build does not know, an `at` that is no instant, and an
 /// empty credit where the service asks one are E106, and a pin's color the theme lacks is E102.
