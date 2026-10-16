@@ -590,11 +590,11 @@
           "properties": { "chart": { "$ref": "#/$defs/ChartKind" } }
         },
         {
-          "description": "A table of this many columns, of a few rows made up for it.",
+          "description": "A table of this many columns, of a few rows made up for it: seven are a week's days, a month's calendar (theme format 0.18, PLAN S.2).",
           "type": "object",
           "required": ["table"],
           "additionalProperties": false,
-          "properties": { "table": { "type": "integer", "minimum": 2, "maximum": 6 } }
+          "properties": { "table": { "type": "integer", "minimum": 2, "maximum": 7 } }
         }
       ]
     },
