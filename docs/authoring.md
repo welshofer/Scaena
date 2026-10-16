@@ -383,6 +383,7 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `big-question` | `kicker`, `question`, `support` | Big Question, in Statements |
 | `manifesto` | `kicker`, `header`, `body` | Manifesto, in Statements |
 | `key-point` | `kicker`, `card`, `point`, `follow` | Key Point, in Statements |
+| `haiku` | `poem`, `rule`, `attribution` | Haiku, in Statements: the poem in `verse`, shrunk to fit, a short rule, and who wrote it or what it is on, which waits empty |
 | `lyrics` | `art`, `words`, `credit` | Lyrics, in Statements |
 | `bullets` | `kicker`, `header`, `body` | Bullets, in Lists |
 | `numbered` | `kicker`, `header`, `body` | Numbered List, in Lists |

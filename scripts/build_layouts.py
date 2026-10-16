@@ -219,6 +219,12 @@ layout("Statements", "key-point", "One point on its card, set large, and what fo
     "follow": slot((2, 11), (7, 9), "body", "What follows from it", inset=48),
 }, ember={"card": ((2, 11), (3, 10)), "point": ((2, 11), (3, 7)), "follow": ((2, 11), (8, 10))})
 
+layout("Statements", "haiku", "A haiku, set as written in the middle of the slide, and who wrote it or what it is on.", {
+    "poem": slot((2, 11), (3, 8), "verse", "A haiku goes here\nseven syllables between\nfive more to close it", align={"x": "center", "y": "center"}, fit="shrink"),
+    "rule": rule((6, 7), (9, 9)),
+    "attribution": slot((4, 9), (10, 10), "caption", "Who wrote it, or what it is on", align={"x": "center"}),
+}, ember={"poem": ((2, 11), (3, 9)), "rule": ((6, 7), (10, 10)), "attribution": ((4, 9), (11, 11))})
+
 # Lists -----------------------------------------------------------------------------------------
 
 layout("Lists", "bullets-photo", "A headline and the points that make its case, a picture off the right edge beside them.", {
@@ -1556,7 +1562,7 @@ NAMES = {
     "section-number": "Section Number",
     # Statements
     "statement": "Statement", "poster": "Poster", "quote": "Quote", "thesis": "Thesis", "big-question": "Big Question",
-    "manifesto": "Manifesto", "key-point": "Key Point",
+    "manifesto": "Manifesto", "key-point": "Key Point", "haiku": "Haiku",
     # Lists
     "bullets": "Bullets", "numbered": "Numbered List", "agenda": "Agenda", "three-rows": "Three Rows",
     "bullets-photo": "Bullets and Photo", "checklist": "Checklist", "agenda-photo": "Agenda and Photo",
