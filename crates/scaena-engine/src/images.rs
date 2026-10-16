@@ -667,7 +667,8 @@ mod tests {
     fn framed(props: Value, rect: Rect) -> ImageNode {
         let mut images = BundleImages::new();
         images.register("assets/photo.png", &png(400, 200)).unwrap();
-        let mut raw: Value = serde_json::from_str(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();
+        let mut raw: Value =
+            serde_json::from_str(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();
         raw["pictures"] = json!({ "frame": {
             "mat": { "color": "surface-2", "width": 8 },
             "keyline": { "color": "onSurface", "width": 2 }

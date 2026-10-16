@@ -933,7 +933,12 @@ pub fn frame(theme: &Theme) -> Option<String> {
     };
     let bands: Vec<String> = [band(mat, "mat"), band(keyline, "keyline")].into_iter().flatten().collect();
     let first = bands.first()?;
-    let said = format!("{}{}{}", first[..1].to_uppercase(), &first[1..], bands.get(1).map_or(String::new(), |b| format!(" and {b}")));
+    let said = format!(
+        "{}{}{}",
+        first[..1].to_uppercase(),
+        &first[1..],
+        bands.get(1).map_or(String::new(), |b| format!(" and {b}"))
+    );
     Some(format!("{said}, the theme's"))
 }
 
