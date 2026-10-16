@@ -167,3 +167,56 @@ fn notes_and_descriptions_that_say_a_figure_follow_it() {
     assert_eq!(deck["nodes"]["rev"]["alt"], json!("Quarterly revenue by product; Pro leads at $20.0M in Q3."));
     assert_eq!(deck["states"][0]["notes"], json!("Last year Pro was nowhere near $19.4M."), "intro shows no figure");
 }
+
+/// The weather example, saved where a test may write it.
+fn weather(test: &str) -> PathBuf {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("data-{test}"));
+    let _ = std::fs::remove_dir_all(&dir);
+    let opts = SaveOptions { subset_fonts: false, now: "2026-10-15T20:00:00Z".into(), history: false };
+    scaena_ops::open(Path::new("../../docs/examples/weather.deck.json")).unwrap().save(&dir, &opts).unwrap();
+    dir
+}
+
+/// Rows fetched from a service and edited since say so (ADR-0030): `data_edit` sets the record's
+/// `edited` in the same change, which the credit says, as CC BY asks.
+#[test]
+fn an_edit_of_fetched_rows_marks_them_edited() {
+    let dir = weather("fetched");
+    let edited = |dir: &Path| scaena_ops::open(dir).unwrap().deck.data["boston"].fetched().unwrap().edited;
+    assert!(!edited(&dir));
+    // A cell set to what it holds changes nothing, and marks nothing.
+    let same =
+        edit(&dir, "boston", json!([{ "op": "set", "row": 0, "column": "high", "value": 17.4 }]), false).unwrap();
+    assert!(!same.edited && !edited(&dir), "{same:?}");
+    let set = edit(&dir, "boston", json!([{ "op": "set", "row": 0, "column": "high", "value": 18 }]), false).unwrap();
+    assert!(set.edited, "{set:?}");
+    assert!(edited(&dir));
+}
+
+/// Lint judges a forecast's date only at a moment it is handed (ADR-0030, decision 8): the example
+/// is kept as of its date, and once it is not, its days pass.
+#[test]
+fn lint_judges_a_forecasts_date_only_when_handed_one() {
+    let dir = weather("dated");
+    let later = scaena_core::fetched::moment("2026-10-20").unwrap();
+    let w428 = |b: &scaena_ops::Bundle, now| {
+        let linted = scaena_ops::lint::lint_at(b, now).unwrap();
+        linted.findings.into_iter().filter(|f| f.code == "W428").collect::<Vec<_>>()
+    };
+    let b = scaena_ops::open(&dir).unwrap();
+    assert!(w428(&b, Some(later)).is_empty(), "kept as of its date");
+    let mut deck: Value = serde_json::from_slice(&std::fs::read(dir.join("deck.json")).unwrap()).unwrap();
+    deck["data"]["boston"]["fetched"]["kept"] = json!(false);
+    std::fs::write(dir.join("deck.json"), serde_json::to_vec_pretty(&deck).unwrap()).unwrap();
+    let b = scaena_ops::open(&dir).unwrap();
+    assert!(w428(&b, None).is_empty(), "no date without `now`");
+    let at_fetch = scaena_core::fetched::moment("2026-10-15T23:00:00Z").unwrap();
+    assert!(w428(&b, Some(at_fetch)).is_empty(), "the 15th still, in Boston");
+    let found = w428(&b, Some(later));
+    assert_eq!(found.len(), 1, "{found:#?}");
+    let f = &found[0];
+    assert_eq!(
+        (f.node.as_deref(), f.state.as_deref(), f.refresh.as_deref(), f.fix.is_none()),
+        (Some("week"), Some("week"), Some("boston"), true)
+    );
+}

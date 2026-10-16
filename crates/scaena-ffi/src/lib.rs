@@ -265,10 +265,7 @@ pub unsafe extern "C" fn scaena_create(
         let title = unsafe { text(title, "title") }?;
         let shipped = scaena_ops::shipped::theme(name)
             .ok_or_else(|| said(format!("`{name}` is not a theme that ships: {}", scaena_ops::shipped::names())))?;
-        let mut fonts = BTreeMap::new();
-        for (path, bytes) in scaena_ops::shipped::fonts() {
-            fonts.insert(path.to_string(), bytes.to_vec());
-        }
+        let fonts: BTreeMap<String, Vec<u8>> = shipped.fonts().map(|(p, b)| (p.to_string(), b.to_vec())).collect();
         Session::create(shipped.file, shipped.text, &fonts, title).map_err(said)
     });
     match made {
@@ -324,17 +321,24 @@ pub unsafe extern "C" fn scaena_laying_lay(laying: *mut ScaenaLaying) -> bool {
 }
 
 /// What lint finds on every state of the deck `session` compiled last, as `lint` with no state
-/// says it, from what `laying` found, laying nothing out: `{"ok": {"linting"}}`, `linting` null
-/// where the deck changed after `laying` was taken from it, or it was not laid out.
+/// says it, from what `laying` found, laying nothing out, dates judged at `now` (RFC 3339, or
+/// null for none), as `lint` judges them: `{"ok": {"linting"}}`, `linting` null where the deck
+/// changed after `laying` was taken from it, or it was not laid out.
 ///
 /// # Safety
-/// `session` and `laying` are live handles, on the session's thread.
+/// `session` and `laying` are live handles, on the session's thread; `now` a NUL-terminated
+/// string, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn scaena_lint_laid(session: *mut ScaenaSession, laying: *mut ScaenaLaying) -> *mut c_char {
+pub unsafe extern "C" fn scaena_lint_laid(
+    session: *mut ScaenaSession,
+    laying: *mut ScaenaLaying,
+    now: *const c_char,
+) -> *mut c_char {
     envelope(guarded(|| {
         let session = unsafe { handle(session, "session") }?;
         let laying = unsafe { handle(laying, "laying") }?;
-        let linted = session.0.lint_laid(&laying.0).map_err(said)?;
+        let now = unsafe { maybe_text(now, "now") }?.and_then(scaena_session::store::seconds);
+        let linted = session.0.lint_laid(&laying.0, now).map_err(said)?;
         Ok(json!({ "linting": serde_json::to_value(linted).map_err(said)? }))
     }))
 }
@@ -1400,7 +1404,10 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         "source" => json!(s.source()),
         "compiledFrom" => json!(s.compiled_from(arg("source")?)),
         "compile" => value(serde_json::to_value(s.compile(arg("source")?)))?,
-        "lint" => value(serde_json::to_value(s.lint(optional("state")).map_err(said)?))?,
+        "lint" => {
+            let now = optional("now").and_then(scaena_session::store::seconds);
+            value(serde_json::to_value(s.lint(optional("state"), now).map_err(said)?))?
+        }
         "fix" => {
             let patch: Vec<Value> = args
                 .get("patch")
@@ -1635,10 +1642,7 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
                     let shipped = scaena_ops::shipped::theme(name).ok_or_else(|| {
                         said(format!("`{name}` is not a theme that ships: {}", scaena_ops::shipped::names()))
                     })?;
-                    let mut fonts = BTreeMap::new();
-                    for (path, bytes) in scaena_ops::shipped::fonts() {
-                        fonts.insert(path.to_string(), bytes.to_vec());
-                    }
+                    let fonts = shipped.fonts().map(|(p, b)| (p.to_string(), b.to_vec())).collect();
                     s.retheme(&format!("themes/{}", shipped.file), Some(shipped.text), fonts, at())
                 }
                 None => s.retheme(arg("path")?, None, BTreeMap::new(), at()),

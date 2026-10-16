@@ -124,7 +124,7 @@ Rules:
 
 ```jsonc
 {
-  "scaena": "0.30",
+  "scaena": "0.31",
   "meta":   { "title": "...", "author": "...", "created": "...", "lang": "en-US" },
   "canvas": { "width": 1920, "height": 1080, "unit": "cu" },   // canvas units; 1 cu = 1 px at 1080p
   "formats": ["16:9", "9:16"],                               // the formats it is laid out in too (§3.4)
@@ -191,6 +191,7 @@ How the image meets its box:
 - `fit: cover` (default) scales the crop to fill the box and cuts what overflows; `contain` scales it to fit inside the box, the rest of the box empty; `fill` stretches it to the box.
 - `focal: [x, y]`, fractions of the crop (default `[0.5, 0.5]`), lines the box and the image up at that point, as CSS `object-position` does with percentages: under `cover` the focal point stays in view, and under `contain` it places the image in the box's spare room.
 - `radius` rounds the corners of what shows: the box under `cover` and `fill`, the drawn image under `contain`.
+- Its theme's frame (§3.6, PLAN T.3a), a keyline, a mat, or both, stands inside the box, around what shows; the picture meets what the frame leaves as it would meet its box.
 - `mask` shows the image only inside a shape, as a presentation app masks a picture with one (deck format 0.24, PLAN 2.113): `ellipse`, an oval, or a polygon of the shape library by its name (`triangle`, `right-triangle`, `diamond`, `parallelogram`, `trapezoid`, `pentagon`, `hexagon`, `octagon`, `star`, `chevron`, `right-arrow`, `left-arrow`, `up-arrow`, `down-arrow`, `plus`, `callout`), fitted to what shows as `radius` rounds it, in place of `radius`.
 - `stroke` borders what shows (PLAN 2.118), as a presentation app's Picture Border does: stroked on its outline as a shape's is, its `paint` and `width` the theme's, so the rounded corners, the oval, or the mask's polygon, or the drawn image's own edge under `contain`. It lies over the picture and outside its clip, so none of it is cut. Between two states a border that only one draws fades in or out.
 
@@ -340,7 +341,7 @@ See `docs/schema/theme.schema.json`. Shape:
 
 ```jsonc
 {
-  "scaena-theme": "0.20",
+  "scaena-theme": "0.21",
   "name": "Dusk",
   "tokens": {
     "color":  { "ink": "#...", "paper": "#...", "accent": "#...", "muted": "...", "...": "..." },
@@ -384,7 +385,8 @@ See `docs/schema/theme.schema.json`. Shape:
   "furniture": { "number": { "col": [12, 12], "role": "label", "align": "end" }, "footer": { "col": [1, 8], "role": "label" },
                  "except": ["title", "section"] },
   "code": { "role": "code", "tab": 4, "syntax": { "keyword": { "color": "accent", "weight": 700 }, "string": { "color": "accent-2" },
-                                                   "comment": { "color": "muted", "italic": true } } }
+                                                   "comment": { "color": "muted", "italic": true } } },
+  "pictures": { "frame": { "mat": { "color": "surface-2", "width": 24 }, "keyline": { "color": "line", "width": 1 } } }
 }
 ```
 
@@ -419,6 +421,7 @@ See `docs/schema/theme.schema.json`. Shape:
   - A slot's **`fit`** says how a text placed in it fits it where the text does not say (theme format 0.13): one of a text's own `fit`s (§3.4), `shrink` the one that matters, which sets a number too wide for its slot smaller, down to its role's `minSize`, as a presentation app's placeholder shrinks what is typed in it. A text's own `fit` wins, and an inspector shows the slot's where the deck sets none. The shipped themes' number slots shrink: Big Number's, Two Numbers', Number and Photo's, and those of Stat and Number and Trend, which set their number as Big Number does (Jay's call, 2026-10-11).
   - A new slide in a layout (`scaena_ops::states::starting`) goes after the slide shown, absolute, named after the layout (`bullets`, `bullets-2`): a text in each slot whose prompt is words, its role the slot's, a shape in each whose prompt is one, each named after the slide and the slot (`bullets-header`), and each kept to its slide (PLAN 3.24). A slot left empty whose prompt is words is filled again with what a new slide puts there (`scaena_ops::states::filling`): what an editor puts there when its outline's words are pressed. A text whose words still read as its slot's prompt, as they were put (`scaena_ops::states::prompted`), is selected whole as typing begins in it, so typing replaces it, as a placeholder's words are.
 - **A slide's number and footer** (theme format 0.14, ADR-0028). `furniture` places what the deck shows of them (§3.2): `number` and `footer` are each `{ col, edge?, role, align?, color?, pattern? }`, a line of words set in `role` across the grid's columns `col` (one, or `[a, b]`), in the margin at the canvas's `foot` (the default) or `head`, its caps centered in the margin's height. `align` is `start` (the default), `center`, or `end`, and `color` a color token or role in place of the role's. The number's `pattern` writes it: `{n}` the slide's number, `{total}` how many slides the deck has (`"{n} / {total}"`), `{n}` alone by default. `except` lists the layouts a slide shows neither on unless it asks for them: titles, dividers, and pictures that bleed to the foot. Columns count in each format's own grid, held to the columns it has. A role, a color, or a layout the theme lacks is **E102**, as is a column past its grid. Lint judges them as text (E110, E111, E120), and **W303** finds a node that draws where they stand. The shipped themes set the footer from the left across eight columns and the number at the right in the last, in `label`, and leave them off their titles, dividers, and pictures that bleed to the foot (`scripts/build_layouts.py`).
+- **A picture's frame** (theme format 0.21, PLAN T.3a, ADR-0031 decision 3; S.2 took 0.20). `pictures.frame` says how every picture in the theme is framed: `"none"`, or `{ keyline?, mat? }`, at least one, each a band `{ color, width }`, a color token or role and a width in canvas units. From the picture out, the keyline is a line at its edge and the mat a band of color around that, as a print's mat. Every image takes it, and no image property says otherwise. The frame is drawn inside the image's box, the picture fitted, cropped, and focused within what the bands leave (under `contain`, the frame hugs the picture drawn); in a box whose shorter side is under four times the frame's width, every band narrows alike to a quarter of that side. `radius` rounds the frame's outer corners and the picture's concentric inside them, a `mask`'s shape is drawn larger for each band, a shadow falls under the whole, and `stroke` borders it. The bands are rings of fill in the display list (§6), drawn under the picture, so every painter, the PDF, and the SVG draw them alike. A color the theme lacks is **E102**. The shipped themes frame nothing.
 - **How code is set and colored** (theme format 0.18, ADR-0029, PLAN 2.132). `code` is `{ role?, tab?, syntax? }`:
   - `role` is the text role a code text that names none is set in. Where the theme sets none, its `code` role, if it has one, else `body`. Lint and the cascade read it, and so do a deck made from a prompt and Insert, which keep a script's font out of its fallbacks and insert code in it (§7.1, §9.2).
   - `tab` is the columns between tab stops, 1 to 16; 4 where it is unset.
@@ -720,6 +723,12 @@ Lint **W320** flags more than N concurrent animated nodes (theme-tunable, defaul
 - **History.** The history records each edit with the file's bytes (§8.1).
 - **Quotes.** Each figure a run quotes from the source is set again in the same change, with the claims that hold it (§3.5, ADR-0019); the result names the texts (`quoted`).
 
+**Fetched** (deck format 0.31, ADR-0030, PLAN O.2a). A source whose rows came from a service records it in `fetched`, the record a fetched picture takes (§3.3): `{ from, at, asked, credit, license?, terms?, kept?, edited?, forecast? }`. Render never fetches: a forecast's rows are written inline, so every export carries them, and fetching again is an edit.
+- `from` is `open-meteo` for a forecast (`scaena_core::fetched::SERVICES`). `terms` says which of the service's terms the fetch came under where the request itself says so: Open-Meteo's `free` service or its `customer` one, a key of the user's own. `kept` says the person keeps it as of its date, so lint judges no date in it (W428). `edited` says its rows were edited since they came: `data_edit` on a fetched source sets it in the same change, and the credit says "edited", as CC BY asks a change to be indicated.
+- `forecast` says what was asked: the `place` (`{ name, region?, country?, lat, lon, zone, offset }`, `zone` its IANA time zone and `offset` the seconds from UTC its days were cut by), the `period` (`day` or `hour`), and the `units` its figures came in (`metric` or `us`). A day's rows are `date`, `sky` (the WMO weather code), `high`, `low`, `rain` (the chance, in percent), `amount`, `wind`, and `direction`; an hour's are `time`, `sky`, `temperature`, `rain`, `amount`, `wind`, `direction`, and `day` (daylight). `scaena_core::weather` holds every WMO code Open-Meteo documents, each to a sky, its icon by day and by night, and its words in the languages of `docs/spec/format.md`.
+- **The credit** is drawn at the foot of each chart and table that reads the source, across its box in the theme's `caption` role, never under 24 cu at 1080p (12 pt at presentation size), the rest laid out above it: a forecast's place and its date at the place, then the record's `credit`, each run that links a `link` op, then "edited" where `edited` is set. It reads after the chart or the table, as a paragraph with its links, and a tagged PDF carries it so; its layer in the display list says so by its `cell`, `[4294967295, 4294967295]`. **W314** finds one that cannot be read. No theme or deck can hide it.
+- The same E106 as a picture's record. Nothing in it takes a key.
+
 **Transforms** (PLAN 1.9). A chart or a table MAY read its data through `dataTransform`: steps that run in order, each an object that names one step.
 - `{ "filter": "<expr>" }` keeps the rows where the expression is true.
 - `{ "derive": { "<column>": "<expr>", … } }` adds a column per expression, in order, each able to read the ones before it. A name that is already a column replaces it.
@@ -1017,7 +1026,7 @@ scaena new       <dir> [--theme dusk|daybreak|ember|gallery|theme.json] [--title
 scaena compile   <deck.scn> [-o deck.json]            # DSL → JSON, validated
 scaena decompile <bundle> [-o deck.scn]               # JSON → DSL (canonical form)
 scaena validate  <bundle>                             # schema + semantic validation
-scaena lint      <bundle> [--state ID] [--json] [--fix] [--severity error|warning|info]
+scaena lint      <bundle> [--state ID] [--json] [--fix] [--severity error|warning|info] [--now INSTANT|DAY]
 scaena inspect   <bundle> [--state ID] [--resolved] [--timeline] [--data] [--boxes] [--at X,Y] [--targets NODE [--snap HOW --to X,Y,W,H [--fork]]] [--arrange A,B,… (--align EDGE | --spread WAY | --order HOW | --before NODE | --after NODE | --into NODE | --by DX,DY [--free]) [--fork]] [--choices NODE] [--look NODE [--onto A,B,…]] [--inserts] [--layouts] [--layers] [--format F]   # snapshot, styles, cue, rows, where nodes stand and may go, several arranged at once, what a node's look may be, a look copied and pasted, what may be inserted, the layouts a state may take, the layers
 scaena render    <bundle> --state ID [--t MS] [--format 9:16] [--size WxH] [--out frame.png] [--display-list out.json] [--painter cpu|gpu]
 scaena export    <bundle> --format pdf|png|svg|mp4|webm|prores|html|spine [--states a,b] [--size WxH] [--fps 60] [--audio FILE] [--painter cpu|gpu] [--out DIR|FILE]
@@ -1232,7 +1241,7 @@ An editor puts a box about the pointer, snapped to the theme's grid as a dropped
 
 `compile` checks the deck it compiles as `validate` does, in the bundle it is written to: `-o`'s directory, or the source's when it writes to stdout. It shows each finding at the source that wrote that part of the deck, and the JSON pointer where it lands. It writes only a valid deck: findings exit 1 and source that does not parse exits 2, and either way nothing is written. `decompile` reads any deck, valid or not (§4).
 
-`new` (PLAN 2.13) makes a bundle in a directory not there yet or empty, as `deck_create` makes one (§7.2): the theme, the fonts it names, and one state with nothing on it, titled `--title` (`Untitled` by default), on a 1920 × 1080 canvas. The theme is one that ships, by its name, in any case (`dusk` by default), or a theme file, whose fonts are beside it or above it. The CLI and the MCP server carry the themes that ship and their fonts, so a deck starts where no file of the repository's is at hand. The fonts cover Latin (U+0020–017F, and ș and ț), Greek and Cyrillic, and U+2000–27BF, what a talk writes beside its words (PLAN G.21), and each carries its copyright and license (OFL) in its name table. A directory that is not empty, or a theme that is neither a file nor one that ships, exits 2; a bundle that would not validate is not made, and exits 1.
+`new` (PLAN 2.13) makes a bundle in a directory not there yet or empty, as `deck_create` makes one (§7.2): the theme, the fonts it names, and one state with nothing on it, titled `--title` (`Untitled` by default), on a 1920 × 1080 canvas. The theme is one that ships, by its name, in any case (`dusk` by default), or a theme file, whose fonts are beside it or above it. The CLI and the MCP server carry every theme the registry lists (`docs/themes/registry.json`, ADR-0031) and every font each names, compressed in the binary and inflated the first time a deck needs one, so a deck starts in any of them where no file of the repository's is at hand and no network is (PLAN T.0c); a deck takes its theme's fonts and no other's. The build finds each font in the repository or in the cache of upstream files by SHA-256 that `scripts/build_bundle_fonts.py --fetch --shipped` fills, and reaches no network: a font the cache lacks fails it, naming the family. The fonts cover Latin (U+0020–017F, and ș and ț), Greek and Cyrillic, and U+2000–27BF, what a talk writes beside its words (PLAN G.21), and each carries its copyright and license (OFL) in its name table. A directory that is not empty, or a theme that is neither a file nor one that ships, exits 2; a bundle that would not validate is not made, and exits 1.
 
 `generate` (PLAN G.2, ADR-0026) makes a bundle in a directory not there yet or empty, as `new` makes one, from a deck Vzestup's Narrato model writes with the user's own key:
 - **The key and the model.** The key is read from the environment: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GEMINI_API_KEY` (or `GOOGLE_API_KEY`), the provider whose key is set, in that order, unless `--provider` names one. The model is `--model`, else `$SCAENA_MODEL`, one of those `generate --models` lists for the key; no model is named in Scaena's code. `--base` sends the calls to another address of the same API.
@@ -1268,7 +1277,7 @@ An editor puts a box about the pointer, snapped to the theme's grid as a dropped
 | `deck_patch` | `scaena patch` (§7.3). | `{ applied, patch, added, removed, errors, states }` |
 | `deck_find` | `scaena find`: `find`, `case`, `words`, `replace`, and `dry_run`. | `{ found, matches, replaced? }` |
 | `data_edit` | `scaena data`: `source`, `edits`, and `dry_run` (§3.10). With no `edits`, the source as a sheet, read. | `{ edited, source, file?, sheet, added, removed, errors, refused }` |
-| `deck_lint` | `scaena lint`, with `state`, `severity`, and `fix`. | `{ findings, fixed?, errors, laid }` |
+| `deck_lint` | `scaena lint`, with `state`, `severity`, `fix`, and `now`, the moment to judge dates at (W428); without it, none is judged. | `{ findings, fixed?, errors, laid }` |
 | `deck_inspect` | `scaena inspect`, with `state`, `resolved`, `timeline`, `data`, `boxes`, `at` (`[x, y]`), `targets`, `snap`, `to` (`[x, y, w, h]`), `fork`, `arrange` (the nodes) with one of `align`, `spread`, `order`, `before`, `after`, `into`, or `by` (`[dx, dy]`, with `free`), `choices`, `state_choices`, `look` with `onto` (the nodes), `inserts`, `layouts`, `layers`, and `format`. | `{ states }` |
 | `deck_render` | `scaena render`: `state`, `t`, `format`, `size`, `painter`, and `out`. | the PNG as image content, and `{ state, size, span_ms, digest, painter, out?, ms }` as text |
 | `deck_export` | `scaena export`: `format`, `states`, `out`, `size`, `fps`, `audio`, and `painter` (a video's: `gpu` in a server built with it). All but the spine needs `out`. An export still going after 40 s answers `running` (see **Long exports**). | `{ format, out?, spine?, pages?, files?, size?, frames?, fps?, duration_ms?, timeline?, chapters?, painter?, adapter?, bytes? }`, or `{ format, out, running }` |
@@ -1378,7 +1387,11 @@ Every patch becomes a CRDT change (§8, PLAN 1.23).
   "fix": [ { "op": "add", "path": "/nodes/title/fit", "value": "shrink" } ] }
 ```
 
-`fix` is optional and MUST be a valid patch (§7.3). A fix never changes content, and lint keeps one only after laying its state out again with it applied: the text fits, within its lines, at a size its bounds allow; a text reads in the color a contrast fix chooses wherever the choice reaches (§7.5). `lint --fix` applies every fix, each at most once, writes the deck canonically, and lints again. Under `--json` it prints `{ "fixed": [findings], "findings": [what remains] }`.
+`fix` is optional and MUST be a valid patch (§7.3). A finding a fetch resolves, which no patch makes, carries no fix; its `refresh` names the data source to fetch again (W428, ADR-0030), and an editor offers Refresh and Keep as It Is.
+
+**Lint's date** (ADR-0030, decision 8). What was fetched passes its date, so lint takes `now` from whoever runs it: `scaena lint --now` (an instant, or a day at its start in UTC), else `SOURCE_DATE_EPOCH`, else the clock; `deck_lint`'s `now`; and, in an editor, the client's clock at each lint. Without `now`, no date is judged. Render and validation read no clock, and nothing of it enters the CRDT.
+
+ A fix never changes content, and lint keeps one only after laying its state out again with it applied: the text fits, within its lines, at a size its bounds allow; a text reads in the color a contrast fix chooses wherever the choice reaches (§7.5). `lint --fix` applies every fix, each at most once, writes the deck canonically, and lints again. Under `--json` it prints `{ "fixed": [findings], "findings": [what remains] }`.
 
 **What `lint` runs**, in order:
 - The bundle's validation, as `validate` runs it (E102–E106).
@@ -1437,6 +1450,7 @@ Three families. **Mechanical** rules say "this cannot be shown" (1xx). **Design*
 | W425 | warn | two consecutive beats with the same claim, ignoring case, spacing, and the closing stop |
 | W426 | warn | a beat that comes after another in the spine while its states play before that one's: the PDF reads a deck in spine order and the video in state order, so the two would tell the story in different orders (§3.11). A beat stands where its first state plays; one with no states the deck has is not judged |
 | W427 | warn | a figure a run quotes (§3.5) that its data no longer gives, a file changed by other means than a data edit, at the run's `text`; and each word that holds the old figure as a word where the text shows it (a beat's claim or notes, a state's notes, a node's description, PLAN 2.90), where it is written, the message saying which. Each with the fix that writes the figure the data gives |
+| W428 | warn | a fetched forecast (ADR-0030) whose first period's day has passed at its place at lint's `now` (§7.4): `now` plus the offset its days were cut by. One finding at each node that shows it, in the first state that does, else one at the source, each naming the source in `refresh` and carrying no fix. A source `kept` as of its date is not judged, and no date is judged without `now` |
 | I400 | info | state identical to previous (no-op cue) |
 | I401 | info | node never visible |
 | I402 | info | override makes node theme-unsafe (count) |

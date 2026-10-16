@@ -122,12 +122,14 @@ struct ScaenaLaying *scaena_laying_new(struct ScaenaSession *session);
 bool scaena_laying_lay(struct ScaenaLaying *laying);
 
 // What lint finds on every state of the deck `session` compiled last, as `lint` with no state
-// says it, from what `laying` found, laying nothing out: `{"ok": {"linting"}}`, `linting` null
-// where the deck changed after `laying` was taken from it, or it was not laid out.
+// says it, from what `laying` found, laying nothing out, dates judged at `now` (RFC 3339, or
+// null for none), as `lint` judges them: `{"ok": {"linting"}}`, `linting` null where the deck
+// changed after `laying` was taken from it, or it was not laid out.
 //
 // # Safety
-// `session` and `laying` are live handles, on the session's thread.
-char *scaena_lint_laid(struct ScaenaSession *session, struct ScaenaLaying *laying);
+// `session` and `laying` are live handles, on the session's thread; `now` a NUL-terminated
+// string, or null.
+char *scaena_lint_laid(struct ScaenaSession *session, struct ScaenaLaying *laying, const char *now);
 
 // Free a laying.
 //

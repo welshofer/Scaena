@@ -92,6 +92,12 @@ struct Inspector: View {
                     }
                 }
             }
+            // A picture's frame is its theme's (PLAN T.3a): said, and offered nowhere.
+            if tab == .format, characters == nil, also.isEmpty, let framed = choices?.framed {
+                Section("Frame") {
+                    Text(framed).foregroundStyle(.secondary).accessibilityIdentifier("picture-frame")
+                }
+            }
             if tab == .format, choices?.node == nil, characters == nil {
                 objects
                 if let furniture = choices?.furniture, furniture.placed {

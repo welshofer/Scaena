@@ -127,6 +127,9 @@ public struct Choices: Decodable, Sendable {
     /// Where a fetched picture came from, as the Format tab's Map section heads it (ADR-0030): "Map
     /// from Geoapify, fetched 15 October 2026".
     public let fetched: String?
+    /// A picture's frame, said, where its theme frames pictures (PLAN T.3a): the theme's, which
+    /// nothing on the picture changes, so the inspector shows it and offers nothing.
+    public let framed: String?
 
     /// Whether the writing tools have words to write for what is offered (PLAN 2.101): a text's, a
     /// picture's description, or the slide's notes. A shape, a chart, a table, or a group has none,
@@ -477,10 +480,12 @@ extension ScaenaSession {
     public func compile(_ source: String) throws -> Compiling { try call("compile", ["source": .string(source)]) }
 
     /// Lint the deck compiled last: every state, or with `state` the layout rules on that state
-    /// alone, the others' findings kept from the last time they ran on every state.
-    public func lint(state: String? = nil) throws -> Linting {
-        guard let state else { return try call("lint") }
-        return try call("lint", ["state": .string(state)])
+    /// alone, the others' findings kept from the last time they ran on every state. Dates are
+    /// judged at `now`, the Mac's clock (W428, ADR-0030).
+    public func lint(state: String? = nil, now: Date = Date()) throws -> Linting {
+        var args: [String: JSONValue] = ["now": .string(now.formatted(.iso8601))]
+        if let state { args["state"] = .string(state) }
+        return try call("lint", .object(args))
     }
 
     /// The deck compiled last, taken to be linted on every state away from the session (PLAN
@@ -493,9 +498,10 @@ extension ScaenaSession {
     /// What lint finds on every state, as `lint()` says it, from what `laid` found once laid out,
     /// laying nothing out here: none where the deck changed after it was taken (another source
     /// compiled, a file handed over, the theme edited), so an older deck's findings never stand
-    /// for this one's, or where it was not laid out.
-    public func lint(laid: Laying) throws -> Linting? {
-        try Self.decode(scaena_lint_laid(handle, laid.handle), as: Laid.self).linting
+    /// for this one's, or where it was not laid out. Dates are judged at `now`, as `lint()` judges
+    /// them.
+    public func lint(laid: Laying, now: Date = Date()) throws -> Linting? {
+        try Self.decode(scaena_lint_laid(handle, laid.handle, now.formatted(.iso8601)), as: Laid.self).linting
     }
 
     /// What `scaena_lint_laid` answers: the linting, or none where it is stale.

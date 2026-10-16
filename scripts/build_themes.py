@@ -9,7 +9,8 @@
 - **A spec,** `docs/themes/<slug>.spec.json`, holds only what sets the theme apart from the shared
   base, `docs/themes/base.json`: its name and description, its mode, its seven colors, its data
   palettes, its families, its type voice and each role's deltas, its margin, its shader palettes,
-  its code's look (`code`, theme format 0.18), and any chart, table, stroke, or shader preset unlike the base's.
+  its code's look (`code`, theme format 0.18), its pictures' frame (`pictures`, theme format
+  0.21), and any chart, table, stroke, or shader preset unlike the base's.
 - **The base** holds what every theme shares: motion, shadows, density, space, radius, stroke, the
   color roles, the grid but its margin, the shader presets, the charts and tables, and the three
   type voices (Dusk's, Ember's, and Gallery's) a spec starts its roles from. A key the base sets
@@ -18,8 +19,10 @@
 
 This writes every key of a theme file but its `layouts` and `furniture`, which
 `scripts/build_layouts.py` writes and this keeps as they are. It writes `scaena_ops::shipped`'s
-table (`crates/scaena-ops/src/shipped/table.rs`) and the browser's (`web/src/themes.ts`) from the
-registry, and the registry's copies of each spec.
+table (`crates/scaena-ops/src/shipped/table.rs`), where its build script finds each font
+(`crates/scaena-ops/src/shipped/fonts.tsv`: in git for the four, else in the sha256 cache, PLAN
+T.0c), and the browser's (`web/src/themes.ts`) from the registry, and the registry's copies of
+each spec.
 
 It refuses a new theme's spec whose colors miss ADR-0031's bars (decision 3), worked as
 `scaena_core::palette` works them: WCAG's contrast for the ratio, Oklab for the lightness that
@@ -41,8 +44,12 @@ THEMES = ROOT / "docs/themes"
 REGISTRY = THEMES / "registry.json"
 BASE = THEMES / "base.json"
 SHIPPED = ROOT / "crates/scaena-ops/src/shipped/table.rs"
+# Where each font the themes name comes from, which scaena-ops' build script reads (PLAN T.0c).
+CARRIED = ROOT / "crates/scaena-ops/src/shipped/fonts.tsv"
 WEB = ROOT / "web/src/themes.ts"
-# Where the fonts the themes name are, by the path a theme gives them (`fonts/…`).
+# Where the fonts git holds are, by the path a theme gives them (`fonts/…`): the four's. Every
+# other family's files are the upstream files in the cache `build_bundle_fonts.py --fetch` fills,
+# by sha256 (PLAN T.0b, T.0c).
 FONTS = ROOT / "docs/examples/fonts"
 
 # Held to their files as they ship, not to the bars, until PLAN T.6 (ADR-0031, call 10).
@@ -65,6 +72,7 @@ SPEC_KEYS = {
     "charts": ("charts",),
     "tables": ("tables",),
     "code": ("code",),
+    "pictures": ("pictures",),
 }
 # What a spec holds that is the registry's, not the file's.
 SPEC_ONLY = {"mode", "voice", "contrast"}
@@ -325,6 +333,53 @@ def font_files(themes: list[dict]) -> list[str]:
     return out
 
 
+def pinned_families() -> dict:
+    """`build_bundle_fonts.py`'s pinned table (PLAN T.0b), by key."""
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import build_bundle_fonts  # noqa: PLC0415
+
+    return build_bundle_fonts.FAMILIES
+
+
+def font_sources(themes: list[dict]) -> list[tuple[str, str, str]]:
+    """Every font file the themes name, in `font_files`' order, as `(path, family key, source)`:
+    its source the file's path in the repository where git holds it (the four's, in
+    docs/examples/fonts), else `sha256:…`, the upstream file in the cache by its pin. A face the
+    table does not pin is refused, naming its family."""
+    keys, pins = font_keys(), pinned_families()
+    out: dict[str, tuple[str, str, str]] = {}
+    for theme in themes:
+        families = theme["type"]["families"].values()
+        faces = [(f["file"], f["family"], "upright") for f in families]
+        faces += [(f["italic"]["file"], f["family"], "italic") for f in families if "italic" in f]
+        for path, name, face in faces:
+            if path in out:
+                continue
+            if name not in keys:
+                raise Refused(f"{theme['name']} names families build_bundle_fonts.py does not pin: {[name]}")
+            key = keys[name]
+            if (FONTS.parent / path).is_file():
+                source = (FONTS.parent / path).relative_to(ROOT).as_posix()
+            elif pins[key].get(face):
+                source = "sha256:" + pins[key][face][1]
+            else:
+                raise Refused(f"{theme['name']} names {name}'s {face} face as {path}, which build_bundle_fonts.py pins none of")
+            out[path] = (path, key, source)
+    order = font_files(themes)
+    return [out[p] for p in order]
+
+
+def carried_tsv(themes: list[dict]) -> str:
+    out = [
+        "# Every font the themes that ship name, and where scaena-ops' build script finds it (PLAN T.0c):",
+        "# the path a theme gives it, its family's key in build_bundle_fonts.py's pinned table, and its",
+        "# source: a file in the repository, or `sha256:…`, an upstream file in the cache that",
+        "# `build_bundle_fonts.py --fetch --shipped` fills. Written by scripts/build_themes.py; do not edit.",
+    ]
+    out += ["\t".join(row) for row in font_sources(themes)]
+    return "\n".join(out) + "\n"
+
+
 def shipped_rs(entries: list[dict], themes: list[dict]) -> str:
     out = [
         "//! The themes that ship, and the fonts they name, as `docs/themes/registry.json` lists them.",
@@ -335,28 +390,21 @@ def shipped_rs(entries: list[dict], themes: list[dict]) -> str:
         "/// Every theme that ships, in the registry's order.",
         f"pub const THEMES: [Shipped; {len(entries)}] = [",
     ]
-    for e in entries:
+    for e, theme in zip(entries, themes):
         first = e["files"][0]
         out += [
             "    Shipped {",
             f"        name: {json.dumps(e['slug'])},",
             f"        file: {json.dumps(Path(first).name)},",
             f'        text: include_str!("../../../../{first}"),',
-            "    },",
         ]
-    files = font_files(themes)
-    out += [
-        "];",
-        "",
-        "/// The fonts the themes name, by the paths they give them: each family's, and its italic's",
-        "/// (PLAN 2.40).",
-        f"pub(super) const FONTS: [(&str, &[u8]); {len(files)}] = [",
-    ]
-    for f in files:
-        name, bytes_ = json.dumps(f), f'include_bytes!("../../../../docs/examples/{f}")'
-        line = f"    ({name}, {bytes_}),"
-        # As rustfmt sets it: a tuple past the 120 columns of rustfmt.toml on a line of its own each.
-        out += [line] if len(line) <= 120 else ["    (", f"        {name},", f"        {bytes_},", "    ),"]
+        line = f"        font_files: &[{', '.join(json.dumps(f) for f in font_files([theme]))}],"
+        # As rustfmt sets it: an array past the 120 columns of rustfmt.toml on a line of its own each.
+        if len(line) <= 120:
+            out.append(line)
+        else:
+            out += ["        font_files: &["] + [f"            {json.dumps(f)}," for f in font_files([theme])] + ["        ],"]
+        out.append("    },")
     out += ["];", ""]
     return "\n".join(out)
 
@@ -447,9 +495,10 @@ def build(registry: dict, base: dict, specs: dict) -> tuple[dict[Path, str], lis
             continue
         if e.get("fonts") != fonts:
             wrong.append(f"{slug}: the registry's fonts {e.get('fonts')} are not its families' {fonts}")
-        for f in font_files([theme]):
-            if not (FONTS.parent / f).exists():
-                wrong.append(f"{slug}: it names {f}, which is not in docs/examples/fonts")
+        try:
+            font_sources([theme])
+        except Refused as r:
+            wrong.append(str(r))
         for f in e.get("files") or []:
             path = ROOT / f
             old = path.read_text(encoding="utf-8") if path.exists() else None
@@ -460,6 +509,7 @@ def build(registry: dict, base: dict, specs: dict) -> tuple[dict[Path, str], lis
         themes.append(theme)
     out[REGISTRY] = registered(entries)
     out[SHIPPED] = shipped_rs(entries, themes)
+    out[CARRIED] = carried_tsv(themes)
     out[WEB] = themes_ts(entries, themes)
     return out, wrong
 

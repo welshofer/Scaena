@@ -10,7 +10,7 @@
 //!   upstream change shows up as a test to update, not a silent shift.
 
 use scaena_core::Deck;
-use scaena_core::displaylist::{Affine, DisplayList, Glyph, Op, PathEl, quantize};
+use scaena_core::displaylist::{Affine, DisplayList, FillRule, Glyph, Op, PathEl, quantize};
 use scaena_engine::data::DataFiles;
 use scaena_engine::fonts::BundleFonts;
 use scaena_engine::images::BundleImages;
@@ -69,6 +69,13 @@ const MORPH: [(&str, f64); 25] = [
 /// containers, a chart's data, and morphs laid out again on the tall canvas.
 const TALL: [(&str, Option<f64>); 4] =
     [("formats", None), ("containers", None), ("chart-next", Some(0.5)), ("morph", Some(0.75))];
+/// States drawn again in the torture theme with a picture's frame (PLAN T.3a), as (state,
+/// frame), named `state+frame`: every picture in them takes the frame. `mat` is a dark mat of 24
+/// with a keyline of 2 in the accent at the picture's edge, as Darkroom frames; `keyline` a line
+/// of 2 alone. Each is the torture theme's, so the frames stay out of `raw.fnv1a`, which the
+/// session, the browser, and the Mac draw the deck as it is.
+const FRAMED: [(&str, &str); 5] =
+    [("images", "mat"), ("shadows", "mat"), ("maps", "mat"), ("images", "keyline"), ("shadows", "keyline")];
 const SERIF: &str = "fonts/RobotoSerif-VF.ttf";
 const GARAMOND: &str = "fonts/EBGaramond-VF.ttf";
 const HEBREW: &str = "fonts/NotoSansHebrew-VF.ttf";
@@ -260,6 +267,62 @@ fn display_lists_match_goldens() {
         "display lists differ from tests/golden/torture for {changed:?}; new output is in tests/golden/torture/actual/. \
          Review the diff, then bless with SCAENA_BLESS=1."
     );
+}
+
+/// The torture theme with the frame `name` of [`FRAMED`].
+fn framed(name: &str) -> Fixture {
+    let frame = match name {
+        "mat" => serde_json::json!({
+            "mat": { "color": "onSurface", "width": 24 },
+            "keyline": { "color": "accent", "width": 2 }
+        }),
+        "keyline" => serde_json::json!({ "keyline": { "color": "onSurface", "width": 2 } }),
+        other => panic!("no frame `{other}`"),
+    };
+    fixture_with(|raw| raw["pictures"] = serde_json::json!({ "frame": frame }), false)
+}
+
+/// Pictures framed by their theme (PLAN T.3a), held to goldens as the deck's own states are.
+#[test]
+fn framed_display_lists_match_goldens() {
+    let bless = std::env::var_os("SCAENA_BLESS").is_some();
+    let mut changed = Vec::new();
+    for (state, frame) in FRAMED {
+        let name = format!("{state}+{frame}");
+        let mut dl = framed(frame).frame(state).unwrap_or_else(|e| panic!("{name}: {e}"));
+        quantize(&mut dl);
+        let json = dl.to_golden_json().unwrap();
+        let path = format!("{GOLDEN}/{name}.dl.json");
+        if bless {
+            std::fs::write(&path, &json).unwrap();
+        } else if std::fs::read_to_string(&path).ok().as_deref() != Some(json.as_str()) {
+            std::fs::create_dir_all(format!("{GOLDEN}/actual")).unwrap();
+            std::fs::write(format!("{GOLDEN}/actual/{name}.dl.json"), &json).unwrap();
+            changed.push(name);
+        }
+    }
+    assert!(changed.is_empty(), "framed display lists differ for {changed:?}; see tests/golden/torture/actual/");
+}
+
+/// A frame only adds: every op of a framed state's picture is the unframed one's but its box,
+/// and the rings come before it.
+#[test]
+fn a_frame_draws_rings_under_each_picture_and_moves_nothing_else() {
+    let plain = fixture().frame("images").unwrap();
+    let framed = framed("mat").frame("images").unwrap();
+    fn count(ops: &[Op], what: &dyn Fn(&Op) -> bool) -> usize {
+        ops.iter()
+            .map(|op| match op {
+                Op::Layer { ops, .. } => count(ops, what),
+                op => usize::from(what(op)),
+            })
+            .sum()
+    }
+    let rings = |dl: &DisplayList| count(&dl.ops, &|op| matches!(op, Op::Fill { rule: FillRule::EvenOdd, .. }));
+    let pictures = |dl: &DisplayList| count(&dl.ops, &|op| matches!(op, Op::Image { .. }));
+    assert_eq!(rings(&plain), 0);
+    assert_eq!(pictures(&framed), pictures(&plain));
+    assert_eq!(rings(&framed), 2 * pictures(&plain), "a keyline and a mat around each picture");
 }
 
 /// Stricter than the contract: SPEC §13.4 compares display lists after quantizing,

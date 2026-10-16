@@ -438,10 +438,8 @@ impl Generating {
                 let (placed, assets, unmade) = self.painted.clone().unwrap_or_default();
                 let mut built = scaena_ops::narrative::deck(narrative, &model, &placed).map_err(said)?;
                 built.assets = assets;
-                let mut fonts = BTreeMap::new();
-                for (path, bytes) in scaena_ops::shipped::fonts() {
-                    fonts.insert(path.to_string(), bytes.to_vec());
-                }
+                let mut fonts: BTreeMap<String, Vec<u8>> =
+                    shipped.fonts().map(|(p, b)| (p.to_string(), b.to_vec())).collect();
                 let theme = match &self.script {
                     Some((script, bytes)) => {
                         fonts.insert(script.file.to_string(), bytes.clone());

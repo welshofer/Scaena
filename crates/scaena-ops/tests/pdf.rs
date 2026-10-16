@@ -478,3 +478,30 @@ fn a_maps_credit_is_a_paragraph_after_the_figure_with_its_links() {
     let content = String::from_utf8_lossy(pdf.pages()[0].page_stream().expect("its content")).into_owned();
     assert!(!content.is_empty());
 }
+
+/// A table whose data was fetched (ADR-0030, PLAN O.2a) is a table in the PDF, then the credit at
+/// its foot a paragraph after it, its links URI actions: the weather example's one page.
+#[test]
+fn a_fetched_tables_credit_is_a_paragraph_after_the_table() {
+    use hayro::hayro_syntax::object::{Array, Dict};
+    let bundle = scaena_ops::open(Path::new("../../docs/examples/weather.deck.json")).unwrap();
+    let (bytes, _) = exported(&bundle, None, &format!("{}", line!()));
+    let lines = structure(&bytes);
+    let tags: Vec<&str> = lines.iter().map(|l| l.trim()).collect();
+    let table = tags.iter().position(|t| t.starts_with("Table")).unwrap_or_else(|| panic!("{tags:#?}"));
+    let after = tags[table + 1..].iter().find(|t| !t.starts_with("TR") && !t.starts_with("TH") && !t.starts_with("TD"));
+    assert_eq!(after, Some(&"P"), "its credit, after it: {tags:#?}");
+    let pdf = hayro::hayro_syntax::Pdf::new(Arc::new(bytes)).expect("the PDF parses");
+    let annots: Array = pdf.pages()[0].raw().get(b"Annots").expect("the page has annotations");
+    let mut uris: Vec<String> = annots
+        .iter::<Dict>()
+        .filter_map(|a| a.get::<Dict>(b"A"))
+        .map(|action| {
+            let uri: hayro::hayro_syntax::object::String = action.get(b"URI").expect("a URI");
+            String::from_utf8_lossy(uri.as_bytes()).into_owned()
+        })
+        .collect();
+    uris.sort();
+    uris.dedup();
+    assert_eq!(uris, ["https://creativecommons.org/licenses/by/4.0/", "https://open-meteo.com/"]);
+}
