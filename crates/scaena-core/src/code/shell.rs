@@ -32,6 +32,7 @@ use super::scan::{
     Spans, blanks_end, ends_with, is_break, is_space, is_word, is_word_start, line_end, line_next, number_end,
     space_end, word_end,
 };
+use super::tables::{Table, words};
 use super::{Class, MAX_NESTING};
 
 /// What the next word is in its command.
@@ -1098,13 +1099,20 @@ fn number(word: &str) -> bool {
 
 /// The shell's reserved words, the builtins that declare names, and those that leave a loop or
 /// a function.
-const KEYWORDS: &[&str] = &[
-    "break", "case", "continue", "coproc", "declare", "do", "done", "elif", "else", "esac", "exit", "export", "fi",
-    "for", "function", "if", "local", "readonly", "return", "select", "then", "time", "typeset", "unset", "until",
-    "while",
-];
+const KEYWORDS: Table = words!(
+    "shell/keywords",
+    [
+        "break", "case", "continue", "coproc", "declare", "do", "done", "elif", "else", "esac", "exit", "export", "fi",
+        "for", "function", "if", "local", "readonly", "return", "select", "then", "time", "typeset", "unset", "until",
+        "while",
+    ]
+);
 /// The commands that run the command after them.
-const WRAPPERS: &[&str] = &["builtin", "command", "env", "exec", "nice", "nohup", "sudo", "xargs"];
+const WRAPPERS: Table =
+    words!("shell/wrappers", ["builtin", "command", "env", "exec", "nice", "nohup", "sudo", "xargs"]);
+
+/// Every table this scanner reads, in the order its file lists them (`tables::written`).
+pub(super) const WORDS: &[Table] = &[KEYWORDS, WRAPPERS];
 
 #[cfg(test)]
 mod tests {

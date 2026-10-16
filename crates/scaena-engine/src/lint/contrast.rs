@@ -112,6 +112,8 @@ struct Run {
     opacity: f64,
     display: bool,
     size: f32,
+    /// Whether it is a code text's (ADR-0029): a token in the color its kind is drawn in.
+    code: bool,
 }
 
 /// Each run of `t` placed at `origin`, as boxes from its glyphs' advances and its line's
@@ -201,6 +203,7 @@ fn texts(cx: &Cx, state: &Laid) -> (Vec<Run>, BTreeSet<String>, Charts) {
             Content::Image(_) => pictures.insert(node.id.clone()),
             _ => ids.insert(node.id.clone()),
         };
+        let code = shows_code(cx, state, &node.id);
         for (t, origin, own, part) in placed {
             let said = part.map(|_| t.text.replace('\u{AD}', ""));
             for (rect, color, size) in runs(t, origin) {
@@ -217,6 +220,7 @@ fn texts(cx: &Cx, state: &Laid) -> (Vec<Run>, BTreeSet<String>, Charts) {
                     opacity,
                     display: px >= 24.0 || (px >= 18.67 && t.weight >= 700.0 && t.lighter.is_empty()),
                     size: px,
+                    code,
                 });
             }
         }
@@ -234,6 +238,14 @@ struct Charts {
 impl Charts {
     fn contains(&self, id: &str) -> bool {
         self.charts.contains(id) || self.pictures.contains(id)
+    }
+}
+
+/// Whether node `id` is a code text in `state` (ADR-0029), the deck's overrides over its props.
+fn shows_code(cx: &Cx, state: &Laid, id: &str) -> bool {
+    match cx.deck.overrides.get(id).and_then(|o| o.get("code")) {
+        Some(code) => code.is_object(),
+        None => state.snapshot.nodes.get(id).is_some_and(crate::code::is_code),
     }
 }
 
@@ -434,6 +446,8 @@ struct Worst {
     background: [u8; 3],
     text: [f64; 3],
     size: f32,
+    /// Whether its text is code, which takes the theme's code colors (ADR-0029).
+    code: bool,
     states: Vec<String>,
 }
 
@@ -482,8 +496,9 @@ pub fn check(
                 }
                 failed.insert(&run.subject);
                 // A node's own text, which a color of the theme can fix (PLAN 2.82); the slide's
-                // furniture is the theme's to color.
+                // furniture is the theme's to color, and so is code, each token in its kind's color.
                 if run.subject.1.is_none()
+                    && !run.code
                     && !crate::furniture::is_furniture(&run.subject.0)
                     && !charts.contains(&run.subject.0)
                 {
@@ -498,6 +513,7 @@ pub fn check(
                     background: bg,
                     text: run.color,
                     size: run.size,
+                    code: run.code,
                     states: Vec::new(),
                 };
                 match worst.get_mut(&run.subject) {
@@ -519,7 +535,7 @@ pub fn check(
     let hex = |c: [u8; 3]| format!("#{:02X}{:02X}{:02X}", c[0], c[1], c[2]);
     Ok(worst
         .into_iter()
-        .map(|((node, part), Worst { ratio: r, said, needs, index, background: bg, text: fg, size, states })| {
+        .map(|((node, part), Worst { ratio: r, said, needs, index, background: bg, text: fg, size, code: coded, states })| {
             let (code, class) = if needs > 3.0 { ("E110", "body") } else { ("E111", "display") };
             let fg = hex(fg.map(|c| (c * 255.0).round() as u8));
             let reads = format!("{r:.2}:1 contrast with what is behind it; {class} text needs {needs}:1");
@@ -562,6 +578,9 @@ pub fn check(
                 "size": size, "states": states,
             });
             let hint = match part {
+                // Code's colors are held to read on the slide's surface (ADR-0029): what is behind
+                // this is something else.
+                None if coded => "Its colors are the theme's code colors, which read on the slide's surface: set it where the surface is behind it, or change what is behind it.",
                 None => "Set it in a color role with more contrast against what is behind it, or change what is behind it.",
                 Some(part) => {
                     measure["part"] = part.name().into();
