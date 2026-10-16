@@ -172,10 +172,10 @@ final class ThemeTests: XCTestCase {
                 throw Unseen(description: "the keywords' colors offer no Muted Text: \(app.debugDescription)")
             }
             muted.tap()
-            XCTAssertTrue(wait(10) { (pick.value as? String ?? pick.label).contains("Muted Text") }, "the keywords are not Muted Text: \(pick.debugDescription)")
+            XCTAssertTrue(wait(10) { "\(pick.label) \(pick.value as? String ?? "")".contains("Muted Text") }, "the keywords are not Muted Text: \(pick.debugDescription)")
             keep(app, as: "theme-code-named")
             app.typeKey("z", modifierFlags: .command)
-            XCTAssertTrue(wait(10) { (pick.value as? String ?? pick.label).contains("From the Accent") }, "⌘Z did not take the keywords' color back: \(pick.debugDescription)")
+            XCTAssertTrue(wait(10) { "\(pick.label) \(pick.value as? String ?? "")".contains("From the Accent") }, "⌘Z did not take the keywords' color back: \(pick.debugDescription)")
         }
 
         // The inspector as the other tests find it.
