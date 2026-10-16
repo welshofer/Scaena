@@ -294,6 +294,9 @@ export interface Choices {
   /** Its kind as a person names it: `Text`, `Chart`, `Background Effect`, a shape's own, `Star`;
    * `Icon` for a path on a view, and `Drawing` for the pen's (PLAN 2.99). */
   noun?: string;
+  /** An image's frame, said, where its theme frames pictures (PLAN T.3a): the theme's, which
+   * nothing on the image changes. */
+  framed?: string;
 }
 
 /** A node's look as a state shows it (PLAN 2.58), as `scaena inspect --look` says it: each
@@ -1581,6 +1584,8 @@ export interface Finding {
   format?: string;
   /** The fix, as JSON Patch. */
   fix?: unknown[];
+  /** The data source to fetch again, where a fetch is what resolves it (W428, ADR-0030). */
+  refresh?: string;
   at?: Place;
   fixable: boolean;
   /** Whether it holds in the format shown (PLAN 2.49): one lint found laying a format out holds

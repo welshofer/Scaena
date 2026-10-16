@@ -639,7 +639,7 @@ fn exercise(r: &mut Rng, s: &mut Session, compiled: bool, touched: &[String]) {
         let _ = s.marks_in(one, &b.node);
     }
     if compiled {
-        let _ = s.lint(Some(one));
+        let _ = s.lint(Some(one), None);
         let _ = s.inspect(one);
     }
 }

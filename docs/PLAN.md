@@ -2139,7 +2139,7 @@ The design pass the goal asks for is ADR-0030 (proposed, 2026-10-15).
 
 **O.2 Weather.** *(Jay, 2026-10-15: "provide a city or zip and get back a day or week weather forecast.")* A forecast is a data source, its rows inline, drawn as a weather chart in the theme (ADR-0030, decisions 18–21). Open-Meteo is the service as written. Jay's call 1, on its terms for commercial use, is open, so the tasks that fetch wait on it.
 
-- [ ] O.2a A fetched data source, lint's date, and W428 (ADR-0030; after O.1a; deck format 0.32). *Can go ahead now.*
+- [x] O.2a A fetched data source, lint's date, and W428 (ADR-0030; after O.1a; deck format 0.31, taken at landing). *Can go ahead now.*
     - **Format.** A data source takes O.1a's `fetched`, with `terms` (Open-Meteo's `free` or `customer`), `kept`, `edited`, and `forecast`: the place (name, region, country, latitude, longitude, time zone, and the UTC offset its days were cut by), the period (`day` or `hour`), and the units as fetched. `scaena_core::weather` holds the typed `Forecast` and the WMO table: every code Open-Meteo documents, to a sky, its icon by day and by night, and its words in the six locales `docs/spec/format.md` lists. `data_edit` on a fetched source sets `edited` in the same change. SPEC §3.10.
     - **The credit** of a fetched source is drawn at the foot of any chart or table that reads it, after the place and the forecast's date at the place; W314 judges it. A forecast's credit links "CC BY 4.0" to the licence, as CC BY asks, and says "edited" when `edited` is set.
     - **Lint's date.** Lint takes `now`: `scaena lint --now`, else `SOURCE_DATE_EPOCH`, else the clock; `deck_lint`'s `now`; and, in the session, the client's time at each lint, as its edits take theirs. Render and validation take none. `deck_lint`'s input gains `now` and every finding `refresh`, in `docs/schema/mcp/`, which `just bless` writes.
@@ -2336,7 +2336,8 @@ What each must keep, whatever its batch:
     - Lyceum's body is Open Sans (call 12). Equator is multi-script by design and exempt.
     - Haven sets no role in italics or capitals, and opens letter and line spacing as WCAG 1.4.12 allows.
     - Tests: decision 8's checks on each; a person's review.
-- [ ] T.3a A picture's frame or mat, in every theme (ADR-0031, decision 3; theme format, next free). *Can go ahead now, and lands before batch 3.*
+- [x] T.3a A picture's frame or mat, in every theme (ADR-0031, decision 3; theme format 0.21). *Can go ahead now, and lands before batch 3.*
+    - **Landed:** a theme's `pictures.frame`, `none` or a `keyline` and a `mat`, each a theme color and a width, drawn by the engine inside each image's box as rings of fill under the picture, which is fitted, cropped, and focused in what they leave (`scaena_engine::images::Frame`); the four at `none` in `docs/themes/base.json`, their layout digests unmoved. The torture deck's `images`, `shadows`, and `maps` drawn in a framed copy of its theme (`<state>+mat`, `<state>+keyline`) are goldens every painter draws, and the SVG and PDF writers are tested on them (`crates/scaena-export/tests/frames.rs`). The inspector says a picture's frame (`Choices.framed`) and offers nothing; the Theme tab, which edits colors, roles, and spacing, does not offer it yet, and a theme edit sets it.
     - A theme says how its pictures are framed: a mat of a theme color around the picture, a keyline, or none. Every image takes its theme's frame, and no image property overrides it, so the deck format does not change.
     - The four take none, so nothing they draw changes. Darkroom, Viewfinder, Postcard, and Vow use it.
     - Tests: the frame drawn inside the box, the picture's crop and focal kept within it; every painter, the goldens' torture case; the schema.
