@@ -47,6 +47,11 @@ pub struct Choices {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(skip)]
     pub noun: Option<String>,
+    /// An image's frame as a person says it, where its theme frames pictures (PLAN T.3a): the
+    /// theme's, which no image property changes, so an inspector shows it and offers nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
+    pub framed: Option<String>,
     /// Where a fetched picture came from, as an editor's Map section heads it (ADR-0030): "Map
     /// from Geoapify, fetched 15 October 2026".
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -473,6 +478,7 @@ pub fn choices(
         said: None,
         noun: None,
         fetched,
+        framed: None,
     })
 }
 
@@ -670,6 +676,7 @@ pub fn characters(
         said: None,
         noun: None,
         fetched: None,
+        framed: None,
     })
 }
 

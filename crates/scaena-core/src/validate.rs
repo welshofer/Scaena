@@ -532,6 +532,14 @@ impl LoadedTheme {
                 need(self.color(color), "color", color, format!("/code/syntax/{}/color", class.name()));
             }
         }
+        // A picture's frame (PLAN T.3a): each band's color.
+        if let Some(pictures) = &t.pictures {
+            let (keyline, mat) = pictures.frame.bands();
+            for (key, band) in [("keyline", keyline), ("mat", mat)] {
+                let Some(band) = band else { continue };
+                need(self.color(&band.color), "color", &band.color, format!("/pictures/frame/{key}/color"));
+            }
+        }
         // A slide's number and footer (ADR-0028): their roles and colors, the layouts they are left
         // off, and their columns on the grid.
         let mut past = Vec::new();

@@ -308,6 +308,9 @@ export interface Choices {
   /** Its kind as a person names it: `Text`, `Chart`, `Background Effect`, a shape's own, `Star`;
    * `Icon` for a path on a view, and `Drawing` for the pen's (PLAN 2.99). */
   noun?: string;
+  /** An image's frame, said, where its theme frames pictures (PLAN T.3a): the theme's, which
+   * nothing on the image changes. */
+  framed?: string;
 }
 
 /** A node's look as a state shows it (PLAN 2.58), as `scaena inspect --look` says it: each
