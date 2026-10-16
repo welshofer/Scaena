@@ -131,7 +131,7 @@ async fn a_theme_is_its_parts() {
             }
             layouts.insert(name.clone(), parts[&part][name].clone());
         }
-        assert_eq!(parts.len(), 13, "{uri}: a part for each section");
+        assert_eq!(parts.len(), 16, "{uri}: a part for each section");
         let listed: Vec<String> = client.list_all_resources().await.unwrap().iter().map(|r| r.uri.clone()).collect();
         assert!(parts.keys().all(|p| !listed.contains(p)), "{uri}: read by the index, not listed");
         theme["layouts"] = Value::Object(layouts);

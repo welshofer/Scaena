@@ -20,7 +20,7 @@
 use crate::EngineError;
 use crate::carets::Carets;
 use crate::containers::{self, Tracks};
-use crate::layout::Grid;
+use crate::layout::{Grid, mirror};
 use crate::sample::{Content, Scene, SceneNode};
 use crate::theme::Theme;
 use scaena_core::Snapshot;
@@ -374,6 +374,10 @@ pub struct Targets {
     /// The format it was laid out in (ADR-0020): a placement there goes into the node's own
     /// layout in it, where it has one. `None`, the deck's own canvas.
     pub format: Option<String>,
+    /// The canvas's width where its deck reads right to left (PLAN T.5a): everything above
+    /// stands mirrored across it, and a drop snaps as it would laid out left to right, then
+    /// stands mirrored again.
+    pub mirror: Option<f32>,
 }
 
 /// How a box dropped by a drag snaps (ADR-0013).
@@ -403,6 +407,12 @@ pub struct Target {
 }
 
 impl Target {
+    /// This target, worked out left to right, where it stands in a deck that reads right to
+    /// left on a canvas `width` wide.
+    fn shown(self, width: f32) -> Target {
+        Target { cell: mirror(self.cell, width), ..self }
+    }
+
     /// The patch that puts the node there, made in `state`: a `place` per spot, each
     /// written where that placement lives (SPEC §7.3), or, to `fork` them, kept to `state`;
     /// in the format it lands in, into a node's own layout there where it has one (ADR-0020).
@@ -420,11 +430,29 @@ impl Target {
 }
 
 impl Targets {
+    /// These targets as laid out left to right, before a deck that reads right to left stands
+    /// mirrored across a canvas `width` wide: its tracks first to last, left to right.
+    fn logical(&self, width: f32) -> Targets {
+        let track = |[a, b]: [f32; 2]| [width - b, width - a];
+        Targets {
+            cell: mirror(self.cell, width),
+            columns: self.columns.iter().copied().map(track).collect(),
+            slots: self.slots.iter().map(|(name, r)| (name.clone(), mirror(*r, width))).collect(),
+            flow: self.flow.iter().map(|(id, r, i)| (id.clone(), mirror(*r, width), *i)).collect(),
+            within: mirror(self.within, width),
+            mirror: None,
+            ..self.clone()
+        }
+    }
+
     /// Where `cell`, the box this node's placement names as a drag left it, lands when it
     /// snaps `how`. `None` where nothing places the node that way: `Order` outside a stack,
     /// `Move`, `Resize`, and `Slot` in a stack or a frame, `Free` in a stack or a grid
     /// container.
     pub fn snap(&self, how: Snap, cell: Rect) -> Option<Target> {
+        if let Some(width) = self.mirror {
+            return self.logical(width).snap(how, mirror(cell, width)).map(|t| t.shown(width));
+        }
         let one = |spot: Spot, cell: Rect| {
             Some(Target { cell, spots: vec![(self.node.clone(), spot)], format: self.format.clone() })
         };
@@ -474,6 +502,9 @@ impl Targets {
     /// more, else the one nearest its middle (PLAN 2.50). Where a node moved into a grid lands,
     /// a box smaller than a track in the track it is in. `None` without tracks.
     pub fn standing(&self, cell: Rect) -> Option<Target> {
+        if let Some(width) = self.mirror {
+            return self.logical(width).standing(mirror(cell, width)).map(|t| t.shown(width));
+        }
         let (cols, rows) = (&self.columns, &self.rows);
         if !matches!(self.by, By::Grid | By::Cells { .. }) || cols.is_empty() || rows.is_empty() {
             return None;
@@ -488,6 +519,9 @@ impl Targets {
     /// them out (PLAN 2.50): each child whose `at.index` that changes, renumbered from 0, and
     /// the guide, a line across the stack where the node goes. `None` outside a stack.
     pub fn ordered(&self, k: usize) -> Option<Target> {
+        if let Some(width) = self.mirror {
+            return self.logical(width).ordered(k).map(|t| t.shown(width));
+        }
         let By::Stack { across, .. } = &self.by else { return None };
         let ends = |r: &Rect| if *across { (r[0], r[0] + r[2]) } else { (r[1], r[1] + r[3]) };
         let others: Vec<&(String, Rect, u32)> = self.flow.iter().filter(|(id, ..)| *id != self.node).collect();
@@ -548,13 +582,14 @@ pub(crate) fn targets(
         flow: Vec::new(),
         within: canvas,
         format: None,
+        mirror: scene.mirrored.then_some(scene.canvas[0]),
     };
     let held_by = into.unwrap_or(place.parent.as_deref());
     let parent = held_by.filter(|p| deck.nodes[*p].node_type != NodeType::Group);
     let Some(parent) = parent else {
-        let grid = Grid::from_theme(theme, scene.canvas)?;
+        let grid = Grid::from_theme(theme, scene.canvas)?.mirrored(scene.mirrored);
         let template = snap.layout.as_deref();
-        t.cell = if into.is_some() { place.rect } else { grid.cell(theme, template, at)? };
+        t.cell = if into.is_some() { place.rect } else { grid.shown(grid.cell(theme, template, at)?) };
         (t.columns, t.rows) = (grid.columns(), grid.rows());
         t.slots = slots(theme, &grid, template)?;
         return Ok(t);
@@ -584,7 +619,9 @@ pub(crate) fn targets(
                     tracks.get(a as usize - 1).copied().zip(tracks.get(b as usize - 1).copied())
                 };
                 if let (Some((x0, x1)), Some((y0, y1))) = (span(&columns, c0, c1), span(&rows, r0, r1)) {
-                    t.slots.push((name, [x0[0], y0[0], x1[1] - x0[0], y1[1] - y0[0]]));
+                    // Its first column and its last, right to left in a deck that reads so.
+                    let (left, right) = (x0[0].min(x1[0]), x0[1].max(x1[1]));
+                    t.slots.push((name, [left, y0[0], right - left, y1[1] - y0[0]]));
                 }
             }
             let named = at.and_then(|a| a.get("area")).and_then(Value::as_str);
@@ -609,6 +646,10 @@ pub(crate) fn targets(
                 at.and_then(|a| a.get("rect")).and_then(|r| serde_json::from_value(r.clone()).ok());
             t.cell = match (into, rect) {
                 (Some(_), _) => place.rect,
+                // From the padding box's right edge in a deck that reads right to left.
+                (None, Some([x, y, w, h])) if scene.mirrored => {
+                    [t.within[0] + t.within[2] - x - w, t.within[1] + y, w, h]
+                }
                 (None, Some([x, y, w, h])) => [t.within[0] + x, t.within[1] + y, w, h],
                 (None, None) => t.within,
             };
@@ -629,10 +670,13 @@ pub(crate) fn room(
     node: &str,
     size: [f32; 2],
 ) -> Result<Targets, EngineError> {
-    let grid = Grid::from_theme(theme, scene.canvas)?;
+    let grid = Grid::from_theme(theme, scene.canvas)?.mirrored(scene.mirrored);
     let template = snap.layout.as_deref();
     let (columns, rows) = (grid.columns(), grid.rows());
-    let corner = [columns.first().map_or(0.0, |c| c[0]), rows.first().map_or(0.0, |r| r[0])];
+    // The first column's start: its right edge, less the size, in a deck that reads right to left.
+    let first = columns.first().copied().unwrap_or([0.0, scene.canvas[0]]);
+    let x = if scene.mirrored { first[1] - size[0] } else { first[0] };
+    let corner = [x, rows.first().map_or(0.0, |r| r[0])];
     Ok(Targets {
         node: node.to_string(),
         by: By::Grid,
@@ -643,15 +687,17 @@ pub(crate) fn room(
         flow: Vec::new(),
         within: [0.0, 0.0, scene.canvas[0], scene.canvas[1]],
         format: None,
+        mirror: scene.mirrored.then_some(scene.canvas[0]),
     })
 }
 
 /// The boxes a root takes by name in `template`: its slots in this format, then `canvas`
-/// and `grid`.
+/// and `grid`, each where it stands.
 fn slots(theme: &Theme, grid: &Grid, template: Option<&str>) -> Result<Vec<(String, Rect)>, EngineError> {
     let named = template.and_then(|name| theme.slots(name)).into_iter().flat_map(|slots| slots.keys());
     let names = named.map(String::as_str).chain(["canvas", "grid"]);
-    names.map(|name| Ok((name.to_string(), grid.cell(theme, template, Some(&json!({ "in": name })))?))).collect()
+    let shown = |name: &str| grid.cell(theme, template, Some(&json!({ "in": name }))).map(|r| grid.shown(r));
+    names.map(|name| Ok((name.to_string(), shown(name)?))).collect()
 }
 
 /// The tracks a 1-based range `n` or `[a, b]` spans, `[start, end]`, if the grid has them.
@@ -661,7 +707,9 @@ fn lines(tracks: &[[f32; 2]], range: Option<&Value>) -> Option<[f32; 2]> {
         Value::Array(ab) if ab.len() == 2 => (n(&ab[0])?, n(&ab[1])?),
         one => (n(one)?, n(one)?),
     };
-    Some([tracks.get(a)?[0], tracks.get(b)?[1]])
+    // Its first track and its last, right to left in a deck that reads so.
+    let (first, last) = (tracks.get(a)?, tracks.get(b)?);
+    Some([first[0].min(last[0]), first[1].max(last[1])])
 }
 
 /// The track whose `side` (0 its start, 1 its end) lies nearest `at`, from `from` on.

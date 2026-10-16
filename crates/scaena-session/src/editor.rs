@@ -482,12 +482,14 @@ impl Session {
 
     /// The slides a person may start (PLAN 3.30, 3.31), as a picker lists them before it draws any:
     /// one in each of the theme's layouts, in its order, each its `layout`, `name`, `description`,
-    /// and `group`, then a blank one, its `layout` null. Nothing is laid out.
+    /// `group`, and the other names a search finds it by (`also`, ADR-0031), then a blank one, its
+    /// `layout` null. Nothing is laid out.
     pub fn starters(&self) -> Vec<Value> {
         let listed = self.theme.layouts.iter().map(|(layout, l)| {
-            serde_json::json!({ "layout": layout, "name": l.name, "description": l.description, "group": l.group })
+            let also = scaena_ops::states::also_called(layout);
+            serde_json::json!({ "layout": layout, "name": l.name, "description": l.description, "group": l.group, "also": also })
         });
-        let blank = serde_json::json!({ "layout": null, "name": null, "description": null, "group": null });
+        let blank = serde_json::json!({ "layout": null, "name": null, "description": null, "group": null, "also": [] });
         listed.chain([blank]).collect()
     }
 
@@ -571,11 +573,13 @@ impl Session {
             };
             let list = engine.frame(&req)?.display_list;
             let picture = painter.paint(&list, store, height as f32 / list.viewport[1])?;
+            let also = layout.as_deref().map_or(&[][..], scaena_ops::states::also_called);
             listed.push(serde_json::json!({
                 "layout": layout,
                 "name": name,
                 "description": description,
                 "group": group,
+                "also": also,
                 "width": picture.width,
                 "height": picture.height,
             }));
@@ -685,7 +689,7 @@ mod tests {
         let judged: Vec<(&str, bool, usize)> =
             suggested.iter().map(|(x, _)| (x.layout.as_str(), x.current, x.errors)).collect();
         assert_eq!(judged[0], ("figure", true, 0), "{judged:?}");
-        assert_eq!(judged.len(), 6, "{judged:?}");
+        assert_eq!(judged.len(), 7, "{judged:?}");
         assert!(judged[1..].iter().all(|&(_, current, errors)| !current && errors > 0), "{judged:?}");
         // As the bundle's lint judges them, the CLI's.
         let b = scaena_ops::open(std::path::Path::new("../../docs/examples/revenue.deck.json")).unwrap();
@@ -713,15 +717,18 @@ mod tests {
         let before = s.pixels("revenue", f64::INFINITY, 160).unwrap();
         let listed = s.starters_painted("revenue", 90, None).unwrap();
         let layouts: Vec<&str> = listed.iter().map(|one| one["layout"].as_str().unwrap_or("blank")).collect();
-        assert_eq!(layouts.len(), 130, "Dusk's 129 layouts, then a blank slide: {layouts:?}");
-        assert_eq!((layouts[0], layouts[129]), ("title", "blank"));
+        assert_eq!(layouts.len(), 146, "Dusk's 145 layouts, then a blank slide: {layouts:?}");
+        assert_eq!((layouts[0], layouts[145]), ("title", "blank"));
         let bullets = &listed[layouts.iter().position(|l| *l == "bullets").unwrap()];
         assert_eq!(bullets["description"], "A headline, and the points that make its case.");
         assert_eq!((bullets["name"].as_str(), bullets["group"].as_str()), (Some("Bullets"), Some("Lists")));
         let swot = &listed[layouts.iter().position(|l| *l == "swot").unwrap()];
         assert_eq!(swot["name"], "SWOT", "named as a person calls it");
+        let roadmap = &listed[layouts.iter().position(|l| *l == "roadmap").unwrap()];
+        assert_eq!(roadmap["also"], serde_json::json!(["Kanban"]), "and by another name a search finds it by");
+        assert_eq!(swot["also"], serde_json::json!([]));
         assert!(
-            listed[129]["name"].is_null() && listed[129]["description"].is_null() && listed[129]["group"].is_null()
+            listed[145]["name"].is_null() && listed[145]["description"].is_null() && listed[145]["group"].is_null()
         );
         let mut pictures: Vec<scaena_paint::Raster> = Vec::new();
         for (i, one) in listed.iter().enumerate() {
