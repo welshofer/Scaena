@@ -336,7 +336,11 @@
         "color": { "description": "Color role or token; defaults to onSurface.", "type": "string" }
       }
     },
-    "Wrap": { "type": "string", "enum": ["greedy", "pretty", "balance"] },
+    "Wrap": {
+      "description": "How a text's lines break where its words run past its width (SPEC §3.5).",
+      "type": "string",
+      "enum": ["greedy", "pretty", "balance", "none"]
+    },
     "TextBox": { "type": "string", "enum": ["cap", "line"] },
     "Snap": {
       "description": "What of a text role sits on the baseline grid (SPEC §3.4).",

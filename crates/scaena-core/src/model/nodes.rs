@@ -281,12 +281,16 @@ impl TextFit {
     }
 }
 
+/// How a text's lines break where its words run past its width (SPEC §3.5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Wrap {
     Greedy,
     Pretty,
     Balance,
+    // Never: its lines break only where the text breaks them, as verse is set (PLAN O.4b), and
+    // under `fit: shrink` a line too wide shrinks the whole text, as code does (ADR-0029).
+    None,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -575,7 +579,7 @@ node! {
         pub legend: Option<Legend>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub annotations: Option<Vec<Annotation>>,
-        /// A `weather` chart's fields, units, and parts (deck format 0.31, ADR-0030): any other
+        /// A `weather` chart's fields, units, and parts (deck format 0.32, ADR-0030): any other
         /// kind is E106.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub weather: Option<Weather>,

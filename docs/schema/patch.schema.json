@@ -623,7 +623,7 @@
         "schema": { "type": "object", "additionalProperties": { "$ref": "#/$defs/FieldType" } },
         "parse": { "type": "object", "additionalProperties": { "type": "string" } },
         "fetched": {
-          "description": "Where its rows came from (ADR-0030, deck format 0.30): a forecast fetched once into the deck, credited at the foot of each chart or table that reads it.",
+          "description": "Where its rows came from (ADR-0030, deck format 0.31): a forecast fetched once into the deck, credited at the foot of each chart or table that reads it.",
           "$ref": "#/$defs/Fetched"
         }
       }
@@ -662,7 +662,7 @@
         "license": { "description": "The data's license, where the service names one: `ODbL-1.0`.", "type": "string" },
         "map": { "description": "A map's view, as it was asked (PLAN O.1b).", "$ref": "#/$defs/MapAsked" },
         "terms": {
-          "description": "Which of the service's terms applied, where the request itself says so: Open-Meteo's `free` service or its `customer` one (deck format 0.30).",
+          "description": "Which of the service's terms applied, where the request itself says so: Open-Meteo's `free` service or its `customer` one (deck format 0.31).",
           "$ref": "#/$defs/Terms"
         },
         "kept": {
@@ -1627,7 +1627,11 @@
       "type": "string",
       "enum": ["wrap", "shrink", "grow", "clip", "error"]
     },
-    "Wrap": { "type": "string", "enum": ["greedy", "pretty", "balance"] },
+    "Wrap": {
+      "description": "How a text's lines break where its words run past its width (SPEC §3.5).",
+      "type": "string",
+      "enum": ["greedy", "pretty", "balance", "none"]
+    },
     "TextBox": { "type": "string", "enum": ["cap", "line"] },
     "Numeric": {
       "type": "string",

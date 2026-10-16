@@ -162,7 +162,7 @@ fn deck(data: Value, nodes: Value) -> Value {
     let props: serde_json::Map<String, Value> =
         nodes.as_object().unwrap().keys().map(|k| (k.clone(), serde_json::json!({}))).collect();
     serde_json::json!({
-        "scaena": "0.31",
+        "scaena": "0.32",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [
@@ -475,6 +475,7 @@ fn the_example_decks_and_b1_lint_clean() {
         "docs/examples/ridgeline.deck.json",
         "docs/examples/code.deck.json",
         "docs/examples/weather.deck.json",
+        "docs/examples/haiku.deck.json",
         "tests/bench/b1.scaena",
     ] {
         let (exit, found) = lint(&Path::new(ROOT).join(bundle));

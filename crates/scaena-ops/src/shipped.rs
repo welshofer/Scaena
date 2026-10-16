@@ -1,9 +1,10 @@
 //! The themes that ship (SPEC §3.6), with their fonts, carried in the binary: what a deck starts
-//! from where no theme file is at hand (PLAN 2.13). Dusk, Daybreak, Ember, and Gallery share one
-//! vocabulary on one grid, and the same body and mono fonts, each with its italic: Inter and
-//! JetBrains Mono. The first three set display in Fraunces, and Gallery in Instrument Serif (PLAN
-//! 2.102). Each font carries its copyright and its license (the SIL
-//! Open Font License) in its own name table.
+//! from where no theme file is at hand (PLAN 2.13). The registry, `docs/themes/registry.json`,
+//! lists them, each written from its spec (PLAN T.0a, ADR-0031). Dusk, Daybreak, Ember, and
+//! Gallery share one vocabulary on one grid, and the same body and mono fonts, each with its
+//! italic: Inter and JetBrains Mono. The first three set display in Fraunces, and Gallery in
+//! Instrument Serif (PLAN 2.102). Each font carries its copyright and its license (the SIL Open
+//! Font License) in its own name table.
 
 /// A theme that ships.
 #[derive(Debug, Clone, Copy)]
@@ -15,43 +16,12 @@ pub struct Shipped {
     pub text: &'static str,
 }
 
-/// Every theme that ships.
-pub const THEMES: [Shipped; 4] = [
-    Shipped {
-        name: "dusk",
-        file: "dusk.theme.json",
-        text: include_str!("../../../docs/examples/themes/dusk.theme.json"),
-    },
-    Shipped {
-        name: "daybreak",
-        file: "daybreak.theme.json",
-        text: include_str!("../../../docs/examples/authorability/themes/daybreak.theme.json"),
-    },
-    Shipped {
-        name: "ember",
-        file: "ember.theme.json",
-        text: include_str!("../../../docs/examples/themes/ember.theme.json"),
-    },
-    Shipped {
-        name: "gallery",
-        file: "gallery.theme.json",
-        text: include_str!("../../../docs/examples/themes/gallery.theme.json"),
-    },
-];
+mod table;
 
-/// The fonts the themes name, by the paths they give them: each family's, and its italic's
-/// (PLAN 2.40).
-const FONTS: [(&str, &[u8]); 8] = [
-    ("fonts/Fraunces-VF.ttf", include_bytes!("../../../docs/examples/fonts/Fraunces-VF.ttf")),
-    ("fonts/Inter-VF.ttf", include_bytes!("../../../docs/examples/fonts/Inter-VF.ttf")),
-    ("fonts/JetBrainsMono-VF.ttf", include_bytes!("../../../docs/examples/fonts/JetBrainsMono-VF.ttf")),
-    ("fonts/Fraunces-Italic-VF.ttf", include_bytes!("../../../docs/examples/fonts/Fraunces-Italic-VF.ttf")),
-    ("fonts/Inter-Italic-VF.ttf", include_bytes!("../../../docs/examples/fonts/Inter-Italic-VF.ttf")),
-    ("fonts/JetBrainsMono-Italic-VF.ttf", include_bytes!("../../../docs/examples/fonts/JetBrainsMono-Italic-VF.ttf")),
-    // Gallery's (PLAN 2.102).
-    ("fonts/InstrumentSerif-Regular.ttf", include_bytes!("../../../docs/examples/fonts/InstrumentSerif-Regular.ttf")),
-    ("fonts/InstrumentSerif-Italic.ttf", include_bytes!("../../../docs/examples/fonts/InstrumentSerif-Italic.ttf")),
-];
+use table::FONTS;
+/// Every theme that ships, as `docs/themes/registry.json` lists them (PLAN T.0a, ADR-0031):
+/// `scripts/build_themes.py` writes the table from it.
+pub use table::THEMES;
 
 /// The theme that ships as `name`, in any case.
 pub fn theme(name: &str) -> Option<Shipped> {
@@ -77,6 +47,16 @@ pub fn names() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The themes that ship are the registry's, in its order (PLAN T.0a).
+    #[test]
+    fn the_themes_that_ship_are_the_registrys() {
+        let registry: serde_json::Value =
+            serde_json::from_str(include_str!("../../../docs/themes/registry.json")).unwrap();
+        let slugs: Vec<&str> =
+            registry["themes"].as_array().unwrap().iter().map(|t| t["slug"].as_str().unwrap()).collect();
+        assert_eq!(THEMES.iter().map(|t| t.name).collect::<Vec<_>>(), slugs);
+    }
 
     #[test]
     fn every_font_a_theme_that_ships_names_ships_with_it() {
@@ -129,6 +109,31 @@ mod tests {
         assert_eq!(names, ["soft", "raised", "floating"]);
         for theme in &THEMES[1..] {
             assert_eq!(shadows(theme), first, "{}", theme.name);
+        }
+    }
+
+    /// Every theme that ships sets verse (PLAN O.4b): upright, `wrap: none`, in a color that reads
+    /// at 4.5:1 or more on each of its surfaces.
+    #[test]
+    fn every_theme_that_ships_sets_verse_that_reads() {
+        fn luminance(c: scaena_core::displaylist::Color) -> f64 {
+            let lin = |v: u8| {
+                let v = f64::from(v) / 255.0;
+                if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+            };
+            0.2126 * lin(c.0[0]) + 0.7152 * lin(c.0[1]) + 0.0722 * lin(c.0[2])
+        }
+        for shipped in THEMES {
+            let theme = scaena_engine::theme::Theme::from_json(shipped.text).unwrap();
+            let verse = theme.typography.roles.get("verse").expect(shipped.name);
+            assert_eq!(verse.wrap, Some(scaena_core::model::nodes::Wrap::None), "{}", shipped.name);
+            assert_ne!(verse.italic, Some(true), "{}", shipped.name);
+            let ink = luminance(theme.color(verse.color.as_deref().unwrap_or("onSurface")).unwrap());
+            for surface in ["surface", "surface-2"] {
+                let paper = luminance(theme.color(surface).unwrap());
+                let ratio = (ink.max(paper) + 0.05) / (ink.min(paper) + 0.05);
+                assert!(ratio >= 4.5, "{} verse on {surface}: {ratio:.2}:1", shipped.name);
+            }
         }
     }
 }
