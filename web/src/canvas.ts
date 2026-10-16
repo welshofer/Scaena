@@ -4301,6 +4301,19 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     /** The mark of the chart selected picked, the annotation selected, and the mark a band begun
      * starts at (PLAN 2.67). */
     picked: () => picked?.mark,
+    /** Where the canvas's keys stand, for a test that finds a key not taken: the node a selection
+     * by keys is on, Space held and tapped, a pan or a drag under way, and the handles keyed. */
+    keys: () => ({
+      keyOn,
+      spaced,
+      tapped,
+      panning: panning !== undefined,
+      drag: drag !== undefined || starting !== undefined || press !== undefined,
+      handling: handling?.node,
+      picked: picked !== undefined,
+      noted: noted !== undefined,
+      focus: document.activeElement === overlay ? "overlay" : (document.activeElement?.id || document.activeElement?.tagName),
+    }),
     noted: () => noted?.note,
     banding: () => banding?.from,
     /** The layout of the state shown as its slots, to edit, or not, as the Layout button does; a
