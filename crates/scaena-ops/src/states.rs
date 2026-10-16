@@ -236,6 +236,25 @@ pub fn example(deck: &Deck, theme: &Theme, shown: &str, layout: &str) -> Result<
 /// A map's pin on a view of 1000 × 1000 (PLAN O.1e): a drop whose tip stands at the middle, as a
 /// pin marks its place.
 const MAP_PIN: &str = "M500 380C470 380 446 404 446 434C446 470 500 500 500 500C500 500 554 470 554 434C554 404 530 380 500 380ZM500 412C512 412 522 422 522 434C522 446 512 456 500 456C488 456 478 446 478 434C478 422 488 412 500 412Z";
+/// The patch that draws the picture a picker shows of a slide started after `shown`'s slide
+/// (PLAN 3.30, 3.31): in `layout`, the slide [`example`] makes, and a box of the theme's second
+/// surface (`surface-2`, else `line`) under the words in each other slot that waits for a picture
+/// or a figure; with none, the blank slide [`starting`] makes. What Add Slide draws of each layout,
+/// and what a theme's contact sheet draws (PLAN T.0e); an editor never saves it.
+pub fn pictured(deck: &Deck, theme: &Theme, shown: &str, layout: Option<&str>) -> Result<AddedState, OpsError> {
+    let Some(name) = layout else { return starting(deck, theme, shown, None) };
+    let mut started = example(deck, theme, shown, name)?;
+    let fill = ["surface-2", "line"].into_iter().find(|c| theme.tokens.roles.contains_key(*c));
+    let waits = |s: &Slot| s.role.is_none() && s.example.is_none() && matches!(s.prompt, Some(Prompt::Words(_)));
+    let waiting = theme.layouts.get(name).into_iter().flat_map(|t| &t.slots).filter(|(_, s)| waits(s));
+    for (n, (slot, _)) in waiting.enumerate() {
+        let Some(fill) = fill else { break };
+        let node = json!({ "type": "shape", "kind": "rect", "fill": fill, "at": { "in": slot }, "z": -1 });
+        let id = format!("{}-waiting-{n}", started.id);
+        started.patch.push(json!({ "op": "add_node", "id": id, "node": node, "state": started.id }));
+    }
+    Ok(started)
+}
 
 /// A few rows made up for a chart of `kind` (PLAN 3.31), their schema, and the chart that reads
 /// them, its data not yet named: six months for a bar, a dot, a line, or an area; three kinds of

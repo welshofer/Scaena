@@ -227,6 +227,22 @@
         "opticalMargins": true,
         "hangingPunctuation": true
       },
+      "verse": {
+        "family": "display",
+        "size": 48,
+        "weight": 400,
+        "leading": 1.5,
+        "tracking": 0,
+        "opsz": 48,
+        "axes": {
+          "SOFT": 50
+        },
+        "wrap": "none",
+        "box": "cap",
+        "minSize": 32,
+        "opticalMargins": true,
+        "hangingPunctuation": true
+      },
       "figure": {
         "family": "display",
         "size": 54,
