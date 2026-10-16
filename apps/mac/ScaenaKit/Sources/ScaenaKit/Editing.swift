@@ -492,7 +492,12 @@ extension ScaenaSession {
     /// compiled, a file handed over, the theme edited), so an older deck's findings never stand
     /// for this one's, or where it was not laid out.
     public func lint(laid: Laying) throws -> Linting? {
-        try Self.decode(scaena_lint_laid(handle, laid.handle), as: Linting?.self)
+        try Self.decode(scaena_lint_laid(handle, laid.handle), as: Laid.self).linting
+    }
+
+    /// What `scaena_lint_laid` answers: the linting, or none where it is stale.
+    private struct Laid: Decodable {
+        let linting: Linting?
     }
 
     /// The source compiled last with `patch`, a finding's fix, applied: the fixed deck as `.scn`.

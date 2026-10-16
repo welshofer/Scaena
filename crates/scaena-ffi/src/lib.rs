@@ -324,7 +324,7 @@ pub unsafe extern "C" fn scaena_laying_lay(laying: *mut ScaenaLaying) -> bool {
 }
 
 /// What lint finds on every state of the deck `session` compiled last, as `lint` with no state
-/// says it, from what `laying` found, laying nothing out: `{"ok": linting}`, or `{"ok": null}`
+/// says it, from what `laying` found, laying nothing out: `{"ok": {"linting"}}`, `linting` null
 /// where the deck changed after `laying` was taken from it, or it was not laid out.
 ///
 /// # Safety
@@ -335,7 +335,7 @@ pub unsafe extern "C" fn scaena_lint_laid(session: *mut ScaenaSession, laying: *
         let session = unsafe { handle(session, "session") }?;
         let laying = unsafe { handle(laying, "laying") }?;
         let linted = session.0.lint_laid(&laying.0).map_err(said)?;
-        serde_json::to_value(linted).map_err(said)
+        Ok(json!({ "linting": serde_json::to_value(linted).map_err(said)? }))
     }))
 }
 

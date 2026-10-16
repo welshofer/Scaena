@@ -122,7 +122,7 @@ struct ScaenaLaying *scaena_laying_new(struct ScaenaSession *session);
 bool scaena_laying_lay(struct ScaenaLaying *laying);
 
 // What lint finds on every state of the deck `session` compiled last, as `lint` with no state
-// says it, from what `laying` found, laying nothing out: `{"ok": linting}`, or `{"ok": null}`
+// says it, from what `laying` found, laying nothing out: `{"ok": {"linting"}}`, `linting` null
 // where the deck changed after `laying` was taken from it, or it was not laid out.
 //
 // # Safety
