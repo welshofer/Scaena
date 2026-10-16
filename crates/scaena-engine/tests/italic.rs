@@ -140,13 +140,13 @@ fn command_i_toggles_italic_by_what_each_character_asks() {
     assert_eq!(carets.italicizing(0, 7)["style/italic"], serde_json::Value::Null);
 }
 
-/// Gallery's display family, Instrument Serif, is one weight, with no `wght` axis. A run asked
+/// Salon's display family, Instrument Serif, is one weight, with no `wght` axis. A run asked
 /// to be bold is set in that weight, the glyphs and advances the font has, none emboldened,
 /// and the layout names the font set lighter than asked (lint W232). The run keeps the weight
 /// it asks for, which ⌘B reads.
 #[test]
 fn a_family_of_one_weight_sets_a_heavier_run_in_its_own_weight() {
-    let theme = Theme::from_json(&String::from_utf8(read("themes/gallery.theme.json")).unwrap()).unwrap();
+    let theme = Theme::from_json(&String::from_utf8(read("themes/salon.theme.json")).unwrap()).unwrap();
     let mut fonts = BundleFonts::new();
     for file in ["InstrumentSerif-Regular.ttf", "InstrumentSerif-Italic.ttf", "Inter-VF.ttf", "Inter-Italic-VF.ttf"]
         .into_iter()

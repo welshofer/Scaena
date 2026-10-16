@@ -1,16 +1,20 @@
 //! The themes that ship (SPEC §3.6), with their fonts, carried in the binary: what a deck starts
 //! from where no theme file is at hand (PLAN 2.13). The registry, `docs/themes/registry.json`,
 //! lists them, each written from its spec (PLAN T.0a, ADR-0031). Dusk, Daybreak, Ember, and
-//! Gallery share one vocabulary on one grid, and the same body and mono fonts, each with its
-//! italic: Inter and JetBrains Mono. The first three set display in Fraunces, and Gallery in
-//! Instrument Serif (PLAN 2.102). Each font carries its copyright and its license (the SIL Open
-//! Font License) in its own name table.
+//! Salon share one vocabulary on one grid, and the same body and mono fonts, each with its
+//! italic: Inter and JetBrains Mono. The first three set display in Fraunces, and Salon in
+//! Instrument Serif (PLAN 2.102). Each is found by its name, one word, in any case; Salon by
+//! `gallery` too, the name it shipped under, so a deck that names Gallery opens as before (PLAN
+//! T.0d). Each font carries its copyright and its license (the SIL Open Font License) in its own
+//! name table.
 
 /// A theme that ships.
 #[derive(Debug, Clone, Copy)]
 pub struct Shipped {
-    /// Its name, as `create` takes it: `dusk`, `daybreak`, `ember`, or `gallery`.
+    /// Its name, as `create` takes it: `dusk`, `daybreak`, `ember`, or `salon`.
     pub name: &'static str,
+    /// Its family, the section a chooser offers it under (PLAN T.0d): `Stage`, `Editorial`, ….
+    pub family: &'static str,
     /// Its file's name in a bundle's `themes/`.
     pub file: &'static str,
     pub text: &'static str,
@@ -18,13 +22,16 @@ pub struct Shipped {
 
 mod table;
 
+use crate::theme::ALIASES;
 use table::FONTS;
 /// Every theme that ships, as `docs/themes/registry.json` lists them (PLAN T.0a, ADR-0031):
 /// `scripts/build_themes.py` writes the table from it.
 pub use table::THEMES;
 
-/// The theme that ships as `name`, in any case.
+/// The theme that ships as `name`, in any case, or by a name it shipped under before (PLAN T.0d):
+/// `gallery` is Salon.
 pub fn theme(name: &str) -> Option<Shipped> {
+    let name = ALIASES.iter().find(|(alias, _)| alias.eq_ignore_ascii_case(name)).map_or(name, |(_, is)| *is);
     THEMES.into_iter().find(|t| t.name.eq_ignore_ascii_case(name))
 }
 
@@ -47,6 +54,7 @@ pub fn names() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::theme::same;
 
     /// The themes that ship are the registry's, in its order (PLAN T.0a).
     #[test]
@@ -56,6 +64,24 @@ mod tests {
         let slugs: Vec<&str> =
             registry["themes"].as_array().unwrap().iter().map(|t| t["slug"].as_str().unwrap()).collect();
         assert_eq!(THEMES.iter().map(|t| t.name).collect::<Vec<_>>(), slugs);
+    }
+
+    /// Each name is one word, its slug, and Salon answers to the name it shipped under (PLAN T.0d).
+    #[test]
+    fn each_theme_is_found_by_its_name_and_salon_by_gallery() {
+        for t in THEMES {
+            assert!(t.name.chars().all(|c| c.is_ascii_lowercase()), "{}", t.name);
+            let named =
+                serde_json::from_str::<serde_json::Value>(t.text).unwrap()["name"].as_str().unwrap().to_string();
+            assert!(named.eq_ignore_ascii_case(t.name), "{}: {named}", t.name);
+            assert_eq!(theme(&named).map(|s| s.name), Some(t.name));
+        }
+        for name in ["gallery", "Gallery", "GALLERY", "salon"] {
+            assert_eq!(theme(name).map(|t| t.file), Some("salon.theme.json"), "{name}");
+        }
+        assert!(
+            same("Gallery", "Salon") && same("Salon", "Salon") && !same("Gallery", "Dusk") && !same("Dusk", "Salon")
+        );
     }
 
     #[test]

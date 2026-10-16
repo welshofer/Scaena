@@ -51,9 +51,14 @@ pub struct Generating {
 /// in the bundle, and why each other asked for was not.
 type Painted = (Pictures, BTreeMap<String, Vec<u8>>, Vec<String>);
 
-/// What a brief may ask, as every client offers it (`scaena_narrato::brief::choices`).
+/// What a brief may ask, as every client offers it (`scaena_narrato::brief::choices`), and the
+/// themes that ship, by family, to make the deck in (PLAN T.0d).
 pub fn choices() -> Value {
-    scaena_narrato::brief::choices()
+    let mut choices = scaena_narrato::brief::choices();
+    if let Some(choices) = choices.as_object_mut() {
+        choices.insert("themes".into(), crate::shipped_themes());
+    }
+    choices
 }
 
 /// The narrative being written, the PDFs handed to the model beside its prompt, and what each

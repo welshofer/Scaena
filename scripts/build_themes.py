@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """The shipped themes, each written from its spec and a shared base (PLAN T.0a, ADR-0031).
 
-- **The registry,** `docs/themes/registry.json`, lists each theme: its slug, its name, its family,
-  its geometry family, its fonts' keys (as `build_bundle_fonts.py`'s pinned table names them), and
-  its file or files.
+- **The registry,** `docs/themes/registry.json`, lists each theme: its slug, its name, the names it
+  answers to besides (`aliases`), its family, its geometry family, its fonts' keys (as
+  `build_bundle_fonts.py`'s pinned table names them), and its file or files. A name is one word,
+  its slug ignoring case (PLAN T.0d, ADR-0031 decision 4): Gallery is called Salon, and `gallery`
+  still finds it.
   Its description, mode, colors, and type voice are its spec's, copied in here for the clients
   that list themes.
 - **A spec,** `docs/themes/<slug>.spec.json`, holds only what sets the theme apart from the shared
@@ -13,19 +15,20 @@
   0.21), and any chart, table, stroke, or shader preset unlike the base's.
 - **The base** holds what every theme shares: motion, shadows, density, space, radius, stroke, the
   color roles, the grid but its margin, the shader presets, the charts and tables, and the three
-  type voices (Dusk's, Ember's, and Gallery's) a spec starts its roles from. A key the base sets
+  type voices (Dusk's, Ember's, and Salon's, named `gallery`) a spec starts its roles from. A key the base sets
   to `null` is the spec's to give, or left out; a spec's `null` takes the base's key away. Either
   way a key stands where the base puts it, so the file comes out as the four are written.
 
 This writes every key of a theme file but its `layouts` and `furniture`, which
 `scripts/build_layouts.py` writes and this keeps as they are. It writes `scaena_ops::shipped`'s
-table (`crates/scaena-ops/src/shipped/table.rs`) and the browser's (`web/src/themes.ts`) from the
+table (`crates/scaena-ops/src/shipped/table.rs`), the names the themes answer to besides their own
+(`crates/scaena-ops/src/theme/aliases.rs`), and the browser's table (`web/src/themes.ts`) from the
 registry, and the registry's copies of each spec.
 
 It refuses a new theme's spec whose colors miss ADR-0031's bars (decision 3), worked as
 `scaena_core::palette` works them: WCAG's contrast for the ratio, Oklab for the lightness that
-would meet it. Dusk, Daybreak, Ember, and Gallery are held to their files as they ship until
-PLAN T.6 (call 10): their cards sit 1.06–1.11:1 off the page, and Gallery's line 1.29:1.
+would meet it. Dusk, Daybreak, Ember, and Salon are held to their files as they ship until
+PLAN T.6 (call 10): their cards sit 1.06–1.11:1 off the page, and Salon's line 1.29:1.
 
     python3 scripts/build_themes.py           # write the themes, the registry's copies, and the tables
     python3 scripts/build_themes.py --check   # fail where any is not what this writes
@@ -42,12 +45,13 @@ THEMES = ROOT / "docs/themes"
 REGISTRY = THEMES / "registry.json"
 BASE = THEMES / "base.json"
 SHIPPED = ROOT / "crates/scaena-ops/src/shipped/table.rs"
+ALIASES = ROOT / "crates/scaena-ops/src/theme/aliases.rs"
 WEB = ROOT / "web/src/themes.ts"
 # Where the fonts the themes name are, by the path a theme gives them (`fonts/…`).
 FONTS = ROOT / "docs/examples/fonts"
 
 # Held to their files as they ship, not to the bars, until PLAN T.6 (ADR-0031, call 10).
-AS_THEY_SHIP = {"dusk", "daybreak", "ember", "gallery"}
+AS_THEY_SHIP = {"dusk", "daybreak", "ember", "salon"}
 
 COLORS = ["ink", "paper", "paper-2", "accent", "accent-2", "muted", "line"]
 FAMILIES = ["Stage", "Executive", "Analyst", "Civic", "Launch", "Editorial", "Scholar", "Classroom", "Lens", "Ceremony", "Craft", "Systems"]
@@ -342,6 +346,7 @@ def shipped_rs(entries: list[dict], themes: list[dict]) -> str:
         out += [
             "    Shipped {",
             f"        name: {json.dumps(e['slug'])},",
+            f"        family: {json.dumps(e['family'])},",
             f"        file: {json.dumps(Path(first).name)},",
             f'        text: include_str!("../../../../{first}"),',
             "    },",
@@ -361,6 +366,22 @@ def shipped_rs(entries: list[dict], themes: list[dict]) -> str:
         out += [line] if len(line) <= 120 else ["    (", f"        {name},", f"        {bytes_},", "    ),"]
     out += ["];", ""]
     return "\n".join(out)
+
+
+def aliases_rs(entries: list[dict]) -> str:
+    aliases = [(a, e["slug"]) for e in entries for a in e.get("aliases", [])]
+    pairs = ", ".join(f"({json.dumps(a)}, {json.dumps(slug)})" for a, slug in aliases)
+    return "\n".join(
+        [
+            "//! The names a theme that ships answers to besides its own, as `docs/themes/registry.json` lists",
+            "//! them (PLAN T.0d). Written by `scripts/build_themes.py` from the registry; do not edit by hand.",
+            "",
+            "/// Each name a theme that ships answers to besides its own, with the name it is: one it shipped",
+            "/// under before, which a deck or a bundle may still give it.",
+            f"pub const ALIASES: [(&str, &str); {len(aliases)}] = [{pairs}];",
+            "",
+        ]
+    )
 
 
 def ident(path: str) -> str:
@@ -385,11 +406,21 @@ def themes_ts(entries: list[dict], themes: list[dict]) -> str:
     out += [f'import {name} from "{path}?url";' for name, path in imports]
     out += [
         "",
-        "/** Each theme by its name: its file's name in a bundle (`themes/…`), and where the page has it. */",
-        "export const themes: Record<string, { file: string; url: string }> = {",
+        "/** Each theme by its name, in the registry's order: its family, the section a chooser offers it",
+        " * under (PLAN T.0d), its file's name in a bundle (`themes/…`), and where the page has it. */",
+        "export const themes: Record<string, { family: string; file: string; url: string }> = {",
     ]
     for e in entries:
-        out.append(f'  {e["name"]}: {{ file: {json.dumps(Path(e["files"][0]).name)}, url: {ident(e["slug"])} }},')
+        file = json.dumps(Path(e["files"][0]).name)
+        out.append(f'  {e["name"]}: {{ family: {json.dumps(e["family"])}, file: {file}, url: {ident(e["slug"])} }},')
+    out += [
+        "};",
+        "",
+        "/** The names a theme answers to besides its own, each with the name it is: an older name a deck",
+        " * or a bundle may still give it (PLAN T.0d). */",
+        "export const aliases: Record<string, string> = {",
+    ]
+    out += [f"  {a.capitalize()}: {json.dumps(e['name'])}," for e in entries for a in e.get("aliases", [])]
     out += [
         "};",
         "",
@@ -402,7 +433,7 @@ def themes_ts(entries: list[dict], themes: list[dict]) -> str:
     return "\n".join(out)
 
 
-REGISTRY_KEYS = ["slug", "name", "family", "geometry", "fonts", "files", "description", "mode", "colors", "voice"]
+REGISTRY_KEYS = ["slug", "name", "aliases", "family", "geometry", "fonts", "files", "description", "mode", "colors", "voice"]
 
 
 def registered(entries: list[dict]) -> str:
@@ -423,6 +454,7 @@ def build(registry: dict, base: dict, specs: dict) -> tuple[dict[Path, str], lis
     out: dict[Path, str] = {}
     entries, themes = [], []
     slugs = [e["slug"] for e in registry["themes"]]
+    seen: set[str] = set()
     if len(set(slugs)) != len(slugs):
         wrong.append(f"a slug is listed twice: {slugs}")
     for e in registry["themes"]:
@@ -438,6 +470,12 @@ def build(registry: dict, base: dict, specs: dict) -> tuple[dict[Path, str], lis
             continue
         if e.get("name") != theme["name"]:
             wrong.append(f"{slug}: the registry names it {e.get('name')!r}, its spec {theme['name']!r}")
+        if not re.fullmatch(r"[a-z]+", slug) or str(e.get("name")).lower() != slug:
+            wrong.append(f"{slug}: its name is one word, its slug ignoring case: {e.get('name')!r}")
+        for alias in e.get("aliases", []):
+            if not re.fullmatch(r"[a-z]+", alias) or alias in slugs or alias in seen:
+                wrong.append(f"{slug}: an alias is one word in lower case that names no other theme: {alias!r}")
+            seen.add(alias)
         if e.get("family") not in FAMILIES:
             wrong.append(f"{slug}: its family is one of {', '.join(FAMILIES)}")
         if e.get("geometry") not in slugs:
@@ -462,6 +500,7 @@ def build(registry: dict, base: dict, specs: dict) -> tuple[dict[Path, str], lis
         themes.append(theme)
     out[REGISTRY] = registered(entries)
     out[SHIPPED] = shipped_rs(entries, themes)
+    out[ALIASES] = aliases_rs(entries)
     out[WEB] = themes_ts(entries, themes)
     return out, wrong
 

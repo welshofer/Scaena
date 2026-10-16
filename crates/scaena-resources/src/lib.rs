@@ -179,9 +179,9 @@ static ALL: LazyLock<Vec<Served>> = LazyLock::new(|| {
             include_str!("../../../docs/examples/themes/ember.theme.json"),
         ),
         (
-            "gallery.theme.json",
-            "A theme: Gallery, white and ink with one cobalt accent, its headlines in a serif",
-            include_str!("../../../docs/examples/themes/gallery.theme.json"),
+            "salon.theme.json",
+            "A theme: Salon, white and ink with one cobalt accent, its headlines in a serif",
+            include_str!("../../../docs/examples/themes/salon.theme.json"),
         ),
     ] {
         let uri = format!("scaena://examples/{name}");

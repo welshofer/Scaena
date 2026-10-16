@@ -7,23 +7,27 @@ use super::Shipped;
 pub const THEMES: [Shipped; 4] = [
     Shipped {
         name: "dusk",
+        family: "Stage",
         file: "dusk.theme.json",
         text: include_str!("../../../../docs/examples/themes/dusk.theme.json"),
     },
     Shipped {
         name: "daybreak",
+        family: "Executive",
         file: "daybreak.theme.json",
         text: include_str!("../../../../docs/examples/authorability/themes/daybreak.theme.json"),
     },
     Shipped {
         name: "ember",
+        family: "Analyst",
         file: "ember.theme.json",
         text: include_str!("../../../../docs/examples/themes/ember.theme.json"),
     },
     Shipped {
-        name: "gallery",
-        file: "gallery.theme.json",
-        text: include_str!("../../../../docs/examples/themes/gallery.theme.json"),
+        name: "salon",
+        family: "Editorial",
+        file: "salon.theme.json",
+        text: include_str!("../../../../docs/examples/themes/salon.theme.json"),
     },
 ];
 

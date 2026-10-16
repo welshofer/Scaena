@@ -86,7 +86,7 @@ struct ScaenaSession *scaena_open(struct ScaenaFiles *files, char **error);
 struct ScaenaSession *scaena_open_zip(const uint8_t *bytes, size_t len, char **error);
 
 // A new bundle (PLAN 2.12, 3.3), as New makes one in the browser and `deck_create` does: the
-// theme that ships as `theme` (`dusk`, `daybreak`, `ember`, or `gallery`), the fonts it names,
+// theme that ships as `theme` (`dusk`, `daybreak`, `ember`, or `salon`), the fonts it names,
 // and one state with nothing on it, titled `title`. Kept nowhere until it is saved. Null where
 // no such theme ships, `*error` then saying why.
 //
@@ -454,7 +454,8 @@ void scaena_chat_free(struct ScaenaChat *chat);
 struct ScaenaGenerator *scaena_generator_new(void);
 
 // What a brief may ask, as `{"ok": value}`: Narrato's goals, lengths, and ways a deck is
-// delivered (`{id, label}`), the audiences its personas name, its arcs, and the defaults.
+// delivered (`{id, label}`), the audiences its personas name, its arcs, and the defaults; and the
+// themes that ship, as `shippedThemes` lists them, to make the deck in.
 char *scaena_generator_choices(void);
 
 // One step of the generation `generator`, as `{"ok": value}` or `{"error": {"message"}}`, with

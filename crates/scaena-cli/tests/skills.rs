@@ -377,7 +377,7 @@ fn the_guides_theme_names_are_the_shipped_themes() {
         "docs/examples/themes/dusk.theme.json",
         "docs/examples/themes/ember.theme.json",
         "docs/examples/authorability/themes/daybreak.theme.json",
-        "docs/examples/themes/gallery.theme.json",
+        "docs/examples/themes/salon.theme.json",
     ];
     for path in themes {
         let theme: Value = serde_json::from_str(&std::fs::read_to_string(Path::new(ROOT).join(path)).unwrap()).unwrap();

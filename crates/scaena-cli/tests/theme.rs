@@ -211,7 +211,7 @@ fn a_zip_bundle_is_rewritten_with_its_new_theme() {
 }
 
 /// A theme in a typeface the bundle has never held brings its fonts from beside it, its own
-/// bundle's (PLAN 2.102): Gallery's Instrument Serif, into a bundle of Dusk's three families.
+/// bundle's (PLAN 2.102): Salon's Instrument Serif, into a bundle of Dusk's three families.
 #[test]
 fn a_theme_in_a_new_typeface_brings_its_fonts() {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("theme-typeface");
@@ -220,7 +220,7 @@ fn a_theme_in_a_new_typeface_brings_its_fonts() {
     let _ = std::fs::remove_dir_all(dir.join("history"));
     assert!(!dir.join("fonts/InstrumentSerif-Regular.ttf").exists());
     let out =
-        scaena(&["--json", "theme", dir.to_str().unwrap(), "--apply", "../../docs/examples/themes/gallery.theme.json"]);
+        scaena(&["--json", "theme", dir.to_str().unwrap(), "--apply", "../../docs/examples/themes/salon.theme.json"]);
     let t: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(out.status.code(), Some(0), "{t:#}");
     assert_eq!(t["applied"], true, "{t:#}");
@@ -236,7 +236,7 @@ fn a_theme_in_a_new_typeface_brings_its_fonts() {
     assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stdout));
 }
 
-/// A deck with a bold word in a headline and a heavy big number moves into Gallery, whose
+/// A deck with a bold word in a headline and a heavy big number moves into Salon, whose
 /// Instrument Serif is one weight (PLAN 2.102): each is set in that weight, none synthesized,
 /// and lint says so (W232), rather than the re-theme failing.
 #[test]
@@ -252,7 +252,7 @@ fn bold_words_move_into_a_family_of_one_weight() {
     d["nodes"]["q3-total"]["style"] = serde_json::json!({ "weight": 600 });
     std::fs::write(dir.join("deck.json"), serde_json::to_vec_pretty(&d).unwrap()).unwrap();
     let out =
-        scaena(&["--json", "theme", dir.to_str().unwrap(), "--apply", "../../docs/examples/themes/gallery.theme.json"]);
+        scaena(&["--json", "theme", dir.to_str().unwrap(), "--apply", "../../docs/examples/themes/salon.theme.json"]);
     let t: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(out.status.code(), Some(0), "{t:#}");
     assert_eq!(t["applied"], true, "{t:#}");
@@ -363,7 +363,32 @@ fn the_shipped_themes_name_the_same_things() {
         for copy in &files[1..] {
             assert_eq!(std::fs::read(copy).unwrap(), std::fs::read(&files[0]).unwrap(), "{copy} is {name}");
         }
+        // Each name is one word, its slug ignoring case (PLAN T.0d, ADR-0031 decision 4).
+        let theme: serde_json::Value = serde_json::from_slice(&std::fs::read(&files[0]).unwrap()).unwrap();
+        let said = theme["name"].as_str().unwrap();
+        assert!(said.chars().all(|c| c.is_ascii_alphabetic()) && said.eq_ignore_ascii_case(name), "{name}: {said}");
     }
+    // An older name finds no other theme, and is no theme's own.
+    let registry: serde_json::Value =
+        serde_json::from_slice(&std::fs::read("../../docs/themes/registry.json").unwrap()).unwrap();
+    let aliases: Vec<&str> = (registry["themes"].as_array().unwrap().iter())
+        .flat_map(|t| t["aliases"].as_array().into_iter().flatten().filter_map(|a| a.as_str()))
+        .collect();
+    assert_eq!(aliases, ["gallery"]);
+    assert!(aliases.iter().all(|a| shipped.iter().all(|(name, _)| name != a)));
+}
+
+/// `theme --apply` takes a theme that ships by its name, as `new --theme` does (PLAN T.0d), and
+/// Salon by `gallery` too.
+#[test]
+fn a_theme_that_ships_applies_by_its_name() {
+    for name in ["salon", "Gallery", "daybreak"] {
+        let out = scaena(&["--json", "theme", "../../docs/examples/revenue.deck.json", "--apply", name, "--dry-run"]);
+        let t: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(t["refused"], false, "{name}: {t:#}");
+    }
+    let out = scaena(&["--json", "theme", "../../docs/examples/revenue.deck.json", "--apply", "sepia", "--dry-run"]);
+    assert!(String::from_utf8_lossy(&out.stdout).contains("nor is it a theme that ships"));
 }
 
 /// Every example deck re-themes onto every shipped theme with no name it lacks (PLAN 1.34):

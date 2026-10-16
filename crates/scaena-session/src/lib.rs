@@ -5231,7 +5231,7 @@ mod shipped {
     use super::*;
     use serde_json::json;
 
-    /// A new deck in the theme that ships as `theme` (`gallery.theme.json`), as New makes one, a
+    /// A new deck in the theme that ships as `theme` (`salon.theme.json`), as New makes one, a
     /// slide started in its `layout` after the first: the session, and the slide's state.
     pub(crate) fn started(theme: &str, layout: &str) -> (Session, String) {
         let examples = std::path::Path::new("../../docs/examples");
@@ -5250,12 +5250,12 @@ mod shipped {
         (s, started.id)
     }
 
-    /// ⌘B on words of a Gallery headline, set in Instrument Serif, a family of one weight: the
+    /// ⌘B on words of a Salon headline, set in Instrument Serif, a family of one weight: the
     /// words are set in its weight, none synthesized, and lint says so (W232). The slide draws,
     /// every edit after it is made, and ⌘B takes the weight away again.
     #[test]
     fn a_bold_word_in_a_family_of_one_weight_is_set_in_its_weight() {
-        let (mut s, state) = started("gallery.theme.json", "title");
+        let (mut s, state) = started("salon.theme.json", "title");
         let by = assistant::Caller { author: "user", at: None };
         let look = s.bolding(&state, "title-title", 0, 3).unwrap();
         assert_eq!(look, json!({ "style/weight": 700 }));

@@ -190,6 +190,14 @@ pub unsafe extern "C" fn scaena_files_free(files: *mut ScaenaFiles) {
     }
 }
 
+/// The themes that ship, in the registry's order: each by its name, as `retheme {ships}` and
+/// `scaena_create` take it, with its family, the section a chooser offers it under (PLAN T.0d), and
+/// its file's name in a bundle.
+pub(crate) fn shipped_themes() -> Value {
+    let shipped = scaena_ops::shipped::THEMES.iter();
+    Value::Array(shipped.map(|t| json!({ "name": t.name, "family": t.family, "file": t.file })).collect())
+}
+
 /// `session`, a bundle just opened, its theme given the layout library of the theme that ships by
 /// its name where it is an older copy of it (PLAN 3.31): by the user, for the next save to keep,
 /// so Add Slide offers every layout the theme ships, by section, and every slide draws as it did.
@@ -244,7 +252,7 @@ pub unsafe extern "C" fn scaena_open_zip(bytes: *const u8, len: usize, error: *m
 }
 
 /// A new bundle (PLAN 2.12, 3.3), as New makes one in the browser and `deck_create` does: the
-/// theme that ships as `theme` (`dusk`, `daybreak`, `ember`, or `gallery`), the fonts it names,
+/// theme that ships as `theme` (`dusk`, `daybreak`, `ember`, or `salon`), the fonts it names,
 /// and one state with nothing on it, titled `title`. Kept nowhere until it is saved. Null where
 /// no such theme ships, `*error` then saying why.
 ///
@@ -1123,7 +1131,8 @@ pub extern "C" fn scaena_generator_new() -> *mut ScaenaGenerator {
 }
 
 /// What a brief may ask, as `{"ok": value}`: Narrato's goals, lengths, and ways a deck is
-/// delivered (`{id, label}`), the audiences its personas name, its arcs, and the defaults.
+/// delivered (`{id, label}`), the audiences its personas name, its arcs, and the defaults; and the
+/// themes that ship, as `shippedThemes` lists them, to make the deck in.
 #[unsafe(no_mangle)]
 pub extern "C" fn scaena_generator_choices() -> *mut c_char {
     envelope(guarded(|| Ok(generate::choices())))
@@ -1562,10 +1571,7 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         // put in another, one the bundle holds by its path or one that ships by its name, with its
         // fonts; and the theme edited by RFC 6902 operations, or to a photo's colors, with the file
         // it wrote, before and after, for the undo.
-        "shippedThemes" => {
-            let shipped = scaena_ops::shipped::THEMES.iter().map(|t| json!({ "name": t.name, "file": t.file }));
-            Value::Array(shipped.collect())
-        }
+        "shippedThemes" => shipped_themes(),
         "retheme" => {
             let themed = match optional("ships") {
                 Some(name) => {

@@ -137,7 +137,7 @@ class TheFour(unittest.TestCase):
                 self.assertEqual(out[path], path.read_text(encoding="utf-8"), f)
 
     def test_the_exemption_is_the_four_and_each_still_needs_it(self):
-        self.assertEqual(themes.AS_THEY_SHIP, {"dusk", "daybreak", "ember", "gallery"})
+        self.assertEqual(themes.AS_THEY_SHIP, {"dusk", "daybreak", "ember", "salon"})
         self.assertLessEqual(themes.AS_THEY_SHIP, {e["slug"] for e in REGISTRY["themes"]})
         for slug in themes.AS_THEY_SHIP:
             self.assertTrue(themes.missed(slug, SPECS[slug]), f"{slug} meets every bar: lift its exemption (PLAN T.6)")

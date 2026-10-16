@@ -7,7 +7,7 @@ in order, and every layout in each: the 47 the themes had, and those added since
 theme file's `layouts`, and nothing else in it.
 
 - **The layouts are keyed by geometry family** (PLAN T.0a), as the registry names each theme's:
-  Dusk's grid, which Daybreak and Gallery share, or Ember's. A theme draws its family's layouts,
+  Dusk's grid, which Daybreak and Salon share, or Ember's. A theme draws its family's layouts,
   and a new theme, whose file holds none, takes the older ones from its family's first file.
 - **The layouts the themes had** keep the slots each family gave them: Ember's sit where its design
   wants them, and Dusk's family's are one. This script puts each in its section and gives
@@ -36,7 +36,7 @@ REGISTRY = ROOT / "docs/themes/registry.json"
 
 def themes(registry):
     """Each theme the registry lists, in its order: its slug, its geometry family, and its files.
-    A theme's layouts are its family's (PLAN T.0a): Dusk's grid, which Daybreak and Gallery share
+    A theme's layouts are its family's (PLAN T.0a): Dusk's grid, which Daybreak and Salon share
     (PLAN 2.102), or Ember's."""
     return [(e["slug"], e["geometry"], [ROOT / f for f in e["files"]]) for e in registry["themes"]]
 
@@ -884,7 +884,7 @@ layout("Closing", "call-to-action", "One thing to do next, set large, and a butt
 # The first sixteen of ADR-0031's slide types (PLAN S.1), each drawn as its table says.
 
 # Where a point of the grid stands in a slot, as a fraction of it, on Dusk's grid (Daybreak's and
-# Gallery's are alike, and Ember's rows near enough): what a line or an arrow's `points` give.
+# Salon's are alike, and Ember's rows near enough): what a line or an arrow's `points` give.
 ROW, ROW_GUTTER, TOP = 52, 24, 96
 
 
