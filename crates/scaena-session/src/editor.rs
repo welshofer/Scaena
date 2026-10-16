@@ -39,6 +39,75 @@ pub(crate) struct Laid {
     nodes: BTreeMap<String, BTreeSet<String>>,
 }
 
+/// The deck a session compiled last, taken from it to be laid out on every state by the layout
+/// rules on a thread of its own, while the session answers on its own (PLAN 4.13): the work of
+/// [`Session::lint`] on every state that takes time, which [`Session::lint_laid`] takes back. It
+/// holds the deck and the bundle's files as they were, and an engine it builds itself.
+pub struct Laying {
+    /// The source the deck was compiled from, the bundle's files, and the theme's JSON: what
+    /// tells the deck it was taken from from any other.
+    source: String,
+    files: Arc<BTreeMap<String, Vec<u8>>>,
+    theme_json: String,
+    deck: Deck,
+    theme: Theme,
+    /// The pictures the session has decoded, which the engine built here takes rather than
+    /// decoding them again.
+    kept: Arc<scaena_paint::Assets>,
+    data: DataFiles,
+    timed: scaena_engine::Timed,
+    validated: Option<Vec<Finding>>,
+    /// What it found once laid out, or why it could not be.
+    laid: Option<Result<LaidOut, String>>,
+}
+
+/// What a [`Laying`] found: validation's findings, and the layout rules' where they ran.
+#[derive(Clone)]
+struct LaidOut {
+    found: Vec<Finding>,
+    layout: Option<Vec<Finding>>,
+}
+
+impl Laying {
+    /// Lay the deck out on every state and run the layout rules on it, as [`Session::lint`] does
+    /// on every state, with an engine of its own: the slow part, on whatever thread calls it.
+    pub fn lay(&mut self) {
+        let laid = (|| -> Result<LaidOut, Error> {
+            let found = match &self.validated {
+                Some(found) => found.clone(),
+                None => {
+                    let json = self.deck.to_json().map_err(|e| Error::Deck(e.to_string()))?;
+                    validate_bundle(&json, &Handed(&self.files)).map_err(|e| Error::Deck(e.to_string()))?
+                }
+            };
+            let mut layout = None;
+            lint_validated(&self.deck, found.clone(), Some(self.theme_json.as_str()), |theme| {
+                let (engine, store) = crate::engine_for(&self.deck, &self.theme, &self.files, &self.kept)
+                    .map_err(|e| scaena_ops::OpsError::new(e.to_string()))?;
+                let mut engine = engine.with_timed(self.timed.clone());
+                let found = layout_rules(&mut engine, &self.deck, theme, &self.data, &store, None)?;
+                layout = Some(found.clone());
+                Ok(found)
+            })
+            .map_err(|e| Error::Ops(e.message))?;
+            Ok(LaidOut { found, layout })
+        })();
+        self.laid = Some(laid.map_err(|e| e.to_string()));
+    }
+
+    /// Whether it has been laid out.
+    pub fn laid(&self) -> bool {
+        self.laid.is_some()
+    }
+}
+
+/// A [`Laying`] goes to another thread and back: it shares nothing with the session that a
+/// thread writes.
+const _: fn() = || {
+    fn sent<T: Send>() {}
+    sent::<Laying>();
+};
+
 /// Each state of `deck` by its id, with the nodes it shows and those that leave in its cue:
 /// what a finding in that state can be about, or owe something to.
 fn nodes(deck: &Deck) -> BTreeMap<String, BTreeSet<String>> {
@@ -238,6 +307,51 @@ impl Session {
     /// found there can be about that node, or owe something to it (a collision, or the
     /// contrast of text over it).
     pub fn lint(&mut self, only: Option<&str>) -> Result<Linting, Error> {
+        self.linted(only, None)
+    }
+
+    /// The deck compiled last, as the layout rules lay it out on every state away from the
+    /// session (PLAN 4.13): a client lays it out on a thread of its own ([`Laying::lay`]) while
+    /// the session goes on answering, and hands it back to [`Session::lint_laid`]. Nothing where
+    /// no source compiled to a deck that validates. Shares the bundle's files and the pictures
+    /// decoded with the session, copying neither.
+    pub fn laying(&self) -> Option<Laying> {
+        let edit = self.edit.as_ref()?;
+        let deck = edit.compiled.deck()?;
+        Some(Laying {
+            source: edit.source.clone(),
+            deck,
+            theme: self.theme.clone(),
+            theme_json: self.theme_json.clone(),
+            files: Arc::clone(&self.files),
+            kept: Arc::clone(&self.store),
+            data: self.data.clone(),
+            timed: self.engine.as_ref().map_or_else(|| self.timed.clone(), Engine::timed),
+            validated: self.validated.clone(),
+            laid: None,
+        })
+    }
+
+    /// Lint the deck compiled last on every state, as [`Session::lint`] does, with what
+    /// `laying` laid out: validation, the document rules, and what the layout rules found
+    /// there, laying nothing out here (PLAN 4.13). Nothing where the deck has changed since
+    /// `laying` was taken from it (another source compiled, a file handed over, the theme
+    /// edited), so what lint found in an older deck never stands for this one's, or where it
+    /// has not been laid out.
+    pub fn lint_laid(&mut self, laying: &Laying) -> Result<Option<Linting>, Error> {
+        let current = self.edit.as_ref().is_some_and(|edit| edit.source == laying.source)
+            && Arc::ptr_eq(&self.files, &laying.files)
+            && self.theme_json == laying.theme_json;
+        match &laying.laid {
+            Some(Ok(laid)) if current => self.linted(None, Some(laid.clone())).map(Some),
+            Some(Err(why)) if current => Err(Error::Ops(why.clone())),
+            _ => Ok(None),
+        }
+    }
+
+    /// Lint the deck compiled last, as [`Session::lint`] says; with `given`, on every state
+    /// with what a [`Laying`] found, laying nothing out.
+    fn linted(&mut self, only: Option<&str>, given: Option<LaidOut>) -> Result<Linting, Error> {
         let every = self.every();
         let edit = self.edit.as_ref().ok_or(Error::NothingCompiled)?;
         let Some(deck) = edit.compiled.deck() else {
@@ -248,23 +362,33 @@ impl Session {
                 whole: only.is_none(),
             });
         };
-        self.build()?;
+        if given.is_none() {
+            self.build()?;
+        }
         let Session { engine, store, data, theme_json, laid, files, validated, .. } = self;
-        let engine = engine.as_mut().expect("built above");
         let mut fresh = None;
         // What the layout rules found, this time and kept from the last: what holds only in the
         // format it was laid out in.
         let mut layout = Vec::new();
         // What validation found when the deck was compiled, which nothing has changed since.
-        let found = match validated {
-            Some(found) => found.clone(),
-            None => {
+        let (found, given) = match (given, validated) {
+            (Some(given), _) => (given.found, Some(given.layout)),
+            (None, Some(found)) => (found.clone(), None),
+            (None, None) => {
                 let json = deck.to_json().map_err(|e| Error::Deck(e.to_string()))?;
-                validate_bundle(&json, &Handed(files)).map_err(|e| Error::Deck(e.to_string()))?
+                (validate_bundle(&json, &Handed(files)).map_err(|e| Error::Deck(e.to_string()))?, None)
             }
         };
         let linted = lint_validated(&deck, found, Some(theme_json.as_str()), |theme| {
-            let found = layout_rules(engine, &deck, theme, data, store, only)?;
+            let found = match given {
+                // Laid out away from the session, the same deck in the same theme: the rules
+                // run on it there when they would here.
+                Some(given) => given.unwrap_or_default(),
+                None => {
+                    let engine = engine.as_mut().expect("built above");
+                    layout_rules(engine, &deck, theme, data, store, only)?
+                }
+            };
             fresh = Some(found.clone());
             layout = match only {
                 None => found,
@@ -897,6 +1021,56 @@ mod tests {
         assert!(s.compile(&s.source().replace(long, "Revenue doubled")).valid);
         let one = s.lint(Some("revenue")).unwrap();
         assert!(!said(&one, "revenue").iter().any(|f| f.starts_with("E100")), "{:?}", said(&one, "revenue"));
+    }
+
+    /// The lint of every state laid out on a thread of its own (PLAN 4.13): what it finds is
+    /// what `lint` finds on every state, the session answering meanwhile; a lint of one state
+    /// after it keeps the rest as after `lint`; and one taken from a deck changed since is
+    /// dropped, never standing for the deck now.
+    #[test]
+    fn a_lint_laid_out_away_from_the_session_is_the_sessions_and_a_stale_one_is_dropped() {
+        let mut s = revenue();
+        let long = "Revenue doubled, and then some";
+        let source = s.source().replace("\"Revenue doubled\"", &format!("\"{long}\""));
+        assert!(s.compile(&source).valid);
+        let mut laying = s.laying().unwrap();
+        assert!(!laying.laid());
+        assert!(s.lint_laid(&laying).unwrap().is_none(), "nothing laid out yet");
+        let laying = std::thread::spawn(move || {
+            laying.lay();
+            laying
+        });
+        // The session answers while the deck is laid out away from it.
+        assert!(s.pixels("intro", f64::INFINITY, 64).is_ok());
+        let laying = laying.join().unwrap();
+        assert!(laying.laid());
+        let laid = s.lint_laid(&laying).unwrap().unwrap();
+        assert!(laid.whole && laid.laid);
+        let whole = s.lint(None).unwrap();
+        assert_eq!(written(&laid), written(&whole));
+        assert!(written(&laid).iter().any(|f| f.contains("E100")));
+
+        // Taken back, it is what a lint of one state keeps of the rest, as a whole lint's is.
+        let mut fresh = revenue();
+        assert!(fresh.compile(&source).valid);
+        let mut laying = fresh.laying().unwrap();
+        laying.lay();
+        assert!(fresh.lint_laid(&laying).unwrap().is_some());
+        assert_eq!(written(&fresh.lint(Some("mix")).unwrap()), written(&s.lint(Some("mix")).unwrap()));
+
+        // Another source compiled since: dropped.
+        let mut stale = fresh.laying().unwrap();
+        stale.lay();
+        assert!(fresh.compile(&source.replace(long, "Revenue doubled")).valid);
+        assert!(fresh.lint_laid(&stale).unwrap().is_none(), "another source");
+        // A file handed over since, the source the same: dropped.
+        let mut stale = fresh.laying().unwrap();
+        stale.lay();
+        fresh.add_file("notes.txt", b"later".to_vec());
+        assert!(fresh.lint_laid(&stale).unwrap().is_none(), "another file");
+        // Nothing compiled to a deck that validates: nothing to lay out.
+        assert!(!fresh.compile("state {").valid);
+        assert!(fresh.laying().is_none());
     }
 
     /// Each finding, written out as the page reads it.
