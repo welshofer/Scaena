@@ -477,6 +477,9 @@ pub struct Library {
     /// The shadows added (PLAN 2.115): those the theme ships that the copy lacked, by their names,
     /// in the theme's order.
     pub shadows: Vec<String>,
+    /// Whether the look the theme gives code (PLAN 2.132), which the copy lacked, was brought: only
+    /// into a copy whose deck shows no code text, so no code draws otherwise than it did.
+    pub code: bool,
 }
 
 /// `theme`, a bundle's copy of the theme that ships as `shipped`, with the layout library that
@@ -495,10 +498,12 @@ pub struct Library {
 /// colors, left off the layouts it has of those the theme leaves them off; a deck shows them only
 /// where it asks. The builds the theme ships that the copy lacks are added too (PLAN 2.112), each
 /// motion preset whose duration, easing, and color the copy names, with the spring it springs on
-/// where the copy lacks that, so the cue offers every build a deck started in the theme does. None
+/// where the copy lacks that, so the cue offers every build a deck started in the theme does. The
+/// look the theme gives code, which the copy lacks, comes in only where the deck shows no code
+/// text, `code_shown` false (PLAN 2.132): a code text it shows keeps the colors it is drawn in. None
 /// where `theme` is not a copy of `shipped`, another name or another grid, or has every layout,
-/// name, placement, and build it would bring.
-pub fn library(theme: &Value, shipped: &Value) -> Option<(Value, Library)> {
+/// name, placement, build, and look it would bring.
+pub fn library(theme: &Value, shipped: &Value, code_shown: bool) -> Option<(Value, Library)> {
     let name = shipped.get("name")?.as_str()?;
     if theme.get("name")?.as_str()? != name {
         return None;
@@ -563,11 +568,16 @@ pub fn library(theme: &Value, shipped: &Value) -> Option<(Value, Library)> {
     if let Some((_, added)) = &shadows {
         brought.shadows = added.clone();
     }
+    // Code's look (PLAN 2.132), where the copy has none and nothing in the deck draws in the one it
+    // has: the theme's own colors would recolor code a slide shows.
+    let code = shipped.get("code").filter(|_| theme.get("code").is_none() && !code_shown);
+    brought.code = code.is_some();
     if brought.added.is_empty()
         && brought.named.is_empty()
         && !brought.furniture
         && builds.is_none()
         && shadows.is_none()
+        && code.is_none()
     {
         return None;
     }
@@ -589,6 +599,9 @@ pub fn library(theme: &Value, shipped: &Value) -> Option<(Value, Library)> {
     }
     if let Some((all, _)) = shadows {
         theme["tokens"]["shadow"] = Value::Object(all);
+    }
+    if let Some(code) = code {
+        theme["code"] = code.clone();
     }
     if let Some(version) = shipped.get("scaena-theme") {
         theme["scaena-theme"] = version.clone();

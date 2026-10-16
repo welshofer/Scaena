@@ -1,0 +1,17 @@
+[package]
+name = "scaena-objects"
+description = "Objects from outside the deck, by plans the client fetches (ADR-0030): a map's picture from Geoapify, its place from its geocoder. No HTTP, no clock, no key."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+scaena-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+libm.workspace = true
+schemars.workspace = true

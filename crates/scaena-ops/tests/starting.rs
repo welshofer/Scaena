@@ -14,11 +14,23 @@ const SHIPPED: [(&str, &str); 4] = [
     ("gallery", "../../docs/examples/themes/gallery.theme.json"),
 ];
 
-/// A new bundle in `theme`, titled, at a place of its own.
+/// A new bundle in `theme`, titled, at a place of its own, in the fonts the theme ships with
+/// (`scaena_ops::shipped`'s, `docs/examples/fonts`): Daybreak's file sits beside the authorability
+/// deck's fonts, subset to that deck, and a new deck in Daybreak takes the shipped ones.
 fn made(name: &str, theme: &str) -> PathBuf {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("starting-{name}"));
     let _ = std::fs::remove_dir_all(&dir);
-    let req = Create { theme: theme.into(), title: Some("A library".into()), ..Create::default() };
+    let shipped = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("starting-{name}-theme"));
+    let _ = std::fs::remove_dir_all(&shipped);
+    std::fs::create_dir_all(shipped.join("themes")).unwrap();
+    std::fs::create_dir_all(shipped.join("fonts")).unwrap();
+    for font in std::fs::read_dir("../../docs/examples/fonts").unwrap() {
+        let font = font.unwrap().path();
+        std::fs::copy(&font, shipped.join("fonts").join(font.file_name().unwrap())).unwrap();
+    }
+    let copy = shipped.join("themes").join(Path::new(theme).file_name().unwrap());
+    std::fs::copy(theme, &copy).unwrap();
+    let req = Create { theme: copy, title: Some("A library".into()), ..Create::default() };
     assert!(create(&dir, &req).unwrap().created, "{name} makes a deck");
     dir
 }
@@ -153,4 +165,82 @@ fn a_lists_points_are_set_larger_than_the_body() {
             assert!(size(&role) > size("body"), "{name}'s {layout} sets its points in {role}, no larger than the body");
         }
     }
+}
+
+/// A slide started in a deck that reads right to left (PLAN T.5a): every layout of every shipped
+/// theme stands mirrored, each node's box as far from the canvas's right edge as it stands from
+/// its left in the same deck in English, a theme's shape pointing the other way in its box, and
+/// lint finds nothing in it.
+#[test]
+fn every_shipped_layout_starts_a_slide_mirrored_where_the_deck_reads_right_to_left() {
+    use scaena_engine::FrameRequest;
+    use std::collections::BTreeMap;
+    let mut wrong: Vec<String> = Vec::new();
+    let mut compared = 0;
+    for (name, theme) in SHIPPED {
+        let b = scaena_ops::open(&made(&format!("{name}-mirrored"), theme)).unwrap();
+        let t = scaena_ops::theme(&b).unwrap();
+        let files = View::of(&b);
+        let data = scaena_ops::lint::data_in(&b.deck, &files).unwrap();
+        let mut engine = scaena_ops::lint::engine_with(&b, &t, None).unwrap();
+        let width = b.deck.canvas.width as f32;
+        let first = b.deck.states[0].id.clone();
+        for layout in t.layouts.keys() {
+            let mut laid: Vec<(BTreeMap<String, [f32; 4]>, scaena_core::Deck, String)> = Vec::new();
+            for lang in ["en", "ar"] {
+                let mut deck = b.deck.clone();
+                deck.meta.get_or_insert_with(Default::default).lang = Some(lang.into());
+                let started = starting(&deck, &t, &first, Some(layout)).unwrap();
+                let doc = scaena_core::patch::compile(&deck.to_value().unwrap(), &started.patch, &files)
+                    .unwrap_or_else(|e| panic!("{name}'s {layout} in {lang}: {e:?}"))
+                    .doc;
+                let deck = scaena_core::Deck::from_value(&doc).unwrap();
+                let req = FrameRequest {
+                    deck: &deck,
+                    theme: &t,
+                    data: &data,
+                    state: &started.id,
+                    t_ms: f64::INFINITY,
+                    format: None,
+                };
+                let scene = engine.at_rest(&req).unwrap();
+                let boxes = scene.boxes().into_iter().map(|b| (b.node, b.rect)).collect();
+                if lang == "ar" {
+                    let found = lint_state_in(&deck, &files, &started.id).unwrap().findings;
+                    for f in found.iter().filter(|f| f.state.as_deref() == Some(started.id.as_str())) {
+                        wrong.push(format!("{name}'s {layout} in Arabic: {} {}", f.code, f.message));
+                    }
+                }
+                laid.push((boxes, deck, started.id));
+            }
+            let [(en, en_deck, _), (ar, ar_deck, _)] = <[_; 2]>::try_from(laid).ok().unwrap();
+            assert_eq!(en.keys().collect::<Vec<_>>(), ar.keys().collect::<Vec<_>>(), "{name}'s {layout}");
+            for (id, [x, y, w, h]) in &en {
+                let r = ar[id];
+                let mirrored = [width - x - w, *y, *w, *h];
+                if r.iter().zip(mirrored).any(|(a, b)| (a - b).abs() > 0.01) {
+                    wrong.push(format!("{name}'s {layout}: `{id}` stands at {r:?} in Arabic, not {mirrored:?}"));
+                }
+                compared += 1;
+                let points = |deck: &scaena_core::Deck| deck.nodes[id.as_str()].props.get("points").cloned();
+                if let (Some(en), Some(ar)) = (points(&en_deck), points(&ar_deck)) {
+                    let en: Vec<[f64; 2]> = serde_json::from_value(en).unwrap();
+                    let ar: Vec<[f64; 2]> = serde_json::from_value(ar).unwrap();
+                    // The deck writes a number to 16 significant digits, so a point flipped
+                    // reads back within a rounding of `1 - x`, not always to the bit.
+                    let flipped = scaena_core::direction::flipped(&en);
+                    assert!(
+                        ar.len() == flipped.len()
+                            && ar
+                                .iter()
+                                .zip(&flipped)
+                                .all(|(a, b)| (a[0] - b[0]).abs() < 1e-9 && (a[1] - b[1]).abs() < 1e-9),
+                        "{name}'s {layout}: `{id}` points the other way: {ar:?}, not {flipped:?}"
+                    );
+                }
+            }
+        }
+    }
+    assert!(compared > 1000, "boxes compared: {compared}");
+    assert!(wrong.is_empty(), "{} wrong:\n{}", wrong.len(), wrong.join("\n"));
 }

@@ -14,6 +14,7 @@ use scaena_engine::theme::Theme;
 use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::Value;
+use std::collections::BTreeMap;
 
 /// What a patch did, or would do.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -59,7 +60,18 @@ pub(crate) fn patch_as(b: &Bundle, ops: &Value, dry_run: bool, what: Option<&str
 /// (the web page's assistant, PLAN 2.6). `what` names the change in the bundle's history;
 /// without it, its ops' names do.
 pub fn patching(b: &Bundle, ops: &Value, what: Option<&str>) -> Result<(Patched, Option<Write>), OpsError> {
-    made(b, ops, what, Judge::Whole, None)
+    made(b, ops, what, Judge::Whole, None, BTreeMap::new())
+}
+
+/// [`patching`] with `files` joining the bundle in the same change: the patch is checked as
+/// though they were there, and they are written with the deck (a map's picture, ADR-0030).
+pub fn patching_with(
+    b: &Bundle,
+    ops: &Value,
+    what: Option<&str>,
+    files: BTreeMap<String, Vec<u8>>,
+) -> Result<(Patched, Option<Write>), OpsError> {
+    made(b, ops, what, Judge::Whole, None, files)
 }
 
 /// [`patching`] in an editor that keeps its engine between edits (ADR-0021): checked, and
@@ -80,7 +92,7 @@ pub fn editing(
     validated: Option<Vec<Finding>>,
     mut layout: impl FnMut(&Deck, &Theme, &[&str]) -> Result<Vec<Finding>, OpsError>,
 ) -> Result<(Patched, Option<Write>), OpsError> {
-    made(b, ops, what, Judge::Reached(&mut layout), validated)
+    made(b, ops, what, Judge::Reached(&mut layout), validated, BTreeMap::new())
 }
 
 /// [`patching`] for an edit made as it is typed, a keystroke at a time (ADR-0013, PLAN
@@ -93,7 +105,7 @@ pub fn typing(
     what: Option<&str>,
     validated: Option<Vec<Finding>>,
 ) -> Result<(Patched, Option<Write>), OpsError> {
-    made(b, ops, what, Judge::Valid, validated)
+    made(b, ops, what, Judge::Valid, validated, BTreeMap::new())
 }
 
 /// What lays out the states a patch reaches, in a deck and its theme: what the layout rules find
@@ -117,12 +129,17 @@ fn made(
     what: Option<&str>,
     judge: Judge,
     validated: Option<Vec<Finding>>,
+    pending: BTreeMap<String, Vec<u8>>,
 ) -> Result<(Patched, Option<Write>), OpsError> {
+    let mut view = View::of(b);
+    for (path, bytes) in &pending {
+        view = view.with(path.clone(), bytes.clone());
+    }
     let Some(list) = ops.as_array() else {
         return Err(OpsError::new("a patch is a JSON array of ops (SPEC §7.3, docs/schema/patch.schema.json)"));
     };
     let doc = b.deck.to_value()?;
-    let compiled = scaena_core::patch::compile(&doc, list, &b.files).map_err(|e| OpsError {
+    let compiled = scaena_core::patch::compile(&doc, list, &view).map_err(|e| OpsError {
         message: e.to_string(),
         plan: None,
         op: Some(e.index),
@@ -137,7 +154,7 @@ fn made(
         Some(found) => found,
         None => validate_bundle(&b.deck.to_json()?, &b.files)?,
     };
-    let invalid_after = validate_bundle(&text, &b.files)?;
+    let invalid_after = validate_bundle(&text, &view)?;
     let refused = !delta(&invalid, &was, &invalid_after, &is, &compiled.renamed).added.is_empty();
     let mut write = None;
     let mut states = Vec::new();
@@ -148,7 +165,7 @@ fn made(
         states = changed(&b.deck, &next, placed(b.theme_json.as_deref(), &b.deck, &next).as_ref())?;
         let (before, after) = match judge {
             Judge::Valid => (invalid, invalid_after),
-            Judge::Whole => (lint(b)?.findings, lint_in(&next, &View::of(b))?.findings),
+            Judge::Whole => (lint(b)?.findings, lint_in(&next, &view)?.findings),
             Judge::Reached(layout) => {
                 let (then, now) = reached((&b.deck, &doc), (&next, &compiled.doc), &states, &compiled.renamed);
                 let files = View::of(b);
@@ -171,7 +188,9 @@ fn made(
                     Renamed::State { from, to } => why.renamed_states.push((from.clone(), to.clone())),
                 }
             }
-            write = Some(Write::new(next, why));
+            let mut w = Write::new(next, why);
+            w.files = pending.clone();
+            write = Some(w);
         }
         (before, after)
     };

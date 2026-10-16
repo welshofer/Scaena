@@ -1176,9 +1176,10 @@ pub fn writable(
     };
     let model: Theme = serde_json::from_str(theme).context("the theme")?;
     let families = &model.typography.families;
+    let code = model.code_role();
     let mut keys: Vec<&str> = Vec::new();
     for (role, r) in &model.typography.roles {
-        if role != "code" && !keys.contains(&r.family.as_str()) {
+        if Some(role.as_str()) != code && !keys.contains(&r.family.as_str()) {
             keys.push(&r.family);
         }
     }
@@ -1235,7 +1236,9 @@ pub fn deck_as(
     let count = narrative.slides.len();
     let varied = varied(narrative);
 
-    let mut deck = Builder::default();
+    let rtl =
+        narrative.brief.language.as_deref().and_then(language_tag).is_some_and(scaena_core::direction::right_to_left);
+    let mut deck = Builder { mirrored: rtl, ..Builder::default() };
     let mut sections: Vec<Value> = Vec::new();
     let mut last_beat = None;
     let mut chosen = Vec::with_capacity(count);
@@ -2571,6 +2574,8 @@ struct Builder {
     data: Map<String, Value>,
     sections: Vec<String>,
     beats: Vec<String>,
+    /// The deck reads right to left (PLAN T.5a): a theme's shapes stand mirrored in their boxes.
+    mirrored: bool,
 }
 
 impl Builder {
@@ -2718,7 +2723,8 @@ impl Builder {
                         node["stroke"] = json!({ "paint": stroke, "width": "thin" });
                     }
                     if let Some(points) = &shape.points {
-                        node["points"] = json!(points);
+                        node["points"] =
+                            if self.mirrored { json!(scaena_core::direction::flipped(points)) } else { json!(points) };
                     }
                     node
                 }
