@@ -20,7 +20,7 @@ pub struct GenerateArgs {
     dir: Option<PathBuf>,
     /// What the deck is about: the brief's topic, in the user's words.
     prompt: Option<String>,
-    /// A theme that ships (`dusk`, `daybreak`, `ember`, `gallery`), which comes with its fonts; or a theme
+    /// A theme that ships (`dusk`, `daybreak`, `ember`, `salon`), which comes with its fonts; or a theme
     /// file, whose fonts are beside it or above it.
     #[arg(long, default_value = "dusk")]
     theme: String,

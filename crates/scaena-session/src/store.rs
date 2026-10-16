@@ -484,6 +484,28 @@ pub(crate) mod tests {
         assert!(stale.contains("its subset keeps other characters"), "{stale}");
     }
 
+    /// A family its theme keeps whole (ADR-0031, call 5) is not handed to the page's subsetter,
+    /// nor the Mac's, and the save writes its bytes as they were: B1 with Bench Serif so marked.
+    #[test]
+    fn a_page_keeps_a_family_its_theme_keeps_whole() {
+        let mut files = files("../../tests/bench/b1.scaena");
+        let theme = String::from_utf8(files["theme.json"].clone()).unwrap();
+        let marked = theme.replacen(r#""family": "Bench Serif","#, r#""family": "Bench Serif", "whole": true,"#, 1);
+        assert_ne!(marked, theme);
+        files.insert("theme.json".into(), marked.into_bytes());
+        let mut s = Session::open(files.clone()).unwrap();
+        let (_, fonts) = s.subsetting().unwrap();
+        assert!(!fonts.contains(&"fonts/BenchSerif-VF.ttf".to_string()), "{fonts:?}");
+        subset_all(&mut s);
+        let page = s.save(NOW, true, None).unwrap();
+        let opts = SaveOptions { subset_fonts: true, now: NOW.into(), history: false };
+        assert_eq!(page.files, Bundle::in_memory(files.clone()).unwrap().saving(&opts).unwrap().files, "as the CLI's");
+        assert_eq!(page.saved.subset.len(), 3, "{:?}", page.saved.subset);
+        let whole = &files["fonts/BenchSerif-VF.ttf"];
+        let kept = page.files.iter().find(|(p, _)| p.starts_with("fonts/BenchSerif-")).unwrap();
+        assert_eq!(kept.1, whole, "{} kept whole, byte for byte", kept.0);
+    }
+
     /// A bundle saved by an older build (SPEC §3.1), as one downloaded from a site built before
     /// this build is: it opens in the current format, its source compiles to a deck that
     /// validates, and every state is on its timeline, where it showed no slide at all. One saved

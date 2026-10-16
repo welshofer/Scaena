@@ -7,7 +7,7 @@ in order, and every layout in each: the 47 the themes had, and those added since
 theme file's `layouts`, and nothing else in it.
 
 - **The layouts are keyed by geometry family** (PLAN T.0a), as the registry names each theme's:
-  Dusk's grid, which Daybreak and Gallery share, or Ember's. A theme draws its family's layouts,
+  Dusk's grid, which Daybreak and Salon share, or Ember's. A theme draws its family's layouts,
   and a new theme, whose file holds none, takes the older ones from its family's first file.
 - **The layouts the themes had** keep the slots each family gave them: Ember's sit where its design
   wants them, and Dusk's family's are one. This script puts each in its section and gives
@@ -36,7 +36,7 @@ REGISTRY = ROOT / "docs/themes/registry.json"
 
 def themes(registry):
     """Each theme the registry lists, in its order: its slug, its geometry family, and its files.
-    A theme's layouts are its family's (PLAN T.0a): Dusk's grid, which Daybreak and Gallery share
+    A theme's layouts are its family's (PLAN T.0a): Dusk's grid, which Daybreak and Salon share
     (PLAN 2.102), or Ember's."""
     return [(e["slug"], e["geometry"], [ROOT / f for f in e["files"]]) for e in registry["themes"]]
 
@@ -218,6 +218,12 @@ layout("Statements", "key-point", "One point on its card, set large, and what fo
     "point": slot((2, 11), (3, 6), "headline", "The one point to remember", inset=48, align={"y": "end"}),
     "follow": slot((2, 11), (7, 9), "body", "What follows from it", inset=48),
 }, ember={"card": ((2, 11), (3, 10)), "point": ((2, 11), (3, 7)), "follow": ((2, 11), (8, 10))})
+
+layout("Statements", "haiku", "A haiku, set as written in the middle of the slide, and who wrote it or what it is on.", {
+    "poem": slot((2, 11), (3, 8), "verse", "A haiku goes here\nseven syllables between\nfive more to close it", align={"x": "center", "y": "center"}, fit="shrink"),
+    "rule": rule((6, 7), (9, 9)),
+    "attribution": slot((4, 9), (10, 10), "caption", "Who wrote it, or what it is on", align={"x": "center"}),
+}, ember={"poem": ((2, 11), (3, 9)), "rule": ((6, 7), (10, 10)), "attribution": ((4, 9), (11, 11))})
 
 # Lists -----------------------------------------------------------------------------------------
 
@@ -884,7 +890,7 @@ layout("Closing", "call-to-action", "One thing to do next, set large, and a butt
 # The first sixteen of ADR-0031's slide types (PLAN S.1), each drawn as its table says.
 
 # Where a point of the grid stands in a slot, as a fraction of it, on Dusk's grid (Daybreak's and
-# Gallery's are alike, and Ember's rows near enough): what a line or an arrow's `points` give.
+# Salon's are alike, and Ember's rows near enough): what a line or an arrow's `points` give.
 ROW, ROW_GUTTER, TOP = 52, 24, 96
 
 
@@ -1154,6 +1160,35 @@ layout("Classroom", "quiz", "A question and four answers, each on its card: add 
     **{o: slot((c[0] + 1, c[1]), r, "title", "An answer", inset=24, align={"y": "center"}) for o, (c, r) in zip(ORDINALS, QUAD)},
 })
 
+# Maps (ADR-0030, PLAN O.1e) ---------------------------------------------------------------------
+# A map's place says "A map", and the layout's picture shows the theme's picture art there with a
+# pin and a label over it, no provider's map: Insert › Map… fills the place.
+
+MAP = {"map": "backdrop"}
+
+
+def map_place(col, row, bleed=None):
+    return slot(col, row, prompt="A map", bleed=bleed, example=MAP)
+
+
+layout("Pictures", "map", "A map of a place under a headline, and a line saying what it shows.", {
+    "kicker": KICKER,
+    "header": header(),
+    "art": map_place((1, 12), (3, 9)),
+    "note": slot((1, 8), (10, 10), "caption", "What the map shows"),
+})
+
+layout("Pictures", "map-words", "A map off the right edge, a headline and its words beside it: where it is, and why it matters.", {
+    "art": map_place((7, 12), (1, 12), bleed=True),
+    "header": slot((1, 6), (3, 5), "headline", "What this slide says"),
+    "body": slot((1, 6), (6, 10), "body", "Where it is, and why it matters, in a sentence or two."),
+}, ember={"header": ((1, 6), (2, 4)), "body": ((1, 6), (5, 11))})
+
+layout("Pictures", "map-full", "A map across the whole slide, and a headline over it.", {
+    "art": map_place((1, 12), (1, 12), bleed=True),
+    "header": slot((2, 9), (2, 3), "headline", "Where it is"),
+}, ember={"header": ((2, 9), (2, 3))})
+
 # ---------------------------------------------------------------------------------------------
 # The next of ADR-0031's slide types (PLAN S.2).
 
@@ -1386,6 +1421,83 @@ layout("Closing", "join-or-scan", "A code to scan and the link to type: to join,
 })
 
 # ---------------------------------------------------------------------------------------------
+# The first five of ADR-0031's last slide types (PLAN S.3): those that need nothing new.
+
+# Diagrams --------------------------------------------------------------------------------------
+
+# Six tables in two rows of three, a circle in the middle of each third, each its number in the
+# middle and its guests down either side of it.
+SEATS = [(c, r) for r in [(3, 6), (7, 10)] for c in [(2, 3), (6, 7), (10, 11)]]
+GUESTS = [("Ana\nBen", "Cy\nDee"), ("Eve\nFin", "Gus\nHal"), ("Ida\nJo", "Kai\nLu"), ("Max\nNia", "Oli\nPam"), ("Quin\nRo", "Sam\nTess"), ("Uma\nVic", "Wes\nZoe")]
+layout("Diagrams", "seating-chart", "Tables as circles, each its number in the middle and its guests around it: who sits where.", {
+    "kicker": KICKER,
+    "header": header("Where everyone sits"),
+    **{f"{o}-table": slot(c, r, prompt={"shape": "ellipse", "fill": "surface-2"}) for o, (c, r) in zip(ORDINALS, SEATS)},
+    **{o: slot(c, r, "figure", str(i + 1), align={"x": "center", "y": "center"}) for i, (o, (c, r)) in enumerate(zip(ORDINALS, SEATS))},
+    **{f"{o}-left": slot((c[0] - 1, c[0] - 1), r, "caption", g[0], align={"x": "center", "y": "center"}) for o, (c, r), g in zip(ORDINALS, SEATS, GUESTS)},
+    **{f"{o}-right": slot((c[1] + 1, c[1] + 1), r, "caption", g[1], align={"x": "center", "y": "center"}) for o, (c, r), g in zip(ORDINALS, SEATS, GUESTS)},
+}, ember={
+    # Ember's rows a row lower, each table as tall as on Dusk's grid, not stretched to the foot.
+    f"{o}{k}": ((c[0] - 1, c[0] - 1) if k == "-left" else (c[1] + 1, c[1] + 1) if k == "-right" else c, (r[0] + 1, r[1] + 1))
+    for o, (c, r) in zip(ORDINALS, SEATS) for k in ["-table", "", "-left", "-right"]
+})
+
+# Pictures --------------------------------------------------------------------------------------
+
+# The page at the left, its passage ringed, and the passage enlarged beside it.
+PASSAGE = (6, 7)
+layout("Pictures", "exhibit-callout", "A page of a document with its key passage ringed, and the passage enlarged beside it.", {
+    "kicker": KICKER,
+    "header": header("What the document says"),
+    "page": slot((1, 5), (3, 10), prompt="A page of the document", example=PICTURE),
+    "ring": ring((2, 5), PASSAGE, shape="rect"),
+    "pointer": arrow((6, 6), PASSAGE, (x_of(6, "left"), mid_y(PASSAGE)), (x_of(6, "right"), mid_y(PASSAGE)), stroke="accent"),
+    "passage-card": card((7, 12), (3, 9)),
+    "passage": slot((7, 12), (3, 8), "quote", "The passage, enlarged", inset=48, align={"y": "center"}),
+    "source": slot((7, 12), (10, 10), "caption", "The exhibit, and its page"),
+})
+
+# Briefing --------------------------------------------------------------------------------------
+
+# Phases across, as chevrons, each pointing to the next; the lines of effort down the side; and a
+# card in each cell for what that line does in that phase.
+PHASES = [(4, 6), (7, 9), (10, 12)]
+EFFORTS = [(4, 5), (6, 7), (8, 9)]
+layout("Briefing", "concept-of-operations", "Phases across and lines of effort down, a card in each cell for what each line does in each phase.", {
+    "kicker": KICKER,
+    "header": header(),
+    **{f"{o}-phase-shape": slot(c, (3, 3), prompt={"shape": "polygon", "fill": "surface-2", "points": CHEVRON_FIRST if i == 0 else CHEVRON}) for i, (o, c) in enumerate(zip(ORDINALS, PHASES))},
+    **{f"{p}-{o}-card": box(c, r, inset=8) for p, r in zip(ORDINALS, EFFORTS) for o, c in zip(ORDINALS, PHASES)},
+    **{f"{o}-phase": slot(c, (3, 3), "label", w, align={"x": "center", "y": "center"}) for o, c, w in zip(ORDINALS, PHASES, ["Prepare", "Act", "Hand over"])},
+    **{f"{p}-effort": slot((1, 3), r, "body", w, align={"y": "center"}) for p, r, w in zip(ORDINALS, EFFORTS, ["People", "Systems", "Partners"])},
+    **{f"{p}-{o}": slot(c, r, "body", w, inset=24, align={"y": "center"}) for p, r, ws in zip(ORDINALS, EFFORTS, [["Hire", "Train", "Rotate"], ["Build", "Run", "Retire"], ["Brief", "Join", "Lead"]]) for o, c, w in zip(ORDINALS, PHASES, ws)},
+})
+
+# Editorial -------------------------------------------------------------------------------------
+
+# The logo and how to use it at the left; the palette's swatches, each named, and the type at the
+# right.
+SWATCHES = [(6, 7), (8, 9), (10, 11)]
+layout("Editorial", "brand-board", "A brand on one slide: its logo and how to use it, its colors, and its type.", {
+    "kicker": KICKER,
+    "header": header("The brand, at a glance"),
+    "logo": slot((1, 4), (3, 7), prompt="The logo", example=PICTURE, inset=24),
+    "logo-frame": slot((1, 4), (3, 7), prompt={"shape": "rect", "stroke": "line"}),
+    "logo-use": slot((1, 4), (8, 10), "caption", "Clear space all round, the height of the mark. Never stretched or recolored."),
+    **{f"{o}-swatch": card(c, (3, 5), fill=f) for o, c, f in zip(ORDINALS, SWATCHES, ["accent", "accent-2", "surface-2"])},
+    **{o: slot(c, (6, 6), "label", w) for o, c, w in zip(ORDINALS, SWATCHES, ["Primary", "Second", "Ground"])},
+    "type-sample": slot((6, 7), (8, 10), "display", "Aa", align={"y": "cap"}),
+    "type-title": slot((8, 12), (8, 9), "headline", "Our headlines"),
+    "type": slot((8, 12), (10, 10), "body", "And the words under them"),
+})
+
+layout("Editorial", "fine-print", "A safe-harbor statement or a disclaimer, in small type: what the audience is told before or after the talk.", {
+    "kicker": KICKER,
+    "header": header("Forward-looking statements"),
+    "body": slot((1, 10), (3, 10), "caption", "This presentation contains forward-looking statements. They involve risks and uncertainties, and actual results may differ materially. We assume no obligation to update them."),
+})
+
+# ---------------------------------------------------------------------------------------------
 # The 47 the themes had: the section each is offered in, and what its picture shows in each slot
 # that waits.
 
@@ -1479,7 +1591,7 @@ NAMES = {
     "section-number": "Section Number",
     # Statements
     "statement": "Statement", "poster": "Poster", "quote": "Quote", "thesis": "Thesis", "big-question": "Big Question",
-    "manifesto": "Manifesto", "key-point": "Key Point",
+    "manifesto": "Manifesto", "key-point": "Key Point", "haiku": "Haiku",
     # Lists
     "bullets": "Bullets", "numbered": "Numbered List", "agenda": "Agenda", "three-rows": "Three Rows",
     "bullets-photo": "Bullets and Photo", "checklist": "Checklist", "agenda-photo": "Agenda and Photo",
@@ -1539,6 +1651,11 @@ NAMES = {
     "positioning-map": "Positioning Map", "feature-grid": "Feature Grid", "risk-matrix": "Risk Matrix",
     "business-model-canvas": "Business Model Canvas", "logo-wall": "Logo Wall", "device-mockup": "Device Mockup",
     "buyer-persona": "Buyer Persona",
+    # S.3's first five
+    "seating-chart": "Seating Chart", "exhibit-callout": "Exhibit Callout",
+    "concept-of-operations": "Concept of Operations", "brand-board": "Brand Board", "fine-print": "Fine Print",
+    # Maps (PLAN O.1e)
+    "map": "Map", "map-words": "Map and Words", "map-full": "Full-Bleed Map",
 }
 
 # The descriptions of the layouts the themes had, where one named what a person never reads in an

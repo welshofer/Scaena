@@ -132,7 +132,7 @@ try {
   const storm = await buttons();
   check(
     storm.map((b) => b.says).join(" | ") ===
-      "Full Bleed · No issues · also Poster, Chart, Table, Photo and Caption | Two Figures · No issues · also Pictograph | Number and Trend · No issues | Narrow Chart · No issues | Panorama · No issues | Venn Diagram · 1 issue | Bar Chart · 1 issue | Line Chart · 1 issue | Risk Matrix · 2 issues · also Positioning Map" &&
+      "Full Bleed · No issues · also Poster, Chart, Table, Photo and Caption | Two Figures · No issues · also Pictograph, Map | Number and Trend · No issues | Narrow Chart · No issues | Panorama · No issues | Venn Diagram · 1 issue | Bar Chart · 1 issue | Line Chart · 1 issue | Risk Matrix · 2 issues · also Positioning Map" &&
       storm.map((b) => b.found).join() === ",,,,,warning,error,error,error",
     `storm: ${storm.map((b) => `${b.says}${b.found ? ` (${b.found})` : ""}`).join(" | ")}`,
   );

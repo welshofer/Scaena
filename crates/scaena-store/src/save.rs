@@ -52,7 +52,8 @@ const FONT_EXTENSIONS: [&str; 4] = ["ttf", "otf", "woff", "woff2"];
 impl Bundle {
     /// Write the bundle to `to` as SPEC §3.1 lays it out:
     /// - `deck.json` in canonical form, and the theme file the deck names in the same form;
-    /// - each font the deck or its theme names, subset to what the deck can draw, at
+    /// - each font the deck or its theme names, subset to what the deck can draw unless its
+    ///   theme keeps the family whole, at
     ///   `fonts/<family>-<hash>.<ext>`, and each image at `assets/<sha256>.<ext>`, with
     ///   every reference to them rewritten, a beat's evidence among them;
     /// - every other file of the bundle as it is (from a bare deck file, whose directory is
@@ -81,7 +82,8 @@ impl Bundle {
     }
 
     /// What a save subsets (SPEC §3.1): every character the deck can draw, and each font
-    /// file, by its path, that it keeps those of. A caller that subsets elsewhere, as a page
+    /// file, by its path, that it keeps those of: none of a family the theme keeps whole
+    /// (ADR-0031, call 5). A caller that subsets elsewhere, as a page
     /// does in a module of its own (PLAN 2.4), subsets these and hands them to
     /// [`Bundle::saving_with`].
     pub fn subsetting(&self) -> Result<(BTreeSet<char>, Vec<String>), StoreError> {
@@ -89,7 +91,7 @@ impl Bundle {
             Some(Value::String(path)) => Some(serde_json::from_slice(&self.read(path)?)?),
             other => other.clone(),
         };
-        let fonts = font_files(&self.deck, theme.as_ref()).into_iter().map(|(file, _, _)| file).collect();
+        let fonts = font_files(&self.deck, theme.as_ref()).into_iter().filter(|f| !f.whole).map(|f| f.file).collect();
         Ok((self.drawable_chars()?, fonts))
     }
 
@@ -142,9 +144,11 @@ impl Bundle {
         // Fonts: the deck's, then any other its theme's families name.
         let fonts = font_files(&deck, theme.as_ref().map(|(_, v)| v).or(deck.theme.as_ref()));
         let mut names: BTreeMap<String, String> = BTreeMap::new();
-        for (old, family, italic) in fonts {
+        for FontFile { file: old, family, italic, whole } in fonts {
             let bytes = self.read(&old)?;
-            let bytes_out = if opts.subset_fonts {
+            // A family kept whole is never subset: a subset is a Modified Version, which may not
+            // carry a name its license reserves (OFL 1.1, condition 3; ADR-0031, call 5).
+            let bytes_out = if opts.subset_fonts && !whole {
                 let smaller = subset(&old, &bytes, &chars)?;
                 subsets.push((old.clone(), bytes.len(), smaller.len()));
                 smaller
@@ -383,29 +387,46 @@ pub fn zip(files: &BTreeMap<String, Vec<u8>>) -> Result<Vec<u8>, StoreError> {
     Ok(zip.finish().map_err(zip_error)?.into_inner())
 }
 
-/// The font files a save writes, as (file, family name, whether it is the family's italic):
-/// the deck's, then any other its theme's families name.
-fn font_files(deck: &Deck, theme: Option<&Value>) -> Vec<(String, String, bool)> {
-    let mut fonts: Vec<(String, String, bool)> =
-        (deck.fonts.iter()).map(|f| (f.file.clone(), f.family.clone(), f.style.as_deref() == Some("italic"))).collect();
-    for (file, family, italic) in theme_families(theme) {
-        if !fonts.iter().any(|(f, _, _)| *f == file) {
-            fonts.push((file, family, italic));
+/// A font file a save writes: its path, its family's name, whether it is the family's italic,
+/// and whether the theme keeps the family whole (ADR-0031, call 5).
+struct FontFile {
+    file: String,
+    family: String,
+    italic: bool,
+    whole: bool,
+}
+
+/// The deck's fonts, then any other its theme's families name; a file the theme keeps whole is
+/// kept whole wherever it is named.
+fn font_files(deck: &Deck, theme: Option<&Value>) -> Vec<FontFile> {
+    let themed = theme_families(theme);
+    let whole = |file: &str| themed.iter().any(|f| f.whole && f.file == file);
+    let mut fonts: Vec<FontFile> = (deck.fonts.iter())
+        .map(|f| FontFile {
+            file: f.file.clone(),
+            family: f.family.clone(),
+            italic: f.style.as_deref() == Some("italic"),
+            whole: whole(&f.file),
+        })
+        .collect();
+    for font in themed {
+        if !fonts.iter().any(|f| f.file == font.file) {
+            fonts.push(font);
         }
     }
     fonts
 }
 
-/// The (file, family name, whether it is the italic) of each family in a theme, and of its
-/// italic face (PLAN 2.40), in theme order.
-fn theme_families(theme: Option<&Value>) -> Vec<(String, String, bool)> {
+/// Each family in a theme, and its italic face (PLAN 2.40), in theme order.
+fn theme_families(theme: Option<&Value>) -> Vec<FontFile> {
     let families = theme.and_then(|t| t.get("type")).and_then(|t| t.get("families")).and_then(Value::as_object);
     let mut out = Vec::new();
     for family in families.into_iter().flat_map(|f| f.values()) {
         let Some(name) = family.get("family").and_then(Value::as_str) else { continue };
+        let whole = family.get("whole").and_then(Value::as_bool) == Some(true);
         for (face, italic) in [(Some(family), false), (family.get("italic"), true)] {
             if let Some(file) = face.and_then(|f| f.get("file")).and_then(Value::as_str) {
-                out.push((file.to_string(), name.to_string(), italic));
+                out.push(FontFile { file: file.to_string(), family: name.to_string(), italic, whole });
             }
         }
     }

@@ -87,6 +87,7 @@ pub const ALSO_CALLED: &[(&str, &[&str])] = &[
     ("table", &["Rubric"]),
     ("closing", &["Thank You"]),
     ("chyron", &["Lower Third Lyrics"]),
+    ("fine-print", &["Disclosures"]),
 ];
 
 /// The other names a layout is searched for by, as [`ALSO_CALLED`] gives them: none for most.
@@ -148,8 +149,8 @@ pub fn starting(deck: &Deck, theme: &Theme, shown: &str, layout: Option<&str>) -
 /// The patch that draws `layout`'s picture after `shown`'s slide (PLAN 3.31): the slide
 /// [`starting`] makes, and in each slot that waits with an `example`, what it says: a picture
 /// drawn by the theme's shader preset, under the cards and the words over it, each picture on the
-/// slide with a seed of its own; or a chart or a table of a few rows made up for it, written
-/// inline. An editor draws it, so a
+/// slide with a seed of its own; a map's place, that picture with a pin and a label over it (PLAN
+/// O.1e); or a chart or a table of a few rows made up for it, written inline. An editor draws it, so a
 /// layout's picture shows what each slot is for, and never saves it.
 pub fn example(deck: &Deck, theme: &Theme, shown: &str, layout: &str) -> Result<AddedState, OpsError> {
     let mut started = starting(deck, theme, shown, Some(layout))?;
@@ -177,6 +178,29 @@ pub fn example(deck: &Deck, theme: &Theme, shown: &str, layout: &str) -> Result<
                 node["data"] = json!(format!("@{id}"));
                 node["at"] = json!({ "in": slot });
                 node
+            }
+            Example::Map(preset) => {
+                let Some(p) = presets.and_then(|p| p.get(preset)) else {
+                    return Err(OpsError::new(format!("the theme has no shader preset `{preset}`")));
+                };
+                seed += 1;
+                // A pin, its tip at the place's middle, and a label under it, over the picture: a
+                // map's place, drawn with no provider's map (ADR-0030).
+                let pin = named(deck, &format!("{id}-pin"), &ids);
+                let pinned = json!({
+                    "type": "shape", "kind": "path", "path": MAP_PIN, "view": [0, 0, 1000, 1000], "fill": "accent",
+                    "semantic": "decoration", "at": { "in": slot },
+                });
+                started.patch.push(json!({ "op": "add_node", "id": pin, "node": pinned, "state": started.id }));
+                ids.push(pin);
+                let label = named(deck, &format!("{id}-label"), &ids);
+                let labeled = json!({
+                    "type": "text", "role": "label", "text": "A place", "at": { "in": slot },
+                    "align": { "x": "center", "y": "center" }, "transform": { "translate": [0, 40] },
+                });
+                started.patch.push(json!({ "op": "add_node", "id": label, "node": labeled, "state": started.id }));
+                ids.push(label);
+                json!({ "type": "shader", "kind": p.kind, "preset": preset, "seed": seed, "at": { "in": slot }, "z": -2 })
             }
             Example::Table(columns) => {
                 let rows = example_table(*columns);
@@ -210,6 +234,9 @@ pub fn example(deck: &Deck, theme: &Theme, shown: &str, layout: &str) -> Result<
     Ok(started)
 }
 
+/// A map's pin on a view of 1000 × 1000 (PLAN O.1e): a drop whose tip stands at the middle, as a
+/// pin marks its place.
+const MAP_PIN: &str = "M500 380C470 380 446 404 446 434C446 470 500 500 500 500C500 500 554 470 554 434C554 404 530 380 500 380ZM500 412C512 412 522 422 522 434C522 446 512 456 500 456C488 456 478 446 478 434C478 422 488 412 500 412Z";
 /// The patch that draws the picture a picker shows of a slide started after `shown`'s slide
 /// (PLAN 3.30, 3.31): in `layout`, the slide [`example`] makes, and a box of the theme's second
 /// surface (`surface-2`, else `line`) under the words in each other slot that waits for a picture
