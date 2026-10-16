@@ -141,11 +141,20 @@ final class OpeningTests: XCTestCase {
         UIPasteboard.general.string = "fn main() {\n    let total = 42;\n    println!(\"{total}\");\n}\n"
         let canvas = app.descendants(matching: .any).matching(identifier: "canvas").firstMatch
         XCTAssertTrue(canvas.waitForExistence(timeout: 10), "no canvas: \(app.debugDescription)")
-        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).tap()
+        // A tap on the title selects it and gives the canvas the keyboard, as KeysTests's does: ⌘V is
+        // then the canvas's paste. A tap where nothing draws leaves the keys where they were.
+        let title = canvas.descendants(matching: .any).matching(NSPredicate(format: "label == 'Scaena'")).firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 10), "no title on the canvas: \(app.debugDescription)")
+        title.tap()
+        XCTAssertTrue(wait(5) { title.isSelected }, "the title is not selected: \(app.debugDescription)")
         app.typeKey("v", modifierFlags: .command)
-        // iPadOS asks once whether the app may read what another put on the pasteboard.
-        let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Allow Paste"]
-        if allow.waitForExistence(timeout: 3) { allow.tap() }
+        // iPadOS may ask once whether the app may read what another put on the pasteboard, in the
+        // app's window or the system's.
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        for allow in [app.buttons["Allow Paste"], springboard.buttons["Allow Paste"]] where allow.waitForExistence(timeout: 2) {
+            allow.tap()
+            break
+        }
         let chip = app.descendants(matching: .any).matching(identifier: "code-chip").firstMatch
         XCTAssertTrue(chip.waitForExistence(timeout: 10), "the code pasted shows no chip: \(app.debugDescription)")
         XCTAssertEqual(chip.value as? String, "Rust", "the chip does not say Rust: \(chip.debugDescription)")
