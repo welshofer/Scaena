@@ -1080,6 +1080,7 @@ pub mod cpu {
             dl.ops.push(Op::Layer {
                 node: None,
                 cell: None,
+                label: None,
                 transform: [1.0, 0.0, 0.0, 1.0, 2.0, 2.0],
                 opacity: 1.0,
                 blend: Blend::Normal,
@@ -1153,6 +1154,7 @@ pub mod cpu {
             dl.ops.push(Op::Layer {
                 node: None,
                 cell: None,
+                label: None,
                 transform: [1.0, 0.0, 0.0, 1.0, 10.0, 20.0],
                 opacity: 0.5,
                 blend: Blend::Normal,
@@ -1193,6 +1195,7 @@ pub mod cpu {
             dl.ops.push(Op::Layer {
                 node: None,
                 cell: None,
+                label: None,
                 transform: [1.0, 0.0, 0.0, 1.0, 5.0, 2.0],
                 opacity: 1.0,
                 blend: Blend::Normal,
@@ -1733,6 +1736,7 @@ pub mod gpu {
             let nested = Op::Layer {
                 node: None,
                 cell: None,
+                label: None,
                 transform: [1.0, 0.0, 0.0, 1.0, 100.0, 0.0],
                 opacity: 1.0,
                 blend: scaena_core::displaylist::Blend::Normal,
@@ -2481,6 +2485,7 @@ pub mod gpu {
                 dl.ops.push(Op::Layer {
                     node: None,
                     cell: None,
+                    label: None,
                     transform: [1.0, 0.0, 0.0, 1.0, 5.0, 2.0],
                     opacity: 1.0,
                     blend: Blend::Normal,
@@ -2575,6 +2580,7 @@ pub mod gpu {
                 dl.ops.push(Op::Layer {
                     node: None,
                     cell: None,
+                    label: None,
                     transform: [1.0, 0.0, 0.0, 1.0, 2.0, 2.0],
                     opacity: 1.0,
                     blend: Blend::Normal,
@@ -2585,6 +2591,7 @@ pub mod gpu {
                 dl.ops.push(Op::Layer {
                     node: None,
                     cell: None,
+                    label: None,
                     transform: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
                     opacity: 0.5,
                     blend: Blend::Normal,

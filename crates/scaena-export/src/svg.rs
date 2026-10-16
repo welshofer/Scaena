@@ -475,6 +475,7 @@ impl Cx<'_> {
         list.ops.push(Op::Layer {
             node: None,
             cell: None,
+            label: None,
             transform: local,
             opacity: 1.0,
             blend: Blend::Normal,
@@ -798,6 +799,7 @@ mod tests {
         list.ops.push(Op::Layer {
             node: Some("card".into()),
             cell: None,
+            label: None,
             transform: [1.0, 0.0, 0.0, 1.0, 10.0, 5.0],
             opacity: 0.5,
             blend: Blend::Multiply,

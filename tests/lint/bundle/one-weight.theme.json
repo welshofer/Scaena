@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.23",
+  "scaena-theme": "0.24",
   "name": "Lint, one weight",
   "description": "The lint bundle's theme with its serif family set in Instrument Serif, a family of one weight with no `wght` axis: what W232's fixtures are checked in (tests/lint/README.md).",
   "tokens": {

@@ -6,7 +6,7 @@
   ],
   "ops":[
     {"fill":{"path":"M0 0L1080 0L1080 1920L0 1920Z","rule":"nonzero","paint":{"solid":"#FBFAF6FF"}}},
-    {"layer":{"node":"case","cell":null,"transform":[1.0,0.0,0.0,1.0,64.0,90.90625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"case","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,64.0,90.90625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"22 · Bar chart: values in, then the next quarter · recorded","glyphs":[
         [262,0.0,20.71875],
         [262,13.203125,20.71875],
@@ -69,7 +69,7 @@
         [141,653.1094,20.71875]
       ],"clusters":[0,1,2,3,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,52,53,54,55,56,57,58,59,60]}}
     ]}},
-    {"layer":{"node":"bars","cell":null,"transform":[1.0,0.0,0.0,1.0,64.0,315.0],"opacity":1.0,"blend":"normal","clip":"M0 -315L952 -315L952 1605L0 1605Z","ops":[
+    {"layer":{"node":"bars","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,64.0,315.0],"opacity":1.0,"blend":"normal","clip":"M0 -315L952 -315L952 1605L0 1605Z","ops":[
       {"stroke":{"path":"M0 1477.75L952 1477.75","paint":{"solid":"#DAD5C9FF"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
       {"fill":{"path":"M-116.828125 1409.125L-3.078125 1409.125C-2.9375 1409.125 -2.828125 1409.2344 -2.828125 1409.375L-2.828125 1477.75L-117.0625 1477.75L-117.0625 1409.375C-117.0625 1409.2344 -116.953125 1409.125 -116.828125 1409.125Z","rule":"nonzero","paint":{"solid":"#333333FF"}}},
       {"fill":{"path":"M43.59375 732.09375L153.84375 732.09375C154.9375 732.09375 155.84375 732.9844 155.84375 734.09375L155.84375 1477.75L41.59375 1477.75L41.59375 734.09375C41.59375 732.9844 42.5 732.09375 43.59375 732.09375Z","rule":"nonzero","paint":{"solid":"#333333FF"}}},
@@ -78,7 +78,7 @@
       {"fill":{"path":"M519.59375 849.8281L629.84375 849.8281C630.9375 849.8281 631.84375 850.71875 631.84375 851.8281L631.84375 1477.75L517.59375 1477.75L517.59375 851.8281C517.59375 850.71875 518.5 849.8281 519.59375 849.8281Z","rule":"nonzero","paint":{"solid":"#333333FF"}}},
       {"fill":{"path":"M678.2656 261.14063L788.5 261.14063C789.6094 261.14063 790.5 262.03125 790.5 263.14063L790.5 1477.75L676.2656 1477.75L676.2656 263.14063C676.2656 262.03125 677.15625 261.14063 678.2656 261.14063Z","rule":"nonzero","paint":{"solid":"#333333FF"}}},
       {"fill":{"path":"M836.6875 203.76563L947.4219 203.76563C948.3906 203.76563 949.1719 204.54688 949.1719 205.51563L949.1719 1477.75L834.9375 1477.75L834.9375 205.51563C834.9375 204.54688 835.71875 203.76563 836.6875 203.76563Z","rule":"nonzero","paint":{"solid":"#333333FF"}}},
-      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,-108.359375,1480.2031],"opacity":0.122166395,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,-108.359375,1480.2031],"opacity":0.122166395,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":24.0,"coords":[0,529,0,0],"paint":{"solid":"#6B675EFF"},"text":"2025-Q1","glyphs":[
           [417,0.0,22.59375],
           [415,13.4375,22.59375],
@@ -89,7 +89,7 @@
           [416,83.375,22.59375]
         ],"clusters":[0,1,2,3,4,5,6]}}
       ]}},
-      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,50.3125,1480.2031],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,50.3125,1480.2031],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":24.0,"coords":[0,529,0,0],"paint":{"solid":"#6B675EFF"},"text":"2025-Q2","glyphs":[
           [417,0.0,22.59375],
           [415,13.4375,22.59375],
@@ -100,7 +100,7 @@
           [417,83.375,22.59375]
         ],"clusters":[0,1,2,3,4,5,6]}}
       ]}},
-      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,208.96875,1480.2031],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,208.96875,1480.2031],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":24.0,"coords":[0,529,0,0],"paint":{"solid":"#6B675EFF"},"text":"2025-Q3","glyphs":[
           [417,0.0,22.59375],
           [415,13.4375,22.59375],
@@ -111,7 +111,7 @@
           [418,83.375,22.59375]
         ],"clusters":[0,1,2,3,4,5,6]}}
       ]}},
-      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,367.64062,1480.2031],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,367.64062,1480.2031],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":24.0,"coords":[0,529,0,0],"paint":{"solid":"#6B675EFF"},"text":"2025-Q4","glyphs":[
           [417,0.0,22.59375],
           [415,13.4375,22.59375],
@@ -122,7 +122,7 @@
           [419,83.375,22.59375]
         ],"clusters":[0,1,2,3,4,5,6]}}
       ]}},
-      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,526.3125,1480.2031],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,526.3125,1480.2031],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":24.0,"coords":[0,529,0,0],"paint":{"solid":"#6B675EFF"},"text":"2026-Q1","glyphs":[
           [417,0.0,22.59375],
           [415,13.4375,22.59375],
@@ -133,7 +133,7 @@
           [416,83.375,22.59375]
         ],"clusters":[0,1,2,3,4,5,6]}}
       ]}},
-      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,684.96875,1480.2031],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,684.96875,1480.2031],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":24.0,"coords":[0,529,0,0],"paint":{"solid":"#6B675EFF"},"text":"2026-Q2","glyphs":[
           [417,0.0,22.59375],
           [415,13.4375,22.59375],
@@ -144,7 +144,7 @@
           [417,83.375,22.59375]
         ],"clusters":[0,1,2,3,4,5,6]}}
       ]}},
-      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,843.6406,1480.2031],"opacity":0.8778336,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,843.6406,1480.2031],"opacity":0.8778336,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":24.0,"coords":[0,529,0,0],"paint":{"solid":"#6B675EFF"},"text":"2026-Q3","glyphs":[
           [417,0.0,22.59375],
           [415,13.4375,22.59375],
@@ -155,41 +155,41 @@
           [418,83.375,22.59375]
         ],"clusters":[0,1,2,3,4,5,6]}}
       ]}},
-      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,-67.234375,1376.6406],"opacity":0.122166395,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,-67.234375,1376.6406],"opacity":0.122166395,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":26.0,"coords":[0,793,3277,0],"paint":{"solid":"#16140FFF"},"text":"1","glyphs":[
           [416,0.0,24.484375]
         ],"clusters":[0]}}
       ]}},
-      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,84.15625,699.6094],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,84.15625,699.6094],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":26.0,"coords":[0,793,3277,0],"paint":{"solid":"#16140FFF"},"text":"19","glyphs":[
           [416,0.0,24.484375],
           [424,14.5625,24.484375]
         ],"clusters":[0,1]}}
       ]}},
-      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,250.10938,1170.5625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,250.10938,1170.5625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":26.0,"coords":[0,793,3277,0],"paint":{"solid":"#16140FFF"},"text":"7","glyphs":[
           [422,0.0,24.484375]
         ],"clusters":[0]}}
       ]}},
-      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,401.48438,503.39062],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,401.48438,503.39062],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":26.0,"coords":[0,793,3277,0],"paint":{"solid":"#16140FFF"},"text":"24","glyphs":[
           [417,0.0,24.484375],
           [419,14.5625,24.484375]
         ],"clusters":[0,1]}}
       ]}},
-      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,560.15625,817.34375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,560.15625,817.34375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":26.0,"coords":[0,793,3277,0],"paint":{"solid":"#16140FFF"},"text":"16","glyphs":[
           [416,0.0,24.484375],
           [421,14.5625,24.484375]
         ],"clusters":[0,1]}}
       ]}},
-      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,718.8281,228.67188],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,718.8281,228.67188],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":26.0,"coords":[0,793,3277,0],"paint":{"solid":"#16140FFF"},"text":"31","glyphs":[
           [418,0.0,24.484375],
           [416,14.5625,24.484375]
         ],"clusters":[0,1]}}
       ]}},
-      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,877.4844,171.28125],"opacity":0.8778336,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,877.4844,171.28125],"opacity":0.8778336,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":26.0,"coords":[0,793,3277,0],"paint":{"solid":"#16140FFF"},"text":"33","glyphs":[
           [418,0.0,24.484375],
           [418,14.5625,24.484375]

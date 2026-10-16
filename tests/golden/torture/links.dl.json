@@ -6,7 +6,7 @@
   ],
   "ops":[
     {"fill":{"path":"M0 0L1920 0L1920 1080L0 1080Z","rule":"nonzero","paint":{"solid":"#FBFAF6FF"}}},
-    {"layer":{"node":"case","cell":null,"transform":[1.0,0.0,0.0,1.0,96.0,90.90625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"case","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,96.0,90.90625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"52 · Links · recorded","glyphs":[
         [265,0.0,20.71875],
         [262,13.203125,20.71875],
@@ -31,7 +31,7 @@
         [141,223.82812,20.71875]
       ],"clusters":[0,1,2,3,5,6,7,8,9,10,11,12,14,15,16,17,18,19,20,21,22]}}
     ]}},
-    {"layer":{"node":"link-text","cell":null,"transform":[1.0,0.0,0.0,1.0,96.0,210.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"link-text","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,96.0,210.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"Read how the deck is ","glyphs":[
         [76,0.0,40.65625],
         [143,27.046875,40.65625],

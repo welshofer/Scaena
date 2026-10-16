@@ -36,6 +36,7 @@ impl Kind {
             Some("donut") => Kind::Donut,
             Some("slope") => Kind::Slope,
             Some("range") => Kind::Range,
+            Some("weather") => Kind::Weather,
             other => return Err(EngineError::Layout(format!("unknown chart kind {other:?}"))),
         })
     }
@@ -223,6 +224,10 @@ pub fn color_keys(deck: &scaena_core::Deck, files: &data::DataFiles, props: &Pro
 
 /// Compile a chart node's resolved props for a cell `size` wide and high.
 pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayout, EngineError> {
+    // A forecast is laid out by its periods (ADR-0030).
+    if props.get("kind").and_then(Value::as_str) == Some("weather") {
+        return super::weather::compile(cx, props, size);
+    }
     match props.get("facet").and_then(Value::as_object) {
         Some(facet) => facets(cx, props, facet, size),
         None => compile_in(cx, props, size, None),
@@ -357,6 +362,7 @@ fn facets(cx: &mut Ctx, props: &Props, facet: &Map<String, Value>, size: [f32; 2
     }
     let horizontal = panels.first().is_some_and(|p| p.chart.horizontal);
     Ok(ChartLayout {
+        icons: Vec::new(),
         credit: None,
         kind,
         horizontal,
@@ -798,7 +804,7 @@ fn compile_in(
         "auto" => match kind {
             Kind::Bar | Kind::StackedBar | Kind::Dot | Kind::Donut | Kind::Slope | Kind::Range => "all",
             Kind::Line => "ends",
-            Kind::Area | Kind::Scatter => "none",
+            Kind::Area | Kind::Scatter | Kind::Weather => "none",
         },
         "all" | "ends" | "none" => show,
         other => return Err(EngineError::Layout(format!("labels.show `{other}`: expected auto, all, ends, or none"))),
@@ -1394,6 +1400,7 @@ fn compile_in(
         },
         highlights: Vec::new(),
         panels: Vec::new(),
+        icons: Vec::new(),
     };
     for (v, key, label) in tick_labels {
         let y = to_y(v);
@@ -1724,6 +1731,8 @@ fn compile_in(
                 }
             }
         }
+        // A forecast is laid out by its periods, never here (ADR-0030).
+        Kind::Weather => {}
         Kind::Donut => {
             let total: f64 = rows.iter().map(|r| r.y).sum();
             let (cx, cy) = (left + 0.5 * (right - left), top + 0.5 * (bottom - top));
