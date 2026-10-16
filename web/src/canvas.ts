@@ -3822,7 +3822,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     // A click on a chart's mark, or a table's row, chooses its rows where the data is shown (PLAN 2.64).
     if (!clicked.shift) void editor.pointedAt?.(clicked.from, false);
     if (clicked.asking) {
-      clicked.moved = { at: point(e), shift: e.shiftKey, alt: e.altKey, loose: e.metaKey || e.ctrlKey, client: [e.clientX, e.clientY] };
+      const went = clicked.moved?.went === true || Math.hypot(e.clientX - clicked.client[0], e.clientY - clicked.client[1]) >= SLOP;
+      clicked.moved = { at: point(e), shift: e.shiftKey, alt: e.altKey, loose: e.metaKey || e.ctrlKey, client: [e.clientX, e.clientY], went };
       clicked.released = true;
     } else if (clicked.toggle !== undefined) toggle(clicked.toggle);
     else if (clicked.marquee) select(clicked.click);
