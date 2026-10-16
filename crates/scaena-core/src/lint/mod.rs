@@ -162,8 +162,9 @@ pub fn check(deck: &Deck, theme: Option<&Theme>) -> Vec<Finding> {
     findings
 }
 
-/// W428 (ADR-0030, decision 21): each fetched forecast whose first period's day has passed at its
-/// place at `now`, seconds since the epoch, unless it is `kept`: one finding at each node that
+/// W428 (ADR-0030, decisions 21 and 25): each fetched forecast whose first period's day has passed
+/// at its place at `now`, seconds since the epoch, and each price series older than its range
+/// allows, unless it is `kept`: one finding at each node that
 /// shows it, in the first state that does, else one at the source. Each names the source to
 /// fetch again in `refresh`, since a fetch is no patch. Lint judges no date without `now`.
 pub fn dated(deck: &Deck, now: i64) -> Vec<Finding> {
@@ -174,13 +175,22 @@ pub fn dated(deck: &Deck, now: i64) -> Vec<Finding> {
         let rows = source.source.get("inline").and_then(Value::as_array);
         let first = rows.and_then(|r| r.first()).and_then(|row| row.get("date").or_else(|| row.get("time")));
         let first = first.and_then(Value::as_str);
-        if !crate::fetched::passed(fetched, first, now) {
+        let message: Box<dyn Fn(&str) -> String> = if crate::fetched::passed(fetched, first, now) {
+            let Some(forecast) = &fetched.forecast else { continue };
+            let day = first.map_or_else(|| crate::fetched::date(&fetched.at).unwrap_or("").into(), |d| d[..10].into());
+            let place = forecast.place.name.clone();
+            Box::new(move |what: &str| {
+                format!("{what} forecast `@{name}` starts on {day}, a day that has passed in {place}")
+            })
+        } else if crate::fetched::stale(fetched, now) {
+            // A price series older than its range allows (ADR-0030, decision 25).
+            let Some(stock) = &fetched.stock else { continue };
+            let (symbol, through) = (stock.symbol.clone(), stock.through.clone());
+            Box::new(move |what: &str| {
+                format!("{what} prices of {symbol} `@{name}` run to {through}, older than their range allows")
+            })
+        } else {
             continue;
-        }
-        let Some(forecast) = &fetched.forecast else { continue };
-        let day = first.map_or_else(|| crate::fetched::date(&fetched.at).unwrap_or("").to_string(), |d| d[..10].into());
-        let message = |what: &str| {
-            format!("{what} forecast `@{name}` starts on {day}, a day that has passed in {}", forecast.place.name)
         };
         let hint = "Fetch it again, or keep it as it is (`fetched.kept`).";
         let reads = format!("@{name}");

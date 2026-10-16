@@ -45,6 +45,93 @@ pub struct Fetched {
     /// A forecast, as it was asked (PLAN O.2a): the place, the period, and the units.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub forecast: Option<crate::weather::Forecast>,
+    /// A price series, as it was asked and as far as it runs (PLAN O.3a, deck format 0.32).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stock: Option<Stock>,
+}
+
+/// A price series as it was fetched (ADR-0030, decision 22): the symbol, the range, where it
+/// trades and in what, and the last price's civil time there. Its rows are `time`, `close`, and
+/// `base`, in a CSV under `data/`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Stock {
+    /// The ticker symbol, as the service names it: `AAPL`.
+    #[schemars(length(min = 1))]
+    pub symbol: String,
+    /// How far back the series runs.
+    pub range: Range,
+    /// The exchange it trades on, as the service names it: `NASDAQ`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exchange: Option<String>,
+    /// The currency its prices are in, ISO 4217: `USD`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(regex(pattern = "^[A-Z]{3}$"))]
+    pub currency: Option<String>,
+    /// The exchange's time zone, by its IANA name, in which the rows' times are civil:
+    /// `America/New_York`.
+    #[schemars(length(min = 1))]
+    pub zone: String,
+    /// The last price's civil time in the exchange's zone: a day, `2026-10-15`, or a close at its
+    /// bar's end, `2026-10-15T16:00`.
+    pub through: String,
+}
+
+/// How far back a price series runs: a day, a week, a month, three months, a year, or the year
+/// to date.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub enum Range {
+    #[serde(rename = "1d")]
+    Day,
+    #[serde(rename = "1w")]
+    Week,
+    #[serde(rename = "1m")]
+    Month,
+    #[serde(rename = "3m")]
+    Quarter,
+    #[serde(rename = "1y")]
+    Year,
+    #[serde(rename = "ytd")]
+    YearToDate,
+}
+
+impl Range {
+    /// The days its series may run behind before lint finds it old (ADR-0030, decision 25): a day
+    /// for a day or a week, a week for a month, three months, or the year to date, a month for a
+    /// year.
+    pub fn allowed(self) -> i64 {
+        match self {
+            Range::Day | Range::Week => 1,
+            Range::Month | Range::Quarter | Range::YearToDate => 7,
+            Range::Year => 31,
+        }
+    }
+}
+
+/// Whether `at` is a civil time as a price series writes one: a day, `YYYY-MM-DD`, or a day and a
+/// time to the minute or the second, `YYYY-MM-DDTHH:MM[:SS]`, with no zone.
+pub fn civil_time(at: &str) -> bool {
+    let b = at.as_bytes();
+    let digits = |r: std::ops::Range<usize>| b.get(r).is_some_and(|d| d.iter().all(u8::is_ascii_digit));
+    let number = |r: std::ops::Range<usize>| at.get(r).and_then(|s| s.parse::<u32>().ok()).unwrap_or(99);
+    if days(at).is_none() || !matches!(b.len(), 10 | 16 | 19) || !digits(0..4) {
+        return false;
+    }
+    if b.len() == 10 {
+        return true;
+    }
+    if b[10] != b'T' || b[13] != b':' || !digits(11..13) || !digits(14..16) || number(11..13) > 23 {
+        return false;
+    }
+    if number(14..16) > 59 {
+        return false;
+    }
+    b.len() == 16 || (b[16] == b':' && digits(17..19) && number(17..19) <= 59)
+}
+
+/// The city a time zone's IANA name ends in, as a person says it: `America/New_York` is New York.
+pub fn city(zone: &str) -> String {
+    zone.rsplit('/').next().unwrap_or(zone).replace('_', " ")
 }
 
 /// Which of a service's terms a fetch came under.
@@ -160,6 +247,7 @@ pub struct Service {
 pub const SERVICES: &[Service] = &[
     Service { name: "geoapify", title: "Geoapify", credited: true },
     Service { name: "open-meteo", title: "Open-Meteo", credited: true },
+    Service { name: "twelve-data", title: "Twelve Data", credited: true },
 ];
 
 /// The service `name`, if this build knows it.
@@ -196,6 +284,17 @@ pub fn foot(fetched: &Fetched, lang: Option<&str>) -> Vec<CreditRun> {
         out.push(plain(" · ".into()));
     }
     out.extend(fetched.credit.iter().filter(|r| !r.text.is_empty()).cloned());
+    // A price series says how far its prices run, in the exchange's own time (ADR-0030, decision
+    // 23): "prices to Oct 15, 2026, 4:00 PM New York time".
+    if let Some(stock) = &fetched.stock {
+        let day = said_day(stock.through.get(..10).unwrap_or(&stock.through), lang);
+        let time = stock.through.get(11..16).map(|t| clock(t, lang));
+        let to = match time {
+            Some(time) => format!("{day}, {time} {} time", city(&stock.zone)),
+            None => day,
+        };
+        out.push(plain(format!(" · prices to {to}")));
+    }
     if fetched.edited {
         out.push(plain(" · edited".into()));
     }
@@ -212,6 +311,21 @@ pub fn said_day(day: &str, lang: Option<&str>) -> String {
     match locale.tag {
         "en-US" => format!("{month} {d}, {y}"),
         _ => format!("{d} {month} {y}"),
+    }
+}
+
+/// A time of day, `HH:MM`, as a chart's foot prints it in language `lang`: `4:00 PM` in English,
+/// `16:00` elsewhere.
+fn clock(hm: &str, lang: Option<&str>) -> String {
+    let (Some(h), Some(m)) = (hm.get(0..2).and_then(|h| h.parse::<u32>().ok()), hm.get(3..5)) else {
+        return hm.into();
+    };
+    match crate::format::Locale::of(lang).tag {
+        tag if tag.starts_with("en") => {
+            let twelve = if h % 12 == 0 { 12 } else { h % 12 };
+            format!("{twelve}:{m} {}", if h < 12 { "AM" } else { "PM" })
+        }
+        _ => hm.into(),
     }
 }
 
@@ -347,6 +461,16 @@ pub fn passed(fetched: &Fetched, first: Option<&str>, now: i64) -> bool {
     first < (now + offset).div_euclid(86_400)
 }
 
+/// Whether a price series is older at `now` (seconds since the epoch) than its range allows
+/// (ADR-0030, decision 25): more days from its `through` to the day `now` falls on in UTC than
+/// [`Range::allowed`]. A series kept as of its date, or one whose `through` is no civil time, is
+/// not.
+pub fn stale(fetched: &Fetched, now: i64) -> bool {
+    let Some(stock) = fetched.stock.as_ref().filter(|_| !fetched.kept) else { return false };
+    let Some(through) = days(&stock.through).filter(|_| civil_time(&stock.through)) else { return false };
+    now.div_euclid(86_400) - through > stock.range.allowed()
+}
+
 /// What is wrong with a `fetched` record as written, each with the pointer below the record it
 /// is at: a service this build does not know, an `at` that is no instant, an empty credit where
 /// the service asks for one (E106). A record the schema refuses is the schema's.
@@ -363,6 +487,10 @@ pub fn problems(record: &Value) -> Vec<(String, String)> {
     }
     if !instant(&fetched.at) {
         out.push(("/at".into(), format!("`{}` is not an instant: write it as 2026-10-15T20:12:44Z", fetched.at)));
+    }
+    if let Some(stock) = fetched.stock.as_ref().filter(|s| !civil_time(&s.through)) {
+        let at = &stock.through;
+        out.push(("/stock/through".into(), format!("`{at}` is no civil time: write it as 2026-10-15 or 2026-10-15T16:00")));
     }
     if known.is_some_and(|s| s.credited) && said(&fetched.credit).trim().is_empty() {
         let title = known.map_or("", |s| s.title);
@@ -400,6 +528,63 @@ mod tests {
         assert_eq!(crate::words::day("2026-10-15"), "15 October 2026");
         assert_eq!(crate::words::day("2026-01-05"), "5 January 2026");
         assert_eq!(crate::words::day("someday"), "someday");
+    }
+
+    fn prices(range: &str, through: &str, kept: bool) -> Fetched {
+        serde_json::from_value(json!({
+            "from": "twelve-data", "at": "2026-10-15T20:12:44Z", "asked": "AAPL", "kept": kept,
+            "credit": [{ "text": "Data provided by Twelve Data", "link": "https://twelvedata.com" }],
+            "stock": { "symbol": "AAPL", "range": range, "exchange": "NASDAQ", "currency": "USD",
+                       "zone": "America/New_York", "through": through }
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_price_series_says_how_far_its_prices_run_and_when_they_are_old() {
+        let day = prices("1d", "2026-10-15T16:00", false);
+        let words = said(&foot(&day, Some("en-US")));
+        assert_eq!(words, "Data provided by Twelve Data · prices to Oct 15, 2026, 4:00 PM New York time");
+        assert!(said(&foot(&day, Some("de-DE"))).ends_with(", 16:00 New York time"), "a 24-hour clock");
+        let year = prices("1y", "2026-10-15", false);
+        assert!(said(&foot(&year, Some("en-US"))).ends_with(" · prices to Oct 15, 2026"));
+        assert_eq!(foot(&day, None)[0].link.as_deref(), Some("https://twelvedata.com"), "the credit links");
+        // A day's and a week's prices may be a day old; a month's, a quarter's, and the year to
+        // date's a week; a year's a month (ADR-0030, decision 25).
+        let at = |d: &str| seconds(&format!("{d}T12:00:00Z")).unwrap();
+        for (range, fresh, old) in [
+            ("1d", "2026-10-16", "2026-10-17"),
+            ("1w", "2026-10-16", "2026-10-17"),
+            ("1m", "2026-10-22", "2026-10-23"),
+            ("3m", "2026-10-22", "2026-10-23"),
+            ("ytd", "2026-10-22", "2026-10-23"),
+            ("1y", "2026-11-15", "2026-11-16"),
+        ] {
+            let series = prices(range, "2026-10-15T16:00", false);
+            assert!(!stale(&series, at(fresh)), "{range} on {fresh}");
+            assert!(stale(&series, at(old)), "{range} on {old}");
+            assert!(!stale(&prices(range, "2026-10-15", true), at(old)), "kept, {range}");
+        }
+        assert!(!stale(&prices("1d", "Thursday", false), at("2027-01-01")), "no civil time, no date judged");
+        assert!(!passed(&day, None, at("2027-01-01")), "a price series is no forecast");
+    }
+
+    #[test]
+    fn a_civil_time_is_a_day_or_a_day_and_a_time_with_no_zone() {
+        for at in ["2026-10-15", "2026-10-15T16:00", "2026-10-15T09:35:00"] {
+            assert!(civil_time(at), "{at}");
+        }
+        for at in ["2026-10-15T16:00Z", "2026-10-15 16:00", "2026-10-15T24:00", "2026-13-01", "2026-10-15T16", "today"] {
+            assert!(!civil_time(at), "{at}");
+        }
+        assert_eq!(city("America/New_York"), "New York");
+        assert_eq!(city("Europe/London"), "London");
+        let wrong = json!({ "from": "twelve-data", "at": "2026-10-15T20:12:44Z", "asked": "AAPL",
+                            "credit": [{ "text": "Data provided by Twelve Data" }],
+                            "stock": { "symbol": "AAPL", "range": "1d", "zone": "America/New_York", "through": "4 PM" } });
+        assert_eq!(problems(&wrong)[0].0, "/stock/through");
+        let range = json!({ "symbol": "AAPL", "range": "2y", "zone": "America/New_York", "through": "2026-10-15" });
+        assert!(serde_json::from_value::<Stock>(range).is_err(), "an unknown range");
     }
 
     #[test]

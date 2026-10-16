@@ -374,6 +374,7 @@ fn every_example_deck_moves_between_the_shipped_themes() {
         "ridgeline.deck.json",
         "code.deck.json",
         "weather.deck.json",
+        "stock.deck.json",
         "authorability",
     ];
     let runs: Vec<(String, String)> = std::thread::scope(|s| {

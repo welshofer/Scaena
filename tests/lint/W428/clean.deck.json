@@ -1,6 +1,6 @@
 {
-  "scaena": "0.31",
-  "_comment": "W428 clean, linted at 2026-10-15T18:00:00Z: a week fetched on 2026-10-15, whose first day is today in Boston; and one fetched on 2026-10-01 and kept as it is.",
+  "scaena": "0.32",
+  "_comment": "W428 clean, linted at 2026-10-15T18:00:00Z: a week fetched on 2026-10-15, whose first day is today in Boston; and one fetched on 2026-10-01 and kept as it is. A year's prices to 2026-10-01 are within its month; a day's, kept, are not judged.",
   "canvas": {
     "width": 1920,
     "height": 1080
@@ -258,6 +258,127 @@
           },
           "period": "day",
           "units": "metric"
+        },
+        "kept": true
+      }
+    },
+    "prices": {
+      "source": {
+        "inline": [
+          {
+            "time": "2026-10-06",
+            "close": 184.2,
+            "base": 180.0
+          },
+          {
+            "time": "2026-10-07",
+            "close": 184.9,
+            "base": 180.0
+          },
+          {
+            "time": "2026-10-08",
+            "close": 185.6,
+            "base": 180.0
+          },
+          {
+            "time": "2026-10-09",
+            "close": 186.3,
+            "base": 180.0
+          },
+          {
+            "time": "2026-10-12",
+            "close": 188.4,
+            "base": 180.0
+          },
+          {
+            "time": "2026-10-13",
+            "close": 189.1,
+            "base": 180.0
+          }
+        ]
+      },
+      "schema": {
+        "time": "date",
+        "close": "number",
+        "base": "number"
+      },
+      "fetched": {
+        "from": "twelve-data",
+        "at": "2026-10-13T20:15:02Z",
+        "asked": "AAPL",
+        "credit": [
+          {
+            "text": "Data provided by Twelve Data",
+            "link": "https://twelvedata.com"
+          }
+        ],
+        "stock": {
+          "symbol": "AAPL",
+          "range": "1y",
+          "exchange": "NASDAQ",
+          "currency": "USD",
+          "zone": "America/New_York",
+          "through": "2026-10-01"
+        }
+      }
+    },
+    "held": {
+      "source": {
+        "inline": [
+          {
+            "time": "2026-10-06",
+            "close": 184.2,
+            "base": 180.0
+          },
+          {
+            "time": "2026-10-07",
+            "close": 184.9,
+            "base": 180.0
+          },
+          {
+            "time": "2026-10-08",
+            "close": 185.6,
+            "base": 180.0
+          },
+          {
+            "time": "2026-10-09",
+            "close": 186.3,
+            "base": 180.0
+          },
+          {
+            "time": "2026-10-12",
+            "close": 188.4,
+            "base": 180.0
+          },
+          {
+            "time": "2026-10-13",
+            "close": 189.1,
+            "base": 180.0
+          }
+        ]
+      },
+      "schema": {
+        "time": "date",
+        "close": "number",
+        "base": "number"
+      },
+      "fetched": {
+        "from": "twelve-data",
+        "at": "2026-10-13T20:15:02Z",
+        "asked": "AAPL",
+        "credit": [
+          {
+            "text": "Data provided by Twelve Data",
+            "link": "https://twelvedata.com"
+          }
+        ],
+        "stock": {
+          "symbol": "AAPL",
+          "range": "1d",
+          "exchange": "NASDAQ",
+          "currency": "USD",
+          "zone": "America/New_York",
+          "through": "2026-10-01T16:00"
         },
         "kept": true
       }

@@ -648,7 +648,7 @@ pub const MARKED: &[(&str, &str)] = &[
     ("W314", "A credit here can't be read."),
     ("W410", "The picture has no description for people who can't see it."),
     ("W427", "A figure here no longer matches its data."),
-    ("W428", "This forecast has passed."),
+    ("W428", "What this shows has gone out of date."),
 ];
 
 /// The rest of what lint finds, said in a sentence, by its code (PLAN 2.99): the deck's structure,

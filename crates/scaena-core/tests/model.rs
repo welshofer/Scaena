@@ -13,6 +13,7 @@ const DECKS: &[(&str, &str)] = &[
     ("higher-ed", include_str!("../../../docs/examples/higher-ed.deck.json")),
     ("code", include_str!("../../../docs/examples/code.deck.json")),
     ("weather", include_str!("../../../docs/examples/weather.deck.json")),
+    ("stock", include_str!("../../../docs/examples/stock.deck.json")),
     ("authorability", include_str!("../../../docs/examples/authorability/deck.json")),
     ("torture", include_str!("../../../tests/fixtures/torture.scaena/deck.json")),
     ("b1", include_str!("../../../tests/bench/b1.scaena/deck.json")),
@@ -123,7 +124,9 @@ fn an_annotation_stands_where_its_kind_can() {
         "not both",
     );
     err(serde_json::json!({ "kind": "callout", "at": { "x": ["Q1", "Q2"] }, "text": "?" }), false, "one place");
-    err(serde_json::json!({ "kind": "highlight", "at": {} }), false, "`at.x`, `at.series`, or both");
+    // A highlight that names nothing lights every mark (deck format 0.32), a donut's every slice.
+    assert_eq!(check(serde_json::json!({ "kind": "highlight", "at": {} }), false), Ok(()));
+    assert_eq!(check(serde_json::json!({ "kind": "highlight", "at": {} }), true), Ok(()));
     err(serde_json::json!({ "kind": "highlight", "at": { "y": 3 } }), false, "no `at.y`");
     // A donut has slices: no axes, no series.
     assert_eq!(check(serde_json::json!({ "kind": "highlight", "at": { "x": "Direct" } }), true), Ok(()));

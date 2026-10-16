@@ -71,7 +71,8 @@ fn walk(dir: &Path, prefix: &str, out: &mut Vec<(String, Vec<u8>)>) {
     }
 }
 
-/// The decks: the example, the chart gallery, code (PLAN 2.131), and B1, or with `all`, every
+/// The decks: the example, the chart gallery, code (PLAN 2.131), a price series fetched and
+/// credited (PLAN O.3a), and B1, or with `all`, every
 /// deck in the repository a bundle holds.
 fn bundles(all: bool) -> Vec<Bundle> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -87,9 +88,9 @@ fn bundles(all: bool) -> Vec<Bundle> {
         out.push(Bundle { name, deck, theme, files });
     };
     let examples_named: &[&'static str] = if all {
-        &["revenue", "charts", "code", "trails", "ridgeline", "higher-ed"]
+        &["revenue", "charts", "code", "stock", "trails", "ridgeline", "higher-ed"]
     } else {
-        &["revenue", "charts", "code"]
+        &["revenue", "charts", "code", "stock"]
     };
     for &name in examples_named {
         add(name, &examples.join(format!("{name}.deck.json")), shared.clone(), &examples);

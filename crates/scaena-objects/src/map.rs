@@ -168,6 +168,7 @@ impl Map {
             kept: false,
             edited: false,
             forecast: None,
+            stock: None,
         }
     }
 
