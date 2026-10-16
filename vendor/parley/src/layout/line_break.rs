@@ -640,8 +640,10 @@ impl<'a, B: Brush> BreakLines<'a, B> {
                         else {
                             // Case: cluster is a space character (and wrapping is enabled)
                             //
-                            // We hang any overflowing whitespace and then line-break.
-                            if is_space && text_wrap_mode == TextWrapMode::Wrap {
+                            // We hang any overflowing whitespace and then line-break. A no-break
+                            // space is no opportunity (UAX #14 GL): it overflows as a letter does
+                            // (Scaena: ADR-0004 finding 25).
+                            if whitespace == Whitespace::Space && text_wrap_mode == TextWrapMode::Wrap {
                                 if max_height_exceeded {
                                     return self.max_height_break_data(line_height);
                                 }

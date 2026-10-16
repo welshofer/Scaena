@@ -33,7 +33,7 @@ crates/scaena-narrato  Vzestup's Narrato: a deck's narrative from a brief, reque
 crates/scaena-objects  objects from outside the deck by plans the client fetches: a map's picture from Geoapify; no HTTP, no clock, no key (ADR-0030)
 crates/scaena-sources  what a generated deck is grounded in, from bytes: Office files, PDFs, pages, and SEC, GitHub, and Google by plans the client fetches (PLAN G.3, G.4)
 crates/scaena-generator a deck made from a prompt as its own WASM module, which a page loads to make one: Narrato, the sources, research, and the deck built  (PLAN G.5)
-vendor/parley          parley 0.11.1, patched: a change of spacing keeps a run shaped whole (ADR-0004 finding 21)
+vendor/parley          parley 0.11.1, patched: a change of spacing keeps a run shaped whole, and a no-break space breaks no line (ADR-0004 findings 21, 25)
 vendor/skera           skera 0.7.0, patched: the repacker weighs a 32-bit offset alike on wasm32, so the browser subsets as the CLI does (ADR-0004 finding 24)
 vendor/skrifa          skrifa 0.44.0, patched: every pen draws a glyph through one instance of its scalers, so the editor's module carries them once (PLAN 2.146)
 docs/                  SPEC, PLAN, MANIFESTO, adr/, schema/, examples/
