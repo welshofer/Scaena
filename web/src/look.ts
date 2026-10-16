@@ -540,6 +540,9 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
         <label for="look-furniture">This slide</label><span class="control"><select id="look-furniture" data-furnish="slide"><option value=""${furniture.slide === undefined ? " selected" : ""}>As its layout has them</option><option value="yes"${furniture.slide === true ? " selected" : ""}>Shows them</option><option value="no"${furniture.slide === false ? " selected" : ""}>Hides them</option></select></span><span class="lives">${furniture.shown ? "Shown" : "Hidden"}</span>
       </div>`
       : "";
+    // A picture's frame is its theme's (PLAN T.3a): said, and offered nowhere.
+    const framed = !chars && nodes.length === 1 && "framed" in offered && offered.framed;
+    const framing = framed ? `<p class="framed"><span class="arrange-kind">Frame</span> ${html(framed)}</p>` : "";
     // The layouts the state may take, drawn (PLAN 2.92): where there is more than one.
     const layout = !chars && !("node" in offered) ? offered.fields.find((f) => f.prop === "layout") : undefined;
     const choosing = layout?.takes.kind === "name" && layout.takes.names.length > 1;
@@ -552,6 +555,7 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
       ${text ? writing : ""}
       ${layouts}
       <div class="fields">${rows.join("")}</div>
+      ${framing}
       ${furnishing}
       ${text ? "" : writing}
       ${reading}`;

@@ -191,6 +191,7 @@ How the image meets its box:
 - `fit: cover` (default) scales the crop to fill the box and cuts what overflows; `contain` scales it to fit inside the box, the rest of the box empty; `fill` stretches it to the box.
 - `focal: [x, y]`, fractions of the crop (default `[0.5, 0.5]`), lines the box and the image up at that point, as CSS `object-position` does with percentages: under `cover` the focal point stays in view, and under `contain` it places the image in the box's spare room.
 - `radius` rounds the corners of what shows: the box under `cover` and `fill`, the drawn image under `contain`.
+- Its theme's frame (§3.6, PLAN T.3a), a keyline, a mat, or both, stands inside the box, around what shows; the picture meets what the frame leaves as it would meet its box.
 - `mask` shows the image only inside a shape, as a presentation app masks a picture with one (deck format 0.24, PLAN 2.113): `ellipse`, an oval, or a polygon of the shape library by its name (`triangle`, `right-triangle`, `diamond`, `parallelogram`, `trapezoid`, `pentagon`, `hexagon`, `octagon`, `star`, `chevron`, `right-arrow`, `left-arrow`, `up-arrow`, `down-arrow`, `plus`, `callout`), fitted to what shows as `radius` rounds it, in place of `radius`.
 - `stroke` borders what shows (PLAN 2.118), as a presentation app's Picture Border does: stroked on its outline as a shape's is, its `paint` and `width` the theme's, so the rounded corners, the oval, or the mask's polygon, or the drawn image's own edge under `contain`. It lies over the picture and outside its clip, so none of it is cut. Between two states a border that only one draws fades in or out.
 
@@ -340,7 +341,7 @@ See `docs/schema/theme.schema.json`. Shape:
 
 ```jsonc
 {
-  "scaena-theme": "0.18",
+  "scaena-theme": "0.20",
   "name": "Dusk",
   "tokens": {
     "color":  { "ink": "#...", "paper": "#...", "accent": "#...", "muted": "...", "...": "..." },
@@ -384,7 +385,8 @@ See `docs/schema/theme.schema.json`. Shape:
   "furniture": { "number": { "col": [12, 12], "role": "label", "align": "end" }, "footer": { "col": [1, 8], "role": "label" },
                  "except": ["title", "section"] },
   "code": { "role": "code", "tab": 4, "syntax": { "keyword": { "color": "accent", "weight": 700 }, "string": { "color": "accent-2" },
-                                                   "comment": { "color": "muted", "italic": true } } }
+                                                   "comment": { "color": "muted", "italic": true } } },
+  "pictures": { "frame": { "mat": { "color": "surface-2", "width": 24 }, "keyline": { "color": "line", "width": 1 } } }
 }
 ```
 
@@ -419,6 +421,7 @@ See `docs/schema/theme.schema.json`. Shape:
   - A slot's **`fit`** says how a text placed in it fits it where the text does not say (theme format 0.13): one of a text's own `fit`s (§3.4), `shrink` the one that matters, which sets a number too wide for its slot smaller, down to its role's `minSize`, as a presentation app's placeholder shrinks what is typed in it. A text's own `fit` wins, and an inspector shows the slot's where the deck sets none. The shipped themes' number slots shrink: Big Number's, Two Numbers', Number and Photo's, and those of Stat and Number and Trend, which set their number as Big Number does (Jay's call, 2026-10-11).
   - A new slide in a layout (`scaena_ops::states::starting`) goes after the slide shown, absolute, named after the layout (`bullets`, `bullets-2`): a text in each slot whose prompt is words, its role the slot's, a shape in each whose prompt is one, each named after the slide and the slot (`bullets-header`), and each kept to its slide (PLAN 3.24). A slot left empty whose prompt is words is filled again with what a new slide puts there (`scaena_ops::states::filling`): what an editor puts there when its outline's words are pressed. A text whose words still read as its slot's prompt, as they were put (`scaena_ops::states::prompted`), is selected whole as typing begins in it, so typing replaces it, as a placeholder's words are.
 - **A slide's number and footer** (theme format 0.14, ADR-0028). `furniture` places what the deck shows of them (§3.2): `number` and `footer` are each `{ col, edge?, role, align?, color?, pattern? }`, a line of words set in `role` across the grid's columns `col` (one, or `[a, b]`), in the margin at the canvas's `foot` (the default) or `head`, its caps centered in the margin's height. `align` is `start` (the default), `center`, or `end`, and `color` a color token or role in place of the role's. The number's `pattern` writes it: `{n}` the slide's number, `{total}` how many slides the deck has (`"{n} / {total}"`), `{n}` alone by default. `except` lists the layouts a slide shows neither on unless it asks for them: titles, dividers, and pictures that bleed to the foot. Columns count in each format's own grid, held to the columns it has. A role, a color, or a layout the theme lacks is **E102**, as is a column past its grid. Lint judges them as text (E110, E111, E120), and **W303** finds a node that draws where they stand. The shipped themes set the footer from the left across eight columns and the number at the right in the last, in `label`, and leave them off their titles, dividers, and pictures that bleed to the foot (`scripts/build_layouts.py`).
+- **A picture's frame** (theme format 0.20, PLAN T.3a, ADR-0031 decision 3). `pictures.frame` says how every picture in the theme is framed: `"none"`, or `{ keyline?, mat? }`, at least one, each a band `{ color, width }`, a color token or role and a width in canvas units. From the picture out, the keyline is a line at its edge and the mat a band of color around that, as a print's mat. Every image takes it, and no image property says otherwise. The frame is drawn inside the image's box, the picture fitted, cropped, and focused within what the bands leave (under `contain`, the frame hugs the picture drawn); in a box whose shorter side is under four times the frame's width, every band narrows alike to a quarter of that side. `radius` rounds the frame's outer corners and the picture's concentric inside them, a `mask`'s shape is drawn larger for each band, a shadow falls under the whole, and `stroke` borders it. The bands are rings of fill in the display list (§6), drawn under the picture, so every painter, the PDF, and the SVG draw them alike. A color the theme lacks is **E102**. The shipped themes frame nothing.
 - **How code is set and colored** (theme format 0.18, ADR-0029, PLAN 2.132). `code` is `{ role?, tab?, syntax? }`:
   - `role` is the text role a code text that names none is set in. Where the theme sets none, its `code` role, if it has one, else `body`. Lint and the cascade read it, and so do a deck made from a prompt and Insert, which keep a script's font out of its fallbacks and insert code in it (§7.1, §9.2).
   - `tab` is the columns between tab stops, 1 to 16; 4 where it is unset.

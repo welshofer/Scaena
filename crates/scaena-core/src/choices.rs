@@ -47,6 +47,11 @@ pub struct Choices {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(skip)]
     pub noun: Option<String>,
+    /// An image's frame as a person says it, where its theme frames pictures (PLAN T.3a): the
+    /// theme's, which no image property changes, so an inspector shows it and offers nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
+    pub framed: Option<String>,
 }
 
 /// What an inspector offers for a state itself (PLAN 2.36).
@@ -436,7 +441,7 @@ pub fn choices(
         };
         Some(Field { prop: prop.into(), takes, value: value.cloned(), lives, literal, theme, words: None })
     });
-    Ok(Choices { node: node.into(), node_type, state: state.into(), fields: fields.collect(), said: None, noun: None })
+    Ok(Choices { node: node.into(), node_type, state: state.into(), fields: fields.collect(), said: None, noun: None, framed: None })
 }
 
 /// How a line is drawn where nothing in the deck says (PLAN 2.128): a connector runs straight, a
@@ -622,6 +627,7 @@ pub fn characters(
         fields: fields.collect(),
         said: None,
         noun: None,
+        framed: None,
     })
 }
 

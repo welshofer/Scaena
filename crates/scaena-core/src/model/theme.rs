@@ -49,6 +49,65 @@ pub struct Theme {
     /// shows neither on (theme format 0.14, ADR-0028). The deck says whether they show.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub furniture: Option<Furniture>,
+    /// How its pictures are framed (theme format 0.20, PLAN T.3a, ADR-0031): every image takes
+    /// the frame, and no image says otherwise. None where it says none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pictures: Option<Pictures>,
+}
+
+/// How a theme frames its pictures (PLAN T.3a).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Pictures {
+    pub frame: Frame,
+}
+
+/// A picture's frame: `none`, or a mat of a theme color around it, a keyline at its edge, or
+/// both, drawn inside the image's box, the picture inset by them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum Frame {
+    None(NoFrame),
+    Framed(Framing),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum NoFrame {
+    None,
+}
+
+/// A frame's bands, from the picture out: its keyline, then its mat.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(extend("minProperties" = 1))]
+pub struct Framing {
+    /// A band of color around the picture, as a print's mat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mat: Option<Band>,
+    /// A thin line at the picture's edge, between it and the mat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keyline: Option<Band>,
+}
+
+/// A band of a frame: a color token or role, and how wide it is, canvas units.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Band {
+    #[schemars(length(min = 1))]
+    pub color: String,
+    #[schemars(extend("exclusiveMinimum" = 0))]
+    pub width: f64,
+}
+
+impl Frame {
+    /// Its bands, `(keyline, mat)`: neither where it is none.
+    pub fn bands(&self) -> (Option<&Band>, Option<&Band>) {
+        match self {
+            Frame::None(_) => (None, None),
+            Frame::Framed(f) => (f.keyline.as_ref(), f.mat.as_ref()),
+        }
+    }
 }
 
 /// A theme's format as read: an older one this build reads is the current one (SPEC §3.1).
