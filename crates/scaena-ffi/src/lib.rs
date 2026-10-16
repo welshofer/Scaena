@@ -269,10 +269,7 @@ pub unsafe extern "C" fn scaena_create(
         let title = unsafe { text(title, "title") }?;
         let shipped = scaena_ops::shipped::theme(name)
             .ok_or_else(|| said(format!("`{name}` is not a theme that ships: {}", scaena_ops::shipped::names())))?;
-        let mut fonts = BTreeMap::new();
-        for (path, bytes) in scaena_ops::shipped::fonts() {
-            fonts.insert(path.to_string(), bytes.to_vec());
-        }
+        let fonts: BTreeMap<String, Vec<u8>> = shipped.fonts().map(|(p, b)| (p.to_string(), b.to_vec())).collect();
         Session::create(shipped.file, shipped.text, &fonts, title).map_err(said)
     });
     match made {
@@ -1581,10 +1578,7 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
                     let shipped = scaena_ops::shipped::theme(name).ok_or_else(|| {
                         said(format!("`{name}` is not a theme that ships: {}", scaena_ops::shipped::names()))
                     })?;
-                    let mut fonts = BTreeMap::new();
-                    for (path, bytes) in scaena_ops::shipped::fonts() {
-                        fonts.insert(path.to_string(), bytes.to_vec());
-                    }
+                    let fonts = shipped.fonts().map(|(p, b)| (p.to_string(), b.to_vec())).collect();
                     s.retheme(&format!("themes/{}", shipped.file), Some(shipped.text), fonts, at())
                 }
                 None => s.retheme(arg("path")?, None, BTreeMap::new(), at()),
