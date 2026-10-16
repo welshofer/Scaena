@@ -210,6 +210,26 @@ pub fn example(deck: &Deck, theme: &Theme, shown: &str, layout: &str) -> Result<
     Ok(started)
 }
 
+/// The patch that draws the picture a picker shows of a slide started after `shown`'s slide
+/// (PLAN 3.30, 3.31): in `layout`, the slide [`example`] makes, and a box of the theme's second
+/// surface (`surface-2`, else `line`) under the words in each other slot that waits for a picture
+/// or a figure; with none, the blank slide [`starting`] makes. What Add Slide draws of each layout,
+/// and what a theme's contact sheet draws (PLAN T.0e); an editor never saves it.
+pub fn pictured(deck: &Deck, theme: &Theme, shown: &str, layout: Option<&str>) -> Result<AddedState, OpsError> {
+    let Some(name) = layout else { return starting(deck, theme, shown, None) };
+    let mut started = example(deck, theme, shown, name)?;
+    let fill = ["surface-2", "line"].into_iter().find(|c| theme.tokens.roles.contains_key(*c));
+    let waits = |s: &Slot| s.role.is_none() && s.example.is_none() && matches!(s.prompt, Some(Prompt::Words(_)));
+    let waiting = theme.layouts.get(name).into_iter().flat_map(|t| &t.slots).filter(|(_, s)| waits(s));
+    for (n, (slot, _)) in waiting.enumerate() {
+        let Some(fill) = fill else { break };
+        let node = json!({ "type": "shape", "kind": "rect", "fill": fill, "at": { "in": slot }, "z": -1 });
+        let id = format!("{}-waiting-{n}", started.id);
+        started.patch.push(json!({ "op": "add_node", "id": id, "node": node, "state": started.id }));
+    }
+    Ok(started)
+}
+
 /// A few rows made up for a chart of `kind` (PLAN 3.31), their schema, and the chart that reads
 /// them, its data not yet named: six months for a bar, a dot, a line, or an area; three kinds of
 /// work a quarter for a stack; four slices of a donut; a scatter's dozen points; two years of four
@@ -290,8 +310,34 @@ fn example_chart(kind: scaena_core::model::nodes::ChartKind) -> (Vec<Value>, Val
     }
 }
 
-/// A few rows made up for a table of `columns` columns (PLAN 3.31): a plan and how it went.
+/// A few rows made up for a table of `columns` columns (PLAN 3.31): a plan and how it went; or,
+/// of seven, a month's calendar, a week to each row, with what falls on a few of its days (PLAN
+/// S.2).
 fn example_table(columns: u32) -> Vec<Value> {
+    if columns >= 7 {
+        let days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+        let falls = |day: u32| match day {
+            3 => " Kickoff",
+            12 => " Review",
+            19 => " Launch",
+            27 => " Retro",
+            _ => "",
+        };
+        return (0..5)
+            .map(|week| {
+                Value::Object(
+                    days.iter()
+                        .enumerate()
+                        .map(|(i, d)| {
+                            let day = week * 7 + i as u32 + 1;
+                            let cell = if day <= 30 { format!("{day}{}", falls(day)) } else { String::new() };
+                            (d.to_string(), json!(cell))
+                        })
+                        .collect(),
+                )
+            })
+            .collect();
+    }
     let rows = [
         ("Trail crews", "$48,000", "$51,200", "On track", "Q2", "Ana"),
         ("Bridges", "$32,000", "$29,400", "Done", "Q1", "Ben"),

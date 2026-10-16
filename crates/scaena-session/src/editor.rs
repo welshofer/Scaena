@@ -99,7 +99,7 @@ pub struct Located {
     /// What it finds, in a sentence a person would say (PLAN 2.99, `scaena_core::words::issue`),
     /// its fix as a button names it, and whether an editor marks it on its object.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub said: Option<&'static str>,
+    pub said: Option<String>,
     pub fixing: &'static str,
     pub marked: bool,
 }
@@ -107,7 +107,7 @@ pub struct Located {
 impl Located {
     /// `finding`, at `at`, holding in `formats`: worded as an editor shows it.
     fn new(finding: Finding, at: Option<Place>, fixable: bool, shown: bool, formats: Vec<String>) -> Located {
-        let said = scaena_core::words::issue(&finding.code);
+        let said = scaena_core::words::said(&finding.code, finding.measure.as_ref());
         let fixing = scaena_core::words::fixing(&finding.code);
         let marked = scaena_core::words::marked(&finding.code);
         Located { finding, at, fixable, shown, formats, said, fixing, marked }
@@ -237,7 +237,10 @@ impl Session {
     /// took a node out of, keeps nothing until they run on every state again, since what they
     /// found there can be about that node, or owe something to it (a collision, or the
     /// contrast of text over it).
-    pub fn lint(&mut self, only: Option<&str>) -> Result<Linting, Error> {
+    ///
+    /// Dates are judged at `now`, seconds since the epoch by the client's clock at each lint, as its
+    /// edits take theirs (W428, ADR-0030); without it, none is.
+    pub fn lint(&mut self, only: Option<&str>, now: Option<i64>) -> Result<Linting, Error> {
         let every = self.every();
         let edit = self.edit.as_ref().ok_or(Error::NothingCompiled)?;
         let Some(deck) = edit.compiled.deck() else {
@@ -284,6 +287,7 @@ impl Session {
             Ok(layout.clone())
         })
         .map_err(|e| Error::Ops(e.message))?;
+        let linted = scaena_ops::lint::dated(linted, &deck, now);
         match (fresh, only) {
             (Some(findings), None) => *laid = Laid { findings, nodes: nodes(&deck) },
             // A deck the layout rules cannot run on has nothing laid out to keep.
@@ -496,10 +500,10 @@ impl Session {
     /// The slides a person may start after the slide of `state`, the state shown (PLAN 3.30), as
     /// each layout's picture shows it (PLAN 3.31): one in each of the theme's layouts, in its
     /// order, then a blank one; or those `only` names, in its order, a null among them the blank
-    /// one. Each is the slide [`scaena_ops::states::example`] makes, its words to type over and an
-    /// example in each slot that gives one, laid out in the format shown and painted at rest
-    /// `height` pixels high by a CPU painter of its own, a box of the theme's second surface
-    /// (`surface-2`) in each other slot that waits for a picture or a figure. Each as JSON: its
+    /// one. Each is the slide [`scaena_ops::states::pictured`] draws, its words to type over, an
+    /// example in each slot that gives one, and a box of the theme's second surface (`surface-2`)
+    /// in each other slot that waits for a picture or a figure, laid out in the format shown and
+    /// painted at rest `height` pixels high by a CPU painter of its own. Each as JSON: its
     /// `layout` (none for the blank one), the layout's `name`, `description`, and `group`, and its
     /// picture's `width` and `height`, the pictures kept until [`Session::starter_picture`] takes
     /// each. Nothing is made, and the pictures leave off the deck's slide number and footer, which
@@ -518,7 +522,6 @@ impl Session {
         if let Some(deck) = base.as_object_mut() {
             deck.remove("furniture");
         }
-        let fill = ["surface-2", "line"].into_iter().find(|c| self.theme.tokens.roles.contains_key(*c));
         let layouts: Vec<Option<String>> = match only {
             Some(only) => only
                 .iter()
@@ -530,33 +533,15 @@ impl Session {
         let mut painter = scaena_paint::cpu::CpuPainter::default();
         let (mut listed, mut painted) = (Vec::with_capacity(layouts.len()), Vec::with_capacity(layouts.len()));
         for layout in layouts {
-            let started = match layout.as_deref() {
-                Some(name) => scaena_ops::states::example(&self.deck, &self.theme, state, name),
-                None => scaena_ops::states::starting(&self.deck, &self.theme, state, None),
-            }
-            .map_err(|e| Error::Ops(e.message))?;
-            let mut patch = started.patch;
-            // A box where a picture or a figure goes and no example is given, drawn under the
-            // words: in the picture only.
+            let started = scaena_ops::states::pictured(&self.deck, &self.theme, state, layout.as_deref())
+                .map_err(|e| Error::Ops(e.message))?;
+            let patch = started.patch;
             let template = layout.as_deref().and_then(|name| self.theme.layouts.get(name));
             let (name, description, group) = (
                 template.and_then(|t| t.name.clone()),
                 template.and_then(|t| t.description.clone()),
                 template.and_then(|t| t.group.clone()),
             );
-            let waits = |s: &scaena_core::model::theme::Slot| {
-                s.role.is_none()
-                    && s.example.is_none()
-                    && matches!(s.prompt, Some(scaena_core::model::theme::Prompt::Words(_)))
-            };
-            let waiting = template.into_iter().flat_map(|t| &t.slots).filter(|(_, s)| waits(s));
-            for (n, (slot, _)) in waiting.enumerate() {
-                let Some(fill) = fill else { break };
-                let node =
-                    serde_json::json!({ "type": "shape", "kind": "rect", "fill": fill, "at": { "in": slot }, "z": -1 });
-                let id = format!("{}-waiting-{n}", started.id);
-                patch.push(serde_json::json!({ "op": "add_node", "id": id, "node": node, "state": started.id }));
-            }
             let doc = scaena_core::patch::compile(&base, &patch, &Handed(&self.files))
                 .map_err(|e| Error::Ops(format!("{e:?}")))?
                 .doc;
@@ -717,8 +702,8 @@ mod tests {
         let before = s.pixels("revenue", f64::INFINITY, 160).unwrap();
         let listed = s.starters_painted("revenue", 90, None).unwrap();
         let layouts: Vec<&str> = listed.iter().map(|one| one["layout"].as_str().unwrap_or("blank")).collect();
-        assert_eq!(layouts.len(), 145, "Dusk's 144 layouts, then a blank slide: {layouts:?}");
-        assert_eq!((layouts[0], layouts[144]), ("title", "blank"));
+        assert_eq!(layouts.len(), 164, "Dusk's 163 layouts, then a blank slide: {layouts:?}");
+        assert_eq!((layouts[0], layouts[163]), ("title", "blank"));
         let bullets = &listed[layouts.iter().position(|l| *l == "bullets").unwrap()];
         assert_eq!(bullets["description"], "A headline, and the points that make its case.");
         assert_eq!((bullets["name"].as_str(), bullets["group"].as_str()), (Some("Bullets"), Some("Lists")));
@@ -728,7 +713,7 @@ mod tests {
         assert_eq!(roadmap["also"], serde_json::json!(["Kanban"]), "and by another name a search finds it by");
         assert_eq!(swot["also"], serde_json::json!([]));
         assert!(
-            listed[144]["name"].is_null() && listed[144]["description"].is_null() && listed[144]["group"].is_null()
+            listed[163]["name"].is_null() && listed[163]["description"].is_null() && listed[163]["group"].is_null()
         );
         let mut pictures: Vec<scaena_paint::Raster> = Vec::new();
         for (i, one) in listed.iter().enumerate() {
@@ -832,7 +817,7 @@ mod tests {
             assert!(line.starts_with(&format!("state {id} ")), "{id} at {at}: {}", line.lines().next().unwrap_or(""));
         }
         assert!(s.source().contains("The same bars, stacked."));
-        let linted = s.lint(None).unwrap();
+        let linted = s.lint(None, None).unwrap();
         assert!(linted.laid);
         assert!(!linted.findings.iter().any(|f| f.finding.severity == Severity::Error), "{:?}", linted.findings);
     }
@@ -870,7 +855,7 @@ mod tests {
         let long = "Revenue doubled, and then some";
         let source = s.source().replace("\"Revenue doubled\"", &format!("\"{long}\""));
         assert!(s.compile(&source).valid);
-        let linted = s.lint(None).unwrap();
+        let linted = s.lint(None, None).unwrap();
         let overflow =
             (linted.findings.iter()).find(|f| f.finding.code == "E100" && f.fixable).expect("an E100 with a fix");
         let at = overflow.at.expect("placed in the source");
@@ -881,7 +866,7 @@ mod tests {
         let fixed = s.fix(overflow.finding.fix.as_deref().unwrap()).unwrap();
         assert!(fixed.contains(long));
         assert!(s.compile(&fixed).valid);
-        let after = s.lint(None).unwrap();
+        let after = s.lint(None, None).unwrap();
         assert!(!after.findings.iter().any(|f| f.finding.code == "E100"), "{:?}", after.findings);
     }
 
@@ -891,7 +876,7 @@ mod tests {
         let long = "Revenue doubled, and then some";
         let source = s.source().replace("\"Revenue doubled\"", &format!("\"{long}\""));
         assert!(s.compile(&source).valid);
-        let whole = s.lint(None).unwrap();
+        let whole = s.lint(None, None).unwrap();
         assert!(whole.whole && whole.laid);
         let said = |l: &Linting, state: &str| {
             let mut found: Vec<String> = (l.findings.iter())
@@ -905,7 +890,7 @@ mod tests {
         };
         // Each state alone finds what the whole lint finds in it, and keeps the rest.
         for state in ["intro", "revenue", "mix", "close"] {
-            let one = s.lint(Some(state)).unwrap();
+            let one = s.lint(Some(state), None).unwrap();
             assert!(!one.whole);
             for other in ["intro", "revenue", "mix", "close"] {
                 assert_eq!(said(&one, other), said(&whole, other), "{state}: {other}");
@@ -914,7 +899,7 @@ mod tests {
         assert!(said(&whole, "revenue").iter().any(|f| f.starts_with("E100")));
         // The headline put right: linting its state drops what the whole lint found there.
         assert!(s.compile(&s.source().replace(long, "Revenue doubled")).valid);
-        let one = s.lint(Some("revenue")).unwrap();
+        let one = s.lint(Some("revenue"), None).unwrap();
         assert!(!said(&one, "revenue").iter().any(|f| f.starts_with("E100")), "{:?}", said(&one, "revenue"));
     }
 
@@ -943,7 +928,7 @@ mod tests {
         let mut s = revenue();
         let original = s.source();
         assert!(s.compile(&with_a_copy(&original)).valid);
-        let whole = s.lint(None).unwrap();
+        let whole = s.lint(None, None).unwrap();
         let found = |code: &str, state: &str, node: &str| {
             (whole.findings.iter())
                 .map(|f| &f.finding)
@@ -953,10 +938,10 @@ mod tests {
         assert!(found("E110", "revenue", "note"), "the note over the copy: {:#?}", written(&whole));
         // Undone, in `mix`: the lint of that state alone finds what the lint of every state does.
         assert!(s.compile(&original).valid);
-        let one = s.lint(Some("mix")).unwrap();
+        let one = s.lint(Some("mix"), None).unwrap();
         assert!(!one.whole);
         assert!(!written(&one).iter().any(|f| f.contains("rev-2")), "{:#?}", written(&one));
-        assert_eq!(written(&one), written(&s.lint(None).unwrap()));
+        assert_eq!(written(&one), written(&s.lint(None, None).unwrap()));
     }
 
     /// A state an edit took out, with what the lint of every state found in it.
@@ -966,12 +951,12 @@ mod tests {
         let original = s.source();
         let long = "Thank you, every one of you, for coming tonight".repeat(4);
         assert!(s.compile(&format!("{original}\nstate encore\n  title \"{long}\"\n")).valid);
-        let whole = s.lint(None).unwrap();
+        let whole = s.lint(None, None).unwrap();
         let encore = |l: &Linting| l.findings.iter().any(|f| f.finding.state.as_deref() == Some("encore"));
         let overflow = |f: &Located| f.finding.code == "E100" && f.finding.state.as_deref() == Some("encore");
         assert!(whole.findings.iter().any(overflow), "{:#?}", written(&whole));
         assert!(s.compile(&original).valid);
-        let one = s.lint(Some("revenue")).unwrap();
+        let one = s.lint(Some("revenue"), None).unwrap();
         assert!(!encore(&one), "{:#?}", written(&one));
     }
 
@@ -982,11 +967,11 @@ mod tests {
         let mut s = revenue();
         let copied = with_a_copy(&s.source());
         assert!(s.compile(&copied).valid);
-        let whole = s.lint(None).unwrap();
+        let whole = s.lint(None, None).unwrap();
         let tall = |l: &Linting| l.findings.iter().any(|f| f.finding.format.as_deref() == Some("9:16"));
         assert!(tall(&whole), "{:#?}", written(&whole));
         assert!(s.compile(&copied.replace("formats:[16:9, 9:16]", "formats:[16:9]")).valid);
-        let one = s.lint(Some("intro")).unwrap();
+        let one = s.lint(Some("intro"), None).unwrap();
         assert!(!tall(&one), "{:#?}", written(&one));
     }
 
@@ -1011,7 +996,7 @@ mod tests {
         };
         let document = |code: &str| matches!(code, "W301" | "W302");
         // On the deck's own canvas: what names no format.
-        let own = found(&s.lint(None).unwrap());
+        let own = found(&s.lint(None, None).unwrap());
         assert!(own.contains(&("E100".into(), None, true)) && own.contains(&("W301".into(), None, true)), "{own:?}");
         assert!(own.contains(&("E100".into(), Some("9:16".into()), false)), "{own:?}");
         assert!(own.iter().all(|(_, format, shown)| *shown == format.is_none()), "{own:?}");
@@ -1024,14 +1009,14 @@ mod tests {
                 .map(|f| (f.finding.code.clone(), f.finding.format.clone(), f.formats.clone()))
                 .collect()
         };
-        let every = listed(&s.lint(None).unwrap());
+        let every = listed(&s.lint(None, None).unwrap());
         let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<Vec<_>>();
         assert!(every.contains(&("E100".into(), None, names(&["", "16:9"]))), "{every:?}");
         assert!(every.contains(&("E100".into(), Some("9:16".into()), names(&["9:16"]))), "{every:?}");
         assert!(every.contains(&("W301".into(), None, names(&["", "16:9", "9:16"]))), "{every:?}");
         // In `9:16`: what laying it out there found, and the document rules'.
         s.set_format(Some("9:16")).unwrap();
-        let tall = found(&s.lint(Some("revenue")).unwrap());
+        let tall = found(&s.lint(Some("revenue"), None).unwrap());
         assert!(
             tall.contains(&("E100".into(), None, false)) && tall.contains(&("W301".into(), None, true)),
             "{tall:?}"
@@ -1043,7 +1028,7 @@ mod tests {
         assert!(tall.iter().all(|f| f.2 == held(f)), "{tall:?}");
         // `16:9` lays out as the deck's own canvas, and lint does not lay it out again.
         s.set_format(Some("16:9")).unwrap();
-        let wide = found(&s.lint(None).unwrap());
+        let wide = found(&s.lint(None, None).unwrap());
         assert_eq!(wide, own);
         // What compiling finds holds in every format.
         let found = s.compile(&source.replace("@q3", "@q4")).findings;

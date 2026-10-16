@@ -197,6 +197,10 @@
             "description": "A JSON Patch (RFC 6902) that resolves the finding. Only safe, non-content fixes.",
             "type": ["array", "null"],
             "items": true
+          },
+          "refresh": {
+            "description": "The data source to fetch again, where what resolves the finding is a fetch, which no patch\nmakes (W428, ADR-0030): the source's name, without its `@`.",
+            "type": ["string", "null"]
           }
         },
         "required": ["code", "severity", "message"]

@@ -66,6 +66,7 @@ const TOOL_WORDS: Record<string, [doing: string, done: string, not: string]> = {
   deck_read: ["Reading the deck…", "Went through the deck", "Didn't go through the deck"],
   deck_render: ["Looking at a slide…", "Looked at a slide", "Didn't look at a slide"],
   icon_find: ["Finding an icon…", "Found an icon", "Didn't find an icon"],
+  map_fetch: ["Fetching a map…", "Put a map on the slide", "Didn't fetch a map"],
   spine_read: ["Reading the outline…", "Went through the outline", "Didn't go through the outline"],
   spine_update: ["Changing the outline…", "Changed the outline", "Didn't change the outline"],
   theme_apply: ["Changing the theme…", "Changed the theme", "Didn't change the theme"],
@@ -373,9 +374,11 @@ export function panel(stage: Stage, editor: Editor): Panel {
       drawn = new Map(drawings.drawn);
       were = new Set(drawings.states);
       const known = Object.fromEntries([...drawn].map(([state, d]) => [state, d.digest]));
+      // The Geoapify key kept, which `map_fetch` fetches a map with (ADR-0030): none, and it says so.
+      const mapKey = (await keys.load("geoapify").catch(() => undefined))?.key;
       return await stage.ask(
         editor.source(),
-        { provider: which(), model: model.value, key: key.value, base: base.value || undefined, text, seeing },
+        { provider: which(), model: model.value, key: key.value, base: base.value || undefined, text, seeing, mapKey },
         hear,
         { height: drawings.height, known },
       );

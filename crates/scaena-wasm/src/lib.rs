@@ -302,6 +302,22 @@ pub fn set_hyphenation(loader: js_sys::Function) {
     });
 }
 
+/// Where this thread's engine gets the table of English words the syllable rules miss, which the
+/// editor's module leaves out (PLAN O.4a, ADR-0015): `loader` returns `verse/words.txt`'s text,
+/// or anything else where the page has none. It is asked the first time an English line counts,
+/// so it answers at once, and what it returns is held to the table's SHA-256. Without it, an
+/// English line is uncounted. The player's module counts nothing, and never asks.
+#[cfg(feature = "cpu")]
+#[wasm_bindgen(js_name = setVerse)]
+pub fn set_verse(loader: js_sys::Function) {
+    use sha2::{Digest, Sha256};
+    scaena_core::verse::set_loader(move || {
+        let text = loader.call0(&JsValue::NULL).ok()?.as_string()?;
+        let digest: String = Sha256::digest(text.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
+        (digest == scaena_core::verse::TABLE_SHA256).then_some(text)
+    });
+}
+
 /// Where this thread's engine gets a file of the word tables the code scanners read that its
 /// module leaves out (PLAN 2.132), as `setHyphenation` gets a language's patterns: `loader`, given
 /// the file's name (`clike`), returns the bytes of `crates/scaena-core/code/clike.txt` as a
@@ -349,9 +365,11 @@ impl Player {
     /// Lint the deck compiled last, laid out by this engine: `{ findings, laid, whole }`.
     /// With `state`, the layout rules run on that state alone, the one being edited, and
     /// the other states keep what they found when they last ran on every state, in the
-    /// formats the deck still lists, each while it has every node it had then.
-    pub fn lint(&mut self, state: Option<String>) -> Result<String, JsError> {
-        serde_json::to_string(&self.0.lint(state.as_deref()).map_err(js)?).map_err(js)
+    /// formats the deck still lists, each while it has every node it had then. Dates are judged
+    /// at `now`, seconds since the epoch by the page's clock (W428, ADR-0030).
+    pub fn lint(&mut self, state: Option<String>, now: Option<f64>) -> Result<String, JsError> {
+        let now = now.map(|n| n as i64);
+        serde_json::to_string(&self.0.lint(state.as_deref(), now).map_err(js)?).map_err(js)
     }
 
     /// The source compiled last with `patch` (JSON: a finding's `fix`) applied.
@@ -753,6 +771,62 @@ impl Player {
             with.as_deref().map(serde_json::from_str).transpose().map_err(js)?;
         let added = self.0.inserting_with(state, n, [x, y], named.as_deref(), with.as_ref()).map_err(js)?;
         serde_json::to_string(&added).map_err(js)
+    }
+
+    /// Where a map goes in `state` (ADR-0030, PLAN O.1c), as the canvas found the place: the image
+    /// `node`, the empty place `slot`, or the box `rect`, JSON `[x, y, w, h]`; JSON `{ state, node?,
+    /// slot?, rect, style, lang? }`, which `mapping` takes back.
+    #[wasm_bindgen(js_name = mapTarget)]
+    pub fn map_target(
+        &self,
+        state: &str,
+        node: Option<String>,
+        slot: Option<String>,
+        rect: &str,
+    ) -> Result<String, JsError> {
+        let rect: [f32; 4] = serde_json::from_str(rect).map_err(js)?;
+        serde_json::to_string(&self.0.map_target(state, node, slot, rect).map_err(js)?).map_err(js)
+    }
+
+    /// Where a map asked for by `aim` (JSON `{ state?, into?, at? }`, as `map_fetch` takes them)
+    /// goes: JSON, as `mapTarget` gives it.
+    #[wasm_bindgen(js_name = mapAiming)]
+    pub fn map_aiming(&self, aim: &str) -> Result<String, JsError> {
+        let aim = serde_json::from_str(aim).map_err(js)?;
+        serde_json::to_string(&self.0.map_aiming(&aim).map_err(js)?).map_err(js)
+    }
+
+    /// A map fetched put where `target` (JSON, as `mapTarget` gives it) says: its picture `png`
+    /// joins the bundle, and the answer, JSON `{ node, src, place, said, ops }`, holds the ops the
+    /// editor makes its patch of. `fetched` is its record, JSON; `pin` where its place stands, JSON
+    /// `[x, y]`; `label` the pin's label, the place's name where none is given.
+    pub fn mapping(
+        &mut self,
+        target: &str,
+        fetched: &str,
+        pin: &str,
+        label: Option<String>,
+        png: Vec<u8>,
+    ) -> Result<String, JsError> {
+        let target = serde_json::from_str(target).map_err(js)?;
+        let fetched = serde_json::from_str(fetched).map_err(js)?;
+        let pin: [f64; 2] = serde_json::from_str(pin).map_err(js)?;
+        serde_json::to_string(&self.0.mapping(&target, fetched, pin, label, png).map_err(js)?).map_err(js)
+    }
+
+    /// What fetching image `node`'s map again in `state` asks for, JSON: its target, what was asked,
+    /// its place, center, zoom, style, and label; at `zoom`, or centered on `lat`, `lon`, where given.
+    #[wasm_bindgen(js_name = mapRefreshing)]
+    pub fn map_refreshing(
+        &self,
+        state: &str,
+        node: &str,
+        zoom: Option<f64>,
+        lat: Option<f64>,
+        lon: Option<f64>,
+    ) -> Result<String, JsError> {
+        let center = lat.zip(lon).map(|(lat, lon)| scaena_core::fetched::LatLon { lat, lon });
+        serde_json::to_string(&self.0.map_refreshing(state, node, zoom, center).map_err(js)?).map_err(js)
     }
 
     /// The patch that inserts an icon in `state`, about `x`, `y` (canvas units), as JSON: `{ id,

@@ -42,6 +42,9 @@ pub struct Reading {
     /// A text's paragraphs as a list's items (ADR-0018), one for each paragraph; empty for a
     /// text that is no list, and for any other node.
     pub items: Vec<Option<ListItem>>,
+    /// A text set as verse, its lines broken only where it breaks them: in the `verse` role, or
+    /// with `wrap: none` (PLAN O.4b). It reads as one paragraph, its lines set apart.
+    pub verse: bool,
     /// The credit a fetched picture's service asks shown with it (ADR-0030), its stretches each
     /// with where it links: read after the picture, as a paragraph. Empty for anything else.
     pub credit: Vec<(String, Option<LinkTarget>)>,
@@ -51,7 +54,17 @@ pub struct Reading {
 pub fn readings(deck: &Deck, snap: &Snapshot) -> HashMap<String, Reading> {
     snap.nodes
         .iter()
-        .filter_map(|(id, props)| Some((id.clone(), reading(deck.nodes.get(id)?.node_type, props))))
+        .filter_map(|(id, props)| {
+            let t = deck.nodes.get(id)?.node_type;
+            let mut read = reading(t, props);
+            // A chart's or a table's data fetched from a service: its credit, read after it (ADR-0030).
+            if matches!(t, NodeType::Chart | NodeType::Table) && read.kind != Kind::Artifact {
+                read.credit = crate::fetched::reads(deck, props)
+                    .map(|runs| runs.into_iter().map(|r| (r.text, r.link.map(LinkTarget::Href))).collect())
+                    .unwrap_or_default();
+            }
+            Some((id.clone(), read))
+        })
         .collect()
 }
 
@@ -83,6 +96,9 @@ pub fn reading(t: NodeType, props: &Props) -> Reading {
         }
         _ => Vec::new(),
     };
+    let verse = t == NodeType::Text
+        && kind == Kind::Paragraph
+        && (text("role") == Some("verse") || text("wrap") == Some("none"));
     let fetched = (t == NodeType::Image)
         .then(|| serde_json::from_value::<crate::fetched::Fetched>(props.get("fetched")?.clone()).ok())
         .flatten();
@@ -100,7 +116,7 @@ pub fn reading(t: NodeType, props: &Props) -> Reading {
     let credit = fetched
         .map(|f| f.credit.into_iter().map(|r| (r.text, r.link.map(LinkTarget::Href))).collect())
         .unwrap_or_default();
-    Reading { kind, alt, lang: text("lang").map(str::to_string), items, credit }
+    Reading { kind, alt, lang: text("lang").map(str::to_string), items, verse, credit }
 }
 
 /// What a reader hears of a node a state shows (SPEC §3.12), as [`html`] reads it, in plain words:
@@ -244,7 +260,12 @@ impl Reader<'_> {
             let _ = write!(out, r#"<div data-node="{}"{}>{listed}</div>"#, attr(id), self.lang(reading));
             return;
         }
-        let _ = write!(out, r#"<{tag} data-node="{}"{}>{}</{tag}>"#, attr(id), self.lang(reading), say(0..words.len()));
+        let mut said = say(0..words.len());
+        // Verse is one paragraph, its lines set apart (PLAN O.4b).
+        if reading.is_some_and(|r| r.verse && r.alt.is_none()) {
+            said = said.replace("\r\n", "\n").replace(['\r', '\u{2028}', '\u{2029}'], "\n").replace('\n', "<br>");
+        }
+        let _ = write!(out, r#"<{tag} data-node="{}"{}>{said}</{tag}>"#, attr(id), self.lang(reading));
     }
 
     /// Bytes `range` of a text's words, from its stretches, as HTML: each stretch that links an
@@ -321,7 +342,9 @@ impl Reader<'_> {
 fn cells(ops: &[Op]) -> BTreeMap<(u32, u32), String> {
     let mut cells = BTreeMap::new();
     for op in ops {
-        if let Op::Layer { cell: Some([row, column]), ops, .. } = op {
+        if let Op::Layer { cell: Some(at @ [row, column]), ops, .. } = op
+            && *at != crate::fetched::FOOT_CELL
+        {
             cells.insert((*row, *column), drawn(ops));
         }
     }
@@ -502,7 +525,8 @@ mod tests {
                 alt: Some("four point two times".into()),
                 lang: Some("en-GB".into()),
                 items: Vec::new(),
-                credit: Vec::new()
+                verse: false,
+                credit: Vec::new(),
             }
         );
     }
@@ -659,5 +683,69 @@ mod tests {
         let parts = parts(&deck, &snaps[0], &list);
         let said: Vec<(&str, &str)> = parts.iter().map(|p| (p.role, p.text.as_str())).collect();
         assert_eq!(said, [("figure", "Map of Ferry Building"), ("paragraph", "© OpenStreetMap · Geoapify")]);
+    }
+
+    /// A table whose data was fetched (ADR-0030, PLAN O.2a) reads its rows, then the credit at its
+    /// foot as a paragraph: the place and the forecast's day there, then the service's credit.
+    #[test]
+    fn a_tables_fetched_data_reads_its_credit_after_it() {
+        let deck = Deck::from_json(
+            &json!({
+                "scaena": crate::FORMAT_VERSION, "canvas": { "width": 1920, "height": 1080 }, "theme": "theme.json",
+                "data": { "week": {
+                    "source": { "inline": [{ "date": "2026-10-15", "high": 17 }] },
+                    "fetched": {
+                        "from": "open-meteo", "at": "2026-10-15T13:00:00Z", "asked": "Boston",
+                        "credit": [{ "text": "Weather data by Open-Meteo.com", "link": "https://open-meteo.com/" }],
+                        "forecast": { "place": { "name": "Boston", "lat": 42.36, "lon": -71.06,
+                                                 "zone": "America/New_York", "offset": -14400 },
+                                      "period": "day", "units": "metric" }
+                    }
+                } },
+                "nodes": { "t": { "type": "table", "data": "@week" } },
+                "states": [{ "id": "one", "props": { "t": {} } }]
+            })
+            .to_string(),
+        )
+        .expect("a deck");
+        let snaps = crate::resolve_states(&deck).expect("snapshots");
+        let read = readings(&deck, &snaps[0]);
+        let credit: String = read["t"].credit.iter().map(|(w, _)| w.as_str()).collect();
+        assert_eq!(credit, "Boston · Oct 15, 2026 · Weather data by Open-Meteo.com");
+        let mut list = DisplayList::new([1920.0, 1080.0]);
+        list.ops = vec![layer(Some("t"), None, vec![layer(None, Some(crate::fetched::FOOT_CELL), vec![])])];
+        let parts = parts(&deck, &snaps[0], &list);
+        let said: Vec<&str> = parts.iter().map(|p| p.role).collect();
+        assert_eq!(said.last(), Some(&"paragraph"), "{parts:?}");
+    }
+
+    #[test]
+    fn a_verse_reads_as_one_paragraph_its_lines_set_apart() {
+        let deck = Deck::from_json(
+            &json!({
+                "scaena": crate::FORMAT_VERSION,
+                "canvas": { "width": 1920, "height": 1080 },
+                "theme": "theme.json",
+                "nodes": {
+                    "poem": { "type": "text", "role": "verse", "text": "An old silent pond\nA frog jumps into the pond\nSplash! Silence again" },
+                    "set": { "type": "text", "role": "body", "wrap": "none", "text": "one & two\r\nthree" }
+                },
+                "states": [{ "id": "one", "layout": "title", "props": { "poem": {}, "set": {} } }]
+            })
+            .to_string(),
+        )
+        .expect("a deck");
+        assert!(read(NodeType::Text, json!({ "role": "verse" })).verse);
+        assert!(!read(NodeType::Text, json!({ "role": "quote" })).verse);
+        let snaps = crate::resolve_states(&deck).expect("snapshots");
+        let mut list = DisplayList::new([1920.0, 1080.0]);
+        list.ops = vec![layer(Some("poem"), None, vec![]), layer(Some("set"), None, vec![])];
+        assert_eq!(
+            html(&deck, &snaps[0], &list),
+            concat!(
+                r#"<p data-node="poem">An old silent pond<br>A frog jumps into the pond<br>Splash! Silence again</p>"#,
+                r#"<p data-node="set">one &amp; two<br>three</p>"#,
+            )
+        );
     }
 }

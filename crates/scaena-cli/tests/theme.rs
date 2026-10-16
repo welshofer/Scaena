@@ -378,6 +378,8 @@ fn every_example_deck_moves_between_the_shipped_themes() {
         "higher-ed.deck.json",
         "ridgeline.deck.json",
         "code.deck.json",
+        "weather.deck.json",
+        "haiku.deck.json",
         "authorability",
     ];
     let shipped = shipped();

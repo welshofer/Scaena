@@ -90,6 +90,8 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - A filled rectangle or oval, a picture, or a container with a fill offers its Shadow: the theme's Soft, Raised, or Floating, or none. It falls under the object, the outline of what shows blurred, and moves, turns, and fades with it. A line, an outline, a shape from the library, a picture in a mask other than an oval, and a PNG that may let what is under it show cast none, so none is offered there; nor are Corners where they round nothing: on an oval, a library shape, or a masked picture.
   - A line or an arrow offers its Line Start and Line End beside its Border: none, an arrowhead, an open one, or a circle, a square, or a diamond on the end, each sized by the line's width. A connector, made by Connect with an arrow or a line, offers its Connection too: Straight, Corner (an elbow that turns at right angles), or Curved, which leaves one object and meets the other square to their sides. Each is one ⌘Z.
   - An image offers its Border and Border Width, the theme's colors and strokes, drawn around what shows: the rounded corners, the oval, or the shape it is masked by.
+  - A picture's frame is your theme's: a mat of one of its colors around the picture, a thin keyline at its edge, or both, inside the picture's box, the picture cropped and focused within it. Every picture in the deck takes it, so the inspector says what it is and offers nothing to change; a theme edit changes it (`pictures.frame`, theme format 0.21, SPEC §3.6). The themes that ship frame nothing.
+  - Insert › Map… puts a map of a place on the slide: type an address, a place, or a latitude and longitude, press Return, and pick one of the places it matches if there are several. It goes in the picture selected, the slide's empty place for a picture, or where you last clicked. It asks for a Geoapify key of your own the first time (geoapify.com; its Free plan will do), and keeps it as the assistant's keys are kept. The map's picture is kept in the deck, so it shows offline; the Format tab's Map section zooms it, centers it on its pin, or fetches it again, each one step to undo.
   - An image offers Adjust Image: Exposure, Contrast, Saturation, and Warmth, each a slider from −1 to 1 that sets when let go, the middle leaving the picture as it is. Saturation at its least is black and white. Between two steps, one adjustment fades into the next where the picture stands.
   - An image shows its fit, its focal point, and its crop. Or drag the handles on the image itself: one inside each side crops it from that side, the whole image outlined as you drag, and the round one is its focal point. Press Pick, then click the image where its subject is: that point stays in view however the box is shaped, as cover crops it. Escape leaves it as it was. A crop is a part of the image, as fractions of it: x, y, width, and height. Drag an image file from your computer onto an image in the preview to put it in that image's place: it joins the bundle, and one ⌘Z puts the old one back. Drag it onto an empty spot and it is added there, as Insert adds it.
   - Every object offers its description and its part in the story: what a reader hears. A description is what a screen reader says for it: what an image or a chart shows, or, for a text, what to say in place of its words (left empty, its words are read). An object marked decoration is not read at all. Under the choices, the inspector says how the object reads, as the player says it to a screen reader; with nothing selected, it reads the state shown part by part, in order, and a part selects its object. An image with no description is W410: its mark offers Describe it, which opens the inspector on the image, its description ready to type.
@@ -373,6 +375,7 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `title-split` | `art`, `title`, `subtitle`, `kicker` | Title beside Photo, in Titles |
 | `section-photo` | `art`, `number`, `title`, `support` | Section and Photo, in Titles |
 | `section-number` | `kicker`, `number`, `title`, `support` | Section Number, in Titles |
+| `paper-title` | `title`, `authors`, `affiliations`, `venue`, `first-logo`, `second-logo` | Paper Title, in Titles |
 | `statement` | `kicker`, `statement`, `support` | Statement, in Statements |
 | `poster` | `kicker`, `statement`, `support`, `note`, `art` | Poster, in Statements |
 | `quote` | `quote`, `who` | Quote, in Statements |
@@ -380,6 +383,7 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `big-question` | `kicker`, `question`, `support` | Big Question, in Statements |
 | `manifesto` | `kicker`, `header`, `body` | Manifesto, in Statements |
 | `key-point` | `kicker`, `card`, `point`, `follow` | Key Point, in Statements |
+| `lyrics` | `art`, `words`, `credit` | Lyrics, in Statements |
 | `bullets` | `kicker`, `header`, `body` | Bullets, in Lists |
 | `numbered` | `kicker`, `header`, `body` | Numbered List, in Lists |
 | `agenda` | `kicker`, `header`, `body` | Agenda, in Lists |
@@ -419,6 +423,7 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `hub-spoke` | `kicker`, `header`, `hub-circle`, `first-spoke`, `second-spoke`, `third-spoke`, `fourth-spoke`, `hub`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Hub and Spoke, in Frameworks |
 | `risk-matrix` | `kicker`, `header`, `cell-5-1`, `cell-5-2`, `cell-5-3`, `cell-5-4`, `cell-5-5`, `cell-4-1`, `cell-4-2`, `cell-4-3`, `cell-4-4`, `cell-4-5`, `cell-3-1`, `cell-3-2`, `cell-3-3`, `cell-3-4`, `cell-3-5`, `cell-2-1`, `cell-2-2`, `cell-2-3`, `cell-2-4`, `cell-2-5`, `cell-1-1`, `cell-1-2`, `cell-1-3`, `cell-1-4`, `cell-1-5`, `likely-title`, `likely-5`, `likely-4`, `likely-3`, `likely-2`, `likely-1`, `impact-1`, `impact-2`, `impact-3`, `impact-4`, `impact-5`, `impact-title`, `first`, `second`, `third`, `takeaway`, `note` | Risk Matrix, in Frameworks |
 | `business-model-canvas` | `kicker`, `header`, `partners-card`, `activities-card`, `resources-card`, `value-card`, `relationships-card`, `channels-card`, `segments-card`, `costs-card`, `revenue-card`, `partners`, `activities`, `resources`, `value`, `relationships`, `channels`, `segments`, `costs`, `revenue`, `value-words` | Business Model Canvas, in Frameworks |
+| `maturity-model` | `kicker`, `header`, `first-step`, `second-step`, `third-step`, `fourth-step`, `fifth-step`, `here-arrow`, `here`, `takeaway`, `first`, `second`, `third`, `fourth`, `fifth` | Maturity Model, in Frameworks |
 | `steps` | `kicker`, `header`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Steps, in Process |
 | `process` | `kicker`, `header`, `first-chevron`, `second-chevron`, `third-chevron`, `fourth-chevron`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Process, in Process |
 | `how-it-works` | `kicker`, `header`, `first-number`, `second-number`, `third-number`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | How It Works, in Process |
@@ -432,6 +437,8 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `gantt` | `kicker`, `header`, `first-month`, `second-month`, `third-month`, `first-bar`, `second-bar`, `third-bar`, `fourth-bar`, `first`, `second`, `third`, `fourth` | Gantt Chart, in Time |
 | `year` | `kicker`, `header`, `month-1`, `month-2`, `month-3`, `month-4`, `month-5`, `month-6`, `month-7`, `month-8`, `month-9`, `month-10`, `month-11`, `month-12`, `first-card`, `second-card`, `third-card`, `fourth-card`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Year at a Glance, in Time |
 | `timeline-photos` | `kicker`, `header`, `first-art`, `second-art`, `third-art`, `fourth-art`, `first-date`, `second-date`, `third-date`, `fourth-date`, `first`, `second`, `third`, `fourth` | Timeline with Photos, in Time |
+| `month` | `kicker`, `header`, `main` | Month, in Time |
+| `event` | `art`, `tag`, `date`, `what`, `where` | Event, in Time |
 | `stat` | `kicker`, `number`, `claim`, `detail`, `under` | Stat, in Numbers |
 | `big-number` | `number`, `claim`, `under` | Big Number, in Numbers |
 | `two-numbers` | `kicker`, `first-title`, `second-title`, `first`, `second` | Two Numbers, in Numbers |
@@ -447,6 +454,7 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `kpi-dashboard` | `kicker`, `header`, `first-figure`, `second-figure`, `third-figure`, `fourth-figure`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth`, `first-chart`, `second-chart` | KPI Dashboard, in Numbers |
 | `status-report` | `kicker`, `header`, `first-card`, `third-card`, `stream-label`, `status-label`, `next-label`, `risk-label`, `first-icon`, `second-icon`, `third-icon`, `first`, `second`, `third`, `first-status`, `second-status`, `third-status`, `first-next`, `second-next`, `third-next`, `first-risk`, `second-risk`, `third-risk` | Status Report, in Numbers |
 | `market-size` | `header`, `first-circle`, `second-circle`, `third-circle`, `first-figure`, `second-figure`, `third-figure`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Market Size, in Numbers |
+| `pictograph` | `kicker`, `header`, `figure-1`, `figure-2`, `figure-3`, `figure-4`, `figure-5`, `figure-6`, `figure-7`, `figure-8`, `figure-9`, `figure-10`, `number`, `claim`, `note` | Pictograph, in Numbers |
 | `figure` | `kicker`, `header`, `main`, `note` | Chart, in Charts |
 | `narrow-figure` | `kicker`, `header`, `main`, `note` | Narrow Chart, in Charts |
 | `split` | `body`, `main` | Chart and Words, in Charts |
@@ -477,6 +485,7 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `photo-grid-text` | `first-art`, `second-art`, `third-art`, `fourth-art`, `header`, `body` | Photo Grid and Words, in Pictures |
 | `logo-wall` | `kicker`, `header`, `logo-1`, `logo-2`, `logo-3`, `logo-4`, `logo-5`, `logo-6`, `logo-7`, `logo-8`, `logo-9`, `logo-10`, `logo-11`, `logo-12` | Logo Wall, in Pictures |
 | `device-mockup` | `kicker`, `header`, `screen`, `frame`, `base`, `title`, `body` | Device Mockup, in Pictures |
+| `property` | `art`, `price`, `address`, `beds`, `baths`, `area`, `second-art` | Property, in Pictures |
 | `team` | `kicker`, `header`, `first-art`, `second-art`, `third-art`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Team, in People |
 | `testimonials` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `first`, `second`, `third`, `first-note`, `second-note`, `third-note` | Testimonials, in People |
 | `quote-portrait` | `art`, `quote`, `who` | Quote and Portrait, in People |
@@ -497,11 +506,21 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `glossary` | `kicker`, `header`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Glossary, in Editorial |
 | `magazine` | `kicker`, `header`, `first`, `pull`, `second` | Magazine Spread, in Editorial |
 | `case-study` | `kicker`, `header`, `art`, `challenge-title`, `challenge`, `done-title`, `done`, `result-figure`, `result` | Case Study, in Editorial |
+| `certificate` | `border`, `kind`, `presented`, `name`, `for`, `first-line`, `second-line`, `first-sign`, `second-sign` | Certificate, in Editorial |
+| `references` | `kicker`, `header`, `body` | References, in Editorial |
+| `patient-case` | `kicker`, `header`, `art`, `presentation-title`, `history-title`, `findings-title`, `presentation`, `history`, `findings` | Patient Case, in Editorial |
 | `flowchart` | `kicker`, `header`, `first-card`, `first-arrow`, `decision-shape`, `yes-arrow`, `second-card`, `no-arrow`, `third-card`, `back-arrow`, `first`, `decision`, `yes`, `second`, `no`, `third` | Flowchart, in Diagrams |
 | `swimlane` | `kicker`, `header`, `first-lane`, `second-lane`, `third-lane`, `first-step`, `second-step`, `third-step`, `fourth-step`, `fifth-step`, `first-arrow`, `second-arrow`, `third-arrow`, `fourth-arrow`, `first-role`, `second-role`, `third-role`, `first`, `second`, `third`, `fourth`, `fifth` | Swimlane, in Diagrams |
+| `decision-tree` | `kicker`, `header`, `choice-card`, `first-chance-shape`, `second-chance-shape`, `first-branch`, `second-branch`, `first-first-branch`, `first-second-branch`, `second-first-branch`, `second-second-branch`, `choice`, `first`, `second`, `first-first-odds`, `first-second-odds`, `second-first-odds`, `second-second-odds`, `first-first`, `first-second`, `second-first`, `second-second` | Decision Tree, in Diagrams |
+| `fishbone` | `kicker`, `header`, `spine`, `first-bone`, `second-bone`, `third-bone`, `fourth-bone`, `head-card`, `head`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Fishbone, in Diagrams |
+| `architecture` | `kicker`, `header`, `client-first-card`, `client-second-card`, `client-third-card`, `service-first-card`, `service-second-card`, `service-third-card`, `data-card`, `first-call`, `second-call`, `third-call`, `first-query`, `second-query`, `third-query`, `client-tier`, `service-tier`, `data-tier`, `client-first`, `client-second`, `client-third`, `service-first`, `service-second`, `service-third`, `data` | Architecture, in Diagrams |
+| `issue-tree` | `kicker`, `header`, `root-card`, `first-card`, `second-card`, `first-branch`, `second-branch`, `first-first-branch`, `first-second-branch`, `second-first-branch`, `second-second-branch`, `root`, `first`, `second`, `first-first`, `first-second`, `second-first`, `second-second` | Issue Tree, in Diagrams |
 | `quad-chart` | `kicker`, `header`, `art`, `objectives-card`, `team-card`, `milestones-card`, `dates-title`, `dates`, `objectives-title`, `team-title`, `milestones-title`, `objectives`, `team`, `milestones` | Quad Chart, in Briefing |
 | `decision-brief` | `kicker`, `header`, `bottom-card`, `bottom-title`, `bottom`, `first-card`, `second-card`, `third-card`, `fourth-card`, `mark`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Decision Brief, in Briefing |
+| `incident-review` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `fourth-card`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Incident Review, in Briefing |
+| `options-compared` | `kicker`, `header`, `first-card`, `third-card`, `chosen`, `option-label`, `first-criterion`, `second-criterion`, `third-criterion`, `total-label`, `first`, `second`, `third`, `first-first`, `first-second`, `first-third`, `second-first`, `second-second`, `second-third`, `third-first`, `third-second`, `third-third`, `first-total`, `second-total`, `third-total` | Options Compared, in Briefing |
 | `quiz` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `fourth-card`, `first-letter`, `second-letter`, `third-letter`, `fourth-letter`, `first`, `second`, `third`, `fourth` | Quiz, in Classroom |
+| `game-board` | `kicker`, `header`, `first-first-card`, `first-second-card`, `first-third-card`, `second-first-card`, `second-second-card`, `second-third-card`, `third-first-card`, `third-second-card`, `third-third-card`, `fourth-first-card`, `fourth-second-card`, `fourth-third-card`, `first-category`, `second-category`, `third-category`, `fourth-category`, `first-first`, `first-second`, `first-third`, `second-first`, `second-second`, `second-third`, `third-first`, `third-second`, `third-third`, `fourth-first`, `fourth-second`, `fourth-third` | Game Board, in Classroom |
 | `closing` | `kicker`, `statement`, `support` | Closing, in Closing |
 | `next-steps` | `kicker`, `header`, `action-label`, `owner-label`, `when-label`, `first-card`, `second-card`, `first`, `second`, `third`, `first-owner`, `second-owner`, `third-owner`, `first-when`, `second-when`, `third-when` | Next Steps, in Closing |
 | `the-ask` | `kicker`, `ask`, `first`, `second`, `third` | The Ask, in Closing |
@@ -509,12 +528,14 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `contact` | `art`, `thanks`, `name`, `details` | Contact, in Closing |
 | `takeaways` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `first-number`, `second-number`, `third-number`, `first`, `second`, `third` | Takeaways, in Closing |
 | `call-to-action` | `kicker`, `statement`, `button-card`, `button` | Call to Action, in Closing |
+| `acknowledgments` | `kicker`, `header`, `thanks`, `names`, `logo-1`, `logo-2`, `logo-3`, `logo-4`, `logo-5`, `logo-6` | Acknowledgments, in Closing |
+| `join-or-scan` | `kicker`, `code`, `ask`, `link`, `how` | Join or Scan, in Closing |
 
 Every layout also has `in(canvas)`, the whole canvas, and `in(grid)`, the margins' box. `at:col(1-6) row(2-8)` places by the theme's 12 × 12 grid instead.
 
 | Names | |
 |---|---|
-| Text roles (`role:`) | `display`, `headline`, `title`, `body`, `caption`, `label`, `axis`, `value`, `lede`, `kicker`, `figure`, `quote`, `numeral`, `hero`, `code` |
+| Text roles (`role:`) | `display`, `headline`, `title`, `body`, `caption`, `label`, `axis`, `value`, `lede`, `kicker`, `figure`, `quote`, `verse`, `numeral`, `hero`, `code` |
 | Motion presets (`enter:`, `exit:`, `emphasis:`) | `appear`, `fade`, `rise`, `words`, `bullets`, `typewriter`, `pop`, `scale`, `fadeScale`, `scaleBig`, `drop`, `moveInLeft`, `moveInRight`, `moveInTop`, `moveInBottom`, `skid`, `spin`, `pivot`, `swing`, `flip`, `grow`, `draw`, `pulse`, `blink`, `jiggle` |
 | Durations (`transition:`, `duration:`) | `fast`, `standard`, `slow` |
 | Easings (`ease:`) | `standard`, `in`, `out`, `linear` |
@@ -619,6 +640,8 @@ state plan layout:statement
     list:[{kind: number}, {kind: number}, {kind: bullet, level: 1}, {kind: bullet, level: 1}] at:in(statement)
 ```
 
+**Verse.** A poem goes in the theme's `verse` role, which sets `wrap: none`: its lines break only where you break them, each aligned on its own, so a centered haiku stands each line in the middle. Give it `fit: shrink` and a line too wide shrinks the whole poem, never under the role's `minSize` (W203 past it). Any text may take `wrap: none`. `docs/examples/haiku.deck.json` is a haiku on a slide (SPEC §3.5).
+
 **Code.** A text with `code` is code, set as written; where it names no role, it is set in the theme's `code` role, JetBrains Mono in the themes that ship. Its lines break only where it breaks them: nothing wraps or hangs, each tab stands to the next stop of four columns (the theme's `code.tab` sets another), and every line runs left to right. Name the language it is written in, or `plain`. The theme colors its words by kind, keywords, types, strings, comments, and the rest, each color held to read on the slide; a language Scaena has no scanner for has only its strings, numbers, comments, and brackets colored, which lint notes (I403). A theme picks the colors in its `code` section, `"code": { "syntax": { "keyword": { "color": "accent", "weight": 700 }, "comment": { "color": "muted", "italic": true } } }`, and every kind it leaves out takes a color derived from its accent. Its words are its `text`, so it takes no `runs` or `list`, and none of what sets prose, such as `measure` or `fit:wrap` (E106 names each). Typed into, its box grows down first, as a presentation app's text box does; then the code shrinks to fit, to 12 pt at presentation size (24 cu on a 1920 × 1080 canvas) and no further unless a `minSize` lets it; code drawn smaller, by a `minSize`, a size of its own, or a `transform`, is W205. Code that still does not fit is W203, with how many of its lines fit. `docs/examples/code.deck.json` is a slide of it and a step that changes it (SPEC §3.5), and `docs/examples/code.deck.scn` its source.
 
 Write code's lines as a block: three quotes, `"""`, at the end of its line, the lines as they read, then the same three quotes alone on a line, whose indentation comes off every line above it. A block closes only on a line that is its own run of quotes, so code with a line of `"""` alone, as a Python docstring may open on, takes a fence of four, `""""`, and so on. `scaena decompile` writes code with a tab, a carriage return, or white space at a line's end as a JSON string, `\t` and `\n` written out, since an editor may change those (SPEC §4.2, §4.3):
@@ -635,6 +658,8 @@ state rank layout:figure
 ```
 
 **A map.** A map is a picture a service drew, fetched once into the bundle when it is made, and an image that says so: its `fetched` record names the service, when its answer came, what was asked, and the credit its terms ask shown with it, as runs with their links (`fetched:{from: geoapify, at: "2026-10-15T20:12:44Z", asked: "Ferry Building", credit: […]}`). The engine draws that credit with the picture, in the theme's caption role and never under 12 pt, on a card in its bottom-left corner, or under it with `credit:below`; no deck or theme can hide it, and W314 says where it cannot be read. `pin:{at: [0.5, 0.5], label: "Ferry Building"}` puts Phosphor's map pin on the point of the picture `at` names, in fractions of the whole image as `crop` is, in the accent unless its `color` names another of the theme's, its label on a card beside it. Any image may take a pin. A map with no `alt` reads as the map of its place (SPEC §3.3).
+
+**A forecast.** A forecast is a data source fetched once into the deck, its rows written inline, with the record a map takes: `fetched:{from: open-meteo, at: …, asked: "Boston", credit: […], forecast: {place: {name: Boston, zone: America/New_York, offset: -14400, …}, period: day, units: metric}}`. Each chart or table that reads it carries the credit at its foot, after the place and the forecast's day there, and "edited" once `data_edit` has changed a row. Its days pass, so `scaena lint` judges them at `--now` (an instant or a day; else `SOURCE_DATE_EPOCH`, else the clock): W428 says a forecast's first day has passed at its place, and names the source to fetch again in `refresh`. `kept: true` keeps it as of its date, and lint judges no date in it (SPEC §3.10, §7.4).
 
 For tables, stats, rows of cards, other chart kinds, and shader backgrounds, see SPEC §3.3 and the trails example.
 

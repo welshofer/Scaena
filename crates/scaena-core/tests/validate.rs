@@ -182,7 +182,7 @@ fn e102_says_what_the_theme_has() {
     assert_eq!(says("/states/0/layout"), "layout `titel` is not in the theme, which has title, full");
     assert_eq!(
         says("/nodes/title/role"),
-        "text role `headlin` is not in the theme, which has display, headline, body, caption, label, numeral"
+        "text role `headlin` is not in the theme, which has display, headline, body, verse, caption, label, numeral"
     );
     assert_eq!(says("/nodes/title/enter"), "motion preset `slide` is not in the theme, which has fade, rise, grow");
     assert_eq!(says("/nodes/bg/palette"), "shader palette `sunset` is not in the theme, which has ambient");
@@ -524,7 +524,7 @@ fn a_deck_that_is_not_json_is_an_error_not_a_finding() {
 fn e103_two_rows_one_mark() {
     // A mark is known by its key, else its category, with its series beside it.
     let deck = serde_json::json!({
-        "scaena": "0.29",
+        "scaena": "0.31",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -568,7 +568,7 @@ fn what_marks_a_row_projected_is_a_column_that_can_hold_it() {
     let props: serde_json::Map<String, serde_json::Value> =
         nodes.keys().map(|k| (k.clone(), serde_json::json!({}))).collect();
     let deck = serde_json::json!({
-        "scaena": "0.29",
+        "scaena": "0.31",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -606,7 +606,7 @@ fn only_a_bar_charts_bars_turn() {
         c
     };
     let deck = serde_json::json!({
-        "scaena": "0.29",
+        "scaena": "0.31",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -632,7 +632,7 @@ fn a_slope_compares_two_states_and_a_range_spans_something() {
     // range's, each end a column of numbers (E106, E103); a range with no series, color, or
     // interval spans nothing (E106).
     let deck = serde_json::json!({
-        "scaena": "0.29",
+        "scaena": "0.31",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -680,7 +680,7 @@ fn small_multiples_facet_by_a_field_of_their_data() {
             "y": { "field": "v" }, "facet": facet, "alt": "", "at": { "in": "main" } })
     };
     let deck = serde_json::json!({
-        "scaena": "0.29",
+        "scaena": "0.31",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -797,7 +797,7 @@ fn a_code_text_takes_none_of_what_code_does_not_use() {
         node
     };
     let deck = serde_json::json!({
-        "scaena": "0.29",
+        "scaena": "0.31",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -863,6 +863,17 @@ fn a_code_text_takes_none_of_what_code_does_not_use() {
     assert_eq!(say("/nodes/snippet/style/case"), "`snippet` is code, set as written: it takes no `style.case`");
 }
 
+#[test]
+fn a_wrap_of_none_validates_and_an_unknown_wrap_is_e106() {
+    let mut deck: serde_json::Value = serde_json::from_str(fixture!("E106", "clean")).unwrap();
+    let text = deck["nodes"].as_object().unwrap().iter().find(|(_, n)| n["type"] == "text" && n.get("code").is_none());
+    let id = text.map(|(id, _)| id.clone()).expect("a text");
+    deck["nodes"][&id]["wrap"] = serde_json::json!("none");
+    assert_eq!(findings(&deck.to_string()), Vec::<String>::new());
+    deck["nodes"][&id]["wrap"] = serde_json::json!("verse");
+    assert_eq!(findings(&deck.to_string()), vec![format!("E106 /nodes/{id}/wrap")]);
+}
+
 /// A fetched picture (ADR-0030): its record, its pin, and where its credit goes round-trip through
 /// the model and the schema; a service this build does not know, an `at` that is no instant, and an
 /// empty credit where the service asks one are E106, and a pin's color the theme lacks is E102.
@@ -906,4 +917,41 @@ fn a_fetched_picture_validates_and_says_what_is_wrong_with_its_record() {
     let mut keyed = record;
     keyed["apiKey"] = "secret".into();
     assert_eq!(findings(&deck(keyed, serde_json::json!({ "at": [0.5, 0.5] }))), ["E106 /nodes/map/fetched/apiKey"]);
+}
+
+/// A data source fetched from a service (ADR-0030, PLAN O.2a): its record is checked as a picture's
+/// is (E106), and a forecast whose days have passed validates as it did, since validation reads
+/// no clock; only lint, handed a date, judges one (W428).
+#[test]
+fn a_fetched_sources_record_is_checked_and_its_date_is_not() {
+    let fetched = |from: &str, at: &str| {
+        serde_json::json!({
+            "from": from, "at": at, "asked": "Boston",
+            "credit": [{ "text": "Weather data by Open-Meteo.com", "link": "https://open-meteo.com/" }],
+            "terms": "free",
+            "forecast": { "place": { "name": "Boston", "lat": 42.36, "lon": -71.06, "zone": "America/New_York",
+                                     "offset": -14400 }, "period": "day", "units": "us" }
+        })
+    };
+    let deck = |record: serde_json::Value| {
+        serde_json::json!({
+            "scaena": scaena_core::FORMAT_VERSION,
+            "canvas": { "width": 1920, "height": 1080 },
+            "theme": "theme.json",
+            "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
+            "data": { "week": {
+                "source": { "inline": [{ "date": "2001-01-01", "sky": 3, "high": 40, "low": 31 }] },
+                "schema": { "date": "date", "sky": "number", "high": "number", "low": "number" },
+                "fetched": record
+            } },
+            "nodes": { "t": { "type": "table", "data": "@week", "alt": "", "at": { "in": "main" } } },
+            "states": [{ "id": "a", "layout": "full", "props": { "t": {} } }]
+        })
+        .to_string()
+    };
+    assert!(findings(&deck(fetched("open-meteo", "2001-01-01T12:00:00Z"))).is_empty());
+    assert_eq!(
+        findings(&deck(fetched("weatherwise", "yesterday"))),
+        ["E106 /data/week/fetched/at", "E106 /data/week/fetched/from"]
+    );
 }

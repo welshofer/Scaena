@@ -58,7 +58,23 @@ fn fixture(test: &str, code: &str, which: &str) -> PathBuf {
 
 /// `scaena --json lint` on `bundle`: its exit code and its findings.
 fn lint(bundle: &Path) -> (i32, Vec<Value>) {
-    let out = scaena(&["--json", "lint", bundle.to_str().unwrap()]);
+    lint_with(bundle, &[])
+}
+
+/// When a rule's fixtures are linted (ADR-0030): W428's at a pinned moment, every other rule's by
+/// the clock.
+fn now(code: &str) -> &'static [&'static str] {
+    match code {
+        "W428" => &["--now", "2026-10-15T18:00:00Z"],
+        _ => &[],
+    }
+}
+
+/// [`lint`] with `args` after the bundle.
+fn lint_with(bundle: &Path, args: &[&str]) -> (i32, Vec<Value>) {
+    let mut all = vec!["--json", "lint", bundle.to_str().unwrap()];
+    all.extend_from_slice(args);
+    let out = scaena(&all);
     let v: Value = serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
         panic!("{e}: {}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr))
     });
@@ -67,7 +83,7 @@ fn lint(bundle: &Path) -> (i32, Vec<Value>) {
 }
 
 /// Each rule's trigger, and where in the deck it finds what it finds.
-const RULES: [(&str, &[&str]); 43] = [
+const RULES: [(&str, &[&str]); 45] = [
     ("E100", &["/nodes/t"]),
     ("E101", &["/nodes/b", "/nodes/note", "/nodes/src"]),
     ("E110", &["/nodes/t"]),
@@ -107,23 +123,25 @@ const RULES: [(&str, &[&str]); 43] = [
     ("W425", &["/spine/sections/0/beats/1/claim"]),
     ("W426", &["/spine/sections/0/beats/1"]),
     ("W427", &["/nodes/c/runs/1/text", "/spine/sections/0/beats/0/claim"]),
+    ("W428", &["/nodes/t"]),
     ("I400", &["/states/1"]),
     ("I401", &["/nodes/ghost"]),
     ("I402", &["/overrides/t"]),
     ("I403", &["/nodes/cobol/code/language", "/nodes/slip/code/language"]),
+    ("I404", &["/nodes/poem"]),
 ];
 
 #[test]
 fn every_rule_triggers_on_its_fixture_and_not_on_its_clean_twin() {
     for (code, paths) in RULES {
-        let (_, found) = lint(&fixture("rules", code, "trigger"));
+        let (_, found) = lint_with(&fixture("rules", code, "trigger"), now(code));
         let mut at: Vec<&str> =
             found.iter().filter(|f| f["code"] == code).map(|f| f["path"].as_str().unwrap()).collect();
         at.sort();
         let mut want = paths.to_vec();
         want.sort();
         assert_eq!(at, want, "tests/lint/{code}/trigger.deck.json: {found:#?}");
-        let (exit, found) = lint(&fixture("rules", code, "clean"));
+        let (exit, found) = lint_with(&fixture("rules", code, "clean"), now(code));
         assert!(found.is_empty(), "tests/lint/{code}/clean.deck.json: {found:#?}");
         assert_eq!(exit, 0, "{code}");
     }
@@ -145,7 +163,7 @@ fn deck(data: Value, nodes: Value) -> Value {
     let props: serde_json::Map<String, Value> =
         nodes.as_object().unwrap().keys().map(|k| (k.clone(), serde_json::json!({}))).collect();
     serde_json::json!({
-        "scaena": "0.29",
+        "scaena": "0.31",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [
@@ -457,6 +475,8 @@ fn the_example_decks_and_b1_lint_clean() {
         "docs/examples/higher-ed.deck.json",
         "docs/examples/ridgeline.deck.json",
         "docs/examples/code.deck.json",
+        "docs/examples/weather.deck.json",
+        "docs/examples/haiku.deck.json",
         "tests/bench/b1.scaena",
     ] {
         let (exit, found) = lint(&Path::new(ROOT).join(bundle));
@@ -483,4 +503,30 @@ fn the_torture_deck_lints_to_its_golden() {
     }
     let want = std::fs::read_to_string(&golden).unwrap_or_default();
     assert_eq!(text, want, "tests/golden/lint/torture.txt: review the change, then SCAENA_BLESS=1 rewrites it");
+}
+
+/// Lint's date (ADR-0030, decision 8): `--now`, else `SOURCE_DATE_EPOCH`, else the clock. W428's
+/// trigger, fetched on 2026-10-01, is a week that has passed by 2026-10-15, and not on the day
+/// it came; a moment that is none exits 2 and says why.
+#[test]
+fn lint_takes_its_date_from_now_then_source_date_epoch() {
+    let dir = fixture("dated", "W428", "trigger");
+    let w428 = |found: &[Value]| found.iter().filter(|f| f["code"] == "W428").count();
+    let (_, found) = lint_with(&dir, &["--now", "2026-10-01"]);
+    assert_eq!(w428(&found), 0, "{found:#?}");
+    let epoch = |seconds: &str| {
+        let out = Command::new(env!("CARGO_BIN_EXE_scaena"))
+            .args(["--json", "lint", dir.to_str().unwrap()])
+            .env("SOURCE_DATE_EPOCH", seconds)
+            .output()
+            .unwrap();
+        serde_json::from_slice::<Value>(&out.stdout).unwrap().as_array().unwrap().clone()
+    };
+    // 2026-10-15T18:00:00Z, and 2026-10-01T18:00:00Z.
+    assert_eq!(w428(&epoch("1792087200")), 1);
+    assert_eq!(w428(&epoch("1790877600")), 0);
+    let out = scaena(&["--json", "lint", dir.to_str().unwrap(), "--now", "soon"]);
+    assert_eq!(out.status.code(), Some(2));
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(v["error"]["message"].as_str().unwrap().contains("is not an instant or a day"), "{v:#}");
 }

@@ -392,27 +392,42 @@ impl Rule for W314Credit {
         let canvas = [0.0, 0.0, cx.deck.canvas.width as f32, cx.deck.canvas.height as f32];
         for state in cx.states {
             for (k, node) in state.scene.nodes.iter().enumerate() {
-                let Content::Image(image) = &node.content else { continue };
-                let Some(credit) = &image.marks.credit else { continue };
+                // The credit, box-local; its words; the box; and what shows of a picture.
+                let (rect, text, cell, inside, shown) = match &node.content {
+                    Content::Image(image) => {
+                        let Some(credit) = &image.marks.credit else { continue };
+                        (credit.rect, &credit.text, image.rect, credit.fill.is_some(), image.shown())
+                    }
+                    // A chart's or a table's data's credit, at its foot (ADR-0030).
+                    Content::Chart { cell, chart } => {
+                        let Some(foot) = &chart.credit else { continue };
+                        let rect = [foot.origin[0], foot.origin[1], foot.text.width, foot.text.height];
+                        (rect, &foot.text, *cell, false, [0.0, 0.0, cell[2], cell[3]])
+                    }
+                    Content::Table { cell, table } => {
+                        let Some(foot) = &table.credit else { continue };
+                        let rect = [foot.origin[0], foot.origin[1], foot.text.width, foot.text.height];
+                        (rect, &foot.text, *cell, false, [0.0, 0.0, cell[2], cell[3]])
+                    }
+                    _ => continue,
+                };
                 if node.opacity <= 0.0 {
                     continue;
                 }
-                let [x, y, _, _] = image.rect;
-                let card = [credit.rect[0] + x, credit.rect[1] + y, credit.rect[2], credit.rect[3]];
+                let [x, y, _, _] = cell;
+                let card = [rect[0] + x, rect[1] + y, rect[2], rect[3]];
                 let map = state.scene.posed(&node.id, true);
                 let scale = pose::stretch(&map)[1] as f32;
-                let size = credit.text.runs.iter().map(|r| r.size).fold(f32::INFINITY, f32::min) * scale;
-                let inside = credit.fill.is_some();
+                let size = text.runs.iter().map(|r| r.size).fold(f32::INFINITY, f32::min) * scale;
                 let drawn_card = pose::bounds(&map, card);
-                let shown = image.shown();
-                let words = credit.text.lines.iter().map(|l| l.width).fold(0.0f32, f32::max);
+                let words = text.lines.iter().map(|l| l.width).fold(0.0f32, f32::max);
                 let why = if size.is_finite() && size < crate::render::MIN_CREDIT * short / 1080.0 - 0.01 {
                     Some(format!("is set at {:.0} cu, under 12 pt at presentation size", size))
                 } else if !contains(canvas, drawn_card) {
                     Some("runs off the canvas".to_string())
-                } else if !contains([0.0, 0.0, image.rect[2], image.rect[3]], credit.rect)
-                    || (inside && !contains(shown, credit.rect))
-                    || words > credit.text.measure + 0.5
+                } else if !contains([0.0, 0.0, cell[2], cell[3]], rect)
+                    || (inside && !contains(shown, rect))
+                    || words > text.measure + 0.5
                 {
                     Some("is cut by its box".to_string())
                 } else if let Some(over) =
@@ -424,7 +439,7 @@ impl Rule for W314Credit {
                     )
                 {
                     Some(format!("is covered by `{}`", over.id))
-                } else if inside && credit.rect[2] * credit.rect[3] > 0.25 * shown[2] * shown[3] {
+                } else if inside && rect[2] * rect[3] > 0.25 * shown[2] * shown[3] {
                     Some("covers more than a quarter of the picture".to_string())
                 } else {
                     None
@@ -442,7 +457,7 @@ impl Rule for W314Credit {
                     .at(cx.node_path(&node))
                     .node(node.clone())
                     .measure(json!({ "states": states }))
-                    .hint("Set the credit below the picture (`credit: below`), make the picture larger, or move what lies over it.");
+                    .hint("Set the credit below the picture (`credit: below`), make it larger, or move what lies over it.");
                 if inside { f.fix(vec![json!({ "op": "add", "path": prop_path(cx, first, &node, "credit"), "value": "below" })]) } else { f }
             })
             .collect()

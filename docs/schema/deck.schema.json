@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/deck-0.29.json",
+  "$id": "https://scaena.dev/schema/deck-0.31.json",
   "title": "Scaena deck document",
   "description": "Canonical deck.json. A deck is a scene graph (nodes) plus an ordered cue list (states) over a narrative spine, rendered against a theme. See docs/SPEC.md §3.",
   "type": "object",
@@ -10,7 +10,7 @@
     "scaena": {
       "description": "Format version (semver, major.minor[.patch]).",
       "type": "string",
-      "pattern": "^0\\.29(\\.[0-9]+)?$"
+      "pattern": "^0\\.31(\\.[0-9]+)?$"
     },
     "meta": { "$ref": "#/$defs/Meta" },
     "canvas": { "$ref": "#/$defs/Canvas" },
@@ -240,7 +240,11 @@
       "properties": {
         "source": { "$ref": "#/$defs/SourceRef" },
         "schema": { "type": "object", "additionalProperties": { "$ref": "#/$defs/FieldType" } },
-        "parse": { "type": "object", "additionalProperties": { "type": "string" } }
+        "parse": { "type": "object", "additionalProperties": { "type": "string" } },
+        "fetched": {
+          "description": "Where its rows came from (ADR-0030, deck format 0.31): a forecast fetched once into the deck, credited at the foot of each chart or table that reads it.",
+          "$ref": "#/$defs/Fetched"
+        }
       }
     },
     "SourceRef": {
@@ -254,6 +258,176 @@
       "properties": { "inline": { "type": "array", "items": true } }
     },
     "FieldType": { "type": "string", "enum": ["number", "string", "date", "boolean"] },
+    "Fetched": {
+      "description": "Where an object came from (ADR-0030, decision 2).",
+      "type": "object",
+      "required": ["from", "at", "asked", "credit"],
+      "additionalProperties": false,
+      "properties": {
+        "from": { "description": "The service, by Scaena's name for it: one of `SERVICES`.", "type": "string" },
+        "at": {
+          "description": "When its answer came, an instant in UTC (RFC 3339), by the clock of the client that asked.",
+          "type": "string"
+        },
+        "asked": {
+          "description": "What the person asked for, as typed: an address, a place, or `lat, lon`.",
+          "type": "string"
+        },
+        "credit": {
+          "description": "What the service's terms ask shown with it, as runs, each linked where it says.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/CreditRun" }
+        },
+        "license": { "description": "The data's license, where the service names one: `ODbL-1.0`.", "type": "string" },
+        "map": { "description": "A map's view, as it was asked (PLAN O.1b).", "$ref": "#/$defs/MapAsked" },
+        "terms": {
+          "description": "Which of the service's terms applied, where the request itself says so: Open-Meteo's `free` service or its `customer` one (deck format 0.31).",
+          "$ref": "#/$defs/Terms"
+        },
+        "kept": {
+          "description": "The person keeps it as of its date: lint does not judge its date (W428).",
+          "type": "boolean"
+        },
+        "edited": {
+          "description": "Its rows were edited since they came, which the credit says, as CC BY asks.",
+          "type": "boolean"
+        },
+        "forecast": {
+          "description": "A forecast, as it was asked (PLAN O.2a): the place, the period, and the units.",
+          "$ref": "#/$defs/Forecast"
+        }
+      }
+    },
+    "CreditRun": {
+      "description": "A run of a credit: its words, and where they link.",
+      "type": "object",
+      "required": ["text"],
+      "additionalProperties": false,
+      "properties": {
+        "text": { "type": "string" },
+        "link": {
+          "description": "A web address the words link to.",
+          "type": "string",
+          "pattern": "^https?://[^\\s]+$"
+        }
+      }
+    },
+    "MapAsked": {
+      "description": "A map's picture as it was asked (ADR-0030, decisions 11–12): the place, the view, and the size.",
+      "type": "object",
+      "required": ["center", "zoom", "style", "size", "scale"],
+      "additionalProperties": false,
+      "properties": {
+        "place": {
+          "description": "The place the pin marks, as the geocoder named it, or the coordinates typed.",
+          "$ref": "#/$defs/Place"
+        },
+        "center": { "description": "The middle of the picture.", "$ref": "#/$defs/LatLon" },
+        "zoom": {
+          "description": "The service's zoom, 1 to 20: each step doubles the scale.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 22
+        },
+        "style": {
+          "description": "The service's style, by its name: `positron`, `dark-matter`, or `osm-bright`.",
+          "type": "string"
+        },
+        "size": {
+          "description": "The picture's size as asked, in the service's points: the box in canvas units.",
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0 },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "scale": {
+          "description": "Pixels to a point: 2 asks for a picture twice as dense.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4
+        }
+      }
+    },
+    "Place": {
+      "description": "A place a map marks.",
+      "type": "object",
+      "required": ["lat", "lon"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "description": "Its name, as the geocoder gave it.", "type": "string" },
+        "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+        "lon": { "type": "number", "minimum": -180, "maximum": 180 }
+      }
+    },
+    "LatLon": {
+      "description": "A point on the earth, in degrees.",
+      "type": "object",
+      "required": ["lat", "lon"],
+      "additionalProperties": false,
+      "properties": {
+        "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+        "lon": { "type": "number", "minimum": -180, "maximum": 180 }
+      }
+    },
+    "Terms": {
+      "description": "Which of a service's terms a fetch came under.",
+      "oneOf": [
+        {
+          "description": "The service's free terms: Open-Meteo's, for non-commercial use.",
+          "type": "string",
+          "const": "free"
+        },
+        {
+          "description": "The terms of the user's own subscription: Open-Meteo's `customer-` hosts.",
+          "type": "string",
+          "const": "customer"
+        }
+      ]
+    },
+    "Forecast": {
+      "description": "What a forecast was fetched for (ADR-0030, decision 18): the place, the period, and the units.",
+      "type": "object",
+      "required": ["place", "period", "units"],
+      "additionalProperties": false,
+      "properties": {
+        "place": { "$ref": "#/$defs/Place2" },
+        "period": { "description": "Whether each row is a day or an hour.", "$ref": "#/$defs/Period" },
+        "units": { "description": "The units its figures came in.", "$ref": "#/$defs/Units" }
+      }
+    },
+    "Place2": {
+      "description": "The place a forecast is for, as the geocoder named it.",
+      "type": "object",
+      "required": ["name", "lat", "lon", "zone", "offset"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "description": "Its name: `Boston`.", "type": "string" },
+        "region": {
+          "description": "The region it is in, where the geocoder names one: `Massachusetts`.",
+          "type": "string"
+        },
+        "country": { "description": "Its country: `United States`.", "type": "string" },
+        "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+        "lon": { "type": "number", "minimum": -180, "maximum": 180 },
+        "zone": { "description": "Its time zone, by its IANA name: `America/New_York`.", "type": "string" },
+        "offset": {
+          "description": "The offset from UTC, in seconds, its days were cut by when it was fetched: `-14400`.",
+          "type": "integer",
+          "minimum": -64800,
+          "maximum": 64800
+        }
+      }
+    },
+    "Period": {
+      "description": "A forecast's period: each row a day or an hour.",
+      "type": "string",
+      "enum": ["day", "hour"]
+    },
+    "Units": {
+      "description": "The units a forecast's figures are in: metric (°C, km/h, mm) or US (°F, mph, inches).",
+      "type": "string",
+      "enum": ["metric", "us"]
+    },
     "Spine": {
       "type": "object",
       "required": ["sections"],
@@ -1106,7 +1280,11 @@
       "type": "string",
       "enum": ["wrap", "shrink", "grow", "clip", "error"]
     },
-    "Wrap": { "type": "string", "enum": ["greedy", "pretty", "balance"] },
+    "Wrap": {
+      "description": "How a text's lines break where its words run past its width (SPEC §3.5).",
+      "type": "string",
+      "enum": ["greedy", "pretty", "balance", "none"]
+    },
     "TextBox": { "type": "string", "enum": ["cap", "line"] },
     "Numeric": {
       "type": "string",
@@ -1232,101 +1410,6 @@
           "minimum": -1,
           "maximum": 1
         }
-      }
-    },
-    "Fetched": {
-      "description": "Where an object came from (ADR-0030, decision 2).",
-      "type": "object",
-      "required": ["from", "at", "asked", "credit"],
-      "additionalProperties": false,
-      "properties": {
-        "from": { "description": "The service, by Scaena's name for it: one of `SERVICES`.", "type": "string" },
-        "at": {
-          "description": "When its answer came, an instant in UTC (RFC 3339), by the clock of the client that asked.",
-          "type": "string"
-        },
-        "asked": {
-          "description": "What the person asked for, as typed: an address, a place, or `lat, lon`.",
-          "type": "string"
-        },
-        "credit": {
-          "description": "What the service's terms ask shown with it, as runs, each linked where it says.",
-          "type": "array",
-          "items": { "$ref": "#/$defs/CreditRun" }
-        },
-        "license": { "description": "The data's license, where the service names one: `ODbL-1.0`.", "type": "string" },
-        "map": { "description": "A map's view, as it was asked (PLAN O.1b).", "$ref": "#/$defs/MapAsked" }
-      }
-    },
-    "CreditRun": {
-      "description": "A run of a credit: its words, and where they link.",
-      "type": "object",
-      "required": ["text"],
-      "additionalProperties": false,
-      "properties": {
-        "text": { "type": "string" },
-        "link": {
-          "description": "A web address the words link to.",
-          "type": "string",
-          "pattern": "^https?://[^\\s]+$"
-        }
-      }
-    },
-    "MapAsked": {
-      "description": "A map's picture as it was asked (ADR-0030, decisions 11–12): the place, the view, and the size.",
-      "type": "object",
-      "required": ["center", "zoom", "style", "size", "scale"],
-      "additionalProperties": false,
-      "properties": {
-        "place": {
-          "description": "The place the pin marks, as the geocoder named it, or the coordinates typed.",
-          "$ref": "#/$defs/Place"
-        },
-        "center": { "description": "The middle of the picture.", "$ref": "#/$defs/LatLon" },
-        "zoom": {
-          "description": "The service's zoom, 1 to 20: each step doubles the scale.",
-          "type": "number",
-          "minimum": 0,
-          "maximum": 22
-        },
-        "style": {
-          "description": "The service's style, by its name: `positron`, `dark-matter`, or `osm-bright`.",
-          "type": "string"
-        },
-        "size": {
-          "description": "The picture's size as asked, in the service's points: the box in canvas units.",
-          "type": "array",
-          "items": { "type": "integer", "minimum": 0 },
-          "minItems": 2,
-          "maxItems": 2
-        },
-        "scale": {
-          "description": "Pixels to a point: 2 asks for a picture twice as dense.",
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 4
-        }
-      }
-    },
-    "Place": {
-      "description": "A place a map marks.",
-      "type": "object",
-      "required": ["lat", "lon"],
-      "additionalProperties": false,
-      "properties": {
-        "name": { "description": "Its name, as the geocoder gave it.", "type": "string" },
-        "lat": { "type": "number", "minimum": -90, "maximum": 90 },
-        "lon": { "type": "number", "minimum": -180, "maximum": 180 }
-      }
-    },
-    "LatLon": {
-      "description": "A point on the earth, in degrees.",
-      "type": "object",
-      "required": ["lat", "lon"],
-      "additionalProperties": false,
-      "properties": {
-        "lat": { "type": "number", "minimum": -90, "maximum": 90 },
-        "lon": { "type": "number", "minimum": -180, "maximum": 180 }
       }
     },
     "Pin": {
@@ -1524,12 +1607,12 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "x": { "$ref": "#/$defs/Place2" },
-        "y": { "$ref": "#/$defs/Place2" },
-        "series": { "$ref": "#/$defs/Place2" }
+        "x": { "$ref": "#/$defs/Place3" },
+        "y": { "$ref": "#/$defs/Place3" },
+        "series": { "$ref": "#/$defs/Place3" }
       }
     },
-    "Place2": {
+    "Place3": {
       "description": "One value, or several: a band's two ends, or what a highlight picks out.",
       "anyOf": [
         { "$ref": "#/$defs/Scalar" },
@@ -2032,7 +2115,11 @@
         "asked": { "type": ["string", "null"] },
         "credit": { "anyOf": [{ "items": { "$ref": "#/$defs/CreditRun" }, "type": "array" }, { "type": "null" }] },
         "license": { "type": ["string", "null"] },
-        "map": { "anyOf": [{ "$ref": "#/$defs/MapAsked" }, { "type": "null" }] }
+        "map": { "anyOf": [{ "$ref": "#/$defs/MapAsked" }, { "type": "null" }] },
+        "terms": { "anyOf": [{ "$ref": "#/$defs/Terms" }, { "type": "null" }] },
+        "kept": { "type": ["boolean", "null"] },
+        "edited": { "type": ["boolean", "null"] },
+        "forecast": { "anyOf": [{ "$ref": "#/$defs/Forecast" }, { "type": "null" }] }
       }
     },
     "PinDelta": {

@@ -1,5 +1,5 @@
 {
-  "scaena": "0.29",
+  "scaena": "0.31",
   "meta": {
     "title": "Typography torture deck",
     "author": "Scaena",
@@ -5194,6 +5194,28 @@
       "at": {
         "in": "right"
       }
+    },
+    "verse-poem": {
+      "type": "text",
+      "role": "display",
+      "wrap": "none",
+      "fit": "shrink",
+      "minSize": 72,
+      "align": {
+        "x": "center"
+      },
+      "text": "An old silent pond\nA frog jumps into the pond\nSplash! Silence again",
+      "at": {
+        "col": [
+          2,
+          11
+        ],
+        "row": [
+          2,
+          8
+        ]
+      },
+      "maxLines": 3
     }
   },
   "states": [
@@ -6531,6 +6553,19 @@
         "map-below": {}
       },
       "notes": "Pass: the map card twice, each drawn as a fetched map is, with what the engine draws over it. Left, the map covers its box, the credit on a card of the surface in the bottom-left corner of the picture, in the caption role at 24 cu, wrapped to two lines, clear of the block in the bottom-right corner where the service writes its own; the pin, in the accent with a ring of the surface, 48 cu tall, its tip on the ink cross at the picture's middle; its label, Ferry Building, on a card of the surface to the right of the pin's head. Right, the map covers what its box keeps above the credit, which runs under it in two lines inside the box with no card, its focal point toward the right; the pin, in the signal color, stands near the right edge, so its label, Pier 39, stands to the left of its head. Each run of the credit that links is underlined, a link op over it."
+    },
+    {
+      "id": "verse",
+      "name": "Verse, set as written",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "69 · Verse, set as written · recorded"
+        },
+        "verse-poem": {}
+      },
+      "notes": "Pass: a haiku set as written (PLAN O.4b): `wrap: none`, so its three lines break only where the text breaks them, and none breaks again, though the display role balances its lines. Each line is centered on its own. At the role's 144 cu the middle line runs past columns 2-11, so the poem shrinks whole, worked out from one layout as code is, to the largest size at which every line fits (114 cu), no smaller than its `minSize` of 72 cu."
     }
   ],
   "overrides": {

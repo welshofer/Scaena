@@ -38,3 +38,7 @@ scaena-pixels.workspace = true
 [dev-dependencies]
 # Its own tests count with the table compiled in (`verse`).
 scaena-core = { path = ".", features = ["syllables"] }
+
+[build-dependencies]
+# The schemas validation reads, compiled in without what it does not read (`build.rs`).
+serde_json.workspace = true
