@@ -316,7 +316,7 @@ fn an_older_theme_that_ships_opens_with_its_library() {
     let shipped = read("../../docs/examples/authorability/themes/daybreak.theme.json");
     assert_eq!(starters.len(), shipped["layouts"].as_object().unwrap().len() + 1, "every layout, and a blank slide");
     let sections: std::collections::BTreeSet<&str> = starters.iter().filter_map(|l| l["group"].as_str()).collect();
-    assert_eq!(sections.len(), 13, "{sections:?}");
+    assert_eq!(sections.len(), 16, "{sections:?}");
     unsafe { scaena_session_free(s) };
 }
 
@@ -1526,7 +1526,7 @@ fn a_states_layouts_are_judged_a_step_at_a_time_and_drawn_small() {
         .map(|x| (x["layout"].as_str().unwrap_or(""), x["current"] == true, x["errors"].as_u64().unwrap_or(0)))
         .collect();
     // As the session judges them on its own: the layout it takes now first, the others with errors.
-    assert_eq!(judged.len(), 6, "{suggested}");
+    assert_eq!(judged.len(), 7, "{suggested}");
     assert_eq!(judged[0], ("figure", true, 0), "{suggested}");
     assert!(judged[1..].iter().all(|&(_, current, errors)| !current && errors > 0), "{suggested}");
     for (i, x) in list.iter().enumerate() {

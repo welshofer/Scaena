@@ -425,7 +425,7 @@ impl Engine {
         snap: &Snapshot,
     ) -> Result<Scene, EngineError> {
         let canvas = canvas(deck);
-        let grid = Grid::from_theme(theme, canvas)?;
+        let grid = Grid::from_theme(theme, canvas)?.mirrored(scaena_core::direction::mirrored(deck));
         let snap = &cascade::with_overrides(deck, snap);
         let mut placement = self.place(deck, theme, data, &grid, snap)?;
         let mut tree = tree(deck, snap, &placement)?;
@@ -523,6 +523,7 @@ impl Engine {
             tracks: placement.tracks,
             furniture,
             joins,
+            mirrored: grid.is_mirrored(),
         })
     }
 
@@ -722,8 +723,9 @@ impl Engine {
         // Held to the grid of the format laid out, which may have fewer columns.
         let a = a.clamp(1, last);
         let b = b.clamp(a, last);
-        let [x0, _] = columns[(a - 1) as usize];
-        let [_, x1] = columns[(b - 1) as usize];
+        // Its first column and its last, which stand right to left in a deck that reads so.
+        let (first, last) = (columns[(a - 1) as usize], columns[(b - 1) as usize]);
+        let (x0, x1) = (first[0].min(last[0]), first[1].max(last[1]));
         let size = canvas(deck);
         let rows = grid.rows();
         let (y0, y1) = match item.edge {
@@ -784,7 +786,7 @@ impl Engine {
         if let Some(node) = nodes.iter().find(|n| !snap.nodes.contains_key(**n)) {
             return Err(EngineError::Layout(format!("node `{node}` is not visible in state `{}`", req.state)));
         }
-        let grid = Grid::from_theme(theme, canvas(deck))?;
+        let grid = Grid::from_theme(theme, canvas(deck))?.mirrored(scaena_core::direction::mirrored(deck));
         let placement = self.place(deck, theme, req.data, &grid, snap)?;
         let mut placed = Vec::with_capacity(nodes.len());
         for node in nodes {
@@ -1399,6 +1401,7 @@ fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>)
             list_indent: list_indent as f32,
             list_gap: list_gap as f32,
             code,
+            mirrored: scaena_core::direction::mirrored(deck),
         });
     }
     let items = list_marks(theme, props, &written)?;
@@ -1421,6 +1424,7 @@ fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>)
         list_indent: list_indent as f32,
         list_gap: list_gap as f32,
         code: None,
+        mirrored: scaena_core::direction::mirrored(deck),
     })
 }
 

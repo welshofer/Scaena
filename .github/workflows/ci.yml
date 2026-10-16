@@ -534,6 +534,11 @@ jobs:
       - run: python3 scripts/build_lint_fonts.py --check
       # B2 and B3 are what their generator writes (PLAN 1.24).
       - run: python3 scripts/build_bench_decks.py --check
+      # The decks that read right to left are what their generator writes (PLAN T.5a).
+      - run: python3 scripts/build_rtl_decks.py --check
+      # The shipped themes are what their specs write on the shared base, and the registry's tables what
+      # it lists (PLAN T.0a, ADR-0031).
+      - run: python3 scripts/build_themes.py --check
       # The shipped themes' layouts are what the library's generator writes (PLAN 3.31).
       - run: python3 scripts/build_layouts.py --check
       # The icons that ship are absolute paths in their view, as their generator writes them (PLAN 2.104).
