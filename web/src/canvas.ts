@@ -2149,13 +2149,19 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     return { how, to, by, held };
   }
 
+  /** What the drag asks the worker with its pointer where it is now: one question asked once. */
+  function asking(d: Drag, aim = aimed(d)) {
+    return JSON.stringify([aim.by, aim.how, d.alt, d.loose]);
+  }
+
   /** Ask where the drag lands now, and paint its node there: one request at a time, the latest
    * pointer's. */
   async function pump(d: Drag) {
     const shown = editor.shown();
     if (busy || drag !== d || !shown) return;
-    const { how, to, by, held } = aimed(d);
-    const asked = JSON.stringify([by, how, d.alt, d.loose]);
+    const aim = aimed(d);
+    const { how, to, by, held } = aim;
+    const asked = asking(d, aim);
     if (asked === d.asked) return;
     d.asked = asked;
     d.how = how;
@@ -4375,6 +4381,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     },
     /** Whether a drag is under way, or its request with the worker. */
     busy: () => busy || drag !== undefined || starting !== undefined || reshaping !== undefined || cropping !== undefined,
+    /** Whether the drag under way has its answer for where its pointer is now: what it shows and
+     * says, its guides among them, are for that place, not one the pointer has left. */
+    answered: () => drag !== undefined && !busy && drag.asked === asking(drag),
     /** The text typed in, if one is. */
     typing: () => text.node(),
     /** Once every change typed so far is made, typing left with one under way among them: what a
