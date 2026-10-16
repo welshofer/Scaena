@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/patch-0.31.json",
+  "$id": "https://scaena.dev/schema/patch-0.32.json",
   "title": "Scaena patch",
   "description": "A patch (SPEC §7.3): RFC 6902 ops and semantic ops, applied in order, all or none.",
   "type": "array",
@@ -1053,7 +1053,7 @@
         "legend": { "$ref": "#/$defs/Legend" },
         "annotations": { "type": "array", "items": { "$ref": "#/$defs/Annotation" } },
         "weather": {
-          "description": "A `weather` chart's fields, units, and parts (deck format 0.31, ADR-0030): any other kind is E106.",
+          "description": "A `weather` chart's fields, units, and parts (deck format 0.32, ADR-0030): any other kind is E106.",
           "$ref": "#/$defs/Weather"
         }
       }
