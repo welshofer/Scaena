@@ -309,13 +309,17 @@ fn copy_dir(from: &Path, to: &Path) {
     }
 }
 
-/// The shipped themes, by name: Dusk, its light twin Daybreak, Ember, and Gallery.
-const SHIPPED: [(&str, &str); 4] = [
-    ("dusk", "../../docs/examples/themes/dusk.theme.json"),
-    ("daybreak", DAYBREAK),
-    ("ember", "../../docs/examples/themes/ember.theme.json"),
-    ("gallery", "../../docs/examples/themes/gallery.theme.json"),
-];
+/// The shipped themes, as the registry lists them (PLAN T.0a): each by its slug, with the paths
+/// of its file and of every copy of it.
+fn shipped() -> Vec<(String, Vec<String>)> {
+    let registry: serde_json::Value =
+        serde_json::from_slice(&std::fs::read("../../docs/themes/registry.json").unwrap()).unwrap();
+    let themes = registry["themes"].as_array().unwrap().iter();
+    let path = |f: &serde_json::Value| format!("../../{}", f.as_str().unwrap());
+    themes
+        .map(|t| (t["slug"].as_str().unwrap().to_string(), t["files"].as_array().unwrap().iter().map(path).collect()))
+        .collect()
+}
 
 /// What a theme names that a deck may use (SPEC §3.6): its layouts and their slots, roles,
 /// families, colors, color roles, data palettes, shader presets and palettes, motion, and the
@@ -348,17 +352,18 @@ fn vocabulary(path: &str) -> serde_json::Value {
 
 /// One vocabulary for the shipped themes (PLAN 1.34): each defines the names the others do,
 /// for the same jobs, on a grid of the same shape, so a deck moves between them by swapping
-/// the file. Dusk's copy in the authorability bundle is Dusk.
+/// the file. Each copy of a theme, as Dusk's in the authorability bundle, is that theme.
 #[test]
 fn the_shipped_themes_name_the_same_things() {
-    let dusk = vocabulary(SHIPPED[0].1);
-    for (name, path) in &SHIPPED[1..] {
-        assert_eq!(vocabulary(path), dusk, "{name} names what Dusk does");
+    let shipped = shipped();
+    let (first, files) = &shipped[0];
+    let named = vocabulary(&files[0]);
+    for (name, files) in &shipped {
+        assert_eq!(vocabulary(&files[0]), named, "{name} names what {first} does");
+        for copy in &files[1..] {
+            assert_eq!(std::fs::read(copy).unwrap(), std::fs::read(&files[0]).unwrap(), "{copy} is {name}");
+        }
     }
-    assert_eq!(
-        std::fs::read("../../docs/examples/authorability/themes/dusk.theme.json").unwrap(),
-        std::fs::read(SHIPPED[0].1).unwrap()
-    );
 }
 
 /// Every example deck re-themes onto every shipped theme with no name it lacks (PLAN 1.34):
@@ -376,10 +381,11 @@ fn every_example_deck_moves_between_the_shipped_themes() {
         "haiku.deck.json",
         "authorability",
     ];
+    let shipped = shipped();
     let runs: Vec<(String, String)> = std::thread::scope(|s| {
         let jobs: Vec<_> = decks
             .iter()
-            .flat_map(|deck| SHIPPED.iter().map(move |(name, theme)| (*deck, *name, *theme)))
+            .flat_map(|deck| shipped.iter().map(move |(name, files)| (*deck, name.as_str(), files[0].as_str())))
             .map(|(deck, name, theme)| {
                 s.spawn(move || {
                     let path = format!("../../docs/examples/{deck}");

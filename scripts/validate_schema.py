@@ -13,12 +13,13 @@ for tool in sorted((root / 'docs/schema/mcp').glob('*.json')):
         assert t.get(k) is None or t[k]['type'] == 'object', f"{tool.name}: a tool's {k} is an object (MCP)"
     for sch in filter(None, (t['inputSchema'], t.get('outputSchema'))): Draft202012Validator.check_schema(sch)
 # Every example, plus every fixture and benchmark bundle under tests/ (deck.json and its theme.json).
-targets = [('docs/examples/revenue.deck.json', deck_schema), ('docs/examples/charts.deck.json', deck_schema), ('docs/examples/trails.deck.json', deck_schema), ('docs/examples/higher-ed.deck.json', deck_schema), ('docs/examples/ridgeline.deck.json', deck_schema), ('docs/examples/code.deck.json', deck_schema), ('docs/examples/haiku.deck.json', deck_schema), ('docs/examples/themes/dusk.theme.json', theme_schema), ('docs/examples/themes/ember.theme.json', theme_schema), ('docs/examples/themes/gallery.theme.json', theme_schema)]
+targets = [('docs/examples/revenue.deck.json', deck_schema), ('docs/examples/charts.deck.json', deck_schema), ('docs/examples/trails.deck.json', deck_schema), ('docs/examples/higher-ed.deck.json', deck_schema), ('docs/examples/ridgeline.deck.json', deck_schema), ('docs/examples/code.deck.json', deck_schema), ('docs/examples/haiku.deck.json', deck_schema)]
+# Every file of every theme that ships, as the registry lists them (PLAN T.0a).
+targets += [(f, theme_schema) for t in json.load(open(root / 'docs/themes/registry.json'))['themes'] for f in t['files']]
 # The example patch (PLAN 1.16).
 targets += [('docs/examples/revenue.patch.json', patch_schema)]
-# The deck the authorability spike's agents wrote (PLAN 0.13), and the themes it moved between.
+# The deck the authorability spike's agents wrote (PLAN 0.13); the themes it moved between are the registry's.
 targets += [('docs/examples/authorability/deck.json', deck_schema)]
-targets += [(str(p.relative_to(root)), theme_schema) for p in sorted((root / 'docs/examples/authorability/themes').glob('*.theme.json'))]
 # The validation fixtures' clean decks and their theme (PLAN 1.2); the triggers break on purpose.
 targets += [(str(p.relative_to(root)), deck_schema) for p in sorted((root / 'tests/lint').glob('*/clean.deck.json'))]
 targets += [('tests/lint/theme.json', theme_schema), ('tests/lint/bundle/theme.json', theme_schema), ('tests/lint/bundle/one-weight.theme.json', theme_schema)]

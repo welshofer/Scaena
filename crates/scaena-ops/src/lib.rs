@@ -37,6 +37,7 @@ pub mod patch;
 pub mod read;
 pub mod render;
 pub mod scripts;
+pub mod sheet;
 #[cfg(feature = "shipped")]
 pub mod shipped;
 pub mod states;
