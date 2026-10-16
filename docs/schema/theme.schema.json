@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/theme-0.21.json",
+  "$id": "https://scaena.dev/schema/theme-0.22.json",
   "title": "Scaena theme (design system)",
   "description": "Tokens, typographic roles, layout templates, motion, and palettes. Documents reference these by name; they never store resolved values. See docs/SPEC.md §3.6.",
   "type": "object",
   "required": ["scaena-theme", "name", "tokens", "type", "grid", "layouts", "motion"],
   "additionalProperties": false,
   "properties": {
-    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.21(\\.[0-9]+)?$" },
+    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.22(\\.[0-9]+)?$" },
     "name": { "type": "string", "minLength": 1 },
     "description": { "type": "string" },
     "tokens": { "$ref": "#/$defs/Tokens" },
@@ -44,10 +44,6 @@
     "furniture": {
       "description": "A slide's number and footer: where each stands and in what type, and the layouts a slide shows neither on (theme format 0.14, ADR-0028). The deck says whether they show.",
       "$ref": "#/$defs/Furniture"
-    },
-    "pictures": {
-      "description": "How its pictures are framed (theme format 0.21, PLAN T.3a, ADR-0031): every image takes the frame, and no image says otherwise. None where it says none.",
-      "$ref": "#/$defs/Pictures"
     }
   },
   "$defs": {
@@ -573,7 +569,7 @@
       "maxItems": 4
     },
     "Example": {
-      "description": "What a layout's picture shows in a slot that waits (PLAN 3.31): `{ \"picture\": \"backdrop\" }`, `{ \"chart\": \"bar\" }`, or `{ \"table\": 3 }`.",
+      "description": "What a layout's picture shows in a slot that waits (PLAN 3.31): `{ \"picture\": \"backdrop\" }`, `{ \"chart\": \"bar\" }`, `{ \"table\": 3 }`, or `{ \"map\": \"backdrop\" }` (theme format 0.22).",
       "oneOf": [
         {
           "description": "A picture, drawn by the theme's shader preset of this name.",
@@ -595,6 +591,13 @@
           "required": ["table"],
           "additionalProperties": false,
           "properties": { "table": { "type": "integer", "minimum": 2, "maximum": 7 } }
+        },
+        {
+          "description": "A map's place (ADR-0030, PLAN O.1e, theme format 0.22): the picture this shader preset draws, with a pin and a label over it, and no provider's map. Insert › Map… fills the place.",
+          "type": "object",
+          "required": ["map"],
+          "additionalProperties": false,
+          "properties": { "map": { "type": "string", "minLength": 1 } }
         }
       ]
     },
@@ -1105,41 +1108,6 @@
       "description": "How a piece of furniture lines up across its columns.",
       "type": "string",
       "enum": ["start", "center", "end"]
-    },
-    "Pictures": {
-      "description": "How a theme frames its pictures (PLAN T.3a).",
-      "type": "object",
-      "required": ["frame"],
-      "additionalProperties": false,
-      "properties": { "frame": { "$ref": "#/$defs/Frame" } }
-    },
-    "Frame": {
-      "description": "A picture's frame: `none`, or a mat of a theme color around it, a keyline at its edge, or both, drawn inside the image's box, the picture inset by them.",
-      "anyOf": [{ "$ref": "#/$defs/NoFrame" }, { "$ref": "#/$defs/Framing" }]
-    },
-    "NoFrame": { "type": "string", "enum": ["none"] },
-    "Framing": {
-      "description": "A frame's bands, from the picture out: its keyline, then its mat.",
-      "type": "object",
-      "minProperties": 1,
-      "additionalProperties": false,
-      "properties": {
-        "mat": { "description": "A band of color around the picture, as a print's mat.", "$ref": "#/$defs/Band" },
-        "keyline": {
-          "description": "A thin line at the picture's edge, between it and the mat.",
-          "$ref": "#/$defs/Band"
-        }
-      }
-    },
-    "Band": {
-      "description": "A band of a frame: a color token or role, and how wide it is, canvas units.",
-      "type": "object",
-      "required": ["color", "width"],
-      "additionalProperties": false,
-      "properties": {
-        "color": { "type": "string", "minLength": 1 },
-        "width": { "type": "number", "exclusiveMinimum": 0 }
-      }
     }
   }
 }

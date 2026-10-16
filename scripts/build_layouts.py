@@ -1160,6 +1160,35 @@ layout("Classroom", "quiz", "A question and four answers, each on its card: add 
     **{o: slot((c[0] + 1, c[1]), r, "title", "An answer", inset=24, align={"y": "center"}) for o, (c, r) in zip(ORDINALS, QUAD)},
 })
 
+# Maps (ADR-0030, PLAN O.1e) ---------------------------------------------------------------------
+# A map's place says "A map", and the layout's picture shows the theme's picture art there with a
+# pin and a label over it, no provider's map: Insert › Map… fills the place.
+
+MAP = {"map": "backdrop"}
+
+
+def map_place(col, row, bleed=None):
+    return slot(col, row, prompt="A map", bleed=bleed, example=MAP)
+
+
+layout("Pictures", "map", "A map of a place under a headline, and a line saying what it shows.", {
+    "kicker": KICKER,
+    "header": header(),
+    "art": map_place((1, 12), (3, 9)),
+    "note": slot((1, 8), (10, 10), "caption", "What the map shows"),
+})
+
+layout("Pictures", "map-words", "A map off the right edge, a headline and its words beside it: where it is, and why it matters.", {
+    "art": map_place((7, 12), (1, 12), bleed=True),
+    "header": slot((1, 6), (3, 5), "headline", "What this slide says"),
+    "body": slot((1, 6), (6, 10), "body", "Where it is, and why it matters, in a sentence or two."),
+}, ember={"header": ((1, 6), (2, 4)), "body": ((1, 6), (5, 11))})
+
+layout("Pictures", "map-full", "A map across the whole slide, and a headline over it.", {
+    "art": map_place((1, 12), (1, 12), bleed=True),
+    "header": slot((2, 9), (2, 3), "headline", "Where it is"),
+}, ember={"header": ((2, 9), (2, 3))})
+
 # ---------------------------------------------------------------------------------------------
 # The next of ADR-0031's slide types (PLAN S.2).
 
@@ -1625,6 +1654,8 @@ NAMES = {
     # S.3's first five
     "seating-chart": "Seating Chart", "exhibit-callout": "Exhibit Callout",
     "concept-of-operations": "Concept of Operations", "brand-board": "Brand Board", "fine-print": "Fine Print",
+    # Maps (PLAN O.1e)
+    "map": "Map", "map-words": "Map and Words", "map-full": "Full-Bleed Map",
 }
 
 # The descriptions of the layouts the themes had, where one named what a person never reads in an
